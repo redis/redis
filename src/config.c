@@ -107,46 +107,70 @@ clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUNT] = {
 
 /* Configuration values that require no special handling to set, get, load or 
  * rewrite. */
-typedef struct configYesNo {
+typedef struct boolConfigData {
+    int *config; /* The pointer to the server config this value is stored in */
+    const int default_value; /* The default value of the config on rewrite */
+} boolConfigData;
+
+typedef struct stringConfigData {
+    char **config; /* The pointer to the server config this value is stored in */
+    const char *default_value; /* The default value of the config on rewrite */
+} stringConfigData;
+
+typedef struct enumConfigData {
+    int *config; /* The pointer to the server config this value is stored in */
+    configEnum *enum_value; /* The underlying enum type this data represents */
+    const int default_value; /* The default value of the config on rewrite */
+} enumConfigData;
+
+typedef enum numericType {
+    NUMERIC_TYPE_INT, 
+    NUMERIC_TYPE_LONG_LONG, 
+    NUMERIC_TYPE_UNSIGNED_LONG, 
+    NUMERIC_TYPE_SIZE_T
+} numericType;
+
+typedef struct numericConfigData {
+    union {
+        int *i;
+        long long *ll;
+        unsigned long *ul; 
+        size_t *st;
+    } config; /* The pointer to the numeric config this value is stored in */
+    int is_memory; /* Indicates if this value can be loaded as a memory value */
+    numericType numeric_type; /* An enum indicating the type of this value */
+    long long lower_bound; /* The lower bound of this numeric value */
+    long long upper_bound; /* The upper bound of this numeric value */
+    const long long default_value; /* The default value of the config on rewrite */
+} numericConfigData;
+
+typedef union typeData {
+    boolConfigData yesno;
+    stringConfigData string;
+    enumConfigData enumd;
+    numericConfigData numeric;
+} typeData;
+
+typedef struct typeInterface {
+    /* Called on server start, should return 1 on success, 0 on error and should set err */
+    int (*load)(typeData data, sds *argc, int argv, char **err);  
+    /* Called on CONFIG SET, returns 1 on success, 0 on error */
+    int (*set)(typeData data, sds value); 
+    /* Called on CONFIG GET, required to add output to the client */
+    void (*get)(client *c, typeData data);
+    /* Called on CONFIG REWRITE, required to rewrite the config state */
+    void (*rewrite)(typeData data, const char *name, struct rewriteConfigState *state);
+} typeInterface;
+
+typedef struct standardConfig {
     const char *name; /* The user visible name of this config */
     const char *alias; /* An alias that can also be used for this config */
-    int *config; /* The pointer to the server config this value is stored in */
     const int modifiable; /* Can this value be updated by CONFIG SET? */
-    const int default_value; /* The default value of the config on rewrite */
-} configYesNo;
+    typeInterface interface; /* The function points that define the type interface */
+    typeData data; /* The type specific data exposed used by the interface */
+} standardConfig;
 
-configYesNo configs_yesno[] = {
-    /* Non-Modifiable */
-    {"rdbchecksum",NULL,&server.rdb_checksum,0,CONFIG_DEFAULT_RDB_CHECKSUM},
-    {"daemonize",NULL,&server.daemonize,0,0},
-    {"io-threads-do-reads",NULL,&server.io_threads_do_reads, 0, CONFIG_DEFAULT_IO_THREADS_DO_READS},
-    {"always-show-logo",NULL,&server.always_show_logo,0,CONFIG_DEFAULT_ALWAYS_SHOW_LOGO},
-    /* Modifiable */
-    {"protected-mode",NULL,&server.protected_mode,1,CONFIG_DEFAULT_PROTECTED_MODE},
-    {"rdbcompression",NULL,&server.rdb_compression,1,CONFIG_DEFAULT_RDB_COMPRESSION},
-    {"activerehashing",NULL,&server.activerehashing,1,CONFIG_DEFAULT_ACTIVE_REHASHING},
-    {"stop-writes-on-bgsave-error",NULL,&server.stop_writes_on_bgsave_err,1,CONFIG_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR},
-    {"dynamic-hz",NULL,&server.dynamic_hz,1,CONFIG_DEFAULT_DYNAMIC_HZ},
-    {"lazyfree-lazy-eviction",NULL,&server.lazyfree_lazy_eviction,1,CONFIG_DEFAULT_LAZYFREE_LAZY_EVICTION},
-    {"lazyfree-lazy-expire",NULL,&server.lazyfree_lazy_expire,1,CONFIG_DEFAULT_LAZYFREE_LAZY_EXPIRE},
-    {"lazyfree-lazy-server-del",NULL,&server.lazyfree_lazy_server_del,1,CONFIG_DEFAULT_LAZYFREE_LAZY_SERVER_DEL},
-    {"repl-disable-tcp-nodelay",NULL,&server.repl_disable_tcp_nodelay,1,CONFIG_DEFAULT_REPL_DISABLE_TCP_NODELAY},
-    {"repl-diskless-sync",NULL,&server.repl_diskless_sync,1,CONFIG_DEFAULT_REPL_DISKLESS_SYNC},
-    {"gopher-enabled",NULL,&server.gopher_enabled,1,CONFIG_DEFAULT_GOPHER_ENABLED},
-    {"aof-rewrite-incremental-fsync",NULL,&server.aof_rewrite_incremental_fsync,1,CONFIG_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC},
-    {"no-appendfsync-on-rewrite",NULL,&server.aof_no_fsync_on_rewrite,1,CONFIG_DEFAULT_AOF_NO_FSYNC_ON_REWRITE},
-    {"cluster-require-full-coverage",NULL,&server.cluster_require_full_coverage,CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE},
-    {"rdb-save-incremental-fsync",NULL,&server.rdb_save_incremental_fsync,1,CONFIG_DEFAULT_RDB_SAVE_INCREMENTAL_FSYNC},
-    {"aof-load-truncated",NULL,&server.aof_load_truncated,1,CONFIG_DEFAULT_AOF_LOAD_TRUNCATED},
-    {"aof-use-rdb-preamble",NULL,&server.aof_use_rdb_preamble,1,CONFIG_DEFAULT_AOF_USE_RDB_PREAMBLE},
-    {"cluster-replica-no-failover","cluster-slave-no-failover",&server.cluster_slave_no_failover,1,CLUSTER_DEFAULT_SLAVE_NO_FAILOVER},
-    {"replica-lazy-flush","slave-lazy-flush",&server.repl_slave_lazy_flush,1,CONFIG_DEFAULT_SLAVE_LAZY_FLUSH},
-    {"replica-serve-stale-data","slave-serve-stale-data",&server.repl_serve_stale_data,1,CONFIG_DEFAULT_SLAVE_SERVE_STALE_DATA},
-    {"replica-read-only","slave-read-only",&server.repl_slave_ro,1,CONFIG_DEFAULT_SLAVE_READ_ONLY},
-    {"replica-ignore-maxmemory","slave-ignore-maxmemory",&server.repl_slave_ignore_maxmemory,1,CONFIG_DEFAULT_SLAVE_IGNORE_MAXMEMORY},
-    {"jemalloc-bg-thread",NULL,&server.jemalloc_bg_thread,1,1},
-    {NULL, NULL, 0, 0}
-};
+standardConfig configs[];
 
 /*-----------------------------------------------------------------------------
  * Enum access functions
@@ -220,7 +244,7 @@ void queueLoadModule(sds path, sds *argv, int argc) {
 }
 
 void loadServerConfigFromString(char *config) {
-    const char *err = NULL;
+    char *err = NULL;
     int linenum = 0, totlines, i;
     int slaveof_linenum = 0;
     sds *lines;
@@ -253,14 +277,14 @@ void loadServerConfigFromString(char *config) {
 
         /* Iterate the configs that are standard */
         int match = 0;
-        for (configYesNo *config = configs_yesno; config->name != NULL; config++) {
+        for (standardConfig *config = configs; config->name != NULL; config++) {
             if ((!strcasecmp(argv[0],config->name) ||
-                (config->alias && !strcasecmp(argv[0],config->alias))) &&
-                (argc == 2))
+                (config->alias && !strcasecmp(argv[0],config->alias)))) 
             {
-                if ((*(config->config) = yesnotoi(argv[1])) == -1) {
-                    err = "argument must be 'yes' or 'no'"; goto loaderr;
+                if (!config->interface.load(config->data, argv, argc, &err)) {
+                    goto loaderr;
                 }
+
                 match = 1;
                 break;
             }
@@ -272,27 +296,7 @@ void loadServerConfigFromString(char *config) {
         }
 
         /* Execute config directives */
-        if (!strcasecmp(argv[0],"timeout") && argc == 2) {
-            server.maxidletime = atoi(argv[1]);
-            if (server.maxidletime < 0) {
-                err = "Invalid timeout value"; goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"tcp-keepalive") && argc == 2) {
-            server.tcpkeepalive = atoi(argv[1]);
-            if (server.tcpkeepalive < 0) {
-                err = "Invalid tcp-keepalive value"; goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"port") && argc == 2) {
-            server.port = atoi(argv[1]);
-            if (server.port < 0 || server.port > 65535) {
-                err = "Invalid port"; goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"tcp-backlog") && argc == 2) {
-            server.tcp_backlog = atoi(argv[1]);
-            if (server.tcp_backlog < 0) {
-                err = "Invalid backlog value"; goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"bind") && argc >= 2) {
+        if (!strcasecmp(argv[0],"bind") && argc >= 2) {
             int j, addresses = argc-1;
 
             if (addresses > CONFIG_BINDADDR_MAX) {
@@ -301,8 +305,6 @@ void loadServerConfigFromString(char *config) {
             for (j = 0; j < addresses; j++)
                 server.bindaddr[j] = zstrdup(argv[j+1]);
             server.bindaddr_count = addresses;
-        } else if (!strcasecmp(argv[0],"unixsocket") && argc == 2) {
-            server.unixsocket = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"unixsocketperm") && argc == 2) {
             errno = 0;
             server.unixsocketperm = (mode_t)strtol(argv[1], NULL, 8);
@@ -326,13 +328,6 @@ void loadServerConfigFromString(char *config) {
                     argv[1], strerror(errno));
                 exit(1);
             }
-        } else if (!strcasecmp(argv[0],"loglevel") && argc == 2) {
-            server.verbosity = configEnumGetValue(loglevel_enum,argv[1]);
-            if (server.verbosity == INT_MIN) {
-                err = "Invalid log level. "
-                      "Must be one of debug, verbose, notice, warning";
-                goto loaderr;
-            }
         } else if (!strcasecmp(argv[0],"logfile") && argc == 2) {
             FILE *logfp;
 
@@ -349,9 +344,6 @@ void loadServerConfigFromString(char *config) {
                 }
                 fclose(logfp);
             }
-        } else if (!strcasecmp(argv[0],"aclfile") && argc == 2) {
-            zfree(server.acl_filename);
-            server.acl_filename = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"syslog-enabled") && argc == 2) {
             if ((server.syslog_enabled = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
@@ -359,23 +351,6 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"syslog-ident") && argc == 2) {
             if (server.syslog_ident) zfree(server.syslog_ident);
             server.syslog_ident = zstrdup(argv[1]);
-        } else if (!strcasecmp(argv[0],"syslog-facility") && argc == 2) {
-            server.syslog_facility =
-                configEnumGetValue(syslog_facility_enum,argv[1]);
-            if (server.syslog_facility == INT_MIN) {
-                err = "Invalid log facility. Must be one of USER or between LOCAL0-LOCAL7";
-                goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"databases") && argc == 2) {
-            server.dbnum = atoi(argv[1]);
-            if (server.dbnum < 1) {
-                err = "Invalid number of databases"; goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"io-threads") && argc == 2) {
-            server.io_threads_num = atoi(argv[1]);
-            if (server.io_threads_num < 1 || server.io_threads_num > 512) {
-                err = "Invalid number of I/O threads"; goto loaderr;
-            }
         } else if (!strcasecmp(argv[0],"include") && argc == 2) {
             loadServerConfig(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"maxclients") && argc == 2) {
@@ -385,68 +360,14 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"maxmemory") && argc == 2) {
             server.maxmemory = memtoll(argv[1],NULL);
-        } else if (!strcasecmp(argv[0],"maxmemory-policy") && argc == 2) {
-            server.maxmemory_policy =
-                configEnumGetValue(maxmemory_policy_enum,argv[1]);
-            if (server.maxmemory_policy == INT_MIN) {
-                err = "Invalid maxmemory policy";
-                goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"maxmemory-samples") && argc == 2) {
-            server.maxmemory_samples = atoi(argv[1]);
-            if (server.maxmemory_samples <= 0) {
-                err = "maxmemory-samples must be 1 or greater";
-                goto loaderr;
-            }
-        } else if ((!strcasecmp(argv[0],"proto-max-bulk-len")) && argc == 2) {
-            server.proto_max_bulk_len = memtoll(argv[1],NULL);
-        } else if ((!strcasecmp(argv[0],"client-query-buffer-limit")) && argc == 2) {
-            server.client_max_querybuf_len = memtoll(argv[1],NULL);
-        } else if (!strcasecmp(argv[0],"lfu-log-factor") && argc == 2) {
-            server.lfu_log_factor = atoi(argv[1]);
-            if (server.lfu_log_factor < 0) {
-                err = "lfu-log-factor must be 0 or greater";
-                goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"lfu-decay-time") && argc == 2) {
-            server.lfu_decay_time = atoi(argv[1]);
-            if (server.lfu_decay_time < 0) {
-                err = "lfu-decay-time must be 0 or greater";
-                goto loaderr;
-            }
+	    } else if ((!strcasecmp(argv[0],"client-query-buffer-limit")) && argc == 2) {
+             server.client_max_querybuf_len = memtoll(argv[1],NULL);
         } else if ((!strcasecmp(argv[0],"slaveof") ||
                     !strcasecmp(argv[0],"replicaof")) && argc == 3) {
             slaveof_linenum = linenum;
             server.masterhost = sdsnew(argv[1]);
             server.masterport = atoi(argv[2]);
             server.repl_state = REPL_STATE_CONNECT;
-        } else if ((!strcasecmp(argv[0],"repl-ping-slave-period") ||
-                    !strcasecmp(argv[0],"repl-ping-replica-period")) &&
-                    argc == 2)
-        {
-            server.repl_ping_slave_period = atoi(argv[1]);
-            if (server.repl_ping_slave_period <= 0) {
-                err = "repl-ping-replica-period must be 1 or greater";
-                goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"repl-timeout") && argc == 2) {
-            server.repl_timeout = atoi(argv[1]);
-            if (server.repl_timeout <= 0) {
-                err = "repl-timeout must be 1 or greater";
-                goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"repl-diskless-load") && argc==2) {
-            server.repl_diskless_load = configEnumGetValue(repl_diskless_load_enum,argv[1]);
-            if (server.repl_diskless_load == INT_MIN) {
-                err = "argument must be 'disabled', 'on-empty-db', 'swapdb' or 'flushdb'";
-                goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"repl-diskless-sync-delay") && argc==2) {
-            server.repl_diskless_sync_delay = atoi(argv[1]);
-            if (server.repl_diskless_sync_delay < 0) {
-                err = "repl-diskless-sync-delay can't be negative";
-                goto loaderr;
-            }
         } else if (!strcasecmp(argv[0],"repl-backlog-size") && argc == 2) {
             long long size = memtoll(argv[1],NULL);
             if (size <= 0) {
@@ -460,12 +381,6 @@ void loadServerConfigFromString(char *config) {
                 err = "repl-backlog-ttl can't be negative ";
                 goto loaderr;
             }
-        } else if (!strcasecmp(argv[0],"masteruser") && argc == 2) {
-            zfree(server.masteruser);
-            server.masteruser = argv[1][0] ? zstrdup(argv[1]) : NULL;
-        } else if (!strcasecmp(argv[0],"masterauth") && argc == 2) {
-            zfree(server.masterauth);
-            server.masterauth = argv[1][0] ? zstrdup(argv[1]) : NULL;
         } else if (!strcasecmp(argv[0],"activedefrag") && argc == 2) {
             if ((server.active_defrag_enabled = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
@@ -491,36 +406,6 @@ void loadServerConfigFromString(char *config) {
             }
             zfree(server.aof_filename);
             server.aof_filename = zstrdup(argv[1]);
-        } else if (!strcasecmp(argv[0],"appendfsync") && argc == 2) {
-            server.aof_fsync = configEnumGetValue(aof_fsync_enum,argv[1]);
-            if (server.aof_fsync == INT_MIN) {
-                err = "argument must be 'no', 'always' or 'everysec'";
-                goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"auto-aof-rewrite-percentage") &&
-                   argc == 2)
-        {
-            server.aof_rewrite_perc = atoi(argv[1]);
-            if (server.aof_rewrite_perc < 0) {
-                err = "Invalid negative percentage for AOF auto rewrite";
-                goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"auto-aof-rewrite-min-size") &&
-                   argc == 2)
-        {
-            server.aof_rewrite_min_size = memtoll(argv[1],NULL);
-        } else if (!strcasecmp(argv[0],"rdb-key-save-delay") && argc==2) {
-            server.rdb_key_save_delay = atoi(argv[1]);
-            if (server.rdb_key_save_delay < 0) {
-                err = "rdb-key-save-delay can't be negative";
-                goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"key-load-delay") && argc==2) {
-            server.key_load_delay = atoi(argv[1]);
-            if (server.key_load_delay < 0) {
-                err = "key-load-delay can't be negative";
-                goto loaderr;
-            }
         } else if (!strcasecmp(argv[0],"requirepass") && argc == 2) {
             if (strlen(argv[1]) > CONFIG_AUTHPASS_MAX_LEN) {
                 err = "Password is longer than CONFIG_AUTHPASS_MAX_LEN";
@@ -532,9 +417,6 @@ void loadServerConfigFromString(char *config) {
             sds aclop = sdscatprintf(sdsempty(),">%s",argv[1]);
             ACLSetUser(DefaultUser,aclop,sdslen(aclop));
             sdsfree(aclop);
-        } else if (!strcasecmp(argv[0],"pidfile") && argc == 2) {
-            zfree(server.pidfile);
-            server.pidfile = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"dbfilename") && argc == 2) {
             if (!pathIsBaseName(argv[1])) {
                 err = "dbfilename can't be a path, just a filename";
@@ -542,76 +424,10 @@ void loadServerConfigFromString(char *config) {
             }
             zfree(server.rdb_filename);
             server.rdb_filename = zstrdup(argv[1]);
-        } else if (!strcasecmp(argv[0],"active-defrag-threshold-lower") && argc == 2) {
-            server.active_defrag_threshold_lower = atoi(argv[1]);
-            if (server.active_defrag_threshold_lower < 0 ||
-                server.active_defrag_threshold_lower > 1000) {
-                err = "active-defrag-threshold-lower must be between 0 and 1000";
-                goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"active-defrag-threshold-upper") && argc == 2) {
-            server.active_defrag_threshold_upper = atoi(argv[1]);
-            if (server.active_defrag_threshold_upper < 0 ||
-                server.active_defrag_threshold_upper > 1000) {
-                err = "active-defrag-threshold-upper must be between 0 and 1000";
-                goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"active-defrag-ignore-bytes") && argc == 2) {
-            server.active_defrag_ignore_bytes = memtoll(argv[1], NULL);
-            if (server.active_defrag_ignore_bytes <= 0) {
-                err = "active-defrag-ignore-bytes must above 0";
-                goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"active-defrag-cycle-min") && argc == 2) {
-            server.active_defrag_cycle_min = atoi(argv[1]);
-            if (server.active_defrag_cycle_min < 1 || server.active_defrag_cycle_min > 99) {
-                err = "active-defrag-cycle-min must be between 1 and 99";
-                goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"active-defrag-cycle-max") && argc == 2) {
-            server.active_defrag_cycle_max = atoi(argv[1]);
-            if (server.active_defrag_cycle_max < 1 || server.active_defrag_cycle_max > 99) {
-                err = "active-defrag-cycle-max must be between 1 and 99";
-                goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"active-defrag-max-scan-fields") && argc == 2) {
-            server.active_defrag_max_scan_fields = strtoll(argv[1],NULL,10);
-            if (server.active_defrag_max_scan_fields < 1) {
-                err = "active-defrag-max-scan-fields must be positive";
-                goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"active-expire-effort") && argc == 2) {
-            server.active_expire_effort = atoi(argv[1]);
-            if (server.active_expire_effort < 1 ||
-                server.active_expire_effort > 10)
-            {
-                err = "active-expire-effort must be between 1 and 10";
-                goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"hash-max-ziplist-entries") && argc == 2) {
-            server.hash_max_ziplist_entries = memtoll(argv[1], NULL);
-        } else if (!strcasecmp(argv[0],"hash-max-ziplist-value") && argc == 2) {
-            server.hash_max_ziplist_value = memtoll(argv[1], NULL);
-        } else if (!strcasecmp(argv[0],"stream-node-max-bytes") && argc == 2) {
-            server.stream_node_max_bytes = memtoll(argv[1], NULL);
-        } else if (!strcasecmp(argv[0],"stream-node-max-entries") && argc == 2) {
-            server.stream_node_max_entries = atoi(argv[1]);
         } else if (!strcasecmp(argv[0],"list-max-ziplist-entries") && argc == 2){
             /* DEAD OPTION */
         } else if (!strcasecmp(argv[0],"list-max-ziplist-value") && argc == 2) {
             /* DEAD OPTION */
-        } else if (!strcasecmp(argv[0],"list-max-ziplist-size") && argc == 2) {
-            server.list_max_ziplist_size = atoi(argv[1]);
-        } else if (!strcasecmp(argv[0],"list-compress-depth") && argc == 2) {
-            server.list_compress_depth = atoi(argv[1]);
-        } else if (!strcasecmp(argv[0],"set-max-intset-entries") && argc == 2) {
-            server.set_max_intset_entries = memtoll(argv[1], NULL);
-        } else if (!strcasecmp(argv[0],"zset-max-ziplist-entries") && argc == 2) {
-            server.zset_max_ziplist_entries = memtoll(argv[1], NULL);
-        } else if (!strcasecmp(argv[0],"zset-max-ziplist-value") && argc == 2) {
-            server.zset_max_ziplist_value = memtoll(argv[1], NULL);
-        } else if (!strcasecmp(argv[0],"hll-sparse-max-bytes") && argc == 2) {
-            server.hll_sparse_max_bytes = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"rename-command") && argc == 3) {
             struct redisCommand *cmd = lookupCommand(argv[1]);
             int retval;
@@ -643,80 +459,6 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"cluster-config-file") && argc == 2) {
             zfree(server.cluster_configfile);
             server.cluster_configfile = zstrdup(argv[1]);
-        } else if (!strcasecmp(argv[0],"cluster-announce-ip") && argc == 2) {
-            zfree(server.cluster_announce_ip);
-            server.cluster_announce_ip = zstrdup(argv[1]);
-        } else if (!strcasecmp(argv[0],"cluster-announce-port") && argc == 2) {
-            server.cluster_announce_port = atoi(argv[1]);
-            if (server.cluster_announce_port < 0 ||
-                server.cluster_announce_port > 65535)
-            {
-                err = "Invalid port"; goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"cluster-announce-bus-port") &&
-                   argc == 2)
-        {
-            server.cluster_announce_bus_port = atoi(argv[1]);
-            if (server.cluster_announce_bus_port < 0 ||
-                server.cluster_announce_bus_port > 65535)
-            {
-                err = "Invalid port"; goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"cluster-node-timeout") && argc == 2) {
-            server.cluster_node_timeout = strtoll(argv[1],NULL,10);
-            if (server.cluster_node_timeout <= 0) {
-                err = "cluster node timeout must be 1 or greater"; goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"cluster-migration-barrier")
-                   && argc == 2)
-        {
-            server.cluster_migration_barrier = atoi(argv[1]);
-            if (server.cluster_migration_barrier < 0) {
-                err = "cluster migration barrier must zero or positive";
-                goto loaderr;
-            }
-        } else if ((!strcasecmp(argv[0],"cluster-slave-validity-factor") ||
-                    !strcasecmp(argv[0],"cluster-replica-validity-factor"))
-                   && argc == 2)
-        {
-            server.cluster_slave_validity_factor = atoi(argv[1]);
-            if (server.cluster_slave_validity_factor < 0) {
-                err = "cluster replica validity factor must be zero or positive";
-                goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"lua-time-limit") && argc == 2) {
-            server.lua_time_limit = strtoll(argv[1],NULL,10);
-        } else if (!strcasecmp(argv[0],"lua-replicate-commands") && argc == 2) {
-            server.lua_always_replicate_commands = yesnotoi(argv[1]);
-            if (server.lua_always_replicate_commands == -1) {
-                err = "argument must be 'yes' or 'no'";
-                goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"slowlog-log-slower-than") &&
-                   argc == 2)
-        {
-            server.slowlog_log_slower_than = strtoll(argv[1],NULL,10);
-        } else if (!strcasecmp(argv[0],"latency-monitor-threshold") &&
-                   argc == 2)
-        {
-            server.latency_monitor_threshold = strtoll(argv[1],NULL,10);
-            if (server.latency_monitor_threshold < 0) {
-                err = "The latency threshold can't be negative";
-                goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"slowlog-max-len") && argc == 2) {
-            server.slowlog_max_len = strtoll(argv[1],NULL,10);
-        } else if (!strcasecmp(argv[0],"tracking-table-max-fill") &&
-                   argc == 2)
-        {
-            server.tracking_table_max_fill = strtoll(argv[1],NULL,10);
-            if (server.tracking_table_max_fill > 100 ||
-                server.tracking_table_max_fill < 0)
-            {
-                err = "The tracking table fill percentage must be an "
-                      "integer between 0 and 100";
-                goto loaderr;
-            }
         } else if (!strcasecmp(argv[0],"client-output-buffer-limit") &&
                    argc == 5)
         {
@@ -739,24 +481,6 @@ void loadServerConfigFromString(char *config) {
             server.client_obuf_limits[class].hard_limit_bytes = hard;
             server.client_obuf_limits[class].soft_limit_bytes = soft;
             server.client_obuf_limits[class].soft_limit_seconds = soft_seconds;
-        } else if ((!strcasecmp(argv[0],"slave-priority") ||
-                    !strcasecmp(argv[0],"replica-priority")) && argc == 2)
-        {
-            server.slave_priority = atoi(argv[1]);
-        } else if ((!strcasecmp(argv[0],"slave-announce-ip") ||
-                    !strcasecmp(argv[0],"replica-announce-ip")) && argc == 2)
-        {
-            zfree(server.slave_announce_ip);
-            server.slave_announce_ip = zstrdup(argv[1]);
-        } else if ((!strcasecmp(argv[0],"slave-announce-port") ||
-                    !strcasecmp(argv[0],"replica-announce-port")) && argc == 2)
-        {
-            server.slave_announce_port = atoi(argv[1]);
-            if (server.slave_announce_port < 0 ||
-                server.slave_announce_port > 65535)
-            {
-                err = "Invalid port"; goto loaderr;
-            }
         } else if ((!strcasecmp(argv[0],"min-slaves-to-write") ||
                     !strcasecmp(argv[0],"min-replicas-to-write")) && argc == 2)
         {
@@ -779,15 +503,6 @@ void loadServerConfigFromString(char *config) {
                 goto loaderr;
             }
             server.notify_keyspace_events = flags;
-        } else if (!strcasecmp(argv[0],"supervised") && argc == 2) {
-            server.supervised_mode =
-                configEnumGetValue(supervised_mode_enum,argv[1]);
-
-            if (server.supervised_mode == INT_MIN) {
-                err = "Invalid option for 'supervised'. "
-                    "Allowed values: 'upstart', 'systemd', 'auto', or 'no'";
-                goto loaderr;
-            }
         } else if (!strcasecmp(argv[0],"user") && argc >= 2) {
             int argc_err;
             if (ACLAppendUserForLoading(argv,argc,&argc_err) == C_ERR) {
@@ -935,17 +650,11 @@ void loadServerConfig(char *filename, char *options) {
         if (err || ll < 0) goto badfmt; \
         _var = ll;
 
-#define config_set_enum_field(_name,_var,_enumvar) \
-    } else if (!strcasecmp(c->argv[2]->ptr,_name)) { \
-        int enumval = configEnumGetValue(_enumvar,o->ptr); \
-        if (enumval == INT_MIN) goto badfmt; \
-        _var = enumval;
-
 #define config_set_special_field(_name) \
     } else if (!strcasecmp(c->argv[2]->ptr,_name)) {
 
-#define config_set_special_field_with_alias(_name1,_name2) \
-    } else if (!strcasecmp(c->argv[2]->ptr,_name1) || \
+#define config_set_special_field_with_alias(_name,_name2) \
+    } else if (!strcasecmp(c->argv[2]->ptr,_name) || \
                !strcasecmp(c->argv[2]->ptr,_name2)) {
 
 #define config_set_else } else
@@ -959,13 +668,13 @@ void configSetCommand(client *c) {
     o = c->argv[3];
 
     /* Iterate the configs that are standard */
-    for (configYesNo *config = configs_yesno; config->name != NULL; config++) {
+    for (standardConfig *config = configs; config->name != NULL; config++) {
         if(config->modifiable && (!strcasecmp(c->argv[2]->ptr,config->name) ||
             (config->alias && !strcasecmp(c->argv[2]->ptr,config->alias))))  
         {
-            int yn = yesnotoi(o->ptr);
-            if (yn == -1) goto badfmt;
-            *(config->config) = yn;
+            if (!config->interface.set(config->data,o->ptr)) {
+                goto badfmt;
+            }
             addReply(c,shared.ok);
             return;
         }
@@ -989,15 +698,6 @@ void configSetCommand(client *c) {
         sds aclop = sdscatprintf(sdsempty(),">%s",(char*)o->ptr);
         ACLSetUser(DefaultUser,aclop,sdslen(aclop));
         sdsfree(aclop);
-    } config_set_special_field("masteruser") {
-        zfree(server.masteruser);
-        server.masteruser = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
-    } config_set_special_field("masterauth") {
-        zfree(server.masterauth);
-        server.masterauth = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
-    } config_set_special_field("cluster-announce-ip") {
-        zfree(server.cluster_announce_ip);
-        server.cluster_announce_ip = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
     } config_set_special_field("maxclients") {
         int orig_value = server.maxclients;
 
@@ -1128,12 +828,6 @@ void configSetCommand(client *c) {
 
         if (flags == -1) goto badfmt;
         server.notify_keyspace_events = flags;
-    } config_set_special_field_with_alias("slave-announce-ip",
-                                          "replica-announce-ip")
-    {
-        zfree(server.slave_announce_ip);
-        server.slave_announce_ip = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
-
     /* Boolean fields.
      * config_set_bool_field(name,var). */
     } config_set_bool_field(
@@ -1152,85 +846,7 @@ void configSetCommand(client *c) {
     /* Numerical fields.
      * config_set_numerical_field(name,var,min,max) */
     } config_set_numerical_field(
-      "tcp-keepalive",server.tcpkeepalive,0,INT_MAX) {
-    } config_set_numerical_field(
-      "maxmemory-samples",server.maxmemory_samples,1,INT_MAX) {
-    } config_set_numerical_field(
-      "lfu-log-factor",server.lfu_log_factor,0,INT_MAX) {
-    } config_set_numerical_field(
-      "lfu-decay-time",server.lfu_decay_time,0,INT_MAX) {
-    } config_set_numerical_field(
-      "timeout",server.maxidletime,0,INT_MAX) {
-    } config_set_numerical_field(
-      "active-defrag-threshold-lower",server.active_defrag_threshold_lower,0,1000) {
-    } config_set_numerical_field(
-      "active-defrag-threshold-upper",server.active_defrag_threshold_upper,0,1000) {
-    } config_set_memory_field(
-      "active-defrag-ignore-bytes",server.active_defrag_ignore_bytes) {
-    } config_set_numerical_field(
-      "active-defrag-cycle-min",server.active_defrag_cycle_min,1,99) {
-    } config_set_numerical_field(
-      "active-defrag-cycle-max",server.active_defrag_cycle_max,1,99) {
-    } config_set_numerical_field(
-      "active-defrag-max-scan-fields",server.active_defrag_max_scan_fields,1,LONG_MAX) {
-    } config_set_numerical_field(
-      "active-expire-effort",server.active_expire_effort,1,10) {
-    } config_set_numerical_field(
-      "auto-aof-rewrite-percentage",server.aof_rewrite_perc,0,INT_MAX){
-    } config_set_numerical_field(
-      "hash-max-ziplist-entries",server.hash_max_ziplist_entries,0,LONG_MAX) {
-    } config_set_numerical_field(
-      "hash-max-ziplist-value",server.hash_max_ziplist_value,0,LONG_MAX) {
-    } config_set_numerical_field(
-      "stream-node-max-bytes",server.stream_node_max_bytes,0,LONG_MAX) {
-    } config_set_numerical_field(
-      "stream-node-max-entries",server.stream_node_max_entries,0,LLONG_MAX) {
-    } config_set_numerical_field(
-      "list-max-ziplist-size",server.list_max_ziplist_size,INT_MIN,INT_MAX) {
-    } config_set_numerical_field(
-      "list-compress-depth",server.list_compress_depth,0,INT_MAX) {
-    } config_set_numerical_field(
-      "set-max-intset-entries",server.set_max_intset_entries,0,LONG_MAX) {
-    } config_set_numerical_field(
-      "zset-max-ziplist-entries",server.zset_max_ziplist_entries,0,LONG_MAX) {
-    } config_set_numerical_field(
-      "zset-max-ziplist-value",server.zset_max_ziplist_value,0,LONG_MAX) {
-    } config_set_numerical_field(
-      "hll-sparse-max-bytes",server.hll_sparse_max_bytes,0,LONG_MAX) {
-    } config_set_numerical_field(
-      "lua-time-limit",server.lua_time_limit,0,LONG_MAX) {
-    } config_set_numerical_field(
-      "slowlog-log-slower-than",server.slowlog_log_slower_than,-1,LLONG_MAX) {
-    } config_set_numerical_field(
-      "slowlog-max-len",ll,0,LONG_MAX) {
-      /* Cast to unsigned. */
-        server.slowlog_max_len = (unsigned long)ll;
-    } config_set_numerical_field(
-      "tracking-table-max-fill",server.tracking_table_max_fill,0,100) {
-    } config_set_numerical_field(
-      "latency-monitor-threshold",server.latency_monitor_threshold,0,LLONG_MAX){
-    } config_set_numerical_field(
-      "repl-ping-slave-period",server.repl_ping_slave_period,1,INT_MAX) {
-    } config_set_numerical_field(
-      "repl-ping-replica-period",server.repl_ping_slave_period,1,INT_MAX) {
-    } config_set_numerical_field(
-      "repl-timeout",server.repl_timeout,1,INT_MAX) {
-    } config_set_numerical_field(
       "repl-backlog-ttl",server.repl_backlog_time_limit,0,LONG_MAX) {
-    } config_set_numerical_field(
-      "repl-diskless-sync-delay",server.repl_diskless_sync_delay,0,INT_MAX) {
-    } config_set_numerical_field(
-      "slave-priority",server.slave_priority,0,INT_MAX) {
-    } config_set_numerical_field(
-      "replica-priority",server.slave_priority,0,INT_MAX) {
-    } config_set_numerical_field(
-      "rdb-key-save-delay",server.rdb_key_save_delay,0,LLONG_MAX) {
-    } config_set_numerical_field(
-      "key-load-delay",server.key_load_delay,0,LLONG_MAX) {
-    } config_set_numerical_field(
-      "slave-announce-port",server.slave_announce_port,0,65535) {
-    } config_set_numerical_field(
-      "replica-announce-port",server.slave_announce_port,0,65535) {
     } config_set_numerical_field(
       "min-slaves-to-write",server.repl_min_slaves_to_write,0,INT_MAX) {
         refreshGoodSlavesCount();
@@ -1244,18 +860,6 @@ void configSetCommand(client *c) {
       "min-replicas-max-lag",server.repl_min_slaves_max_lag,0,INT_MAX) {
         refreshGoodSlavesCount();
     } config_set_numerical_field(
-      "cluster-node-timeout",server.cluster_node_timeout,0,LLONG_MAX) {
-    } config_set_numerical_field(
-      "cluster-announce-port",server.cluster_announce_port,0,65535) {
-    } config_set_numerical_field(
-      "cluster-announce-bus-port",server.cluster_announce_bus_port,0,65535) {
-    } config_set_numerical_field(
-      "cluster-migration-barrier",server.cluster_migration_barrier,0,INT_MAX){
-    } config_set_numerical_field(
-      "cluster-slave-validity-factor",server.cluster_slave_validity_factor,0,INT_MAX) {
-    } config_set_numerical_field(
-      "cluster-replica-validity-factor",server.cluster_slave_validity_factor,0,INT_MAX) {
-    } config_set_numerical_field(
       "hz",server.config_hz,0,INT_MAX) {
         /* Hz is more an hint from the user, so we accept values out of range
          * but cap them to reasonable values. */
@@ -1267,7 +871,6 @@ void configSetCommand(client *c) {
             enableWatchdog(ll);
         else
             disableWatchdog();
-
     /* Memory fields.
      * config_set_memory_field(name,var) */
     } config_set_memory_field("maxmemory",server.maxmemory) {
@@ -1277,25 +880,10 @@ void configSetCommand(client *c) {
             }
             freeMemoryIfNeededAndSafe();
         }
-    } config_set_memory_field(
-      "proto-max-bulk-len",server.proto_max_bulk_len) {
-    } config_set_memory_field(
-      "client-query-buffer-limit",server.client_max_querybuf_len) {
+     } config_set_memory_field(
+       "client-query-buffer-limit",server.client_max_querybuf_len) {
     } config_set_memory_field("repl-backlog-size",ll) {
         resizeReplicationBacklog(ll);
-    } config_set_memory_field("auto-aof-rewrite-min-size",ll) {
-        server.aof_rewrite_min_size = ll;
-
-    /* Enumeration fields.
-     * config_set_enum_field(name,var,enum_var) */
-    } config_set_enum_field(
-      "loglevel",server.verbosity,loglevel_enum) {
-    } config_set_enum_field(
-      "maxmemory-policy",server.maxmemory_policy,maxmemory_policy_enum) {
-    } config_set_enum_field(
-      "appendfsync",server.aof_fsync,aof_fsync_enum) {
-    } config_set_enum_field(
-      "repl-diskless-load",server.repl_diskless_load,repl_diskless_load_enum) {
 #ifdef USE_OPENSSL
     /* TLS fields. */
     } config_set_special_field("tls-cert-file") {
@@ -1436,13 +1024,6 @@ badfmt: /* Bad format errors */
     } \
 } while(0);
 
-#define config_get_enum_field(_name,_var,_enumvar) do { \
-    if (stringmatch(pattern,_name,1)) { \
-        addReplyBulkCString(c,_name); \
-        addReplyBulkCString(c,configEnumGetNameOrUnknown(_enumvar,_var)); \
-        matches++; \
-    } \
-} while(0);
 
 void configGetCommand(client *c) {
     robj *o = c->argv[2];
@@ -1452,17 +1033,23 @@ void configGetCommand(client *c) {
     int matches = 0;
     serverAssertWithInfo(c,o,sdsEncodedObject(o));
 
+    /* Iterate the configs that are standard */
+    for (standardConfig *config = configs; config->name != NULL; config++) {
+        if (stringmatch(pattern,config->name,1)) {
+            addReplyBulkCString(c,config->name);
+            config->interface.get(c,config->data);
+            matches++;
+        }
+        if (config->alias && stringmatch(pattern,config->alias,1)) {
+            addReplyBulkCString(c,config->alias);
+            config->interface.get(c,config->data);
+            matches++;
+        }
+    }
+
     /* String values */
     config_get_string_field("dbfilename",server.rdb_filename);
-    config_get_string_field("masteruser",server.masteruser);
-    config_get_string_field("masterauth",server.masterauth);
-    config_get_string_field("cluster-announce-ip",server.cluster_announce_ip);
-    config_get_string_field("unixsocket",server.unixsocket);
     config_get_string_field("logfile",server.logfile);
-    config_get_string_field("aclfile",server.acl_filename);
-    config_get_string_field("pidfile",server.pidfile);
-    config_get_string_field("slave-announce-ip",server.slave_announce_ip);
-    config_get_string_field("replica-announce-ip",server.slave_announce_ip);
 #ifdef USE_OPENSSL
     config_get_string_field("tls-cert-file",server.tls_ctx_config.cert_file);
     config_get_string_field("tls-key-file",server.tls_ctx_config.key_file);
@@ -1476,110 +1063,25 @@ void configGetCommand(client *c) {
 
     /* Numerical values */
     config_get_numerical_field("maxmemory",server.maxmemory);
-    config_get_numerical_field("proto-max-bulk-len",server.proto_max_bulk_len);
     config_get_numerical_field("client-query-buffer-limit",server.client_max_querybuf_len);
-    config_get_numerical_field("maxmemory-samples",server.maxmemory_samples);
-    config_get_numerical_field("lfu-log-factor",server.lfu_log_factor);
-    config_get_numerical_field("lfu-decay-time",server.lfu_decay_time);
-    config_get_numerical_field("timeout",server.maxidletime);
-    config_get_numerical_field("active-defrag-threshold-lower",server.active_defrag_threshold_lower);
-    config_get_numerical_field("active-defrag-threshold-upper",server.active_defrag_threshold_upper);
-    config_get_numerical_field("active-defrag-ignore-bytes",server.active_defrag_ignore_bytes);
-    config_get_numerical_field("active-defrag-cycle-min",server.active_defrag_cycle_min);
-    config_get_numerical_field("active-defrag-cycle-max",server.active_defrag_cycle_max);
-    config_get_numerical_field("active-defrag-max-scan-fields",server.active_defrag_max_scan_fields);
-    config_get_numerical_field("active-expire-effort",server.active_expire_effort);
-    config_get_numerical_field("auto-aof-rewrite-percentage",
-            server.aof_rewrite_perc);
-    config_get_numerical_field("auto-aof-rewrite-min-size",
-            server.aof_rewrite_min_size);
-    config_get_numerical_field("hash-max-ziplist-entries",
-            server.hash_max_ziplist_entries);
-    config_get_numerical_field("hash-max-ziplist-value",
-            server.hash_max_ziplist_value);
-    config_get_numerical_field("stream-node-max-bytes",
-            server.stream_node_max_bytes);
-    config_get_numerical_field("stream-node-max-entries",
-            server.stream_node_max_entries);
-    config_get_numerical_field("list-max-ziplist-size",
-            server.list_max_ziplist_size);
-    config_get_numerical_field("list-compress-depth",
-            server.list_compress_depth);
-    config_get_numerical_field("set-max-intset-entries",
-            server.set_max_intset_entries);
-    config_get_numerical_field("zset-max-ziplist-entries",
-            server.zset_max_ziplist_entries);
-    config_get_numerical_field("zset-max-ziplist-value",
-            server.zset_max_ziplist_value);
-    config_get_numerical_field("hll-sparse-max-bytes",
-            server.hll_sparse_max_bytes);
-    config_get_numerical_field("lua-time-limit",server.lua_time_limit);
-    config_get_numerical_field("slowlog-log-slower-than",
-            server.slowlog_log_slower_than);
-    config_get_numerical_field("latency-monitor-threshold",
-            server.latency_monitor_threshold);
-    config_get_numerical_field("slowlog-max-len", server.slowlog_max_len);
-    config_get_numerical_field("tracking-table-max-fill", server.tracking_table_max_fill);
-    config_get_numerical_field("port",server.port);
     config_get_numerical_field("tls-port",server.tls_port);
-    config_get_numerical_field("cluster-announce-port",server.cluster_announce_port);
-    config_get_numerical_field("cluster-announce-bus-port",server.cluster_announce_bus_port);
-    config_get_numerical_field("tcp-backlog",server.tcp_backlog);
-    config_get_numerical_field("databases",server.dbnum);
-    config_get_numerical_field("io-threads",server.io_threads_num);
-    config_get_numerical_field("repl-ping-slave-period",server.repl_ping_slave_period);
-    config_get_numerical_field("repl-ping-replica-period",server.repl_ping_slave_period);
-    config_get_numerical_field("repl-timeout",server.repl_timeout);
     config_get_numerical_field("repl-backlog-size",server.repl_backlog_size);
     config_get_numerical_field("repl-backlog-ttl",server.repl_backlog_time_limit);
     config_get_numerical_field("maxclients",server.maxclients);
     config_get_numerical_field("watchdog-period",server.watchdog_period);
-    config_get_numerical_field("slave-priority",server.slave_priority);
-    config_get_numerical_field("replica-priority",server.slave_priority);
-    config_get_numerical_field("slave-announce-port",server.slave_announce_port);
-    config_get_numerical_field("replica-announce-port",server.slave_announce_port);
     config_get_numerical_field("min-slaves-to-write",server.repl_min_slaves_to_write);
     config_get_numerical_field("min-replicas-to-write",server.repl_min_slaves_to_write);
     config_get_numerical_field("min-slaves-max-lag",server.repl_min_slaves_max_lag);
     config_get_numerical_field("min-replicas-max-lag",server.repl_min_slaves_max_lag);
     config_get_numerical_field("hz",server.config_hz);
-    config_get_numerical_field("cluster-node-timeout",server.cluster_node_timeout);
-    config_get_numerical_field("cluster-migration-barrier",server.cluster_migration_barrier);
-    config_get_numerical_field("cluster-slave-validity-factor",server.cluster_slave_validity_factor);
-    config_get_numerical_field("cluster-replica-validity-factor",server.cluster_slave_validity_factor);
-    config_get_numerical_field("repl-diskless-sync-delay",server.repl_diskless_sync_delay);
-    config_get_numerical_field("rdb-key-save-delay",server.rdb_key_save_delay);
-    config_get_numerical_field("key-load-delay",server.key_load_delay);
-    config_get_numerical_field("tcp-keepalive",server.tcpkeepalive);
 
     /* Bool (yes/no) values */
-    /* Iterate the configs that are standard */
-    for (configYesNo *config = configs_yesno; config->name != NULL; config++) {
-        config_get_bool_field(config->name, *(config->config));
-        if (config->alias) {
-            config_get_bool_field(config->alias, *(config->config));
-        }
-    }
-
     config_get_bool_field("activedefrag", server.active_defrag_enabled);
     config_get_bool_field("tls-cluster",server.tls_cluster);
     config_get_bool_field("tls-replication",server.tls_replication);
     config_get_bool_field("tls-auth-clients",server.tls_auth_clients);
     config_get_bool_field("tls-prefer-server-ciphers",
             server.tls_ctx_config.prefer_server_ciphers);
-    /* Enum values */
-    config_get_enum_field("maxmemory-policy",
-            server.maxmemory_policy,maxmemory_policy_enum);
-    config_get_enum_field("loglevel",
-            server.verbosity,loglevel_enum);
-    config_get_enum_field("supervised",
-            server.supervised_mode,supervised_mode_enum);
-    config_get_enum_field("appendfsync",
-            server.aof_fsync,aof_fsync_enum);
-    config_get_enum_field("syslog-facility",
-            server.syslog_facility,syslog_facility_enum);
-    config_get_enum_field("repl-diskless-load",
-            server.repl_diskless_load,repl_diskless_load_enum);
 
     /* Everything we can't handle with macros follows. */
 
@@ -1900,7 +1402,7 @@ int rewriteConfigFormatMemory(char *buf, size_t len, long long bytes) {
 }
 
 /* Rewrite a simple "option-name <bytes>" configuration option. */
-void rewriteConfigBytesOption(struct rewriteConfigState *state, char *option, long long value, long long defvalue) {
+void rewriteConfigBytesOption(struct rewriteConfigState *state, const char *option, long long value, long long defvalue) {
     char buf[64];
     int force = value != defvalue;
     sds line;
@@ -1920,7 +1422,7 @@ void rewriteConfigYesNoOption(struct rewriteConfigState *state, const char *opti
 }
 
 /* Rewrite a string option. */
-void rewriteConfigStringOption(struct rewriteConfigState *state, char *option, char *value, char *defvalue) {
+void rewriteConfigStringOption(struct rewriteConfigState *state, const char *option, char *value, const char *defvalue) {
     int force = 1;
     sds line;
 
@@ -1942,7 +1444,7 @@ void rewriteConfigStringOption(struct rewriteConfigState *state, char *option, c
 }
 
 /* Rewrite a numerical (long long range) option. */
-void rewriteConfigNumericalOption(struct rewriteConfigState *state, char *option, long long value, long long defvalue) {
+void rewriteConfigNumericalOption(struct rewriteConfigState *state, const char *option, long long value, long long defvalue) {
     int force = value != defvalue;
     sds line = sdscatprintf(sdsempty(),"%s %lld",option,value);
 
@@ -1960,23 +1462,11 @@ void rewriteConfigOctalOption(struct rewriteConfigState *state, char *option, in
 /* Rewrite an enumeration option. It takes as usually state and option name,
  * and in addition the enumeration array and the default value for the
  * option. */
-void rewriteConfigEnumOption(struct rewriteConfigState *state, char *option, int value, configEnum *ce, int defval) {
+void rewriteConfigEnumOption(struct rewriteConfigState *state, const char *option, int value, configEnum *ce, int defval) {
     sds line;
     const char *name = configEnumGetNameOrUnknown(ce,value);
     int force = value != defval;
 
-    line = sdscatprintf(sdsempty(),"%s %s",option,name);
-    rewriteConfigRewriteLine(state,option,line,force);
-}
-
-/* Rewrite the syslog-facility option. */
-void rewriteConfigSyslogfacilityOption(struct rewriteConfigState *state) {
-    int value = server.syslog_facility;
-    int force = value != LOG_LOCAL0;
-    const char *name = NULL, *option = "syslog-facility";
-    sds line;
-
-    name = configEnumGetNameOrUnknown(syslog_facility_enum,value);
     line = sdscatprintf(sdsempty(),"%s %s",option,name);
     rewriteConfigRewriteLine(state,option,line,force);
 }
@@ -2282,95 +1772,35 @@ int rewriteConfig(char *path) {
      * the rewrite state. */
 
     /* Iterate the configs that are standard */
-    for (configYesNo *config = configs_yesno; config->name != NULL; config++) {
-        rewriteConfigYesNoOption(state,config->name,*(config->config),config->default_value);
+    for (standardConfig *config = configs; config->name != NULL; config++) {
+        config->interface.rewrite(config->data, config->name, state);
     }
 
-    rewriteConfigStringOption(state,"pidfile",server.pidfile,CONFIG_DEFAULT_PID_FILE);
-    rewriteConfigNumericalOption(state,"tls-port",server.tls_port,CONFIG_DEFAULT_SERVER_TLS_PORT);
-    rewriteConfigNumericalOption(state,"cluster-announce-port",server.cluster_announce_port,CONFIG_DEFAULT_CLUSTER_ANNOUNCE_PORT);
-    rewriteConfigNumericalOption(state,"cluster-announce-bus-port",server.cluster_announce_bus_port,CONFIG_DEFAULT_CLUSTER_ANNOUNCE_BUS_PORT);
-    rewriteConfigNumericalOption(state,"tcp-backlog",server.tcp_backlog,CONFIG_DEFAULT_TCP_BACKLOG);
     rewriteConfigBindOption(state);
-    rewriteConfigStringOption(state,"unixsocket",server.unixsocket,NULL);
     rewriteConfigOctalOption(state,"unixsocketperm",server.unixsocketperm,CONFIG_DEFAULT_UNIX_SOCKET_PERM);
-    rewriteConfigNumericalOption(state,"timeout",server.maxidletime,CONFIG_DEFAULT_CLIENT_TIMEOUT);
-    rewriteConfigNumericalOption(state,"tcp-keepalive",server.tcpkeepalive,CONFIG_DEFAULT_TCP_KEEPALIVE);
-    rewriteConfigNumericalOption(state,"replica-announce-port",server.slave_announce_port,CONFIG_DEFAULT_SLAVE_ANNOUNCE_PORT);
-    rewriteConfigEnumOption(state,"loglevel",server.verbosity,loglevel_enum,CONFIG_DEFAULT_VERBOSITY);
     rewriteConfigStringOption(state,"logfile",server.logfile,CONFIG_DEFAULT_LOGFILE);
-    rewriteConfigStringOption(state,"aclfile",server.acl_filename,CONFIG_DEFAULT_ACL_FILENAME);
     rewriteConfigYesNoOption(state,"syslog-enabled",server.syslog_enabled,CONFIG_DEFAULT_SYSLOG_ENABLED);
     rewriteConfigStringOption(state,"syslog-ident",server.syslog_ident,CONFIG_DEFAULT_SYSLOG_IDENT);
-    rewriteConfigSyslogfacilityOption(state);
     rewriteConfigSaveOption(state);
     rewriteConfigUserOption(state);
-    rewriteConfigNumericalOption(state,"databases",server.dbnum,CONFIG_DEFAULT_DBNUM);
-    rewriteConfigNumericalOption(state,"io-threads",server.dbnum,CONFIG_DEFAULT_IO_THREADS_NUM);
     rewriteConfigStringOption(state,"dbfilename",server.rdb_filename,CONFIG_DEFAULT_RDB_FILENAME);
     rewriteConfigDirOption(state);
     rewriteConfigSlaveofOption(state,"replicaof");
-    rewriteConfigStringOption(state,"replica-announce-ip",server.slave_announce_ip,CONFIG_DEFAULT_SLAVE_ANNOUNCE_IP);
-    rewriteConfigStringOption(state,"masteruser",server.masteruser,NULL);
-    rewriteConfigStringOption(state,"masterauth",server.masterauth,NULL);
-    rewriteConfigStringOption(state,"cluster-announce-ip",server.cluster_announce_ip,NULL);
-    rewriteConfigNumericalOption(state,"repl-ping-replica-period",server.repl_ping_slave_period,CONFIG_DEFAULT_REPL_PING_SLAVE_PERIOD);
-    rewriteConfigNumericalOption(state,"repl-timeout",server.repl_timeout,CONFIG_DEFAULT_REPL_TIMEOUT);
     rewriteConfigBytesOption(state,"repl-backlog-size",server.repl_backlog_size,CONFIG_DEFAULT_REPL_BACKLOG_SIZE);
     rewriteConfigBytesOption(state,"repl-backlog-ttl",server.repl_backlog_time_limit,CONFIG_DEFAULT_REPL_BACKLOG_TIME_LIMIT);
-    rewriteConfigEnumOption(state,"repl-diskless-load",server.repl_diskless_load,repl_diskless_load_enum,CONFIG_DEFAULT_REPL_DISKLESS_LOAD);
-    rewriteConfigNumericalOption(state,"repl-diskless-sync-delay",server.repl_diskless_sync_delay,CONFIG_DEFAULT_REPL_DISKLESS_SYNC_DELAY);
-    rewriteConfigNumericalOption(state,"replica-priority",server.slave_priority,CONFIG_DEFAULT_SLAVE_PRIORITY);
-    rewriteConfigNumericalOption(state,"min-replicas-to-write",server.repl_min_slaves_to_write,CONFIG_DEFAULT_MIN_SLAVES_TO_WRITE);
-    rewriteConfigNumericalOption(state,"min-replicas-max-lag",server.repl_min_slaves_max_lag,CONFIG_DEFAULT_MIN_SLAVES_MAX_LAG);
     rewriteConfigRequirepassOption(state,"requirepass");
     rewriteConfigNumericalOption(state,"maxclients",server.maxclients,CONFIG_DEFAULT_MAX_CLIENTS);
     rewriteConfigBytesOption(state,"maxmemory",server.maxmemory,CONFIG_DEFAULT_MAXMEMORY);
-    rewriteConfigBytesOption(state,"proto-max-bulk-len",server.proto_max_bulk_len,CONFIG_DEFAULT_PROTO_MAX_BULK_LEN);
     rewriteConfigBytesOption(state,"client-query-buffer-limit",server.client_max_querybuf_len,PROTO_MAX_QUERYBUF_LEN);
-    rewriteConfigEnumOption(state,"maxmemory-policy",server.maxmemory_policy,maxmemory_policy_enum,CONFIG_DEFAULT_MAXMEMORY_POLICY);
-    rewriteConfigNumericalOption(state,"maxmemory-samples",server.maxmemory_samples,CONFIG_DEFAULT_MAXMEMORY_SAMPLES);
-    rewriteConfigNumericalOption(state,"lfu-log-factor",server.lfu_log_factor,CONFIG_DEFAULT_LFU_LOG_FACTOR);
-    rewriteConfigNumericalOption(state,"lfu-decay-time",server.lfu_decay_time,CONFIG_DEFAULT_LFU_DECAY_TIME);
-    rewriteConfigNumericalOption(state,"active-defrag-threshold-lower",server.active_defrag_threshold_lower,CONFIG_DEFAULT_DEFRAG_THRESHOLD_LOWER);
-    rewriteConfigNumericalOption(state,"active-defrag-threshold-upper",server.active_defrag_threshold_upper,CONFIG_DEFAULT_DEFRAG_THRESHOLD_UPPER);
-    rewriteConfigBytesOption(state,"active-defrag-ignore-bytes",server.active_defrag_ignore_bytes,CONFIG_DEFAULT_DEFRAG_IGNORE_BYTES);
-    rewriteConfigNumericalOption(state,"active-defrag-cycle-min",server.active_defrag_cycle_min,CONFIG_DEFAULT_DEFRAG_CYCLE_MIN);
-    rewriteConfigNumericalOption(state,"active-defrag-cycle-max",server.active_defrag_cycle_max,CONFIG_DEFAULT_DEFRAG_CYCLE_MAX);
-    rewriteConfigNumericalOption(state,"active-defrag-max-scan-fields",server.active_defrag_max_scan_fields,CONFIG_DEFAULT_DEFRAG_MAX_SCAN_FIELDS);
-    rewriteConfigNumericalOption(state,"active-expire-effort",server.active_expire_effort,CONFIG_DEFAULT_ACTIVE_EXPIRE_EFFORT);
     rewriteConfigYesNoOption(state,"appendonly",server.aof_enabled,0);
     rewriteConfigStringOption(state,"appendfilename",server.aof_filename,CONFIG_DEFAULT_AOF_FILENAME);
-    rewriteConfigEnumOption(state,"appendfsync",server.aof_fsync,aof_fsync_enum,CONFIG_DEFAULT_AOF_FSYNC);
-    rewriteConfigNumericalOption(state,"auto-aof-rewrite-percentage",server.aof_rewrite_perc,AOF_REWRITE_PERC);
-    rewriteConfigBytesOption(state,"auto-aof-rewrite-min-size",server.aof_rewrite_min_size,AOF_REWRITE_MIN_SIZE);
-    rewriteConfigNumericalOption(state,"lua-time-limit",server.lua_time_limit,LUA_SCRIPT_TIME_LIMIT);
     rewriteConfigYesNoOption(state,"cluster-enabled",server.cluster_enabled,0);
     rewriteConfigStringOption(state,"cluster-config-file",server.cluster_configfile,CONFIG_DEFAULT_CLUSTER_CONFIG_FILE);
-    rewriteConfigNumericalOption(state,"cluster-node-timeout",server.cluster_node_timeout,CLUSTER_DEFAULT_NODE_TIMEOUT);
-    rewriteConfigNumericalOption(state,"cluster-migration-barrier",server.cluster_migration_barrier,CLUSTER_DEFAULT_MIGRATION_BARRIER);
-    rewriteConfigNumericalOption(state,"cluster-replica-validity-factor",server.cluster_slave_validity_factor,CLUSTER_DEFAULT_SLAVE_VALIDITY);
-    rewriteConfigNumericalOption(state,"slowlog-log-slower-than",server.slowlog_log_slower_than,CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN);
-    rewriteConfigNumericalOption(state,"latency-monitor-threshold",server.latency_monitor_threshold,CONFIG_DEFAULT_LATENCY_MONITOR_THRESHOLD);
-    rewriteConfigNumericalOption(state,"slowlog-max-len",server.slowlog_max_len,CONFIG_DEFAULT_SLOWLOG_MAX_LEN);
-    rewriteConfigNumericalOption(state,"tracking-table-max-fill",server.tracking_table_max_fill,CONFIG_DEFAULT_TRACKING_TABLE_MAX_FILL);
     rewriteConfigNotifykeyspaceeventsOption(state);
-    rewriteConfigNumericalOption(state,"hash-max-ziplist-entries",server.hash_max_ziplist_entries,OBJ_HASH_MAX_ZIPLIST_ENTRIES);
-    rewriteConfigNumericalOption(state,"hash-max-ziplist-value",server.hash_max_ziplist_value,OBJ_HASH_MAX_ZIPLIST_VALUE);
-    rewriteConfigNumericalOption(state,"stream-node-max-bytes",server.stream_node_max_bytes,OBJ_STREAM_NODE_MAX_BYTES);
-    rewriteConfigNumericalOption(state,"stream-node-max-entries",server.stream_node_max_entries,OBJ_STREAM_NODE_MAX_ENTRIES);
-    rewriteConfigNumericalOption(state,"list-max-ziplist-size",server.list_max_ziplist_size,OBJ_LIST_MAX_ZIPLIST_SIZE);
-    rewriteConfigNumericalOption(state,"list-compress-depth",server.list_compress_depth,OBJ_LIST_COMPRESS_DEPTH);
-    rewriteConfigNumericalOption(state,"set-max-intset-entries",server.set_max_intset_entries,OBJ_SET_MAX_INTSET_ENTRIES);
-    rewriteConfigNumericalOption(state,"zset-max-ziplist-entries",server.zset_max_ziplist_entries,OBJ_ZSET_MAX_ZIPLIST_ENTRIES);
-    rewriteConfigNumericalOption(state,"zset-max-ziplist-value",server.zset_max_ziplist_value,OBJ_ZSET_MAX_ZIPLIST_VALUE);
-    rewriteConfigNumericalOption(state,"hll-sparse-max-bytes",server.hll_sparse_max_bytes,CONFIG_DEFAULT_HLL_SPARSE_MAX_BYTES);
     rewriteConfigYesNoOption(state,"activedefrag",server.active_defrag_enabled,CONFIG_DEFAULT_ACTIVE_DEFRAG);
     rewriteConfigClientoutputbufferlimitOption(state);
     rewriteConfigNumericalOption(state,"hz",server.config_hz,CONFIG_DEFAULT_HZ);
-    rewriteConfigEnumOption(state,"supervised",server.supervised_mode,supervised_mode_enum,SUPERVISED_NONE);
-    rewriteConfigNumericalOption(state,"rdb-key-save-delay",server.rdb_key_save_delay,CONFIG_DEFAULT_RDB_KEY_SAVE_DELAY);
-    rewriteConfigNumericalOption(state,"key-load-delay",server.key_load_delay,CONFIG_DEFAULT_KEY_LOAD_DELAY);
+
 #ifdef USE_OPENSSL
     rewriteConfigYesNoOption(state,"tls-cluster",server.tls_cluster,0);
     rewriteConfigYesNoOption(state,"tls-replication",server.tls_replication,0);
@@ -2403,6 +1833,422 @@ int rewriteConfig(char *path) {
     rewriteConfigReleaseState(state);
     return retval;
 }
+
+/*-----------------------------------------------------------------------------
+ * Configs that fit one of the major types and require no special handling
+ *----------------------------------------------------------------------------*/
+#define LOADBUF_SIZE 256
+static char loadbuf[LOADBUF_SIZE];
+
+#define MEMORY_CONFIG 1
+#define INTEGER_CONFIG 0
+
+#define MODIFIABLE_CONFIG 1
+#define IMMUTABLE_CONFIG 0
+
+#define embedCommonConfig(config_name, config_alias, is_modifiable) \
+    .name = (config_name), \
+    .alias = (config_alias), \
+    .modifiable = (is_modifiable),
+
+#define embedConfigInterface(loadfn, setfn, getfn, rewritefn) .interface = { \
+    .load = (loadfn), \
+    .set = (setfn), \
+    .get = (getfn), \
+    .rewrite = (rewritefn) \
+},
+
+/* 
+ * What follows is the generic config types that are supported. To add a new
+ * config with one of these types, add it to the standardConfig table with
+ * the creation macro for each type.
+ * 
+ * Each type contains the following:
+ * * A function defining how to load this type on startup.
+ * * A function defining how to update this type on CONFIG SET.
+ * * A function defining how to serialize this type on CONFIG SET.
+ * * A function defining how to rewrite this type on CONFIG REWRITE.
+ * * A Macro defining how to create this type. 
+ */
+/* Bool Configs */
+static int boolConfigLoad(typeData data, sds *argv, int argc, char **err) {
+    if (argc != 2) {
+        *err = "wrong number of arguments";
+        return 0;
+    }
+    if ((*(data.yesno.config) = yesnotoi(argv[1])) == -1) {
+        *err = "argument must be 'yes' or 'no'";
+        return 0;
+    }
+    return 1;
+}
+
+static int boolConfigSet(typeData data, sds value) {
+    int yn = yesnotoi(value);
+    if (yn == -1) return 0;
+    *(data.yesno.config) = yn;
+    return 1;
+}
+
+static void boolConfigGet(client *c, typeData data) {
+    addReplyBulkCString(c, data.yesno.config ? "yes" : "no");
+}
+
+static void boolConfigRewrite(typeData data, const char *name, struct rewriteConfigState *state) {
+    rewriteConfigYesNoOption(state, name,*(data.yesno.config), data.yesno.default_value);
+}
+
+#define createBoolConfig(name, alias, modifiable, config_addr, default) { \
+    embedCommonConfig(name, alias, modifiable) \
+    embedConfigInterface(boolConfigLoad, boolConfigSet, boolConfigGet, boolConfigRewrite) \
+    .data.yesno = { \
+        .config = &(config_addr), \
+        .default_value = (default) \
+    } \
+}
+
+/* String Configs */
+static int stringConfigLoad(typeData data, sds *argv, int argc, char **err) {
+    if (argc != 2) {
+        *err = "wrong number of arguments";
+        return 0;
+    }
+    zfree(*data.string.config);
+    *data.string.config = argv[1][0] ? zstrdup(argv[1]) : NULL;
+    return 1;
+}
+
+static int stringConfigSet(typeData data, sds value) {
+    zfree(*data.string.config);
+    *data.string.config = value ? zstrdup(value) : NULL;
+    return 1;
+}
+
+static void stringConfigGet(client *c, typeData data) {
+    addReplyBulkCString(c, *data.string.config ? *data.string.config : "");
+}
+
+static void stringConfigRewrite(typeData data, const char *name, struct rewriteConfigState *state) {
+    rewriteConfigStringOption(state, name,*(data.string.config), data.string.default_value);
+}
+
+#define createStringConfig(name, alias, modifiable, config_addr, default) { \
+    embedCommonConfig(name, alias, modifiable) \
+    embedConfigInterface(stringConfigLoad, stringConfigSet, stringConfigGet, stringConfigRewrite) \
+    .data.string = { \
+        .config = &(config_addr), \
+        .default_value = (default), \
+    } \
+}
+
+/* Enum configs */
+static int configEnumLoad(typeData data, sds *argv, int argc, char **err) {
+    if (argc != 2) {
+        *err = "wrong number of arguments";
+        return 0;
+    }
+
+    int enumval = configEnumGetValue(data.enumd.enum_value, argv[1]);
+    if (enumval == INT_MIN) {
+        sds enumerr = sdsnew("argument must be one of the following: ");
+        configEnum *enumNode = data.enumd.enum_value;
+        while(enumNode->name != NULL) {
+            sdscatlen(enumerr, enumNode->name, strlen(enumNode->name));
+            sdscatlen(enumerr, ", ", 2);
+            enumNode++;
+        }
+
+        enumerr[sdslen(enumerr) - 2] = '\0';
+
+        /* Make sure we don't overrun the fixed buffer */
+        enumerr[LOADBUF_SIZE - 1] = '\0';
+        strncpy(loadbuf, enumerr, LOADBUF_SIZE);
+
+        sdsfree(enumerr);
+        *err = loadbuf;
+        return 0;
+    }
+    *(data.enumd.config) = enumval;
+    return 1;
+}
+
+static int configEnumSet(typeData data, sds value) {
+    int enumval = configEnumGetValue(data.enumd.enum_value, value);
+    if (enumval == INT_MIN) return 0;
+    *(data.enumd.config) = enumval;
+    return 1;
+}
+
+static void configEnumGet(client *c, typeData data) {
+    addReplyBulkCString(c, configEnumGetNameOrUnknown(data.enumd.enum_value,*data.enumd.config));
+}
+
+static void configEnumRewrite(typeData data, const char *name, struct rewriteConfigState *state) {
+    rewriteConfigEnumOption(state, name,*(data.enumd.config), data.enumd.enum_value, data.enumd.default_value);
+}
+
+#define createEnumConfig(name, alias, modifiable, enum, config_addr, default) { \
+    embedCommonConfig(name, alias, modifiable) \
+    embedConfigInterface(configEnumLoad, configEnumSet, configEnumGet, configEnumRewrite) \
+    .data.enumd = { \
+        .config = &(config_addr), \
+        .default_value = (default), \
+        .enum_value = (enum) \
+    } \
+}
+
+/* Numeric configs */
+static int numericConfigLoad(typeData data, sds *argv, int argc, char **err) {
+    long long ll;
+
+    if (argc != 2) {
+        *err = "wrong number of arguments";
+        return 0;
+    }
+
+    if (data.numeric.is_memory) {
+        int memerr;
+        ll = memtoll(argv[1], &memerr);
+        if (memerr || ll < 0) {
+            *err = "argument must be a memory value";
+            return 0;
+        } 
+    } else {
+        if (!string2ll(argv[1], sdslen(argv[1]),&ll)) {
+            *err = "argument couldn't be parsed into an integer" ;
+            return 0;   
+        }
+    }
+
+    if (ll > data.numeric.upper_bound ||
+               ll < data.numeric.lower_bound) {
+        snprintf(loadbuf, LOADBUF_SIZE, 
+            "argument must be between %lld and %lld inclusive", 
+            data.numeric.lower_bound, 
+            data.numeric.upper_bound);
+        *err = loadbuf;
+        return 0;
+    }
+
+    if (data.numeric.numeric_type == NUMERIC_TYPE_INT) {
+        *(data.numeric.config.i) = (int) ll;
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_UNSIGNED_LONG) {
+        *(data.numeric.config.ul) = (unsigned long) ll;
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_LONG_LONG) {
+        *(data.numeric.config.ll) = ll;
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_SIZE_T) {
+        *(data.numeric.config.st) = (size_t) ll;
+    }
+
+    return 1;
+}
+
+static int numericConfigSet(typeData data, sds value) {
+    long long ll;
+    if (data.numeric.is_memory) {
+        int memerr;
+        ll = memtoll(value, &memerr);
+        if (memerr || ll < 0) return 0;
+    } else {
+        if (!string2ll(value, sdslen(value),&ll)) return 0;
+    }
+
+    if (ll > data.numeric.upper_bound ||
+               ll < data.numeric.lower_bound) {
+        return 0;
+    }
+    if (data.numeric.numeric_type == NUMERIC_TYPE_INT) {
+        *(data.numeric.config.i) = (int) ll;
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_UNSIGNED_LONG) {
+        *(data.numeric.config.ul) = (unsigned long) ll;
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_LONG_LONG) {
+        *(data.numeric.config.ll) = ll;
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_SIZE_T) {
+        *(data.numeric.config.st) = (size_t) ll;
+    }
+
+    return 1;
+}
+
+static void numericConfigGet(client *c, typeData data) {
+    char buf[128];
+    long long value = 0;
+
+    if (data.numeric.numeric_type == NUMERIC_TYPE_INT) {
+        value = *(data.numeric.config.i);
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_UNSIGNED_LONG) {
+        value = *(data.numeric.config.ul);
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_LONG_LONG) {
+        value = *(data.numeric.config.ll);
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_SIZE_T) {
+        value = *(data.numeric.config.st);
+    }
+
+    ll2string(buf, sizeof(buf), value);
+    addReplyBulkCString(c, buf);
+}
+
+static void numericConfigRewrite(typeData data, const char *name, struct rewriteConfigState *state) {
+    long long value;
+    if (data.numeric.numeric_type == NUMERIC_TYPE_INT) {
+        value = *(data.numeric.config.i);
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_UNSIGNED_LONG) {
+        value = *(data.numeric.config.ul);
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_LONG_LONG) {
+        value = *(data.numeric.config.ll);
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_SIZE_T) {
+        value = *(data.numeric.config.st);
+    }
+
+    if (data.numeric.is_memory) {
+        rewriteConfigBytesOption(state, name, value, data.numeric.default_value);
+    } else {
+        rewriteConfigNumericalOption(state, name, value, data.numeric.default_value);
+    }
+}
+
+#define embedCommonNumericalConfig(name, alias, modifiable, lower, upper, config_addr, default, memory) { \
+    embedCommonConfig(name, alias, modifiable) \
+    embedConfigInterface(numericConfigLoad, numericConfigSet, numericConfigGet, numericConfigRewrite) \
+    .data.numeric = { \
+        .lower_bound = (lower), \
+        .upper_bound = (upper), \
+        .default_value = (default), \
+        .is_memory = (memory),
+
+#define createIntConfig(name, alias, modifiable, lower, upper, config_addr, default, memory) \
+    embedCommonNumericalConfig(name, alias, modifiable, lower, upper, config_addr, default, memory) \
+        .numeric_type = NUMERIC_TYPE_INT, \
+        .config.i = &(config_addr) \
+    } \
+}
+
+#define createUnsignedLongConfig(name, alias, modifiable, lower, upper, config_addr, default, memory) \
+    embedCommonNumericalConfig(name, alias, modifiable, lower, upper, config_addr, default, memory) \
+        .numeric_type = NUMERIC_TYPE_UNSIGNED_LONG, \
+        .config.ul = &(config_addr) \
+    } \
+}
+
+#define createLongLongConfig(name, alias, modifiable, lower, upper, config_addr, default, memory) \
+    embedCommonNumericalConfig(name, alias, modifiable, lower, upper, config_addr, default, memory) \
+        .numeric_type = NUMERIC_TYPE_LONG_LONG, \
+        .config.ll = &(config_addr) \
+    } \
+}
+
+#define createSizeTConfig(name, alias, modifiable, lower, upper, config_addr, default, memory) \
+    embedCommonNumericalConfig(name, alias, modifiable, lower, upper, config_addr, default, memory) \
+        .numeric_type = NUMERIC_TYPE_SIZE_T, \
+        .config.st = &(config_addr) \
+    } \
+}
+
+standardConfig configs[] = {
+    /* Bool configs */
+    createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, CONFIG_DEFAULT_RDB_CHECKSUM), 
+    createBoolConfig("daemonize", NULL, IMMUTABLE_CONFIG, server.daemonize, 0), 
+    createBoolConfig("io-threads-do-reads", NULL, IMMUTABLE_CONFIG, server.io_threads_do_reads, CONFIG_DEFAULT_IO_THREADS_DO_READS),
+    createBoolConfig("lua-replicate-commands", NULL, IMMUTABLE_CONFIG, server.lua_always_replicate_commands, 1),
+    createBoolConfig("always-show-logo", NULL, IMMUTABLE_CONFIG, server.always_show_logo, CONFIG_DEFAULT_ALWAYS_SHOW_LOGO), 
+    createBoolConfig("protected-mode", NULL, MODIFIABLE_CONFIG, server.protected_mode, CONFIG_DEFAULT_PROTECTED_MODE), 
+    createBoolConfig("rdbcompression", NULL, MODIFIABLE_CONFIG, server.rdb_compression, CONFIG_DEFAULT_RDB_COMPRESSION), 
+    createBoolConfig("activerehashing", NULL, MODIFIABLE_CONFIG, server.activerehashing, CONFIG_DEFAULT_ACTIVE_REHASHING), 
+    createBoolConfig("stop-writes-on-bgsave-error", NULL, MODIFIABLE_CONFIG, server.stop_writes_on_bgsave_err, CONFIG_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR), 
+    createBoolConfig("dynamic-hz", NULL, MODIFIABLE_CONFIG, server.dynamic_hz, CONFIG_DEFAULT_DYNAMIC_HZ), 
+    createBoolConfig("lazyfree-lazy-eviction", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_eviction, CONFIG_DEFAULT_LAZYFREE_LAZY_EVICTION), 
+    createBoolConfig("lazyfree-lazy-expire", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_expire, CONFIG_DEFAULT_LAZYFREE_LAZY_EXPIRE), 
+    createBoolConfig("lazyfree-lazy-server-del", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_server_del, CONFIG_DEFAULT_LAZYFREE_LAZY_SERVER_DEL), 
+    createBoolConfig("repl-disable-tcp-nodelay", NULL, MODIFIABLE_CONFIG, server.repl_disable_tcp_nodelay, CONFIG_DEFAULT_REPL_DISABLE_TCP_NODELAY), 
+    createBoolConfig("repl-diskless-sync", NULL, MODIFIABLE_CONFIG, server.repl_diskless_sync, CONFIG_DEFAULT_REPL_DISKLESS_SYNC), 
+    createBoolConfig("gopher-enabled", NULL, MODIFIABLE_CONFIG, server.gopher_enabled, CONFIG_DEFAULT_GOPHER_ENABLED), 
+    createBoolConfig("aof-rewrite-incremental-fsync", NULL, MODIFIABLE_CONFIG, server.aof_rewrite_incremental_fsync, CONFIG_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC), 
+    createBoolConfig("no-appendfsync-on-rewrite", NULL, MODIFIABLE_CONFIG, server.aof_no_fsync_on_rewrite, CONFIG_DEFAULT_AOF_NO_FSYNC_ON_REWRITE), 
+    createBoolConfig("cluster-require-full-coverage", NULL, MODIFIABLE_CONFIG, server.cluster_require_full_coverage, CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE), 
+    createBoolConfig("rdb-save-incremental-fsync", NULL, MODIFIABLE_CONFIG, server.rdb_save_incremental_fsync, CONFIG_DEFAULT_RDB_SAVE_INCREMENTAL_FSYNC), 
+    createBoolConfig("aof-load-truncated", NULL, MODIFIABLE_CONFIG, server.aof_load_truncated, CONFIG_DEFAULT_AOF_LOAD_TRUNCATED), 
+    createBoolConfig("aof-use-rdb-preamble", NULL, MODIFIABLE_CONFIG, server.aof_use_rdb_preamble, CONFIG_DEFAULT_AOF_USE_RDB_PREAMBLE), 
+    createBoolConfig("cluster-replica-no-failover", "cluster-slave-no-failover", MODIFIABLE_CONFIG, server.cluster_slave_no_failover, CLUSTER_DEFAULT_SLAVE_NO_FAILOVER), 
+    createBoolConfig("replica-lazy-flush", "slave-lazy-flush", MODIFIABLE_CONFIG, server.repl_slave_lazy_flush, CONFIG_DEFAULT_SLAVE_LAZY_FLUSH), 
+    createBoolConfig("replica-serve-stale-data", "slave-serve-stale-data", MODIFIABLE_CONFIG, server.repl_serve_stale_data, CONFIG_DEFAULT_SLAVE_SERVE_STALE_DATA), 
+    createBoolConfig("replica-read-only", "slave-read-only", MODIFIABLE_CONFIG, server.repl_slave_ro, CONFIG_DEFAULT_SLAVE_READ_ONLY), 
+    createBoolConfig("replica-ignore-maxmemory", "slave-ignore-maxmemory", MODIFIABLE_CONFIG, server.repl_slave_ignore_maxmemory, CONFIG_DEFAULT_SLAVE_IGNORE_MAXMEMORY), 
+    createBoolConfig("jemalloc-bg-thread", NULL, MODIFIABLE_CONFIG, server.jemalloc_bg_thread, 1), 
+
+    /* String Configs */
+    createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, server.acl_filename, CONFIG_DEFAULT_ACL_FILENAME), 
+    createStringConfig("unixsocket", NULL, IMMUTABLE_CONFIG, server.unixsocket, NULL), 
+    createStringConfig("pidfile", NULL, IMMUTABLE_CONFIG, server.pidfile, CONFIG_DEFAULT_PID_FILE), 
+    createStringConfig("replica-announce-ip", "slave-announce-ip", MODIFIABLE_CONFIG, server.slave_announce_ip, CONFIG_DEFAULT_SLAVE_ANNOUNCE_IP), 
+    createStringConfig("masteruser", NULL, MODIFIABLE_CONFIG, server.masteruser, NULL), 
+    createStringConfig("masterauth", NULL, MODIFIABLE_CONFIG, server.masterauth, NULL), 
+    createStringConfig("cluster-announce-ip", NULL, MODIFIABLE_CONFIG, server.cluster_announce_ip, NULL), 
+
+    /* Enum Configs */
+    createEnumConfig("supervised", NULL, IMMUTABLE_CONFIG, supervised_mode_enum, server.supervised_mode, SUPERVISED_NONE), 
+    createEnumConfig("syslog-facility", NULL, IMMUTABLE_CONFIG, syslog_facility_enum, server.syslog_facility, LOG_LOCAL0), 
+    createEnumConfig("repl-diskless-load", NULL, MODIFIABLE_CONFIG, repl_diskless_load_enum, server.repl_diskless_load, CONFIG_DEFAULT_REPL_DISKLESS_LOAD), 
+    createEnumConfig("loglevel", NULL, MODIFIABLE_CONFIG, loglevel_enum, server.verbosity, CONFIG_DEFAULT_VERBOSITY), 
+    createEnumConfig("maxmemory-policy", NULL, MODIFIABLE_CONFIG, maxmemory_policy_enum, server.maxmemory_policy, CONFIG_DEFAULT_MAXMEMORY_POLICY), 
+    createEnumConfig("appendfsync", NULL, MODIFIABLE_CONFIG, aof_fsync_enum, server.aof_fsync, CONFIG_DEFAULT_AOF_FSYNC), 
+
+    /* Integer configs */
+    createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, CONFIG_DEFAULT_DBNUM, INTEGER_CONFIG), 
+    createIntConfig("port", NULL, IMMUTABLE_CONFIG, 0, 65535, server.port, CONFIG_DEFAULT_SERVER_PORT, INTEGER_CONFIG), 
+    createIntConfig("io-threads", NULL, IMMUTABLE_CONFIG, 1, 512, server.io_threads_num, CONFIG_DEFAULT_IO_THREADS_NUM, INTEGER_CONFIG), 
+    createIntConfig("auto-aof-rewrite-percentage", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.aof_rewrite_perc, AOF_REWRITE_PERC, INTEGER_CONFIG), 
+    createIntConfig("cluster-replica-validity-factor", "cluster-slave-validity-factor", MODIFIABLE_CONFIG, 0, INT_MAX, server.cluster_slave_validity_factor, CLUSTER_DEFAULT_SLAVE_VALIDITY, INTEGER_CONFIG), 
+    createIntConfig("list-max-ziplist-size", NULL, MODIFIABLE_CONFIG, INT_MIN, INT_MAX, server.list_max_ziplist_size, OBJ_LIST_MAX_ZIPLIST_SIZE, INTEGER_CONFIG), 
+    createIntConfig("tcp-keepalive", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.tcpkeepalive, CONFIG_DEFAULT_TCP_KEEPALIVE, INTEGER_CONFIG), 
+    createIntConfig("cluster-migration-barrier", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.cluster_migration_barrier, CLUSTER_DEFAULT_MIGRATION_BARRIER, INTEGER_CONFIG), 
+    createIntConfig("active-defrag-cycle-min", NULL, MODIFIABLE_CONFIG, 1, 99, server.active_defrag_cycle_min, CONFIG_DEFAULT_DEFRAG_CYCLE_MIN, INTEGER_CONFIG), 
+    createIntConfig("active-defrag-cycle-max", NULL, MODIFIABLE_CONFIG, 1, 99, server.active_defrag_cycle_max, CONFIG_DEFAULT_DEFRAG_CYCLE_MAX, INTEGER_CONFIG), 
+    createIntConfig("active-defrag-threshold-lower", NULL, MODIFIABLE_CONFIG, 0, 1000, server.active_defrag_threshold_lower, CONFIG_DEFAULT_DEFRAG_THRESHOLD_LOWER, INTEGER_CONFIG), 
+    createIntConfig("active-defrag-threshold-upper", NULL, MODIFIABLE_CONFIG, 0, 1000, server.active_defrag_threshold_upper, CONFIG_DEFAULT_DEFRAG_THRESHOLD_UPPER, INTEGER_CONFIG), 
+    createIntConfig("lfu-log-factor", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.lfu_log_factor, CONFIG_DEFAULT_LFU_LOG_FACTOR, INTEGER_CONFIG), 
+    createIntConfig("lfu-decay-time", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.lfu_decay_time, CONFIG_DEFAULT_LFU_DECAY_TIME, INTEGER_CONFIG), 
+    createIntConfig("replica-priority", "slave-priority", MODIFIABLE_CONFIG, 0, INT_MAX, server.slave_priority, CONFIG_DEFAULT_SLAVE_PRIORITY, INTEGER_CONFIG), 
+    createIntConfig("repl-diskless-sync-delay", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.repl_diskless_sync_delay, CONFIG_DEFAULT_REPL_DISKLESS_SYNC_DELAY, INTEGER_CONFIG), 
+    createIntConfig("maxmemory-samples", NULL, MODIFIABLE_CONFIG, 1, INT_MAX, server.maxmemory_samples, CONFIG_DEFAULT_MAXMEMORY_SAMPLES, INTEGER_CONFIG), 
+    createIntConfig("timeout", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.maxidletime, CONFIG_DEFAULT_CLIENT_TIMEOUT, INTEGER_CONFIG), 
+    createIntConfig("replica-announce-port", "slave-announce-port", MODIFIABLE_CONFIG, 0, 65535, server.slave_announce_port, CONFIG_DEFAULT_SLAVE_ANNOUNCE_PORT, INTEGER_CONFIG), 
+    createIntConfig("tcp-backlog", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.tcp_backlog, CONFIG_DEFAULT_TCP_BACKLOG, INTEGER_CONFIG), 
+    createIntConfig("cluster-announce-bus-port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.cluster_announce_bus_port, CONFIG_DEFAULT_CLUSTER_ANNOUNCE_BUS_PORT, INTEGER_CONFIG), 
+    createIntConfig("cluster-announce-port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.cluster_announce_port, CONFIG_DEFAULT_CLUSTER_ANNOUNCE_PORT, INTEGER_CONFIG), 
+    createIntConfig("repl-timeout", NULL, MODIFIABLE_CONFIG, 1, INT_MAX, server.repl_timeout, CONFIG_DEFAULT_REPL_TIMEOUT, INTEGER_CONFIG), 
+    createIntConfig("repl-ping-replica-period", "repl-ping-slave-period", MODIFIABLE_CONFIG, 1, INT_MAX, server.repl_ping_slave_period, CONFIG_DEFAULT_REPL_PING_SLAVE_PERIOD, INTEGER_CONFIG), 
+    createIntConfig("list-compress-depth", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.list_compress_depth, OBJ_LIST_COMPRESS_DEPTH, INTEGER_CONFIG), 
+    createIntConfig("rdb-key-save-delay", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.rdb_key_save_delay, CONFIG_DEFAULT_RDB_KEY_SAVE_DELAY, INTEGER_CONFIG), 
+    createIntConfig("key-load-delay", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.key_load_delay, CONFIG_DEFAULT_KEY_LOAD_DELAY, INTEGER_CONFIG), 
+    createIntConfig("tracking-table-max-fill", NULL, MODIFIABLE_CONFIG, 0, 100, server.tracking_table_max_fill, CONFIG_DEFAULT_TRACKING_TABLE_MAX_FILL, INTEGER_CONFIG), 
+    createIntConfig("active-expire-effort", NULL, MODIFIABLE_CONFIG, 1, 10, server.active_expire_effort, CONFIG_DEFAULT_ACTIVE_EXPIRE_EFFORT, INTEGER_CONFIG),
+
+    /* Unsigned Long configs */
+    createUnsignedLongConfig("active-defrag-max-scan-fields", NULL, MODIFIABLE_CONFIG, 1, LONG_MAX, server.active_defrag_max_scan_fields, CONFIG_DEFAULT_DEFRAG_MAX_SCAN_FIELDS, INTEGER_CONFIG), 
+    createUnsignedLongConfig("slowlog-max-len", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.slowlog_max_len, CONFIG_DEFAULT_SLOWLOG_MAX_LEN, INTEGER_CONFIG), 
+
+    /* Long Long configs */
+    createLongLongConfig("stream-node-max-entries", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.stream_node_max_entries, OBJ_STREAM_NODE_MAX_ENTRIES, INTEGER_CONFIG), 
+    createLongLongConfig("lua-time-limit", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.lua_time_limit, LUA_SCRIPT_TIME_LIMIT, INTEGER_CONFIG), 
+    createLongLongConfig("cluster-node-timeout", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.cluster_node_timeout, CLUSTER_DEFAULT_NODE_TIMEOUT, INTEGER_CONFIG), 
+    createLongLongConfig("slowlog-log-slower-than", NULL, MODIFIABLE_CONFIG, -1, LLONG_MAX, server.slowlog_log_slower_than, CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN, INTEGER_CONFIG), 
+    createLongLongConfig("latency-monitor-threshold", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.latency_monitor_threshold, CONFIG_DEFAULT_LATENCY_MONITOR_THRESHOLD, INTEGER_CONFIG), 
+    createLongLongConfig("proto-max-bulk-len", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.proto_max_bulk_len, CONFIG_DEFAULT_PROTO_MAX_BULK_LEN, MEMORY_CONFIG), 
+    createLongLongConfig("auto-aof-rewrite-min-size", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.aof_rewrite_min_size, AOF_REWRITE_MIN_SIZE, MEMORY_CONFIG), 
+
+    /* Size_t configs */
+    createSizeTConfig("hash-max-ziplist-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_ziplist_entries, OBJ_HASH_MAX_ZIPLIST_ENTRIES, INTEGER_CONFIG), 
+    createSizeTConfig("set-max-intset-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.set_max_intset_entries, OBJ_SET_MAX_INTSET_ENTRIES, INTEGER_CONFIG), 
+    createSizeTConfig("zset-max-ziplist-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.zset_max_ziplist_entries, OBJ_ZSET_MAX_ZIPLIST_ENTRIES, INTEGER_CONFIG), 
+    createSizeTConfig("active-defrag-ignore-bytes", NULL, MODIFIABLE_CONFIG, 1, LONG_MAX, server.active_defrag_ignore_bytes, CONFIG_DEFAULT_DEFRAG_IGNORE_BYTES, MEMORY_CONFIG), 
+    createSizeTConfig("hash-max-ziplist-value", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_ziplist_value, OBJ_HASH_MAX_ZIPLIST_VALUE, MEMORY_CONFIG), 
+    createSizeTConfig("stream-node-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.stream_node_max_bytes, OBJ_STREAM_NODE_MAX_BYTES, MEMORY_CONFIG), 
+    createSizeTConfig("zset-max-ziplist-value", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.zset_max_ziplist_value, OBJ_ZSET_MAX_ZIPLIST_VALUE, MEMORY_CONFIG), 
+    createSizeTConfig("hll-sparse-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hll_sparse_max_bytes, CONFIG_DEFAULT_HLL_SPARSE_MAX_BYTES, MEMORY_CONFIG), 
+
+    /* NULL Terminator */
+    {NULL}
+};
 
 /*-----------------------------------------------------------------------------
  * CONFIG command entry point
