@@ -5164,7 +5164,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
     struct stat st;
     if (stat(path, &st) == 0)
     {   // this check is best effort
-        if (!(st.st_mode & S_IEXEC)) {
+        if (!(st.st_mode & (S_IXUSR  | S_IXGRP | S_IXOTH))) {
             serverLog(LL_WARNING, "Module %s failed to load: It does not have execute permissions.", path);
             return C_ERR;
         }
