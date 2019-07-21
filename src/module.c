@@ -29,6 +29,7 @@
 
 #include "server.h"
 #include "cluster.h"
+#include "rdb.h"
 #include <dlfcn.h>
 
 #define REDISMODULE_CORE 1
@@ -3078,6 +3079,11 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
         moduleTypeMemUsageFunc mem_usage;
         moduleTypeDigestFunc digest;
         moduleTypeFreeFunc free;
+        struct {
+            moduleTypeAuxLoadFunc aux_load;
+            moduleTypeAuxSaveFunc aux_save;
+            int aux_save_triggers;
+        } v2;
     } *tms = (struct typemethods*) typemethods_ptr;
 
     moduleType *mt = zcalloc(sizeof(*mt));
@@ -3089,6 +3095,11 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
     mt->mem_usage = tms->mem_usage;
     mt->digest = tms->digest;
     mt->free = tms->free;
+    if (tms->version >= 2) {
+        mt->aux_load = tms->v2.aux_load;
+        mt->aux_save = tms->v2.aux_save;
+        mt->aux_save_triggers = tms->v2.aux_save_triggers;
+    }
     memcpy(mt->name,name,sizeof(mt->name));
     listAddNodeTail(ctx->module->types,mt);
     return mt;
@@ -3353,6 +3364,36 @@ float RM_LoadFloat(RedisModuleIO *io) {
 loaderr:
     moduleRDBLoadError(io);
     return 0; /* Never reached. */
+}
+
+/* Iterate over modules, and trigger rdb aux saving for the ones modules types
+ * who asked for it. */
+ssize_t rdbSaveModulesAux(rio *rdb, int when) {
+    size_t total_written = 0;
+    dictIterator *di = dictGetIterator(modules);
+    dictEntry *de;
+
+    while ((de = dictNext(di)) != NULL) {
+        struct RedisModule *module = dictGetVal(de);
+        listIter li;
+        listNode *ln;
+
+        listRewind(module->types,&li);
+        while((ln = listNext(&li))) {
+            moduleType *mt = ln->value;
+            if (!mt->aux_save || !(mt->aux_save_triggers & when))
+                continue;
+            ssize_t ret = rdbSaveSingleModuleAux(rdb, when, mt);
+            if (ret==-1) {
+                dictReleaseIterator(di);
+                return -1;
+            }
+            total_written += ret;
+        }
+    }
+
+    dictReleaseIterator(di);
+    return total_written;
 }
 
 /* --------------------------------------------------------------------------
