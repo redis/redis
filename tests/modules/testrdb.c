@@ -15,6 +15,8 @@ RedisModuleString *after_str = NULL;
 
 void *testrdb_type_load(RedisModuleIO *rdb, int encver) {
     int count = RedisModule_LoadSigned(rdb);
+    if (RedisModule_IsIOError(rdb))
+        return NULL;
     assert(count==1);
     assert(encver==1);
     RedisModuleString *str = RedisModule_LoadString(rdb);
@@ -57,6 +59,8 @@ int testrdb_aux_load(RedisModuleIO *rdb, int encver, int when) {
             RedisModule_FreeString(ctx, before_str);
         before_str = NULL;
         int count = RedisModule_LoadSigned(rdb);
+        if (RedisModule_IsIOError(rdb))
+            return REDISMODULE_ERR;
         if (count)
             before_str = RedisModule_LoadString(rdb);
     } else {
@@ -64,14 +68,19 @@ int testrdb_aux_load(RedisModuleIO *rdb, int encver, int when) {
             RedisModule_FreeString(ctx, after_str);
         after_str = NULL;
         int count = RedisModule_LoadSigned(rdb);
+        if (RedisModule_IsIOError(rdb))
+            return REDISMODULE_ERR;
         if (count)
             after_str = RedisModule_LoadString(rdb);
     }
+    if (RedisModule_IsIOError(rdb))
+        return REDISMODULE_ERR;
     return REDISMODULE_OK;
 }
 
 void testrdb_type_free(void *value) {
-    RedisModule_FreeString(NULL, (RedisModuleString*)value);
+    if (value)
+        RedisModule_FreeString(NULL, (RedisModuleString*)value);
 }
 
 int testrdb_set_before(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
@@ -170,6 +179,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_Init(ctx,"testrdb",1,REDISMODULE_APIVER_1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
+
+    RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS);
 
     if (argc > 0)
         RedisModule_StringToLongLong(argv[0], &conf_aux_count);
