@@ -185,17 +185,53 @@ void trackingInvalidateKey(robj *keyobj) {
     TrackingTableUsedSlots--;
 }
 
+/* This function is called when one or all the Redis databases are flushed
+ * (dbid == -1 in case of FLUSHALL). Caching slots are not specific for
+ * each DB but are global: currently what we do is sending a special
+ * notification to clients with tracking enabled, invalidating the caching
+ * slot "-1", which means, "all the keys", in order to avoid flooding clients
+ * with many invalidation messages for all the keys they may hold.
+ *
+ * However trying to flush the tracking table here is very costly:
+ * we need scanning 16 million caching slots in the table to check
+ * if they are used, this introduces a big delay. So what we do is to really
+ * flush the table in the case of FLUSHALL. When a FLUSHDB is called instead
+ * we just send the invalidation message to all the clients, but don't
+ * flush the table: it will slowly get garbage collected as more keys
+ * are modified in the used caching slots. */
 void trackingInvalidateKeysOnFlush(int dbid) {
     UNUSED(dbid);
-    if (server.tracking_clients == 0) return;
 
-    listNode *ln;
-    listIter li;
-    listRewind(server.clients,&li);
-    while ((ln = listNext(&li)) != NULL) {
-        client *c = listNodeValue(ln);
-        if (c->flags & CLIENT_TRACKING) {
-            sendTrackingMessage(c,-1);
+    if (server.tracking_clients) {
+        listNode *ln;
+        listIter li;
+        listRewind(server.clients,&li);
+        while ((ln = listNext(&li)) != NULL) {
+            client *c = listNodeValue(ln);
+            if (c->flags & CLIENT_TRACKING) {
+                sendTrackingMessage(c,-1);
+            }
+        }
+    }
+
+    /* In case of FLUSHALL, reclaim all the memory used by tracking. */
+    if (dbid == -1 && TrackingTable) {
+        for (int j = 0; j < TRACKING_TABLE_SIZE; j++) {
+            if (TrackingTable[j] != NULL) {
+                raxFree(TrackingTable[j]);
+                TrackingTable[j] = NULL;
+                TrackingTableUsedSlots--;
+                if (TrackingTableUsedSlots == 0) break;
+            }
+        }
+
+        /* If there are no clients with tracking enabled, we can even
+         * reclaim the memory used by the table itself. The code assumes
+         * the table is allocated only if there is at least one client alive
+         * with tracking enabled. */
+        if (server.tracking_clients == 0) {
+            zfree(TrackingTable);
+            TrackingTable = NULL;
         }
     }
 }
