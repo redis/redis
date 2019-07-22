@@ -60,6 +60,7 @@
  * use the most significant bits instead of the full 24 bits. */
 #define TRACKING_TABLE_SIZE (1<<24)
 rax **TrackingTable = NULL;
+unsigned long TrackingTableUsedSlots = 0;
 robj *TrackingChannelName;
 
 /* Remove the tracking state from the client 'c'. Note that there is not much
@@ -109,8 +110,10 @@ void trackingRememberKeys(client *c) {
         sds sdskey = c->argv[idx]->ptr;
         uint64_t hash = crc64(0,
             (unsigned char*)sdskey,sdslen(sdskey))&(TRACKING_TABLE_SIZE-1);
-        if (TrackingTable[hash] == NULL)
+        if (TrackingTable[hash] == NULL) {
             TrackingTable[hash] = raxNew();
+            TrackingTableUsedSlots++;
+        }
         raxTryInsert(TrackingTable[hash],
             (unsigned char*)&c->id,sizeof(c->id),NULL,NULL);
     }
@@ -176,6 +179,7 @@ void trackingInvalidateKey(robj *keyobj) {
      * again if more keys will be modified in this hash slot. */
     raxFree(TrackingTable[hash]);
     TrackingTable[hash] = NULL;
+    TrackingTableUsedSlots--;
 }
 
 void trackingInvalidateKeysOnFlush(int dbid) {
