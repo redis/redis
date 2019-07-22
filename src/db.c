@@ -412,12 +412,12 @@ long long dbTotalServerKeyCount() {
 
 void signalModifiedKey(redisDb *db, robj *key) {
     touchWatchedKey(db,key);
-    if (server.tracking_clients) trackingInvalidateKey(key);
+    trackingInvalidateKey(key);
 }
 
 void signalFlushedDb(int dbid) {
     touchWatchedKeysOnFlush(dbid);
-    if (server.tracking_clients) trackingInvalidateKeysOnFlush(dbid);
+    trackingInvalidateKeysOnFlush(dbid);
 }
 
 /*-----------------------------------------------------------------------------
