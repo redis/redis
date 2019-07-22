@@ -156,12 +156,15 @@ void sendTrackingMessage(client *c, long long hash) {
 
 /* This function is called from signalModifiedKey() or other places in Redis
  * when a key changes value. In the context of keys tracking, our task here is
- * to send a notification to every client that may have keys about such . */
+ * to send a notification to every client that may have keys about such caching
+ * slot. */
 void trackingInvalidateKey(robj *keyobj) {
+    if (TrackingTable == NULL || TrackingTableUsedSlots == 0) return;
+
     sds sdskey = keyobj->ptr;
     uint64_t hash = crc64(0,
         (unsigned char*)sdskey,sdslen(sdskey))&(TRACKING_TABLE_SIZE-1);
-    if (TrackingTable == NULL || TrackingTable[hash] == NULL) return;
+    if (TrackingTable[hash] == NULL) return;
 
     raxIterator ri;
     raxStart(&ri,TrackingTable[hash]);
