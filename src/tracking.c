@@ -288,3 +288,9 @@ void trackingLimitUsedSlots(void) {
     }
     timeout_counter++;
 }
+
+/* This is just used in order to access the amount of used slots in the
+ * tracking table. */
+unsigned long long trackingGetUsedSlots(void) {
+    return TrackingTableUsedSlots;
+}
