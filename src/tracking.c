@@ -206,8 +206,6 @@ void trackingInvalidateKey(robj *keyobj) {
  * flush the table: it will slowly get garbage collected as more keys
  * are modified in the used caching slots. */
 void trackingInvalidateKeysOnFlush(int dbid) {
-    UNUSED(dbid);
-
     if (server.tracking_clients) {
         listNode *ln;
         listIter li;
@@ -222,12 +220,11 @@ void trackingInvalidateKeysOnFlush(int dbid) {
 
     /* In case of FLUSHALL, reclaim all the memory used by tracking. */
     if (dbid == -1 && TrackingTable) {
-        for (int j = 0; j < TRACKING_TABLE_SIZE; j++) {
+        for (int j = 0; j < TRACKING_TABLE_SIZE && TrackingTableUsedSlots > 0; j++) {
             if (TrackingTable[j] != NULL) {
                 raxFree(TrackingTable[j]);
                 TrackingTable[j] = NULL;
                 TrackingTableUsedSlots--;
-                if (TrackingTableUsedSlots == 0) break;
             }
         }
 
