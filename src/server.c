@@ -2347,6 +2347,7 @@ void initServerConfig(void) {
     server.repl_disable_tcp_nodelay = CONFIG_DEFAULT_REPL_DISABLE_TCP_NODELAY;
     server.repl_diskless_sync = CONFIG_DEFAULT_REPL_DISKLESS_SYNC;
     server.repl_diskless_load = CONFIG_DEFAULT_REPL_DISKLESS_LOAD;
+    server.repl_diskless_load_bgsave = CONFIG_DEFAULT_DISKLESS_LOAD_BGSAVE;
     server.repl_diskless_sync_delay = CONFIG_DEFAULT_REPL_DISKLESS_SYNC_DELAY;
     server.repl_ping_slave_period = CONFIG_DEFAULT_REPL_PING_SLAVE_PERIOD;
     server.repl_timeout = CONFIG_DEFAULT_REPL_TIMEOUT;
