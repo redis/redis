@@ -92,6 +92,7 @@ static const rio rioBufferIO = {
     rioBufferFlush,
     NULL,           /* update_checksum */
     0,              /* current checksum */
+    0,              /* flags */
     0,              /* bytes read or written */
     0,              /* read/write chunk size */
     { { NULL, 0 } } /* union for io-specific vars */
@@ -145,6 +146,7 @@ static const rio rioFileIO = {
     rioFileFlush,
     NULL,           /* update_checksum */
     0,              /* current checksum */
+    0,              /* flags */
     0,              /* bytes read or written */
     0,              /* read/write chunk size */
     { { NULL, 0 } } /* union for io-specific vars */
@@ -239,6 +241,7 @@ static const rio rioFdIO = {
     rioFdFlush,
     NULL,           /* update_checksum */
     0,              /* current checksum */
+    0,              /* flags */
     0,              /* bytes read or written */
     0,              /* read/write chunk size */
     { { NULL, 0 } } /* union for io-specific vars */
@@ -264,7 +267,7 @@ void rioFreeFd(rio *r, sds *remaining) {
         *remaining = r->io.fd.buf;
     } else {
         sdsfree(r->io.fd.buf);
-        if (out_remainingBufferedData) *remaining = NULL;
+        if (remaining) *remaining = NULL;
     }
     r->io.fd.buf = NULL;
 }
@@ -374,6 +377,7 @@ static const rio rioFdsetIO = {
     rioFdsetFlush,
     NULL,           /* update_checksum */
     0,              /* current checksum */
+    0,              /* flags */
     0,              /* bytes read or written */
     0,              /* read/write chunk size */
     { { NULL, 0 } } /* union for io-specific vars */

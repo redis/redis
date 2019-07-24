@@ -1470,12 +1470,10 @@ void configGetCommand(client *c) {
         matches++;
     }
     if (stringmatch(pattern,"notify-keyspace-events",1)) {
-        robj *flagsobj = createObject(OBJ_STRING,
-            keyspaceEventsFlagsToString(server.notify_keyspace_events));
+        sds flags = keyspaceEventsFlagsToString(server.notify_keyspace_events);
 
         addReplyBulkCString(c,"notify-keyspace-events");
-        addReplyBulk(c,flagsobj);
-        decrRefCount(flagsobj);
+        addReplyBulkSds(c,flags);
         matches++;
     }
     if (stringmatch(pattern,"bind",1)) {

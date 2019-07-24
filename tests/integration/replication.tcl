@@ -192,12 +192,6 @@ foreach mdl {no yes} {
             set master_host [srv 0 host]
             set master_port [srv 0 port]
             set slaves {}
-            set load_handle0 [start_bg_complex_data $master_host $master_port 9 100000000]
-            set load_handle1 [start_bg_complex_data $master_host $master_port 11 100000000]
-            set load_handle2 [start_bg_complex_data $master_host $master_port 12 100000000]
-            set load_handle3 [start_write_load $master_host $master_port 8]
-            set load_handle4 [start_write_load $master_host $master_port 4]
-            after 5000 ;# wait for some data to accumulate so that we have RDB part for the fork
             start_server {} {
                 lappend slaves [srv 0 client]
                 start_server {} {
@@ -205,6 +199,14 @@ foreach mdl {no yes} {
                     start_server {} {
                         lappend slaves [srv 0 client]
                         test "Connect multiple replicas at the same time (issue #141), master diskless=$mdl, replica diskless=$sdl" {
+                            # start load handles only inside the test, so that the test can be skipped
+                            set load_handle0 [start_bg_complex_data $master_host $master_port 9 100000000]
+                            set load_handle1 [start_bg_complex_data $master_host $master_port 11 100000000]
+                            set load_handle2 [start_bg_complex_data $master_host $master_port 12 100000000]
+                            set load_handle3 [start_write_load $master_host $master_port 8]
+                            set load_handle4 [start_write_load $master_host $master_port 4]
+                            after 5000 ;# wait for some data to accumulate so that we have RDB part for the fork
+
                             # Send SLAVEOF commands to slaves
                             [lindex $slaves 0] config set repl-diskless-load $sdl
                             [lindex $slaves 1] config set repl-diskless-load $sdl
@@ -278,9 +280,9 @@ start_server {tags {"repl"}} {
     set master [srv 0 client]
     set master_host [srv 0 host]
     set master_port [srv 0 port]
-    set load_handle0 [start_write_load $master_host $master_port 3]
     start_server {} {
         test "Master stream is correctly processed while the replica has a script in -BUSY state" {
+            set load_handle0 [start_write_load $master_host $master_port 3]
             set slave [srv 0 client]
             $slave config set lua-time-limit 500
             $slave slaveof $master_host $master_port
@@ -383,3 +385,84 @@ test {slave fails full sync and diskless load swapdb recoveres it} {
         }
     }
 }
+
+test {diskless loading short read} {
+    start_server {tags {"repl"}} {
+        set replica [srv 0 client]
+        set replica_host [srv 0 host]
+        set replica_port [srv 0 port]
+        start_server {} {
+            set master [srv 0 client]
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
+
+            # Set master and replica to use diskless replication
+            $master config set repl-diskless-sync yes
+            $master config set rdbcompression no
+            $replica config set repl-diskless-load swapdb
+            # Try to fill the master with all types of data types / encodings
+            for {set k 0} {$k < 3} {incr k} {
+                for {set i 0} {$i < 10} {incr i} {
+                    r set "$k int_$i" [expr {int(rand()*10000)}]
+                    r expire "$k int_$i" [expr {int(rand()*10000)}]
+                    r set "$k string_$i" [string repeat A [expr {int(rand()*1000000)}]]
+                    r hset "$k hash_small" [string repeat A [expr {int(rand()*10)}]]  0[string repeat A [expr {int(rand()*10)}]]
+                    r hset "$k hash_large" [string repeat A [expr {int(rand()*10000)}]] [string repeat A [expr {int(rand()*1000000)}]]
+                    r sadd "$k set_small" [string repeat A [expr {int(rand()*10)}]]
+                    r sadd "$k set_large" [string repeat A [expr {int(rand()*1000000)}]]
+                    r zadd "$k zset_small" [expr {rand()}] [string repeat A [expr {int(rand()*10)}]]
+                    r zadd "$k zset_large" [expr {rand()}] [string repeat A [expr {int(rand()*1000000)}]]
+                    r lpush "$k list_small" [string repeat A [expr {int(rand()*10)}]]
+                    r lpush "$k list_large" [string repeat A [expr {int(rand()*1000000)}]]
+                    for {set j 0} {$j < 10} {incr j} {
+                        r xadd "$k stream" * foo "asdf" bar "1234"
+                    }
+                    r xgroup create "$k stream" "mygroup_$i" 0
+                    r xreadgroup GROUP "mygroup_$i" Alice COUNT 1 STREAMS "$k stream" >
+                }
+            }
+
+            # Start the replication process...
+            $master config set repl-diskless-sync-delay 0
+            $replica replicaof $master_host $master_port
+
+            # kill the replication at various points
+            set attempts 3
+            if {$::accurate} { set attempts 10 }
+            for {set i 0} {$i < $attempts} {incr i} {
+                # wait for the replica to start reading the rdb
+                # using the log file since the replica only responds to INFO once in 2mb
+                wait_for_log_message -1 "*Loading DB in memory*" 5 2000 1
+
+                # add some additional random sleep so that we kill the master on a different place each time
+                after [expr {int(rand()*100)}]
+
+                # kill the replica connection on the master
+                set killed [$master client kill type replica]
+
+                if {[catch {
+                    set res [wait_for_log_message -1 "*Internal error in RDB*" 5 100 10]
+                    if {$::verbose} {
+                        puts $res
+                    }
+                }]} {
+                    puts "failed triggering short read"
+                    # force the replica to try another full sync
+                    $master client kill type replica
+                    $master set asdf asdf
+                    # the side effect of resizing the backlog is that it is flushed (16k is the min size)
+                    $master config set repl-backlog-size [expr {16384 + $i}]
+                }
+                # wait for loading to stop (fail)
+                wait_for_condition 100 10 {
+                    [s -1 loading] eq 0
+                } else {
+                    fail "Replica didn't disconnect"
+                }
+            }
+            # enable fast shutdown
+            $master config set rdb-key-save-delay 0
+        }
+    }
+}
+

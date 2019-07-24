@@ -378,6 +378,7 @@ long long emptyDbGeneric(redisDb *dbarray, int dbnum, int flags, void(callback)(
         }
     }
     if (dbnum == -1) flushSlaveKeysWithExpireList();
+    signalFlushedDb(dbnum);
     return removed;
 }
 
@@ -412,11 +413,12 @@ long long dbTotalServerKeyCount() {
 
 void signalModifiedKey(redisDb *db, robj *key) {
     touchWatchedKey(db,key);
-    if (server.tracking_clients) trackingInvalidateKey(key);
+    trackingInvalidateKey(key);
 }
 
 void signalFlushedDb(int dbid) {
     touchWatchedKeysOnFlush(dbid);
+    trackingInvalidateKeysOnFlush(dbid);
 }
 
 /*-----------------------------------------------------------------------------
@@ -452,7 +454,6 @@ void flushdbCommand(client *c) {
     int flags;
 
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
-    signalFlushedDb(c->db->id);
     server.dirty += emptyDb(c->db->id,flags,NULL);
     addReply(c,shared.ok);
 }
@@ -464,7 +465,6 @@ void flushallCommand(client *c) {
     int flags;
 
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
-    signalFlushedDb(-1);
     server.dirty += emptyDb(-1,flags,NULL);
     addReply(c,shared.ok);
     if (server.rdb_child_pid != -1) killRDBChild();
@@ -1028,7 +1028,7 @@ void scanDatabaseForReadyLists(redisDb *db) {
  *
  * Returns C_ERR if at least one of the DB ids are out of range, otherwise
  * C_OK is returned. */
-int dbSwapDatabases(int id1, int id2) {
+int dbSwapDatabases(long id1, long id2) {
     if (id1 < 0 || id1 >= server.dbnum ||
         id2 < 0 || id2 >= server.dbnum) return C_ERR;
     if (id1 == id2) return C_OK;

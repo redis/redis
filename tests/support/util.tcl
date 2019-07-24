@@ -99,6 +99,25 @@ proc wait_for_ofs_sync {r1 r2} {
     }
 }
 
+proc wait_for_log_message {srv_idx pattern last_lines maxtries delay} {
+    set retry $maxtries
+    set stdout [srv $srv_idx stdout]
+    while {$retry} {
+        set result [exec tail -$last_lines < $stdout]
+        set result [split $result "\n"]
+        foreach line $result {
+            if {[string match $pattern $line]} {
+                return $line
+            }
+        }
+        incr retry -1
+        after $delay
+    }
+    if {$retry == 0} {
+        fail "log message of '$pattern' not found"
+    }
+}
+
 # Random integer between 0 and max (excluded).
 proc randomInt {max} {
     expr {int(rand()*$max)}
