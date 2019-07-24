@@ -1824,6 +1824,9 @@ void checkChildrenDone(void) {
         }
         updateDictResizePolicy();
         closeChildInfoPipe();
+
+        /* start any pending forks immediately. */
+        replicationStartPendingFork();
     }
 }
 
