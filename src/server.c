@@ -2404,7 +2404,7 @@ void initServerConfig(void) {
     server.latency_monitor_threshold = CONFIG_DEFAULT_LATENCY_MONITOR_THRESHOLD;
 
     /* Tracking. */
-    server.tracking_table_max_fill = CONFIG_DEFAULT_TRACKING_MAX_FILL;
+    server.tracking_table_max_fill = CONFIG_DEFAULT_TRACKING_TABLE_MAX_FILL;
 
     /* Debugging */
     server.assert_failed = "<no assertion failed>";
