@@ -160,6 +160,7 @@ typedef struct RedisModuleDict RedisModuleDict;
 typedef struct RedisModuleDictIter RedisModuleDictIter;
 typedef struct RedisModuleCommandFilterCtx RedisModuleCommandFilterCtx;
 typedef struct RedisModuleCommandFilter RedisModuleCommandFilter;
+typedef struct RedisModuleInfoCtx RedisModuleInfoCtx;
 
 typedef int (*RedisModuleCmdFunc)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 typedef void (*RedisModuleDisconnectFunc)(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc);
@@ -173,6 +174,7 @@ typedef void (*RedisModuleTypeFreeFunc)(void *value);
 typedef void (*RedisModuleClusterMessageReceiver)(RedisModuleCtx *ctx, const char *sender_id, uint8_t type, const unsigned char *payload, uint32_t len);
 typedef void (*RedisModuleTimerProc)(RedisModuleCtx *ctx, void *data);
 typedef void (*RedisModuleCommandFilterFunc) (RedisModuleCommandFilterCtx *filter);
+typedef void (*RedisModuleInfoFunc)(RedisModuleInfoCtx *ctx, int for_crash_report);
 
 #define REDISMODULE_TYPE_METHOD_VERSION 1
 typedef struct RedisModuleTypeMethods {
@@ -317,6 +319,13 @@ RedisModuleString *REDISMODULE_API_FUNC(RedisModule_DictNext)(RedisModuleCtx *ct
 RedisModuleString *REDISMODULE_API_FUNC(RedisModule_DictPrev)(RedisModuleCtx *ctx, RedisModuleDictIter *di, void **dataptr);
 int REDISMODULE_API_FUNC(RedisModule_DictCompareC)(RedisModuleDictIter *di, const char *op, void *key, size_t keylen);
 int REDISMODULE_API_FUNC(RedisModule_DictCompare)(RedisModuleDictIter *di, const char *op, RedisModuleString *key);
+int REDISMODULE_API_FUNC(RedisModule_RegisterInfoFunc)(RedisModuleCtx *ctx, RedisModuleInfoFunc cb);
+int REDISMODULE_API_FUNC(RedisModule_AddInfoSection)(RedisModuleInfoCtx *ctx, char *name);
+int REDISMODULE_API_FUNC(RedisModule_AddInfoFieldString)(RedisModuleInfoCtx *ctx, char *field, RedisModuleString *value);
+int REDISMODULE_API_FUNC(RedisModule_AddInfoFieldCString)(RedisModuleInfoCtx *ctx, char *field, char *value);
+int REDISMODULE_API_FUNC(RedisModule_AddInfoFieldDouble)(RedisModuleInfoCtx *ctx, char *field, double value);
+int REDISMODULE_API_FUNC(RedisModule_AddInfoFieldLongLong)(RedisModuleInfoCtx *ctx, char *field, long long value);
+int REDISMODULE_API_FUNC(RedisModule_AddInfoFieldULongLong)(RedisModuleInfoCtx *ctx, char *field, unsigned long long value);
 
 /* Experimental APIs */
 #ifdef REDISMODULE_EXPERIMENTAL_API
@@ -490,6 +499,13 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(DictPrev);
     REDISMODULE_GET_API(DictCompare);
     REDISMODULE_GET_API(DictCompareC);
+    REDISMODULE_GET_API(RegisterInfoFunc);
+    REDISMODULE_GET_API(AddInfoSection);
+    REDISMODULE_GET_API(AddInfoFieldString);
+    REDISMODULE_GET_API(AddInfoFieldCString);
+    REDISMODULE_GET_API(AddInfoFieldDouble);
+    REDISMODULE_GET_API(AddInfoFieldLongLong);
+    REDISMODULE_GET_API(AddInfoFieldULongLong);
 
 #ifdef REDISMODULE_EXPERIMENTAL_API
     REDISMODULE_GET_API(GetThreadSafeContext);

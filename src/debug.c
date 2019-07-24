@@ -1337,6 +1337,12 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     /* Log dump of processor registers */
     logRegisters(uc);
 
+    /* Log Modules INFO */
+    serverLogRaw(LL_WARNING|LL_RAW, "\n------ MODULES INFO OUTPUT ------\n");
+    infostring = modulesCollectInfo(sdsempty(), NULL, 1, 0);
+    serverLogRaw(LL_WARNING|LL_RAW, infostring);
+    sdsfree(infostring);
+
 #if defined(HAVE_PROC_MAPS)
     /* Test memory */
     serverLogRaw(LL_WARNING|LL_RAW, "\n------ FAST MEMORY TEST ------\n");

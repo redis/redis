@@ -1528,6 +1528,7 @@ void moduleAcquireGIL(void);
 void moduleReleaseGIL(void);
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
 void moduleCallCommandFilters(client *c);
+sds modulesCollectInfo(sds info, sds section, int for_crash_report, int sections);
 
 /* Utils */
 long long ustime(void);
