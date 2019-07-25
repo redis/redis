@@ -3515,7 +3515,7 @@ void RM_LogRaw(RedisModule *module, const char *levelstr, const char *fmt, va_li
 
     if (level < server.verbosity) return;
 
-    name_len = snprintf(msg, sizeof(msg),"<%s> ", module->name);
+    name_len = snprintf(msg, sizeof(msg),"<%s> ", module? module->name: "module");
     vsnprintf(msg + name_len, sizeof(msg) - name_len, fmt, ap);
     serverLogRaw(level,msg);
 }
@@ -3533,13 +3533,15 @@ void RM_LogRaw(RedisModule *module, const char *levelstr, const char *fmt, va_li
  * There is a fixed limit to the length of the log line this function is able
  * to emit, this limit is not specified but is guaranteed to be more than
  * a few lines of text.
+ *
+ * The ctx argument may be NULL if cannot be provided in the context of the
+ * caller for instance threads or callbacks, in which case a generic "module"
+ * will be used instead of the module name.
  */
 void RM_Log(RedisModuleCtx *ctx, const char *levelstr, const char *fmt, ...) {
-    if (!ctx->module) return;   /* Can only log if module is initialized */
-
     va_list ap;
     va_start(ap, fmt);
-    RM_LogRaw(ctx->module,levelstr,fmt,ap);
+    RM_LogRaw(ctx? ctx->module: NULL,levelstr,fmt,ap);
     va_end(ap);
 }
 
