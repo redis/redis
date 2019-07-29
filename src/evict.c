@@ -404,7 +404,7 @@ int freeMemoryIfNeeded(void) {
     latencyStartMonitor(latency);
     while (mem_freed < mem_tofree) {
         int j, k, i, keys_freed = 0;
-        static int next_db = 0;
+        static unsigned int next_db = 0;
         sds bestkey = NULL;
         int bestdbid;
         redisDb *db;

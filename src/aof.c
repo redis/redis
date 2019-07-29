@@ -203,6 +203,26 @@ void aof_background_fsync(int fd) {
     bioCreateBackgroundJob(BIO_AOF_FSYNC,(void*)(long)fd,NULL,NULL);
 }
 
+/* Kills an AOFRW child process if exists */
+static void killAppendOnlyChild(void) {
+    int statloc;
+    /* No AOFRW child? return. */
+    if (server.aof_child_pid == -1) return;
+    /* Kill AOFRW child, wait for child exit. */
+    serverLog(LL_NOTICE,"Killing running AOF rewrite child: %ld",
+        (long) server.aof_child_pid);
+    if (kill(server.aof_child_pid,SIGUSR1) != -1) {
+        while(wait3(&statloc,0,NULL) != server.aof_child_pid);
+    }
+    /* Reset the buffer accumulating changes while the child saves. */
+    aofRewriteBufferReset();
+    aofRemoveTempFile(server.aof_child_pid);
+    server.aof_child_pid = -1;
+    server.aof_rewrite_time_start = -1;
+    /* Close pipes used for IPC between the two processes. */
+    aofClosePipes();
+}
+
 /* Called when the user switches from "appendonly yes" to "appendonly no"
  * at runtime using the CONFIG command. */
 void stopAppendOnly(void) {
@@ -214,23 +234,7 @@ void stopAppendOnly(void) {
     server.aof_fd = -1;
     server.aof_selected_db = -1;
     server.aof_state = AOF_OFF;
-    /* rewrite operation in progress? kill it, wait child exit */
-    if (server.aof_child_pid != -1) {
-        int statloc;
-
-        serverLog(LL_NOTICE,"Killing running AOF rewrite child: %ld",
-            (long) server.aof_child_pid);
-        if (kill(server.aof_child_pid,SIGUSR1) != -1) {
-            while(wait3(&statloc,0,NULL) != server.aof_child_pid);
-        }
-        /* reset the buffer accumulating changes while the child saves */
-        aofRewriteBufferReset();
-        aofRemoveTempFile(server.aof_child_pid);
-        server.aof_child_pid = -1;
-        server.aof_rewrite_time_start = -1;
-        /* close pipes used for IPC between the two processes. */
-        aofClosePipes();
-    }
+    killAppendOnlyChild();
 }
 
 /* Called when the user switches from "appendonly no" to "appendonly yes"
@@ -255,10 +259,19 @@ int startAppendOnly(void) {
     if (server.rdb_child_pid != -1) {
         server.aof_rewrite_scheduled = 1;
         serverLog(LL_WARNING,"AOF was enabled but there is already a child process saving an RDB file on disk. An AOF background was scheduled to start when possible.");
-    } else if (rewriteAppendOnlyFileBackground() == C_ERR) {
-        close(newfd);
-        serverLog(LL_WARNING,"Redis needs to enable the AOF but can't trigger a background AOF rewrite operation. Check the above logs for more info about the error.");
-        return C_ERR;
+    } else {
+        /* If there is a pending AOF rewrite, we need to switch it off and
+         * start a new one: the old one cannot be reused becuase it is not
+         * accumulating the AOF buffer. */
+        if (server.aof_child_pid != -1) {
+            serverLog(LL_WARNING,"AOF was enabled but there is already an AOF rewriting in background. Stopping background AOF and starting a rewrite now.");
+            killAppendOnlyChild();
+        }
+        if (rewriteAppendOnlyFileBackground() == C_ERR) {
+            close(newfd);
+            serverLog(LL_WARNING,"Redis needs to enable the AOF but can't trigger a background AOF rewrite operation. Check the above logs for more info about the error.");
+            return C_ERR;
+        }
     }
     /* We correctly switched on AOF, now wait for the rewrite to be complete
      * in order to append data on disk. */
@@ -664,6 +677,7 @@ int loadAppendOnlyFile(char *filename) {
     int old_aof_state = server.aof_state;
     long loops = 0;
     off_t valid_up_to = 0; /* Offset of latest well-formed command loaded. */
+    off_t valid_before_multi = 0; /* Offset before MULTI command loaded. */
 
     if (fp == NULL) {
         serverLog(LL_WARNING,"Fatal error: can't open the append log file for reading: %s",strerror(errno));
@@ -700,7 +714,7 @@ int loadAppendOnlyFile(char *filename) {
         serverLog(LL_NOTICE,"Reading RDB preamble from AOF file...");
         if (fseek(fp,0,SEEK_SET) == -1) goto readerr;
         rioInitWithFile(&rdb,fp);
-        if (rdbLoadRio(&rdb,NULL) != C_OK) {
+        if (rdbLoadRio(&rdb,NULL,1) != C_OK) {
             serverLog(LL_WARNING,"Error reading the RDB preamble of the AOF file, AOF loading aborted");
             goto readerr;
         } else {
@@ -764,16 +778,28 @@ int loadAppendOnlyFile(char *filename) {
         /* Command lookup */
         cmd = lookupCommand(argv[0]->ptr);
         if (!cmd) {
-            serverLog(LL_WARNING,"Unknown command '%s' reading the append only file", (char*)argv[0]->ptr);
+            serverLog(LL_WARNING,
+                "Unknown command '%s' reading the append only file",
+                (char*)argv[0]->ptr);
             exit(1);
         }
 
+        if (cmd == server.multiCommand) valid_before_multi = valid_up_to;
+
         /* Run the command in the context of a fake client */
         fakeClient->cmd = cmd;
-        cmd->proc(fakeClient);
+        if (fakeClient->flags & CLIENT_MULTI &&
+            fakeClient->cmd->proc != execCommand)
+        {
+            queueMultiCommand(fakeClient);
+        } else {
+            cmd->proc(fakeClient);
+        }
 
         /* The fake client should not have a reply */
-        serverAssert(fakeClient->bufpos == 0 && listLength(fakeClient->reply) == 0);
+        serverAssert(fakeClient->bufpos == 0 &&
+                     listLength(fakeClient->reply) == 0);
+
         /* The fake client should never get blocked */
         serverAssert((fakeClient->flags & CLIENT_BLOCKED) == 0);
 
@@ -785,8 +811,15 @@ int loadAppendOnlyFile(char *filename) {
     }
 
     /* This point can only be reached when EOF is reached without errors.
-     * If the client is in the middle of a MULTI/EXEC, log error and quit. */
-    if (fakeClient->flags & CLIENT_MULTI) goto uxeof;
+     * If the client is in the middle of a MULTI/EXEC, handle it as it was
+     * a short read, even if technically the protocol is correct: we want
+     * to remove the unprocessed tail and continue. */
+    if (fakeClient->flags & CLIENT_MULTI) {
+        serverLog(LL_WARNING,
+            "Revert incomplete MULTI/EXEC transaction in AOF file");
+        valid_up_to = valid_before_multi;
+        goto uxeof;
+    }
 
 loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
     fclose(fp);

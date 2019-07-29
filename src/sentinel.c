@@ -84,6 +84,7 @@ typedef struct sentinelAddr {
 #define SENTINEL_MAX_PENDING_COMMANDS 100
 #define SENTINEL_ELECTION_TIMEOUT 10000
 #define SENTINEL_MAX_DESYNC 1000
+#define SENTINEL_DEFAULT_DENY_SCRIPTS_RECONFIG 1
 
 /* Failover machine different states. */
 #define SENTINEL_FAILOVER_STATE_NONE 0  /* No failover in progress. */
@@ -241,6 +242,8 @@ struct sentinelState {
     int announce_port;  /* Port that is gossiped to other sentinels if
                            non zero. */
     unsigned long simfailure_flags; /* Failures simulation. */
+    int deny_scripts_reconfig; /* Allow SENTINEL SET ... to change script
+                                  paths at runtime? */
 } sentinel;
 
 /* A script execution job. */
@@ -468,6 +471,7 @@ void initSentinel(void) {
     sentinel.announce_ip = NULL;
     sentinel.announce_port = 0;
     sentinel.simfailure_flags = SENTINEL_SIMFAILURE_NONE;
+    sentinel.deny_scripts_reconfig = SENTINEL_DEFAULT_DENY_SCRIPTS_RECONFIG;
     memset(sentinel.myid,0,sizeof(sentinel.myid));
 }
 
@@ -1684,6 +1688,12 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
     } else if (!strcasecmp(argv[0],"announce-port") && argc == 2) {
         /* announce-port <port> */
         sentinel.announce_port = atoi(argv[1]);
+    } else if (!strcasecmp(argv[0],"deny-scripts-reconfig") && argc == 2) {
+        /* deny-scripts-reconfig <yes|no> */
+        if ((sentinel.deny_scripts_reconfig = yesnotoi(argv[1])) == -1) {
+            return "Please specify yes or no for the "
+                   "deny-scripts-reconfig options.";
+        }
     } else {
         return "Unrecognized sentinel configuration statement.";
     }
@@ -1703,6 +1713,12 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
     /* sentinel unique ID. */
     line = sdscatprintf(sdsempty(), "sentinel myid %s", sentinel.myid);
     rewriteConfigRewriteLine(state,"sentinel",line,1);
+
+    /* sentinel deny-scripts-reconfig. */
+    line = sdscatprintf(sdsempty(), "sentinel deny-scripts-reconfig %s",
+        sentinel.deny_scripts_reconfig ? "yes" : "no");
+    rewriteConfigRewriteLine(state,"sentinel",line,
+        sentinel.deny_scripts_reconfig != SENTINEL_DEFAULT_DENY_SCRIPTS_RECONFIG);
 
     /* For every master emit a "sentinel monitor" config entry. */
     di = dictGetIterator(sentinel.masters);
@@ -2599,20 +2615,24 @@ void sentinelSendPeriodicCommands(sentinelRedisInstance *ri) {
     ping_period = ri->down_after_period;
     if (ping_period > SENTINEL_PING_PERIOD) ping_period = SENTINEL_PING_PERIOD;
 
+    /* Send INFO to masters and slaves, not sentinels. */
     if ((ri->flags & SRI_SENTINEL) == 0 &&
         (ri->info_refresh == 0 ||
         (now - ri->info_refresh) > info_period))
     {
-        /* Send INFO to masters and slaves, not sentinels. */
         retval = redisAsyncCommand(ri->link->cc,
             sentinelInfoReplyCallback, ri, "INFO");
         if (retval == C_OK) ri->link->pending_commands++;
-    } else if ((now - ri->link->last_pong_time) > ping_period &&
+    }
+
+    /* Send PING to all the three kinds of instances. */
+    if ((now - ri->link->last_pong_time) > ping_period &&
                (now - ri->link->last_ping_time) > ping_period/2) {
-        /* Send PING to all the three kinds of instances. */
         sentinelSendPing(ri);
-    } else if ((now - ri->last_pub_time) > SENTINEL_PUBLISH_PERIOD) {
-        /* PUBLISH hello messages to all the three kinds of instances. */
+    }
+
+    /* PUBLISH hello messages to all the three kinds of instances. */
+    if ((now - ri->last_pub_time) > SENTINEL_PUBLISH_PERIOD) {
         sentinelSendHello(ri);
     }
 }
@@ -3327,6 +3347,14 @@ void sentinelSetCommand(client *c) {
             changes++;
        } else if (!strcasecmp(option,"notification-script")) {
             /* notification-script <path> */
+            if (sentinel.deny_scripts_reconfig) {
+                addReplyError(c,
+                    "Reconfiguration of scripts path is denied for "
+                    "security reasons. Check the deny-scripts-reconfig "
+                    "configuration directive in your Sentinel configuration");
+                return;
+            }
+
             if (strlen(value) && access(value,X_OK) == -1) {
                 addReplyError(c,
                     "Notification script seems non existing or non executable");
@@ -3338,6 +3366,14 @@ void sentinelSetCommand(client *c) {
             changes++;
        } else if (!strcasecmp(option,"client-reconfig-script")) {
             /* client-reconfig-script <path> */
+            if (sentinel.deny_scripts_reconfig) {
+                addReplyError(c,
+                    "Reconfiguration of scripts path is denied for "
+                    "security reasons. Check the deny-scripts-reconfig "
+                    "configuration directive in your Sentinel configuration");
+                return;
+            }
+
             if (strlen(value) && access(value,X_OK) == -1) {
                 addReplyError(c,
                     "Client reconfiguration script seems non existing or "

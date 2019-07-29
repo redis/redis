@@ -11,6 +11,396 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 4.0.12     Released Tue Dec 11 18:06:12 CEST 2018
+================================================================================
+
+This backports the following Redis 5 fixes back into Redis 4.
+Please check the Redis 5 changelog or see the full commit messages
+for more information. Note that there are important fixes to the AOF
+implementation so Redis 4.0.12 should be considered as a worthwhile
+upgrade in production environments where AOF is used and there is the
+idea of sticking with Redis 4 for some time.
+
+b6cd3b3c asyncCloseClientOnOutputBufferLimitReached(): don't free fake clients.
+e16402b0 Don't call sdscmp() with shared.maxstring or shared.minstring
+49d9f411 Fix stringmatchlen() read past buffer bug.
+97192e2d Merge pull request #5569 from maximebedard/backport-4497
+1908aba7 add linkClient(): adds the client and caches the list node.
+239b0857 networking: optimize unlinkClient() in freeClient()
+54b17f98 When replica kills a pending RDB save during SYNC, log it.
+b31c08db Move child termination to readSyncBulkPayload
+21971ac8 Prevent RDB autosave from overwriting full resync results
+3a91fcbc aof.c: improve indentation and change warning message.
+e6f287d5 AOF: discard if we lost EXEC when loading aof
+e0d4c66a Fix AOF comment to report the current behavior.
+
+================================================================================
+Redis 4.0.11     Released Fri Aug 03 17:09:24 CEST 2018
+================================================================================
+
+Upgrade urgency HIGH: not critical but very important bugs fixed.
+
+Dear users, this is just a bugfix release of Redis 4. All new work
+is now focused on Redis 5, however we backported a number of bug fixes here:
+
+* The disconnection time between the master and slave was reset in an
+  incorrect place, sometimes a good slave will not be able to failover
+  because it claims it was disconnected for too much time from the master.
+* A replication bug, rare to trigger but non impossible, is in Redis for
+  years. It was lately discovered at Redis Labs and fixed by Oran Agra.
+  It may cause disconnections, desynchronizations and other issues.
+* RANDOMKEY may go in infinite loop on rare situations. Now fixed.
+* EXISTS now works in a more consistent way on slaves.
+* Sentinel: backport of an option to deny a potential security problem
+  when the SENTINEL command is used to configure an arbitrary script
+  to execute.
+
+Many of these issues are there for a very long time, however upgrading
+is a good idea.
+
+This is the full list of commits:
+
+antirez in commit 677f7585:
+ Set repl_down_since to zero on state change.
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+WuYunlong in commit 8c6223f9:
+ fix server.repl_down_since resetting, so that slaves could failover automatically as expected.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Oran Agra in commit 9535c215:
+ fix rare replication stream corruption with disk-based replication
+ 3 files changed, 19 insertions(+), 9 deletions(-)
+
+zhaozhao.zz in commit 5f1fcc59:
+ fix exists command on slave
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+antirez in commit ab145a9f:
+ Fix infinite loop in dbRandomKey().
+ 1 file changed, 13 insertions(+)
+
+antirez in commit 2fa43ece:
+ Sentinel: add an option to deny online script reconfiguration.
+ 2 files changed, 41 insertions(+)
+
+================================================================================
+Redis 4.0.10     Released Wed Jun 13 12:49:13 CEST 2018
+================================================================================
+
+Upgrade urgency CRITICAL: This release fixes important security issues.
+                    HIGH: This release fixes a SCAN commands family bug.
+                MODERATE: This release fixes a PSYNC2 edge case with expires.
+                MODERATE: Sentinel related fixes.
+                     LOW: All the other issues
+
+Redis 4.0.10 fixes a number of important issues:
+
+* Important security issues related to the Lua scripting engine.
+  Please check https://github.com/antirez/redis/issues/5017
+  for more information.
+
+* A bug with SCAN, SSCAN, HSCAN and ZSCAN, that may not return all the elements.
+  We also add a regression test that can trigger the issue often when present, and
+  may in theory be able to find unrelated regressions.
+
+* A PSYNC2 bug is fixed: Redis should not expire keys when saving RDB files
+  because otherwise it is no longer possible to use such RDB file as a base
+  for partial resynchronization. It no longer represents the right state.
+
+* Compatibility of AOF with RDB preamble when the RDB checksum is disabled.
+
+* Sentinel bug that in some cases prevented Sentinel to detect that the master
+  was down immediately. A delay was added to the detection.
+
+* Other minor issues.
+
+The following is the list of commits composing the release, please check
+the commit messages and authors for credits.
+
+antirez in commit 9fdcc159:
+ Security: fix redis-cli buffer overflow.
+ 1 file changed, 16 insertions(+), 11 deletions(-)
+
+antirez in commit cf760071:
+ Security: fix Lua struct package offset handling.
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+antirez in commit a57595ca:
+ Security: more cmsgpack fixes by @soloestoy.
+ 1 file changed, 7 insertions(+)
+
+antirez in commit 8783fb94:
+ Security: update Lua struct package for security.
+ 1 file changed, 23 insertions(+), 23 deletions(-)
+
+antirez in commit 8cb9344b:
+ Security: fix Lua cmsgpack library stack overflow.
+ 1 file changed, 3 insertions(+)
+
+赵磊 in commit 59080f60:
+ Fix dictScan(): It can't scan all buckets when dict is shrinking.
+ 1 file changed, 14 insertions(+), 11 deletions(-)
+
+dejun.xdj in commit ac2a824a:
+ Fix redis-cli memory leak when sending set preference command.
+ 1 file changed, 2 insertions(+)
+
+dejun.xdj in commit c7197ff5:
+ Check if the repeat value is positive in while loop of cliSendCommand().
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+dejun.xdj in commit 3f77777f:
+ Change the type of repeat argument to long for function cliSendCommand.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+dejun.xdj in commit 7a565d72:
+ Fix negtive repeat command value issue.
+ 1 file changed, 11 insertions(+), 3 deletions(-)
+
+dejun.xdj in commit 64bf60fb:
+ Detect and stop saving history for auth command with repeat option.
+ 1 file changed, 17 insertions(+), 10 deletions(-)
+
+dejun.xdj in commit 5bed12aa:
+ Change the warning message a little bit to avoid trademark issuses.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+dejun.xdj in commit d71c4961:
+ Stop saving auth command in redis-cli history.
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+dejun.xdj in commit fca99e41:
+ Add warning message when using password on command line
+ 1 file changed, 1 insertion(+)
+
+antirez in commit 01407a3a:
+ Don't expire keys while loading RDB from AOF preamble.
+ 3 files changed, 5 insertions(+), 5 deletions(-)
+
+WuYunlong in commit fb5408cf:
+ Fix rdb save by allowing dumping of expire keys, so that when we add a new slave, and do a failover, eighter by manual or not, other local slaves will delete the expired keys properly.
+ 2 files changed, 3 insertions(+), 7 deletions(-)
+
+antirez in commit 0b8b6df4:
+ Backport hiredis issue 525 fix to compile on FreeBSD.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit e98627c5:
+ Add INIT INFO to the provided init script.
+ 1 file changed, 8 insertions(+)
+
+antirez in commit 17f5de89:
+ Fix ae.c when a timer finalizerProc adds an event.
+ 2 files changed, 10 insertions(+), 6 deletions(-)
+
+antirez in commit 266e6423:
+ Sentinel: fix delay in detecting ODOWN.
+ 1 file changed, 9 insertions(+), 5 deletions(-)
+
+zhaozhao.zz in commit eafaf172:
+ AOF & RDB: be compatible with rdbchecksum no
+ 1 file changed, 9 insertions(+), 7 deletions(-)
+
+huijing.whj in commit 4630da37:
+ fix int overflow problem in freeMemoryIfNeeded
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+
+================================================================================
+Redis 4.0.9     Released Mon Mar 26 17:52:32 CEST 2018
+================================================================================
+
+Upgrade urgency CRITICAL: Critical upgrade for users using AOF with the
+                          fsync policy set to "always".
+
+Dear Redis users,
+
+Redis version 4.0.9 adds a few interesting new features and fixes a very
+critical bug regarding the Append Only File. Let's start with the bad news
+(the critical bug), explaining what happens and in what conditions:
+
+Critical AOF bug explained
+--------------------------
+
+When AOF is enabled with the fsync policy set to "always", we have a
+(rarely used) setup where Redis fsyncs every new write on disk. On this
+setup Redis MUST reply to the client with an OK code to the write, only
+after the write is already persisted on disk.
+
+Because of a bug, in particular conditions, it sometimes happens (verified
+experimentally that the condition can be actually created) that in the
+same event loop cycle the command is both processed and the reply sent, before
+the beforeSleep() function has the ability to fsync the write on disk.
+
+The redis 4.0.9 release fixes this problem introducing the concept of
+write barriers in the Redis event loop (ae.c). If you are using a different
+AOF setup, like fsync everysec, you are not affected because such guarantee
+is not provided anyway. Similarly if you have fsync set to always but you
+do not semantically use the fact that the reply is only sent after the
+successful fsync, you may avoid upgrading.
+
+Other bugfixes
+--------------
+
+Other things that we fixed in this release include:
+
+* Latency monitor could report wrong latencies under certain conditions.
+* AOF rewriting could fail when a backgronud rewrite is triggered and
+  at the same time the AOF is switched on/off.
+* Redis Cluster crash-recovery safety improved.
+* Other smaller fixes (check commnits).
+
+New features
+------------
+
+* Redis Cluster has now the ability to configure certain slaves so that
+  they'll never attempt a failover.
+* Keyspace notifications API in modules.
+* RM_Call() is now faster by reusing the same client.
+* Tracking of the percentage of keys already logically expired but yet
+  not evicted.
+* Other smaller improvements (check commits)
+
+This is the list of commits composing this release:
+
+zhaozhao.zz in commit 5b722bd7:
+ fix missed call on freeaddrinfo
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+zhaozhao.zz in commit 2551b0f6:
+ anet: avoid double close
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 8d92885b:
+ Cluster: add test for the nofailover flag.
+ 2 files changed, 71 insertions(+)
+
+antirez in commit 70597a30:
+ Cluster: ability to prevent slaves from failing over their masters.
+ 6 files changed, 70 insertions(+), 2 deletions(-)
+
+antirez in commit 16cad10a:
+ redis-cli: fix missed unit in array. Change define name.
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+charsyam in commit 640fa434:
+ fix-out-of-index-range-for-redis-cli-findbigkey
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+antirez in commit 83390f55:
+ expireIfNeeded() needed a top comment documenting the behavior.
+ 1 file changed, 19 insertions(+)
+
+antirez in commit 888039ca:
+ expireIfNeeded() comment: claim -> pretend.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit e09c8c10:
+ Actually use ae_flags to add AE_BARRIER if needed.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+charsyam in commit fb7560bc:
+ refactoring-make-condition-clear-for-rdb
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit 1e2f0d69:
+ ae.c: insetad of not firing, on AE_BARRIER invert the sequence.
+ 1 file changed, 38 insertions(+), 22 deletions(-)
+
+antirez in commit b2e4aad9:
+ AOF: fix a bug that may prevent proper fsyncing when fsync=always.
+ 1 file changed, 18 insertions(+), 6 deletions(-)
+
+antirez in commit 93bad8ae:
+ Cluster: improve crash-recovery safety after failover auth vote.
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+antirez in commit e32752e8:
+ ae.c: introduce the concept of read->write barrier.
+ 2 files changed, 29 insertions(+), 6 deletions(-)
+
+antirez in commit 262f4039:
+ Fix ziplist prevlen encoding description. See #4705.
+ 1 file changed, 6 insertions(+), 6 deletions(-)
+
+antirez in commit 83923afa:
+ Track number of logically expired keys still in memory.
+ 3 files changed, 28 insertions(+), 1 deletion(-)
+
+antirez in commit 256ddbf6:
+ Remove non semantical spaces from module.c.
+ 1 file changed, 36 insertions(+), 41 deletions(-)
+
+antirez in commit 280c3e39:
+ Fix typo in notifyKeyspaceEvent() comment.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Dvir Volk in commit 7c4623b0:
+ Add doc comment about notification flags
+ 1 file changed, 1 insertion(+)
+
+Dvir Volk in commit f4e7502e:
+ Fix indentation and comment style in testmodule
+ 1 file changed, 92 insertions(+), 98 deletions(-)
+
+Dvir Volk in commit 3c8456c6:
+ Use one static client for all keyspace notification callbacks
+ 1 file changed, 11 insertions(+), 7 deletions(-)
+
+Dvir Volk in commit aaaff8bd:
+ Remove the NOTIFY_MODULE flag and simplify the module notification flow if there aren't subscribers
+ 3 files changed, 5 insertions(+), 9 deletions(-)
+
+Dvir Volk in commit 0be51b8f:
+ Document flags for notifications
+ 1 file changed, 17 insertions(+), 1 deletion(-)
+
+Dvir Volk in commit 3b95c89c:
+ removed some trailing whitespaces
+ 1 file changed, 2 deletions(-)
+
+Dvir Volk in commit 84c6f1e3:
+ removed hellonotify.c
+ 3 files changed, 1 insertion(+), 87 deletions(-)
+
+Dvir Volk in commit 53b85e53:
+ fixed test
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+Dvir Volk in commit b43f66c9:
+ finished implementation of notifications. Tests unfinished
+ 7 files changed, 339 insertions(+), 3 deletions(-)
+
+antirez in commit eddf5deb:
+ More verbose logging when slave sends errors to master.
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+oranagra in commit c09cc0a9:
+ when a slave experiances an error on commands that come from master, print to the log
+ 1 file changed, 2 insertions(+)
+
+charsyam in commit 5c374f94:
+ getting rid of duplicated code
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Guy Benoish in commit a64f36e5:
+ enlarged buffer given to ld2string
+ 3 files changed, 7 insertions(+), 2 deletions(-)
+
+antirez in commit f1705801:
+ Make it explicit with a comment why we kill the old AOF rewrite.
+ 1 file changed, 3 insertions(+)
+
+Guy Benoish in commit 0c030dea:
+ rewriteAppendOnlyFileBackground() failure fix
+ 1 file changed, 31 insertions(+), 21 deletions(-)
+
+Oran Agra in commit 58073974:
+ fix to latency monitor reporting wrong max latency
+ 1 file changed, 1 insertion(+)
+
+================================================================================
 Redis 4.0.8     Released Fri Feb 2 11:17:40 CET 2018
 ================================================================================
 
