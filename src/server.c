@@ -2403,6 +2403,9 @@ void initServerConfig(void) {
     /* Latency monitor */
     server.latency_monitor_threshold = CONFIG_DEFAULT_LATENCY_MONITOR_THRESHOLD;
 
+    /* Tracking. */
+    server.tracking_table_max_fill = CONFIG_DEFAULT_TRACKING_TABLE_MAX_FILL;
+
     /* Debugging */
     server.assert_failed = "<no assertion failed>";
     server.assert_file = "<no file>";
@@ -3401,6 +3404,10 @@ int processCommand(client *c) {
         }
     }
 
+    /* Make sure to use a reasonable amount of memory for client side
+     * caching metadata. */
+    if (server.tracking_clients) trackingLimitUsedSlots();
+
     /* Don't accept write commands if there are problems persisting on disk
      * and if this is a master instance. */
     int deny_write_type = writeCommandsDeniedByDiskError();
@@ -4140,7 +4147,8 @@ sds genRedisInfoString(char *section) {
             "active_defrag_hits:%lld\r\n"
             "active_defrag_misses:%lld\r\n"
             "active_defrag_key_hits:%lld\r\n"
-            "active_defrag_key_misses:%lld\r\n",
+            "active_defrag_key_misses:%lld\r\n"
+            "tracking_used_slots:%lld\r\n",
             server.stat_numconnections,
             server.stat_numcommands,
             getInstantaneousMetric(STATS_METRIC_COMMAND),
@@ -4166,7 +4174,8 @@ sds genRedisInfoString(char *section) {
             server.stat_active_defrag_hits,
             server.stat_active_defrag_misses,
             server.stat_active_defrag_key_hits,
-            server.stat_active_defrag_key_misses);
+            server.stat_active_defrag_key_misses,
+            trackingGetUsedSlots());
     }
 
     /* Replication */

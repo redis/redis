@@ -29,6 +29,7 @@
 
 #include "server.h"
 #include "cluster.h"
+#include "rdb.h"
 #include <dlfcn.h>
 
 #define REDISMODULE_CORE 1
@@ -3092,6 +3093,11 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
         moduleTypeMemUsageFunc mem_usage;
         moduleTypeDigestFunc digest;
         moduleTypeFreeFunc free;
+        struct {
+            moduleTypeAuxLoadFunc aux_load;
+            moduleTypeAuxSaveFunc aux_save;
+            int aux_save_triggers;
+        } v2;
     } *tms = (struct typemethods*) typemethods_ptr;
 
     moduleType *mt = zcalloc(sizeof(*mt));
@@ -3103,6 +3109,11 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
     mt->mem_usage = tms->mem_usage;
     mt->digest = tms->digest;
     mt->free = tms->free;
+    if (tms->version >= 2) {
+        mt->aux_load = tms->v2.aux_load;
+        mt->aux_save = tms->v2.aux_save;
+        mt->aux_save_triggers = tms->v2.aux_save_triggers;
+    }
     memcpy(mt->name,name,sizeof(mt->name));
     listAddNodeTail(ctx->module->types,mt);
     return mt;
@@ -3405,6 +3416,36 @@ loaderr:
     return 0;
 }
 
+/* Iterate over modules, and trigger rdb aux saving for the ones modules types
+ * who asked for it. */
+ssize_t rdbSaveModulesAux(rio *rdb, int when) {
+    size_t total_written = 0;
+    dictIterator *di = dictGetIterator(modules);
+    dictEntry *de;
+
+    while ((de = dictNext(di)) != NULL) {
+        struct RedisModule *module = dictGetVal(de);
+        listIter li;
+        listNode *ln;
+
+        listRewind(module->types,&li);
+        while((ln = listNext(&li))) {
+            moduleType *mt = ln->value;
+            if (!mt->aux_save || !(mt->aux_save_triggers & when))
+                continue;
+            ssize_t ret = rdbSaveSingleModuleAux(rdb, when, mt);
+            if (ret==-1) {
+                dictReleaseIterator(di);
+                return -1;
+            }
+            total_written += ret;
+        }
+    }
+
+    dictReleaseIterator(di);
+    return total_written;
+}
+
 /* --------------------------------------------------------------------------
  * Key digest API (DEBUG DIGEST interface for modules types)
  * -------------------------------------------------------------------------- */
@@ -3565,7 +3606,7 @@ void RM_LogRaw(RedisModule *module, const char *levelstr, const char *fmt, va_li
 
     if (level < server.verbosity) return;
 
-    name_len = snprintf(msg, sizeof(msg),"<%s> ", module->name);
+    name_len = snprintf(msg, sizeof(msg),"<%s> ", module? module->name: "module");
     vsnprintf(msg + name_len, sizeof(msg) - name_len, fmt, ap);
     serverLogRaw(level,msg);
 }
@@ -3583,13 +3624,15 @@ void RM_LogRaw(RedisModule *module, const char *levelstr, const char *fmt, va_li
  * There is a fixed limit to the length of the log line this function is able
  * to emit, this limit is not specified but is guaranteed to be more than
  * a few lines of text.
+ *
+ * The ctx argument may be NULL if cannot be provided in the context of the
+ * caller for instance threads or callbacks, in which case a generic "module"
+ * will be used instead of the module name.
  */
 void RM_Log(RedisModuleCtx *ctx, const char *levelstr, const char *fmt, ...) {
-    if (!ctx->module) return;   /* Can only log if module is initialized */
-
     va_list ap;
     va_start(ap, fmt);
-    RM_LogRaw(ctx->module,levelstr,fmt,ap);
+    RM_LogRaw(ctx? ctx->module: NULL,levelstr,fmt,ap);
     va_end(ap);
 }
 
