@@ -51,6 +51,7 @@ struct RedisModule {
     list *using;    /* List of modules we use some APIs of. */
     list *filters;  /* List of filters the module has registered. */
     int in_call;    /* RM_Call() nesting level */
+    int options;    /* Moduile options and capabilities. */
 };
 typedef struct RedisModule RedisModule;
 
@@ -769,6 +770,19 @@ int RM_IsModuleNameBusy(const char *name) {
 /* Return the current UNIX time in milliseconds. */
 long long RM_Milliseconds(void) {
     return mstime();
+}
+
+/* Set flags defining capabilities or behavior bit flags.
+ *
+ * REDISMODULE_OPTIONS_HANDLE_IO_ERRORS:
+ * Generally, modules don't need to bother with this, as the process will just
+ * terminate if a read error happens, however, setting this flag would allow
+ * repl-diskless-load to work if enabled.
+ * The module should use RedisModule_IsIOError after reads, before using the
+ * data that was read, and in case of error, propagate it upwards, and also be
+ * able to release the partially populated value and all it's allocations. */
+void RM_SetModuleOptions(RedisModuleCtx *ctx, int options) {
+    ctx->module->options = options;
 }
 
 /* --------------------------------------------------------------------------
@@ -3143,7 +3157,7 @@ void *RM_ModuleTypeGetValue(RedisModuleKey *key) {
  * modules this cannot be recovered, but if the module declared capability
  * to handle errors, we'll raise a flag rather than exiting. */
 void moduleRDBLoadError(RedisModuleIO *io) {
-    if (io->flags & REDISMODULE_HANDLE_IO_ERRORS) {
+    if (io->ctx->module->options & REDISMODULE_OPTIONS_HANDLE_IO_ERRORS) {
         io->error = 1;
         return;
     }
@@ -3157,19 +3171,29 @@ void moduleRDBLoadError(RedisModuleIO *io) {
     exit(1);
 }
 
-/* Set flags defining capabilities or behavior */
-void RM_SetIOFlags(RedisModuleIO *io, int flags) {
-    io->flags = flags;
-}
+/* Returns 0 if there's at least one registered data type that did not declare
+ * REDISMODULE_OPTIONS_HANDLE_IO_ERRORS, in which case diskless loading should
+ * be avoided since it could cause data loss. */
+int moduleAllDatatypesHandleErrors() {
+    dictIterator *di = dictGetIterator(modules);
+    dictEntry *de;
 
-/* Get flags which were set by RedisModule_SetIOFlags */
-int RM_GetIOFlags(RedisModuleIO *io) {
-    return io->flags;
+    while ((de = dictNext(di)) != NULL) {
+        struct RedisModule *module = dictGetVal(de);
+        if (listLength(module->types) &&
+            !(module->options & REDISMODULE_OPTIONS_HANDLE_IO_ERRORS))
+        {
+            dictReleaseIterator(di);
+            return 0;
+        }
+    }
+    dictReleaseIterator(di);
+    return 1;
 }
 
 /* Returns true if any previous IO API failed.
- * for Load* APIs the REDISMODULE_HANDLE_IO_ERRORS flag must be set with
- * RediModule_SetIOFlags first. */
+ * for Load* APIs the REDISMODULE_OPTIONS_HANDLE_IO_ERRORS flag must be set with
+ * RediModule_SetModuleOptions first. */
 int RM_IsIOError(RedisModuleIO *io) {
     return io->error;
 }
@@ -5434,9 +5458,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ModuleTypeSetValue);
     REGISTER_API(ModuleTypeGetType);
     REGISTER_API(ModuleTypeGetValue);
-    REGISTER_API(GetIOFlags);
-    REGISTER_API(SetIOFlags);
     REGISTER_API(IsIOError);
+    REGISTER_API(SetModuleOptions);
     REGISTER_API(SaveUnsigned);
     REGISTER_API(LoadUnsigned);
     REGISTER_API(SaveSigned);

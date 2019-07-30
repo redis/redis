@@ -1115,8 +1115,12 @@ void restartAOFAfterSYNC() {
 
 static int useDisklessLoad() {
     /* compute boolean decision to use diskless load */
-    return server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB ||
+    int enabled = server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB ||
            (server.repl_diskless_load == REPL_DISKLESS_LOAD_WHEN_DB_EMPTY && dbTotalServerKeyCount()==0);
+    /* Check all modules handle read errors, otherwise it's not safe to use diskless load. */
+    if (enabled && !moduleAllDatatypesHandleErrors())
+        enabled = 0;
+    return enabled;
 }
 
 /* Helper function for readSyncBulkPayload() to make backups of the current

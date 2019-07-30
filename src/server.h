@@ -599,7 +599,6 @@ typedef struct RedisModuleIO {
                          * 2 (current version with opcodes annotation). */
     struct RedisModuleCtx *ctx; /* Optional context, see RM_GetContextFromIO()*/
     struct redisObject *key;    /* Optional name of key processed */
-    int flags;          /* flags declaring capabilities or behavior */
 } RedisModuleIO;
 
 /* Macro to initialize an IO context. Note that the 'ver' field is populated
@@ -612,7 +611,6 @@ typedef struct RedisModuleIO {
     iovar.ver = 0; \
     iovar.key = keyptr; \
     iovar.ctx = NULL; \
-    iovar.flags = 0; \
 } while(0);
 
 /* This is a structure used to export DEBUG DIGEST capabilities to Redis
@@ -1530,6 +1528,7 @@ void moduleAcquireGIL(void);
 void moduleReleaseGIL(void);
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
 void moduleCallCommandFilters(client *c);
+int moduleAllDatatypesHandleErrors();
 
 /* Utils */
 long long ustime(void);
