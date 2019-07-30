@@ -353,6 +353,11 @@ long long emptyDbGeneric(redisDb *dbarray, int dbnum, int flags, void(callback)(
         return -1;
     }
 
+    /* Make sure the WATCHed keys are affected by the FLUSH* commands.
+     * Note that we need to call the function while the keys are still
+     * there. */
+    signalFlushedDb(dbnum);
+
     int startdb, enddb;
     if (dbnum == -1) {
         startdb = 0;
@@ -378,7 +383,6 @@ long long emptyDbGeneric(redisDb *dbarray, int dbnum, int flags, void(callback)(
         }
     }
     if (dbnum == -1) flushSlaveKeysWithExpireList();
-    signalFlushedDb(dbnum);
     return removed;
 }
 
