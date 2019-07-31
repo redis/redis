@@ -269,7 +269,7 @@ void trackingLimitUsedSlots(void) {
     /* Let's start at a random position, and perform linear probing, in order
      * to improve cache locality. However once we are able to find an used
      * slot, jump again randomly, in order to avoid creating big holes in the
-     * table (that will make this funciton use more resourced later). */
+     * table (that will make this function use more resources later). */
     while(effort > 0) {
         unsigned int idx = rand() % TRACKING_TABLE_SIZE;
         do {

@@ -1141,7 +1141,7 @@ redisDb *disklessLoadMakeBackups(void) {
  * the 'restore' argument (the number of DBs to replace) is non-zero.
  *
  * When instead the loading succeeded we want just to free our old backups,
- * in that case the funciton will do just that when 'restore' is 0. */
+ * in that case the function will do just that when 'restore' is 0. */
 void disklessLoadRestoreBackups(redisDb *backup, int restore, int empty_db_flags)
 {
     if (restore) {
