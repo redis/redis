@@ -472,7 +472,7 @@ robj *tryObjectEncoding(robj *o) {
                 o->encoding = OBJ_ENCODING_INT;
                 o->ptr = (void*) value;
                 return o;
-            } else {
+            } else if (o->encoding == OBJ_ENCODING_EMBSTR) {
                 decrRefCount(o);
                 return createStringObjectFromLongLongForValue(value);
             }
