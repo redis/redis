@@ -1084,6 +1084,8 @@ class RedisTrib
         # Set the new node as the owner of the slot in all the known nodes.
         if !o[:cold]
             @nodes.each{|n|
+                # Load node info in case this node became a slave before the slot could be moved.
+                n.load_info
                 next if n.has_flag?("slave")
                 n.r.cluster("setslot",slot,"node",target.info[:name])
             }
