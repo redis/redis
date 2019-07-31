@@ -1,3 +1,5 @@
+[![Gitter](https://badges.gitter.im/Redis/Lobby.svg)](https://gitter.im/Redis/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
+
 This README is just a fast *quick start* document. You can find more detailed documentation at [redis.io](https://redis.io).
 
 What is Redis?
