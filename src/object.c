@@ -467,10 +467,15 @@ robj *tryObjectEncoding(robj *o) {
             incrRefCount(shared.integers[value]);
             return shared.integers[value];
         } else {
-            if (o->encoding == OBJ_ENCODING_RAW) sdsfree(o->ptr);
-            o->encoding = OBJ_ENCODING_INT;
-            o->ptr = (void*) value;
-            return o;
+            if (o->encoding == OBJ_ENCODING_RAW) {
+                sdsfree(o->ptr);
+                o->encoding = OBJ_ENCODING_INT;
+                o->ptr = (void*) value;
+                return o;
+            } else {
+                decrRefCount(o);
+                return createStringObjectFromLongLongForValue(value);
+            }
         }
     }
 
