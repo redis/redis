@@ -44,7 +44,7 @@
 static int _dictExpandIfNeeded(dict *ht);
 static unsigned long _dictNextPower(unsigned long size);
 static int _dictKeyIndex(dict *ht, const void *key);
-static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
+static void _dictInit(dict *ht, dictType *type, void *privDataPtr);
 
 /* -------------------------- hash functions -------------------------------- */
 
@@ -77,11 +77,10 @@ static dict *dictCreate(dictType *type, void *privDataPtr) {
 }
 
 /* Initialize the hash table */
-static int _dictInit(dict *ht, dictType *type, void *privDataPtr) {
+static void _dictInit(dict *ht, dictType *type, void *privDataPtr) {
     _dictReset(ht);
     ht->type = type;
     ht->privdata = privDataPtr;
-    return DICT_OK;
 }
 
 /* Expand or create the hashtable */

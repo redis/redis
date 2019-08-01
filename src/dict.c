@@ -67,7 +67,7 @@ static unsigned int dict_force_resize_ratio = 5;
 static int _dictExpandIfNeeded(dict *ht);
 static unsigned long _dictNextPower(unsigned long size);
 static long _dictKeyIndex(dict *ht, const void *key, uint64_t hash, dictEntry **existing);
-static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
+static void _dictInit(dict *ht, dictType *type, void *privDataPtr);
 
 /* -------------------------- hash functions -------------------------------- */
 
@@ -118,7 +118,7 @@ dict *dictCreate(dictType *type,
 }
 
 /* Initialize the hash table */
-int _dictInit(dict *d, dictType *type,
+void _dictInit(dict *d, dictType *type,
         void *privDataPtr)
 {
     _dictReset(&d->ht[0]);
@@ -127,7 +127,6 @@ int _dictInit(dict *d, dictType *type,
     d->privdata = privDataPtr;
     d->rehashidx = -1;
     d->iterators = 0;
-    return DICT_OK;
 }
 
 /* Resize the table to the minimal size that contains all the elements,
