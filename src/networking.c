@@ -1965,7 +1965,7 @@ void clientCommand(client *c) {
 "     TYPE (normal|master|replica|pubsub) -- Return clients of specified type.",
 "PAUSE <timeout>        -- Suspend all Redis clients for <timout> milliseconds.",
 "REPLY (on|off|skip)    -- Control the replies sent to the current connection.",
-"SETNAME <name>         -- Assign the name <name> to the current connection.",
+"SETNAME <name> [ID id] -- Assign the name <name> to the current or an arbitrary connection.",
 "UNBLOCK <clientid> [TIMEOUT|ERROR] -- Unblock the specified blocked client.",
 "TRACKING (on|off) [REDIRECT <id>] -- Enable client keys tracking for client side caching.",
 "GETREDIR               -- Return the client ID we are redirecting to when tracking is enabled.",
@@ -2124,14 +2124,47 @@ NULL
         } else {
             addReply(c,shared.czero);
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"setname") && c->argc == 3) {
-        /* CLIENT SETNAME */
-        if (clientSetNameOrReply(c,c->argv[2]) == C_OK)
+    } else if (!strcasecmp(c->argv[1]->ptr,"setname") &&
+               (c->argc == 3 || c->argc == 5))
+    {
+        /* CLIENT SETNAME <name> [ID <id>] */
+        long long clientID = c->id;
+
+        if (c->argc == 5) {
+            if (strcasecmp(c->argv[3]->ptr,"id") != 0) {
+                addReply(c,shared.syntaxerr);
+                return;
+            } else {
+                if (getLongLongFromObjectOrReply(c,c->argv[4],&clientID,NULL) !=
+                    C_OK) return;
+                if (lookupClientByID(clientID) == NULL) {
+                    addReplyError(c,"The client ID you specified "
+                                    "does not exist");
+                    return;
+                }
+            }
+        }
+
+        if (clientSetNameOrReply(lookupClientByID(clientID),c->argv[2]) == C_OK)
             addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"getname") && c->argc == 2) {
-        /* CLIENT GETNAME */
-        if (c->name)
-            addReplyBulk(c,c->name);
+    } else if (!strcasecmp(c->argv[1]->ptr,"getname") &&
+               (c->argc == 2 || c->argc == 3))
+    {
+        /* CLIENT GETNAME [<id>] */
+        long long clientID = c->id;
+
+        if (c->argc == 3) {
+            if (getLongLongFromObjectOrReply(c,c->argv[2],&clientID,NULL) !=
+                C_OK) return;
+            if (lookupClientByID(clientID) == NULL) {
+                addReplyError(c,"The client ID you specified "
+                                "does not exist");
+                return;
+            }
+        }
+
+        if (lookupClientByID(clientID)->name)
+            addReplyBulk(c,lookupClientByID(clientID)->name);
         else
             addReplyNull(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"pause") && c->argc == 3) {
