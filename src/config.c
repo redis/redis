@@ -772,7 +772,7 @@ void loadServerConfigFromString(char *config) {
             int argc_err;
             if (ACLAppendUserForLoading(argv,argc,&argc_err) == C_ERR) {
                 char buf[1024];
-                char *errmsg = ACLSetUserStringError();
+                const char *errmsg = ACLSetUserStringError();
                 snprintf(buf,sizeof(buf),"Error in user declaration '%s': %s",
                     argv[argc_err],errmsg);
                 err = buf;
