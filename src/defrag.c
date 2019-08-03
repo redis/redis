@@ -137,7 +137,7 @@ robj *activeDefragStringOb(robj* ob, long *defragged) {
 }
 
 /* Defrag helper for dictEntries to be used during dict iteration (called on
- * each step). Teturns a stat of how many pointers were moved. */
+ * each step). Returns a stat of how many pointers were moved. */
 long dictIterDefragEntry(dictIterator *iter) {
     /* This function is a little bit dirty since it messes with the internals
      * of the dict and it's iterator, but the benefit is that it is very easy
