@@ -672,7 +672,7 @@ typedef struct redisObject {
 /* The a string name for an object's type as listed above
  * Native types are checked against the OBJ_STRING, OBJ_LIST, OBJ_* defines,
  * and Module types have their registered name returned. */
-char *getObjectTypeName(robj*);
+const char *getObjectTypeName(const robj *);
 
 /* Macro used to initialize a Redis object allocated on the stack.
  * Note that this macro is taken near the structure definition to make sure
