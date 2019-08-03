@@ -2116,8 +2116,8 @@ int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
 void dictSdsDestructor(void *privdata, void *val);
 
 /* Git SHA1 */
-char *redisGitSHA1(void);
-char *redisGitDirty(void);
+const char *redisGitSHA1(void);
+const char *redisGitDirty(void);
 uint64_t redisBuildId(void);
 
 /* Commands prototypes */
