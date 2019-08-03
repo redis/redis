@@ -1917,7 +1917,7 @@ void rewriteConfigClientoutputbufferlimitOption(struct rewriteConfigState *state
         rewriteConfigFormatMemory(soft,sizeof(soft),
                 server.client_obuf_limits[j].soft_limit_bytes);
 
-        char *typename = getClientTypeName(j);
+        const char *typename = getClientTypeName(j);
         if (!strcmp(typename,"slave")) typename = "replica";
         line = sdscatprintf(sdsempty(),"%s %s %s %s %ld",
                 option, typename, hard, soft,
