@@ -3222,7 +3222,7 @@ static redisReply *clusterManagerMigrateKeysInReply(clusterManagerNode *source,
         redisReply *entry = reply->element[i];
         size_t idx = i + offset;
         assert(entry->type == REDIS_REPLY_STRING);
-        argv[idx] = (char *) sdsnew(entry->str);
+        argv[idx] = (char *) sdsnewlen(entry->str, entry->len);
         argv_len[idx] = entry->len;
         if (dots) dots[i] = '.';
     }
