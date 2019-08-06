@@ -220,8 +220,8 @@ int lpStringToInt64(const char *s, unsigned long slen, int64_t *value) {
 
 /* Create a new, empty listpack.
  * On success the new listpack is returned, otherwise an error is returned. */
-unsigned char *lpNew(void) {
-    unsigned char *lp = lp_malloc(LP_HDR_SIZE+1);
+unsigned char *lpNew(size_t capacity) {
+    unsigned char *lp = lp_malloc(capacity > LP_HDR_SIZE+1 ? capacity : LP_HDR_SIZE+1);
     if (lp == NULL) return NULL;
     lpSetTotalBytes(lp,LP_HDR_SIZE+1);
     lpSetNumElements(lp,0);
@@ -702,7 +702,7 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, un
     unsigned char *dst = lp + poff; /* May be updated after reallocation. */
 
     /* Realloc before: we need more room. */
-    if (new_listpack_bytes > old_listpack_bytes) {
+    if (new_listpack_bytes > lp_malloc_size(lp)) {
         if ((lp = lp_realloc(lp,new_listpack_bytes)) == NULL) return NULL;
         dst = lp + poff;
     }

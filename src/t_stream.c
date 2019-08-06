@@ -518,7 +518,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
         master_id = id;
         streamEncodeID(rax_key,&id);
         /* Create the listpack having the master entry ID and fields. */
-        lp = lpNew();
+        lp = lpNew(server.stream_node_max_bytes);
         lp = lpAppendInteger(lp,1); /* One item, the one we are adding. */
         lp = lpAppendInteger(lp,0); /* Zero deleted so far. */
         lp = lpAppendInteger(lp,numfields);
