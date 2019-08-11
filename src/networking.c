@@ -881,7 +881,7 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
         serverLog(LL_WARNING,
                 "Error accepting a client connection: %s (conn: %s)",
                 connGetLastError(conn), connGetInfo(conn, conninfo, sizeof(conninfo)));
-        connClose(conn);
+        freeClient(connGetPrivateData(conn));
         return;
     }
 }
@@ -984,14 +984,21 @@ void unlinkClient(client *c) {
             c->client_list_node = NULL;
         }
 
-        /* In the case of diskless replication the fork is writing to the
-         * sockets and just closing the fd isn't enough, if we don't also
-         * shutdown the socket the fork will continue to write to the slave
-         * and the salve will only find out that it was disconnected when
-         * it will finish reading the rdb. */
-        int need_shutdown = ((c->flags & CLIENT_SLAVE) &&
-                (c->replstate == SLAVE_STATE_WAIT_BGSAVE_END));
-        if (need_shutdown) connShutdown(c->conn, SHUT_RDWR);
+        /* Check if this is a replica waiting for diskless replication (rdb pipe),
+         * in which case it needs to be cleaned from that list */
+        if (c->flags & CLIENT_SLAVE &&
+            c->replstate == SLAVE_STATE_WAIT_BGSAVE_END &&
+            server.rdb_pipe_conns)
+        {
+            int i;
+            for (i=0; i < server.rdb_pipe_numconns; i++) {
+                if (server.rdb_pipe_conns[i] == c->conn) {
+                    rdbPipeWriteHandlerConnRemoved(c->conn);
+                    server.rdb_pipe_conns[i] = NULL;
+                    break;
+                }
+            }
+        }
         connClose(c->conn);
         c->conn = NULL;
     }
@@ -1309,7 +1316,7 @@ int handleClientsWithPendingWrites(void) {
             {
                 ae_flags |= AE_BARRIER;
             }
-            /* TODO: Handle write barriers in connection */
+            /* TODO: Handle write barriers in connection (also see tlsProcessPendingData) */
             if (connSetWriteHandler(c->conn, sendReplyToClient) == C_ERR) {
                 freeClientAsync(c);
             }

@@ -522,6 +522,12 @@ void loadServerConfigFromString(char *config) {
                 err = "rdb-key-save-delay can't be negative";
                 goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"key-load-delay") && argc==2) {
+            server.key_load_delay = atoi(argv[1]);
+            if (server.key_load_delay < 0) {
+                err = "key-load-delay can't be negative";
+                goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"requirepass") && argc == 2) {
             if (strlen(argv[1]) > CONFIG_AUTHPASS_MAX_LEN) {
                 err = "Password is longer than CONFIG_AUTHPASS_MAX_LEN";
@@ -1192,6 +1198,8 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "rdb-key-save-delay",server.rdb_key_save_delay,0,LLONG_MAX) {
     } config_set_numerical_field(
+      "key-load-delay",server.key_load_delay,0,LLONG_MAX) {
+    } config_set_numerical_field(
       "slave-announce-port",server.slave_announce_port,0,65535) {
     } config_set_numerical_field(
       "replica-announce-port",server.slave_announce_port,0,65535) {
@@ -1452,6 +1460,7 @@ void configGetCommand(client *c) {
     config_get_numerical_field("cluster-replica-validity-factor",server.cluster_slave_validity_factor);
     config_get_numerical_field("repl-diskless-sync-delay",server.repl_diskless_sync_delay);
     config_get_numerical_field("rdb-key-save-delay",server.rdb_key_save_delay);
+    config_get_numerical_field("key-load-delay",server.key_load_delay);
     config_get_numerical_field("tcp-keepalive",server.tcpkeepalive);
 
     /* Bool (yes/no) values */
@@ -2272,6 +2281,7 @@ int rewriteConfig(char *path) {
     rewriteConfigNumericalOption(state,"hz",server.config_hz,CONFIG_DEFAULT_HZ);
     rewriteConfigEnumOption(state,"supervised",server.supervised_mode,supervised_mode_enum,SUPERVISED_NONE);
     rewriteConfigNumericalOption(state,"rdb-key-save-delay",server.rdb_key_save_delay,CONFIG_DEFAULT_RDB_KEY_SAVE_DELAY);
+    rewriteConfigNumericalOption(state,"key-load-delay",server.key_load_delay,CONFIG_DEFAULT_KEY_LOAD_DELAY);
     rewriteConfigStringOption(state,"tls-cert-file",server.tls_cert_file,NULL);
     rewriteConfigStringOption(state,"tls-key-file",server.tls_key_file,NULL);
     rewriteConfigStringOption(state,"tls-dh-params-file",server.tls_dh_params_file,NULL);

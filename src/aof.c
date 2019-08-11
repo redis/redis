@@ -836,6 +836,8 @@ int loadAppendOnlyFile(char *filename) {
         freeFakeClientArgv(fakeClient);
         fakeClient->cmd = NULL;
         if (server.aof_load_truncated) valid_up_to = ftello(fp);
+        if (server.key_load_delay)
+            usleep(server.key_load_delay);
     }
 
     /* This point can only be reached when EOF is reached without errors.

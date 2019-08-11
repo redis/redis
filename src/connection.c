@@ -140,10 +140,6 @@ void *connGetPrivateData(connection *conn) {
  * move here as we implement additional connection types.
  */
 
-static int connSocketShutdown(connection *conn, int how) {
-    return shutdown(conn->fd, how);
-}
-
 /* Close the connection and free resources. */
 static void connSocketClose(connection *conn) {
     if (conn->fd != -1) {
@@ -298,7 +294,6 @@ static ssize_t connSocketSyncReadLine(connection *conn, char *ptr, ssize_t size,
 ConnectionType CT_Socket = {
     .ae_handler = connSocketEventHandler,
     .close = connSocketClose,
-    .shutdown = connSocketShutdown,
     .write = connSocketWrite,
     .read = connSocketRead,
     .accept = connSocketAccept,

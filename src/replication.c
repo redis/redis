@@ -884,7 +884,7 @@ void sendBulkToSlave(connection *conn) {
         nwritten = connWrite(conn,slave->replpreamble,sdslen(slave->replpreamble));
         if (nwritten == -1) {
             serverLog(LL_VERBOSE,"Write error sending RDB preamble to replica: %s",
-                strerror(errno));
+                connGetLastError(conn));
             freeClient(slave);
             return;
         }
@@ -911,7 +911,7 @@ void sendBulkToSlave(connection *conn) {
     if ((nwritten = connWrite(conn,buf,buflen)) == -1) {
         if (connGetState(conn) != CONN_STATE_CONNECTED) {
             serverLog(LL_WARNING,"Write error sending DB to replica: %s",
-                strerror(errno));
+                connGetLastError(conn));
             freeClient(slave);
         }
         return;
@@ -923,6 +923,152 @@ void sendBulkToSlave(connection *conn) {
         slave->repldbfd = -1;
         connSetWriteHandler(slave->conn,NULL);
         putSlaveOnline(slave);
+    }
+}
+
+/* Remove one write handler from the list of connections waiting to be writable
+ * during rdb pipe transfer. */
+void rdbPipeWriteHandlerConnRemoved(struct connection *conn) {
+    if (!connHasWriteHandler(conn))
+        return;
+    connSetWriteHandler(conn, NULL);
+    server.rdb_pipe_numconns_writing--;
+    /* if there are no more writes for now for this conn, or write error: */
+    if (server.rdb_pipe_numconns_writing == 0) {
+        if (aeCreateFileEvent(server.el, server.rdb_pipe_read, AE_READABLE, rdbPipeReadHandler,NULL) == AE_ERR) {
+            serverPanic("Unrecoverable error creating server.rdb_pipe_read file event.");
+        }
+    }
+}
+
+/* Called in diskless master during transfer of data from the rdb pipe, when
+ * the replica becomes writable again. */
+void rdbPipeWriteHandler(struct connection *conn) {
+    serverAssert(server.rdb_pipe_bufflen>0);
+    client *slave = connGetPrivateData(conn);
+    int nwritten;
+    if ((nwritten = connWrite(conn, server.rdb_pipe_buff + slave->repldboff,
+                              server.rdb_pipe_bufflen - slave->repldboff)) == -1)
+    {
+        if (connGetState(conn) == CONN_STATE_CONNECTED)
+            return; /* equivalent to EAGAIN */
+        serverLog(LL_WARNING,"Write error sending DB to replica: %s",
+            connGetLastError(conn));
+        freeClient(slave);
+        return;
+    } else {
+        slave->repldboff += nwritten;
+        server.stat_net_output_bytes += nwritten;
+        if (slave->repldboff < server.rdb_pipe_bufflen)
+            return; /* more data to write.. */
+    }
+    rdbPipeWriteHandlerConnRemoved(conn);
+}
+
+/* When the the pipe serving diskless rdb transfer is drained (write end was
+ * closed), we can clean up all the temporary variables, and cleanup after the
+ * fork child. */
+void RdbPipeCleanup() {
+    close(server.rdb_pipe_read);
+    zfree(server.rdb_pipe_conns);
+    server.rdb_pipe_conns = NULL;
+    server.rdb_pipe_numconns = 0;
+    server.rdb_pipe_numconns_writing = 0;
+    zfree(server.rdb_pipe_buff);
+    server.rdb_pipe_buff = NULL;
+    server.rdb_pipe_bufflen = 0;
+
+    /* Since we're avoiding to detect the child exited as long as the pipe is
+     * not drained, so now is the time to check. */
+    checkChildrenDone();
+}
+
+/* Called in diskless master, when there's data to read from the child's rdb pipe */
+void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask) {
+    UNUSED(mask);
+    UNUSED(clientData);
+    UNUSED(eventLoop);
+    int i;
+    if (!server.rdb_pipe_buff)
+        server.rdb_pipe_buff = zmalloc(PROTO_IOBUF_LEN);
+    serverAssert(server.rdb_pipe_numconns_writing==0);
+
+    while (1) {
+        server.rdb_pipe_bufflen = read(fd, server.rdb_pipe_buff, PROTO_IOBUF_LEN);
+        if (server.rdb_pipe_bufflen < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+                return;
+            serverLog(LL_WARNING,"Diskless rdb transfer, read error sending DB to replicas: %s", strerror(errno));
+            for (i=0; i < server.rdb_pipe_numconns; i++) {
+                connection *conn = server.rdb_pipe_conns[i];
+                if (!conn)
+                    continue;
+                client *slave = connGetPrivateData(conn);
+                freeClient(slave);
+                server.rdb_pipe_conns[i] = NULL;
+            }
+            killRDBChild();
+            return;
+        }
+
+        if (server.rdb_pipe_bufflen == 0) {
+            /* EOF - write end was closed. */
+            int stillUp = 0;
+            aeDeleteFileEvent(server.el, server.rdb_pipe_read, AE_READABLE);
+            for (i=0; i < server.rdb_pipe_numconns; i++)
+            {
+                connection *conn = server.rdb_pipe_conns[i];
+                if (!conn)
+                    continue;
+                stillUp++;
+            }
+            serverLog(LL_WARNING,"Diskless rdb transfer, done reading from pipe, %d replicas still up.", stillUp);
+            RdbPipeCleanup();
+            return;
+        }
+
+        int stillAlive = 0;
+        for (i=0; i < server.rdb_pipe_numconns; i++)
+        {
+            int nwritten;
+            connection *conn = server.rdb_pipe_conns[i];
+            if (!conn)
+                continue;
+
+            client *slave = connGetPrivateData(conn);
+            if ((nwritten = connWrite(conn, server.rdb_pipe_buff, server.rdb_pipe_bufflen)) == -1) {
+                if (connGetState(conn) != CONN_STATE_CONNECTED) {
+                    serverLog(LL_WARNING,"Diskless rdb transfer, write error sending DB to replica: %s",
+                        connGetLastError(conn));
+                    freeClient(slave);
+                    server.rdb_pipe_conns[i] = NULL;
+                    continue;
+                }
+                /* An error and still in connected state, is equivalent to EAGAIN */
+                slave->repldboff = 0;
+            } else {
+                slave->repldboff = nwritten;
+                server.stat_net_output_bytes += nwritten;
+            }
+            /* If we were unable to write all the data to one of the replicas,
+             * setup write handler (and disable pipe read handler, below) */
+            if (nwritten != server.rdb_pipe_bufflen) {
+                server.rdb_pipe_numconns_writing++;
+                connSetWriteHandler(conn, rdbPipeWriteHandler);
+            }
+            stillAlive++;
+        }
+
+        if (stillAlive == 0) {
+            serverLog(LL_WARNING,"Diskless rdb transfer, last replica dropped, killing fork child.");
+            killRDBChild();
+            RdbPipeCleanup();
+        }
+        /*  Remove the pipe read handler if at least one write handler was set. */
+        if (server.rdb_pipe_numconns_writing || stillAlive == 0) {
+            aeDeleteFileEvent(server.el, server.rdb_pipe_read, AE_READABLE);
+            break;
+        }
     }
 }
 

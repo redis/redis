@@ -135,6 +135,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_REPL_DISKLESS_SYNC 0
 #define CONFIG_DEFAULT_REPL_DISKLESS_SYNC_DELAY 5
 #define CONFIG_DEFAULT_RDB_KEY_SAVE_DELAY 0
+#define CONFIG_DEFAULT_KEY_LOAD_DELAY 0
 #define CONFIG_DEFAULT_SLAVE_SERVE_STALE_DATA 1
 #define CONFIG_DEFAULT_SLAVE_READ_ONLY 1
 #define CONFIG_DEFAULT_SLAVE_IGNORE_MAXMEMORY 1
@@ -1236,10 +1237,17 @@ struct redisServer {
     int rdb_child_type;             /* Type of save by active child. */
     int lastbgsave_status;          /* C_OK or C_ERR */
     int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
-    int rdb_pipe_write_result_to_parent; /* RDB pipes used to return the state */
-    int rdb_pipe_read_result_from_child; /* of each slave in diskless SYNC. */
+    int rdb_pipe_write;             /* RDB pipes used to transfer the rdb */
+    int rdb_pipe_read;              /* data to the parent process in diskless repl. */
+    connection **rdb_pipe_conns;    /* Connections which are currently the */
+    int rdb_pipe_numconns;          /* target of diskless rdb fork child. */
+    int rdb_pipe_numconns_writing;  /* Number of rdb conns with pending writes. */
+    char *rdb_pipe_buff;            /* In diskless replication, this buffer holds data */
+    int rdb_pipe_bufflen;           /* that was read from the the rdb pipe. */
     int rdb_key_save_delay;         /* Delay in microseconds between keys while
                                      * writing the RDB. (for testings) */
+    int key_load_delay;             /* Delay in microseconds between keys while
+                                     * loading aof or rdb. (for testings) */
     /* Pipe and data structures for child -> parent info sharing. */
     int child_info_pipe[2];         /* Pipe used to write the child_info_data. */
     struct {
@@ -1779,6 +1787,8 @@ void clearReplicationId2(void);
 void chopReplicationBacklog(void);
 void replicationCacheMasterUsingMyself(void);
 void feedReplicationBacklog(void *ptr, size_t len);
+void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask);
+void rdbPipeWriteHandlerConnRemoved(struct connection *conn);
 
 /* Generic persistence functions */
 void startLoadingFile(FILE* fp, char* filename);
@@ -1944,6 +1954,7 @@ unsigned int LRU_CLOCK(void);
 const char *evictPolicyToString(void);
 struct redisMemOverhead *getMemoryOverheadData(void);
 void freeMemoryOverheadData(struct redisMemOverhead *mh);
+void checkChildrenDone(void);
 
 #define RESTART_SERVER_NONE 0
 #define RESTART_SERVER_GRACEFULLY (1<<0)     /* Do proper shutdown. */

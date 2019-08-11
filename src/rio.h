@@ -77,7 +77,7 @@ struct _rio {
             off_t buffered; /* Bytes written since last fsync. */
             off_t autosync; /* fsync after 'autosync' bytes written. */
         } file;
-        /* Connection object */
+        /* Connection object (used to read from socket) */
         struct {
             connection *conn;   /* Connection */
             off_t pos;    /* pos in buf that was returned */
@@ -85,14 +85,12 @@ struct _rio {
             size_t read_limit;  /* don't allow to buffer/read more than that */
             size_t read_so_far; /* amount of data read from the rio (not buffered) */
         } conn;
-        /* Multiple FDs target (used to write to N sockets). */
+        /* FD target (used to write to pipe). */
         struct {
-            connection **conns;  /* Connections */
-            int *state;         /* Error state of each fd. 0 (if ok) or errno. */
-            int numconns;
+            int fd;       /* File descriptor. */
             off_t pos;
             sds buf;
-        } connset;
+        } fd;
     } io;
 };
 
@@ -161,9 +159,9 @@ static inline void rioClearErrors(rio *r) {
 void rioInitWithFile(rio *r, FILE *fp);
 void rioInitWithBuffer(rio *r, sds s);
 void rioInitWithConn(rio *r, connection *conn, size_t read_limit);
-void rioInitWithConnset(rio *r, connection **conns, int numconns);
+void rioInitWithFd(rio *r, int fd);
 
-void rioFreeConnset(rio *r);
+void rioFreeFd(rio *r);
 void rioFreeConn(rio *r, sds* out_remainingBufferedData);
 
 size_t rioWriteBulkCount(rio *r, char prefix, long count);

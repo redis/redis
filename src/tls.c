@@ -30,6 +30,7 @@
 
 #include "server.h"
 #include "connhelpers.h"
+#include "adlist.h"
 
 #ifdef USE_OPENSSL
 
@@ -41,6 +42,10 @@ extern ConnectionType CT_Socket;
 
 SSL_CTX *redis_tls_ctx;
 
+/* list of connections with pending data already read from the socket, but not
+ * served to the reader yet. */
+static list *pending_list = NULL;
+
 void tlsInit(void) {
     ERR_load_crypto_strings();
     SSL_load_error_strings();
@@ -49,6 +54,8 @@ void tlsInit(void) {
     if (!RAND_poll()) {
         serverLog(LL_WARNING, "OpenSSL: Failed to seed random number generator.");
     }
+
+    pending_list = listCreate();
 }
 
 int tlsConfigureServer(void) {
@@ -188,6 +195,7 @@ typedef struct tls_connection {
     int flags;
     SSL *ssl;
     char *ssl_error;
+    listNode *pending_list_node;
 } tls_connection;
 
 connection *connCreateTLS(void) {
@@ -288,11 +296,7 @@ void updateSSLEvent(tls_connection *conn) {
         aeDeleteFileEvent(server.el, conn->c.fd, AE_WRITABLE);
 }
 
-
-static void tlsEventHandler(struct aeEventLoop *el, int fd, void *clientData, int mask) {
-    UNUSED(el);
-    UNUSED(fd);
-    tls_connection *conn = clientData;
+static void tlsHandleEvent(tls_connection *conn, int mask) {
     int ret;
 
     TLSCONN_DEBUG("tlsEventHandler(): fd=%d, state=%d, mask=%d, r=%d, w=%d, flags=%d",
@@ -369,6 +373,15 @@ static void tlsEventHandler(struct aeEventLoop *el, int fd, void *clientData, in
 
             if ((mask & AE_READABLE) && conn->c.read_handler) {
                 if (!callHandler((connection *) conn, conn->c.read_handler)) return;
+                if (SSL_has_pending(conn->ssl)) {
+                    if (!conn->pending_list_node) {
+                        listAddNodeTail(pending_list, conn);
+                        conn->pending_list_node = listLast(pending_list);
+                    }
+                } else if (conn->pending_list_node) {
+                    listDelNode(pending_list, conn->pending_list_node);
+                    conn->pending_list_node = NULL;
+                }
             }
 
             if ((mask & AE_WRITABLE) && conn->c.write_handler) {
@@ -382,6 +395,13 @@ static void tlsEventHandler(struct aeEventLoop *el, int fd, void *clientData, in
     updateSSLEvent(conn);
 }
 
+static void tlsEventHandler(struct aeEventLoop *el, int fd, void *clientData, int mask) {
+    UNUSED(el);
+    UNUSED(fd);
+    tls_connection *conn = clientData;
+    tlsHandleEvent(conn, mask);
+}
+
 static void connTLSClose(connection *conn_) {
     tls_connection *conn = (tls_connection *) conn_;
 
@@ -393,6 +413,11 @@ static void connTLSClose(connection *conn_) {
     if (conn->ssl_error) {
         zfree(conn->ssl_error);
         conn->ssl_error = NULL;
+    }
+
+    if (conn->pending_list_node) {
+        listDelNode(pending_list, conn->pending_list_node);
+        conn->pending_list_node = NULL;
     }
 
     CT_Socket.close(conn_);
@@ -610,17 +635,6 @@ exit:
     return nread;
 }
 
-/* TODO: This is probably not the right thing to do, but as we handle proxying from child
- * processes we'll probably not need any shutdown mechanism anyway so this is just a
- * place holder for now.
- */
-static int connTLSShutdown(connection *conn_, int how) {
-    UNUSED(how);
-    tls_connection *conn = (tls_connection *) conn_;
-
-    return SSL_shutdown(conn->ssl);
-}
-
 ConnectionType CT_TLS = {
     .ae_handler = tlsEventHandler,
     .accept = connTLSAccept,
@@ -635,8 +649,24 @@ ConnectionType CT_TLS = {
     .sync_write = connTLSSyncWrite,
     .sync_read = connTLSSyncRead,
     .sync_readline = connTLSSyncReadLine,
-    .shutdown = connTLSShutdown
 };
+
+int tlsHasPendingData() {
+    if (!pending_list)
+        return 0;
+    return listLength(pending_list) > 0;
+}
+
+void tlsProcessPendingData() {
+    listIter li;
+    listNode *ln;
+
+    listRewind(pending_list,&li);
+    while((ln = listNext(&li))) {
+        tls_connection *conn = listNodeValue(ln);
+        tlsHandleEvent(conn, AE_READABLE);
+    }
+}
 
 #else   /* USE_OPENSSL */
 
@@ -664,6 +694,13 @@ connection *connCreateAcceptedTLS(int fd, int require_auth) {
     UNUSED(fd);
 
     return NULL;
+}
+
+int tlsHasPendingData() {
+    return 0;
+}
+
+void tlsProcessPendingData() {
 }
 
 #endif

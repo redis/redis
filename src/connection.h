@@ -55,7 +55,6 @@ typedef struct ConnectionType {
     int (*connect)(struct connection *conn, const char *addr, int port, const char *source_addr, ConnectionCallbackFunc connect_handler);
     int (*write)(struct connection *conn, const void *data, size_t data_len);
     int (*read)(struct connection *conn, void *buf, size_t buf_len);
-    int (*shutdown)(struct connection *conn, int how);
     void (*close)(struct connection *conn);
     int (*accept)(struct connection *conn, ConnectionCallbackFunc accept_handler);
     int (*set_write_handler)(struct connection *conn, ConnectionCallbackFunc handler);
@@ -159,10 +158,6 @@ static inline void connClose(connection *conn) {
     conn->type->close(conn);
 }
 
-static inline int connShutdown(connection *conn, int how) {
-    return conn->type->shutdown(conn, how);
-}
-
 /* Returns the last error encountered by the connection, as a string.  If no error,
  * a NULL is returned.
  */
@@ -207,5 +202,9 @@ int connPeerToString(connection *conn, char *ip, size_t ip_len, int *port);
 int connFormatPeer(connection *conn, char *buf, size_t buf_len);
 int connSockName(connection *conn, char *ip, size_t ip_len, int *port);
 const char *connGetInfo(connection *conn, char *buf, size_t buf_len);
+
+/* Helpers for tls special considerations */
+int tlsHasPendingData();
+void tlsProcessPendingData();
 
 #endif  /* __REDIS_CONNECTION_H */
