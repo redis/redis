@@ -132,6 +132,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_RDB_FILENAME "dump.rdb"
 #define CONFIG_DEFAULT_REPL_DISKLESS_SYNC 0
 #define CONFIG_DEFAULT_REPL_DISKLESS_SYNC_DELAY 5
+#define CONFIG_DEFAULT_RDB_KEY_SAVE_DELAY 0
 #define CONFIG_DEFAULT_SLAVE_SERVE_STALE_DATA 1
 #define CONFIG_DEFAULT_SLAVE_READ_ONLY 1
 #define CONFIG_DEFAULT_SLAVE_IGNORE_MAXMEMORY 1
@@ -170,6 +171,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_DEFRAG_CYCLE_MAX 75 /* 75% CPU max (at upper threshold) */
 #define CONFIG_DEFAULT_DEFRAG_MAX_SCAN_FIELDS 1000 /* keys with more than 1000 fields will be processed separately */
 #define CONFIG_DEFAULT_PROTO_MAX_BULK_LEN (512ll*1024*1024) /* Bulk request max size */
+#define CONFIG_DEFAULT_TRACKING_TABLE_MAX_FILL 10 /* 10% tracking table max fill. */
 
 #define ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP 20 /* Loopkups per loop. */
 #define ACTIVE_EXPIRE_CYCLE_FAST_DURATION 1000 /* Microseconds */
@@ -218,35 +220,36 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CMD_LOADING (1ULL<<9)          /* "ok-loading" flag */
 #define CMD_STALE (1ULL<<10)           /* "ok-stale" flag */
 #define CMD_SKIP_MONITOR (1ULL<<11)    /* "no-monitor" flag */
-#define CMD_ASKING (1ULL<<12)          /* "cluster-asking" flag */
-#define CMD_FAST (1ULL<<13)            /* "fast" flag */
+#define CMD_SKIP_SLOWLOG (1ULL<<12)    /* "no-slowlog" flag */
+#define CMD_ASKING (1ULL<<13)          /* "cluster-asking" flag */
+#define CMD_FAST (1ULL<<14)            /* "fast" flag */
 
 /* Command flags used by the module system. */
-#define CMD_MODULE_GETKEYS (1ULL<<14)  /* Use the modules getkeys interface. */
-#define CMD_MODULE_NO_CLUSTER (1ULL<<15) /* Deny on Redis Cluster. */
+#define CMD_MODULE_GETKEYS (1ULL<<15)  /* Use the modules getkeys interface. */
+#define CMD_MODULE_NO_CLUSTER (1ULL<<16) /* Deny on Redis Cluster. */
 
 /* Command flags that describe ACLs categories. */
-#define CMD_CATEGORY_KEYSPACE (1ULL<<16)
-#define CMD_CATEGORY_READ (1ULL<<17)
-#define CMD_CATEGORY_WRITE (1ULL<<18)
-#define CMD_CATEGORY_SET (1ULL<<19)
-#define CMD_CATEGORY_SORTEDSET (1ULL<<20)
-#define CMD_CATEGORY_LIST (1ULL<<21)
-#define CMD_CATEGORY_HASH (1ULL<<22)
-#define CMD_CATEGORY_STRING (1ULL<<23)
-#define CMD_CATEGORY_BITMAP (1ULL<<24)
-#define CMD_CATEGORY_HYPERLOGLOG (1ULL<<25)
-#define CMD_CATEGORY_GEO (1ULL<<26)
-#define CMD_CATEGORY_STREAM (1ULL<<27)
-#define CMD_CATEGORY_PUBSUB (1ULL<<28)
-#define CMD_CATEGORY_ADMIN (1ULL<<29)
-#define CMD_CATEGORY_FAST (1ULL<<30)
-#define CMD_CATEGORY_SLOW (1ULL<<31)
-#define CMD_CATEGORY_BLOCKING (1ULL<<32)
-#define CMD_CATEGORY_DANGEROUS (1ULL<<33)
-#define CMD_CATEGORY_CONNECTION (1ULL<<34)
-#define CMD_CATEGORY_TRANSACTION (1ULL<<35)
-#define CMD_CATEGORY_SCRIPTING (1ULL<<36)
+#define CMD_CATEGORY_KEYSPACE (1ULL<<17)
+#define CMD_CATEGORY_READ (1ULL<<18)
+#define CMD_CATEGORY_WRITE (1ULL<<19)
+#define CMD_CATEGORY_SET (1ULL<<20)
+#define CMD_CATEGORY_SORTEDSET (1ULL<<21)
+#define CMD_CATEGORY_LIST (1ULL<<22)
+#define CMD_CATEGORY_HASH (1ULL<<23)
+#define CMD_CATEGORY_STRING (1ULL<<24)
+#define CMD_CATEGORY_BITMAP (1ULL<<25)
+#define CMD_CATEGORY_HYPERLOGLOG (1ULL<<26)
+#define CMD_CATEGORY_GEO (1ULL<<27)
+#define CMD_CATEGORY_STREAM (1ULL<<28)
+#define CMD_CATEGORY_PUBSUB (1ULL<<29)
+#define CMD_CATEGORY_ADMIN (1ULL<<30)
+#define CMD_CATEGORY_FAST (1ULL<<31)
+#define CMD_CATEGORY_SLOW (1ULL<<32)
+#define CMD_CATEGORY_BLOCKING (1ULL<<33)
+#define CMD_CATEGORY_DANGEROUS (1ULL<<34)
+#define CMD_CATEGORY_CONNECTION (1ULL<<35)
+#define CMD_CATEGORY_TRANSACTION (1ULL<<36)
+#define CMD_CATEGORY_SCRIPTING (1ULL<<37)
 
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */
@@ -254,8 +257,8 @@ typedef long long mstime_t; /* millisecond time type. */
 #define AOF_WAIT_REWRITE 2    /* AOF waits rewrite to start appending */
 
 /* Client flags */
-#define CLIENT_SLAVE (1<<0)   /* This client is a slave server */
-#define CLIENT_MASTER (1<<1)  /* This client is a master server */
+#define CLIENT_SLAVE (1<<0)   /* This client is a repliaca */
+#define CLIENT_MASTER (1<<1)  /* This client is a master */
 #define CLIENT_MONITOR (1<<2) /* This client is a slave monitor, see MONITOR */
 #define CLIENT_MULTI (1<<3)   /* This client is in a MULTI context */
 #define CLIENT_BLOCKED (1<<4) /* The client is waiting in a blocking operation */
@@ -289,7 +292,13 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CLIENT_PENDING_READ (1<<29) /* The client has pending reads and was put
                                        in the list of clients we can read
                                        from. */
-#define CLIENT_PENDING_COMMAND (1<<30) /* */
+#define CLIENT_PENDING_COMMAND (1<<30) /* Used in threaded I/O to signal after
+                                          we return single threaded that the
+                                          client has already pending commands
+                                          to be executed. */
+#define CLIENT_TRACKING (1<<31) /* Client enabled keys tracking in order to
+                                   perform client side caching. */
+#define CLIENT_TRACKING_BROKEN_REDIR (1ULL<<32) /* Target client is invalid. */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -387,6 +396,12 @@ typedef long long mstime_t; /* millisecond time type. */
 #define AOF_FSYNC_ALWAYS 1
 #define AOF_FSYNC_EVERYSEC 2
 #define CONFIG_DEFAULT_AOF_FSYNC AOF_FSYNC_EVERYSEC
+
+/* Replication diskless load defines */
+#define REPL_DISKLESS_LOAD_DISABLED 0
+#define REPL_DISKLESS_LOAD_WHEN_DB_EMPTY 1
+#define REPL_DISKLESS_LOAD_SWAPDB 2
+#define CONFIG_DEFAULT_REPL_DISKLESS_LOAD REPL_DISKLESS_LOAD_DISABLED
 
 /* Zipped structures related defaults */
 #define OBJ_HASH_MAX_ZIPLIST_ENTRIES 512
@@ -523,6 +538,10 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDISMODULE_TYPE_ENCVER(id) (id & REDISMODULE_TYPE_ENCVER_MASK)
 #define REDISMODULE_TYPE_SIGN(id) ((id & ~((uint64_t)REDISMODULE_TYPE_ENCVER_MASK)) >>REDISMODULE_TYPE_ENCVER_BITS)
 
+/* Bit flags for moduleTypeAuxSaveFunc */
+#define REDISMODULE_AUX_BEFORE_RDB (1<<0)
+#define REDISMODULE_AUX_AFTER_RDB (1<<1)
+
 struct RedisModule;
 struct RedisModuleIO;
 struct RedisModuleDigest;
@@ -535,6 +554,8 @@ struct redisObject;
  * is deleted. */
 typedef void *(*moduleTypeLoadFunc)(struct RedisModuleIO *io, int encver);
 typedef void (*moduleTypeSaveFunc)(struct RedisModuleIO *io, void *value);
+typedef int (*moduleTypeAuxLoadFunc)(struct RedisModuleIO *rdb, int encver, int when);
+typedef void (*moduleTypeAuxSaveFunc)(struct RedisModuleIO *rdb, int when);
 typedef void (*moduleTypeRewriteFunc)(struct RedisModuleIO *io, struct redisObject *key, void *value);
 typedef void (*moduleTypeDigestFunc)(struct RedisModuleDigest *digest, void *value);
 typedef size_t (*moduleTypeMemUsageFunc)(const void *value);
@@ -551,6 +572,9 @@ typedef struct RedisModuleType {
     moduleTypeMemUsageFunc mem_usage;
     moduleTypeDigestFunc digest;
     moduleTypeFreeFunc free;
+    moduleTypeAuxLoadFunc aux_load;
+    moduleTypeAuxSaveFunc aux_save;
+    int aux_save_triggers;
     char name[10]; /* 9 bytes name + null term. Charset: A-Z a-z 0-9 _- */
 } moduleType;
 
@@ -645,6 +669,11 @@ typedef struct redisObject {
     int refcount;
     void *ptr;
 } robj;
+
+/* The a string name for an object's type as listed above
+ * Native types are checked against the OBJ_STRING, OBJ_LIST, OBJ_* defines,
+ * and Module types have their registered name returned. */
+char *getObjectTypeName(robj*);
 
 /* Macro used to initialize a Redis object allocated on the stack.
  * Note that this macro is taken near the structure definition to make sure
@@ -816,10 +845,10 @@ typedef struct client {
     time_t ctime;           /* Client creation time. */
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
     time_t obuf_soft_limit_reached_time;
-    int flags;              /* Client flags: CLIENT_* macros. */
+    uint64_t flags;         /* Client flags: CLIENT_* macros. */
     int authenticated;      /* Needed when the default user requires auth. */
     int replstate;          /* Replication state if this is a slave. */
-    int repl_put_online_on_ack; /* Install slave write handler on ACK. */
+    int repl_put_online_on_ack; /* Install slave write handler on first ACK. */
     int repldbfd;           /* Replication DB file descriptor. */
     off_t repldboff;        /* Replication DB file offset. */
     off_t repldbsize;       /* Replication DB file size. */
@@ -844,6 +873,11 @@ typedef struct client {
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
     listNode *client_list_node; /* list node in client list */
+
+    /* If this client is in tracking mode and this field is non zero,
+     * invalidation messages for keys fetched by this client will be send to
+     * the specified client ID. */
+    uint64_t client_tracking_redirection;
 
     /* Response buffer */
     int bufpos;
@@ -1142,6 +1176,7 @@ struct redisServer {
     int daemonize;                  /* True if running as a daemon */
     clientBufferLimitsConfig client_obuf_limits[CLIENT_TYPE_OBUF_COUNT];
     /* AOF persistence */
+    int aof_enabled;                /* AOF configuration */
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */
     int aof_fsync;                  /* Kind of fsync() policy */
     char *aof_filename;             /* Name of the AOF file */
@@ -1198,6 +1233,8 @@ struct redisServer {
     int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
     int rdb_pipe_write_result_to_parent; /* RDB pipes used to return the state */
     int rdb_pipe_read_result_from_child; /* of each slave in diskless SYNC. */
+    int rdb_key_save_delay;         /* Delay in microseconds between keys while
+                                     * writing the RDB. (for testings) */
     /* Pipe and data structures for child -> parent info sharing. */
     int child_info_pipe[2];         /* Pipe used to write the child_info_data. */
     struct {
@@ -1233,7 +1270,9 @@ struct redisServer {
     int repl_min_slaves_to_write;   /* Min number of slaves to write. */
     int repl_min_slaves_max_lag;    /* Max lag of <count> slaves to write. */
     int repl_good_slaves_count;     /* Number of slaves with lag <= max_lag. */
-    int repl_diskless_sync;         /* Send RDB to slaves sockets directly. */
+    int repl_diskless_sync;         /* Master send RDB to slaves sockets directly. */
+    int repl_diskless_load;         /* Slave parse RDB directly from the socket.
+                                     * see REPL_DISKLESS_LOAD_* enum */
     int repl_diskless_sync_delay;   /* Delay to start a diskless repl BGSAVE. */
     /* Replication (slave) */
     char *masteruser;               /* AUTH with this user and masterauth with master */
@@ -1286,6 +1325,9 @@ struct redisServer {
     unsigned int blocked_clients_by_type[BLOCKED_NUM];
     list *unblocked_clients; /* list of clients to unblock before next loop */
     list *ready_keys;        /* List of readyList structures for BLPOP & co */
+    /* Client side caching. */
+    unsigned int tracking_clients;  /* # of clients with tracking enabled.*/
+    int tracking_table_max_fill;    /* Max fill percentage. */
     /* Sort parameters - qsort_r() is only available under BSD so we
      * have to take this state global, in order to pass it to sortCompare() */
     int sort_desc;
@@ -1498,6 +1540,7 @@ void moduleAcquireGIL(void);
 void moduleReleaseGIL(void);
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
 void moduleCallCommandFilters(client *c);
+ssize_t rdbSaveModulesAux(rio *rdb, int when);
 
 /* Utils */
 long long ustime(void);
@@ -1591,6 +1634,7 @@ void linkClient(client *c);
 void protectClient(client *c);
 void unprotectClient(client *c);
 void initThreadedIO(void);
+client *lookupClientByID(uint64_t id);
 
 #ifdef __GNUC__
 void addReplyErrorFormat(client *c, const char *fmt, ...)
@@ -1601,6 +1645,15 @@ void addReplyStatusFormat(client *c, const char *fmt, ...)
 void addReplyErrorFormat(client *c, const char *fmt, ...);
 void addReplyStatusFormat(client *c, const char *fmt, ...);
 #endif
+
+/* Client side caching (tracking mode) */
+void enableTracking(client *c, uint64_t redirect_to);
+void disableTracking(client *c);
+void trackingRememberKeys(client *c);
+void trackingInvalidateKey(robj *keyobj);
+void trackingInvalidateKeysOnFlush(int dbid);
+void trackingLimitUsedSlots(void);
+unsigned long long trackingGetUsedSlots(void);
 
 /* List data type */
 void listTypeTryConversion(robj *subject, robj *value);
@@ -1714,7 +1767,8 @@ void replicationCacheMasterUsingMyself(void);
 void feedReplicationBacklog(void *ptr, size_t len);
 
 /* Generic persistence functions */
-void startLoading(FILE *fp);
+void startLoadingFile(FILE* fp, char* filename);
+void startLoading(size_t size);
 void loadingProgress(off_t pos);
 void stopLoading(void);
 
@@ -1926,6 +1980,7 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify);
 void freePubsubPattern(void *p);
 int listMatchPubsubPattern(void *a, void *b);
 int pubsubPublishMessage(robj *channel, robj *message);
+void addReplyPubsubMessage(client *c, robj *channel, robj *msg);
 
 /* Keyspace events notification */
 void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid);
@@ -1970,6 +2025,8 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);
 #define EMPTYDB_NO_FLAGS 0      /* No flags. */
 #define EMPTYDB_ASYNC (1<<0)    /* Reclaim memory in another thread. */
 long long emptyDb(int dbnum, int flags, void(callback)(void*));
+long long emptyDbGeneric(redisDb *dbarray, int dbnum, int flags, void(callback)(void*));
+long long dbTotalServerKeyCount();
 
 int selectDb(client *c, int id);
 void signalModifiedKey(redisDb *db, robj *key);
