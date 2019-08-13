@@ -5111,7 +5111,7 @@ void moduleInitModulesSystem(void) {
     server.loadmodule_queue = listCreate();
     modules = dictCreate(&modulesDictType,NULL);
 
-    /* Set up the keyspace notification susbscriber list and static client */
+    /* Set up the keyspace notification subscriber list and static client */
     moduleKeyspaceSubscribers = listCreate();
     moduleFreeContextReusedClient = createClient(-1);
     moduleFreeContextReusedClient->flags |= CLIENT_MODULE;
