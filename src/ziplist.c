@@ -1076,6 +1076,88 @@ unsigned char *ziplistDeleteRange(unsigned char *zl, int index, unsigned int num
     return (p == NULL) ? zl : __ziplistDelete(zl,p,num);
 }
 
+
+unsigned char *__ziplistReplace(unsigned char *zl, unsigned char *p, unsigned char *s, unsigned int slen) {
+    size_t zllen = intrev32ifbe(ZIPLIST_BYTES(zl)), offset;
+    zlentry cur_entry;
+    size_t cur_entrylen, new_entrylen;
+    long diff;
+    long tomovelen;
+    long long longval;
+    unsigned int newlen;
+    unsigned int newlensize;
+    unsigned char newbuf[5] = {0}; // storing encoding.
+    unsigned char nextprevlen;
+    
+    zipEntry(p, &cur_entry);
+
+    if (zipTryEncoding(s,slen,&longval,newbuf)) {
+        newlen = zipIntSize(newbuf[0]);
+        newlensize = 1;
+    } else {
+        newlen = slen;
+        newlensize = zipStoreEntryEncoding(newbuf,newbuf[0],newlen);
+    }
+
+    cur_entrylen = cur_entry.headersize+cur_entry.len;
+    new_entrylen = cur_entry.prevrawlensize+newlensize+newlen;
+
+    nextprevlen = *(p+cur_entrylen);
+
+
+    diff = (long)new_entrylen-(long)cur_entrylen;
+
+    /* resize the memory of the "zl"
+     * and move the next entry to the correct address. */
+    if (diff > 0) {
+        offset = p-zl;
+        zl = ziplistResize(zl,zllen+diff);
+        p = zl+offset;
+        if (nextprevlen != ZIP_END) {
+            tomovelen = zllen-offset-cur_entrylen;
+            memmove(p+new_entrylen,p+cur_entrylen,tomovelen);
+        }
+    } else if (diff < 0) {
+        offset = p-zl;
+        if (nextprevlen != ZIP_END) {
+            tomovelen = zllen-offset-cur_entrylen;
+            memmove(p+new_entrylen,p+cur_entrylen,tomovelen);
+        }
+        zl = ziplistResize(zl,zllen+diff);
+        p = zl+offset;
+    }
+
+    if (nextprevlen != ZIP_END) {
+        /* Update offset for tail */
+        ZIPLIST_TAIL_OFFSET(zl) =
+            intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+diff);
+    }
+
+
+    /* finial, copy the encoding and the data to the corresponding field. */
+    memcpy(p+cur_entry.prevrawlensize,newbuf,newlensize);
+    if (ZIP_IS_STR(newbuf[0])) {
+        memcpy(p+cur_entry.prevrawlensize+newlensize,s,slen);
+    } else {
+        if (newlen > 0) {
+            /* needn't to save if "longval" is 0-12, it was stored in the "newbuf". */
+            zipSaveInteger(p+cur_entry.prevrawlensize+newlensize,longval,newbuf[0]);
+        }
+    }
+
+    return __ziplistCascadeUpdate(zl,p);
+}
+
+
+/* Replace entry at "p". */
+unsigned char *ziplistReplace(unsigned char *zl, unsigned char **p, unsigned char *s, unsigned int slen) {
+    size_t offset = *p-zl;
+    zl = __ziplistReplace(zl,*p,s,slen);
+    *p = zl+offset;
+    return zl;
+}
+
+
 /* Compare entry pointer to by 'p' with 'sstr' of length 'slen'. */
 /* Return 1 if equal. */
 unsigned int ziplistCompare(unsigned char *p, unsigned char *sstr, unsigned int slen) {

@@ -44,6 +44,7 @@ unsigned int ziplistGet(unsigned char *p, unsigned char **sval, unsigned int *sl
 unsigned char *ziplistInsert(unsigned char *zl, unsigned char *p, unsigned char *s, unsigned int slen);
 unsigned char *ziplistDelete(unsigned char *zl, unsigned char **p);
 unsigned char *ziplistDeleteRange(unsigned char *zl, int index, unsigned int num);
+unsigned char *ziplistReplace(unsigned char *zl, unsigned char **p, unsigned char *s, unsigned int slen);
 unsigned int ziplistCompare(unsigned char *p, unsigned char *s, unsigned int slen);
 unsigned char *ziplistFind(unsigned char *p, unsigned char *vstr, unsigned int vlen, unsigned int skip);
 unsigned int ziplistLen(unsigned char *zl);
