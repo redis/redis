@@ -14,12 +14,14 @@ start_server {tags {"modules"}} {
         set info [r info all]
         # info all does not contain modules
         assert { ![string match "*Spanish*" $info] }
+        assert { ![string match "*infotest*" $info] }
         assert { [string match "*used_memory*" $info] }
     }
 
     test {module info everything} {
         set info [r info everything]
         # info everything contains all default sections, but not ones for crash report
+        assert { [string match "*infotest_global*" $info] }
         assert { [string match "*Spanish*" $info] }
         assert { [string match "*Italian*" $info] }
         assert { [string match "*used_memory*" $info] }
@@ -31,6 +33,7 @@ start_server {tags {"modules"}} {
         set info [r info modules]
         # info all does not contain modules
         assert { [string match "*Spanish*" $info] }
+        assert { [string match "*infotest_global*" $info] }
         assert { ![string match "*used_memory*" $info] }
     }
 
@@ -39,12 +42,14 @@ start_server {tags {"modules"}} {
         # info all does not contain modules
         assert { [string match "*Spanish*" $info] }
         assert { ![string match "*used_memory*" $info] }
-    }
+        field $info infotest_global
+    } {-2}
 
     test {module info one section} {
         set info [r info INFOTEST_SPANISH]
         assert { ![string match "*used_memory*" $info] }
         assert { ![string match "*Italian*" $info] }
+        assert { ![string match "*infotest_global*" $info] }
         field $info infotest_uno
     } {one}
 

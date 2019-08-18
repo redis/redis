@@ -3,6 +3,9 @@
 #include <string.h>
 
 void InfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
+    RedisModule_InfoAddSection(ctx, "");
+    RedisModule_InfoAddFieldLongLong(ctx, "global", -2);
+
     RedisModule_InfoAddSection(ctx, "Spanish");
     RedisModule_InfoAddFieldCString(ctx, "uno", "one");
     RedisModule_InfoAddFieldLongLong(ctx, "dos", 2);
