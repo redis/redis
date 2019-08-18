@@ -48,6 +48,11 @@ start_server {tags {"modules"}} {
         field $info infotest_uno
     } {one}
 
-    # TODO: test crash report.
+    test {module info dict} {
+        set info [r info infotest_keyspace]
+        set keyspace [field $info infotest_db0]
+        set keys [scan [regexp -inline {keys\=([\d]*)} $keyspace] keys=%d]
+    } {3}
 
+    # TODO: test crash report.
 } 

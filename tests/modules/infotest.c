@@ -3,19 +3,25 @@
 #include <string.h>
 
 void InfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
-    RedisModule_AddInfoSection(ctx, "Spanish");
-    RedisModule_AddInfoFieldCString(ctx, "uno", "one");
-    RedisModule_AddInfoFieldLongLong(ctx, "dos", 2);
+    RedisModule_InfoAddSection(ctx, "Spanish");
+    RedisModule_InfoAddFieldCString(ctx, "uno", "one");
+    RedisModule_InfoAddFieldLongLong(ctx, "dos", 2);
 
-    RedisModule_AddInfoSection(ctx, "Italian");
-    RedisModule_AddInfoFieldLongLong(ctx, "due", 2);
-    RedisModule_AddInfoFieldDouble(ctx, "tre", 3.3);
+    RedisModule_InfoAddSection(ctx, "Italian");
+    RedisModule_InfoAddFieldLongLong(ctx, "due", 2);
+    RedisModule_InfoAddFieldDouble(ctx, "tre", 3.3);
+
+    RedisModule_InfoAddSection(ctx, "keyspace");
+    RedisModule_InfoBeginDictField(ctx, "db0");
+    RedisModule_InfoAddFieldLongLong(ctx, "keys", 3);
+    RedisModule_InfoAddFieldLongLong(ctx, "expires", 1);
+    RedisModule_InfoEndDictField(ctx);
 
     if (for_crash_report) {
-        RedisModule_AddInfoSection(ctx, "Klingon");
-        RedisModule_AddInfoFieldCString(ctx, "one", "wa’");
-        RedisModule_AddInfoFieldCString(ctx, "two", "cha’");
-        RedisModule_AddInfoFieldCString(ctx, "three", "wej");
+        RedisModule_InfoAddSection(ctx, "Klingon");
+        RedisModule_InfoAddFieldCString(ctx, "one", "wa’");
+        RedisModule_InfoAddFieldCString(ctx, "two", "cha’");
+        RedisModule_InfoAddFieldCString(ctx, "three", "wej");
     }
 
 }
