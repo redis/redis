@@ -194,10 +194,14 @@ static int connSocketAccept(connection *conn, ConnectionCallbackFunc accept_hand
 /* Register a write handler, to be called when the connection is writable.
  * If NULL, the existing handler is removed.
  */
-static int connSocketSetWriteHandler(connection *conn, ConnectionCallbackFunc func) {
+static int connSocketSetWriteHandler(connection *conn, ConnectionCallbackFunc func, int barrier) {
     if (func == conn->write_handler) return C_OK;
 
     conn->write_handler = func;
+    if (barrier)
+        conn->flags |= CONN_FLAG_WRITE_BARRIER;
+    else
+        conn->flags &= ~CONN_FLAG_WRITE_BARRIER;
     if (!conn->write_handler)
         aeDeleteFileEvent(server.el,conn->fd,AE_WRITABLE);
     else
@@ -247,12 +251,34 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
         conn->conn_handler = NULL;
     }
 
+    /* Normally we execute the readable event first, and the writable
+     * event laster. This is useful as sometimes we may be able
+     * to serve the reply of a query immediately after processing the
+     * query.
+     *
+     * However if WRITE_BARRIER is set in the mask, our application is
+     * asking us to do the reverse: never fire the writable event
+     * after the readable. In such a case, we invert the calls.
+     * This is useful when, for instance, we want to do things
+     * in the beforeSleep() hook, like fsynching a file to disk,
+     * before replying to a client. */
+    int invert = conn->flags & CONN_FLAG_WRITE_BARRIER;
+
+    int call_write = (mask & AE_WRITABLE) && conn->write_handler;
+    int call_read = (mask & AE_READABLE) && conn->read_handler;
+
     /* Handle normal I/O flows */
-    if ((mask & AE_READABLE) && conn->read_handler) {
+    if (!invert && call_read) {
         if (!callHandler(conn, conn->read_handler)) return;
     }
-    if ((mask & AE_WRITABLE) && conn->write_handler) {
+    /* Fire the writable event. */
+    if (call_write) {
         if (!callHandler(conn, conn->write_handler)) return;
+    }
+    /* If we have to invert the call, fire the readable event now
+     * after the writable one. */
+    if (invert && call_read) {
+        if (!callHandler(conn, conn->read_handler)) return;
     }
 }
 

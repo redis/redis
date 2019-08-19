@@ -57,22 +57,18 @@ Connections
 Connection abstraction API is mostly done and seems to hold well for hiding
 implementation details between TLS and TCP.
 
-1. Still need to implement the equivalent of AE_BARRIER.  Because TLS
-   socket-level read/write events don't correspond to logical operations, this
-   should probably be done at the Read/Write handler level.
-
-2. Multi-threading I/O is not supported.  The main issue to address is the need
+1. Multi-threading I/O is not supported.  The main issue to address is the need
    to manipulate AE based on OpenSSL return codes.  We can either propagate this
    out of the thread, or explore ways of further optimizing MT I/O by having
    event loops that live inside the thread and borrow connections in/out.
 
-3. Finish cleaning up the implementation.  Make sure all error cases are handled
+2. Finish cleaning up the implementation.  Make sure all error cases are handled
    and reflected into connection state, connection state validated before
    certain operations, etc.
     - Clean (non-errno) interface to report would-block.
     - Consistent error reporting.
 
-4. Sync IO for TLS is currently implemented in a hackish way, i.e. making the
+3. Sync IO for TLS is currently implemented in a hackish way, i.e. making the
    socket blocking and configuring socket-level timeout.  This means the timeout
    value may not be so accurate, and there would be a lot of syscall overhead.
    However I believe that getting rid of syncio completely in favor of pure

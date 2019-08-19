@@ -2277,7 +2277,7 @@ void clusterReadHandler(connection *conn) {
  * from event handlers that will do stuff with the same link later. */
 void clusterSendMessage(clusterLink *link, unsigned char *msg, size_t msglen) {
     if (sdslen(link->sndbuf) == 0 && msglen != 0)
-        connSetWriteHandler(link->conn, clusterWriteHandler); /* TODO: Handle AE_BARRIER in conns */
+        connSetWriteHandlerWithBarrier(link->conn, clusterWriteHandler, 1);
 
     link->sndbuf = sdscatlen(link->sndbuf, msg, msglen);
 

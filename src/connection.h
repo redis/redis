@@ -47,6 +47,7 @@ typedef enum {
 
 #define CONN_FLAG_IN_HANDLER        (1<<0)      /* A handler execution is in progress */
 #define CONN_FLAG_CLOSE_SCHEDULED   (1<<1)      /* Closed scheduled by a handler */
+#define CONN_FLAG_WRITE_BARRIER     (1<<2)      /* Write barrier requested */
 
 typedef void (*ConnectionCallbackFunc)(struct connection *conn);
 
@@ -57,7 +58,7 @@ typedef struct ConnectionType {
     int (*read)(struct connection *conn, void *buf, size_t buf_len);
     void (*close)(struct connection *conn);
     int (*accept)(struct connection *conn, ConnectionCallbackFunc accept_handler);
-    int (*set_write_handler)(struct connection *conn, ConnectionCallbackFunc handler);
+    int (*set_write_handler)(struct connection *conn, ConnectionCallbackFunc handler, int barrier);
     int (*set_read_handler)(struct connection *conn, ConnectionCallbackFunc handler);
     const char *(*get_last_error)(struct connection *conn);
     int (*blocking_connect)(struct connection *conn, const char *addr, int port, long long timeout);
@@ -144,7 +145,7 @@ static inline int connRead(connection *conn, void *buf, size_t buf_len) {
  * If NULL, the existing handler is removed.
  */
 static inline int connSetWriteHandler(connection *conn, ConnectionCallbackFunc func) {
-    return conn->type->set_write_handler(conn, func);
+    return conn->type->set_write_handler(conn, func, 0);
 }
 
 /* Register a read handler, to be called when the connection is readable.
@@ -152,6 +153,15 @@ static inline int connSetWriteHandler(connection *conn, ConnectionCallbackFunc f
  */
 static inline int connSetReadHandler(connection *conn, ConnectionCallbackFunc func) {
     return conn->type->set_read_handler(conn, func);
+}
+
+/* Set a write handler, and possibly enable a write barrier, this flag is
+ * cleared when write handler is changed or removed.
+ * With barroer enabled, we never fire the event if the read handler already
+ * fired in the same event loop iteration. Useful when you want to persist
+ * things to disk before sending replies, and want to do that in a group fashion. */
+static inline int connSetWriteHandlerWithBarrier(connection *conn, ConnectionCallbackFunc func, int barrier) {
+    return conn->type->set_write_handler(conn, func, barrier);
 }
 
 static inline void connClose(connection *conn) {

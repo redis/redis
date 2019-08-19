@@ -361,18 +361,47 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
             conn->c.conn_handler = NULL;
             break;
         case CONN_STATE_CONNECTED:
-            if ((mask & AE_READABLE) && (conn->flags & TLS_CONN_FLAG_WRITE_WANT_READ)) {
-                conn->flags &= ~TLS_CONN_FLAG_WRITE_WANT_READ;
-                if (!callHandler((connection *) conn, conn->c.write_handler)) return;
-            }
+        {
+            int call_read = ((mask & AE_READABLE) && conn->c.read_handler) ||
+                ((mask & AE_WRITABLE) && (conn->flags & TLS_CONN_FLAG_READ_WANT_WRITE));
+            int call_write = ((mask & AE_WRITABLE) && conn->c.write_handler) ||
+                ((mask & AE_READABLE) && (conn->flags & TLS_CONN_FLAG_WRITE_WANT_READ));
 
-            if ((mask & AE_WRITABLE) && (conn->flags & TLS_CONN_FLAG_READ_WANT_WRITE)) {
+            /* Normally we execute the readable event first, and the writable
+             * event laster. This is useful as sometimes we may be able
+             * to serve the reply of a query immediately after processing the
+             * query.
+             *
+             * However if WRITE_BARRIER is set in the mask, our application is
+             * asking us to do the reverse: never fire the writable event
+             * after the readable. In such a case, we invert the calls.
+             * This is useful when, for instance, we want to do things
+             * in the beforeSleep() hook, like fsynching a file to disk,
+             * before replying to a client. */
+            int invert = conn->c.flags & CONN_FLAG_WRITE_BARRIER;
+
+            if (!invert && call_read) {
                 conn->flags &= ~TLS_CONN_FLAG_READ_WANT_WRITE;
                 if (!callHandler((connection *) conn, conn->c.read_handler)) return;
             }
 
-            if ((mask & AE_READABLE) && conn->c.read_handler) {
+            /* Fire the writable event. */
+            if (call_write) {
+                conn->flags &= ~TLS_CONN_FLAG_WRITE_WANT_READ;
+                if (!callHandler((connection *) conn, conn->c.write_handler)) return;
+            }
+
+            /* If we have to invert the call, fire the readable event now
+             * after the writable one. */
+            if (invert && call_read) {
+                conn->flags &= ~TLS_CONN_FLAG_READ_WANT_WRITE;
                 if (!callHandler((connection *) conn, conn->c.read_handler)) return;
+            }
+
+            /* If SSL has pending that, already read from the socket, we're at
+             * risk of not calling the read handler again, make sure to add it
+             * to a list of pending connection that should be handled anyway. */
+            if ((mask & AE_READABLE)) {
                 if (SSL_has_pending(conn->ssl)) {
                     if (!conn->pending_list_node) {
                         listAddNodeTail(pending_list, conn);
@@ -384,10 +413,8 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
                 }
             }
 
-            if ((mask & AE_WRITABLE) && conn->c.write_handler) {
-                if (!callHandler((connection *) conn, conn->c.write_handler)) return;
-            }
             break;
+        }
         default:
             break;
     }
@@ -535,8 +562,12 @@ static const char *connTLSGetLastError(connection *conn_) {
     return NULL;
 }
 
-int connTLSSetWriteHandler(connection *conn, ConnectionCallbackFunc func) {
+int connTLSSetWriteHandler(connection *conn, ConnectionCallbackFunc func, int barrier) {
     conn->write_handler = func;
+    if (barrier)
+        conn->flags |= CONN_FLAG_WRITE_BARRIER;
+    else
+        conn->flags &= ~CONN_FLAG_WRITE_BARRIER;
     updateSSLEvent((tls_connection *) conn);
     return C_OK;
 }
