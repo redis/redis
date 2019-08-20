@@ -666,8 +666,7 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, un
     if (where == LP_BEFORE) {
         memmove(dst+enclen+backlen_size,dst,old_listpack_bytes-poff);
     } else { /* LP_REPLACE. */
-        long lendiff = (enclen+backlen_size)-replaced_len;
-        memmove(dst+replaced_len+lendiff,
+        memmove(dst+enclen+backlen_size,
                 dst+replaced_len,
                 old_listpack_bytes-poff-replaced_len);
     }
