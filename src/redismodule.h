@@ -216,7 +216,7 @@ REDISMODULE_API_FUNC(int ,RedisModule_WrongArity)(RedisModuleCtx *ctx);
 REDISMODULE_API_FUNC(int ,RedisModule_ReplyWithLongLong)(RedisModuleCtx *ctx, long long ll);
 REDISMODULE_API_FUNC(int ,RedisModule_GetSelectedDb)(RedisModuleCtx *ctx);
 REDISMODULE_API_FUNC(int ,RedisModule_SelectDb)(RedisModuleCtx *ctx, int newid);
-REDISMODULE_API_FUNC(void *,RedisModule_OpenKey)(RedisModuleCtx *ctx, RedisModuleString *keyname, int mode);
+REDISMODULE_API_FUNC(RedisModuleKey *,RedisModule_OpenKey)(RedisModuleCtx *ctx, RedisModuleString *keyname, int mode);
 REDISMODULE_API_FUNC(void ,RedisModule_CloseKey)(RedisModuleKey *kp);
 REDISMODULE_API_FUNC(int ,RedisModule_KeyType)(RedisModuleKey *kp);
 REDISMODULE_API_FUNC(size_t ,RedisModule_ValueLength)(RedisModuleKey *kp);
