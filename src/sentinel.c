@@ -2277,11 +2277,15 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
                  sentinelRedisInstanceNoDownFor(ri,wait_time) &&
                  mstime() - ri->role_reported_time > wait_time)
             {
-                int retval = sentinelSendSlaveOf(ri,
-                        ri->master->addr->ip,
-                        ri->master->addr->port);
-                if (retval == C_OK)
-                    sentinelEvent(LL_NOTICE,"+convert-to-slave",ri,"%@");
+                if(strcmp(ri->link->cc->c.tcp.host,ri->master->addr->ip)){
+                    int retval = sentinelSendSlaveOf(ri,
+                            ri->master->addr->ip,
+                            ri->master->addr->port);
+                    if (retval == C_OK)
+                        sentinelEvent(LL_NOTICE,"+convert-to-slave",ri,"%@");
+                } else {
+                        sentinelEvent(LL_NOTICE,"+skip convert-to-slave (same ip)",ri,"%@");
+                }
             }
         }
     }
