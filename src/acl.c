@@ -295,7 +295,7 @@ int ACLGetCommandBitCoordinates(uint64_t id, uint64_t *word, uint64_t *bit) {
  * Note that this function does not check the ALLCOMMANDS flag of the user
  * but just the lowlevel bitmask.
  *
- * If the bit overflows the user internal represetation, zero is returned
+ * If the bit overflows the user internal representation, zero is returned
  * in order to disallow the execution of the command in such edge case. */
 int ACLGetUserCommandBit(user *u, unsigned long id) {
     uint64_t word, bit;
@@ -311,7 +311,7 @@ int ACLUserCanExecuteFutureCommands(user *u) {
 }
 
 /* Set the specified command bit for the specified user to 'value' (0 or 1).
- * If the bit overflows the user internal represetation, no operation
+ * If the bit overflows the user internal representation, no operation
  * is performed. As a side effect of calling this function with a value of
  * zero, the user flag ALLCOMMANDS is cleared since it is no longer possible
  * to skip the command bit explicit test. */
@@ -350,7 +350,7 @@ int ACLSetUserCommandBitsForCategory(user *u, const char *category, int value) {
 
 /* Return the number of commands allowed (on) and denied (off) for the user 'u'
  * in the subset of commands flagged with the specified category name.
- * If the categoty name is not valid, C_ERR is returend, otherwise C_OK is
+ * If the category name is not valid, C_ERR is returned, otherwise C_OK is
  * returned and on and off are populated by reference. */
 int ACLCountCategoryBitsForUser(user *u, unsigned long *on, unsigned long *off,
                                 const char *category)
@@ -626,7 +626,7 @@ void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub) {
  *              It is possible to specify multiple patterns.
  * allkeys      Alias for ~*
  * resetkeys    Flush the list of allowed keys patterns.
- * ><password>  Add this passowrd to the list of valid password for the user.
+ * ><password>  Add this password to the list of valid password for the user.
  *              For example >mypass will add "mypass" to the list.
  *              This directive clears the "nopass" flag (see later).
  * <<password>  Remove this password from the list of valid passwords.
@@ -949,9 +949,9 @@ user *ACLGetUserByName(const char *name, size_t namelen) {
     return myuser;
 }
 
-/* Check if the command ready to be excuted in the client 'c', and already
- * referenced by c->cmd, can be executed by this client according to the
- * ACls associated to the client user c->user.
+/* Check if the command is ready to be executed in the client 'c', already
+ * referenced by c->cmd, and can be executed by this client according to the
+ * ACLs associated to the client user c->user.
  *
  * If the user can execute the command ACL_OK is returned, otherwise
  * ACL_DENIED_CMD or ACL_DENIED_KEY is returned: the first in case the
@@ -1122,7 +1122,7 @@ int ACLLoadConfiguredUsers(void) {
 }
 
 /* This function loads the ACL from the specified filename: every line
- * is validated and shold be either empty or in the format used to specify
+ * is validated and should be either empty or in the format used to specify
  * users in the redis.conf configuration or in the ACL file, that is:
  *
  *  user <username> ... rules ...
@@ -1172,7 +1172,7 @@ sds ACLLoadFromFile(const char *filename) {
      * to the real user mentioned in the ACL line. */
     user *fakeuser = ACLCreateUnlinkedUser();
 
-    /* We do all the loading in a fresh insteance of the Users radix tree,
+    /* We do all the loading in a fresh instance of the Users radix tree,
      * so if there are errors loading the ACL file we can rollback to the
      * old version. */
     rax *old_users = Users;
@@ -1248,7 +1248,7 @@ sds ACLLoadFromFile(const char *filename) {
         }
 
         /* Note that the same rules already applied to the fake user, so
-         * we just assert that everything goess well: it should. */
+         * we just assert that everything goes well: it should. */
         for (j = 2; j < argc; j++)
             serverAssert(ACLSetUser(u,argv[j],sdslen(argv[j])) == C_OK);
 
@@ -1611,7 +1611,7 @@ void addReplyCommandCategories(client *c, struct redisCommand *cmd) {
     setDeferredSetLen(c, flaglen, flagcount);
 }
 
-/* AUTH <passowrd>
+/* AUTH <password>
  * AUTH <username> <password> (Redis >= 6.0 form)
  *
  * When the user is omitted it means that we are trying to authenticate

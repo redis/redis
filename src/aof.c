@@ -303,9 +303,7 @@ ssize_t aofWrite(int fd, const char *buf, size_t len) {
         nwritten = write(fd, buf, len);
 
         if (nwritten < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
+            if (errno == EINTR) continue;
             return totwritten ? totwritten : -1;
         }
 
@@ -729,7 +727,7 @@ int loadAppendOnlyFile(char *filename) {
     server.aof_state = AOF_OFF;
 
     fakeClient = createFakeClient();
-    startLoading(fp);
+    startLoadingFile(fp, filename);
 
     /* Check if this AOF file has an RDB preamble. In that case we need to
      * load the RDB file and later continue loading the AOF tail. */

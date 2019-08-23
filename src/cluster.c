@@ -4251,12 +4251,7 @@ NULL
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"nodes") && c->argc == 2) {
         /* CLUSTER NODES */
-        robj *o;
-        sds ci = clusterGenNodesDescription(0);
-
-        o = createObject(OBJ_STRING,ci);
-        addReplyBulk(c,o);
-        decrRefCount(o);
+        addReplyBulkSds(c,clusterGenNodesDescription(0));
     } else if (!strcasecmp(c->argv[1]->ptr,"myid") && c->argc == 2) {
         /* CLUSTER MYID */
         addReplyBulkCBuffer(c,myself->name, CLUSTER_NAMELEN);
@@ -4832,7 +4827,7 @@ int verifyDumpPayload(unsigned char *p, size_t len) {
  * DUMP is actually not used by Redis Cluster but it is the obvious
  * complement of RESTORE and can be useful for different applications. */
 void dumpCommand(client *c) {
-    robj *o, *dumpobj;
+    robj *o;
     rio payload;
 
     /* Check if the key is here. */
@@ -4845,9 +4840,7 @@ void dumpCommand(client *c) {
     createDumpPayload(&payload,o,c->argv[1]);
 
     /* Transfer to the client */
-    dumpobj = createObject(OBJ_STRING,payload.io.buffer.ptr);
-    addReplyBulk(c,dumpobj);
-    decrRefCount(dumpobj);
+    addReplyBulkSds(c,payload.io.buffer.ptr);
     return;
 }
 
