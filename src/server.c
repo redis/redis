@@ -3551,6 +3551,12 @@ int prepareForShutdown(int flags) {
         killRDBChild();
     }
 
+    /* Kill module child if there is one. */
+    if (server.module_child_pid != -1) {
+        serverLog(LL_WARNING,"There is a module fork child. Killing it!");
+        TerminateModuleForkChild(0);
+    }
+
     if (server.aof_state != AOF_OFF) {
         /* Kill the AOF saving child as the AOF we already have may be longer
          * but contains the full dataset anyway. */

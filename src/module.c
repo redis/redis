@@ -5086,20 +5086,11 @@ int RM_ExitFromChild(int retcode)
     return REDISMODULE_OK;
 }
 
-/* Can be used to kill the forked child process from the parent process.
- * child_pid whould be the return value of RedisModule_Fork. */
-int RM_KillForkChild(int child_pid)
-{
+void TerminateModuleForkChild(int wait) {
     int statloc;
-    /* No module child? return. */
-    if (server.module_child_pid == -1) return REDISMODULE_ERR;
-    /* Make sure the module knows the pid it wants to kill (not trying to
-     * randomly kill other module's forks) */
-    if (server.module_child_pid != child_pid) return REDISMODULE_ERR;
-    /* Kill module child, wait for child exit. */
     serverLog(LL_NOTICE,"Killing running module fork child: %ld",
         (long) server.module_child_pid);
-    if (kill(server.module_child_pid,SIGUSR1) != -1) {
+    if (kill(server.module_child_pid,SIGUSR1) != -1 && wait) {
         while(wait3(&statloc,0,NULL) != server.module_child_pid);
     }
     /* Reset the buffer accumulating changes while the child saves. */
@@ -5108,6 +5099,19 @@ int RM_KillForkChild(int child_pid)
     moduleForkInfo.done_handler_user_data = NULL;
     closeChildInfoPipe();
     updateDictResizePolicy();
+}
+
+/* Can be used to kill the forked child process from the parent process.
+ * child_pid whould be the return value of RedisModule_Fork. */
+int RM_KillForkChild(int child_pid)
+{
+    /* No module child? return. */
+    if (server.module_child_pid == -1) return REDISMODULE_ERR;
+    /* Make sure the module knows the pid it wants to kill (not trying to
+     * randomly kill other module's forks) */
+    if (server.module_child_pid != child_pid) return REDISMODULE_ERR;
+    /* Kill module child, wait for child exit. */
+    TerminateModuleForkChild(1);
     return REDISMODULE_OK;
 }
 

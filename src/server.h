@@ -1532,6 +1532,7 @@ void moduleReleaseGIL(void);
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
 void moduleCallCommandFilters(client *c);
 void ModuleForkDoneHandler(int exitcode, int bysignal);
+void TerminateModuleForkChild(int wait);
 
 /* Utils */
 long long ustime(void);
