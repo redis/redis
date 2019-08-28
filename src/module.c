@@ -5891,6 +5891,26 @@ int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *fctx, int pos)
     return REDISMODULE_OK;
 }
 
+/*
+ * For a given pointer, return The amount of memory
+ * allocated for this pointer.
+ */
+size_t RM_MallocSize(void* ptr){
+    return zmalloc_size(ptr);
+}
+
+/*
+ * Return the a number between 0 to 1 indicating
+ * the amount of memory currently used.
+ * 0 - no memory limit
+ * 1 and above, memory limit reached.
+ */
+float RM_GetUsedMemoryPercentage(){
+    float level;
+    getMaxmemoryState(NULL, NULL, NULL, &level);
+    return level;
+}
+
 /* --------------------------------------------------------------------------
  * Module fork API
  * -------------------------------------------------------------------------- */
@@ -6971,4 +6991,6 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(BlockClientOnKeys);
     REGISTER_API(SignalKeyAsReady);
     REGISTER_API(GetBlockedClientReadyKey);
+    REGISTER_API(GetUsedMemoryPercentage);
+    REGISTER_API(MallocSize);
 }
