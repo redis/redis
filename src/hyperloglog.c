@@ -891,6 +891,7 @@ promote: /* Promote to dense representation. */
      * conversion, it will be performed in all the slaves as well. */
     int dense_retval = hllDenseSet(hdr->registers,index,count);
     serverAssert(dense_retval == 1);
+    HLL_INVALIDATE_CACHE(hdr);
     return dense_retval;
 }
 
