@@ -614,6 +614,7 @@ int hllSparseToDense(robj *o) {
         } else {
             runlen = HLL_SPARSE_VAL_LEN(p);
             regval = HLL_SPARSE_VAL_VALUE(p);
+            if ((runlen + idx) > HLL_REGISTERS) break; /* Overflow. */
             while(runlen--) {
                 HLL_DENSE_SET_REGISTER(hdr->registers,idx,regval);
                 idx++;
@@ -673,7 +674,7 @@ int hllSparseSet(robj *o, long index, uint8_t count) {
     end = p + sdslen(o->ptr) - HLL_HDR_SIZE;
 
     first = 0;
-    prev = NULL; /* Points to previos opcode at the end of the loop. */
+    prev = NULL; /* Points to previous opcode at the end of the loop. */
     next = NULL; /* Points to the next opcode at the end of the loop. */
     span = 0;
     while(p < end) {
@@ -699,7 +700,7 @@ int hllSparseSet(robj *o, long index, uint8_t count) {
         p += oplen;
         first += span;
     }
-    if (span == 0) return -1; /* Invalid format. */
+    if (span == 0 || p >= end) return -1; /* Invalid format. */
 
     next = HLL_SPARSE_IS_XZERO(p) ? p+2 : p+1;
     if (next >= end) next = NULL;
@@ -764,7 +765,7 @@ int hllSparseSet(robj *o, long index, uint8_t count) {
      * and is either currently represented by a VAL opcode with len > 1,
      * by a ZERO opcode with len > 1, or by an XZERO opcode.
      *
-     * In those cases the original opcode must be split into muliple
+     * In those cases the original opcode must be split into multiple
      * opcodes. The worst case is an XZERO split in the middle resuling into
      * XZERO - VAL - XZERO, so the resulting sequence max length is
      * 5 bytes.
@@ -887,7 +888,7 @@ promote: /* Promote to dense representation. */
      *
      * Note that this in turn means that PFADD will make sure the command
      * is propagated to slaves / AOF, so if there is a sparse -> dense
-     * convertion, it will be performed in all the slaves as well. */
+     * conversion, it will be performed in all the slaves as well. */
     int dense_retval = hllDenseSet(hdr->registers,index,count);
     serverAssert(dense_retval == 1);
     return dense_retval;
@@ -1013,7 +1014,12 @@ uint64_t hllCount(struct hllhdr *hdr, int *invalid) {
     double m = HLL_REGISTERS;
     double E;
     int j;
-    int reghisto[HLL_Q+2] = {0};
+    /* Note that reghisto size could be just HLL_Q+2, becuase HLL_Q+1 is
+     * the maximum frequency of the "000...1" sequence the hash function is
+     * able to return. However it is slow to check for sanity of the
+     * input: instead we history array at a safe size: overflows will
+     * just write data to wrong, but correctly allocated, places. */
+    int reghisto[64] = {0};
 
     /* Compute register histogram */
     if (hdr->encoding == HLL_DENSE) {
@@ -1088,6 +1094,7 @@ int hllMerge(uint8_t *max, robj *hll) {
             } else {
                 runlen = HLL_SPARSE_VAL_LEN(p);
                 regval = HLL_SPARSE_VAL_VALUE(p);
+                if ((runlen + i) > HLL_REGISTERS) break; /* Overflow. */
                 while(runlen--) {
                     if (regval > max[i]) max[i] = regval;
                     i++;
@@ -1512,7 +1519,7 @@ void pfdebugCommand(client *c) {
         }
 
         hdr = o->ptr;
-        addReplyMultiBulkLen(c,HLL_REGISTERS);
+        addReplyArrayLen(c,HLL_REGISTERS);
         for (j = 0; j < HLL_REGISTERS; j++) {
             uint8_t val;
 

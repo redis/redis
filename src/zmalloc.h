@@ -98,6 +98,13 @@ void *zmalloc_no_tcache(size_t size);
 
 #ifndef HAVE_MALLOC_SIZE
 size_t zmalloc_size(void *ptr);
+size_t zmalloc_usable(void *ptr);
+#else
+#define zmalloc_usable(p) zmalloc_size(p)
+#endif
+
+#ifdef REDIS_TEST
+int zmalloc_test(int argc, char **argv);
 #endif
 
 #endif /* __ZMALLOC_H */

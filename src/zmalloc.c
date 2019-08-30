@@ -148,6 +148,10 @@ void *zrealloc(void *ptr, size_t size) {
     size_t oldsize;
     void *newptr;
 
+    if (size == 0 && ptr != NULL) {
+        zfree(ptr);
+        return NULL;
+    }
     if (ptr == NULL) return zmalloc(size);
 #ifdef HAVE_MALLOC_SIZE
     oldsize = zmalloc_size(ptr);
@@ -164,7 +168,7 @@ void *zrealloc(void *ptr, size_t size) {
     if (!newptr) zmalloc_oom_handler(size);
 
     *((size_t*)newptr) = size;
-    update_zmalloc_stat_free(oldsize);
+    update_zmalloc_stat_free(oldsize+PREFIX_SIZE);
     update_zmalloc_stat_alloc(size+PREFIX_SIZE);
     return (char*)newptr+PREFIX_SIZE;
 #endif
@@ -181,6 +185,9 @@ size_t zmalloc_size(void *ptr) {
      * the underlying allocator. */
     if (size&(sizeof(long)-1)) size += sizeof(long)-(size&(sizeof(long)-1));
     return size+PREFIX_SIZE;
+}
+size_t zmalloc_usable(void *ptr) {
+    return zmalloc_size(ptr)-PREFIX_SIZE;
 }
 #endif
 
@@ -287,6 +294,26 @@ size_t zmalloc_get_rss(void) {
 
     return t_info.resident_size;
 }
+#elif defined(__FreeBSD__)
+#include <sys/types.h>
+#include <sys/sysctl.h>
+#include <sys/user.h>
+#include <unistd.h>
+
+size_t zmalloc_get_rss(void) {
+    struct kinfo_proc info;
+    size_t infolen = sizeof(info);
+    int mib[4];
+    mib[0] = CTL_KERN;
+    mib[1] = KERN_PROC;
+    mib[2] = KERN_PROC_PID;
+    mib[3] = getpid();
+
+    if (sysctl(mib, 4, &info, &infolen, NULL, 0) == 0)
+        return (size_t)info.ki_rssize;
+
+    return 0L;
+}
 #else
 size_t zmalloc_get_rss(void) {
     /* If we can't get the RSS in an OS-specific way for this system just
@@ -380,7 +407,7 @@ size_t zmalloc_get_private_dirty(long pid) {
 }
 
 /* Returns the size of physical memory (RAM) in bytes.
- * It looks ugly, but this is the cleanest way to achive cross platform results.
+ * It looks ugly, but this is the cleanest way to achieve cross platform results.
  * Cleaned up from:
  *
  * http://nadeausoftware.com/articles/2012/09/c_c_tip_how_get_physical_memory_size_system
@@ -435,4 +462,20 @@ size_t zmalloc_get_memory_size(void) {
 #endif
 }
 
+#ifdef REDIS_TEST
+#define UNUSED(x) ((void)(x))
+int zmalloc_test(int argc, char **argv) {
+    void *ptr;
 
+    UNUSED(argc);
+    UNUSED(argv);
+    printf("Initial used memory: %zu\n", zmalloc_used_memory());
+    ptr = zmalloc(123);
+    printf("Allocated 123 bytes; used: %zu\n", zmalloc_used_memory());
+    ptr = zrealloc(ptr, 456);
+    printf("Reallocated to 456 bytes; used: %zu\n", zmalloc_used_memory());
+    zfree(ptr);
+    printf("Freed pointer; used: %zu\n", zmalloc_used_memory());
+    return 0;
+}
+#endif

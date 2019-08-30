@@ -77,10 +77,18 @@ int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb 
  * is zero. */
 int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int unit) {
     long long tval;
+    long double ftval;
 
-    if (getLongLongFromObjectOrReply(c,object,&tval,
-        "timeout is not an integer or out of range") != C_OK)
-        return C_ERR;
+    if (unit == UNIT_SECONDS) {
+        if (getLongDoubleFromObjectOrReply(c,object,&ftval,
+            "timeout is not an float or out of range") != C_OK)
+            return C_ERR;
+        tval = (long long) (ftval * 1000.0);
+    } else {
+        if (getLongLongFromObjectOrReply(c,object,&tval,
+            "timeout is not an integer or out of range") != C_OK)
+            return C_ERR;
+    }
 
     if (tval < 0) {
         addReplyError(c,"timeout is negative");
@@ -88,7 +96,6 @@ int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int 
     }
 
     if (tval > 0) {
-        if (unit == UNIT_SECONDS) tval *= 1000;
         tval += mstime();
     }
     *timeout = tval;
@@ -126,9 +133,34 @@ void processUnblockedClients(void) {
          * the code is conceptually more correct this way. */
         if (!(c->flags & CLIENT_BLOCKED)) {
             if (c->querybuf && sdslen(c->querybuf) > 0) {
-                processInputBuffer(c);
+                processInputBufferAndReplicate(c);
             }
         }
+    }
+}
+
+/* This function will schedule the client for reprocessing at a safe time.
+ *
+ * This is useful when a client was blocked for some reason (blocking opeation,
+ * CLIENT PAUSE, or whatever), because it may end with some accumulated query
+ * buffer that needs to be processed ASAP:
+ *
+ * 1. When a client is blocked, its readable handler is still active.
+ * 2. However in this case it only gets data into the query buffer, but the
+ *    query is not parsed or executed once there is enough to proceed as
+ *    usually (because the client is blocked... so we can't execute commands).
+ * 3. When the client is unblocked, without this function, the client would
+ *    have to write some query in order for the readable handler to finally
+ *    call processQueryBuffer*() on it.
+ * 4. With this function instead we can put the client in a queue that will
+ *    process it for queries ready to be executed at a safe time.
+ */
+void queueClientForReprocessing(client *c) {
+    /* The client may already be into the unblocked list because of a previous
+     * blocking operation, don't add back it into the list multiple times. */
+    if (!(c->flags & CLIENT_UNBLOCKED)) {
+        c->flags |= CLIENT_UNBLOCKED;
+        listAddNodeTail(server.unblocked_clients,c);
     }
 }
 
@@ -152,12 +184,7 @@ void unblockClient(client *c) {
     server.blocked_clients_by_type[c->btype]--;
     c->flags &= ~CLIENT_BLOCKED;
     c->btype = BLOCKED_NONE;
-    /* The client may already be into the unblocked list because of a previous
-     * blocking operation, don't add back it into the list multiple times. */
-    if (!(c->flags & CLIENT_UNBLOCKED)) {
-        c->flags |= CLIENT_UNBLOCKED;
-        listAddNodeTail(server.unblocked_clients,c);
-    }
+    queueClientForReprocessing(c);
 }
 
 /* This function gets called when a blocked client timed out in order to
@@ -167,7 +194,7 @@ void replyToBlockedClientTimedOut(client *c) {
     if (c->btype == BLOCKED_LIST ||
         c->btype == BLOCKED_ZSET ||
         c->btype == BLOCKED_STREAM) {
-        addReply(c,shared.nullmultibulk);
+        addReplyNullArray(c);
     } else if (c->btype == BLOCKED_WAIT) {
         addReplyLongLong(c,replicationCountAcksByOffset(c->bpop.reploffset));
     } else if (c->btype == BLOCKED_MODULE) {
@@ -195,7 +222,7 @@ void disconnectAllBlockedClients(void) {
         if (c->flags & CLIENT_BLOCKED) {
             addReplySds(c,sdsnew(
                 "-UNBLOCKED force unblock from blocking operation, "
-                "instance state changed (master -> slave?)\r\n"));
+                "instance state changed (master -> replica?)\r\n"));
             unblockClient(c);
             c->flags |= CLIENT_CLOSE_AFTER_REPLY;
         }
@@ -269,7 +296,7 @@ void handleClientsBlockedOnKeys(void) {
                         robj *dstkey = receiver->bpop.target;
                         int where = (receiver->lastcmd &&
                                      receiver->lastcmd->proc == blpopCommand) ?
-                                    LIST_HEAD : LIST_TAIL;
+                                     LIST_HEAD : LIST_TAIL;
                         robj *value = listTypePop(o,where);
 
                         if (value) {
@@ -285,7 +312,7 @@ void handleClientsBlockedOnKeys(void) {
                             {
                                 /* If we failed serving the client we need
                                  * to also undo the POP operation. */
-                                    listTypePush(o,value,where);
+                                listTypePush(o,value,where);
                             }
 
                             if (dstkey) decrRefCount(dstkey);
@@ -370,40 +397,58 @@ void handleClientsBlockedOnKeys(void) {
                         if (receiver->btype != BLOCKED_STREAM) continue;
                         streamID *gt = dictFetchValue(receiver->bpop.keys,
                                                       rl->key);
-                        if (s->last_id.ms > gt->ms ||
-                            (s->last_id.ms == gt->ms &&
-                             s->last_id.seq > gt->seq))
-                        {
+
+                        /* If we blocked in the context of a consumer
+                         * group, we need to resolve the group and update the
+                         * last ID the client is blocked for: this is needed
+                         * because serving other clients in the same consumer
+                         * group will alter the "last ID" of the consumer
+                         * group, and clients blocked in a consumer group are
+                         * always blocked for the ">" ID: we need to deliver
+                         * only new messages and avoid unblocking the client
+                         * otherwise. */
+                        streamCG *group = NULL;
+                        if (receiver->bpop.xread_group) {
+                            group = streamLookupCG(s,
+                                    receiver->bpop.xread_group->ptr);
+                            /* If the group was not found, send an error
+                             * to the consumer. */
+                            if (!group) {
+                                addReplyError(receiver,
+                                    "-NOGROUP the consumer group this client "
+                                    "was blocked on no longer exists");
+                                unblockClient(receiver);
+                                continue;
+                            } else {
+                                *gt = group->last_id;
+                            }
+                        }
+
+                        if (streamCompareID(&s->last_id, gt) > 0) {
                             streamID start = *gt;
                             start.seq++; /* Can't overflow, it's an uint64_t */
 
-                            /* If we blocked in the context of a consumer
-                             * group, we need to resolve the group and
-                             * consumer here. */
-                            streamCG *group = NULL;
+                            /* Lookup the consumer for the group, if any. */
                             streamConsumer *consumer = NULL;
-                            if (receiver->bpop.xread_group) {
-                                group = streamLookupCG(s,
-                                        receiver->bpop.xread_group->ptr);
-                                /* In theory if the group is not found we
-                                 * just perform the read without the group,
-                                 * but actually when the group, or the key
-                                 * itself is deleted (triggering the removal
-                                 * of the group), we check for blocked clients
-                                 * and send them an error. */
-                            }
+                            int noack = 0;
+
                             if (group) {
                                 consumer = streamLookupConsumer(group,
                                            receiver->bpop.xread_consumer->ptr,
                                            1);
+                                noack = receiver->bpop.xread_group_noack;
                             }
 
                             /* Emit the two elements sub-array consisting of
                              * the name of the stream and the data we
                              * extracted from it. Wrapped in a single-item
                              * array, since we have just one key. */
-                            addReplyMultiBulkLen(receiver,1);
-                            addReplyMultiBulkLen(receiver,2);
+                            if (receiver->resp == 2) {
+                                addReplyArrayLen(receiver,1);
+                                addReplyArrayLen(receiver,2);
+                            } else {
+                                addReplyMapLen(receiver,1);
+                            }
                             addReplyBulk(receiver,rl->key);
 
                             streamPropInfo pi = {
@@ -412,7 +457,7 @@ void handleClientsBlockedOnKeys(void) {
                             };
                             streamReplyWithRange(receiver,s,&start,NULL,
                                                  receiver->bpop.xread_count,
-                                                 0, group, consumer, 0, &pi);
+                                                 0, group, consumer, noack, &pi);
 
                             /* Note that after we unblock the client, 'gt'
                              * and other receiver->bpop stuff are no longer

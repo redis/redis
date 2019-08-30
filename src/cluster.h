@@ -100,6 +100,13 @@ typedef struct clusterLink {
 #define CLUSTERMSG_TYPE_MODULE 9        /* Module cluster API message. */
 #define CLUSTERMSG_TYPE_COUNT 10        /* Total number of message types. */
 
+/* Flags that a module can set in order to prevent certain Redis Cluster
+ * features to be enabled. Useful when implementing a different distributed
+ * system on top of Redis Cluster message bus, using modules. */
+#define CLUSTER_MODULE_FLAG_NONE 0
+#define CLUSTER_MODULE_FLAG_NO_FAILOVER (1<<1)
+#define CLUSTER_MODULE_FLAG_NO_REDIRECTION (1<<2)
+
 /* This structure represent elements of node->fail_reports. */
 typedef struct clusterNodeFailReport {
     struct clusterNode *node;  /* Node reporting the failure condition. */
@@ -243,7 +250,7 @@ union clusterMsgData {
 #define CLUSTER_PROTO_VER 1 /* Cluster bus protocol version. */
 
 typedef struct {
-    char sig[4];        /* Siganture "RCmb" (Redis Cluster message bus). */
+    char sig[4];        /* Signature "RCmb" (Redis Cluster message bus). */
     uint32_t totlen;    /* Total length of this message */
     uint16_t ver;       /* Protocol version, currently set to 1. */
     uint16_t port;      /* TCP base port number. */

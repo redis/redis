@@ -197,6 +197,12 @@ ssize_t aofRewriteBufferWrite(int fd) {
  * AOF file implementation
  * ------------------------------------------------------------------------- */
 
+/* Return true if an AOf fsync is currently already in progress in a
+ * BIO thread. */
+int aofFsyncInProgress(void) {
+    return bioPendingJobsOfType(BIO_AOF_FSYNC) != 0;
+}
+
 /* Starts a background task that performs fsync() against the specified
  * file descriptor (the one of the AOF file) in another thread. */
 void aof_background_fsync(int fd) {
@@ -204,7 +210,7 @@ void aof_background_fsync(int fd) {
 }
 
 /* Kills an AOFRW child process if exists */
-static void killAppendOnlyChild(void) {
+void killAppendOnlyChild(void) {
     int statloc;
     /* No AOFRW child? return. */
     if (server.aof_child_pid == -1) return;
@@ -221,6 +227,8 @@ static void killAppendOnlyChild(void) {
     server.aof_rewrite_time_start = -1;
     /* Close pipes used for IPC between the two processes. */
     aofClosePipes();
+    closeChildInfoPipe();
+    updateDictResizePolicy();
 }
 
 /* Called when the user switches from "appendonly yes" to "appendonly no"
@@ -261,7 +269,7 @@ int startAppendOnly(void) {
         serverLog(LL_WARNING,"AOF was enabled but there is already a child process saving an RDB file on disk. An AOF background was scheduled to start when possible.");
     } else {
         /* If there is a pending AOF rewrite, we need to switch it off and
-         * start a new one: the old one cannot be reused becuase it is not
+         * start a new one: the old one cannot be reused because it is not
          * accumulating the AOF buffer. */
         if (server.aof_child_pid != -1) {
             serverLog(LL_WARNING,"AOF was enabled but there is already an AOF rewriting in background. Stopping background AOF and starting a rewrite now.");
@@ -295,9 +303,7 @@ ssize_t aofWrite(int fd, const char *buf, size_t len) {
         nwritten = write(fd, buf, len);
 
         if (nwritten < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
+            if (errno == EINTR) continue;
             return totwritten ? totwritten : -1;
         }
 
@@ -333,10 +339,24 @@ void flushAppendOnlyFile(int force) {
     int sync_in_progress = 0;
     mstime_t latency;
 
-    if (sdslen(server.aof_buf) == 0) return;
+    if (sdslen(server.aof_buf) == 0) {
+        /* Check if we need to do fsync even the aof buffer is empty,
+         * because previously in AOF_FSYNC_EVERYSEC mode, fsync is
+         * called only when aof buffer is not empty, so if users
+         * stop write commands before fsync called in one second,
+         * the data in page cache cannot be flushed in time. */
+        if (server.aof_fsync == AOF_FSYNC_EVERYSEC &&
+            server.aof_fsync_offset != server.aof_current_size &&
+            server.unixtime > server.aof_last_fsync &&
+            !(sync_in_progress = aofFsyncInProgress())) {
+            goto try_fsync;
+        } else {
+            return;
+        }
+    }
 
     if (server.aof_fsync == AOF_FSYNC_EVERYSEC)
-        sync_in_progress = bioPendingJobsOfType(BIO_AOF_FSYNC) != 0;
+        sync_in_progress = aofFsyncInProgress();
 
     if (server.aof_fsync == AOF_FSYNC_EVERYSEC && !force) {
         /* With this append fsync policy we do background fsyncing.
@@ -468,6 +488,7 @@ void flushAppendOnlyFile(int force) {
         server.aof_buf = sdsempty();
     }
 
+try_fsync:
     /* Don't fsync if no-appendfsync-on-rewrite is set to yes and there are
      * children doing I/O in the background. */
     if (server.aof_no_fsync_on_rewrite &&
@@ -482,10 +503,14 @@ void flushAppendOnlyFile(int force) {
         redis_fsync(server.aof_fd); /* Let's try to get this data on the disk */
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("aof-fsync-always",latency);
+        server.aof_fsync_offset = server.aof_current_size;
         server.aof_last_fsync = server.unixtime;
     } else if ((server.aof_fsync == AOF_FSYNC_EVERYSEC &&
                 server.unixtime > server.aof_last_fsync)) {
-        if (!sync_in_progress) aof_background_fsync(server.aof_fd);
+        if (!sync_in_progress) {
+            aof_background_fsync(server.aof_fd);
+            server.aof_fsync_offset = server.aof_current_size;
+        }
         server.aof_last_fsync = server.unixtime;
     }
 }
@@ -645,7 +670,9 @@ struct client *createFakeClient(void) {
     c->obuf_soft_limit_reached_time = 0;
     c->watched_keys = listCreate();
     c->peerid = NULL;
-    listSetFreeMethod(c->reply,decrRefCountVoid);
+    c->resp = 2;
+    c->user = NULL;
+    listSetFreeMethod(c->reply,freeClientReplyValue);
     listSetDupMethod(c->reply,dupClientReplyValue);
     initClientMultiState(c);
     return c;
@@ -677,18 +704,20 @@ int loadAppendOnlyFile(char *filename) {
     int old_aof_state = server.aof_state;
     long loops = 0;
     off_t valid_up_to = 0; /* Offset of latest well-formed command loaded. */
+    off_t valid_before_multi = 0; /* Offset before MULTI command loaded. */
 
     if (fp == NULL) {
         serverLog(LL_WARNING,"Fatal error: can't open the append log file for reading: %s",strerror(errno));
         exit(1);
     }
 
-    /* Handle a zero-length AOF file as a special case. An emtpy AOF file
+    /* Handle a zero-length AOF file as a special case. An empty AOF file
      * is a valid AOF because an empty server with AOF enabled will create
      * a zero length file at startup, that will remain like that if no write
      * operation is received. */
     if (fp && redis_fstat(fileno(fp),&sb) != -1 && sb.st_size == 0) {
         server.aof_current_size = 0;
+        server.aof_fsync_offset = server.aof_current_size;
         fclose(fp);
         return C_ERR;
     }
@@ -698,7 +727,7 @@ int loadAppendOnlyFile(char *filename) {
     server.aof_state = AOF_OFF;
 
     fakeClient = createFakeClient();
-    startLoading(fp);
+    startLoadingFile(fp, filename);
 
     /* Check if this AOF file has an RDB preamble. In that case we need to
      * load the RDB file and later continue loading the AOF tail. */
@@ -777,16 +806,28 @@ int loadAppendOnlyFile(char *filename) {
         /* Command lookup */
         cmd = lookupCommand(argv[0]->ptr);
         if (!cmd) {
-            serverLog(LL_WARNING,"Unknown command '%s' reading the append only file", (char*)argv[0]->ptr);
+            serverLog(LL_WARNING,
+                "Unknown command '%s' reading the append only file",
+                (char*)argv[0]->ptr);
             exit(1);
         }
 
+        if (cmd == server.multiCommand) valid_before_multi = valid_up_to;
+
         /* Run the command in the context of a fake client */
         fakeClient->cmd = cmd;
-        cmd->proc(fakeClient);
+        if (fakeClient->flags & CLIENT_MULTI &&
+            fakeClient->cmd->proc != execCommand)
+        {
+            queueMultiCommand(fakeClient);
+        } else {
+            cmd->proc(fakeClient);
+        }
 
         /* The fake client should not have a reply */
-        serverAssert(fakeClient->bufpos == 0 && listLength(fakeClient->reply) == 0);
+        serverAssert(fakeClient->bufpos == 0 &&
+                     listLength(fakeClient->reply) == 0);
+
         /* The fake client should never get blocked */
         serverAssert((fakeClient->flags & CLIENT_BLOCKED) == 0);
 
@@ -798,8 +839,15 @@ int loadAppendOnlyFile(char *filename) {
     }
 
     /* This point can only be reached when EOF is reached without errors.
-     * If the client is in the middle of a MULTI/EXEC, log error and quit. */
-    if (fakeClient->flags & CLIENT_MULTI) goto uxeof;
+     * If the client is in the middle of a MULTI/EXEC, handle it as it was
+     * a short read, even if technically the protocol is correct: we want
+     * to remove the unprocessed tail and continue. */
+    if (fakeClient->flags & CLIENT_MULTI) {
+        serverLog(LL_WARNING,
+            "Revert incomplete MULTI/EXEC transaction in AOF file");
+        valid_up_to = valid_before_multi;
+        goto uxeof;
+    }
 
 loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
     fclose(fp);
@@ -808,6 +856,7 @@ loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
     stopLoading();
     aofUpdateCurrentSize();
     server.aof_rewrite_base_size = server.aof_current_size;
+    server.aof_fsync_offset = server.aof_current_size;
     return C_OK;
 
 readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */
@@ -1119,24 +1168,46 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
     streamID id;
     int64_t numfields;
 
-    /* Reconstruct the stream data using XADD commands. */
-    while(streamIteratorGetID(&si,&id,&numfields)) {
-        /* Emit a two elements array for each item. The first is
-         * the ID, the second is an array of field-value pairs. */
+    if (s->length) {
+        /* Reconstruct the stream data using XADD commands. */
+        while(streamIteratorGetID(&si,&id,&numfields)) {
+            /* Emit a two elements array for each item. The first is
+             * the ID, the second is an array of field-value pairs. */
 
-        /* Emit the XADD <key> <id> ...fields... command. */
-        if (rioWriteBulkCount(r,'*',3+numfields*2) == 0) return 0;
+            /* Emit the XADD <key> <id> ...fields... command. */
+            if (rioWriteBulkCount(r,'*',3+numfields*2) == 0) return 0;
+            if (rioWriteBulkString(r,"XADD",4) == 0) return 0;
+            if (rioWriteBulkObject(r,key) == 0) return 0;
+            if (rioWriteBulkStreamID(r,&id) == 0) return 0;
+            while(numfields--) {
+                unsigned char *field, *value;
+                int64_t field_len, value_len;
+                streamIteratorGetField(&si,&field,&value,&field_len,&value_len);
+                if (rioWriteBulkString(r,(char*)field,field_len) == 0) return 0;
+                if (rioWriteBulkString(r,(char*)value,value_len) == 0) return 0;
+            }
+        }
+    } else {
+        /* Use the XADD MAXLEN 0 trick to generate an empty stream if
+         * the key we are serializing is an empty string, which is possible
+         * for the Stream type. */
+        if (rioWriteBulkCount(r,'*',7) == 0) return 0;
         if (rioWriteBulkString(r,"XADD",4) == 0) return 0;
         if (rioWriteBulkObject(r,key) == 0) return 0;
-        if (rioWriteBulkStreamID(r,&id) == 0) return 0;
-        while(numfields--) {
-            unsigned char *field, *value;
-            int64_t field_len, value_len;
-            streamIteratorGetField(&si,&field,&value,&field_len,&value_len);
-            if (rioWriteBulkString(r,(char*)field,field_len) == 0) return 0;
-            if (rioWriteBulkString(r,(char*)value,value_len) == 0) return 0;
-        }
+        if (rioWriteBulkString(r,"MAXLEN",6) == 0) return 0;
+        if (rioWriteBulkString(r,"0",1) == 0) return 0;
+        if (rioWriteBulkStreamID(r,&s->last_id) == 0) return 0;
+        if (rioWriteBulkString(r,"x",1) == 0) return 0;
+        if (rioWriteBulkString(r,"y",1) == 0) return 0;
     }
+
+    /* Append XSETID after XADD, make sure lastid is correct,
+     * in case of XDEL lastid. */
+    if (rioWriteBulkCount(r,'*',3) == 0) return 0;
+    if (rioWriteBulkString(r,"XSETID",6) == 0) return 0;
+    if (rioWriteBulkObject(r,key) == 0) return 0;
+    if (rioWriteBulkStreamID(r,&s->last_id) == 0) return 0;
+
 
     /* Create all the stream consumer groups. */
     if (s->cgroups) {
@@ -1193,7 +1264,7 @@ int rewriteModuleObject(rio *r, robj *key, robj *o) {
     RedisModuleIO io;
     moduleValue *mv = o->ptr;
     moduleType *mt = mv->type;
-    moduleInitIOContext(io,mt,r);
+    moduleInitIOContext(io,mt,r,key);
     mt->aof_rewrite(&io,key,mv->value);
     if (io.ctx) {
         moduleFreeContext(io.ctx);
@@ -1565,6 +1636,9 @@ void aofRemoveTempFile(pid_t childpid) {
 
     snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) childpid);
     unlink(tmpfile);
+
+    snprintf(tmpfile,256,"temp-rewriteaof-%d.aof", (int) childpid);
+    unlink(tmpfile);
 }
 
 /* Update the server.aof_current_size field explicitly using stat(2)
@@ -1692,6 +1766,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             server.aof_selected_db = -1; /* Make sure SELECT is re-issued */
             aofUpdateCurrentSize();
             server.aof_rewrite_base_size = server.aof_current_size;
+            server.aof_current_size = server.aof_current_size;
 
             /* Clear regular AOF buffer since its contents was just written to
              * the new AOF from the background rewrite buffer. */
@@ -1713,7 +1788,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             "Background AOF rewrite signal handler took %lldus", ustime()-now);
     } else if (!bysignal && exitcode != 0) {
         /* SIGUSR1 is whitelisted, so we have a way to kill a child without
-         * tirggering an error conditon. */
+         * tirggering an error condition. */
         if (bysignal != SIGUSR1)
             server.aof_lastbgrewrite_status = C_ERR;
         serverLog(LL_WARNING,

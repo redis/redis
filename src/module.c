@@ -29,6 +29,7 @@
 
 #include "server.h"
 #include "cluster.h"
+#include "rdb.h"
 #include <dlfcn.h>
 
 #define REDISMODULE_CORE 1
@@ -47,8 +48,22 @@ struct RedisModule {
     int ver;        /* Module version. We use just progressive integers. */
     int apiver;     /* Module API version as requested during initialization.*/
     list *types;    /* Module data types. */
+    list *usedby;   /* List of modules using APIs from this one. */
+    list *using;    /* List of modules we use some APIs of. */
+    list *filters;  /* List of filters the module has registered. */
+    int in_call;    /* RM_Call() nesting level */
 };
 typedef struct RedisModule RedisModule;
+
+/* This represents a shared API. Shared APIs will be used to populate
+ * the server.sharedapi dictionary, mapping names of APIs exported by
+ * modules for other modules to use, to their structure specifying the
+ * function pointer that can be called. */
+struct RedisModuleSharedAPI {
+    void *func;
+    RedisModule *module;
+};
+typedef struct RedisModuleSharedAPI RedisModuleSharedAPI;
 
 static dict *modules; /* Hash table of modules. SDS -> RedisModule ptr.*/
 
@@ -64,6 +79,7 @@ struct AutoMemEntry {
 #define REDISMODULE_AM_STRING 1
 #define REDISMODULE_AM_REPLY 2
 #define REDISMODULE_AM_FREED 3 /* Explicitly freed by user already. */
+#define REDISMODULE_AM_DICT 4
 
 /* The pool allocator block. Redis Modules can allocate memory via this special
  * allocator that will automatically release it all once the callback returns.
@@ -241,9 +257,40 @@ typedef struct RedisModuleKeyspaceSubscriber {
 /* The module keyspace notification subscribers list */
 static list *moduleKeyspaceSubscribers;
 
-/* Static client recycled for all notification clients, to avoid allocating
- * per round. */
-static client *moduleKeyspaceSubscribersClient;
+/* Static client recycled for when we need to provide a context with a client
+ * in a situation where there is no client to provide. This avoidsallocating
+ * a new client per round. For instance this is used in the keyspace
+ * notifications, timers and cluster messages callbacks. */
+static client *moduleFreeContextReusedClient;
+
+/* Data structures related to the exported dictionary data structure. */
+typedef struct RedisModuleDict {
+    rax *rax;                       /* The radix tree. */
+} RedisModuleDict;
+
+typedef struct RedisModuleDictIter {
+    RedisModuleDict *dict;
+    raxIterator ri;
+} RedisModuleDictIter;
+
+typedef struct RedisModuleCommandFilterCtx {
+    RedisModuleString **argv;
+    int argc;
+} RedisModuleCommandFilterCtx;
+
+typedef void (*RedisModuleCommandFilterFunc) (RedisModuleCommandFilterCtx *filter);
+
+typedef struct RedisModuleCommandFilter {
+    /* The module that registered the filter */
+    RedisModule *module;
+    /* Filter callback function */
+    RedisModuleCommandFilterFunc callback;
+    /* REDISMODULE_CMDFILTER_* flags */
+    int flags;
+} RedisModuleCommandFilter;
+
+/* Registered filters */
+static list *moduleCommandFilters;
 
 /* --------------------------------------------------------------------------
  * Prototypes
@@ -256,6 +303,7 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
 void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx);
 void RM_ZsetRangeStop(RedisModuleKey *kp);
 static void zsetKeyReset(RedisModuleKey *key);
+void RM_FreeDict(RedisModuleCtx *ctx, RedisModuleDict *d);
 
 /* --------------------------------------------------------------------------
  * Heap allocation raw functions
@@ -474,7 +522,7 @@ void moduleHandlePropagationAfterCommandCallback(RedisModuleCtx *ctx) {
     if (c->flags & CLIENT_LUA) return;
 
     /* Handle the replication of the final EXEC, since whatever a command
-     * emits is always wrappered around MULTI/EXEC. */
+     * emits is always wrapped around MULTI/EXEC. */
     if (ctx->flags & REDISMODULE_CTX_MULTI_EMITTED) {
         robj *propargv[1];
         propargv[0] = createStringObject("EXEC",4);
@@ -495,6 +543,22 @@ void RedisModuleCommandDispatcher(client *c) {
     cp->func(&ctx,(void**)c->argv,c->argc);
     moduleHandlePropagationAfterCommandCallback(&ctx);
     moduleFreeContext(&ctx);
+
+    /* In some cases processMultibulkBuffer uses sdsMakeRoomFor to
+     * expand the query buffer, and in order to avoid a big object copy
+     * the query buffer SDS may be used directly as the SDS string backing
+     * the client argument vectors: sometimes this will result in the SDS
+     * string having unused space at the end. Later if a module takes ownership
+     * of the RedisString, such space will be wasted forever. Inside the
+     * Redis core this is not a problem because tryObjectEncoding() is called
+     * before storing strings in the key space. Here we need to do it
+     * for the module. */
+    for (int i = 0; i < c->argc; i++) {
+        /* Only do the work if the module took ownership of the object:
+         * in that case the refcount is no longer 1. */
+        if (c->argv[i]->refcount > 1)
+            trimStringObjectIfNeeded(c->argv[i]);
+    }
 }
 
 /* This function returns the list of keys, with the same interface as the
@@ -548,7 +612,7 @@ void RM_KeyAtPos(RedisModuleCtx *ctx, int pos) {
     ctx->keys_pos[ctx->keys_count++] = pos;
 }
 
-/* Helper for RM_CreateCommand(). Truns a string representing command
+/* Helper for RM_CreateCommand(). Turns a string representing command
  * flags into the command flags used by the Redis core.
  *
  * It returns the set of flags, or -1 if unknown flags are found. */
@@ -595,7 +659,7 @@ int commandFlagsFromString(char *s) {
  * And is supposed to always return REDISMODULE_OK.
  *
  * The set of flags 'strflags' specify the behavior of the command, and should
- * be passed as a C string compoesd of space separated words, like for
+ * be passed as a C string composed of space separated words, like for
  * example "write deny-oom". The set of flags are:
  *
  * * **"write"**:     The command may modify the data set (it may also read
@@ -616,7 +680,7 @@ int commandFlagsFromString(char *s) {
  * * **"allow-stale"**: The command is allowed to run on slaves that don't
  *                      serve stale data. Don't use if you don't know what
  *                      this means.
- * * **"no-monitor"**: Don't propoagate the command on monitor. Use this if
+ * * **"no-monitor"**: Don't propagate the command on monitor. Use this if
  *                     the command has sensible data among the arguments.
  * * **"fast"**:      The command time complexity is not greater
  *                    than O(log(N)) where N is the size of the collection or
@@ -670,6 +734,7 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     cp->rediscmd->calls = 0;
     dictAdd(server.commands,sdsdup(cmdname),cp->rediscmd);
     dictAdd(server.orig_commands,sdsdup(cmdname),cp->rediscmd);
+    cp->rediscmd->id = ACLGetCommandID(cmdname); /* ID used for ACL. */
     return REDISMODULE_OK;
 }
 
@@ -686,6 +751,10 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->ver = ver;
     module->apiver = apiver;
     module->types = listCreate();
+    module->usedby = listCreate();
+    module->using = listCreate();
+    module->filters = listCreate();
+    module->in_call = 0;
     ctx->module = module;
 }
 
@@ -777,6 +846,7 @@ void autoMemoryCollect(RedisModuleCtx *ctx) {
         case REDISMODULE_AM_STRING: decrRefCount(ptr); break;
         case REDISMODULE_AM_REPLY: RM_FreeCallReply(ptr); break;
         case REDISMODULE_AM_KEY: RM_CloseKey(ptr); break;
+        case REDISMODULE_AM_DICT: RM_FreeDict(NULL,ptr); break;
         }
     }
     ctx->flags |= REDISMODULE_CTX_AUTO_MEMORY;
@@ -794,19 +864,26 @@ void autoMemoryCollect(RedisModuleCtx *ctx) {
  * with RedisModule_FreeString(), unless automatic memory is enabled.
  *
  * The string is created by copying the `len` bytes starting
- * at `ptr`. No reference is retained to the passed buffer. */
+ * at `ptr`. No reference is retained to the passed buffer.
+ *
+ * The module context 'ctx' is optional and may be NULL if you want to create
+ * a string out of the context scope. However in that case, the automatic
+ * memory management will not be available, and the string memory must be
+ * managed manually. */
 RedisModuleString *RM_CreateString(RedisModuleCtx *ctx, const char *ptr, size_t len) {
     RedisModuleString *o = createStringObject(ptr,len);
-    autoMemoryAdd(ctx,REDISMODULE_AM_STRING,o);
+    if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_STRING,o);
     return o;
 }
-
 
 /* Create a new module string object from a printf format and arguments.
  * The returned string must be freed with RedisModule_FreeString(), unless
  * automatic memory is enabled.
  *
- * The string is created using the sds formatter function sdscatvprintf(). */
+ * The string is created using the sds formatter function sdscatvprintf().
+ *
+ * The passed context 'ctx' may be NULL if necessary, see the
+ * RedisModule_CreateString() documentation for more info. */
 RedisModuleString *RM_CreateStringPrintf(RedisModuleCtx *ctx, const char *fmt, ...) {
     sds s = sdsempty();
 
@@ -816,7 +893,7 @@ RedisModuleString *RM_CreateStringPrintf(RedisModuleCtx *ctx, const char *fmt, .
     va_end(ap);
 
     RedisModuleString *o = createObject(OBJ_STRING, s);
-    autoMemoryAdd(ctx,REDISMODULE_AM_STRING,o);
+    if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_STRING,o);
 
     return o;
 }
@@ -826,7 +903,10 @@ RedisModuleString *RM_CreateStringPrintf(RedisModuleCtx *ctx, const char *fmt, .
  * integer instead of taking a buffer and its length.
  *
  * The returned string must be released with RedisModule_FreeString() or by
- * enabling automatic memory management. */
+ * enabling automatic memory management.
+ *
+ * The passed context 'ctx' may be NULL if necessary, see the
+ * RedisModule_CreateString() documentation for more info. */
 RedisModuleString *RM_CreateStringFromLongLong(RedisModuleCtx *ctx, long long ll) {
     char buf[LONG_STR_SIZE];
     size_t len = ll2string(buf,sizeof(buf),ll);
@@ -837,10 +917,13 @@ RedisModuleString *RM_CreateStringFromLongLong(RedisModuleCtx *ctx, long long ll
  * RedisModuleString.
  *
  * The returned string must be released with RedisModule_FreeString() or by
- * enabling automatic memory management. */
+ * enabling automatic memory management.
+ *
+ * The passed context 'ctx' may be NULL if necessary, see the
+ * RedisModule_CreateString() documentation for more info. */
 RedisModuleString *RM_CreateStringFromString(RedisModuleCtx *ctx, const RedisModuleString *str) {
     RedisModuleString *o = dupStringObject(str);
-    autoMemoryAdd(ctx,REDISMODULE_AM_STRING,o);
+    if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_STRING,o);
     return o;
 }
 
@@ -849,10 +932,16 @@ RedisModuleString *RM_CreateStringFromString(RedisModuleCtx *ctx, const RedisMod
  *
  * It is possible to call this function even when automatic memory management
  * is enabled. In that case the string will be released ASAP and removed
- * from the pool of string to release at the end. */
+ * from the pool of string to release at the end.
+ *
+ * If the string was created with a NULL context 'ctx', it is also possible to
+ * pass ctx as NULL when releasing the string (but passing a context will not
+ * create any issue). Strings created with a context should be freed also passing
+ * the context, so if you want to free a string out of context later, make sure
+ * to create it using a NULL context. */
 void RM_FreeString(RedisModuleCtx *ctx, RedisModuleString *str) {
     decrRefCount(str);
-    autoMemoryFreed(ctx,REDISMODULE_AM_STRING,str);
+    if (ctx != NULL) autoMemoryFreed(ctx,REDISMODULE_AM_STRING,str);
 }
 
 /* Every call to this function, will make the string 'str' requiring
@@ -876,9 +965,11 @@ void RM_FreeString(RedisModuleCtx *ctx, RedisModuleString *str) {
  * Note that when memory management is turned off, you don't need
  * any call to RetainString() since creating a string will always result
  * into a string that lives after the callback function returns, if
- * no FreeString() call is performed. */
+ * no FreeString() call is performed.
+ *
+ * It is possible to call this function with a NULL context. */
 void RM_RetainString(RedisModuleCtx *ctx, RedisModuleString *str) {
-    if (!autoMemoryFreed(ctx,REDISMODULE_AM_STRING,str)) {
+    if (ctx == NULL || !autoMemoryFreed(ctx,REDISMODULE_AM_STRING,str)) {
         /* Increment the string reference counting only if we can't
          * just remove the object from the list of objects that should
          * be reclaimed. Why we do that, instead of just incrementing
@@ -956,9 +1047,9 @@ RedisModuleString *moduleAssertUnsharedString(RedisModuleString *str) {
     return str;
 }
 
-/* Append the specified buffere to the string 'str'. The string must be a
+/* Append the specified buffer to the string 'str'. The string must be a
  * string created by the user that is referenced only a single time, otherwise
- * REDISMODULE_ERR is returend and the operation is not performed. */
+ * REDISMODULE_ERR is returned and the operation is not performed. */
 int RM_StringAppendBuffer(RedisModuleCtx *ctx, RedisModuleString *str, const char *buf, size_t len) {
     UNUSED(ctx);
     str = moduleAssertUnsharedString(str);
@@ -1087,10 +1178,10 @@ int RM_ReplyWithArray(RedisModuleCtx *ctx, long len) {
         ctx->postponed_arrays = zrealloc(ctx->postponed_arrays,sizeof(void*)*
                 (ctx->postponed_arrays_count+1));
         ctx->postponed_arrays[ctx->postponed_arrays_count] =
-            addDeferredMultiBulkLength(c);
+            addReplyDeferredLen(c);
         ctx->postponed_arrays_count++;
     } else {
-        addReplyMultiBulkLen(c,len);
+        addReplyArrayLen(c,len);
     }
     return REDISMODULE_OK;
 }
@@ -1118,7 +1209,7 @@ int RM_ReplyWithArray(RedisModuleCtx *ctx, long len) {
  *
  * Note that in the above example there is no reason to postpone the array
  * length, since we produce a fixed number of elements, but in the practice
- * the code may use an interator or other ways of creating the output so
+ * the code may use an iterator or other ways of creating the output so
  * that is not easy to calculate in advance the number of elements.
  */
 void RM_ReplySetArrayLength(RedisModuleCtx *ctx, long len) {
@@ -1133,7 +1224,7 @@ void RM_ReplySetArrayLength(RedisModuleCtx *ctx, long len) {
             return;
     }
     ctx->postponed_arrays_count--;
-    setDeferredMultiBulkLength(c,
+    setDeferredArrayLen(c,
             ctx->postponed_arrays[ctx->postponed_arrays_count],
             len);
     if (ctx->postponed_arrays_count == 0) {
@@ -1149,6 +1240,17 @@ int RM_ReplyWithStringBuffer(RedisModuleCtx *ctx, const char *buf, size_t len) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
     addReplyBulkCBuffer(c,(char*)buf,len);
+    return REDISMODULE_OK;
+}
+
+/* Reply with a bulk string, taking in input a C buffer pointer that is
+ * assumed to be null-terminated.
+ *
+ * The function always returns REDISMODULE_OK. */
+int RM_ReplyWithCString(RedisModuleCtx *ctx, const char *buf) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReplyBulkCString(c,(char*)buf);
     return REDISMODULE_OK;
 }
 
@@ -1169,7 +1271,7 @@ int RM_ReplyWithString(RedisModuleCtx *ctx, RedisModuleString *str) {
 int RM_ReplyWithNull(RedisModuleCtx *ctx) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
-    addReply(c,shared.nullbulk);
+    addReplyNull(c);
     return REDISMODULE_OK;
 }
 
@@ -1322,6 +1424,9 @@ int RM_GetSelectedDb(RedisModuleCtx *ctx) {
  *
  *  * REDISMODULE_CTX_FLAGS_MULTI: The command is running inside a transaction
  *
+ *  * REDISMODULE_CTX_FLAGS_REPLICATED: The command was sent over the replication
+ *    link by the MASTER
+ *
  *  * REDISMODULE_CTX_FLAGS_MASTER: The Redis instance is a master
  *
  *  * REDISMODULE_CTX_FLAGS_SLAVE: The Redis instance is a slave
@@ -1354,10 +1459,16 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
          flags |= REDISMODULE_CTX_FLAGS_LUA;
         if (ctx->client->flags & CLIENT_MULTI)
          flags |= REDISMODULE_CTX_FLAGS_MULTI;
+        /* Module command recieved from MASTER, is replicated. */
+        if (ctx->client->flags & CLIENT_MASTER)
+         flags |= REDISMODULE_CTX_FLAGS_REPLICATED;
     }
 
     if (server.cluster_enabled)
         flags |= REDISMODULE_CTX_FLAGS_CLUSTER;
+
+    if (server.loading)
+        flags |= REDISMODULE_CTX_FLAGS_LOADING;
 
     /* Maxmemory and eviction policy */
     if (server.maxmemory > 0) {
@@ -1410,7 +1521,7 @@ int RM_SelectDb(RedisModuleCtx *ctx, int newid) {
  * to call other APIs with the key handle as argument to perform
  * operations on the key.
  *
- * The return value is the handle repesenting the key, that must be
+ * The return value is the handle representing the key, that must be
  * closed with RM_CloseKey().
  *
  * If the key does not exist and WRITE mode is requested, the handle
@@ -1664,7 +1775,7 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
  * Key API for List type
  * -------------------------------------------------------------------------- */
 
-/* Push an element into a list, on head or tail depending on 'where' argumnet.
+/* Push an element into a list, on head or tail depending on 'where' argument.
  * If the key pointer is about an empty key opened for writing, the key
  * is created. On error (key opened for read-only operations or of the wrong
  * type) REDISMODULE_ERR is returned, otherwise REDISMODULE_OK is returned. */
@@ -1769,7 +1880,7 @@ int RM_ZsetAdd(RedisModuleKey *key, double score, RedisModuleString *ele, int *f
  * The input and output flags, and the return value, have the same exact
  * meaning, with the only difference that this function will return
  * REDISMODULE_ERR even when 'score' is a valid double number, but adding it
- * to the existing score resuts into a NaN (not a number) condition.
+ * to the existing score results into a NaN (not a number) condition.
  *
  * This function has an additional field 'newscore', if not NULL is filled
  * with the new score of the element after the increment, if no error
@@ -2150,7 +2261,9 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
  *
  * The function is variadic and the user must specify pairs of field
  * names and values, both as RedisModuleString pointers (unless the
- * CFIELD option is set, see later).
+ * CFIELD option is set, see later). At the end of the field/value-ptr pairs, 
+ * NULL must be specified as last argument to signal the end of the arguments 
+ * in the variadic function.
  *
  * Example to set the hash argv[1] to the value argv[2]:
  *
@@ -2649,15 +2762,10 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     RedisModuleCallReply *reply = NULL;
     int replicate = 0; /* Replicate this command? */
 
-    cmd = lookupCommandByCString((char*)cmdname);
-    if (!cmd) {
-        errno = EINVAL;
-        return NULL;
-    }
-
     /* Create the client and dispatch the command. */
     va_start(ap, fmt);
     c = createClient(-1);
+    c->user = NULL; /* Root user. */
     argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&flags,ap);
     replicate = flags & REDISMODULE_ARGV_REPLICATE;
     va_end(ap);
@@ -2667,10 +2775,24 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     c->db = ctx->client->db;
     c->argv = argv;
     c->argc = argc;
-    c->cmd = c->lastcmd = cmd;
+    if (ctx->module) ctx->module->in_call++;
+
     /* We handle the above format error only when the client is setup so that
      * we can free it normally. */
     if (argv == NULL) goto cleanup;
+
+    /* Call command filters */
+    moduleCallCommandFilters(c);
+
+    /* Lookup command now, after filters had a chance to make modifications
+     * if necessary.
+     */
+    cmd = lookupCommand(c->argv[0]->ptr);
+    if (!cmd) {
+        errno = EINVAL;
+        goto cleanup;
+    }
+    c->cmd = c->lastcmd = cmd;
 
     /* Basic arity checks. */
     if ((cmd->arity > 0 && cmd->arity != argc) || (argc < -cmd->arity)) {
@@ -2712,15 +2834,16 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     sds proto = sdsnewlen(c->buf,c->bufpos);
     c->bufpos = 0;
     while(listLength(c->reply)) {
-        sds o = listNodeValue(listFirst(c->reply));
+        clientReplyBlock *o = listNodeValue(listFirst(c->reply));
 
-        proto = sdscatsds(proto,o);
+        proto = sdscatlen(proto,o->buf,o->used);
         listDelNode(c->reply,listFirst(c->reply));
     }
     reply = moduleCreateCallReplyFromProto(ctx,proto);
     autoMemoryAdd(ctx,REDISMODULE_AM_REPLY,reply);
 
 cleanup:
+    if (ctx->module) ctx->module->in_call--;
     freeClient(c);
     return reply;
 }
@@ -2956,6 +3079,11 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
         moduleTypeMemUsageFunc mem_usage;
         moduleTypeDigestFunc digest;
         moduleTypeFreeFunc free;
+        struct {
+            moduleTypeAuxLoadFunc aux_load;
+            moduleTypeAuxSaveFunc aux_save;
+            int aux_save_triggers;
+        } v2;
     } *tms = (struct typemethods*) typemethods_ptr;
 
     moduleType *mt = zcalloc(sizeof(*mt));
@@ -2967,6 +3095,11 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
     mt->mem_usage = tms->mem_usage;
     mt->digest = tms->digest;
     mt->free = tms->free;
+    if (tms->version >= 2) {
+        mt->aux_load = tms->v2.aux_load;
+        mt->aux_save = tms->v2.aux_save;
+        mt->aux_save_triggers = tms->v2.aux_save_triggers;
+    }
     memcpy(mt->name,name,sizeof(mt->name));
     listAddNodeTail(ctx->module->types,mt);
     return mt;
@@ -2987,7 +3120,7 @@ int RM_ModuleTypeSetValue(RedisModuleKey *key, moduleType *mt, void *value) {
 }
 
 /* Assuming RedisModule_KeyType() returned REDISMODULE_KEYTYPE_MODULE on
- * the key, returns the moduel type pointer of the value stored at key.
+ * the key, returns the module type pointer of the value stored at key.
  *
  * If the key is NULL, is not associated with a module type, or is empty,
  * then NULL is returned instead. */
@@ -3233,6 +3366,36 @@ loaderr:
     return 0; /* Never reached. */
 }
 
+/* Iterate over modules, and trigger rdb aux saving for the ones modules types
+ * who asked for it. */
+ssize_t rdbSaveModulesAux(rio *rdb, int when) {
+    size_t total_written = 0;
+    dictIterator *di = dictGetIterator(modules);
+    dictEntry *de;
+
+    while ((de = dictNext(di)) != NULL) {
+        struct RedisModule *module = dictGetVal(de);
+        listIter li;
+        listNode *ln;
+
+        listRewind(module->types,&li);
+        while((ln = listNext(&li))) {
+            moduleType *mt = ln->value;
+            if (!mt->aux_save || !(mt->aux_save_triggers & when))
+                continue;
+            ssize_t ret = rdbSaveSingleModuleAux(rdb, when, mt);
+            if (ret==-1) {
+                dictReleaseIterator(di);
+                return -1;
+            }
+            total_written += ret;
+        }
+    }
+
+    dictReleaseIterator(di);
+    return total_written;
+}
+
 /* --------------------------------------------------------------------------
  * Key digest API (DEBUG DIGEST interface for modules types)
  * -------------------------------------------------------------------------- */
@@ -3287,7 +3450,7 @@ void RM_DigestAddLongLong(RedisModuleDigest *md, long long ll) {
     mixDigest(md->o,buf,len);
 }
 
-/* See the doucmnetation for `RedisModule_DigestAddElement()`. */
+/* See the documentation for `RedisModule_DigestAddElement()`. */
 void RM_DigestEndSequence(RedisModuleDigest *md) {
     xorDigest(md->x,md->o,sizeof(md->o));
     memset(md->o,0,sizeof(md->o));
@@ -3362,6 +3525,14 @@ RedisModuleCtx *RM_GetContextFromIO(RedisModuleIO *io) {
     return io->ctx;
 }
 
+/* Returns a RedisModuleString with the name of the key currently saving or
+ * loading, when an IO data type callback is called.  There is no guarantee
+ * that the key name is always available, so this may return NULL.
+ */
+const RedisModuleString *RM_GetKeyNameFromIO(RedisModuleIO *io) {
+    return io->key;
+}
+
 /* --------------------------------------------------------------------------
  * Logging
  * -------------------------------------------------------------------------- */
@@ -3383,7 +3554,9 @@ void RM_LogRaw(RedisModule *module, const char *levelstr, const char *fmt, va_li
     else if (!strcasecmp(levelstr,"warning")) level = LL_WARNING;
     else level = LL_VERBOSE; /* Default. */
 
-    name_len = snprintf(msg, sizeof(msg),"<%s> ", module->name);
+    if (level < server.verbosity) return;
+
+    name_len = snprintf(msg, sizeof(msg),"<%s> ", module? module->name: "module");
     vsnprintf(msg + name_len, sizeof(msg) - name_len, fmt, ap);
     serverLogRaw(level,msg);
 }
@@ -3399,15 +3572,17 @@ void RM_LogRaw(RedisModule *module, const char *levelstr, const char *fmt, va_li
  *
  * If the specified log level is invalid, verbose is used by default.
  * There is a fixed limit to the length of the log line this function is able
- * to emit, this limti is not specified but is guaranteed to be more than
+ * to emit, this limit is not specified but is guaranteed to be more than
  * a few lines of text.
+ *
+ * The ctx argument may be NULL if cannot be provided in the context of the
+ * caller for instance threads or callbacks, in which case a generic "module"
+ * will be used instead of the module name.
  */
 void RM_Log(RedisModuleCtx *ctx, const char *levelstr, const char *fmt, ...) {
-    if (!ctx->module) return;   /* Can only log if module is initialized */
-
     va_list ap;
     va_start(ap, fmt);
-    RM_LogRaw(ctx->module,levelstr,fmt,ap);
+    RM_LogRaw(ctx? ctx->module: NULL,levelstr,fmt,ap);
     va_end(ap);
 }
 
@@ -3484,7 +3659,7 @@ void unblockClientFromModule(client *c) {
  *     reply_timeout:   called when the timeout is reached in order to send an
  *                      error to the client.
  *
- *     free_privdata:   called in order to free the privata data that is passed
+ *     free_privdata:   called in order to free the private data that is passed
  *                      by RedisModule_UnblockClient() call.
  */
 RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms) {
@@ -3629,14 +3804,7 @@ void moduleHandleBlockedClients(void) {
          * replies to send to the client in a thread safe context.
          * We need to glue such replies to the client output buffer and
          * free the temporary client we just used for the replies. */
-        if (c) {
-            if (bc->reply_client->bufpos)
-                addReplyString(c,bc->reply_client->buf,
-                                 bc->reply_client->bufpos);
-            if (listLength(bc->reply_client->reply))
-                listJoin(c->reply,bc->reply_client->reply);
-            c->reply_bytes += bc->reply_client->reply_bytes;
-        }
+        if (c) AddReplyFromClient(c, bc->reply_client);
         freeClient(bc->reply_client);
 
         if (c != NULL) {
@@ -3681,7 +3849,7 @@ void moduleBlockedClientTimedOut(client *c) {
     bc->timeout_callback(&ctx,(void**)c->argv,c->argc);
     moduleFreeContext(&ctx);
     /* For timeout events, we do not want to call the disconnect callback,
-     * because the blocekd client will be automatically disconnected in
+     * because the blocked client will be automatically disconnected in
      * this case, and the user can still hook using the timeout callback. */
     bc->disconnect_callback = NULL;
 }
@@ -3698,7 +3866,7 @@ int RM_IsBlockedTimeoutRequest(RedisModuleCtx *ctx) {
     return (ctx->flags & REDISMODULE_CTX_BLOCKED_TIMEOUT) != 0;
 }
 
-/* Get the privata data set by RedisModule_UnblockClient() */
+/* Get the private data set by RedisModule_UnblockClient() */
 void *RM_GetBlockedClientPrivateData(RedisModuleCtx *ctx) {
     return ctx->blocked_privdata;
 }
@@ -3755,7 +3923,10 @@ RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
      * in order to keep things like the currently selected database and similar
      * things. */
     ctx->client = createClient(-1);
-    if (bc) selectDb(ctx->client,bc->dbid);
+    if (bc) {
+        selectDb(ctx->client,bc->dbid);
+        ctx->client->id = bc->client->id;
+    }
     return ctx;
 }
 
@@ -3793,11 +3964,11 @@ void moduleReleaseGIL(void) {
  * -------------------------------------------------------------------------- */
 
 /* Subscribe to keyspace notifications. This is a low-level version of the
- * keyspace-notifications API. A module cand register callbacks to be notified
+ * keyspace-notifications API. A module can register callbacks to be notified
  * when keyspce events occur.
  *
  * Notification events are filtered by their type (string events, set events,
- * etc), and the subsriber callback receives only events that match a specific
+ * etc), and the subscriber callback receives only events that match a specific
  * mask of event types.
  *
  * When subscribing to notifications with RedisModule_SubscribeToKeyspaceEvents 
@@ -3830,9 +4001,9 @@ void moduleReleaseGIL(void) {
  *
  * Notification callback gets executed with a redis context that can not be
  * used to send anything to the client, and has the db number where the event
- * occured as its selected db number.
+ * occurred as its selected db number.
  *
- * Notice that it is not necessary to enable norifications in redis.conf for
+ * Notice that it is not necessary to enable notifications in redis.conf for
  * module notifications to work.
  *
  * Warning: the notification callbacks are performed in a synchronous manner,
@@ -3873,10 +4044,10 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
         if ((sub->event_mask & type) && sub->active == 0) {
             RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
             ctx.module = sub->module;
-            ctx.client = moduleKeyspaceSubscribersClient;
+            ctx.client = moduleFreeContextReusedClient;
             selectDb(ctx.client, dbid);
 
-            /* mark the handler as activer to avoid reentrant loops.
+            /* mark the handler as active to avoid reentrant loops.
              * If the subscriber performs an action triggering itself,
              * it will not be notified about it. */
             sub->active = 1;
@@ -3887,7 +4058,7 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
     }
 }
 
-/* Unsubscribe any notification subscirbers this module has upon unloading */
+/* Unsubscribe any notification subscribers this module has upon unloading */
 void moduleUnsubscribeNotifications(RedisModule *module) {
     listIter li;
     listNode *ln;
@@ -3936,6 +4107,8 @@ void moduleCallClusterReceivers(const char *sender_id, uint64_t module_id, uint8
         if (r->module_id == module_id) {
             RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
             ctx.module = r->module;
+            ctx.client = moduleFreeContextReusedClient;
+            selectDb(ctx.client, 0);
             r->callback(&ctx,sender_id,type,payload,len);
             moduleFreeContext(&ctx);
             return;
@@ -4084,7 +4257,7 @@ size_t RM_GetClusterSize(void) {
  *
  * * REDISMODULE_NODE_MYSELF        This node
  * * REDISMODULE_NODE_MASTER        The node is a master
- * * REDISMODULE_NODE_SLAVE         The ndoe is a slave
+ * * REDISMODULE_NODE_SLAVE         The node is a replica
  * * REDISMODULE_NODE_PFAIL         We see the node as failing
  * * REDISMODULE_NODE_FAIL          The cluster agrees the node is failing
  * * REDISMODULE_NODE_NOFAILOVER    The slave is configured to never failover
@@ -4126,6 +4299,32 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
     return REDISMODULE_OK;
 }
 
+/* Set Redis Cluster flags in order to change the normal behavior of
+ * Redis Cluster, especially with the goal of disabling certain functions.
+ * This is useful for modules that use the Cluster API in order to create
+ * a different distributed system, but still want to use the Redis Cluster
+ * message bus. Flags that can be set:
+ *
+ *  CLUSTER_MODULE_FLAG_NO_FAILOVER
+ *  CLUSTER_MODULE_FLAG_NO_REDIRECTION
+ *
+ * With the following effects:
+ *
+ *  NO_FAILOVER: prevent Redis Cluster slaves to failover a failing master.
+ *               Also disables the replica migration feature.
+ *
+ *  NO_REDIRECTION: Every node will accept any key, without trying to perform
+ *                  partitioning according to the user Redis Cluster algorithm.
+ *                  Slots informations will still be propagated across the
+ *                  cluster, but without effects. */
+void RM_SetClusterFlags(RedisModuleCtx *ctx, uint64_t flags) {
+    UNUSED(ctx);
+    if (flags & REDISMODULE_CLUSTER_FLAG_NO_FAILOVER)
+        server.cluster_module_flags |= CLUSTER_MODULE_FLAG_NO_FAILOVER;
+    if (flags & REDISMODULE_CLUSTER_FLAG_NO_REDIRECTION)
+        server.cluster_module_flags |= CLUSTER_MODULE_FLAG_NO_REDIRECTION;
+}
+
 /* --------------------------------------------------------------------------
  * Modules Timers API
  *
@@ -4155,6 +4354,7 @@ typedef struct RedisModuleTimer {
     RedisModule *module;                /* Module reference. */
     RedisModuleTimerProc callback;      /* The callback to invoke on expire. */
     void *data;                         /* Private data for the callback. */
+    int dbid;                           /* Database number selected by the original client. */
 } RedisModuleTimer;
 
 /* This is the timer handler that is called by the main event loop. We schedule
@@ -4180,6 +4380,8 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
             RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
 
             ctx.module = timer->module;
+            ctx.client = moduleFreeContextReusedClient;
+            selectDb(ctx.client, timer->dbid);
             timer->callback(&ctx,timer->data);
             moduleFreeContext(&ctx);
             raxRemove(Timers,(unsigned char*)ri.key,ri.key_len,NULL);
@@ -4204,6 +4406,7 @@ RedisModuleTimerID RM_CreateTimer(RedisModuleCtx *ctx, mstime_t period, RedisMod
     timer->module = ctx->module;
     timer->callback = callback;
     timer->data = data;
+    timer->dbid = ctx->client->db->id;
     uint64_t expiretime = ustime()+period*1000;
     uint64_t key;
 
@@ -4243,7 +4446,7 @@ RedisModuleTimerID RM_CreateTimer(RedisModuleCtx *ctx, mstime_t period, RedisMod
 }
 
 /* Stop a timer, returns REDISMODULE_OK if the timer was found, belonged to the
- * calling module, and was stoped, otherwise REDISMODULE_ERR is returned.
+ * calling module, and was stopped, otherwise REDISMODULE_ERR is returned.
  * If not NULL, the data pointer is set to the value of the data argument when
  * the timer was created. */
 int RM_StopTimer(RedisModuleCtx *ctx, RedisModuleTimerID id, void **data) {
@@ -4260,7 +4463,7 @@ int RM_StopTimer(RedisModuleCtx *ctx, RedisModuleTimerID id, void **data) {
  * (in milliseconds), and the private data pointer associated with the timer.
  * If the timer specified does not exist or belongs to a different module
  * no information is returned and the function returns REDISMODULE_ERR, otherwise
- * REDISMODULE_OK is returned. The argumnets remaining or data can be NULL if
+ * REDISMODULE_OK is returned. The arguments remaining or data can be NULL if
  * the caller does not need certain information. */
 int RM_GetTimerInfo(RedisModuleCtx *ctx, RedisModuleTimerID id, uint64_t *remaining, void **data) {
     RedisModuleTimer *timer = raxFind(Timers,(unsigned char*)&id,sizeof(id));
@@ -4273,6 +4476,257 @@ int RM_GetTimerInfo(RedisModuleCtx *ctx, RedisModuleTimerID id, uint64_t *remain
     }
     if (data) *data = timer->data;
     return REDISMODULE_OK;
+}
+
+/* --------------------------------------------------------------------------
+ * Modules Dictionary API
+ *
+ * Implements a sorted dictionary (actually backed by a radix tree) with
+ * the usual get / set / del / num-items API, together with an iterator
+ * capable of going back and forth.
+ * -------------------------------------------------------------------------- */
+
+/* Create a new dictionary. The 'ctx' pointer can be the current module context
+ * or NULL, depending on what you want. Please follow the following rules:
+ *
+ * 1. Use a NULL context if you plan to retain a reference to this dictionary
+ *    that will survive the time of the module callback where you created it.
+ * 2. Use a NULL context if no context is available at the time you are creating
+ *    the dictionary (of course...).
+ * 3. However use the current callback context as 'ctx' argument if the
+ *    dictionary time to live is just limited to the callback scope. In this
+ *    case, if enabled, you can enjoy the automatic memory management that will
+ *    reclaim the dictionary memory, as well as the strings returned by the
+ *    Next / Prev dictionary iterator calls.
+ */
+RedisModuleDict *RM_CreateDict(RedisModuleCtx *ctx) {
+    struct RedisModuleDict *d = zmalloc(sizeof(*d));
+    d->rax = raxNew();
+    if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_DICT,d);
+    return d;
+}
+
+/* Free a dictionary created with RM_CreateDict(). You need to pass the
+ * context pointer 'ctx' only if the dictionary was created using the
+ * context instead of passing NULL. */
+void RM_FreeDict(RedisModuleCtx *ctx, RedisModuleDict *d) {
+    if (ctx != NULL) autoMemoryFreed(ctx,REDISMODULE_AM_DICT,d);
+    raxFree(d->rax);
+    zfree(d);
+}
+
+/* Return the size of the dictionary (number of keys). */
+uint64_t RM_DictSize(RedisModuleDict *d) {
+    return raxSize(d->rax);
+}
+
+/* Store the specified key into the dictionary, setting its value to the
+ * pointer 'ptr'. If the key was added with success, since it did not
+ * already exist, REDISMODULE_OK is returned. Otherwise if the key already
+ * exists the function returns REDISMODULE_ERR. */
+int RM_DictSetC(RedisModuleDict *d, void *key, size_t keylen, void *ptr) {
+    int retval = raxTryInsert(d->rax,key,keylen,ptr,NULL);
+    return (retval == 1) ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
+/* Like RedisModule_DictSetC() but will replace the key with the new
+ * value if the key already exists. */
+int RM_DictReplaceC(RedisModuleDict *d, void *key, size_t keylen, void *ptr) {
+    int retval = raxInsert(d->rax,key,keylen,ptr,NULL);
+    return (retval == 1) ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
+/* Like RedisModule_DictSetC() but takes the key as a RedisModuleString. */
+int RM_DictSet(RedisModuleDict *d, RedisModuleString *key, void *ptr) {
+    return RM_DictSetC(d,key->ptr,sdslen(key->ptr),ptr);
+}
+
+/* Like RedisModule_DictReplaceC() but takes the key as a RedisModuleString. */
+int RM_DictReplace(RedisModuleDict *d, RedisModuleString *key, void *ptr) {
+    return RM_DictReplaceC(d,key->ptr,sdslen(key->ptr),ptr);
+}
+
+/* Return the value stored at the specified key. The function returns NULL
+ * both in the case the key does not exist, or if you actually stored
+ * NULL at key. So, optionally, if the 'nokey' pointer is not NULL, it will
+ * be set by reference to 1 if the key does not exist, or to 0 if the key
+ * exists. */
+void *RM_DictGetC(RedisModuleDict *d, void *key, size_t keylen, int *nokey) {
+    void *res = raxFind(d->rax,key,keylen);
+    if (nokey) *nokey = (res == raxNotFound);
+    return (res == raxNotFound) ? NULL : res;
+}
+
+/* Like RedisModule_DictGetC() but takes the key as a RedisModuleString. */
+void *RM_DictGet(RedisModuleDict *d, RedisModuleString *key, int *nokey) {
+    return RM_DictGetC(d,key->ptr,sdslen(key->ptr),nokey);
+}
+
+/* Remove the specified key from the dictionary, returning REDISMODULE_OK if
+ * the key was found and delted, or REDISMODULE_ERR if instead there was
+ * no such key in the dictionary. When the operation is successful, if
+ * 'oldval' is not NULL, then '*oldval' is set to the value stored at the
+ * key before it was deleted. Using this feature it is possible to get
+ * a pointer to the value (for instance in order to release it), without
+ * having to call RedisModule_DictGet() before deleting the key. */
+int RM_DictDelC(RedisModuleDict *d, void *key, size_t keylen, void *oldval) {
+    int retval = raxRemove(d->rax,key,keylen,oldval);
+    return retval ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
+/* Like RedisModule_DictDelC() but gets the key as a RedisModuleString. */
+int RM_DictDel(RedisModuleDict *d, RedisModuleString *key, void *oldval) {
+    return RM_DictDelC(d,key->ptr,sdslen(key->ptr),oldval);
+}
+
+/* Return an interator, setup in order to start iterating from the specified
+ * key by applying the operator 'op', which is just a string specifying the
+ * comparison operator to use in order to seek the first element. The
+ * operators avalable are:
+ *
+ * "^"   -- Seek the first (lexicographically smaller) key.
+ * "$"   -- Seek the last  (lexicographically biffer) key.
+ * ">"   -- Seek the first element greter than the specified key.
+ * ">="  -- Seek the first element greater or equal than the specified key.
+ * "<"   -- Seek the first element smaller than the specified key.
+ * "<="  -- Seek the first element smaller or equal than the specified key.
+ * "=="  -- Seek the first element matching exactly the specified key.
+ *
+ * Note that for "^" and "$" the passed key is not used, and the user may
+ * just pass NULL with a length of 0.
+ *
+ * If the element to start the iteration cannot be seeked based on the
+ * key and operator passed, RedisModule_DictNext() / Prev() will just return
+ * REDISMODULE_ERR at the first call, otherwise they'll produce elements.
+ */
+RedisModuleDictIter *RM_DictIteratorStartC(RedisModuleDict *d, const char *op, void *key, size_t keylen) {
+    RedisModuleDictIter *di = zmalloc(sizeof(*di));
+    di->dict = d;
+    raxStart(&di->ri,d->rax);
+    raxSeek(&di->ri,op,key,keylen);
+    return di;
+}
+
+/* Exactly like RedisModule_DictIteratorStartC, but the key is passed as a
+ * RedisModuleString. */
+RedisModuleDictIter *RM_DictIteratorStart(RedisModuleDict *d, const char *op, RedisModuleString *key) {
+    return RM_DictIteratorStartC(d,op,key->ptr,sdslen(key->ptr));
+}
+
+/* Release the iterator created with RedisModule_DictIteratorStart(). This call
+ * is mandatory otherwise a memory leak is introduced in the module. */
+void RM_DictIteratorStop(RedisModuleDictIter *di) {
+    raxStop(&di->ri);
+    zfree(di);
+}
+
+/* After its creation with RedisModule_DictIteratorStart(), it is possible to
+ * change the currently selected element of the iterator by using this
+ * API call. The result based on the operator and key is exactly like
+ * the function RedisModule_DictIteratorStart(), however in this case the
+ * return value is just REDISMODULE_OK in case the seeked element was found,
+ * or REDISMODULE_ERR in case it was not possible to seek the specified
+ * element. It is possible to reseek an iterator as many times as you want. */
+int RM_DictIteratorReseekC(RedisModuleDictIter *di, const char *op, void *key, size_t keylen) {
+    return raxSeek(&di->ri,op,key,keylen);
+}
+
+/* Like RedisModule_DictIteratorReseekC() but takes the key as as a
+ * RedisModuleString. */
+int RM_DictIteratorReseek(RedisModuleDictIter *di, const char *op, RedisModuleString *key) {
+    return RM_DictIteratorReseekC(di,op,key->ptr,sdslen(key->ptr));
+}
+
+/* Return the current item of the dictionary iterator 'di' and steps to the
+ * next element. If the iterator already yield the last element and there
+ * are no other elements to return, NULL is returned, otherwise a pointer
+ * to a string representing the key is provided, and the '*keylen' length
+ * is set by reference (if keylen is not NULL). The '*dataptr', if not NULL
+ * is set to the value of the pointer stored at the returned key as auxiliary
+ * data (as set by the RedisModule_DictSet API).
+ *
+ * Usage example:
+ *
+ *      ... create the iterator here ...
+ *      char *key;
+ *      void *data;
+ *      while((key = RedisModule_DictNextC(iter,&keylen,&data)) != NULL) {
+ *          printf("%.*s %p\n", (int)keylen, key, data);
+ *      }
+ *
+ * The returned pointer is of type void because sometimes it makes sense
+ * to cast it to a char* sometimes to an unsigned char* depending on the
+ * fact it contains or not binary data, so this API ends being more
+ * comfortable to use.
+ *
+ * The validity of the returned pointer is until the next call to the
+ * next/prev iterator step. Also the pointer is no longer valid once the
+ * iterator is released. */
+void *RM_DictNextC(RedisModuleDictIter *di, size_t *keylen, void **dataptr) {
+    if (!raxNext(&di->ri)) return NULL;
+    if (keylen) *keylen = di->ri.key_len;
+    if (dataptr) *dataptr = di->ri.data;
+    return di->ri.key;
+}
+
+/* This function is exactly like RedisModule_DictNext() but after returning
+ * the currently selected element in the iterator, it selects the previous
+ * element (laxicographically smaller) instead of the next one. */
+void *RM_DictPrevC(RedisModuleDictIter *di, size_t *keylen, void **dataptr) {
+    if (!raxPrev(&di->ri)) return NULL;
+    if (keylen) *keylen = di->ri.key_len;
+    if (dataptr) *dataptr = di->ri.data;
+    return di->ri.key;
+}
+
+/* Like RedisModuleNextC(), but instead of returning an internally allocated
+ * buffer and key length, it returns directly a module string object allocated
+ * in the specified context 'ctx' (that may be NULL exactly like for the main
+ * API RedisModule_CreateString).
+ *
+ * The returned string object should be deallocated after use, either manually
+ * or by using a context that has automatic memory management active. */
+RedisModuleString *RM_DictNext(RedisModuleCtx *ctx, RedisModuleDictIter *di, void **dataptr) {
+    size_t keylen;
+    void *key = RM_DictNextC(di,&keylen,dataptr);
+    if (key == NULL) return NULL;
+    return RM_CreateString(ctx,key,keylen);
+}
+
+/* Like RedisModule_DictNext() but after returning the currently selected
+ * element in the iterator, it selects the previous element (laxicographically
+ * smaller) instead of the next one. */
+RedisModuleString *RM_DictPrev(RedisModuleCtx *ctx, RedisModuleDictIter *di, void **dataptr) {
+    size_t keylen;
+    void *key = RM_DictPrevC(di,&keylen,dataptr);
+    if (key == NULL) return NULL;
+    return RM_CreateString(ctx,key,keylen);
+}
+
+/* Compare the element currently pointed by the iterator to the specified
+ * element given by key/keylen, according to the operator 'op' (the set of
+ * valid operators are the same valid for RedisModule_DictIteratorStart).
+ * If the comparision is successful the command returns REDISMODULE_OK
+ * otherwise REDISMODULE_ERR is returned.
+ *
+ * This is useful when we want to just emit a lexicographical range, so
+ * in the loop, as we iterate elements, we can also check if we are still
+ * on range.
+ *
+ * The function returne REDISMODULE_ERR if the iterator reached the
+ * end of elements condition as well. */
+int RM_DictCompareC(RedisModuleDictIter *di, const char *op, void *key, size_t keylen) {
+    if (raxEOF(&di->ri)) return REDISMODULE_ERR;
+    int res = raxCompare(&di->ri,op,key,keylen);
+    return res ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
+/* Like RedisModule_DictCompareC but gets the key to compare with the current
+ * iterator key as a RedisModuleString. */
+int RM_DictCompare(RedisModuleDictIter *di, const char *op, RedisModuleString *key) {
+    if (raxEOF(&di->ri)) return REDISMODULE_ERR;
+    int res = raxCompare(&di->ri,op,key->ptr,sdslen(key->ptr));
+    return res ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
 /* --------------------------------------------------------------------------
@@ -4292,6 +4746,329 @@ void RM_GetRandomBytes(unsigned char *dst, size_t len) {
  * hex charset [0-9a-f]. */
 void RM_GetRandomHexChars(char *dst, size_t len) {
     getRandomHexChars(dst,len);
+}
+
+/* --------------------------------------------------------------------------
+ * Modules API exporting / importing
+ * -------------------------------------------------------------------------- */
+
+/* This function is called by a module in order to export some API with a
+ * given name. Other modules will be able to use this API by calling the
+ * symmetrical function RM_GetSharedAPI() and casting the return value to
+ * the right function pointer.
+ *
+ * The function will return REDISMODULE_OK if the name is not already taken,
+ * otherwise REDISMODULE_ERR will be returned and no operation will be
+ * performed.
+ *
+ * IMPORTANT: the apiname argument should be a string literal with static
+ * lifetime. The API relies on the fact that it will always be valid in
+ * the future. */
+int RM_ExportSharedAPI(RedisModuleCtx *ctx, const char *apiname, void *func) {
+    RedisModuleSharedAPI *sapi = zmalloc(sizeof(*sapi));
+    sapi->module = ctx->module;
+    sapi->func = func;
+    if (dictAdd(server.sharedapi, (char*)apiname, sapi) != DICT_OK) {
+        zfree(sapi);
+        return REDISMODULE_ERR;
+    }
+    return REDISMODULE_OK;
+}
+
+/* Request an exported API pointer. The return value is just a void pointer
+ * that the caller of this function will be required to cast to the right
+ * function pointer, so this is a private contract between modules.
+ *
+ * If the requested API is not available then NULL is returned. Because
+ * modules can be loaded at different times with different order, this
+ * function calls should be put inside some module generic API registering
+ * step, that is called every time a module attempts to execute a
+ * command that requires external APIs: if some API cannot be resolved, the
+ * command should return an error.
+ *
+ * Here is an exmaple:
+ *
+ *     int ... myCommandImplementation() {
+ *        if (getExternalAPIs() == 0) {
+ *             reply with an error here if we cannot have the APIs
+ *        }
+ *        // Use the API:
+ *        myFunctionPointer(foo);
+ *     }
+ *
+ * And the function registerAPI() is:
+ *
+ *     int getExternalAPIs(void) {
+ *         static int api_loaded = 0;
+ *         if (api_loaded != 0) return 1; // APIs already resolved.
+ *
+ *         myFunctionPointer = RedisModule_GetOtherModuleAPI("...");
+ *         if (myFunctionPointer == NULL) return 0;
+ *
+ *         return 1;
+ *     }
+ */
+void *RM_GetSharedAPI(RedisModuleCtx *ctx, const char *apiname) {
+    dictEntry *de = dictFind(server.sharedapi, apiname);
+    if (de == NULL) return NULL;
+    RedisModuleSharedAPI *sapi = dictGetVal(de);
+    if (listSearchKey(sapi->module->usedby,ctx->module) == NULL) {
+        listAddNodeTail(sapi->module->usedby,ctx->module);
+        listAddNodeTail(ctx->module->using,sapi->module);
+    }
+    return sapi->func;
+}
+
+/* Remove all the APIs registered by the specified module. Usually you
+ * want this when the module is going to be unloaded. This function
+ * assumes that's caller responsibility to make sure the APIs are not
+ * used by other modules.
+ *
+ * The number of unregistered APIs is returned. */
+int moduleUnregisterSharedAPI(RedisModule *module) {
+    int count = 0;
+    dictIterator *di = dictGetSafeIterator(server.sharedapi);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL) {
+        const char *apiname = dictGetKey(de);
+        RedisModuleSharedAPI *sapi = dictGetVal(de);
+        if (sapi->module == module) {
+            dictDelete(server.sharedapi,apiname);
+            zfree(sapi);
+            count++;
+        }
+    }
+    dictReleaseIterator(di);
+    return count;
+}
+
+/* Remove the specified module as an user of APIs of ever other module.
+ * This is usually called when a module is unloaded.
+ *
+ * Returns the number of modules this module was using APIs from. */
+int moduleUnregisterUsedAPI(RedisModule *module) {
+    listIter li;
+    listNode *ln;
+    int count = 0;
+
+    listRewind(module->using,&li);
+    while((ln = listNext(&li))) {
+        RedisModule *used = ln->value;
+        listNode *ln = listSearchKey(used->usedby,module);
+        if (ln) {
+            listDelNode(module->using,ln);
+            count++;
+        }
+    }
+    return count;
+}
+
+/* Unregister all filters registered by a module.
+ * This is called when a module is being unloaded.
+ * 
+ * Returns the number of filters unregistered. */
+int moduleUnregisterFilters(RedisModule *module) {
+    listIter li;
+    listNode *ln;
+    int count = 0;
+
+    listRewind(module->filters,&li);
+    while((ln = listNext(&li))) {
+        RedisModuleCommandFilter *filter = ln->value;
+        listNode *ln = listSearchKey(moduleCommandFilters,filter);
+        if (ln) {
+            listDelNode(moduleCommandFilters,ln);
+            count++;
+        }
+        zfree(filter);
+    }
+    return count;
+}
+
+/* --------------------------------------------------------------------------
+ * Module Command Filter API
+ * -------------------------------------------------------------------------- */
+
+/* Register a new command filter function.
+ *
+ * Command filtering makes it possible for modules to extend Redis by plugging
+ * into the execution flow of all commands.
+ *
+ * A registered filter gets called before Redis executes *any* command.  This
+ * includes both core Redis commands and commands registered by any module.  The
+ * filter applies in all execution paths including:
+ *
+ * 1. Invocation by a client.
+ * 2. Invocation through `RedisModule_Call()` by any module.
+ * 3. Invocation through Lua 'redis.call()`.
+ * 4. Replication of a command from a master.
+ *
+ * The filter executes in a special filter context, which is different and more
+ * limited than a RedisModuleCtx.  Because the filter affects any command, it
+ * must be implemented in a very efficient way to reduce the performance impact
+ * on Redis.  All Redis Module API calls that require a valid context (such as
+ * `RedisModule_Call()`, `RedisModule_OpenKey()`, etc.) are not supported in a
+ * filter context.
+ *
+ * The `RedisModuleCommandFilterCtx` can be used to inspect or modify the
+ * executed command and its arguments.  As the filter executes before Redis
+ * begins processing the command, any change will affect the way the command is
+ * processed.  For example, a module can override Redis commands this way:
+ *
+ * 1. Register a `MODULE.SET` command which implements an extended version of
+ *    the Redis `SET` command.
+ * 2. Register a command filter which detects invocation of `SET` on a specific
+ *    pattern of keys.  Once detected, the filter will replace the first
+ *    argument from `SET` to `MODULE.SET`.
+ * 3. When filter execution is complete, Redis considers the new command name
+ *    and therefore executes the module's own command.
+ *
+ * Note that in the above use case, if `MODULE.SET` itself uses
+ * `RedisModule_Call()` the filter will be applied on that call as well.  If
+ * that is not desired, the `REDISMODULE_CMDFILTER_NOSELF` flag can be set when
+ * registering the filter.
+ *
+ * The `REDISMODULE_CMDFILTER_NOSELF` flag prevents execution flows that
+ * originate from the module's own `RM_Call()` from reaching the filter.  This
+ * flag is effective for all execution flows, including nested ones, as long as
+ * the execution begins from the module's command context or a thread-safe
+ * context that is associated with a blocking command.
+ *
+ * Detached thread-safe contexts are *not* associated with the module and cannot
+ * be protected by this flag.
+ *
+ * If multiple filters are registered (by the same or different modules), they
+ * are executed in the order of registration.
+ */
+
+RedisModuleCommandFilter *RM_RegisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc callback, int flags) {
+    RedisModuleCommandFilter *filter = zmalloc(sizeof(*filter));
+    filter->module = ctx->module;
+    filter->callback = callback;
+    filter->flags = flags;
+
+    listAddNodeTail(moduleCommandFilters, filter);
+    listAddNodeTail(ctx->module->filters, filter);
+    return filter;
+}
+
+/* Unregister a command filter.
+ */
+int RM_UnregisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilter *filter) {
+    listNode *ln;
+
+    /* A module can only remove its own filters */
+    if (filter->module != ctx->module) return REDISMODULE_ERR;
+
+    ln = listSearchKey(moduleCommandFilters,filter);
+    if (!ln) return REDISMODULE_ERR;
+    listDelNode(moduleCommandFilters,ln);
+    
+    ln = listSearchKey(ctx->module->filters,filter);
+    if (!ln) return REDISMODULE_ERR;    /* Shouldn't happen */
+    listDelNode(ctx->module->filters,ln);
+
+    return REDISMODULE_OK;
+}
+
+void moduleCallCommandFilters(client *c) {
+    if (listLength(moduleCommandFilters) == 0) return;
+
+    listIter li;
+    listNode *ln;
+    listRewind(moduleCommandFilters,&li);
+
+    RedisModuleCommandFilterCtx filter = {
+        .argv = c->argv,
+        .argc = c->argc
+    };
+
+    while((ln = listNext(&li))) {
+        RedisModuleCommandFilter *f = ln->value;
+
+        /* Skip filter if REDISMODULE_CMDFILTER_NOSELF is set and module is
+         * currently processing a command.
+         */
+        if ((f->flags & REDISMODULE_CMDFILTER_NOSELF) && f->module->in_call) continue;
+
+        /* Call filter */
+        f->callback(&filter);
+    }
+
+    c->argv = filter.argv;
+    c->argc = filter.argc;
+}
+
+/* Return the number of arguments a filtered command has.  The number of
+ * arguments include the command itself.
+ */
+int RM_CommandFilterArgsCount(RedisModuleCommandFilterCtx *fctx)
+{
+    return fctx->argc;
+}
+
+/* Return the specified command argument.  The first argument (position 0) is
+ * the command itself, and the rest are user-provided args.
+ */
+const RedisModuleString *RM_CommandFilterArgGet(RedisModuleCommandFilterCtx *fctx, int pos)
+{
+    if (pos < 0 || pos >= fctx->argc) return NULL;
+    return fctx->argv[pos];
+}
+
+/* Modify the filtered command by inserting a new argument at the specified
+ * position.  The specified RedisModuleString argument may be used by Redis
+ * after the filter context is destroyed, so it must not be auto-memory
+ * allocated, freed or used elsewhere.
+ */
+
+int RM_CommandFilterArgInsert(RedisModuleCommandFilterCtx *fctx, int pos, RedisModuleString *arg)
+{
+    int i;
+
+    if (pos < 0 || pos > fctx->argc) return REDISMODULE_ERR;
+
+    fctx->argv = zrealloc(fctx->argv, (fctx->argc+1)*sizeof(RedisModuleString *));
+    for (i = fctx->argc; i > pos; i--) {
+        fctx->argv[i] = fctx->argv[i-1];
+    }
+    fctx->argv[pos] = arg;
+    fctx->argc++;
+
+    return REDISMODULE_OK;
+}
+
+/* Modify the filtered command by replacing an existing argument with a new one.
+ * The specified RedisModuleString argument may be used by Redis after the
+ * filter context is destroyed, so it must not be auto-memory allocated, freed
+ * or used elsewhere.
+ */
+
+int RM_CommandFilterArgReplace(RedisModuleCommandFilterCtx *fctx, int pos, RedisModuleString *arg)
+{
+    if (pos < 0 || pos >= fctx->argc) return REDISMODULE_ERR;
+
+    decrRefCount(fctx->argv[pos]);
+    fctx->argv[pos] = arg;
+
+    return REDISMODULE_OK;
+}
+
+/* Modify the filtered command by deleting an argument at the specified
+ * position.
+ */
+int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *fctx, int pos)
+{
+    int i;
+    if (pos < 0 || pos >= fctx->argc) return REDISMODULE_ERR;
+
+    decrRefCount(fctx->argv[pos]);
+    for (i = pos; i < fctx->argc-1; i++) {
+        fctx->argv[i] = fctx->argv[i+1];
+    }
+    fctx->argc--;
+
+    return REDISMODULE_OK;
 }
 
 /* --------------------------------------------------------------------------
@@ -4336,8 +5113,12 @@ void moduleInitModulesSystem(void) {
 
     /* Set up the keyspace notification susbscriber list and static client */
     moduleKeyspaceSubscribers = listCreate();
-    moduleKeyspaceSubscribersClient = createClient(-1);
-    moduleKeyspaceSubscribersClient->flags |= CLIENT_MODULE;
+    moduleFreeContextReusedClient = createClient(-1);
+    moduleFreeContextReusedClient->flags |= CLIENT_MODULE;
+    moduleFreeContextReusedClient->user = NULL; /* root user. */
+
+    /* Set up filter list */
+    moduleCommandFilters = listCreate();
 
     moduleRegisterCoreAPI();
     if (pipe(server.module_blocked_pipe) == -1) {
@@ -4365,7 +5146,7 @@ void moduleInitModulesSystem(void) {
  * because the server must be fully initialized before loading modules.
  *
  * The function aborts the server on errors, since to start with missing
- * modules is not considered sane: clients may rely on the existance of
+ * modules is not considered sane: clients may rely on the existence of
  * given commands, loading AOF also may need some modules to exist, and
  * if this instance is a slave, it must understand commands from master. */
 void moduleLoadFromQueue(void) {
@@ -4388,6 +5169,7 @@ void moduleLoadFromQueue(void) {
 
 void moduleFreeModuleStructure(struct RedisModule *module) {
     listRelease(module->types);
+    listRelease(module->filters);
     sdsfree(module->name);
     zfree(module);
 }
@@ -4437,6 +5219,8 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
     if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {
         if (ctx.module) {
             moduleUnregisterCommands(ctx.module);
+            moduleUnregisterSharedAPI(ctx.module);
+            moduleUnregisterUsedAPI(ctx.module);
             moduleFreeModuleStructure(ctx.module);
         }
         dlclose(handle);
@@ -4466,16 +5250,20 @@ int moduleUnload(sds name) {
     if (module == NULL) {
         errno = ENOENT;
         return REDISMODULE_ERR;
-    }
-
-    if (listLength(module->types)) {
+    } else if (listLength(module->types)) {
         errno = EBUSY;
+        return REDISMODULE_ERR;
+    } else if (listLength(module->usedby)) {
+        errno = EPERM;
         return REDISMODULE_ERR;
     }
 
     moduleUnregisterCommands(module);
+    moduleUnregisterSharedAPI(module);
+    moduleUnregisterUsedAPI(module);
+    moduleUnregisterFilters(module);
 
-    /* Remvoe any noification subscribers this module might have */
+    /* Remove any notification subscribers this module might have */
     moduleUnsubscribeNotifications(module);
 
     /* Unregister all the hooks. TODO: Yet no hooks support here. */
@@ -4497,12 +5285,39 @@ int moduleUnload(sds name) {
     return REDISMODULE_OK;
 }
 
+/* Helper function for the MODULE and HELLO command: send the list of the
+ * loaded modules to the client. */
+void addReplyLoadedModules(client *c) {
+    dictIterator *di = dictGetIterator(modules);
+    dictEntry *de;
+
+    addReplyArrayLen(c,dictSize(modules));
+    while ((de = dictNext(di)) != NULL) {
+        sds name = dictGetKey(de);
+        struct RedisModule *module = dictGetVal(de);
+        addReplyMapLen(c,2);
+        addReplyBulkCString(c,"name");
+        addReplyBulkCBuffer(c,name,sdslen(name));
+        addReplyBulkCString(c,"ver");
+        addReplyLongLong(c,module->ver);
+    }
+    dictReleaseIterator(di);
+}
+
 /* Redis MODULE command.
  *
  * MODULE LOAD <path> [args...] */
 void moduleCommand(client *c) {
     char *subcmd = c->argv[1]->ptr;
-
+    if (c->argc == 2 && !strcasecmp(subcmd,"help")) {
+        const char *help[] = {
+"LIST -- Return a list of loaded modules.",
+"LOAD <path> [arg ...] -- Load a module library from <path>.",
+"UNLOAD <name> -- Unload a module.",
+NULL
+        };
+        addReplyHelp(c, help);
+    } else
     if (!strcasecmp(subcmd,"load") && c->argc >= 3) {
         robj **argv = NULL;
         int argc = 0;
@@ -4527,7 +5342,12 @@ void moduleCommand(client *c) {
                 errmsg = "no such module with that name";
                 break;
             case EBUSY:
-                errmsg = "the module exports one or more module-side data types, can't unload";
+                errmsg = "the module exports one or more module-side data "
+                         "types, can't unload";
+                break;
+            case EPERM:
+                errmsg = "the module exports APIs used by other modules. "
+                         "Please unload them first and try again";
                 break;
             default:
                 errmsg = "operation not possible.";
@@ -4536,22 +5356,10 @@ void moduleCommand(client *c) {
             addReplyErrorFormat(c,"Error unloading module: %s",errmsg);
         }
     } else if (!strcasecmp(subcmd,"list") && c->argc == 2) {
-        dictIterator *di = dictGetIterator(modules);
-        dictEntry *de;
-
-        addReplyMultiBulkLen(c,dictSize(modules));
-        while ((de = dictNext(di)) != NULL) {
-            sds name = dictGetKey(de);
-            struct RedisModule *module = dictGetVal(de);
-            addReplyMultiBulkLen(c,4);
-            addReplyBulkCString(c,"name");
-            addReplyBulkCBuffer(c,name,sdslen(name));
-            addReplyBulkCString(c,"ver");
-            addReplyLongLong(c,module->ver);
-        }
-        dictReleaseIterator(di);
+        addReplyLoadedModules(c);
     } else {
-        addReply(c,shared.syntaxerr);
+        addReplySubcommandSyntaxError(c);
+        return;
     }
 }
 
@@ -4564,6 +5372,7 @@ size_t moduleCount(void) {
  * file so that's easy to seek it to add new entries. */
 void moduleRegisterCoreAPI(void) {
     server.moduleapi = dictCreate(&moduleAPIDictType,NULL);
+    server.sharedapi = dictCreate(&moduleAPIDictType,NULL);
     REGISTER_API(Alloc);
     REGISTER_API(Calloc);
     REGISTER_API(Realloc);
@@ -4580,6 +5389,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ReplySetArrayLength);
     REGISTER_API(ReplyWithString);
     REGISTER_API(ReplyWithStringBuffer);
+    REGISTER_API(ReplyWithCString);
     REGISTER_API(ReplyWithNull);
     REGISTER_API(ReplyWithCallReply);
     REGISTER_API(ReplyWithDouble);
@@ -4661,6 +5471,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(RetainString);
     REGISTER_API(StringCompare);
     REGISTER_API(GetContextFromIO);
+    REGISTER_API(GetKeyNameFromIO);
     REGISTER_API(BlockClient);
     REGISTER_API(UnblockClient);
     REGISTER_API(IsBlockedReplyRequest);
@@ -4691,4 +5502,36 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(BlockedClientDisconnected);
     REGISTER_API(SetDisconnectCallback);
     REGISTER_API(GetBlockedClientHandle);
+    REGISTER_API(SetClusterFlags);
+    REGISTER_API(CreateDict);
+    REGISTER_API(FreeDict);
+    REGISTER_API(DictSize);
+    REGISTER_API(DictSetC);
+    REGISTER_API(DictReplaceC);
+    REGISTER_API(DictSet);
+    REGISTER_API(DictReplace);
+    REGISTER_API(DictGetC);
+    REGISTER_API(DictGet);
+    REGISTER_API(DictDelC);
+    REGISTER_API(DictDel);
+    REGISTER_API(DictIteratorStartC);
+    REGISTER_API(DictIteratorStart);
+    REGISTER_API(DictIteratorStop);
+    REGISTER_API(DictIteratorReseekC);
+    REGISTER_API(DictIteratorReseek);
+    REGISTER_API(DictNextC);
+    REGISTER_API(DictPrevC);
+    REGISTER_API(DictNext);
+    REGISTER_API(DictPrev);
+    REGISTER_API(DictCompareC);
+    REGISTER_API(DictCompare);
+    REGISTER_API(ExportSharedAPI);
+    REGISTER_API(GetSharedAPI);
+    REGISTER_API(RegisterCommandFilter);
+    REGISTER_API(UnregisterCommandFilter);
+    REGISTER_API(CommandFilterArgsCount);
+    REGISTER_API(CommandFilterArgGet);
+    REGISTER_API(CommandFilterArgInsert);
+    REGISTER_API(CommandFilterArgReplace);
+    REGISTER_API(CommandFilterArgDelete);
 }

@@ -29,7 +29,7 @@ start_server {} {
         wait_for_condition 50 1000 {
             [$R(1) dbsize] == 1 && [$R(2) dbsize] == 1
         } else {
-            fail "Slaves not replicating from master"
+            fail "Replicas not replicating from master"
         }
         $R(0) config set repl-backlog-size 10mb
         $R(1) config set repl-backlog-size 10mb
@@ -41,12 +41,12 @@ start_server {} {
         set elapsed [expr {[clock milliseconds]-$cycle_start_time}]
         if {$elapsed > $duration*1000} break
         if {rand() < .05} {
-            test "PSYNC2 #3899 regression: kill first slave" {
+            test "PSYNC2 #3899 regression: kill first replica" {
                 $R(1) client kill type master
             }
         }
         if {rand() < .05} {
-            test "PSYNC2 #3899 regression: kill chained slave" {
+            test "PSYNC2 #3899 regression: kill chained replica" {
                 $R(2) client kill type master
             }
         }

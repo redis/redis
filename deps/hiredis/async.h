@@ -45,6 +45,7 @@ typedef void (redisCallbackFn)(struct redisAsyncContext*, void*, void*);
 typedef struct redisCallback {
     struct redisCallback *next; /* simple singly linked list */
     redisCallbackFn *fn;
+    int pending_subs;
     void *privdata;
 } redisCallback;
 
@@ -91,6 +92,10 @@ typedef struct redisAsyncContext {
 
     /* Regular command callbacks */
     redisCallbackList replies;
+
+    /* Address used for connect() */
+    struct sockaddr *saddr;
+    size_t addrlen;
 
     /* Subscription callbacks */
     struct {

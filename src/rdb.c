@@ -42,30 +42,41 @@
 #include <sys/stat.h>
 #include <sys/param.h>
 
-#define rdbExitReportCorruptRDB(...) rdbCheckThenExit(__LINE__,__VA_ARGS__)
+/* This macro is called when the internal RDB stracture is corrupt */
+#define rdbExitReportCorruptRDB(...) rdbReportError(1, __LINE__,__VA_ARGS__)
+/* This macro is called when RDB read failed (possibly a short read) */
+#define rdbReportReadError(...) rdbReportError(0, __LINE__,__VA_ARGS__)
 
+char* rdbFileBeingLoaded = NULL; /* used for rdb checking on read error */
 extern int rdbCheckMode;
 void rdbCheckError(const char *fmt, ...);
 void rdbCheckSetError(const char *fmt, ...);
 
-void rdbCheckThenExit(int linenum, char *reason, ...) {
+void rdbReportError(int corruption_error, int linenum, char *reason, ...) {
     va_list ap;
     char msg[1024];
     int len;
 
     len = snprintf(msg,sizeof(msg),
-        "Internal error in RDB reading function at rdb.c:%d -> ", linenum);
+        "Internal error in RDB reading offset %llu, function at rdb.c:%d -> ",
+        (unsigned long long)server.loading_loaded_bytes, linenum);
     va_start(ap,reason);
     vsnprintf(msg+len,sizeof(msg)-len,reason,ap);
     va_end(ap);
 
     if (!rdbCheckMode) {
-        serverLog(LL_WARNING, "%s", msg);
-        char *argv[2] = {"",server.rdb_filename};
-        redis_check_rdb_main(2,argv,NULL);
+        if (rdbFileBeingLoaded || corruption_error) {
+            serverLog(LL_WARNING, "%s", msg);
+            char *argv[2] = {"",rdbFileBeingLoaded};
+            redis_check_rdb_main(2,argv,NULL);
+        } else {
+            serverLog(LL_WARNING, "%s. Failure loading rdb format from socket, assuming connection error, resuming operation.", msg);
+            return;
+        }
     } else {
         rdbCheckError("%s",msg);
     }
+    serverLog(LL_WARNING, "Terminating server after rdb file reading failure.");
     exit(1);
 }
 
@@ -73,18 +84,6 @@ static int rdbWriteRaw(rio *rdb, void *p, size_t len) {
     if (rdb && rioWrite(rdb,p,len) == 0)
         return -1;
     return len;
-}
-
-/* This is just a wrapper for the low level function rioRead() that will
- * automatically abort if it is not possible to read the specified amount
- * of bytes. */
-void rdbLoadRaw(rio *rdb, void *buf, uint64_t len) {
-    if (rioRead(rdb,buf,len) == 0) {
-        rdbExitReportCorruptRDB(
-            "Impossible to read %llu bytes in rdbLoadRaw()",
-            (unsigned long long) len);
-        return; /* Not reached. */
-    }
 }
 
 int rdbSaveType(rio *rdb, unsigned char type) {
@@ -102,10 +101,12 @@ int rdbLoadType(rio *rdb) {
 
 /* This is only used to load old databases stored with the RDB_OPCODE_EXPIRETIME
  * opcode. New versions of Redis store using the RDB_OPCODE_EXPIRETIME_MS
- * opcode. */
+ * opcode. On error -1 is returned, however this could be a valid time, so
+ * to check for loading errors the caller should call rioGetReadError() after
+ * calling this function. */
 time_t rdbLoadTime(rio *rdb) {
     int32_t t32;
-    rdbLoadRaw(rdb,&t32,4);
+    if (rioRead(rdb,&t32,4) == 0) return -1;
     return (time_t)t32;
 }
 
@@ -125,10 +126,14 @@ int rdbSaveMillisecondTime(rio *rdb, long long t) {
  * after upgrading to Redis version 5 they will no longer be able to load their
  * own old RDB files. Because of that, we instead fix the function only for new
  * RDB versions, and load older RDB versions as we used to do in the past,
- * allowing big endian systems to load their own old RDB files. */
+ * allowing big endian systems to load their own old RDB files.
+ *
+ * On I/O error the function returns LLONG_MAX, however if this is also a
+ * valid stored value, the caller should use rioGetReadError() to check for
+ * errors after calling this function. */
 long long rdbLoadMillisecondTime(rio *rdb, int rdbver) {
     int64_t t64;
-    rdbLoadRaw(rdb,&t64,8);
+    if (rioRead(rdb,&t64,8) == 0) return LLONG_MAX;
     if (rdbver >= 9) /* Check the top comment of this function. */
         memrev64ifbe(&t64); /* Convert in big endian if the system is BE. */
     return (long long)t64;
@@ -277,8 +282,8 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr) {
         v = enc[0]|(enc[1]<<8)|(enc[2]<<16)|(enc[3]<<24);
         val = (int32_t)v;
     } else {
-        val = 0; /* anti-warning */
         rdbExitReportCorruptRDB("Unknown RDB integer encoding type %d",enctype);
+        return NULL; /* Never reached. */
     }
     if (plain || sds) {
         char buf[LONG_STR_SIZE], *p;
@@ -288,7 +293,7 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr) {
         memcpy(p,buf,len);
         return p;
     } else if (encode) {
-        return createStringObjectFromLongLong(val);
+        return createStringObjectFromLongLongForValue(val);
     } else {
         return createObject(OBJ_STRING,sdsfromlonglong(val));
     }
@@ -381,8 +386,7 @@ void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr) {
     /* Load the compressed representation and uncompress it to target. */
     if (rioRead(rdb,c,clen) == 0) goto err;
     if (lzf_decompress(c,clen,val,len) == 0) {
-        if (rdbCheckMode) rdbCheckSetError("Invalid LZF compressed string");
-        goto err;
+        rdbExitReportCorruptRDB("Invalid LZF compressed string");
     }
     zfree(c);
 
@@ -496,6 +500,7 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
             return rdbLoadLzfStringObject(rdb,flags,lenptr);
         default:
             rdbExitReportCorruptRDB("Unknown RDB string encoding type %d",len);
+            return NULL; /* Never reached. */
         }
     }
 
@@ -751,7 +756,7 @@ size_t rdbSaveStreamConsumers(rio *rdb, streamCG *cg) {
 
 /* Save a Redis object.
  * Returns -1 on error, number of bytes written on success. */
-ssize_t rdbSaveObject(rio *rdb, robj *o) {
+ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key) {
     ssize_t n = 0, nwritten = 0;
 
     if (o->type == OBJ_STRING) {
@@ -966,7 +971,6 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
         RedisModuleIO io;
         moduleValue *mv = o->ptr;
         moduleType *mt = mv->type;
-        moduleInitIOContext(io,mt,rdb);
 
         /* Write the "module" identifier as prefix, so that we'll be able
          * to call the right module during loading. */
@@ -975,10 +979,13 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
         io.bytes += retval;
 
         /* Then write the module-specific representation + EOF marker. */
+        moduleInitIOContext(io,mt,rdb,key);
         mt->rdb_save(&io,mv->value);
         retval = rdbSaveLen(rdb,RDB_MODULE_OPCODE_EOF);
-        if (retval == -1) return -1;
-        io.bytes += retval;
+        if (retval == -1)
+            io.error = 1;
+        else
+            io.bytes += retval;
 
         if (io.ctx) {
             moduleFreeContext(io.ctx);
@@ -996,7 +1003,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
  * this length with very little changes to the code. In the future
  * we could switch to a faster solution. */
 size_t rdbSavedObjectLen(robj *o) {
-    ssize_t len = rdbSaveObject(NULL,o);
+    ssize_t len = rdbSaveObject(NULL,o,NULL);
     serverAssertWithInfo(NULL,o,len != -1);
     return len;
 }
@@ -1038,7 +1045,12 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime) {
     /* Save type, key, value */
     if (rdbSaveObjectType(rdb,val) == -1) return -1;
     if (rdbSaveStringObject(rdb,key) == -1) return -1;
-    if (rdbSaveObject(rdb,val) == -1) return -1;
+    if (rdbSaveObject(rdb,val,key) == -1) return -1;
+
+    /* Delay return if required (for testing) */
+    if (server.rdb_key_save_delay)
+        usleep(server.rdb_key_save_delay);
+
     return 1;
 }
 
@@ -1091,6 +1103,40 @@ int rdbSaveInfoAuxFields(rio *rdb, int flags, rdbSaveInfo *rsi) {
     return 1;
 }
 
+ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
+    /* Save a module-specific aux value. */
+    RedisModuleIO io;
+    int retval = rdbSaveType(rdb, RDB_OPCODE_MODULE_AUX);
+
+    /* Write the "module" identifier as prefix, so that we'll be able
+     * to call the right module during loading. */
+    retval = rdbSaveLen(rdb,mt->id);
+    if (retval == -1) return -1;
+    io.bytes += retval;
+
+    /* write the 'when' so that we can provide it on loading */
+    retval = rdbSaveLen(rdb,when);
+    if (retval == -1) return -1;
+    io.bytes += retval;
+
+    /* Then write the module-specific representation + EOF marker. */
+    moduleInitIOContext(io,mt,rdb,NULL);
+    mt->aux_save(&io,when);
+    retval = rdbSaveLen(rdb,RDB_MODULE_OPCODE_EOF);
+    if (retval == -1)
+        io.error = 1;
+    else
+        io.bytes += retval;
+
+    if (io.ctx) {
+        moduleFreeContext(io.ctx);
+        zfree(io.ctx);
+    }
+    if (io.error)
+        return -1;
+    return io.bytes;
+}
+
 /* Produces a dump of the database in RDB format sending it to the specified
  * Redis I/O channel. On success C_OK is returned, otherwise C_ERR
  * is returned and part of the output, or all the output, can be
@@ -1112,6 +1158,7 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
     snprintf(magic,sizeof(magic),"REDIS%04d",RDB_VERSION);
     if (rdbWriteRaw(rdb,magic,9) == -1) goto werr;
     if (rdbSaveInfoAuxFields(rdb,flags,rsi) == -1) goto werr;
+    if (rdbSaveModulesAux(rdb, REDISMODULE_AUX_BEFORE_RDB) == -1) goto werr;
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
@@ -1172,6 +1219,8 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
         dictReleaseIterator(di);
         di = NULL; /* So that we don't release it again on error. */
     }
+
+    if (rdbSaveModulesAux(rdb, REDISMODULE_AUX_AFTER_RDB) == -1) goto werr;
 
     /* EOF opcode */
     if (rdbSaveType(rdb,RDB_OPCODE_EOF) == -1) goto werr;
@@ -1380,7 +1429,7 @@ robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename) {
 
 /* Load a Redis object of the specified type from the specified file.
  * On success a newly allocated object is returned, otherwise NULL. */
-robj *rdbLoadObject(int rdbtype, rio *rdb) {
+robj *rdbLoadObject(int rdbtype, rio *rdb, robj *key) {
     robj *o = NULL, *ele, *dec;
     uint64_t len;
     unsigned int i;
@@ -1632,6 +1681,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
                     hashTypeConvert(o, OBJ_ENCODING_HT);
                 break;
             default:
+                /* totally unreachable */
                 rdbExitReportCorruptRDB("Unknown RDB encoding type %d",rdbtype);
                 break;
         }
@@ -1639,12 +1689,22 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         o = createStreamObject();
         stream *s = o->ptr;
         uint64_t listpacks = rdbLoadLen(rdb,NULL);
+        if (listpacks == RDB_LENERR) {
+            rdbReportReadError("Stream listpacks len loading failed.");
+            decrRefCount(o);
+            return NULL;
+        }
 
         while(listpacks--) {
             /* Get the master ID, the one we'll use as key of the radix tree
              * node: the entries inside the listpack itself are delta-encoded
              * relatively to this ID. */
             sds nodekey = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL);
+            if (nodekey == NULL) {
+                rdbReportReadError("Stream master ID loading failed: invalid encoding or I/O error.");
+                decrRefCount(o);
+                return NULL;
+            }
             if (sdslen(nodekey) != sizeof(streamID)) {
                 rdbExitReportCorruptRDB("Stream node key entry is not the "
                                         "size of a stream ID");
@@ -1653,12 +1713,17 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             /* Load the listpack. */
             unsigned char *lp =
                 rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,NULL);
-            if (lp == NULL) return NULL;
+            if (lp == NULL) {
+                rdbReportReadError("Stream listpacks loading failed.");
+                sdsfree(nodekey);
+                decrRefCount(o);
+                return NULL;
+            }
             unsigned char *first = lpFirst(lp);
             if (first == NULL) {
                 /* Serialized listpacks should never be empty, since on
                  * deletion we should remove the radix tree key if the
-                 * resulting listpack is emtpy. */
+                 * resulting listpack is empty. */
                 rdbExitReportCorruptRDB("Empty listpack inside stream");
             }
 
@@ -1671,12 +1736,24 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         }
         /* Load total number of items inside the stream. */
         s->length = rdbLoadLen(rdb,NULL);
+
         /* Load the last entry ID. */
         s->last_id.ms = rdbLoadLen(rdb,NULL);
         s->last_id.seq = rdbLoadLen(rdb,NULL);
 
+        if (rioGetReadError(rdb)) {
+            rdbReportReadError("Stream object metadata loading failed.");
+            decrRefCount(o);
+            return NULL;
+        }
+
         /* Consumer groups loading */
-        size_t cgroups_count = rdbLoadLen(rdb,NULL);
+        uint64_t cgroups_count = rdbLoadLen(rdb,NULL);
+        if (cgroups_count == RDB_LENERR) {
+            rdbReportReadError("Stream cgroup count loading failed.");
+            decrRefCount(o);
+            return NULL;
+        }
         while(cgroups_count--) {
             /* Get the consumer group name and ID. We can then create the
              * consumer group ASAP and populate its structure as
@@ -1684,11 +1761,21 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             streamID cg_id;
             sds cgname = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL);
             if (cgname == NULL) {
-                rdbExitReportCorruptRDB(
+                rdbReportReadError(
                     "Error reading the consumer group name from Stream");
+                decrRefCount(o);
+                return NULL;
             }
+
             cg_id.ms = rdbLoadLen(rdb,NULL);
             cg_id.seq = rdbLoadLen(rdb,NULL);
+            if (rioGetReadError(rdb)) {
+                rdbReportReadError("Stream cgroup ID loading failed.");
+                sdsfree(cgname);
+                decrRefCount(o);
+                return NULL;
+            }
+
             streamCG *cgroup = streamCreateCG(s,cgname,sdslen(cgname),&cg_id);
             if (cgroup == NULL)
                 rdbExitReportCorruptRDB("Duplicated consumer group name %s",
@@ -1700,13 +1787,28 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
              * owner, since consumers for this group and their messages will
              * be read as a next step. So for now leave them not resolved
              * and later populate it. */
-            size_t pel_size = rdbLoadLen(rdb,NULL);
+            uint64_t pel_size = rdbLoadLen(rdb,NULL);
+            if (pel_size == RDB_LENERR) {
+                rdbReportReadError("Stream PEL size loading failed.");
+                decrRefCount(o);
+                return NULL;
+            }
             while(pel_size--) {
                 unsigned char rawid[sizeof(streamID)];
-                rdbLoadRaw(rdb,rawid,sizeof(rawid));
+                if (rioRead(rdb,rawid,sizeof(rawid)) == 0) {
+                    rdbReportReadError("Stream PEL ID loading failed.");
+                    decrRefCount(o);
+                    return NULL;
+                }
                 streamNACK *nack = streamCreateNACK(NULL);
                 nack->delivery_time = rdbLoadMillisecondTime(rdb,RDB_VERSION);
                 nack->delivery_count = rdbLoadLen(rdb,NULL);
+                if (rioGetReadError(rdb)) {
+                    rdbReportReadError("Stream PEL NACK loading failed.");
+                    decrRefCount(o);
+                    streamFreeNACK(nack);
+                    return NULL;
+                }
                 if (!raxInsert(cgroup->pel,rawid,sizeof(rawid),nack,NULL))
                     rdbExitReportCorruptRDB("Duplicated gobal PEL entry "
                                             "loading stream consumer group");
@@ -1714,24 +1816,47 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
 
             /* Now that we loaded our global PEL, we need to load the
              * consumers and their local PELs. */
-            size_t consumers_num = rdbLoadLen(rdb,NULL);
+            uint64_t consumers_num = rdbLoadLen(rdb,NULL);
+            if (consumers_num == RDB_LENERR) {
+                rdbReportReadError("Stream consumers num loading failed.");
+                decrRefCount(o);
+                return NULL;
+            }
             while(consumers_num--) {
                 sds cname = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL);
                 if (cname == NULL) {
-                    rdbExitReportCorruptRDB(
-                        "Error reading the consumer name from Stream group");
+                    rdbReportReadError(
+                        "Error reading the consumer name from Stream group.");
+                    decrRefCount(o);
+                    return NULL;
                 }
                 streamConsumer *consumer = streamLookupConsumer(cgroup,cname,
                                            1);
                 sdsfree(cname);
                 consumer->seen_time = rdbLoadMillisecondTime(rdb,RDB_VERSION);
+                if (rioGetReadError(rdb)) {
+                    rdbReportReadError("Stream short read reading seen time.");
+                    decrRefCount(o);
+                    return NULL;
+                }
 
                 /* Load the PEL about entries owned by this specific
                  * consumer. */
                 pel_size = rdbLoadLen(rdb,NULL);
+                if (pel_size == RDB_LENERR) {
+                    rdbReportReadError(
+                        "Stream consumer PEL num loading failed.");
+                    decrRefCount(o);
+                    return NULL;
+                }
                 while(pel_size--) {
                     unsigned char rawid[sizeof(streamID)];
-                    rdbLoadRaw(rdb,rawid,sizeof(rawid));
+                    if (rioRead(rdb,rawid,sizeof(rawid)) == 0) {
+                        rdbReportReadError(
+                            "Stream short read reading PEL streamID.");
+                        decrRefCount(o);
+                        return NULL;
+                    }
                     streamNACK *nack = raxFind(cgroup->pel,rawid,sizeof(rawid));
                     if (nack == raxNotFound)
                         rdbExitReportCorruptRDB("Consumer entry not found in "
@@ -1750,6 +1875,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         }
     } else if (rdbtype == RDB_TYPE_MODULE || rdbtype == RDB_TYPE_MODULE_2) {
         uint64_t moduleid = rdbLoadLen(rdb,NULL);
+        if (rioGetReadError(rdb)) return NULL;
         moduleType *mt = moduleTypeLookupModuleByID(moduleid);
         char name[10];
 
@@ -1764,7 +1890,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             exit(1);
         }
         RedisModuleIO io;
-        moduleInitIOContext(io,mt,rdb);
+        moduleInitIOContext(io,mt,rdb,key);
         io.ver = (rdbtype == RDB_TYPE_MODULE) ? 1 : 2;
         /* Call the rdb_load method of the module providing the 10 bit
          * encoding version in the lower 10 bits of the module ID. */
@@ -1777,6 +1903,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         /* Module v2 serialization has an EOF mark at the end. */
         if (io.ver == 2) {
             uint64_t eof = rdbLoadLen(rdb,NULL);
+            if (eof == RDB_LENERR) {
+                o = createModuleObject(mt,ptr); /* creating just in order to easily destroy */
+                decrRefCount(o);
+                return NULL;
+            }
             if (eof != RDB_MODULE_OPCODE_EOF) {
                 serverLog(LL_WARNING,"The RDB file contains module data for the module '%s' that is not terminated by the proper module value EOF marker", name);
                 exit(1);
@@ -1790,25 +1921,31 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         }
         o = createModuleObject(mt,ptr);
     } else {
-        rdbExitReportCorruptRDB("Unknown RDB encoding type %d",rdbtype);
+        rdbReportReadError("Unknown RDB encoding type %d",rdbtype);
+        return NULL;
     }
     return o;
 }
 
 /* Mark that we are loading in the global state and setup the fields
  * needed to provide loading stats. */
-void startLoading(FILE *fp) {
-    struct stat sb;
-
+void startLoading(size_t size) {
     /* Load the DB */
     server.loading = 1;
     server.loading_start_time = time(NULL);
     server.loading_loaded_bytes = 0;
-    if (fstat(fileno(fp), &sb) == -1) {
-        server.loading_total_bytes = 0;
-    } else {
-        server.loading_total_bytes = sb.st_size;
-    }
+    server.loading_total_bytes = size;
+}
+
+/* Mark that we are loading in the global state and setup the fields
+ * needed to provide loading stats.
+ * 'filename' is optional and used for rdb-check on error */
+void startLoadingFile(FILE *fp, char* filename) {
+    struct stat sb;
+    if (fstat(fileno(fp), &sb) == -1)
+        sb.st_size = 0;
+    rdbFileBeingLoaded = filename;
+    startLoading(sb.st_size);
 }
 
 /* Refresh the loading progress info */
@@ -1821,6 +1958,7 @@ void loadingProgress(off_t pos) {
 /* Loading finished */
 void stopLoading(void) {
     server.loading = 0;
+    rdbFileBeingLoaded = NULL;
 }
 
 /* Track loading progress in order to serve client's from time to time
@@ -1869,7 +2007,7 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
     /* Key-specific attributes, set by opcodes before the key type. */
     long long lru_idle = -1, lfu_freq = -1, expiretime = -1, now = mstime();
     long long lru_clock = LRU_CLOCK();
-    
+
     while(1) {
         robj *key, *val;
 
@@ -1883,11 +2021,13 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
              * load the actual type, and continue. */
             expiretime = rdbLoadTime(rdb);
             expiretime *= 1000;
+            if (rioGetReadError(rdb)) goto eoferr;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_EXPIRETIME_MS) {
             /* EXPIRETIME_MS: milliseconds precision expire times introduced
              * with RDB v3. Like EXPIRETIME but no with more precision. */
             expiretime = rdbLoadMillisecondTime(rdb,rdbver);
+            if (rioGetReadError(rdb)) goto eoferr;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_FREQ) {
             /* FREQ: LFU frequency. */
@@ -1960,6 +2100,23 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
                         "Can't load Lua script from RDB file! "
                         "BODY: %s", auxval->ptr);
                 }
+            } else if (!strcasecmp(auxkey->ptr,"redis-ver")) {
+                serverLog(LL_NOTICE,"Loading RDB produced by version %s",
+                    (char*)auxval->ptr);
+            } else if (!strcasecmp(auxkey->ptr,"ctime")) {
+                time_t age = time(NULL)-strtol(auxval->ptr,NULL,10);
+                if (age < 0) age = 0;
+                serverLog(LL_NOTICE,"RDB age %ld seconds",
+                    (unsigned long) age);
+            } else if (!strcasecmp(auxkey->ptr,"used-mem")) {
+                long long usedmem = strtoll(auxval->ptr,NULL,10);
+                serverLog(LL_NOTICE,"RDB memory usage when created %.2f Mb",
+                    (double) usedmem / (1024*1024));
+            } else if (!strcasecmp(auxkey->ptr,"aof-preamble")) {
+                long long haspreamble = strtoll(auxval->ptr,NULL,10);
+                if (haspreamble) serverLog(LL_NOTICE,"RDB has an AOF tail");
+            } else if (!strcasecmp(auxkey->ptr,"redis-bits")) {
+                /* Just ignored. */
             } else {
                 /* We ignore fields we don't understand, as by AUX field
                  * contract. */
@@ -1971,15 +2128,12 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
             decrRefCount(auxval);
             continue; /* Read type again. */
         } else if (type == RDB_OPCODE_MODULE_AUX) {
-            /* This is just for compatibility with the future: we have plans
-             * to add the ability for modules to store anything in the RDB
-             * file, like data that is not related to the Redis key space.
-             * Such data will potentially be stored both before and after the
-             * RDB keys-values section. For this reason since RDB version 9,
-             * we have the ability to read a MODULE_AUX opcode followed by an
-             * identifier of the module, and a serialized value in "MODULE V2"
-             * format. */
+            /* Load module data that is not related to the Redis key space.
+             * Such data can be potentially be stored both before and after the
+             * RDB keys-values section. */
             uint64_t moduleid = rdbLoadLen(rdb,NULL);
+            int when = rdbLoadLen(rdb,NULL);
+            if (rioGetReadError(rdb)) goto eoferr;
             moduleType *mt = moduleTypeLookupModuleByID(moduleid);
             char name[10];
             moduleTypeNameByID(name,moduleid);
@@ -1989,21 +2143,44 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
                 serverLog(LL_WARNING,"The RDB file contains AUX module data I can't load: no matching module '%s'", name);
                 exit(1);
             } else if (!rdbCheckMode && mt != NULL) {
-                /* This version of Redis actually does not know what to do
-                 * with modules AUX data... */
-                serverLog(LL_WARNING,"The RDB file contains AUX module data I can't load for the module '%s'. Probably you want to use a newer version of Redis which implements aux data callbacks", name);
-                exit(1);
+                if (!mt->aux_load) {
+                    /* Module doesn't support AUX. */
+                    serverLog(LL_WARNING,"The RDB file contains module AUX data, but the module '%s' doesn't seem to support it.", name);
+                    exit(1);
+                }
+
+                RedisModuleIO io;
+                moduleInitIOContext(io,mt,rdb,NULL);
+                io.ver = 2;
+                /* Call the rdb_load method of the module providing the 10 bit
+                 * encoding version in the lower 10 bits of the module ID. */
+                if (mt->aux_load(&io,moduleid&1023, when) || io.error) {
+                    moduleTypeNameByID(name,moduleid);
+                    serverLog(LL_WARNING,"The RDB file contains module AUX data for the module type '%s', that the responsible module is not able to load. Check for modules log above for additional clues.", name);
+                    exit(1);
+                }
+                if (io.ctx) {
+                    moduleFreeContext(io.ctx);
+                    zfree(io.ctx);
+                }
+                uint64_t eof = rdbLoadLen(rdb,NULL);
+                if (eof != RDB_MODULE_OPCODE_EOF) {
+                    serverLog(LL_WARNING,"The RDB file contains module AUX data for the module '%s' that is not terminated by the proper module value EOF marker", name);
+                    exit(1);
+                }
+                continue;
             } else {
                 /* RDB check mode. */
                 robj *aux = rdbLoadCheckModuleValue(rdb,name);
                 decrRefCount(aux);
+                continue; /* Read next opcode. */
             }
         }
 
         /* Read key */
         if ((key = rdbLoadStringObject(rdb)) == NULL) goto eoferr;
         /* Read value */
-        if ((val = rdbLoadObject(type,rdb)) == NULL) goto eoferr;
+        if ((val = rdbLoadObject(type,rdb,key)) == NULL) goto eoferr;
         /* Check if the key already expired. This function is used when loading
          * an RDB file from disk, either at startup, or when an RDB was
          * received from the master. In the latter case, the master is
@@ -2018,7 +2195,7 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
 
             /* Set the expire time if needed */
             if (expiretime != -1) setExpire(NULL,db,key,expiretime);
-            
+
             /* Set usage information (for eviction). */
             objectSetLRUOrLFU(val,lfu_freq,lru_idle,lru_clock);
 
@@ -2050,10 +2227,15 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
     }
     return C_OK;
 
-eoferr: /* unexpected end of file is handled here with a fatal exit */
-    serverLog(LL_WARNING,"Short read or OOM loading DB. Unrecoverable error, aborting now.");
-    rdbExitReportCorruptRDB("Unexpected EOF reading RDB file");
-    return C_ERR; /* Just to avoid warning */
+    /* Unexpected end of file is handled here calling rdbReportReadError():
+     * this will in turn either abort Redis in most cases, or if we are loading
+     * the RDB file from a socket during initial SYNC (diskless replica mode),
+     * we'll report the error to the caller, so that we can retry. */
+eoferr:
+    serverLog(LL_WARNING,
+        "Short read or OOM loading DB. Unrecoverable error, aborting now.");
+    rdbReportReadError("Unexpected EOF reading RDB file");
+    return C_ERR;
 }
 
 /* Like rdbLoadRio() but takes a filename instead of a rio stream. The
@@ -2069,7 +2251,7 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi) {
     int retval;
 
     if ((fp = fopen(filename,"r")) == NULL) return C_ERR;
-    startLoading(fp);
+    startLoadingFile(fp, filename);
     rioInitWithFile(&rdb,fp);
     retval = rdbLoadRio(&rdb,rsi,0);
     fclose(fp);
@@ -2099,7 +2281,7 @@ void backgroundSaveDoneHandlerDisk(int exitcode, int bysignal) {
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("rdb-unlink-temp-file",latency);
         /* SIGUSR1 is whitelisted, so we have a way to kill a child without
-         * tirggering an error conditon. */
+         * tirggering an error condition. */
         if (bysignal != SIGUSR1)
             server.lastbgsave_status = C_ERR;
     }
@@ -2136,7 +2318,7 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
      * in error state.
      *
      * If the process returned an error, consider the list of slaves that
-     * can continue to be emtpy, so that it's just a special case of the
+     * can continue to be empty, so that it's just a special case of the
      * normal code path. */
     ok_slaves = zmalloc(sizeof(uint64_t)); /* Make space for the count. */
     ok_slaves[0] = 0;
@@ -2220,6 +2402,16 @@ void backgroundSaveDoneHandler(int exitcode, int bysignal) {
         serverPanic("Unknown RDB child type.");
         break;
     }
+}
+
+/* Kill the RDB saving child using SIGUSR1 (so that the parent will know
+ * the child did not exit for an error, but because we wanted), and performs
+ * the cleanup needed. */
+void killRDBChild(void) {
+    kill(server.rdb_child_pid,SIGUSR1);
+    rdbRemoveTempFile(server.rdb_child_pid);
+    closeChildInfoPipe();
+    updateDictResizePolicy();
 }
 
 /* Spawn an RDB child that writes the RDB to the sockets of the slaves
