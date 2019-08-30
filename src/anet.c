@@ -194,16 +194,17 @@ int anetSendTimeout(char *err, int fd, long long ms) {
 }
 
 /* anetGenericResolve() is called by anetResolve() and anetResolveIP() to
- * do the actual work. It resolves the hostname "host" and set the string
- * representation of the IP address into the buffer pointed by "ipbuf".
+ * do the actual work. It resolves the hostname "host" and returns the addrinfo
+ * struct pointer.
  *
  * If flags is set to ANET_IP_ONLY the function only resolves hostnames
  * that are actually already IPv4 or IPv6 addresses. This turns the function
- * into a validating / normalizing function. */
-int anetGenericResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len,
-                       int flags)
+ * into a validating / normalizing function.
+ *
+ * NOTE: Caller needs to make sure to use freeaddrinfo(info) */
+int anetGenericResolve(char *err, char *host, struct addrinfo **info, int flags)
 {
-    struct addrinfo hints, *info;
+    struct addrinfo hints;
     int rv;
 
     memset(&hints,0,sizeof(hints));
@@ -211,28 +212,20 @@ int anetGenericResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len,
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;  /* specify socktype to avoid dups */
 
-    if ((rv = getaddrinfo(host, NULL, &hints, &info)) != 0) {
+    if ((rv = getaddrinfo(host, NULL, &hints, info)) != 0) {
         anetSetError(err, "%s", gai_strerror(rv));
         return ANET_ERR;
     }
-    if (info->ai_family == AF_INET) {
-        struct sockaddr_in *sa = (struct sockaddr_in *)info->ai_addr;
-        inet_ntop(AF_INET, &(sa->sin_addr), ipbuf, ipbuf_len);
-    } else {
-        struct sockaddr_in6 *sa = (struct sockaddr_in6 *)info->ai_addr;
-        inet_ntop(AF_INET6, &(sa->sin6_addr), ipbuf, ipbuf_len);
-    }
 
-    freeaddrinfo(info);
     return ANET_OK;
 }
 
-int anetResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len) {
-    return anetGenericResolve(err,host,ipbuf,ipbuf_len,ANET_NONE);
+int anetResolve(char *err, char *host, struct addrinfo **info) {
+    return anetGenericResolve(err,host,info,ANET_NONE);
 }
 
-int anetResolveIP(char *err, char *host, char *ipbuf, size_t ipbuf_len) {
-    return anetGenericResolve(err,host,ipbuf,ipbuf_len,ANET_IP_ONLY);
+int anetResolveIP(char *err, char *host, struct addrinfo **info) {
+    return anetGenericResolve(err,host,info,ANET_IP_ONLY);
 }
 
 static int anetSetReuseAddr(char *err, int fd) {
