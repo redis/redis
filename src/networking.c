@@ -2149,7 +2149,8 @@ void flushSlavesOutputBuffers(void) {
          * case the writable event is never installed, since the purpose
          * of put_online_on_ack is to postpone the moment it is installed.
          * This is what we want since slaves in this state should not receive
-         * writes before the first ACK. */
+         * writes before the first ACK (to know the reason, grep for this
+         * flag in this file). */
         if (slave->replstate == SLAVE_STATE_ONLINE &&
             !slave->repl_put_online_on_ack &&
             clientHasPendingReplies(slave))
