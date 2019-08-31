@@ -2312,7 +2312,7 @@ sub SvgJavascript {
  *  SVGPan library 1.2
  * ====================
  *
- * Given an unique existing element with id "viewport", including the
+ * Given a unique existing element with id "viewport", including the
  * the library into any SVG adds the following capabilities:
  *
  *  - Mouse panning

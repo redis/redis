@@ -4727,7 +4727,7 @@ NULL
                 server.cluster->currentEpoch = epoch;
             /* No need to fsync the config here since in the unlucky event
              * of a failure to persist the config, the conflict resolution code
-             * will assign an unique config to this node. */
+             * will assign a unique config to this node. */
             clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|
                                  CLUSTER_TODO_SAVE_CONFIG);
             addReply(c,shared.ok);
