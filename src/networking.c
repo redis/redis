@@ -2143,15 +2143,26 @@ void flushSlavesOutputBuffers(void) {
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
         client *slave = listNodeValue(ln);
+        int events = aeGetFileEvents(server.el,slave->fd);
+        int can_receive_writes = (events & AE_WRITABLE) ||
+                                 (slave->flags & CLIENT_PENDING_WRITE);
 
-        /* Note that the following will not flush output buffers of slaves
-         * in STATE_ONLINE but having put_online_on_ack set to true: in this
-         * case the writable event is never installed, since the purpose
-         * of put_online_on_ack is to postpone the moment it is installed.
-         * This is what we want since slaves in this state should not receive
-         * writes before the first ACK (to know the reason, grep for this
-         * flag in this file). */
+        /* We don't want to send the pending data to the replica in a few
+         * cases:
+         *
+         * 1. For some reason there is neither the write handler installed
+         *    nor the client is flagged as to have pending writes: for some
+         *    reason this replica may not be set to receive data. This is
+         *    just for the sake of defensive programming.
+         *
+         * 2. The put_online_on_ack flag is true. To know why we don't want
+         *    to send data to the replica in this case, please grep for the
+         *    flag for this flag.
+         *
+         * 3. Obviously if the slave is not ONLINE.
+         */
         if (slave->replstate == SLAVE_STATE_ONLINE &&
+            can_receive_writes &&
             !slave->repl_put_online_on_ack &&
             clientHasPendingReplies(slave))
         {
