@@ -2161,6 +2161,16 @@ void createSharedObjects(void) {
     shared.nullarray[2] = createObject(OBJ_STRING,sdsnew("*-1\r\n"));
     shared.nullarray[3] = createObject(OBJ_STRING,sdsnew("_\r\n"));
 
+    shared.emptymap[0] = NULL;
+    shared.emptymap[1] = NULL;
+    shared.emptymap[2] = createObject(OBJ_STRING,sdsnew("*0\r\n"));
+    shared.emptymap[3] = createObject(OBJ_STRING,sdsnew("%0\r\n"));
+
+    shared.emptyset[0] = NULL;
+    shared.emptyset[1] = NULL;
+    shared.emptyset[2] = createObject(OBJ_STRING,sdsnew("*0\r\n"));
+    shared.emptyset[3] = createObject(OBJ_STRING,sdsnew("~0\r\n"));
+
     for (j = 0; j < PROTO_SHARED_SELECT_CMDS; j++) {
         char dictid_str[64];
         int dictid_len;

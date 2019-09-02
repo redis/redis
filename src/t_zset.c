@@ -2426,7 +2426,7 @@ void zrangeGenericCommand(client *c, int reverse) {
         return;
     }
 
-    if ((zobj = lookupKeyReadOrReply(c,key,shared.null[c->resp])) == NULL
+    if ((zobj = lookupKeyReadOrReply(c,key,shared.emptyarray)) == NULL
          || checkType(c,zobj,OBJ_ZSET)) return;
 
     /* Sanitize indexes. */
@@ -2438,7 +2438,7 @@ void zrangeGenericCommand(client *c, int reverse) {
     /* Invariant: start >= 0, so this test will be true when end < 0.
      * The range is empty when start > end or start >= length. */
     if (start > end || start >= llen) {
-        addReplyNull(c);
+        addReply(c,shared.emptyarray);
         return;
     }
     if (end >= llen) end = llen-1;
@@ -2574,7 +2574,7 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
     }
 
     /* Ok, lookup the key and get the range */
-    if ((zobj = lookupKeyReadOrReply(c,key,shared.null[c->resp])) == NULL ||
+    if ((zobj = lookupKeyReadOrReply(c,key,shared.emptyarray)) == NULL ||
         checkType(c,zobj,OBJ_ZSET)) return;
 
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
@@ -2594,7 +2594,7 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
 
         /* No "first" element in the specified interval. */
         if (eptr == NULL) {
-            addReplyNull(c);
+            addReply(c,shared.emptyarray);
             return;
         }
 
@@ -2661,7 +2661,7 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
 
         /* No "first" element in the specified interval. */
         if (ln == NULL) {
-            addReplyNull(c);
+            addReply(c,shared.emptyarray);
             return;
         }
 
@@ -2919,7 +2919,7 @@ void genericZrangebylexCommand(client *c, int reverse) {
     }
 
     /* Ok, lookup the key and get the range */
-    if ((zobj = lookupKeyReadOrReply(c,key,shared.null[c->resp])) == NULL ||
+    if ((zobj = lookupKeyReadOrReply(c,key,shared.emptyarray)) == NULL ||
         checkType(c,zobj,OBJ_ZSET))
     {
         zslFreeLexRange(&range);
@@ -2942,7 +2942,7 @@ void genericZrangebylexCommand(client *c, int reverse) {
 
         /* No "first" element in the specified interval. */
         if (eptr == NULL) {
-            addReplyNull(c);
+            addReply(c,shared.emptyarray);
             zslFreeLexRange(&range);
             return;
         }
@@ -3006,7 +3006,7 @@ void genericZrangebylexCommand(client *c, int reverse) {
 
         /* No "first" element in the specified interval. */
         if (ln == NULL) {
-            addReplyNull(c);
+            addReply(c,shared.emptyarray);
             zslFreeLexRange(&range);
             return;
         }
@@ -3160,7 +3160,7 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
 
     /* No candidate for zpopping, return empty. */
     if (!zobj) {
-        addReplyNull(c);
+        addReply(c,shared.emptyarray);
         return;
     }
 
