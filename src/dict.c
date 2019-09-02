@@ -62,7 +62,7 @@ static unsigned int dict_force_resize_ratio = 5;
 
 static int _dictExpandIfNeeded(dict *ht);
 static unsigned long _dictNextPower(unsigned long size);
-static int _dictKeyIndex(dict *ht, const void *key);
+static long _dictKeyIndex(dict *ht, const void *key);
 static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
 
 /* -------------------------- hash functions -------------------------------- */
@@ -100,7 +100,8 @@ uint32_t dictGetHashFunctionSeed(void) {
  * 2. It will not produce the same results on little-endian and big-endian
  *    machines.
  */
-unsigned int dictGenHashFunction(const void *key, int len) {
+
+uint64_t dictGenHashFunction(const void *key, int len) {
     /* 'm' and 'r' are mixing constants generated offline.
      They're not really 'magic', they just happen to work well.  */
     uint32_t seed = dict_hash_function_seed;
@@ -144,7 +145,7 @@ unsigned int dictGenHashFunction(const void *key, int len) {
 }
 
 /* And a case insensitive hash function (based on djb hash) */
-unsigned int dictGenCaseHashFunction(const unsigned char *buf, int len) {
+uint64_t dictGenCaseHashFunction(const unsigned char *buf, int len) {
     unsigned int hash = (unsigned int)dict_hash_function_seed;
 
     while (len--)
@@ -256,7 +257,7 @@ int dictRehash(dict *d, int n) {
         de = d->ht[0].table[d->rehashidx];
         /* Move all the keys in this bucket from the old to the new hash HT */
         while(de) {
-            unsigned int h;
+            uint64_t h;
 
             nextde = de->next;
             /* Get the index in the new hash table */
@@ -331,7 +332,7 @@ int dictAdd(dict *d, void *key, void *val)
  */
 dictEntry *dictAddRaw(dict *d, void *key)
 {
-    int index;
+    long index;
     dictEntry *entry;
     dictht *ht;
 
@@ -394,7 +395,7 @@ dictEntry *dictReplaceRaw(dict *d, void *key) {
 /* Search and remove an element */
 static int dictGenericDelete(dict *d, const void *key, int nofree)
 {
-    unsigned int h, idx;
+    uint64_t h, idx;
     dictEntry *he, *prevHe;
     int table;
 
@@ -475,7 +476,7 @@ void dictRelease(dict *d)
 dictEntry *dictFind(dict *d, const void *key)
 {
     dictEntry *he;
-    unsigned int h, idx, table;
+    uint64_t h, idx, table;
 
     if (d->ht[0].size == 0) return NULL; /* We don't have a table at all */
     if (dictIsRehashing(d)) _dictRehashStep(d);
@@ -609,7 +610,7 @@ void dictReleaseIterator(dictIterator *iter)
 dictEntry *dictGetRandomKey(dict *d)
 {
     dictEntry *he, *orighe;
-    unsigned int h;
+    unsigned long h;
     int listlen, listele;
 
     if (dictSize(d) == 0) return NULL;
@@ -853,9 +854,10 @@ static unsigned long _dictNextPower(unsigned long size)
  *
  * Note that if we are in the process of rehashing the hash table, the
  * index is always returned in the context of the second (new) hash table. */
-static int _dictKeyIndex(dict *d, const void *key)
+
+static long _dictKeyIndex(dict *d, const void *key)
 {
-    unsigned int h, idx, table;
+    unsigned long h, idx, table;
     dictEntry *he;
 
     /* Expand the hash table if needed */
