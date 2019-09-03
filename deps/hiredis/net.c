@@ -411,6 +411,17 @@ wait_for_ready:
 
         c->flags |= REDIS_CONNECTED;
 
+        /* This is needed because c->err is set using __redisSetError on
+        * connection failures. This can be called by various functions.
+        * We shall have a clear function that would ideally clean the struct
+        * of all past errors which have been put into or somehow only set the
+        * error flag and message after looping through all IP addresses and
+        * not finding any REDIS_OK.
+        * Also, we're cleaning c->errstr, analogue to redisReconnect()
+        */
+        c->err = 0;
+        memset(c->errstr, '\0', strlen(c->errstr));
+
         freeaddrinfo(servinfo);
         return REDIS_OK;  // Need to return REDIS_OK if alright
     }
