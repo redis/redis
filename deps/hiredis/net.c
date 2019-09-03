@@ -306,7 +306,8 @@ static int _redisContextConnectTcp(redisContext *c, const char *addr, int port,
 
     if (redisContextTimeoutMsec(c, &timeout_msec) != REDIS_OK) {
         __redisSetError(c, REDIS_ERR_IO, "Invalid timeout specified");
-        goto error;
+        freeaddrinfo(servinfo);
+        return REDIS_ERR;
     }
 
     if (source_addr == NULL) {
@@ -335,13 +336,12 @@ static int _redisContextConnectTcp(redisContext *c, const char *addr, int port,
     }
 
     for (p = servinfo; p != NULL; p = p->ai_next) {
-addrretry:
         if ((s = socket(p->ai_family,p->ai_socktype,p->ai_protocol)) == -1)
             continue;
 
         c->fd = s;
         if (redisSetBlocking(c,0) != REDIS_OK)
-            goto error;
+            continue;
         if (c->tcp.source_addr) {
             int bound = 0;
             /* Using getaddrinfo saves us from self-determining IPv4 vs IPv6 */
@@ -349,14 +349,14 @@ addrretry:
                 char buf[128];
                 snprintf(buf,sizeof(buf),"Can't get addr: %s",gai_strerror(rv));
                 __redisSetError(c,REDIS_ERR_OTHER,buf);
-                goto error;
+                continue;
             }
 
             if (reuseaddr) {
                 n = 1;
                 if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (char*) &n,
                                sizeof(n)) < 0) {
-                    goto error;
+                    continue;
                 }
             }
 
@@ -371,7 +371,7 @@ addrretry:
                 char buf[128];
                 snprintf(buf,sizeof(buf),"Can't bind socket: %s",strerror(errno));
                 __redisSetError(c,REDIS_ERR_OTHER,buf);
-                goto error;
+                continue;
             }
         }
         if (connect(s,p->ai_addr,p->ai_addrlen) == -1) {
@@ -387,10 +387,10 @@ addrretry:
                  goto wait_for_ready;
             } else if (errno == EADDRNOTAVAIL && reuseaddr) {
                 if (++reuses >= REDIS_CONNECT_RETRIES) {
-                    goto error;
+                    break;
                 } else {
                     redisContextCloseFd(c);
-                    goto addrretry;
+                    continue;
                 }
             } else {
 wait_for_ready:
@@ -398,26 +398,26 @@ wait_for_ready:
             }
         }
         if (blocking && redisSetBlocking(c,1) != REDIS_OK)
-            goto error;
+            continue;
         if (redisSetTcpNoDelay(c) != REDIS_OK)
-            goto error;
+            continue;
+
+        if (p == NULL) {
+            char buf[128];
+            snprintf(buf,sizeof(buf),"Can't create socket: %s",strerror(errno));
+            __redisSetError(c,REDIS_ERR_OTHER,buf);
+            continue;
+        }
 
         c->flags |= REDIS_CONNECTED;
-        rv = REDIS_OK;
-        goto end;
-    }
-    if (p == NULL) {
-        char buf[128];
-        snprintf(buf,sizeof(buf),"Can't create socket: %s",strerror(errno));
-        __redisSetError(c,REDIS_ERR_OTHER,buf);
-        goto error;
+
+        freeaddrinfo(servinfo);
+        return REDIS_OK;  // Need to return REDIS_OK if alright
     }
 
-error:
-    rv = REDIS_ERR;
-end:
+    // No address could be reached
     freeaddrinfo(servinfo);
-    return rv;  // Need to return REDIS_OK if alright
+    return REDIS_ERR;
 }
 
 int redisContextConnectTcp(redisContext *c, const char *addr, int port,
