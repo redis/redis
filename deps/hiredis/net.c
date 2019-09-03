@@ -378,8 +378,16 @@ addrretry:
             if (errno == EHOSTUNREACH) {
                 redisContextCloseFd(c);
                 continue;
-            } else if (errno == EINPROGRESS && !blocking) {
-                /* This is ok. */
+            } else if (errno == EINPROGRESS) {
+                if (blocking) {
+                    goto wait_for_ready;
+                }
+                /* This is ok.
+                 * Note that even when it's in blocking mode, we unset blocking
+                 * for `connect()`
+                 *
+                 * This was backported from https://github.com/redis/hiredis/pull/578
+                 */
             } else if (errno == EADDRNOTAVAIL && reuseaddr) {
                 if (++reuses >= REDIS_CONNECT_RETRIES) {
                     goto error;
@@ -388,6 +396,7 @@ addrretry:
                     goto addrretry;
                 }
             } else {
+                wait_for_ready:
                 if (redisContextWaitReady(c,timeout_msec) != REDIS_OK)
                     goto error;
             }
