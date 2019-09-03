@@ -379,15 +379,12 @@ addrretry:
                 redisContextCloseFd(c);
                 continue;
             } else if (errno == EINPROGRESS) {
-                if (blocking) {
-                    goto wait_for_ready;
-                }
-                /* This is ok.
-                 * Note that even when it's in blocking mode, we unset blocking
-                 * for `connect()`
-                 *
-                 * This was backported from https://github.com/redis/hiredis/pull/578
+                /* This breaks nonblocking, but seems to be the only way to
+                 * retry other addresses?
+                 * This was partially backported from
+                 * https://github.com/redis/hiredis/pull/578
                  */
+                 goto wait_for_ready;
             } else if (errno == EADDRNOTAVAIL && reuseaddr) {
                 if (++reuses >= REDIS_CONNECT_RETRIES) {
                     goto error;
@@ -396,9 +393,8 @@ addrretry:
                     goto addrretry;
                 }
             } else {
-                wait_for_ready:
-                if (redisContextWaitReady(c,timeout_msec) != REDIS_OK)
-                    goto error;
+wait_for_ready:
+                if (redisContextWaitReady(c,timeout_msec) != REDIS_OK) continue;
             }
         }
         if (blocking && redisSetBlocking(c,1) != REDIS_OK)
