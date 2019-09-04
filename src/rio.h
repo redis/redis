@@ -150,7 +150,7 @@ static inline int rioGetReadError(rio *r) {
 
 /* Like rioGetReadError() but for write errors. */
 static inline int rioGetWriteError(rio *r) {
-    return (r->flags & RIO_FLAG_READ_ERROR) != 0;
+    return (r->flags & RIO_FLAG_WRITE_ERROR) != 0;
 }
 
 static inline void rioClearErrors(rio *r) {
