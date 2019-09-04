@@ -6073,6 +6073,7 @@ static void pipeMode(void) {
         /* Handle the readable state: we can read replies from the server. */
         if (mask & AE_READABLE) {
             ssize_t nread;
+            int read_error = 0;
 
             /* Read from socket and feed the hiredis reader. */
             do {
@@ -6080,7 +6081,8 @@ static void pipeMode(void) {
                 if (nread == -1 && errno != EAGAIN && errno != EINTR) {
                     fprintf(stderr, "Error reading from the server: %s\n",
                         strerror(errno));
-                    exit(1);
+                    read_error = 1;
+                    break;
                 }
                 if (nread > 0) {
                     redisReaderFeed(reader,ibuf,nread);
@@ -6113,6 +6115,11 @@ static void pipeMode(void) {
                     freeReplyObject(reply);
                 }
             } while(reply);
+
+            /* Abort on read errors. We abort here because it is important
+             * to consume replies even after a read error: this way we can
+             * show a potential problem to the user. */
+            if (read_error) exit(1);
         }
 
         /* Handle the writable state: we can send protocol to the server. */
