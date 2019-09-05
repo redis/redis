@@ -966,7 +966,6 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key) {
         RedisModuleIO io;
         moduleValue *mv = o->ptr;
         moduleType *mt = mv->type;
-        moduleInitIOContext(io,mt,rdb,key);
 
         /* Write the "module" identifier as prefix, so that we'll be able
          * to call the right module during loading. */
@@ -975,10 +974,13 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key) {
         io.bytes += retval;
 
         /* Then write the module-specific representation + EOF marker. */
+        moduleInitIOContext(io,mt,rdb,key);
         mt->rdb_save(&io,mv->value);
         retval = rdbSaveLen(rdb,RDB_MODULE_OPCODE_EOF);
-        if (retval == -1) return -1;
-        io.bytes += retval;
+        if (retval == -1)
+            io.error = 1;
+        else
+            io.bytes += retval;
 
         if (io.ctx) {
             moduleFreeContext(io.ctx);
@@ -1091,6 +1093,45 @@ int rdbSaveInfoAuxFields(rio *rdb, int flags, rdbSaveInfo *rsi) {
     return 1;
 }
 
+ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
+    /* Save a module-specific aux value. */
+    RedisModuleIO io;
+    int retval = rdbSaveType(rdb, RDB_OPCODE_MODULE_AUX);
+
+    /* Write the "module" identifier as prefix, so that we'll be able
+     * to call the right module during loading. */
+    retval = rdbSaveLen(rdb,mt->id);
+    if (retval == -1) return -1;
+    io.bytes += retval;
+
+    /* write the 'when' so that we can provide it on loading. add a UINT opcode
+     * for backwards compatibility, everything after the MT needs to be prefixed
+     * by an opcode. */
+    retval = rdbSaveLen(rdb,RDB_MODULE_OPCODE_UINT);
+    if (retval == -1) return -1;
+    io.bytes += retval;
+    retval = rdbSaveLen(rdb,when);
+    if (retval == -1) return -1;
+    io.bytes += retval;
+
+    /* Then write the module-specific representation + EOF marker. */
+    moduleInitIOContext(io,mt,rdb,NULL);
+    mt->aux_save(&io,when);
+    retval = rdbSaveLen(rdb,RDB_MODULE_OPCODE_EOF);
+    if (retval == -1)
+        io.error = 1;
+    else
+        io.bytes += retval;
+
+    if (io.ctx) {
+        moduleFreeContext(io.ctx);
+        zfree(io.ctx);
+    }
+    if (io.error)
+        return -1;
+    return io.bytes;
+}
+
 /* Produces a dump of the database in RDB format sending it to the specified
  * Redis I/O channel. On success C_OK is returned, otherwise C_ERR
  * is returned and part of the output, or all the output, can be
@@ -1112,6 +1153,7 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
     snprintf(magic,sizeof(magic),"REDIS%04d",RDB_VERSION);
     if (rdbWriteRaw(rdb,magic,9) == -1) goto werr;
     if (rdbSaveInfoAuxFields(rdb,flags,rsi) == -1) goto werr;
+    if (rdbSaveModulesAux(rdb, REDISMODULE_AUX_BEFORE_RDB) == -1) goto werr;
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
@@ -1172,6 +1214,8 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
         dictReleaseIterator(di);
         di = NULL; /* So that we don't release it again on error. */
     }
+
+    if (rdbSaveModulesAux(rdb, REDISMODULE_AUX_AFTER_RDB) == -1) goto werr;
 
     /* EOF opcode */
     if (rdbSaveType(rdb,RDB_OPCODE_EOF) == -1) goto werr;
@@ -1974,15 +2018,14 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
             decrRefCount(auxval);
             continue; /* Read type again. */
         } else if (type == RDB_OPCODE_MODULE_AUX) {
-            /* This is just for compatibility with the future: we have plans
-             * to add the ability for modules to store anything in the RDB
-             * file, like data that is not related to the Redis key space.
-             * Such data will potentially be stored both before and after the
-             * RDB keys-values section. For this reason since RDB version 9,
-             * we have the ability to read a MODULE_AUX opcode followed by an
-             * identifier of the module, and a serialized value in "MODULE V2"
-             * format. */
+            /* Load module data that is not related to the Redis key space.
+             * Such data can be potentially be stored both before and after the
+             * RDB keys-values section. */
             uint64_t moduleid = rdbLoadLen(rdb,NULL);
+            int when_opcode = rdbLoadLen(rdb,NULL);
+            int when = rdbLoadLen(rdb,NULL);
+            if (when_opcode != RDB_MODULE_OPCODE_UINT)
+                rdbExitReportCorruptRDB("bad when_opcode");
             moduleType *mt = moduleTypeLookupModuleByID(moduleid);
             char name[10];
             moduleTypeNameByID(name,moduleid);
@@ -1992,10 +2035,32 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
                 serverLog(LL_WARNING,"The RDB file contains AUX module data I can't load: no matching module '%s'", name);
                 exit(1);
             } else if (!rdbCheckMode && mt != NULL) {
-                /* This version of Redis actually does not know what to do
-                 * with modules AUX data... */
-                serverLog(LL_WARNING,"The RDB file contains AUX module data I can't load for the module '%s'. Probably you want to use a newer version of Redis which implements aux data callbacks", name);
-                exit(1);
+                if (!mt->aux_load) {
+                    /* Module doesn't support AUX. */
+                    serverLog(LL_WARNING,"The RDB file contains module AUX data, but the module '%s' doesn't seem to support it.", name);
+                    exit(1);
+                }
+
+                RedisModuleIO io;
+                moduleInitIOContext(io,mt,rdb,NULL);
+                io.ver = 2;
+                /* Call the rdb_load method of the module providing the 10 bit
+                 * encoding version in the lower 10 bits of the module ID. */
+                if (mt->aux_load(&io,moduleid&1023, when) || io.error) {
+                    moduleTypeNameByID(name,moduleid);
+                    serverLog(LL_WARNING,"The RDB file contains module AUX data for the module type '%s', that the responsible module is not able to load. Check for modules log above for additional clues.", name);
+                    exit(1);
+                }
+                if (io.ctx) {
+                    moduleFreeContext(io.ctx);
+                    zfree(io.ctx);
+                }
+                uint64_t eof = rdbLoadLen(rdb,NULL);
+                if (eof != RDB_MODULE_OPCODE_EOF) {
+                    serverLog(LL_WARNING,"The RDB file contains module AUX data for the module '%s' that is not terminated by the proper module value EOF marker", name);
+                    exit(1);
+                }
+                continue;
             } else {
                 /* RDB check mode. */
                 robj *aux = rdbLoadCheckModuleValue(rdb,name);
