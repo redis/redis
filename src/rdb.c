@@ -1104,7 +1104,12 @@ ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
     if (retval == -1) return -1;
     io.bytes += retval;
 
-    /* write the 'when' so that we can provide it on loading */
+    /* write the 'when' so that we can provide it on loading. add a UINT opcode
+     * for backwards compatibility, everything after the MT needs to be prefixed
+     * by an opcode. */
+    retval = rdbSaveLen(rdb,RDB_MODULE_OPCODE_UINT);
+    if (retval == -1) return -1;
+    io.bytes += retval;
     retval = rdbSaveLen(rdb,when);
     if (retval == -1) return -1;
     io.bytes += retval;
@@ -2017,7 +2022,10 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
              * Such data can be potentially be stored both before and after the
              * RDB keys-values section. */
             uint64_t moduleid = rdbLoadLen(rdb,NULL);
+            int when_opcode = rdbLoadLen(rdb,NULL);
             int when = rdbLoadLen(rdb,NULL);
+            if (when_opcode != RDB_MODULE_OPCODE_UINT)
+                rdbExitReportCorruptRDB("bad when_opcode");
             moduleType *mt = moduleTypeLookupModuleByID(moduleid);
             char name[10];
             moduleTypeNameByID(name,moduleid);
