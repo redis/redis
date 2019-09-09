@@ -323,6 +323,13 @@ int zmalloc_get_allocator_info(size_t *allocated,
     je_mallctl("stats.allocated", allocated, &sz, NULL, 0);
     return 1;
 }
+
+void set_jemalloc_bg_thread(int enable) {
+    /* let jemalloc do purging asynchronously, required when there's no traffic 
+     * after flushdb */
+    char val = !!enable;
+    je_mallctl("background_thread", NULL, 0, &val, 1);
+}
 #else
 int zmalloc_get_allocator_info(size_t *allocated,
                                size_t *active,
