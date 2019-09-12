@@ -2229,11 +2229,13 @@ void initServerConfig(void) {
     server.dynamic_hz = CONFIG_DEFAULT_DYNAMIC_HZ;
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
     server.port = CONFIG_DEFAULT_SERVER_PORT;
+    server.tls_port = CONFIG_DEFAULT_SERVER_TLS_PORT;
     server.tcp_backlog = CONFIG_DEFAULT_TCP_BACKLOG;
     server.bindaddr_count = 0;
     server.unixsocket = NULL;
     server.unixsocketperm = CONFIG_DEFAULT_UNIX_SOCKET_PERM;
     server.ipfd_count = 0;
+    server.tlsfd_count = 0;
     server.sofd = -1;
     server.protected_mode = CONFIG_DEFAULT_PROTECTED_MODE;
     server.gopher_enabled = CONFIG_DEFAULT_GOPHER_ENABLED;
@@ -2349,7 +2351,7 @@ void initServerConfig(void) {
     server.repl_state = REPL_STATE_NONE;
     server.repl_transfer_tmpfile = NULL;
     server.repl_transfer_fd = -1;
-    server.repl_transfer_s = -1;
+    server.repl_transfer_s = NULL;
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_serve_stale_data = CONFIG_DEFAULT_SLAVE_SERVE_STALE_DATA;
     server.repl_slave_ro = CONFIG_DEFAULT_SLAVE_READ_ONLY;
@@ -2430,6 +2432,9 @@ void initServerConfig(void) {
      * script to the slave / AOF. This is the new way starting from
      * Redis 5. However it is possible to revert it via redis.conf. */
     server.lua_always_replicate_commands = 1;
+
+    /* TLS */
+    server.tls_auth_clients = 1;
 }
 
 extern char **environ;
@@ -2746,6 +2751,11 @@ void initServer(void) {
     server.clients_paused = 0;
     server.system_memory_size = zmalloc_get_memory_size();
 
+    if (server.tls_port && tlsConfigureServer() == C_ERR) {
+        serverLog(LL_WARNING, "Failed to configure TLS. Check logs for more info.");
+        exit(1);
+    }
+
     createSharedObjects();
     adjustOpenFilesLimit();
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
@@ -2761,6 +2771,9 @@ void initServer(void) {
     if (server.port != 0 &&
         listenToPort(server.port,server.ipfd,&server.ipfd_count) == C_ERR)
         exit(1);
+    if (server.tls_port != 0 &&
+        listenToPort(server.tls_port,server.tlsfd,&server.tlsfd_count) == C_ERR)
+        exit(1);
 
     /* Open the listening Unix domain socket. */
     if (server.unixsocket != NULL) {
@@ -2775,7 +2788,7 @@ void initServer(void) {
     }
 
     /* Abort if there are no listening sockets at all. */
-    if (server.ipfd_count == 0 && server.sofd < 0) {
+    if (server.ipfd_count == 0 && server.tlsfd_count == 0 && server.sofd < 0) {
         serverLog(LL_WARNING, "Configured to not listen anywhere, exiting.");
         exit(1);
     }
@@ -2843,6 +2856,14 @@ void initServer(void) {
             {
                 serverPanic(
                     "Unrecoverable error creating server.ipfd file event.");
+            }
+    }
+    for (j = 0; j < server.tlsfd_count; j++) {
+        if (aeCreateFileEvent(server.el, server.tlsfd[j], AE_READABLE,
+            acceptTLSHandler,NULL) == AE_ERR)
+            {
+                serverPanic(
+                    "Unrecoverable error creating server.tlsfd file event.");
             }
     }
     if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
@@ -3536,6 +3557,7 @@ void closeListeningSockets(int unlink_unix_socket) {
     int j;
 
     for (j = 0; j < server.ipfd_count; j++) close(server.ipfd[j]);
+    for (j = 0; j < server.tlsfd_count; j++) close(server.tlsfd[j]);
     if (server.sofd != -1) close(server.sofd);
     if (server.cluster_enabled)
         for (j = 0; j < server.cfd_count; j++) close(server.cfd[j]);
@@ -4274,7 +4296,7 @@ sds genRedisInfoString(char *section) {
                 long lag = 0;
 
                 if (slaveip[0] == '\0') {
-                    if (anetPeerToString(slave->fd,ip,sizeof(ip),&port) == -1)
+                    if (connPeerToString(slave->conn,ip,sizeof(ip),&port) == -1)
                         continue;
                     slaveip = ip;
                 }
@@ -4516,7 +4538,7 @@ void redisAsciiArt(void) {
             redisGitSHA1(),
             strtol(redisGitDirty(),NULL,10) > 0,
             (sizeof(long) == 8) ? "64" : "32",
-            mode, server.port,
+            mode, server.port ? server.port : server.tls_port,
             (long) getpid()
         );
         serverLogRaw(LL_NOTICE|LL_RAW,buf);
@@ -4642,7 +4664,7 @@ void redisSetProcTitle(char *title) {
     setproctitle("%s %s:%d%s",
         title,
         server.bindaddr_count ? server.bindaddr[0] : "*",
-        server.port,
+        server.port ? server.port : server.tls_port,
         server_mode);
 #else
     UNUSED(title);
@@ -4793,6 +4815,7 @@ int main(int argc, char **argv) {
     ACLInit(); /* The ACL subsystem must be initialized ASAP because the
                   basic networking code and client creation depends on it. */
     moduleInitModulesSystem();
+    tlsInit();
 
     /* Store the executable path and arguments in a safe place in order
      * to be able to restart the server later. */
@@ -4925,7 +4948,7 @@ int main(int argc, char **argv) {
                 exit(1);
             }
         }
-        if (server.ipfd_count > 0)
+        if (server.ipfd_count > 0 || server.tlsfd_count > 0)
             serverLog(LL_NOTICE,"Ready to accept connections");
         if (server.sofd > 0)
             serverLog(LL_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);

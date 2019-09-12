@@ -31,10 +31,10 @@
 
 #include "fmacros.h"
 #include <string.h>
-#include <strings.h>
 #include <stdlib.h>
 #ifndef _MSC_VER
 #include <unistd.h>
+#include <strings.h>
 #endif
 #include <assert.h>
 #include <errno.h>
@@ -44,6 +44,7 @@
 
 #include "read.h"
 #include "sds.h"
+#include "win32.h"
 
 static void __redisReaderSetError(redisReader *r, int type, const char *str) {
     size_t len;
@@ -294,9 +295,9 @@ static int processLineItem(redisReader *r) {
                 buf[len] = '\0';
 
                 if (strcasecmp(buf,",inf") == 0) {
-                    d = 1.0/0.0; /* Positive infinite. */
+                    d = INFINITY; /* Positive infinite. */
                 } else if (strcasecmp(buf,",-inf") == 0) {
-                    d = -1.0/0.0; /* Nevative infinite. */
+                    d = -INFINITY; /* Nevative infinite. */
                 } else {
                     d = strtod((char*)buf,&eptr);
                     if (buf[0] == '\0' || eptr[0] != '\0' || isnan(d)) {
@@ -430,7 +431,7 @@ static int processAggregateItem(redisReader *r) {
 
         root = (r->ridx == 0);
 
-        if (elements < -1 || elements > INT_MAX) {
+        if (elements < -1 || (LLONG_MAX > SIZE_MAX && elements > SIZE_MAX)) {
             __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
                     "Multi-bulk length out of range");
             return REDIS_ERR;
@@ -657,8 +658,11 @@ int redisReaderGetReply(redisReader *r, void **reply) {
 
     /* Emit a reply when there is one. */
     if (r->ridx == -1) {
-        if (reply != NULL)
+        if (reply != NULL) {
             *reply = r->reply;
+        } else if (r->reply != NULL && r->fn && r->fn->freeObject) {
+            r->fn->freeObject(r->reply);
+        }
         r->reply = NULL;
     }
     return REDIS_OK;

@@ -395,7 +395,7 @@ proc colorstr {color str} {
 # of seconds to the specified Redis instance.
 proc start_write_load {host port seconds} {
     set tclsh [info nameofexecutable]
-    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds &
+    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds $::tls &
 }
 
 # Stop a process generating write load executed with start_write_load.
@@ -423,7 +423,7 @@ proc lshuffle {list} {
 # of ops to the specified Redis instance.
 proc start_bg_complex_data {host port db ops} {
     set tclsh [info nameofexecutable]
-    exec $tclsh tests/helpers/bg_complex_data.tcl $host $port $db $ops &
+    exec $tclsh tests/helpers/bg_complex_data.tcl $host $port $db $ops $::tls &
 }
 
 # Stop a process generating write load executed with start_bg_complex_data.

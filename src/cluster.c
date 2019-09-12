@@ -49,7 +49,7 @@ clusterNode *myself = NULL;
 clusterNode *createClusterNode(char *nodename, int flags);
 int clusterAddNode(clusterNode *node);
 void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask);
-void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask);
+void clusterReadHandler(connection *conn);
 void clusterSendPing(clusterLink *link, int type);
 void clusterSendFail(char *nodename);
 void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request);
@@ -477,7 +477,8 @@ void clusterInit(void) {
     /* Port sanity check II
      * The other handshake port check is triggered too late to stop
      * us from trying to use a too-high cluster port number. */
-    if (server.port > (65535-CLUSTER_PORT_INCR)) {
+    int port = server.tls_cluster ? server.tls_port : server.port;
+    if (port > (65535-CLUSTER_PORT_INCR)) {
         serverLog(LL_WARNING, "Redis port number too high. "
                    "Cluster communication port is 10,000 port "
                    "numbers higher than your Redis port. "
@@ -485,8 +486,7 @@ void clusterInit(void) {
                    "lower than 55535.");
         exit(1);
     }
-
-    if (listenToPort(server.port+CLUSTER_PORT_INCR,
+    if (listenToPort(port+CLUSTER_PORT_INCR,
         server.cfd,&server.cfd_count) == C_ERR)
     {
         exit(1);
@@ -508,8 +508,8 @@ void clusterInit(void) {
 
     /* Set myself->port / cport to my listening ports, we'll just need to
      * discover the IP address via MEET messages. */
-    myself->port = server.port;
-    myself->cport = server.port+CLUSTER_PORT_INCR;
+    myself->port = port;
+    myself->cport = port+CLUSTER_PORT_INCR;
     if (server.cluster_announce_port)
         myself->port = server.cluster_announce_port;
     if (server.cluster_announce_bus_port)
@@ -593,7 +593,7 @@ clusterLink *createClusterLink(clusterNode *node) {
     link->sndbuf = sdsempty();
     link->rcvbuf = sdsempty();
     link->node = node;
-    link->fd = -1;
+    link->conn = NULL;
     return link;
 }
 
@@ -601,15 +601,38 @@ clusterLink *createClusterLink(clusterNode *node) {
  * This function will just make sure that the original node associated
  * with this link will have the 'link' field set to NULL. */
 void freeClusterLink(clusterLink *link) {
-    if (link->fd != -1) {
-        aeDeleteFileEvent(server.el, link->fd, AE_READABLE|AE_WRITABLE);
+    if (link->conn) {
+        connClose(link->conn);
+        link->conn = NULL;
     }
     sdsfree(link->sndbuf);
     sdsfree(link->rcvbuf);
     if (link->node)
         link->node->link = NULL;
-    close(link->fd);
     zfree(link);
+}
+
+static void clusterConnAcceptHandler(connection *conn) {
+    clusterLink *link;
+
+    if (connGetState(conn) != CONN_STATE_CONNECTED) {
+        serverLog(LL_VERBOSE,
+                "Error accepting cluster node connection: %s", connGetLastError(conn));
+        connClose(conn);
+        return;
+    }
+
+    /* Create a link object we use to handle the connection.
+     * It gets passed to the readable handler when data is available.
+     * Initiallly the link->node pointer is set to NULL as we don't know
+     * which node is, but the right node is references once we know the
+     * node identity. */
+    link = createClusterLink(NULL);
+    link->conn = conn;
+    connSetPrivateData(conn, link);
+
+    /* Register read handler */
+    connSetReadHandler(conn, clusterReadHandler);
 }
 
 #define MAX_CLUSTER_ACCEPTS_PER_CALL 1000
@@ -617,7 +640,6 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd;
     int max = MAX_CLUSTER_ACCEPTS_PER_CALL;
     char cip[NET_IP_STR_LEN];
-    clusterLink *link;
     UNUSED(el);
     UNUSED(mask);
     UNUSED(privdata);
@@ -634,19 +656,24 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                     "Error accepting cluster node: %s", server.neterr);
             return;
         }
-        anetNonBlock(NULL,cfd);
-        anetEnableTcpNoDelay(NULL,cfd);
+
+        connection *conn = server.tls_cluster ? connCreateAcceptedTLS(cfd,1) : connCreateAcceptedSocket(cfd);
+        connNonBlock(conn);
+        connEnableTcpNoDelay(conn);
 
         /* Use non-blocking I/O for cluster messages. */
-        serverLog(LL_VERBOSE,"Accepted cluster node %s:%d", cip, cport);
-        /* Create a link object we use to handle the connection.
-         * It gets passed to the readable handler when data is available.
-         * Initiallly the link->node pointer is set to NULL as we don't know
-         * which node is, but the right node is references once we know the
-         * node identity. */
-        link = createClusterLink(NULL);
-        link->fd = cfd;
-        aeCreateFileEvent(server.el,cfd,AE_READABLE,clusterReadHandler,link);
+        serverLog(LL_VERBOSE,"Accepting cluster node connection from %s:%d", cip, cport);
+
+        /* Accept the connection now.  connAccept() may call our handler directly
+         * or schedule it for later depending on connection implementation.
+         */
+        if (connAccept(conn, clusterConnAcceptHandler) == C_ERR) {
+            serverLog(LL_VERBOSE,
+                    "Error accepting cluster node connection: %s",
+                    connGetLastError(conn));
+            connClose(conn);
+            return;
+        }
     }
 }
 
@@ -1447,7 +1474,7 @@ void nodeIp2String(char *buf, clusterLink *link, char *announced_ip) {
         memcpy(buf,announced_ip,NET_IP_STR_LEN);
         buf[NET_IP_STR_LEN-1] = '\0'; /* We are not sure the input is sane. */
     } else {
-        anetPeerToString(link->fd, buf, NET_IP_STR_LEN, NULL);
+        connPeerToString(link->conn, buf, NET_IP_STR_LEN, NULL);
     }
 }
 
@@ -1751,7 +1778,7 @@ int clusterProcessPacket(clusterLink *link) {
         {
             char ip[NET_IP_STR_LEN];
 
-            if (anetSockName(link->fd,ip,sizeof(ip),NULL) != -1 &&
+            if (connSockName(link->conn,ip,sizeof(ip),NULL) != -1 &&
                 strcmp(ip,myself->ip))
             {
                 memcpy(myself->ip,ip,NET_IP_STR_LEN);
@@ -2118,35 +2145,76 @@ void handleLinkIOError(clusterLink *link) {
 /* Send data. This is handled using a trivial send buffer that gets
  * consumed by write(). We don't try to optimize this for speed too much
  * as this is a very low traffic channel. */
-void clusterWriteHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    clusterLink *link = (clusterLink*) privdata;
+void clusterWriteHandler(connection *conn) {
+    clusterLink *link = connGetPrivateData(conn);
     ssize_t nwritten;
-    UNUSED(el);
-    UNUSED(mask);
 
-    nwritten = write(fd, link->sndbuf, sdslen(link->sndbuf));
+    nwritten = connWrite(conn, link->sndbuf, sdslen(link->sndbuf));
     if (nwritten <= 0) {
         serverLog(LL_DEBUG,"I/O error writing to node link: %s",
-            (nwritten == -1) ? strerror(errno) : "short write");
+            (nwritten == -1) ? connGetLastError(conn) : "short write");
         handleLinkIOError(link);
         return;
     }
     sdsrange(link->sndbuf,nwritten,-1);
     if (sdslen(link->sndbuf) == 0)
-        aeDeleteFileEvent(server.el, link->fd, AE_WRITABLE);
+        connSetWriteHandler(link->conn, NULL);
+}
+
+/* A connect handler that gets called when a connection to another node
+ * gets established.
+ */
+void clusterLinkConnectHandler(connection *conn) {
+    clusterLink *link = connGetPrivateData(conn);
+    clusterNode *node = link->node;
+
+    /* Check if connection succeeded */
+    if (connGetState(conn) != CONN_STATE_CONNECTED) {
+        serverLog(LL_VERBOSE, "Connection with Node %.40s at %s:%d failed: %s",
+                node->name, node->ip, node->cport,
+                connGetLastError(conn));
+        freeClusterLink(link);
+        return;
+    }
+
+    /* Register a read handler from now on */
+    connSetReadHandler(conn, clusterReadHandler);
+
+    /* Queue a PING in the new connection ASAP: this is crucial
+     * to avoid false positives in failure detection.
+     *
+     * If the node is flagged as MEET, we send a MEET message instead
+     * of a PING one, to force the receiver to add us in its node
+     * table. */
+    mstime_t old_ping_sent = node->ping_sent;
+    clusterSendPing(link, node->flags & CLUSTER_NODE_MEET ?
+            CLUSTERMSG_TYPE_MEET : CLUSTERMSG_TYPE_PING);
+    if (old_ping_sent) {
+        /* If there was an active ping before the link was
+         * disconnected, we want to restore the ping time, otherwise
+         * replaced by the clusterSendPing() call. */
+        node->ping_sent = old_ping_sent;
+    }
+    /* We can clear the flag after the first packet is sent.
+     * If we'll never receive a PONG, we'll never send new packets
+     * to this node. Instead after the PONG is received and we
+     * are no longer in meet/handshake status, we want to send
+     * normal PING packets. */
+    node->flags &= ~CLUSTER_NODE_MEET;
+
+    serverLog(LL_DEBUG,"Connecting with Node %.40s at %s:%d",
+            node->name, node->ip, node->cport);
 }
 
 /* Read data. Try to read the first field of the header first to check the
  * full length of the packet. When a whole packet is in memory this function
  * will call the function to process the packet. And so forth. */
-void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
+void clusterReadHandler(connection *conn) {
     char buf[sizeof(clusterMsg)];
     ssize_t nread;
     clusterMsg *hdr;
-    clusterLink *link = (clusterLink*) privdata;
+    clusterLink *link = connGetPrivateData(conn);
     unsigned int readlen, rcvbuflen;
-    UNUSED(el);
-    UNUSED(mask);
 
     while(1) { /* Read as long as there is data to read. */
         rcvbuflen = sdslen(link->rcvbuf);
@@ -2174,13 +2242,13 @@ void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             if (readlen > sizeof(buf)) readlen = sizeof(buf);
         }
 
-        nread = read(fd,buf,readlen);
-        if (nread == -1 && errno == EAGAIN) return; /* No more data ready. */
+        nread = connRead(conn,buf,readlen);
+        if (nread == -1 && (connGetState(conn) == CONN_STATE_CONNECTED)) return; /* No more data ready. */
 
         if (nread <= 0) {
             /* I/O error... */
             serverLog(LL_DEBUG,"I/O error reading from node link: %s",
-                (nread == 0) ? "connection closed" : strerror(errno));
+                (nread == 0) ? "connection closed" : connGetLastError(conn));
             handleLinkIOError(link);
             return;
         } else {
@@ -2209,8 +2277,7 @@ void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
  * from event handlers that will do stuff with the same link later. */
 void clusterSendMessage(clusterLink *link, unsigned char *msg, size_t msglen) {
     if (sdslen(link->sndbuf) == 0 && msglen != 0)
-        aeCreateFileEvent(server.el,link->fd,AE_WRITABLE|AE_BARRIER,
-                    clusterWriteHandler,link);
+        connSetWriteHandler(link->conn, clusterWriteHandler); /* TODO: Handle AE_BARRIER in conns */
 
     link->sndbuf = sdscatlen(link->sndbuf, msg, msglen);
 
@@ -2276,11 +2343,12 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
     }
 
     /* Handle cluster-announce-port as well. */
+    int port = server.tls_cluster ? server.tls_port : server.port;
     int announced_port = server.cluster_announce_port ?
-                         server.cluster_announce_port : server.port;
+                         server.cluster_announce_port : port;
     int announced_cport = server.cluster_announce_bus_port ?
                           server.cluster_announce_bus_port :
-                          (server.port + CLUSTER_PORT_INCR);
+                          (port + CLUSTER_PORT_INCR);
 
     memcpy(hdr->myslots,master->slots,sizeof(hdr->myslots));
     memset(hdr->slaveof,0,CLUSTER_NAMELEN);
@@ -3383,13 +3451,11 @@ void clusterCron(void) {
         }
 
         if (node->link == NULL) {
-            int fd;
-            mstime_t old_ping_sent;
-            clusterLink *link;
-
-            fd = anetTcpNonBlockBindConnect(server.neterr, node->ip,
-                node->cport, NET_FIRST_BIND_ADDR);
-            if (fd == -1) {
+            clusterLink *link = createClusterLink(node);
+            link->conn = server.tls_cluster ? connCreateTLS() : connCreateSocket();
+            connSetPrivateData(link->conn, link);
+            if (connConnect(link->conn, node->ip, node->cport, NET_FIRST_BIND_ADDR,
+                        clusterLinkConnectHandler) == -1) {
                 /* We got a synchronous error from connect before
                  * clusterSendPing() had a chance to be called.
                  * If node->ping_sent is zero, failure detection can't work,
@@ -3399,37 +3465,11 @@ void clusterCron(void) {
                 serverLog(LL_DEBUG, "Unable to connect to "
                     "Cluster Node [%s]:%d -> %s", node->ip,
                     node->cport, server.neterr);
+
+                freeClusterLink(link);
                 continue;
             }
-            link = createClusterLink(node);
-            link->fd = fd;
             node->link = link;
-            aeCreateFileEvent(server.el,link->fd,AE_READABLE,
-                    clusterReadHandler,link);
-            /* Queue a PING in the new connection ASAP: this is crucial
-             * to avoid false positives in failure detection.
-             *
-             * If the node is flagged as MEET, we send a MEET message instead
-             * of a PING one, to force the receiver to add us in its node
-             * table. */
-            old_ping_sent = node->ping_sent;
-            clusterSendPing(link, node->flags & CLUSTER_NODE_MEET ?
-                    CLUSTERMSG_TYPE_MEET : CLUSTERMSG_TYPE_PING);
-            if (old_ping_sent) {
-                /* If there was an active ping before the link was
-                 * disconnected, we want to restore the ping time, otherwise
-                 * replaced by the clusterSendPing() call. */
-                node->ping_sent = old_ping_sent;
-            }
-            /* We can clear the flag after the first packet is sent.
-             * If we'll never receive a PONG, we'll never send new packets
-             * to this node. Instead after the PONG is received and we
-             * are no longer in meet/handshake status, we want to send
-             * normal PING packets. */
-            node->flags &= ~CLUSTER_NODE_MEET;
-
-            serverLog(LL_DEBUG,"Connecting with Node %.40s at %s:%d",
-                    node->name, node->ip, node->cport);
         }
     }
     dictReleaseIterator(di);
@@ -4940,7 +4980,7 @@ void restoreCommand(client *c) {
 #define MIGRATE_SOCKET_CACHE_TTL 10 /* close cached sockets after 10 sec. */
 
 typedef struct migrateCachedSocket {
-    int fd;
+    connection *conn;
     long last_dbid;
     time_t last_use_time;
 } migrateCachedSocket;
@@ -4957,7 +4997,7 @@ typedef struct migrateCachedSocket {
  * should be called so that the connection will be created from scratch
  * the next time. */
 migrateCachedSocket* migrateGetSocket(client *c, robj *host, robj *port, long timeout) {
-    int fd;
+    connection *conn;
     sds name = sdsempty();
     migrateCachedSocket *cs;
 
@@ -4977,34 +5017,27 @@ migrateCachedSocket* migrateGetSocket(client *c, robj *host, robj *port, long ti
         /* Too many items, drop one at random. */
         dictEntry *de = dictGetRandomKey(server.migrate_cached_sockets);
         cs = dictGetVal(de);
-        close(cs->fd);
+        connClose(cs->conn);
         zfree(cs);
         dictDelete(server.migrate_cached_sockets,dictGetKey(de));
     }
 
     /* Create the socket */
-    fd = anetTcpNonBlockConnect(server.neterr,c->argv[1]->ptr,
-                                atoi(c->argv[2]->ptr));
-    if (fd == -1) {
-        sdsfree(name);
-        addReplyErrorFormat(c,"Can't connect to target node: %s",
-            server.neterr);
-        return NULL;
-    }
-    anetEnableTcpNoDelay(server.neterr,fd);
-
-    /* Check if it connects within the specified timeout. */
-    if ((aeWait(fd,AE_WRITABLE,timeout) & AE_WRITABLE) == 0) {
-        sdsfree(name);
+    conn = server.tls_cluster ? connCreateTLS() : connCreateSocket();
+    if (connBlockingConnect(conn, c->argv[1]->ptr, atoi(c->argv[2]->ptr), timeout)
+            != C_OK) {
         addReplySds(c,
             sdsnew("-IOERR error or timeout connecting to the client\r\n"));
-        close(fd);
+        connClose(conn);
+        sdsfree(name);
         return NULL;
     }
+    connEnableTcpNoDelay(conn);
 
     /* Add to the cache and return it to the caller. */
     cs = zmalloc(sizeof(*cs));
-    cs->fd = fd;
+    cs->conn = conn;
+
     cs->last_dbid = -1;
     cs->last_use_time = server.unixtime;
     dictAdd(server.migrate_cached_sockets,name,cs);
@@ -5025,7 +5058,7 @@ void migrateCloseSocket(robj *host, robj *port) {
         return;
     }
 
-    close(cs->fd);
+    connClose(cs->conn);
     zfree(cs);
     dictDelete(server.migrate_cached_sockets,name);
     sdsfree(name);
@@ -5039,7 +5072,7 @@ void migrateCloseTimedoutSockets(void) {
         migrateCachedSocket *cs = dictGetVal(de);
 
         if ((server.unixtime - cs->last_use_time) > MIGRATE_SOCKET_CACHE_TTL) {
-            close(cs->fd);
+            connClose(cs->conn);
             zfree(cs);
             dictDelete(server.migrate_cached_sockets,dictGetKey(de));
         }
@@ -5221,7 +5254,7 @@ try_again:
 
         while ((towrite = sdslen(buf)-pos) > 0) {
             towrite = (towrite > (64*1024) ? (64*1024) : towrite);
-            nwritten = syncWrite(cs->fd,buf+pos,towrite,timeout);
+            nwritten = connSyncWrite(cs->conn,buf+pos,towrite,timeout);
             if (nwritten != (signed)towrite) {
                 write_error = 1;
                 goto socket_err;
@@ -5235,11 +5268,11 @@ try_again:
     char buf2[1024]; /* Restore reply. */
 
     /* Read the AUTH reply if needed. */
-    if (password && syncReadLine(cs->fd, buf0, sizeof(buf0), timeout) <= 0)
+    if (password && connSyncReadLine(cs->conn, buf0, sizeof(buf0), timeout) <= 0)
         goto socket_err;
 
     /* Read the SELECT reply if needed. */
-    if (select && syncReadLine(cs->fd, buf1, sizeof(buf1), timeout) <= 0)
+    if (select && connSyncReadLine(cs->conn, buf1, sizeof(buf1), timeout) <= 0)
         goto socket_err;
 
     /* Read the RESTORE replies. */
@@ -5254,7 +5287,7 @@ try_again:
     if (!copy) newargv = zmalloc(sizeof(robj*)*(num_keys+1));
 
     for (j = 0; j < num_keys; j++) {
-        if (syncReadLine(cs->fd, buf2, sizeof(buf2), timeout) <= 0) {
+        if (connSyncReadLine(cs->conn, buf2, sizeof(buf2), timeout) <= 0) {
             socket_error = 1;
             break;
         }
