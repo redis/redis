@@ -126,6 +126,59 @@ int failTest(RedisModuleCtx *ctx, const char *msg) {
     return REDISMODULE_ERR;
 }
 
+/* TEST.REPLY.WITH.SS.OK -- Test RedisModule_ReplyWithString "OK". */
+int TestReplyWithSimpleStringOK(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx);
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/* TEST.REPLY.WITH.OK.OK -- Test RedisModule_ReplyWithOK. */
+int TestReplyWithOK(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx);
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    return RedisModule_ReplyWithOK(ctx);
+}
+
+/* TEST.SETKEY.REPLY.WITH.SS.OK -- Test Setting a Module Key and Replying with RedisModule_ReplyWithString "OK". */
+int TestSetModuleKeyReplyWithSimpleStringOK(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx);
+    if (argc != 3) return RedisModule_WrongArity(ctx);
+    RedisModuleString* keystr = RedisModule_CreateStringFromString(ctx,argv[1]);
+    RedisModuleString* valuesstr = RedisModule_CreateStringFromString(ctx,argv[2]);
+    RedisModuleKey *k = RedisModule_OpenKey(ctx, keystr, REDISMODULE_WRITE);
+    if (!k) return failTest(ctx, "Could not create key");
+    if (REDISMODULE_ERR == RedisModule_StringSet(k,valuesstr) ) {
+        return failTest(ctx, "Could not set string value");
+    }
+    RedisModule_CloseKey(k);
+    RedisModule_ReplicateVerbatim(ctx);
+
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+
+}
+
+/* TEST.SETKEY.REPLY.WITH.OK.OK -- Test Setting a Module Key and Replying with RedisModule_ReplyWithOK "OK". */
+int TestSetModuleKeyReplyWithOK(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx);
+    if (argc != 3) return RedisModule_WrongArity(ctx);
+    RedisModuleString* keystr = RedisModule_CreateStringFromString(ctx,argv[1]);
+    RedisModuleString* valuesstr = RedisModule_CreateStringFromString(ctx,argv[2]);
+    RedisModuleKey *k = RedisModule_OpenKey(ctx, keystr, REDISMODULE_WRITE);
+    if (!k) return failTest(ctx, "Could not create key");
+    if (REDISMODULE_ERR == RedisModule_StringSet(k,valuesstr) ) {
+        return failTest(ctx, "Could not set string value");
+    }
+    RedisModule_CloseKey(k);
+    RedisModule_ReplicateVerbatim(ctx);
+
+    return RedisModule_ReplyWithOK(ctx);
+}
+
 int TestUnlink(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx);
     REDISMODULE_NOT_USED(argv);
@@ -432,6 +485,22 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"test.string.printf",
         TestStringPrintf,"write deny-oom",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    
+    if (RedisModule_CreateCommand(ctx,"test.reply.with.ss.ok",
+        TestReplyWithSimpleStringOK,"readonly",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"test.reply.with.ok.ok",
+        TestReplyWithOK,"readonly",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"test.set.reply.with.ss.ok",
+        TestSetModuleKeyReplyWithSimpleStringOK,"write deny-oom",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"test.set.reply.with.ok.ok",
+        TestSetModuleKeyReplyWithOK,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"test.ctxflags",

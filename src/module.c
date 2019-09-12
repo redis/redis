@@ -1264,6 +1264,17 @@ int RM_ReplyWithString(RedisModuleCtx *ctx, RedisModuleString *str) {
     return REDISMODULE_OK;
 }
 
+/* Reply to the client with an string representing an OK.
+ * In the RESP protocol a string representing an OK Reply is encoded
+ * as the string "+OK\r\n".
+ * The function always returns REDISMODULE_OK. */
+int RM_ReplyWithOK(RedisModuleCtx *ctx){
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReply(c,shared.ok);
+    return REDISMODULE_OK;
+}
+
 /* Reply to the client with a NULL. In the RESP protocol a NULL is encoded
  * as the string "$-1\r\n".
  *
@@ -5389,6 +5400,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ReplySetArrayLength);
     REGISTER_API(ReplyWithString);
     REGISTER_API(ReplyWithStringBuffer);
+    REGISTER_API(ReplyWithOK);
     REGISTER_API(ReplyWithCString);
     REGISTER_API(ReplyWithNull);
     REGISTER_API(ReplyWithCallReply);
