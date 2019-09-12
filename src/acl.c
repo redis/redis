@@ -142,14 +142,14 @@ int time_independent_strcmp(char *a, char *b) {
 
 /* Given an SDS string, returns the SHA256 hex representation as a
  * new SDS string. */
-sds ACLHashPassword(sds cleartext) {
+sds ACLHashPassword(unsigned char *cleartext, size_t len) {
     SHA256_CTX ctx;
     unsigned char hash[SHA256_BLOCK_SIZE];
     char hex[SHA256_BLOCK_SIZE*2];
     char *cset = "0123456789abcdef";
 
     sha256_init(&ctx);
-    sha256_update(&ctx,(unsigned char*)cleartext,sdslen(cleartext));
+    sha256_update(&ctx,(unsigned char*)cleartext,len);
     sha256_final(&ctx,hash);
 
     for (int j = 0; j < SHA256_BLOCK_SIZE; j++) {
@@ -721,13 +721,16 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         u->flags &= ~USER_FLAG_NOPASS;
         listEmpty(u->passwords);
     } else if (op[0] == '>') {
-        sds newpass = sdsnewlen(op+1,oplen-1);
+        sds newpass = ACLHashPassword((unsigned char*)op+1,oplen-1);
         listNode *ln = listSearchKey(u->passwords,newpass);
         /* Avoid re-adding the same password multiple times. */
-        if (ln == NULL) listAddNodeTail(u->passwords,newpass);
+        if (ln == NULL)
+            listAddNodeTail(u->passwords,newpass);
+        else
+            sdsfree(newpass);
         u->flags &= ~USER_FLAG_NOPASS;
     } else if (op[0] == '<') {
-        sds delpass = sdsnewlen(op+1,oplen-1);
+        sds delpass = ACLHashPassword((unsigned char*)op+1,oplen-1);
         listNode *ln = listSearchKey(u->passwords,delpass);
         sdsfree(delpass);
         if (ln) {
@@ -744,7 +747,10 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         sds newpat = sdsnewlen(op+1,oplen-1);
         listNode *ln = listSearchKey(u->patterns,newpat);
         /* Avoid re-adding the same pattern multiple times. */
-        if (ln == NULL) listAddNodeTail(u->patterns,newpat);
+        if (ln == NULL)
+            listAddNodeTail(u->patterns,newpat);
+        else
+            sdsfree(newpat);
         u->flags &= ~USER_FLAG_ALLKEYS;
     } else if (op[0] == '+' && op[1] != '@') {
         if (strchr(op,'|') == NULL) {
@@ -899,11 +905,15 @@ int ACLCheckUserCredentials(robj *username, robj *password) {
     listIter li;
     listNode *ln;
     listRewind(u->passwords,&li);
+    sds hashed = ACLHashPassword(password->ptr,sdslen(password->ptr));
     while((ln = listNext(&li))) {
         sds thispass = listNodeValue(ln);
-        if (!time_independent_strcmp(password->ptr, thispass))
+        if (!time_independent_strcmp(hashed, thispass)) {
+            sdsfree(hashed);
             return C_OK;
+        }
     }
+    sdsfree(hashed);
 
     /* If we reached this point, no password matched. */
     errno = EINVAL;
