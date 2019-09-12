@@ -2451,9 +2451,6 @@ void initServerConfig(void) {
      * script to the slave / AOF. This is the new way starting from
      * Redis 5. However it is possible to revert it via redis.conf. */
     server.lua_always_replicate_commands = 1;
-
-    /* TLS */
-    server.tls_auth_clients = 1;
 }
 
 extern char **environ;
@@ -2770,7 +2767,7 @@ void initServer(void) {
     server.clients_paused = 0;
     server.system_memory_size = zmalloc_get_memory_size();
 
-    if (server.tls_port && tlsConfigureServer() == C_ERR) {
+    if (server.tls_port && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
         serverLog(LL_WARNING, "Failed to configure TLS. Check logs for more info.");
         exit(1);
     }
@@ -3943,7 +3940,7 @@ sds genRedisInfoString(char *section) {
 #endif
             (long) getpid(),
             server.runid,
-            server.port,
+            server.port ? server.port : server.tls_port,
             (intmax_t)uptime,
             (intmax_t)(uptime/(3600*24)),
             server.hz,
@@ -4554,7 +4551,7 @@ void redisAsciiArt(void) {
     if (!show_logo) {
         serverLog(LL_NOTICE,
             "Running mode=%s, port=%d.",
-            mode, server.port
+            mode, server.port ? server.port : server.tls_port
         );
     } else {
         snprintf(buf,1024*16,ascii_logo,

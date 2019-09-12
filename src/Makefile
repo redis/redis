@@ -93,6 +93,8 @@ else
 ifeq ($(uname_S),Darwin)
 	# Darwin
 	FINAL_LIBS+= -ldl
+	OPENSSL_CFLAGS=-I/usr/local/opt/openssl/include
+	OPENSSL_LDFLAGS=-L/usr/local/opt/openssl/lib
 else
 ifeq ($(uname_S),AIX)
         # AIX

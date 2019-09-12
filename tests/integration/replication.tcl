@@ -504,11 +504,15 @@ start_server {tags {"repl"}} {
     $master config set repl-diskless-sync-delay 1
     set master_host [srv 0 host]
     set master_port [srv 0 port]
+    set master_pid [srv 0 pid]
     # put enough data in the db that the rdb file will be bigger than the socket buffers
     # and since we'll have key-load-delay of 100, 10000 keys will take at least 1 second
     # we also need the replica to process requests during transfer (which it does only once in 2mb)
     $master debug populate 10000 test 10000
     $master config set rdbcompression no
+    # If running on Linux, we also measure utime/stime to detect possible I/O handling issues
+    set os [catch {exec unamee}]
+    set measure_time [expr {$os == "Linux"} ? 1 : 0]
     foreach all_drop {no slow fast all} {
         test "diskless $all_drop replicas drop during rdb pipe" {
             set replicas {}
@@ -533,9 +537,11 @@ start_server {tags {"repl"}} {
                     # using the log file since the replica only responds to INFO once in 2mb
                     wait_for_log_message -1 "*Loading DB in memory*" 8 800 10
 
-                    set master_statfile [format "/proc/%s/stat" [srv -2 pid]]
-                    set master_start_metrics [get_cpu_metrics $master_statfile]
-                    set start_time [clock seconds]
+                    if {$measure_time} {
+                        set master_statfile "/proc/$master_pid/stat"
+                        set master_start_metrics [get_cpu_metrics $master_statfile]
+                        set start_time [clock seconds]
+                    }
 
                     # wait a while so that the pipe socket writer will be
                     # blocked on write (since replica 0 is slow to read from the socket)
@@ -573,23 +579,25 @@ start_server {tags {"repl"}} {
                     }
 
                     # make sure we don't have a busy loop going thought epoll_wait
-                    set master_end_metrics [get_cpu_metrics $master_statfile]
-                    set time_elapsed [expr {[clock seconds]-$start_time}]
-                    set master_cpu [compute_cpu_usage $master_start_metrics $master_end_metrics]
-                    set master_utime [lindex $master_cpu 0]
-                    set master_stime [lindex $master_cpu 1]
-                    if {$::verbose} {
-                        puts "elapsed: $time_elapsed"
-                        puts "master utime: $master_utime"
-                        puts "master stime: $master_stime"
-                    }
-                    if {$all_drop == "all" || $all_drop == "slow"} {
-                        assert {$master_utime < 30}
-                        assert {$master_stime < 30}
-                    }
-                    if {$all_drop == "none" || $all_drop == "fast"} {
-                        assert {$master_utime < 15}
-                        assert {$master_stime < 15}
+                    if {$measure_time} {
+                        set master_end_metrics [get_cpu_metrics $master_statfile]
+                        set time_elapsed [expr {[clock seconds]-$start_time}]
+                        set master_cpu [compute_cpu_usage $master_start_metrics $master_end_metrics]
+                        set master_utime [lindex $master_cpu 0]
+                        set master_stime [lindex $master_cpu 1]
+                        if {$::verbose} {
+                            puts "elapsed: $time_elapsed"
+                            puts "master utime: $master_utime"
+                            puts "master stime: $master_stime"
+                        }
+                        if {$all_drop == "all" || $all_drop == "slow"} {
+                            assert {$master_utime < 70}
+                            assert {$master_stime < 70}
+                        }
+                        if {$all_drop == "none" || $all_drop == "fast"} {
+                            assert {$master_utime < 15}
+                            assert {$master_stime < 15}
+                        }
                     }
 
                     # verify the data integrity

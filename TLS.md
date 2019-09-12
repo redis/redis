@@ -48,45 +48,35 @@ both TCP and TLS available, but you'll need to assign different ports.
 To make a Replica connect to the master using TLS, use `--tls-replication yes`,
 and to make Redis Cluster use TLS across nodes use `--tls-cluster yes`.
 
-**NOTE: This is still very much work in progress and some configuration is still
-missing or may change.**
-
 Connections
 -----------
 
-Connection abstraction API is mostly done and seems to hold well for hiding
-implementation details between TLS and TCP.
+All socket operations now go through a connection abstraction layer that hides
+I/O and read/write event handling from the caller.
 
-1. Multi-threading I/O is not supported.  The main issue to address is the need
-   to manipulate AE based on OpenSSL return codes.  We can either propagate this
-   out of the thread, or explore ways of further optimizing MT I/O by having
-   event loops that live inside the thread and borrow connections in/out.
+**Multi-threading I/O is not currently supported for TLS**, as a TLS connection
+needs to do its own manipulation of AE events which is not thread safe. The
+solution is probably to manage independent AE loops for I/O threads and longer
+term association of connections with threads. This may potentially improve
+overall performance as well.
 
-2. Finish cleaning up the implementation.  Make sure all error cases are handled
-   and reflected into connection state, connection state validated before
-   certain operations, etc.
-    - Clean (non-errno) interface to report would-block.
-    - Consistent error reporting.
+Sync IO for TLS is currently implemented in a hackish way, i.e. making the
+socket blocking and configuring socket-level timeout.  This means the timeout
+value may not be so accurate, and there would be a lot of syscall overhead.
+However I believe that getting rid of syncio completely in favor of pure async
+work is probably a better move than trying to fix that. For replication it would
+probably not be so hard. For cluster keys migration it might be more difficult,
+but there are probably other good reasons to improve that part anyway.
 
-3. Sync IO for TLS is currently implemented in a hackish way, i.e. making the
-   socket blocking and configuring socket-level timeout.  This means the timeout
-   value may not be so accurate, and there would be a lot of syscall overhead.
-   However I believe that getting rid of syncio completely in favor of pure
-   async work is probably a better move than trying to fix that. For replication
-   it would probably not be so hard. For cluster keys migration it might be more
-   difficult, but there are probably other good reasons to improve that part
-   anyway.
+To-Do List
+==========
 
-TLS Features
-------------
+Additional TLS Features
+-----------------------
 
-1. Add metrics to INFO.
-2. Add certificate authentication configuration (i.e. option to skip client
-auth, master auth, etc.).
-3. Add TLS cipher configuration options.
-4. [Optional] Add session caching support. Check if/how it's handled by clients
-   to assess how useful/important it is.
-
+1. Add metrics to INFO?
+2. Add session caching support. Check if/how it's handled by clients to assess
+   how useful/important it is.
 
 redis-benchmark
 ---------------
@@ -100,8 +90,8 @@ probably to migrate to hiredis async mode.
 
 redis-cli
 ---------
-1. Support tls in --slave and --rdb
 
+1. Add support for TLS in --slave and --rdb modes.
 
 Others
 ------

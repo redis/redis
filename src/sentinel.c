@@ -2612,8 +2612,9 @@ int sentinelSendHello(sentinelRedisInstance *ri) {
             return C_ERR;
         announce_ip = ip;
     }
-    announce_port = sentinel.announce_port ?
-                    sentinel.announce_port : server.port;
+    if (sentinel.announce_port) announce_port = sentinel.announce_port;
+    else if (server.tls_replication && server.tls_port) announce_port = server.tls_port;
+    else announce_port = server.port;
 
     /* Format and send the Hello message. */
     snprintf(payload,sizeof(payload),

@@ -2023,11 +2023,14 @@ void syncWithMaster(connection *conn) {
     /* Set the slave port, so that Master's INFO command can list the
      * slave listening port correctly. */
     if (server.repl_state == REPL_STATE_SEND_PORT) {
-        sds port = sdsfromlonglong(server.slave_announce_port ?
-            server.slave_announce_port : server.port);
+        int port;
+        if (server.slave_announce_port) port = server.slave_announce_port;
+        else if (server.tls_replication && server.tls_port) port = server.tls_port;
+        else port = server.port;
+        sds portstr = sdsfromlonglong(port);
         err = sendSynchronousCommand(SYNC_CMD_WRITE,conn,"REPLCONF",
-                "listening-port",port, NULL);
-        sdsfree(port);
+                "listening-port",portstr, NULL);
+        sdsfree(portstr);
         if (err) goto write_error;
         sdsfree(err);
         server.repl_state = REPL_STATE_RECEIVE_PORT;
