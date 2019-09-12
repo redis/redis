@@ -28,6 +28,7 @@
  */
 
 #include "server.h"
+#include "sha256.h"
 #include <fcntl.h>
 
 /* =============================================================================
@@ -137,6 +138,25 @@ int time_independent_strcmp(char *a, char *b) {
     /* Length must be equal as well. */
     diff |= alen ^ blen;
     return diff; /* If zero strings are the same. */
+}
+
+/* Given an SDS string, returns the SHA256 hex representation as a
+ * new SDS string. */
+sds ACLHashPassword(sds cleartext) {
+    SHA256_CTX ctx;
+    unsigned char hash[SHA256_BLOCK_SIZE];
+    char hex[SHA256_BLOCK_SIZE*2];
+    char *cset = "0123456789abcdef";
+
+    sha256_init(&ctx);
+    sha256_update(&ctx,(unsigned char*)cleartext,sdslen(cleartext));
+    sha256_final(&ctx,hash);
+
+    for (int j = 0; j < SHA256_BLOCK_SIZE; j++) {
+        hex[j*2] = cset[((hash[j]&0xF0)>>4)];
+        hex[j*2+1] = cset[(hash[j]&0xF)];
+    }
+    return sdsnewlen(hex,SHA256_BLOCK_SIZE*2);
 }
 
 /* =============================================================================
