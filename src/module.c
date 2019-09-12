@@ -616,7 +616,7 @@ void RM_KeyAtPos(RedisModuleCtx *ctx, int pos) {
  * flags into the command flags used by the Redis core.
  *
  * It returns the set of flags, or -1 if unknown flags are found. */
-int commandFlagsFromString(char *s) {
+int commandFlagsFromString(const char *name, char *s) {
     int count, j;
     int flags = 0;
     sds *tokens = sdssplitlen(s,strlen(s)," ",1,&count);
@@ -638,7 +638,10 @@ int commandFlagsFromString(char *s) {
         else break;
     }
     sdsfreesplitres(tokens,count);
-    if (j != count) return -1; /* Some token not processed correctly. */
+    if (j != count) {
+        serverLog(LL_WARNING,"Cannot parse command flags for command '%s': '%s'",name,s);
+        return -1;
+    }
     return flags;
 }
 
@@ -696,8 +699,9 @@ int commandFlagsFromString(char *s) {
  *                     other reason.
  */
 int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
-    int flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
+    int flags = strflags ? commandFlagsFromString(name,(char*)strflags) : 0;
     if (flags == -1) return REDISMODULE_ERR;
+
     if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
         return REDISMODULE_ERR;
 
