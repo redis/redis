@@ -1068,19 +1068,6 @@ int RM_StringAppendBuffer(RedisModuleCtx *ctx, RedisModuleString *str, const cha
  *         return RM_ReplyWithLongLong(ctx,mycount);
  * -------------------------------------------------------------------------- */
 
-/* Send an error about the number of arguments given to the command,
- * citing the command name in the error message.
- *
- * Example:
- *
- *     if (argc != 3) return RedisModule_WrongArity(ctx);
- */
-int RM_WrongArity(RedisModuleCtx *ctx) {
-    addReplyErrorFormat(ctx->client,
-        "wrong number of arguments for '%s' command",
-        (char*)ctx->client->argv[0]->ptr);
-    return REDISMODULE_OK;
-}
 
 /* Return the client object the `RM_Reply*` functions should target.
  * Normally this is just `ctx->client`, that is the client that called
@@ -1109,6 +1096,22 @@ client *moduleGetReplyClient(RedisModuleCtx *ctx) {
          * clients, like timer contexts. */
         return ctx->client;
     }
+}
+
+/* Send an error about the number of arguments given to the command,
+ * citing the command name in the error message.
+ *
+ * Example:
+ *
+ *     if (argc != 3) return RedisModule_WrongArity(ctx);
+ * The function always returns REDISMODULE_OK. */
+int RM_WrongArity(RedisModuleCtx *ctx) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReplyErrorFormat(c,
+                        "wrong number of arguments for '%s' command",
+                        (char*)c->argv[0]->ptr);
+    return REDISMODULE_OK;
 }
 
 /* Send an integer reply to the client, with the specified long long value.
@@ -3682,8 +3685,16 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
     bc->free_privdata = free_privdata;
     bc->privdata = NULL;
     bc->reply_client = createClient(-1);
+    bc->reply_client->flags = c->flags;
     bc->reply_client->flags |= CLIENT_MODULE;
+    bc->reply_client->db = c->db;
+    bc->reply_client->argc = c->argc;
+    bc->reply_client->argv = zmalloc(sizeof(robj*)*c->argc);
+    for (int j = 0; j < c->argc; j++) {
+        bc->reply_client->argv[j] = RM_CreateStringFromString(ctx,c->argv[j]);
+    }
     bc->dbid = c->db->id;
+
     c->bpop.timeout = timeout_ms ? (mstime()+timeout_ms) : 0;
 
     if (islua || ismulti) {
