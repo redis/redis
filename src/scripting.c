@@ -42,7 +42,7 @@ char *redisProtocolToLuaType_Int(lua_State *lua, char *reply);
 char *redisProtocolToLuaType_Bulk(lua_State *lua, char *reply);
 char *redisProtocolToLuaType_Status(lua_State *lua, char *reply);
 char *redisProtocolToLuaType_Error(lua_State *lua, char *reply);
-char *redisProtocolToLuaType_MultiBulk(lua_State *lua, char *reply, int atype);
+char *redisProtocolToLuaType_Aggregate(lua_State *lua, char *reply, int atype);
 int redis_math_random (lua_State *L);
 int redis_math_randomseed (lua_State *L);
 void ldbInit(void);
@@ -132,9 +132,9 @@ char *redisProtocolToLuaType(lua_State *lua, char* reply) {
     case '$': p = redisProtocolToLuaType_Bulk(lua,reply); break;
     case '+': p = redisProtocolToLuaType_Status(lua,reply); break;
     case '-': p = redisProtocolToLuaType_Error(lua,reply); break;
-    case '*': p = redisProtocolToLuaType_MultiBulk(lua,reply,*p); break;
-    case '%': p = redisProtocolToLuaType_MultiBulk(lua,reply,*p); break;
-    case '~': p = redisProtocolToLuaType_MultiBulk(lua,reply,*p); break;
+    case '*': p = redisProtocolToLuaType_Aggregate(lua,reply,*p); break;
+    case '%': p = redisProtocolToLuaType_Aggregate(lua,reply,*p); break;
+    case '~': p = redisProtocolToLuaType_Aggregate(lua,reply,*p); break;
     }
     return p;
 }
@@ -182,7 +182,7 @@ char *redisProtocolToLuaType_Error(lua_State *lua, char *reply) {
     return p+2;
 }
 
-char *redisProtocolToLuaType_MultiBulk(lua_State *lua, char *reply, int atype) {
+char *redisProtocolToLuaType_Aggregate(lua_State *lua, char *reply, int atype) {
     char *p = strchr(reply+1,'\r');
     long long mbulklen;
     int j = 0;
@@ -859,6 +859,25 @@ int luaLogCommand(lua_State *lua) {
     return 0;
 }
 
+/* redis.setresp() */
+int luaSetResp(lua_State *lua) {
+    int argc = lua_gettop(lua);
+
+    if (argc != 1) {
+        lua_pushstring(lua, "redis.setresp() requires one argument.");
+        return lua_error(lua);
+    }
+
+    int resp = lua_tonumber(lua,-argc);
+    if (resp != 2 && resp != 3) {
+        lua_pushstring(lua, "RESP version must be 2 or 3.");
+        return lua_error(lua);
+    }
+
+    server.lua_client->resp = resp;
+    return 0;
+}
+
 /* ---------------------------------------------------------------------------
  * Lua engine initialization and reset.
  * ------------------------------------------------------------------------- */
@@ -984,6 +1003,11 @@ void scriptingInit(int setup) {
     /* redis.log and log levels. */
     lua_pushstring(lua,"log");
     lua_pushcfunction(lua,luaLogCommand);
+    lua_settable(lua,-3);
+
+    /* redis.setresp */
+    lua_pushstring(lua,"setresp");
+    lua_pushcfunction(lua,luaSetResp);
     lua_settable(lua,-3);
 
     lua_pushstring(lua,"LOG_DEBUG");
@@ -1379,8 +1403,9 @@ void evalGenericCommand(client *c, int evalsha) {
     luaSetGlobalArray(lua,"KEYS",c->argv+3,numkeys);
     luaSetGlobalArray(lua,"ARGV",c->argv+3+numkeys,c->argc-3-numkeys);
 
-    /* Select the right DB in the context of the Lua client */
+    /* Set the Lua client database and protocol. */
     selectDb(server.lua_client,c->db->id);
+    server.lua_client->resp = 2; /* Default is RESP2, scripts can change it. */
 
     /* Set a hook in order to be able to stop the script execution if it
      * is running for too much time.
