@@ -188,7 +188,7 @@ char *redisProtocolToLuaType_Aggregate(lua_State *lua, char *reply, int atype) {
     int j = 0;
 
     string2ll(reply+1,p-reply-1,&mbulklen);
-    if (server.lua_caller->resp == 2 || atype == '*') {
+    if (server.lua_client->resp == 2 || atype == '*') {
         p += 2;
         if (mbulklen == -1) {
             lua_pushboolean(lua,0);
@@ -200,7 +200,7 @@ char *redisProtocolToLuaType_Aggregate(lua_State *lua, char *reply, int atype) {
             p = redisProtocolToLuaType(lua,p);
             lua_settable(lua,-3);
         }
-    } else if (server.lua_caller->resp == 3) {
+    } else if (server.lua_client->resp == 3) {
         /* Here we handle only Set and Map replies in RESP3 mode, since arrays
          * follow the above RESP2 code path. */
         p += 2;
