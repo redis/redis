@@ -2078,6 +2078,8 @@ char *ldbRedisProtocolToHuman_Int(sds *o, char *reply);
 char *ldbRedisProtocolToHuman_Bulk(sds *o, char *reply);
 char *ldbRedisProtocolToHuman_Status(sds *o, char *reply);
 char *ldbRedisProtocolToHuman_MultiBulk(sds *o, char *reply);
+char *ldbRedisProtocolToHuman_Set(sds *o, char *reply);
+char *ldbRedisProtocolToHuman_Map(sds *o, char *reply);
 
 /* Get Redis protocol from 'reply' and appends it in human readable form to
  * the passed SDS string 'o'.
@@ -2092,6 +2094,8 @@ char *ldbRedisProtocolToHuman(sds *o, char *reply) {
     case '+': p = ldbRedisProtocolToHuman_Status(o,reply); break;
     case '-': p = ldbRedisProtocolToHuman_Status(o,reply); break;
     case '*': p = ldbRedisProtocolToHuman_MultiBulk(o,reply); break;
+    case '~': p = ldbRedisProtocolToHuman_Set(o,reply); break;
+    case '%': p = ldbRedisProtocolToHuman_Map(o,reply); break;
     }
     return p;
 }
@@ -2143,6 +2147,40 @@ char *ldbRedisProtocolToHuman_MultiBulk(sds *o, char *reply) {
         if (j != mbulklen-1) *o = sdscatlen(*o,",",1);
     }
     *o = sdscatlen(*o,"]",1);
+    return p;
+}
+
+char *ldbRedisProtocolToHuman_Set(sds *o, char *reply) {
+    char *p = strchr(reply+1,'\r');
+    long long mbulklen;
+    int j = 0;
+
+    string2ll(reply+1,p-reply-1,&mbulklen);
+    p += 2;
+    *o = sdscatlen(*o,"~(",2);
+    for (j = 0; j < mbulklen; j++) {
+        p = ldbRedisProtocolToHuman(o,p);
+        if (j != mbulklen-1) *o = sdscatlen(*o,",",1);
+    }
+    *o = sdscatlen(*o,")",1);
+    return p;
+}
+
+char *ldbRedisProtocolToHuman_Map(sds *o, char *reply) {
+    char *p = strchr(reply+1,'\r');
+    long long mbulklen;
+    int j = 0;
+
+    string2ll(reply+1,p-reply-1,&mbulklen);
+    p += 2;
+    *o = sdscatlen(*o,"{",1);
+    for (j = 0; j < mbulklen; j++) {
+        p = ldbRedisProtocolToHuman(o,p);
+        *o = sdscatlen(*o," => ",4);
+        p = ldbRedisProtocolToHuman(o,p);
+        if (j != mbulklen-1) *o = sdscatlen(*o,",",1);
+    }
+    *o = sdscatlen(*o,"}",1);
     return p;
 }
 
