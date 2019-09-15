@@ -1120,19 +1120,6 @@ int RM_ReplyWithLongLong(RedisModuleCtx *ctx, long long ll) {
     return REDISMODULE_OK;
 }
 
-/* Reply with an error or simple string (status message). Used to implement
- * ReplyWithSimpleString() and ReplyWithError().
- * The function always returns REDISMODULE_OK. */
-int replyWithStatus(RedisModuleCtx *ctx, const char *msg, char *prefix) {
-    client *c = moduleGetReplyClient(ctx);
-    if (c == NULL) return REDISMODULE_OK;
-    sds strmsg = sdsnewlen(prefix,1);
-    strmsg = sdscat(strmsg,msg);
-    strmsg = sdscatlen(strmsg,"\r\n",2);
-    addReplySds(c,strmsg);
-    return REDISMODULE_OK;
-}
-
 /* Reply with the error 'err'.
  *
  * Note that 'err' must contain all the error, including
@@ -1148,7 +1135,13 @@ int replyWithStatus(RedisModuleCtx *ctx, const char *msg, char *prefix) {
  * The function always returns REDISMODULE_OK.
  */
 int RM_ReplyWithError(RedisModuleCtx *ctx, const char *err) {
-    return replyWithStatus(ctx,err,"-");
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    const size_t len = strlen(err);
+    addReplyProto(c,"-",1);
+    addReplyProto(c,err,len);
+    addReplyProto(c,"\r\n",2);
+    return REDISMODULE_OK;
 }
 
 /* Reply with a simple string (+... \r\n in RESP protocol). This replies
@@ -1157,7 +1150,13 @@ int RM_ReplyWithError(RedisModuleCtx *ctx, const char *err) {
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithSimpleString(RedisModuleCtx *ctx, const char *msg) {
-    return replyWithStatus(ctx,msg,"+");
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    const size_t len = strlen(msg);
+    addReplyProto(c,"+",1);
+    addReplyProto(c,msg,len);
+    addReplyProto(c,"\r\n",2);
+    return REDISMODULE_OK;
 }
 
 /* Reply with an array type of 'len' elements. However 'len' other calls
