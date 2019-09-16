@@ -368,6 +368,28 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
         }
         lua_pop(lua,1); /* Discard field name pushed before. */
 
+        /* Handle set reply. */
+        lua_pushstring(lua,"set");
+        lua_gettable(lua,-2);
+        t = lua_type(lua,-1);
+        if (t == LUA_TTABLE) {
+            int setlen = 0;
+            void *replylen = addReplyDeferredLen(c);
+            lua_pushnil(lua); /* Use nil to start iteration. */
+            while (lua_next(lua,-2)) {
+                /* Stack now: table, key, true */
+                lua_pop(lua,1);               /* Discard the boolean value. */
+                lua_pushvalue(lua,-1);        /* Dup key before consuming. */
+                luaReplyToRedisReply(c, lua); /* Return key. */
+                /* Stack now: table, key. */
+                setlen++;
+            }
+            setDeferredSetLen(c,replylen,setlen);
+            lua_pop(lua,2);
+            return;
+        }
+        lua_pop(lua,1); /* Discard field name pushed before. */
+
         /* Handle the array reply. */
         void *replylen = addReplyDeferredLen(c);
         int j = 1, mbulklen = 0;
