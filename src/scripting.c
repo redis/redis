@@ -297,6 +297,8 @@ void luaSortArray(lua_State *lua) {
  * Lua reply to Redis reply conversion functions.
  * ------------------------------------------------------------------------- */
 
+/* Reply to client 'c' converting the top element in the Lua stack to a
+ * Redis reply. As a side effect the element is consumed from the stack.  */
 void luaReplyToRedisReply(client *c, lua_State *lua) {
     int t = lua_type(lua,-1);
 
@@ -339,7 +341,29 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
             sdsmapchars(ok,"\r\n","  ",2);
             addReplySds(c,sdscatprintf(sdsempty(),"+%s\r\n",ok));
             sdsfree(ok);
-            lua_pop(lua,1);
+            lua_pop(lua,2);
+            return;
+        }
+        lua_pop(lua,1); /* Discard field name pushed before. */
+
+        /* Handle map reply. */
+        lua_pushstring(lua,"map");
+        lua_gettable(lua,-2);
+        t = lua_type(lua,-1);
+        if (t == LUA_TTABLE) {
+            int maplen = 0;
+            void *replylen = addReplyDeferredLen(c);
+            lua_pushnil(lua); /* Use nil to start iteration. */
+            while (lua_next(lua,-2)) {
+                /* Stack now: table, key, value */
+                luaReplyToRedisReply(c, lua); /* Return value. */
+                lua_pushvalue(lua,-1);        /* Dup key before consuming. */
+                luaReplyToRedisReply(c, lua); /* Return key. */
+                /* Stack now: table, key. */
+                maplen++;
+            }
+            setDeferredMapLen(c,replylen,maplen);
+            lua_pop(lua,2);
             return;
         }
         lua_pop(lua,1); /* Discard field name pushed before. */
