@@ -44,6 +44,7 @@ char *redisProtocolToLuaType_Status(lua_State *lua, char *reply);
 char *redisProtocolToLuaType_Error(lua_State *lua, char *reply);
 char *redisProtocolToLuaType_Aggregate(lua_State *lua, char *reply, int atype);
 char *redisProtocolToLuaType_Null(lua_State *lua, char *reply);
+char *redisProtocolToLuaType_Bool(lua_State *lua, char *reply, int tf);
 int redis_math_random (lua_State *L);
 int redis_math_randomseed (lua_State *L);
 void ldbInit(void);
@@ -137,6 +138,7 @@ char *redisProtocolToLuaType(lua_State *lua, char* reply) {
     case '%': p = redisProtocolToLuaType_Aggregate(lua,reply,*p); break;
     case '~': p = redisProtocolToLuaType_Aggregate(lua,reply,*p); break;
     case '_': p = redisProtocolToLuaType_Null(lua,reply); break;
+    case '#': p = redisProtocolToLuaType_Bool(lua,reply,p[1]);
     }
     return p;
 }
@@ -227,7 +229,13 @@ char *redisProtocolToLuaType_Aggregate(lua_State *lua, char *reply, int atype) {
 
 char *redisProtocolToLuaType_Null(lua_State *lua, char *reply) {
     char *p = strchr(reply+1,'\r');
-    lua_pushboolean(lua,0);
+    lua_pushnil(lua);
+    return p+2;
+}
+
+char *redisProtocolToLuaType_Bool(lua_State *lua, char *reply, int tf) {
+    char *p = strchr(reply+1,'\r');
+    lua_pushboolean(lua,tf == 't');
     return p+2;
 }
 
