@@ -315,7 +315,11 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
         addReplyBulkCBuffer(c,(char*)lua_tostring(lua,-1),lua_strlen(lua,-1));
         break;
     case LUA_TBOOLEAN:
-        addReply(c,lua_toboolean(lua,-1) ? shared.cone : shared.null[c->resp]);
+        if (server.lua_client->resp == 2)
+            addReply(c,lua_toboolean(lua,-1) ? shared.cone :
+                                               shared.null[c->resp]);
+        else
+            addReplyBool(c,lua_toboolean(lua,-1));
         break;
     case LUA_TNUMBER:
         addReplyLongLong(c,(long long)lua_tonumber(lua,-1));
