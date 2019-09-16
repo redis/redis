@@ -202,8 +202,12 @@ char *redisProtocolToLuaType_Aggregate(lua_State *lua, char *reply, int atype) {
         }
     } else if (server.lua_client->resp == 3) {
         /* Here we handle only Set and Map replies in RESP3 mode, since arrays
-         * follow the above RESP2 code path. */
+         * follow the above RESP2 code path. Note that those are represented
+         * as a table with the "map" or "set" field populated with the actual
+         * table representing the set or the map type. */
         p += 2;
+        lua_newtable(lua);
+        lua_pushstring(lua,atype == '%' ? "map" : "set");
         lua_newtable(lua);
         for (j = 0; j < mbulklen; j++) {
             p = redisProtocolToLuaType(lua,p);
@@ -214,6 +218,7 @@ char *redisProtocolToLuaType_Aggregate(lua_State *lua, char *reply, int atype) {
             }
             lua_settable(lua,-3);
         }
+        lua_settable(lua,-3);
     }
     return p;
 }
@@ -310,6 +315,8 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
          * Error are returned as a single element table with 'err' field.
          * Status replies are returned as single element table with 'ok'
          * field. */
+
+        /* Handle error reply. */
         lua_pushstring(lua,"err");
         lua_gettable(lua,-2);
         t = lua_type(lua,-1);
@@ -321,8 +328,9 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
             lua_pop(lua,2);
             return;
         }
+        lua_pop(lua,1); /* Discard field name pushed before. */
 
-        lua_pop(lua,1);
+        /* Handle status reply. */
         lua_pushstring(lua,"ok");
         lua_gettable(lua,-2);
         t = lua_type(lua,-1);
@@ -332,24 +340,25 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
             addReplySds(c,sdscatprintf(sdsempty(),"+%s\r\n",ok));
             sdsfree(ok);
             lua_pop(lua,1);
-        } else {
-            void *replylen = addReplyDeferredLen(c);
-            int j = 1, mbulklen = 0;
-
-            lua_pop(lua,1); /* Discard the 'ok' field value we popped */
-            while(1) {
-                lua_pushnumber(lua,j++);
-                lua_gettable(lua,-2);
-                t = lua_type(lua,-1);
-                if (t == LUA_TNIL) {
-                    lua_pop(lua,1);
-                    break;
-                }
-                luaReplyToRedisReply(c, lua);
-                mbulklen++;
-            }
-            setDeferredArrayLen(c,replylen,mbulklen);
+            return;
         }
+        lua_pop(lua,1); /* Discard field name pushed before. */
+
+        /* Handle the array reply. */
+        void *replylen = addReplyDeferredLen(c);
+        int j = 1, mbulklen = 0;
+        while(1) {
+            lua_pushnumber(lua,j++);
+            lua_gettable(lua,-2);
+            t = lua_type(lua,-1);
+            if (t == LUA_TNIL) {
+                lua_pop(lua,1);
+                break;
+            }
+            luaReplyToRedisReply(c, lua);
+            mbulklen++;
+        }
+        setDeferredArrayLen(c,replylen,mbulklen);
         break;
     default:
         addReplyNull(c);
