@@ -43,6 +43,7 @@ char *redisProtocolToLuaType_Bulk(lua_State *lua, char *reply);
 char *redisProtocolToLuaType_Status(lua_State *lua, char *reply);
 char *redisProtocolToLuaType_Error(lua_State *lua, char *reply);
 char *redisProtocolToLuaType_Aggregate(lua_State *lua, char *reply, int atype);
+char *redisProtocolToLuaType_Null(lua_State *lua, char *reply);
 int redis_math_random (lua_State *L);
 int redis_math_randomseed (lua_State *L);
 void ldbInit(void);
@@ -135,6 +136,7 @@ char *redisProtocolToLuaType(lua_State *lua, char* reply) {
     case '*': p = redisProtocolToLuaType_Aggregate(lua,reply,*p); break;
     case '%': p = redisProtocolToLuaType_Aggregate(lua,reply,*p); break;
     case '~': p = redisProtocolToLuaType_Aggregate(lua,reply,*p); break;
+    case '_': p = redisProtocolToLuaType_Null(lua,reply); break;
     }
     return p;
 }
@@ -221,6 +223,12 @@ char *redisProtocolToLuaType_Aggregate(lua_State *lua, char *reply, int atype) {
         lua_settable(lua,-3);
     }
     return p;
+}
+
+char *redisProtocolToLuaType_Null(lua_State *lua, char *reply) {
+    char *p = strchr(reply+1,'\r');
+    lua_pushboolean(lua,0);
+    return p+2;
 }
 
 /* This function is used in order to push an error on the Lua stack in the
