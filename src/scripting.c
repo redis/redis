@@ -2157,6 +2157,7 @@ char *ldbRedisProtocolToHuman_Set(sds *o, char *reply);
 char *ldbRedisProtocolToHuman_Map(sds *o, char *reply);
 char *ldbRedisProtocolToHuman_Null(sds *o, char *reply);
 char *ldbRedisProtocolToHuman_Bool(sds *o, char *reply);
+char *ldbRedisProtocolToHuman_Double(sds *o, char *reply);
 
 /* Get Redis protocol from 'reply' and appends it in human readable form to
  * the passed SDS string 'o'.
@@ -2175,6 +2176,7 @@ char *ldbRedisProtocolToHuman(sds *o, char *reply) {
     case '%': p = ldbRedisProtocolToHuman_Map(o,reply); break;
     case '_': p = ldbRedisProtocolToHuman_Null(o,reply); break;
     case '#': p = ldbRedisProtocolToHuman_Bool(o,reply); break;
+    case ',': p = ldbRedisProtocolToHuman_Double(o,reply); break;
     }
     return p;
 }
@@ -2275,6 +2277,13 @@ char *ldbRedisProtocolToHuman_Bool(sds *o, char *reply) {
         *o = sdscatlen(*o,"#true",5);
     else
         *o = sdscatlen(*o,"#false",6);
+    return p+2;
+}
+
+char *ldbRedisProtocolToHuman_Double(sds *o, char *reply) {
+    char *p = strchr(reply+1,'\r');
+    *o = sdscatlen(*o,"(double) ",9);
+    *o = sdscatlen(*o,reply+1,p-reply-1);
     return p+2;
 }
 
