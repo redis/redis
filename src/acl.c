@@ -94,6 +94,9 @@ void ACLResetSubcommandsForCommand(user *u, unsigned long id);
 void ACLResetSubcommands(user *u);
 void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub);
 
+/* The length of the string representation of a hashed password. */
+#define HASH_PASSWORD_LEN SHA256_BLOCK_SIZE*2
+
 /* =============================================================================
  * Helper functions for the rest of the ACL implementation
  * ==========================================================================*/
@@ -145,7 +148,7 @@ int time_independent_strcmp(char *a, char *b) {
 sds ACLHashPassword(unsigned char *cleartext, size_t len) {
     SHA256_CTX ctx;
     unsigned char hash[SHA256_BLOCK_SIZE];
-    char hex[SHA256_BLOCK_SIZE*2];
+    char hex[HASH_PASSWORD_LEN];
     char *cset = "0123456789abcdef";
 
     sha256_init(&ctx);
@@ -156,7 +159,27 @@ sds ACLHashPassword(unsigned char *cleartext, size_t len) {
         hex[j*2] = cset[((hash[j]&0xF0)>>4)];
         hex[j*2+1] = cset[(hash[j]&0xF)];
     }
-    return sdsnewlen(hex,SHA256_BLOCK_SIZE*2);
+    return sdsnewlen(hex,HASH_PASSWORD_LEN);
+}
+
+/* Given a string, returns C_OK if it is a valid  password hash, 
+ * or C_ERR otherwise. */
+int ACLIsPasswordHash(unsigned char *hash, int hashlen) {
+    if (hashlen != HASH_PASSWORD_LEN) {
+        return C_ERR;      
+    }
+
+    /* Password hashes can only be characters that represent
+     * hexadecimal values, which are numbers and lowercase 
+     * characters 'a' through 'f'. */
+    for(int i = 0; i < HASH_PASSWORD_LEN; i++) {
+        char c = hash[i];
+        if ((c < 'a' || c > 'f') && (c < '0' || c > '9')) {
+            errno = EBADMSG;
+            return C_ERR;
+        }
+    }
+    return C_OK;
 }
 
 /* =============================================================================
@@ -522,7 +545,7 @@ sds ACLDescribeUser(user *u) {
     listRewind(u->passwords,&li);
     while((ln = listNext(&li))) {
         sds thispass = listNodeValue(ln);
-        res = sdscatlen(res,">",1);
+        res = sdscatlen(res,"}",1);
         res = sdscatsds(res,thispass);
         res = sdscatlen(res," ",1);
     }
@@ -650,6 +673,12 @@ void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub) {
  *              For example >mypass will add "mypass" to the list.
  *              This directive clears the "nopass" flag (see later).
  * <<password>  Remove this password from the list of valid passwords.
+ * }<password hash> Add this password hash to the list of valid hashes for 
+ *                  the user. This is useful if you have previously computed
+ *                  the hash, and don't want to store it in plaintext. 
+ *                  This directive clears the "nopass" flag (see later).
+ * {<password hash> Delete this password hash from the list of valid hashes for 
+ *                  the user. 
  * nopass       All the set passwords of the user are removed, and the user
  *              is flagged as requiring no password: it means that every
  *              password will work against this user. If this directive is
@@ -685,6 +714,7 @@ void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub) {
  * EEXIST: You are adding a key pattern after "*" was already added. This is
  *         almost surely an error on the user side.
  * ENODEV: The password you are trying to remove from the user does not exist.
+ * EBADMSG: The hash you are trying to add is not a valid hash. 
  */
 int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     if (oplen == -1) oplen = strlen(op);
@@ -720,8 +750,18 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     } else if (!strcasecmp(op,"resetpass")) {
         u->flags &= ~USER_FLAG_NOPASS;
         listEmpty(u->passwords);
-    } else if (op[0] == '>') {
-        sds newpass = ACLHashPassword((unsigned char*)op+1,oplen-1);
+    } else if (op[0] == '>' || op[0] == '}') {
+        sds newpass;
+        if (op[0] == '>') {
+            newpass = ACLHashPassword((unsigned char*)op+1,oplen-1);
+        } else {
+            if (ACLIsPasswordHash((unsigned char*)op+1, oplen-1) == C_ERR) {
+                errno = EBADMSG;
+                return C_ERR;          
+            }
+            newpass = sdsnewlen(op+1,oplen-1);
+        }
+
         listNode *ln = listSearchKey(u->passwords,newpass);
         /* Avoid re-adding the same password multiple times. */
         if (ln == NULL)
@@ -729,8 +769,17 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         else
             sdsfree(newpass);
         u->flags &= ~USER_FLAG_NOPASS;
-    } else if (op[0] == '<') {
-        sds delpass = ACLHashPassword((unsigned char*)op+1,oplen-1);
+    } else if (op[0] == '<' || op[0] == '{') {
+        sds delpass;
+        if (op[0] == '<') {
+            delpass = ACLHashPassword((unsigned char*)op+1,oplen-1);
+        } else {
+            if (ACLIsPasswordHash((unsigned char*)op+1, oplen-1) == C_ERR) {
+                errno = EBADMSG;
+                return C_ERR;          
+            }
+            delpass = sdsnewlen(op+1,oplen-1);
+        }
         listNode *ln = listSearchKey(u->passwords,delpass);
         sdsfree(delpass);
         if (ln) {
@@ -848,6 +897,9 @@ char *ACLSetUserStringError(void) {
     else if (errno == ENODEV)
         errmsg = "The password you are trying to remove from the user does "
                  "not exist";
+    else if (errno == EBADMSG)
+        errmsg = "The password hash must be exactly 64 characters and contain "
+                 "only lowercase hexadecimal characters";
     return errmsg;
 }
 
