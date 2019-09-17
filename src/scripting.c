@@ -2155,6 +2155,8 @@ char *ldbRedisProtocolToHuman_Status(sds *o, char *reply);
 char *ldbRedisProtocolToHuman_MultiBulk(sds *o, char *reply);
 char *ldbRedisProtocolToHuman_Set(sds *o, char *reply);
 char *ldbRedisProtocolToHuman_Map(sds *o, char *reply);
+char *ldbRedisProtocolToHuman_Null(sds *o, char *reply);
+char *ldbRedisProtocolToHuman_Bool(sds *o, char *reply);
 
 /* Get Redis protocol from 'reply' and appends it in human readable form to
  * the passed SDS string 'o'.
@@ -2171,6 +2173,8 @@ char *ldbRedisProtocolToHuman(sds *o, char *reply) {
     case '*': p = ldbRedisProtocolToHuman_MultiBulk(o,reply); break;
     case '~': p = ldbRedisProtocolToHuman_Set(o,reply); break;
     case '%': p = ldbRedisProtocolToHuman_Map(o,reply); break;
+    case '_': p = ldbRedisProtocolToHuman_Null(o,reply); break;
+    case '#': p = ldbRedisProtocolToHuman_Bool(o,reply); break;
     }
     return p;
 }
@@ -2257,6 +2261,21 @@ char *ldbRedisProtocolToHuman_Map(sds *o, char *reply) {
     }
     *o = sdscatlen(*o,"}",1);
     return p;
+}
+
+char *ldbRedisProtocolToHuman_Null(sds *o, char *reply) {
+    char *p = strchr(reply+1,'\r');
+    *o = sdscatlen(*o,"(null)",6);
+    return p+2;
+}
+
+char *ldbRedisProtocolToHuman_Bool(sds *o, char *reply) {
+    char *p = strchr(reply+1,'\r');
+    if (reply[1] == 't')
+        *o = sdscatlen(*o,"#true",5);
+    else
+        *o = sdscatlen(*o,"#false",6);
+    return p+2;
 }
 
 /* Log a Redis reply as debugger output, in an human readable format.
