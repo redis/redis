@@ -389,6 +389,17 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
         }
         lua_pop(lua,1); /* Discard field name pushed before. */
 
+        /* Handle double reply. */
+        lua_pushstring(lua,"double");
+        lua_gettable(lua,-2);
+        t = lua_type(lua,-1);
+        if (t == LUA_TNUMBER) {
+            addReplyDouble(c,lua_tonumber(lua,-1));
+            lua_pop(lua,2);
+            return;
+        }
+        lua_pop(lua,1); /* Discard field name pushed before. */
+
         /* Handle map reply. */
         lua_pushstring(lua,"map");
         lua_gettable(lua,-2);
