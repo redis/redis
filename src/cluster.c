@@ -4252,7 +4252,9 @@ NULL
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"nodes") && c->argc == 2) {
         /* CLUSTER NODES */
-        addReplyBulkSds(c,clusterGenNodesDescription(0));
+        sds nodes = clusterGenNodesDescription(0);
+        addReplyVerbatim(c,nodes,sdslen(nodes),"txt");
+        sdsfree(nodes);
     } else if (!strcasecmp(c->argv[1]->ptr,"myid") && c->argc == 2) {
         /* CLUSTER MYID */
         addReplyBulkCBuffer(c,myself->name, CLUSTER_NAMELEN);
@@ -4494,10 +4496,8 @@ NULL
             "cluster_stats_messages_received:%lld\r\n", tot_msg_received);
 
         /* Produce the reply protocol. */
-        addReplySds(c,sdscatprintf(sdsempty(),"$%lu\r\n",
-            (unsigned long)sdslen(info)));
-        addReplySds(c,info);
-        addReply(c,shared.crlf);
+        addReplyVerbatim(c,info,sdslen(info),"txt");
+        sdsfree(info);
     } else if (!strcasecmp(c->argv[1]->ptr,"saveconfig") && c->argc == 2) {
         int retval = clusterSaveConfig(1);
 
