@@ -4391,7 +4391,9 @@ void infoCommand(client *c) {
         addReply(c,shared.syntaxerr);
         return;
     }
-    addReplyBulkSds(c, genRedisInfoString(section));
+    sds info = genRedisInfoString(section);
+    addReplyVerbatim(c,info,sdslen(info),"txt");
+    sdsfree(info);
 }
 
 void monitorCommand(client *c) {
