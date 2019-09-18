@@ -584,7 +584,7 @@ int startBgsaveForReplication(int mincapa) {
     }
 
     /* If we failed to BGSAVE, remove the slaves waiting for a full
-     * resynchorinization from the list of salves, inform them with
+     * resynchorinization from the list of slaves, inform them with
      * an error about what happened, close the connection ASAP. */
     if (retval == C_ERR) {
         serverLog(LL_WARNING,"BGSAVE for replication failed");
@@ -604,7 +604,7 @@ int startBgsaveForReplication(int mincapa) {
     }
 
     /* If the target is socket, rdbSaveToSlavesSockets() already setup
-     * the salves for a full resync. Otherwise for disk target do it now.*/
+     * the slaves for a full resync. Otherwise for disk target do it now.*/
     if (!socket_target) {
         listRewind(server.slaves,&li);
         while((ln = listNext(&li))) {
@@ -1344,7 +1344,7 @@ char *sendSynchronousCommand(int flags, int fd, ...) {
         }
         cmd = sdscatlen(cmd,"\r\n",2);
         va_end(ap);
-        
+
         /* Transfer command to the server. */
         if (syncWrite(fd,cmd,sdslen(cmd),server.repl_syncio_timeout*1000)
             == -1)
