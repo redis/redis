@@ -1990,7 +1990,7 @@ NULL
             return;
         }
         sds o = getAllClientsInfoString(type);
-        addReplyBulkCBuffer(c,o,sdslen(o));
+        addReplyVerbatim(c,o,sdslen(o),"txt");
         sdsfree(o);
     } else if (!strcasecmp(c->argv[1]->ptr,"reply") && c->argc == 3) {
         /* CLIENT REPLY ON|OFF|SKIP */
