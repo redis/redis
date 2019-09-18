@@ -638,7 +638,8 @@ NULL
         dictGetStats(buf,sizeof(buf),server.db[dbid].expires);
         stats = sdscat(stats,buf);
 
-        addReplyBulkSds(c,stats);
+        addReplyVerbatim(c,stats,sdslen(stats),"txt");
+        sdsfree(stats);
     } else if (!strcasecmp(c->argv[1]->ptr,"htstats-key") && c->argc == 3) {
         robj *o;
         dict *ht = NULL;
@@ -665,7 +666,7 @@ NULL
         } else {
             char buf[4096];
             dictGetStats(buf,sizeof(buf),ht);
-            addReplyBulkCString(c,buf);
+            addReplyVerbatim(c,buf,strlen(buf),"txt");
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"change-repl-id") && c->argc == 2) {
         serverLog(LL_WARNING,"Changing replication IDs after receiving DEBUG change-repl-id");
