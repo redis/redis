@@ -139,7 +139,7 @@ char *redisProtocolToLuaType(lua_State *lua, char* reply) {
     case '%': p = redisProtocolToLuaType_Aggregate(lua,reply,*p); break;
     case '~': p = redisProtocolToLuaType_Aggregate(lua,reply,*p); break;
     case '_': p = redisProtocolToLuaType_Null(lua,reply); break;
-    case '#': p = redisProtocolToLuaType_Bool(lua,reply,p[1]);
+    case '#': p = redisProtocolToLuaType_Bool(lua,reply,p[1]); break;
     case ',': p = redisProtocolToLuaType_Double(lua,reply);
     }
     return p;
