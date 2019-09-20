@@ -3,29 +3,28 @@
 #include <string.h>
 
 #include <hiredis.h>
+#include <hiredis_ssl.h>
 
 int main(int argc, char **argv) {
-    unsigned int j, isunix = 0;
+    unsigned int j;
     redisContext *c;
     redisReply *reply;
+    if (argc < 4) {
+        printf("Usage: %s <host> <port> <cert> <key> [ca]\n", argv[0]);
+        exit(1);
+    }
     const char *hostname = (argc > 1) ? argv[1] : "127.0.0.1";
+    int port = atoi(argv[2]);
+    const char *cert = argv[3];
+    const char *key = argv[4];
+    const char *ca = argc > 4 ? argv[5] : NULL;
 
-    if (argc > 2) {
-        if (*argv[2] == 'u' || *argv[2] == 'U') {
-            isunix = 1;
-            /* in this case, host is the path to the unix socket */
-            printf("Will connect to unix socket @%s\n", hostname);
-        }
-    }
+    struct timeval tv = { 1, 500000 }; // 1.5 seconds
+    redisOptions options = {0};
+    REDIS_OPTIONS_SET_TCP(&options, hostname, port);
+    options.timeout = &tv;
+    c = redisConnectWithOptions(&options);
 
-    int port = (argc > 2) ? atoi(argv[2]) : 6379;
-
-    struct timeval timeout = { 1, 500000 }; // 1.5 seconds
-    if (isunix) {
-        c = redisConnectUnixWithTimeout(hostname, timeout);
-    } else {
-        c = redisConnectWithTimeout(hostname, port, timeout);
-    }
     if (c == NULL || c->err) {
         if (c) {
             printf("Connection error: %s\n", c->errstr);
@@ -33,6 +32,13 @@ int main(int argc, char **argv) {
         } else {
             printf("Connection error: can't allocate redis context\n");
         }
+        exit(1);
+    }
+
+    if (redisSecureConnection(c, ca, cert, key, "sni") != REDIS_OK) {
+        printf("Couldn't initialize SSL!\n");
+        printf("Error: %s\n", c->errstr);
+        redisFree(c);
         exit(1);
     }
 

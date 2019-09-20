@@ -1,9 +1,6 @@
-/* Extracted from anet.c to work properly with Hiredis error reporting.
- *
- * Copyright (c) 2009-2011, Salvatore Sanfilippo <antirez at gmail dot com>
- * Copyright (c) 2010-2014, Pieter Noordhuis <pcnoordhuis at gmail dot com>
- * Copyright (c) 2015, Matt Stancliff <matt at genges dot com>,
- *                     Jan-Erik Rediger <janerik at fnordig dot com>
+
+/*
+ * Copyright (c) 2019, Redis Labs
  *
  * All rights reserved.
  *
@@ -32,23 +29,25 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __NET_H
-#define __NET_H
+#ifndef __HIREDIS_SSL_H
+#define __HIREDIS_SSL_H
 
-#include "hiredis.h"
+/* This is the underlying struct for SSL in ssl.h, which is not included to
+ * keep build dependencies short here.
+ */
+struct ssl_st;
 
-void redisNetClose(redisContext *c);
-int redisNetRead(redisContext *c, char *buf, size_t bufcap);
-int redisNetWrite(redisContext *c);
+/**
+ * Secure the connection using SSL. This should be done before any command is
+ * executed on the connection.
+ */
+int redisSecureConnection(redisContext *c, const char *capath, const char *certpath,
+                          const char *keypath, const char *servername);
 
-int redisCheckSocketError(redisContext *c);
-int redisContextSetTimeout(redisContext *c, const struct timeval tv);
-int redisContextConnectTcp(redisContext *c, const char *addr, int port, const struct timeval *timeout);
-int redisContextConnectBindTcp(redisContext *c, const char *addr, int port,
-                               const struct timeval *timeout,
-                               const char *source_addr);
-int redisContextConnectUnix(redisContext *c, const char *path, const struct timeval *timeout);
-int redisKeepAlive(redisContext *c, int interval);
-int redisCheckConnectDone(redisContext *c, int *completed);
+/**
+ * Initiate SSL/TLS negotiation on a provided context.
+ */
 
-#endif
+int redisInitiateSSL(redisContext *c, struct ssl_st *ssl);
+
+#endif  /* __HIREDIS_SSL_H */
