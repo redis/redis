@@ -1440,7 +1440,7 @@ NULL
 #if defined(USE_JEMALLOC)
         sds info = sdsempty();
         je_malloc_stats_print(inputCatSds, &info, NULL);
-        addReplyVerbatim(c,info,sdslen(info),"txt")
+        addReplyVerbatim(c,info,sdslen(info),"txt");
         sdsfree(info);
 #else
         addReplyBulkCString(c,"Stats not supported for the current allocator");
