@@ -2389,7 +2389,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
  *
  * REDISMODULE_HASH_EXISTS: instead of setting the value of the field
  * expecting a RedisModuleString pointer to pointer, the function just
- * reports if the field esists or not and expects an integer pointer
+ * reports if the field exists or not and expects an integer pointer
  * as the second element of each pair.
  *
  * Example of REDISMODULE_HASH_CFIELD:
@@ -3288,7 +3288,7 @@ RedisModuleString *RM_LoadString(RedisModuleIO *io) {
  * RedisModule_Realloc() or RedisModule_Free().
  *
  * The size of the string is stored at '*lenptr' if not NULL.
- * The returned string is not automatically NULL termianted, it is loaded
+ * The returned string is not automatically NULL terminated, it is loaded
  * exactly as it was stored inisde the RDB file. */
 char *RM_LoadStringBuffer(RedisModuleIO *io, size_t *lenptr) {
     return moduleLoadString(io,1,lenptr);
