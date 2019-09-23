@@ -4787,9 +4787,9 @@ int main(int argc, char **argv) {
     srand(time(NULL)^getpid());
     gettimeofday(&tv,NULL);
 
-    char hashseed[16];
-    getRandomHexChars(hashseed,sizeof(hashseed));
-    dictSetHashFunctionSeed((uint8_t*)hashseed);
+    uint8_t hashseed[16];
+    getRandomBytes(hashseed,sizeof(hashseed));
+    dictSetHashFunctionSeed(hashseed);
     server.sentinel_mode = checkForSentinelMode(argc,argv);
     initServerConfig();
     ACLInit(); /* The ACL subsystem must be initialized ASAP because the
