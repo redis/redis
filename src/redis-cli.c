@@ -819,10 +819,17 @@ static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
         out = sdscatprintf(out,"(double) %s\n",r->str);
     break;
     case REDIS_REPLY_STRING:
+    case REDIS_REPLY_VERB:
         /* If you are producing output for the standard output we want
-        * a more interesting output with quoted characters and so forth */
-        out = sdscatrepr(out,r->str,r->len);
-        out = sdscat(out,"\n");
+        * a more interesting output with quoted characters and so forth,
+        * unless it's a verbatim string type. */
+        if (r->type == REDIS_REPLY_STRING) {
+            out = sdscatrepr(out,r->str,r->len);
+            out = sdscat(out,"\n");
+        } else {
+            out = sdscatlen(out,r->str,r->len);
+            out = sdscat(out,"\n");
+        }
     break;
     case REDIS_REPLY_NIL:
         out = sdscat(out,"(nil)\n");
