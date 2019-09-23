@@ -218,6 +218,7 @@ static struct config {
     int hotkeys;
     int stdinarg; /* get last arg from stdin. (-x option) */
     char *auth;
+    char *user;
     int output; /* output mode, see OUTPUT_* defines */
     sds mb_delim;
     char prompt[128];
@@ -729,8 +730,13 @@ static int cliAuth(void) {
     redisReply *reply;
     if (config.auth == NULL) return REDIS_OK;
 
-    reply = redisCommand(context,"AUTH %s",config.auth);
+    if (config.user == NULL)
+        reply = redisCommand(context,"AUTH %s",config.auth);
+    else
+        reply = redisCommand(context,"AUTH %s %s",config.user,config.auth);
     if (reply != NULL) {
+        if (reply->type == REDIS_REPLY_ERROR)
+            fprintf(stderr,"Warning: AUTH failed\n");
         freeReplyObject(reply);
         return REDIS_OK;
     }
@@ -1350,8 +1356,12 @@ static int parseOptions(int argc, char **argv) {
             config.dbnum = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--no-auth-warning")) {
             config.no_auth_warning = 1;
-        } else if (!strcmp(argv[i],"-a") && !lastarg) {
+        } else if ((!strcmp(argv[i],"-a") || !strcmp(argv[i],"--pass"))
+                   && !lastarg)
+        {
             config.auth = argv[++i];
+        } else if (!strcmp(argv[i],"--user") && !lastarg) {
+            config.user = argv[++i];
         } else if (!strcmp(argv[i],"-u") && !lastarg) {
             parseRedisUri(argv[++i]);
         } else if (!strcmp(argv[i],"--raw")) {
@@ -1570,6 +1580,8 @@ static void usage(void) {
 "                     You can also use the " REDIS_CLI_AUTH_ENV " environment\n"
 "                     variable to pass this password more safely\n"
 "                     (if both are used, this argument takes predecence).\n"
+"  -user <username>   Used to send ACL style 'AUTH username pass'. Needs -a.\n"
+"  -pass <password>   Alias of -a for consistency with the new --user option.\n"
 "  -u <uri>           Server URI.\n"
 "  -r <repeat>        Execute specified command N times.\n"
 "  -i <interval>      When -r is used, waits <interval> seconds per command.\n"
@@ -2409,7 +2421,12 @@ static int clusterManagerNodeConnect(clusterManagerNode *node) {
      * errors. */
     anetKeepAlive(NULL, node->context->fd, REDIS_CLI_KEEPALIVE_INTERVAL);
     if (config.auth) {
-        redisReply *reply = redisCommand(node->context,"AUTH %s",config.auth);
+        redisReply *reply;
+        if (config.user == NULL)
+            reply = redisCommand(node->context,"AUTH %s", config.auth);
+        else
+            reply = redisCommand(node->context,"AUTH %s %s",
+                                 config.user,config.auth);
         int ok = clusterManagerCheckRedisReply(node, reply, NULL);
         if (reply != NULL) freeReplyObject(reply);
         if (!ok) return 0;
@@ -7737,6 +7754,7 @@ int main(int argc, char **argv) {
     config.hotkeys = 0;
     config.stdinarg = 0;
     config.auth = NULL;
+    config.user = NULL;
     config.eval = NULL;
     config.eval_ldb = 0;
     config.eval_ldb_end = 0;
