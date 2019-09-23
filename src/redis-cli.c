@@ -1222,7 +1222,8 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             if (!strcasecmp(command,"select") && argc == 2 && config.last_cmd_type != REDIS_REPLY_ERROR) {
                 config.dbnum = atoi(argv[1]);
                 cliRefreshPrompt();
-            } else if (!strcasecmp(command,"auth") && argc == 2) {
+            } else if (!strcasecmp(command,"auth") && (argc == 2 || argc == 3))
+            {
                 cliSelect();
             }
         }
