@@ -3236,14 +3236,14 @@ sds genRedisInfoString(char *section) {
             while((ln = listNext(&li))) {
                 client *slave = listNodeValue(ln);
                 char *state = NULL;
-                char ip[NET_IP_STR_LEN], *slaveip = slave->slave_ip;
+                char hostname[NET_IP_STR_LEN], *slavehostname = slave->slave_hostname;
                 int port;
                 long lag = 0;
 
-                if (slaveip[0] == '\0') {
-                    if (anetPeerToString(slave->fd,ip,sizeof(ip),&port) == -1)
+                if (slavehostname[0] == '\0') {
+                    if (anetPeerToString(slave->fd,hostname,sizeof(hostname),&port) == -1)
                         continue;
-                    slaveip = ip;
+                    slavehostname = hostname;
                 }
                 switch(slave->replstate) {
                 case SLAVE_STATE_WAIT_BGSAVE_START:
@@ -3264,7 +3264,7 @@ sds genRedisInfoString(char *section) {
                 info = sdscatprintf(info,
                     "slave%d:ip=%s,port=%d,state=%s,"
                     "offset=%lld,lag=%ld\r\n",
-                    slaveid,slaveip,slave->slave_listening_port,state,
+                    slaveid,slavehostname,slave->slave_listening_port,state,
                     slave->repl_ack_off, lag);
                 slaveid++;
             }

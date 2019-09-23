@@ -145,7 +145,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_MIN_SLAVES_TO_WRITE 0
 #define CONFIG_DEFAULT_MIN_SLAVES_MAX_LAG 10
 #define NET_IP_STR_LEN 46 /* INET6_ADDRSTRLEN is 46, but we need to be sure */
-#define NET_PEER_ID_LEN (NET_IP_STR_LEN+32) /* Must be enough for ip:port */
+#define NET_PEER_ID_LEN (NET_IP_STR_LEN+32) /* Must be enough for hostname:port */
 #define CONFIG_BINDADDR_MAX 16
 #define CONFIG_MIN_RESERVED_FDS 32
 #define CONFIG_DEFAULT_LATENCY_MONITOR_THRESHOLD 0
@@ -713,7 +713,7 @@ typedef struct client {
                                        should use. */
     char replid[CONFIG_RUN_ID_SIZE+1]; /* Master replication ID (if master). */
     int slave_listening_port; /* As configured with: SLAVECONF listening-port */
-    char slave_ip[NET_IP_STR_LEN]; /* Optionally given by REPLCONF ip-address */
+    char slave_hostname[NET_IP_STR_LEN]; /* Optionally given by REPLCONF ip-address */
     int slave_capa;         /* Slave capabilities: SLAVE_CAPA_* bitwise OR. */
     multiState mstate;      /* MULTI/EXEC state */
     int btype;              /* Type of blocking op if CLIENT_BLOCKED. */
