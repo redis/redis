@@ -968,6 +968,7 @@ static sds cliFormatReplyRaw(redisReply *r) {
         break;
     case REDIS_REPLY_STATUS:
     case REDIS_REPLY_STRING:
+    case REDIS_REPLY_VERB:
         if (r->type == REDIS_REPLY_STATUS && config.eval_ldb) {
             /* The Lua debugger replies with arrays of simple (status)
              * strings. We colorize the output for more fun if this
@@ -1021,6 +1022,7 @@ static sds cliFormatReplyCSV(redisReply *r) {
         out = sdscatprintf(out,"%lld",r->integer);
     break;
     case REDIS_REPLY_STRING:
+    case REDIS_REPLY_VERB:
         out = sdscatrepr(out,r->str,r->len);
     break;
     case REDIS_REPLY_NIL:
