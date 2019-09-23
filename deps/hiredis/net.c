@@ -306,7 +306,8 @@ static int _redisContextConnectTcp(redisContext *c, const char *addr, int port,
 
     if (redisContextTimeoutMsec(c, &timeout_msec) != REDIS_OK) {
         __redisSetError(c, REDIS_ERR_IO, "Invalid timeout specified");
-        goto error;
+        freeaddrinfo(servinfo);
+        return REDIS_ERR;
     }
 
     if (source_addr == NULL) {
@@ -319,29 +320,28 @@ static int _redisContextConnectTcp(redisContext *c, const char *addr, int port,
 
     snprintf(_port, 6, "%d", port);
     memset(&hints,0,sizeof(hints));
-    hints.ai_family = AF_INET;
+    hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
 
-    /* Try with IPv6 if no IPv4 address was found. We do it in this order since
-     * in a Redis client you can't afford to test if you have IPv6 connectivity
-     * as this would add latency to every connect. Otherwise a more sensible
-     * route could be: Use IPv6 if both addresses are available and there is IPv6
-     * connectivity. */
+    /* In an earlier version, IPv6 was only tried if no IPv4 address was
+     * available, to reduce latency for Redis clients. This breaks setups with
+     * e.g. AAAA records but not IPv6 connectivity. Therefore, we're just using
+     * the regular addrinfo struct returned by getaddrinfo() instead and loop
+     * over the the responses in the order the kernel gave us.
+     * Hopefully, the latency introduced by this isn't too bad.
+     */
     if ((rv = getaddrinfo(c->tcp.host,_port,&hints,&servinfo)) != 0) {
-         hints.ai_family = AF_INET6;
-         if ((rv = getaddrinfo(addr,_port,&hints,&servinfo)) != 0) {
-            __redisSetError(c,REDIS_ERR_OTHER,gai_strerror(rv));
-            return REDIS_ERR;
-        }
+        __redisSetError(c,REDIS_ERR_OTHER,gai_strerror(rv));
+        return REDIS_ERR;
     }
+
     for (p = servinfo; p != NULL; p = p->ai_next) {
-addrretry:
         if ((s = socket(p->ai_family,p->ai_socktype,p->ai_protocol)) == -1)
             continue;
 
         c->fd = s;
         if (redisSetBlocking(c,0) != REDIS_OK)
-            goto error;
+            continue;
         if (c->tcp.source_addr) {
             int bound = 0;
             /* Using getaddrinfo saves us from self-determining IPv4 vs IPv6 */
@@ -349,14 +349,14 @@ addrretry:
                 char buf[128];
                 snprintf(buf,sizeof(buf),"Can't get addr: %s",gai_strerror(rv));
                 __redisSetError(c,REDIS_ERR_OTHER,buf);
-                goto error;
+                continue;
             }
 
             if (reuseaddr) {
                 n = 1;
                 if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (char*) &n,
                                sizeof(n)) < 0) {
-                    goto error;
+                    continue;
                 }
             }
 
@@ -371,48 +371,57 @@ addrretry:
                 char buf[128];
                 snprintf(buf,sizeof(buf),"Can't bind socket: %s",strerror(errno));
                 __redisSetError(c,REDIS_ERR_OTHER,buf);
-                goto error;
+                continue;
             }
         }
         if (connect(s,p->ai_addr,p->ai_addrlen) == -1) {
             if (errno == EHOSTUNREACH) {
                 redisContextCloseFd(c);
                 continue;
-            } else if (errno == EINPROGRESS && !blocking) {
-                /* This is ok. */
+            } else if (errno == EINPROGRESS) {
+                /* This breaks nonblocking, but seems to be the only way to
+                 * retry other addresses?
+                 * This was partially backported from
+                 * https://github.com/redis/hiredis/pull/578
+                 */
+                 goto wait_for_ready;
             } else if (errno == EADDRNOTAVAIL && reuseaddr) {
                 if (++reuses >= REDIS_CONNECT_RETRIES) {
-                    goto error;
+                    break;
                 } else {
                     redisContextCloseFd(c);
-                    goto addrretry;
+                    continue;
                 }
             } else {
-                if (redisContextWaitReady(c,timeout_msec) != REDIS_OK)
-                    goto error;
+wait_for_ready:
+                if (redisContextWaitReady(c,timeout_msec) != REDIS_OK) continue;
             }
         }
         if (blocking && redisSetBlocking(c,1) != REDIS_OK)
-            goto error;
+            continue;
         if (redisSetTcpNoDelay(c) != REDIS_OK)
-            goto error;
+            continue;
 
         c->flags |= REDIS_CONNECTED;
-        rv = REDIS_OK;
-        goto end;
-    }
-    if (p == NULL) {
-        char buf[128];
-        snprintf(buf,sizeof(buf),"Can't create socket: %s",strerror(errno));
-        __redisSetError(c,REDIS_ERR_OTHER,buf);
-        goto error;
+
+        /* This is needed because c->err is set using __redisSetError on
+        * connection failures. This can be called by various functions.
+        * We shall have a clear function that would ideally clean the struct
+        * of all past errors which have been put into or somehow only set the
+        * error flag and message after looping through all IP addresses and
+        * not finding any REDIS_OK.
+        * Also, we're cleaning c->errstr, analogue to redisReconnect()
+        */
+        c->err = 0;
+        memset(c->errstr, '\0', strlen(c->errstr));
+
+        freeaddrinfo(servinfo);
+        return REDIS_OK;  // Need to return REDIS_OK if alright
     }
 
-error:
-    rv = REDIS_ERR;
-end:
+    // No address could be reached
     freeaddrinfo(servinfo);
-    return rv;  // Need to return REDIS_OK if alright
+    return REDIS_ERR;
 }
 
 int redisContextConnectTcp(redisContext *c, const char *addr, int port,

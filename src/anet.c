@@ -194,16 +194,17 @@ int anetSendTimeout(char *err, int fd, long long ms) {
 }
 
 /* anetGenericResolve() is called by anetResolve() and anetResolveIP() to
- * do the actual work. It resolves the hostname "host" and set the string
- * representation of the IP address into the buffer pointed by "ipbuf".
+ * do the actual work. It resolves the hostname "host" and returns the addrinfo
+ * struct pointer.
  *
  * If flags is set to ANET_IP_ONLY the function only resolves hostnames
  * that are actually already IPv4 or IPv6 addresses. This turns the function
- * into a validating / normalizing function. */
-int anetGenericResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len,
-                       int flags)
+ * into a validating / normalizing function.
+ *
+ * NOTE: Caller needs to make sure to use freeaddrinfo(info) */
+int anetGenericResolve(char *err, char *host, struct addrinfo **info, int flags)
 {
-    struct addrinfo hints, *info;
+    struct addrinfo hints;
     int rv;
 
     memset(&hints,0,sizeof(hints));
@@ -211,28 +212,20 @@ int anetGenericResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len,
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;  /* specify socktype to avoid dups */
 
-    if ((rv = getaddrinfo(host, NULL, &hints, &info)) != 0) {
+    if ((rv = getaddrinfo(host, NULL, &hints, info)) != 0) {
         anetSetError(err, "%s", gai_strerror(rv));
         return ANET_ERR;
     }
-    if (info->ai_family == AF_INET) {
-        struct sockaddr_in *sa = (struct sockaddr_in *)info->ai_addr;
-        inet_ntop(AF_INET, &(sa->sin_addr), ipbuf, ipbuf_len);
-    } else {
-        struct sockaddr_in6 *sa = (struct sockaddr_in6 *)info->ai_addr;
-        inet_ntop(AF_INET6, &(sa->sin6_addr), ipbuf, ipbuf_len);
-    }
 
-    freeaddrinfo(info);
     return ANET_OK;
 }
 
-int anetResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len) {
-    return anetGenericResolve(err,host,ipbuf,ipbuf_len,ANET_NONE);
+int anetResolve(char *err, char *host, struct addrinfo **info) {
+    return anetGenericResolve(err,host,info,ANET_NONE);
 }
 
-int anetResolveIP(char *err, char *host, char *ipbuf, size_t ipbuf_len) {
-    return anetGenericResolve(err,host,ipbuf,ipbuf_len,ANET_IP_ONLY);
+int anetResolveIP(char *err, char *host, struct addrinfo **info) {
+    return anetGenericResolve(err,host,info,ANET_IP_ONLY);
 }
 
 static int anetSetReuseAddr(char *err, int fd) {
@@ -287,16 +280,25 @@ static int anetTcpGenericConnect(char *err, char *addr, int port,
          * the next entry in servinfo. */
         if ((s = socket(p->ai_family,p->ai_socktype,p->ai_protocol)) == -1)
             continue;
-        if (anetSetReuseAddr(err,s) == ANET_ERR) goto error;
-        if (flags & ANET_CONNECT_NONBLOCK && anetNonBlock(err,s) != ANET_OK)
-            goto error;
+
+        if (anetSetReuseAddr(err,s) == ANET_ERR) {
+            close(s);
+            continue;
+        }
+
+        if (flags & ANET_CONNECT_NONBLOCK && anetNonBlock(err,s) != ANET_OK) {
+            close(s);
+            continue;
+        }
+
         if (source_addr) {
             int bound = 0;
             /* Using getaddrinfo saves us from self-determining IPv4 vs IPv6 */
             if ((rv = getaddrinfo(source_addr, NULL, &hints, &bservinfo)) != 0)
             {
                 anetSetError(err, "%s", gai_strerror(rv));
-                goto error;
+                close(s);
+                continue;
             }
             for (b = bservinfo; b != NULL; b = b->ai_next) {
                 if (bind(s,b->ai_addr,b->ai_addrlen) != -1) {
@@ -307,42 +309,26 @@ static int anetTcpGenericConnect(char *err, char *addr, int port,
             freeaddrinfo(bservinfo);
             if (!bound) {
                 anetSetError(err, "bind: %s", strerror(errno));
-                goto error;
+                close(s);
+                continue;
             }
         }
+
         if (connect(s,p->ai_addr,p->ai_addrlen) == -1) {
             /* If the socket is non-blocking, it is ok for connect() to
              * return an EINPROGRESS error here. */
-            if (errno == EINPROGRESS && flags & ANET_CONNECT_NONBLOCK)
-                goto end;
+            if (errno == EINPROGRESS && flags & ANET_CONNECT_NONBLOCK) {
+                freeaddrinfo(servinfo);
+                return s;
+            }
+
             close(s);
-            s = ANET_ERR;
             continue;
         }
-
-        /* If we ended an iteration of the for loop without errors, we
-         * have a connected socket. Let's return to the caller. */
-        goto end;
-    }
-    if (p == NULL)
-        anetSetError(err, "creating socket: %s", strerror(errno));
-
-error:
-    if (s != ANET_ERR) {
-        close(s);
-        s = ANET_ERR;
     }
 
-end:
     freeaddrinfo(servinfo);
-
-    /* Handle best effort binding: if a binding address was used, but it is
-     * not possible to create a socket, try again without a binding address. */
-    if (s == ANET_ERR && source_addr && (flags & ANET_CONNECT_BE_BINDING)) {
-        return anetTcpGenericConnect(err,addr,port,NULL,flags);
-    } else {
-        return s;
-    }
+    return -1;
 }
 
 int anetTcpConnect(char *err, char *addr, int port)

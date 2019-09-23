@@ -45,26 +45,26 @@ int cancelReplicationHandshake(void);
 
 /* --------------------------- Utility functions ---------------------------- */
 
-/* Return the pointer to a string representing the slave ip:listening_port
+/* Return the pointer to a string representing the slave hostname:listening_port
  * pair. Mostly useful for logging, since we want to log a slave using its
- * IP address and its listening port which is more clear for the user, for
+ * Hostname and its listening port which is more clear for the user, for
  * example: "Closing connection with slave 10.1.2.3:6380". */
 char *replicationGetSlaveName(client *c) {
     static char buf[NET_PEER_ID_LEN];
-    char ip[NET_IP_STR_LEN];
+    char hostname[NET_IP_STR_LEN];
 
-    ip[0] = '\0';
+    hostname[0] = '\0';
     buf[0] = '\0';
-    if (c->slave_ip[0] != '\0' ||
-        anetPeerToString(c->fd,ip,sizeof(ip),NULL) != -1)
+    if (c->slave_hostname[0] != '\0' ||
+        anetPeerToString(c->fd,hostname,sizeof(hostname),NULL) != -1)
     {
-        /* Note that the 'ip' buffer is always larger than 'c->slave_ip' */
-        if (c->slave_ip[0] != '\0') memcpy(ip,c->slave_ip,sizeof(c->slave_ip));
+        /* Note that the 'hostname' buffer is always larger than 'c->slave_hostname' */
+        if (c->slave_hostname[0] != '\0') memcpy(hostname,c->slave_hostname,sizeof(c->slave_hostname));
 
         if (c->slave_listening_port)
-            anetFormatAddr(buf,sizeof(buf),ip,c->slave_listening_port);
+            anetFormatAddr(buf,sizeof(buf),hostname,c->slave_listening_port);
         else
-            snprintf(buf,sizeof(buf),"%s:<unknown-slave-port>",ip);
+            snprintf(buf,sizeof(buf),"%s:<unknown-slave-port>",hostname);
     } else {
         snprintf(buf,sizeof(buf),"client id #%llu",
             (unsigned long long) c->id);
@@ -584,7 +584,7 @@ int startBgsaveForReplication(int mincapa) {
     }
 
     /* If we failed to BGSAVE, remove the slaves waiting for a full
-     * resynchorinization from the list of salves, inform them with
+     * resynchorinization from the list of slaves, inform them with
      * an error about what happened, close the connection ASAP. */
     if (retval == C_ERR) {
         serverLog(LL_WARNING,"BGSAVE for replication failed");
@@ -604,7 +604,7 @@ int startBgsaveForReplication(int mincapa) {
     }
 
     /* If the target is socket, rdbSaveToSlavesSockets() already setup
-     * the salves for a full resync. Otherwise for disk target do it now.*/
+     * the slaves for a full resync. Otherwise for disk target do it now.*/
     if (!socket_target) {
         listRewind(server.slaves,&li);
         while((ln = listNext(&li))) {
@@ -792,13 +792,13 @@ void replconfCommand(client *c) {
                     &port,NULL) != C_OK))
                 return;
             c->slave_listening_port = port;
-        } else if (!strcasecmp(c->argv[j]->ptr,"ip-address")) {
-            sds ip = c->argv[j+1]->ptr;
-            if (sdslen(ip) < sizeof(c->slave_ip)) {
-                memcpy(c->slave_ip,ip,sdslen(ip)+1);
+        } else if (!strcasecmp(c->argv[j]->ptr,"ip-address")) { // TODO
+            sds hostname = c->argv[j+1]->ptr;
+            if (sdslen(hostname) < sizeof(c->slave_hostname)) {
+                memcpy(c->slave_hostname,hostname,sdslen(hostname)+1);
             } else {
-                addReplyErrorFormat(c,"REPLCONF ip-address provided by "
-                    "slave instance is too long: %zd bytes", sdslen(ip));
+                addReplyErrorFormat(c,"REPLCONF ip-address provided by " // TODO
+                    "slave instance is too long: %zd bytes", sdslen(hostname));
                 return;
             }
         } else if (!strcasecmp(c->argv[j]->ptr,"capa")) {
@@ -1344,7 +1344,7 @@ char *sendSynchronousCommand(int flags, int fd, ...) {
         }
         cmd = sdscatlen(cmd,"\r\n",2);
         va_end(ap);
-        
+
         /* Transfer command to the server. */
         if (syncWrite(fd,cmd,sdslen(cmd),server.repl_syncio_timeout*1000)
             == -1)
@@ -1936,11 +1936,11 @@ int cancelReplicationHandshake(void) {
 }
 
 /* Set replication to the specified master address and port. */
-void replicationSetMaster(char *ip, int port) {
+void replicationSetMaster(char *hostname, int port) {
     int was_master = server.masterhost == NULL;
 
     sdsfree(server.masterhost);
-    server.masterhost = sdsnew(ip);
+    server.masterhost = sdsnew(hostname);
     server.masterport = port;
     if (server.master) {
         freeClient(server.master);
@@ -2070,16 +2070,16 @@ void roleCommand(client *c) {
         listRewind(server.slaves,&li);
         while((ln = listNext(&li))) {
             client *slave = ln->value;
-            char ip[NET_IP_STR_LEN], *slaveip = slave->slave_ip;
+            char hostname[NET_IP_STR_LEN], *slavehostname = slave->slave_hostname;
 
-            if (slaveip[0] == '\0') {
-                if (anetPeerToString(slave->fd,ip,sizeof(ip),NULL) == -1)
+            if (slavehostname[0] == '\0') {
+                if (anetPeerToString(slave->fd,hostname,sizeof(hostname),NULL) == -1)
                     continue;
-                slaveip = ip;
+                slavehostname = hostname;
             }
             if (slave->replstate != SLAVE_STATE_ONLINE) continue;
             addReplyMultiBulkLen(c,3);
-            addReplyBulkCString(c,slaveip);
+            addReplyBulkCString(c,slavehostname);
             addReplyBulkLongLong(c,slave->slave_listening_port);
             addReplyBulkLongLong(c,slave->repl_ack_off);
             slaves++;
