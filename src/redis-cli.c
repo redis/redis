@@ -1006,13 +1006,32 @@ static sds cliFormatReplyRaw(redisReply *r) {
             out = sdscatlen(out,r->str,r->len);
         }
         break;
+    case REDIS_REPLY_BOOL:
+        out = sdscat(out,r->integer ? "(true)" : "(false)");
+    break;
     case REDIS_REPLY_INTEGER:
         out = sdscatprintf(out,"%lld",r->integer);
+        break;
+    case REDIS_REPLY_DOUBLE:
+        out = sdscatprintf(out,"%s",r->str);
         break;
     case REDIS_REPLY_ARRAY:
         for (i = 0; i < r->elements; i++) {
             if (i > 0) out = sdscat(out,config.mb_delim);
             tmp = cliFormatReplyRaw(r->element[i]);
+            out = sdscatlen(out,tmp,sdslen(tmp));
+            sdsfree(tmp);
+        }
+        break;
+    case REDIS_REPLY_MAP:
+        for (i = 0; i < r->elements; i += 2) {
+            if (i > 0) out = sdscat(out,config.mb_delim);
+            tmp = cliFormatReplyRaw(r->element[i]);
+            out = sdscatlen(out,tmp,sdslen(tmp));
+            sdsfree(tmp);
+
+            out = sdscatlen(out," ",1);
+            tmp = cliFormatReplyRaw(r->element[i+1]);
             out = sdscatlen(out,tmp,sdslen(tmp));
             sdsfree(tmp);
         }
@@ -1039,14 +1058,21 @@ static sds cliFormatReplyCSV(redisReply *r) {
     case REDIS_REPLY_INTEGER:
         out = sdscatprintf(out,"%lld",r->integer);
     break;
+    case REDIS_REPLY_DOUBLE:
+        out = sdscatprintf(out,"%s",r->str);
+        break;
     case REDIS_REPLY_STRING:
     case REDIS_REPLY_VERB:
         out = sdscatrepr(out,r->str,r->len);
     break;
     case REDIS_REPLY_NIL:
-        out = sdscat(out,"NIL");
+        out = sdscat(out,"NULL");
+    break;
+    case REDIS_REPLY_BOOL:
+        out = sdscat(out,r->integer ? "true" : "false");
     break;
     case REDIS_REPLY_ARRAY:
+    case REDIS_REPLY_MAP: /* CSV has no map type, just output flat list. */
         for (i = 0; i < r->elements; i++) {
             sds tmp = cliFormatReplyCSV(r->element[i]);
             out = sdscatlen(out,tmp,sdslen(tmp));
