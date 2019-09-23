@@ -402,13 +402,6 @@ wait_for_ready:
         if (redisSetTcpNoDelay(c) != REDIS_OK)
             continue;
 
-        if (p == NULL) {
-            char buf[128];
-            snprintf(buf,sizeof(buf),"Can't create socket: %s",strerror(errno));
-            __redisSetError(c,REDIS_ERR_OTHER,buf);
-            continue;
-        }
-
         c->flags |= REDIS_CONNECTED;
 
         /* This is needed because c->err is set using __redisSetError on
