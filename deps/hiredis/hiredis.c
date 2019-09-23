@@ -128,15 +128,16 @@ static void *createStringObject(const redisReadTask *task, char *str, size_t len
 
     /* Copy string value */
     if (task->type == REDIS_REPLY_VERB) {
-        buf = malloc(len+4+1); /* Skip 4 bytes of verbatim type header. */
+        buf = malloc(len-4+1); /* Skip 4 bytes of verbatim type header. */
         if (buf == NULL) {
             freeReplyObject(r);
             return NULL;
         }
-        memcpy(r->vtype,buf,3);
+        memcpy(r->vtype,str,3);
         r->vtype[3] = '\0';
-        memcpy(buf+4,str,len-4);
+        memcpy(buf,str+4,len-4);
         buf[len-4] = '\0';
+        r->len = len-4;
     } else {
         buf = malloc(len+1);
         if (buf == NULL) {
@@ -145,9 +146,9 @@ static void *createStringObject(const redisReadTask *task, char *str, size_t len
         }
         memcpy(buf,str,len);
         buf[len] = '\0';
+        r->len = len;
     }
     r->str = buf;
-    r->len = len;
 
     if (task->parent) {
         parent = task->parent->obj;
