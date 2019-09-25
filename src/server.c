@@ -3412,7 +3412,10 @@ int processCommand(client *c) {
          * is in MULTI/EXEC context? Error. */
         if (out_of_memory &&
             (c->cmd->flags & CMD_DENYOOM ||
-             (c->flags & CLIENT_MULTI && c->cmd->proc != execCommand && c->cmd->proc != discardCommand))) {
+             (c->flags & CLIENT_MULTI &&
+              c->cmd->proc != execCommand &&
+              c->cmd->proc != discardCommand)))
+        {
             flagTransaction(c);
             addReply(c, shared.oomerr);
             return C_OK;
