@@ -12,6 +12,112 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 5.0.6     Released Wed Sep 25 12:33:56 CEST 2019
+================================================================================
+
+Upgrade urgency CRITICAL: Only in case of exposed instances to untrusted users.
+
+This Redis release, 5.0.6, is a bugfix and enhancement release. The most
+important bugfix is a corruption related to the HyperLogLog. A malformed
+HyperLogLog string could cause an invalid access to the memory. At a first
+glance the vulnerability appears to be not exploitable but just a DoS. The
+way to trigger the issue is complex, we'll not provide any information about
+how to do that for the users safety.
+
+Other significant changes in this release:
+
+* New modules APIs merged from Redis unstable to Redis 5.
+* Some memory optimization related to objects creation.
+* Fixes to flushSlaveOutputBuffer() that make sure that SHUTDOWN will
+  transfer pending buffers to replicas.
+
+This is the full list of commits:
+
+antirez in commit 7a41047a:
+ RDB: fix MODULE_AUX loading by continuing to next opcode.
+ 1 file changed, 1 insertion(+)
+
+Oran Agra in commit 4eb3028b:
+ missing per-skiplist overheads in MEMORY USAGE
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+Oran Agra in commit 5d09f9bc:
+ RM_Log - add support for logging without a context or context without module
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+antirez in commit 2810de9f:
+ Cluster: abort loading nodes data if vars arguments are unbalanced.
+ 1 file changed, 1 insertion(+)
+
+antirez in commit f5c63ce0:
+ More strict checks and better comments in flushSlaveOutputBuffers().
+ 1 file changed, 18 insertions(+), 7 deletions(-)
+
+antirez in commit 7f289c3b:
+ Improve comment in flushSlavesOutputBuffers().
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+antirez in commit 7ab62d4b:
+ Replication: clarify why repl_put_online_on_ack exists at all.
+ 2 files changed, 34 insertions(+), 10 deletions(-)
+
+zhaozhao.zz in commit 495dd0da:
+ networking: flushSlavesOutputBuffers bugfix
+ 1 file changed, 2 insertions(+), 4 deletions(-)
+
+Salvatore Sanfilippo in commit c1ccf0f1:
+ Merge pull request #6366 from oranagra/5.0_rm_reply_cstring
+Salvatore Sanfilippo in commit a50dad73:
+ Merge pull request #6365 from oranagra/5.0_module_aux
+Oran Agra in commit d6294d05:
+ RM_ReplyWithCString was missing registration
+ 1 file changed, 1 insertion(+)
+
+Oran Agra in commit 8c56fc86:
+ Fix to module aux data rdb format for backwards compatibility with old check-rdb
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+Oran Agra in commit 98b1314f:
+ Implement module api for aux data in rdb
+ 9 files changed, 431 insertions(+), 18 deletions(-)
+
+antirez in commit 08b03e23:
+ redis-cli: always report server errors on read errors.
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+wubostc in commit 239069de:
+ Reduce the calling stack
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+antirez in commit 90bf6313:
+ Make EMBSTR case of #6261 more obvious.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+chendianqiang in commit 2f8a0749:
+ make memory usage consistent of robj with OBJ_ENCODING_INT
+ 1 file changed, 9 insertions(+), 4 deletions(-)
+
+antirez in commit 436ed56d:
+ HyperLogLog: fix the fix of a corruption bug.
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+John Sully in commit 680f89fb:
+ Fix HLL corruption bug
+ 1 file changed, 1 insertion(+)
+
+swilly22 in commit 388efbf8:
+ Extend REDISMODULE_CTX_FLAGS to indicate if redis is currently loading from either RDB or AOF
+ 2 files changed, 5 insertions(+)
+
+Itamar Haber in commit 0ccbdcee:
+ Uses addReplyBulkCString
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Itamar Haber in commit 707a59c6:
+ Adds RedisModule_ReplyWithCString
+ 2 files changed, 13 insertions(+)
+
+================================================================================
 Redis 5.0.5     Released Wed May 15 17:57:41 CEST 2019
 ================================================================================
 
