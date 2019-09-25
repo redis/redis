@@ -58,7 +58,8 @@ int siptlw(int c) {
 /* Test of the CPU is Little Endian and supports not aligned accesses.
  * Two interesting conditions to speedup the function that happen to be
  * in most of x86 servers. */
-#if defined(__X86_64__) || defined(__x86_64__) || defined (__i386__)
+#if defined(__X86_64__) || defined(__x86_64__) || defined (__i386__) \
+	|| defined (__aarch64__) || defined (__arm64__)
 #define UNALIGNED_LE_CPU
 #endif
 
