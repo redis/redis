@@ -295,6 +295,7 @@ void REDISMODULE_API_FUNC(RedisModule_SaveFloat)(RedisModuleIO *io, float value)
 float REDISMODULE_API_FUNC(RedisModule_LoadFloat)(RedisModuleIO *io);
 void REDISMODULE_API_FUNC(RedisModule_Log)(RedisModuleCtx *ctx, const char *level, const char *fmt, ...);
 void REDISMODULE_API_FUNC(RedisModule_LogIOError)(RedisModuleIO *io, const char *levelstr, const char *fmt, ...);
+void REDISMODULE_API_FUNC(RedisModule__Assert)(const char *estr, const char *file, int line);
 int REDISMODULE_API_FUNC(RedisModule_StringAppendBuffer)(RedisModuleCtx *ctx, RedisModuleString *str, const char *buf, size_t len);
 void REDISMODULE_API_FUNC(RedisModule_RetainString)(RedisModuleCtx *ctx, RedisModuleString *str);
 int REDISMODULE_API_FUNC(RedisModule_StringCompare)(RedisModuleString *a, RedisModuleString *b);
@@ -468,6 +469,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(EmitAOF);
     REDISMODULE_GET_API(Log);
     REDISMODULE_GET_API(LogIOError);
+    REDISMODULE_GET_API(_Assert);
     REDISMODULE_GET_API(StringAppendBuffer);
     REDISMODULE_GET_API(RetainString);
     REDISMODULE_GET_API(StringCompare);
@@ -543,6 +545,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);
     return REDISMODULE_OK;
 }
+
+#define RedisModule_Assert(_e) ((_e)?(void)0 : (RedisModule__Assert(#_e,__FILE__,__LINE__),exit(1)))
 
 #else
 
