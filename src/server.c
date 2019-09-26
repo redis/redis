@@ -1910,6 +1910,13 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
             if (WIFSIGNALED(statloc)) bysignal = WTERMSIG(statloc);
 
+            /* sigKillChildHandler catches the signal and calls exit(), but we
+             * must make sure not to flag lastbgsave_status, etc incorrectly. */
+            if (exitcode == SIGUSR1) {
+                bysignal = SIGUSR1;
+                exitcode = 1;
+            }
+
             if (pid == -1) {
                 serverLog(LL_WARNING,"wait3() returned an error: %s. "
                     "rdb_child_pid = %d, aof_child_pid = %d, module_child_pid = %d",
@@ -4578,7 +4585,7 @@ static void sigKillChildHandler(int sig) {
     UNUSED(sig);
     /* this handler is needed to resolve a valgrind warning */
     serverLogFromHandler(LL_WARNING, "Received SIGUSR1 in child, exiting now.");
-    exitFromChild(1);
+    exitFromChild(SIGUSR1);
 }
 
 void setupChildSignalHandlers(void) {
