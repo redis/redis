@@ -1630,7 +1630,8 @@ void bgrewriteaofCommand(client *c) {
     } else if (rewriteAppendOnlyFileBackground() == C_OK) {
         addReplyStatus(c,"Background append only file rewriting started");
     } else {
-        addReply(c,shared.err);
+        addReplyError(c,"Can't execute an AOF background rewriting. "
+                        "Please check the server logs for more information.");
     }
 }
 
