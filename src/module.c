@@ -52,7 +52,7 @@ struct RedisModule {
     list *using;    /* List of modules we use some APIs of. */
     list *filters;  /* List of filters the module has registered. */
     int in_call;    /* RM_Call() nesting level */
-    int options;    /* Moduile options and capabilities. */
+    int options;    /* Module options and capabilities. */
 };
 typedef struct RedisModule RedisModule;
 
@@ -5363,9 +5363,36 @@ void addReplyLoadedModules(client *c) {
     dictReleaseIterator(di);
 }
 
+/* Helper for genModulesInfoString(): given a list of modules, return
+ * am SDS string in the form "[modulename|modulename2|...]" */
+sds genModulesInfoStringRenderModulesList(list *l) {
+    listIter li;
+    listNode *ln;
+    listRewind(l,&li);
+    sds output = sdsnew("[");
+    while((ln = listNext(&li))) {
+        RedisModule *module = ln->value;
+        output = sdscat(output,module->name);
+    }
+    output = sdstrim(output,"|");
+    output = sdscat(output,"]");
+    return output;
+}
+
+/* Helper for genModulesInfoString(): render module options as an SDS string. */
+sds genModulesInfoStringRenderModuleOptions(struct RedisModule *module) {
+    sds output = sdsnew("[");
+    if (module->options & REDISMODULE_OPTIONS_HANDLE_IO_ERRORS)
+        output = sdscat(output,"handle-io-errors|");
+    output = sdstrim(output,"|");
+    output = sdscat(output,"]");
+    return output;
+}
+
+
 /* Helper function for the INFO command: adds loaded modules as to info's
  * output.
- * 
+ *
  * After the call, the passed sds info string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
 sds genModulesInfoString(sds info) {
@@ -5376,7 +5403,17 @@ sds genModulesInfoString(sds info) {
         sds name = dictGetKey(de);
         struct RedisModule *module = dictGetVal(de);
 
-        info = sdscatprintf(info, "module:name=%s,ver=%d\r\n", name, module->ver);
+        sds usedby = genModulesInfoStringRenderModulesList(module->usedby);
+        sds using = genModulesInfoStringRenderModulesList(module->using);
+        sds options = genModulesInfoStringRenderModuleOptions(module);
+        info = sdscatprintf(info,
+            "module:name=%s,ver=%d,api=%d,filters=%d,"
+            "usedby=%s,using=%s,options=%s\r\n",
+                name, module->ver, module->apiver,
+                (int)listLength(module->filters), usedby, using, options);
+        sdsfree(usedby);
+        sdsfree(using);
+        sdsfree(options);
     }
     dictReleaseIterator(di);
     return info;
