@@ -31,7 +31,7 @@
 #include "cluster.h"
 #include "rdb.h"
 #include <dlfcn.h>
-#include <wait.h>
+#include <sys/wait.h>
 
 #define REDISMODULE_CORE 1
 #include "redismodule.h"

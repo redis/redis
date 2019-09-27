@@ -1913,8 +1913,11 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             if (WIFSIGNALED(statloc)) bysignal = WTERMSIG(statloc);
 
             /* sigKillChildHandler catches the signal and calls exit(), but we
-             * must make sure not to flag lastbgsave_status, etc incorrectly. */
-            if (exitcode == SIGUSR1) {
+             * must make sure not to flag lastbgsave_status, etc incorrectly.
+             * We could directly terminate the child process via SIGUSR1
+             * without handling it, but in this case Valgrind will log an
+             * annoying error. */
+            if (exitcode == SERVER_CHILD_NOERROR_RETVAL) {
                 bysignal = SIGUSR1;
                 exitcode = 1;
             }
@@ -4618,11 +4621,14 @@ void setupSignalHandlers(void) {
     return;
 }
 
+/* This is the signal handler for children process. It is currently useful
+ * in order to track the SIGUSR1, that we send to a child in order to terminate
+ * it in a clean way, without the parent detecting an error and stop
+ * accepting writes because of a write error condition. */
 static void sigKillChildHandler(int sig) {
     UNUSED(sig);
-    /* this handler is needed to resolve a valgrind warning */
     serverLogFromHandler(LL_WARNING, "Received SIGUSR1 in child, exiting now.");
-    exitFromChild(SIGUSR1);
+    exitFromChild(SERVER_CHILD_NOERROR_RETVAL);
 }
 
 void setupChildSignalHandlers(void) {

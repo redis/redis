@@ -179,6 +179,14 @@ typedef long long mstime_t; /* millisecond time type. */
 #define ACTIVE_EXPIRE_CYCLE_SLOW 0
 #define ACTIVE_EXPIRE_CYCLE_FAST 1
 
+/* Children process will exit with this status code to signal that the
+ * process terminated without an error: this is useful in order to kill
+ * a saving child (RDB or AOF one), without triggering in the parent the
+ * write protection that is normally turned on on write errors.
+ * Usually children that are terminated with SIGUSR1 will exit with this
+ * special code. */
+#define SERVER_CHILD_NOERROR_RETVAL    255
+
 /* Instantaneous metrics tracking. */
 #define STATS_METRIC_SAMPLES 16     /* Number of samples per metric. */
 #define STATS_METRIC_COMMAND 0      /* Number of commands executed. */
