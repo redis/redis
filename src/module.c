@@ -5189,7 +5189,7 @@ int RM_ExitFromChild(int retcode) {
 /* Kill the active module forked child, if there is one active and the
  * pid matches, and returns C_OK. Otherwise if there is no active module
  * child or the pid does not match, return C_ERR without doing anything. */
-void TerminateModuleForkChild(int child_pid, int wait) {
+int TerminateModuleForkChild(int child_pid, int wait) {
     /* Module child should be active and pid should match. */
     if (server.module_child_pid == -1 ||
         server.module_child_pid != child_pid) return C_ERR;
