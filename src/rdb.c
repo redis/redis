@@ -1336,7 +1336,7 @@ werr:
 int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
     pid_t childpid;
 
-    if (hasForkChild()) return C_ERR;
+    if (hasActiveChildProcess()) return C_ERR;
 
     server.dirty_before_bgsave = server.dirty;
     server.lastbgsave_try = time(NULL);
@@ -2417,7 +2417,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
     pid_t childpid;
     int pipefds[2];
 
-    if (hasForkChild()) return C_ERR;
+    if (hasActiveChildProcess()) return C_ERR;
 
     /* Before to fork, create a pipe that will be used in order to
      * send back to the parent the IDs of the slaves that successfully
@@ -2584,7 +2584,7 @@ void bgsaveCommand(client *c) {
 
     if (server.rdb_child_pid != -1) {
         addReplyError(c,"Background save already in progress");
-    } else if (hasForkChild()) {
+    } else if (hasActiveChildProcess()) {
         if (schedule) {
             server.rdb_bgsave_scheduled = 1;
             addReplyStatus(c,"Background saving scheduled");

@@ -751,7 +751,7 @@ void syncCommand(client *c) {
             /* Target is disk (or the slave is not capable of supporting
              * diskless replication) and we don't have a BGSAVE in progress,
              * let's start one. */
-            if (!hasForkChild()) {
+            if (!hasActiveChildProcess()) {
                 startBgsaveForReplication(c->slave_capa);
             } else {
                 serverLog(LL_NOTICE,
@@ -2930,7 +2930,7 @@ void replicationCron(void) {
      * In case of diskless replication, we make sure to wait the specified
      * number of seconds (according to configuration) so that other slaves
      * have the time to arrive before we start streaming. */
-    if (!hasForkChild()) {
+    if (!hasActiveChildProcess()) {
         time_t idle, max_idle = 0;
         int slaves_waiting = 0;
         int mincapa = -1;

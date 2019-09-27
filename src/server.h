@@ -1818,7 +1818,7 @@ void receiveChildInfo(void);
 
 /* Fork helpers */
 int redisFork();
-int hasForkChild();
+int hasActiveChildProcess();
 void sendChildCOWInfo(int ptype, char *pname);
 
 /* acl.c -- Authentication related prototypes. */

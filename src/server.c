@@ -1449,13 +1449,13 @@ int incrementallyRehash(int dbid) {
  * for dict.c to resize the hash tables accordingly to the fact we have o not
  * running childs. */
 void updateDictResizePolicy(void) {
-    if (!hasForkChild())
+    if (!hasActiveChildProcess())
         dictEnableResize();
     else
         dictDisableResize();
 }
 
-int hasForkChild() {
+int hasActiveChildProcess() {
     return server.rdb_child_pid != -1 ||
            server.aof_child_pid != -1 ||
            server.module_child_pid != -1;
@@ -1697,7 +1697,7 @@ void databasesCron(void) {
     /* Perform hash tables rehashing if needed, but only if there are no
      * other processes saving the DB on disk. Otherwise rehashing is bad
      * as will cause a lot of copy-on-write of memory pages. */
-    if (!hasForkChild()) {
+    if (!hasActiveChildProcess()) {
         /* We use global counters so if we stop the computation at a given
          * DB we'll be able to start from the successive in the next
          * cron loop iteration. */
@@ -1894,14 +1894,14 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Start a scheduled AOF rewrite if this was requested by the user while
      * a BGSAVE was in progress. */
-    if (!hasForkChild() &&
+    if (!hasActiveChildProcess() &&
         server.aof_rewrite_scheduled)
     {
         rewriteAppendOnlyFileBackground();
     }
 
     /* Check if a background saving or AOF rewrite in progress terminated. */
-    if (hasForkChild() || ldbPendingChildren())
+    if (hasActiveChildProcess() || ldbPendingChildren())
     {
         int statloc;
         pid_t pid;
@@ -1975,7 +1975,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
         /* Trigger an AOF rewrite if needed. */
         if (server.aof_state == AOF_ON &&
-            !hasForkChild() &&
+            !hasActiveChildProcess() &&
             server.aof_rewrite_perc &&
             server.aof_current_size > server.aof_rewrite_min_size)
         {
@@ -2033,7 +2033,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * Note: this code must be after the replicationCron() call above so
      * make sure when refactoring this file to keep this order. This is useful
      * because we want to give priority to RDB savings for replication. */
-    if (!hasForkChild() &&
+    if (!hasActiveChildProcess() &&
         server.rdb_bgsave_scheduled &&
         (server.unixtime-server.lastbgsave_try > CONFIG_BGSAVE_RETRY_DELAY ||
          server.lastbgsave_status == C_OK))

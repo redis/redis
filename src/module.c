@@ -5157,7 +5157,7 @@ int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *fctx, int pos)
 int RM_Fork(RedisModuleForkDoneHandler cb, void *user_data)
 {
     pid_t childpid;
-    if (hasForkChild()) {
+    if (hasActiveChildProcess()) {
         return -1;
     }
 

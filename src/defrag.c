@@ -1039,7 +1039,7 @@ void activeDefragCycle(void) {
     mstime_t latency;
     int quit = 0;
 
-    if (hasForkChild())
+    if (hasActiveChildProcess())
         return; /* Defragging memory while there's a fork will just do damage. */
 
     /* Once a second, check if we the fragmentation justfies starting a scan
