@@ -5036,6 +5036,8 @@ int RM_UnregisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilter *fi
     if (!ln) return REDISMODULE_ERR;    /* Shouldn't happen */
     listDelNode(ctx->module->filters,ln);
 
+    zfree(filter);
+
     return REDISMODULE_OK;
 }
 
