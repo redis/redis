@@ -2590,9 +2590,9 @@ void bgsaveCommand(client *c) {
             addReplyStatus(c,"Background saving scheduled");
         } else {
             addReplyError(c,
-                "Another BG operation is in progress: can't BGSAVE right now. "
-                "Use BGSAVE SCHEDULE in order to schedule a BGSAVE whenever "
-                "possible.");
+            "Another child process is active (AOF?): can't BGSAVE right now. "
+            "Use BGSAVE SCHEDULE in order to schedule a BGSAVE whenever "
+            "possible.");
         }
     } else if (rdbSaveBackground(server.rdb_filename,rsiptr) == C_OK) {
         addReplyStatus(c,"Background saving started");
