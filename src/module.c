@@ -5334,6 +5334,8 @@ void moduleLoadFromQueue(void) {
 void moduleFreeModuleStructure(struct RedisModule *module) {
     listRelease(module->types);
     listRelease(module->filters);
+    listRelease(module->usedby);
+    listRelease(module->using);
     sdsfree(module->name);
     zfree(module);
 }
