@@ -115,3 +115,17 @@ start_server_and_kill_it [list "dir" $server_path] {
         }
     }
 }
+
+start_server {} {
+    test {Test FLUSHALL aborts bgsave} {
+        r config set rdb-key-save-delay 1000
+        r debug populate 1000
+        r bgsave
+        assert_equal [s rdb_bgsave_in_progress] 1
+        r flushall
+        after 200
+        assert_equal [s rdb_bgsave_in_progress] 0
+        # make sure the server is still writable
+        r set x xx
+    }
+}
