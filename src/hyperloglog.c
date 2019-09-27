@@ -700,7 +700,7 @@ int hllSparseSet(robj *o, long index, uint8_t count) {
         p += oplen;
         first += span;
     }
-    if (span == 0) return -1; /* Invalid format. */
+    if (span == 0 || p >= end) return -1; /* Invalid format. */
 
     next = HLL_SPARSE_IS_XZERO(p) ? p+2 : p+1;
     if (next >= end) next = NULL;
@@ -1242,7 +1242,7 @@ void pfcountCommand(client *c) {
             if (o == NULL) continue; /* Assume empty HLL for non existing var.*/
             if (isHLLObjectOrReply(c,o) != C_OK) return;
 
-            /* Merge with this HLL with our 'max' HHL by setting max[i]
+            /* Merge with this HLL with our 'max' HLL by setting max[i]
              * to MAX(max[i],hll[i]). */
             if (hllMerge(registers,o) == C_ERR) {
                 addReplySds(c,sdsnew(invalid_hll_err));
@@ -1329,7 +1329,7 @@ void pfmergeCommand(client *c) {
         hdr = o->ptr;
         if (hdr->encoding == HLL_DENSE) use_dense = 1;
 
-        /* Merge with this HLL with our 'max' HHL by setting max[i]
+        /* Merge with this HLL with our 'max' HLL by setting max[i]
          * to MAX(max[i],hll[i]). */
         if (hllMerge(max,o) == C_ERR) {
             addReplySds(c,sdsnew(invalid_hll_err));

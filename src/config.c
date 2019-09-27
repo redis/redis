@@ -672,6 +672,10 @@ void loadServerConfigFromString(char *config) {
             server.lua_time_limit = strtoll(argv[1],NULL,10);
         } else if (!strcasecmp(argv[0],"lua-replicate-commands") && argc == 2) {
             server.lua_always_replicate_commands = yesnotoi(argv[1]);
+            if (server.lua_always_replicate_commands == -1) {
+                err = "argument must be 'yes' or 'no'";
+                goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"slowlog-log-slower-than") &&
                    argc == 2)
         {
@@ -686,6 +690,17 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"slowlog-max-len") && argc == 2) {
             server.slowlog_max_len = strtoll(argv[1],NULL,10);
+        } else if (!strcasecmp(argv[0],"tracking-table-max-fill") &&
+                   argc == 2)
+        {
+            server.tracking_table_max_fill = strtoll(argv[1],NULL,10);
+            if (server.tracking_table_max_fill > 100 ||
+                server.tracking_table_max_fill < 0)
+            {
+                err = "The tracking table fill percentage must be an "
+                      "integer between 0 and 100";
+                goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"client-output-buffer-limit") &&
                    argc == 5)
         {
@@ -1134,6 +1149,8 @@ void configSetCommand(client *c) {
       /* Cast to unsigned. */
         server.slowlog_max_len = (unsigned long)ll;
     } config_set_numerical_field(
+      "tracking-table-max-fill",server.tracking_table_max_fill,0,100) {
+    } config_set_numerical_field(
       "latency-monitor-threshold",server.latency_monitor_threshold,0,LLONG_MAX){
     } config_set_numerical_field(
       "repl-ping-slave-period",server.repl_ping_slave_period,1,INT_MAX) {
@@ -1338,8 +1355,8 @@ void configGetCommand(client *c) {
             server.slowlog_log_slower_than);
     config_get_numerical_field("latency-monitor-threshold",
             server.latency_monitor_threshold);
-    config_get_numerical_field("slowlog-max-len",
-            server.slowlog_max_len);
+    config_get_numerical_field("slowlog-max-len", server.slowlog_max_len);
+    config_get_numerical_field("tracking-table-max-fill", server.tracking_table_max_fill);
     config_get_numerical_field("port",server.port);
     config_get_numerical_field("cluster-announce-port",server.cluster_announce_port);
     config_get_numerical_field("cluster-announce-bus-port",server.cluster_announce_bus_port);
@@ -1470,12 +1487,10 @@ void configGetCommand(client *c) {
         matches++;
     }
     if (stringmatch(pattern,"notify-keyspace-events",1)) {
-        robj *flagsobj = createObject(OBJ_STRING,
-            keyspaceEventsFlagsToString(server.notify_keyspace_events));
+        sds flags = keyspaceEventsFlagsToString(server.notify_keyspace_events);
 
         addReplyBulkCString(c,"notify-keyspace-events");
-        addReplyBulk(c,flagsobj);
-        decrRefCount(flagsobj);
+        addReplyBulkSds(c,flags);
         matches++;
     }
     if (stringmatch(pattern,"bind",1)) {
@@ -2167,6 +2182,7 @@ int rewriteConfig(char *path) {
     rewriteConfigNumericalOption(state,"slowlog-log-slower-than",server.slowlog_log_slower_than,CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN);
     rewriteConfigNumericalOption(state,"latency-monitor-threshold",server.latency_monitor_threshold,CONFIG_DEFAULT_LATENCY_MONITOR_THRESHOLD);
     rewriteConfigNumericalOption(state,"slowlog-max-len",server.slowlog_max_len,CONFIG_DEFAULT_SLOWLOG_MAX_LEN);
+    rewriteConfigNumericalOption(state,"tracking-table-max-fill",server.tracking_table_max_fill,CONFIG_DEFAULT_TRACKING_TABLE_MAX_FILL);
     rewriteConfigNotifykeyspaceeventsOption(state);
     rewriteConfigNumericalOption(state,"hash-max-ziplist-entries",server.hash_max_ziplist_entries,OBJ_HASH_MAX_ZIPLIST_ENTRIES);
     rewriteConfigNumericalOption(state,"hash-max-ziplist-value",server.hash_max_ziplist_value,OBJ_HASH_MAX_ZIPLIST_VALUE);

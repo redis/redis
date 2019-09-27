@@ -104,6 +104,7 @@ static struct config {
     int is_fetching_slots;
     int is_updating_slots;
     int slots_last_update;
+    int enable_tracking;
     /* Thread mutexes to be used as fallbacks by atomicvar.h */
     pthread_mutex_t requests_issued_mutex;
     pthread_mutex_t requests_finished_mutex;
@@ -255,7 +256,7 @@ static redisConfig *getRedisConfig(const char *ip, int port,
         goto fail;
     }
 
-    if(config.auth){
+    if(config.auth) {
         void *authReply = NULL;
         redisAppendCommand(c, "AUTH %s", config.auth);
         if (REDIS_OK != redisGetReply(c, &authReply)) goto fail;
@@ -628,6 +629,14 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
     if (config.auth) {
         char *buf = NULL;
         int len = redisFormatCommand(&buf, "AUTH %s", config.auth);
+        c->obuf = sdscatlen(c->obuf, buf, len);
+        free(buf);
+        c->prefix_pending++;
+    }
+
+    if (config.enable_tracking) {
+        char *buf = NULL;
+        int len = redisFormatCommand(&buf, "CLIENT TRACKING on");
         c->obuf = sdscatlen(c->obuf, buf, len);
         free(buf);
         c->prefix_pending++;
@@ -1350,6 +1359,8 @@ int parseOptions(int argc, const char **argv) {
              } else if (config.num_threads < 0) config.num_threads = 0;
         } else if (!strcmp(argv[i],"--cluster")) {
             config.cluster_mode = 1;
+        } else if (!strcmp(argv[i],"--enable-tracking")) {
+            config.enable_tracking = 1;
         } else if (!strcmp(argv[i],"--help")) {
             exit_status = 0;
             goto usage;
@@ -1380,6 +1391,7 @@ usage:
 " --dbnum <db>       SELECT the specified db number (default 0)\n"
 " --threads <num>    Enable multi-thread mode.\n"
 " --cluster          Enable cluster mode.\n"
+" --enable-tracking  Send CLIENT TRACKING on before starting benchmark.\n"
 " -k <boolean>       1=keep alive 0=reconnect (default 1)\n"
 " -r <keyspacelen>   Use random keys for SET/GET/INCR, random values for SADD\n"
 "  Using this option the benchmark will expand the string __rand_int__\n"
@@ -1504,6 +1516,7 @@ int main(int argc, const char **argv) {
     config.is_fetching_slots = 0;
     config.is_updating_slots = 0;
     config.slots_last_update = 0;
+    config.enable_tracking = 0;
 
     i = parseOptions(argc,argv);
     argc -= i;
