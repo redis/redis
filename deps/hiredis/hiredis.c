@@ -34,7 +34,6 @@
 #include "fmacros.h"
 #include <string.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <assert.h>
 #include <errno.h>
 #include <ctype.h>
@@ -42,10 +41,20 @@
 #include "hiredis.h"
 #include "net.h"
 #include "sds.h"
+#include "async.h"
+#include "win32.h"
+
+static redisContextFuncs redisContextDefaultFuncs = {
+    .free_privdata = NULL,
+    .async_read = redisAsyncRead,
+    .async_write = redisAsyncWrite,
+    .read = redisNetRead,
+    .write = redisNetWrite
+};
 
 static redisReply *createReplyObject(int type);
 static void *createStringObject(const redisReadTask *task, char *str, size_t len);
-static void *createArrayObject(const redisReadTask *task, int elements);
+static void *createArrayObject(const redisReadTask *task, size_t elements);
 static void *createIntegerObject(const redisReadTask *task, long long value);
 static void *createDoubleObject(const redisReadTask *task, double value, char *str, size_t len);
 static void *createNilObject(const redisReadTask *task);
@@ -112,21 +121,34 @@ static void *createStringObject(const redisReadTask *task, char *str, size_t len
     if (r == NULL)
         return NULL;
 
-    buf = malloc(len+1);
-    if (buf == NULL) {
-        freeReplyObject(r);
-        return NULL;
-    }
-
     assert(task->type == REDIS_REPLY_ERROR  ||
            task->type == REDIS_REPLY_STATUS ||
-           task->type == REDIS_REPLY_STRING);
+           task->type == REDIS_REPLY_STRING ||
+           task->type == REDIS_REPLY_VERB);
 
     /* Copy string value */
-    memcpy(buf,str,len);
-    buf[len] = '\0';
+    if (task->type == REDIS_REPLY_VERB) {
+        buf = malloc(len-4+1); /* Skip 4 bytes of verbatim type header. */
+        if (buf == NULL) {
+            freeReplyObject(r);
+            return NULL;
+        }
+        memcpy(r->vtype,str,3);
+        r->vtype[3] = '\0';
+        memcpy(buf,str+4,len-4);
+        buf[len-4] = '\0';
+        r->len = len-4;
+    } else {
+        buf = malloc(len+1);
+        if (buf == NULL) {
+            freeReplyObject(r);
+            return NULL;
+        }
+        memcpy(buf,str,len);
+        buf[len] = '\0';
+        r->len = len;
+    }
     r->str = buf;
-    r->len = len;
 
     if (task->parent) {
         parent = task->parent->obj;
@@ -138,7 +160,7 @@ static void *createStringObject(const redisReadTask *task, char *str, size_t len
     return r;
 }
 
-static void *createArrayObject(const redisReadTask *task, int elements) {
+static void *createArrayObject(const redisReadTask *task, size_t elements) {
     redisReply *r, *parent;
 
     r = createReplyObject(task->type);
@@ -649,29 +671,30 @@ redisReader *redisReaderCreate(void) {
     return redisReaderCreateWithFunctions(&defaultFunctions);
 }
 
-static redisContext *redisContextInit(void) {
+static redisContext *redisContextInit(const redisOptions *options) {
     redisContext *c;
 
-    c = calloc(1,sizeof(redisContext));
+    c = calloc(1, sizeof(*c));
     if (c == NULL)
         return NULL;
 
+    c->funcs = &redisContextDefaultFuncs;
     c->obuf = sdsempty();
     c->reader = redisReaderCreate();
+    c->fd = REDIS_INVALID_FD;
 
     if (c->obuf == NULL || c->reader == NULL) {
         redisFree(c);
         return NULL;
     }
-
+    (void)options; /* options are used in other functions */
     return c;
 }
 
 void redisFree(redisContext *c) {
     if (c == NULL)
         return;
-    if (c->fd > 0)
-        close(c->fd);
+    redisNetClose(c);
 
     sdsfree(c->obuf);
     redisReaderFree(c->reader);
@@ -680,12 +703,16 @@ void redisFree(redisContext *c) {
     free(c->unix_sock.path);
     free(c->timeout);
     free(c->saddr);
+    if (c->funcs->free_privdata) {
+        c->funcs->free_privdata(c->privdata);
+    }
+    memset(c, 0xff, sizeof(*c));
     free(c);
 }
 
-int redisFreeKeepFd(redisContext *c) {
-    int fd = c->fd;
-    c->fd = -1;
+redisFD redisFreeKeepFd(redisContext *c) {
+    redisFD fd = c->fd;
+    c->fd = REDIS_INVALID_FD;
     redisFree(c);
     return fd;
 }
@@ -694,9 +721,12 @@ int redisReconnect(redisContext *c) {
     c->err = 0;
     memset(c->errstr, '\0', strlen(c->errstr));
 
-    if (c->fd > 0) {
-        close(c->fd);
+    if (c->privdata && c->funcs->free_privdata) {
+        c->funcs->free_privdata(c->privdata);
+        c->privdata = NULL;
     }
+
+    redisNetClose(c);
 
     sdsfree(c->obuf);
     redisReaderFree(c->reader);
@@ -718,112 +748,107 @@ int redisReconnect(redisContext *c) {
     return REDIS_ERR;
 }
 
+redisContext *redisConnectWithOptions(const redisOptions *options) {
+    redisContext *c = redisContextInit(options);
+    if (c == NULL) {
+        return NULL;
+    }
+    if (!(options->options & REDIS_OPT_NONBLOCK)) {
+        c->flags |= REDIS_BLOCK;
+    }
+    if (options->options & REDIS_OPT_REUSEADDR) {
+        c->flags |= REDIS_REUSEADDR;
+    }
+    if (options->options & REDIS_OPT_NOAUTOFREE) {
+      c->flags |= REDIS_NO_AUTO_FREE;
+    }
+
+    if (options->type == REDIS_CONN_TCP) {
+        redisContextConnectBindTcp(c, options->endpoint.tcp.ip,
+                                   options->endpoint.tcp.port, options->timeout,
+                                   options->endpoint.tcp.source_addr);
+    } else if (options->type == REDIS_CONN_UNIX) {
+        redisContextConnectUnix(c, options->endpoint.unix_socket,
+                                options->timeout);
+    } else if (options->type == REDIS_CONN_USERFD) {
+        c->fd = options->endpoint.fd;
+        c->flags |= REDIS_CONNECTED;
+    } else {
+        // Unknown type - FIXME - FREE
+        return NULL;
+    }
+    if (options->timeout != NULL && (c->flags & REDIS_BLOCK) && c->fd != REDIS_INVALID_FD) {
+        redisContextSetTimeout(c, *options->timeout);
+    }
+    return c;
+}
+
 /* Connect to a Redis instance. On error the field error in the returned
  * context will be set to the return value of the error function.
  * When no set of reply functions is given, the default set will be used. */
 redisContext *redisConnect(const char *ip, int port) {
-    redisContext *c;
-
-    c = redisContextInit();
-    if (c == NULL)
-        return NULL;
-
-    c->flags |= REDIS_BLOCK;
-    redisContextConnectTcp(c,ip,port,NULL);
-    return c;
+    redisOptions options = {0};
+    REDIS_OPTIONS_SET_TCP(&options, ip, port);
+    return redisConnectWithOptions(&options);
 }
 
 redisContext *redisConnectWithTimeout(const char *ip, int port, const struct timeval tv) {
-    redisContext *c;
-
-    c = redisContextInit();
-    if (c == NULL)
-        return NULL;
-
-    c->flags |= REDIS_BLOCK;
-    redisContextConnectTcp(c,ip,port,&tv);
-    return c;
+    redisOptions options = {0};
+    REDIS_OPTIONS_SET_TCP(&options, ip, port);
+    options.timeout = &tv;
+    return redisConnectWithOptions(&options);
 }
 
 redisContext *redisConnectNonBlock(const char *ip, int port) {
-    redisContext *c;
-
-    c = redisContextInit();
-    if (c == NULL)
-        return NULL;
-
-    c->flags &= ~REDIS_BLOCK;
-    redisContextConnectTcp(c,ip,port,NULL);
-    return c;
+    redisOptions options = {0};
+    REDIS_OPTIONS_SET_TCP(&options, ip, port);
+    options.options |= REDIS_OPT_NONBLOCK;
+    return redisConnectWithOptions(&options);
 }
 
 redisContext *redisConnectBindNonBlock(const char *ip, int port,
                                        const char *source_addr) {
-    redisContext *c = redisContextInit();
-    if (c == NULL)
-        return NULL;
-    c->flags &= ~REDIS_BLOCK;
-    redisContextConnectBindTcp(c,ip,port,NULL,source_addr);
-    return c;
+    redisOptions options = {0};
+    REDIS_OPTIONS_SET_TCP(&options, ip, port);
+    options.endpoint.tcp.source_addr = source_addr;
+    options.options |= REDIS_OPT_NONBLOCK;
+    return redisConnectWithOptions(&options);
 }
 
 redisContext *redisConnectBindNonBlockWithReuse(const char *ip, int port,
                                                 const char *source_addr) {
-    redisContext *c = redisContextInit();
-    if (c == NULL)
-        return NULL;
-    c->flags &= ~REDIS_BLOCK;
-    c->flags |= REDIS_REUSEADDR;
-    redisContextConnectBindTcp(c,ip,port,NULL,source_addr);
-    return c;
+    redisOptions options = {0};
+    REDIS_OPTIONS_SET_TCP(&options, ip, port);
+    options.endpoint.tcp.source_addr = source_addr;
+    options.options |= REDIS_OPT_NONBLOCK|REDIS_OPT_REUSEADDR;
+    return redisConnectWithOptions(&options);
 }
 
 redisContext *redisConnectUnix(const char *path) {
-    redisContext *c;
-
-    c = redisContextInit();
-    if (c == NULL)
-        return NULL;
-
-    c->flags |= REDIS_BLOCK;
-    redisContextConnectUnix(c,path,NULL);
-    return c;
+    redisOptions options = {0};
+    REDIS_OPTIONS_SET_UNIX(&options, path);
+    return redisConnectWithOptions(&options);
 }
 
 redisContext *redisConnectUnixWithTimeout(const char *path, const struct timeval tv) {
-    redisContext *c;
-
-    c = redisContextInit();
-    if (c == NULL)
-        return NULL;
-
-    c->flags |= REDIS_BLOCK;
-    redisContextConnectUnix(c,path,&tv);
-    return c;
+    redisOptions options = {0};
+    REDIS_OPTIONS_SET_UNIX(&options, path);
+    options.timeout = &tv;
+    return redisConnectWithOptions(&options);
 }
 
 redisContext *redisConnectUnixNonBlock(const char *path) {
-    redisContext *c;
-
-    c = redisContextInit();
-    if (c == NULL)
-        return NULL;
-
-    c->flags &= ~REDIS_BLOCK;
-    redisContextConnectUnix(c,path,NULL);
-    return c;
+    redisOptions options = {0};
+    REDIS_OPTIONS_SET_UNIX(&options, path);
+    options.options |= REDIS_OPT_NONBLOCK;
+    return redisConnectWithOptions(&options);
 }
 
-redisContext *redisConnectFd(int fd) {
-    redisContext *c;
-
-    c = redisContextInit();
-    if (c == NULL)
-        return NULL;
-
-    c->fd = fd;
-    c->flags |= REDIS_BLOCK | REDIS_CONNECTED;
-    return c;
+redisContext *redisConnectFd(redisFD fd) {
+    redisOptions options = {0};
+    options.type = REDIS_CONN_USERFD;
+    options.endpoint.fd = fd;
+    return redisConnectWithOptions(&options);
 }
 
 /* Set read/write timeout on a blocking socket. */
@@ -853,22 +878,15 @@ int redisBufferRead(redisContext *c) {
     if (c->err)
         return REDIS_ERR;
 
-    nread = read(c->fd,buf,sizeof(buf));
-    if (nread == -1) {
-        if ((errno == EAGAIN && !(c->flags & REDIS_BLOCK)) || (errno == EINTR)) {
-            /* Try again later */
+    nread = c->funcs->read(c, buf, sizeof(buf));
+    if (nread > 0) {
+        if (redisReaderFeed(c->reader, buf, nread) != REDIS_OK) {
+            __redisSetError(c, c->reader->err, c->reader->errstr);
+            return REDIS_ERR;
         } else {
-            __redisSetError(c,REDIS_ERR_IO,NULL);
-            return REDIS_ERR;
         }
-    } else if (nread == 0) {
-        __redisSetError(c,REDIS_ERR_EOF,"Server closed the connection");
+    } else if (nread < 0) {
         return REDIS_ERR;
-    } else {
-        if (redisReaderFeed(c->reader,buf,nread) != REDIS_OK) {
-            __redisSetError(c,c->reader->err,c->reader->errstr);
-            return REDIS_ERR;
-        }
     }
     return REDIS_OK;
 }
@@ -883,21 +901,15 @@ int redisBufferRead(redisContext *c) {
  * c->errstr to hold the appropriate error string.
  */
 int redisBufferWrite(redisContext *c, int *done) {
-    int nwritten;
 
     /* Return early when the context has seen an error. */
     if (c->err)
         return REDIS_ERR;
 
     if (sdslen(c->obuf) > 0) {
-        nwritten = write(c->fd,c->obuf,sdslen(c->obuf));
-        if (nwritten == -1) {
-            if ((errno == EAGAIN && !(c->flags & REDIS_BLOCK)) || (errno == EINTR)) {
-                /* Try again later */
-            } else {
-                __redisSetError(c,REDIS_ERR_IO,NULL);
-                return REDIS_ERR;
-            }
+        int nwritten = c->funcs->write(c);
+        if (nwritten < 0) {
+            return REDIS_ERR;
         } else if (nwritten > 0) {
             if (nwritten == (signed)sdslen(c->obuf)) {
                 sdsfree(c->obuf);

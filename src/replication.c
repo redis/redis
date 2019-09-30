@@ -751,11 +751,11 @@ void syncCommand(client *c) {
             /* Target is disk (or the slave is not capable of supporting
              * diskless replication) and we don't have a BGSAVE in progress,
              * let's start one. */
-            if (server.aof_child_pid == -1) {
+            if (!hasActiveChildProcess()) {
                 startBgsaveForReplication(c->slave_capa);
             } else {
                 serverLog(LL_NOTICE,
-                    "No BGSAVE in progress, but an AOF rewrite is active. "
+                    "No BGSAVE in progress, but another BG operation is active. "
                     "BGSAVE for replication delayed");
             }
         }
@@ -823,7 +823,9 @@ void replconfCommand(client *c) {
             c->repl_ack_time = server.unixtime;
             /* If this was a diskless replication, we need to really put
              * the slave online when the first ACK is received (which
-             * confirms slave is online and ready to get more data). */
+             * confirms slave is online and ready to get more data). This
+             * allows for simpler and less CPU intensive EOF detection
+             * when streaming RDB files. */
             if (c->repl_put_online_on_ack && c->replstate == SLAVE_STATE_ONLINE)
                 putSlaveOnline(c);
             /* Note: this command does not reply anything! */
@@ -842,18 +844,20 @@ void replconfCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-/* This function puts a slave in the online state, and should be called just
- * after a slave received the RDB file for the initial synchronization, and
+/* This function puts a replica in the online state, and should be called just
+ * after a replica received the RDB file for the initial synchronization, and
  * we are finally ready to send the incremental stream of commands.
  *
  * It does a few things:
  *
- * 1) Put the slave in ONLINE state (useless when the function is called
- *    because state is already ONLINE but repl_put_online_on_ack is true).
+ * 1) Put the slave in ONLINE state. Note that the function may also be called
+ *    for a replicas that are already in ONLINE state, but having the flag
+ *    repl_put_online_on_ack set to true: we still have to install the write
+ *    handler in that case. This function will take care of that.
  * 2) Make sure the writable event is re-installed, since calling the SYNC
  *    command disables it, so that we can accumulate output buffer without
- *    sending it to the slave.
- * 3) Update the count of good slaves. */
+ *    sending it to the replica.
+ * 3) Update the count of "good replicas". */
 void putSlaveOnline(client *slave) {
     slave->replstate = SLAVE_STATE_ONLINE;
     slave->repl_put_online_on_ack = 0;
@@ -965,11 +969,31 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                 serverLog(LL_NOTICE,
                     "Streamed RDB transfer with replica %s succeeded (socket). Waiting for REPLCONF ACK from slave to enable streaming",
                         replicationGetSlaveName(slave));
-                /* Note: we wait for a REPLCONF ACK message from slave in
+                /* Note: we wait for a REPLCONF ACK message from the replica in
                  * order to really put it online (install the write handler
                  * so that the accumulated data can be transferred). However
                  * we change the replication state ASAP, since our slave
-                 * is technically online now. */
+                 * is technically online now.
+                 *
+                 * So things work like that:
+                 *
+                 * 1. We end trasnferring the RDB file via socket.
+                 * 2. The replica is put ONLINE but the write handler
+                 *    is not installed.
+                 * 3. The replica however goes really online, and pings us
+                 *    back via REPLCONF ACK commands.
+                 * 4. Now we finally install the write handler, and send
+                 *    the buffers accumulated so far to the replica.
+                 *
+                 * But why we do that? Because the replica, when we stream
+                 * the RDB directly via the socket, must detect the RDB
+                 * EOF (end of file), that is a special random string at the
+                 * end of the RDB (for streamed RDBs we don't know the length
+                 * in advance). Detecting such final EOF string is much
+                 * simpler and less CPU intensive if no more data is sent
+                 * after such final EOF. So we don't want to glue the end of
+                 * the RDB trasfer with the start of the other replication
+                 * data. */
                 slave->replstate = SLAVE_STATE_ONLINE;
                 slave->repl_put_online_on_ack = 1;
                 slave->repl_ack_time = server.unixtime; /* Timeout otherwise. */
@@ -1115,8 +1139,15 @@ void restartAOFAfterSYNC() {
 
 static int useDisklessLoad() {
     /* compute boolean decision to use diskless load */
-    return server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB ||
+    int enabled = server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB ||
            (server.repl_diskless_load == REPL_DISKLESS_LOAD_WHEN_DB_EMPTY && dbTotalServerKeyCount()==0);
+    /* Check all modules handle read errors, otherwise it's not safe to use diskless load. */
+    if (enabled && !moduleAllDatatypesHandleErrors()) {
+        serverLog(LL_WARNING,
+            "Skipping diskless-load because there are modules that don't handle read errors.");
+        enabled = 0;
+    }
+    return enabled;
 }
 
 /* Helper function for readSyncBulkPayload() to make backups of the current
@@ -2899,7 +2930,7 @@ void replicationCron(void) {
      * In case of diskless replication, we make sure to wait the specified
      * number of seconds (according to configuration) so that other slaves
      * have the time to arrive before we start streaming. */
-    if (server.rdb_child_pid == -1 && server.aof_child_pid == -1) {
+    if (!hasActiveChildProcess()) {
         time_t idle, max_idle = 0;
         int slaves_waiting = 0;
         int mincapa = -1;

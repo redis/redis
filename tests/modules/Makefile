@@ -13,15 +13,23 @@ endif
 
 .SUFFIXES: .c .so .xo .o
 
-all: commandfilter.so infotest.so
+all: commandfilter.so testrdb.so fork.so infotest.so
 
 .c.xo:
 	$(CC) -I../../src $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
 
 commandfilter.xo: ../../src/redismodule.h
+fork.xo: ../../src/redismodule.h
+testrdb.xo: ../../src/redismodule.h
 infotest.xo: ../../src/redismodule.h
 
 commandfilter.so: commandfilter.xo
+	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lc
+
+fork.so: fork.xo
+	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lc
+
+testrdb.so: testrdb.xo
 	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lc
 
 infotest.so: infotest.xo

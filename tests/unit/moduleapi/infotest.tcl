@@ -14,7 +14,7 @@ start_server {tags {"modules"}} {
         set info [r info all]
         # info all does not contain modules
         assert { ![string match "*Spanish*" $info] }
-        assert { ![string match "*infotest*" $info] }
+        assert { ![string match "*infotest_*" $info] }
         assert { [string match "*used_memory*" $info] }
     }
 
