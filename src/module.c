@@ -4824,7 +4824,7 @@ int RM_InfoEndDictField(RedisModuleInfoCtx *ctx);
 int RM_InfoAddSection(RedisModuleInfoCtx *ctx, char *name) {
     sds full_name = sdsdup(ctx->module->name);
     if (name != NULL && strlen(name) > 0)
-        full_name = sdscatprintf(full_name, "_%s", name);
+        full_name = sdscatfmt(full_name, "_%s", name);
 
     /* Implicitly end dicts, instead of returning an error which is likely un checked. */
     if (ctx->in_dict_field)
@@ -4843,7 +4843,7 @@ int RM_InfoAddSection(RedisModuleInfoCtx *ctx, char *name) {
         }
     }
     if (ctx->sections++) ctx->info = sdscat(ctx->info,"\r\n");
-    ctx->info = sdscatprintf(ctx->info, "# %s\r\n", full_name);
+    ctx->info = sdscatfmt(ctx->info, "# %S\r\n", full_name);
     ctx->in_section = 1;
     sdsfree(full_name);
     return REDISMODULE_OK;
@@ -4858,7 +4858,7 @@ int RM_InfoBeginDictField(RedisModuleInfoCtx *ctx, char *name) {
     /* Implicitly end dicts, instead of returning an error which is likely un checked. */
     if (ctx->in_dict_field)
         RM_InfoEndDictField(ctx);
-    ctx->info = sdscatprintf(ctx->info,
+    ctx->info = sdscatfmt(ctx->info,
         "%s_%s:",
         ctx->module->name,
         name);
@@ -4873,7 +4873,7 @@ int RM_InfoEndDictField(RedisModuleInfoCtx *ctx) {
     /* trim the last ',' if found. */
     if (ctx->info[sdslen(ctx->info)-1]==',')
         sdsIncrLen(ctx->info, -1);
-    ctx->info = sdscatprintf(ctx->info, "\r\n");
+    ctx->info = sdscat(ctx->info, "\r\n");
     ctx->in_dict_field = 0;
     return REDISMODULE_OK;
 }
@@ -4885,14 +4885,14 @@ int RM_InfoAddFieldString(RedisModuleInfoCtx *ctx, char *field, RedisModuleStrin
     if (!ctx->in_section)
         return REDISMODULE_ERR;
     if (ctx->in_dict_field) {
-        ctx->info = sdscatprintf(ctx->info,
-            "%s=%s,",
+        ctx->info = sdscatfmt(ctx->info,
+            "%s=%S,",
             field,
             (sds)value->ptr);
         return REDISMODULE_OK;
     }
-    ctx->info = sdscatprintf(ctx->info,
-        "%s_%s:%s\r\n",
+    ctx->info = sdscatfmt(ctx->info,
+        "%s_%s:%S\r\n",
         ctx->module->name,
         field,
         (sds)value->ptr);
@@ -4903,13 +4903,13 @@ int RM_InfoAddFieldCString(RedisModuleInfoCtx *ctx, char *field, char *value) {
     if (!ctx->in_section)
         return REDISMODULE_ERR;
     if (ctx->in_dict_field) {
-        ctx->info = sdscatprintf(ctx->info,
+        ctx->info = sdscatfmt(ctx->info,
             "%s=%s,",
             field,
             value);
         return REDISMODULE_OK;
     }
-    ctx->info = sdscatprintf(ctx->info,
+    ctx->info = sdscatfmt(ctx->info,
         "%s_%s:%s\r\n",
         ctx->module->name,
         field,
@@ -4939,14 +4939,14 @@ int RM_InfoAddFieldLongLong(RedisModuleInfoCtx *ctx, char *field, long long valu
     if (!ctx->in_section)
         return REDISMODULE_ERR;
     if (ctx->in_dict_field) {
-        ctx->info = sdscatprintf(ctx->info,
-            "%s=%lld,",
+        ctx->info = sdscatfmt(ctx->info,
+            "%s=%I,",
             field,
             value);
         return REDISMODULE_OK;
     }
-    ctx->info = sdscatprintf(ctx->info,
-        "%s_%s:%lld\r\n",
+    ctx->info = sdscatfmt(ctx->info,
+        "%s_%s:%I\r\n",
         ctx->module->name,
         field,
         value);
@@ -4957,14 +4957,14 @@ int RM_InfoAddFieldULongLong(RedisModuleInfoCtx *ctx, char *field, unsigned long
     if (!ctx->in_section)
         return REDISMODULE_ERR;
     if (ctx->in_dict_field) {
-        ctx->info = sdscatprintf(ctx->info,
-            "%s=%llu,",
+        ctx->info = sdscatfmt(ctx->info,
+            "%s=%U,",
             field,
             value);
         return REDISMODULE_OK;
     }
-    ctx->info = sdscatprintf(ctx->info,
-        "%s_%s:%llu\r\n",
+    ctx->info = sdscatfmt(ctx->info,
+        "%s_%s:%U\r\n",
         ctx->module->name,
         field,
         value);
@@ -5712,9 +5712,9 @@ sds genModulesInfoString(sds info) {
         sds usedby = genModulesInfoStringRenderModulesList(module->usedby);
         sds using = genModulesInfoStringRenderModulesList(module->using);
         sds options = genModulesInfoStringRenderModuleOptions(module);
-        info = sdscatprintf(info,
-            "module:name=%s,ver=%d,api=%d,filters=%d,"
-            "usedby=%s,using=%s,options=%s\r\n",
+        info = sdscatfmt(info,
+            "module:name=%S,ver=%i,api=%i,filters=%i,"
+            "usedby=%S,using=%S,options=%S\r\n",
                 name, module->ver, module->apiver,
                 (int)listLength(module->filters), usedby, using, options);
         sdsfree(usedby);
