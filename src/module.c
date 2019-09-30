@@ -1149,10 +1149,11 @@ int RM_ReplyWithLongLong(RedisModuleCtx *ctx, long long ll) {
 int replyWithStatus(RedisModuleCtx *ctx, const char *msg, char *prefix) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
-    sds strmsg = sdsnewlen(prefix,1);
-    strmsg = sdscat(strmsg,msg);
-    strmsg = sdscatlen(strmsg,"\r\n",2);
-    addReplySds(c,strmsg);
+    const size_t msgLen = strlen(msg);
+    const size_t prefixLen = strlen(prefix);
+    addReplyProto(c,prefix,prefixLen);
+    addReplyProto(c,msg,msgLen);
+    addReplyProto(c,"\r\n",2);
     return REDISMODULE_OK;
 }
 
