@@ -55,6 +55,12 @@ start_server {tags {"acl"}} {
         assert_no_match {*passwd4*} $passstr
     }
 
+    test {Test hashed passwords removal} {
+        r ACL setuser newuser !34344e4d60c2b6d639b7bd22e18f2b0b91bc34bf0ac5f9952744435093cfb4e6
+        set passstr [dict get [r ACL getuser newuser] passwords]
+        assert_no_match {*34344e4d60c2b6d639b7bd22e18f2b0b91bc34bf0ac5f9952744435093cfb4e6*} $passstr
+    }
+
     test {By default users are not able to access any command} {
         catch {r SET foo bar} e
         set e
