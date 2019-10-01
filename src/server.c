@@ -3861,12 +3861,15 @@ sds genRedisInfoString(char *section) {
     time_t uptime = server.unixtime-server.stat_starttime;
     int j;
     struct rusage self_ru, c_ru;
-    int allsections = 0, defsections = 0;
+    int allsections = 0, defsections = 0, everything = 0, modules = 0;
     int sections = 0;
 
     if (section == NULL) section = "default";
     allsections = strcasecmp(section,"all") == 0;
     defsections = strcasecmp(section,"default") == 0;
+    everything = strcasecmp(section,"everything") == 0;
+    modules = strcasecmp(section,"modules") == 0;
+    if (everything) allsections = 1;
 
     getrusage(RUSAGE_SELF, &self_ru);
     getrusage(RUSAGE_CHILDREN, &c_ru);
@@ -4424,6 +4427,17 @@ sds genRedisInfoString(char *section) {
                     j, keys, vkeys, server.db[j].avg_ttl);
             }
         }
+    }
+
+    /* Get info from modules.
+     * if user asked for "everything" or "modules", or a specific section
+     * that's not found yet. */
+    if (everything || modules ||
+        (!allsections && !defsections && sections==0)) {
+        info = modulesCollectInfo(info,
+                                  everything || modules ? NULL: section,
+                                  0, /* not a crash report */
+                                  sections);
     }
     return info;
 }

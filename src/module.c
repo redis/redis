@@ -42,6 +42,17 @@
  * pointers that have an API the module can call with them)
  * -------------------------------------------------------------------------- */
 
+typedef struct RedisModuleInfoCtx {
+    struct RedisModule *module;
+    sds requested_section;
+    sds info;           /* info string we collected so far */
+    int sections;       /* number of sections we collected so far */
+    int in_section;     /* indication if we're in an active section or not */
+    int in_dict_field;  /* indication that we're curreintly appending to a dict */
+} RedisModuleInfoCtx;
+
+typedef void (*RedisModuleInfoFunc)(RedisModuleInfoCtx *ctx, int for_crash_report);
+
 /* This structure represents a module inside the system. */
 struct RedisModule {
     void *handle;   /* Module dlopen() handle. */
@@ -54,6 +65,7 @@ struct RedisModule {
     list *filters;  /* List of filters the module has registered. */
     int in_call;    /* RM_Call() nesting level */
     int options;    /* Module options and capabilities. */
+    RedisModuleInfoFunc info_cb;     /* callback for module to add INFO fields. */
 };
 typedef struct RedisModule RedisModule;
 
@@ -4796,6 +4808,194 @@ int RM_DictCompare(RedisModuleDictIter *di, const char *op, RedisModuleString *k
     return res ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
+
+
+
+/* --------------------------------------------------------------------------
+ * Modules Info fields
+ * -------------------------------------------------------------------------- */
+
+int RM_InfoEndDictField(RedisModuleInfoCtx *ctx);
+
+/* Used to start a new section, before adding any fields. the section name will
+ * be prefixed by "<modulename>_" and must only include A-Z,a-z,0-9.
+ * NULL or empty string indicates the default section (only <modulename>) is used.
+ * When return value is REDISMODULE_ERR, the section should and will be skipped. */
+int RM_InfoAddSection(RedisModuleInfoCtx *ctx, char *name) {
+    sds full_name = sdsdup(ctx->module->name);
+    if (name != NULL && strlen(name) > 0)
+        full_name = sdscatfmt(full_name, "_%s", name);
+
+    /* Implicitly end dicts, instead of returning an error which is likely un checked. */
+    if (ctx->in_dict_field)
+        RM_InfoEndDictField(ctx);
+
+    /* proceed only if:
+     * 1) no section was requested (emit all)
+     * 2) the module name was requested (emit all)
+     * 3) this specific section was requested. */
+    if (ctx->requested_section) {
+        if (strcasecmp(ctx->requested_section, full_name) &&
+            strcasecmp(ctx->requested_section, ctx->module->name)) {
+            sdsfree(full_name);
+            ctx->in_section = 0;
+            return REDISMODULE_ERR;
+        }
+    }
+    if (ctx->sections++) ctx->info = sdscat(ctx->info,"\r\n");
+    ctx->info = sdscatfmt(ctx->info, "# %S\r\n", full_name);
+    ctx->in_section = 1;
+    sdsfree(full_name);
+    return REDISMODULE_OK;
+}
+
+/* Starts a dict field, similar to the ones in INFO KEYSPACE. Use normal
+ * RedisModule_InfoAddField* functions to add the items to this field, and
+ * terminate with RedisModule_InfoEndDictField. */
+int RM_InfoBeginDictField(RedisModuleInfoCtx *ctx, char *name) {
+    if (!ctx->in_section)
+        return REDISMODULE_ERR;
+    /* Implicitly end dicts, instead of returning an error which is likely un checked. */
+    if (ctx->in_dict_field)
+        RM_InfoEndDictField(ctx);
+    ctx->info = sdscatfmt(ctx->info,
+        "%s_%s:",
+        ctx->module->name,
+        name);
+    ctx->in_dict_field = 1;
+    return REDISMODULE_OK;
+}
+
+/* Ends a dict field, see RedisModule_InfoBeginDictField */
+int RM_InfoEndDictField(RedisModuleInfoCtx *ctx) {
+    if (!ctx->in_dict_field)
+        return REDISMODULE_ERR;
+    /* trim the last ',' if found. */
+    if (ctx->info[sdslen(ctx->info)-1]==',')
+        sdsIncrLen(ctx->info, -1);
+    ctx->info = sdscat(ctx->info, "\r\n");
+    ctx->in_dict_field = 0;
+    return REDISMODULE_OK;
+}
+
+/* Used by RedisModuleInfoFunc to add info fields.
+ * Each field will be automatically prefixed by "<modulename>_".
+ * Field names or values must not include \r\n of ":" */
+int RM_InfoAddFieldString(RedisModuleInfoCtx *ctx, char *field, RedisModuleString *value) {
+    if (!ctx->in_section)
+        return REDISMODULE_ERR;
+    if (ctx->in_dict_field) {
+        ctx->info = sdscatfmt(ctx->info,
+            "%s=%S,",
+            field,
+            (sds)value->ptr);
+        return REDISMODULE_OK;
+    }
+    ctx->info = sdscatfmt(ctx->info,
+        "%s_%s:%S\r\n",
+        ctx->module->name,
+        field,
+        (sds)value->ptr);
+    return REDISMODULE_OK;
+}
+
+int RM_InfoAddFieldCString(RedisModuleInfoCtx *ctx, char *field, char *value) {
+    if (!ctx->in_section)
+        return REDISMODULE_ERR;
+    if (ctx->in_dict_field) {
+        ctx->info = sdscatfmt(ctx->info,
+            "%s=%s,",
+            field,
+            value);
+        return REDISMODULE_OK;
+    }
+    ctx->info = sdscatfmt(ctx->info,
+        "%s_%s:%s\r\n",
+        ctx->module->name,
+        field,
+        value);
+    return REDISMODULE_OK;
+}
+
+int RM_InfoAddFieldDouble(RedisModuleInfoCtx *ctx, char *field, double value) {
+    if (!ctx->in_section)
+        return REDISMODULE_ERR;
+    if (ctx->in_dict_field) {
+        ctx->info = sdscatprintf(ctx->info,
+            "%s=%.17g,",
+            field,
+            value);
+        return REDISMODULE_OK;
+    }
+    ctx->info = sdscatprintf(ctx->info,
+        "%s_%s:%.17g\r\n",
+        ctx->module->name,
+        field,
+        value);
+    return REDISMODULE_OK;
+}
+
+int RM_InfoAddFieldLongLong(RedisModuleInfoCtx *ctx, char *field, long long value) {
+    if (!ctx->in_section)
+        return REDISMODULE_ERR;
+    if (ctx->in_dict_field) {
+        ctx->info = sdscatfmt(ctx->info,
+            "%s=%I,",
+            field,
+            value);
+        return REDISMODULE_OK;
+    }
+    ctx->info = sdscatfmt(ctx->info,
+        "%s_%s:%I\r\n",
+        ctx->module->name,
+        field,
+        value);
+    return REDISMODULE_OK;
+}
+
+int RM_InfoAddFieldULongLong(RedisModuleInfoCtx *ctx, char *field, unsigned long long value) {
+    if (!ctx->in_section)
+        return REDISMODULE_ERR;
+    if (ctx->in_dict_field) {
+        ctx->info = sdscatfmt(ctx->info,
+            "%s=%U,",
+            field,
+            value);
+        return REDISMODULE_OK;
+    }
+    ctx->info = sdscatfmt(ctx->info,
+        "%s_%s:%U\r\n",
+        ctx->module->name,
+        field,
+        value);
+    return REDISMODULE_OK;
+}
+
+int RM_RegisterInfoFunc(RedisModuleCtx *ctx, RedisModuleInfoFunc cb) {
+    ctx->module->info_cb = cb;
+    return REDISMODULE_OK;
+}
+
+sds modulesCollectInfo(sds info, sds section, int for_crash_report, int sections) {
+    dictIterator *di = dictGetIterator(modules);
+    dictEntry *de;
+
+    while ((de = dictNext(di)) != NULL) {
+        struct RedisModule *module = dictGetVal(de);
+        if (!module->info_cb)
+            continue;
+        RedisModuleInfoCtx info_ctx = {module, section, info, sections, 0};
+        module->info_cb(&info_ctx, for_crash_report);
+        /* Implicitly end dicts (no way to handle errors, and we must add the newline). */
+        if (info_ctx.in_dict_field)
+            RM_InfoEndDictField(&info_ctx);
+        info = info_ctx.info;
+        sections = info_ctx.sections;
+    }
+    dictReleaseIterator(di);
+    return info;
+}
+
 /* --------------------------------------------------------------------------
  * Modules utility APIs
  * -------------------------------------------------------------------------- */
@@ -5512,9 +5712,9 @@ sds genModulesInfoString(sds info) {
         sds usedby = genModulesInfoStringRenderModulesList(module->usedby);
         sds using = genModulesInfoStringRenderModulesList(module->using);
         sds options = genModulesInfoStringRenderModuleOptions(module);
-        info = sdscatprintf(info,
-            "module:name=%s,ver=%d,api=%d,filters=%d,"
-            "usedby=%s,using=%s,options=%s\r\n",
+        info = sdscatfmt(info,
+            "module:name=%S,ver=%i,api=%i,filters=%i,"
+            "usedby=%S,using=%S,options=%S\r\n",
                 name, module->ver, module->apiver,
                 (int)listLength(module->filters), usedby, using, options);
         sdsfree(usedby);
@@ -5761,4 +5961,13 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(Fork);
     REGISTER_API(ExitFromChild);
     REGISTER_API(KillForkChild);
+    REGISTER_API(RegisterInfoFunc);
+    REGISTER_API(InfoAddSection);
+    REGISTER_API(InfoBeginDictField);
+    REGISTER_API(InfoEndDictField);
+    REGISTER_API(InfoAddFieldString);
+    REGISTER_API(InfoAddFieldCString);
+    REGISTER_API(InfoAddFieldDouble);
+    REGISTER_API(InfoAddFieldLongLong);
+    REGISTER_API(InfoAddFieldULongLong);
 }

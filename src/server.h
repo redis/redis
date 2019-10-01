@@ -1555,6 +1555,7 @@ void ModuleForkDoneHandler(int exitcode, int bysignal);
 int TerminateModuleForkChild(int child_pid, int wait);
 ssize_t rdbSaveModulesAux(rio *rdb, int when);
 int moduleAllDatatypesHandleErrors();
+sds modulesCollectInfo(sds info, sds section, int for_crash_report, int sections);
 
 /* Utils */
 long long ustime(void);
