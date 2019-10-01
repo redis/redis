@@ -566,7 +566,7 @@ void georadiusGeneric(client *c, int flags) {
 
     /* If no matching results, the user gets an empty reply. */
     if (ga->used == 0 && storekey == NULL) {
-        addReplyNullArray(c);
+        addReply(c,shared.emptyarray);
         geoArrayFree(ga);
         return;
     }
