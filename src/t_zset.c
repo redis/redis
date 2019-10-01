@@ -2579,7 +2579,7 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
 
     /* For invalid offset, return directly. */
     if (offset > 0 && offset >= zsetLength(zobj)) {
-        addReplyNull(c);
+        addReply(c,shared.emptyarray);
         return;
     }
 
