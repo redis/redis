@@ -277,6 +277,7 @@ void lolwut5Command(client *c) {
         "\nGeorg Nees - schotter, plotter on paper, 1968. Redis ver. ");
     rendered = sdscat(rendered,REDIS_VERSION);
     rendered = sdscatlen(rendered,"\n",1);
-    addReplyBulkSds(c,rendered);
+    addReplyVerbatim(c,rendered,sdslen(rendered),"txt");
+    sdsfree(rendered);
     lwFreeCanvas(canvas);
 }

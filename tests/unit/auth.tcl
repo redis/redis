@@ -2,14 +2,14 @@ start_server {tags {"auth"}} {
     test {AUTH fails if there is no password configured server side} {
         catch {r auth foo} err
         set _ $err
-    } {ERR*no password*}
+    } {ERR*any password*}
 }
 
 start_server {tags {"auth"} overrides {requirepass foobar}} {
     test {AUTH fails when a wrong password is given} {
         catch {r auth wrong!} err
         set _ $err
-    } {ERR*invalid password}
+    } {WRONGPASS*}
 
     test {Arbitrary command gives an error when AUTH is required} {
         catch {r set foo bar} err

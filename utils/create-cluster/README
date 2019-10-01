@@ -16,7 +16,7 @@ To create a cluster, follow these steps:
 number of instances you want to create.
 2. Use "./create-cluster start" in order to run the instances.
 3. Use "./create-cluster create" in order to execute redis-cli --cluster create, so that
-an actual Redis cluster will be created.
+an actual Redis cluster will be created. (If you're accessing your setup via a local container, ensure that the CLUSTER_HOST value is changed to your local IP)
 4. Now you are ready to play with the cluster. AOF files and logs for each instances are created in the current directory.
 
 In order to stop a cluster:

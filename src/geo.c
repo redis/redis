@@ -466,7 +466,7 @@ void georadiusGeneric(client *c, int flags) {
 
     /* Look up the requested zset */
     robj *zobj = NULL;
-    if ((zobj = lookupKeyReadOrReply(c, key, shared.null[c->resp])) == NULL ||
+    if ((zobj = lookupKeyReadOrReply(c, key, shared.emptyarray)) == NULL ||
         checkType(c, zobj, OBJ_ZSET)) {
         return;
     }
@@ -566,7 +566,7 @@ void georadiusGeneric(client *c, int flags) {
 
     /* If no matching results, the user gets an empty reply. */
     if (ga->used == 0 && storekey == NULL) {
-        addReplyNull(c);
+        addReplyNullArray(c);
         geoArrayFree(ga);
         return;
     }
@@ -659,7 +659,7 @@ void georadiusGeneric(client *c, int flags) {
             zsetConvertToZiplistIfNeeded(zobj,maxelelen);
             setKey(c->db,storekey,zobj);
             decrRefCount(zobj);
-            notifyKeyspaceEvent(NOTIFY_LIST,"georadiusstore",storekey,
+            notifyKeyspaceEvent(NOTIFY_ZSET,"georadiusstore",storekey,
                                 c->db->id);
             server.dirty += returned_items;
         } else if (dbDelete(c->db,storekey)) {

@@ -37,6 +37,10 @@
 
 #include "hiredis.h"
 
+void redisNetClose(redisContext *c);
+int redisNetRead(redisContext *c, char *buf, size_t bufcap);
+int redisNetWrite(redisContext *c);
+
 int redisCheckSocketError(redisContext *c);
 int redisContextSetTimeout(redisContext *c, const struct timeval tv);
 int redisContextConnectTcp(redisContext *c, const char *addr, int port, const struct timeval *timeout);
