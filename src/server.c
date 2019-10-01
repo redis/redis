@@ -3897,6 +3897,7 @@ sds genRedisInfoString(char *section) {
             "redis_build_id:%llx\r\n"
             "redis_mode:%s\r\n"
             "os:%s %s %s\r\n"
+            "hostname:%s\r\n"
             "arch_bits:%d\r\n"
             "multiplexing_api:%s\r\n"
             "atomicvar_api:%s\r\n"
@@ -3917,6 +3918,7 @@ sds genRedisInfoString(char *section) {
             (unsigned long long) redisBuildId(),
             mode,
             name.sysname, name.release, name.machine,
+            name.nodename,
             server.arch_bits,
             aeGetApiName(),
             REDIS_ATOMIC_API,
