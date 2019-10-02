@@ -3892,32 +3892,32 @@ sds genRedisInfoString(char *section) {
             call_uname = 0;
         }
 
-        info = sdscatprintf(info,
+        info = sdscatfmt(info,
             "# Server\r\n"
             "redis_version:%s\r\n"
             "redis_git_sha1:%s\r\n"
-            "redis_git_dirty:%d\r\n"
-            "redis_build_id:%llx\r\n"
+            "redis_git_dirty:%i\r\n"
+            "redis_build_id:%s\r\n"
             "redis_mode:%s\r\n"
             "os:%s %s %s\r\n"
-            "arch_bits:%d\r\n"
+            "arch_bits:%i\r\n"
             "multiplexing_api:%s\r\n"
             "atomicvar_api:%s\r\n"
-            "gcc_version:%d.%d.%d\r\n"
-            "process_id:%ld\r\n"
+            "gcc_version:%i.%i.%i\r\n"
+            "process_id:%I\r\n"
             "run_id:%s\r\n"
-            "tcp_port:%d\r\n"
-            "uptime_in_seconds:%jd\r\n"
-            "uptime_in_days:%jd\r\n"
-            "hz:%d\r\n"
-            "configured_hz:%d\r\n"
-            "lru_clock:%ld\r\n"
+            "tcp_port:%i\r\n"
+            "uptime_in_seconds:%I\r\n"
+            "uptime_in_days:%I\r\n"
+            "hz:%i\r\n"
+            "configured_hz:%i\r\n"
+            "lru_clock:%u\r\n"
             "executable:%s\r\n"
             "config_file:%s\r\n",
             REDIS_VERSION,
             redisGitSHA1(),
             strtol(redisGitDirty(),NULL,10) > 0,
-            (unsigned long long) redisBuildId(),
+            redisBuildIdString(),
             mode,
             name.sysname, name.release, name.machine,
             server.arch_bits,
@@ -3928,14 +3928,14 @@ sds genRedisInfoString(char *section) {
 #else
             0,0,0,
 #endif
-            (long) getpid(),
+            (int64_t) getpid(),
             server.runid,
             server.port,
-            (intmax_t)uptime,
-            (intmax_t)(uptime/(3600*24)),
+            (int64_t)uptime,
+            (int64_t)(uptime/(3600*24)),
             server.hz,
             server.config_hz,
-            (unsigned long) server.lruclock,
+            server.lruclock,
             server.executable ? server.executable : "",
             server.configfile ? server.configfile : "");
     }
