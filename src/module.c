@@ -144,6 +144,7 @@ typedef struct RedisModuleCtx RedisModuleCtx;
 #define REDISMODULE_CTX_BLOCKED_TIMEOUT (1<<4)
 #define REDISMODULE_CTX_THREAD_SAFE (1<<5)
 #define REDISMODULE_CTX_BLOCKED_DISCONNECTED (1<<6)
+#define REDISMODULE_CTX_MODULE_COMMAND_CALL (1<<7)
 
 /* This represents a Redis key opened with RM_OpenKey(). */
 struct RedisModuleKey {
@@ -497,8 +498,29 @@ int RM_GetApi(const char *funcname, void **targetPtrPtr) {
     return REDISMODULE_OK;
 }
 
+/* Helper function for when a command callback is called, in order to handle
+ * details needed to correctly replicate commands. */
+void moduleHandlePropagationAfterCommandCallback(RedisModuleCtx *ctx) {
+    client *c = ctx->client;
+
+    /* We don't need to do anything here if the context was never used
+     * in order to propagate commands. */
+    if (!(ctx->flags & REDISMODULE_CTX_MULTI_EMITTED)) return;
+
+    if (c->flags & CLIENT_LUA) return;
+
+    /* Handle the replication of the final EXEC, since whatever a command
+     * emits is always wrapped around MULTI/EXEC. */
+    robj *propargv[1];
+    propargv[0] = createStringObject("EXEC",4);
+    alsoPropagate(server.execCommand,c->db->id,propargv,1,
+        PROPAGATE_AOF|PROPAGATE_REPL);
+    decrRefCount(propargv[0]);
+}
+
 /* Free the context after the user function was called. */
 void moduleFreeContext(RedisModuleCtx *ctx) {
+    moduleHandlePropagationAfterCommandCallback(ctx);
     autoMemoryCollect(ctx);
     poolAllocRelease(ctx);
     if (ctx->postponed_arrays) {
@@ -514,34 +536,16 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
     if (ctx->flags & REDISMODULE_CTX_THREAD_SAFE) freeClient(ctx->client);
 }
 
-/* Helper function for when a command callback is called, in order to handle
- * details needed to correctly replicate commands. */
-void moduleHandlePropagationAfterCommandCallback(RedisModuleCtx *ctx) {
-    client *c = ctx->client;
-
-    if (c->flags & CLIENT_LUA) return;
-
-    /* Handle the replication of the final EXEC, since whatever a command
-     * emits is always wrapped around MULTI/EXEC. */
-    if (ctx->flags & REDISMODULE_CTX_MULTI_EMITTED) {
-        robj *propargv[1];
-        propargv[0] = createStringObject("EXEC",4);
-        alsoPropagate(server.execCommand,c->db->id,propargv,1,
-            PROPAGATE_AOF|PROPAGATE_REPL);
-        decrRefCount(propargv[0]);
-    }
-}
-
 /* This Redis command binds the normal Redis command invocation with commands
  * exported by modules. */
 void RedisModuleCommandDispatcher(client *c) {
     RedisModuleCommandProxy *cp = (void*)(unsigned long)c->cmd->getkeys_proc;
     RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
 
+    ctx.flags |= REDISMODULE_CTX_MODULE_COMMAND_CALL;
     ctx.module = cp->module;
     ctx.client = c;
     cp->func(&ctx,(void**)c->argv,c->argc);
-    moduleHandlePropagationAfterCommandCallback(&ctx);
     moduleFreeContext(&ctx);
 
     /* In some cases processMultibulkBuffer uses sdsMakeRoomFor to
