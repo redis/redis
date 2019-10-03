@@ -39,6 +39,7 @@
 
 #define REDISMODULE_EXPERIMENTAL_API
 #include "redismodule.h"
+#include <pthread.h>
 
 /* Timer callback. */
 void timerHandler(RedisModuleCtx *ctx, void *data) {
@@ -47,12 +48,26 @@ void timerHandler(RedisModuleCtx *ctx, void *data) {
 
     static int times = 0;
 
-    printf("Fired!\n");
     RedisModule_Replicate(ctx,"INCR","c","timer");
     times++;
 
     if (times < 10)
         RedisModule_CreateTimer(ctx,100,timerHandler,NULL);
+    else
+        times = 0;
+}
+
+/* The thread entry point. */
+void *threadMain(void *arg) {
+    REDISMODULE_NOT_USED(arg);
+    RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+    for (int i = 0; i < 10; i++) {
+        RedisModule_ThreadSafeContextLock(ctx);
+        RedisModule_Replicate(ctx,"INCR","c","thread");
+        RedisModule_ThreadSafeContextUnlock(ctx);
+    }
+    RedisModule_FreeThreadSafeContext(ctx);
+    return NULL;
 }
 
 int propagateTestCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
@@ -60,7 +75,13 @@ int propagateTestCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
-    RedisModuleTimerID tid = RedisModule_CreateTimer(ctx,100,timerHandler,NULL);
+    RedisModuleTimerID timer_id =
+        RedisModule_CreateTimer(ctx,100,timerHandler,NULL);
+    REDISMODULE_NOT_USED(timer_id);
+
+    pthread_t tid;
+    if (pthread_create(&tid,NULL,threadMain,NULL) != 0)
+        return RedisModule_ReplyWithError(ctx,"-ERR Can't start thread");
     REDISMODULE_NOT_USED(tid);
 
     RedisModule_ReplyWithSimpleString(ctx,"OK");
