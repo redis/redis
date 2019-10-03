@@ -694,7 +694,7 @@ void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub) {
  *         fully added.
  * EEXIST: You are adding a key pattern after "*" was already added. This is
  *         almost surely an error on the user side.
- * ENODEV: The password you are trying to remove from the user does not exist.
+ * ENODEV: The username and password combination you are trying to remove does not exist.
  * EBADMSG: The hash you are trying to add is not a valid hash. 
  */
 int ACLSetUser(user *u, const char *op, ssize_t oplen) {
@@ -888,8 +888,8 @@ char *ACLSetUserStringError(void) {
                  "effect. Try 'resetkeys' to start with an empty "
                  "list of patterns";
     else if (errno == ENODEV)
-        errmsg = "The password you are trying to remove from the user does "
-                 "not exist";
+        errmsg = "The username and password combination you are trying to "
+                 "remove does not exist";
     else if (errno == EBADMSG)
         errmsg = "The password hash must be exactly 64 characters and contain "
                  "only lowercase hexadecimal characters";
