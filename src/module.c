@@ -2823,7 +2823,10 @@ fmterr:
  * NULL is returned and errno is set to the following values:
  *
  * EINVAL: command non existing, wrong arity, wrong format specifier.
- * EPERM:  operation in Cluster instance with key in non local slot. */
+ * EPERM:  operation in Cluster instance with key in non local slot.
+ *
+ * This API is documented here: https://redis.io/topics/modules-intro
+ */
 RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) {
     struct redisCommand *cmd;
     client *c = NULL;
