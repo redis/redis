@@ -1411,7 +1411,7 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
         serverLog(LL_WARNING,
             "Lua slow script detected: still in execution after %lld milliseconds. "
             "You can try killing the script using the SCRIPT KILL command. "
-            "script SHA is: %s",
+            "Script SHA1 is: %s",
             elapsed, server.lua_cur_script);
         server.lua_timedout = 1;
         /* Once the script timeouts we reenter the event loop to permit others
