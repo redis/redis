@@ -438,6 +438,7 @@ void loadServerConfigFromString(char *config) {
             server.repl_diskless_load = configEnumGetValue(repl_diskless_load_enum,argv[1]);
             if (server.repl_diskless_load == INT_MIN) {
                 err = "argument must be 'disabled', 'on-empty-db', 'swapdb' or 'flushdb'";
+                goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"repl-diskless-sync-delay") && argc==2) {
             server.repl_diskless_sync_delay = atoi(argv[1]);
