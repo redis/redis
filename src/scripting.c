@@ -1083,6 +1083,7 @@ void scriptingInit(int setup) {
     if (setup) {
         server.lua_client = NULL;
         server.lua_caller = NULL;
+        server.lua_cur_script = NULL;
         server.lua_timedout = 0;
         ldbInit();
     }
@@ -1407,7 +1408,11 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
     /* Set the timeout condition if not already set and the maximum
      * execution time was reached. */
     if (elapsed >= server.lua_time_limit && server.lua_timedout == 0) {
-        serverLog(LL_WARNING,"Lua slow script detected: still in execution after %lld milliseconds. You can try killing the script using the SCRIPT KILL command.",elapsed);
+        serverLog(LL_WARNING,
+            "Lua slow script detected: still in execution after %lld milliseconds. "
+            "You can try killing the script using the SCRIPT KILL command. "
+            "script SHA is: %s",
+            elapsed, server.lua_cur_script);
         server.lua_timedout = 1;
         /* Once the script timeouts we reenter the event loop to permit others
          * to call SCRIPT KILL or SHUTDOWN NOSAVE if needed. For this reason
@@ -1524,6 +1529,7 @@ void evalGenericCommand(client *c, int evalsha) {
      * If we are debugging, we set instead a "line" hook so that the
      * debugger is call-back at every line executed by the script. */
     server.lua_caller = c;
+    server.lua_cur_script = funcname + 2;
     server.lua_time_start = mstime();
     server.lua_kill = 0;
     if (server.lua_time_limit > 0 && ldb.active == 0) {
@@ -1550,6 +1556,7 @@ void evalGenericCommand(client *c, int evalsha) {
             queueClientForReprocessing(server.master);
     }
     server.lua_caller = NULL;
+    server.lua_cur_script = NULL;
 
     /* Call the Lua garbage collector from time to time to avoid a
      * full cycle performed by Lua, which adds too latency.
