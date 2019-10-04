@@ -175,7 +175,19 @@ void execCommand(client *c) {
             must_propagate = 1;
         }
 
-        call(c,server.loading ? CMD_CALL_NONE : CMD_CALL_FULL);
+        int acl_retval = ACLCheckCommandPerm(c);
+        if (acl_retval != ACL_OK) {
+            addReplyErrorFormat(c,
+                "-NOPERM ACLs rules changed between the moment the "
+                "transaction was accumulated and the EXEC call. "
+                "This command is no longer allowed for the "
+                "following reason: %s",
+                (acl_retval == ACL_DENIED_CMD) ?
+                "no permission to execute the command or subcommand" :
+                "no permission to touch the specified keys");
+        } else {
+            call(c,server.loading ? CMD_CALL_NONE : CMD_CALL_FULL);
+        }
 
         /* Commands may alter argc/argv, restore mstate. */
         c->mstate.commands[j].argc = c->argc;

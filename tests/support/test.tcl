@@ -15,6 +15,12 @@ proc assert {condition} {
     }
 }
 
+proc assert_no_match {pattern value} {
+    if {[string match $pattern $value]} {
+        error "assertion:Expected '$value' to not match '$pattern'"
+    }
+}
+
 proc assert_match {pattern value} {
     if {![string match $pattern $value]} {
         error "assertion:Expected '$value' to match '$pattern'"

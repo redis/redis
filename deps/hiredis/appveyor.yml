@@ -5,8 +5,9 @@ environment:
           CC: gcc
         - CYG_BASH: C:\cygwin\bin\bash
           CC: gcc
-          TARGET: 32bit
-          TARGET_VARS: 32bit-vars
+          CFLAGS: -m32
+          CXXFLAGS: -m32
+          LDFLAGS: -m32
 
 clone_depth: 1
 
@@ -20,4 +21,4 @@ install:
 
 build_script:
     - 'echo building...'
-    - '%CYG_BASH% -lc "cd $APPVEYOR_BUILD_FOLDER; exec 0</dev/null; make LDFLAGS=$LDFLAGS CC=$CC $TARGET CFLAGS=$CFLAGS && make LDFLAGS=$LDFLAGS CC=$CC $TARGET_VARS hiredis-example"'
+    - '%CYG_BASH% -lc "cd $APPVEYOR_BUILD_FOLDER; exec 0</dev/null; mkdir build && cd build && cmake .. -G \"Unix Makefiles\" && make VERBOSE=1"'

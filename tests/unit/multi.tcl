@@ -306,4 +306,18 @@ start_server {tags {"multi"}} {
         }
         close_replication_stream $repl
     }
+
+    test {DISCARD should not fail during OOM} {
+        set rd [redis_deferring_client]
+        $rd config set maxmemory 1
+        assert  {[$rd read] eq {OK}}
+        r multi
+        catch {r set x 1} e
+        assert_match {OOM*} $e
+        r discard
+        $rd config set maxmemory 0
+        assert  {[$rd read] eq {OK}}
+        $rd close
+        r ping
+    } {PONG}
 }

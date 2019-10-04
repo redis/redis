@@ -43,7 +43,8 @@ void lolwutUnstableCommand(client *c) {
     sds rendered = sdsnew("Redis ver. ");
     rendered = sdscat(rendered,REDIS_VERSION);
     rendered = sdscatlen(rendered,"\n",1);
-    addReplyBulkSds(c,rendered);
+    addReplyVerbatim(c,rendered,sdslen(rendered),"txt");
+    sdsfree(rendered);
 }
 
 void lolwutCommand(client *c) {
