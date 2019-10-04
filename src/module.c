@@ -297,6 +297,11 @@ typedef struct RedisModuleCommandFilter {
 /* Registered filters */
 static list *moduleCommandFilters;
 
+/* Flags for moduleCreateArgvFromUserFormat(). */
+#define REDISMODULE_ARGV_REPLICATE (1<<0)
+#define REDISMODULE_ARGV_NO_AOF (1<<1)
+#define REDISMODULE_ARGV_NO_REPLICAS (1<<2)
+
 /* --------------------------------------------------------------------------
  * Prototypes
  * -------------------------------------------------------------------------- */
@@ -1372,6 +1377,10 @@ void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx) {
  *
  * Please refer to RedisModule_Call() for more information.
  *
+ * Using the special "A" and "R" modifiers, the caller can exclude either
+ * the AOF or the replicas from the propagation of the specified command.
+ * Otherwise, by default, the command will be propagated in both channels.
+ *
  * ## Note about calling this function from a thread safe context:
  *
  * Normally when you call this function from the callback implementing a
@@ -1403,17 +1412,22 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
     va_end(ap);
     if (argv == NULL) return REDISMODULE_ERR;
 
+    /* Select the propagation target. Usually is AOF + replicas, however
+     * the caller can exclude one or the other using the "A" or "R"
+     * modifiers. */
+    int target = 0;
+    if (!(flags & REDISMODULE_ARGV_NO_AOF)) target |= PROPAGATE_AOF;
+    if (!(flags & REDISMODULE_ARGV_NO_REPLICAS)) target |= PROPAGATE_REPL;
+
     /* Replicate! When we are in a threaded context, we want to just insert
      * the replicated command ASAP, since it is not clear when the context
      * will stop being used, so accumulating stuff does not make much sense,
      * nor we could easily use the alsoPropagate() API from threads. */
     if (ctx->flags & REDISMODULE_CTX_THREAD_SAFE) {
-        propagate(cmd,ctx->client->db->id,argv,argc,
-            PROPAGATE_AOF|PROPAGATE_REPL);
+        propagate(cmd,ctx->client->db->id,argv,argc,target);
     } else {
         moduleReplicateMultiIfNeeded(ctx);
-        alsoPropagate(cmd,ctx->client->db->id,argv,argc,
-            PROPAGATE_AOF|PROPAGATE_REPL);
+        alsoPropagate(cmd,ctx->client->db->id,argv,argc,target);
     }
 
     /* Release the argv. */
@@ -2732,12 +2746,11 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
  * to special modifiers in "fmt". For now only one exists:
  *
  *     "!" -> REDISMODULE_ARGV_REPLICATE
+ *     "A" -> REDISMODULE_ARGV_NO_AOF
+ *     "R" -> REDISMODULE_ARGV_NO_REPLICAS
  *
  * On error (format specifier error) NULL is returned and nothing is
  * allocated. On success the argument vector is returned. */
-
-#define REDISMODULE_ARGV_REPLICATE (1<<0)
-
 robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *flags, va_list ap) {
     int argc = 0, argv_size, j;
     robj **argv = NULL;
@@ -2786,6 +2799,10 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
              }
         } else if (*p == '!') {
             if (flags) (*flags) |= REDISMODULE_ARGV_REPLICATE;
+        } else if (*p == 'A') {
+            if (flags) (*flags) |= REDISMODULE_ARGV_NO_AOF;
+        } else if (*p == 'R') {
+            if (flags) (*flags) |= REDISMODULE_ARGV_NO_REPLICAS;
         } else {
             goto fmterr;
         }
@@ -2876,8 +2893,10 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     /* Run the command */
     int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS;
     if (replicate) {
-        call_flags |= CMD_CALL_PROPAGATE_AOF;
-        call_flags |= CMD_CALL_PROPAGATE_REPL;
+        if (!(flags & REDISMODULE_ARGV_NO_AOF))
+            call_flags |= CMD_CALL_PROPAGATE_AOF;
+        if (!(flags & REDISMODULE_ARGV_NO_REPLICAS))
+            call_flags |= CMD_CALL_PROPAGATE_REPL;
     }
     call(c,call_flags);
 
