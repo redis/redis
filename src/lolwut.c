@@ -50,16 +50,22 @@ void lolwutUnstableCommand(client *c) {
     sdsfree(rendered);
 }
 
-/* LOLWUT [<version>] */
+/* LOLWUT [VERSION <version>] [... version specific arguments ...] */
 void lolwutCommand(client *c) {
     char *v = REDIS_VERSION;
     char verstr[64];
 
-    if (c->argc == 2) {
+    if (c->argc >= 3 && !strcasecmp(c->argv[1]->ptr,"version")) {
         long ver;
-        if (getLongFromObjectOrReply(c,c->argv[1],&ver,NULL) != C_OK) return;
+        if (getLongFromObjectOrReply(c,c->argv[2],&ver,NULL) != C_OK) return;
         snprintf(verstr,sizeof(verstr),"%u.0.0",(unsigned int)ver);
         v = verstr;
+
+        /* Adjust argv/argc to filter the "VERSION ..." option, since the
+         * specific LOLWUT version implementations don't know about it
+         * and expect their arguments. */
+        c->argv += 2;
+        c->argc -= 2;
     }
 
     if ((v[0] == '5' && v[1] == '.' && v[2] != '9') ||
@@ -70,6 +76,12 @@ void lolwutCommand(client *c) {
         lolwut6Command(c);
     else
         lolwutUnstableCommand(c);
+
+    /* Fix back argc/argv in case of VERSION argument. */
+    if (v == verstr) {
+        c->argv -= 2;
+        c->argc += 2;
+    }
 }
 
 /* ========================== LOLWUT Canvase ===============================
