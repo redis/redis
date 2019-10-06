@@ -374,7 +374,7 @@ long activeDefragSdsListAndDict(list *l, dict *d, int dict_val_type) {
             if ((newele = activeDefragStringOb(ele, &defragged)))
                 de->v.val = newele, defragged++;
         } else if (dict_val_type == DEFRAG_SDS_DICT_VAL_VOID_PTR) {
-            void *newptr, *ptr = ln->value;
+            void *newptr, *ptr = dictGetVal(de);
             if ((newptr = activeDefragAlloc(ptr)))
                 ln->value = newptr, defragged++;
         }
