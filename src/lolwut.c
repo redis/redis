@@ -90,12 +90,12 @@ void lolwutCommand(client *c) {
  * canvas implementation that can be reused.  */
 
 /* Allocate and return a new canvas of the specified size. */
-lwCanvas *lwCreateCanvas(int width, int height) {
+lwCanvas *lwCreateCanvas(int width, int height, int bgcolor) {
     lwCanvas *canvas = zmalloc(sizeof(*canvas));
     canvas->width = width;
     canvas->height = height;
     canvas->pixels = zmalloc(width*height);
-    memset(canvas->pixels,0,width*height);
+    memset(canvas->pixels,bgcolor,width*height);
     return canvas;
 }
 

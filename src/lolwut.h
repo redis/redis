@@ -41,7 +41,7 @@ typedef struct lwCanvas {
 } lwCanvas;
 
 /* Drawing functions implemented inside lolwut.c. */
-lwCanvas *lwCreateCanvas(int width, int height);
+lwCanvas *lwCreateCanvas(int width, int height, int bgcolor);
 void lwFreeCanvas(lwCanvas *canvas);
 void lwDrawPixel(lwCanvas *canvas, int x, int y, int color);
 int lwGetPixel(lwCanvas *canvas, int x, int y);
