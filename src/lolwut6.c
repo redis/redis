@@ -62,8 +62,8 @@ static sds renderCanvas(lwCanvas *canvas) {
 }
 
 /* Draw a skyscraper on the canvas, according to the parameters in the
- * 'skyscraper' structure. Window colors are random and are always selected
- * to be different than the color of the skyscraper itsefl. */
+ * 'skyscraper' structure. Window colors are random and are always one
+ * of the two grays. */
 struct skyscraper {
     int xoff;       /* X offset. */
     int width;      /* Pixels width. */
@@ -100,7 +100,7 @@ void generateSkyscraper(lwCanvas *canvas, struct skyscraper *si) {
                  * (characters) are not square. */
                 if (relx/2 % 2 && rely % 2) {
                     do {
-                        color = rand() % 4;
+                        color = 1 + rand() % 2;
                     } while (color == si->color);
                     /* Except we want adjacent pixels creating the same
                      * window to be the same color. */
@@ -117,17 +117,25 @@ void generateSkyline(lwCanvas *canvas) {
     struct skyscraper si;
 
     /* First draw the background skyscraper without windows, using the
-     * two different grays. */
-    si.color = 1;
-    for (int offset = -10; offset < canvas->width;) {
-        offset += rand() % 8;
-        si.xoff = offset;
-        si.width = 10 + rand()%9;
-        si.height = canvas->height/2 + rand()%canvas->height/2;
-        si.windows = 0;
-        si.color = si.color == 1 ? 2 : 1;
-        generateSkyscraper(canvas, &si);
-        offset += si.width/2;
+     * two different grays. We use two passes to make sure that the lighter
+     * ones are always in the background. */
+    for (int color = 2; color >= 1; color--) {
+        si.color = color;
+        for (int offset = -10; offset < canvas->width;) {
+            offset += rand() % 8;
+            si.xoff = offset;
+            si.width = 10 + rand()%9;
+            if (color == 2)
+                si.height = canvas->height/2 + rand()%canvas->height/2;
+            else
+                si.height = canvas->height/2 + rand()%canvas->height/3;
+            si.windows = 0;
+            generateSkyscraper(canvas, &si);
+            if (color == 2)
+                offset += si.width/2;
+            else
+                offset += si.width+1;
+        }
     }
 
     /* Now draw the foreground skyscraper with the windows. */
@@ -137,10 +145,10 @@ void generateSkyline(lwCanvas *canvas) {
         si.xoff = offset;
         si.width = 5 + rand()%14;
         if (si.width % 4) si.width += (si.width % 3);
-        si.height = canvas->height/2 + rand()%canvas->height/2;
+        si.height = canvas->height/3 + rand()%canvas->height/2;
         si.windows = 1;
         generateSkyscraper(canvas, &si);
-        offset += si.width+1;
+        offset += si.width+5;
     }
 }
 
