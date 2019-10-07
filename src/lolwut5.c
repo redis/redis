@@ -74,7 +74,7 @@ lwCanvas *lwDrawSchotter(int console_cols, int squares_per_row, int squares_per_
     int padding = canvas_width > 4 ? 2 : 0;
     float square_side = (float)(canvas_width-padding*2) / squares_per_row;
     int canvas_height = square_side * squares_per_col + padding*2;
-    lwCanvas *canvas = lwCreateCanvas(canvas_width, canvas_height);
+    lwCanvas *canvas = lwCreateCanvas(canvas_width, canvas_height, 0);
 
     for (int y = 0; y < squares_per_col; y++) {
         for (int x = 0; x < squares_per_row; x++) {

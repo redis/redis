@@ -114,14 +114,34 @@ void generateSkyscraper(lwCanvas *canvas, struct skyscraper *si) {
 
 /* Generate a skyline inspired by the parallax backgrounds of 8 bit games. */
 void generateSkyline(lwCanvas *canvas) {
-    struct skyscraper si = {
-        .xoff = 4,
-        .width = 13,
-        .height = 15,
-        .windows = 1,
-        .color = 1
-    };
-    generateSkyscraper(canvas, &si);
+    struct skyscraper si;
+
+    /* First draw the background skyscraper without windows, using the
+     * two different grays. */
+    si.color = 1;
+    for (int offset = -10; offset < canvas->width;) {
+        offset += rand() % 8;
+        si.xoff = offset;
+        si.width = 10 + rand()%9;
+        si.height = canvas->height/2 + rand()%canvas->height/2;
+        si.windows = 0;
+        si.color = si.color == 1 ? 2 : 1;
+        generateSkyscraper(canvas, &si);
+        offset += si.width/2;
+    }
+
+    /* Now draw the foreground skyscraper with the windows. */
+    si.color = 0;
+    for (int offset = -10; offset < canvas->width;) {
+        offset += rand() % 8;
+        si.xoff = offset;
+        si.width = 5 + rand()%14;
+        if (si.width % 4) si.width += (si.width % 3);
+        si.height = canvas->height/2 + rand()%canvas->height/2;
+        si.windows = 1;
+        generateSkyscraper(canvas, &si);
+        offset += si.width+1;
+    }
 }
 
 /* The LOLWUT 6 command:
@@ -152,7 +172,7 @@ void lolwut6Command(client *c) {
     if (rows > 1000) rows = 1000;
 
     /* Generate the city skyline and reply. */
-    lwCanvas *canvas = lwCreateCanvas(cols,rows);
+    lwCanvas *canvas = lwCreateCanvas(cols,rows,3);
     generateSkyline(canvas);
     sds rendered = renderCanvas(canvas);
     rendered = sdscat(rendered,
