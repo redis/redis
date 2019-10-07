@@ -106,7 +106,7 @@ lwCanvas *lwDrawSchotter(int console_cols, int squares_per_row, int squares_per_
  * logical canvas. The actual returned string will require a terminal that is
  * width/2 large and height/4 tall in order to hold the whole image without
  * overflowing or scrolling, since each Barille character is 2x4. */
-sds lwRenderCanvas(lwCanvas *canvas) {
+static sds renderCanvas(lwCanvas *canvas) {
     sds text = sdsempty();
     for (int y = 0; y < canvas->height; y += 4) {
         for (int x = 0; x < canvas->width; x += 2) {
@@ -166,7 +166,7 @@ void lolwut5Command(client *c) {
 
     /* Generate some computer art and reply. */
     lwCanvas *canvas = lwDrawSchotter(cols,squares_per_row,squares_per_col);
-    sds rendered = lwRenderCanvas(canvas);
+    sds rendered = renderCanvas(canvas);
     rendered = sdscat(rendered,
         "\nGeorg Nees - schotter, plotter on paper, 1968. Redis ver. ");
     rendered = sdscat(rendered,REDIS_VERSION);
