@@ -32,10 +32,11 @@
  * fun and interesting, and should be replaced by a new implementation at
  * each new version of Redis.
  *
+ * Thanks to Michele Hiki Falcone for the original image that ispired
+ * the image, part of his game, Plaguemon.
+ *
  * Thanks to the Shhh computer art collective for the help in tuning the
- * output to have a better artistic effect. Also thanks to Michele Hiki Falcone
- * for sending me the original gameboy image that this LOLWUT makes
- * generative.
+ * output to have a better artistic effect.
  */
 
 #include "server.h"
@@ -189,7 +190,8 @@ void lolwut6Command(client *c) {
     generateSkyline(canvas);
     sds rendered = renderCanvas(canvas);
     rendered = sdscat(rendered,
-        "\nDedicated to the 8 bit game developers of the past. Redis ver. ");
+        "\nDedicated to the 8 bit game developers of past and present.\n"
+        "Original 8 bit image from Plaguemon by hikikomori. Redis ver. ");
     rendered = sdscat(rendered,REDIS_VERSION);
     rendered = sdscatlen(rendered,"\n",1);
     addReplyVerbatim(c,rendered,sdslen(rendered),"txt");
