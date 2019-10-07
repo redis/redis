@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2009-2012, Pieter Noordhuis <pcnoordhuis at gmail dot com>
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-2019, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -36,6 +36,9 @@
 #include <stdint.h>
 #include "sds.h"
 
+#define RIO_FLAG_READ_ERROR (1<<0)
+#define RIO_FLAG_WRITE_ERROR (1<<1)
+
 struct _rio {
     /* Backend functions.
      * Since this functions do not tolerate short writes or reads the return
@@ -51,8 +54,8 @@ struct _rio {
      * computation. */
     void (*update_cksum)(struct _rio *, const void *buf, size_t len);
 
-    /* The current checksum */
-    uint64_t cksum;
+    /* The current checksum and flags (see RIO_FLAG_*) */
+    uint64_t cksum, flags;
 
     /* number of bytes read or written */
     size_t processed_bytes;
@@ -73,6 +76,14 @@ struct _rio {
             off_t buffered; /* Bytes written since last fsync. */
             off_t autosync; /* fsync after 'autosync' bytes written. */
         } file;
+        /* file descriptor */
+        struct {
+            int fd;       /* File descriptor. */
+            off_t pos;    /* pos in buf that was returned */
+            sds buf;      /* buffered data */
+            size_t read_limit;  /* don't allow to buffer/read more than that */
+            size_t read_so_far; /* amount of data read from the rio (not buffered) */
+        } fd;
         /* Multiple FDs target (used to write to N sockets). */
         struct {
             int *fds;       /* File descriptors. */
@@ -91,11 +102,14 @@ typedef struct _rio rio;
  * if needed. */
 
 static inline size_t rioWrite(rio *r, const void *buf, size_t len) {
+    if (r->flags & RIO_FLAG_WRITE_ERROR) return 0;
     while (len) {
         size_t bytes_to_write = (r->max_processing_chunk && r->max_processing_chunk < len) ? r->max_processing_chunk : len;
         if (r->update_cksum) r->update_cksum(r,buf,bytes_to_write);
-        if (r->write(r,buf,bytes_to_write) == 0)
+        if (r->write(r,buf,bytes_to_write) == 0) {
+            r->flags |= RIO_FLAG_WRITE_ERROR;
             return 0;
+        }
         buf = (char*)buf + bytes_to_write;
         len -= bytes_to_write;
         r->processed_bytes += bytes_to_write;
@@ -104,10 +118,13 @@ static inline size_t rioWrite(rio *r, const void *buf, size_t len) {
 }
 
 static inline size_t rioRead(rio *r, void *buf, size_t len) {
+    if (r->flags & RIO_FLAG_READ_ERROR) return 0;
     while (len) {
         size_t bytes_to_read = (r->max_processing_chunk && r->max_processing_chunk < len) ? r->max_processing_chunk : len;
-        if (r->read(r,buf,bytes_to_read) == 0)
+        if (r->read(r,buf,bytes_to_read) == 0) {
+            r->flags |= RIO_FLAG_READ_ERROR;
             return 0;
+        }
         if (r->update_cksum) r->update_cksum(r,buf,bytes_to_read);
         buf = (char*)buf + bytes_to_read;
         len -= bytes_to_read;
@@ -124,11 +141,29 @@ static inline int rioFlush(rio *r) {
     return r->flush(r);
 }
 
+/* This function allows to know if there was a read error in any past
+ * operation, since the rio stream was created or since the last call
+ * to rioClearError(). */
+static inline int rioGetReadError(rio *r) {
+    return (r->flags & RIO_FLAG_READ_ERROR) != 0;
+}
+
+/* Like rioGetReadError() but for write errors. */
+static inline int rioGetWriteError(rio *r) {
+    return (r->flags & RIO_FLAG_WRITE_ERROR) != 0;
+}
+
+static inline void rioClearErrors(rio *r) {
+    r->flags &= ~(RIO_FLAG_READ_ERROR|RIO_FLAG_WRITE_ERROR);
+}
+
 void rioInitWithFile(rio *r, FILE *fp);
 void rioInitWithBuffer(rio *r, sds s);
+void rioInitWithFd(rio *r, int fd, size_t read_limit);
 void rioInitWithFdset(rio *r, int *fds, int numfds);
 
 void rioFreeFdset(rio *r);
+void rioFreeFd(rio *r, sds* out_remainingBufferedData);
 
 size_t rioWriteBulkCount(rio *r, char prefix, long count);
 size_t rioWriteBulkString(rio *r, const char *buf, size_t len);

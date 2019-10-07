@@ -64,6 +64,7 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
             dbSyncDelete(db,keyobj);
         notifyKeyspaceEvent(NOTIFY_EXPIRED,
             "expired",keyobj,db->id);
+        trackingInvalidateKey(keyobj);
         decrRefCount(keyobj);
         server.stat_expiredkeys++;
         return 1;
