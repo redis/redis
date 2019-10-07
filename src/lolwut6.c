@@ -31,6 +31,11 @@
  * This file implements the LOLWUT command. The command should do something
  * fun and interesting, and should be replaced by a new implementation at
  * each new version of Redis.
+ *
+ * Thanks to the Shhh computer art collective for the help in tuning the
+ * output to have a better artistic effect. Also thanks to Michele Hiki Falcone
+ * for sending me the original gameboy image that this LOLWUT makes
+ * generative.
  */
 
 #include "server.h"
