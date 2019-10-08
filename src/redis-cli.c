@@ -48,6 +48,7 @@
 
 #include <hiredis.h>
 #ifdef USE_OPENSSL
+#include <openssl/ssl.h>
 #include <hiredis_ssl.h>
 #endif
 #include <sds.h> /* use sds.h from hiredis, so that only one set of sds functions will be present in the binary */
@@ -194,6 +195,7 @@ static struct config {
     int tls;
     char *sni;
     char *cacert;
+    char *cacertdir;
     char *cert;
     char *key;
     long repeat;
@@ -762,9 +764,61 @@ static int cliSelect(void) {
 /* Wrapper around redisSecureConnection to avoid hiredis_ssl dependencies if
  * not building with TLS support.
  */
-static int cliSecureConnection(redisContext *c) {
+static int cliSecureConnection(redisContext *c, const char **err) {
 #ifdef USE_OPENSSL
-    return redisSecureConnection(c, config.cacert, config.cert, config.key, config.sni);
+    static SSL_CTX *ssl_ctx = NULL;
+
+    if (!ssl_ctx) {
+        ssl_ctx = SSL_CTX_new(SSLv23_client_method());
+        if (!ssl_ctx) {
+            *err = "Failed to create SSL_CTX";
+            goto error;
+        }
+
+        SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
+        SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
+
+        if (config.cacert || config.cacertdir) {
+            if (!SSL_CTX_load_verify_locations(ssl_ctx, config.cacert, config.cacertdir)) {
+                *err = "Invalid CA Certificate File/Directory";
+                goto error;
+            }
+        } else {
+            if (!SSL_CTX_set_default_verify_paths(ssl_ctx)) {
+                *err = "Failed to use default CA paths";
+                goto error;
+            }
+        }
+
+        if (config.cert && !SSL_CTX_use_certificate_chain_file(ssl_ctx, config.cert)) {
+            *err = "Invalid client certificate";
+            goto error;
+        }
+
+        if (config.key && !SSL_CTX_use_PrivateKey_file(ssl_ctx, config.key, SSL_FILETYPE_PEM)) {
+            *err = "Invalid private key";
+            goto error;
+        }
+    }
+
+    SSL *ssl = SSL_new(ssl_ctx);
+    if (!ssl) {
+        *err = "Failed to create SSL object";
+        return REDIS_ERR;
+    }
+
+    if (config.sni && !SSL_set_tlsext_host_name(ssl, config.sni)) {
+        *err = "Failed to configure SNI";
+        SSL_free(ssl);
+        return REDIS_ERR;
+    }
+
+    return redisInitiateSSL(c, ssl);
+
+error:
+    SSL_CTX_free(ssl_ctx);
+    ssl_ctx = NULL;
+    return REDIS_ERR;
 #else
     (void) c;
     return REDIS_OK;
@@ -788,9 +842,9 @@ static int cliConnect(int flags) {
         }
 
         if (!context->err && config.tls) {
-            if (cliSecureConnection(context) == REDIS_ERR && !context->err) {
-                /* TODO: this check should be redundant, redis-cli should set err=1 */
-                fprintf(stderr, "Could not negotiate a TLS connection.\n");
+            const char *err = NULL;
+            if (cliSecureConnection(context, &err) == REDIS_ERR && err) {
+                fprintf(stderr, "Could not negotiate a TLS connection: %s\n", err);
                 context = NULL;
                 redisFree(context);
                 return REDIS_ERR;
@@ -1277,7 +1331,11 @@ static redisReply *reconnectingRedisCommand(redisContext *c, const char *fmt, ..
             redisFree(c);
             c = redisConnect(config.hostip,config.hostport);
             if (!c->err && config.tls) {
-                cliSecureConnection(c);
+                const char *err = NULL;
+                if (cliSecureConnection(c, &err) == REDIS_ERR && err) {
+                    fprintf(stderr, "TLS Error: %s\n", err);
+                    exit(1);
+                }
             }
             usleep(1000000);
         }
@@ -1473,6 +1531,8 @@ static int parseOptions(int argc, char **argv) {
             config.tls = 1;
         } else if (!strcmp(argv[i],"--sni")) {
             config.sni = argv[++i];
+        } else if (!strcmp(argv[i],"--cacertdir")) {
+            config.cacertdir = argv[++i];
         } else if (!strcmp(argv[i],"--cacert")) {
             config.cacert = argv[++i];
         } else if (!strcmp(argv[i],"--cert")) {
@@ -1571,6 +1631,9 @@ static void usage(void) {
 #ifdef USE_OPENSSL
 "  --tls              Establish a secure TLS connection.\n"
 "  --cacert           CA Certificate file to verify with.\n"
+"  --cacertdir        Directory where trusted CA certificates are stored.\n"
+"                     If neither cacert nor cacertdir are specified, the default\n"
+"                     system-wide trusted root certs configuration will apply.\n"
 "  --cert             Client certificate to authenticate with.\n"
 "  --key              Private key file to authenticate with.\n"
 #endif
@@ -2390,7 +2453,13 @@ static int clusterManagerNodeConnect(clusterManagerNode *node) {
     if (node->context) redisFree(node->context);
     node->context = redisConnect(node->ip, node->port);
     if (!node->context->err && config.tls) {
-        cliSecureConnection(node->context);
+        const char *err = NULL;
+        if (cliSecureConnection(node->context, &err) == REDIS_ERR && err) {
+            fprintf(stderr,"TLS Error: %s\n", err);
+            redisFree(node->context);
+            node->context = NULL;
+            return 0;
+        }
     }
     if (node->context->err) {
         fprintf(stderr,"Could not connect to Redis at ");

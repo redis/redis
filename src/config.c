@@ -821,6 +821,9 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"tls-ca-cert-file") && argc == 2) {
             zfree(server.tls_ctx_config.ca_cert_file);
             server.tls_ctx_config.ca_cert_file = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"tls-ca-cert-dir") && argc == 2) {
+            zfree(server.tls_ctx_config.ca_cert_dir);
+            server.tls_ctx_config.ca_cert_dir = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"tls-protocols") && argc >= 2) {
             zfree(server.tls_ctx_config.protocols);
             server.tls_ctx_config.protocols = zstrdup(argv[1]);
@@ -1319,6 +1322,16 @@ void configSetCommand(client *c) {
         }
         zfree(server.tls_ctx_config.ca_cert_file);
         server.tls_ctx_config.ca_cert_file = zstrdup(o->ptr);
+    } config_set_special_field("tls-ca-cert-dir") {
+        redisTLSContextConfig tmpctx = server.tls_ctx_config;
+        tmpctx.ca_cert_dir = (char *) o->ptr;
+        if (tlsConfigure(&tmpctx) == C_ERR) {
+            addReplyError(c,
+                    "Unable to configure tls-ca-cert-dir. Check server logs.");
+            return;
+        }
+        zfree(server.tls_ctx_config.ca_cert_dir);
+        server.tls_ctx_config.ca_cert_dir = zstrdup(o->ptr);
     } config_set_bool_field("tls-auth-clients", server.tls_auth_clients) {
     } config_set_bool_field("tls-replication", server.tls_replication) {
     } config_set_bool_field("tls-cluster", server.tls_cluster) {
@@ -1439,6 +1452,7 @@ void configGetCommand(client *c) {
     config_get_string_field("tls-key-file",server.tls_ctx_config.key_file);
     config_get_string_field("tls-dh-params-file",server.tls_ctx_config.dh_params_file);
     config_get_string_field("tls-ca-cert-file",server.tls_ctx_config.ca_cert_file);
+    config_get_string_field("tls-ca-cert-dir",server.tls_ctx_config.ca_cert_dir);
     config_get_string_field("tls-protocols",server.tls_ctx_config.protocols);
     config_get_string_field("tls-ciphers",server.tls_ctx_config.ciphers);
     config_get_string_field("tls-ciphersuites",server.tls_ctx_config.ciphersuites);
@@ -2347,6 +2361,7 @@ int rewriteConfig(char *path) {
     rewriteConfigStringOption(state,"tls-key-file",server.tls_ctx_config.key_file,NULL);
     rewriteConfigStringOption(state,"tls-dh-params-file",server.tls_ctx_config.dh_params_file,NULL);
     rewriteConfigStringOption(state,"tls-ca-cert-file",server.tls_ctx_config.ca_cert_file,NULL);
+    rewriteConfigStringOption(state,"tls-ca-cert-dir",server.tls_ctx_config.ca_cert_dir,NULL);
     rewriteConfigStringOption(state,"tls-protocols",server.tls_ctx_config.protocols,NULL);
     rewriteConfigStringOption(state,"tls-ciphers",server.tls_ctx_config.ciphers,NULL);
     rewriteConfigStringOption(state,"tls-ciphersuites",server.tls_ctx_config.ciphersuites,NULL);

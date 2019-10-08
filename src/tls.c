@@ -125,8 +125,8 @@ int tlsConfigure(redisTLSContextConfig *ctx_config) {
         goto error;
     }
 
-    if (!ctx_config->ca_cert_file) {
-        serverLog(LL_WARNING, "No tls-ca-cert-file configured!");
+    if (!ctx_config->ca_cert_file && !ctx_config->ca_cert_dir) {
+        serverLog(LL_WARNING, "Either tls-ca-cert-file or tls-ca-cert-dir must be configured!");
         goto error;
     }
 
@@ -182,9 +182,9 @@ int tlsConfigure(redisTLSContextConfig *ctx_config) {
         goto error;
     }
     
-    if (SSL_CTX_load_verify_locations(ctx, ctx_config->ca_cert_file, NULL) <= 0) {
+    if (SSL_CTX_load_verify_locations(ctx, ctx_config->ca_cert_file, ctx_config->ca_cert_dir) <= 0) {
         ERR_error_string_n(ERR_get_error(), errbuf, sizeof(errbuf));
-        serverLog(LL_WARNING, "Failed to load CA certificate(s) file: %s: %s", ctx_config->ca_cert_file, errbuf);
+        serverLog(LL_WARNING, "Failed to configure CA certificate(s) file/directory: %s", errbuf);
         goto error;
     }
 
