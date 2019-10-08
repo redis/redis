@@ -737,14 +737,19 @@ int loadAppendOnlyFile(char *filename) {
     } else {
         /* RDB preamble. Pass loading the RDB functions. */
         rio rdb;
+        rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
 
         serverLog(LL_NOTICE,"Reading RDB preamble from AOF file...");
         if (fseek(fp,0,SEEK_SET) == -1) goto readerr;
         rioInitWithFile(&rdb,fp);
-        if (rdbLoadRio(&rdb,NULL,1) != C_OK) {
+        if (rdbLoadRio(&rdb,&rsi,1) != C_OK) {
             serverLog(LL_WARNING,"Error reading the RDB preamble of the AOF file, AOF loading aborted");
             goto readerr;
         } else {
+            if (rdbRestoreReplInfo(&rsi) == C_OK) {
+                serverLog(LL_NOTICE,"DB save info loaded success, stop read remaining Aof tail");
+                goto loaded_ok;
+            }
             serverLog(LL_NOTICE,"Reading the remaining AOF tail...");
         }
     }
@@ -1395,7 +1400,9 @@ int rewriteAppendOnlyFile(char *filename) {
 
     if (server.aof_use_rdb_preamble) {
         int error;
-        if (rdbSaveRio(&aof,&error,RDB_SAVE_AOF_PREAMBLE,NULL) == C_ERR) {
+        rdbSaveInfo rsi, *rsiptr;
+        rsiptr = rdbPopulateSaveInfo(&rsi);
+        if (rdbSaveRio(&aof,&error,RDB_SAVE_AOF_PREAMBLE,rsiptr) == C_ERR) {
             errno = error;
             goto werr;
         }
