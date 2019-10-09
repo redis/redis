@@ -1185,10 +1185,13 @@ int RM_ReplyWithLongLong(RedisModuleCtx *ctx, long long ll) {
     return REDISMODULE_OK;
 }
 
-/* Reply with an error or simple string (status message). Used to implement
- * ReplyWithSimpleString() and ReplyWithError().
- * The function always returns REDISMODULE_OK. */
-int replyWithStatus(RedisModuleCtx *ctx, const char *msg, char *prefix) {
+/* Reply with an RESP encoded message. Used to support different versions of RESP and to reduce abstraction overhead
+ * Prefix:
+ * - In prefix you should include the first byte describing the type. Follow https://redis.io/topics/protocol for further details
+ * Message:
+ * - Any binary safe string
+ *  The function always returns REDISMODULE_OK. */
+int RM_ReplyWithRESP(RedisModuleCtx *ctx, char *prefix, const char *msg) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
     addReplyProto(c,prefix,strlen(prefix));
@@ -1212,7 +1215,7 @@ int replyWithStatus(RedisModuleCtx *ctx, const char *msg, char *prefix) {
  * The function always returns REDISMODULE_OK.
  */
 int RM_ReplyWithError(RedisModuleCtx *ctx, const char *err) {
-    return replyWithStatus(ctx,err,"-");
+    return RM_ReplyWithRESP(ctx,"-",err);
 }
 
 /* Reply with a simple string (+... \r\n in RESP protocol). This replies
@@ -1221,7 +1224,7 @@ int RM_ReplyWithError(RedisModuleCtx *ctx, const char *err) {
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithSimpleString(RedisModuleCtx *ctx, const char *msg) {
-    return replyWithStatus(ctx,msg,"+");
+    return RM_ReplyWithRESP(ctx,"+",msg);
 }
 
 /* Reply with an array type of 'len' elements. However 'len' other calls
