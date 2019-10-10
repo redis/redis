@@ -1996,7 +1996,10 @@ void replicationSetMaster(char *ip, int port) {
     cancelReplicationHandshake();
     /* Before destroying our master state, create a cached master using
      * our own parameters, to later PSYNC with the new master. */
-    if (was_master) replicationCacheMasterUsingMyself();
+    if (was_master) {
+        replicationDiscardCachedMaster();
+        replicationCacheMasterUsingMyself();
+    }
     server.repl_state = REPL_STATE_CONNECT;
 }
 
