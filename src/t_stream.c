@@ -245,17 +245,17 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
      * the current node is full. */
     if (lp != NULL) {
         if (server.stream_node_max_bytes &&
-            lp_bytes > server.stream_node_max_bytes)
+            lp_bytes >= server.stream_node_max_bytes)
         {
             lp = NULL;
         } else if (server.stream_node_max_entries) {
             int64_t count = lpGetInteger(lpFirst(lp));
-            if (count > server.stream_node_max_entries) lp = NULL;
+            if (count >= server.stream_node_max_entries) lp = NULL;
         }
     }
 
     int flags = STREAM_ITEM_FLAG_NONE;
-    if (lp == NULL || lp_bytes > server.stream_node_max_bytes) {
+    if (lp == NULL || lp_bytes >= server.stream_node_max_bytes) {
         master_id = id;
         streamEncodeID(rax_key,&id);
         /* Create the listpack having the master entry ID and fields. */
