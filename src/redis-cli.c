@@ -2013,7 +2013,7 @@ typedef struct clusterManagerNode {
     sds name;
     char *ip;
     int port;
-    int announce_port;
+    int bus_port;
     uint64_t current_epoch;
     time_t ping_sent;
     time_t ping_recv;
@@ -2319,7 +2319,7 @@ static clusterManagerNode *clusterManagerNewNode(char *ip, int port) {
     node->name = NULL;
     node->ip = ip;
     node->port = port;
-    node->announce_port = port;
+    node->bus_port = port;
     node->current_epoch = 0;
     node->ping_sent = 0;
     node->ping_recv = 0;
@@ -2342,7 +2342,7 @@ static clusterManagerNode *clusterManagerNewNode(char *ip, int port) {
 static clusterManagerNode *clusterManagerNewNodeByAddr(char *addr) {
     char *c = strrchr(addr, '@');
     c = strrchr(addr, '@');
-    int announce_port = -1;
+    int bus_port = -1;
     if (c != NULL) {
         announce_port = atoi(c+1);
         *c = '\0';
@@ -5365,7 +5365,7 @@ assign_replicas:
             redisReply *reply = NULL;
 
             reply = CLUSTER_MANAGER_COMMAND(node, "cluster meet %s %d %d",
-                                            first->ip, first->port, first->announce_port);
+                                            first->ip, first->port, first->bus_port);
             int is_err = 0;
             if (reply != NULL) {
                 if ((is_err = reply->type == REDIS_REPLY_ERROR))
