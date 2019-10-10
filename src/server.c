@@ -4842,15 +4842,13 @@ int redisSupervisedSystemd(void) {
 
 int redisIsSupervised(int mode) {
     if (mode == SUPERVISED_AUTODETECT) {
-        const char *upstart_job = getenv("UPSTART_JOB");
-        const char *notify_socket = getenv("NOTIFY_SOCKET");
-
-        if (upstart_job) {
-            redisSupervisedUpstart();
-        } else if (notify_socket) {
-            redisSupervisedSystemd();
+        if (getenv("UPSTART_JOB")) {
+            mode = SUPERVISED_UPSTART;
+        } else if (getenv("NOTIFY_SOCKET")) {
+            mode = SUPERVISED_SYSTEMD;
         }
-    } else if (mode == SUPERVISED_UPSTART) {
+    }
+    if (mode == SUPERVISED_UPSTART) {
         return redisSupervisedUpstart();
     } else if (mode == SUPERVISED_SYSTEMD) {
         return redisSupervisedSystemd();
