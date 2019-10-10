@@ -355,12 +355,12 @@ start_server {tags {"stream"} overrides {appendonly yes stream-node-max-entries 
             r XADD mystream * xitem v
         }
         r XTRIM mystream MAXLEN ~ 85
-        assert {[r xlen mystream] == 89}
+        assert {[r xlen mystream] == 90}
         r config set stream-node-max-entries 1
         r debug loadaof
         r XADD mystream * xitem v
         incr j
-        assert {[r xlen mystream] == 90}
+        assert {[r xlen mystream] == 91}
     }
 }
 
