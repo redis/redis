@@ -431,14 +431,15 @@ int64_t streamTrimByLength(stream *s, size_t maxlen, int approx) {
                 if (s->length <= maxlen) break; /* Enough entries deleted. */
             }
 
+            p = lpNext(lp,p); /* Skip flags. */
             p = lpNext(lp,p); /* Skip ID ms delta. */
             p = lpNext(lp,p); /* Skip ID seq delta. */
-            p = lpNext(lp,p); /* Seek num-fields or values (if compressed). */
             if (flags & STREAM_ITEM_FLAG_SAMEFIELDS) {
                 to_skip = master_fields_count;
             } else {
-                to_skip = lpGetInteger(p);
-                to_skip = 1+(to_skip*2);
+                to_skip = lpGetInteger(p); /* Get num-fields. */
+                p = lpNext(lp,p); /* Skip num-fields. */
+                to_skip *= 2; /* Fields and values */
             }
 
             while(to_skip--) p = lpNext(lp,p); /* Skip the whole entry. */
