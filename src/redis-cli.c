@@ -2013,6 +2013,7 @@ typedef struct clusterManagerNode {
     sds name;
     char *ip;
     int port;
+    int announce_port;
     uint64_t current_epoch;
     time_t ping_sent;
     time_t ping_recv;
@@ -2082,6 +2083,7 @@ typedef int (*clusterManagerOnReplyError)(redisReply *reply,
 /* Cluster Manager helper functions */
 
 static clusterManagerNode *clusterManagerNewNode(char *ip, int port);
+static clusterManagerNode *clusterManagerNewNodeByAddr(char *addr);
 static clusterManagerNode *clusterManagerNodeByName(const char *name);
 static clusterManagerNode *clusterManagerNodeByAbbreviatedName(const char *n);
 static void clusterManagerNodeResetSlots(clusterManagerNode *node);
@@ -2317,6 +2319,7 @@ static clusterManagerNode *clusterManagerNewNode(char *ip, int port) {
     node->name = NULL;
     node->ip = ip;
     node->port = port;
+    node->announce_port = port;
     node->current_epoch = 0;
     node->ping_sent = 0;
     node->ping_recv = 0;
@@ -2333,6 +2336,30 @@ static clusterManagerNode *clusterManagerNewNode(char *ip, int port) {
     node->weight = 1.0f;
     node->balance = 0;
     clusterManagerNodeResetSlots(node);
+    return node;
+}
+
+static clusterManagerNode *clusterManagerNewNodeByAddr(char *addr) {
+    char *c = strrchr(addr, '@');
+    c = strrchr(addr, '@');
+    int announce_port = -1;
+    if (c != NULL) {
+        announce_port = atoi(c+1);
+        *c = '\0';
+    }
+    c = strrchr(addr, ':');
+    if (c == NULL) {
+        fprintf(stderr, "Invalid address format: %s\n", addr);
+        return 0;
+    }
+    *c = '\0';
+    char *ip = addr;
+    int port = atoi(++c);
+
+    clusterManagerNode *node = clusterManagerNewNode(ip, port);
+    if (announce_port > 0) {
+        node->announce_port = announce_port;
+    }
     return node;
 }
 
@@ -5140,18 +5167,7 @@ static int clusterManagerCommandCreate(int argc, char **argv) {
     int i, j, success = 1;
     cluster_manager.nodes = listCreate();
     for (i = 0; i < argc; i++) {
-        char *addr = argv[i];
-        char *c = strrchr(addr, '@');
-        if (c != NULL) *c = '\0';
-        c = strrchr(addr, ':');
-        if (c == NULL) {
-            fprintf(stderr, "Invalid address format: %s\n", addr);
-            return 0;
-        }
-        *c = '\0';
-        char *ip = addr;
-        int port = atoi(++c);
-        clusterManagerNode *node = clusterManagerNewNode(ip, port);
+        clusterManagerNode *node = clusterManagerNewNodeByAddr(argv[i]);
         if (!clusterManagerNodeConnect(node)) {
             freeClusterManagerNode(node);
             return 0;
@@ -5347,8 +5363,9 @@ assign_replicas:
                 continue;
             }
             redisReply *reply = NULL;
-            reply = CLUSTER_MANAGER_COMMAND(node, "cluster meet %s %d",
-                                            first->ip, first->port);
+
+            reply = CLUSTER_MANAGER_COMMAND(node, "cluster meet %s %d %d",
+                                            first->ip, first->port, first->announce_port);
             int is_err = 0;
             if (reply != NULL) {
                 if ((is_err = reply->type == REDIS_REPLY_ERROR))
