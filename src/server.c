@@ -2260,6 +2260,7 @@ void initServerConfig(void) {
     server.maxidletime = CONFIG_DEFAULT_CLIENT_TIMEOUT;
     server.tcpkeepalive = CONFIG_DEFAULT_TCP_KEEPALIVE;
     server.active_expire_enabled = 1;
+    server.jemalloc_bg_thread = 1;
     server.active_defrag_enabled = CONFIG_DEFAULT_ACTIVE_DEFRAG;
     server.active_defrag_ignore_bytes = CONFIG_DEFAULT_DEFRAG_IGNORE_BYTES;
     server.active_defrag_threshold_lower = CONFIG_DEFAULT_DEFRAG_THRESHOLD_LOWER;
@@ -2904,8 +2905,17 @@ void initServer(void) {
     scriptingInit(1);
     slowlogInit();
     latencyMonitorInit();
+}
+
+/* Some steps in server initialization need to be done last (after modules
+ * are loaded).
+ * Specifically, creation of threads due to a race bug in ld.so, in which
+ * Thread Local Storage initialization collides with dlopen call.
+ * see: https://sourceware.org/bugzilla/show_bug.cgi?id=19329 */
+void InitServerLast() {
     bioInit();
     initThreadedIO();
+    set_jemalloc_bg_thread(server.jemalloc_bg_thread);
     server.initial_memory_usage = zmalloc_used_memory();
 }
 
@@ -5033,6 +5043,7 @@ int main(int argc, char **argv) {
     #endif
         moduleLoadFromQueue();
         ACLLoadUsersAtStartup();
+        InitServerLast();
         loadDataFromDisk();
         if (server.cluster_enabled) {
             if (verifyClusterConfigWithData() == C_ERR) {
@@ -5047,6 +5058,7 @@ int main(int argc, char **argv) {
         if (server.sofd > 0)
             serverLog(LL_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);
     } else {
+        InitServerLast();
         sentinelIsRunning();
     }
 
