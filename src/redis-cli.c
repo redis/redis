@@ -2319,7 +2319,7 @@ static clusterManagerNode *clusterManagerNewNode(char *ip, int port) {
     node->name = NULL;
     node->ip = ip;
     node->port = port;
-    node->bus_port = port;
+    node->bus_port = -1;
     node->current_epoch = 0;
     node->ping_sent = 0;
     node->ping_recv = 0;
@@ -2344,7 +2344,7 @@ static clusterManagerNode *clusterManagerNewNodeByAddr(char *addr) {
     c = strrchr(addr, '@');
     int bus_port = -1;
     if (c != NULL) {
-        announce_port = atoi(c+1);
+        bus_port = atoi(c+1);
         *c = '\0';
     }
     c = strrchr(addr, ':');
@@ -2357,8 +2357,8 @@ static clusterManagerNode *clusterManagerNewNodeByAddr(char *addr) {
     int port = atoi(++c);
 
     clusterManagerNode *node = clusterManagerNewNode(ip, port);
-    if (announce_port > 0) {
-        node->announce_port = announce_port;
+    if (bus_port > 0) {
+        node->bus_port = bus_port;
     }
     return node;
 }
@@ -5364,8 +5364,13 @@ assign_replicas:
             }
             redisReply *reply = NULL;
 
-            reply = CLUSTER_MANAGER_COMMAND(node, "cluster meet %s %d %d",
+            if (first->bus_port > 0) {
+                reply = CLUSTER_MANAGER_COMMAND(node, "cluster meet %s %d %d",
                                             first->ip, first->port, first->bus_port);
+            } else {
+                reply = CLUSTER_MANAGER_COMMAND(node, "cluster meet %s %d",
+                                                        first->ip, first->port);
+            }
             int is_err = 0;
             if (reply != NULL) {
                 if ((is_err = reply->type == REDIS_REPLY_ERROR))
