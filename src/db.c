@@ -372,7 +372,7 @@ long long emptyDbGeneric(redisDb *dbarray, int dbnum, int flags, void(callback)(
             dictEmpty(dbarray[j].expires,callback);
         }
     }
-    if (server.cluster_enabled) {
+    if (server.cluster_enabled && dbarray == server.db) {
         if (async) {
             slotToKeyFlushAsync();
         } else {
