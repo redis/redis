@@ -2063,10 +2063,10 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor);
 int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor);
 void slotToKeyAdd(robj *key);
 void slotToKeyDel(robj *key);
-void slotToKeyFlush(void);
+void slotToKeyFlush(rax *slots_to_keys);
 int dbAsyncDelete(redisDb *db, robj *key);
 void emptyDbAsync(redisDb *db);
-void slotToKeyFlushAsync(void);
+void slotToKeyFlushAsync(rax *slots_to_keys);
 size_t lazyfreeGetPendingObjectsCount(void);
 void freeObjAsync(robj *o);
 

@@ -114,14 +114,9 @@ void emptyDbAsync(redisDb *db) {
 
 /* Empty the slots-keys map of Redis CLuster by creating a new empty one
  * and scheduiling the old for lazy freeing. */
-void slotToKeyFlushAsync(void) {
-    rax *old = server.cluster->slots_to_keys;
-
-    server.cluster->slots_to_keys = raxNew();
-    memset(server.cluster->slots_keys_count,0,
-           sizeof(server.cluster->slots_keys_count));
-    atomicIncr(lazyfree_objects,old->numele);
-    bioCreateBackgroundJob(BIO_LAZY_FREE,NULL,NULL,old);
+void slotToKeyFlushAsync(rax *slots_to_keys) {
+    atomicIncr(lazyfree_objects,slots_to_keys->numele);
+    bioCreateBackgroundJob(BIO_LAZY_FREE,NULL,NULL,slots_to_keys);
 }
 
 /* Release objects from the lazyfree thread. It's just decrRefCount()

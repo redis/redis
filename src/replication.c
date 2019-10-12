@@ -38,6 +38,12 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 
+typedef struct redisBackup {
+    redisDb *db;
+    rax *slots_to_keys;
+    uint64_t slots_keys_count[CLUSTER_SLOTS];
+} redisBackup;
+
 void replicationDiscardCachedMaster(void);
 void replicationResurrectCachedMaster(int newfd);
 void replicationSendAck(void);
@@ -1153,14 +1159,23 @@ static int useDisklessLoad() {
 /* Helper function for readSyncBulkPayload() to make backups of the current
  * DBs before socket-loading the new ones. The backups may be restored later
  * or freed by disklessLoadRestoreBackups(). */
-redisDb *disklessLoadMakeBackups(void) {
-    redisDb *backups = zmalloc(sizeof(redisDb)*server.dbnum);
+redisBackup *disklessLoadMakeBackups(void) {
+    redisBackup *backup = zmalloc(sizeof(redisBackup));
+    backup->db = zmalloc(sizeof(redisDb)*server.dbnum);
     for (int i=0; i<server.dbnum; i++) {
-        backups[i] = server.db[i];
+        backup->db[i] = server.db[i];
         server.db[i].dict = dictCreate(&dbDictType,NULL);
         server.db[i].expires = dictCreate(&keyptrDictType,NULL);
     }
-    return backups;
+    if (server.cluster_enabled) {
+        backup->slots_to_keys = server.cluster->slots_to_keys;
+        memcpy(backup->slots_keys_count,server.cluster->slots_keys_count,
+               sizeof(server.cluster->slots_keys_count));
+        server.cluster->slots_to_keys = raxNew();
+        memset(server.cluster->slots_keys_count,0,
+               sizeof(server.cluster->slots_keys_count));
+    }
+    return backup;
 }
 
 /* Helper function for readSyncBulkPayload(): when replica-side diskless
@@ -1173,7 +1188,7 @@ redisDb *disklessLoadMakeBackups(void) {
  *
  * When instead the loading succeeded we want just to free our old backups,
  * in that case the funciton will do just that when 'restore' is 0. */
-void disklessLoadRestoreBackups(redisDb *backup, int restore, int empty_db_flags)
+void disklessLoadRestoreBackups(redisBackup *backup, int restore, int empty_db_flags)
 {
     if (restore) {
         /* Restore. */
@@ -1181,16 +1196,29 @@ void disklessLoadRestoreBackups(redisDb *backup, int restore, int empty_db_flags
         for (int i=0; i<server.dbnum; i++) {
             dictRelease(server.db[i].dict);
             dictRelease(server.db[i].expires);
-            server.db[i] = backup[i];
+            server.db[i] = backup->db[i];
+        }
+        if (server.cluster_enabled) {
+            server.cluster->slots_to_keys = backup->slots_to_keys;
+            memcpy(server.cluster->slots_keys_count,backup->slots_keys_count,
+                   sizeof(server.cluster->slots_keys_count));
         }
     } else {
         /* Delete. */
-        emptyDbGeneric(backup,-1,empty_db_flags,replicationEmptyDbCallback);
+        emptyDbGeneric(backup->db,-1,empty_db_flags,replicationEmptyDbCallback);
         for (int i=0; i<server.dbnum; i++) {
-            dictRelease(backup[i].dict);
-            dictRelease(backup[i].expires);
+            dictRelease(backup->db[i].dict);
+            dictRelease(backup->db[i].expires);
+        }
+        if (server.cluster_enabled) {
+            if (empty_db_flags & EMPTYDB_ASYNC) {
+                slotToKeyFlushAsync(backup->slots_to_keys);
+            } else {
+                slotToKeyFlush(backup->slots_to_keys);
+            }
         }
     }
+    zfree(backup->db);
     zfree(backup);
 }
 
@@ -1200,7 +1228,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     char buf[4096];
     ssize_t nread, readlen, nwritten;
     int use_diskless_load;
-    redisDb *diskless_load_backup = NULL;
+    redisBackup *diskless_load_backup = NULL;
     int empty_db_flags = server.repl_slave_lazy_flush ? EMPTYDB_ASYNC :
                                                         EMPTYDB_NO_FLAGS;
     off_t left;
