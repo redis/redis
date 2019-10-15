@@ -162,9 +162,7 @@ static void connSocketClose(connection *conn) {
 
 static int connSocketWrite(connection *conn, const void *data, size_t data_len) {
     int ret = write(conn->fd, data, data_len);
-    if (!ret) {
-        conn->state = CONN_STATE_CLOSED;
-    } else if (ret < 0 && errno != EAGAIN) {
+    if (ret < 0 && errno != EAGAIN) {
         conn->last_errno = errno;
         conn->state = CONN_STATE_ERROR;
     }
