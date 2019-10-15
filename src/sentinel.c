@@ -2005,7 +2005,7 @@ void sentinelSetClientName(sentinelRedisInstance *ri, redisAsyncContext *c, char
 
 static int instanceLinkNegotiateTLS(redisAsyncContext *context) {
 #ifndef USE_OPENSSL
-    (void) link;
+    (void) context;
 #else
     if (!redis_tls_ctx) return C_ERR;
     SSL *ssl = SSL_new(redis_tls_ctx);

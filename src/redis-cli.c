@@ -821,6 +821,7 @@ error:
     return REDIS_ERR;
 #else
     (void) c;
+    (void) err;
     return REDIS_OK;
 #endif
 }
