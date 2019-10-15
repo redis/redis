@@ -1548,6 +1548,79 @@ unsigned long long RM_GetClientId(RedisModuleCtx *ctx) {
     return ctx->client->id;
 }
 
+/* Return information about the client with the specified ID (that was
+ * previously obtained via the RedisModule_GetClientId() API). If the
+ * client exists, REDISMODULE_OK is returned, otherwise REDISMODULE_ERR
+ * is returned.
+ *
+ * When the client exist and the `ci` pointer is not NULL, but points to
+ * a structure of type RedisModuleClientInfo, previously initialized with
+ * the correct REDISMODULE_CLIENTINFO_INITIALIZER, the structure is populated
+ * with the following fields:
+ *
+ *      uint64_t flags;         // REDISMODULE_CLIENTINFO_FLAG_*
+ *      char addr[46];          // IPv4 or IPv6 address.
+ *      uint16_t port;          // TCP port.
+ *      uint16_t db;            // Selected DB.
+ *
+ * With flags having the following meaning:
+ *
+ *     REDISMODULE_CLIENTINFO_FLAG_SSL          Client using SSL connection.
+ *     REDISMODULE_CLIENTINFO_FLAG_PUBSUB       Client in Pub/Sub mode.
+ *     REDISMODULE_CLIENTINFO_FLAG_BLOCKED      Client blocked in command.
+ *     REDISMODULE_CLIENTINFO_FLAG_TRACKING     Client with keys tracking on.
+ *     REDISMODULE_CLIENTINFO_FLAG_UNIXSOCKET   Client using unix domain socket.
+ *     REDISMODULE_CLIENTINFO_FLAG_MULTI        Client in MULTI state.
+ *
+ * However passing NULL is a way to just check if the client exists in case
+ * we are not interested in any additional information.
+ *
+ * This is the correct usage when we want the client info structure
+ * returned:
+ *
+ *      RedisModuleClientInfo ci = REDISMODULE_CLIENTINFO_INITIALIZER;
+ *      int retval = RedisModule_GetClientInfoById(ctx,&ci);
+ *      if (retval == REDISMODULE_OK) {
+ *          printf("Address: %s\n", ci.addr);
+ *      }
+ */
+int RM_GetClientInfoById(void *ci, uint64_t id) {
+    struct {
+        uint64_t version;       /* Version of this structure for ABI compat. */
+        uint64_t flags;         /* REDISMODULE_CLIENTINFO_FLAG_* */
+        char addr[46];          /* IPv4 or IPv6 address. */
+        uint16_t port;          /* TCP port. */
+        uint16_t db;            /* Selected DB. */
+    } *ci1;
+
+    client *client = lookupClientByID(id);
+    if (client == NULL) return REDISMODULE_ERR;
+    if (ci == NULL) return REDISMODULE_OK;
+
+    /* Fill the info structure if passed. */
+    uint64_t structver = ((uint64_t*)ci)[0];
+    if (structver != 1) return REDISMODULE_ERR;
+
+    ci1 = ci;
+    memset(ci1,0,sizeof(*ci1));
+    if (client->flags & CLIENT_MULTI)
+        ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_MULTI;
+    if (client->flags & CLIENT_PUBSUB)
+        ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_PUBSUB;
+    if (client->flags & CLIENT_UNIX_SOCKET)
+        ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_UNIXSOCKET;
+    if (client->flags & CLIENT_TRACKING)
+        ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_TRACKING;
+    if (client->flags & CLIENT_BLOCKED)
+        ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_BLOCKED;
+
+    int port;
+    anetPeerToString(client->fd,ci1->addr,sizeof(ci1->addr),&port);
+    ci1->port = port;
+    ci1->db = client->db->id;
+    return REDISMODULE_OK;
+}
+
 /* Return the currently selected DB. */
 int RM_GetSelectedDb(RedisModuleCtx *ctx) {
     return ctx->client->db->id;
