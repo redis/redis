@@ -147,6 +147,14 @@ typedef uint64_t RedisModuleTimerID;
 /* Declare that the module can handle errors with RedisModule_SetModuleOptions. */
 #define REDISMODULE_OPTIONS_HANDLE_IO_ERRORS    (1<<0)
 
+/* RedisModuleClientInfo flags. */
+#define REDISMODULE_CLIENTINFO_FLAG_SSL (1<<0)
+#define REDISMODULE_CLIENTINFO_FLAG_PUBSUB (1<<1)
+#define REDISMODULE_CLIENTINFO_FLAG_BLOCKED (1<<2)
+#define REDISMODULE_CLIENTINFO_FLAG_TRACKING (1<<3)
+#define REDISMODULE_CLIENTINFO_FLAG_UNIXSOCKET (1<<4)
+#define REDISMODULE_CLIENTINFO_FLAG_MULTI (1<<5)
+
 /* ------------------------- End of common defines ------------------------ */
 
 #ifndef REDISMODULE_CORE
@@ -199,6 +207,15 @@ typedef struct RedisModuleTypeMethods {
     RedisModuleTypeAuxSaveFunc aux_save;
     int aux_save_triggers;
 } RedisModuleTypeMethods;
+
+#define REDISMODULE_CLIENTINFO_VERSION 1
+typedef struct RedisModuleClientInfo {
+    uint64_t version;       /* Version of this structure for ABI compat. */
+    uint64_t flags;         /* REDISMODULE_CLIENTINFO_FLAG_* */
+    char addr[46];          /* IPv4 or IPv6 address. */
+    uint16_t port;          /* TCP port. */
+    uint16_t db;            /* Selected DB. */
+} RedisModuleClientInfo;
 
 #define REDISMODULE_GET_API(name) \
     RedisModule_GetApi("RedisModule_" #name, ((void **)&RedisModule_ ## name))
