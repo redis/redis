@@ -2365,8 +2365,8 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
     if (server.rdb_pipe_conns) return C_ERR;
 
     /* Before to fork, create a pipe that is used to transfer the rdb bytes to
-     * the parant, we can't let it write directly to the sockets, since in case
-     * of TLS we must let the parent handle a contineous TLS state when the
+     * the parent, we can't let it write directly to the sockets, since in case
+     * of TLS we must let the parent handle a continuous TLS state when the
      * child terminates and parent takes over. */
     if (pipe(pipefds) == -1) return C_ERR;
     server.rdb_pipe_read = pipefds[0];

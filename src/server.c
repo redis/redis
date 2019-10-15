@@ -2051,7 +2051,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Handle TLS pending data. (must be done before flushAppendOnlyFile) */
     tlsProcessPendingData();
     /* If tls still has pending unread data don't sleep at all. */
-    aeDontWait(server.el, tlsHasPendingData());
+    aeSetDontWait(server.el, tlsHasPendingData());
 
     /* Call the Redis Cluster before sleep function. Note that this function
      * may change the state of Redis Cluster (from ok to fail or vice versa),

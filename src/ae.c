@@ -99,7 +99,7 @@ int aeGetSetSize(aeEventLoop *eventLoop) {
 }
 
 /* Tells the next iteration/s of the event processing to set timeout of 0. */
-void aeDontWait(aeEventLoop *eventLoop, int noWait) {
+void aeSetDontWait(aeEventLoop *eventLoop, int noWait) {
     if (noWait)
         eventLoop->flags |= AE_DONT_WAIT;
     else

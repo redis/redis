@@ -191,6 +191,11 @@ static int connSocketAccept(connection *conn, ConnectionCallbackFunc accept_hand
 
 /* Register a write handler, to be called when the connection is writable.
  * If NULL, the existing handler is removed.
+ *
+ * The barrier flag indicates a write barrier is requested, resulting with
+ * CONN_FLAG_WRITE_BARRIER set. This will ensure that the write handler is
+ * always called before and not after the read handler in a single event
+ * loop.
  */
 static int connSocketSetWriteHandler(connection *conn, ConnectionCallbackFunc func, int barrier) {
     if (func == conn->write_handler) return C_OK;
@@ -250,7 +255,7 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
     }
 
     /* Normally we execute the readable event first, and the writable
-     * event laster. This is useful as sometimes we may be able
+     * event later. This is useful as sometimes we may be able
      * to serve the reply of a query immediately after processing the
      * query.
      *
@@ -258,7 +263,7 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
      * asking us to do the reverse: never fire the writable event
      * after the readable. In such a case, we invert the calls.
      * This is useful when, for instance, we want to do things
-     * in the beforeSleep() hook, like fsynching a file to disk,
+     * in the beforeSleep() hook, like fsync'ing a file to disk,
      * before replying to a client. */
     int invert = conn->flags & CONN_FLAG_WRITE_BARRIER;
 

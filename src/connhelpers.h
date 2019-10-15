@@ -33,10 +33,29 @@
 
 #include "connection.h"
 
+/* These are helper functions that are common to different connection
+ * implementations (currently sockets in connection.c and TLS in tls.c).
+ *
+ * Currently helpers implement the mechanisms for invoking connection
+ * handlers, tracking in-handler states and dealing with deferred
+ * destruction (if invoked by a handler).
+ */
+
+/* Called whenever a handler is invoked on a connection and sets the
+ * CONN_FLAG_IN_HANDLER flag to indicate we're in a handler context.
+ *
+ * An attempt to close a connection while CONN_FLAG_IN_HANDLER is
+ * set will result with deferred close, i.e. setting the CONN_FLAG_CLOSE_SCHEDULED
+ * instead of destructing it.
+ */
 static inline void enterHandler(connection *conn) {
     conn->flags |= CONN_FLAG_IN_HANDLER;
 }
 
+/* Called whenever a handler returns. This unsets the CONN_FLAG_IN_HANDLER
+ * flag and performs actual close/destruction if a deferred close was
+ * scheduled by the handler.
+ */
 static inline int exitHandler(connection *conn) {
     conn->flags &= ~CONN_FLAG_IN_HANDLER;
     if (conn->flags & CONN_FLAG_CLOSE_SCHEDULED) {
@@ -46,6 +65,12 @@ static inline int exitHandler(connection *conn) {
     return 1;
 }
 
+/* Helper for connection implementations to call handlers:
+ * 1. Mark the handler in use.
+ * 2. Execute the handler (if set).
+ * 3. Mark the handler as NOT in use and perform deferred close if was
+ * requested by the handler at any time.
+ */
 static inline int callHandler(connection *conn, ConnectionCallbackFunc handler) {
     conn->flags |= CONN_FLAG_IN_HANDLER;
     if (handler) handler(conn);
