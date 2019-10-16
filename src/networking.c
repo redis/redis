@@ -1124,7 +1124,9 @@ int writeToClient(int fd, client *c, int handler_installed) {
 
     while(clientHasPendingReplies(c)) {
         if (c->bufpos > 0) {
-            nwritten = write(fd,c->buf+c->sentlen,c->bufpos-c->sentlen);
+            size_t writelen = (c->bufpos - c->sentlen > NET_MAX_WRITES_PER_EVENT) ?
+                NET_MAX_WRITES_PER_EVENT : c->bufpos - c->sentlen;
+            nwritten = write(fd,c->buf+c->sentlen,writelen);
             if (nwritten <= 0) break;
             c->sentlen += nwritten;
             totwritten += nwritten;
@@ -1145,7 +1147,9 @@ int writeToClient(int fd, client *c, int handler_installed) {
                 continue;
             }
 
-            nwritten = write(fd, o->buf + c->sentlen, objlen - c->sentlen);
+            size_t writelen = (objlen - c->sentlen > NET_MAX_WRITES_PER_EVENT) ?
+                NET_MAX_WRITES_PER_EVENT : objlen - c->sentlen;
+            nwritten = write(fd, o + c->sentlen, writelen);
             if (nwritten <= 0) break;
             c->sentlen += nwritten;
             totwritten += nwritten;
