@@ -1259,7 +1259,7 @@ int handleClientsWithPendingWrites(void) {
             if (aeCreateFileEvent(server.el, c->fd, ae_flags,
                 sendReplyToClient, c) == AE_ERR)
             {
-                    freeClientAsync(c);
+                freeClientAsync(c);
             }
         }
     }
@@ -2760,7 +2760,8 @@ int handleClientsWithPendingWritesUsingThreads(void) {
 
         /* Install the write handler if there are pending writes in some
          * of the clients. */
-        if (clientHasPendingReplies(c) &&
+        if (!(c->flags & CLIENT_CLOSE_ASAP) &&
+            clientHasPendingReplies(c) &&
             aeCreateFileEvent(server.el, c->fd, AE_WRITABLE,
                 sendReplyToClient, c) == AE_ERR)
         {
