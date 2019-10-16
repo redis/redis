@@ -380,10 +380,18 @@ static int processBulkItem(redisReader *r) {
             /* Only continue when the buffer contains the entire bulk item. */
             bytelen += len+2; /* include \r\n */
             if (r->pos+bytelen <= r->len) {
+                if ((cur->type == REDIS_REPLY_VERB && len < 4) ||
+                    (cur->type == REDIS_REPLY_VERB && s[5] != ':'))
+                {
+                    __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
+                            "Verbatim string 4 bytes of content type are "
+                            "missing or incorrectly encoded.");
+                    return REDIS_ERR;
+                }
                 if (r->fn && r->fn->createString)
                     obj = r->fn->createString(cur,s+2,len);
                 else
-                    obj = (void*)REDIS_REPLY_STRING;
+                    obj = (void*)(long)cur->type;
                 success = 1;
             }
         }
@@ -524,6 +532,9 @@ static int processItem(redisReader *r) {
             case '#':
                 cur->type = REDIS_REPLY_BOOL;
                 break;
+            case '=':
+                cur->type = REDIS_REPLY_VERB;
+                break;
             default:
                 __redisReaderSetErrorProtocolByte(r,*p);
                 return REDIS_ERR;
@@ -544,6 +555,7 @@ static int processItem(redisReader *r) {
     case REDIS_REPLY_BOOL:
         return processLineItem(r);
     case REDIS_REPLY_STRING:
+    case REDIS_REPLY_VERB:
         return processBulkItem(r);
     case REDIS_REPLY_ARRAY:
     case REDIS_REPLY_MAP:

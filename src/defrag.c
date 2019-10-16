@@ -374,7 +374,7 @@ long activeDefragSdsListAndDict(list *l, dict *d, int dict_val_type) {
             if ((newele = activeDefragStringOb(ele, &defragged)))
                 de->v.val = newele, defragged++;
         } else if (dict_val_type == DEFRAG_SDS_DICT_VAL_VOID_PTR) {
-            void *newptr, *ptr = ln->value;
+            void *newptr, *ptr = dictGetVal(de);
             if ((newptr = activeDefragAlloc(ptr)))
                 ln->value = newptr, defragged++;
         }
@@ -1039,7 +1039,7 @@ void activeDefragCycle(void) {
     mstime_t latency;
     int quit = 0;
 
-    if (server.aof_child_pid!=-1 || server.rdb_child_pid!=-1)
+    if (hasActiveChildProcess())
         return; /* Defragging memory while there's a fork will just do damage. */
 
     /* Once a second, check if we the fragmentation justfies starting a scan

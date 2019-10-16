@@ -585,7 +585,7 @@ int startBgsaveForReplication(int mincapa) {
     }
 
     /* If we failed to BGSAVE, remove the slaves waiting for a full
-     * resynchorinization from the list of salves, inform them with
+     * resynchorinization from the list of slaves, inform them with
      * an error about what happened, close the connection ASAP. */
     if (retval == C_ERR) {
         serverLog(LL_WARNING,"BGSAVE for replication failed");
@@ -606,7 +606,7 @@ int startBgsaveForReplication(int mincapa) {
     }
 
     /* If the target is socket, rdbSaveToSlavesSockets() already setup
-     * the salves for a full resync. Otherwise for disk target do it now.*/
+     * the slaves for a full resync. Otherwise for disk target do it now.*/
     if (!socket_target) {
         listRewind(server.slaves,&li);
         while((ln = listNext(&li))) {
@@ -751,11 +751,11 @@ void syncCommand(client *c) {
             /* Target is disk (or the slave is not capable of supporting
              * diskless replication) and we don't have a BGSAVE in progress,
              * let's start one. */
-            if (server.aof_child_pid == -1) {
+            if (!hasActiveChildProcess()) {
                 startBgsaveForReplication(c->slave_capa);
             } else {
                 serverLog(LL_NOTICE,
-                    "No BGSAVE in progress, but an AOF rewrite is active. "
+                    "No BGSAVE in progress, but another BG operation is active. "
                     "BGSAVE for replication delayed");
             }
         }
@@ -1283,8 +1283,15 @@ void restartAOFAfterSYNC() {
 
 static int useDisklessLoad() {
     /* compute boolean decision to use diskless load */
-    return server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB ||
+    int enabled = server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB ||
            (server.repl_diskless_load == REPL_DISKLESS_LOAD_WHEN_DB_EMPTY && dbTotalServerKeyCount()==0);
+    /* Check all modules handle read errors, otherwise it's not safe to use diskless load. */
+    if (enabled && !moduleAllDatatypesHandleErrors()) {
+        serverLog(LL_WARNING,
+            "Skipping diskless-load because there are modules that don't handle read errors.");
+        enabled = 0;
+    }
+    return enabled;
 }
 
 /* Helper function for readSyncBulkPayload() to make backups of the current
@@ -2303,7 +2310,10 @@ void replicationSetMaster(char *ip, int port) {
     cancelReplicationHandshake();
     /* Before destroying our master state, create a cached master using
      * our own parameters, to later PSYNC with the new master. */
-    if (was_master) replicationCacheMasterUsingMyself();
+    if (was_master) {
+        replicationDiscardCachedMaster();
+        replicationCacheMasterUsingMyself();
+    }
     server.repl_state = REPL_STATE_CONNECT;
 }
 
@@ -3048,7 +3058,7 @@ void replicationCron(void) {
      * In case of diskless replication, we make sure to wait the specified
      * number of seconds (according to configuration) so that other slaves
      * have the time to arrive before we start streaming. */
-    if (server.rdb_child_pid == -1 && server.aof_child_pid == -1) {
+    if (!hasActiveChildProcess()) {
         time_t idle, max_idle = 0;
         int slaves_waiting = 0;
         int mincapa = -1;

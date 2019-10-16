@@ -1440,30 +1440,20 @@ NULL
 #if defined(USE_JEMALLOC)
         sds info = sdsempty();
         je_malloc_stats_print(inputCatSds, &info, NULL);
-        addReplyBulkSds(c, info);
+        addReplyVerbatim(c,info,sdslen(info),"txt");
+        sdsfree(info);
 #else
         addReplyBulkCString(c,"Stats not supported for the current allocator");
 #endif
     } else if (!strcasecmp(c->argv[1]->ptr,"doctor") && c->argc == 2) {
         sds report = getMemoryDoctorReport();
-        addReplyBulkSds(c,report);
+        addReplyVerbatim(c,report,sdslen(report),"txt");
+        sdsfree(report);
     } else if (!strcasecmp(c->argv[1]->ptr,"purge") && c->argc == 2) {
-#if defined(USE_JEMALLOC)
-        char tmp[32];
-        unsigned narenas = 0;
-        size_t sz = sizeof(unsigned);
-        if (!je_mallctl("arenas.narenas", &narenas, &sz, NULL, 0)) {
-            sprintf(tmp, "arena.%d.purge", narenas);
-            if (!je_mallctl(tmp, NULL, 0, NULL, 0)) {
-                addReply(c, shared.ok);
-                return;
-            }
-        }
-        addReplyError(c, "Error purging dirty pages");
-#else
-        addReply(c, shared.ok);
-        /* Nothing to do for other allocators. */
-#endif
+        if (jemalloc_purge() == 0)
+            addReply(c, shared.ok);
+        else
+            addReplyError(c, "Error purging dirty pages");
     } else {
         addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try MEMORY HELP", (char*)c->argv[1]->ptr);
     }

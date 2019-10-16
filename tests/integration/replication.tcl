@@ -319,7 +319,7 @@ start_server {tags {"repl"}} {
     }
 }
 
-test {slave fails full sync and diskless load swapdb recoveres it} {
+test {slave fails full sync and diskless load swapdb recovers it} {
     start_server {tags {"repl"}} {
         set slave [srv 0 client]
         set slave_host [srv 0 host]

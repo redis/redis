@@ -144,6 +144,7 @@ configYesNo configs_yesno[] = {
     {"replica-serve-stale-data","slave-serve-stale-data",&server.repl_serve_stale_data,1,CONFIG_DEFAULT_SLAVE_SERVE_STALE_DATA},
     {"replica-read-only","slave-read-only",&server.repl_slave_ro,1,CONFIG_DEFAULT_SLAVE_READ_ONLY},
     {"replica-ignore-maxmemory","slave-ignore-maxmemory",&server.repl_slave_ignore_maxmemory,1,CONFIG_DEFAULT_SLAVE_IGNORE_MAXMEMORY},
+    {"jemalloc-bg-thread",NULL,&server.jemalloc_bg_thread,1,1},
     {NULL, NULL, 0, 0}
 };
 
@@ -438,6 +439,7 @@ void loadServerConfigFromString(char *config) {
             server.repl_diskless_load = configEnumGetValue(repl_diskless_load_enum,argv[1]);
             if (server.repl_diskless_load == INT_MIN) {
                 err = "argument must be 'disabled', 'on-empty-db', 'swapdb' or 'flushdb'";
+                goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"repl-diskless-sync-delay") && argc==2) {
             server.repl_diskless_sync_delay = atoi(argv[1]);
@@ -678,6 +680,10 @@ void loadServerConfigFromString(char *config) {
             server.lua_time_limit = strtoll(argv[1],NULL,10);
         } else if (!strcasecmp(argv[0],"lua-replicate-commands") && argc == 2) {
             server.lua_always_replicate_commands = yesnotoi(argv[1]);
+            if (server.lua_always_replicate_commands == -1) {
+                err = "argument must be 'yes' or 'no'";
+                goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"slowlog-log-slower-than") &&
                    argc == 2)
         {

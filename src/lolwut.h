@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2018-2019, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,40 +27,23 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-/* Every time the Redis Git SHA1 or Dirty status changes only this small
- * file is recompiled, as we access this information in all the other
- * files using this functions. */
+/* This structure represents our canvas. Drawing functions will take a pointer
+ * to a canvas to write to it. Later the canvas can be rendered to a string
+ * suitable to be printed on the screen, using unicode Braille characters. */
 
-#include <string.h>
-#include <stdio.h>
+/* This represents a very simple generic canvas in order to draw stuff.
+ * It's up to each LOLWUT versions to translate what they draw to the
+ * screen, depending on the result to accomplish. */
+typedef struct lwCanvas {
+    int width;
+    int height;
+    char *pixels;
+} lwCanvas;
 
-#include "release.h"
-#include "version.h"
-#include "crc64.h"
-
-char *redisGitSHA1(void) {
-    return REDIS_GIT_SHA1;
-}
-
-char *redisGitDirty(void) {
-    return REDIS_GIT_DIRTY;
-}
-
-uint64_t redisBuildId(void) {
-    char *buildid = REDIS_VERSION REDIS_BUILD_ID REDIS_GIT_DIRTY REDIS_GIT_SHA1;
-
-    return crc64(0,(unsigned char*)buildid,strlen(buildid));
-}
-
-/* Return a cached value of the build string in order to avoid recomputing
- * and converting it in hex every time: this string is shown in the INFO
- * output that should be fast. */
-char *redisBuildIdString(void) {
-    static char buf[32];
-    static int cached = 0;
-    if (!cached) {
-        snprintf(buf,sizeof(buf),"%llx",(unsigned long long) redisBuildId());
-        cached = 1;
-    }
-    return buf;
-}
+/* Drawing functions implemented inside lolwut.c. */
+lwCanvas *lwCreateCanvas(int width, int height, int bgcolor);
+void lwFreeCanvas(lwCanvas *canvas);
+void lwDrawPixel(lwCanvas *canvas, int x, int y, int color);
+int lwGetPixel(lwCanvas *canvas, int x, int y);
+void lwDrawLine(lwCanvas *canvas, int x1, int y1, int x2, int y2, int color);
+void lwDrawSquare(lwCanvas *canvas, int x, int y, float size, float angle, int color);

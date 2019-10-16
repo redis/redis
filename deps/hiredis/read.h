@@ -56,12 +56,12 @@
 #define REDIS_REPLY_ERROR 6
 #define REDIS_REPLY_DOUBLE 7
 #define REDIS_REPLY_BOOL 8
-#define REDIS_REPLY_VERB 9
 #define REDIS_REPLY_MAP 9
 #define REDIS_REPLY_SET 10
 #define REDIS_REPLY_ATTR 11
 #define REDIS_REPLY_PUSH 12
 #define REDIS_REPLY_BIGNUM 13
+#define REDIS_REPLY_VERB 14
 
 #define REDIS_READER_MAX_BUF (1024*16)  /* Default max unused reader buffer. */
 
