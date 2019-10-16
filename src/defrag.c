@@ -51,7 +51,7 @@ dictEntry* replaceSateliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, sd
 
 /* Defrag helper for generic allocations.
  *
- * returns NULL in case the allocatoin wasn't moved.
+ * returns NULL in case the allocation wasn't moved.
  * when it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
 void* activeDefragAlloc(void *ptr) {
@@ -81,7 +81,7 @@ void* activeDefragAlloc(void *ptr) {
 
 /*Defrag helper for sds strings
  *
- * returns NULL in case the allocatoin wasn't moved.
+ * returns NULL in case the allocation wasn't moved.
  * when it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
 sds activeDefragSds(sds sdsptr) {
@@ -97,7 +97,7 @@ sds activeDefragSds(sds sdsptr) {
 
 /* Defrag helper for robj and/or string objects
  *
- * returns NULL in case the allocatoin wasn't moved.
+ * returns NULL in case the allocation wasn't moved.
  * when it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
 robj *activeDefragStringOb(robj* ob, long *defragged) {
@@ -137,11 +137,11 @@ robj *activeDefragStringOb(robj* ob, long *defragged) {
 }
 
 /* Defrag helper for dictEntries to be used during dict iteration (called on
- * each step). Teturns a stat of how many pointers were moved. */
+ * each step). Returns a stat of how many pointers were moved. */
 long dictIterDefragEntry(dictIterator *iter) {
     /* This function is a little bit dirty since it messes with the internals
      * of the dict and it's iterator, but the benefit is that it is very easy
-     * to use, and require no other chagnes in the dict. */
+     * to use, and require no other changes in the dict. */
     long defragged = 0;
     dictht *ht;
     /* Handle the next entry (if there is one), and update the pointer in the
@@ -433,7 +433,7 @@ long activeDefragQuickListNodes(quicklist *ql) {
 }
 
 /* when the value has lots of elements, we want to handle it later and not as
- * oart of the main dictionary scan. this is needed in order to prevent latency
+ * part of the main dictionary scan. this is needed in order to prevent latency
  * spikes when handling large items */
 void defragLater(redisDb *db, dictEntry *kde) {
     sds key = sdsdup(dictGetKey(kde));
