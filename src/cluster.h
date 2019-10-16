@@ -271,6 +271,7 @@ typedef struct {
     uint16_t flags;      /* Sender node flags */
     unsigned char state; /* Cluster state from the POV of the sender */
     unsigned char mflags[3]; /* Message flags: CLUSTERMSG_FLAG[012]_... */
+    uint32_t cName;
     union clusterMsgData data;
 } clusterMsg;
 
