@@ -1559,9 +1559,15 @@ unsigned long long RM_GetClientId(RedisModuleCtx *ctx) {
  * with the following fields:
  *
  *      uint64_t flags;         // REDISMODULE_CLIENTINFO_FLAG_*
+ *      uint64_t id;            // Client ID
  *      char addr[46];          // IPv4 or IPv6 address.
  *      uint16_t port;          // TCP port.
  *      uint16_t db;            // Selected DB.
+ *
+ * Note: the client ID is useless in the context of this call, since we
+ *       already know, however the same structure could be used in other
+ *       contexts where we don't know the client ID, yet the same structure
+ *       is returned.
  *
  * With flags having the following meaning:
  *
@@ -1588,6 +1594,7 @@ int RM_GetClientInfoById(void *ci, uint64_t id) {
     struct {
         uint64_t version;       /* Version of this structure for ABI compat. */
         uint64_t flags;         /* REDISMODULE_CLIENTINFO_FLAG_* */
+        uint64_t id;            /* Client ID. */
         char addr[46];          /* IPv4 or IPv6 address. */
         uint16_t port;          /* TCP port. */
         uint16_t db;            /* Selected DB. */
@@ -1618,6 +1625,7 @@ int RM_GetClientInfoById(void *ci, uint64_t id) {
     anetPeerToString(client->fd,ci1->addr,sizeof(ci1->addr),&port);
     ci1->port = port;
     ci1->db = client->db->id;
+    ci1->id = client->id;
     return REDISMODULE_OK;
 }
 
