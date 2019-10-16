@@ -2872,7 +2872,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 
     /* Create the client and dispatch the command. */
     va_start(ap, fmt);
-    c = createClient(-1);
+    c = createClient(NULL);
     c->user = NULL; /* Root user. */
     argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&flags,ap);
     replicate = flags & REDISMODULE_ARGV_REPLICATE;
@@ -3836,7 +3836,7 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
     bc->disconnect_callback = NULL; /* Set by RM_SetDisconnectCallback() */
     bc->free_privdata = free_privdata;
     bc->privdata = NULL;
-    bc->reply_client = createClient(-1);
+    bc->reply_client = createClient(NULL);
     bc->reply_client->flags |= CLIENT_MODULE;
     bc->dbid = c->db->id;
     c->bpop.timeout = timeout_ms ? (mstime()+timeout_ms) : 0;
@@ -4077,7 +4077,7 @@ RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
      * access it safely from another thread, so we create a fake client here
      * in order to keep things like the currently selected database and similar
      * things. */
-    ctx->client = createClient(-1);
+    ctx->client = createClient(NULL);
     if (bc) {
         selectDb(ctx->client,bc->dbid);
         ctx->client->id = bc->client->id;
@@ -5552,7 +5552,7 @@ void moduleInitModulesSystem(void) {
 
     /* Set up the keyspace notification susbscriber list and static client */
     moduleKeyspaceSubscribers = listCreate();
-    moduleFreeContextReusedClient = createClient(-1);
+    moduleFreeContextReusedClient = createClient(NULL);
     moduleFreeContextReusedClient->flags |= CLIENT_MODULE;
     moduleFreeContextReusedClient->user = NULL; /* root user. */
 

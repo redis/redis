@@ -159,13 +159,13 @@ void rioInitWithFile(rio *r, FILE *fp) {
     r->io.file.autosync = 0;
 }
 
-/* ------------------- File descriptor implementation -------------------
+/* ------------------- Connection implementation -------------------
  * We use this RIO implemetnation when reading an RDB file directly from
- * the socket to the memory via rdbLoadRio(), thus this implementation
- * only implements reading from a file descriptor that is, normally,
+ * the connection to the memory via rdbLoadRio(), thus this implementation
+ * only implements reading from a connection that is, normally,
  * just a socket. */
 
-static size_t rioFdWrite(rio *r, const void *buf, size_t len) {
+static size_t rioConnWrite(rio *r, const void *buf, size_t len) {
     UNUSED(r);
     UNUSED(buf);
     UNUSED(len);
@@ -173,57 +173,175 @@ static size_t rioFdWrite(rio *r, const void *buf, size_t len) {
 }
 
 /* Returns 1 or 0 for success/failure. */
-static size_t rioFdRead(rio *r, void *buf, size_t len) {
-    size_t avail = sdslen(r->io.fd.buf)-r->io.fd.pos;
+static size_t rioConnRead(rio *r, void *buf, size_t len) {
+    size_t avail = sdslen(r->io.conn.buf)-r->io.conn.pos;
 
     /* If the buffer is too small for the entire request: realloc. */
-    if (sdslen(r->io.fd.buf) + sdsavail(r->io.fd.buf) < len)
-        r->io.fd.buf = sdsMakeRoomFor(r->io.fd.buf, len - sdslen(r->io.fd.buf));
+    if (sdslen(r->io.conn.buf) + sdsavail(r->io.conn.buf) < len)
+        r->io.conn.buf = sdsMakeRoomFor(r->io.conn.buf, len - sdslen(r->io.conn.buf));
 
     /* If the remaining unused buffer is not large enough: memmove so that we
      * can read the rest. */
-    if (len > avail && sdsavail(r->io.fd.buf) < len - avail) {
-        sdsrange(r->io.fd.buf, r->io.fd.pos, -1);
-        r->io.fd.pos = 0;
+    if (len > avail && sdsavail(r->io.conn.buf) < len - avail) {
+        sdsrange(r->io.conn.buf, r->io.conn.pos, -1);
+        r->io.conn.pos = 0;
     }
 
     /* If we don't already have all the data in the sds, read more */
-    while (len > sdslen(r->io.fd.buf) - r->io.fd.pos) {
-        size_t buffered = sdslen(r->io.fd.buf) - r->io.fd.pos;
+    while (len > sdslen(r->io.conn.buf) - r->io.conn.pos) {
+        size_t buffered = sdslen(r->io.conn.buf) - r->io.conn.pos;
         size_t toread = len - buffered;
         /* Read either what's missing, or PROTO_IOBUF_LEN, the bigger of
          * the two. */
         if (toread < PROTO_IOBUF_LEN) toread = PROTO_IOBUF_LEN;
-        if (toread > sdsavail(r->io.fd.buf)) toread = sdsavail(r->io.fd.buf);
-        if (r->io.fd.read_limit != 0 &&
-            r->io.fd.read_so_far + buffered + toread > r->io.fd.read_limit)
+        if (toread > sdsavail(r->io.conn.buf)) toread = sdsavail(r->io.conn.buf);
+        if (r->io.conn.read_limit != 0 &&
+            r->io.conn.read_so_far + buffered + toread > r->io.conn.read_limit)
         {
-            if (r->io.fd.read_limit >= r->io.fd.read_so_far - buffered)
-                toread = r->io.fd.read_limit - r->io.fd.read_so_far - buffered;
+            if (r->io.conn.read_limit >= r->io.conn.read_so_far - buffered)
+                toread = r->io.conn.read_limit - r->io.conn.read_so_far - buffered;
             else {
                 errno = EOVERFLOW;
                 return 0;
             }
         }
-        int retval = read(r->io.fd.fd,
-                          (char*)r->io.fd.buf + sdslen(r->io.fd.buf),
+        int retval = connRead(r->io.conn.conn,
+                          (char*)r->io.conn.buf + sdslen(r->io.conn.buf),
                           toread);
         if (retval <= 0) {
             if (errno == EWOULDBLOCK) errno = ETIMEDOUT;
             return 0;
         }
-        sdsIncrLen(r->io.fd.buf, retval);
+        sdsIncrLen(r->io.conn.buf, retval);
     }
 
-    memcpy(buf, (char*)r->io.fd.buf + r->io.fd.pos, len);
-    r->io.fd.read_so_far += len;
-    r->io.fd.pos += len;
+    memcpy(buf, (char*)r->io.conn.buf + r->io.conn.pos, len);
+    r->io.conn.read_so_far += len;
+    r->io.conn.pos += len;
     return len;
 }
 
 /* Returns read/write position in file. */
+static off_t rioConnTell(rio *r) {
+    return r->io.conn.read_so_far;
+}
+
+/* Flushes any buffer to target device if applicable. Returns 1 on success
+ * and 0 on failures. */
+static int rioConnFlush(rio *r) {
+    /* Our flush is implemented by the write method, that recognizes a
+     * buffer set to NULL with a count of zero as a flush request. */
+    return rioConnWrite(r,NULL,0);
+}
+
+static const rio rioConnIO = {
+    rioConnRead,
+    rioConnWrite,
+    rioConnTell,
+    rioConnFlush,
+    NULL,           /* update_checksum */
+    0,              /* current checksum */
+    0,              /* flags */
+    0,              /* bytes read or written */
+    0,              /* read/write chunk size */
+    { { NULL, 0 } } /* union for io-specific vars */
+};
+
+/* Create an RIO that implements a buffered read from an fd
+ * read_limit argument stops buffering when the reaching the limit. */
+void rioInitWithConn(rio *r, connection *conn, size_t read_limit) {
+    *r = rioConnIO;
+    r->io.conn.conn = conn;
+    r->io.conn.pos = 0;
+    r->io.conn.read_limit = read_limit;
+    r->io.conn.read_so_far = 0;
+    r->io.conn.buf = sdsnewlen(NULL, PROTO_IOBUF_LEN);
+    sdsclear(r->io.conn.buf);
+}
+
+/* Release the RIO tream. Optionally returns the unread buffered data
+ * when the SDS pointer 'remaining' is passed. */
+void rioFreeConn(rio *r, sds *remaining) {
+    if (remaining && (size_t)r->io.conn.pos < sdslen(r->io.conn.buf)) {
+        if (r->io.conn.pos > 0) sdsrange(r->io.conn.buf, r->io.conn.pos, -1);
+        *remaining = r->io.conn.buf;
+    } else {
+        sdsfree(r->io.conn.buf);
+        if (remaining) *remaining = NULL;
+    }
+    r->io.conn.buf = NULL;
+}
+
+/* ------------------- File descriptor implementation ------------------
+ * This target is used to write the RDB file to pipe, when the master just
+ * streams the data to the replicas without creating an RDB on-disk image
+ * (diskless replication option).
+ * It only implements writes. */
+
+/* Returns 1 or 0 for success/failure.
+ *
+ * When buf is NULL and len is 0, the function performs a flush operation
+ * if there is some pending buffer, so this function is also used in order
+ * to implement rioFdFlush(). */
+static size_t rioFdWrite(rio *r, const void *buf, size_t len) {
+    ssize_t retval;
+    unsigned char *p = (unsigned char*) buf;
+    int doflush = (buf == NULL && len == 0);
+
+    /* For small writes, we rather keep the data in user-space buffer, and flush
+     * it only when it grows. however for larger writes, we prefer to flush
+     * any pre-existing buffer, and write the new one directly without reallocs
+     * and memory copying. */
+    if (len > PROTO_IOBUF_LEN) {
+        /* First, flush any pre-existing buffered data. */
+        if (sdslen(r->io.fd.buf)) {
+            if (rioFdWrite(r, NULL, 0) == 0)
+                return 0;
+        }
+        /* Write the new data, keeping 'p' and 'len' from the input. */
+    } else {
+        if (len) {
+            r->io.fd.buf = sdscatlen(r->io.fd.buf,buf,len);
+            if (sdslen(r->io.fd.buf) > PROTO_IOBUF_LEN)
+                doflush = 1;
+            if (!doflush)
+                return 1;
+        }
+        /* Flusing the buffered data. set 'p' and 'len' accordintly. */
+        p = (unsigned char*) r->io.fd.buf;
+        len = sdslen(r->io.fd.buf);
+    }
+
+    size_t nwritten = 0;
+    while(nwritten != len) {
+        retval = write(r->io.fd.fd,p+nwritten,len-nwritten);
+        if (retval <= 0) {
+            /* With blocking io, which is the sole user of this
+             * rio target, EWOULDBLOCK is returned only because of
+             * the SO_SNDTIMEO socket option, so we translate the error
+             * into one more recognizable by the user. */
+            if (retval == -1 && errno == EWOULDBLOCK) errno = ETIMEDOUT;
+            return 0; /* error. */
+        }
+        nwritten += retval;
+    }
+
+    r->io.fd.pos += len;
+    sdsclear(r->io.fd.buf);
+    return 1;
+}
+
+/* Returns 1 or 0 for success/failure. */
+static size_t rioFdRead(rio *r, void *buf, size_t len) {
+    UNUSED(r);
+    UNUSED(buf);
+    UNUSED(len);
+    return 0; /* Error, this target does not support reading. */
+}
+
+/* Returns read/write position in file. */
 static off_t rioFdTell(rio *r) {
-    return r->io.fd.read_so_far;
+    return r->io.fd.pos;
 }
 
 /* Flushes any buffer to target device if applicable. Returns 1 on success
@@ -247,160 +365,16 @@ static const rio rioFdIO = {
     { { NULL, 0 } } /* union for io-specific vars */
 };
 
-/* Create an RIO that implements a buffered read from an fd
- * read_limit argument stops buffering when the reaching the limit. */
-void rioInitWithFd(rio *r, int fd, size_t read_limit) {
+void rioInitWithFd(rio *r, int fd) {
     *r = rioFdIO;
     r->io.fd.fd = fd;
     r->io.fd.pos = 0;
-    r->io.fd.read_limit = read_limit;
-    r->io.fd.read_so_far = 0;
-    r->io.fd.buf = sdsnewlen(NULL, PROTO_IOBUF_LEN);
-    sdsclear(r->io.fd.buf);
-}
-
-/* Release the RIO tream. Optionally returns the unread buffered data
- * when the SDS pointer 'remaining' is passed. */
-void rioFreeFd(rio *r, sds *remaining) {
-    if (remaining && (size_t)r->io.fd.pos < sdslen(r->io.fd.buf)) {
-        if (r->io.fd.pos > 0) sdsrange(r->io.fd.buf, r->io.fd.pos, -1);
-        *remaining = r->io.fd.buf;
-    } else {
-        sdsfree(r->io.fd.buf);
-        if (remaining) *remaining = NULL;
-    }
-    r->io.fd.buf = NULL;
-}
-
-/* ------------------- File descriptors set implementation ------------------
- * This target is used to write the RDB file to N different replicas via
- * sockets, when the master just streams the data to the replicas without
- * creating an RDB on-disk image (diskless replication option).
- * It only implements writes. */
-
-/* Returns 1 or 0 for success/failure.
- * The function returns success as long as we are able to correctly write
- * to at least one file descriptor.
- *
- * When buf is NULL and len is 0, the function performs a flush operation
- * if there is some pending buffer, so this function is also used in order
- * to implement rioFdsetFlush(). */
-static size_t rioFdsetWrite(rio *r, const void *buf, size_t len) {
-    ssize_t retval;
-    int j;
-    unsigned char *p = (unsigned char*) buf;
-    int doflush = (buf == NULL && len == 0);
-
-    /* To start we always append to our buffer. If it gets larger than
-     * a given size, we actually write to the sockets. */
-    if (len) {
-        r->io.fdset.buf = sdscatlen(r->io.fdset.buf,buf,len);
-        len = 0; /* Prevent entering the while below if we don't flush. */
-        if (sdslen(r->io.fdset.buf) > PROTO_IOBUF_LEN) doflush = 1;
-    }
-
-    if (doflush) {
-        p = (unsigned char*) r->io.fdset.buf;
-        len = sdslen(r->io.fdset.buf);
-    }
-
-    /* Write in little chunchs so that when there are big writes we
-     * parallelize while the kernel is sending data in background to
-     * the TCP socket. */
-    while(len) {
-        size_t count = len < 1024 ? len : 1024;
-        int broken = 0;
-        for (j = 0; j < r->io.fdset.numfds; j++) {
-            if (r->io.fdset.state[j] != 0) {
-                /* Skip FDs alraedy in error. */
-                broken++;
-                continue;
-            }
-
-            /* Make sure to write 'count' bytes to the socket regardless
-             * of short writes. */
-            size_t nwritten = 0;
-            while(nwritten != count) {
-                retval = write(r->io.fdset.fds[j],p+nwritten,count-nwritten);
-                if (retval <= 0) {
-                    /* With blocking sockets, which is the sole user of this
-                     * rio target, EWOULDBLOCK is returned only because of
-                     * the SO_SNDTIMEO socket option, so we translate the error
-                     * into one more recognizable by the user. */
-                    if (retval == -1 && errno == EWOULDBLOCK) errno = ETIMEDOUT;
-                    break;
-                }
-                nwritten += retval;
-            }
-
-            if (nwritten != count) {
-                /* Mark this FD as broken. */
-                r->io.fdset.state[j] = errno;
-                if (r->io.fdset.state[j] == 0) r->io.fdset.state[j] = EIO;
-            }
-        }
-        if (broken == r->io.fdset.numfds) return 0; /* All the FDs in error. */
-        p += count;
-        len -= count;
-        r->io.fdset.pos += count;
-    }
-
-    if (doflush) sdsclear(r->io.fdset.buf);
-    return 1;
-}
-
-/* Returns 1 or 0 for success/failure. */
-static size_t rioFdsetRead(rio *r, void *buf, size_t len) {
-    UNUSED(r);
-    UNUSED(buf);
-    UNUSED(len);
-    return 0; /* Error, this target does not support reading. */
-}
-
-/* Returns read/write position in file. */
-static off_t rioFdsetTell(rio *r) {
-    return r->io.fdset.pos;
-}
-
-/* Flushes any buffer to target device if applicable. Returns 1 on success
- * and 0 on failures. */
-static int rioFdsetFlush(rio *r) {
-    /* Our flush is implemented by the write method, that recognizes a
-     * buffer set to NULL with a count of zero as a flush request. */
-    return rioFdsetWrite(r,NULL,0);
-}
-
-static const rio rioFdsetIO = {
-    rioFdsetRead,
-    rioFdsetWrite,
-    rioFdsetTell,
-    rioFdsetFlush,
-    NULL,           /* update_checksum */
-    0,              /* current checksum */
-    0,              /* flags */
-    0,              /* bytes read or written */
-    0,              /* read/write chunk size */
-    { { NULL, 0 } } /* union for io-specific vars */
-};
-
-void rioInitWithFdset(rio *r, int *fds, int numfds) {
-    int j;
-
-    *r = rioFdsetIO;
-    r->io.fdset.fds = zmalloc(sizeof(int)*numfds);
-    r->io.fdset.state = zmalloc(sizeof(int)*numfds);
-    memcpy(r->io.fdset.fds,fds,sizeof(int)*numfds);
-    for (j = 0; j < numfds; j++) r->io.fdset.state[j] = 0;
-    r->io.fdset.numfds = numfds;
-    r->io.fdset.pos = 0;
-    r->io.fdset.buf = sdsempty();
+    r->io.fd.buf = sdsempty();
 }
 
 /* release the rio stream. */
-void rioFreeFdset(rio *r) {
-    zfree(r->io.fdset.fds);
-    zfree(r->io.fdset.state);
-    sdsfree(r->io.fdset.buf);
+void rioFreeFd(rio *r) {
+    sdsfree(r->io.fd.buf);
 }
 
 /* ---------------------------- Generic functions ---------------------------- */

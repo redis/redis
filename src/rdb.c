@@ -2195,6 +2195,8 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
              * own reference. */
             decrRefCount(key);
         }
+        if (server.key_load_delay)
+            usleep(server.key_load_delay);
 
         /* Reset the state that is key-specified and is populated by
          * opcodes before the key, so that we start from scratch again. */
@@ -2290,8 +2292,6 @@ void backgroundSaveDoneHandlerDisk(int exitcode, int bysignal) {
  * This function covers the case of RDB -> Salves socket transfers for
  * diskless replication. */
 void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
-    uint64_t *ok_slaves;
-
     if (!bysignal && exitcode == 0) {
         serverLog(LL_NOTICE,
             "Background RDB transfer terminated with success");
@@ -2304,79 +2304,6 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
     server.rdb_child_pid = -1;
     server.rdb_child_type = RDB_CHILD_TYPE_NONE;
     server.rdb_save_time_start = -1;
-
-    /* If the child returns an OK exit code, read the set of slave client
-     * IDs and the associated status code. We'll terminate all the slaves
-     * in error state.
-     *
-     * If the process returned an error, consider the list of slaves that
-     * can continue to be empty, so that it's just a special case of the
-     * normal code path. */
-    ok_slaves = zmalloc(sizeof(uint64_t)); /* Make space for the count. */
-    ok_slaves[0] = 0;
-    if (!bysignal && exitcode == 0) {
-        int readlen = sizeof(uint64_t);
-
-        if (read(server.rdb_pipe_read_result_from_child, ok_slaves, readlen) ==
-                 readlen)
-        {
-            readlen = ok_slaves[0]*sizeof(uint64_t)*2;
-
-            /* Make space for enough elements as specified by the first
-             * uint64_t element in the array. */
-            ok_slaves = zrealloc(ok_slaves,sizeof(uint64_t)+readlen);
-            if (readlen &&
-                read(server.rdb_pipe_read_result_from_child, ok_slaves+1,
-                     readlen) != readlen)
-            {
-                ok_slaves[0] = 0;
-            }
-        }
-    }
-
-    close(server.rdb_pipe_read_result_from_child);
-    close(server.rdb_pipe_write_result_to_parent);
-
-    /* We can continue the replication process with all the slaves that
-     * correctly received the full payload. Others are terminated. */
-    listNode *ln;
-    listIter li;
-
-    listRewind(server.slaves,&li);
-    while((ln = listNext(&li))) {
-        client *slave = ln->value;
-
-        if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
-            uint64_t j;
-            int errorcode = 0;
-
-            /* Search for the slave ID in the reply. In order for a slave to
-             * continue the replication process, we need to find it in the list,
-             * and it must have an error code set to 0 (which means success). */
-            for (j = 0; j < ok_slaves[0]; j++) {
-                if (slave->id == ok_slaves[2*j+1]) {
-                    errorcode = ok_slaves[2*j+2];
-                    break; /* Found in slaves list. */
-                }
-            }
-            if (j == ok_slaves[0] || errorcode != 0) {
-                serverLog(LL_WARNING,
-                "Closing slave %s: child->slave RDB transfer failed: %s",
-                    replicationGetSlaveName(slave),
-                    (errorcode == 0) ? "RDB transfer child aborted"
-                                     : strerror(errorcode));
-                freeClient(slave);
-            } else {
-                serverLog(LL_WARNING,
-                "Slave %s correctly received the streamed RDB file.",
-                    replicationGetSlaveName(slave));
-                /* Restore the socket as non-blocking. */
-                anetNonBlock(NULL,slave->fd);
-                anetSendTimeout(NULL,slave->fd,0);
-            }
-        }
-    }
-    zfree(ok_slaves);
 
     updateSlavesWaitingBgsave((!bysignal && exitcode == 0) ? C_OK : C_ERR, RDB_CHILD_TYPE_SOCKET);
 }
@@ -2409,9 +2336,6 @@ void killRDBChild(void) {
 /* Spawn an RDB child that writes the RDB to the sockets of the slaves
  * that are currently in SLAVE_STATE_WAIT_BGSAVE_START state. */
 int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
-    int *fds;
-    uint64_t *clientids;
-    int numfds;
     listNode *ln;
     listIter li;
     pid_t childpid;
@@ -2419,35 +2343,30 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
 
     if (hasActiveChildProcess()) return C_ERR;
 
-    /* Before to fork, create a pipe that will be used in order to
-     * send back to the parent the IDs of the slaves that successfully
-     * received all the writes. */
+    /* Even if the previous fork child exited, don't start a new one until we
+     * drained the pipe. */
+    if (server.rdb_pipe_conns) return C_ERR;
+
+    /* Before to fork, create a pipe that is used to transfer the rdb bytes to
+     * the parent, we can't let it write directly to the sockets, since in case
+     * of TLS we must let the parent handle a continuous TLS state when the
+     * child terminates and parent takes over. */
     if (pipe(pipefds) == -1) return C_ERR;
-    server.rdb_pipe_read_result_from_child = pipefds[0];
-    server.rdb_pipe_write_result_to_parent = pipefds[1];
+    server.rdb_pipe_read = pipefds[0];
+    server.rdb_pipe_write = pipefds[1];
+    anetNonBlock(NULL, server.rdb_pipe_read);
 
-    /* Collect the file descriptors of the slaves we want to transfer
+    /* Collect the connections of the replicas we want to transfer
      * the RDB to, which are i WAIT_BGSAVE_START state. */
-    fds = zmalloc(sizeof(int)*listLength(server.slaves));
-    /* We also allocate an array of corresponding client IDs. This will
-     * be useful for the child process in order to build the report
-     * (sent via unix pipe) that will be sent to the parent. */
-    clientids = zmalloc(sizeof(uint64_t)*listLength(server.slaves));
-    numfds = 0;
-
+    server.rdb_pipe_conns = zmalloc(sizeof(connection *)*listLength(server.slaves));
+    server.rdb_pipe_numconns = 0;
+    server.rdb_pipe_numconns_writing = 0;
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
         client *slave = ln->value;
-
         if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
-            clientids[numfds] = slave->id;
-            fds[numfds++] = slave->fd;
+            server.rdb_pipe_conns[server.rdb_pipe_numconns++] = slave->conn;
             replicationSetupSlaveForFullResync(slave,getPsyncInitialOffset());
-            /* Put the socket in blocking mode to simplify RDB transfer.
-             * We'll restore it when the children returns (since duped socket
-             * will share the O_NONBLOCK attribute with the parent). */
-            anetBlock(NULL,slave->fd);
-            anetSendTimeout(NULL,slave->fd,server.repl_timeout*1000);
         }
     }
 
@@ -2456,61 +2375,22 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
     if ((childpid = redisFork()) == 0) {
         /* Child */
         int retval;
-        rio slave_sockets;
+        rio rdb;
 
-        rioInitWithFdset(&slave_sockets,fds,numfds);
-        zfree(fds);
+        rioInitWithFd(&rdb,server.rdb_pipe_write);
 
         redisSetProcTitle("redis-rdb-to-slaves");
 
-        retval = rdbSaveRioWithEOFMark(&slave_sockets,NULL,rsi);
-        if (retval == C_OK && rioFlush(&slave_sockets) == 0)
+        retval = rdbSaveRioWithEOFMark(&rdb,NULL,rsi);
+        if (retval == C_OK && rioFlush(&rdb) == 0)
             retval = C_ERR;
 
         if (retval == C_OK) {
             sendChildCOWInfo(CHILD_INFO_TYPE_RDB, "RDB");
-
-            /* If we are returning OK, at least one slave was served
-             * with the RDB file as expected, so we need to send a report
-             * to the parent via the pipe. The format of the message is:
-             *
-             * <len> <slave[0].id> <slave[0].error> ...
-             *
-             * len, slave IDs, and slave errors, are all uint64_t integers,
-             * so basically the reply is composed of 64 bits for the len field
-             * plus 2 additional 64 bit integers for each entry, for a total
-             * of 'len' entries.
-             *
-             * The 'id' represents the slave's client ID, so that the master
-             * can match the report with a specific slave, and 'error' is
-             * set to 0 if the replication process terminated with a success
-             * or the error code if an error occurred. */
-            void *msg = zmalloc(sizeof(uint64_t)*(1+2*numfds));
-            uint64_t *len = msg;
-            uint64_t *ids = len+1;
-            int j, msglen;
-
-            *len = numfds;
-            for (j = 0; j < numfds; j++) {
-                *ids++ = clientids[j];
-                *ids++ = slave_sockets.io.fdset.state[j];
-            }
-
-            /* Write the message to the parent. If we have no good slaves or
-             * we are unable to transfer the message to the parent, we exit
-             * with an error so that the parent will abort the replication
-             * process with all the childre that were waiting. */
-            msglen = sizeof(uint64_t)*(1+2*numfds);
-            if (*len == 0 ||
-                write(server.rdb_pipe_write_result_to_parent,msg,msglen)
-                != msglen)
-            {
-                retval = C_ERR;
-            }
-            zfree(msg);
         }
-        zfree(clientids);
-        rioFreeFdset(&slave_sockets);
+
+        rioFreeFd(&rdb);
+        close(server.rdb_pipe_write); /* wake up the reader, tell it we're done. */
         exitFromChild((retval == C_OK) ? 0 : 1);
     } else {
         /* Parent */
@@ -2524,17 +2404,16 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
             listRewind(server.slaves,&li);
             while((ln = listNext(&li))) {
                 client *slave = ln->value;
-                int j;
-
-                for (j = 0; j < numfds; j++) {
-                    if (slave->id == clientids[j]) {
-                        slave->replstate = SLAVE_STATE_WAIT_BGSAVE_START;
-                        break;
-                    }
+                if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
+                    slave->replstate = SLAVE_STATE_WAIT_BGSAVE_START;
                 }
             }
-            close(pipefds[0]);
-            close(pipefds[1]);
+            close(server.rdb_pipe_write);
+            close(server.rdb_pipe_read);
+            zfree(server.rdb_pipe_conns);
+            server.rdb_pipe_conns = NULL;
+            server.rdb_pipe_numconns = 0;
+            server.rdb_pipe_numconns_writing = 0;
             closeChildInfoPipe();
         } else {
             serverLog(LL_NOTICE,"Background RDB transfer started by pid %d",
@@ -2542,9 +2421,11 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
             server.rdb_save_time_start = time(NULL);
             server.rdb_child_pid = childpid;
             server.rdb_child_type = RDB_CHILD_TYPE_SOCKET;
+            close(server.rdb_pipe_write); /* close write in parent so that it can detect the close on the child. */
+            if (aeCreateFileEvent(server.el, server.rdb_pipe_read, AE_READABLE, rdbPipeReadHandler,NULL) == AE_ERR) {
+                serverPanic("Unrecoverable error creating server.rdb_pipe_read file event.");
+            }
         }
-        zfree(clientids);
-        zfree(fds);
         return (childpid == -1) ? C_ERR : C_OK;
     }
     return C_OK; /* Unreached. */

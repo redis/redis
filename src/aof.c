@@ -385,6 +385,10 @@ void flushAppendOnlyFile(int force) {
      * there is much to do about the whole server stopping for power problems
      * or alike */
 
+    if (server.aof_flush_sleep && sdslen(server.aof_buf)) {
+        usleep(server.aof_flush_sleep);
+    }
+
     latencyStartMonitor(latency);
     nwritten = aofWrite(server.aof_fd,server.aof_buf,sdslen(server.aof_buf));
     latencyEndMonitor(latency);
@@ -652,7 +656,7 @@ struct client *createFakeClient(void) {
     struct client *c = zmalloc(sizeof(*c));
 
     selectDb(c,0);
-    c->fd = -1;
+    c->conn = NULL;
     c->name = NULL;
     c->querybuf = sdsempty();
     c->querybuf_peak = 0;
@@ -835,6 +839,8 @@ int loadAppendOnlyFile(char *filename) {
         freeFakeClientArgv(fakeClient);
         fakeClient->cmd = NULL;
         if (server.aof_load_truncated) valid_up_to = ftello(fp);
+        if (server.key_load_delay)
+            usleep(server.key_load_delay);
     }
 
     /* This point can only be reached when EOF is reached without errors.

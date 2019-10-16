@@ -66,6 +66,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #include "quicklist.h"  /* Lists are encoded as linked lists of
                            N-elements flat arrays */
 #include "rax.h"     /* Radix tree */
+#include "connection.h" /* Connection abstraction */
 
 /* Following includes allow test functions to be called from Redis main() */
 #include "zipmap.h"
@@ -84,6 +85,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_MAX_HZ            500
 #define MAX_CLIENTS_PER_CLOCK_TICK 200          /* HZ is adapted based on that. */
 #define CONFIG_DEFAULT_SERVER_PORT        6379  /* TCP port. */
+#define CONFIG_DEFAULT_SERVER_TLS_PORT    0     /* TCP port. */
 #define CONFIG_DEFAULT_TCP_BACKLOG       511    /* TCP listen backlog. */
 #define CONFIG_DEFAULT_CLIENT_TIMEOUT       0   /* Default client timeout: infinite */
 #define CONFIG_DEFAULT_DBNUM     16
@@ -133,6 +135,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_REPL_DISKLESS_SYNC 0
 #define CONFIG_DEFAULT_REPL_DISKLESS_SYNC_DELAY 5
 #define CONFIG_DEFAULT_RDB_KEY_SAVE_DELAY 0
+#define CONFIG_DEFAULT_KEY_LOAD_DELAY 0
 #define CONFIG_DEFAULT_SLAVE_SERVE_STALE_DATA 1
 #define CONFIG_DEFAULT_SLAVE_READ_ONLY 1
 #define CONFIG_DEFAULT_SLAVE_IGNORE_MAXMEMORY 1
@@ -826,7 +829,7 @@ typedef struct user {
  * Clients are taken in a linked list. */
 typedef struct client {
     uint64_t id;            /* Client incremental unique ID. */
-    int fd;                 /* Client socket. */
+    connection *conn;
     int resp;               /* RESP protocol version. Can be 2 or 3. */
     redisDb *db;            /* Pointer to currently SELECTed DB. */
     robj *name;             /* As set by CLIENT SETNAME. */
@@ -1035,6 +1038,22 @@ struct malloc_stats {
 };
 
 /*-----------------------------------------------------------------------------
+ * TLS Context Configuration
+ *----------------------------------------------------------------------------*/
+
+typedef struct redisTLSContextConfig {
+    char *cert_file;
+    char *key_file;
+    char *dh_params_file;
+    char *ca_cert_file;
+    char *ca_cert_dir;
+    char *protocols;
+    char *ciphers;
+    char *ciphersuites;
+    int prefer_server_ciphers;
+} redisTLSContextConfig;
+
+/*-----------------------------------------------------------------------------
  * Global server state
  *----------------------------------------------------------------------------*/
 
@@ -1088,6 +1107,7 @@ struct redisServer {
     pid_t module_child_pid;     /* PID of module child */
     /* Networking */
     int port;                   /* TCP listening port */
+    int tls_port;               /* TLS listening port */
     int tcp_backlog;            /* TCP listen() backlog */
     char *bindaddr[CONFIG_BINDADDR_MAX]; /* Addresses we should bind to */
     int bindaddr_count;         /* Number of addresses in server.bindaddr[] */
@@ -1095,6 +1115,8 @@ struct redisServer {
     mode_t unixsocketperm;      /* UNIX socket permission */
     int ipfd[CONFIG_BINDADDR_MAX]; /* TCP socket file descriptors */
     int ipfd_count;             /* Used slots in ipfd[] */
+    int tlsfd[CONFIG_BINDADDR_MAX]; /* TLS socket file descriptors */
+    int tlsfd_count;            /* Used slots in tlsfd[] */
     int sofd;                   /* Unix socket file descriptor */
     int cfd[CONFIG_BINDADDR_MAX];/* Cluster bus listening socket */
     int cfd_count;              /* Used slots in cfd[] */
@@ -1198,6 +1220,7 @@ struct redisServer {
     off_t aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
     off_t aof_current_size;         /* AOF current size. */
     off_t aof_fsync_offset;         /* AOF offset which is already synced to disk. */
+    int aof_flush_sleep;            /* Micros to sleep before flush. (used by tests) */
     int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. */
     pid_t aof_child_pid;            /* PID if rewriting process */
     list *aof_rewrite_buf_blocks;   /* Hold changes during an AOF rewrite. */
@@ -1243,10 +1266,17 @@ struct redisServer {
     int rdb_child_type;             /* Type of save by active child. */
     int lastbgsave_status;          /* C_OK or C_ERR */
     int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
-    int rdb_pipe_write_result_to_parent; /* RDB pipes used to return the state */
-    int rdb_pipe_read_result_from_child; /* of each slave in diskless SYNC. */
+    int rdb_pipe_write;             /* RDB pipes used to transfer the rdb */
+    int rdb_pipe_read;              /* data to the parent process in diskless repl. */
+    connection **rdb_pipe_conns;    /* Connections which are currently the */
+    int rdb_pipe_numconns;          /* target of diskless rdb fork child. */
+    int rdb_pipe_numconns_writing;  /* Number of rdb conns with pending writes. */
+    char *rdb_pipe_buff;            /* In diskless replication, this buffer holds data */
+    int rdb_pipe_bufflen;           /* that was read from the the rdb pipe. */
     int rdb_key_save_delay;         /* Delay in microseconds between keys while
                                      * writing the RDB. (for testings) */
+    int key_load_delay;             /* Delay in microseconds between keys while
+                                     * loading aof or rdb. (for testings) */
     /* Pipe and data structures for child -> parent info sharing. */
     int child_info_pipe[2];         /* Pipe used to write the child_info_data. */
     struct {
@@ -1299,7 +1329,7 @@ struct redisServer {
     off_t repl_transfer_size; /* Size of RDB to read from master during sync. */
     off_t repl_transfer_read; /* Amount of RDB read from master during sync. */
     off_t repl_transfer_last_fsync_off; /* Offset when we fsync-ed last time. */
-    int repl_transfer_s;     /* Slave -> Master SYNC socket */
+    connection *repl_transfer_s;     /* Slave -> Master SYNC connection */
     int repl_transfer_fd;    /* Slave -> Master SYNC temp file descriptor */
     char *repl_transfer_tmpfile; /* Slave-> master SYNC temp file name */
     time_t repl_transfer_lastio; /* Unix time of the latest read, for timeout */
@@ -1423,6 +1453,11 @@ struct redisServer {
     int watchdog_period;  /* Software watchdog period in ms. 0 = off */
     /* System hardware info */
     size_t system_memory_size;  /* Total memory in system as reported by OS */
+    /* TLS Configuration */
+    int tls_cluster;
+    int tls_replication;
+    int tls_auth_clients;
+    redisTLSContextConfig tls_ctx_config;
 };
 
 typedef struct pubsubPattern {
@@ -1570,12 +1605,12 @@ size_t redisPopcount(void *s, long count);
 void redisSetProcTitle(char *title);
 
 /* networking.c -- Networking and Client related operations */
-client *createClient(int fd);
+client *createClient(connection *conn);
 void closeTimedoutClients(void);
 void freeClient(client *c);
 void freeClientAsync(client *c);
 void resetClient(client *c);
-void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask);
+void sendReplyToClient(connection *conn);
 void *addReplyDeferredLen(client *c);
 void setDeferredArrayLen(client *c, void *node, long length);
 void setDeferredMapLen(client *c, void *node, long length);
@@ -1587,8 +1622,9 @@ void processInputBufferAndReplicate(client *c);
 void processGopherRequest(client *c);
 void acceptHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask);
+void acceptTLSHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask);
-void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask);
+void readQueryFromClient(connection *conn);
 void addReplyNull(client *c);
 void addReplyNullArray(client *c);
 void addReplyBool(client *c, int b);
@@ -1646,7 +1682,7 @@ int handleClientsWithPendingReadsUsingThreads(void);
 int stopThreadedIOIfNeeded(void);
 int clientHasPendingReplies(client *c);
 void unlinkClient(client *c);
-int writeToClient(int fd, client *c, int handler_installed);
+int writeToClient(client *c, int handler_installed);
 void linkClient(client *c);
 void protectClient(client *c);
 void unprotectClient(client *c);
@@ -1782,6 +1818,8 @@ void clearReplicationId2(void);
 void chopReplicationBacklog(void);
 void replicationCacheMasterUsingMyself(void);
 void feedReplicationBacklog(void *ptr, size_t len);
+void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask);
+void rdbPipeWriteHandlerConnRemoved(struct connection *conn);
 
 /* Generic persistence functions */
 void startLoadingFile(FILE* fp, char* filename);
@@ -1954,6 +1992,7 @@ unsigned int LRU_CLOCK(void);
 const char *evictPolicyToString(void);
 struct redisMemOverhead *getMemoryOverheadData(void);
 void freeMemoryOverheadData(struct redisMemOverhead *mh);
+void checkChildrenDone(void);
 
 #define RESTART_SERVER_NONE 0
 #define RESTART_SERVER_GRACEFULLY (1<<0)     /* Do proper shutdown. */
@@ -2368,6 +2407,10 @@ int memtest_preserving_test(unsigned long *m, size_t bytes, int passes);
 void mixDigest(unsigned char *digest, void *ptr, size_t len);
 void xorDigest(unsigned char *digest, void *ptr, size_t len);
 int populateCommandTableParseFlags(struct redisCommand *c, char *strflags);
+
+/* TLS stuff */
+void tlsInit(void);
+int tlsConfigure(redisTLSContextConfig *ctx_config);
 
 #define redisDebug(fmt, ...) \
     printf("DEBUG %s:%d > " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)

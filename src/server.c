@@ -1752,6 +1752,62 @@ void updateCachedTime(void) {
     server.daylight_active = tm.tm_isdst;
 }
 
+void checkChildrenDone(void) {
+    int statloc;
+    pid_t pid;
+
+    /* If we have a diskless rdb child (note that we support only one concurrent
+     * child), we want to avoid collecting it's exit status and acting on it
+     * as long as we didn't finish to drain the pipe, since then we're at risk
+     * of starting a new fork and a new pipe before we're done with the previous
+     * one. */
+    if (server.rdb_child_pid != -1 && server.rdb_pipe_conns)
+        return;
+
+    if ((pid = wait3(&statloc,WNOHANG,NULL)) != 0) {
+        int exitcode = WEXITSTATUS(statloc);
+        int bysignal = 0;
+
+        if (WIFSIGNALED(statloc)) bysignal = WTERMSIG(statloc);
+
+        /* sigKillChildHandler catches the signal and calls exit(), but we
+         * must make sure not to flag lastbgsave_status, etc incorrectly.
+         * We could directly terminate the child process via SIGUSR1
+         * without handling it, but in this case Valgrind will log an
+         * annoying error. */
+        if (exitcode == SERVER_CHILD_NOERROR_RETVAL) {
+            bysignal = SIGUSR1;
+            exitcode = 1;
+        }
+
+        if (pid == -1) {
+            serverLog(LL_WARNING,"wait3() returned an error: %s. "
+                "rdb_child_pid = %d, aof_child_pid = %d, module_child_pid = %d",
+                strerror(errno),
+                (int) server.rdb_child_pid,
+                (int) server.aof_child_pid,
+                (int) server.module_child_pid);
+        } else if (pid == server.rdb_child_pid) {
+            backgroundSaveDoneHandler(exitcode,bysignal);
+            if (!bysignal && exitcode == 0) receiveChildInfo();
+        } else if (pid == server.aof_child_pid) {
+            backgroundRewriteDoneHandler(exitcode,bysignal);
+            if (!bysignal && exitcode == 0) receiveChildInfo();
+        } else if (pid == server.module_child_pid) {
+            ModuleForkDoneHandler(exitcode,bysignal);
+            if (!bysignal && exitcode == 0) receiveChildInfo();
+        } else {
+            if (!ldbRemoveChild(pid)) {
+                serverLog(LL_WARNING,
+                    "Warning, detected child with unmatched pid: %ld",
+                    (long)pid);
+            }
+        }
+        updateDictResizePolicy();
+        closeChildInfoPipe();
+    }
+}
+
 /* This is our timer interrupt, called server.hz times per second.
  * Here is where we do a number of things that need to be done asynchronously.
  * For instance:
@@ -1903,51 +1959,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Check if a background saving or AOF rewrite in progress terminated. */
     if (hasActiveChildProcess() || ldbPendingChildren())
     {
-        int statloc;
-        pid_t pid;
-
-        if ((pid = wait3(&statloc,WNOHANG,NULL)) != 0) {
-            int exitcode = WEXITSTATUS(statloc);
-            int bysignal = 0;
-
-            if (WIFSIGNALED(statloc)) bysignal = WTERMSIG(statloc);
-
-            /* sigKillChildHandler catches the signal and calls exit(), but we
-             * must make sure not to flag lastbgsave_status, etc incorrectly.
-             * We could directly terminate the child process via SIGUSR1
-             * without handling it, but in this case Valgrind will log an
-             * annoying error. */
-            if (exitcode == SERVER_CHILD_NOERROR_RETVAL) {
-                bysignal = SIGUSR1;
-                exitcode = 1;
-            }
-
-            if (pid == -1) {
-                serverLog(LL_WARNING,"wait3() returned an error: %s. "
-                    "rdb_child_pid = %d, aof_child_pid = %d, module_child_pid = %d",
-                    strerror(errno),
-                    (int) server.rdb_child_pid,
-                    (int) server.aof_child_pid,
-                    (int) server.module_child_pid);
-            } else if (pid == server.rdb_child_pid) {
-                backgroundSaveDoneHandler(exitcode,bysignal);
-                if (!bysignal && exitcode == 0) receiveChildInfo();
-            } else if (pid == server.aof_child_pid) {
-                backgroundRewriteDoneHandler(exitcode,bysignal);
-                if (!bysignal && exitcode == 0) receiveChildInfo();
-            } else if (pid == server.module_child_pid) {
-                ModuleForkDoneHandler(exitcode,bysignal);
-                if (!bysignal && exitcode == 0) receiveChildInfo();
-            } else {
-                if (!ldbRemoveChild(pid)) {
-                    serverLog(LL_WARNING,
-                        "Warning, detected child with unmatched pid: %ld",
-                        (long)pid);
-                }
-            }
-            updateDictResizePolicy();
-            closeChildInfoPipe();
-        }
+        checkChildrenDone();
     } else {
         /* If there is not a background saving/rewrite in progress check if
          * we have to save/rewrite now. */
@@ -2053,6 +2065,11 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
  * for ready file descriptors. */
 void beforeSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
+
+    /* Handle TLS pending data. (must be done before flushAppendOnlyFile) */
+    tlsProcessPendingData();
+    /* If tls still has pending unread data don't sleep at all. */
+    aeSetDontWait(server.el, tlsHasPendingData());
 
     /* Call the Redis Cluster before sleep function. Note that this function
      * may change the state of Redis Cluster (from ok to fail or vice versa),
@@ -2247,11 +2264,13 @@ void initServerConfig(void) {
     server.dynamic_hz = CONFIG_DEFAULT_DYNAMIC_HZ;
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
     server.port = CONFIG_DEFAULT_SERVER_PORT;
+    server.tls_port = CONFIG_DEFAULT_SERVER_TLS_PORT;
     server.tcp_backlog = CONFIG_DEFAULT_TCP_BACKLOG;
     server.bindaddr_count = 0;
     server.unixsocket = NULL;
     server.unixsocketperm = CONFIG_DEFAULT_UNIX_SOCKET_PERM;
     server.ipfd_count = 0;
+    server.tlsfd_count = 0;
     server.sofd = -1;
     server.protected_mode = CONFIG_DEFAULT_PROTECTED_MODE;
     server.gopher_enabled = CONFIG_DEFAULT_GOPHER_ENABLED;
@@ -2286,6 +2305,7 @@ void initServerConfig(void) {
     server.aof_rewrite_min_size = AOF_REWRITE_MIN_SIZE;
     server.aof_rewrite_base_size = 0;
     server.aof_rewrite_scheduled = 0;
+    server.aof_flush_sleep = 0;
     server.aof_last_fsync = time(NULL);
     server.aof_rewrite_time_last = -1;
     server.aof_rewrite_time_start = -1;
@@ -2297,6 +2317,7 @@ void initServerConfig(void) {
     server.aof_rewrite_incremental_fsync = CONFIG_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC;
     server.rdb_save_incremental_fsync = CONFIG_DEFAULT_RDB_SAVE_INCREMENTAL_FSYNC;
     server.rdb_key_save_delay = CONFIG_DEFAULT_RDB_KEY_SAVE_DELAY;
+    server.key_load_delay = CONFIG_DEFAULT_KEY_LOAD_DELAY;
     server.aof_load_truncated = CONFIG_DEFAULT_AOF_LOAD_TRUNCATED;
     server.aof_use_rdb_preamble = CONFIG_DEFAULT_AOF_USE_RDB_PREAMBLE;
     server.pidfile = NULL;
@@ -2368,7 +2389,7 @@ void initServerConfig(void) {
     server.repl_state = REPL_STATE_NONE;
     server.repl_transfer_tmpfile = NULL;
     server.repl_transfer_fd = -1;
-    server.repl_transfer_s = -1;
+    server.repl_transfer_s = NULL;
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_serve_stale_data = CONFIG_DEFAULT_SLAVE_SERVE_STALE_DATA;
     server.repl_slave_ro = CONFIG_DEFAULT_SLAVE_READ_ONLY;
@@ -2765,6 +2786,11 @@ void initServer(void) {
     server.clients_paused = 0;
     server.system_memory_size = zmalloc_get_memory_size();
 
+    if (server.tls_port && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
+        serverLog(LL_WARNING, "Failed to configure TLS. Check logs for more info.");
+        exit(1);
+    }
+
     createSharedObjects();
     adjustOpenFilesLimit();
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
@@ -2780,6 +2806,9 @@ void initServer(void) {
     if (server.port != 0 &&
         listenToPort(server.port,server.ipfd,&server.ipfd_count) == C_ERR)
         exit(1);
+    if (server.tls_port != 0 &&
+        listenToPort(server.tls_port,server.tlsfd,&server.tlsfd_count) == C_ERR)
+        exit(1);
 
     /* Open the listening Unix domain socket. */
     if (server.unixsocket != NULL) {
@@ -2794,7 +2823,7 @@ void initServer(void) {
     }
 
     /* Abort if there are no listening sockets at all. */
-    if (server.ipfd_count == 0 && server.sofd < 0) {
+    if (server.ipfd_count == 0 && server.tlsfd_count == 0 && server.sofd < 0) {
         serverLog(LL_WARNING, "Configured to not listen anywhere, exiting.");
         exit(1);
     }
@@ -2820,6 +2849,11 @@ void initServer(void) {
     server.aof_child_pid = -1;
     server.module_child_pid = -1;
     server.rdb_child_type = RDB_CHILD_TYPE_NONE;
+    server.rdb_pipe_conns = NULL;
+    server.rdb_pipe_numconns = 0;
+    server.rdb_pipe_numconns_writing = 0;
+    server.rdb_pipe_buff = NULL;
+    server.rdb_pipe_bufflen = 0;
     server.rdb_bgsave_scheduled = 0;
     server.child_info_pipe[0] = -1;
     server.child_info_pipe[1] = -1;
@@ -2864,6 +2898,14 @@ void initServer(void) {
             {
                 serverPanic(
                     "Unrecoverable error creating server.ipfd file event.");
+            }
+    }
+    for (j = 0; j < server.tlsfd_count; j++) {
+        if (aeCreateFileEvent(server.el, server.tlsfd[j], AE_READABLE,
+            acceptTLSHandler,NULL) == AE_ERR)
+            {
+                serverPanic(
+                    "Unrecoverable error creating server.tlsfd file event.");
             }
     }
     if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
@@ -3570,6 +3612,7 @@ void closeListeningSockets(int unlink_unix_socket) {
     int j;
 
     for (j = 0; j < server.ipfd_count; j++) close(server.ipfd[j]);
+    for (j = 0; j < server.tlsfd_count; j++) close(server.tlsfd[j]);
     if (server.sofd != -1) close(server.sofd);
     if (server.cluster_enabled)
         for (j = 0; j < server.cfd_count; j++) close(server.cfd[j]);
@@ -3940,7 +3983,7 @@ sds genRedisInfoString(char *section) {
 #endif
             (int64_t) getpid(),
             server.runid,
-            server.port,
+            server.port ? server.port : server.tls_port,
             (int64_t)uptime,
             (int64_t)(uptime/(3600*24)),
             server.hz,
@@ -4324,7 +4367,7 @@ sds genRedisInfoString(char *section) {
                 long lag = 0;
 
                 if (slaveip[0] == '\0') {
-                    if (anetPeerToString(slave->fd,ip,sizeof(ip),&port) == -1)
+                    if (connPeerToString(slave->conn,ip,sizeof(ip),&port) == -1)
                         continue;
                     slaveip = ip;
                 }
@@ -4578,7 +4621,7 @@ void redisAsciiArt(void) {
     if (!show_logo) {
         serverLog(LL_NOTICE,
             "Running mode=%s, port=%d.",
-            mode, server.port
+            mode, server.port ? server.port : server.tls_port
         );
     } else {
         snprintf(buf,1024*16,ascii_logo,
@@ -4586,7 +4629,7 @@ void redisAsciiArt(void) {
             redisGitSHA1(),
             strtol(redisGitDirty(),NULL,10) > 0,
             (sizeof(long) == 8) ? "64" : "32",
-            mode, server.port,
+            mode, server.port ? server.port : server.tls_port,
             (long) getpid()
         );
         serverLogRaw(LL_NOTICE|LL_RAW,buf);
@@ -4769,7 +4812,7 @@ void redisSetProcTitle(char *title) {
     setproctitle("%s %s:%d%s",
         title,
         server.bindaddr_count ? server.bindaddr[0] : "*",
-        server.port,
+        server.port ? server.port : server.tls_port,
         server_mode);
 #else
     UNUSED(title);
@@ -4920,6 +4963,7 @@ int main(int argc, char **argv) {
     ACLInit(); /* The ACL subsystem must be initialized ASAP because the
                   basic networking code and client creation depends on it. */
     moduleInitModulesSystem();
+    tlsInit();
 
     /* Store the executable path and arguments in a safe place in order
      * to be able to restart the server later. */
@@ -5053,7 +5097,7 @@ int main(int argc, char **argv) {
                 exit(1);
             }
         }
-        if (server.ipfd_count > 0)
+        if (server.ipfd_count > 0 || server.tlsfd_count > 0)
             serverLog(LL_NOTICE,"Ready to accept connections");
         if (server.sofd > 0)
             serverLog(LL_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);
