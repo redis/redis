@@ -6127,4 +6127,5 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(InfoAddFieldDouble);
     REGISTER_API(InfoAddFieldLongLong);
     REGISTER_API(InfoAddFieldULongLong);
+    REGISTER_API(GetClientInfoById);
 }
