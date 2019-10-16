@@ -256,6 +256,25 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
     }
 }
 
+/* Remove the entry from the pool. */
+void removeEntryFromPool(struct evictionPoolEntry *pool, int i) {
+    if (pool[i].key != pool[i].cached)
+        sdsfree(pool[i].key);
+    pool[i].key = NULL;
+    pool[i].idle = 0;
+}
+
+/* Reset the eviction pool. */
+void evictionPoolReset(void) {
+    struct evictionPoolEntry *pool = EvictionPoolLRU;
+    int i;
+    for (i = 0; i < EVPOOL_SIZE; i++) {
+        if (pool[i].key == NULL) continue;
+
+        removeEntryFromPool(pool,i);
+    }
+}
+
 /* ----------------------------------------------------------------------------
  * LFU (Least Frequently Used) implementation.
 
@@ -511,11 +530,7 @@ int freeMemoryIfNeeded(void) {
                             pool[k].key);
                     }
 
-                    /* Remove the entry from the pool. */
-                    if (pool[k].key != pool[k].cached)
-                        sdsfree(pool[k].key);
-                    pool[k].key = NULL;
-                    pool[k].idle = 0;
+                    removeEntryFromPool(pool,k);
 
                     /* If the key exists, is our pick. Otherwise it is
                      * a ghost and we need to try the next element. */
