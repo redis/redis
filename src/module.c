@@ -1585,7 +1585,7 @@ unsigned long long RM_GetClientId(RedisModuleCtx *ctx) {
  * returned:
  *
  *      RedisModuleClientInfo ci = REDISMODULE_CLIENTINFO_INITIALIZER;
- *      int retval = RedisModule_GetClientInfoById(ctx,&ci);
+ *      int retval = RedisModule_GetClientInfoById(&ci,client_id);
  *      if (retval == REDISMODULE_OK) {
  *          printf("Address: %s\n", ci.addr);
  *      }
