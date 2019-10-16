@@ -36,6 +36,7 @@
 
 static void setProtocolError(const char *errstr, client *c);
 int postponeClientRead(client *c);
+void pushConnToCreateClient(int fd, int flags);
 
 /* Return the size consumed from the allocator, for the specified SDS string,
  * including internal fragmentation. This function is used in order to compute
@@ -779,27 +780,20 @@ int clientHasPendingReplies(client *c) {
 
 #define MAX_ACCEPTS_PER_CALL 1000
 static void acceptCommonHandler(int fd, int flags, char *ip) {
-    client *c;
-    if ((c = createClient(fd)) == NULL) {
-        serverLog(LL_WARNING,
-            "Error registering fd event for the new client: %s (fd=%d)",
-            strerror(errno),fd);
-        close(fd); /* May be already closed, just ignore errors */
-        return;
-    }
     /* If maxclient directive is set and this is one client more... close the
      * connection. Note that we create the client instead to check before
      * for this condition, since now the socket is already set in non-blocking
      * mode and we can send an error for free using the Kernel I/O */
-    if (listLength(server.clients) > server.maxclients) {
+    if (listLength(server.clients) >= server.maxclients) {
         char *err = "-ERR max number of clients reached\r\n";
 
         /* That's a best effort error message, don't check write errors */
-        if (write(c->fd,err,strlen(err)) == -1) {
+        anetNonBlock(NULL,fd);
+        if (write(fd,err,strlen(err)) == -1) {
             /* Nothing to do, Just to avoid the warning... */
         }
+        close(fd);
         server.stat_rejected_conn++;
-        freeClient(c);
         return;
     }
 
@@ -835,17 +829,16 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
                 "4) Setup a bind address or an authentication password. "
                 "NOTE: You only need to do one of the above things in order for "
                 "the server to start accepting connections from the outside.\r\n";
-            if (write(c->fd,err,strlen(err)) == -1) {
+            anetNonBlock(NULL,fd);
+            if (write(fd,err,strlen(err)) == -1) {
                 /* Nothing to do, Just to avoid the warning... */
             }
+            close(fd);
             server.stat_rejected_conn++;
-            freeClient(c);
             return;
         }
     }
-
-    server.stat_numconnections++;
-    c->flags |= flags;
+    pushConnToCreateClient(fd, flags);
 }
 
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
@@ -2569,6 +2562,80 @@ int processEventsWhileBlocked(void) {
         count += events;
     }
     return count;
+}
+
+/* ==========================================================================
+ * Threaded Conn
+ * ========================================================================== */
+
+pthread_t conn_thread;
+pthread_mutex_t conn_thread_mutex;
+
+typedef struct {
+    int fd;
+    int flags;
+} Jobs;
+
+void pushConnToCreateClient(int fd, int flags) {
+    pthread_mutex_lock(&conn_thread_mutex);
+    Jobs* job = zmalloc(sizeof(Jobs));
+    job->fd = fd;
+    job->flags = flags;
+    listAddNodeTail(server.clients_pending_create, job);
+    pthread_mutex_unlock(&conn_thread_mutex);
+}
+
+int popConnToCreateClient() {
+    client* c;
+    int count = 0;
+    listIter li;
+    listNode *ln;
+    pthread_mutex_lock(&conn_thread_mutex);
+    listRewind(server.clients_pending_create,&li);
+    while((ln = listNext(&li))) {
+        Jobs* job = listNodeValue(ln);
+        int fd = job->fd;
+        int flags = job->flags;
+        zfree(job);
+        if ((c = createClient(fd)) == NULL) {
+            serverLog(LL_WARNING,
+                "Error registering fd event for the new client: %s (fd=%d)",
+                strerror(errno),fd);
+            close(fd); /* May be already closed, just ignore errors */
+            continue;
+        }
+        server.stat_numconnections++;
+        c->flags |= flags;
+        count++;
+    }
+    listEmpty(server.clients_pending_create);
+    pthread_mutex_unlock(&conn_thread_mutex);
+    return count;
+}
+
+int handleConnWaitingToCreateClient() {
+    int processed = popConnToCreateClient();
+    return processed;
+}
+
+void *connMain(void *args) {
+    UNUSED(args);
+    sigset_t sigset;
+    sigemptyset(&sigset);
+    sigaddset(&sigset, SIGALRM);
+    if (pthread_sigmask(SIG_BLOCK, &sigset, NULL)) {
+        serverLog(LL_WARNING, "Warning: can't mask SIGALRM in conn thread: %s", strerror(errno));
+    }
+    aeMain(server.cel);
+    aeDeleteEventLoop(server.cel);
+    return NULL;
+}
+
+void initThreadedConn(void) {
+    if (pthread_create(&conn_thread, NULL, connMain, NULL) != 0) {
+        serverLog(LL_WARNING,"Fatal: Can't initialize conn thread.");
+        exit(1);
+    }
 }
 
 /* ==========================================================================
