@@ -4267,7 +4267,6 @@ RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
      * access it safely from another thread, so we create a fake client here
      * in order to keep things like the currently selected database and similar
      * things. */
-    ctx->client = createClient(NULL);
     if (bc) {
         selectDb(ctx->client,bc->dbid);
         ctx->client->id = bc->client->id;
@@ -5606,6 +5605,58 @@ int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *fctx, int pos)
     return REDISMODULE_OK;
 }
 
+typedef void (*RedisModuleScanCB)(void *privdata, RedisModuleString *keyname);
+
+typedef struct {
+    RedisModuleCtx *ctx;
+    void* user_data;
+    RedisModuleScanCB fn;
+} ScanCBData;
+
+typedef struct RedisModuleCursor{
+    int cursor;
+}RedisModuleCursor;
+
+void RM_ScanCallback(void *privdata, const dictEntry *de) {
+    ScanCBData *data = privdata;
+    sds key = dictGetKey(de);
+    dictGetVal(de);
+    RedisModuleString *keyname = createObject(OBJ_STRING,sdsdup(key));
+    data->fn(data->user_data, keyname);
+    decrRefCount(keyname);
+}
+
+/**
+ * Scan api that allows module writer to scan all the keys and value in redis.
+ * The way it should be used:
+ *      Cursor c = NULL;
+ *      while((c = RM_Scan(ctx, c, callback, privateData)));
+ *
+ * It is also possible to use this api from another thread such that the GIL only have to
+ * be acquired durring the actuall call to RM_Scan:
+ *      Cursor c = NULL;
+ *      RM_ThreadSafeCtxLock(ctx);
+ *      while((c = RM_Scan(ctx, c, callback, privateData))){
+ *          RM_ThreadSafeCtxUnlock(ctx);
+ *          // do some background job
+ *          RM_ThreadSafeCtxLock(ctx);
+ *      }
+ */
+RedisModuleCursor* RM_Scan(RedisModuleCtx *ctx, RedisModuleCursor* cursor, RedisModuleScanCB fn, void* privdata) {
+    if(!cursor){
+        cursor = zmalloc(sizeof(*cursor));
+        cursor->cursor = 0;
+    }
+    ScanCBData data = { ctx, privdata, fn };
+    cursor->cursor = dictScan(ctx->client->db->dict, cursor->cursor, RM_ScanCallback, NULL, &data);
+    if (cursor->cursor == 0){
+        zfree(cursor);
+        cursor = NULL;
+    }
+    return cursor;
+}
+
+
 /* --------------------------------------------------------------------------
  * Module fork API
  * -------------------------------------------------------------------------- */
@@ -6547,4 +6598,5 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(InfoAddFieldULongLong);
     REGISTER_API(GetClientInfoById);
     REGISTER_API(SubscribeToServerEvent);
+    REGISTER_API(Scan);
 }
