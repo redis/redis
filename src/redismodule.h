@@ -404,6 +404,8 @@ int REDISMODULE_API_FUNC(RedisModule_ExitFromChild)(int retcode);
 int REDISMODULE_API_FUNC(RedisModule_KillForkChild)(int child_pid);
 #endif
 
+#define RedisModule_IsAOFClient(id) ((id) == UINT64_MAX)
+
 /* This is included inline inside each Redis module. */
 static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int apiver) __attribute__((unused));
 static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int apiver) {

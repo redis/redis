@@ -1504,7 +1504,15 @@ int RM_ReplicateVerbatim(RedisModuleCtx *ctx) {
  *    are guaranteed to get IDs greater than any past ID previously seen.
  *
  * Valid IDs are from 1 to 2^64-1. If 0 is returned it means there is no way
- * to fetch the ID in the context the function was currently called. */
+ * to fetch the ID in the context the function was currently called.
+ *
+ * After obtaining the ID, it is possible to check if the command execution
+ * is actually happening in the context of AOF loading, using this macro:
+ *
+ *      if (RedisModule_IsAOFClient(RedisModule_GetClientId(ctx)) {
+ *          // Handle it differently.
+ *      }
+ */
 unsigned long long RM_GetClientId(RedisModuleCtx *ctx) {
     if (ctx->client == NULL) return 0;
     return ctx->client->id;

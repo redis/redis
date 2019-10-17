@@ -827,6 +827,11 @@ typedef struct user {
 
 /* With multiplexing we need to take per-client state.
  * Clients are taken in a linked list. */
+
+#define CLIENT_ID_AOF (UINT64_MAX) /* Reserved ID for the AOF client. If you
+                                      need more reserved IDs use UINT64_MAX-1,
+                                      -2, ... and so forth. */
+
 typedef struct client {
     uint64_t id;            /* Client incremental unique ID. */
     connection *conn;

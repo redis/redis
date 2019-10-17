@@ -652,10 +652,11 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
 
 /* In Redis commands are always executed in the context of a client, so in
  * order to load the append only file we need to create a fake client. */
-struct client *createFakeClient(void) {
+struct client *createAOFClient(void) {
     struct client *c = zmalloc(sizeof(*c));
 
     selectDb(c,0);
+    c->id = CLIENT_ID_AOF; /* So modules can identify it's the AOF client. */
     c->conn = NULL;
     c->name = NULL;
     c->querybuf = sdsempty();
@@ -729,7 +730,7 @@ int loadAppendOnlyFile(char *filename) {
      * to the same file we're about to read. */
     server.aof_state = AOF_OFF;
 
-    fakeClient = createFakeClient();
+    fakeClient = createAOFClient();
     startLoadingFile(fp, filename);
 
     /* Check if this AOF file has an RDB preamble. In that case we need to
