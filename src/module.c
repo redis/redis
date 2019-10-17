@@ -540,9 +540,9 @@ void moduleHandlePropagationAfterCommandCallback(RedisModuleCtx *ctx) {
                 propagate(rop->cmd,rop->dbid,rop->argv,rop->argc,target);
         }
         redisOpArrayFree(&server.also_propagate);
+        /* Restore the previous oparray in case of nexted use of the API. */
+        server.also_propagate = ctx->saved_oparray;
     }
-    /* Restore the previous oparray in case of nexted use of the API. */
-    server.also_propagate = ctx->saved_oparray;
 }
 
 /* Free the context after the user function was called. */
