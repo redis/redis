@@ -30,6 +30,8 @@
 #include "server.h"
 #include "connhelpers.h"
 
+#include <sys/socket.h>
+
 /* The connections module provides a lean abstraction of network connections
  * to avoid direct socket and async event management across the Redis code base.
  *
