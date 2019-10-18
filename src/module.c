@@ -65,7 +65,7 @@ struct RedisModule {
     list *filters;  /* List of filters the module has registered. */
     int in_call;    /* RM_Call() nesting level */
     int options;    /* Module options and capabilities. */
-    RedisModuleInfoFunc info_cb;     /* callback for module to add INFO fields. */
+    RedisModuleInfoFunc info_cb; /* Callback for module to add INFO fields. */
 };
 typedef struct RedisModule RedisModule;
 
@@ -322,6 +322,43 @@ static struct RedisModuleForkInfo {
 #define REDISMODULE_ARGV_REPLICATE (1<<0)
 #define REDISMODULE_ARGV_NO_AOF (1<<1)
 #define REDISMODULE_ARGV_NO_REPLICAS (1<<2)
+
+/* Server events hooks data structures and defines: this modules API
+ * allow modules to subscribe to certain events in Redis, such as
+ * the start and end of an RDB or AOF save, the change of role in replication,
+ * and similar other events. */
+
+#define REDISMODULE_EVENT_ID_REPLICATION_ROLE_CHANGED 0
+#define REDISMODULE_EVENT_ID_RDB_SAVE_START 1
+#define REDISMODULE_EVENT_ID_RDB_SAVE_END 2
+#define REDISMODULE_EVENT_ID_AOF_REWRITE_START 3
+#define REDISMODULE_EVENT_ID_AOF_REWRITE_END 4
+#define REDISMODULE_EVENT_ID_FLUSHDB_START 5
+#define REDISMODULE_EVENT_ID_FLUSHDB_END 6
+#define REDISMODULE_EVENT_ID_LOADING_START 7
+#define REDISMODULE_EVENT_ID_LOADING_END 8
+#define REDISMODULE_EVENT_ID_CLIENT_CONNNECTED 9
+#define REDISMODULE_EVENT_ID_CLIENT_DISCONNECTED 10
+#define REDISMODULE_EVENT_ID_SERVER_SHUTDOWN 11
+#define REDISMODULE_EVENT_ID_REPLICA_ONLINE 12
+#define REDISMODULE_EVENT_ID_REPLICA_OFFLINE 13
+#define REDISMODULE_EVENT_ID_MASTER_LINK_UP 14
+#define REDISMODULE_EVENT_ID_MASTER_LINK_DOWN 15
+
+typedef struct RedisModuleEvent {
+    uint64_t id;        /* REDISMODULE_EVENT_ID_... defines. */
+    uint64_t dataver;   /* Version of the structure we pass as 'data'. */
+} RedisModuleEvent;
+
+typedef int (*RedisModuleEventCallback)(RedisModuleEvent eid, void *data);
+
+typedef struct RedisModuleEventListener {
+    RedisModule *module;
+    RedisModuleEvent event;
+    RedisModuleEventCallback callback;
+} RedisModuleEventListener;
+
+list *RedisModule_EventListeners; /* Global list of all the active events. */
 
 /* --------------------------------------------------------------------------
  * Prototypes
@@ -5613,6 +5650,9 @@ void moduleInitModulesSystem(void) {
 
     /* Create the timers radix tree. */
     Timers = raxNew();
+
+    /* Setup the event listeners data structures. */
+    RedisModule_EventListeners = listCreate();
 
     /* Our thread-safe contexts GIL must start with already locked:
      * it is just unlocked when it's safe. */
