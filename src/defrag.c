@@ -51,7 +51,7 @@ dictEntry* replaceSateliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, sd
 
 /* Defrag helper for generic allocations.
  *
- * returns NULL in case the allocatoin wasn't moved.
+ * returns NULL in case the allocation wasn't moved.
  * when it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
 void* activeDefragAlloc(void *ptr) {
@@ -81,7 +81,7 @@ void* activeDefragAlloc(void *ptr) {
 
 /*Defrag helper for sds strings
  *
- * returns NULL in case the allocatoin wasn't moved.
+ * returns NULL in case the allocation wasn't moved.
  * when it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
 sds activeDefragSds(sds sdsptr) {
@@ -97,7 +97,7 @@ sds activeDefragSds(sds sdsptr) {
 
 /* Defrag helper for robj and/or string objects
  *
- * returns NULL in case the allocatoin wasn't moved.
+ * returns NULL in case the allocation wasn't moved.
  * when it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
 robj *activeDefragStringOb(robj* ob, long *defragged) {
@@ -137,11 +137,11 @@ robj *activeDefragStringOb(robj* ob, long *defragged) {
 }
 
 /* Defrag helper for dictEntries to be used during dict iteration (called on
- * each step). Teturns a stat of how many pointers were moved. */
+ * each step). Returns a stat of how many pointers were moved. */
 long dictIterDefragEntry(dictIterator *iter) {
     /* This function is a little bit dirty since it messes with the internals
      * of the dict and it's iterator, but the benefit is that it is very easy
-     * to use, and require no other chagnes in the dict. */
+     * to use, and require no other changes in the dict. */
     long defragged = 0;
     dictht *ht;
     /* Handle the next entry (if there is one), and update the pointer in the
@@ -204,10 +204,10 @@ void zslUpdateNode(zskiplist *zsl, zskiplistNode *oldnode, zskiplistNode *newnod
 }
 
 /* Defrag helper for sorted set.
- * Update the robj pointer, defrag the skiplist struct and return the new score
+ * Update the robj pointer, defrag the zskiplist struct and return the new score
  * reference. We may not access oldele pointer (not even the pointer stored in
- * the skiplist), as it was already freed. Newele may be null, in which case we
- * only need to defrag the skiplist, but not update the obj pointer.
+ * the zskiplist), as it was already freed. Newele may be null, in which case we
+ * only need to defrag the zskiplist, but not update the obj pointer.
  * When return value is non-NULL, it is the score reference that must be updated
  * in the dict record. */
 double *zslDefrag(zskiplist *zsl, double score, sds oldele, sds newele) {
@@ -215,8 +215,8 @@ double *zslDefrag(zskiplist *zsl, double score, sds oldele, sds newele) {
     int i;
     sds ele = newele? newele: oldele;
 
-    /* find the skiplist node referring to the object that was moved,
-     * and all pointers that need to be updated if we'll end up moving the skiplist node. */
+    /* find the zskiplist node referring to the object that was moved,
+     * and all pointers that need to be updated if we'll end up moving the zskiplist node. */
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
         while (x->level[i].forward &&
@@ -230,13 +230,13 @@ double *zslDefrag(zskiplist *zsl, double score, sds oldele, sds newele) {
         update[i] = x;
     }
 
-    /* update the robj pointer inside the skip list record. */
+    /* update the robj pointer inside the zskiplist record. */
     x = x->level[0].forward;
     serverAssert(x && score == x->score && x->ele==oldele);
     if (newele)
         x->ele = newele;
 
-    /* try to defrag the skiplist record itself */
+    /* try to defrag the zskiplist record itself */
     newx = activeDefragAlloc(x);
     if (newx) {
         zslUpdateNode(zsl, x, newx, update);
@@ -246,7 +246,7 @@ double *zslDefrag(zskiplist *zsl, double score, sds oldele, sds newele) {
 }
 
 /* Defrag helpler for sorted set.
- * Defrag a single dict entry key name, and corresponding skiplist struct */
+ * Defrag a single dict entry key name, and corresponding zset struct */
 long activeDefragZsetEntry(zset *zs, dictEntry *de) {
     sds newsds;
     double* newscore;
@@ -433,7 +433,7 @@ long activeDefragQuickListNodes(quicklist *ql) {
 }
 
 /* when the value has lots of elements, we want to handle it later and not as
- * oart of the main dictionary scan. this is needed in order to prevent latency
+ * part of the main dictionary scan. this is needed in order to prevent latency
  * spikes when handling large items */
 void defragLater(redisDb *db, dictEntry *kde) {
     sds key = sdsdup(dictGetKey(kde));
@@ -773,7 +773,7 @@ long defragKey(redisDb *db, dictEntry *de) {
         defragged++, de->key = newsds;
     if (dictSize(db->expires)) {
          /* Dirty code:
-          * I can't search in db->expires for that key after i already released
+          * I can't search in db->expires for that key after I already released
           * the pointer it holds it won't be able to do the string compare */
         uint64_t hash = dictGetHash(db->dict, de->key);
         replaceSateliteDictKeyPtrAndOrDefragDictEntry(db->expires, keysds, newsds, hash, &defragged);
@@ -847,7 +847,7 @@ void defragScanCallback(void *privdata, const dictEntry *de) {
     server.stat_active_defrag_scanned++;
 }
 
-/* Defrag scan callback for each hash table bicket,
+/* Defrag scan callback for each hash table bucket,
  * used in order to defrag the dictEntry allocations. */
 void defragDictBucketCallback(void *privdata, dictEntry **bucketref) {
     UNUSED(privdata); /* NOTE: this function is also used by both activeDefragCycle and scanLaterHash, etc. don't use privdata */
@@ -881,7 +881,7 @@ float getAllocatorFragmentation(size_t *out_frag_bytes) {
     return frag_pct;
 }
 
-/* We may need to defrag other globals, one small allcation can hold a full allocator run.
+/* We may need to defrag other globals, one small allocation can hold a full allocator run.
  * so although small, it is still important to defrag these */
 long defragOtherGlobals() {
     long defragged = 0;
@@ -1042,7 +1042,7 @@ void activeDefragCycle(void) {
     if (hasActiveChildProcess())
         return; /* Defragging memory while there's a fork will just do damage. */
 
-    /* Once a second, check if we the fragmentation justfies starting a scan
+    /* Once a second, check if performing the fragmentation justfies starting a scan
      * or making it more aggressive. */
     run_with_period(1000) {
         computeDefragCycles();
@@ -1108,11 +1108,11 @@ void activeDefragCycle(void) {
 
             cursor = dictScan(db->dict, cursor, defragScanCallback, defragDictBucketCallback, db);
 
-            /* Once in 16 scan iterations, 512 pointer reallocations. or 64 keys
+            /* Once in 16 scan iterations, 512 pointer reallocations. Or 64 keys
              * (if we have a lot of pointers in one hash bucket or rehasing),
              * check if we reached the time limit.
              * But regardless, don't start a new db in this loop, this is because after
-             * the last db we call defragOtherGlobals, which must be done in once cycle */
+             * the last db we call defragOtherGlobals, which must be done in one cycle */
             if (!cursor || (++iterations > 16 ||
                             server.stat_active_defrag_hits - prev_defragged > 512 ||
                             server.stat_active_defrag_scanned - prev_scanned > 64)) {
