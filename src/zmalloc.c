@@ -148,6 +148,10 @@ void *zrealloc(void *ptr, size_t size) {
     size_t oldsize;
     void *newptr;
 
+    if (size == 0 && ptr != NULL) {
+        zfree(ptr);
+        return NULL;
+    }
     if (ptr == NULL) return zmalloc(size);
 #ifdef HAVE_MALLOC_SIZE
     oldsize = zmalloc_size(ptr);
@@ -290,6 +294,26 @@ size_t zmalloc_get_rss(void) {
 
     return t_info.resident_size;
 }
+#elif defined(__FreeBSD__)
+#include <sys/types.h>
+#include <sys/sysctl.h>
+#include <sys/user.h>
+#include <unistd.h>
+
+size_t zmalloc_get_rss(void) {
+    struct kinfo_proc info;
+    size_t infolen = sizeof(info);
+    int mib[4];
+    mib[0] = CTL_KERN;
+    mib[1] = KERN_PROC;
+    mib[2] = KERN_PROC_PID;
+    mib[3] = getpid();
+
+    if (sysctl(mib, 4, &info, &infolen, NULL, 0) == 0)
+        return (size_t)info.ki_rssize;
+
+    return 0L;
+}
 #else
 size_t zmalloc_get_rss(void) {
     /* If we can't get the RSS in an OS-specific way for this system just
@@ -302,6 +326,7 @@ size_t zmalloc_get_rss(void) {
 #endif
 
 #if defined(USE_JEMALLOC)
+
 int zmalloc_get_allocator_info(size_t *allocated,
                                size_t *active,
                                size_t *resident) {
@@ -323,13 +348,44 @@ int zmalloc_get_allocator_info(size_t *allocated,
     je_mallctl("stats.allocated", allocated, &sz, NULL, 0);
     return 1;
 }
+
+void set_jemalloc_bg_thread(int enable) {
+    /* let jemalloc do purging asynchronously, required when there's no traffic 
+     * after flushdb */
+    char val = !!enable;
+    je_mallctl("background_thread", NULL, 0, &val, 1);
+}
+
+int jemalloc_purge() {
+    /* return all unused (reserved) pages to the OS */
+    char tmp[32];
+    unsigned narenas = 0;
+    size_t sz = sizeof(unsigned);
+    if (!je_mallctl("arenas.narenas", &narenas, &sz, NULL, 0)) {
+        sprintf(tmp, "arena.%d.purge", narenas);
+        if (!je_mallctl(tmp, NULL, 0, NULL, 0))
+            return 0;
+    }
+    return -1;
+}
+
 #else
+
 int zmalloc_get_allocator_info(size_t *allocated,
                                size_t *active,
                                size_t *resident) {
     *allocated = *resident = *active = 0;
     return 1;
 }
+
+void set_jemalloc_bg_thread(int enable) {
+    ((void)(enable));
+}
+
+int jemalloc_purge() {
+    return 0;
+}
+
 #endif
 
 /* Get the sum of the specified field (converted form kb to bytes) in

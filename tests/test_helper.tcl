@@ -63,6 +63,7 @@ set ::all_tests {
     unit/lazyfree
     unit/wait
     unit/pendingquerybuf
+    unit/tls
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
@@ -71,6 +72,7 @@ set ::host 127.0.0.1
 set ::port 21111
 set ::traceleaks 0
 set ::valgrind 0
+set ::tls 0
 set ::stack_logging 0
 set ::verbose 0
 set ::quiet 0
@@ -92,6 +94,7 @@ set ::dont_clean 0
 set ::wait_server 0
 set ::stop_on_failure 0
 set ::loop 0
+set ::tlsdir "tests/tls"
 
 # Set to 1 when we are running in client mode. The Redis test uses a
 # server-client model to run tests simultaneously. The server instance
@@ -146,7 +149,7 @@ proc reconnect {args} {
     set host [dict get $srv "host"]
     set port [dict get $srv "port"]
     set config [dict get $srv "config"]
-    set client [redis $host $port]
+    set client [redis $host $port 0 $::tls]
     dict set srv "client" $client
 
     # select the right db when we don't have to authenticate
@@ -166,7 +169,7 @@ proc redis_deferring_client {args} {
     }
 
     # create client that defers reading reply
-    set client [redis [srv $level "host"] [srv $level "port"] 1]
+    set client [redis [srv $level "host"] [srv $level "port"] 1 $::tls]
 
     # select the right db and read the response (OK)
     $client select 9
@@ -204,7 +207,7 @@ proc test_server_main {} {
     if {!$::quiet} {
         puts "Starting test server at port $port"
     }
-    socket -server accept_test_clients -myaddr 127.0.0.1 $port
+    socket -server accept_test_clients  -myaddr 127.0.0.1 $port
 
     # Start the client instances
     set ::clients_pids {}
@@ -450,6 +453,7 @@ proc print_help_screen {} {
         "--stop             Blocks once the first test fails."
         "--loop             Execute the specified set of tests forever."
         "--wait-server      Wait after server is started (so that you can attach a debugger)."
+        "--tls              Run tests in TLS mode."
         "--help             Print this help screen."
     } "\n"]
 }
@@ -486,6 +490,13 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         }
     } elseif {$opt eq {--quiet}} {
         set ::quiet 1
+    } elseif {$opt eq {--tls}} {
+        package require tls 1.6
+        set ::tls 1
+        ::tls::init \
+            -cafile "$::tlsdir/ca.crt" \
+            -certfile "$::tlsdir/redis.crt" \
+            -keyfile "$::tlsdir/redis.key"
     } elseif {$opt eq {--host}} {
         set ::external 1
         set ::host $arg
@@ -503,7 +514,7 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
     } elseif {$opt eq {--only}} {
         lappend ::only_tests $arg
         incr j
-    } elseif {$opt eq {--skiptill}} {
+    } elseif {$opt eq {--skip-till}} {
         set ::skip_till $arg
         incr j
     } elseif {$opt eq {--list-tests}} {
@@ -565,7 +576,11 @@ if {[llength $::single_tests] > 0} {
 }
 
 proc attach_to_replication_stream {} {
-    set s [socket [srv 0 "host"] [srv 0 "port"]]
+    if {$::tls} {
+        set s [::tls::socket [srv 0 "host"] [srv 0 "port"]]
+    } else {
+        set s [socket [srv 0 "host"] [srv 0 "port"]]
+    }
     fconfigure $s -translation binary
     puts -nonewline $s "SYNC\r\n"
     flush $s

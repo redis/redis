@@ -1,6 +1,7 @@
 # Test conditions where an instance is considered to be down
 
 source "../tests/includes/init-tests.tcl"
+source "../../../tests/support/cli.tcl"
 
 proc ensure_master_up {} {
     wait_for_condition 1000 50 {
@@ -28,7 +29,7 @@ test "Crash the majority of Sentinels to prevent failovers for this unit" {
 test "SDOWN is triggered by non-responding but not crashed instance" {
     lassign [S 4 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] host port
     ensure_master_up
-    exec ../../../src/redis-cli -h $host -p $port debug sleep 10 > /dev/null &
+    exec ../../../src/redis-cli -h $host -p $port {*}[rediscli_tls_config "../../../tests"] debug sleep 10 > /dev/null &
     ensure_master_down
     ensure_master_up
 }

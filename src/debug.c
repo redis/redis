@@ -297,6 +297,56 @@ void computeDatasetDigest(unsigned char *final) {
     }
 }
 
+#ifdef USE_JEMALLOC
+void mallctl_int(client *c, robj **argv, int argc) {
+    int ret;
+    /* start with the biggest size (int64), and if that fails, try smaller sizes (int32, bool) */
+    int64_t old = 0, val;
+    if (argc > 1) {
+        long long ll;
+        if (getLongLongFromObjectOrReply(c, argv[1], &ll, NULL) != C_OK)
+            return;
+        val = ll;
+    }
+    size_t sz = sizeof(old);
+    while (sz > 0) {
+        if ((ret=je_mallctl(argv[0]->ptr, &old, &sz, argc > 1? &val: NULL, argc > 1?sz: 0))) {
+            if (ret==EINVAL) {
+                /* size might be wrong, try a smaller one */
+                sz /= 2;
+#if BYTE_ORDER == BIG_ENDIAN
+                val <<= 8*sz;
+#endif
+                continue;
+            }
+            addReplyErrorFormat(c,"%s", strerror(ret));
+            return;
+        } else {
+#if BYTE_ORDER == BIG_ENDIAN
+            old >>= 64 - 8*sz;
+#endif
+            addReplyLongLong(c, old);
+            return;
+        }
+    }
+    addReplyErrorFormat(c,"%s", strerror(EINVAL));
+}
+
+void mallctl_string(client *c, robj **argv, int argc) {
+    int ret;
+    char *old;
+    size_t sz = sizeof(old);
+    /* for strings, it seems we need to first get the old value, before overriding it. */
+    if ((ret=je_mallctl(argv[0]->ptr, &old, &sz, NULL, 0))) {
+        addReplyErrorFormat(c,"%s", strerror(ret));
+        return;
+    }
+    addReplyBulkCString(c, old);
+    if(argc > 1)
+        je_mallctl(argv[0]->ptr, NULL, 0, &argv[1]->ptr, sizeof(char*));
+}
+#endif
+
 void debugCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
@@ -319,10 +369,15 @@ void debugCommand(client *c) {
 "SDSLEN <key> -- Show low level SDS string info representing key and value.",
 "SEGFAULT -- Crash the server with sigsegv.",
 "SET-ACTIVE-EXPIRE <0|1> -- Setting it to 0 disables expiring keys in background when they are not accessed (otherwise the Redis behavior). Setting it to 1 reenables back the default.",
+"AOF-FLUSH-SLEEP <microsec> -- Server will sleep before flushing the AOF, this is used for testing",
 "SLEEP <seconds> -- Stop the server for <seconds>. Decimals allowed.",
 "STRUCTSIZE -- Return the size of different Redis core C structures.",
 "ZIPLIST <key> -- Show low level info about the ziplist encoding.",
 "STRINGMATCH-TEST -- Run a fuzz tester against the stringmatchlen() function.",
+#ifdef USE_JEMALLOC
+"MALLCTL <key> [<val>] -- Get or set a malloc tunning integer.",
+"MALLCTL-STR <key> [<val>] -- Get or set a malloc tunning string.",
+#endif
 NULL
         };
         addReplyHelp(c, help);
@@ -595,6 +650,11 @@ NULL
     {
         server.active_expire_enabled = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"aof-flush-sleep") &&
+               c->argc == 3)
+    {
+        server.aof_flush_sleep = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"lua-always-replicate-commands") &&
                c->argc == 3)
     {
@@ -638,7 +698,8 @@ NULL
         dictGetStats(buf,sizeof(buf),server.db[dbid].expires);
         stats = sdscat(stats,buf);
 
-        addReplyBulkSds(c,stats);
+        addReplyVerbatim(c,stats,sdslen(stats),"txt");
+        sdsfree(stats);
     } else if (!strcasecmp(c->argv[1]->ptr,"htstats-key") && c->argc == 3) {
         robj *o;
         dict *ht = NULL;
@@ -665,7 +726,7 @@ NULL
         } else {
             char buf[4096];
             dictGetStats(buf,sizeof(buf),ht);
-            addReplyBulkCString(c,buf);
+            addReplyVerbatim(c,buf,strlen(buf),"txt");
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"change-repl-id") && c->argc == 2) {
         serverLog(LL_WARNING,"Changing replication IDs after receiving DEBUG change-repl-id");
@@ -676,6 +737,14 @@ NULL
     {
         stringmatchlen_fuzz_test();
         addReplyStatus(c,"Apparently Redis did not crash: test passed");
+#ifdef USE_JEMALLOC
+    } else if(!strcasecmp(c->argv[1]->ptr,"mallctl") && c->argc >= 3) {
+        mallctl_int(c, c->argv+2, c->argc-2);
+        return;
+    } else if(!strcasecmp(c->argv[1]->ptr,"mallctl-str") && c->argc >= 3) {
+        mallctl_string(c, c->argv+2, c->argc-2);
+        return;
+#endif
     } else {
         addReplySubcommandSyntaxError(c);
         return;
@@ -699,11 +768,12 @@ void _serverAssert(const char *estr, const char *file, int line) {
 
 void _serverAssertPrintClientInfo(const client *c) {
     int j;
+    char conninfo[CONN_INFO_LEN];
 
     bugReportStart();
     serverLog(LL_WARNING,"=== ASSERTION FAILED CLIENT CONTEXT ===");
-    serverLog(LL_WARNING,"client->flags = %d", c->flags);
-    serverLog(LL_WARNING,"client->fd = %d", c->fd);
+    serverLog(LL_WARNING,"client->flags = %llu", (unsigned long long) c->flags);
+    serverLog(LL_WARNING,"client->conn = %s", connGetInfo(c->conn, conninfo, sizeof(conninfo)));
     serverLog(LL_WARNING,"client->argc = %d", c->argc);
     for (j=0; j < c->argc; j++) {
         char buf[128];
@@ -1110,6 +1180,33 @@ void logRegisters(ucontext_t *uc) {
         (unsigned long) uc->uc_mcontext.mc_cs
     );
     logStackContent((void**)uc->uc_mcontext.mc_rsp);
+#elif defined(__aarch64__) /* Linux AArch64 */
+    serverLog(LL_WARNING,
+	      "\n"
+	      "X18:%016lx X19:%016lx\nX20:%016lx X21:%016lx\n"
+	      "X22:%016lx X23:%016lx\nX24:%016lx X25:%016lx\n"
+	      "X26:%016lx X27:%016lx\nX28:%016lx X29:%016lx\n"
+	      "X30:%016lx\n"
+	      "pc:%016lx sp:%016lx\npstate:%016lx fault_address:%016lx\n",
+	      (unsigned long) uc->uc_mcontext.regs[18],
+	      (unsigned long) uc->uc_mcontext.regs[19],
+	      (unsigned long) uc->uc_mcontext.regs[20],
+	      (unsigned long) uc->uc_mcontext.regs[21],
+	      (unsigned long) uc->uc_mcontext.regs[22],
+	      (unsigned long) uc->uc_mcontext.regs[23],
+	      (unsigned long) uc->uc_mcontext.regs[24],
+	      (unsigned long) uc->uc_mcontext.regs[25],
+	      (unsigned long) uc->uc_mcontext.regs[26],
+	      (unsigned long) uc->uc_mcontext.regs[27],
+	      (unsigned long) uc->uc_mcontext.regs[28],
+	      (unsigned long) uc->uc_mcontext.regs[29],
+	      (unsigned long) uc->uc_mcontext.regs[30],
+	      (unsigned long) uc->uc_mcontext.pc,
+	      (unsigned long) uc->uc_mcontext.sp,
+	      (unsigned long) uc->uc_mcontext.pstate,
+	      (unsigned long) uc->uc_mcontext.fault_address
+		      );
+	      logStackContent((void**)uc->uc_mcontext.sp);
 #else
     serverLog(LL_WARNING,
         "  Dumping of registers not supported for this OS/arch");
@@ -1336,6 +1433,12 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
 
     /* Log dump of processor registers */
     logRegisters(uc);
+
+    /* Log Modules INFO */
+    serverLogRaw(LL_WARNING|LL_RAW, "\n------ MODULES INFO OUTPUT ------\n");
+    infostring = modulesCollectInfo(sdsempty(), NULL, 1, 0);
+    serverLogRaw(LL_WARNING|LL_RAW, infostring);
+    sdsfree(infostring);
 
 #if defined(HAVE_PROC_MAPS)
     /* Test memory */

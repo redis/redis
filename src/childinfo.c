@@ -80,6 +80,8 @@ void receiveChildInfo(void) {
             server.stat_rdb_cow_bytes = server.child_info_data.cow_size;
         } else if (server.child_info_data.process_type == CHILD_INFO_TYPE_AOF) {
             server.stat_aof_cow_bytes = server.child_info_data.cow_size;
+        } else if (server.child_info_data.process_type == CHILD_INFO_TYPE_MODULE) {
+            server.stat_module_cow_bytes = server.child_info_data.cow_size;
         }
     }
 }

@@ -88,7 +88,7 @@ typedef struct streamNACK {
 
 /* Stream propagation informations, passed to functions in order to propagate
  * XCLAIM commands to AOF and slaves. */
-typedef struct sreamPropInfo {
+typedef struct streamPropInfo {
     robj *keyname;
     robj *groupname;
 } streamPropInfo;
@@ -109,5 +109,6 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id);
 streamNACK *streamCreateNACK(streamConsumer *consumer);
 void streamDecodeID(void *buf, streamID *id);
 int streamCompareID(streamID *a, streamID *b);
+void streamFreeNACK(streamNACK *na);
 
 #endif
