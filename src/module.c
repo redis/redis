@@ -345,13 +345,6 @@ static struct RedisModuleForkInfo {
 #define REDISMODULE_EVENT_ID_MASTER_LINK_UP 14
 #define REDISMODULE_EVENT_ID_MASTER_LINK_DOWN 15
 
-typedef struct RedisModuleEvent {
-    uint64_t id;        /* REDISMODULE_EVENT_ID_... defines. */
-    uint64_t dataver;   /* Version of the structure we pass as 'data'. */
-} RedisModuleEvent;
-
-typedef int (*RedisModuleEventCallback)(RedisModuleEvent eid, void *data);
-
 typedef struct RedisModuleEventListener {
     RedisModule *module;
     RedisModuleEvent event;
@@ -5585,6 +5578,57 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
     server.module_child_pid = -1;
     moduleForkInfo.done_handler = NULL;
     moduleForkInfo.done_handler_user_data = NULL;
+}
+
+/* --------------------------------------------------------------------------
+ * Server hooks implementation
+ * -------------------------------------------------------------------------- */
+
+/* Register to be notified, via a callback, when the specified server event
+ * happens. The callback is called with the event as argument, and an additional
+ * argument which is a void pointer and should be cased to a specific type
+ * that is event-specific (but many events will just use NULL since they do not
+ * have additional information to pass to the callback).
+ *
+ * If the callback is NULL and there was a previous subscription, the module
+ * will be unsubscribed. If there was a previous subscription and the callback
+ * is not null, the old callback will be replaced with the new one.
+ *
+ * The function returns REDISMODULE_OK if the module was successfully subscrived
+ * for the specified event. If the API is called from a wrong context then
+ * REDISMODULE_ERR is returned. */
+int RedisModule_SubscribeToServerEvent(RedisModuleCtx *ctx, RedisModuleEvent event, RedisModuleEventCallback callback) {
+    RedisModuleEventListener *el;
+
+    /* Protect in case of calls from contexts without a module reference. */
+    if (ctx->module == NULL) return REDISMODULE_ERR;
+
+    /* Search an event matching this module and event ID. */
+    listIter li;
+    listNode *ln;
+    listRewind(RedisModule_EventListeners,&li);
+    while((ln = listNext(&li))) {
+        el = ln->value;
+        if (el->module == ctx->module && el->event.id == event.id)
+            break; /* Matching event found. */
+    }
+
+    /* Modify or remove the event listener if we already had one. */
+    if (ln) {
+        if (callback == NULL)
+            listDelNode(RedisModule_EventListeners,ln);
+        else
+            el->callback = callback; /* Update the callback with the new one. */
+        return REDISMODULE_OK;
+    }
+
+    /* No event found, we need to add a new one. */
+    el = zmalloc(sizeof(*el));
+    el->module = ctx->module;
+    el->event = event;
+    el->callback = callback;
+    listAddNodeTail(RedisModule_EventListeners,el);
+    return REDISMODULE_OK;
 }
 
 /* --------------------------------------------------------------------------

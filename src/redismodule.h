@@ -162,6 +162,75 @@ typedef uint64_t RedisModuleTimerID;
 /* Declare that the module can handle errors with RedisModule_SetModuleOptions. */
 #define REDISMODULE_OPTIONS_HANDLE_IO_ERRORS    (1<<0)
 
+/* Server events definitions. */
+#define REDISMODULE_EVENT_ID_REPLICATION_ROLE_CHANGED 0
+#define REDISMODULE_EVENT_ID_PERSISTENCE 1
+#define REDISMODULE_EVENT_ID_FLUSHDB 2
+#define REDISMODULE_EVENT_ID_LOADING 3
+#define REDISMODULE_EVENT_ID_CLIENT_CHANGE 4
+#define REDISMODULE_EVENT_ID_SHUTDOWN 5
+#define REDISMODULE_EVENT_ID_REPLICA_CHANGE 6
+#define REDISMODULE_EVENT_ID_MASTER_LINK_CHANGE 7
+
+typedef struct RedisModuleEvent {
+    uint64_t id;        /* REDISMODULE_EVENT_ID_... defines. */
+    uint64_t dataver;   /* Version of the structure we pass as 'data'. */
+} RedisModuleEvent;
+
+RedisModuleEvent
+    RedisModuleEvent_ReplicationRoleChanged = {
+        REDISMODULE_EVENT_ID_REPLICATION_ROLE_CHANGED,
+        0
+    },
+    RedisModuleEvent_Persistence = {
+        REDISMODULE_EVENT_ID_PERSISTENCE,
+        0
+    },
+    RedisModuleEvent_FlushDB = {
+        REDISMODULE_EVENT_ID_FLUSHDB,
+        0
+    },
+    RedisModuleEvent_Loading = {
+        REDISMODULE_EVENT_ID_LOADING,
+        0
+    },
+    RedisModuleEvent_ClientChange = {
+        REDISMODULE_EVENT_ID_CLIENT_CHANGE,
+        0
+    },
+    RedisModuleEvent_Shutdown = {
+        REDISMODULE_EVENT_ID_SHUTDOWN,
+        0
+    },
+    RedisModuleEvent_ReplicaChange = {
+        REDISMODULE_EVENT_ID_REPLICA_CHANGE,
+        0
+    },
+    RedisModuleEvent_MasterLinkChange = {
+        REDISMODULE_EVENT_ID_MASTER_LINK_CHANGE,
+        0
+    };
+
+typedef int (*RedisModuleEventCallback)(RedisModuleEvent eid, uint64_t subevent, void *data);
+
+/* Those are values that are used for the 'subevent' callback argument. */
+#define REDISMODULE_EVENT_PERSISTENCE_RDB_START 0
+#define REDISMODULE_EVENT_PERSISTENCE_RDB_END 1
+#define REDISMODULE_EVENT_PERSISTENCE_AOF_START 2
+#define REDISMODULE_EVENT_PERSISTENCE_AOF_END 3
+
+#define REDISMODULE_EVENT_LOADING_START 0
+#define REDISMODULE_EVENT_LOADING_END 1
+
+#define REDISMODULE_EVENT_CLIENT_CHANGE_CONNECTED 0
+#define REDISMODULE_EVENT_CLIENT_CHANGE_DISCONNECTED 1
+
+#define REDISMODULE_EVENT_MASTER_LINK_UP 0
+#define REDISMODULE_EVENT_MASTER_LINK_DOWN 1
+
+#define REDISMODULE_EVENT_REPLICA_CHANGE_CONNECTED 0
+#define REDISMODULE_EVENT_REPLICA_CHANGE_DISCONNECTED 1
+
 /* ------------------------- End of common defines ------------------------ */
 
 #ifndef REDISMODULE_CORE
