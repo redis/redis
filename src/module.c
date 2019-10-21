@@ -1548,6 +1548,45 @@ unsigned long long RM_GetClientId(RedisModuleCtx *ctx) {
     return ctx->client->id;
 }
 
+/* This is an helper for RM_GetClientInfoById() and other functions: given
+ * a client, it populates the client info structure with the appropriate
+ * fields depending on the version provided. If the version is not valid
+ * then REDISMODULE_ERR is returned. Otherwise the function returns
+ * REDISMODULE_OK and the structure pointed by 'ci' gets populated. */
+int modulePopulateClientInfoStructure(void *ci, client *client, int structver) {
+    if (structver != 1) return REDISMODULE_ERR;
+
+    struct {
+        uint64_t version;       /* Version of this structure for ABI compat. */
+        uint64_t flags;         /* REDISMODULE_CLIENTINFO_FLAG_* */
+        uint64_t id;            /* Client ID. */
+        char addr[46];          /* IPv4 or IPv6 address. */
+        uint16_t port;          /* TCP port. */
+        uint16_t db;            /* Selected DB. */
+    } *ci1;
+
+    ci1 = ci;
+    memset(ci1,0,sizeof(*ci1));
+    ci1->version = structver;
+    if (client->flags & CLIENT_MULTI)
+        ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_MULTI;
+    if (client->flags & CLIENT_PUBSUB)
+        ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_PUBSUB;
+    if (client->flags & CLIENT_UNIX_SOCKET)
+        ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_UNIXSOCKET;
+    if (client->flags & CLIENT_TRACKING)
+        ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_TRACKING;
+    if (client->flags & CLIENT_BLOCKED)
+        ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_BLOCKED;
+
+    int port;
+    connPeerToString(client->conn,ci1->addr,sizeof(ci1->addr),&port);
+    ci1->port = port;
+    ci1->db = client->db->id;
+    ci1->id = client->id;
+    return REDISMODULE_OK;
+}
+
 /* Return information about the client with the specified ID (that was
  * previously obtained via the RedisModule_GetClientId() API). If the
  * client exists, REDISMODULE_OK is returned, otherwise REDISMODULE_ERR
@@ -1591,42 +1630,13 @@ unsigned long long RM_GetClientId(RedisModuleCtx *ctx) {
  *      }
  */
 int RM_GetClientInfoById(void *ci, uint64_t id) {
-    struct {
-        uint64_t version;       /* Version of this structure for ABI compat. */
-        uint64_t flags;         /* REDISMODULE_CLIENTINFO_FLAG_* */
-        uint64_t id;            /* Client ID. */
-        char addr[46];          /* IPv4 or IPv6 address. */
-        uint16_t port;          /* TCP port. */
-        uint16_t db;            /* Selected DB. */
-    } *ci1;
-
     client *client = lookupClientByID(id);
     if (client == NULL) return REDISMODULE_ERR;
     if (ci == NULL) return REDISMODULE_OK;
 
     /* Fill the info structure if passed. */
     uint64_t structver = ((uint64_t*)ci)[0];
-    if (structver != 1) return REDISMODULE_ERR;
-
-    ci1 = ci;
-    memset(ci1,0,sizeof(*ci1));
-    if (client->flags & CLIENT_MULTI)
-        ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_MULTI;
-    if (client->flags & CLIENT_PUBSUB)
-        ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_PUBSUB;
-    if (client->flags & CLIENT_UNIX_SOCKET)
-        ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_UNIXSOCKET;
-    if (client->flags & CLIENT_TRACKING)
-        ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_TRACKING;
-    if (client->flags & CLIENT_BLOCKED)
-        ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_BLOCKED;
-
-    int port;
-    anetPeerToString(client->fd,ci1->addr,sizeof(ci1->addr),&port);
-    ci1->port = port;
-    ci1->db = client->db->id;
-    ci1->id = client->id;
-    return REDISMODULE_OK;
+    return modulePopulateClientInfoStructure(ci,client,structver);
 }
 
 /* Return the currently selected DB. */
