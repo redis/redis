@@ -180,38 +180,38 @@ typedef struct RedisModuleEvent {
 RedisModuleEvent
     RedisModuleEvent_ReplicationRoleChanged = {
         REDISMODULE_EVENT_ID_REPLICATION_ROLE_CHANGED,
-        0
+        1
     },
     RedisModuleEvent_Persistence = {
         REDISMODULE_EVENT_ID_PERSISTENCE,
-        0
+        1
     },
     RedisModuleEvent_FlushDB = {
         REDISMODULE_EVENT_ID_FLUSHDB,
-        0
+        1
     },
     RedisModuleEvent_Loading = {
         REDISMODULE_EVENT_ID_LOADING,
-        0
+        1
     },
     RedisModuleEvent_ClientChange = {
         REDISMODULE_EVENT_ID_CLIENT_CHANGE,
-        0
+        1
     },
     RedisModuleEvent_Shutdown = {
         REDISMODULE_EVENT_ID_SHUTDOWN,
-        0
+        1
     },
     RedisModuleEvent_ReplicaChange = {
         REDISMODULE_EVENT_ID_REPLICA_CHANGE,
-        0
+        1
     },
     RedisModuleEvent_MasterLinkChange = {
         REDISMODULE_EVENT_ID_MASTER_LINK_CHANGE,
-        0
+        1
     };
 
-typedef int (*RedisModuleEventCallback)(RedisModuleEvent eid, uint64_t subevent, void *data);
+typedef int (*RedisModuleEventCallback)(struct RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data);
 
 /* Those are values that are used for the 'subevent' callback argument. */
 #define REDISMODULE_EVENT_PERSISTENCE_RDB_START 0

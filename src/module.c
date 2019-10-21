@@ -1553,19 +1553,22 @@ unsigned long long RM_GetClientId(RedisModuleCtx *ctx) {
  * fields depending on the version provided. If the version is not valid
  * then REDISMODULE_ERR is returned. Otherwise the function returns
  * REDISMODULE_OK and the structure pointed by 'ci' gets populated. */
+
+/* Note that we may have multiple versions of the client info structure,
+ * as the API evolves. */
+struct moduleClientInfoV1 {
+    uint64_t version;       /* Version of this structure for ABI compat. */
+    uint64_t flags;         /* REDISMODULE_CLIENTINFO_FLAG_* */
+    uint64_t id;            /* Client ID. */
+    char addr[46];          /* IPv4 or IPv6 address. */
+    uint16_t port;          /* TCP port. */
+    uint16_t db;            /* Selected DB. */
+};
+
 int modulePopulateClientInfoStructure(void *ci, client *client, int structver) {
     if (structver != 1) return REDISMODULE_ERR;
 
-    struct {
-        uint64_t version;       /* Version of this structure for ABI compat. */
-        uint64_t flags;         /* REDISMODULE_CLIENTINFO_FLAG_* */
-        uint64_t id;            /* Client ID. */
-        char addr[46];          /* IPv4 or IPv6 address. */
-        uint16_t port;          /* TCP port. */
-        uint16_t db;            /* Selected DB. */
-    } *ci1;
-
-    ci1 = ci;
+    struct moduleClientInfoV1 *ci1 = ci;
     memset(ci1,0,sizeof(*ci1));
     ci1->version = structver;
     if (client->flags & CLIENT_MULTI)
@@ -5685,6 +5688,40 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  * will be unsubscribed. If there was a previous subscription and the callback
  * is not null, the old callback will be replaced with the new one.
  *
+ * The callback must be of this type:
+ *
+ *  int (*RedisModuleEventCallback)(RedisModuleCtx *ctx,
+ *                                  RedisModuleEvent eid,
+ *                                  uint64_t subevent,
+ *                                  void *data);
+ *
+ * The 'ctx' is a normal Redis module context that the callback can use in
+ * order to call other modules APIs. The 'eid' is the event itself, this
+ * is only useful in the case the module subscribed to multiple events: using
+ * the 'id' field of this structure it is possible to check if the event
+ * is one of the events we registered with this callback. The 'subevent' field
+ * depends on the event that fired. Here is a list of sub events:
+ *
+ * REDISMODULE_EVENT_PERSISTENCE_RDB_START
+ * REDISMODULE_EVENT_PERSISTENCE_RDB_END
+ * REDISMODULE_EVENT_PERSISTENCE_AOF_START
+ * REDISMODULE_EVENT_PERSISTENCE_AOF_END
+ * REDISMODULE_EVENT_LOADING_START
+ * REDISMODULE_EVENT_LOADING_END
+ * REDISMODULE_EVENT_CLIENT_CHANGE_CONNECTED
+ * REDISMODULE_EVENT_CLIENT_CHANGE_DISCONNECTED
+ * REDISMODULE_EVENT_MASTER_LINK_UP
+ * REDISMODULE_EVENT_MASTER_LINK_DOWN
+ * REDISMODULE_EVENT_REPLICA_CHANGE_CONNECTED
+ * REDISMODULE_EVENT_REPLICA_CHANGE_DISCONNECTED
+ *
+ * Finally the 'data' pointer may be populated, only for certain events, with
+ * more relevant data.
+ *
+ * In the case of REDISMODULE_EVENT_CLIENT_CHANGE events it gets populated
+ * with a RedisModuleClientInfo structure: the module should just cast the
+ * void pointer to the structure and access its fields.
+ *
  * The function returns REDISMODULE_OK if the module was successfully subscrived
  * for the specified event. If the API is called from a wrong context then
  * REDISMODULE_ERR is returned. */
@@ -5720,6 +5757,38 @@ int RedisModule_SubscribeToServerEvent(RedisModuleCtx *ctx, RedisModuleEvent eve
     el->callback = callback;
     listAddNodeTail(RedisModule_EventListeners,el);
     return REDISMODULE_OK;
+}
+
+/* This is called by the Redis internals every time we want to fire an
+ * event that can be interceppted by some module. The pointer 'data' is useful
+ * in order to populate the event-specific structure when needed, in order
+ * to return the structure with more information to the callback.
+ *
+ * 'eid' and 'subid' are just the main event ID and the sub event associated
+ * with the event, depending on what exactly happened. */
+void RedisModule_FireServerEvent(uint64_t eid, int subid, void *data) {
+    listIter li;
+    listNode *ln;
+    listRewind(RedisModule_EventListeners,&li);
+    while((ln = listNext(&li))) {
+        RedisModuleEventListener *el = ln->value;
+        if (el->event.id == eid) {
+            RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+            ctx.module = el->module;
+            ctx.client = moduleFreeContextReusedClient;
+
+            void *moduledata = NULL;
+            struct moduleClientInfoV1 civ1;
+            if (eid == REDISMODULE_EVENT_ID_CLIENT_CONNNECTED ||
+                eid == REDISMODULE_EVENT_ID_CLIENT_DISCONNECTED)
+            {
+                modulePopulateClientInfoStructure(&civ1,data,
+                                                  el->event.dataver);
+            }
+            el->callback(&ctx,el->event,subid,moduledata);
+            moduleFreeContext(&ctx);
+        }
+    }
 }
 
 /* --------------------------------------------------------------------------
