@@ -5680,14 +5680,80 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  * is only useful in the case the module subscribed to multiple events: using
  * the 'id' field of this structure it is possible to check if the event
  * is one of the events we registered with this callback. The 'subevent' field
- * depends on the event that fired. Here is a list of sub events:
+ * depends on the event that fired.
  *
- * REDISMODULE_EVENT_PERSISTENCE_RDB_START
- * REDISMODULE_EVENT_PERSISTENCE_RDB_END
- * REDISMODULE_EVENT_PERSISTENCE_AOF_START
- * REDISMODULE_EVENT_PERSISTENCE_AOF_END
- * REDISMODULE_EVENT_LOADING_START
- * REDISMODULE_EVENT_LOADING_END
+ * Here is a list of events you can use as 'eid' and related sub events:
+ *
+ *      RedisModuleEvent_ReplicationRoleChanged
+ *
+ *          This event is called when the instance switches from master
+ *          to replica or the other way around, however the event is
+ *          also called when the replica remains a replica but starts to
+ *          replicate with a different master.
+ *
+ *          The following sub events are available:
+ *
+ *              REDISMODULE_EVENT_REPLROLECHANGED_NOW_MASTER
+ *              REDISMODULE_EVENT_REPLROLECHANGED_NOW_REPLICA
+ *
+ *          The 'data' field can be casted by the callback to a
+ *          RedisModuleReplicationInfo structure with the following fields:
+ *
+ *              int master; // true if master, false if replica
+ *              char *masterhost; // master instance hostname for NOW_REPLICA
+ *              int masterport; // master instance port for NOW_REPLICA
+ *              char *replid1; // Main replication ID
+ *              char *replid2; // Secondary replication ID
+ *              uint64_t repl2_offset; // Offset of replid2 validity
+ *              uint64_t main_repl_offset; // Replication offset
+ *
+ *      RedisModuleEvent_Persistence
+ *
+ *          This event is called when RDB saving or AOF rewriting starts
+ *          and ends. The following sub events are available:
+ *
+ *              REDISMODULE_EVENT_LOADING_RDB_START        // BGSAVE start
+ *              REDISMODULE_EVENT_LOADING_RDB_END          // BGSAVE end
+ *              REDISMODULE_EVENT_LOADING_SYNC_RDB_START   // SAVE start
+ *              REDISMODULE_EVENT_LOADING_SYNC_RDB_START   // SAVE end
+ *              REDISMODULE_EVENT_LOADING_AOF_START        // AOF rewrite start
+ *              REDISMODULE_EVENT_LOADING_AOF_END          // AOF rewrite end
+ *
+ *          The above events are triggered not just when the user calls the
+ *          relevant commands like BGSAVE, but also when a saving operation
+ *          or AOF rewriting occurs because of internal server triggers.
+ *
+ *      RedisModuleEvent_FlushDB
+ *
+ *          The FLUSHALL, FLUSHDB or an internal flush (for instance
+ *          because of replication, after the replica synchronization)
+ *          happened. The following sub events are available:
+ *
+ *              REDISMODULE_EVENT_FLUSHALL_START
+ *              REDISMODULE_EVENT_FLUSHALL_END
+ *
+ *          The data pointer can be casted to a RedisModuleFlushInfo
+ *          structure with the following fields:
+ *
+ *              int async;      // True if the flush is done in a thread.
+ *                                 See for instance FLUSHALL ASYNC.
+ *                                 In this case the END callback is invoked
+ *                                 immediately after the database is put
+ *                                 in the free list of the thread.
+ *              int dbnum;      // Flushed database number, -1 for all the DBs
+ *                                 in the case of the FLUSHALL operation.
+ *
+ *          The start event is called *before* the operation is initated, thus
+ *          allowing the callback to call DBSIZE or other operation on the
+ *          yet-to-free keyspace.
+ *
+ *  RedisModuleEvent_Loading
+ *  RedisModuleEvent_ClientChange
+ *  RedisModuleEvent_Shutdown
+ *  RedisModuleEvent_ReplicaChange
+ *  RedisModuleEvent_CronLoop
+ *  RedisModuleEvent_MasterLinkChange
+ *
  * REDISMODULE_EVENT_CLIENT_CHANGE_CONNECTED
  * REDISMODULE_EVENT_CLIENT_CHANGE_DISCONNECTED
  * REDISMODULE_EVENT_MASTER_LINK_UP

@@ -171,6 +171,7 @@ typedef uint64_t RedisModuleTimerID;
 #define REDISMODULE_EVENT_SHUTDOWN 5
 #define REDISMODULE_EVENT_REPLICA_CHANGE 6
 #define REDISMODULE_EVENT_MASTER_LINK_CHANGE 7
+#define REDISMODULE_EVENT_CRON_LOOP 8
 
 typedef struct RedisModuleEvent {
     uint64_t id;        /* REDISMODULE_EVENT_... defines. */
@@ -207,6 +208,10 @@ static RedisModuleEvent
     },
     RedisModuleEvent_ReplicaChange = {
         REDISMODULE_EVENT_REPLICA_CHANGE,
+        1
+    },
+    RedisModuleEvent_CronLoop = {
+        REDISMODULE_EVENT_CRON_LOOP,
         1
     },
     RedisModuleEvent_MasterLinkChange = {
