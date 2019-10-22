@@ -328,23 +328,6 @@ static struct RedisModuleForkInfo {
  * the start and end of an RDB or AOF save, the change of role in replication,
  * and similar other events. */
 
-#define REDISMODULE_EVENT_ID_REPLICATION_ROLE_CHANGED 0
-#define REDISMODULE_EVENT_ID_RDB_SAVE_START 1
-#define REDISMODULE_EVENT_ID_RDB_SAVE_END 2
-#define REDISMODULE_EVENT_ID_AOF_REWRITE_START 3
-#define REDISMODULE_EVENT_ID_AOF_REWRITE_END 4
-#define REDISMODULE_EVENT_ID_FLUSHDB_START 5
-#define REDISMODULE_EVENT_ID_FLUSHDB_END 6
-#define REDISMODULE_EVENT_ID_LOADING_START 7
-#define REDISMODULE_EVENT_ID_LOADING_END 8
-#define REDISMODULE_EVENT_ID_CLIENT_CONNNECTED 9
-#define REDISMODULE_EVENT_ID_CLIENT_DISCONNECTED 10
-#define REDISMODULE_EVENT_ID_SERVER_SHUTDOWN 11
-#define REDISMODULE_EVENT_ID_REPLICA_ONLINE 12
-#define REDISMODULE_EVENT_ID_REPLICA_OFFLINE 13
-#define REDISMODULE_EVENT_ID_MASTER_LINK_UP 14
-#define REDISMODULE_EVENT_ID_MASTER_LINK_DOWN 15
-
 typedef struct RedisModuleEventListener {
     RedisModule *module;
     RedisModuleEvent event;
@@ -5743,10 +5726,12 @@ int RedisModule_SubscribeToServerEvent(RedisModuleCtx *ctx, RedisModuleEvent eve
 
     /* Modify or remove the event listener if we already had one. */
     if (ln) {
-        if (callback == NULL)
+        if (callback == NULL) {
             listDelNode(RedisModule_EventListeners,ln);
-        else
+            zfree(el);
+        } else {
             el->callback = callback; /* Update the callback with the new one. */
+        }
         return REDISMODULE_OK;
     }
 
@@ -5767,6 +5752,11 @@ int RedisModule_SubscribeToServerEvent(RedisModuleCtx *ctx, RedisModuleEvent eve
  * 'eid' and 'subid' are just the main event ID and the sub event associated
  * with the event, depending on what exactly happened. */
 void RedisModule_FireServerEvent(uint64_t eid, int subid, void *data) {
+    /* Fast path to return ASAP if there is nothing to do, avoiding to
+     * setup the iterator and so forth: we want this call to be extremely
+     * cheap if there are no registered modules. */
+    if (listLength(RedisModule_EventListeners) == 0) return;
+
     listIter li;
     listNode *ln;
     listRewind(RedisModule_EventListeners,&li);
@@ -5779,9 +5769,7 @@ void RedisModule_FireServerEvent(uint64_t eid, int subid, void *data) {
 
             void *moduledata = NULL;
             struct moduleClientInfoV1 civ1;
-            if (eid == REDISMODULE_EVENT_ID_CLIENT_CONNNECTED ||
-                eid == REDISMODULE_EVENT_ID_CLIENT_DISCONNECTED)
-            {
+            if (eid == REDISMODULE_EVENT_ID_CLIENT_CHANGE) {
                 modulePopulateClientInfoStructure(&civ1,data,
                                                   el->event.dataver);
             }
