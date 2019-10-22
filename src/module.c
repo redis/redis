@@ -5605,7 +5605,21 @@ int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *fctx, int pos)
     return REDISMODULE_OK;
 }
 
-typedef void (*RedisModuleScanCB)(void *privdata, RedisModuleString *keyname);
+/**
+ * Callback for scan implementation.
+ *
+ * The keyname is owned by the caller and need to be retained if used after this function.
+ *
+ * The kp is the key data and given using the best efforts approach, in some cases it might
+ * not be available (in such case it will be set to NULL) and it is the user responsibility
+ * to handle it. The key is opened for READ access.
+ *
+ * The kp (if given) is owned by the user and need to be free by him. If automemory is set
+ * on the context used to initiate the scan then the kp will be free when the context will
+ * be free
+ *
+ */
+typedef void (*RedisModuleScanCB)(void *privdata, RedisModuleString* keyname, RedisModuleKey* key);
 
 typedef struct {
     RedisModuleCtx *ctx;
@@ -5620,9 +5634,22 @@ typedef struct RedisModuleCursor{
 void RM_ScanCallback(void *privdata, const dictEntry *de) {
     ScanCBData *data = privdata;
     sds key = dictGetKey(de);
-    dictGetVal(de);
+    robj* val = dictGetVal(de);
     RedisModuleString *keyname = createObject(OBJ_STRING,sdsdup(key));
-    data->fn(data->user_data, keyname);
+
+    /* Setup the key handle. */
+    RedisModuleKey* kp = zmalloc(sizeof(*kp));
+    kp->ctx = data->ctx;
+    kp->db = data->ctx->client->db;
+    kp->key = keyname;
+    incrRefCount(keyname);
+    kp->value = val;
+    kp->iter = NULL;
+    kp->mode = REDISMODULE_READ;
+    zsetKeyReset(kp);
+    autoMemoryAdd(data->ctx,REDISMODULE_AM_KEY,kp);
+
+    data->fn(data->user_data, keyname, kp);
     decrRefCount(keyname);
 }
 
