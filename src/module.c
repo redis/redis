@@ -5682,6 +5682,9 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  * is one of the events we registered with this callback. The 'subevent' field
  * depends on the event that fired.
  *
+ * Finally the 'data' pointer may be populated, only for certain events, with
+ * more relevant data.
+ *
  * Here is a list of events you can use as 'eid' and related sub events:
  *
  *      RedisModuleEvent_ReplicationRoleChanged
@@ -5747,26 +5750,68 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *          allowing the callback to call DBSIZE or other operation on the
  *          yet-to-free keyspace.
  *
- *  RedisModuleEvent_Loading
- *  RedisModuleEvent_ClientChange
- *  RedisModuleEvent_Shutdown
+ *      RedisModuleEvent_Loading
+ *
+ *          Called on loading operations: at startup when the server is
+ *          started, but also after a first synchronization when the
+ *          replica is loading the RDB file from the master.
+ *          The following sub events are available:
+ *
+ *              REDISMODULE_EVENT_LOADING_RDB_START
+ *              REDISMODULE_EVENT_LOADING_RDB_END
+ *              REDISMODULE_EVENT_LOADING_MASTER_RDB_START
+ *              REDISMODULE_EVENT_LOADING_MASTER_RDB_END
+ *              REDISMODULE_EVENT_LOADING_AOF_START
+ *              REDISMODULE_EVENT_LOADING_AOF_END
+ *
+ *      RedisModuleEvent_ClientChange
+ *
+ *          Called when a client connects or disconnects.
+ *          The data pointer can be casted to a RedisModuleClientInfo
+ *          structure, documented in RedisModule_GetClientInfoById().
+ *          The following sub events are available:
+ *
+ *              REDISMODULE_EVENT_CLIENT_CHANGE_CONNECTED
+ *              REDISMODULE_EVENT_CLIENT_CHANGE_DISCONNECTED
+ *
+ *      RedisModuleEvent_Shutdown
+ *
+ *          The server is shutting down. No subevents are available.
+ *
  *  RedisModuleEvent_ReplicaChange
+ *
+ *          This event is called when the instance (that can be both a
+ *          master or a replica) get a new online replica, or lose a
+ *          replica since it gets disconnected.
+ *          The following sub events are availble:
+ *
+ *              REDISMODULE_EVENT_REPLICA_CHANGE_ONLINE
+ *              REDISMODULE_EVENT_REPLICA_CHANGE_OFFLINE
+ *
+ *          No additional information is available so far: future versions
+ *          of Redis will have an API in order to enumerate the replicas
+ *          connected and their state.
+ *
  *  RedisModuleEvent_CronLoop
+ *
+ *          This event is called every time Redis calls the serverCron()
+ *          function in order to do certain bookkeeping. Modules that are
+ *          required to do operations from time to time may use this callback.
+ *          Normally Redis calls this function 10 times per second, but
+ *          this changes depending on the "hz" configuration.
+ *          No sub events are available.
+ *
  *  RedisModuleEvent_MasterLinkChange
  *
- * REDISMODULE_EVENT_CLIENT_CHANGE_CONNECTED
- * REDISMODULE_EVENT_CLIENT_CHANGE_DISCONNECTED
- * REDISMODULE_EVENT_MASTER_LINK_UP
- * REDISMODULE_EVENT_MASTER_LINK_DOWN
- * REDISMODULE_EVENT_REPLICA_CHANGE_CONNECTED
- * REDISMODULE_EVENT_REPLICA_CHANGE_DISCONNECTED
+ *          This is called for replicas in order to notify when the
+ *          replication link becomes functional (up) with our master,
+ *          or when it goes down. Note that the link is not considered
+ *          up when we just connected to the master, but only if the
+ *          replication is happening correctly.
+ *          The following sub events are available:
  *
- * Finally the 'data' pointer may be populated, only for certain events, with
- * more relevant data.
- *
- * In the case of REDISMODULE_EVENT_CLIENT_CHANGE events it gets populated
- * with a RedisModuleClientInfo structure: the module should just cast the
- * void pointer to the structure and access its fields.
+ *              REDISMODULE_EVENT_MASTER_LINK_UP
+ *              REDISMODULE_EVENT_MASTER_LINK_DOWN
  *
  * The function returns REDISMODULE_OK if the module was successfully subscrived
  * for the specified event. If the API is called from a wrong context then
