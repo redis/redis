@@ -5708,7 +5708,7 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  * The function returns REDISMODULE_OK if the module was successfully subscrived
  * for the specified event. If the API is called from a wrong context then
  * REDISMODULE_ERR is returned. */
-int RedisModule_SubscribeToServerEvent(RedisModuleCtx *ctx, RedisModuleEvent event, RedisModuleEventCallback callback) {
+int RM_SubscribeToServerEvent(RedisModuleCtx *ctx, RedisModuleEvent event, RedisModuleEventCallback callback) {
     RedisModuleEventListener *el;
 
     /* Protect in case of calls from contexts without a module reference. */
@@ -5751,7 +5751,7 @@ int RedisModule_SubscribeToServerEvent(RedisModuleCtx *ctx, RedisModuleEvent eve
  *
  * 'eid' and 'subid' are just the main event ID and the sub event associated
  * with the event, depending on what exactly happened. */
-void RedisModule_FireServerEvent(uint64_t eid, int subid, void *data) {
+void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
     /* Fast path to return ASAP if there is nothing to do, avoiding to
      * setup the iterator and so forth: we want this call to be extremely
      * cheap if there are no registered modules. */
@@ -5775,6 +5775,23 @@ void RedisModule_FireServerEvent(uint64_t eid, int subid, void *data) {
             }
             el->callback(&ctx,el->event,subid,moduledata);
             moduleFreeContext(&ctx);
+        }
+    }
+}
+
+/* Remove all the listeners for this module: this is used before unloading
+ * a module. */
+void moduleUnsubscribeAllServerEvents(RedisModule *module) {
+    RedisModuleEventListener *el;
+    listIter li;
+    listNode *ln;
+    listRewind(RedisModule_EventListeners,&li);
+
+    while((ln = listNext(&li))) {
+        el = ln->value;
+        if (el->module == module) {
+            listDelNode(RedisModule_EventListeners,ln);
+            zfree(el);
         }
     }
 }
@@ -5970,7 +5987,7 @@ int moduleUnload(sds name) {
         errno = EPERM;
         return REDISMODULE_ERR;
     }
-    
+
     /* Give module a chance to clean up. */
     int (*onunload)(void *);
     onunload = (int (*)(void *))(unsigned long) dlsym(module->handle, "RedisModule_OnUnload");
@@ -5995,8 +6012,7 @@ int moduleUnload(sds name) {
 
     /* Remove any notification subscribers this module might have */
     moduleUnsubscribeNotifications(module);
-
-    /* Unregister all the hooks. TODO: Yet no hooks support here. */
+    moduleUnsubscribeAllServerEvents(module);
 
     /* Unload the dynamic library. */
     if (dlclose(module->handle) == -1) {
@@ -6336,4 +6352,5 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(InfoAddFieldLongLong);
     REGISTER_API(InfoAddFieldULongLong);
     REGISTER_API(GetClientInfoById);
+    REGISTER_API(SubscribeToServerEvent);
 }
