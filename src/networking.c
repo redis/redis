@@ -828,7 +828,7 @@ void clientAcceptHandler(connection *conn) {
 
     server.stat_numconnections++;
     moduleFireServerEvent(REDISMODULE_EVENT_CLIENT_CHANGE,
-                          REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED,
+                          REDISMODULE_SUBEVENT_CLIENT_CHANGE_CONNECTED,
                           c);
 }
 
@@ -1043,6 +1043,9 @@ void freeClient(client *c) {
         freeClientAsync(c);
         return;
     }
+    moduleFireServerEvent(REDISMODULE_EVENT_CLIENT_CHANGE,
+                          REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED,
+                          c);
 
     /* If it is our master that's beging disconnected we should make sure
      * to cache the state to try a partial resynchronization later.
