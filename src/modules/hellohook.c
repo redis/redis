@@ -41,8 +41,13 @@
 void clientChangeCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void *data)
 {
     REDISMODULE_NOT_USED(ctx);
+    REDISMODULE_NOT_USED(e);
+
     RedisModuleClientInfo *ci = data;
-    printf("Client event for client #%llu %s:%d\n",ci->id,ci->addr,ci->port);
+    printf("Client %s event for client #%llu %s:%d\n",
+        (sub == REDISMODULE_SUBEVENT_CLIENT_CHANGE_CONNECTED) ?
+            "connection" : "disconnection",
+        ci->id,ci->addr,ci->port);
 }
 
 /* This function must be present on each Redis module. It is used in order to
