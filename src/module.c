@@ -5769,6 +5769,7 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
             if (eid == REDISMODULE_EVENT_CLIENT_CHANGE) {
                 modulePopulateClientInfoStructure(&civ1,data,
                                                   el->event.dataver);
+                moduledata = &civ1;
             }
             el->callback(&ctx,el->event,subid,moduledata);
             moduleFreeContext(&ctx);

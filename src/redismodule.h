@@ -178,7 +178,7 @@ typedef struct RedisModuleEvent {
 } RedisModuleEvent;
 
 struct RedisModuleCtx;
-typedef int (*RedisModuleEventCallback)(struct RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data);
+typedef void (*RedisModuleEventCallback)(struct RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data);
 
 static RedisModuleEvent
     RedisModuleEvent_ReplicationRoleChanged = {
@@ -299,6 +299,7 @@ typedef struct RedisModuleTypeMethods {
 typedef struct RedisModuleClientInfo {
     uint64_t version;       /* Version of this structure for ABI compat. */
     uint64_t flags;         /* REDISMODULE_CLIENTINFO_FLAG_* */
+    uint64_t id;            /* Client ID. */
     char addr[46];          /* IPv4 or IPv6 address. */
     uint16_t port;          /* TCP port. */
     uint16_t db;            /* Selected DB. */
