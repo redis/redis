@@ -827,8 +827,10 @@ void clientAcceptHandler(connection *conn) {
     }
 
     server.stat_numconnections++;
+    moduleFireServerEvent(REDISMODULE_EVENT_CLIENT_CHANGE,
+                          REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED,
+                          c);
 }
-
 
 #define MAX_ACCEPTS_PER_CALL 1000
 static void acceptCommonHandler(connection *conn, int flags, char *ip) {

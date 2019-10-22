@@ -33,9 +33,6 @@
 #include <dlfcn.h>
 #include <sys/wait.h>
 
-#define REDISMODULE_CORE 1
-#include "redismodule.h"
-
 /* --------------------------------------------------------------------------
  * Private data structures used by the modules system. Those are data
  * structures that are never exposed to Redis Modules, if not as void
@@ -5769,7 +5766,7 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
 
             void *moduledata = NULL;
             struct moduleClientInfoV1 civ1;
-            if (eid == REDISMODULE_EVENT_ID_CLIENT_CHANGE) {
+            if (eid == REDISMODULE_EVENT_CLIENT_CHANGE) {
                 modulePopulateClientInfoStructure(&civ1,data,
                                                   el->event.dataver);
             }
