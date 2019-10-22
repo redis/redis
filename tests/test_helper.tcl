@@ -389,7 +389,7 @@ proc signal_idle_client fd {
 # The the_end function gets called when all the test units were already
 # executed, so the test finished.
 proc the_end {} {
-    # TODO: print the status, exit with the rigth exit code.
+    # TODO: print the status, exit with the right exit code.
     puts "\n                   The End\n"
     puts "Execution time of different units:"
     foreach {time name} $::clients_time_history {
@@ -551,7 +551,7 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
     }
 }
 
-# If --skil-till option was given, we populate the list of single tests
+# If --skip-till option was given, we populate the list of single tests
 # to run with everything *after* the specified unit.
 if {$::skip_till != ""} {
     set skipping 1
