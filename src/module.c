@@ -5877,6 +5877,11 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
 
             void *moduledata = NULL;
             RedisModuleClientInfoV1 civ1;
+            /* Start at DB zero by default when calling the handler. It's
+             * up to the specific event setup to change it when it makes
+             * sense. For instance for FLUSHDB events we select the correct
+             * DB automatically. */
+            selectDb(ctx.client, 0);
             if (eid == REDISMODULE_EVENT_CLIENT_CHANGE) {
                 modulePopulateClientInfoStructure(&civ1,data,
                                                   el->event.dataver);
