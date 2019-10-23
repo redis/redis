@@ -2349,7 +2349,7 @@ static clusterManagerNode *clusterManagerNewNodeByAddr(char *addr) {
     c = strrchr(addr, ':');
     if (c == NULL) {
         fprintf(stderr, "Invalid address format: %s\n", addr);
-        return 0;
+        return NULL;
     }
     *c = '\0';
     char *ip = addr;
