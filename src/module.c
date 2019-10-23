@@ -5870,6 +5870,8 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
                 modulePopulateClientInfoStructure(&civ1,data,
                                                   el->event.dataver);
                 moduledata = &civ1;
+            } else if (eid == REDISMODULE_EVENT_FLUSHDB) {
+                moduledata = data;
             }
             el->callback(&ctx,el->event,subid,moduledata);
             moduleFreeContext(&ctx);

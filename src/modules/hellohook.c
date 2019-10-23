@@ -50,6 +50,31 @@ void clientChangeCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub,
         ci->id,ci->addr,ci->port);
 }
 
+void flushdbCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void *data)
+{
+    REDISMODULE_NOT_USED(ctx);
+    REDISMODULE_NOT_USED(e);
+
+    RedisModuleFlushInfo *fi = data;
+    if (sub == REDISMODULE_SUBEVENT_FLUSHDB_START) {
+        if (fi->dbnum != -1) {
+            RedisModuleCallReply *reply;
+            reply = RedisModule_Call(ctx,"DBSIZE","");
+            long long numkeys = RedisModule_CallReplyInteger(reply);
+            printf("FLUSHDB event of database %d started (%lld keys in DB)\n",
+                fi->dbnum, numkeys);
+        } else {
+            printf("FLUSHALL event started\n");
+        }
+    } else {
+        if (fi->dbnum != -1) {
+            printf("FLUSHDB event of database %d ended\n",fi->dbnum);
+        } else {
+            printf("FLUSHALL event ended\n");
+        }
+    }
+}
+
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -61,5 +86,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     RedisModule_SubscribeToServerEvent(ctx,
         RedisModuleEvent_ClientChange, clientChangeCallback);
+    RedisModule_SubscribeToServerEvent(ctx,
+        RedisModuleEvent_FlushDB, flushdbCallback);
     return REDISMODULE_OK;
 }
