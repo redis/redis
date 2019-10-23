@@ -5721,8 +5721,8 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *          because of replication, after the replica synchronization)
  *          happened. The following sub events are available:
  *
- *              REDISMODULE_EVENT_FLUSHALL_START
- *              REDISMODULE_EVENT_FLUSHALL_END
+ *              REDISMODULE_EVENT_FLUSHDB_START
+ *              REDISMODULE_EVENT_FLUSHDB_END
  *
  *          The data pointer can be casted to a RedisModuleFlushInfo
  *          structure with the following fields:
