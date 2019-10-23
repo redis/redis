@@ -13,7 +13,7 @@ endif
 
 .SUFFIXES: .c .so .xo .o
 
-all: commandfilter.so testrdb.so fork.so infotest.so propagate.so
+all: commandfilter.so testrdb.so fork.so infotest.so propagate.so hooks.so
 
 .c.xo:
 	$(CC) -I../../src $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
@@ -23,6 +23,7 @@ fork.xo: ../../src/redismodule.h
 testrdb.xo: ../../src/redismodule.h
 infotest.xo: ../../src/redismodule.h
 propagate.xo: ../../src/redismodule.h
+hooks.xo: ../../src/redismodule.h
 
 commandfilter.so: commandfilter.xo
 	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lc
@@ -37,4 +38,7 @@ infotest.so: infotest.xo
 	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lc
 
 propagate.so: propagate.xo
+	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lc
+
+hooks.so: hooks.xo
 	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lc
