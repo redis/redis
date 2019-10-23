@@ -63,6 +63,7 @@ void flushdbCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void
             long long numkeys = RedisModule_CallReplyInteger(reply);
             printf("FLUSHDB event of database %d started (%lld keys in DB)\n",
                 fi->dbnum, numkeys);
+            RedisModule_FreeCallReply(reply);
         } else {
             printf("FLUSHALL event started\n");
         }
