@@ -247,6 +247,44 @@ static RedisModuleEvent
 #define REDISMODULE_CLIENTINFO_FLAG_UNIXSOCKET (1<<4)
 #define REDISMODULE_CLIENTINFO_FLAG_MULTI (1<<5)
 
+/* Here we take all the structures that the module pass to the core
+ * and the other way around. Notably the list here contains the structures
+ * used by the hooks API RedisModule_RegisterToServerEvent().
+ *
+ * The structures always start with a 'version' field. This is useful
+ * when we want to pass a reference to the structure to the core APIs,
+ * for the APIs to fill the structure. In that case, the structure 'version'
+ * field is initialized before passing it to the core, so that the core is
+ * able to cast the pointer to the appropriate structure version. In this
+ * way we obtain ABI compatibility.
+ *
+ * Here we'll list all the structure versions in case they evolve over time,
+ * however using a define, we'll make sure to use the last version as the
+ * public name for the module to use. */
+
+#define REDISMODULE_CLIENTINFO_VERSION 1
+typedef struct RedisModuleClientInfo {
+    uint64_t version;       /* Version of this structure for ABI compat. */
+    uint64_t flags;         /* REDISMODULE_CLIENTINFO_FLAG_* */
+    uint64_t id;            /* Client ID. */
+    char addr[46];          /* IPv4 or IPv6 address. */
+    uint16_t port;          /* TCP port. */
+    uint16_t db;            /* Selected DB. */
+} RedisModuleClientInfoV1;
+
+#define RedisModuleClientInfo RedisModuleClientInfoV1
+
+#define REDISMODULE_FLUSHINFO_VERSION 1
+typedef struct RedisModuleFlushInfo {
+    uint64_t version;       /* Not used since this structure is never passed
+                               from the module to the core right now. Here
+                               for future compatibility. */
+    int32_t sync;           /* Synchronous or threaded flush?. */
+    int32_t dbnum;          /* Flushed database number, -1 for ALL. */
+} RedisModuleFlushInfoV1;
+
+#define RedisModuleFlushInfo RedisModuleFlushInfoV1
+
 /* ------------------------- End of common defines ------------------------ */
 
 #ifndef REDISMODULE_CORE
@@ -299,16 +337,6 @@ typedef struct RedisModuleTypeMethods {
     RedisModuleTypeAuxSaveFunc aux_save;
     int aux_save_triggers;
 } RedisModuleTypeMethods;
-
-#define REDISMODULE_CLIENTINFO_VERSION 1
-typedef struct RedisModuleClientInfo {
-    uint64_t version;       /* Version of this structure for ABI compat. */
-    uint64_t flags;         /* REDISMODULE_CLIENTINFO_FLAG_* */
-    uint64_t id;            /* Client ID. */
-    char addr[46];          /* IPv4 or IPv6 address. */
-    uint16_t port;          /* TCP port. */
-    uint16_t db;            /* Selected DB. */
-} RedisModuleClientInfo;
 
 #define REDISMODULE_GET_API(name) \
     RedisModule_GetApi("RedisModule_" #name, ((void **)&RedisModule_ ## name))

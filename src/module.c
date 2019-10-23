@@ -1534,21 +1534,10 @@ unsigned long long RM_GetClientId(RedisModuleCtx *ctx) {
  * then REDISMODULE_ERR is returned. Otherwise the function returns
  * REDISMODULE_OK and the structure pointed by 'ci' gets populated. */
 
-/* Note that we may have multiple versions of the client info structure,
- * as the API evolves. */
-struct moduleClientInfoV1 {
-    uint64_t version;       /* Version of this structure for ABI compat. */
-    uint64_t flags;         /* REDISMODULE_CLIENTINFO_FLAG_* */
-    uint64_t id;            /* Client ID. */
-    char addr[46];          /* IPv4 or IPv6 address. */
-    uint16_t port;          /* TCP port. */
-    uint16_t db;            /* Selected DB. */
-};
-
 int modulePopulateClientInfoStructure(void *ci, client *client, int structver) {
     if (structver != 1) return REDISMODULE_ERR;
 
-    struct moduleClientInfoV1 *ci1 = ci;
+    RedisModuleClientInfoV1 *ci1 = ci;
     memset(ci1,0,sizeof(*ci1));
     ci1->version = structver;
     if (client->flags & CLIENT_MULTI)
@@ -5738,12 +5727,12 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *          The data pointer can be casted to a RedisModuleFlushInfo
  *          structure with the following fields:
  *
- *              int async;      // True if the flush is done in a thread.
+ *              int32_t async;  // True if the flush is done in a thread.
  *                                 See for instance FLUSHALL ASYNC.
  *                                 In this case the END callback is invoked
  *                                 immediately after the database is put
  *                                 in the free list of the thread.
- *              int dbnum;      // Flushed database number, -1 for all the DBs
+ *              int32_t dbnum;  // Flushed database number, -1 for all the DBs
  *                                 in the case of the FLUSHALL operation.
  *
  *          The start event is called *before* the operation is initated, thus
@@ -5876,7 +5865,7 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
             ctx.client = moduleFreeContextReusedClient;
 
             void *moduledata = NULL;
-            struct moduleClientInfoV1 civ1;
+            RedisModuleClientInfoV1 civ1;
             if (eid == REDISMODULE_EVENT_CLIENT_CHANGE) {
                 modulePopulateClientInfoStructure(&civ1,data,
                                                   el->event.dataver);
