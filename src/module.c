@@ -5872,6 +5872,9 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
                 moduledata = &civ1;
             } else if (eid == REDISMODULE_EVENT_FLUSHDB) {
                 moduledata = data;
+                RedisModuleFlushInfoV1 *fi = data;
+                if (fi->dbnum != -1)
+                    selectDb(ctx.client, fi->dbnum);
             }
             el->callback(&ctx,el->event,subid,moduledata);
             moduleFreeContext(&ctx);
