@@ -61,7 +61,7 @@ struct RedisModule {
     list *using;    /* List of modules we use some APIs of. */
     list *filters;  /* List of filters the module has registered. */
     int in_call;    /* RM_Call() nesting level */
-    int in_hook;    /* Non zero if an hook callback is active. */
+    int in_hook;    /* Hooks callback nesting level for this module (0 or 1). */
     int options;    /* Module options and capabilities. */
     RedisModuleInfoFunc info_cb; /* Callback for module to add INFO fields. */
 };
@@ -333,6 +333,8 @@ typedef struct RedisModuleEventListener {
 } RedisModuleEventListener;
 
 list *RedisModule_EventListeners; /* Global list of all the active events. */
+unsigned long long ModulesInHooks = 0; /* Total number of modules in hooks
+                                          callbacks right now. */
 
 /* --------------------------------------------------------------------------
  * Prototypes
@@ -5864,7 +5866,14 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
         if (el->event.id == eid && !el->module->in_hook) {
             RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
             ctx.module = el->module;
-            ctx.client = moduleFreeContextReusedClient;
+
+            if (ModulesInHooks == 0) {
+                ctx.client = moduleFreeContextReusedClient;
+            } else {
+                ctx.client = createClient(NULL);
+                ctx.client->flags |= CLIENT_MODULE;
+                ctx.client->user = NULL; /* Root user. */
+            }
 
             void *moduledata = NULL;
             RedisModuleClientInfoV1 civ1;
@@ -5878,9 +5887,14 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
                 if (fi->dbnum != -1)
                     selectDb(ctx.client, fi->dbnum);
             }
-            el->module->in_hook = 1;
+
+            ModulesInHooks++;
+            el->module->in_hook++;
             el->callback(&ctx,el->event,subid,moduledata);
-            el->module->in_hook = 0;
+            el->module->in_hook--;
+            ModulesInHooks--;
+
+            if (ModulesInHooks != 0) freeClient(ctx.client);
             moduleFreeContext(&ctx);
         }
     }
