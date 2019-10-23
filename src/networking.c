@@ -1043,9 +1043,13 @@ void freeClient(client *c) {
         freeClientAsync(c);
         return;
     }
-    moduleFireServerEvent(REDISMODULE_EVENT_CLIENT_CHANGE,
-                          REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED,
-                          c);
+
+    /* For connected clients, call the disconnection event of modules hooks. */
+    if (c->conn) {
+        moduleFireServerEvent(REDISMODULE_EVENT_CLIENT_CHANGE,
+                              REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED,
+                              c);
+    }
 
     /* If it is our master that's beging disconnected we should make sure
      * to cache the state to try a partial resynchronization later.
