@@ -2341,7 +2341,6 @@ static clusterManagerNode *clusterManagerNewNode(char *ip, int port) {
 
 static clusterManagerNode *clusterManagerNewNodeByAddr(char *addr) {
     char *c = strrchr(addr, '@');
-    c = strrchr(addr, '@');
     int bus_port = -1;
     if (c != NULL) {
         bus_port = atoi(c+1);
