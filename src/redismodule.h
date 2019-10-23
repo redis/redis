@@ -161,6 +161,10 @@ typedef uint64_t RedisModuleTimerID;
 
 /* Declare that the module can handle errors with RedisModule_SetModuleOptions. */
 #define REDISMODULE_OPTIONS_HANDLE_IO_ERRORS    (1<<0)
+/* When set, Redis will not call RedisModule_SignalModifiedKey(), implicitly in
+ * RedisModule_CloseKey, and the module needs to do that when manually when keys
+ * are modified from the user's sperspective, to invalidate WATCH. */
+#define REDISMODULE_OPTION_NO_IMPLICIT_SIGNAL_MODIFIED (1<<1)
 
 /* Server events definitions. */
 #define REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED 0
@@ -434,6 +438,7 @@ RedisModuleType *REDISMODULE_API_FUNC(RedisModule_ModuleTypeGetType)(RedisModule
 void *REDISMODULE_API_FUNC(RedisModule_ModuleTypeGetValue)(RedisModuleKey *key);
 int REDISMODULE_API_FUNC(RedisModule_IsIOError)(RedisModuleIO *io);
 void REDISMODULE_API_FUNC(RedisModule_SetModuleOptions)(RedisModuleCtx *ctx, int options);
+int REDISMODULE_API_FUNC(RedisModule_SignalModifiedKey)(RedisModuleCtx *ctx, RedisModuleString *keyname);
 void REDISMODULE_API_FUNC(RedisModule_SaveUnsigned)(RedisModuleIO *io, uint64_t value);
 uint64_t REDISMODULE_API_FUNC(RedisModule_LoadUnsigned)(RedisModuleIO *io);
 void REDISMODULE_API_FUNC(RedisModule_SaveSigned)(RedisModuleIO *io, int64_t value);
@@ -629,6 +634,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ModuleTypeGetValue);
     REDISMODULE_GET_API(IsIOError);
     REDISMODULE_GET_API(SetModuleOptions);
+    REDISMODULE_GET_API(SignalModifiedKey);
     REDISMODULE_GET_API(SaveUnsigned);
     REDISMODULE_GET_API(LoadUnsigned);
     REDISMODULE_GET_API(SaveSigned);
