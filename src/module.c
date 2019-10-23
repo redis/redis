@@ -61,6 +61,7 @@ struct RedisModule {
     list *using;    /* List of modules we use some APIs of. */
     list *filters;  /* List of filters the module has registered. */
     int in_call;    /* RM_Call() nesting level */
+    int in_hook;    /* Non zero if an hook callback is active. */
     int options;    /* Module options and capabilities. */
     RedisModuleInfoFunc info_cb; /* Callback for module to add INFO fields. */
 };
@@ -817,6 +818,7 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->using = listCreate();
     module->filters = listCreate();
     module->in_call = 0;
+    module->in_hook = 0;
     ctx->module = module;
 }
 
@@ -5859,7 +5861,7 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
     listRewind(RedisModule_EventListeners,&li);
     while((ln = listNext(&li))) {
         RedisModuleEventListener *el = ln->value;
-        if (el->event.id == eid) {
+        if (el->event.id == eid && !el->module->in_hook) {
             RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
             ctx.module = el->module;
             ctx.client = moduleFreeContextReusedClient;
@@ -5876,7 +5878,9 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
                 if (fi->dbnum != -1)
                     selectDb(ctx.client, fi->dbnum);
             }
+            el->module->in_hook = 1;
             el->callback(&ctx,el->event,subid,moduledata);
+            el->module->in_hook = 0;
             moduleFreeContext(&ctx);
         }
     }
