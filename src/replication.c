@@ -2382,6 +2382,8 @@ void replicaofCommand(client *c) {
             /* Restart the AOF subsystem in case we shut it down during a sync when
              * we were still a slave. */
             if (server.aof_enabled && server.aof_state == AOF_OFF) restartAOFAfterSYNC();
+            /* forget slave expire keys (that info exists in the normal expires dict too) */
+            flushSlaveKeysWithExpireList(-1);
         }
     } else {
         long port;

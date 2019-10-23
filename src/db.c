@@ -379,7 +379,7 @@ long long emptyDbGeneric(redisDb *dbarray, int dbnum, int flags, void(callback)(
             slotToKeyFlush();
         }
     }
-    if (dbnum == -1) flushSlaveKeysWithExpireList();
+    flushSlaveKeysWithExpireList(dbnum);
     return removed;
 }
 

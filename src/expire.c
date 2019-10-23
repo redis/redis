@@ -384,11 +384,37 @@ size_t getSlaveKeyWithExpireCount(void) {
  * Note: technically we should handle the case of a single DB being flushed
  * but it is not worth it since anyway race conditions using the same set
  * of key names in a wriatable slave and in its master will lead to
- * inconsistencies. This is just a best-effort thing we do. */
-void flushSlaveKeysWithExpireList(void) {
-    if (slaveKeysWithExpire) {
+ * inconsistencies. This is just a best-effort thing we do.
+ *
+ * The dbnum can be -1 if all the DBs should be flushed, or the specified
+ * DB number if we want to flush only a single Redis database number. */
+void flushSlaveKeysWithExpireList(int dbnum) {
+    if (!slaveKeysWithExpire) return;
+
+    if (dbnum == -1 || server.dbnum == 1) {
         dictRelease(slaveKeysWithExpire);
         slaveKeysWithExpire = NULL;
+    } else {
+        dictIterator *di;
+        dictEntry *de;
+        di = dictGetSafeIterator(slaveKeysWithExpire);
+        while((de = dictNext(di)) != NULL) {
+            sds key = dictGetKey(de);
+            uint64_t dbids = dictGetUnsignedIntegerVal(de);
+            uint64_t new_dbids = dbids & ~(1<<dbnum);
+            if (!new_dbids) {
+                dictDelete(slaveKeysWithExpire, key);
+            } else if (new_dbids != dbids) {
+                dictSetUnsignedIntegerVal(de, new_dbids);
+            }
+        }
+        dictReleaseIterator(di);
+        if (dictSize(slaveKeysWithExpire)==0) {
+            dictRelease(slaveKeysWithExpire);
+            slaveKeysWithExpire = NULL;
+        } else {
+            dictResize(slaveKeysWithExpire);
+        }
     }
 }
 
