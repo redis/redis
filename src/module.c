@@ -5882,6 +5882,8 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
              * sense. For instance for FLUSHDB events we select the correct
              * DB automatically. */
             selectDb(ctx.client, 0);
+
+            /* Event specific context and data pointer setup. */
             if (eid == REDISMODULE_EVENT_CLIENT_CHANGE) {
                 modulePopulateClientInfoStructure(&civ1,data,
                                                   el->event.dataver);

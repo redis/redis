@@ -43,6 +43,7 @@ void clientChangeCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub,
     char *keyname = (sub == REDISMODULE_SUBEVENT_CLIENT_CHANGE_CONNECTED) ?
         "connected" : "disconnected";
     RedisModuleCallReply *reply;
+    RedisModule_SelectDb(ctx,9);
     reply = RedisModule_Call(ctx,"RPUSH","cl",keyname,(long)ci->id);
     RedisModule_FreeCallReply(reply);
 }
@@ -56,6 +57,7 @@ void flushdbCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void
     char *keyname = (sub == REDISMODULE_SUBEVENT_FLUSHDB_START) ?
         "flush-start" : "flush-end";
     RedisModuleCallReply *reply;
+    RedisModule_SelectDb(ctx,9);
     reply = RedisModule_Call(ctx,"RPUSH","cl",keyname,(long)fi->dbnum);
     RedisModule_FreeCallReply(reply);
 }
