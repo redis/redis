@@ -3793,6 +3793,14 @@ void RM__Assert(const char *estr, const char *file, int line) {
     _serverAssert(estr, file, line);
 }
 
+/* Allows adding event to the latency monitor to be observed by the LATENCY
+ * command. The call is skipped if the latency is smaller than the configured
+ * latency-monitor-threshold. */
+void RM_LatencyAddSample(const char *event, mstime_t latency) {
+    if (latency >= server.latency_monitor_threshold)
+        latencyAddSample(event, latency);
+}
+
 /* --------------------------------------------------------------------------
  * Blocking clients from modules
  * -------------------------------------------------------------------------- */
@@ -6024,6 +6032,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(Log);
     REGISTER_API(LogIOError);
     REGISTER_API(_Assert);
+    REGISTER_API(LatencyAddSample);
     REGISTER_API(StringAppendBuffer);
     REGISTER_API(RetainString);
     REGISTER_API(StringCompare);
