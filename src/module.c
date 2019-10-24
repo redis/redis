@@ -1880,6 +1880,14 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
     return flags;
 }
 
+/* Returns true when the module should avoid actions that cause traffic to replicas.
+ * This is required during manual failover when waiting for the replica
+ * to be in perfect sync with the master. Modules doing background operations
+ * which are not a result of user traffic should check this flag periodically. */
+int RM_AvoidReplicaTraffic() {
+    return clientsArePaused();
+}
+
 /* Change the currently selected DB. Returns an error if the id
  * is out of range.
  *
@@ -7392,6 +7400,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(KeyAtPos);
     REGISTER_API(GetClientId);
     REGISTER_API(GetContextFlags);
+    REGISTER_API(AvoidReplicaTraffic);
     REGISTER_API(PoolAlloc);
     REGISTER_API(CreateDataType);
     REGISTER_API(ModuleTypeSetValue);
