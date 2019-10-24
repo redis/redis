@@ -146,7 +146,7 @@ volatile unsigned long lru_clock; /* Server global current LRU time. */
  *              in this condition but just a few.
  *
  * no-monitor:  Do not automatically propagate the command on MONITOR.
- * 
+ *
  * no-slowlog:  Do not automatically propagate the command to the slowlog.
  *
  * cluster-asking: Perform an implicit ASKING for this command, so the
