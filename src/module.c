@@ -1311,6 +1311,16 @@ void RM_ReplySetArrayLength(RedisModuleCtx *ctx, long len) {
     }
 }
 
+/* Reply to the client with an empty array. 
+ *
+ * The function always returns REDISMODULE_OK. */
+int RM_ReplyWithEmptyArray(RedisModuleCtx *ctx) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReply(c,shared.emptyarray);
+    return REDISMODULE_OK;
+}
+
 /* Reply with a bulk string, taking in input a C buffer pointer and length.
  *
  * The function always returns REDISMODULE_OK. */
@@ -6317,6 +6327,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ReplyWithSimpleString);
     REGISTER_API(ReplyWithArray);
     REGISTER_API(ReplySetArrayLength);
+    REGISTER_API(ReplyWithEmptyArray);
     REGISTER_API(ReplyWithString);
     REGISTER_API(ReplyWithStringBuffer);
     REGISTER_API(ReplyWithCString);
