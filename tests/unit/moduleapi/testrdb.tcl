@@ -1,57 +1,48 @@
 set testmodule [file normalize tests/modules/testrdb.so]
 
-proc restart_and_wait {} {
-    catch {
-        r debug restart
-    }
-
-    # wait for the server to come back up
-    set retry 50
-    while {$retry} {
-        if {[catch { r ping }]} {
-            after 100
-        } else {
-            break
-        }
-        incr retry -1
-    }
-}
-
 tags "modules" {
-    start_server [list overrides [list loadmodule "$testmodule"]] {
-        test {modules are able to persist types} {
+    test {modules are able to persist types} {
+        start_server [list overrides [list loadmodule "$testmodule"]] {
             r testrdb.set.key key1 value1
             assert_equal "value1" [r testrdb.get.key key1]
             r debug reload
             assert_equal "value1" [r testrdb.get.key key1]
         }
+    }
 
-        test {modules global are lost without aux} {
+    test {modules global are lost without aux} {
+        set server_path [tmpdir "server.module-testrdb"]
+        start_server [list overrides [list loadmodule "$testmodule" "dir" $server_path]] {
             r testrdb.set.before global1
             assert_equal "global1" [r testrdb.get.before]
-            restart_and_wait
+        }
+        start_server [list overrides [list loadmodule "$testmodule" "dir" $server_path]] {
             assert_equal "" [r testrdb.get.before]
         }
     }
 
-    start_server [list overrides [list loadmodule "$testmodule 2"]] {
-        test {modules are able to persist globals before and after} {
+    test {modules are able to persist globals before and after} {
+        set server_path [tmpdir "server.module-testrdb"]
+        start_server [list overrides [list loadmodule "$testmodule 2" "dir" $server_path]] {
             r testrdb.set.before global1
             r testrdb.set.after global2
             assert_equal "global1" [r testrdb.get.before]
             assert_equal "global2" [r testrdb.get.after]
-            restart_and_wait
+        }
+        start_server [list overrides [list loadmodule "$testmodule 2" "dir" $server_path]] {
             assert_equal "global1" [r testrdb.get.before]
             assert_equal "global2" [r testrdb.get.after]
         }
 
     }
 
-    start_server [list overrides [list loadmodule "$testmodule 1"]] {
-        test {modules are able to persist globals just after} {
+    test {modules are able to persist globals just after} {
+        set server_path [tmpdir "server.module-testrdb"]
+        start_server [list overrides [list loadmodule "$testmodule 1" "dir" $server_path]] {
             r testrdb.set.after global2
             assert_equal "global2" [r testrdb.get.after]
-            restart_and_wait
+        }
+        start_server [list overrides [list loadmodule "$testmodule 1" "dir" $server_path]] {
             assert_equal "global2" [r testrdb.get.after]
         }
     }
