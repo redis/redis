@@ -146,13 +146,13 @@ int dictResize(dict *d)
 /* Expand or create the hash table */
 int dictExpand(dict *d, unsigned long size)
 {
-    dictht n; /* the new hash table */
-    unsigned long realsize = _dictNextPower(size);
-
     /* the size is invalid if it is smaller than the number of
      * elements already inside the hash table */
     if (dictIsRehashing(d) || d->ht[0].used > size)
         return DICT_ERR;
+
+    dictht n; /* the new hash table */
+    unsigned long realsize = _dictNextPower(size);
 
     /* Rehashing to the same table size is not useful. */
     if (realsize == d->ht[0].size) return DICT_ERR;
@@ -327,7 +327,7 @@ int dictReplace(dict *d, void *key, void *val)
     dictEntry *entry, *existing, auxentry;
 
     /* Try to add the element. If the key
-     * does not exists dictAdd will suceed. */
+     * does not exists dictAdd will succeed. */
     entry = dictAddRaw(d,key,&existing);
     if (entry) {
         dictSetVal(d, entry, val);
@@ -705,8 +705,10 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
                  * table, there will be no elements in both tables up to
                  * the current rehashing index, so we jump if possible.
                  * (this happens when going from big to small table). */
-                if (i >= d->ht[1].size) i = d->rehashidx;
-                continue;
+                if (i >= d->ht[1].size)
+                    i = d->rehashidx;
+                else
+                    continue;
             }
             if (i >= d->ht[j].size) continue; /* Out of range for this table. */
             dictEntry *he = d->ht[j].table[i];
@@ -735,6 +737,30 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
         i = (i+1) & maxsizemask;
     }
     return stored;
+}
+
+/* This is like dictGetRandomKey() from the POV of the API, but will do more
+ * work to ensure a better distribution of the returned element.
+ *
+ * This function improves the distribution because the dictGetRandomKey()
+ * problem is that it selects a random bucket, then it selects a random
+ * element from the chain in the bucket. However elements being in different
+ * chain lengths will have different probabilities of being reported. With
+ * this function instead what we do is to consider a "linear" range of the table
+ * that may be constituted of N buckets with chains of different lengths
+ * appearing one after the other. Then we report a random element in the range.
+ * In this way we smooth away the problem of different chain lenghts. */
+#define GETFAIR_NUM_ENTRIES 15
+dictEntry *dictGetFairRandomKey(dict *d) {
+    dictEntry *entries[GETFAIR_NUM_ENTRIES];
+    unsigned int count = dictGetSomeKeys(d,entries,GETFAIR_NUM_ENTRIES);
+    /* Note that dictGetSomeKeys() may return zero elements in an unlucky
+     * run() even if there are actually elements inside the hash table. So
+     * when we get zero, we call the true dictGetRandomKey() that will always
+     * yeld the element if the hash table has at least one. */
+    if (count == 0) return dictGetRandomKey(d);
+    unsigned int idx = rand() % count;
+    return entries[idx];
 }
 
 /* Function to reverse bits. Algorithm from:
@@ -858,6 +884,15 @@ unsigned long dictScan(dict *d,
             de = next;
         }
 
+        /* Set unmasked bits so incrementing the reversed cursor
+         * operates on the masked bits */
+        v |= ~m0;
+
+        /* Increment the reverse cursor */
+        v = rev(v);
+        v++;
+        v = rev(v);
+
     } else {
         t0 = &d->ht[0];
         t1 = &d->ht[1];
@@ -892,21 +927,15 @@ unsigned long dictScan(dict *d,
                 de = next;
             }
 
-            /* Increment bits not covered by the smaller mask */
-            v = (((v | m0) + 1) & ~m0) | (v & m0);
+            /* Increment the reverse cursor not covered by the smaller mask.*/
+            v |= ~m1;
+            v = rev(v);
+            v++;
+            v = rev(v);
 
             /* Continue while bits covered by mask difference is non-zero */
         } while (v & (m0 ^ m1));
     }
-
-    /* Set unmasked bits so incrementing the reversed cursor
-     * operates on the masked bits of the smaller table */
-    v |= ~m0;
-
-    /* Increment the reverse cursor */
-    v = rev(v);
-    v++;
-    v = rev(v);
 
     return v;
 }

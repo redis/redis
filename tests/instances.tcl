@@ -17,6 +17,7 @@ source ../support/test.tcl
 
 set ::verbose 0
 set ::valgrind 0
+set ::tls 0
 set ::pause_on_error 0
 set ::simulate_error 0
 set ::failed 0
@@ -69,7 +70,19 @@ proc spawn_instance {type base_port count {conf {}}} {
         # Write the instance config file.
         set cfgfile [file join $dirname $type.conf]
         set cfg [open $cfgfile w]
-        puts $cfg "port $port"
+        if {$::tls} {
+            puts $cfg "tls-port $port"
+            puts $cfg "tls-replication yes"
+            puts $cfg "tls-cluster yes"
+            puts $cfg "port 0"
+            puts $cfg [format "tls-cert-file %s/../../tls/redis.crt" [pwd]]
+            puts $cfg [format "tls-key-file %s/../../tls/redis.key" [pwd]]
+            puts $cfg [format "tls-dh-params-file %s/../../tls/redis.dh" [pwd]]
+            puts $cfg [format "tls-ca-cert-file %s/../../tls/ca.crt" [pwd]]
+            puts $cfg "loglevel debug"
+        } else {
+            puts $cfg "port $port"
+        }
         puts $cfg "dir ./$dirname"
         puts $cfg "logfile log.txt"
         # Add additional config files
@@ -88,7 +101,7 @@ proc spawn_instance {type base_port count {conf {}}} {
         }
 
         # Push the instance into the right list
-        set link [redis 127.0.0.1 $port]
+        set link [redis 127.0.0.1 $port 0 $::tls]
         $link reconnect 1
         lappend ::${type}_instances [list \
             pid $pid \
@@ -148,6 +161,13 @@ proc parse_options {} {
             set ::simulate_error 1
         } elseif {$opt eq {--valgrind}} {
             set ::valgrind 1
+        } elseif {$opt eq {--tls}} {
+            package require tls 1.6
+            ::tls::init \
+                -cafile "$::tlsdir/ca.crt" \
+                -certfile "$::tlsdir/redis.crt" \
+                -keyfile "$::tlsdir/redis.key"
+            set ::tls 1
         } elseif {$opt eq "--help"} {
             puts "Hello, I'm sentinel.tcl and I run Sentinel unit tests."
             puts "\nOptions:"
@@ -492,7 +512,7 @@ proc restart_instance {type id} {
     }
 
     # Connect with it with a fresh link
-    set link [redis 127.0.0.1 $port]
+    set link [redis 127.0.0.1 $port 0 $::tls]
     $link reconnect 1
     set_instance_attrib $type $id link $link
 

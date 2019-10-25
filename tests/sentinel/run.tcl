@@ -6,6 +6,7 @@ cd tests/sentinel
 source ../instances.tcl
 
 set ::instances_count 5 ; # How many instances we use at max.
+set ::tlsdir "../../tls"
 
 proc main {} {
     parse_options

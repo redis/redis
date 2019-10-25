@@ -39,6 +39,7 @@
 #include <float.h>
 #include <stdint.h>
 #include <errno.h>
+#include <time.h>
 
 #include "util.h"
 #include "sha1.h"
@@ -47,7 +48,7 @@
 int stringmatchlen(const char *pattern, int patternLen,
         const char *string, int stringLen, int nocase)
 {
-    while(patternLen) {
+    while(patternLen && stringLen) {
         switch(pattern[0]) {
         case '*':
             while (pattern[1] == '*') {
@@ -168,6 +169,22 @@ int stringmatchlen(const char *pattern, int patternLen,
 
 int stringmatch(const char *pattern, const char *string, int nocase) {
     return stringmatchlen(pattern,strlen(pattern),string,strlen(string),nocase);
+}
+
+/* Fuzz stringmatchlen() trying to crash it with bad input. */
+int stringmatchlen_fuzz_test(void) {
+    char str[32];
+    char pat[32];
+    int cycles = 10000000;
+    int total_matches = 0;
+    while(cycles--) {
+        int strlen = rand() % sizeof(str);
+        int patlen = rand() % sizeof(pat);
+        for (int j = 0; j < strlen; j++) str[j] = rand() % 128;
+        for (int j = 0; j < patlen; j++) pat[j] = rand() % 128;
+        total_matches += stringmatchlen(pat, patlen, str, strlen, 0);
+    }
+    return total_matches;
 }
 
 /* Convert a string representing an amount of memory into the number of
@@ -346,6 +363,7 @@ int string2ll(const char *s, size_t slen, long long *value) {
     int negative = 0;
     unsigned long long v;
 
+    /* A zero length string is not a valid number. */
     if (plen == slen)
         return 0;
 
@@ -355,6 +373,8 @@ int string2ll(const char *s, size_t slen, long long *value) {
         return 1;
     }
 
+    /* Handle negative numbers: just set a flag and continue like if it
+     * was a positive number. Later convert into negative. */
     if (p[0] == '-') {
         negative = 1;
         p++; plen++;
@@ -368,13 +388,11 @@ int string2ll(const char *s, size_t slen, long long *value) {
     if (p[0] >= '1' && p[0] <= '9') {
         v = p[0]-'0';
         p++; plen++;
-    } else if (p[0] == '0' && slen == 1) {
-        *value = 0;
-        return 1;
     } else {
         return 0;
     }
 
+    /* Parse all the other digits, checking for overflow at every step. */
     while (plen < slen && p[0] >= '0' && p[0] <= '9') {
         if (v > (ULLONG_MAX / 10)) /* Overflow. */
             return 0;
@@ -391,6 +409,8 @@ int string2ll(const char *s, size_t slen, long long *value) {
     if (plen < slen)
         return 0;
 
+    /* Convert to negative if needed, and do the final overflow check when
+     * converting from unsigned long long to long long. */
     if (negative) {
         if (v > ((unsigned long long)(-(LLONG_MIN+1))+1)) /* Overflow. */
             return 0;
@@ -427,7 +447,7 @@ int string2l(const char *s, size_t slen, long *lval) {
  * a double: no spaces or other characters before or after the string
  * representing the number are accepted. */
 int string2ld(const char *s, size_t slen, long double *dp) {
-    char buf[256];
+    char buf[MAX_LONG_DOUBLE_CHARS];
     long double value;
     char *eptr;
 
@@ -451,7 +471,7 @@ int string2ld(const char *s, size_t slen, long double *dp) {
 /* Convert a double to a string representation. Returns the number of bytes
  * required. The representation should always be parsable by strtod(3).
  * This function does not support human-friendly formatting like ld2string
- * does. It is intented mainly to be used inside t_zset.c when writing scores
+ * does. It is intended mainly to be used inside t_zset.c when writing scores
  * into a ziplist representing a sorted set. */
 int d2string(char *buf, size_t len, double value) {
     if (isnan(value)) {
@@ -536,14 +556,12 @@ int ld2string(char *buf, size_t len, long double value, int humanfriendly) {
     return l;
 }
 
-/* Generate the Redis "Run ID", a SHA1-sized random number that identifies a
- * given execution of Redis, so that if you are talking with an instance
- * having run_id == A, and you reconnect and it has run_id == B, you can be
- * sure that it is either a different instance or it was restarted. */
-void getRandomHexChars(char *p, unsigned int len) {
-    char *charset = "0123456789abcdef";
-    unsigned int j;
-
+/* Get random bytes, attempts to get an initial seed from /dev/urandom and
+ * the uses a one way hash function in counter mode to generate a random
+ * stream. However if /dev/urandom is not available, a weaker seed is used.
+ *
+ * This function is not thread safe, since the state is global. */
+void getRandomBytes(unsigned char *p, size_t len) {
     /* Global state. */
     static int seed_initialized = 0;
     static unsigned char seed[20]; /* The SHA1 seed, from /dev/urandom. */
@@ -555,62 +573,48 @@ void getRandomHexChars(char *p, unsigned int len) {
          * function we just need non-colliding strings, there are no
          * cryptographic security needs. */
         FILE *fp = fopen("/dev/urandom","r");
-        if (fp && fread(seed,sizeof(seed),1,fp) == 1)
+        if (fp == NULL || fread(seed,sizeof(seed),1,fp) != 1) {
+            /* Revert to a weaker seed, and in this case reseed again
+             * at every call.*/
+            for (unsigned int j = 0; j < sizeof(seed); j++) {
+                struct timeval tv;
+                gettimeofday(&tv,NULL);
+                pid_t pid = getpid();
+                seed[j] = tv.tv_sec ^ tv.tv_usec ^ pid ^ (long)fp;
+            }
+        } else {
             seed_initialized = 1;
+        }
         if (fp) fclose(fp);
     }
 
-    if (seed_initialized) {
-        while(len) {
-            unsigned char digest[20];
-            SHA1_CTX ctx;
-            unsigned int copylen = len > 20 ? 20 : len;
+    while(len) {
+        unsigned char digest[20];
+        SHA1_CTX ctx;
+        unsigned int copylen = len > 20 ? 20 : len;
 
-            SHA1Init(&ctx);
-            SHA1Update(&ctx, seed, sizeof(seed));
-            SHA1Update(&ctx, (unsigned char*)&counter,sizeof(counter));
-            SHA1Final(digest, &ctx);
-            counter++;
+        SHA1Init(&ctx);
+        SHA1Update(&ctx, seed, sizeof(seed));
+        SHA1Update(&ctx, (unsigned char*)&counter,sizeof(counter));
+        SHA1Final(digest, &ctx);
+        counter++;
 
-            memcpy(p,digest,copylen);
-            /* Convert to hex digits. */
-            for (j = 0; j < copylen; j++) p[j] = charset[p[j] & 0x0F];
-            len -= copylen;
-            p += copylen;
-        }
-    } else {
-        /* If we can't read from /dev/urandom, do some reasonable effort
-         * in order to create some entropy, since this function is used to
-         * generate run_id and cluster instance IDs */
-        char *x = p;
-        unsigned int l = len;
-        struct timeval tv;
-        pid_t pid = getpid();
-
-        /* Use time and PID to fill the initial array. */
-        gettimeofday(&tv,NULL);
-        if (l >= sizeof(tv.tv_usec)) {
-            memcpy(x,&tv.tv_usec,sizeof(tv.tv_usec));
-            l -= sizeof(tv.tv_usec);
-            x += sizeof(tv.tv_usec);
-        }
-        if (l >= sizeof(tv.tv_sec)) {
-            memcpy(x,&tv.tv_sec,sizeof(tv.tv_sec));
-            l -= sizeof(tv.tv_sec);
-            x += sizeof(tv.tv_sec);
-        }
-        if (l >= sizeof(pid)) {
-            memcpy(x,&pid,sizeof(pid));
-            l -= sizeof(pid);
-            x += sizeof(pid);
-        }
-        /* Finally xor it with rand() output, that was already seeded with
-         * time() at startup, and convert to hex digits. */
-        for (j = 0; j < len; j++) {
-            p[j] ^= rand();
-            p[j] = charset[p[j] & 0x0F];
-        }
+        memcpy(p,digest,copylen);
+        len -= copylen;
+        p += copylen;
     }
+}
+
+/* Generate the Redis "Run ID", a SHA1-sized random number that identifies a
+ * given execution of Redis, so that if you are talking with an instance
+ * having run_id == A, and you reconnect and it has run_id == B, you can be
+ * sure that it is either a different instance or it was restarted. */
+void getRandomHexChars(char *p, size_t len) {
+    char *charset = "0123456789abcdef";
+    size_t j;
+
+    getRandomBytes((unsigned char*)p,len);
+    for (j = 0; j < len; j++) p[j] = charset[p[j] & 0x0F];
 }
 
 /* Given the filename, return the absolute path as an SDS string, or NULL
@@ -618,7 +622,7 @@ void getRandomHexChars(char *p, unsigned int len) {
  * already, this will be detected and handled correctly.
  *
  * The function does not try to normalize everything, but only the obvious
- * case of one or more "../" appearning at the start of "filename"
+ * case of one or more "../" appearing at the start of "filename"
  * relative path. */
 sds getAbsolutePath(char *filename) {
     char cwd[1024];
@@ -663,6 +667,24 @@ sds getAbsolutePath(char *filename) {
     abspath = sdscatsds(abspath,relpath);
     sdsfree(relpath);
     return abspath;
+}
+
+/*
+ * Gets the proper timezone in a more portable fashion
+ * i.e timezone variables are linux specific.
+ */
+
+unsigned long getTimeZone(void) {
+#ifdef __linux__
+    return timezone;
+#else
+    struct timeval tv;
+    struct timezone tz;
+
+    gettimeofday(&tv, &tz);
+
+    return tz.tz_minuteswest * 60UL;
+#endif
 }
 
 /* Return true if the specified path is just a file basename without any

@@ -64,6 +64,7 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
             dbSyncDelete(db,keyobj);
         notifyKeyspaceEvent(NOTIFY_EXPIRED,
             "expired",keyobj,db->id);
+        trackingInvalidateKey(keyobj);
         decrRefCount(keyobj);
         server.stat_expiredkeys++;
         return 1;
@@ -112,7 +113,7 @@ void activeExpireCycle(int type) {
 
     if (type == ACTIVE_EXPIRE_CYCLE_FAST) {
         /* Don't start a fast cycle if the previous cycle did not exit
-         * for time limt. Also don't repeat a fast cycle for the same period
+         * for time limit. Also don't repeat a fast cycle for the same period
          * as the fast cycle total duration itself. */
         if (!timelimit_exit) return;
         if (start < last_fast_cycle + ACTIVE_EXPIRE_CYCLE_FAST_DURATION*2) return;

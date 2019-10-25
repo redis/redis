@@ -33,7 +33,7 @@
  *   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  *   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-/** 
+/**
  * @file  SFMT-sse2.h
  * @brief SIMD oriented Fast Mersenne Twister(SFMT) for Intel SSE2
  *
@@ -60,10 +60,10 @@
  * @param mask 128-bit mask
  * @return output
  */
-JEMALLOC_ALWAYS_INLINE __m128i mm_recursion(__m128i *a, __m128i *b, 
+JEMALLOC_ALWAYS_INLINE __m128i mm_recursion(__m128i *a, __m128i *b,
 				   __m128i c, __m128i d, __m128i mask) {
     __m128i v, x, y, z;
-    
+
     x = _mm_load_si128(a);
     y = _mm_srli_epi32(*b, SR1);
     z = _mm_srli_si128(c, SR2);
@@ -81,7 +81,7 @@ JEMALLOC_ALWAYS_INLINE __m128i mm_recursion(__m128i *a, __m128i *b,
  * This function fills the internal state array with pseudorandom
  * integers.
  */
-JEMALLOC_INLINE void gen_rand_all(sfmt_t *ctx) {
+static inline void gen_rand_all(sfmt_t *ctx) {
     int i;
     __m128i r, r1, r2, mask;
     mask = _mm_set_epi32(MSK4, MSK3, MSK2, MSK1);
@@ -108,10 +108,10 @@ JEMALLOC_INLINE void gen_rand_all(sfmt_t *ctx) {
  * This function fills the user-specified array with pseudorandom
  * integers.
  *
- * @param array an 128-bit array to be filled by pseudorandom numbers.  
+ * @param array an 128-bit array to be filled by pseudorandom numbers.
  * @param size number of 128-bit pesudorandom numbers to be generated.
  */
-JEMALLOC_INLINE void gen_rand_array(sfmt_t *ctx, w128_t *array, int size) {
+static inline void gen_rand_array(sfmt_t *ctx, w128_t *array, int size) {
     int i, j;
     __m128i r, r1, r2, mask;
     mask = _mm_set_epi32(MSK4, MSK3, MSK2, MSK1);

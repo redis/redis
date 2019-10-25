@@ -291,7 +291,7 @@ int lpEncodeGetType(unsigned char *ele, uint32_t size, unsigned char *intenc, ui
 /* Store a reverse-encoded variable length field, representing the length
  * of the previous element of size 'l', in the target buffer 'buf'.
  * The function returns the number of bytes used to encode it, from
- * 1 to 5. If 'buf' is NULL the funciton just returns the number of bytes
+ * 1 to 5. If 'buf' is NULL the function just returns the number of bytes
  * needed in order to encode the backlen. */
 unsigned long lpEncodeBacklen(unsigned char *buf, uint64_t l) {
     if (l <= 127) {
@@ -568,7 +568,7 @@ unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf) {
     }
 }
 
-/* Insert, delete or replace the specified element 'ele' of lenght 'len' at
+/* Insert, delete or replace the specified element 'ele' of length 'len' at
  * the specified position 'p', with 'p' being a listpack element pointer
  * obtained with lpFirst(), lpLast(), lpIndex(), lpNext(), lpPrev() or
  * lpSeek().
@@ -707,10 +707,30 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, un
         }
     }
     lpSetTotalBytes(lp,new_listpack_bytes);
+
+#if 0
+    /* This code path is normally disabled: what it does is to force listpack
+     * to return *always* a new pointer after performing some modification to
+     * the listpack, even if the previous allocation was enough. This is useful
+     * in order to spot bugs in code using listpacks: by doing so we can find
+     * if the caller forgets to set the new pointer where the listpack reference
+     * is stored, after an update. */
+    unsigned char *oldlp = lp;
+    lp = lp_malloc(new_listpack_bytes);
+    memcpy(lp,oldlp,new_listpack_bytes);
+    if (newp) {
+        unsigned long offset = (*newp)-oldlp;
+        *newp = lp + offset;
+    }
+    /* Make sure the old allocation contains garbage. */
+    memset(oldlp,'A',new_listpack_bytes);
+    lp_free(oldlp);
+#endif
+
     return lp;
 }
 
-/* Append the specified element 'ele' of lenght 'len' at the end of the
+/* Append the specified element 'ele' of length 'len' at the end of the
  * listpack. It is implemented in terms of lpInsert(), so the return value is
  * the same as lpInsert(). */
 unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size) {

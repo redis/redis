@@ -17,7 +17,7 @@
  *
  * The design is trivial, we have a structure representing a job to perform
  * and a different thread and job queue for every job type.
- * Every thread wait for new jobs in its queue, and process every job
+ * Every thread waits for new jobs in its queue, and process every job
  * sequentially.
  *
  * Jobs of the same type are guaranteed to be processed from the least
@@ -187,7 +187,7 @@ void *bioProcessBackgroundJobs(void *arg) {
         if (type == BIO_CLOSE_FILE) {
             close((long)job->arg1);
         } else if (type == BIO_AOF_FSYNC) {
-            aof_fsync((long)job->arg1);
+            redis_fsync((long)job->arg1);
         } else if (type == BIO_LAZY_FREE) {
             /* What we free changes depending on what arguments are set:
              * arg1 -> free the object at pointer.
@@ -204,14 +204,14 @@ void *bioProcessBackgroundJobs(void *arg) {
         }
         zfree(job);
 
-        /* Unblock threads blocked on bioWaitStepOfType() if any. */
-        pthread_cond_broadcast(&bio_step_cond[type]);
-
         /* Lock again before reiterating the loop, if there are no longer
          * jobs to process we'll block again in pthread_cond_wait(). */
         pthread_mutex_lock(&bio_mutex[type]);
         listDelNode(bio_jobs[type],ln);
         bio_pending[type]--;
+
+        /* Unblock threads blocked on bioWaitStepOfType() if any. */
+        pthread_cond_broadcast(&bio_step_cond[type]);
     }
 }
 

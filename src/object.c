@@ -113,7 +113,7 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
  * OBJ_ENCODING_EMBSTR_SIZE_LIMIT, otherwise the RAW encoding is
  * used.
  *
- * The current limit of 39 is chosen so that the biggest string object
+ * The current limit of 44 is chosen so that the biggest string object
  * we allocate as EMBSTR will still fit into the 64 byte arena of jemalloc. */
 #define OBJ_ENCODING_EMBSTR_SIZE_LIMIT 44
 robj *createStringObject(const char *ptr, size_t len) {
@@ -123,9 +123,25 @@ robj *createStringObject(const char *ptr, size_t len) {
         return createRawStringObject(ptr,len);
 }
 
-robj *createStringObjectFromLongLong(long long value) {
+/* Create a string object from a long long value. When possible returns a
+ * shared integer object, or at least an integer encoded one.
+ *
+ * If valueobj is non zero, the function avoids returning a a shared
+ * integer, because the object is going to be used as value in the Redis key
+ * space (for instance when the INCR command is used), so we want LFU/LRU
+ * values specific for each key. */
+robj *createStringObjectFromLongLongWithOptions(long long value, int valueobj) {
     robj *o;
-    if (value >= 0 && value < OBJ_SHARED_INTEGERS) {
+
+    if (server.maxmemory == 0 ||
+        !(server.maxmemory_policy & MAXMEMORY_FLAG_NO_SHARED_INTEGERS))
+    {
+        /* If the maxmemory policy permits, we can still return shared integers
+         * even if valueobj is true. */
+        valueobj = 0;
+    }
+
+    if (value >= 0 && value < OBJ_SHARED_INTEGERS && valueobj == 0) {
         incrRefCount(shared.integers[value]);
         o = shared.integers[value];
     } else {
@@ -138,6 +154,20 @@ robj *createStringObjectFromLongLong(long long value) {
         }
     }
     return o;
+}
+
+/* Wrapper for createStringObjectFromLongLongWithOptions() always demanding
+ * to create a shared object if possible. */
+robj *createStringObjectFromLongLong(long long value) {
+    return createStringObjectFromLongLongWithOptions(value,0);
+}
+
+/* Wrapper for createStringObjectFromLongLongWithOptions() avoiding a shared
+ * object when LFU/LRU info are needed, that is, when the object is used
+ * as a value in the key space, and Redis is configured to evict based on
+ * LFU/LRU. */
+robj *createStringObjectFromLongLongForValue(long long value) {
+    return createStringObjectFromLongLongWithOptions(value,1);
 }
 
 /* Create a string object from a long double. If humanfriendly is non-zero
@@ -155,7 +185,7 @@ robj *createStringObjectFromLongDouble(long double value, int humanfriendly) {
 /* Duplicate a string object, with the guarantee that the returned object
  * has the same encoding as the original one.
  *
- * This function also guarantees that duplicating a small integere object
+ * This function also guarantees that duplicating a small integer object
  * (or a string object that contains a representation of a small integer)
  * will always result in a fresh object that is unshared (refcount == 1).
  *
@@ -385,6 +415,18 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
     }
 }
 
+/* Optimize the SDS string inside the string object to require little space,
+ * in case there is more than 10% of free space at the end of the SDS
+ * string. This happens because SDS strings tend to overallocate to avoid
+ * wasting too much time in allocations when appending to the string. */
+void trimStringObjectIfNeeded(robj *o) {
+    if (o->encoding == OBJ_ENCODING_RAW &&
+        sdsavail(o->ptr) > sdslen(o->ptr)/10)
+    {
+        o->ptr = sdsRemoveFreeSpace(o->ptr);
+    }
+}
+
 /* Try to encode a string object in order to save space */
 robj *tryObjectEncoding(robj *o) {
     long value;
@@ -425,10 +467,15 @@ robj *tryObjectEncoding(robj *o) {
             incrRefCount(shared.integers[value]);
             return shared.integers[value];
         } else {
-            if (o->encoding == OBJ_ENCODING_RAW) sdsfree(o->ptr);
-            o->encoding = OBJ_ENCODING_INT;
-            o->ptr = (void*) value;
-            return o;
+            if (o->encoding == OBJ_ENCODING_RAW) {
+                sdsfree(o->ptr);
+                o->encoding = OBJ_ENCODING_INT;
+                o->ptr = (void*) value;
+                return o;
+            } else if (o->encoding == OBJ_ENCODING_EMBSTR) {
+                decrRefCount(o);
+                return createStringObjectFromLongLongForValue(value);
+            }
         }
     }
 
@@ -454,11 +501,7 @@ robj *tryObjectEncoding(robj *o) {
      * We do that only for relatively large strings as this branch
      * is only entered if the length of the string is greater than
      * OBJ_ENCODING_EMBSTR_SIZE_LIMIT. */
-    if (o->encoding == OBJ_ENCODING_RAW &&
-        sdsavail(s) > len/10)
-    {
-        o->ptr = sdsRemoveFreeSpace(o->ptr);
-    }
+    trimStringObjectIfNeeded(o);
 
     /* Return the original object. */
     return o;
@@ -708,7 +751,31 @@ char *strEncoding(int encoding) {
     }
 }
 
-/* =========================== Memory introspection ========================== */
+/* =========================== Memory introspection ========================= */
+
+
+/* This is an helper function with the goal of estimating the memory
+ * size of a radix tree that is used to store Stream IDs.
+ *
+ * Note: to guess the size of the radix tree is not trivial, so we
+ * approximate it considering 16 bytes of data overhead for each
+ * key (the ID), and then adding the number of bare nodes, plus some
+ * overhead due by the data and child pointers. This secret recipe
+ * was obtained by checking the average radix tree created by real
+ * workloads, and then adjusting the constants to get numbers that
+ * more or less match the real memory usage.
+ *
+ * Actually the number of nodes and keys may be different depending
+ * on the insertion speed and thus the ability of the radix tree
+ * to compress prefixes. */
+size_t streamRadixTreeMemoryUsage(rax *rax) {
+    size_t size;
+    size = rax->numele * sizeof(streamID);
+    size += rax->numnodes * sizeof(raxNode);
+    /* Add a fixed overhead due to the aux data pointer, children, ... */
+    size += rax->numnodes * sizeof(long)*30;
+    return size;
+}
 
 /* Returns the size in bytes consumed by the key's value in RAM.
  * Note that the returned value is just an approximation, especially in the
@@ -772,7 +839,9 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
             d = ((zset*)o->ptr)->dict;
             zskiplist *zsl = ((zset*)o->ptr)->zsl;
             zskiplistNode *znode = zsl->header->level[0].forward;
-            asize = sizeof(*o)+sizeof(zset)+(sizeof(struct dictEntry*)*dictSlots(d));
+            asize = sizeof(*o)+sizeof(zset)+sizeof(zskiplist)+sizeof(dict)+
+                    (sizeof(struct dictEntry*)*dictSlots(d))+
+                    zmalloc_size(zsl->header);
             while(znode != NULL && samples < sample_size) {
                 elesize += sdsAllocSize(znode->ele);
                 elesize += sizeof(struct dictEntry) + zmalloc_size(znode);
@@ -804,21 +873,8 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
         }
     } else if (o->type == OBJ_STREAM) {
         stream *s = o->ptr;
-        /* Note: to guess the size of the radix tree is not trivial, so we
-         * approximate it considering 64 bytes of data overhead for each
-         * key (the ID), and then adding the number of bare nodes, plus some
-         * overhead due by the data and child pointers. This secret recipe
-         * was obtained by checking the average radix tree created by real
-         * workloads, and then adjusting the constants to get numbers that
-         * more or less match the real memory usage.
-         *
-         * Actually the number of nodes and keys may be different depending
-         * on the insertion speed and thus the ability of the radix tree
-         * to compress prefixes. */
         asize = sizeof(*o);
-        asize += s->rax->numele * 64;
-        asize += s->rax->numnodes * sizeof(raxNode);
-        asize += s->rax->numnodes * 32*7; /* Add a few child pointers... */
+        asize += streamRadixTreeMemoryUsage(s->rax);
 
         /* Now we have to add the listpacks. The last listpack is often non
          * complete, so we estimate the size of the first N listpacks, and
@@ -845,6 +901,37 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
             asize += lpBytes(ri.data);
         }
         raxStop(&ri);
+
+        /* Consumer groups also have a non trivial memory overhead if there
+         * are many consumers and many groups, let's count at least the
+         * overhead of the pending entries in the groups and consumers
+         * PELs. */
+        if (s->cgroups) {
+            raxStart(&ri,s->cgroups);
+            raxSeek(&ri,"^",NULL,0);
+            while(raxNext(&ri)) {
+                streamCG *cg = ri.data;
+                asize += sizeof(*cg);
+                asize += streamRadixTreeMemoryUsage(cg->pel);
+                asize += sizeof(streamNACK)*raxSize(cg->pel);
+
+                /* For each consumer we also need to add the basic data
+                 * structures and the PEL memory usage. */
+                raxIterator cri;
+                raxStart(&cri,cg->consumers);
+                raxSeek(&cri,"^",NULL,0);
+                while(raxNext(&cri)) {
+                    streamConsumer *consumer = cri.data;
+                    asize += sizeof(*consumer);
+                    asize += sdslen(consumer->name);
+                    asize += streamRadixTreeMemoryUsage(consumer->pel);
+                    /* Don't count NACKs again, they are shared with the
+                     * consumer group PEL. */
+                }
+                raxStop(&cri);
+            }
+            raxStop(&ri);
+        }
     } else if (o->type == OBJ_MODULE) {
         moduleValue *mv = o->ptr;
         moduleType *mt = mv->type;
@@ -878,8 +965,23 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mh->total_allocated = zmalloc_used;
     mh->startup_allocated = server.initial_memory_usage;
     mh->peak_allocated = server.stat_peak_memory;
-    mh->fragmentation =
-        zmalloc_get_fragmentation_ratio(server.resident_set_size);
+    mh->total_frag =
+        (float)server.cron_malloc_stats.process_rss / server.cron_malloc_stats.zmalloc_used;
+    mh->total_frag_bytes =
+        server.cron_malloc_stats.process_rss - server.cron_malloc_stats.zmalloc_used;
+    mh->allocator_frag =
+        (float)server.cron_malloc_stats.allocator_active / server.cron_malloc_stats.allocator_allocated;
+    mh->allocator_frag_bytes =
+        server.cron_malloc_stats.allocator_active - server.cron_malloc_stats.allocator_allocated;
+    mh->allocator_rss =
+        (float)server.cron_malloc_stats.allocator_resident / server.cron_malloc_stats.allocator_active;
+    mh->allocator_rss_bytes =
+        server.cron_malloc_stats.allocator_resident - server.cron_malloc_stats.allocator_active;
+    mh->rss_extra =
+        (float)server.cron_malloc_stats.process_rss / server.cron_malloc_stats.allocator_resident;
+    mh->rss_extra_bytes =
+        server.cron_malloc_stats.process_rss - server.cron_malloc_stats.allocator_resident;
+
     mem_total += server.initial_memory_usage;
 
     mem = 0;
@@ -912,7 +1014,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         listRewind(server.clients,&li);
         while((ln = listNext(&li))) {
             client *c = listNodeValue(ln);
-            if (c->flags & CLIENT_SLAVE)
+            if (c->flags & CLIENT_SLAVE && !(c->flags & CLIENT_MONITOR))
                 continue;
             mem += getClientOutputBufferMemoryUsage(c);
             mem += sdsAllocSize(c->querybuf);
@@ -924,10 +1026,22 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     mem = 0;
     if (server.aof_state != AOF_OFF) {
-        mem += sdslen(server.aof_buf);
+        mem += sdsalloc(server.aof_buf);
         mem += aofRewriteBufferSize();
     }
     mh->aof_buffer = mem;
+    mem_total+=mem;
+
+    mem = server.lua_scripts_mem;
+    mem += dictSize(server.lua_scripts) * sizeof(dictEntry) +
+        dictSlots(server.lua_scripts) * sizeof(dictEntry*);
+    mem += dictSize(server.repl_scriptcache_dict) * sizeof(dictEntry) +
+        dictSlots(server.repl_scriptcache_dict) * sizeof(dictEntry*);
+    if (listLength(server.repl_scriptcache_fifo) > 0) {
+        mem += listLength(server.repl_scriptcache_fifo) * (sizeof(listNode) + 
+            sdsZmallocSize(listNodeValue(listFirst(server.repl_scriptcache_fifo))));
+    }
+    mh->lua_caches = mem;
     mem_total+=mem;
 
     for (j = 0; j < server.dbnum; j++) {
@@ -982,8 +1096,12 @@ sds getMemoryDoctorReport(void) {
     int empty = 0;          /* Instance is empty or almost empty. */
     int big_peak = 0;       /* Memory peak is much larger than used mem. */
     int high_frag = 0;      /* High fragmentation. */
+    int high_alloc_frag = 0;/* High allocator fragmentation. */
+    int high_proc_rss = 0;  /* High process rss overhead. */
+    int high_alloc_rss = 0; /* High rss overhead. */
     int big_slave_buf = 0;  /* Slave buffers are too big. */
     int big_client_buf = 0; /* Client buffers are too big. */
+    int many_scripts = 0;   /* Script cache has too many scripts. */
     int num_reports = 0;
     struct redisMemOverhead *mh = getMemoryOverheadData();
 
@@ -997,9 +1115,27 @@ sds getMemoryDoctorReport(void) {
             num_reports++;
         }
 
-        /* Fragmentation is higher than 1.4? */
-        if (mh->fragmentation > 1.4) {
+        /* Fragmentation is higher than 1.4 and 10MB ?*/
+        if (mh->total_frag > 1.4 && mh->total_frag_bytes > 10<<20) {
             high_frag = 1;
+            num_reports++;
+        }
+
+        /* External fragmentation is higher than 1.1 and 10MB? */
+        if (mh->allocator_frag > 1.1 && mh->allocator_frag_bytes > 10<<20) {
+            high_alloc_frag = 1;
+            num_reports++;
+        }
+
+        /* Allocator fss is higher than 1.1 and 10MB ? */
+        if (mh->allocator_rss > 1.1 && mh->allocator_rss_bytes > 10<<20) {
+            high_alloc_rss = 1;
+            num_reports++;
+        }
+
+        /* Non-Allocator fss is higher than 1.1 and 10MB ? */
+        if (mh->rss_extra > 1.1 && mh->rss_extra_bytes > 10<<20) {
+            high_proc_rss = 1;
             num_reports++;
         }
 
@@ -1014,6 +1150,12 @@ sds getMemoryDoctorReport(void) {
         /* Slaves using more than 10 MB each? */
         if (numslaves > 0 && mh->clients_slaves / numslaves > (1024*1024*10)) {
             big_slave_buf = 1;
+            num_reports++;
+        }
+
+        /* Too many scripts are cached? */
+        if (dictSize(server.lua_scripts) > 1000) {
+            many_scripts = 1;
             num_reports++;
         }
     }
@@ -1036,18 +1178,60 @@ sds getMemoryDoctorReport(void) {
             s = sdscat(s," * Peak memory: In the past this instance used more than 150% the memory that is currently using. The allocator is normally not able to release memory after a peak, so you can expect to see a big fragmentation ratio, however this is actually harmless and is only due to the memory peak, and if the Redis instance Resident Set Size (RSS) is currently bigger than expected, the memory will be used as soon as you fill the Redis instance with more data. If the memory peak was only occasional and you want to try to reclaim memory, please try the MEMORY PURGE command, otherwise the only other option is to shutdown and restart the instance.\n\n");
         }
         if (high_frag) {
-            s = sdscatprintf(s," * High fragmentation: This instance has a memory fragmentation greater than 1.4 (this means that the Resident Set Size of the Redis process is much larger than the sum of the logical allocations Redis performed). This problem is usually due either to a large peak memory (check if there is a peak memory entry above in the report) or may result from a workload that causes the allocator to fragment memory a lot. If the problem is a large peak memory, then there is no issue. Otherwise, make sure you are using the Jemalloc allocator and not the default libc malloc. Note: The currently used allocator is \"%s\".\n\n", ZMALLOC_LIB);
+            s = sdscatprintf(s," * High total RSS: This instance has a memory fragmentation and RSS overhead greater than 1.4 (this means that the Resident Set Size of the Redis process is much larger than the sum of the logical allocations Redis performed). This problem is usually due either to a large peak memory (check if there is a peak memory entry above in the report) or may result from a workload that causes the allocator to fragment memory a lot. If the problem is a large peak memory, then there is no issue. Otherwise, make sure you are using the Jemalloc allocator and not the default libc malloc. Note: The currently used allocator is \"%s\".\n\n", ZMALLOC_LIB);
+        }
+        if (high_alloc_frag) {
+            s = sdscatprintf(s," * High allocator fragmentation: This instance has an allocator external fragmentation greater than 1.1. This problem is usually due either to a large peak memory (check if there is a peak memory entry above in the report) or may result from a workload that causes the allocator to fragment memory a lot. You can try enabling 'activedefrag' config option.\n\n");
+        }
+        if (high_alloc_rss) {
+            s = sdscatprintf(s," * High allocator RSS overhead: This instance has an RSS memory overhead is greater than 1.1 (this means that the Resident Set Size of the allocator is much larger than the sum what the allocator actually holds). This problem is usually due to a large peak memory (check if there is a peak memory entry above in the report), you can try the MEMORY PURGE command to reclaim it.\n\n");
+        }
+        if (high_proc_rss) {
+            s = sdscatprintf(s," * High process RSS overhead: This instance has non-allocator RSS memory overhead is greater than 1.1 (this means that the Resident Set Size of the Redis process is much larger than the RSS the allocator holds). This problem may be due to Lua scripts or Modules.\n\n");
         }
         if (big_slave_buf) {
-            s = sdscat(s," * Big slave buffers: The slave output buffers in this instance are greater than 10MB for each slave (on average). This likely means that there is some slave instance that is struggling receiving data, either because it is too slow or because of networking issues. As a result, data piles on the master output buffers. Please try to identify what slave is not receiving data correctly and why. You can use the INFO output in order to check the slaves delays and the CLIENT LIST command to check the output buffers of each slave.\n\n");
+            s = sdscat(s," * Big replica buffers: The replica output buffers in this instance are greater than 10MB for each replica (on average). This likely means that there is some replica instance that is struggling receiving data, either because it is too slow or because of networking issues. As a result, data piles on the master output buffers. Please try to identify what replica is not receiving data correctly and why. You can use the INFO output in order to check the replicas delays and the CLIENT LIST command to check the output buffers of each replica.\n\n");
         }
         if (big_client_buf) {
             s = sdscat(s," * Big client buffers: The clients output buffers in this instance are greater than 200K per client (on average). This may result from different causes, like Pub/Sub clients subscribed to channels bot not receiving data fast enough, so that data piles on the Redis instance output buffer, or clients sending commands with large replies or very large sequences of commands in the same pipeline. Please use the CLIENT LIST command in order to investigate the issue if it causes problems in your instance, or to understand better why certain clients are using a big amount of memory.\n\n");
+        }
+        if (many_scripts) {
+            s = sdscat(s," * Many scripts: There seem to be many cached scripts in this instance (more than 1000). This may be because scripts are generated and `EVAL`ed, instead of being parameterized (with KEYS and ARGV), `SCRIPT LOAD`ed and `EVALSHA`ed. Unless `SCRIPT FLUSH` is called periodically, the scripts' caches may end up consuming most of your memory.\n\n");
         }
         s = sdscat(s,"I'm here to keep you safe, Sam. I want to help you.\n");
     }
     freeMemoryOverheadData(mh);
     return s;
+}
+
+/* Set the object LRU/LFU depending on server.maxmemory_policy.
+ * The lfu_freq arg is only relevant if policy is MAXMEMORY_FLAG_LFU.
+ * The lru_idle and lru_clock args are only relevant if policy
+ * is MAXMEMORY_FLAG_LRU.
+ * Either or both of them may be <0, in that case, nothing is set. */
+void objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
+                       long long lru_clock) {
+    if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
+        if (lfu_freq >= 0) {
+            serverAssert(lfu_freq <= 255);
+            val->lru = (LFUGetTimeInMinutes()<<8) | lfu_freq;
+        }
+    } else if (lru_idle >= 0) {
+        /* Provided LRU idle time is in seconds. Scale
+         * according to the LRU clock resolution this Redis
+         * instance was compiled with (normally 1000 ms, so the
+         * below statement will expand to lru_idle*1000/1000. */
+        lru_idle = lru_idle*1000/LRU_CLOCK_RESOLUTION;
+        long lru_abs = lru_clock - lru_idle; /* Absolute access time. */
+        /* If the LRU field underflows (since LRU it is a wrapping
+         * clock), the best we can do is to provide a large enough LRU
+         * that is half-way in the circlular LRU clock we use: this way
+         * the computed idle time for this object will stay high for quite
+         * some time. */
+        if (lru_abs < 0)
+            lru_abs = (lru_clock+(LRU_CLOCK_MAX/2)) % LRU_CLOCK_MAX;
+        val->lru = lru_abs;
+    }
 }
 
 /* ======================= The OBJECT and MEMORY commands =================== */
@@ -1075,23 +1259,23 @@ void objectCommand(client *c) {
 
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-"encoding <key> -- Return the kind of internal representation used in order to store the value associated with a key.",
-"freq <key> -- Return the access frequency index of the key. The returned integer is proportional to the logarithm of the recent access frequency of the key.",
-"idletime <key> -- Return the idle time of the key, that is the approximated number of seconds elapsed since the last access to the key.",
-"refcount <key> -- Return the number of references of the value associated with the specified key.",
+"ENCODING <key> -- Return the kind of internal representation used in order to store the value associated with a key.",
+"FREQ <key> -- Return the access frequency index of the key. The returned integer is proportional to the logarithm of the recent access frequency of the key.",
+"IDLETIME <key> -- Return the idle time of the key, that is the approximated number of seconds elapsed since the last access to the key.",
+"REFCOUNT <key> -- Return the number of references of the value associated with the specified key.",
 NULL
         };
         addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"refcount") && c->argc == 3) {
-        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
+        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.null[c->resp]))
                 == NULL) return;
         addReplyLongLong(c,o->refcount);
     } else if (!strcasecmp(c->argv[1]->ptr,"encoding") && c->argc == 3) {
-        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
+        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.null[c->resp]))
                 == NULL) return;
         addReplyBulkCString(c,strEncoding(o->encoding));
     } else if (!strcasecmp(c->argv[1]->ptr,"idletime") && c->argc == 3) {
-        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
+        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.null[c->resp]))
                 == NULL) return;
         if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
             addReplyError(c,"An LFU maxmemory policy is selected, idle time not tracked. Please note that when switching between policies at runtime LRU and LFU data will take some time to adjust.");
@@ -1099,7 +1283,7 @@ NULL
         }
         addReplyLongLong(c,estimateObjectIdleTime(o)/1000);
     } else if (!strcasecmp(c->argv[1]->ptr,"freq") && c->argc == 3) {
-        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
+        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.null[c->resp]))
                 == NULL) return;
         if (!(server.maxmemory_policy & MAXMEMORY_FLAG_LFU)) {
             addReplyError(c,"An LFU maxmemory policy is not selected, access frequency not tracked. Please note that when switching between policies at runtime LRU and LFU data will take some time to adjust.");
@@ -1111,7 +1295,7 @@ NULL
          * when the key is read or overwritten. */
         addReplyLongLong(c,LFUDecrAndReturn(o));
     } else {
-        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try OBJECT help", (char *)c->argv[1]->ptr);
+        addReplySubcommandSyntaxError(c);
     }
 }
 
@@ -1120,9 +1304,18 @@ NULL
  *
  * Usage: MEMORY usage <key> */
 void memoryCommand(client *c) {
-    robj *o;
-
-    if (!strcasecmp(c->argv[1]->ptr,"usage") && c->argc >= 3) {
+    if (!strcasecmp(c->argv[1]->ptr,"help") && c->argc == 2) {
+        const char *help[] = {
+"DOCTOR - Return memory problems reports.",
+"MALLOC-STATS -- Return internal statistics report from the memory allocator.",
+"PURGE -- Attempt to purge dirty pages for reclamation by the allocator.",
+"STATS -- Return information about the memory usage of the server.",
+"USAGE <key> [SAMPLES <count>] -- Return memory in bytes used by <key> and its value. Nested values are sampled up to <count> times (default: 5).",
+NULL
+        };
+        addReplyHelp(c, help);
+    } else if (!strcasecmp(c->argv[1]->ptr,"usage") && c->argc >= 3) {
+        dictEntry *de;
         long long samples = OBJ_COMPUTE_SIZE_DEF_SAMPLES;
         for (int j = 3; j < c->argc; j++) {
             if (!strcasecmp(c->argv[j]->ptr,"samples") &&
@@ -1141,16 +1334,18 @@ void memoryCommand(client *c) {
                 return;
             }
         }
-        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
-                == NULL) return;
-        size_t usage = objectComputeSize(o,samples);
-        usage += sdsAllocSize(c->argv[2]->ptr);
+        if ((de = dictFind(c->db->dict,c->argv[2]->ptr)) == NULL) {
+            addReplyNull(c);
+            return;
+        }
+        size_t usage = objectComputeSize(dictGetVal(de),samples);
+        usage += sdsAllocSize(dictGetKey(de));
         usage += sizeof(dictEntry);
         addReplyLongLong(c,usage);
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMultiBulkLen(c,(14+mh->num_dbs)*2);
+        addReplyMapLen(c,25+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1173,11 +1368,14 @@ void memoryCommand(client *c) {
         addReplyBulkCString(c,"aof.buffer");
         addReplyLongLong(c,mh->aof_buffer);
 
+        addReplyBulkCString(c,"lua.caches");
+        addReplyLongLong(c,mh->lua_caches);
+
         for (size_t j = 0; j < mh->num_dbs; j++) {
             char dbname[32];
             snprintf(dbname,sizeof(dbname),"db.%zd",mh->db[j].dbid);
             addReplyBulkCString(c,dbname);
-            addReplyMultiBulkLen(c,4);
+            addReplyMapLen(c,2);
 
             addReplyBulkCString(c,"overhead.hashtable.main");
             addReplyLongLong(c,mh->db[j].overhead_ht_main);
@@ -1204,51 +1402,59 @@ void memoryCommand(client *c) {
         addReplyBulkCString(c,"peak.percentage");
         addReplyDouble(c,mh->peak_perc);
 
-        addReplyBulkCString(c,"fragmentation");
-        addReplyDouble(c,mh->fragmentation);
+        addReplyBulkCString(c,"allocator.allocated");
+        addReplyLongLong(c,server.cron_malloc_stats.allocator_allocated);
+
+        addReplyBulkCString(c,"allocator.active");
+        addReplyLongLong(c,server.cron_malloc_stats.allocator_active);
+
+        addReplyBulkCString(c,"allocator.resident");
+        addReplyLongLong(c,server.cron_malloc_stats.allocator_resident);
+
+        addReplyBulkCString(c,"allocator-fragmentation.ratio");
+        addReplyDouble(c,mh->allocator_frag);
+
+        addReplyBulkCString(c,"allocator-fragmentation.bytes");
+        addReplyLongLong(c,mh->allocator_frag_bytes);
+
+        addReplyBulkCString(c,"allocator-rss.ratio");
+        addReplyDouble(c,mh->allocator_rss);
+
+        addReplyBulkCString(c,"allocator-rss.bytes");
+        addReplyLongLong(c,mh->allocator_rss_bytes);
+
+        addReplyBulkCString(c,"rss-overhead.ratio");
+        addReplyDouble(c,mh->rss_extra);
+
+        addReplyBulkCString(c,"rss-overhead.bytes");
+        addReplyLongLong(c,mh->rss_extra_bytes);
+
+        addReplyBulkCString(c,"fragmentation"); /* this is the total RSS overhead, including fragmentation */
+        addReplyDouble(c,mh->total_frag); /* it is kept here for backwards compatibility */
+
+        addReplyBulkCString(c,"fragmentation.bytes");
+        addReplyLongLong(c,mh->total_frag_bytes);
 
         freeMemoryOverheadData(mh);
     } else if (!strcasecmp(c->argv[1]->ptr,"malloc-stats") && c->argc == 2) {
 #if defined(USE_JEMALLOC)
         sds info = sdsempty();
         je_malloc_stats_print(inputCatSds, &info, NULL);
-        addReplyBulkSds(c, info);
+        addReplyVerbatim(c,info,sdslen(info),"txt");
+        sdsfree(info);
 #else
         addReplyBulkCString(c,"Stats not supported for the current allocator");
 #endif
     } else if (!strcasecmp(c->argv[1]->ptr,"doctor") && c->argc == 2) {
         sds report = getMemoryDoctorReport();
-        addReplyBulkSds(c,report);
+        addReplyVerbatim(c,report,sdslen(report),"txt");
+        sdsfree(report);
     } else if (!strcasecmp(c->argv[1]->ptr,"purge") && c->argc == 2) {
-#if defined(USE_JEMALLOC)
-        char tmp[32];
-        unsigned narenas = 0;
-        size_t sz = sizeof(unsigned);
-        if (!je_mallctl("arenas.narenas", &narenas, &sz, NULL, 0)) {
-            sprintf(tmp, "arena.%d.purge", narenas);
-            if (!je_mallctl(tmp, NULL, 0, NULL, 0)) {
-                addReply(c, shared.ok);
-                return;
-            }
-        }
-        addReplyError(c, "Error purging dirty pages");
-#else
-        addReply(c, shared.ok);
-        /* Nothing to do for other allocators. */
-#endif
-    } else if (!strcasecmp(c->argv[1]->ptr,"help") && c->argc == 2) {
-        addReplyMultiBulkLen(c,5);
-        addReplyBulkCString(c,
-"MEMORY DOCTOR                        - Outputs memory problems report");
-        addReplyBulkCString(c,
-"MEMORY USAGE <key> [SAMPLES <count>] - Estimate memory usage of key");
-        addReplyBulkCString(c,
-"MEMORY STATS                         - Show memory usage details");
-        addReplyBulkCString(c,
-"MEMORY PURGE                         - Ask the allocator to release memory");
-        addReplyBulkCString(c,
-"MEMORY MALLOC-STATS                  - Show allocator internal stats");
+        if (jemalloc_purge() == 0)
+            addReply(c, shared.ok);
+        else
+            addReplyError(c, "Error purging dirty pages");
     } else {
-        addReplyError(c,"Syntax error. Try MEMORY HELP");
+        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try MEMORY HELP", (char*)c->argv[1]->ptr);
     }
 }

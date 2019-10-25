@@ -76,6 +76,7 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     eventLoop->maxfd = -1;
     eventLoop->beforesleep = NULL;
     eventLoop->aftersleep = NULL;
+    eventLoop->flags = 0;
     if (aeApiCreate(eventLoop) == -1) goto err;
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
@@ -95,6 +96,14 @@ err:
 /* Return the current set size. */
 int aeGetSetSize(aeEventLoop *eventLoop) {
     return eventLoop->setsize;
+}
+
+/* Tells the next iteration/s of the event processing to set timeout of 0. */
+void aeSetDontWait(aeEventLoop *eventLoop, int noWait) {
+    if (noWait)
+        eventLoop->flags |= AE_DONT_WAIT;
+    else
+        eventLoop->flags &= ~AE_DONT_WAIT;
 }
 
 /* Resize the maximum set size of the event loop.
@@ -219,7 +228,10 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
     te->timeProc = proc;
     te->finalizerProc = finalizerProc;
     te->clientData = clientData;
+    te->prev = NULL;
     te->next = eventLoop->timeEventHead;
+    if (te->next)
+        te->next->prev = te;
     eventLoop->timeEventHead = te;
     return id;
 }
@@ -266,7 +278,7 @@ static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
 /* Process time events */
 static int processTimeEvents(aeEventLoop *eventLoop) {
     int processed = 0;
-    aeTimeEvent *te, *prev;
+    aeTimeEvent *te;
     long long maxId;
     time_t now = time(NULL);
 
@@ -287,7 +299,6 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
     }
     eventLoop->lastTime = now;
 
-    prev = NULL;
     te = eventLoop->timeEventHead;
     maxId = eventLoop->timeEventNextId-1;
     while(te) {
@@ -297,10 +308,12 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
         /* Remove events scheduled for deletion. */
         if (te->id == AE_DELETED_EVENT_ID) {
             aeTimeEvent *next = te->next;
-            if (prev == NULL)
-                eventLoop->timeEventHead = te->next;
+            if (te->prev)
+                te->prev->next = te->next;
             else
-                prev->next = te->next;
+                eventLoop->timeEventHead = te->next;
+            if (te->next)
+                te->next->prev = te->prev;
             if (te->finalizerProc)
                 te->finalizerProc(eventLoop, te->clientData);
             zfree(te);
@@ -332,7 +345,6 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
                 te->id = AE_DELETED_EVENT_ID;
             }
         }
-        prev = te;
         te = te->next;
     }
     return processed;
@@ -348,8 +360,8 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
  * if flags has AE_FILE_EVENTS set, file events are processed.
  * if flags has AE_TIME_EVENTS set, time events are processed.
  * if flags has AE_DONT_WAIT set the function returns ASAP until all
- * if flags has AE_CALL_AFTER_SLEEP set, the aftersleep callback is called.
  * the events that's possible to process without to wait are processed.
+ * if flags has AE_CALL_AFTER_SLEEP set, the aftersleep callback is called.
  *
  * The function returns the number of events processed. */
 int aeProcessEvents(aeEventLoop *eventLoop, int flags)
@@ -403,6 +415,11 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             }
         }
 
+        if (eventLoop->flags & AE_DONT_WAIT) {
+            tv.tv_sec = tv.tv_usec = 0;
+            tvp = &tv;
+        }
+
         /* Call the multiplexing API, will return only on timeout or when
          * some event fires. */
         numevents = aeApiPoll(eventLoop, tvp);
@@ -430,7 +447,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
              * before replying to a client. */
             int invert = fe->mask & AE_BARRIER;
 
-	    /* Note the "fe->mask & mask & ..." code: maybe an already
+            /* Note the "fe->mask & mask & ..." code: maybe an already
              * processed event removed an element that fired and we still
              * didn't processed, so we check if the event is still valid.
              *
@@ -482,7 +499,7 @@ int aeWait(int fd, int mask, long long milliseconds) {
     if ((retval = poll(&pfd, 1, milliseconds))== 1) {
         if (pfd.revents & POLLIN) retmask |= AE_READABLE;
         if (pfd.revents & POLLOUT) retmask |= AE_WRITABLE;
-	if (pfd.revents & POLLERR) retmask |= AE_WRITABLE;
+        if (pfd.revents & POLLERR) retmask |= AE_WRITABLE;
         if (pfd.revents & POLLHUP) retmask |= AE_WRITABLE;
         return retmask;
     } else {

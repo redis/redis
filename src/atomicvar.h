@@ -1,7 +1,7 @@
 /* This file implements atomic counters using __atomic or __sync macros if
  * available, otherwise synchronizing different threads using a mutex.
  *
- * The exported interaface is composed of three macros:
+ * The exported interface is composed of three macros:
  *
  * atomicIncr(var,count) -- Increment the atomic counter
  * atomicGetIncr(var,oldvalue_var,count) -- Get and increment the atomic counter
@@ -16,7 +16,7 @@
  *  pthread_mutex_t myvar_mutex;
  *  atomicSet(myvar,12345);
  *
- * If atomic primitives are availble (tested in config.h) the mutex
+ * If atomic primitives are available (tested in config.h) the mutex
  * is not used.
  *
  * Never use return value from the macros, instead use the AtomicGetIncr()
