@@ -2172,7 +2172,11 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
         /* Read key */
         if ((key = rdbLoadStringObject(rdb)) == NULL) goto eoferr;
         /* Read value */
-        if ((val = rdbLoadObject(type,rdb,key)) == NULL) goto eoferr;
+        if ((val = rdbLoadObject(type,rdb,key)) == NULL) {
+            decrRefCount(key);
+            goto eoferr;
+        }
+
         /* Check if the key already expired. This function is used when loading
          * an RDB file from disk, either at startup, or when an RDB was
          * received from the master. In the latter case, the master is
