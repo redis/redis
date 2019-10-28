@@ -370,7 +370,7 @@ static sds percentDecode(const char *pe, size_t len) {
  * URI scheme is based on the the provisional specification[1] excluding support
  * for query parameters. Valid URIs are:
  *   scheme:    "redis://"
- *   authority: [<username> ":"] <password> "@"] [<hostname> [":" <port>]]
+ *   authority: [[<username> ":"] <password> "@"] [<hostname> [":" <port>]]
  *   path:      ["/" [<db>]]
  *
  *  [1]: https://www.iana.org/assignments/uri-schemes/prov/redis */
