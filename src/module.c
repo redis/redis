@@ -63,6 +63,7 @@ struct RedisModule {
     int in_call;    /* RM_Call() nesting level */
     int in_hook;    /* Hooks callback nesting level for this module (0 or 1). */
     int options;    /* Module options and capabilities. */
+    int blocked_clients;         /* Count of RedisModuleBlockedClient in this module. */
     RedisModuleInfoFunc info_cb; /* Callback for module to add INFO fields. */
 };
 typedef struct RedisModule RedisModule;
@@ -1264,6 +1265,27 @@ int RM_ReplyWithArray(RedisModuleCtx *ctx, long len) {
     return REDISMODULE_OK;
 }
 
+/* Reply to the client with a null array, simply null in RESP3 
+ * null array in RESP2.
+ *
+ * The function always returns REDISMODULE_OK. */
+int RM_ReplyWithNullArray(RedisModuleCtx *ctx) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReplyNullArray(c);
+    return REDISMODULE_OK;
+}
+
+/* Reply to the client with an empty array. 
+ *
+ * The function always returns REDISMODULE_OK. */
+int RM_ReplyWithEmptyArray(RedisModuleCtx *ctx) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReply(c,shared.emptyarray);
+    return REDISMODULE_OK;
+}
+
 /* When RedisModule_ReplyWithArray() is used with the argument
  * REDISMODULE_POSTPONED_ARRAY_LEN, because we don't know beforehand the number
  * of items we are going to output as elements of the array, this function
@@ -1339,6 +1361,27 @@ int RM_ReplyWithString(RedisModuleCtx *ctx, RedisModuleString *str) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
     addReplyBulk(c,str);
+    return REDISMODULE_OK;
+}
+
+/* Reply with an empty string.
+ *
+ * The function always returns REDISMODULE_OK. */
+int RM_ReplyWithEmptyString(RedisModuleCtx *ctx) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReplyBulkCBuffer(c, "", 0);
+    return REDISMODULE_OK;
+}
+
+/* Reply with a binary safe string, which should not be escaped or filtered 
+ * taking in input a C buffer pointer and length.
+ *
+ * The function always returns REDISMODULE_OK. */
+int RM_ReplyWithVerbatimString(RedisModuleCtx *ctx, const char *buf, size_t len) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReplyVerbatim(c, buf, len, "txt");
     return REDISMODULE_OK;
 }
 
@@ -3890,6 +3933,14 @@ void RM__Assert(const char *estr, const char *file, int line) {
     _serverAssert(estr, file, line);
 }
 
+/* Allows adding event to the latency monitor to be observed by the LATENCY
+ * command. The call is skipped if the latency is smaller than the configured
+ * latency-monitor-threshold. */
+void RM_LatencyAddSample(const char *event, mstime_t latency) {
+    if (latency >= server.latency_monitor_threshold)
+        latencyAddSample(event, latency);
+}
+
 /* --------------------------------------------------------------------------
  * Blocking clients from modules
  * -------------------------------------------------------------------------- */
@@ -3961,6 +4012,7 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
 
     c->bpop.module_blocked_handle = zmalloc(sizeof(RedisModuleBlockedClient));
     RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    ctx->module->blocked_clients++;
 
     /* We need to handle the invalid operation of calling modules blocking
      * commands from Lua or MULTI. We actually create an already aborted
@@ -4119,6 +4171,7 @@ void moduleHandleBlockedClients(void) {
         /* Free 'bc' only after unblocking the client, since it is
          * referenced in the client blocking context, and must be valid
          * when calling unblockClient(). */
+        bc->module->blocked_clients--;
         zfree(bc);
 
         /* Lock again before to iterate the loop. */
@@ -6089,6 +6142,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
 
     /* Redis module loaded! Register it. */
     dictAdd(modules,ctx.module->name,ctx.module);
+    ctx.module->blocked_clients = 0;
     ctx.module->handle = handle;
     serverLog(LL_NOTICE,"Module '%s' loaded from %s",ctx.module->name,path);
     moduleFreeContext(&ctx);
@@ -6113,6 +6167,9 @@ int moduleUnload(sds name) {
         return REDISMODULE_ERR;
     } else if (listLength(module->usedby)) {
         errno = EPERM;
+        return REDISMODULE_ERR;
+    } else if (module->blocked_clients) {
+        errno = EAGAIN;
         return REDISMODULE_ERR;
     }
 
@@ -6279,6 +6336,10 @@ NULL
                 errmsg = "the module exports APIs used by other modules. "
                          "Please unload them first and try again";
                 break;
+            case EAGAIN:
+                errmsg = "the module has blocked clients. "
+                         "Please wait them unblocked and try again";
+                break;
             default:
                 errmsg = "operation not possible.";
                 break;
@@ -6316,8 +6377,12 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ReplyWithError);
     REGISTER_API(ReplyWithSimpleString);
     REGISTER_API(ReplyWithArray);
+    REGISTER_API(ReplyWithNullArray);
+    REGISTER_API(ReplyWithEmptyArray);
     REGISTER_API(ReplySetArrayLength);
     REGISTER_API(ReplyWithString);
+    REGISTER_API(ReplyWithEmptyString);
+    REGISTER_API(ReplyWithVerbatimString);
     REGISTER_API(ReplyWithStringBuffer);
     REGISTER_API(ReplyWithCString);
     REGISTER_API(ReplyWithNull);
@@ -6400,6 +6465,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(Log);
     REGISTER_API(LogIOError);
     REGISTER_API(_Assert);
+    REGISTER_API(LatencyAddSample);
     REGISTER_API(StringAppendBuffer);
     REGISTER_API(RetainString);
     REGISTER_API(StringCompare);

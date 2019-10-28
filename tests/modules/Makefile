@@ -11,34 +11,25 @@ else
 	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup
 endif
 
-.SUFFIXES: .c .so .xo .o
+TEST_MODULES = \
+    commandfilter.so \
+    testrdb.so \
+    fork.so \
+    infotest.so \
+    propagate.so \
+    hooks.so
 
-all: commandfilter.so testrdb.so fork.so infotest.so propagate.so hooks.so
+.PHONY: all
 
-.c.xo:
+all: $(TEST_MODULES)
+
+%.xo: %.c ../../src/redismodule.h
 	$(CC) -I../../src $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
 
-commandfilter.xo: ../../src/redismodule.h
-fork.xo: ../../src/redismodule.h
-testrdb.xo: ../../src/redismodule.h
-infotest.xo: ../../src/redismodule.h
-propagate.xo: ../../src/redismodule.h
-hooks.xo: ../../src/redismodule.h
-
-commandfilter.so: commandfilter.xo
+%.so: %.xo
 	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lc
 
-fork.so: fork.xo
-	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lc
+.PHONY: clean
 
-testrdb.so: testrdb.xo
-	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lc
-
-infotest.so: infotest.xo
-	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lc
-
-propagate.so: propagate.xo
-	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lc
-
-hooks.so: hooks.xo
-	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lc
+clean:
+	rm -f $(TEST_MODULES) $(TEST_MODULES:.so=.xo)
