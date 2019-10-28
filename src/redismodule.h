@@ -106,6 +106,11 @@
 /* There is currently some background process active. */
 #define REDISMODULE_CTX_FLAGS_ACTIVE_CHILD (1<<18)
 
+/* Keyspace changes notification classes. Every class is associated with a
+ * character for configuration purposes.
+ * NOTE: These have to be in sync with NOTIFY_* in server.h */
+#define REDISMODULE_NOTIFY_KEYSPACE (1<<0)    /* K */
+#define REDISMODULE_NOTIFY_KEYEVENT (1<<1)    /* E */
 #define REDISMODULE_NOTIFY_GENERIC (1<<2)     /* g */
 #define REDISMODULE_NOTIFY_STRING (1<<3)      /* $ */
 #define REDISMODULE_NOTIFY_LIST (1<<4)        /* l */
@@ -651,6 +656,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(StringCompare);
     REDISMODULE_GET_API(GetContextFromIO);
     REDISMODULE_GET_API(GetKeyNameFromIO);
+    REDISMODULE_GET_API(GetKeyNameFromModuleKey);
     REDISMODULE_GET_API(Milliseconds);
     REDISMODULE_GET_API(DigestAddStringBuffer);
     REDISMODULE_GET_API(DigestAddLongLong);
@@ -703,6 +709,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(AbortBlock);
     REDISMODULE_GET_API(SetDisconnectCallback);
     REDISMODULE_GET_API(SubscribeToKeyspaceEvents);
+    REDISMODULE_GET_API(NotifyKeyspaceEvent);
+    REDISMODULE_GET_API(GetNotifyKeyspaceEvents);
     REDISMODULE_GET_API(BlockedClientDisconnected);
     REDISMODULE_GET_API(RegisterClusterMessageReceiver);
     REDISMODULE_GET_API(SendClusterMessage);
