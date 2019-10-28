@@ -1265,6 +1265,27 @@ int RM_ReplyWithArray(RedisModuleCtx *ctx, long len) {
     return REDISMODULE_OK;
 }
 
+/* Reply to the client with a null array, simply null in RESP3 
+ * null array in RESP2.
+ *
+ * The function always returns REDISMODULE_OK. */
+int RM_ReplyWithNullArray(RedisModuleCtx *ctx) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReplyNullArray(c);
+    return REDISMODULE_OK;
+}
+
+/* Reply to the client with an empty array. 
+ *
+ * The function always returns REDISMODULE_OK. */
+int RM_ReplyWithEmptyArray(RedisModuleCtx *ctx) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReply(c,shared.emptyarray);
+    return REDISMODULE_OK;
+}
+
 /* When RedisModule_ReplyWithArray() is used with the argument
  * REDISMODULE_POSTPONED_ARRAY_LEN, because we don't know beforehand the number
  * of items we are going to output as elements of the array, this function
@@ -1340,6 +1361,27 @@ int RM_ReplyWithString(RedisModuleCtx *ctx, RedisModuleString *str) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
     addReplyBulk(c,str);
+    return REDISMODULE_OK;
+}
+
+/* Reply with an empty string.
+ *
+ * The function always returns REDISMODULE_OK. */
+int RM_ReplyWithEmptyString(RedisModuleCtx *ctx) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReplyBulkCBuffer(c, "", 0);
+    return REDISMODULE_OK;
+}
+
+/* Reply with a binary safe string, which should not be escaped or filtered 
+ * taking in input a C buffer pointer and length.
+ *
+ * The function always returns REDISMODULE_OK. */
+int RM_ReplyWithVerbatimString(RedisModuleCtx *ctx, const char *buf, size_t len) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReplyVerbatim(c, buf, len, "txt");
     return REDISMODULE_OK;
 }
 
@@ -6327,8 +6369,12 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ReplyWithError);
     REGISTER_API(ReplyWithSimpleString);
     REGISTER_API(ReplyWithArray);
+    REGISTER_API(ReplyWithNullArray);
+    REGISTER_API(ReplyWithEmptyArray);
     REGISTER_API(ReplySetArrayLength);
     REGISTER_API(ReplyWithString);
+    REGISTER_API(ReplyWithEmptyString);
+    REGISTER_API(ReplyWithVerbatimString);
     REGISTER_API(ReplyWithStringBuffer);
     REGISTER_API(ReplyWithCString);
     REGISTER_API(ReplyWithNull);
