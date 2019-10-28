@@ -679,15 +679,23 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     if (server.cluster_enabled && !server.loading &&
         !(server.lua_caller->flags & CLIENT_MASTER))
     {
+        int error_code;
         /* Duplicate relevant flags in the lua client. */
         c->flags &= ~(CLIENT_READONLY|CLIENT_ASKING);
         c->flags |= server.lua_caller->flags & (CLIENT_READONLY|CLIENT_ASKING);
-        if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,NULL) !=
+        if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,&error_code) !=
                            server.cluster->myself)
         {
-            luaPushError(lua,
-                "Lua script attempted to access a non local key in a "
-                "cluster node");
+            if (error_code == CLUSTER_REDIR_DOWN_STATE) { 
+                luaPushError(lua,
+                    "Lua script attempted execute a write command while "
+                    "cluster is down");
+            } else {
+                luaPushError(lua,
+                    "Lua script attempted to access a non local key in a "
+                    "cluster node");
+            }
+
             goto cleanup;
         }
     }
