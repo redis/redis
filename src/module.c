@@ -63,6 +63,7 @@ struct RedisModule {
     int in_call;    /* RM_Call() nesting level */
     int in_hook;    /* Hooks callback nesting level for this module (0 or 1). */
     int options;    /* Module options and capabilities. */
+    int blocked_clients;         /* Count of RedisModuleBlockedClient in this module. */
     RedisModuleInfoFunc info_cb; /* Callback for module to add INFO fields. */
 };
 typedef struct RedisModule RedisModule;
@@ -3961,6 +3962,7 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
 
     c->bpop.module_blocked_handle = zmalloc(sizeof(RedisModuleBlockedClient));
     RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    ctx->module->blocked_clients++;
 
     /* We need to handle the invalid operation of calling modules blocking
      * commands from Lua or MULTI. We actually create an already aborted
@@ -4119,6 +4121,7 @@ void moduleHandleBlockedClients(void) {
         /* Free 'bc' only after unblocking the client, since it is
          * referenced in the client blocking context, and must be valid
          * when calling unblockClient(). */
+        bc->module->blocked_clients--;
         zfree(bc);
 
         /* Lock again before to iterate the loop. */
@@ -6089,6 +6092,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
 
     /* Redis module loaded! Register it. */
     dictAdd(modules,ctx.module->name,ctx.module);
+    ctx.module->blocked_clients = 0;
     ctx.module->handle = handle;
     serverLog(LL_NOTICE,"Module '%s' loaded from %s",ctx.module->name,path);
     moduleFreeContext(&ctx);
@@ -6113,6 +6117,9 @@ int moduleUnload(sds name) {
         return REDISMODULE_ERR;
     } else if (listLength(module->usedby)) {
         errno = EPERM;
+        return REDISMODULE_ERR;
+    } else if (module->blocked_clients) {
+        errno = EAGAIN;
         return REDISMODULE_ERR;
     }
 
@@ -6278,6 +6285,10 @@ NULL
             case EPERM:
                 errmsg = "the module exports APIs used by other modules. "
                          "Please unload them first and try again";
+                break;
+            case EAGAIN:
+                errmsg = "the module has blocked clients. "
+                         "Please wait them unblocked and try again";
                 break;
             default:
                 errmsg = "operation not possible.";
