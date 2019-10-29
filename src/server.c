@@ -999,7 +999,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"acl",aclCommand,-2,
-     "admin no-script ok-loading ok-stale",
+     "admin no-script no-slowlog ok-loading ok-stale",
      0,NULL,0,0,0,0,0,0}
 };
 
