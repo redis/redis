@@ -3067,7 +3067,10 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 
     /* We handle the above format error only when the client is setup so that
      * we can free it normally. */
-    if (argv == NULL) goto cleanup;
+    if (argv == NULL) {
+        errno = EINVAL;
+        goto cleanup;
+    }
 
     /* Call command filters */
     moduleCallCommandFilters(c);

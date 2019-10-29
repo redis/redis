@@ -1,6 +1,10 @@
 #define REDISMODULE_EXPERIMENTAL_API
-#include "redismodule.h"
 
+/* define macros for having usleep */
+#define _BSD_SOURCE
+#define _DEFAULT_SOURCE
+
+#include "redismodule.h"
 #include <string.h>
 #include <assert.h>
 #include <unistd.h>
