@@ -1620,6 +1620,27 @@ int modulePopulateClientInfoStructure(void *ci, client *client, int structver) {
     return REDISMODULE_OK;
 }
 
+/* This is an helper for moduleFireServerEvent() and other functions:
+ * It populates the replication info structure with the appropriate
+ * fields depending on the version provided. If the version is not valid
+ * then REDISMODULE_ERR is returned. Otherwise the function returns
+ * REDISMODULE_OK and the structure pointed by 'ri' gets populated. */
+int modulePopulateReplicationInfoStructure(void *ri, int structver) {
+    if (structver != 1) return REDISMODULE_ERR;
+
+    RedisModuleReplicationInfoV1 *ri1 = ri;
+    memset(ri1,0,sizeof(*ri1));
+    ri1->version = structver;
+    ri1->master = server.masterhost==NULL;
+    ri1->masterhost = server.masterhost? server.masterhost: "";
+    ri1->masterport = server.masterport;
+    ri1->replid1 = server.replid;
+    ri1->replid2 = server.replid2;
+    ri1->repl1_offset = server.master_repl_offset;
+    ri1->repl2_offset = server.second_replid_offset;
+    return REDISMODULE_OK;
+}
+
 /* Return information about the client with the specified ID (that was
  * previously obtained via the RedisModule_GetClientId() API). If the
  * client exists, REDISMODULE_OK is returned, otherwise REDISMODULE_ERR
@@ -5780,8 +5801,8 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *
  *          The following sub events are available:
  *
- *              REDISMODULE_EVENT_REPLROLECHANGED_NOW_MASTER
- *              REDISMODULE_EVENT_REPLROLECHANGED_NOW_REPLICA
+ *              REDISMODULE_SUBEVENT_REPLROLECHANGED_NOW_MASTER
+ *              REDISMODULE_SUBEVENT_REPLROLECHANGED_NOW_REPLICA
  *
  *          The 'data' field can be casted by the callback to a
  *          RedisModuleReplicationInfo structure with the following fields:
@@ -5791,24 +5812,30 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *              int masterport; // master instance port for NOW_REPLICA
  *              char *replid1; // Main replication ID
  *              char *replid2; // Secondary replication ID
+ *              uint64_t repl1_offset; // Main replication offset
  *              uint64_t repl2_offset; // Offset of replid2 validity
- *              uint64_t main_repl_offset; // Replication offset
  *
  *      RedisModuleEvent_Persistence
  *
  *          This event is called when RDB saving or AOF rewriting starts
  *          and ends. The following sub events are available:
  *
- *              REDISMODULE_EVENT_LOADING_RDB_START        // BGSAVE start
- *              REDISMODULE_EVENT_LOADING_RDB_END          // BGSAVE end
- *              REDISMODULE_EVENT_LOADING_SYNC_RDB_START   // SAVE start
- *              REDISMODULE_EVENT_LOADING_SYNC_RDB_START   // SAVE end
- *              REDISMODULE_EVENT_LOADING_AOF_START        // AOF rewrite start
- *              REDISMODULE_EVENT_LOADING_AOF_END          // AOF rewrite end
+ *              REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START
+ *              REDISMODULE_SUBEVENT_PERSISTENCE_AOF_START
+ *              REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START
+ *              REDISMODULE_SUBEVENT_PERSISTENCE_ENDED
+ *              REDISMODULE_SUBEVENT_PERSISTENCE_FAILED
  *
  *          The above events are triggered not just when the user calls the
  *          relevant commands like BGSAVE, but also when a saving operation
  *          or AOF rewriting occurs because of internal server triggers.
+ *          The SYNC_RDB_START sub events are happening in the forground due to
+ *          SAVE command, FLUSHALL, or server shutdown, and the other RDB and
+ *          AOF sub events are executed in a background fork child, so any
+ *          action the module takes can only affect the generated AOF or RDB,
+ *          but will not be reflected in the parent process and affect connected
+ *          clients and commands. Also note that the AOF_START sub event may end
+ *          up saving RDB content in case of an AOF with rdb-preamble.
  *
  *      RedisModuleEvent_FlushDB
  *
@@ -5816,8 +5843,8 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *          because of replication, after the replica synchronization)
  *          happened. The following sub events are available:
  *
- *              REDISMODULE_EVENT_FLUSHDB_START
- *              REDISMODULE_EVENT_FLUSHDB_END
+ *              REDISMODULE_SUBEVENT_FLUSHDB_START
+ *              REDISMODULE_SUBEVENT_FLUSHDB_END
  *
  *          The data pointer can be casted to a RedisModuleFlushInfo
  *          structure with the following fields:
@@ -5841,12 +5868,15 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *          replica is loading the RDB file from the master.
  *          The following sub events are available:
  *
- *              REDISMODULE_EVENT_LOADING_RDB_START
- *              REDISMODULE_EVENT_LOADING_RDB_END
- *              REDISMODULE_EVENT_LOADING_MASTER_RDB_START
- *              REDISMODULE_EVENT_LOADING_MASTER_RDB_END
- *              REDISMODULE_EVENT_LOADING_AOF_START
- *              REDISMODULE_EVENT_LOADING_AOF_END
+ *              REDISMODULE_SUBEVENT_LOADING_RDB_START
+ *              REDISMODULE_SUBEVENT_LOADING_AOF_START
+ *              REDISMODULE_SUBEVENT_LOADING_REPL_START
+ *              REDISMODULE_SUBEVENT_LOADING_ENDED
+ *              REDISMODULE_SUBEVENT_LOADING_FAILED
+ *
+ *          Note that AOF loading may start with an RDB data in case of
+ *          rdb-preamble, in which case you'll only recieve an AOF_START event.
+ *
  *
  *      RedisModuleEvent_ClientChange
  *
@@ -5855,8 +5885,8 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *          structure, documented in RedisModule_GetClientInfoById().
  *          The following sub events are available:
  *
- *              REDISMODULE_EVENT_CLIENT_CHANGE_CONNECTED
- *              REDISMODULE_EVENT_CLIENT_CHANGE_DISCONNECTED
+ *              REDISMODULE_SUBEVENT_CLIENT_CHANGE_CONNECTED
+ *              REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED
  *
  *      RedisModuleEvent_Shutdown
  *
@@ -5869,8 +5899,8 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *          replica since it gets disconnected.
  *          The following sub events are availble:
  *
- *              REDISMODULE_EVENT_REPLICA_CHANGE_ONLINE
- *              REDISMODULE_EVENT_REPLICA_CHANGE_OFFLINE
+ *              REDISMODULE_SUBEVENT_REPLICA_CHANGE_ONLINE
+ *              REDISMODULE_SUBEVENT_REPLICA_CHANGE_OFFLINE
  *
  *          No additional information is available so far: future versions
  *          of Redis will have an API in order to enumerate the replicas
@@ -5885,6 +5915,11 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *          this changes depending on the "hz" configuration.
  *          No sub events are available.
  *
+ *          The data pointer can be casted to a RedisModuleCronLoop
+ *          structure with the following fields:
+ *
+ *              int32_t hz;  // Approximate number of events per second.
+ *
  *  RedisModuleEvent_MasterLinkChange
  *
  *          This is called for replicas in order to notify when the
@@ -5894,8 +5929,38 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *          replication is happening correctly.
  *          The following sub events are available:
  *
- *              REDISMODULE_EVENT_MASTER_LINK_UP
- *              REDISMODULE_EVENT_MASTER_LINK_DOWN
+ *              REDISMODULE_SUBEVENT_MASTER_LINK_UP
+ *              REDISMODULE_SUBEVENT_MASTER_LINK_DOWN
+ *
+ *  RedisModuleEvent_ModuleChange
+ *
+ *          This event is called when a new module is loaded or one is unloaded.
+ *          The following sub events are availble:
+ *
+ *              REDISMODULE_SUBEVENT_MODULE_LOADED
+ *              REDISMODULE_SUBEVENT_MODULE_UNLOADED
+ *
+ *          The data pointer can be casted to a RedisModuleModuleChange
+ *          structure with the following fields:
+ *
+ *              const char* module_name;  // Name of module loaded or unloaded.
+ *              int32_t module_version;  // Module version.
+ *
+ *  RedisModuleEvent_LoadingProgress
+ *
+ *          This event is called repeatedly called while an RDB or AOF file
+ *          is being loaded.
+ *          The following sub events are availble:
+ *
+ *              REDISMODULE_SUBEVENT_LOADING_PROGRESS_RDB
+ *              REDISMODULE_SUBEVENT_LOADING_PROGRESS_AOF
+ *
+ *          The data pointer can be casted to a RedisModuleLoadingProgress
+ *          structure with the following fields:
+ *
+ *              int32_t hz;  // Approximate number of events per second.
+ *              int32_t progress;  // Approximate progress between 0 and 1024,
+ *                                    or -1 if unknown.
  *
  * The function returns REDISMODULE_OK if the module was successfully subscrived
  * for the specified event. If the API is called from a wrong context then
@@ -5954,7 +6019,7 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
     listRewind(RedisModule_EventListeners,&li);
     while((ln = listNext(&li))) {
         RedisModuleEventListener *el = ln->value;
-        if (el->event.id == eid && !el->module->in_hook) {
+        if (el->event.id == eid) {
             RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
             ctx.module = el->module;
 
@@ -5968,6 +6033,8 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
 
             void *moduledata = NULL;
             RedisModuleClientInfoV1 civ1;
+            RedisModuleReplicationInfoV1 riv1;
+            RedisModuleModuleChangeV1 mcv1;
             /* Start at DB zero by default when calling the handler. It's
              * up to the specific event setup to change it when it makes
              * sense. For instance for FLUSHDB events we select the correct
@@ -5979,11 +6046,26 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
                 modulePopulateClientInfoStructure(&civ1,data,
                                                   el->event.dataver);
                 moduledata = &civ1;
+            } else if (eid == REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED) {
+                modulePopulateReplicationInfoStructure(&riv1,el->event.dataver);
+                moduledata = &riv1;
             } else if (eid == REDISMODULE_EVENT_FLUSHDB) {
                 moduledata = data;
                 RedisModuleFlushInfoV1 *fi = data;
                 if (fi->dbnum != -1)
                     selectDb(ctx.client, fi->dbnum);
+            } else if (eid == REDISMODULE_EVENT_MODULE_CHANGE) {
+                RedisModule *m = data;
+                if (m == el->module)
+                    continue;
+                mcv1.version = REDISMODULE_MODULE_CHANGE_VERSION;
+                mcv1.module_name = m->name;
+                mcv1.module_version = m->ver;
+                moduledata = &mcv1;
+            } else if (eid == REDISMODULE_EVENT_LOADING_PROGRESS) {
+                moduledata = data;
+            } else if (eid == REDISMODULE_EVENT_CRON_LOOP) {
+                moduledata = data;
             }
 
             ModulesInHooks++;
@@ -6012,6 +6094,27 @@ void moduleUnsubscribeAllServerEvents(RedisModule *module) {
             listDelNode(RedisModule_EventListeners,ln);
             zfree(el);
         }
+    }
+}
+
+void processModuleLoadingProgressEvent(int is_aof) {
+    long long now = ustime();
+    static long long next_event = 0;
+    if (now >= next_event) {
+        /* Fire the loading progress modules end event. */
+        int progress = -1;
+        if (server.loading_total_bytes)
+            progress = (server.loading_total_bytes<<10) / server.loading_total_bytes;
+        RedisModuleFlushInfoV1 fi = {REDISMODULE_LOADING_PROGRESS_VERSION,
+                                     server.hz,
+                                     progress};
+        moduleFireServerEvent(REDISMODULE_EVENT_LOADING_PROGRESS,
+                              is_aof?
+                                REDISMODULE_SUBEVENT_LOADING_PROGRESS_AOF:
+                                REDISMODULE_SUBEVENT_LOADING_PROGRESS_RDB,
+                              &fi);
+        /* decide when the next event should fire. */
+        next_event = now + 1000000 / server.hz;
     }
 }
 
@@ -6183,6 +6286,11 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
     ctx.module->blocked_clients = 0;
     ctx.module->handle = handle;
     serverLog(LL_NOTICE,"Module '%s' loaded from %s",ctx.module->name,path);
+    /* Fire the loaded modules event. */
+    moduleFireServerEvent(REDISMODULE_EVENT_MODULE_CHANGE,
+                          REDISMODULE_SUBEVENT_MODULE_LOADED,
+                          ctx.module);
+
     moduleFreeContext(&ctx);
     return C_OK;
 }
@@ -6244,6 +6352,11 @@ int moduleUnload(sds name) {
         serverLog(LL_WARNING,"Error when trying to close the %s module: %s",
             module->name, error);
     }
+
+    /* Fire the unloaded modules event. */
+    moduleFireServerEvent(REDISMODULE_EVENT_MODULE_CHANGE,
+                          REDISMODULE_SUBEVENT_MODULE_UNLOADED,
+                          module);
 
     /* Remove from list of modules. */
     serverLog(LL_NOTICE,"Module %s unloaded",module->name);

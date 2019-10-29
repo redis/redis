@@ -181,6 +181,8 @@ typedef uint64_t RedisModuleTimerID;
 #define REDISMODULE_EVENT_REPLICA_CHANGE 6
 #define REDISMODULE_EVENT_MASTER_LINK_CHANGE 7
 #define REDISMODULE_EVENT_CRON_LOOP 8
+#define REDISMODULE_EVENT_MODULE_CHANGE 9
+#define REDISMODULE_EVENT_LOADING_PROGRESS 10
 
 typedef struct RedisModuleEvent {
     uint64_t id;        /* REDISMODULE_EVENT_... defines. */
@@ -226,18 +228,28 @@ static const RedisModuleEvent
     RedisModuleEvent_MasterLinkChange = {
         REDISMODULE_EVENT_MASTER_LINK_CHANGE,
         1
+    },
+    RedisModuleEvent_ModuleChange = {
+        REDISMODULE_EVENT_MODULE_CHANGE,
+        1
+    },
+    RedisModuleEvent_LoadingProgress = {
+        REDISMODULE_EVENT_LOADING_PROGRESS,
+        1
     };
 
 /* Those are values that are used for the 'subevent' callback argument. */
 #define REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START 0
-#define REDISMODULE_SUBEVENT_PERSISTENCE_RDB_END 1
-#define REDISMODULE_SUBEVENT_PERSISTENCE_AOF_START 2
-#define REDISMODULE_SUBEVENT_PERSISTENCE_AOF_END 3
+#define REDISMODULE_SUBEVENT_PERSISTENCE_AOF_START 1
+#define REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START 2
+#define REDISMODULE_SUBEVENT_PERSISTENCE_ENDED 3
+#define REDISMODULE_SUBEVENT_PERSISTENCE_FAILED 4
 
 #define REDISMODULE_SUBEVENT_LOADING_RDB_START 0
-#define REDISMODULE_SUBEVENT_LOADING_RDB_END 1
-#define REDISMODULE_SUBEVENT_LOADING_AOF_START 2
-#define REDISMODULE_SUBEVENT_LOADING_AOF_END 3
+#define REDISMODULE_SUBEVENT_LOADING_AOF_START 1
+#define REDISMODULE_SUBEVENT_LOADING_REPL_START 2
+#define REDISMODULE_SUBEVENT_LOADING_ENDED 3
+#define REDISMODULE_SUBEVENT_LOADING_FAILED 4
 
 #define REDISMODULE_SUBEVENT_CLIENT_CHANGE_CONNECTED 0
 #define REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED 1
@@ -245,11 +257,20 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_MASTER_LINK_UP 0
 #define REDISMODULE_SUBEVENT_MASTER_LINK_DOWN 1
 
-#define REDISMODULE_SUBEVENT_REPLICA_CHANGE_CONNECTED 0
-#define REDISMODULE_SUBEVENT_REPLICA_CHANGE_DISCONNECTED 1
+#define REDISMODULE_SUBEVENT_REPLICA_CHANGE_ONLINE 0
+#define REDISMODULE_SUBEVENT_REPLICA_CHANGE_OFFLINE 1
+
+#define REDISMODULE_EVENT_REPLROLECHANGED_NOW_MASTER 0
+#define REDISMODULE_EVENT_REPLROLECHANGED_NOW_REPLICA 1
 
 #define REDISMODULE_SUBEVENT_FLUSHDB_START 0
 #define REDISMODULE_SUBEVENT_FLUSHDB_END 1
+
+#define REDISMODULE_SUBEVENT_MODULE_LOADED 0
+#define REDISMODULE_SUBEVENT_MODULE_UNLOADED 1
+
+#define REDISMODULE_SUBEVENT_LOADING_PROGRESS_RDB 0
+#define REDISMODULE_SUBEVENT_LOADING_PROGRESS_AOF 1
 
 /* RedisModuleClientInfo flags. */
 #define REDISMODULE_CLIENTINFO_FLAG_SSL (1<<0)
@@ -286,6 +307,22 @@ typedef struct RedisModuleClientInfo {
 
 #define RedisModuleClientInfo RedisModuleClientInfoV1
 
+#define REDISMODULE_REPLICATIONINFO_VERSION 1
+typedef struct RedisModuleReplicationInfo {
+    uint64_t version;       /* Not used since this structure is never passed
+                               from the module to the core right now. Here
+                               for future compatibility. */
+    int master;             /* true if master, false if replica */
+    char *masterhost;       /* master instance hostname for NOW_REPLICA */
+    int masterport;         /* master instance port for NOW_REPLICA */
+    char *replid1;          /* Main replication ID */
+    char *replid2;          /* Secondary replication ID */
+    uint64_t repl1_offset;  /* Main replication offset */
+    uint64_t repl2_offset;  /* Offset of replid2 validity */
+} RedisModuleReplicationInfoV1;
+
+#define RedisModuleReplicationInfo RedisModuleReplicationInfoV1
+
 #define REDISMODULE_FLUSHINFO_VERSION 1
 typedef struct RedisModuleFlushInfo {
     uint64_t version;       /* Not used since this structure is never passed
@@ -296,6 +333,39 @@ typedef struct RedisModuleFlushInfo {
 } RedisModuleFlushInfoV1;
 
 #define RedisModuleFlushInfo RedisModuleFlushInfoV1
+
+#define REDISMODULE_MODULE_CHANGE_VERSION 1
+typedef struct RedisModuleModuleChange {
+    uint64_t version;       /* Not used since this structure is never passed
+                               from the module to the core right now. Here
+                               for future compatibility. */
+    const char* module_name;/* Name of module loaded or unloaded. */
+    int32_t module_version; /* Module version. */
+} RedisModuleModuleChangeV1;
+
+#define RedisModuleModuleChange RedisModuleModuleChangeV1
+
+#define REDISMODULE_CRON_LOOP_VERSION 1
+typedef struct RedisModuleCronLoopInfo {
+    uint64_t version;       /* Not used since this structure is never passed
+                               from the module to the core right now. Here
+                               for future compatibility. */
+    int32_t hz;             /* Approximate number of events per second. */
+} RedisModuleCronLoopV1;
+
+#define RedisModuleCronLoop RedisModuleCronLoopV1
+
+#define REDISMODULE_LOADING_PROGRESS_VERSION 1
+typedef struct RedisModuleLoadingProgressInfo {
+    uint64_t version;       /* Not used since this structure is never passed
+                               from the module to the core right now. Here
+                               for future compatibility. */
+    int32_t hz;             /* Approximate number of events per second. */
+    int32_t progress;       /* Approximate progress between 0 and 1024, or -1
+                             * if unknown. */
+} RedisModuleLoadingProgressV1;
+
+#define RedisModuleLoadingProgress RedisModuleLoadingProgressV1
 
 /* ------------------------- End of common defines ------------------------ */
 

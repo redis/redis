@@ -1118,6 +1118,11 @@ void freeClient(client *c) {
         if (c->flags & CLIENT_SLAVE && listLength(server.slaves) == 0)
             server.repl_no_slaves_since = server.unixtime;
         refreshGoodSlavesCount();
+        /* Fire the replica change modules event. */
+        if (c->replstate == SLAVE_STATE_ONLINE)
+            moduleFireServerEvent(REDISMODULE_EVENT_REPLICA_CHANGE,
+                                  REDISMODULE_SUBEVENT_REPLICA_CHANGE_OFFLINE,
+                                  NULL);
     }
 
     /* Master/slave cleanup Case 2:

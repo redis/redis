@@ -2056,6 +2056,12 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             server.rdb_bgsave_scheduled = 0;
     }
 
+    /* Fire the cron loop modules event. */
+    RedisModuleCronLoopV1 ei = {REDISMODULE_CRON_LOOP_VERSION,server.hz};
+    moduleFireServerEvent(REDISMODULE_EVENT_CRON_LOOP,
+                          0,
+                          &ei);
+
     server.cronloops++;
     return 1000/server.hz;
 }
@@ -3682,6 +3688,9 @@ int prepareForShutdown(int flags) {
         }
     }
 
+    /* Fire the shutdown modules event. */
+    moduleFireServerEvent(REDISMODULE_EVENT_SHUTDOWN,0,NULL);
+
     /* Remove the pid file if possible and needed. */
     if (server.daemonize || server.pidfile) {
         serverLog(LL_NOTICE,"Removing the pid file.");
@@ -4767,7 +4776,7 @@ void loadDataFromDisk(void) {
             serverLog(LL_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
     } else {
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
-        if (rdbLoad(server.rdb_filename,&rsi) == C_OK) {
+        if (rdbLoad(server.rdb_filename,&rsi,RDBFLAGS_NONE) == C_OK) {
             serverLog(LL_NOTICE,"DB loaded from disk: %.3f seconds",
                 (float)(ustime()-start)/1000000);
 

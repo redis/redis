@@ -731,7 +731,7 @@ int loadAppendOnlyFile(char *filename) {
     server.aof_state = AOF_OFF;
 
     fakeClient = createAOFClient();
-    startLoadingFile(fp, filename);
+    startLoadingFile(fp, filename, RDBFLAGS_AOF_PREAMBLE);
 
     /* Check if this AOF file has an RDB preamble. In that case we need to
      * load the RDB file and later continue loading the AOF tail. */
@@ -746,7 +746,7 @@ int loadAppendOnlyFile(char *filename) {
         serverLog(LL_NOTICE,"Reading RDB preamble from AOF file...");
         if (fseek(fp,0,SEEK_SET) == -1) goto readerr;
         rioInitWithFile(&rdb,fp);
-        if (rdbLoadRio(&rdb,NULL,1) != C_OK) {
+        if (rdbLoadRio(&rdb,RDBFLAGS_AOF_PREAMBLE,NULL) != C_OK) {
             serverLog(LL_WARNING,"Error reading the RDB preamble of the AOF file, AOF loading aborted");
             goto readerr;
         } else {
@@ -767,6 +767,7 @@ int loadAppendOnlyFile(char *filename) {
         if (!(loops++ % 1000)) {
             loadingProgress(ftello(fp));
             processEventsWhileBlocked();
+            processModuleLoadingProgressEvent(1);
         }
 
         if (fgets(buf,sizeof(buf),fp) == NULL) {
@@ -859,7 +860,7 @@ loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
     fclose(fp);
     freeFakeClient(fakeClient);
     server.aof_state = old_aof_state;
-    stopLoading();
+    stopLoading(1);
     aofUpdateCurrentSize();
     server.aof_rewrite_base_size = server.aof_current_size;
     server.aof_fsync_offset = server.aof_current_size;
@@ -1400,9 +1401,11 @@ int rewriteAppendOnlyFile(char *filename) {
     if (server.aof_rewrite_incremental_fsync)
         rioSetAutoSync(&aof,REDIS_AUTOSYNC_BYTES);
 
+    startSaving(RDBFLAGS_AOF_PREAMBLE);
+
     if (server.aof_use_rdb_preamble) {
         int error;
-        if (rdbSaveRio(&aof,&error,RDB_SAVE_AOF_PREAMBLE,NULL) == C_ERR) {
+        if (rdbSaveRio(&aof,&error,RDBFLAGS_AOF_PREAMBLE,NULL) == C_ERR) {
             errno = error;
             goto werr;
         }
@@ -1465,15 +1468,18 @@ int rewriteAppendOnlyFile(char *filename) {
     if (rename(tmpfile,filename) == -1) {
         serverLog(LL_WARNING,"Error moving temp append only file on the final destination: %s", strerror(errno));
         unlink(tmpfile);
+        stopSaving(0);
         return C_ERR;
     }
     serverLog(LL_NOTICE,"SYNC append only file rewrite performed");
+    stopSaving(1);
     return C_OK;
 
 werr:
     serverLog(LL_WARNING,"Write error writing append only file on disk: %s", strerror(errno));
     fclose(fp);
     unlink(tmpfile);
+    stopSaving(0);
     return C_ERR;
 }
 
