@@ -322,6 +322,13 @@ static struct RedisModuleForkInfo {
 #define REDISMODULE_ARGV_NO_AOF (1<<1)
 #define REDISMODULE_ARGV_NO_REPLICAS (1<<2)
 
+/* Determine whether Redis should signalModifiedKey implicitly.
+ * In case 'ctx' has no 'module' member (and therefore no module->options),
+ * we assume default behavior, that is, Redis signals.
+ * (see RM_GetThreadSafeContext) */
+#define SHOULD_SIGNAL_MODIFIED_KEYS(ctx) \
+    ctx->module? !(ctx->module->options & REDISMODULE_OPTION_NO_IMPLICIT_SIGNAL_MODIFIED) : 1
+
 /* Server events hooks data structures and defines: this modules API
  * allow modules to subscribe to certain events in Redis, such as
  * the start and end of an RDB or AOF save, the change of role in replication,
@@ -822,6 +829,7 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->filters = listCreate();
     module->in_call = 0;
     module->in_hook = 0;
+    module->options = 0;
     ctx->module = module;
 }
 
@@ -850,6 +858,12 @@ long long RM_Milliseconds(void) {
  * able to release the partially populated value and all it's allocations. */
 void RM_SetModuleOptions(RedisModuleCtx *ctx, int options) {
     ctx->module->options = options;
+}
+
+/* Signals that the key is modified from user's perspective (i.e. invalidate WATCH). */
+int RM_SignalModifiedKey(RedisModuleCtx *ctx, RedisModuleString *keyname) {
+    signalModifiedKey(ctx->client->db,keyname);
+    return REDISMODULE_OK;
 }
 
 /* --------------------------------------------------------------------------
@@ -1843,7 +1857,9 @@ void *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
 /* Close a key handle. */
 void RM_CloseKey(RedisModuleKey *key) {
     if (key == NULL) return;
-    if (key->mode & REDISMODULE_WRITE) signalModifiedKey(key->db,key->key);
+    int signal = SHOULD_SIGNAL_MODIFIED_KEYS(key->ctx);
+    if ((key->mode & REDISMODULE_WRITE) && signal)
+        signalModifiedKey(key->db,key->key);
     /* TODO: if (key->iter) RM_KeyIteratorStop(kp); */
     RM_ZsetRangeStop(key);
     decrRefCount(key->key);
@@ -6471,6 +6487,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ModuleTypeGetValue);
     REGISTER_API(IsIOError);
     REGISTER_API(SetModuleOptions);
+    REGISTER_API(SignalModifiedKey);
     REGISTER_API(SaveUnsigned);
     REGISTER_API(LoadUnsigned);
     REGISTER_API(SaveSigned);
