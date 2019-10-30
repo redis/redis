@@ -384,8 +384,9 @@ void loadServerConfigFromString(char *config) {
                 err = "Invalid max clients limit"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"maxmemory") && argc == 2) {
-            server.maxmemory = memtoll(argv[1],NULL);
-            if (server.maxmemory == 0) {
+            int maxmemory_err = 0;
+            server.maxmemory = memtoll(argv[1],&maxmemory_err);
+            if (maxmemory_err) {
                 err = "Invalid maxmemory value";
                 goto loaderr;
             }
