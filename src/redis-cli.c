@@ -7061,7 +7061,12 @@ static void pipeMode(void) {
  *--------------------------------------------------------------------------- */
 
 static redisReply *sendScan(unsigned long long *it) {
-    redisReply *reply = redisCommand(context, "SCAN %llu", *it);
+    redisReply *reply;
+    if (config.pattern)
+            reply = redisCommand(context,"SCAN %llu MATCH %s",
+                *it,config.pattern);
+        else
+            reply = redisCommand(context,"SCAN %llu",*it);
 
     /* Handle any error conditions */
     if(reply == NULL) {
