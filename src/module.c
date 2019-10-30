@@ -3176,6 +3176,7 @@ fmterr:
  * EPERM:  operation in Cluster instance with key in non local slot.
  * EROFS:  operation in Cluster instance when a write command is sent
  *         in a readonly state.
+ * ENETDOWN: operation in Cluster instance when cluster is down.
  *
  * This API is documented here: https://redis.io/topics/modules-intro
  */
@@ -3240,8 +3241,10 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,&error_code) !=
                            server.cluster->myself)
         {
-            if (error_code == CLUSTER_REDIR_DOWN_STATE) { 
+            if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) { 
                 errno = EROFS;
+            } else if (error_code == CLUSTER_REDIR_DOWN_STATE) { 
+                errno = ENETDOWN;
             } else {
                 errno = EPERM;
             }
