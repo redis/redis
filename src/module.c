@@ -4128,6 +4128,15 @@ RedisModuleBlockedClient *RM_BlockClientOnKeys(RedisModuleCtx *ctx, RedisModuleC
     return moduleBlockClient(ctx,reply_callback,timeout_callback,free_privdata,timeout_ms, keys,numkeys,is_key_ready,privdata);
 }
 
+/* This function is used in order to potentially unblock a client blocked
+ * on keys with RedisModule_BlockClientOnKeys(). When this function is called,
+ * all the clients blocked for this key will get their is_key_ready callback,
+ * and if the callback returns non-zero the client will be unblocked and the
+ * reply callback will be called in order to reply to the client. */
+void RM_SignalKeyAsReady(RedisModuleCtx *ctx, RedisModuleString *key) {
+    signalKeyAsReady(ctx->client->db, key);
+}
+
 /* Unblock a client blocked by `RedisModule_BlockedClient`. This will trigger
  * the reply callbacks to be called in order to reply to the client.
  * The 'privdata' argument will be accessible by the reply callback, so
@@ -6634,4 +6643,6 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(InfoAddFieldULongLong);
     REGISTER_API(GetClientInfoById);
     REGISTER_API(SubscribeToServerEvent);
+    REGISTER_API(BlockClientOnKeys);
+    REGISTER_API(SignalKeyAsReady);
 }
