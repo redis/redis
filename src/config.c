@@ -385,6 +385,10 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"maxmemory") && argc == 2) {
             server.maxmemory = memtoll(argv[1],NULL);
+            if (server.maxmemory == 0) {
+                err = "Invalid maxmemory value";
+                goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"maxmemory-policy") && argc == 2) {
             server.maxmemory_policy =
                 configEnumGetValue(maxmemory_policy_enum,argv[1]);
