@@ -430,6 +430,32 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
     }
 }
 
+/* Helper function for handleClientsBlockedOnKeys(). This function is called
+ * in order to check if we can serve clients blocked by modules using
+ * RM_BlockClientOnKeys(), when the corresponding key was signaled as ready:
+ * our goal here is to call the is_key_ready() callback to see if the key
+ * is really able to serve the client, and in that case, unblock it. */
+void serveClientsBlockedOnKeyByModule(readyList *rl) {
+    dictEntry *de;
+
+    /* We serve clients in the same order they blocked for
+     * this key, from the first blocked to the last. */
+    de = dictFind(rl->db->blocking_keys,rl->key);
+    if (de) {
+        list *clients = dictGetVal(de);
+        int numclients = listLength(clients);
+
+        while(numclients--) {
+            listNode *clientnode = listFirst(clients);
+            client *receiver = clientnode->value;
+
+            if (!moduleIsKeyReady(receiver, rl->key)) continue;
+
+            moduleUnblockClient(receiver);
+        }
+    }
+}
+
 /* This function should be called by Redis every time a single command,
  * a MULTI/EXEC block, or a Lua script, terminated its execution after
  * being called by a client. It handles serving clients blocked in
@@ -480,6 +506,10 @@ void handleClientsBlockedOnKeys(void) {
                     serveClientsBlockedOnSortedSetKey(o,rl);
                 else if (o->type == OBJ_STREAM)
                     serveClientsBlockedOnStreamKey(o,rl);
+                /* We want to serve clients blocked on module keys
+                 * regardless of the object type: we don't know what the
+                 * module is trying to accomplish right now. */
+                serveClientsBlockedOnKeyByModule(rl);
             }
 
             /* Free this item. */

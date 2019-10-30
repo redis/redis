@@ -1602,6 +1602,8 @@ ssize_t rdbSaveModulesAux(rio *rdb, int when);
 int moduleAllDatatypesHandleErrors();
 sds modulesCollectInfo(sds info, sds section, int for_crash_report, int sections);
 void moduleFireServerEvent(uint64_t eid, int subid, void *data);
+int moduleIsKeyReady(client *c, robj *key);
+void moduleUnblockClient(client *c);
 
 /* Utils */
 long long ustime(void);
