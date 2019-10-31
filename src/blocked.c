@@ -174,6 +174,7 @@ void unblockClient(client *c) {
     } else if (c->btype == BLOCKED_WAIT) {
         unblockClientWaitingReplicas(c);
     } else if (c->btype == BLOCKED_MODULE) {
+        if (moduleClientIsBlockedOnKeys(c)) unblockClientWaitingData(c);
         unblockClientFromModule(c);
     } else {
         serverPanic("Unknown btype in unblockClient().");
@@ -449,7 +450,7 @@ void serveClientsBlockedOnKeyByModule(readyList *rl) {
             listNode *clientnode = listFirst(clients);
             client *receiver = clientnode->value;
 
-            if (!moduleIsKeyReady(receiver, rl->key)) continue;
+            if (!moduleTryServeClientBlockedOnKey(receiver, rl->key)) continue;
 
             moduleUnblockClient(receiver);
         }

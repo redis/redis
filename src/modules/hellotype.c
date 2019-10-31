@@ -193,26 +193,26 @@ int HelloTypeLen_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
 /* ====================== Example of a blocking command ==================== */
 
-/* Is_key_ready callback for blocking command HELLOTYPE.BRANGE */
-int HelloBlock_IsKeyReady(RedisModuleCtx *ctx, RedisModuleString *keyname, void *privdata) {
-    REDISMODULE_NOT_USED(privdata);
+/* Reply callback for blocking command HELLOTYPE.BRANGE, this will get
+ * called when the key we blocked for is ready: we need to check if we
+ * can really serve the client, and reply OK or ERR accordingly. */
+int HelloBlock_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
 
-    RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
+    RedisModuleString *keyname = RedisModule_GetBlockedClientReadyKey(ctx);
     RedisModuleKey *key = RedisModule_OpenKey(ctx,keyname,REDISMODULE_READ);
     int type = RedisModule_KeyType(key);
     if (type != REDISMODULE_KEYTYPE_MODULE ||
         RedisModule_ModuleTypeGetType(key) != HelloType)
     {
-        return 0;
-    } else {
-        return 1;
+        RedisModule_CloseKey(key);
+        return REDISMODULE_ERR;
     }
-}
 
-/* Reply callback for blocking command HELLOTYPE.BRANGE */
-int HelloBlock_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    REDISMODULE_NOT_USED(argv);
-    REDISMODULE_NOT_USED(argc);
+    /* In case the key is able to serve our blocked client, let's directly
+     * use our original command implementation to make this example simpler. */
+    RedisModule_CloseKey(key);
     return HelloTypeRange_RedisCommand(ctx,argv,argc-1);
 }
 
@@ -251,7 +251,7 @@ int HelloTypeBRange_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, 
     }
 
     void *privdata = RedisModule_Alloc(100);
-    RedisModule_BlockClientOnKeys(ctx,HelloBlock_Reply,HelloBlock_Timeout,HelloBlock_FreeData,timeout,argv+1,1,HelloBlock_IsKeyReady,privdata);
+    RedisModule_BlockClientOnKeys(ctx,HelloBlock_Reply,HelloBlock_Timeout,HelloBlock_FreeData,timeout,argv+1,1,privdata);
     return REDISMODULE_OK;
 }
 
