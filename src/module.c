@@ -1596,9 +1596,6 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
     if (retval == C_ERR) flags |= REDISMODULE_CTX_FLAGS_OOM;
     if (level > 0.75) flags |= REDISMODULE_CTX_FLAGS_OOM_WARNING;
 
-    /* Presence of children processes. */
-    if (hasActiveChildProcess()) flags |= REDISMODULE_CTX_FLAGS_ACTIVE_CHILD;
-
     return flags;
 }
 
