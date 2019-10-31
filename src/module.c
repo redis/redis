@@ -4201,15 +4201,24 @@ int moduleClientIsBlockedOnKeys(client *c) {
  * needs to be passed to the client, included but not limited some slow
  * to compute reply or some reply obtained via networking.
  *
- * Note: this function can be called from threads spawned by the module.
+ * Note 1: this function can be called from threads spawned by the module.
  *
- * Note: when we unblock a client that is blocked for keys using
+ * Note 2: when we unblock a client that is blocked for keys using
  * the API RedisModule_BlockClientOnKeys(), the privdata argument here is
  * not used, and the reply callback is called with the privdata pointer that
- * was passed when blocking the client. Also note if you unblock clients
- * blocked on keys in this way, the reply callback should be ready to handle
- * the fact the key may not be ready at all. */
+ * was passed when blocking the client.
+ *
+ * Unblocking a client that was blocked for keys using this API will still
+ * require the client to get some reply, so the function will use the
+ * "timeout" handler in order to do so. */
 int RM_UnblockClient(RedisModuleBlockedClient *bc, void *privdata) {
+    if (bc->blocked_on_keys) {
+        /* In theory the user should always pass the timeout handler as an
+         * argument, but better to be safe than sorry. */
+        if (bc->timeout_callback == NULL) return REDISMODULE_ERR;
+        if (bc->unblocked) return REDISMODULE_OK;
+        if (bc->client) moduleBlockedClientTimedOut(bc->client);
+    }
     moduleUnblockClientByHandle(bc,privdata);
     return REDISMODULE_OK;
 }
