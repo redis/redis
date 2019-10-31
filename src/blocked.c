@@ -450,6 +450,22 @@ void serveClientsBlockedOnKeyByModule(readyList *rl) {
             listNode *clientnode = listFirst(clients);
             client *receiver = clientnode->value;
 
+            /* Put at the tail, so that at the next call
+             * we'll not run into it again: clients here may not be
+             * ready to be served, so they'll remain in the list
+             * sometimes. We want also be able to skip clients that are
+             * not blocked for the MODULE type safely. */
+            listDelNode(clients,clientnode);
+            listAddNodeTail(clients,receiver);
+
+            if (receiver->btype != BLOCKED_MODULE) continue;
+
+            /* Note that if *this* client cannot be served by this key,
+             * it does not mean that another client that is next into the
+             * list cannot be served as well: they may be blocked by
+             * different modules with different triggers to consider if a key
+             * is ready or not. This means we can't exit the loop but need
+             * to continue after the first failure. */
             if (!moduleTryServeClientBlockedOnKey(receiver, rl->key)) continue;
 
             moduleUnblockClient(receiver);

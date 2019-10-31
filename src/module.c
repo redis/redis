@@ -249,6 +249,7 @@ typedef struct RedisModuleBlockedClient {
                                        in thread safe contexts. */
     int dbid;           /* Database number selected by the original client. */
     int blocked_on_keys;    /* If blocked via RM_BlockClientOnKeys(). */
+    int unblocked;          /* Already on the moduleUnblocked list. */
 } RedisModuleBlockedClient;
 
 static pthread_mutex_t moduleUnblockedClientsMutex = PTHREAD_MUTEX_INITIALIZER;
@@ -4037,6 +4038,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->reply_client->flags |= CLIENT_MODULE;
     bc->dbid = c->db->id;
     bc->blocked_on_keys = keys != NULL;
+    bc->unblocked = 0;
     c->bpop.timeout = timeout;
 
     if (islua || ismulti) {
@@ -4063,6 +4065,10 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
 int moduleTryServeClientBlockedOnKey(client *c, robj *key) {
     int served = 0;
     RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    /* Protect against re-processing: don't serve clients that are already
+     * in the unblocking list for any reason (including RM_UnblockClient()
+     * explicit call). */
+    if (bc->unblocked) return REDISMODULE_ERR;
     RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
     ctx.flags |= REDISMODULE_CTX_BLOCKED_REPLY;
     ctx.blocked_ready_key = key;
@@ -4162,6 +4168,7 @@ void RM_SignalKeyAsReady(RedisModuleCtx *ctx, RedisModuleString *key) {
 int moduleUnblockClientByHandle(RedisModuleBlockedClient *bc, void *privdata) {
     pthread_mutex_lock(&moduleUnblockedClientsMutex);
     if (!bc->blocked_on_keys) bc->privdata = privdata;
+    bc->unblocked = 1;
     listAddNodeTail(moduleUnblockedClients,bc);
     if (write(server.module_blocked_pipe[1],"A",1) != 1) {
         /* Ignore the error, this is best-effort. */
