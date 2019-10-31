@@ -434,8 +434,9 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
 /* Helper function for handleClientsBlockedOnKeys(). This function is called
  * in order to check if we can serve clients blocked by modules using
  * RM_BlockClientOnKeys(), when the corresponding key was signaled as ready:
- * our goal here is to call the is_key_ready() callback to see if the key
- * is really able to serve the client, and in that case, unblock it. */
+ * our goal here is to call the RedisModuleBlockedClient reply() callback to
+ * see if the key is really able to serve the client, and in that case,
+ * unblock it. */
 void serveClientsBlockedOnKeyByModule(readyList *rl) {
     dictEntry *de;
 
