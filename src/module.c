@@ -3923,7 +3923,7 @@ RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
     ctx->client = createClient(-1);
     if (bc) {
         selectDb(ctx->client,bc->dbid);
-        ctx->client->id = bc->client->id;
+        if (bc->client) ctx->client->id = bc->client->id;
     }
     return ctx;
 }
