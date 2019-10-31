@@ -129,6 +129,7 @@ int HelloTypeInsert_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, 
 
     /* Insert the new element. */
     HelloTypeInsert(hto,value);
+    RedisModule_SignalKeyAsReady(ctx,argv[1]);
 
     RedisModule_ReplyWithLongLong(ctx,hto->len);
     RedisModule_ReplicateVerbatim(ctx);
@@ -190,6 +191,69 @@ int HelloTypeLen_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return REDISMODULE_OK;
 }
 
+/* ====================== Example of a blocking command ==================== */
+
+/* Is_key_ready callback for blocking command HELLOTYPE.BRANGE */
+int HelloBlock_IsKeyReady(RedisModuleCtx *ctx, RedisModuleString *keyname, void *privdata) {
+    REDISMODULE_NOT_USED(privdata);
+
+    RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
+    RedisModuleKey *key = RedisModule_OpenKey(ctx,keyname,REDISMODULE_READ);
+    int type = RedisModule_KeyType(key);
+    if (type != REDISMODULE_KEYTYPE_MODULE ||
+        RedisModule_ModuleTypeGetType(key) != HelloType)
+    {
+        return 0;
+    } else {
+        return 1;
+    }
+}
+
+/* Reply callback for blocking command HELLOTYPE.BRANGE */
+int HelloBlock_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    return HelloTypeRange_RedisCommand(ctx,argv,argc-1);
+}
+
+/* Timeout callback for blocking command HELLOTYPE.BRANGE */
+int HelloBlock_Timeout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    return RedisModule_ReplyWithSimpleString(ctx,"Request timedout");
+}
+
+/* Private data freeing callback for HELLOTYPE.BRANGE command. */
+void HelloBlock_FreeData(RedisModuleCtx *ctx, void *privdata) {
+    REDISMODULE_NOT_USED(ctx);
+    RedisModule_Free(privdata);
+}
+
+/* HELLOTYPE.BRANGE key first count timeout -- This is a blocking verison of
+ * the RANGE operation, in order to show how to use the API
+ * RedisModule_BlockClientOnKeys(). */
+int HelloTypeBRange_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 5) return RedisModule_WrongArity(ctx);
+    RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
+    RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],
+        REDISMODULE_READ|REDISMODULE_WRITE);
+    int type = RedisModule_KeyType(key);
+    if (type != REDISMODULE_KEYTYPE_EMPTY &&
+        RedisModule_ModuleTypeGetType(key) != HelloType)
+    {
+        return RedisModule_ReplyWithError(ctx,REDISMODULE_ERRORMSG_WRONGTYPE);
+    }
+
+    long long timeout;
+    if (RedisModule_StringToLongLong(argv[4],&timeout) != REDISMODULE_OK) {
+        return RedisModule_ReplyWithError(ctx,
+            "ERR invalid timeout parameter");
+    }
+
+    void *privdata = RedisModule_Alloc(100);
+    RedisModule_BlockClientOnKeys(ctx,HelloBlock_Reply,HelloBlock_Timeout,HelloBlock_FreeData,timeout,argv+1,1,HelloBlock_IsKeyReady,privdata);
+    return REDISMODULE_OK;
+}
 
 /* ========================== "hellotype" type methods ======================= */
 
@@ -280,6 +344,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"hellotype.len",
         HelloTypeLen_RedisCommand,"readonly",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"hellotype.brange",
+        HelloTypeBRange_RedisCommand,"readonly",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
