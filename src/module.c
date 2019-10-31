@@ -4119,36 +4119,41 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
  * Anyway we can't be sure if the client should be unblocked just because the
  * key is signaled as ready: for instance a successive operation may change the
  * key, or a client in queue before this one can be served, modifying the key
- * as well and making it empty again. So when blocking for keys, we need to
- * register a callback called is_key_ready. This callback gets called with
- * a context, selected with the right database, and the key name: if it
- * returns 1, then we proceed calling the reply callback, otherwise if the
- * is_key_ready callback returns 0 the client is not unblocked, since the
- * key is yet not ready.
+ * as well and making it empty again. So when a client is blocked with
+ * RedisModule_BlockClientOnKeys() the reply callback is not called after
+ * RM_UnblockCLient() is called, but every time a key is signaled as ready:
+ * if the reply callback can serve the client, it returns REDISMODULE_OK
+ * and the client is unblocked, otherwise it will return REDISMODULE_ERR
+ * and we'll try again later.
+ *
+ * The reply callback can access the key that was signaled as ready by
+ * calling the API RedisModule_GetBlockedClientReadyKey(), that returns
+ * just the string name of the key as a RedisModuleString object.
  *
  * Thanks to this system we can setup complex blocking scenarios, like
  * unblocking a client only if a list contains at least 5 items or other
  * more fancy logics.
  *
  * Note that another difference with RedisModule_BlockClient(), is that here
- * we pass the private data directly when blocking the client: such private
- * data will be later provided both to the is_key_ready callback, and to the
- * reply callback. Normally in RedisModule_BlockClient() the private data
- * to reply to the client is passed when calling RedisModule_UnblockClient()
- * but here the unblocking is performed by Redis itself, so we need to have
- * some private data before hand. The private data is used to store any
- * information about the specific unblocking operation that you are
- * implementing. Such information will be freed using the free_privdata
- * callback provided by the user. */
+ * we pass the private data directly when blocking the client: it will
+ * be accessible later in the reply callback. Normally when blocking with
+ * RedisModule_BlockClient() the private data to reply to the client is
+ * passed when calling RedisModule_UnblockClient() but here the unblocking
+ * is performed by Redis itself, so we need to have some private data before
+ * hand. The private data is used to store any information about the specific
+ * unblocking operation that you are implementing. Such information will be
+ * freed using the free_privdata callback provided by the user.
+ *
+ * However the reply callback will be able to access the argument vector of
+ * the command, so the private data is often not needed. */
 RedisModuleBlockedClient *RM_BlockClientOnKeys(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms, RedisModuleString **keys, int numkeys, void *privdata) {
     return moduleBlockClient(ctx,reply_callback,timeout_callback,free_privdata,timeout_ms, keys,numkeys,privdata);
 }
 
 /* This function is used in order to potentially unblock a client blocked
  * on keys with RedisModule_BlockClientOnKeys(). When this function is called,
- * all the clients blocked for this key will get their is_key_ready callback,
- * and if the callback returns non-zero the client will be unblocked and the
- * reply callback will be called in order to reply to the client. */
+ * all the clients blocked for this key will get their reply callback called,
+ * and if the callback returns REDISMODULE_OK the client will be unblocked. */
 void RM_SignalKeyAsReady(RedisModuleCtx *ctx, RedisModuleString *key) {
     signalKeyAsReady(ctx->client->db, key);
 }
