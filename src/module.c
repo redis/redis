@@ -327,6 +327,13 @@ static struct RedisModuleForkInfo {
 #define REDISMODULE_ARGV_NO_AOF (1<<1)
 #define REDISMODULE_ARGV_NO_REPLICAS (1<<2)
 
+/* Determine whether Redis should signalModifiedKey implicitly.
+ * In case 'ctx' has no 'module' member (and therefore no module->options),
+ * we assume default behavior, that is, Redis signals.
+ * (see RM_GetThreadSafeContext) */
+#define SHOULD_SIGNAL_MODIFIED_KEYS(ctx) \
+    ctx->module? !(ctx->module->options & REDISMODULE_OPTION_NO_IMPLICIT_SIGNAL_MODIFIED) : 1
+
 /* Server events hooks data structures and defines: this modules API
  * allow modules to subscribe to certain events in Redis, such as
  * the start and end of an RDB or AOF save, the change of role in replication,
@@ -827,6 +834,7 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->filters = listCreate();
     module->in_call = 0;
     module->in_hook = 0;
+    module->options = 0;
     ctx->module = module;
 }
 
@@ -855,6 +863,12 @@ long long RM_Milliseconds(void) {
  * able to release the partially populated value and all it's allocations. */
 void RM_SetModuleOptions(RedisModuleCtx *ctx, int options) {
     ctx->module->options = options;
+}
+
+/* Signals that the key is modified from user's perspective (i.e. invalidate WATCH). */
+int RM_SignalModifiedKey(RedisModuleCtx *ctx, RedisModuleString *keyname) {
+    signalModifiedKey(ctx->client->db,keyname);
+    return REDISMODULE_OK;
 }
 
 /* --------------------------------------------------------------------------
@@ -1848,7 +1862,9 @@ void *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
 /* Close a key handle. */
 void RM_CloseKey(RedisModuleKey *key) {
     if (key == NULL) return;
-    if (key->mode & REDISMODULE_WRITE) signalModifiedKey(key->db,key->key);
+    int signal = SHOULD_SIGNAL_MODIFIED_KEYS(key->ctx);
+    if ((key->mode & REDISMODULE_WRITE) && signal)
+        signalModifiedKey(key->db,key->key);
     /* TODO: if (key->iter) RM_KeyIteratorStop(kp); */
     RM_ZsetRangeStop(key);
     decrRefCount(key->key);
@@ -3072,7 +3088,10 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 
     /* We handle the above format error only when the client is setup so that
      * we can free it normally. */
-    if (argv == NULL) goto cleanup;
+    if (argv == NULL) {
+        errno = EINVAL;
+        goto cleanup;
+    }
 
     /* Call command filters */
     moduleCallCommandFilters(c);
@@ -3864,6 +3883,11 @@ const RedisModuleString *RM_GetKeyNameFromIO(RedisModuleIO *io) {
     return io->key;
 }
 
+/* Returns a RedisModuleString with the name of the key from RedisModuleKey */
+const RedisModuleString *RM_GetKeyNameFromModuleKey(RedisModuleKey *key) {
+    return key ? key->key : NULL;
+}
+
 /* --------------------------------------------------------------------------
  * Logging
  * -------------------------------------------------------------------------- */
@@ -4534,6 +4558,20 @@ int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNoti
     sub->active = 0;
 
     listAddNodeTail(moduleKeyspaceSubscribers, sub);
+    return REDISMODULE_OK;
+}
+
+/* Get the configured bitmap of notify-keyspace-events (Could be used
+ * for additional filtering in RedisModuleNotificationFunc) */
+int RM_GetNotifyKeyspaceEvents() {
+    return server.notify_keyspace_events;
+}
+
+/* Expose notifyKeyspaceEvent to modules */
+int RM_NotifyKeyspaceEvent(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    if (!ctx || !ctx->client)
+        return REDISMODULE_ERR;
+    notifyKeyspaceEvent(type, (char *)event, key, ctx->client->db->id);
     return REDISMODULE_OK;
 }
 
@@ -6618,6 +6656,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ModuleTypeGetValue);
     REGISTER_API(IsIOError);
     REGISTER_API(SetModuleOptions);
+    REGISTER_API(SignalModifiedKey);
     REGISTER_API(SaveUnsigned);
     REGISTER_API(LoadUnsigned);
     REGISTER_API(SaveSigned);
@@ -6640,6 +6679,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(StringCompare);
     REGISTER_API(GetContextFromIO);
     REGISTER_API(GetKeyNameFromIO);
+    REGISTER_API(GetKeyNameFromModuleKey);
     REGISTER_API(BlockClient);
     REGISTER_API(UnblockClient);
     REGISTER_API(IsBlockedReplyRequest);
@@ -6654,6 +6694,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(DigestAddStringBuffer);
     REGISTER_API(DigestAddLongLong);
     REGISTER_API(DigestEndSequence);
+    REGISTER_API(NotifyKeyspaceEvent);
+    REGISTER_API(GetNotifyKeyspaceEvents);
     REGISTER_API(SubscribeToKeyspaceEvents);
     REGISTER_API(RegisterClusterMessageReceiver);
     REGISTER_API(SendClusterMessage);
