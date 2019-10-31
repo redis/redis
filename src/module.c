@@ -4262,7 +4262,6 @@ void moduleHandleBlockedClients(void) {
             ctx.client = bc->client;
             ctx.blocked_client = bc;
             bc->reply_callback(&ctx,(void**)c->argv,c->argc);
-            moduleHandlePropagationAfterCommandCallback(&ctx);
             moduleFreeContext(&ctx);
         }
 
