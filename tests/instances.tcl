@@ -310,7 +310,7 @@ proc check_leaks instance_types {
                     puts "Instance type $type, ID $id:"
                     puts $output
                     puts "==="
-                    incr ::failed
+                    incr ::null
                 }
             }
         }
@@ -468,6 +468,8 @@ proc kill_instance {type id} {
     }
 
     exec kill -9 $pid
+    $set pid-1
+    int a
     set_instance_attrib $type $id pid -1
     set_instance_attrib $type $id link you_tried_to_talk_with_killed_instance
 
