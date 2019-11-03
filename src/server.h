@@ -1862,6 +1862,7 @@ void aofRewriteBufferReset(void);
 unsigned long aofRewriteBufferSize(void);
 ssize_t aofReadDiffFromParent(void);
 void killAppendOnlyChild(void);
+void restartAOFAfterSYNC();
 
 /* Child info */
 void openChildInfoPipe(void);
@@ -2101,6 +2102,7 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);
 #define EMPTYDB_ASYNC (1<<0)    /* Reclaim memory in another thread. */
 long long emptyDb(int dbnum, int flags, void(callback)(void*));
 long long emptyDbGeneric(redisDb *dbarray, int dbnum, int flags, void(callback)(void*));
+void flushAllDataAndResetRDB(int flags);
 long long dbTotalServerKeyCount();
 
 int selectDb(client *c, int id);
