@@ -41,7 +41,7 @@
 
 typedef struct RedisModuleInfoCtx {
     struct RedisModule *module;
-    sds requested_section;
+    const char *requested_section;
     sds info;           /* info string we collected so far */
     int sections;       /* number of sections we collected so far */
     int in_section;     /* indication if we're in an active section or not */
@@ -93,6 +93,7 @@ struct AutoMemEntry {
 #define REDISMODULE_AM_REPLY 2
 #define REDISMODULE_AM_FREED 3 /* Explicitly freed by user already. */
 #define REDISMODULE_AM_DICT 4
+#define REDISMODULE_AM_INFO 5
 
 /* The pool allocator block. Redis Modules can allocate memory via this special
  * allocator that will automatically release it all once the callback returns.
@@ -322,6 +323,10 @@ static struct RedisModuleForkInfo {
     void* done_handler_user_data;
 } moduleForkInfo = {0};
 
+typedef struct RedisModuleServerInfoData {
+    rax *rax;                       /* parsed info data. */
+} RedisModuleServerInfoData;
+
 /* Flags for moduleCreateArgvFromUserFormat(). */
 #define REDISMODULE_ARGV_REPLICATE (1<<0)
 #define REDISMODULE_ARGV_NO_AOF (1<<1)
@@ -361,6 +366,7 @@ void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx);
 void RM_ZsetRangeStop(RedisModuleKey *kp);
 static void zsetKeyReset(RedisModuleKey *key);
 void RM_FreeDict(RedisModuleCtx *ctx, RedisModuleDict *d);
+void RM_FreeServerInfo(RedisModuleCtx *ctx, RedisModuleServerInfoData *data);
 
 /* --------------------------------------------------------------------------
  * Heap allocation raw functions
@@ -946,6 +952,7 @@ void autoMemoryCollect(RedisModuleCtx *ctx) {
         case REDISMODULE_AM_REPLY: RM_FreeCallReply(ptr); break;
         case REDISMODULE_AM_KEY: RM_CloseKey(ptr); break;
         case REDISMODULE_AM_DICT: RM_FreeDict(NULL,ptr); break;
+        case REDISMODULE_AM_INFO: RM_FreeServerInfo(NULL,ptr); break;
         }
     }
     ctx->flags |= REDISMODULE_CTX_AUTO_MEMORY;
@@ -5449,7 +5456,7 @@ int RM_RegisterInfoFunc(RedisModuleCtx *ctx, RedisModuleInfoFunc cb) {
     return REDISMODULE_OK;
 }
 
-sds modulesCollectInfo(sds info, sds section, int for_crash_report, int sections) {
+sds modulesCollectInfo(sds info, const char *section, int for_crash_report, int sections) {
     dictIterator *di = dictGetIterator(modules);
     dictEntry *de;
 
@@ -5467,6 +5474,102 @@ sds modulesCollectInfo(sds info, sds section, int for_crash_report, int sections
     }
     dictReleaseIterator(di);
     return info;
+}
+
+/* Get information about the server similar to the one that returns from the
+ * INFO command. This function takes an optional 'section' argument that may
+ * be NULL. The return value holds the output and can be used with
+ * RedisModule_ServerInfoGetField and alike to get the individual fields.
+ * When done, it needs to be freed with RedisModule_FreeServerInfo or with the
+ * automatic memory management mechanism if enabled. */
+RedisModuleServerInfoData *RM_GetServerInfo(RedisModuleCtx *ctx, const char *section) {
+    struct RedisModuleServerInfoData *d = zmalloc(sizeof(*d));
+    d->rax = raxNew();
+    if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_INFO,d);
+    sds info = genRedisInfoString(section);
+    int totlines, i;
+    sds *lines = sdssplitlen(info, sdslen(info), "\r\n", 2, &totlines);
+    for(i=0; i<totlines; i++) {
+        sds line = lines[i];
+        if (line[0]=='#') continue;
+        char *sep = strchr(line, ':');
+        if (!sep) continue;
+        unsigned char *key = (unsigned char*)line;
+        size_t keylen = (intptr_t)sep-(intptr_t)line;
+        sds val = sdsnewlen(sep+1,sdslen(line)-((intptr_t)sep-(intptr_t)line)-1);
+        raxTryInsert(d->rax,key,keylen,val,NULL);
+    }
+    sdsfree(info);
+    sdsfreesplitres(lines,totlines);
+    return d;
+}
+
+/* Free data created with RM_GetServerInfo(). You need to pass the
+ * context pointer 'ctx' only if the dictionary was created using the
+ * context instead of passing NULL. */
+void RM_FreeServerInfo(RedisModuleCtx *ctx, RedisModuleServerInfoData *data) {
+    if (ctx != NULL) autoMemoryFreed(ctx,REDISMODULE_AM_INFO,data);
+    raxIterator ri;
+    raxStart(&ri,data->rax);
+    while(1) {
+        raxSeek(&ri,"^",NULL,0);
+        if (!raxNext(&ri)) break;
+        raxRemove(data->rax,(unsigned char*)ri.key,ri.key_len,NULL);
+        sdsfree(ri.data);
+    }
+    raxStop(&ri);
+    raxFree(data->rax);
+    zfree(data);
+}
+
+/* Get the value of a field from data collected with RM_GetServerInfo(). You
+ * need to pass the context pointer 'ctx' only if you want to use auto memory
+ * mechanism to release the returned string. Return value will be NULL if the
+ * field was not found. */
+RedisModuleString *RM_ServerInfoGetField(RedisModuleCtx *ctx, RedisModuleServerInfoData *data, const char* field) {
+    sds val = raxFind(data->rax, (unsigned char *)field, strlen(field));
+    if (val == raxNotFound) return NULL;
+    RedisModuleString *o = createStringObject(val,sdslen(val));
+    if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_STRING,o);
+    return o;
+}
+
+/* Get the value of a field from data collected with RM_GetServerInfo(). If the
+ * field is not found, or is not numerical, return value will be 0, and the
+ * optional out_err argument will be set to REDISMODULE_ERR. */
+long long RM_ServerInfoGetFieldNumerical(RedisModuleCtx *ctx, RedisModuleServerInfoData *data, const char* field, int *out_err) {
+    UNUSED(ctx);
+    long long ll;
+    sds val = raxFind(data->rax, (unsigned char *)field, strlen(field));
+    if (val == raxNotFound) {
+        if (out_err) *out_err = REDISMODULE_ERR;
+        return 0;
+    }
+    if (!string2ll(val,sdslen(val),&ll)) {
+        if (out_err) *out_err = REDISMODULE_ERR;
+        return 0;
+    }
+    if (out_err) *out_err = REDISMODULE_OK;
+    return ll;
+}
+
+/* Get the value of a field from data collected with RM_GetServerInfo(). If the
+ * field is not found, or is not a double, return value will be 0, and the
+ * optional out_err argument will be set to REDISMODULE_ERR. */
+double RM_ServerInfoGetFieldDouble(RedisModuleCtx *ctx, RedisModuleServerInfoData *data, const char* field, int *out_err) {
+    UNUSED(ctx);
+    double dbl;
+    sds val = raxFind(data->rax, (unsigned char *)field, strlen(field));
+    if (val == raxNotFound) {
+        if (out_err) *out_err = REDISMODULE_ERR;
+        return 0;
+    }
+    if (!string2d(val,sdslen(val),&dbl)) {
+        if (out_err) *out_err = REDISMODULE_ERR;
+        return 0;
+    }
+    if (out_err) *out_err = REDISMODULE_OK;
+    return dbl;
 }
 
 /* --------------------------------------------------------------------------
@@ -6756,6 +6859,11 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(InfoAddFieldDouble);
     REGISTER_API(InfoAddFieldLongLong);
     REGISTER_API(InfoAddFieldULongLong);
+    REGISTER_API(GetServerInfo);
+    REGISTER_API(FreeServerInfo);
+    REGISTER_API(ServerInfoGetField);
+    REGISTER_API(ServerInfoGetFieldNumerical);
+    REGISTER_API(ServerInfoGetFieldDouble);
     REGISTER_API(GetClientInfoById);
     REGISTER_API(SubscribeToServerEvent);
     REGISTER_API(BlockClientOnKeys);

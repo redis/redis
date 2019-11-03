@@ -468,6 +468,27 @@ int string2ld(const char *s, size_t slen, long double *dp) {
     return 1;
 }
 
+/* Convert a string into a double. Returns 1 if the string could be parsed
+ * into a (non-overflowing) double, 0 otherwise. The value will be set to
+ * the parsed value when appropriate.
+ *
+ * Note that this function demands that the string strictly represents
+ * a double: no spaces or other characters before or after the string
+ * representing the number are accepted. */
+int string2d(const char *s, size_t slen, double *dp) {
+    errno = 0;
+    char *eptr;
+    *dp = strtod(s, &eptr);
+    if (slen == 0 ||
+        isspace(((const char*)s)[0]) ||
+        (size_t)(eptr-(char*)s) != slen ||
+        (errno == ERANGE &&
+            (*dp == HUGE_VAL || *dp == -HUGE_VAL || *dp == 0)) ||
+        isnan(*dp))
+        return 0;
+    return 1;
+}
+
 /* Convert a double to a string representation. Returns the number of bytes
  * required. The representation should always be parsable by strtod(3).
  * This function does not support human-friendly formatting like ld2string
