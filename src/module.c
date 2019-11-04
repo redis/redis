@@ -3769,6 +3769,31 @@ loaderr:
     return 0;
 }
 
+/* In the context of the rdb_save method of a module data type, saves a long double
+ * value to the RDB file. The double can be a valid number, a NaN or infinity.
+ * It is possible to load back the value with RedisModule_LoadLongDouble(). */
+void RM_SaveLongDouble(RedisModuleIO *io, long double value) {
+    if (io->error) return;
+    char buf[MAX_LONG_DOUBLE_CHARS];
+    /* Long double has different number of bits in different platforms, so we
+     * save it as a string type. */
+    size_t len = ld2string(buf,sizeof(buf),value,LD_STR_HEX);
+    RM_SaveStringBuffer(io,buf,len+1); /* len+1 for '\0' */
+}
+
+/* In the context of the rdb_save method of a module data type, loads back the
+ * long double value saved by RedisModule_SaveLongDouble(). */
+long double RM_LoadLongDouble(RedisModuleIO *io) {
+    if (io->error) return 0;
+    long double value;
+    size_t len;
+    char* str = RM_LoadStringBuffer(io,&len);
+    if (!str) return 0;
+    string2ld(str,len,&value);
+    RM_Free(str);
+    return value;
+}
+
 /* Iterate over modules, and trigger rdb aux saving for the ones modules types
  * who asked for it. */
 ssize_t rdbSaveModulesAux(rio *rdb, int when) {
@@ -6849,6 +6874,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(LoadDouble);
     REGISTER_API(SaveFloat);
     REGISTER_API(LoadFloat);
+    REGISTER_API(SaveLongDouble);
+    REGISTER_API(LoadLongDouble);
     REGISTER_API(EmitAOF);
     REGISTER_API(Log);
     REGISTER_API(LogIOError);

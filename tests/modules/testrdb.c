@@ -15,11 +15,16 @@ RedisModuleString *after_str = NULL;
 
 void *testrdb_type_load(RedisModuleIO *rdb, int encver) {
     int count = RedisModule_LoadSigned(rdb);
+    RedisModuleString *str = RedisModule_LoadString(rdb);
+    float f = RedisModule_LoadFloat(rdb);
+    long double ld = RedisModule_LoadLongDouble(rdb);
     if (RedisModule_IsIOError(rdb))
         return NULL;
+    /* Using the values only after checking for io errors. */
     assert(count==1);
     assert(encver==1);
-    RedisModuleString *str = RedisModule_LoadString(rdb);
+    assert(f==1.5f);
+    assert(ld==0.333333333333333333L);
     return str;
 }
 
@@ -27,6 +32,8 @@ void testrdb_type_save(RedisModuleIO *rdb, void *value) {
     RedisModuleString *str = (RedisModuleString*)value;
     RedisModule_SaveSigned(rdb, 1);
     RedisModule_SaveString(rdb, str);
+    RedisModule_SaveFloat(rdb, 1.5);
+    RedisModule_SaveLongDouble(rdb, 0.333333333333333333L);
 }
 
 void testrdb_aux_save(RedisModuleIO *rdb, int when) {

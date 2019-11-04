@@ -621,7 +621,7 @@ void hincrbyfloatCommand(client *c) {
     }
 
     char buf[MAX_LONG_DOUBLE_CHARS];
-    int len = ld2string(buf,sizeof(buf),value,1);
+    int len = ld2string(buf,sizeof(buf),value,LD_STR_HUMAN);
     new = sdsnewlen(buf,len);
     hashTypeSet(o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE);
     addReplyBulkCBuffer(c,buf,len);
