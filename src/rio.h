@@ -35,6 +35,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include "sds.h"
+#include "connection.h"
 
 #define RIO_FLAG_READ_ERROR (1<<0)
 #define RIO_FLAG_WRITE_ERROR (1<<1)
@@ -76,22 +77,20 @@ struct _rio {
             off_t buffered; /* Bytes written since last fsync. */
             off_t autosync; /* fsync after 'autosync' bytes written. */
         } file;
-        /* file descriptor */
+        /* Connection object (used to read from socket) */
         struct {
-            int fd;       /* File descriptor. */
+            connection *conn;   /* Connection */
             off_t pos;    /* pos in buf that was returned */
             sds buf;      /* buffered data */
             size_t read_limit;  /* don't allow to buffer/read more than that */
             size_t read_so_far; /* amount of data read from the rio (not buffered) */
-        } fd;
-        /* Multiple FDs target (used to write to N sockets). */
+        } conn;
+        /* FD target (used to write to pipe). */
         struct {
-            int *fds;       /* File descriptors. */
-            int *state;     /* Error state of each fd. 0 (if ok) or errno. */
-            int numfds;
+            int fd;       /* File descriptor. */
             off_t pos;
             sds buf;
-        } fdset;
+        } fd;
     } io;
 };
 
@@ -159,11 +158,11 @@ static inline void rioClearErrors(rio *r) {
 
 void rioInitWithFile(rio *r, FILE *fp);
 void rioInitWithBuffer(rio *r, sds s);
-void rioInitWithFd(rio *r, int fd, size_t read_limit);
-void rioInitWithFdset(rio *r, int *fds, int numfds);
+void rioInitWithConn(rio *r, connection *conn, size_t read_limit);
+void rioInitWithFd(rio *r, int fd);
 
-void rioFreeFdset(rio *r);
-void rioFreeFd(rio *r, sds* out_remainingBufferedData);
+void rioFreeFd(rio *r);
+void rioFreeConn(rio *r, sds* out_remainingBufferedData);
 
 size_t rioWriteBulkCount(rio *r, char prefix, long count);
 size_t rioWriteBulkString(rio *r, const char *buf, size_t len);

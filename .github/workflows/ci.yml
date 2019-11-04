@@ -1,0 +1,28 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  build-ubuntu:
+    strategy:
+      matrix:
+        platform: [ubuntu-latest, ubuntu-16.04]
+    runs-on: ${{ matrix.platform }}
+    steps:
+    - uses: actions/checkout@v1
+    - name: make
+      run: make
+    - name: test
+      run: |
+        sudo apt-get install tcl8.5
+        make test
+
+  build-macos-latest:
+    strategy:
+      matrix:
+        platform: [macos-latest, macOS-10.14]
+    runs-on: ${{ matrix.platform }}
+    steps:
+    - uses: actions/checkout@v1
+    - name: make
+      run: make

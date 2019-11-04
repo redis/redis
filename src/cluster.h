@@ -40,7 +40,7 @@ struct clusterNode;
 /* clusterLink encapsulates everything needed to talk with a remote node. */
 typedef struct clusterLink {
     mstime_t ctime;             /* Link creation time */
-    int fd;                     /* TCP socket file descriptor */
+    connection *conn;           /* Connection to remote node */
     sds sndbuf;                 /* Packet send buffer */
     sds rcvbuf;                 /* Packet reception buffer */
     struct clusterNode *node;   /* Node related to this link if any, or NULL */

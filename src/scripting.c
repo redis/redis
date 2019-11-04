@@ -61,7 +61,7 @@ sds ldbCatStackValue(sds s, lua_State *lua, int idx);
 #define LDB_BREAKPOINTS_MAX 64  /* Max number of breakpoints. */
 #define LDB_MAX_LEN_DEFAULT 256 /* Default len limit for replies / var dumps. */
 struct ldbState {
-    int fd;     /* Socket of the debugging client. */
+    connection *conn; /* Connection of the debugging client. */
     int active; /* Are we debugging EVAL right now? */
     int forked; /* Is this a fork()ed debugging session? */
     list *logs; /* List of messages to send to the client. */
@@ -139,8 +139,8 @@ char *redisProtocolToLuaType(lua_State *lua, char* reply) {
     case '%': p = redisProtocolToLuaType_Aggregate(lua,reply,*p); break;
     case '~': p = redisProtocolToLuaType_Aggregate(lua,reply,*p); break;
     case '_': p = redisProtocolToLuaType_Null(lua,reply); break;
-    case '#': p = redisProtocolToLuaType_Bool(lua,reply,p[1]);
-    case ',': p = redisProtocolToLuaType_Double(lua,reply);
+    case '#': p = redisProtocolToLuaType_Bool(lua,reply,p[1]); break;
+    case ',': p = redisProtocolToLuaType_Double(lua,reply); break;
     }
     return p;
 }
@@ -1083,6 +1083,7 @@ void scriptingInit(int setup) {
     if (setup) {
         server.lua_client = NULL;
         server.lua_caller = NULL;
+        server.lua_cur_script = NULL;
         server.lua_timedout = 0;
         ldbInit();
     }
@@ -1242,7 +1243,7 @@ void scriptingInit(int setup) {
      * Note: there is no need to create it again when this function is called
      * by scriptingReset(). */
     if (server.lua_client == NULL) {
-        server.lua_client = createClient(-1);
+        server.lua_client = createClient(NULL);
         server.lua_client->flags |= CLIENT_LUA;
     }
 
@@ -1407,7 +1408,11 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
     /* Set the timeout condition if not already set and the maximum
      * execution time was reached. */
     if (elapsed >= server.lua_time_limit && server.lua_timedout == 0) {
-        serverLog(LL_WARNING,"Lua slow script detected: still in execution after %lld milliseconds. You can try killing the script using the SCRIPT KILL command.",elapsed);
+        serverLog(LL_WARNING,
+            "Lua slow script detected: still in execution after %lld milliseconds. "
+            "You can try killing the script using the SCRIPT KILL command. "
+            "Script SHA1 is: %s",
+            elapsed, server.lua_cur_script);
         server.lua_timedout = 1;
         /* Once the script timeouts we reenter the event loop to permit others
          * to call SCRIPT KILL or SHUTDOWN NOSAVE if needed. For this reason
@@ -1524,6 +1529,7 @@ void evalGenericCommand(client *c, int evalsha) {
      * If we are debugging, we set instead a "line" hook so that the
      * debugger is call-back at every line executed by the script. */
     server.lua_caller = c;
+    server.lua_cur_script = funcname + 2;
     server.lua_time_start = mstime();
     server.lua_kill = 0;
     if (server.lua_time_limit > 0 && ldb.active == 0) {
@@ -1550,6 +1556,7 @@ void evalGenericCommand(client *c, int evalsha) {
             queueClientForReprocessing(server.master);
     }
     server.lua_caller = NULL;
+    server.lua_cur_script = NULL;
 
     /* Call the Lua garbage collector from time to time to avoid a
      * full cycle performed by Lua, which adds too latency.
@@ -1727,7 +1734,7 @@ NULL
 
 /* Initialize Lua debugger data structures. */
 void ldbInit(void) {
-    ldb.fd = -1;
+    ldb.conn = NULL;
     ldb.active = 0;
     ldb.logs = listCreate();
     listSetFreeMethod(ldb.logs,(void (*)(void*))sdsfree);
@@ -1749,7 +1756,7 @@ void ldbFlushLog(list *log) {
 void ldbEnable(client *c) {
     c->flags |= CLIENT_LUA_DEBUG;
     ldbFlushLog(ldb.logs);
-    ldb.fd = c->fd;
+    ldb.conn = c->conn;
     ldb.step = 1;
     ldb.bpcount = 0;
     ldb.luabp = 0;
@@ -1804,7 +1811,7 @@ void ldbSendLogs(void) {
         proto = sdscatlen(proto,"\r\n",2);
         listDelNode(ldb.logs,ln);
     }
-    if (write(ldb.fd,proto,sdslen(proto)) == -1) {
+    if (connWrite(ldb.conn,proto,sdslen(proto)) == -1) {
         /* Avoid warning. We don't check the return value of write()
          * since the next read() will catch the I/O error and will
          * close the debugging session. */
@@ -1827,7 +1834,7 @@ void ldbSendLogs(void) {
 int ldbStartSession(client *c) {
     ldb.forked = (c->flags & CLIENT_LUA_DEBUG_SYNC) == 0;
     if (ldb.forked) {
-        pid_t cp = fork();
+        pid_t cp = redisFork();
         if (cp == -1) {
             addReplyError(c,"Fork() failed: can't run EVAL in debugging mode.");
             return 0;
@@ -1844,7 +1851,6 @@ int ldbStartSession(client *c) {
              * socket to make sure if the parent crashes a reset is sent
              * to the clients. */
             serverLog(LL_WARNING,"Redis forked for debugging eval");
-            closeListeningSockets(0);
         } else {
             /* Parent */
             listAddNodeTail(ldb.children,(void*)(unsigned long)cp);
@@ -1857,8 +1863,8 @@ int ldbStartSession(client *c) {
     }
 
     /* Setup our debugging session. */
-    anetBlock(NULL,ldb.fd);
-    anetSendTimeout(NULL,ldb.fd,5000);
+    connBlock(ldb.conn);
+    connSendTimeout(ldb.conn,5000);
     ldb.active = 1;
 
     /* First argument of EVAL is the script itself. We split it into different
@@ -1885,7 +1891,7 @@ void ldbEndSession(client *c) {
 
     /* If it's a fork()ed session, we just exit. */
     if (ldb.forked) {
-        writeToClient(c->fd, c, 0);
+        writeToClient(c,0);
         serverLog(LL_WARNING,"Lua debugging session child exiting");
         exitFromChild(0);
     } else {
@@ -1894,8 +1900,8 @@ void ldbEndSession(client *c) {
     }
 
     /* Otherwise let's restore client's state. */
-    anetNonBlock(NULL,ldb.fd);
-    anetSendTimeout(NULL,ldb.fd,0);
+    connNonBlock(ldb.conn);
+    connSendTimeout(ldb.conn,0);
 
     /* Close the client connectin after sending the final EVAL reply
      * in order to signal the end of the debugging session. */
@@ -2532,7 +2538,7 @@ int ldbRepl(lua_State *lua) {
     while(1) {
         while((argv = ldbReplParseCommand(&argc)) == NULL) {
             char buf[1024];
-            int nread = read(ldb.fd,buf,sizeof(buf));
+            int nread = connRead(ldb.conn,buf,sizeof(buf));
             if (nread <= 0) {
                 /* Make sure the script runs without user input since the
                  * client is no longer connected. */

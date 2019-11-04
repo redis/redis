@@ -144,6 +144,7 @@ configYesNo configs_yesno[] = {
     {"replica-serve-stale-data","slave-serve-stale-data",&server.repl_serve_stale_data,1,CONFIG_DEFAULT_SLAVE_SERVE_STALE_DATA},
     {"replica-read-only","slave-read-only",&server.repl_slave_ro,1,CONFIG_DEFAULT_SLAVE_READ_ONLY},
     {"replica-ignore-maxmemory","slave-ignore-maxmemory",&server.repl_slave_ignore_maxmemory,1,CONFIG_DEFAULT_SLAVE_IGNORE_MAXMEMORY},
+    {"jemalloc-bg-thread",NULL,&server.jemalloc_bg_thread,1,1},
     {NULL, NULL, 0, 0}
 };
 
@@ -219,7 +220,7 @@ void queueLoadModule(sds path, sds *argv, int argc) {
 }
 
 void loadServerConfigFromString(char *config) {
-    char *err = NULL;
+    const char *err = NULL;
     int linenum = 0, totlines, i;
     int slaveof_linenum = 0;
     sds *lines;
@@ -438,6 +439,7 @@ void loadServerConfigFromString(char *config) {
             server.repl_diskless_load = configEnumGetValue(repl_diskless_load_enum,argv[1]);
             if (server.repl_diskless_load == INT_MIN) {
                 err = "argument must be 'disabled', 'on-empty-db', 'swapdb' or 'flushdb'";
+                goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"repl-diskless-sync-delay") && argc==2) {
             server.repl_diskless_sync_delay = atoi(argv[1]);
@@ -511,6 +513,12 @@ void loadServerConfigFromString(char *config) {
             server.rdb_key_save_delay = atoi(argv[1]);
             if (server.rdb_key_save_delay < 0) {
                 err = "rdb-key-save-delay can't be negative";
+                goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"key-load-delay") && argc==2) {
+            server.key_load_delay = atoi(argv[1]);
+            if (server.key_load_delay < 0) {
+                err = "key-load-delay can't be negative";
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"requirepass") && argc == 2) {
@@ -672,6 +680,10 @@ void loadServerConfigFromString(char *config) {
             server.lua_time_limit = strtoll(argv[1],NULL,10);
         } else if (!strcasecmp(argv[0],"lua-replicate-commands") && argc == 2) {
             server.lua_always_replicate_commands = yesnotoi(argv[1]);
+            if (server.lua_always_replicate_commands == -1) {
+                err = "argument must be 'yes' or 'no'";
+                goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"slowlog-log-slower-than") &&
                    argc == 2)
         {
@@ -791,6 +803,45 @@ void loadServerConfigFromString(char *config) {
                 err = sentinelHandleConfiguration(argv+1,argc-1);
                 if (err) goto loaderr;
             }
+#ifdef USE_OPENSSL
+        } else if (!strcasecmp(argv[0],"tls-port") && argc == 2) {
+            server.tls_port = atoi(argv[1]);
+            if (server.port < 0 || server.port > 65535) {
+                err = "Invalid tls-port"; goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"tls-cluster") && argc == 2) {
+            server.tls_cluster = yesnotoi(argv[1]);
+        } else if (!strcasecmp(argv[0],"tls-replication") && argc == 2) {
+            server.tls_replication = yesnotoi(argv[1]);
+        } else if (!strcasecmp(argv[0],"tls-auth-clients") && argc == 2) {
+            server.tls_auth_clients = yesnotoi(argv[1]);
+        } else if (!strcasecmp(argv[0],"tls-cert-file") && argc == 2) {
+            zfree(server.tls_ctx_config.cert_file);
+            server.tls_ctx_config.cert_file = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"tls-key-file") && argc == 2) {
+            zfree(server.tls_ctx_config.key_file);
+            server.tls_ctx_config.key_file = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"tls-dh-params-file") && argc == 2) {
+            zfree(server.tls_ctx_config.dh_params_file);
+            server.tls_ctx_config.dh_params_file = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"tls-ca-cert-file") && argc == 2) {
+            zfree(server.tls_ctx_config.ca_cert_file);
+            server.tls_ctx_config.ca_cert_file = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"tls-ca-cert-dir") && argc == 2) {
+            zfree(server.tls_ctx_config.ca_cert_dir);
+            server.tls_ctx_config.ca_cert_dir = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"tls-protocols") && argc >= 2) {
+            zfree(server.tls_ctx_config.protocols);
+            server.tls_ctx_config.protocols = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"tls-ciphers") && argc == 2) {
+            zfree(server.tls_ctx_config.ciphers);
+            server.tls_ctx_config.ciphers = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"tls-ciphersuites") && argc == 2) {
+            zfree(server.tls_ctx_config.ciphersuites);
+            server.tls_ctx_config.ciphersuites = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"tls-prefer-server-ciphers") && argc == 2) {
+            server.tls_ctx_config.prefer_server_ciphers = yesnotoi(argv[1]);
+#endif  /* USE_OPENSSL */
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
@@ -1165,6 +1216,8 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "rdb-key-save-delay",server.rdb_key_save_delay,0,LLONG_MAX) {
     } config_set_numerical_field(
+      "key-load-delay",server.key_load_delay,0,LLONG_MAX) {
+    } config_set_numerical_field(
       "slave-announce-port",server.slave_announce_port,0,65535) {
     } config_set_numerical_field(
       "replica-announce-port",server.slave_announce_port,0,65535) {
@@ -1233,7 +1286,100 @@ void configSetCommand(client *c) {
       "appendfsync",server.aof_fsync,aof_fsync_enum) {
     } config_set_enum_field(
       "repl-diskless-load",server.repl_diskless_load,repl_diskless_load_enum) {
-
+#ifdef USE_OPENSSL
+    /* TLS fields. */
+    } config_set_special_field("tls-cert-file") {
+        redisTLSContextConfig tmpctx = server.tls_ctx_config;
+        tmpctx.cert_file = (char *) o->ptr;
+        if (tlsConfigure(&tmpctx) == C_ERR) {
+            addReplyError(c,
+                    "Unable to configure tls-cert-file. Check server logs.");
+            return;
+        }
+        zfree(server.tls_ctx_config.cert_file);
+        server.tls_ctx_config.cert_file = zstrdup(o->ptr);
+    } config_set_special_field("tls-key-file") {
+        redisTLSContextConfig tmpctx = server.tls_ctx_config;
+        tmpctx.key_file = (char *) o->ptr;
+        if (tlsConfigure(&tmpctx) == C_ERR) {
+            addReplyError(c,
+                    "Unable to configure tls-key-file. Check server logs.");
+            return;
+        }
+        zfree(server.tls_ctx_config.key_file);
+        server.tls_ctx_config.key_file = zstrdup(o->ptr);
+    } config_set_special_field("tls-dh-params-file") {
+        redisTLSContextConfig tmpctx = server.tls_ctx_config;
+        tmpctx.dh_params_file = (char *) o->ptr;
+        if (tlsConfigure(&tmpctx) == C_ERR) {
+            addReplyError(c,
+                    "Unable to configure tls-dh-params-file. Check server logs.");
+            return;
+        }
+        zfree(server.tls_ctx_config.dh_params_file);
+        server.tls_ctx_config.dh_params_file = zstrdup(o->ptr);
+    } config_set_special_field("tls-ca-cert-file") {
+        redisTLSContextConfig tmpctx = server.tls_ctx_config;
+        tmpctx.ca_cert_file = (char *) o->ptr;
+        if (tlsConfigure(&tmpctx) == C_ERR) {
+            addReplyError(c,
+                    "Unable to configure tls-ca-cert-file. Check server logs.");
+            return;
+        }
+        zfree(server.tls_ctx_config.ca_cert_file);
+        server.tls_ctx_config.ca_cert_file = zstrdup(o->ptr);
+    } config_set_special_field("tls-ca-cert-dir") {
+        redisTLSContextConfig tmpctx = server.tls_ctx_config;
+        tmpctx.ca_cert_dir = (char *) o->ptr;
+        if (tlsConfigure(&tmpctx) == C_ERR) {
+            addReplyError(c,
+                    "Unable to configure tls-ca-cert-dir. Check server logs.");
+            return;
+        }
+        zfree(server.tls_ctx_config.ca_cert_dir);
+        server.tls_ctx_config.ca_cert_dir = zstrdup(o->ptr);
+    } config_set_bool_field("tls-auth-clients", server.tls_auth_clients) {
+    } config_set_bool_field("tls-replication", server.tls_replication) {
+    } config_set_bool_field("tls-cluster", server.tls_cluster) {
+    } config_set_special_field("tls-protocols") {
+        redisTLSContextConfig tmpctx = server.tls_ctx_config;
+        tmpctx.protocols = (char *) o->ptr;
+        if (tlsConfigure(&tmpctx) == C_ERR) {
+            addReplyError(c,
+                    "Unable to configure tls-protocols. Check server logs.");
+            return;
+        }
+        zfree(server.tls_ctx_config.protocols);
+        server.tls_ctx_config.protocols = zstrdup(o->ptr);
+    } config_set_special_field("tls-ciphers") {
+        redisTLSContextConfig tmpctx = server.tls_ctx_config;
+        tmpctx.ciphers = (char *) o->ptr;
+        if (tlsConfigure(&tmpctx) == C_ERR) {
+            addReplyError(c,
+                "Unable to configure tls-ciphers. Check server logs.");
+            return;
+        }
+        zfree(server.tls_ctx_config.ciphers);
+        server.tls_ctx_config.ciphers = zstrdup(o->ptr);
+    } config_set_special_field("tls-ciphersuites") {
+        redisTLSContextConfig tmpctx = server.tls_ctx_config;
+        tmpctx.ciphersuites = (char *) o->ptr;
+        if (tlsConfigure(&tmpctx) == C_ERR) {
+            addReplyError(c,
+                "Unable to configure tls-ciphersuites. Check server logs.");
+            return;
+        }
+        zfree(server.tls_ctx_config.ciphersuites);
+        server.tls_ctx_config.ciphersuites = zstrdup(o->ptr);
+    } config_set_special_field("tls-prefer-server-ciphers") {
+        redisTLSContextConfig tmpctx = server.tls_ctx_config;
+        tmpctx.prefer_server_ciphers = yesnotoi(o->ptr);
+        if (tlsConfigure(&tmpctx) == C_ERR) {
+            addReplyError(c, "Unable to reconfigure TLS. Check server logs.");
+            return;
+        }
+        server.tls_ctx_config.prefer_server_ciphers = tmpctx.prefer_server_ciphers;
+#endif  /* USE_OPENSSL */
     /* Everyhing else is an error... */
     } config_set_else {
         addReplyErrorFormat(c,"Unsupported CONFIG parameter: %s",
@@ -1307,6 +1453,16 @@ void configGetCommand(client *c) {
     config_get_string_field("pidfile",server.pidfile);
     config_get_string_field("slave-announce-ip",server.slave_announce_ip);
     config_get_string_field("replica-announce-ip",server.slave_announce_ip);
+#ifdef USE_OPENSSL
+    config_get_string_field("tls-cert-file",server.tls_ctx_config.cert_file);
+    config_get_string_field("tls-key-file",server.tls_ctx_config.key_file);
+    config_get_string_field("tls-dh-params-file",server.tls_ctx_config.dh_params_file);
+    config_get_string_field("tls-ca-cert-file",server.tls_ctx_config.ca_cert_file);
+    config_get_string_field("tls-ca-cert-dir",server.tls_ctx_config.ca_cert_dir);
+    config_get_string_field("tls-protocols",server.tls_ctx_config.protocols);
+    config_get_string_field("tls-ciphers",server.tls_ctx_config.ciphers);
+    config_get_string_field("tls-ciphersuites",server.tls_ctx_config.ciphersuites);
+#endif
 
     /* Numerical values */
     config_get_numerical_field("maxmemory",server.maxmemory);
@@ -1354,6 +1510,7 @@ void configGetCommand(client *c) {
     config_get_numerical_field("slowlog-max-len", server.slowlog_max_len);
     config_get_numerical_field("tracking-table-max-fill", server.tracking_table_max_fill);
     config_get_numerical_field("port",server.port);
+    config_get_numerical_field("tls-port",server.tls_port);
     config_get_numerical_field("cluster-announce-port",server.cluster_announce_port);
     config_get_numerical_field("cluster-announce-bus-port",server.cluster_announce_bus_port);
     config_get_numerical_field("tcp-backlog",server.tcp_backlog);
@@ -1381,6 +1538,7 @@ void configGetCommand(client *c) {
     config_get_numerical_field("cluster-replica-validity-factor",server.cluster_slave_validity_factor);
     config_get_numerical_field("repl-diskless-sync-delay",server.repl_diskless_sync_delay);
     config_get_numerical_field("rdb-key-save-delay",server.rdb_key_save_delay);
+    config_get_numerical_field("key-load-delay",server.key_load_delay);
     config_get_numerical_field("tcp-keepalive",server.tcpkeepalive);
 
     /* Bool (yes/no) values */
@@ -1393,7 +1551,11 @@ void configGetCommand(client *c) {
     }
 
     config_get_bool_field("activedefrag", server.active_defrag_enabled);
-
+    config_get_bool_field("tls-cluster",server.tls_cluster);
+    config_get_bool_field("tls-replication",server.tls_replication);
+    config_get_bool_field("tls-auth-clients",server.tls_auth_clients);
+    config_get_bool_field("tls-prefer-server-ciphers",
+            server.tls_ctx_config.prefer_server_ciphers);
     /* Enum values */
     config_get_enum_field("maxmemory-policy",
             server.maxmemory_policy,maxmemory_policy_enum);
@@ -1507,6 +1669,7 @@ void configGetCommand(client *c) {
         }
         matches++;
     }
+
     setDeferredMapLen(c,replylen,matches);
 }
 
@@ -2113,7 +2276,7 @@ int rewriteConfig(char *path) {
     }
 
     rewriteConfigStringOption(state,"pidfile",server.pidfile,CONFIG_DEFAULT_PID_FILE);
-    rewriteConfigNumericalOption(state,"port",server.port,CONFIG_DEFAULT_SERVER_PORT);
+    rewriteConfigNumericalOption(state,"tls-port",server.tls_port,CONFIG_DEFAULT_SERVER_TLS_PORT);
     rewriteConfigNumericalOption(state,"cluster-announce-port",server.cluster_announce_port,CONFIG_DEFAULT_CLUSTER_ANNOUNCE_PORT);
     rewriteConfigNumericalOption(state,"cluster-announce-bus-port",server.cluster_announce_bus_port,CONFIG_DEFAULT_CLUSTER_ANNOUNCE_BUS_PORT);
     rewriteConfigNumericalOption(state,"tcp-backlog",server.tcp_backlog,CONFIG_DEFAULT_TCP_BACKLOG);
@@ -2195,6 +2358,21 @@ int rewriteConfig(char *path) {
     rewriteConfigNumericalOption(state,"hz",server.config_hz,CONFIG_DEFAULT_HZ);
     rewriteConfigEnumOption(state,"supervised",server.supervised_mode,supervised_mode_enum,SUPERVISED_NONE);
     rewriteConfigNumericalOption(state,"rdb-key-save-delay",server.rdb_key_save_delay,CONFIG_DEFAULT_RDB_KEY_SAVE_DELAY);
+    rewriteConfigNumericalOption(state,"key-load-delay",server.key_load_delay,CONFIG_DEFAULT_KEY_LOAD_DELAY);
+#ifdef USE_OPENSSL
+    rewriteConfigYesNoOption(state,"tls-cluster",server.tls_cluster,0);
+    rewriteConfigYesNoOption(state,"tls-replication",server.tls_replication,0);
+    rewriteConfigYesNoOption(state,"tls-auth-clients",server.tls_auth_clients,1);
+    rewriteConfigStringOption(state,"tls-cert-file",server.tls_ctx_config.cert_file,NULL);
+    rewriteConfigStringOption(state,"tls-key-file",server.tls_ctx_config.key_file,NULL);
+    rewriteConfigStringOption(state,"tls-dh-params-file",server.tls_ctx_config.dh_params_file,NULL);
+    rewriteConfigStringOption(state,"tls-ca-cert-file",server.tls_ctx_config.ca_cert_file,NULL);
+    rewriteConfigStringOption(state,"tls-ca-cert-dir",server.tls_ctx_config.ca_cert_dir,NULL);
+    rewriteConfigStringOption(state,"tls-protocols",server.tls_ctx_config.protocols,NULL);
+    rewriteConfigStringOption(state,"tls-ciphers",server.tls_ctx_config.ciphers,NULL);
+    rewriteConfigStringOption(state,"tls-ciphersuites",server.tls_ctx_config.ciphersuites,NULL);
+    rewriteConfigYesNoOption(state,"tls-prefer-server-ciphers",server.tls_ctx_config.prefer_server_ciphers,0);
+#endif
 
     /* Rewrite Sentinel config if in Sentinel mode. */
     if (server.sentinel_mode) rewriteConfigSentinelOption(state);

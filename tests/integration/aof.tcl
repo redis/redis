@@ -52,7 +52,7 @@ tags {"aof"} {
             assert_equal 1 [is_alive $srv]
         }
 
-        set client [redis [dict get $srv host] [dict get $srv port]]
+        set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
 
         test "Truncated AOF loaded: we expect foo to be equal to 5" {
             assert {[$client get foo] eq "5"}
@@ -69,7 +69,7 @@ tags {"aof"} {
             assert_equal 1 [is_alive $srv]
         }
 
-        set client [redis [dict get $srv host] [dict get $srv port]]
+        set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
 
         test "Truncated AOF loaded: we expect foo to be equal to 6 now" {
             assert {[$client get foo] eq "6"}
@@ -170,7 +170,7 @@ tags {"aof"} {
         }
 
         test "Fixed AOF: Keyspace should contain values that were parseable" {
-            set client [redis [dict get $srv host] [dict get $srv port]]
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
             wait_for_condition 50 100 {
                 [catch {$client ping} e] == 0
             } else {
@@ -194,7 +194,7 @@ tags {"aof"} {
         }
 
         test "AOF+SPOP: Set should have 1 member" {
-            set client [redis [dict get $srv host] [dict get $srv port]]
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
             wait_for_condition 50 100 {
                 [catch {$client ping} e] == 0
             } else {
@@ -218,7 +218,7 @@ tags {"aof"} {
         }
 
         test "AOF+SPOP: Set should have 1 member" {
-            set client [redis [dict get $srv host] [dict get $srv port]]
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
             wait_for_condition 50 100 {
                 [catch {$client ping} e] == 0
             } else {
@@ -241,7 +241,7 @@ tags {"aof"} {
         }
 
         test "AOF+EXPIRE: List should be empty" {
-            set client [redis [dict get $srv host] [dict get $srv port]]
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
             wait_for_condition 50 100 {
                 [catch {$client ping} e] == 0
             } else {
@@ -255,6 +255,37 @@ tags {"aof"} {
         test {Redis should not try to convert DEL into EXPIREAT for EXPIRE -1} {
             r set x 10
             r expire x -1
+        }
+    }
+
+    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appendfsync always}} {
+        test {AOF fsync always barrier issue} {
+            set rd [redis_deferring_client]
+            # Set a sleep when aof is flushed, so that we have a chance to look
+            # at the aof size and detect if the response of an incr command
+            # arrives before the data was written (and hopefully fsynced)
+            # We create a big reply, which will hopefully not have room in the
+            # socket buffers, and will install a write handler, then we sleep
+            # a big and issue the incr command, hoping that the last portion of
+            # the output buffer write, and the processing of the incr will happen
+            # in the same event loop cycle.
+            # Since the socket buffers and timing are unpredictable, we fuzz this
+            # test with slightly different sizes and sleeps a few times.
+            for {set i 0} {$i < 10} {incr i} {
+                r debug aof-flush-sleep 0
+                r del x
+                r setrange x [expr {int(rand()*5000000)+10000000}] x
+                r debug aof-flush-sleep 500000
+                set aof [file join [lindex [r config get dir] 1] appendonly.aof]
+                set size1 [file size $aof]
+                $rd get x
+                after [expr {int(rand()*30)}]
+                $rd incr new_value
+                $rd read
+                $rd read
+                set size2 [file size $aof]
+                assert {$size1 != $size2}
+            }
         }
     }
 }
