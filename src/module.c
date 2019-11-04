@@ -1022,7 +1022,8 @@ RedisModuleString *RM_CreateStringFromLongLong(RedisModuleCtx *ctx, long long ll
  * RedisModule_CreateString() documentation for more info. */
 RedisModuleString *RM_CreateStringFromLongDouble(RedisModuleCtx *ctx, long double ld, int humanfriendly) {
     char buf[MAX_LONG_DOUBLE_CHARS];
-    size_t len = ld2string(buf,sizeof(buf),ld,humanfriendly);
+    size_t len = ld2string(buf,sizeof(buf),ld,
+        (humanfriendly ? LD_STR_HUMAN : LD_STR_AUTO));
     return RM_CreateString(ctx,buf,len);
 }
 

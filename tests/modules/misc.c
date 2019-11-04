@@ -6,6 +6,8 @@
 #include <unistd.h>
 #include <errno.h>
 
+#define UNUSED(x) (void)(x)
+
 int test_call_generic(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     if (argc<2) {
@@ -41,6 +43,8 @@ int test_call_info(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 }
 
 int test_ld_conv(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    UNUSED(argv);
+    UNUSED(argc);
     long double ld = 0.00000000000000001L;
     const char *ldstr = "0.00000000000000001";
     RedisModuleString *s1 = RedisModule_CreateStringFromLongDouble(ctx, ld, 1);
