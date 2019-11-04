@@ -41,13 +41,17 @@ int info_get(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, char field
     field = RedisModule_StringPtrLen(argv[2], NULL);
     RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, section);
     if (field_type=='i') {
-        long long ll = RedisModule_ServerInfoGetFieldNumerical(ctx, info, field, &err);
+        long long ll = RedisModule_ServerInfoGetFieldNumerical(info, field, &err);
         if (err==REDISMODULE_OK)
             RedisModule_ReplyWithLongLong(ctx, ll);
     } else if (field_type=='d') {
-        double d = RedisModule_ServerInfoGetFieldDouble(ctx, info, field, &err);
+        double d = RedisModule_ServerInfoGetFieldDouble(info, field, &err);
         if (err==REDISMODULE_OK)
             RedisModule_ReplyWithDouble(ctx, d);
+    } else if (field_type=='c') {
+        const char *str = RedisModule_ServerInfoGetFieldC(info, field);
+        if (str)
+            RedisModule_ReplyWithCString(ctx, str);
     } else {
         RedisModuleString *str = RedisModule_ServerInfoGetField(ctx, info, field);
         if (str) {
@@ -64,6 +68,10 @@ int info_get(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, char field
 
 int info_gets(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return info_get(ctx, argv, argc, 's');
+}
+
+int info_getc(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    return info_get(ctx, argv, argc, 'c');
 }
 
 int info_geti(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -83,6 +91,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_RegisterInfoFunc(ctx, InfoFunc) == REDISMODULE_ERR) return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"info.gets", info_gets,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"info.getc", info_getc,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"info.geti", info_geti,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;

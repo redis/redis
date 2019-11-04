@@ -506,8 +506,9 @@ int REDISMODULE_API_FUNC(RedisModule_InfoAddFieldULongLong)(RedisModuleInfoCtx *
 RedisModuleServerInfoData *REDISMODULE_API_FUNC(RedisModule_GetServerInfo)(RedisModuleCtx *ctx, const char *section);
 void REDISMODULE_API_FUNC(RedisModule_FreeServerInfo)(RedisModuleCtx *ctx, RedisModuleServerInfoData *data);
 RedisModuleString *REDISMODULE_API_FUNC(RedisModule_ServerInfoGetField)(RedisModuleCtx *ctx, RedisModuleServerInfoData *data, const char* field);
-long long REDISMODULE_API_FUNC(RedisModule_ServerInfoGetFieldNumerical)(RedisModuleCtx *ctx, RedisModuleServerInfoData *data, const char* field, int *out_err);
-double REDISMODULE_API_FUNC(RedisModule_ServerInfoGetFieldDouble)(RedisModuleCtx *ctx, RedisModuleServerInfoData *data, const char* field, int *out_err);
+const char *REDISMODULE_API_FUNC(RedisModule_ServerInfoGetFieldC)(RedisModuleServerInfoData *data, const char* field);
+long long REDISMODULE_API_FUNC(RedisModule_ServerInfoGetFieldNumerical)(RedisModuleServerInfoData *data, const char* field, int *out_err);
+double REDISMODULE_API_FUNC(RedisModule_ServerInfoGetFieldDouble)(RedisModuleServerInfoData *data, const char* field, int *out_err);
 int REDISMODULE_API_FUNC(RedisModule_SubscribeToServerEvent)(RedisModuleCtx *ctx, RedisModuleEvent event, RedisModuleEventCallback callback);
 RedisModuleBlockedClient *REDISMODULE_API_FUNC(RedisModule_BlockClientOnKeys)(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms, RedisModuleString **keys, int numkeys, void *privdata);
 void REDISMODULE_API_FUNC(RedisModule_SignalKeyAsReady)(RedisModuleCtx *ctx, RedisModuleString *key);
@@ -713,6 +714,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetServerInfo);
     REDISMODULE_GET_API(FreeServerInfo);
     REDISMODULE_GET_API(ServerInfoGetField);
+    REDISMODULE_GET_API(ServerInfoGetFieldC);
     REDISMODULE_GET_API(ServerInfoGetFieldNumerical);
     REDISMODULE_GET_API(ServerInfoGetFieldDouble);
     REDISMODULE_GET_API(GetClientInfoById);

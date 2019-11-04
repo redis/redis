@@ -5534,11 +5534,17 @@ RedisModuleString *RM_ServerInfoGetField(RedisModuleCtx *ctx, RedisModuleServerI
     return o;
 }
 
+/* Similar to RM_ServerInfoGetField, but returns a char* which should not be freed but the caller. */
+const char *RM_ServerInfoGetFieldC(RedisModuleServerInfoData *data, const char* field) {
+    sds val = raxFind(data->rax, (unsigned char *)field, strlen(field));
+    if (val == raxNotFound) return NULL;
+    return val;
+}
+
 /* Get the value of a field from data collected with RM_GetServerInfo(). If the
  * field is not found, or is not numerical, return value will be 0, and the
  * optional out_err argument will be set to REDISMODULE_ERR. */
-long long RM_ServerInfoGetFieldNumerical(RedisModuleCtx *ctx, RedisModuleServerInfoData *data, const char* field, int *out_err) {
-    UNUSED(ctx);
+long long RM_ServerInfoGetFieldNumerical(RedisModuleServerInfoData *data, const char* field, int *out_err) {
     long long ll;
     sds val = raxFind(data->rax, (unsigned char *)field, strlen(field));
     if (val == raxNotFound) {
@@ -5556,8 +5562,7 @@ long long RM_ServerInfoGetFieldNumerical(RedisModuleCtx *ctx, RedisModuleServerI
 /* Get the value of a field from data collected with RM_GetServerInfo(). If the
  * field is not found, or is not a double, return value will be 0, and the
  * optional out_err argument will be set to REDISMODULE_ERR. */
-double RM_ServerInfoGetFieldDouble(RedisModuleCtx *ctx, RedisModuleServerInfoData *data, const char* field, int *out_err) {
-    UNUSED(ctx);
+double RM_ServerInfoGetFieldDouble(RedisModuleServerInfoData *data, const char* field, int *out_err) {
     double dbl;
     sds val = raxFind(data->rax, (unsigned char *)field, strlen(field));
     if (val == raxNotFound) {
@@ -6862,6 +6867,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetServerInfo);
     REGISTER_API(FreeServerInfo);
     REGISTER_API(ServerInfoGetField);
+    REGISTER_API(ServerInfoGetFieldC);
     REGISTER_API(ServerInfoGetFieldNumerical);
     REGISTER_API(ServerInfoGetFieldDouble);
     REGISTER_API(GetClientInfoById);
