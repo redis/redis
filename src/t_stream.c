@@ -173,9 +173,19 @@ int streamCompareID(streamID *a, streamID *b) {
  * C_ERR if an ID was given via 'use_id', but adding it failed since the
  * current top ID is greater or equal. */
 int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_id, streamID *use_id) {
-    /* If an ID was given, check that it's greater than the last entry ID
-     * or return an error. */
-    if (use_id && streamCompareID(use_id,&s->last_id) <= 0) return C_ERR;
+    
+    /* Generate the new entry ID. */
+    streamID id;
+    if (use_id)
+        id = *use_id;
+    else
+        streamNextID(&s->last_id,&id);
+
+    /* Check that the new ID is greater than the last entry ID
+     * or return an error. Automatically generated IDs might
+     * overflow (and wrap-around) when incrementing the sequence 
+       part. */
+    if (streamCompareID(&id,&s->last_id) <= 0) return C_ERR;
 
     /* Add the new entry. */
     raxIterator ri;
@@ -191,13 +201,6 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
         lp_bytes = lpBytes(lp);
     }
     raxStop(&ri);
-
-    /* Generate the new entry ID. */
-    streamID id;
-    if (use_id)
-        id = *use_id;
-    else
-        streamNextID(&s->last_id,&id);
 
     /* We have to add the key into the radix tree in lexicographic order,
      * to do so we consider the ID as a single 128 bit number written in
