@@ -4037,13 +4037,6 @@ void unblockClientFromModule(client *c) {
  * in that case the privdata argument is disregarded, because we pass the
  * reply callback the privdata that is set here while blocking.
  *
- * There are some cases where RedisModule_BlockClient() cannot be used:
- *
- * 1. If the client is a Lua script.
- * 2. If the client is executing a MULTI block.
- *
- * In these cases, a call to RedisModule_BlockClient() will **not** block the
- * client, but instead produce a specific error reply.
  */
 RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms, RedisModuleString **keys, int numkeys, void *privdata) {
     client *c = ctx->client;
@@ -4129,6 +4122,14 @@ int moduleTryServeClientBlockedOnKey(client *c, robj *key) {
  *
  *     free_privdata:   called in order to free the private data that is passed
  *                      by RedisModule_UnblockClient() call.
+ *
+ * There are some cases where RedisModule_BlockClient() cannot be used:
+ *
+ * 1. If the client is a Lua script.
+ * 2. If the client is executing a MULTI block.
+ *
+ * In these cases, a call to RedisModule_BlockClient() will **not** block the
+ * client, but instead produce a specific error reply.
  */
 RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms) {
     return moduleBlockClient(ctx,reply_callback,timeout_callback,free_privdata,timeout_ms, NULL,0,NULL);
