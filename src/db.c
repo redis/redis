@@ -1140,7 +1140,7 @@ int keyIsExpired(redisDb *db, robj *key) {
      * only the first time it is accessed and not in the middle of the
      * script execution, making propagation to slaves / AOF consistent.
      * See issue #1525 on Github for more information. */
-    mstime_t now = server.lua_caller ? server.lua_time_start : mstime();
+    mstime_t now = server.lua_caller ? server.lua_time_start : server.cmd_start_mstime;
 
     return now > when;
 }
