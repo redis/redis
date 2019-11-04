@@ -461,6 +461,29 @@ int getFlushCommandFlags(client *c, int *flags) {
     return C_OK;
 }
 
+/* Flushes the whole server data set. */
+void flushAllDataAndResetRDB(int flags) {
+    server.dirty += emptyDb(-1,flags,NULL);
+    if (server.rdb_child_pid != -1) killRDBChild();
+    if (server.saveparamslen > 0) {
+        /* Normally rdbSave() will reset dirty, but we don't want this here
+         * as otherwise FLUSHALL will not be replicated nor put into the AOF. */
+        int saved_dirty = server.dirty;
+        rdbSaveInfo rsi, *rsiptr;
+        rsiptr = rdbPopulateSaveInfo(&rsi);
+        rdbSave(server.rdb_filename,rsiptr);
+        server.dirty = saved_dirty;
+    }
+    server.dirty++;
+#if defined(USE_JEMALLOC)
+    /* jemalloc 5 doesn't release pages back to the OS when there's no traffic.
+     * for large databases, flushdb blocks for long anyway, so a bit more won't
+     * harm and this way the flush and purge will be synchroneus. */
+    if (!(flags & EMPTYDB_ASYNC))
+        jemalloc_purge();
+#endif
+}
+
 /* FLUSHDB [ASYNC]
  *
  * Flushes the currently SELECTed Redis DB. */
@@ -484,28 +507,9 @@ void flushdbCommand(client *c) {
  * Flushes the whole server data set. */
 void flushallCommand(client *c) {
     int flags;
-
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
-    server.dirty += emptyDb(-1,flags,NULL);
+    flushAllDataAndResetRDB(flags);
     addReply(c,shared.ok);
-    if (server.rdb_child_pid != -1) killRDBChild();
-    if (server.saveparamslen > 0) {
-        /* Normally rdbSave() will reset dirty, but we don't want this here
-         * as otherwise FLUSHALL will not be replicated nor put into the AOF. */
-        int saved_dirty = server.dirty;
-        rdbSaveInfo rsi, *rsiptr;
-        rsiptr = rdbPopulateSaveInfo(&rsi);
-        rdbSave(server.rdb_filename,rsiptr);
-        server.dirty = saved_dirty;
-    }
-    server.dirty++;
-#if defined(USE_JEMALLOC)
-    /* jemalloc 5 doesn't release pages back to the OS when there's no traffic.
-     * for large databases, flushdb blocks for long anyway, so a bit more won't
-     * harm and this way the flush and purge will be synchroneus. */
-    if (!(flags & EMPTYDB_ASYNC))
-        jemalloc_purge();
-#endif
 }
 
 /* This command implements DEL and LAZYDEL. */

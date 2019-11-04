@@ -1698,6 +1698,15 @@ int RM_GetClientInfoById(void *ci, uint64_t id) {
     return modulePopulateClientInfoStructure(ci,client,structver);
 }
 
+/* Publish a message to subscribers (see PUBLISH command). */
+int RM_PublishMessage(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleString *message) {
+    UNUSED(ctx);
+    int receivers = pubsubPublishMessage(channel, message);
+    if (server.cluster_enabled)
+        clusterPropagatePublish(channel, message);
+    return receivers;
+}
+
 /* Return the currently selected DB. */
 int RM_GetSelectedDb(RedisModuleCtx *ctx) {
     return ctx->client->db->id;
@@ -1983,6 +1992,28 @@ int RM_SetExpire(RedisModuleKey *key, mstime_t expire) {
         removeExpire(key->db,key->key);
     }
     return REDISMODULE_OK;
+}
+
+/* Performs similar operation to FLUSHALL, and optionally start a new AOF file (if enabled)
+ * If restart_aof is true, you must make sure the command that triggered this call is not
+ * propagated to the AOF file.
+ * When async is set to true, db contents will be freed by a background thread. */
+void RM_ResetDataset(int restart_aof, int async) {
+    if (restart_aof && server.aof_state != AOF_OFF) stopAppendOnly();
+    flushAllDataAndResetRDB(async? EMPTYDB_ASYNC: EMPTYDB_NO_FLAGS);
+    if (server.aof_enabled && restart_aof) restartAOFAfterSYNC();
+}
+
+/* Returns the number of keys in the current db. */
+unsigned long long RM_DbSize(RedisModuleCtx *ctx) {
+    return dictSize(ctx->client->db->dict);
+}
+
+/* Returns a name of a random key, or NULL if current db is empty. */
+RedisModuleString *RM_RandomKey(RedisModuleCtx *ctx) {
+    robj *key = dbRandomKey(ctx->client->db);
+    autoMemoryAdd(ctx,REDISMODULE_AM_STRING,key);
+    return key;
 }
 
 /* --------------------------------------------------------------------------
@@ -6743,6 +6774,9 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(StringTruncate);
     REGISTER_API(SetExpire);
     REGISTER_API(GetExpire);
+    REGISTER_API(ResetDataset);
+    REGISTER_API(DbSize);
+    REGISTER_API(RandomKey);
     REGISTER_API(ZsetAdd);
     REGISTER_API(ZsetIncrby);
     REGISTER_API(ZsetScore);
@@ -6870,6 +6904,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(InfoAddFieldLongLong);
     REGISTER_API(InfoAddFieldULongLong);
     REGISTER_API(GetClientInfoById);
+    REGISTER_API(PublishMessage);
     REGISTER_API(SubscribeToServerEvent);
     REGISTER_API(BlockClientOnKeys);
     REGISTER_API(SignalKeyAsReady);
