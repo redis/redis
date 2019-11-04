@@ -16,4 +16,23 @@ start_server {tags {"modules"}} {
         assert { [string match "*cmdstat_module*" $info] }
     }
 
+    test {test module db commands} {
+        r set x foo
+        set key [r test.randomkey]
+        assert_equal $key "x"
+        assert_equal [r test.dbsize] 1
+        r test.flushall
+        assert_equal [r test.dbsize] 0
+    }
+
+    test {test modle lru api} {
+        r set x foo
+        set lru [r test.getlru x]
+        assert { $lru <= 1 }
+        r test.setlru x 100
+        set idle [r object idletime x]
+        assert { $idle >= 100 }
+        set lru [r test.getlru x]
+        assert { $lru >= 100 }
+    }
 }
