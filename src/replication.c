@@ -533,6 +533,12 @@ int masterTryPartialResynchronization(client *c) {
      * has this state from the previous connection with the master. */
 
     refreshGoodSlavesCount();
+
+    /* Fire the replica change modules event. */
+    moduleFireServerEvent(REDISMODULE_EVENT_REPLICA_CHANGE,
+                          REDISMODULE_SUBEVENT_REPLICA_CHANGE_ONLINE,
+                          NULL);
+
     return C_OK; /* The caller can return, no full resync needed. */
 
 need_full_resync:
@@ -868,6 +874,10 @@ void putSlaveOnline(client *slave) {
         return;
     }
     refreshGoodSlavesCount();
+    /* Fire the replica change modules event. */
+    moduleFireServerEvent(REDISMODULE_EVENT_REPLICA_CHANGE,
+                          REDISMODULE_SUBEVENT_REPLICA_CHANGE_ONLINE,
+                          NULL);
     serverLog(LL_NOTICE,"Synchronization with replica %s succeeded",
         replicationGetSlaveName(slave));
 }
@@ -1542,11 +1552,11 @@ void readSyncBulkPayload(connection *conn) {
          * We'll restore it when the RDB is received. */
         connBlock(conn);
         connRecvTimeout(conn, server.repl_timeout*1000);
-        startLoading(server.repl_transfer_size);
+        startLoading(server.repl_transfer_size, RDBFLAGS_REPLICATION);
 
-        if (rdbLoadRio(&rdb,&rsi,0) != C_OK) {
+        if (rdbLoadRio(&rdb,RDBFLAGS_REPLICATION,&rsi) != C_OK) {
             /* RDB loading failed. */
-            stopLoading();
+            stopLoading(0);
             serverLog(LL_WARNING,
                 "Failed trying to load the MASTER synchronization DB "
                 "from socket");
@@ -1567,7 +1577,7 @@ void readSyncBulkPayload(connection *conn) {
              * gets promoted. */
             return;
         }
-        stopLoading();
+        stopLoading(1);
 
         /* RDB loading succeeded if we reach this point. */
         if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
@@ -1614,7 +1624,7 @@ void readSyncBulkPayload(connection *conn) {
             cancelReplicationHandshake();
             return;
         }
-        if (rdbLoad(server.rdb_filename,&rsi) != C_OK) {
+        if (rdbLoad(server.rdb_filename,&rsi,RDBFLAGS_REPLICATION) != C_OK) {
             serverLog(LL_WARNING,
                 "Failed trying to load the MASTER synchronization "
                 "DB from disk");
@@ -1635,6 +1645,11 @@ void readSyncBulkPayload(connection *conn) {
     replicationCreateMasterClient(server.repl_transfer_s,rsi.repl_stream_db);
     server.repl_state = REPL_STATE_CONNECTED;
     server.repl_down_since = 0;
+
+    /* Fire the master link modules event. */
+    moduleFireServerEvent(REDISMODULE_EVENT_MASTER_LINK_CHANGE,
+                          REDISMODULE_SUBEVENT_MASTER_LINK_UP,
+                          NULL);
 
     /* After a full resynchroniziation we use the replication ID and
      * offset of the master. The secondary ID / offset are cleared since
@@ -2314,12 +2329,31 @@ void replicationSetMaster(char *ip, int port) {
         replicationDiscardCachedMaster();
         replicationCacheMasterUsingMyself();
     }
+
+    /* Fire the role change modules event. */
+    moduleFireServerEvent(REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED,
+                          REDISMODULE_EVENT_REPLROLECHANGED_NOW_REPLICA,
+                          NULL);
+
+    /* Fire the master link modules event. */
+    if (server.repl_state == REPL_STATE_CONNECTED)
+        moduleFireServerEvent(REDISMODULE_EVENT_MASTER_LINK_CHANGE,
+                              REDISMODULE_SUBEVENT_MASTER_LINK_DOWN,
+                              NULL);
+
     server.repl_state = REPL_STATE_CONNECT;
 }
 
 /* Cancel replication, setting the instance as a master itself. */
 void replicationUnsetMaster(void) {
     if (server.masterhost == NULL) return; /* Nothing to do. */
+
+    /* Fire the master link modules event. */
+    if (server.repl_state == REPL_STATE_CONNECTED)
+        moduleFireServerEvent(REDISMODULE_EVENT_MASTER_LINK_CHANGE,
+                              REDISMODULE_SUBEVENT_MASTER_LINK_DOWN,
+                              NULL);
+
     sdsfree(server.masterhost);
     server.masterhost = NULL;
     /* When a slave is turned into a master, the current replication ID
@@ -2348,11 +2382,22 @@ void replicationUnsetMaster(void) {
      * starting from now. Otherwise the backlog will be freed after a
      * failover if slaves do not connect immediately. */
     server.repl_no_slaves_since = server.unixtime;
+
+    /* Fire the role change modules event. */
+    moduleFireServerEvent(REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED,
+                          REDISMODULE_EVENT_REPLROLECHANGED_NOW_MASTER,
+                          NULL);
 }
 
 /* This function is called when the slave lose the connection with the
  * master into an unexpected way. */
 void replicationHandleMasterDisconnection(void) {
+    /* Fire the master link modules event. */
+    if (server.repl_state == REPL_STATE_CONNECTED)
+        moduleFireServerEvent(REDISMODULE_EVENT_MASTER_LINK_CHANGE,
+                              REDISMODULE_SUBEVENT_MASTER_LINK_DOWN,
+                              NULL);
+
     server.master = NULL;
     server.repl_state = REPL_STATE_CONNECT;
     server.repl_down_since = server.unixtime;

@@ -1602,6 +1602,7 @@ ssize_t rdbSaveModulesAux(rio *rdb, int when);
 int moduleAllDatatypesHandleErrors();
 sds modulesCollectInfo(sds info, sds section, int for_crash_report, int sections);
 void moduleFireServerEvent(uint64_t eid, int subid, void *data);
+void processModuleLoadingProgressEvent(int is_aof);
 int moduleTryServeClientBlockedOnKey(client *c, robj *key);
 void moduleUnblockClient(client *c);
 int moduleClientIsBlockedOnKeys(client *c);
@@ -1834,10 +1835,12 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
 void rdbPipeWriteHandlerConnRemoved(struct connection *conn);
 
 /* Generic persistence functions */
-void startLoadingFile(FILE* fp, char* filename);
-void startLoading(size_t size);
+void startLoadingFile(FILE* fp, char* filename, int rdbflags);
+void startLoading(size_t size, int rdbflags);
 void loadingProgress(off_t pos);
-void stopLoading(void);
+void stopLoading(int success);
+void startSaving(int rdbflags);
+void stopSaving(int success);
 
 #define DISK_ERROR_TYPE_AOF 1       /* Don't accept writes: AOF errors. */
 #define DISK_ERROR_TYPE_RDB 2       /* Don't accept writes: RDB errors. */
@@ -1846,7 +1849,6 @@ int writeCommandsDeniedByDiskError(void);
 
 /* RDB persistence */
 #include "rdb.h"
-int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi);
 void killRDBChild(void);
 
 /* AOF persistence */
