@@ -1865,11 +1865,12 @@ int RM_SelectDb(RedisModuleCtx *ctx, int newid) {
 void *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     RedisModuleKey *kp;
     robj *value;
+    int flags = mode & REDISMODULE_OPEN_KEY_NOTOUCH? LOOKUP_NOTOUCH: 0;
 
     if (mode & REDISMODULE_WRITE) {
-        value = lookupKeyWrite(ctx->client->db,keyname);
+        value = lookupKeyWriteWithFlags(ctx->client->db,keyname, flags);
     } else {
-        value = lookupKeyRead(ctx->client->db,keyname);
+        value = lookupKeyReadWithFlags(ctx->client->db,keyname, flags);
         if (value == NULL) {
             return NULL;
         }
@@ -6710,6 +6711,38 @@ size_t moduleCount(void) {
     return dictSize(modules);
 }
 
+/* Set the key LRU/LFU depending on server.maxmemory_policy.
+ * The lru_idle arg is idle time in seconds, and is only relevant if the
+ * eviction policy is LRU based.
+ * The lfu_freq arg is a logarithmic counter that provides an indication of
+ * the access frequencyonly (must be <= 255) and is only relevant if the
+ * eviction policy is LFU based.
+ * Either or both of them may be <0, in that case, nothing is set. */
+/* return value is an indication if the lru field was updated or not. */
+int RM_SetLRUOrLFU(RedisModuleKey *key, long long lfu_freq, long long lru_idle) {
+    if (!key->value)
+        return REDISMODULE_ERR;
+    if (objectSetLRUOrLFU(key->value, lfu_freq, lru_idle, lru_idle>=0 ? LRU_CLOCK() : 0))
+        return REDISMODULE_OK;
+    return REDISMODULE_ERR;
+}
+
+/* Gets the key LRU or LFU (depending on the current eviction policy).
+ * One will be set to the appropiate return value, and the other will be set to -1.
+ * see RedisModule_SetLRUOrLFU for units and ranges.
+ * return value is an indication of success. */
+int RM_GetLRUOrLFU(RedisModuleKey *key, long long *lfu_freq, long long *lru_idle) {
+    *lru_idle = *lfu_freq = -1;
+    if (!key->value)
+        return REDISMODULE_ERR;
+    if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
+        *lfu_freq = LFUDecrAndReturn(key->value);
+    } else {
+        *lru_idle = estimateObjectIdleTime(key->value)/1000;
+    }
+    return REDISMODULE_OK;
+}
+
 /* Register all the APIs we export. Keep this function at the end of the
  * file so that's easy to seek it to add new entries. */
 void moduleRegisterCoreAPI(void) {
@@ -6906,6 +6939,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetClientInfoById);
     REGISTER_API(PublishMessage);
     REGISTER_API(SubscribeToServerEvent);
+    REGISTER_API(SetLRUOrLFU);
+    REGISTER_API(GetLRUOrLFU);
     REGISTER_API(BlockClientOnKeys);
     REGISTER_API(SignalKeyAsReady);
     REGISTER_API(GetBlockedClientReadyKey);

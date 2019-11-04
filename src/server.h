@@ -2085,9 +2085,10 @@ robj *lookupKeyWrite(redisDb *db, robj *key);
 robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply);
 robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply);
 robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags);
+robj *lookupKeyWriteWithFlags(redisDb *db, robj *key, int flags);
 robj *objectCommandLookup(client *c, robj *key);
 robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply);
-void objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
+int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
                        long long lru_clock);
 #define LOOKUP_NONE 0
 #define LOOKUP_NOTOUCH (1<<0)

@@ -151,9 +151,13 @@ robj *lookupKeyRead(redisDb *db, robj *key) {
  *
  * Returns the linked value object if the key exists or NULL if the key
  * does not exist in the specified DB. */
-robj *lookupKeyWrite(redisDb *db, robj *key) {
+robj *lookupKeyWriteWithFlags(redisDb *db, robj *key, int flags) {
     expireIfNeeded(db,key);
-    return lookupKey(db,key,LOOKUP_NONE);
+    return lookupKey(db,key,flags);
+}
+
+robj *lookupKeyWrite(redisDb *db, robj *key) {
+    return lookupKeyWriteWithFlags(db, key, LOOKUP_NONE);
 }
 
 robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply) {
