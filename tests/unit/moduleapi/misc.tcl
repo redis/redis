@@ -16,4 +16,9 @@ start_server {tags {"modules"}} {
         assert { [string match "*cmdstat_module*" $info] }
     }
 
+    test {test long double conversions} {
+        set ld [r test.ld_conversion]
+        assert {[string match $ld "0.00000000000000001"]}
+    }
+
 }
