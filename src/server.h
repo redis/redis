@@ -1603,6 +1603,9 @@ int moduleAllDatatypesHandleErrors();
 sds modulesCollectInfo(sds info, sds section, int for_crash_report, int sections);
 void moduleFireServerEvent(uint64_t eid, int subid, void *data);
 void processModuleLoadingProgressEvent(int is_aof);
+int moduleTryServeClientBlockedOnKey(client *c, robj *key);
+void moduleUnblockClient(client *c);
+int moduleClientIsBlockedOnKeys(client *c);
 
 /* Utils */
 long long ustime(void);
