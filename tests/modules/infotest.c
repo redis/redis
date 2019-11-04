@@ -5,6 +5,7 @@
 void InfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
     RedisModule_InfoAddSection(ctx, "");
     RedisModule_InfoAddFieldLongLong(ctx, "global", -2);
+    RedisModule_InfoAddFieldULongLong(ctx, "uglobal", (unsigned long long)-2);
 
     RedisModule_InfoAddSection(ctx, "Spanish");
     RedisModule_InfoAddFieldCString(ctx, "uno", "one");
@@ -41,7 +42,11 @@ int info_get(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, char field
     field = RedisModule_StringPtrLen(argv[2], NULL);
     RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, section);
     if (field_type=='i') {
-        long long ll = RedisModule_ServerInfoGetFieldNumerical(info, field, &err);
+        long long ll = RedisModule_ServerInfoGetFieldSigned(info, field, &err);
+        if (err==REDISMODULE_OK)
+            RedisModule_ReplyWithLongLong(ctx, ll);
+    } else if (field_type=='u') {
+        unsigned long long ll = (unsigned long long)RedisModule_ServerInfoGetFieldUnsigned(info, field, &err);
         if (err==REDISMODULE_OK)
             RedisModule_ReplyWithLongLong(ctx, ll);
     } else if (field_type=='d') {
@@ -78,6 +83,10 @@ int info_geti(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return info_get(ctx, argv, argc, 'i');
 }
 
+int info_getu(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    return info_get(ctx, argv, argc, 'u');
+}
+
 int info_getd(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return info_get(ctx, argv, argc, 'd');
 }
@@ -95,6 +104,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"info.getc", info_getc,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"info.geti", info_geti,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"info.getu", info_getu,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"info.getd", info_getd,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;

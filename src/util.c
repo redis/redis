@@ -423,6 +423,26 @@ int string2ll(const char *s, size_t slen, long long *value) {
     return 1;
 }
 
+/* Helper function to convert a string to an unsigned long long value.
+ * The function attempts to use the faster string2ll() function inside
+ * Redis: if it fails, strtoull() is used instead. The function returns
+ * 1 if the conversion happened successfully or 0 if the number is
+ * invalid or out of range. */
+int string2ull(const char *s, unsigned long long *value) {
+    long long ll;
+    if (string2ll(s,strlen(s),&ll)) {
+        if (ll < 0) return 0; /* Negative values are out of range. */
+        *value = ll;
+        return 1;
+    }
+    errno = 0;
+    char *endptr = NULL;
+    *value = strtoull(s,&endptr,10);
+    if (errno == EINVAL || errno == ERANGE || !(*s != '\0' && *endptr == '\0'))
+        return 0; /* strtoull() failed. */
+    return 1; /* Conversion done! */
+}
+
 /* Convert a string into a long. Returns 1 if the string could be parsed into a
  * (non-overflowing) long, 0 otherwise. The value will be set to the parsed
  * value when appropriate. */

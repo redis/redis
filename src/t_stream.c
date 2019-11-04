@@ -1070,26 +1070,6 @@ robj *streamTypeLookupWriteOrCreate(client *c, robj *key) {
     return o;
 }
 
-/* Helper function to convert a string to an unsigned long long value.
- * The function attempts to use the faster string2ll() function inside
- * Redis: if it fails, strtoull() is used instead. The function returns
- * 1 if the conversion happened successfully or 0 if the number is
- * invalid or out of range. */
-int string2ull(const char *s, unsigned long long *value) {
-    long long ll;
-    if (string2ll(s,strlen(s),&ll)) {
-        if (ll < 0) return 0; /* Negative values are out of range. */
-        *value = ll;
-        return 1;
-    }
-    errno = 0;
-    char *endptr = NULL;
-    *value = strtoull(s,&endptr,10);
-    if (errno == EINVAL || errno == ERANGE || !(*s != '\0' && *endptr == '\0'))
-        return 0; /* strtoull() failed. */
-    return 1; /* Conversion done! */
-}
-
 /* Parse a stream ID in the format given by clients to Redis, that is
  * <ms>-<seq>, and converts it into a streamID structure. If
  * the specified ID is invalid C_ERR is returned and an error is reported

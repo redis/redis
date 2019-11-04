@@ -17,6 +17,10 @@ start_server {tags {"modules"}} {
         assert_equal [r info.geti stats expired_keys] 0
         assert_equal [r info.getd stats expired_stale_perc] 0
 
+        # check signed and unsigned
+        assert_equal [r info.geti infotest infotest_global] -2
+        assert_equal [r info.getu infotest infotest_uglobal] -2
+
         # the above are always 0, try module info that is non-zero
         assert_equal [r info.geti infotest_italian infotest_due] 2
         set tre [r info.getd infotest_italian infotest_tre]

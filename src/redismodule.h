@@ -507,7 +507,8 @@ RedisModuleServerInfoData *REDISMODULE_API_FUNC(RedisModule_GetServerInfo)(Redis
 void REDISMODULE_API_FUNC(RedisModule_FreeServerInfo)(RedisModuleCtx *ctx, RedisModuleServerInfoData *data);
 RedisModuleString *REDISMODULE_API_FUNC(RedisModule_ServerInfoGetField)(RedisModuleCtx *ctx, RedisModuleServerInfoData *data, const char* field);
 const char *REDISMODULE_API_FUNC(RedisModule_ServerInfoGetFieldC)(RedisModuleServerInfoData *data, const char* field);
-long long REDISMODULE_API_FUNC(RedisModule_ServerInfoGetFieldNumerical)(RedisModuleServerInfoData *data, const char* field, int *out_err);
+long long REDISMODULE_API_FUNC(RedisModule_ServerInfoGetFieldSigned)(RedisModuleServerInfoData *data, const char* field, int *out_err);
+unsigned long long REDISMODULE_API_FUNC(RedisModule_ServerInfoGetFieldUnsigned)(RedisModuleServerInfoData *data, const char* field, int *out_err);
 double REDISMODULE_API_FUNC(RedisModule_ServerInfoGetFieldDouble)(RedisModuleServerInfoData *data, const char* field, int *out_err);
 int REDISMODULE_API_FUNC(RedisModule_SubscribeToServerEvent)(RedisModuleCtx *ctx, RedisModuleEvent event, RedisModuleEventCallback callback);
 RedisModuleBlockedClient *REDISMODULE_API_FUNC(RedisModule_BlockClientOnKeys)(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms, RedisModuleString **keys, int numkeys, void *privdata);
@@ -715,7 +716,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(FreeServerInfo);
     REDISMODULE_GET_API(ServerInfoGetField);
     REDISMODULE_GET_API(ServerInfoGetFieldC);
-    REDISMODULE_GET_API(ServerInfoGetFieldNumerical);
+    REDISMODULE_GET_API(ServerInfoGetFieldSigned);
+    REDISMODULE_GET_API(ServerInfoGetFieldUnsigned);
     REDISMODULE_GET_API(ServerInfoGetFieldDouble);
     REDISMODULE_GET_API(GetClientInfoById);
     REDISMODULE_GET_API(SubscribeToServerEvent);

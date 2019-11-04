@@ -5497,7 +5497,8 @@ RedisModuleServerInfoData *RM_GetServerInfo(RedisModuleCtx *ctx, const char *sec
         unsigned char *key = (unsigned char*)line;
         size_t keylen = (intptr_t)sep-(intptr_t)line;
         sds val = sdsnewlen(sep+1,sdslen(line)-((intptr_t)sep-(intptr_t)line)-1);
-        raxTryInsert(d->rax,key,keylen,val,NULL);
+        if (!raxTryInsert(d->rax,key,keylen,val,NULL))
+            sdsfree(val);
     }
     sdsfree(info);
     sdsfreesplitres(lines,totlines);
@@ -5542,9 +5543,9 @@ const char *RM_ServerInfoGetFieldC(RedisModuleServerInfoData *data, const char* 
 }
 
 /* Get the value of a field from data collected with RM_GetServerInfo(). If the
- * field is not found, or is not numerical, return value will be 0, and the
- * optional out_err argument will be set to REDISMODULE_ERR. */
-long long RM_ServerInfoGetFieldNumerical(RedisModuleServerInfoData *data, const char* field, int *out_err) {
+ * field is not found, or is not numerical or out of range, return value will be
+ * 0, and the optional out_err argument will be set to REDISMODULE_ERR. */
+long long RM_ServerInfoGetFieldSigned(RedisModuleServerInfoData *data, const char* field, int *out_err) {
     long long ll;
     sds val = raxFind(data->rax, (unsigned char *)field, strlen(field));
     if (val == raxNotFound) {
@@ -5552,6 +5553,24 @@ long long RM_ServerInfoGetFieldNumerical(RedisModuleServerInfoData *data, const 
         return 0;
     }
     if (!string2ll(val,sdslen(val),&ll)) {
+        if (out_err) *out_err = REDISMODULE_ERR;
+        return 0;
+    }
+    if (out_err) *out_err = REDISMODULE_OK;
+    return ll;
+}
+
+/* Get the value of a field from data collected with RM_GetServerInfo(). If the
+ * field is not found, or is not numerical or out of range, return value will be
+ * 0, and the optional out_err argument will be set to REDISMODULE_ERR. */
+unsigned long long RM_ServerInfoGetFieldUnsigned(RedisModuleServerInfoData *data, const char* field, int *out_err) {
+    unsigned long long ll;
+    sds val = raxFind(data->rax, (unsigned char *)field, strlen(field));
+    if (val == raxNotFound) {
+        if (out_err) *out_err = REDISMODULE_ERR;
+        return 0;
+    }
+    if (!string2ull(val,&ll)) {
         if (out_err) *out_err = REDISMODULE_ERR;
         return 0;
     }
@@ -6868,7 +6887,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(FreeServerInfo);
     REGISTER_API(ServerInfoGetField);
     REGISTER_API(ServerInfoGetFieldC);
-    REGISTER_API(ServerInfoGetFieldNumerical);
+    REGISTER_API(ServerInfoGetFieldSigned);
+    REGISTER_API(ServerInfoGetFieldUnsigned);
     REGISTER_API(ServerInfoGetFieldDouble);
     REGISTER_API(GetClientInfoById);
     REGISTER_API(SubscribeToServerEvent);
