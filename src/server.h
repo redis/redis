@@ -50,6 +50,7 @@
 #include <signal.h>
 
 typedef long long mstime_t; /* millisecond time type. */
+typedef long long ustime_t; /* microsecond time type. */
 
 #include "ae.h"      /* Event driven programming library */
 #include "sds.h"     /* Dynamic safe strings */
@@ -1400,8 +1401,8 @@ struct redisServer {
     _Atomic time_t unixtime;    /* Unix time sampled every cron cycle. */
     time_t timezone;            /* Cached timezone. As set by tzset(). */
     int daylight_active;        /* Currently in daylight saving time. */
-    long long mstime;           /* 'unixtime' with milliseconds resolution. */
-    mstime_t cmd_start_mstime;
+    mstime_t mstime;            /* 'unixtime' in milliseconds. */
+    ustime_t ustime;            /* 'unixtime' in microseconds. */
     /* Pubsub */
     dict *pubsub_channels;  /* Map channels to list of subscribed clients */
     list *pubsub_patterns;  /* A list of pubsub_patterns */
@@ -1997,7 +1998,7 @@ void populateCommandTable(void);
 void resetCommandTableStats(void);
 void adjustOpenFilesLimit(void);
 void closeListeningSockets(int unlink_unix_socket);
-void updateCachedTime(void);
+void updateCachedTime(int update_daylight_info);
 void resetServerStats(void);
 void activeDefragCycle(void);
 unsigned int getLRUClock(void);
