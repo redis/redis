@@ -151,4 +151,10 @@ start_server {tags {"incr"}} {
         catch {r incrbyfloat foo 1} err
         format $err
     } {ERR*valid*}
+
+    test {No negative zero} {
+        r incrbyfloat foo [expr double(1)/41]
+        r incrbyfloat foo [expr double(-1)/41]
+        r get foo
+    } {0}
 }
