@@ -1139,8 +1139,12 @@ int keyIsExpired(redisDb *db, robj *key) {
      * blocked to when the Lua script started. This way a key can expire
      * only the first time it is accessed and not in the middle of the
      * script execution, making propagation to slaves / AOF consistent.
-     * See issue #1525 on Github for more information. */
-    mstime_t now = server.lua_caller ? server.lua_time_start : server.cmd_start_mstime;
+     * See issue #1525 on Github for more information.
+     *
+     * Outside the Lua script execution, we use the cached time server.mstime
+     * that is updated before commands executions in call(). */
+    mstime_t now = server.lua_caller ? server.lua_time_start :
+                                       server.mstime;
 
     return now > when;
 }

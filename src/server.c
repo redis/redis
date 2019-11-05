@@ -1054,19 +1054,30 @@ void databasesCron(void) {
 /* We take a cached value of the unix time in the global state because with
  * virtual memory and aging there is to store the current time in objects at
  * every object access, and accuracy is not needed. To access a global var is
- * a lot faster than calling time(NULL) */
-void updateCachedTime(void) {
-    time_t unixtime = time(NULL);
+ * a lot faster than calling time(NULL).
+ *
+ * This function should be fast because it is called at every command execution
+ * in call(), so it is possible to decide if to update the daylight saving
+ * info or not using the 'update_daylight_info' argument. Normally we update
+ * such info only when calling this function from serverCron() but not when
+ * calling it from call(). */
+void updateCachedTime(int update_daylight_info) {
+    server.ustime = ustime();
+    server.mstime = server.ustime / 1000;
+    time_t unixtime = server.mstime / 1000;
     atomicSet(server.unixtime,unixtime);
-    server.mstime = mstime();
 
-    /* To get information about daylight saving time, we need to call localtime_r
-     * and cache the result. However calling localtime_r in this context is safe
-     * since we will never fork() while here, in the main thread. The logging
-     * function will call a thread safe version of localtime that has no locks. */
-    struct tm tm;
-    localtime_r(&server.unixtime,&tm);
-    server.daylight_active = tm.tm_isdst;
+    /* To get information about daylight saving time, we need to call
+     * localtime_r and cache the result. However calling localtime_r in this
+     * context is safe since we will never fork() while here, in the main
+     * thread. The logging function will call a thread safe version of
+     * localtime that has no locks. */
+    if (update_daylight_info) {
+        struct tm tm;
+        time_t ut = server.unixtime;
+        localtime_r(&ut,&tm);
+        server.daylight_active = tm.tm_isdst;
+    }
 }
 
 /* This is our timer interrupt, called server.hz times per second.
@@ -1099,7 +1110,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     if (server.watchdog_period) watchdogScheduleSignal(server.watchdog_period);
 
     /* Update the time cache. */
-    updateCachedTime();
+    updateCachedTime(1);
 
     server.hz = server.config_hz;
     /* Adapt the server.hz value to the number of configured clients. If we have
@@ -1523,7 +1534,7 @@ void initServerConfig(void) {
     pthread_mutex_init(&server.lruclock_mutex,NULL);
     pthread_mutex_init(&server.unixtime_mutex,NULL);
 
-    updateCachedTime();
+    updateCachedTime(1);
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';
     changeReplicationId();
@@ -2414,7 +2425,8 @@ void preventCommandReplication(client *c) {
  *
  */
 void call(client *c, int flags) {
-    long long dirty, start, duration;
+    long long dirty;
+    ustime_t start, duration;
     int client_old_flags = c->flags;
     struct redisCommand *real_cmd = c->cmd;
 
@@ -2435,7 +2447,8 @@ void call(client *c, int flags) {
 
     /* Call the command. */
     dirty = server.dirty;
-    start = ustime();
+    updateCachedTime(0);
+    start = server.ustime;
     c->cmd->proc(c);
     duration = ustime()-start;
     dirty = server.dirty-dirty;
@@ -2730,7 +2743,6 @@ int processCommand(client *c) {
         queueMultiCommand(c);
         addReply(c,shared.queued);
     } else {
-        server.cmd_start_mstime = mstime();
         call(c,CMD_CALL_FULL);
         c->woff = server.master_repl_offset;
         if (listLength(server.ready_keys))
