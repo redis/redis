@@ -471,7 +471,8 @@ int moduleDelKeyIfEmpty(RedisModuleKey *key) {
     case OBJ_LIST: isempty = listTypeLength(o) == 0; break;
     case OBJ_SET: isempty = setTypeSize(o) == 0; break;
     case OBJ_ZSET: isempty = zsetLength(o) == 0; break;
-    case OBJ_HASH : isempty = hashTypeLength(o) == 0; break;
+    case OBJ_HASH: isempty = hashTypeLength(o) == 0; break;
+    case OBJ_STREAM: isempty = streamLength(o) == 0; break;
     default: isempty = 0;
     }
 
@@ -1684,6 +1685,7 @@ int RM_KeyType(RedisModuleKey *key) {
     case OBJ_ZSET: return REDISMODULE_KEYTYPE_ZSET;
     case OBJ_HASH: return REDISMODULE_KEYTYPE_HASH;
     case OBJ_MODULE: return REDISMODULE_KEYTYPE_MODULE;
+    /* case OBJ_STREAM: return REDISMODULE_KEYTYPE_STREAM; - don't wanna add new API to 5.0 */
     default: return 0;
     }
 }
@@ -1701,6 +1703,7 @@ size_t RM_ValueLength(RedisModuleKey *key) {
     case OBJ_SET: return setTypeSize(key->value);
     case OBJ_ZSET: return zsetLength(key->value);
     case OBJ_HASH: return hashTypeLength(key->value);
+    case OBJ_STREAM: return streamLength(key->value);
     default: return 0;
     }
 }
