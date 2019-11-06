@@ -18,7 +18,8 @@ TEST_MODULES = \
     infotest.so \
     propagate.so \
     misc.so \
-    hooks.so
+    hooks.so \
+    blockonkeys.so
 
 .PHONY: all
 
