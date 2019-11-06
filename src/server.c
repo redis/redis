@@ -2038,6 +2038,7 @@ void initServer(void) {
     server.hz = server.config_hz;
     server.pid = getpid();
     server.current_client = NULL;
+    server.call_depth = 0;
     server.clients = listCreate();
     server.clients_index = raxNew();
     server.clients_to_close = listCreate();
@@ -2430,6 +2431,8 @@ void call(client *c, int flags) {
     int client_old_flags = c->flags;
     struct redisCommand *real_cmd = c->cmd;
 
+    server.call_depth++;
+
     /* Sent the command to clients in MONITOR mode, only if the commands are
      * not generated from reading an AOF. */
     if (listLength(server.monitors) &&
@@ -2544,6 +2547,7 @@ void call(client *c, int flags) {
         redisOpArrayFree(&server.also_propagate);
     }
     server.also_propagate = prev_also_propagate;
+    server.call_depth--;
     server.stat_numcommands++;
 }
 
