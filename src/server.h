@@ -1910,7 +1910,7 @@ void addReplyCommandCategories(client *c, struct redisCommand *cmd);
 
 /* Output flags. */
 #define ZADD_NOP (1<<3)     /* Operation not performed because of conditionals.*/
-#define ZADD_NAN (1<<4)     /* Only touch elements already existing. */
+#define ZADD_NAN (1<<4)     /* The resulting score is not a number. */
 #define ZADD_ADDED (1<<5)   /* The element was new and was added. */
 #define ZADD_UPDATED (1<<6) /* The element already existed, score updated. */
 

@@ -174,6 +174,9 @@ typedef uint64_t RedisModuleTimerID;
  * RedisModule_CloseKey, and the module needs to do that when manually when keys
  * are modified from the user's sperspective, to invalidate WATCH. */
 #define REDISMODULE_OPTION_NO_IMPLICIT_SIGNAL_MODIFIED (1<<1)
+/* When set Redis will notify all default keyspace events when using the native
+ * type API functions (e.g. RM_HashSet will notify "hset"). */
+#define REDISMODULE_OPTION_NOTIFY_NATIVE_KEYSPACE_EVENTS (1<<2)
 
 /* Server events definitions. */
 #define REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED 0
