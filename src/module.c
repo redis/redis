@@ -350,7 +350,7 @@ unsigned long long ModulesInHooks = 0; /* Total number of modules in hooks
                                           callbacks right now. */
 
 /* Data structures related to the redis module users */
-typedef void (*RedisModuleUserChangedFunc) (void *privdata);
+typedef void (*RedisModuleUserChangedFunc) (RedisModuleCtx ctx, void *privdata);
 
 typedef struct RedisModuleUser {
     user *user; /* Reference to the real redis user */
@@ -358,10 +358,12 @@ typedef struct RedisModuleUser {
 
 typedef struct RedisModuleAuthCtx {
     RedisModuleUserChangedFunc callback; /* Callback when user is changed or 
-                                         /* deleted. */
+                                          * deleted. */
     void *privdata;                      /* Private data for the callback */
-    client *authenticated_client;        /* A reference to client that was
-                                         /* authenticated */
+    client *authenticated_client;        /* A reference to the client that was
+                                          * authenticated */
+    RedisModule *module;                 /* Reference to the module that
+                                          * authenticated the client */
 } RedisModuleAuthCtx;
 
 
@@ -5140,14 +5142,48 @@ int RM_GetTimerInfo(RedisModuleCtx *ctx, RedisModuleTimerID id, uint64_t *remain
 void moduleNotifyUserChanged(client *c) {
     RedisModuleAuthCtx *auth_ctx = (RedisModuleAuthCtx *) c->auth_ctx;
     if (auth_ctx) {
-        auth_ctx->callback(auth_ctx->privdata);
+        RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+        ctx.module = auth_ctx->module;
+        ctx.client = moduleFreeContextReusedClient;
+
+        auth_ctx->callback(ctx, auth_ctx->privdata);
+
         zfree(auth_ctx);
+        c->auth_ctx = NULL;
+        moduleFreeContext(&ctx);
+    }
+}
+
+
+void revokeClientAuthentication(client *c) {
+    /* Fire the client changed handler now in case we are unloading the module
+     * and need to cleanup.  */
+    moduleNotifyUserChanged(c);
+
+    c->user = DefaultUser;
+    c->authenticated = 0;
+    freeClientAsync(c);
+}
+
+/* Cleanup all clients with an auth_ctx to prevent leaking. */
+void moduleFreeAuthenticatedClients(RedisModule *module) {
+    listIter li;
+    listNode *ln;
+    listRewind(server.clients,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        client *c = listNodeValue(ln);
+        if (!c->auth_ctx) continue;
+
+        RedisModuleAuthCtx *auth_ctx = (RedisModuleAuthCtx *) c->auth_ctx;
+        if (auth_ctx->module == module) { 
+            revokeClientAuthentication(c);
+        }
     }
 }
 
 static int authenticateClientWithUser(RedisModuleCtx *ctx, user *user, RedisModuleAuthCtx *auth_ctx) {
     if (auth_ctx && auth_ctx->authenticated_client) {
-        /* Prevent basic misuse of Auth contexts */
+        /* Prevent basic misuse of the auth context */
         return REDISMODULE_ERR;
     }
     
@@ -5163,6 +5199,7 @@ static int authenticateClientWithUser(RedisModuleCtx *ctx, user *user, RedisModu
     if (auth_ctx) {
         ctx->client->auth_ctx = auth_ctx;
         auth_ctx->authenticated_client = ctx->client;
+        auth_ctx->module = ctx->module;
     }
 
     return REDISMODULE_OK;
@@ -5202,14 +5239,14 @@ int RM_SetModuleUserACL(RedisModuleUser *user, const char* acl) {
 
 /* Authenticate the current contexts user with the provided module user. 
  * Throws an error if the user is disabled or the AuthCtx is misued */
-int RM_AuthenticateClientWithUser(RedisModuleCtx *ctx, RedisModuleUser *module_user, RedisModuleAuthCtx *auth_ctx) {
+int RM_AuthClientWithUser(RedisModuleCtx *ctx, RedisModuleUser *module_user, RedisModuleAuthCtx *auth_ctx) {
     return authenticateClientWithUser(ctx, module_user->user, auth_ctx);
 }
 
 /* Authenticate the current contexts user with the provided redis acl user. 
  * Throws an error if the user is disabled, the user doesn't exit,
  * or the AuthCtx is misused. */
-int RM_AuthenticateClientWithACLUser(RedisModuleCtx *ctx, const char *name, size_t len, RedisModuleAuthCtx *auth_ctx) {
+int RM_AuthClientWithACLUser(RedisModuleCtx *ctx, const char *name, size_t len, RedisModuleAuthCtx *auth_ctx) {
     user *acl_user = ACLGetUserByName(name, len);
 
     if (!acl_user) {
@@ -5231,8 +5268,7 @@ RedisModuleAuthCtx *RM_CreateAuthCtx(RedisModuleUserChangedFunc callback, void *
 /* Revokes the authentication that was granted during the specified
  * AuthCtx. The method is not thread safe. */
 void RM_RevokeAuthentication(RedisModuleAuthCtx *ctx) {
-    /* Revoking authentication frees the client today. */
-    freeClientAsync(ctx->authenticated_client);
+    revokeClientAuthentication(ctx->authenticated_client);
 }
 
 /* --------------------------------------------------------------------------
@@ -6693,7 +6729,7 @@ int moduleUnload(sds name) {
     moduleUnregisterSharedAPI(module);
     moduleUnregisterUsedAPI(module);
     moduleUnregisterFilters(module);
-
+    moduleFreeAuthenticatedClients(module);
     /* Remove any notification subscribers this module might have */
     moduleUnsubscribeNotifications(module);
     moduleUnsubscribeAllServerEvents(module);
@@ -7104,6 +7140,6 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(FreeModuleUser);
     REGISTER_API(RevokeAuthentication);
     REGISTER_API(CreateAuthCtx);
-    REGISTER_API(AuthenticateClientWithACLUser);
-    REGISTER_API(AuthenticateClientWithUser);
+    REGISTER_API(AuthClientWithACLUser);
+    REGISTER_API(AuthClientWithUser);
 }

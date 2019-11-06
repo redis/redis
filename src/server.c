@@ -3425,7 +3425,7 @@ int processCommand(client *c) {
                            DefaultUser->flags & USER_FLAG_DISABLED) &&
                         !c->authenticated;
     if (auth_required) {
-        /* AUTH and HELLO and no auth modules are valid even in
+        /* AUTH, HELLO, and no-auth modules are valid even in
          * non-authenticated state. */
         if (!(c->cmd->flags & CMD_NO_AUTH)) {
             flagTransaction(c);

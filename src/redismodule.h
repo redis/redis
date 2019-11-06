@@ -411,7 +411,7 @@ typedef void (*RedisModuleTimerProc)(RedisModuleCtx *ctx, void *data);
 typedef void (*RedisModuleCommandFilterFunc) (RedisModuleCommandFilterCtx *filter);
 typedef void (*RedisModuleForkDoneHandler) (int exitcode, int bysignal, void *user_data);
 typedef void (*RedisModuleInfoFunc)(RedisModuleInfoCtx *ctx, int for_crash_report);
-typedef void (*RedisModuleUserChangedFunc)(void *privdata);
+typedef void (*RedisModuleUserChangedFunc)(RedisModuleCtx *ctx, void *privdata);
 
 #define REDISMODULE_TYPE_METHOD_VERSION 2
 typedef struct RedisModuleTypeMethods {
@@ -639,8 +639,8 @@ int REDISMODULE_API_FUNC(RedisModule_KillForkChild)(int child_pid);
 RedisModuleUser *REDISMODULE_API_FUNC(RedisModule_CreateModuleUser)(const char *name);
 void REDISMODULE_API_FUNC(RedisModule_FreeModuleUser)(RedisModuleUser *user);
 int REDISMODULE_API_FUNC(RedisModule_SetModuleUserACL)(RedisModuleUser *user, const char* acl);
-int REDISMODULE_API_FUNC(RedisModule_AuthenticateClientWithACLUser)(RedisModuleCtx *ctx, const char* name, size_t len, RedisModuleAuthCtx *auth_ctx);
-int REDISMODULE_API_FUNC(RedisModule_AuthenticateClientWithUser)(RedisModuleCtx *ctx, RedisModuleUser *module_user, RedisModuleAuthCtx *auth_ctx);
+int REDISMODULE_API_FUNC(RedisModule_AuthClientWithACLUser)(RedisModuleCtx *ctx, const char* name, size_t len, RedisModuleAuthCtx *auth_ctx);
+int REDISMODULE_API_FUNC(RedisModule_AuthClientWithUser)(RedisModuleCtx *ctx, RedisModuleUser *module_user, RedisModuleAuthCtx *auth_ctx);
 void REDISMODULE_API_FUNC(RedisModule_RevokeAuthentication)(RedisModuleAuthCtx *ctx);
 RedisModuleAuthCtx *REDISMODULE_API_FUNC(RedisModule_CreateAuthCtx)(RedisModuleUserChangedFunc callback, void *privdata);
 #endif
@@ -858,8 +858,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(SetModuleUserACL);
     REDISMODULE_GET_API(RevokeAuthentication);
     REDISMODULE_GET_API(CreateAuthCtx);
-    REDISMODULE_GET_API(AuthenticateClientWithACLUser);
-    REDISMODULE_GET_API(AuthenticateClientWithUser);
+    REDISMODULE_GET_API(AuthClientWithACLUser);
+    REDISMODULE_GET_API(AuthClientWithUser);
 #endif
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;

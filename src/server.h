@@ -893,7 +893,7 @@ typedef struct client {
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
     listNode *client_list_node; /* list node in client list */
-    void *auth_ctx;         /* Structured used to track module authentication */
+    void *auth_ctx;         /* Opaque structure to track module auth */
 
     /* If this client is in tracking mode and this field is non zero,
      * invalidation messages for keys fetched by this client will be send to
