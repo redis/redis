@@ -82,6 +82,12 @@ void streamIncrID(streamID *id) {
     }
 }
 
+/* Return the length of a stream. */
+unsigned long streamLength(const robj *subject) {
+    stream *s = subject->ptr;
+    return s->length;
+}
+
 /* Generate the next stream item ID given the previous one. If the current
  * milliseconds Unix time is greater than the previous one, just use this
  * as time part and start with sequence part of zero. Otherwise we use the
