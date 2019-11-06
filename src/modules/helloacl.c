@@ -92,7 +92,11 @@ int AuthGlobalCommand_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv
     }
 
     RedisModuleAuthCtx *auth_ctx = RedisModule_CreateAuthCtx(HelloACL_UserChanged, NULL);
-    RedisModule_AuthClientWithUser(ctx, global, auth_ctx);
+    if (RedisModule_AuthClientWithUser(ctx, global, auth_ctx) == 
+            REDISMODULE_ERR) {
+        return RedisModule_ReplyWithError(ctx, "Couldn't authenticate client");    
+    }
+    
     global_auth_ctx = auth_ctx;
 
     return RedisModule_ReplyWithSimpleString(ctx, "OK");

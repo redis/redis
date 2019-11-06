@@ -5216,7 +5216,7 @@ RedisModuleUser *RM_CreateModuleUser(const char *name) {
     RedisModuleUser *new_user = zmalloc(sizeof(RedisModuleUser));
     new_user->user = ACLCreateUnlinkedUser();
 
-    /* Free the previous temporarily assigned name to assign the new one */
+    /* Free the temporarily assigned name to assign the new one */
     sdsfree(new_user->user->name);
     new_user->user->name = sdsnew(name);
     return new_user;
@@ -5262,6 +5262,8 @@ RedisModuleAuthCtx *RM_CreateAuthCtx(RedisModuleUserChangedFunc callback, void *
     RedisModuleAuthCtx *auth_ctx = zmalloc(sizeof(RedisModuleAuthCtx));
     auth_ctx->callback = callback;
     auth_ctx->privdata = privdata;
+    auth_ctx->module = NULL;
+    auth_ctx->authenticated_client = NULL;
     return auth_ctx;
 }
 
