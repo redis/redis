@@ -5903,7 +5903,7 @@ size_t RM_MallocSize(void* ptr){
  * Return the a number between 0 to 1 indicating
  * the amount of memory currently used.
  * 0 - no memory limit
- * 100 and above, memory limit reached.
+ * 1 and above, memory limit reached.
  */
 float RM_GetUsedMemoryRatio(){
     float level;
