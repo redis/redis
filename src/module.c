@@ -5905,10 +5905,10 @@ size_t RM_MallocSize(void* ptr){
  * 0 - no memory limit
  * 100 and above, memory limit reached.
  */
-float RM_GetUsedMemoryPercentage(){
+float RM_GetUsedMemoryRatio(){
     float level;
     getMaxmemoryState(NULL, NULL, NULL, &level);
-    return level * 100;
+    return level;
 }
 
 /* --------------------------------------------------------------------------
@@ -6991,6 +6991,6 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(BlockClientOnKeys);
     REGISTER_API(SignalKeyAsReady);
     REGISTER_API(GetBlockedClientReadyKey);
-    REGISTER_API(GetUsedMemoryPercentage);
+    REGISTER_API(GetUsedMemoryRatio);
     REGISTER_API(MallocSize);
 }
