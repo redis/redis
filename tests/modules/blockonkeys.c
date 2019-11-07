@@ -4,12 +4,13 @@
 #include <string.h>
 #include <assert.h>
 #include <unistd.h>
+#include <stdint.h>
 
 #define LIST_SIZE 1024
 
 typedef struct {
-    long long list[LIST_SIZE];
-    long long length;
+    int64_t list[LIST_SIZE];
+    int64_t length;
 } fsl_t; /* Fixed-size list */
 
 static RedisModuleType *fsltype = NULL;
@@ -33,7 +34,7 @@ void *fsl_rdb_load(RedisModuleIO *rdb, int encver) {
     }
     fsl_t *fsl = fsl_type_create();
     fsl->length = RedisModule_LoadUnsigned(rdb);
-    for (long long i = 0; i < fsl->length; i++)
+    for (int64_t i = 0; i < fsl->length; i++)
         fsl->list[i] = RedisModule_LoadSigned(rdb);
     return fsl;
 }
@@ -41,13 +42,13 @@ void *fsl_rdb_load(RedisModuleIO *rdb, int encver) {
 void fsl_rdb_save(RedisModuleIO *rdb, void *value) {
     fsl_t *fsl = value;
     RedisModule_SaveUnsigned(rdb,fsl->length);
-    for (long long i = 0; i < fsl->length; i++)
+    for (int64_t i = 0; i < fsl->length; i++)
         RedisModule_SaveSigned(rdb, fsl->list[i]);
 }
 
 void fsl_aofrw(RedisModuleIO *aof, RedisModuleString *key, void *value) {
     fsl_t *fsl = value;
-    for (long long i = 0; i < fsl->length; i++)
+    for (int64_t i = 0; i < fsl->length; i++)
         RedisModule_EmitAOF(aof, "FSL.PUSH","sl", key, fsl->list[i]);
 }
 
@@ -94,7 +95,7 @@ int fsl_push(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 3)
         return RedisModule_WrongArity(ctx);
 
-    long long ele;
+    int64_t ele;
     if (RedisModule_StringToLongLong(argv[2],&ele) != REDISMODULE_OK)
         return RedisModule_ReplyWithError(ctx,"ERR invalid integer");
 
@@ -147,7 +148,7 @@ int fsl_bpop2(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 3)
         return RedisModule_WrongArity(ctx);
 
-    long long timeout;
+    int64_t timeout;
     if (RedisModule_StringToLongLong(argv[2],&timeout) != REDISMODULE_OK || timeout < 0)
         return RedisModule_ReplyWithError(ctx,"ERR invalid timeout");
 
@@ -172,7 +173,7 @@ int bpopgt_reply_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
     RedisModuleString *keyname = RedisModule_GetBlockedClientReadyKey(ctx);
-    long long gt = (long long)RedisModule_GetBlockedClientPrivateData(ctx);
+    int64_t gt = (int64_t)RedisModule_GetBlockedClientPrivateData(ctx);
 
     fsl_t *fsl;
     if (!get_fsl(ctx, keyname, REDISMODULE_READ, 0, &fsl, 0))
@@ -204,11 +205,11 @@ int fsl_bpopgt(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 4)
         return RedisModule_WrongArity(ctx);
 
-    long long gt;
+    int64_t gt;
     if (RedisModule_StringToLongLong(argv[2],&gt) != REDISMODULE_OK)
         return RedisModule_ReplyWithError(ctx,"ERR invalid integer");
 
-    long long timeout;
+    int64_t timeout;
     if (RedisModule_StringToLongLong(argv[3],&timeout) != REDISMODULE_OK || timeout < 0)
         return RedisModule_ReplyWithError(ctx,"ERR invalid timeout");
 
