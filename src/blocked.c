@@ -262,6 +262,9 @@ void handleClientsBlockedOnKeys(void) {
              * we can safely call signalKeyAsReady() against this key. */
             dictDelete(rl->db->ready_keys,rl->key);
 
+            server.call_depth++;
+            updateCachedTime(0);
+
             /* Serve clients blocked on list key. */
             robj *o = lookupKeyWrite(rl->db,rl->key);
             if (o != NULL && o->type == OBJ_LIST) {
@@ -457,6 +460,8 @@ void handleClientsBlockedOnKeys(void) {
                     }
                 }
             }
+
+            server.call_depth++;
 
             /* Free this item. */
             decrRefCount(rl->key);
