@@ -18,8 +18,11 @@ void *testrdb_type_load(RedisModuleIO *rdb, int encver) {
     RedisModuleString *str = RedisModule_LoadString(rdb);
     float f = RedisModule_LoadFloat(rdb);
     long double ld = RedisModule_LoadLongDouble(rdb);
-    if (RedisModule_IsIOError(rdb))
+    if (RedisModule_IsIOError(rdb)) {
+        RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
+        RedisModule_FreeString(ctx, str);
         return NULL;
+    }
     /* Using the values only after checking for io errors. */
     assert(count==1);
     assert(encver==1);
