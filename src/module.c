@@ -6736,35 +6736,53 @@ size_t moduleCount(void) {
     return dictSize(modules);
 }
 
-/* Set the key LRU/LFU depending on server.maxmemory_policy.
- * The lru_idle arg is idle time in seconds, and is only relevant if the
- * eviction policy is LRU based.
- * The lfu_freq arg is a logarithmic counter that provides an indication of
- * the access frequencyonly (must be <= 255) and is only relevant if the
- * eviction policy is LFU based.
- * Either or both of them may be <0, in that case, nothing is set. */
-/* return value is an indication if the lru field was updated or not. */
-int RM_SetLRUOrLFU(RedisModuleKey *key, long long lfu_freq, long long lru_idle) {
+/* Set the key last access time for LRU based eviction. not relevent if the
+ * servers's maxmemory policy is LFU based. Value is idle time in milliseconds.
+ * returns REDISMODULE_OK if the LRU was updated, REDISMODULE_ERR otherwise. */
+int RM_SetLRU(RedisModuleKey *key, mstime_t lru_idle) {
     if (!key->value)
         return REDISMODULE_ERR;
-    if (objectSetLRUOrLFU(key->value, lfu_freq, lru_idle, lru_idle>=0 ? LRU_CLOCK() : 0))
+    if (objectSetLRUOrLFU(key->value, -1, lru_idle, lru_idle>=0 ? LRU_CLOCK() : 0, 1))
         return REDISMODULE_OK;
     return REDISMODULE_ERR;
 }
 
-/* Gets the key LRU or LFU (depending on the current eviction policy).
- * One will be set to the appropiate return value, and the other will be set to -1.
- * see RedisModule_SetLRUOrLFU for units and ranges.
- * return value is an indication of success. */
-int RM_GetLRUOrLFU(RedisModuleKey *key, long long *lfu_freq, long long *lru_idle) {
-    *lru_idle = *lfu_freq = -1;
+/* Gets the key last access time.
+ * Value is idletime in milliseconds or -1 if the server's eviction policy is
+ * LFU based.
+ * returns REDISMODULE_OK if when key is valid. */
+int RM_GetLRU(RedisModuleKey *key, mstime_t *lru_idle) {
+    *lru_idle = -1;
     if (!key->value)
         return REDISMODULE_ERR;
-    if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
+    if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU)
+        return REDISMODULE_OK;
+    *lru_idle = estimateObjectIdleTime(key->value);
+    return REDISMODULE_OK;
+}
+
+/* Set the key access frequency. only relevant if the server's maxmemory policy
+ * is LFU based.
+ * The frequency is a logarithmic counter that provides an indication of
+ * the access frequencyonly (must be <= 255).
+ * returns REDISMODULE_OK if the LFU was updated, REDISMODULE_ERR otherwise. */
+int RM_SetLFU(RedisModuleKey *key, long long lfu_freq) {
+    if (!key->value)
+        return REDISMODULE_ERR;
+    if (objectSetLRUOrLFU(key->value, lfu_freq, -1, 0, 1))
+        return REDISMODULE_OK;
+    return REDISMODULE_ERR;
+}
+
+/* Gets the key access frequency or -1 if the server's eviction policy is not
+ * LFU based.
+ * returns REDISMODULE_OK if when key is valid. */
+int RM_GetLFU(RedisModuleKey *key, long long *lfu_freq) {
+    *lfu_freq = -1;
+    if (!key->value)
+        return REDISMODULE_ERR;
+    if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU)
         *lfu_freq = LFUDecrAndReturn(key->value);
-    } else {
-        *lru_idle = estimateObjectIdleTime(key->value)/1000;
-    }
     return REDISMODULE_OK;
 }
 
@@ -6966,8 +6984,10 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetClientInfoById);
     REGISTER_API(PublishMessage);
     REGISTER_API(SubscribeToServerEvent);
-    REGISTER_API(SetLRUOrLFU);
-    REGISTER_API(GetLRUOrLFU);
+    REGISTER_API(SetLRU);
+    REGISTER_API(GetLRU);
+    REGISTER_API(SetLFU);
+    REGISTER_API(GetLFU);
     REGISTER_API(BlockClientOnKeys);
     REGISTER_API(SignalKeyAsReady);
     REGISTER_API(GetBlockedClientReadyKey);

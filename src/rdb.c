@@ -2239,7 +2239,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             if (expiretime != -1) setExpire(NULL,db,key,expiretime);
 
             /* Set usage information (for eviction). */
-            objectSetLRUOrLFU(val,lfu_freq,lru_idle,lru_clock);
+            objectSetLRUOrLFU(val,lfu_freq,lru_idle,lru_clock,1000);
 
             /* Decrement the key refcount since dbAdd() will take its
              * own reference. */
