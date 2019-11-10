@@ -121,6 +121,32 @@ int TestStringPrintf(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
 }
 
+/* TEST.STRING.VAPRINTF -- Test string formatting. */
+static RedisModuleString *_TestStringVaprintf(RedisModuleCtx *ctx, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    RedisModuleString *s = RedisModule_CreateStringPrintf(ctx, fmt, ap);
+    va_end(ap);
+    return s;
+}
+
+int TestStringVaprintf(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx);
+    if (argc < 3) {
+        return RedisModule_WrongArity(ctx);
+    }
+    RedisModuleString *s = _TestStringVaprintf(ctx,
+        "Got %d args. argv[1]: %s, argv[2]: %s",
+        argc,
+        RedisModule_StringPtrLen(argv[1], NULL),
+        RedisModule_StringPtrLen(argv[2], NULL)
+    );
+
+    RedisModule_ReplyWithString(ctx,s);
+
+    return REDISMODULE_OK;
+}
+
 int failTest(RedisModuleCtx *ctx, const char *msg) {
     RedisModule_ReplyWithError(ctx, msg);
     return REDISMODULE_ERR;
@@ -432,6 +458,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"test.string.printf",
         TestStringPrintf,"write deny-oom",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"test.string.vaprintf",
+        TestStringVaprintf,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"test.ctxflags",
