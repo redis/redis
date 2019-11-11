@@ -1686,7 +1686,7 @@ static void usage(void) {
 "  -a <password>      Password to use when connecting to the server.\n"
 "                     You can also use the " REDIS_CLI_AUTH_ENV " environment\n"
 "                     variable to pass this password more safely\n"
-"                     (if both are used, this argument takes predecence).\n"
+"                     (if both are used, this argument takes precedence).\n"
 "  -user <username>   Used to send ACL style 'AUTH username pass'. Needs -a.\n"
 "  -pass <password>   Alias of -a for consistency with the new --user option.\n"
 "  -u <uri>           Server URI.\n"
