@@ -93,9 +93,7 @@
 #define atomicGet(var,dstvar) do { \
     dstvar = __sync_sub_and_fetch(&var,0); \
 } while(0)
-#define atomicSet(var,value) do { \
-    while(!__sync_bool_compare_and_swap(&var,var,value)); \
-} while(0)
+#define atomicSet(var,value) __sync_lock_test_and_set(&var,(value))
 #define REDIS_ATOMIC_API "sync-builtin"
 
 #else
