@@ -1219,6 +1219,14 @@ void xaddCommand(client *c) {
         return;
     }
 
+    /* Return ASAP if minimal ID  (0-0) was given so we avoid possibly creating
+     * a new stream and have streamAppendItem fail, leaving an empty key in the
+     * database. */
+    if (id_given && id.ms == 0 && id.seq == 0) {
+        addReplyError(c,"The ID specified in XADD must be greater than 0-0");
+        return;
+    }
+
     /* Lookup the stream at key. */
     robj *o;
     stream *s;
