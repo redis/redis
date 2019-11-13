@@ -125,6 +125,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_RDB_COMPRESSION 1
 #define CONFIG_DEFAULT_RDB_CHECKSUM 1
 #define CONFIG_DEFAULT_RDB_FILENAME "dump.rdb"
+#define REDIS_DEFAULT_TEMP_RDB_FILENAME "temp.rdb"
 #define CONFIG_DEFAULT_REPL_DISKLESS_SYNC 0
 #define CONFIG_DEFAULT_REPL_DISKLESS_SYNC_DELAY 5
 #define CONFIG_DEFAULT_SLAVE_SERVE_STALE_DATA 1
@@ -137,6 +138,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_LFU_LOG_FACTOR 10
 #define CONFIG_DEFAULT_LFU_DECAY_TIME 1
 #define CONFIG_DEFAULT_AOF_FILENAME "appendonly.aof"
+#define REDIS_DEFAULT_TEMP_AOF_FILENAME "temp.aof"
 #define CONFIG_DEFAULT_AOF_NO_FSYNC_ON_REWRITE 0
 #define CONFIG_DEFAULT_AOF_LOAD_TRUNCATED 1
 #define CONFIG_DEFAULT_AOF_USE_RDB_PREAMBLE 0
@@ -216,6 +218,8 @@ typedef long long mstime_t; /* millisecond time type. */
 #define AOF_OFF 0             /* AOF is off */
 #define AOF_ON 1              /* AOF is on */
 #define AOF_WAIT_REWRITE 2    /* AOF waits rewrite to start appending */
+
+#define AOF_WAIT_AOF_WITH_RDB 3
 
 #define REDIS_AOF_WITH_RDB_OFF 0              /* AOF_WITH_RDB is on */
 #define REDIS_AOF_WITH_RDB_ON 1              /* AOF_WITH_RDB is on */
@@ -415,6 +419,8 @@ typedef long long mstime_t; /* millisecond time type. */
 #define RDB_CHILD_TYPE_NONE 0
 #define RDB_CHILD_TYPE_DISK 1     /* RDB is written to disk. */
 #define RDB_CHILD_TYPE_SOCKET 2   /* RDB is written to slave socket. */
+
+#define RDB_CHILD_TYPE_AOF_WITH_RDB 3
 
 /* Keyspace changes notification classes. Every class is associated with a
  * character for configuration purposes. */
