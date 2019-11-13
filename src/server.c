@@ -1116,8 +1116,15 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                             server.aof_rewrite_base_size : 1;
             long long growth = (server.aof_current_size*100/base) - 100;
             if (growth >= server.aof_rewrite_perc) {
+            /* TODO : aof_with_rdb function call */
+            	if(server.aof_with_rdb_state == REDIS_AOF_WITH_RDB_ON){
+            		serverLog(LL_NOTICE, "aof_with_rdb mode on");
+                    aof_with_rdb();
+            	}
+            else {
                 serverLog(LL_NOTICE,"Starting automatic rewriting of AOF on %lld%% growth",growth);
                 rewriteAppendOnlyFileBackground();
+               }
             }
          }
     }
@@ -3065,6 +3072,10 @@ sds genRedisInfoString(char *section) {
                 server.aof_delayed_fsync);
         }
 
+        /* aof_only, aof_with_rdb mode check */
+        info = sdscatprintf(info,
+            "aof_with_rdb_mode:%d\r\n", server.aof_with_rdb_state);
+
         if (server.loading) {
             double perc;
             time_t eta, elapsed;
@@ -3555,8 +3566,20 @@ int checkForSentinelMode(int argc, char **argv) {
 
 /* Function called at startup to load RDB or AOF file in memory. */
 void loadDataFromDisk(void) {
+
+	if(server.aof_with_rdb_state == REDIS_AOF_WITH_RDB_ON) {
+        serverLog(LL_NOTICE, "aof_with_rdb on");
+        loadData_aof_with_rdb();
+        return;
+
+	}//fix later
+    else if (server.aof_with_rdb_state == REDIS_AOF_WITH_RDB_OFF && server.aof_state == AOF_ON)
+        serverLog(LL_NOTICE, "aof_only on!");
+    else
+    	serverLog(LL_NOTICE, "rdb_only off!");
+
     long long start = ustime();
-    if (server.aof_state == AOF_ON) {
+    if (server.aof_state == AOF_ON || server.aof_with_rdb_state ==  REDIS_AOF_WITH_RDB_ON) {
         if (loadAppendOnlyFile(server.aof_filename) == C_OK)
             serverLog(LL_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
     } else {
@@ -3587,6 +3610,80 @@ void loadDataFromDisk(void) {
             exit(1);
         }
     }
+}
+
+void loadData_aof_with_rdb(void) {
+	serverLog(LL_NOTICE, "AOF with RDB Start");
+long long start = ustime();
+bool temp_aof = false, temp_rdb = false, aof = false, rdb = false;
+
+if (access(REDIS_DEFAULT_TEMP_AOF_FILENAME, F_OK) == 0) temp_aof = true;
+if (access(REDIS_DEFAULT_TEMP_RDB_FILENAME, F_OK) == 0) temp_rdb = true;
+if (access(server.aof_filename, F_OK) == 0) aof = true;
+if (access(server.rdb_filename, F_OK) == 0) rdb = true;
+
+if (aof && temp_aof && rdb && !temp_rdb) {
+    start = ustime();
+    if (rdbLoad(server.rdb_filename, NULL) == C_OK) {
+    	serverLog(LL_NOTICE,"DB loaded from disk: %.3f seconds",
+            (float)(ustime()-start)/1000000);
+    }
+    start = ustime();
+    if (loadAppendOnlyFile(server.aof_filename) == C_OK) {
+    	serverLog(LL_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
+    }
+    start = ustime();
+    if (loadAppendOnlyFile(REDIS_DEFAULT_TEMP_AOF_FILENAME) == C_OK) {
+    	serverLog(LL_NOTICE,"DB loaded from temp append only file: %.3f seconds",(float)(ustime()-start)/1000000);
+    }
+}
+else if (aof && !temp_aof && rdb && !temp_rdb){
+
+    start = ustime();
+    if (rdbLoad(server.rdb_filename, NULL) == C_OK) {
+    serverLog(LL_NOTICE,"DB loaded from disk: %.3f seconds",
+        (float)(ustime()-start)/1000000);
+    }
+    start = ustime();
+    if (loadAppendOnlyFile(server.aof_filename) == C_OK)
+        serverLog(LL_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
+}
+else if (aof && temp_aof && rdb && temp_rdb) {
+    start = ustime();
+    if (rdbLoad(server.rdb_filename, NULL) == C_OK) {
+    	serverLog(LL_NOTICE,"DB loaded from disk: %.3f seconds",
+            (float)(ustime()-start)/1000000);
+    }
+    start = ustime();
+    if (loadAppendOnlyFile(server.aof_filename) == C_OK) {
+    	serverLog(LL_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
+    }
+    start = ustime();
+    if (loadAppendOnlyFile(REDIS_DEFAULT_TEMP_AOF_FILENAME) == C_OK) {
+    	serverLog(LL_NOTICE,"DB loaded from temp append only file: %.3f seconds",(float)(ustime()-start)/1000000);
+    }
+}
+else if (aof && !temp_aof && rdb && temp_rdb) {
+    start = ustime();
+    if (rdbLoad(REDIS_DEFAULT_TEMP_RDB_FILENAME, NULL) == C_OK) {
+    	serverLog(LL_NOTICE,"temp DB loaded from disk: %.3f seconds",
+            (float)(ustime()-start)/1000000);
+    }
+    start = ustime();
+    if (loadAppendOnlyFile(server.aof_filename) == C_OK) {
+    	serverLog(LL_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
+    }
+}
+else {
+    start = ustime();
+    if (rdbLoad(REDIS_DEFAULT_TEMP_RDB_FILENAME, NULL) == C_OK) {
+    	serverLog(LL_NOTICE,"DB loaded from disk: %.3f seconds",
+        (float)(ustime()-start)/1000000);
+    }
+    start = ustime();
+    if (loadAppendOnlyFile(server.aof_filename) == C_OK)
+    	serverLog(LL_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
+}
 }
 
 void redisOutOfMemoryHandler(size_t allocation_size) {

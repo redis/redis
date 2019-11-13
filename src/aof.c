@@ -1656,3 +1656,134 @@ void aofmodeCommand(client *c){
         addReplyErrorFormat(c,"Invalid Argument '%s': argument must be 'aof_only' or 'with_rdb'",(char*)c->argv[1]->ptr);
     }
 }
+
+int append_selected_db_command(int fd){ // Append Select DB Command
+    sds buf = sdsempty();
+    ssize_t nwritten;
+    char seldb[64];
+
+    snprintf(seldb,sizeof(seldb),"%d", server.aof_selected_db);
+    buf = sdscatprintf(buf,"*2\r\n$6\r\nSELECT\r\n$%lu\r\n%s\r\n", // *2 $6 select $1 n
+        (unsigned long)strlen(seldb), seldb);
+
+    nwritten = write(fd, buf,sdslen(buf));
+
+    if (nwritten != (signed)sdslen(buf)) {
+        static time_t last_write_error_log = 0;
+        int can_log = 0;
+
+        /* Limit logging rate to 1 line per AOF_WRITE_LOG_ERROR_RATE seconds. */
+        if ((server.unixtime - last_write_error_log) > AOF_WRITE_LOG_ERROR_RATE) {
+            can_log = 1;
+            last_write_error_log = server.unixtime;
+        }
+
+        /* Log the AOF write error and record the error code. */
+        if (nwritten == -1) {
+            if (can_log) {
+            	serverLog(LL_WARNING,"Error writing to the AOF file: %s", strerror(errno));
+                server.aof_last_write_errno = errno;
+            }
+        } else {
+            if (can_log) {
+            	serverLog(LL_WARNING,"Short write while writing to "
+                                   "the AOF file: (nwritten=%lld, "
+                                   "expected=%lld)",
+                                   (long long)nwritten,
+                                   (long long)sdslen(server.aof_buf));
+                }
+
+            if (ftruncate(server.aof_fd, server.aof_current_size) == -1) {
+                if (can_log) {
+                	serverLog(LL_WARNING, "Could not remove short write "
+                             "from the append-only file.  Redis may refuse "
+                             "to load the AOF the next time it starts.  "
+                             "ftruncate: %s", strerror(errno));
+                    }
+            } else {
+                /* If the ftruncate() succeeded we can set nwritten to
+                  -1 since there is no longer partial data into the AOF. */
+                nwritten = -1;
+            }
+            server.aof_last_write_errno = ENOSPC;
+            nwritten = -1;
+        }
+    }
+    return nwritten;
+}
+
+void aof_with_rdb_DoneHandler(int exitcode, int bysignal) { // Create RDB File Complete
+
+    if (!bysignal && exitcode == 0) {
+    	serverLog(LL_NOTICE,
+            "Background saving terminated with success(aof_with_rdb)");
+        server.dirty = server.dirty - server.dirty_before_bgsave;
+        server.lastsave = time(NULL);
+        server.lastbgsave_status = C_OK;
+    } else if (!bysignal && exitcode != 0) {
+    	serverLog(LL_WARNING, "Background saving error");
+        server.lastbgsave_status = C_ERR;
+    } else {
+        mstime_t latency;
+        serverLog(LL_WARNING,
+            "Background saving terminated by signal %d", bysignal);
+        latencyStartMonitor(latency);
+        rdbRemoveTempFile(server.rdb_child_pid);
+        latencyEndMonitor(latency);
+        latencyAddSampleIfNeeded("rdb-unlink-temp-file",latency);
+        /* SIGUSR1 is whitelisted, so we have a way to kill a child without
+         * tirggering an error conditon. */
+        if (bysignal != SIGUSR1)
+            server.lastbgsave_status = C_ERR;
+    }
+
+    server.rdb_child_pid = -1;
+    server.rdb_child_type = RDB_CHILD_TYPE_NONE;
+    server.rdb_save_time_last = time(NULL)-server.rdb_save_time_start;
+    server.rdb_save_time_start = -1;
+
+    /* Possibly there are slaves waiting for a BGSAVE in order to be served
+     * (the first stage of SYNC is a bulk transfer of dump.rdb) */
+    updateSlavesWaitingBgsave((!bysignal && exitcode == 0) ? C_OK : C_ERR, RDB_CHILD_TYPE_DISK);
+
+    if (rename(REDIS_DEFAULT_TEMP_AOF_FILENAME,server.aof_filename) == -1) { // rename temp aof
+    	serverLog(LL_WARNING,
+            "Error trying to rename the temporary AOF file: %s", strerror(errno));
+        exit(1);
+    }
+    if (rename(REDIS_DEFAULT_TEMP_RDB_FILENAME,server.rdb_filename) == -1) { // rename temp rdb
+    	serverLog(LL_WARNING,
+            "Error trying to rename the temporary RDB file: %s", strerror(errno));
+        exit(1);
+    }
+
+    server.aof_selected_db = -1;
+    aofUpdateCurrentSize();
+    server.aof_rewrite_base_size = server.aof_current_size * 2; // Change Current AOF File Size
+    server.aof_lastbgrewrite_status = C_OK;
+    if (server.aof_state == AOF_WAIT_REWRITE ||  // Change AOF State
+        server.aof_state == AOF_WAIT_AOF_WITH_RDB)
+        server.aof_state = AOF_ON;
+}
+
+
+void aof_with_rdb() {
+    FILE *fp;
+    int ret;
+
+    if((fp = fopen(REDIS_DEFAULT_TEMP_AOF_FILENAME,"w")) == NULL) {
+    	serverLog(LL_WARNING, "Error open to the temporary AOF file : %s", strerror(errno));
+        return;
+    }
+
+    if((ret = append_selected_db_command(fileno(fp))) == -1) { // Append Select DB Command(Current Database Number)
+    	serverLog(LL_WARNING, "Error Append Select DB Command");
+        exit(1);
+    }
+
+    server.aof_fd = fileno(fp); // Change Temp AOF to Current AOF
+
+    if(rdbSaveBackground(REDIS_DEFAULT_TEMP_RDB_FILENAME, NULL) == C_OK)  // Create Temp RDB File(Background Process)
+    	serverLog(LL_WARNING, "Background saving started(AOF With RDB Mode)");
+
+}

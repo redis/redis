@@ -1531,6 +1531,9 @@ void startLoading(FILE *fp);
 void loadingProgress(off_t pos);
 void stopLoading(void);
 
+void loadData_aof_with_rdb(void);
+void aof_with_rdb(void);
+
 /* RDB persistence */
 #include "rdb.h"
 int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi);

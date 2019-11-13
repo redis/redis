@@ -867,7 +867,13 @@ int rdbSaveInfoAuxFields(rio *rdb, int flags, rdbSaveInfo *rsi) {
         if (rdbSaveAuxFieldStrInt(rdb,"repl-offset",server.master_repl_offset)
             == -1) return -1;
     }
-    if (rdbSaveAuxFieldStrInt(rdb,"aof-preamble",aof_preamble) == -1) return -1;
+    
+     if(flags == 1){
+    	if (rdbSaveAuxFieldStrInt(rdb,"aof-preamble",1) == -1) return -1;
+    }
+    if(flags ==2){
+    	if (rdbSaveAuxFieldStrInt(rdb,"aof-with-rdb",2) == -1) return -1;
+    }
     return 1;
 }
 
@@ -1059,6 +1065,45 @@ werr:
     return C_ERR;
 }
 
+int rdbSaveWithoutRename() {
+    char tmpfile[256];
+    FILE *fp;
+    rio rdb;
+    int error;
+
+    sprintf(tmpfile, "temp.rdb");
+    fp = fopen(tmpfile,"w");
+    if (!fp) {
+        serverLog(LL_WARNING, "Failed opening .rdb for saving: %s",
+            strerror(errno));
+        return C_ERR;
+    }
+
+    rioInitWithFile(&rdb,fp);
+    if (rdbSaveRio(&rdb,&error,RDB_SAVE_AOF_WITH_RDB,NULL) == C_ERR) {
+        errno = error;
+        goto werr;
+    }
+
+    /* Make sure data will not remain on the OS's output buffers */
+    if (fflush(fp) == EOF) goto werr;
+    if (fsync(fileno(fp)) == -1) goto werr;
+    if (fclose(fp) == EOF) goto werr;
+
+
+    serverLog(LL_NOTICE,"DB saved on disk(aof_with_rdb mode)");
+    server.dirty = 0;
+    server.lastsave = time(NULL);
+    server.lastbgsave_status = C_OK;
+    return C_OK;
+
+werr:
+    serverLog(LL_WARNING,"Write error saving DB on disk: %s", strerror(errno));
+    fclose(fp);
+    unlink(tmpfile);
+    return C_ERR;
+}
+
 int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
     pid_t childpid;
     long long start;
@@ -1076,7 +1121,14 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
         /* Child */
         closeListeningSockets(0);
         redisSetProcTitle("redis-rdb-bgsave");
-        retval = rdbSave(filename,rsi);
+
+        if(server.aof_with_rdb_state == REDIS_AOF_WITH_RDB_ON){
+        	retval = rdbSaveWithoutRename();
+        }
+        else {
+        	retval = rdbSave(filename,rsi);
+        }
+
         if (retval == C_OK) {
             size_t private_dirty = zmalloc_get_private_dirty(-1);
 
@@ -1105,7 +1157,14 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
         serverLog(LL_NOTICE,"Background saving started by pid %d",childpid);
         server.rdb_save_time_start = time(NULL);
         server.rdb_child_pid = childpid;
-        server.rdb_child_type = RDB_CHILD_TYPE_DISK;
+        
+        if(server.aof_with_rdb_state == REDIS_AOF_WITH_RDB_ON){
+        	server.rdb_child_type = RDB_CHILD_TYPE_AOF_WITH_RDB;
+        }
+        else {
+        	server.rdb_child_type = RDB_CHILD_TYPE_DISK;
+        }
+
         updateDictResizePolicy();
         return C_OK;
     }
@@ -1827,6 +1886,9 @@ void backgroundSaveDoneHandler(int exitcode, int bysignal) {
     case RDB_CHILD_TYPE_SOCKET:
         backgroundSaveDoneHandlerSocket(exitcode,bysignal);
         break;
+    case RDB_CHILD_TYPE_AOF_WITH_RDB:
+    	aof_with_rdb_DoneHandler(exitcode, bysignal);
+    	break;
     default:
         serverPanic("Unknown RDB child type.");
         break;

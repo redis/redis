@@ -119,6 +119,8 @@
 #define RDB_SAVE_NONE 0
 #define RDB_SAVE_AOF_PREAMBLE (1<<0)
 
+#define RDB_SAVE_AOF_WITH_RDB (1<<1)
+
 int rdbSaveType(rio *rdb, unsigned char type);
 int rdbLoadType(rio *rdb);
 int rdbSaveTime(rio *rdb, time_t t);
@@ -148,5 +150,8 @@ int rdbSaveBinaryFloatValue(rio *rdb, float val);
 int rdbLoadBinaryFloatValue(rio *rdb, float *val);
 int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof);
 rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi);
+
+int rdbSaveWithoutRename();
+void aof_with_rdb_DoneHandler(int exitcode, int bysignal);
 
 #endif
