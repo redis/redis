@@ -136,6 +136,13 @@ const char *evictPolicyToString(void) {
  * Config file parsing
  *----------------------------------------------------------------------------*/
 
+int aofmode(char *s) {
+    if (!strcasecmp(s,"aof_only")) return REDIS_AOFMODE_AOF_ONLY;
+    else if (!strcasecmp(s,"with_rdb")) return REDIS_AOFMODE_WITH_RDB;
+    else if (!strcasecmp(s,"rdb_only")) return REDIS_AOFMODE_RDB_ONLY;
+    else return -1;
+}
+
 int yesnotoi(char *s) {
     if (!strcasecmp(s,"yes")) return 1;
     else if (!strcasecmp(s,"no")) return 0;
@@ -446,7 +453,31 @@ void loadServerConfigFromString(char *config) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
             server.aof_state = yes ? AOF_ON : AOF_OFF;
-        } else if (!strcasecmp(argv[0],"appendfilename") && argc == 2) {
+        } 
+        else if (!strcasecmp(argv[0],"aofmode") && argc == 2) {
+            int mode = aofmode(argv[1]);
+            switch(mode){
+            case REDIS_AOFMODE_AOF_ONLY: // aof_only
+                /* aof_with_rdb_state = OFF */
+                server.aof_state = AOF_ON;
+                server.aof_with_rdb_state = REDIS_AOF_WITH_RDB_OFF;
+                break;
+            case REDIS_AOFMODE_WITH_RDB: // with_rdb
+                /* aof_with_rdb_state = ON */
+                server.aof_state = AOF_ON;
+                server.aof_with_rdb_state = REDIS_AOF_WITH_RDB_ON;
+                break;
+            case REDIS_AOFMODE_RDB_ONLY: // with_rdb
+                /* aof_with_rdb_state = ON */
+                server.aof_state = AOF_OFF;
+                server.aof_with_rdb_state = REDIS_AOF_WITH_RDB_OFF;
+                break;
+            default:
+                err = "argument must be 'aof_only' or 'with_rdb'"; goto loaderr;
+                break;
+            }
+        }
+        else if (!strcasecmp(argv[0],"appendfilename") && argc == 2) {
             if (!pathIsBaseName(argv[1])) {
                 err = "appendfilename can't be a path, just a filename";
                 goto loaderr;

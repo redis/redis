@@ -1626,3 +1626,33 @@ cleanup:
     if (server.aof_state == AOF_WAIT_REWRITE)
         server.aof_rewrite_scheduled = 1;
 }
+
+void aofmodeCommand(client *c){
+    /* TODO : add a comment */
+    if (server.aof_state == AOF_OFF) {
+        serverLog(LL_WARNING, "AOF not enabled. please AOF ON");
+        addReplyStatusFormat(c,"AOF not enabled. please AOF ON(config set appendonly yes)");
+        return;
+    }
+    int mode = aofmode((char*)c->argv[1]->ptr);
+
+    switch(mode) {
+    case REDIS_AOFMODE_AOF_ONLY:
+        server.aof_with_rdb_state = REDIS_AOF_WITH_RDB_OFF;
+        serverLog(LL_WARNING, "AOFMODE : aof_only");
+        addReplyStatusFormat(c,"AOFMODE : AOF_ONLY");
+        break;
+    case REDIS_AOFMODE_WITH_RDB:
+        server.aof_with_rdb_state = REDIS_AOF_WITH_RDB_ON;
+        serverLog(LL_WARNING, "AOFMODE : with_rdb");
+        addReplyStatusFormat(c,"AOFMODE : WITH_RDB");
+        break;
+    case REDIS_AOFMODE_RDB_ONLY:
+        server.aof_with_rdb_state = REDIS_AOF_WITH_RDB_OFF;
+        serverLog(LL_WARNING, "AOFMODE : rdb_only");
+        addReplyStatusFormat(c,"AOFMODE : RDB_ONLY");
+        break;
+    default:
+        addReplyErrorFormat(c,"Invalid Argument '%s': argument must be 'aof_only' or 'with_rdb'",(char*)c->argv[1]->ptr);
+    }
+}

@@ -217,6 +217,9 @@ typedef long long mstime_t; /* millisecond time type. */
 #define AOF_ON 1              /* AOF is on */
 #define AOF_WAIT_REWRITE 2    /* AOF waits rewrite to start appending */
 
+#define REDIS_AOF_WITH_RDB_OFF 0              /* AOF_WITH_RDB is on */
+#define REDIS_AOF_WITH_RDB_ON 1              /* AOF_WITH_RDB is on */
+
 /* Client flags */
 #define CLIENT_SLAVE (1<<0)   /* This client is a slave server */
 #define CLIENT_MASTER (1<<1)  /* This client is a master server */
@@ -1052,6 +1055,9 @@ struct redisServer {
     } child_info_data;
     /* Propagation of commands in AOF / replication */
     redisOpArray also_propagate;    /* Additional command to propagate. */
+   
+    int aof_with_rdb_state;
+    
     /* Logging */
     char *logfile;                  /* Path of log file */
     int syslog_enabled;             /* Is syslog enabled? */
@@ -2001,6 +2007,8 @@ void latencyCommand(client *c);
 void moduleCommand(client *c);
 void securityWarningCommand(client *c);
 
+void aofmodeCommand(client *c);
+
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
 void free(void *ptr) __attribute__ ((deprecated));
@@ -2028,5 +2036,11 @@ void xorDigest(unsigned char *digest, void *ptr, size_t len);
     printf("DEBUG %s:%d > " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)
 #define redisDebugMark() \
     printf("-- MARK %s:%d --\n", __FILE__, __LINE__)
+
+#define REDIS_AOFMODE_AOF_ONLY 0
+#define REDIS_AOFMODE_WITH_RDB 1
+#define REDIS_AOFMODE_RDB_ONLY 2
+
+int aofmode(char *s);
 
 #endif
