@@ -1655,6 +1655,14 @@ int main(int argc, const char **argv) {
             free(cmd);
         }
 
+        if (test_is_selected("incrby")) {
+            long long data = 1;
+            data = data << config.datasize;
+            len = redisFormatCommand(&cmd,"INCRBY key:{tag}:__rand_int__ %lld", data);
+            benchmark("INCRBY",cmd,len);
+            free(cmd);
+        }
+
         if (test_is_selected("lpush")) {
             len = redisFormatCommand(&cmd,"LPUSH mylist:{tag} %s",data);
             benchmark("LPUSH",cmd,len);
