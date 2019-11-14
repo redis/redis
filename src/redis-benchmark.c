@@ -1649,6 +1649,12 @@ int main(int argc, const char **argv) {
             free(cmd);
         }
 
+        if (test_is_selected("decr")) {
+            len = redisFormatCommand(&cmd,"DECR counter:{tag}:__rand_int__");
+            benchmark("DECR",cmd,len);
+            free(cmd);
+        }
+
         if (test_is_selected("lpush")) {
             len = redisFormatCommand(&cmd,"LPUSH mylist:{tag} %s",data);
             benchmark("LPUSH",cmd,len);
