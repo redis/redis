@@ -95,6 +95,10 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
  * executed, where the time limit is a percentage of the REDIS_HZ period
  * as specified by the ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC define. */
 
+#define ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP 20 /* Loopkups per loop. */
+#define ACTIVE_EXPIRE_CYCLE_FAST_DURATION 1000 /* Microseconds. */
+#define ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC 25 /* Percentage of CPU to use. */
+
 void activeExpireCycle(int type) {
     /* This function has some global state in order to continue the work
      * incrementally across calls. */
@@ -231,6 +235,7 @@ void activeExpireCycle(int type) {
     }
 
     elapsed = ustime()-start;
+    server.stat_expire_cycle_time_used += elapsed;
     latencyAddSampleIfNeeded("expire-cycle",elapsed/1000);
 
     /* Update our estimate of keys existing but yet to be expired.
