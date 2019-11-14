@@ -1663,6 +1663,14 @@ int main(int argc, const char **argv) {
             free(cmd);
         }
 
+        if (test_is_selected("decrby")) {
+            long long data = 1;
+            data = data << config.datasize;
+            len = redisFormatCommand(&cmd,"DECRBY key:{tag}:__rand_int__ %lld", data);
+            benchmark("DECRBY",cmd,len);
+            free(cmd);
+        }
+
         if (test_is_selected("lpush")) {
             len = redisFormatCommand(&cmd,"LPUSH mylist:{tag} %s",data);
             benchmark("LPUSH",cmd,len);
