@@ -87,12 +87,8 @@ static int spt_clearenv(void) {
 	return 0;
 #else
 	extern char **environ;
-	static char **tmp;
+	static char *tmp[1];
 
-	if (!(tmp = malloc(sizeof *tmp)))
-		return errno;
-
-	tmp[0]  = NULL;
 	environ = tmp;
 
 	return 0;
