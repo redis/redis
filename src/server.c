@@ -4270,6 +4270,7 @@ sds genRedisInfoString(char *section) {
             "expired_keys:%lld\r\n"
             "expired_stale_perc:%.2f\r\n"
             "expired_time_cap_reached_count:%lld\r\n"
+            "expire_cycle_cpu_milliseconds:%lld\r\n"
             "evicted_keys:%lld\r\n"
             "keyspace_hits:%lld\r\n"
             "keyspace_misses:%lld\r\n"
@@ -4297,6 +4298,7 @@ sds genRedisInfoString(char *section) {
             server.stat_expiredkeys,
             server.stat_expired_stale_perc*100,
             server.stat_expired_time_cap_reached_count,
+            server.stat_expire_cycle_time_used/1000,
             server.stat_evictedkeys,
             server.stat_keyspace_hits,
             server.stat_keyspace_misses,

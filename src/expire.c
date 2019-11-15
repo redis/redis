@@ -111,9 +111,11 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
  * little memory.
  */
 
-#define ACTIVE_EXPIRE_CYCLE_BUCKETS_PER_LOOP 20 /* HT buckets checked. */
+#define ACTIVE_EXPIRE_CYCLE_KEYS_PER_LOOP 20 /* Keys for each DB loop. */
 #define ACTIVE_EXPIRE_CYCLE_FAST_DURATION 1000 /* Microseconds. */
-#define ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC 25 /* Percentage of CPU to use. */
+#define ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC 25 /* Max % of CPU to use. */
+#define ACTIVE_EXPIRE_CYCLE_ACCEPTABLE_STALE 10 /* % of stale keys after which
+                                                   we do extra efforts. */
 
 void activeExpireCycle(int type) {
     /* This function has some global state in order to continue the work
@@ -133,10 +135,15 @@ void activeExpireCycle(int type) {
 
     if (type == ACTIVE_EXPIRE_CYCLE_FAST) {
         /* Don't start a fast cycle if the previous cycle did not exit
-         * for time limit. Also don't repeat a fast cycle for the same period
+         * for time limit, unless the percentage of estimated stale keys is
+         * too high. Also never repeat a fast cycle for the same period
          * as the fast cycle total duration itself. */
-        if (!timelimit_exit) return;
-        if (start < last_fast_cycle + ACTIVE_EXPIRE_CYCLE_FAST_DURATION*2) return;
+        if (!timelimit_exit && server.stat_expired_stale_perc <
+            ACTIVE_EXPIRE_CYCLE_ACCEPTABLE_STALE) return;
+
+        if (start < last_fast_cycle + ACTIVE_EXPIRE_CYCLE_FAST_DURATION*2)
+            return;
+
         last_fast_cycle = start;
     }
 
@@ -150,8 +157,8 @@ void activeExpireCycle(int type) {
     if (dbs_per_call > server.dbnum || timelimit_exit)
         dbs_per_call = server.dbnum;
 
-    /* We can use at max ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC percentage of CPU time
-     * per iteration. Since this function gets called with a frequency of
+    /* We can use at max ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC percentage of CPU
+     * time per iteration. Since this function gets called with a frequency of
      * server.hz times per second, the following is the max amount of
      * microseconds we can spend in this function. */
     timelimit = 1000000*ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC/server.hz/100;
@@ -207,8 +214,8 @@ void activeExpireCycle(int type) {
             ttl_sum = 0;
             ttl_samples = 0;
 
-            if (num > ACTIVE_EXPIRE_CYCLE_BUCKETS_PER_LOOP)
-                num = ACTIVE_EXPIRE_CYCLE_BUCKETS_PER_LOOP;
+            if (num > ACTIVE_EXPIRE_CYCLE_KEYS_PER_LOOP)
+                num = ACTIVE_EXPIRE_CYCLE_KEYS_PER_LOOP;
 
             /* Here we access the low level representation of the hash table
              * for speed concerns: this makes this code coupled with dict.c,
@@ -268,9 +275,9 @@ void activeExpireCycle(int type) {
                 }
             }
             /* We don't repeat the cycle for the current database if there are
-             * less than 25% of keys found expired in the current DB. */
-            // printf("[%d] Expired %d, sampled %d\n", type, (int) expired, (int) sampled);
-        } while (expired > sampled/4);
+             * an acceptable amount of stale keys (logically expired but yet
+             * not reclained). */
+        } while ((expired*100/sampled) > ACTIVE_EXPIRE_CYCLE_ACCEPTABLE_STALE);
     }
 
     elapsed = ustime()-start;
