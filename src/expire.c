@@ -125,16 +125,15 @@ void activeExpireCycle(int type) {
      * effort. The default effort is 1, and the maximum configurable effort
      * is 10. */
     unsigned long
-    effort = server.active_expire_effort,
+    effort = server.active_expire_effort-1, /* Rescale from 0 to 9. */
     config_keys_per_loop = ACTIVE_EXPIRE_CYCLE_KEYS_PER_LOOP +
                            ACTIVE_EXPIRE_CYCLE_KEYS_PER_LOOP/4*effort,
-    config_cycle_fast_duration = ACTIVE_EXPIRE_CYCLE_FAST_DURATION *
+    config_cycle_fast_duration = ACTIVE_EXPIRE_CYCLE_FAST_DURATION +
                                  ACTIVE_EXPIRE_CYCLE_FAST_DURATION/4*effort,
     config_cycle_slow_time_perc = ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC +
                                   2*effort,
     config_cycle_acceptable_stale = ACTIVE_EXPIRE_CYCLE_ACCEPTABLE_STALE-
                                     effort;
-    if (config_cycle_acceptable_stale < 1) config_cycle_acceptable_stale = 1;
 
     /* This function has some global state in order to continue the work
      * incrementally across calls. */
