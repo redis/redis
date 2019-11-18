@@ -73,6 +73,26 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
     }
 }
 
+void expireScanCallback(void *privdata, const dictEntry *de) {
+    void **pd = (void**) privdata;
+    long long now = (long long)pd[0];
+    redisDb *db = pd[1];
+    unsigned long *expired = pd[2];
+    unsigned long *sampled = pd[3];
+    long long *ttl_sum = pd[4];
+    int *ttl_samples = pd[5];
+
+    long long ttl = dictGetSignedIntegerVal(de)-now;
+    if (activeExpireCycleTryExpire(db,(dictEntry*)de,now)) (*expired)++;
+    if (ttl > 0) {
+        /* We want the average TTL of keys yet
+         * not expired. */
+        (*ttl_sum) += ttl;
+        (*ttl_samples)++;
+    }
+    (*sampled)++;
+}
+
 /* Try to expire a few timed out keys. The algorithm used is adaptive and
  * will use few CPU cycles if there are few expiring keys, otherwise
  * it will get more aggressive to avoid that too much memory is used by
@@ -238,34 +258,15 @@ void activeExpireCycle(int type) {
             /* Here we access the low level representation of the hash table
              * for speed concerns: this makes this code coupled with dict.c,
              * but it hardly changed in ten years. */
+            void *privdata[6];
+            privdata[0] = (void*)now;
+            privdata[1] = db;
+            privdata[2] = &expired;
+            privdata[3] = &sampled;
+            privdata[4] = &ttl_sum;
+            privdata[5] = &ttl_samples;
             while (sampled < num) {
-                for (int table = 0; table < 2; table++) {
-                    if (table == 1 && !dictIsRehashing(db->expires)) break;
-
-                    unsigned long idx = db->expires_cursor;
-                    idx &= db->expires->ht[table].sizemask;
-                    dictEntry *de = db->expires->ht[table].table[idx];
-                    long long ttl;
-
-                    /* Scan the current bucket of the current table. */
-                    while(de) {
-                        /* Get the next entry now since this entry may get
-                         * deleted. */
-                        dictEntry *e = de;
-                        de = de->next;
-
-                        ttl = dictGetSignedIntegerVal(e)-now;
-                        if (activeExpireCycleTryExpire(db,e,now)) expired++;
-                        if (ttl > 0) {
-                            /* We want the average TTL of keys yet
-                             * not expired. */
-                            ttl_sum += ttl;
-                            ttl_samples++;
-                        }
-                        sampled++;
-                    }
-                }
-                db->expires_cursor++;
+                db->expires_cursor = dictScan(db->expires, db->expires_cursor, expireScanCallback, NULL, privdata);
             }
             total_expired += expired;
             total_sampled += sampled;
