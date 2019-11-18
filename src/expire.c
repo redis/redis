@@ -237,8 +237,18 @@ void activeExpireCycle(int type) {
 
             /* Here we access the low level representation of the hash table
              * for speed concerns: this makes this code coupled with dict.c,
-             * but it hardly changed in ten years. */
-            while (sampled < num) {
+             * but it hardly changed in ten years.
+             *
+             * Note that certain places of the hash table may be empty,
+             * so we want also a stop condition about the number of
+             * buckets that we scanned. However scanning for free buckets
+             * is very fast: we are in the cache line scanning a sequential
+             * array of NULL pointers, so we can scan a lot more buckets
+             * than keys in the same time. */
+            long max_buckets = num*20;
+            long checked_buckets = 0;
+
+            while (sampled < num && checked_buckets < max_buckets) {
                 for (int table = 0; table < 2; table++) {
                     if (table == 1 && !dictIsRehashing(db->expires)) break;
 
@@ -248,6 +258,7 @@ void activeExpireCycle(int type) {
                     long long ttl;
 
                     /* Scan the current bucket of the current table. */
+                    checked_buckets++;
                     while(de) {
                         /* Get the next entry now since this entry may get
                          * deleted. */
