@@ -507,9 +507,13 @@ int moduleCreateEmptyKey(RedisModuleKey *key, int type) {
  * is set to the right one in order to be targeted again by write operations
  * possibly recreating the key if needed.
  *
+ * The argument 'justcreated' means the the key we want to delete was created
+ * by the same module API the called this function.
+ * In that case we should not notify any "del" events.
+ *
  * The function returns 1 if the key value object is found empty and is
  * deleted, otherwise 0 is returned. */
-int moduleDelKeyIfEmpty(RedisModuleKey *key) {
+int moduleDelKeyIfEmpty(RedisModuleKey *key, int justcreated) {
     if (!(key->mode & REDISMODULE_WRITE) || key->value == NULL) return 0;
     int isempty;
     robj *o = key->value;
@@ -525,6 +529,8 @@ int moduleDelKeyIfEmpty(RedisModuleKey *key) {
     if (isempty) {
         dbDelete(key->db,key->key);
         key->value = NULL;
+        if (!justcreated && key->ctx->module->options & REDISMODULE_OPTION_NOTIFY_NATIVE_KEYSPACE_EVENTS)
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key->key, key->ctx->client->db->id);
         return 1;
     } else {
         return 0;
@@ -2030,6 +2036,8 @@ int RM_StringSet(RedisModuleKey *key, RedisModuleString *str) {
     RM_DeleteKey(key);
     setKey(key->db,key->key,str);
     key->value = str;
+    if (key->ctx->module->options & REDISMODULE_OPTION_NOTIFY_NATIVE_KEYSPACE_EVENTS)
+        notifyKeyspaceEvent(NOTIFY_STRING, "set", key->key, key->ctx->client->db->id);
     return REDISMODULE_OK;
 }
 
@@ -2111,17 +2119,23 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
         setKey(key->db,key->key,o);
         key->value = o;
         decrRefCount(o);
+        if (key->ctx->module->options & REDISMODULE_OPTION_NOTIFY_NATIVE_KEYSPACE_EVENTS)
+            notifyKeyspaceEvent(NOTIFY_STRING, "set", key->key, key->ctx->client->db->id);
     } else {
         /* Unshare and resize. */
         key->value = dbUnshareStringValue(key->db, key->key, key->value);
         size_t curlen = sdslen(key->value->ptr);
         if (newlen > curlen) {
             key->value->ptr = sdsgrowzero(key->value->ptr,newlen);
+            if (key->ctx->module->options & REDISMODULE_OPTION_NOTIFY_NATIVE_KEYSPACE_EVENTS)
+                notifyKeyspaceEvent(NOTIFY_STRING, "set", key->key, key->ctx->client->db->id);
         } else if (newlen < curlen) {
             sdsrange(key->value->ptr,0,newlen-1);
             /* If the string is too wasteful, reallocate it. */
             if (sdslen(key->value->ptr) < sdsavail(key->value->ptr))
                 key->value->ptr = sdsRemoveFreeSpace(key->value->ptr);
+            if (key->ctx->module->options & REDISMODULE_OPTION_NOTIFY_NATIVE_KEYSPACE_EVENTS)
+                notifyKeyspaceEvent(NOTIFY_STRING, "set", key->key, key->ctx->client->db->id);
         }
     }
     return REDISMODULE_OK;
@@ -2141,6 +2155,10 @@ int RM_ListPush(RedisModuleKey *key, int where, RedisModuleString *ele) {
     if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_LIST);
     listTypePush(key->value, ele,
         (where == REDISMODULE_LIST_HEAD) ? QUICKLIST_HEAD : QUICKLIST_TAIL);
+    if (key->ctx->module->options & REDISMODULE_OPTION_NOTIFY_NATIVE_KEYSPACE_EVENTS) {
+        char *event = (where == REDISMODULE_LIST_HEAD) ? "lpush" : "rpush";
+        notifyKeyspaceEvent(NOTIFY_LIST, event, key->key, key->ctx->client->db->id);
+    }
     return REDISMODULE_OK;
 }
 
@@ -2159,7 +2177,11 @@ RedisModuleString *RM_ListPop(RedisModuleKey *key, int where) {
         (where == REDISMODULE_LIST_HEAD) ? QUICKLIST_HEAD : QUICKLIST_TAIL);
     robj *decoded = getDecodedObject(ele);
     decrRefCount(ele);
-    moduleDelKeyIfEmpty(key);
+    if (key->ctx->module->options & REDISMODULE_OPTION_NOTIFY_NATIVE_KEYSPACE_EVENTS) {
+        char *event = (where == REDISMODULE_LIST_HEAD) ? "lpop" : "rpop";
+        notifyKeyspaceEvent(NOTIFY_LIST, event, key->key, key->ctx->client->db->id);
+    }
+    moduleDelKeyIfEmpty(key, 0);
     autoMemoryAdd(key->ctx,REDISMODULE_AM_STRING,decoded);
     return decoded;
 }
@@ -2215,7 +2237,7 @@ int RM_ZsetAddFlagsFromCoreFlags(int flags) {
  * * 'score' double value is not a number (NaN).
  */
 int RM_ZsetAdd(RedisModuleKey *key, double score, RedisModuleString *ele, int *flagsptr) {
-    int flags = 0;
+    int flags = 0, added, updated;
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
     if (key->value && key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
     if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_ZSET);
@@ -2224,6 +2246,10 @@ int RM_ZsetAdd(RedisModuleKey *key, double score, RedisModuleString *ele, int *f
         if (flagsptr) *flagsptr = 0;
         return REDISMODULE_ERR;
     }
+    added = flags & ZADD_ADDED;
+    updated = flags & ZADD_UPDATED;
+    if ((added || updated) && key->ctx->module->options & REDISMODULE_OPTION_NOTIFY_NATIVE_KEYSPACE_EVENTS)
+        notifyKeyspaceEvent(NOTIFY_ZSET, "zadd", key->key, key->ctx->client->db->id);
     if (flagsptr) *flagsptr = RM_ZsetAddFlagsFromCoreFlags(flags);
     return REDISMODULE_OK;
 }
@@ -2242,7 +2268,7 @@ int RM_ZsetAdd(RedisModuleKey *key, double score, RedisModuleString *ele, int *f
  * with the new score of the element after the increment, if no error
  * is returned. */
 int RM_ZsetIncrby(RedisModuleKey *key, double score, RedisModuleString *ele, int *flagsptr, double *newscore) {
-    int flags = 0;
+    int flags = 0, added, updated;
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
     if (key->value && key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
     if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_ZSET);
@@ -2252,11 +2278,10 @@ int RM_ZsetIncrby(RedisModuleKey *key, double score, RedisModuleString *ele, int
         if (flagsptr) *flagsptr = 0;
         return REDISMODULE_ERR;
     }
-    /* zsetAdd() may signal back that the resulting score is not a number. */
-    if (flagsptr && (*flagsptr & ZADD_NAN)) {
-        *flagsptr = 0;
-        return REDISMODULE_ERR;
-    }
+    added = flags & ZADD_ADDED;
+    updated = flags & ZADD_UPDATED;
+    if ((added || updated) && key->ctx->module->options & REDISMODULE_OPTION_NOTIFY_NATIVE_KEYSPACE_EVENTS)
+        notifyKeyspaceEvent(NOTIFY_ZSET, "zincr", key->key, key->ctx->client->db->id);
     if (flagsptr) *flagsptr = RM_ZsetAddFlagsFromCoreFlags(flags);
     return REDISMODULE_OK;
 }
@@ -2284,9 +2309,11 @@ int RM_ZsetRem(RedisModuleKey *key, RedisModuleString *ele, int *deleted) {
     if (key->value && key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
     if (key->value != NULL && zsetDel(key->value,ele->ptr)) {
         if (deleted) *deleted = 1;
+        notifyKeyspaceEvent(NOTIFY_ZSET, "zrem", key->key, key->ctx->client->db->id);
     } else {
         if (deleted) *deleted = 0;
     }
+    moduleDelKeyIfEmpty(key, 0);
     return REDISMODULE_OK;
 }
 
@@ -2667,9 +2694,14 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
     va_list ap;
     if (!(key->mode & REDISMODULE_WRITE)) return 0;
     if (key->value && key->value->type != OBJ_HASH) return 0;
-    if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_HASH);
 
-    int updated = 0;
+    int created = 0;
+    if (key->value == NULL) {
+        moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_HASH);
+        created = 1;
+    }
+
+    int added = 0, updated = 0, deleted = 0;
     va_start(ap, flags);
     while(1) {
         RedisModuleString *field, *value;
@@ -2697,7 +2729,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
 
         /* Handle deletion if value is REDISMODULE_HASH_DELETE. */
         if (value == REDISMODULE_HASH_DELETE) {
-            updated += hashTypeDelete(key->value, field->ptr);
+            deleted += hashTypeDelete(key->value, field->ptr);
             if (flags & REDISMODULE_HASH_CFIELDS) decrRefCount(field);
             continue;
         }
@@ -2711,7 +2743,10 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
 
         robj *argv[2] = {field,value};
         hashTypeTryConversion(key->value,argv,0,1);
-        updated += hashTypeSet(key->value, field->ptr, value->ptr, low_flags);
+        if (hashTypeSet(key->value, field->ptr, value->ptr, low_flags))
+            updated++;
+        else
+            added++;
 
         /* If CFIELDS is active, SDS string ownership is now of hashTypeSet(),
          * however we still have to release the 'field' object shell. */
@@ -2721,8 +2756,18 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
         }
     }
     va_end(ap);
-    moduleDelKeyIfEmpty(key);
-    return updated;
+
+    if (key->ctx->module->options & REDISMODULE_OPTION_NOTIFY_NATIVE_KEYSPACE_EVENTS) {
+        /* We issue at one notification at most, no matter how many fields were added/deleted.
+         * The decision the first notify "hset" (if needed) and then "hdel" (if needed)
+         * is arbitrary */
+        if (added || updated)
+            notifyKeyspaceEvent(NOTIFY_HASH, "hset", key->key, key->ctx->client->db->id);
+        if (deleted)
+            notifyKeyspaceEvent(NOTIFY_HASH, "hdel", key->key, key->ctx->client->db->id);
+    }
+    moduleDelKeyIfEmpty(key, created);
+    return updated + deleted;
 }
 
 /* Get fields from an hash value. This function is called using a variable
