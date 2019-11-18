@@ -109,6 +109,9 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
  * of already expired keys in the database is estimated to be lower than
  * a given percentage, in order to avoid doing too much work to gain too
  * little memory.
+ *
+ * The configured expire "effort" will modify the baseline parameters in
+ * order to do more work in both the fast and slow expire cycles.
  */
 
 #define ACTIVE_EXPIRE_CYCLE_KEYS_PER_LOOP 20 /* Keys for each DB loop. */
@@ -118,6 +121,21 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
                                                    we do extra efforts. */
 
 void activeExpireCycle(int type) {
+    /* Adjust the running parameters according to the configured expire
+     * effort. The default effort is 1, and the maximum configurable effort
+     * is 10. */
+    unsigned long
+    effort = server.active_expire_effort,
+    config_keys_per_loop = ACTIVE_EXPIRE_CYCLE_KEYS_PER_LOOP +
+                           ACTIVE_EXPIRE_CYCLE_KEYS_PER_LOOP/4*effort,
+    config_cycle_fast_duration = ACTIVE_EXPIRE_CYCLE_FAST_DURATION *
+                                 ACTIVE_EXPIRE_CYCLE_FAST_DURATION/4*effort,
+    config_cycle_slow_time_perc = ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC +
+                                  2*effort,
+    config_cycle_acceptable_stale = ACTIVE_EXPIRE_CYCLE_ACCEPTABLE_STALE-
+                                    effort;
+    if (config_cycle_acceptable_stale < 1) config_cycle_acceptable_stale = 1;
+
     /* This function has some global state in order to continue the work
      * incrementally across calls. */
     static unsigned int current_db = 0; /* Last DB tested. */
@@ -138,10 +156,11 @@ void activeExpireCycle(int type) {
          * for time limit, unless the percentage of estimated stale keys is
          * too high. Also never repeat a fast cycle for the same period
          * as the fast cycle total duration itself. */
-        if (!timelimit_exit && server.stat_expired_stale_perc <
-            ACTIVE_EXPIRE_CYCLE_ACCEPTABLE_STALE) return;
+        if (!timelimit_exit &&
+            server.stat_expired_stale_perc < config_cycle_acceptable_stale)
+            return;
 
-        if (start < last_fast_cycle + ACTIVE_EXPIRE_CYCLE_FAST_DURATION*2)
+        if (start < last_fast_cycle + (long long)config_cycle_fast_duration*2)
             return;
 
         last_fast_cycle = start;
@@ -157,16 +176,16 @@ void activeExpireCycle(int type) {
     if (dbs_per_call > server.dbnum || timelimit_exit)
         dbs_per_call = server.dbnum;
 
-    /* We can use at max ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC percentage of CPU
+    /* We can use at max 'config_cycle_slow_time_perc' percentage of CPU
      * time per iteration. Since this function gets called with a frequency of
      * server.hz times per second, the following is the max amount of
      * microseconds we can spend in this function. */
-    timelimit = 1000000*ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC/server.hz/100;
+    timelimit = config_cycle_slow_time_perc*1000000/server.hz/100;
     timelimit_exit = 0;
     if (timelimit <= 0) timelimit = 1;
 
     if (type == ACTIVE_EXPIRE_CYCLE_FAST)
-        timelimit = ACTIVE_EXPIRE_CYCLE_FAST_DURATION; /* in microseconds. */
+        timelimit = config_cycle_fast_duration; /* in microseconds. */
 
     /* Accumulate some global stats as we expire keys, to have some idea
      * about the number of keys that are already logically expired, but still
@@ -214,8 +233,8 @@ void activeExpireCycle(int type) {
             ttl_sum = 0;
             ttl_samples = 0;
 
-            if (num > ACTIVE_EXPIRE_CYCLE_KEYS_PER_LOOP)
-                num = ACTIVE_EXPIRE_CYCLE_KEYS_PER_LOOP;
+            if (num > config_keys_per_loop)
+                num = config_keys_per_loop;
 
             /* Here we access the low level representation of the hash table
              * for speed concerns: this makes this code coupled with dict.c,
@@ -277,7 +296,7 @@ void activeExpireCycle(int type) {
             /* We don't repeat the cycle for the current database if there are
              * an acceptable amount of stale keys (logically expired but yet
              * not reclained). */
-        } while ((expired*100/sampled) > ACTIVE_EXPIRE_CYCLE_ACCEPTABLE_STALE);
+        } while ((expired*100/sampled) > config_cycle_acceptable_stale);
     }
 
     elapsed = ustime()-start;
