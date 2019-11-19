@@ -269,7 +269,7 @@ void handleClientsBlockedOnKeys(void) {
              * that) without the risk of it being freed in the second
              * lookup, invalidating the first one.
              * See https://github.com/antirez/redis/pull/6554. */
-            server.call_depth++;
+            server.fixed_time_expire++;
             updateCachedTime(0);
 
             /* Serve clients blocked on list key. */
@@ -467,8 +467,7 @@ void handleClientsBlockedOnKeys(void) {
                     }
                 }
             }
-
-            server.call_depth--;
+            server.fixed_time_expire--;
 
             /* Free this item. */
             decrRefCount(rl->key);

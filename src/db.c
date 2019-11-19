@@ -1151,7 +1151,7 @@ int keyIsExpired(redisDb *db, robj *key) {
      * may re-open the same key multiple times, can invalidate an already
      * open object in a next call, if the next call will see the key expired,
      * while the first did not. */
-    else if (server.call_depth > 0) {
+    else if (server.fixed_time_expire > 0) {
         now = server.mstime;
     }
     /* For the other cases, we want to use the most fresh time we have. */
