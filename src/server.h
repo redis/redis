@@ -1653,6 +1653,7 @@ void openChildInfoPipe(void);
 void closeChildInfoPipe(void);
 void sendChildInfo(int process_type);
 void receiveChildInfo(void);
+int hasActiveChildProcess();
 
 /* Sorted sets data type */
 
