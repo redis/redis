@@ -3110,7 +3110,9 @@ fmterr:
  * On success a RedisModuleCallReply object is returned, otherwise
  * NULL is returned and errno is set to the following values:
  *
- * EINVAL: command non existing, wrong arity, wrong format specifier.
+ * EBADF: wrong format specifier.
+ * EINVAL: wrong command arity.
+ * ENOENT: command does not exist.
  * EPERM:  operation in Cluster instance with key in non local slot.
  *
  * This API is documented here: https://redis.io/topics/modules-intro
@@ -3142,7 +3144,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     /* We handle the above format error only when the client is setup so that
      * we can free it normally. */
     if (argv == NULL) {
-        errno = EINVAL;
+        errno = EBADF;
         goto cleanup;
     }
 
@@ -3154,7 +3156,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
      */
     cmd = lookupCommand(c->argv[0]->ptr);
     if (!cmd) {
-        errno = EINVAL;
+        errno = ENOENT;
         goto cleanup;
     }
     c->cmd = c->lastcmd = cmd;
