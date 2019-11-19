@@ -465,6 +465,12 @@ struct redisCommand sentinelcmds[] = {
     {"hello",helloCommand,-2,"no-script fast",0,NULL,0,0,0,0,0}
 };
 
+/* List of client types that are killed when an instance becomes a slave */
+const char* killedClientTypes[] = {
+    "normal",
+    "pubsub"
+};
+
 /* This function overwrites a few normal Redis config default with Sentinel
  * specific defaults. */
 void initSentinelConfig(void) {
@@ -3949,6 +3955,7 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
 int sentinelSendSlaveOf(sentinelRedisInstance *ri, char *host, int port) {
     char portstr[32];
     int retval;
+    unsigned int curType;
 
     ll2string(portstr,sizeof(portstr),port);
 
@@ -3993,11 +4000,14 @@ int sentinelSendSlaveOf(sentinelRedisInstance *ri, char *host, int port) {
      * an issue because CLIENT is variadic command, so Redis will not
      * recognized as a syntax error, and the transaction will not fail (but
      * only the unsupported command will fail). */
-    retval = redisAsyncCommand(ri->link->cc,
-        sentinelDiscardReplyCallback, ri, "%s KILL TYPE normal",
-        sentinelInstanceMapCommand(ri,"CLIENT"));
-    if (retval == C_ERR) return retval;
-    ri->link->pending_commands++;
+    for (curType = 0; curType < sizeof(killedClientTypes)/sizeof(killedClientTypes[0]); ++curType) {
+        retval = redisAsyncCommand(ri->link->cc,
+            sentinelDiscardReplyCallback, ri, "%s KILL TYPE %s",
+            sentinelInstanceMapCommand(ri,"CLIENT"),
+            killedClientTypes[curType]);
+        if (retval == C_ERR) return retval;
+        ri->link->pending_commands++;
+    }
 
     retval = redisAsyncCommand(ri->link->cc,
         sentinelDiscardReplyCallback, ri, "%s",
