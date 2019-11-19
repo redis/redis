@@ -1012,6 +1012,21 @@ RedisModuleString *RM_CreateStringFromLongLong(RedisModuleCtx *ctx, long long ll
     return RM_CreateString(ctx,buf,len);
 }
 
+/* Like RedisModule_CreatString(), but creates a string starting from a long
+ * double.
+ *
+ * The returned string must be released with RedisModule_FreeString() or by
+ * enabling automatic memory management.
+ *
+ * The passed context 'ctx' may be NULL if necessary, see the
+ * RedisModule_CreateString() documentation for more info. */
+RedisModuleString *RM_CreateStringFromLongDouble(RedisModuleCtx *ctx, long double ld, int humanfriendly) {
+    char buf[MAX_LONG_DOUBLE_CHARS];
+    size_t len = ld2string(buf,sizeof(buf),ld,
+        (humanfriendly ? LD_STR_HUMAN : LD_STR_AUTO));
+    return RM_CreateString(ctx,buf,len);
+}
+
 /* Like RedisModule_CreatString(), but creates a string starting from another
  * RedisModuleString.
  *
@@ -1114,6 +1129,14 @@ int RM_StringToLongLong(const RedisModuleString *str, long long *ll) {
 int RM_StringToDouble(const RedisModuleString *str, double *d) {
     int retval = getDoubleFromObject(str,d);
     return (retval == C_OK) ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
+/* Convert the string into a long double, storing it at `*ld`.
+ * Returns REDISMODULE_OK on success or REDISMODULE_ERR if the string is
+ * not a valid string representation of a double value. */
+int RM_StringToLongDouble(const RedisModuleString *str, long double *ld) {
+    int retval = string2ld(str->ptr,sdslen(str->ptr),ld);
+    return retval ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
 /* Compare two string objects, returning -1, 0 or 1 respectively if
@@ -1438,6 +1461,21 @@ int RM_ReplyWithDouble(RedisModuleCtx *ctx, double d) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
     addReplyDouble(c,d);
+    return REDISMODULE_OK;
+}
+
+/* Send a string reply obtained converting the long double 'ld' into a bulk
+ * string. This function is basically equivalent to converting a long double
+ * into a string into a C buffer, and then calling the function
+ * RedisModule_ReplyWithStringBuffer() with the buffer and length.
+ * The double string uses human readable formatting (see
+ * `addReplyHumanLongDouble` in networking.c).
+ *
+ * The function always returns REDISMODULE_OK. */
+int RM_ReplyWithLongDouble(RedisModuleCtx *ctx, long double ld) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReplyHumanLongDouble(c, ld);
     return REDISMODULE_OK;
 }
 
@@ -7140,6 +7178,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ReplyWithNull);
     REGISTER_API(ReplyWithCallReply);
     REGISTER_API(ReplyWithDouble);
+    REGISTER_API(ReplyWithLongDouble);
     REGISTER_API(GetSelectedDb);
     REGISTER_API(SelectDb);
     REGISTER_API(OpenKey);
@@ -7150,6 +7189,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ListPop);
     REGISTER_API(StringToLongLong);
     REGISTER_API(StringToDouble);
+    REGISTER_API(StringToLongDouble);
     REGISTER_API(Call);
     REGISTER_API(CallReplyProto);
     REGISTER_API(FreeCallReply);
@@ -7161,6 +7201,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CreateStringFromCallReply);
     REGISTER_API(CreateString);
     REGISTER_API(CreateStringFromLongLong);
+    REGISTER_API(CreateStringFromLongDouble);
     REGISTER_API(CreateStringFromString);
     REGISTER_API(CreateStringPrintf);
     REGISTER_API(FreeString);
