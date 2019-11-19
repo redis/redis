@@ -317,7 +317,7 @@ unsigned int zipIntSize(unsigned char encoding) {
     return 0;
 }
 
-/* Write the encoidng header of the entry in 'p'. If p is NULL it just returns
+/* Write the encoding header of the entry in 'p'. If p is NULL it just returns
  * the amount of bytes required to encode such a length. Arguments:
  *
  * 'encoding' is the encoding we are using for the entry. It could be
@@ -325,7 +325,7 @@ unsigned int zipIntSize(unsigned char encoding) {
  * for single-byte small immediate integers.
  *
  * 'rawlen' is only used for ZIP_STR_* encodings and is the length of the
- * srting that this entry represents.
+ * string that this entry represents.
  *
  * The function returns the number of bytes used by the encoding/length
  * header stored in 'p'. */
