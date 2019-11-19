@@ -66,7 +66,7 @@ typedef struct list {
 #define listSetMatchMethod(l,m) ((l)->match = (m))
 
 #define listGetDupMethod(l) ((l)->dup)
-#define listGetFree(l) ((l)->free)
+#define listGetFreeMethod(l) ((l)->free)
 #define listGetMatchMethod(l) ((l)->match)
 
 /* Prototypes */
