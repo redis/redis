@@ -81,6 +81,107 @@ final:
     return REDISMODULE_OK;
 }
 
+int test_flushall(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    RedisModule_ResetDataset(1, 0);
+    RedisModule_ReplyWithCString(ctx, "Ok");
+    return REDISMODULE_OK;
+}
+
+int test_dbsize(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    long long ll = RedisModule_DbSize(ctx);
+    RedisModule_ReplyWithLongLong(ctx, ll);
+    return REDISMODULE_OK;
+}
+
+int test_randomkey(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    RedisModuleString *str = RedisModule_RandomKey(ctx);
+    RedisModule_ReplyWithString(ctx, str);
+    RedisModule_FreeString(ctx, str);
+    return REDISMODULE_OK;
+}
+
+RedisModuleKey *open_key_or_reply(RedisModuleCtx *ctx, RedisModuleString *keyname, int mode) {
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, keyname, mode);
+    if (!key) {
+        RedisModule_ReplyWithError(ctx, "key not found");
+        return NULL;
+    }
+    return key;
+}
+
+int test_getlru(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    if (argc<2) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+    RedisModuleKey *key = open_key_or_reply(ctx, argv[1], REDISMODULE_READ|REDISMODULE_OPEN_KEY_NOTOUCH);
+    mstime_t lru;
+    RedisModule_GetLRU(key, &lru);
+    RedisModule_ReplyWithLongLong(ctx, lru);
+    RedisModule_CloseKey(key);
+    return REDISMODULE_OK;
+}
+
+int test_setlru(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    if (argc<3) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+    RedisModuleKey *key = open_key_or_reply(ctx, argv[1], REDISMODULE_READ|REDISMODULE_OPEN_KEY_NOTOUCH);
+    mstime_t lru;
+    if (RedisModule_StringToLongLong(argv[2], &lru) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "invalid idle time");
+        return REDISMODULE_OK;
+    }
+    int was_set = RedisModule_SetLRU(key, lru)==REDISMODULE_OK;
+    RedisModule_ReplyWithLongLong(ctx, was_set);
+    RedisModule_CloseKey(key);
+    return REDISMODULE_OK;
+}
+
+int test_getlfu(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    if (argc<2) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+    RedisModuleKey *key = open_key_or_reply(ctx, argv[1], REDISMODULE_READ|REDISMODULE_OPEN_KEY_NOTOUCH);
+    mstime_t lfu;
+    RedisModule_GetLFU(key, &lfu);
+    RedisModule_ReplyWithLongLong(ctx, lfu);
+    RedisModule_CloseKey(key);
+    return REDISMODULE_OK;
+}
+
+int test_setlfu(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    if (argc<3) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+    RedisModuleKey *key = open_key_or_reply(ctx, argv[1], REDISMODULE_READ|REDISMODULE_OPEN_KEY_NOTOUCH);
+    mstime_t lfu;
+    if (RedisModule_StringToLongLong(argv[2], &lfu) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "invalid freq");
+        return REDISMODULE_OK;
+    }
+    int was_set = RedisModule_SetLFU(key, lfu)==REDISMODULE_OK;
+    RedisModule_ReplyWithLongLong(ctx, was_set);
+    RedisModule_CloseKey(key);
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -93,5 +194,20 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.ld_conversion", test_ld_conv, "",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"test.flushall", test_flushall,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"test.dbsize", test_dbsize,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"test.randomkey", test_randomkey,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"test.setlru", test_setlru,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"test.getlru", test_getlru,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"test.setlfu", test_setlfu,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"test.getlfu", test_getlfu,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
     return REDISMODULE_OK;
 }
