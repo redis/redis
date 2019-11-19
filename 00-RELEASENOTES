@@ -12,6 +12,134 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 5.0.7     Released Tue Nov 19 17:52:44 CET 2019
+================================================================================
+
+Upgrade urgency HIGH: many issues fixed, some may have an impact.
+
+Hi all, Redis 5.0.7 fixes a number of bugs, none is very critical, however
+there are a few that may have an impact. It's a good idea to upgrade.
+There are fixes in the area of replication from modules commands and
+callbacks, AOF fsync (non critical issue), memory leaks (very rare and small),
+streams beahvior (non critical), and a potential crash in commands
+processing multiple keys at the same time that is there for years, and happens
+very rarely, but is not impossible to trigger.
+
+The following is the list of commits in this release.
+
+antirez in commit 4d2a31ae:
+ Test: fix implementation-dependent test after code change.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Oran Agra in commit 9f63fc98:
+ RED-31295 - redis: avoid race between dlopen and thread creation
+ 2 files changed, 17 insertions(+)
+
+antirez in commit 1a9e70c1:
+ Cluster: fix memory leak of cached master.
+ 2 files changed, 9 insertions(+), 4 deletions(-)
+
+Guy Benoish in commit 69b1b5be:
+ Fix usage of server.stream_node_max_*
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+喜欢兰花山丘 in commit 1fd97ee7:
+ Update mkreleasehdr.sh
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 1a9855d7:
+ Remove additional space from comment.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 32a6e3e4:
+ Fix stream test after addition of 0-0 ID test.
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+Yuan Zhou in commit c9e6cda9:
+ aof: fix assignment for aof_fsync_offset
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit d3eeacf9:
+ Merge branch '5.0' of github.com:/antirez/redis into 5.0
+antirez in commit da5dc458:
+ Rename var to fixed_time_expire now that is more general.
+ 4 files changed, 7 insertions(+), 8 deletions(-)
+
+antirez in commit 0fefed25:
+ Fix patch provided in #6554.
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+zhaozhao.zz in commit e9fbc960:
+ expires & blocking: handle ready keys as call()
+ 1 file changed, 5 insertions(+)
+
+Guy Benoish in commit 08ec8f71:
+ XADD with ID 0-0 stores an empty key
+ 2 files changed, 14 insertions(+)
+
+Loris Cro in commit 09e1fe27:
+ fix unreported overflow in autogerenared stream IDs
+ 2 files changed, 19 insertions(+), 10 deletions(-)
+
+Salvatore Sanfilippo in commit 09f9e4b0:
+ Merge pull request #6600 from oranagra/5_module_flags
+Oran Agra in commit 8d8d68dd:
+ module documentation mismatches: loading and fork child for 5.0 branch
+ 3 files changed, 11 insertions(+)
+
+antirez in commit 7a7fbe70:
+ Modules: RM_GetContextFlags(): remove non Redis 5 features.
+ 1 file changed, 3 deletions(-)
+
+antirez in commit b5830486:
+ Modules: fix moduleCreateArgvFromUserFormat() casting bug.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit b7a2a53a:
+ module: fix propagation API bug.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit 278bd6e3:
+ Modules: add new flags to context, replica state + more.
+ 2 files changed, 48 insertions(+), 1 deletion(-)
+
+antirez in commit 61d9a154:
+ Modules: RM_Call(): give pointer to documentation.
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+antirez in commit 0e7ea0aa:
+ Modules: RM_Call/Replicate() ability to exclude AOF/replicas.
+ 1 file changed, 28 insertions(+), 9 deletions(-)
+
+antirez in commit 3b38164e:
+ Modules: RM_Replicate() in thread safe contexts.
+ 1 file changed, 26 insertions(+), 4 deletions(-)
+
+antirez in commit ef9fe9b0:
+ Modules: implement RM_Replicate() from async callbacks.
+ 2 files changed, 33 insertions(+), 2 deletions(-)
+
+antirez in commit 8066d2a1:
+ Modules: handle propagation when ctx is freed. Flag modules commands ctx.
+ 1 file changed, 23 insertions(+), 19 deletions(-)
+
+antirez in commit d3f4dec4:
+ Update PR #6537: use a fresh time outside call().
+ 3 files changed, 27 insertions(+), 7 deletions(-)
+
+antirez in commit 33f42665:
+ Update PR #6537 patch to for generality.
+ 4 files changed, 40 insertions(+), 23 deletions(-)
+
+zhaozhao.zz in commit 68d71d83:
+ expires: refactoring judgment about whether a key is expired
+ 3 files changed, 3 insertions(+), 1 deletion(-)
+
+antirez in commit 62588dbf:
+ Modules: fix thread safe context creation crash.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+================================================================================
 Redis 5.0.6     Released Wed Sep 25 12:33:56 CEST 2019
 ================================================================================
 
