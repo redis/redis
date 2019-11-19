@@ -779,6 +779,11 @@ void updateDictResizePolicy(void) {
         dictDisableResize();
 }
 
+int hasActiveChildProcess() {
+    return server.rdb_child_pid != -1 ||
+           server.aof_child_pid != -1;
+}
+
 /* ======================= Cron: called every 100 ms ======================== */
 
 /* Add a sample to the operations per second array of samples. */
