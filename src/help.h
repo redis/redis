@@ -1004,7 +1004,7 @@ struct commandHelp {
     14,
     "5.0.0" },
     { "XGROUP",
-    "[CREATE key groupname id-or-$] [SETID key id-or-$] [DESTROY key groupname] [DELCONSUMER key groupname consumername]",
+    "[CREATE key groupname id-or-$] [SETID key id-or-$] [DESTROY key groupname] [DELCONSUMER key groupname consumername] [MKSTREAM]",
     "Create, destroy, and manage consumer groups.",
     14,
     "5.0.0" },
