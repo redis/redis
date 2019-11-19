@@ -1949,7 +1949,7 @@ int RM_DeleteKey(RedisModuleKey *key) {
     return REDISMODULE_OK;
 }
 
-/* If the key is open for writing, unlink it (that is delete it in a 
+/* If the key is open for writing, unlink it (that is delete it in a
  * non-blocking way, not reclaiming memory immediately) and setup the key to
  * accept new writes as an empty key (that will be created on demand).
  * On success REDISMODULE_OK is returned. If the key is not open for
@@ -6820,6 +6820,32 @@ int RM_GetLRUOrLFU(RedisModuleKey *key, long long *lfu_freq, long long *lru_idle
     return REDISMODULE_OK;
 }
 
+/* Replace the value assigned to a module type.
+ *
+ * The key must be open for writing, have an existing value, and have a moduleType
+ * that matches the one specified by the caller.
+ *
+ * Unlike RM_ModuleTypeSetValue() which will free the old value, this function
+ * simply swaps the old value with the new value.
+ *
+ * The function returns the old value, or NULL if any of the above conditions is
+ * not met.
+ */
+void *RM_ModuleTypeReplaceValue(RedisModuleKey *key, moduleType *mt, void *new_value) {
+    if (!(key->mode & REDISMODULE_WRITE) || key->iter)
+        return NULL;
+    if (!key->value || key->value->type != OBJ_MODULE)
+        return NULL;
+
+    moduleValue *mv = key->value->ptr;
+    if (mv->type != mt)
+        return NULL;
+
+    void *old_val = mv->value;
+    mv->value = new_value;
+    return old_val;
+}
+
 /* Register all the APIs we export. Keep this function at the end of the
  * file so that's easy to seek it to add new entries. */
 void moduleRegisterCoreAPI(void) {
@@ -6909,6 +6935,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(PoolAlloc);
     REGISTER_API(CreateDataType);
     REGISTER_API(ModuleTypeSetValue);
+    REGISTER_API(ModuleTypeReplaceValue);
     REGISTER_API(ModuleTypeGetType);
     REGISTER_API(ModuleTypeGetValue);
     REGISTER_API(IsIOError);
