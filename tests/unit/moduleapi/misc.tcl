@@ -26,13 +26,40 @@ start_server {tags {"modules"}} {
     }
 
     test {test modle lru api} {
+        r config set maxmemory-policy allkeys-lru
         r set x foo
         set lru [r test.getlru x]
-        assert { $lru <= 1 }
-        r test.setlru x 100
+        assert { $lru <= 1000 }
+        set was_set [r test.setlru x 100000]
+        assert { $was_set == 1 }
         set idle [r object idletime x]
         assert { $idle >= 100 }
         set lru [r test.getlru x]
-        assert { $lru >= 100 }
+        assert { $lru >= 100000 }
+        r config set maxmemory-policy allkeys-lfu
+        set lru [r test.getlru x]
+        assert { $lru == -1 }
+        set was_set [r test.setlru x 100000]
+        assert { $was_set == 0 }
     }
+    r config set maxmemory-policy allkeys-lru
+
+    test {test modle lfu api} {
+        r config set maxmemory-policy allkeys-lfu
+        r set x foo
+        set lfu [r test.getlfu x]
+        assert { $lfu >= 1 }
+        set was_set [r test.setlfu x 100]
+        assert { $was_set == 1 }
+        set freq [r object freq x]
+        assert { $freq <= 100 }
+        set lfu [r test.getlfu x]
+        assert { $lfu <= 100 }
+        r config set maxmemory-policy allkeys-lru
+        set lfu [r test.getlfu x]
+        assert { $lfu == -1 }
+        set was_set [r test.setlfu x 100]
+        assert { $was_set == 0 }
+    }
+
 }
