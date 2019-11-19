@@ -1748,6 +1748,8 @@ int RM_GetSelectedDb(RedisModuleCtx *ctx) {
  *  * REDISMODULE_CTX_FLAGS_OOM_WARNING: Less than 25% of memory remains before
  *                                       reaching the maxmemory level.
  *
+ *  * REDISMODULE_CTX_FLAGS_LOADING: Server is loading RDB/AOF
+ *
  *  * REDISMODULE_CTX_FLAGS_REPLICA_IS_STALE: No active link with the master.
  *
  *  * REDISMODULE_CTX_FLAGS_REPLICA_IS_CONNECTING: The replica is trying to
