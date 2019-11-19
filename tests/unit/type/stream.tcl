@@ -123,6 +123,12 @@ start_server {
         assert {[r xlen mystream] == $j}
     }
 
+    test {XADD with ID 0-0} {
+        r DEL mystream
+        catch {r XADD mystream 0-0 k v} err
+        assert {[r EXISTS mystream] == 0}
+    }
+
     test {XRANGE COUNT works as expected} {
         assert {[llength [r xrange mystream - + COUNT 10]] == 10}
     }

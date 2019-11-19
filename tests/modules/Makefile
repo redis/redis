@@ -20,7 +20,8 @@ TEST_MODULES = \
     misc.so \
     hooks.so \
     blockonkeys.so \
-    scan.so
+    scan.so \
+    datatype.so
 
 .PHONY: all
 

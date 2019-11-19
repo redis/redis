@@ -1389,7 +1389,7 @@ int RM_ReplyWithString(RedisModuleCtx *ctx, RedisModuleString *str) {
 int RM_ReplyWithEmptyString(RedisModuleCtx *ctx) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
-    addReplyBulkCBuffer(c, "", 0);
+    addReply(c,shared.emptybulk);
     return REDISMODULE_OK;
 }
 
@@ -1404,8 +1404,7 @@ int RM_ReplyWithVerbatimString(RedisModuleCtx *ctx, const char *buf, size_t len)
     return REDISMODULE_OK;
 }
 
-/* Reply to the client with a NULL. In the RESP protocol a NULL is encoded
- * as the string "$-1\r\n".
+/* Reply to the client with a NULL.
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithNull(RedisModuleCtx *ctx) {
@@ -1749,6 +1748,8 @@ int RM_GetSelectedDb(RedisModuleCtx *ctx) {
  *  * REDISMODULE_CTX_FLAGS_OOM_WARNING: Less than 25% of memory remains before
  *                                       reaching the maxmemory level.
  *
+ *  * REDISMODULE_CTX_FLAGS_LOADING: Server is loading RDB/AOF
+ *
  *  * REDISMODULE_CTX_FLAGS_REPLICA_IS_STALE: No active link with the master.
  *
  *  * REDISMODULE_CTX_FLAGS_REPLICA_IS_CONNECTING: The replica is trying to
@@ -1960,7 +1961,7 @@ int RM_DeleteKey(RedisModuleKey *key) {
     return REDISMODULE_OK;
 }
 
-/* If the key is open for writing, unlink it (that is delete it in a 
+/* If the key is open for writing, unlink it (that is delete it in a
  * non-blocking way, not reclaiming memory immediately) and setup the key to
  * accept new writes as an empty key (that will be created on demand).
  * On success REDISMODULE_OK is returned. If the key is not open for
@@ -3892,6 +3893,59 @@ void RM_DigestAddLongLong(RedisModuleDigest *md, long long ll) {
 void RM_DigestEndSequence(RedisModuleDigest *md) {
     xorDigest(md->x,md->o,sizeof(md->o));
     memset(md->o,0,sizeof(md->o));
+}
+
+/* Decode a serialized representation of a module data type 'mt' from string
+ * 'str' and return a newly allocated value, or NULL if decoding failed.
+ *
+ * This call basically reuses the 'rdb_load' callback which module data types
+ * implement in order to allow a module to arbitrarily serialize/de-serialize
+ * keys, similar to how the Redis 'DUMP' and 'RESTORE' commands are implemented.
+ *
+ * Modules should generally use the REDISMODULE_OPTIONS_HANDLE_IO_ERRORS flag and
+ * make sure the de-serialization code properly checks and handles IO errors
+ * (freeing allocated buffers and returning a NULL).
+ *
+ * If this is NOT done, Redis will handle corrupted (or just truncated) serialized
+ * data by producing an error message and terminating the process.
+ */
+
+void *RM_LoadDataTypeFromString(const RedisModuleString *str, const moduleType *mt) {
+    rio payload;
+    RedisModuleIO io;
+
+    rioInitWithBuffer(&payload, str->ptr);
+    moduleInitIOContext(io,(moduleType *)mt,&payload,NULL);
+
+    /* All RM_Save*() calls always write a version 2 compatible format, so we
+     * need to make sure we read the same.
+     */
+    io.ver = 2;
+    return mt->rdb_load(&io,0);
+}
+
+/* Encode a module data type 'mt' value 'data' into serialized form, and return it
+ * as a newly allocated RedisModuleString.
+ *
+ * This call basically reuses the 'rdb_save' callback which module data types
+ * implement in order to allow a module to arbitrarily serialize/de-serialize
+ * keys, similar to how the Redis 'DUMP' and 'RESTORE' commands are implemented.
+ */
+
+RedisModuleString *RM_SaveDataTypeToString(RedisModuleCtx *ctx, void *data, const moduleType *mt) {
+    rio payload;
+    RedisModuleIO io;
+
+    rioInitWithBuffer(&payload,sdsempty());
+    moduleInitIOContext(io,(moduleType *)mt,&payload,NULL);
+    mt->rdb_save(&io,data);
+    if (io.error) {
+        return NULL;
+    } else {
+        robj *str = createObject(OBJ_STRING,payload.io.buffer.ptr);
+        autoMemoryAdd(ctx,REDISMODULE_AM_STRING,str);
+        return str;
+    }
 }
 
 /* --------------------------------------------------------------------------
@@ -7011,6 +7065,32 @@ int RM_GetLRUOrLFU(RedisModuleKey *key, long long *lfu_freq, long long *lru_idle
     return REDISMODULE_OK;
 }
 
+/* Replace the value assigned to a module type.
+ *
+ * The key must be open for writing, have an existing value, and have a moduleType
+ * that matches the one specified by the caller.
+ *
+ * Unlike RM_ModuleTypeSetValue() which will free the old value, this function
+ * simply swaps the old value with the new value.
+ *
+ * The function returns the old value, or NULL if any of the above conditions is
+ * not met.
+ */
+void *RM_ModuleTypeReplaceValue(RedisModuleKey *key, moduleType *mt, void *new_value) {
+    if (!(key->mode & REDISMODULE_WRITE) || key->iter)
+        return NULL;
+    if (!key->value || key->value->type != OBJ_MODULE)
+        return NULL;
+
+    moduleValue *mv = key->value->ptr;
+    if (mv->type != mt)
+        return NULL;
+
+    void *old_val = mv->value;
+    mv->value = new_value;
+    return old_val;
+}
+
 /* Register all the APIs we export. Keep this function at the end of the
  * file so that's easy to seek it to add new entries. */
 void moduleRegisterCoreAPI(void) {
@@ -7100,6 +7180,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(PoolAlloc);
     REGISTER_API(CreateDataType);
     REGISTER_API(ModuleTypeSetValue);
+    REGISTER_API(ModuleTypeReplaceValue);
     REGISTER_API(ModuleTypeGetType);
     REGISTER_API(ModuleTypeGetValue);
     REGISTER_API(IsIOError);
@@ -7119,6 +7200,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(LoadFloat);
     REGISTER_API(SaveLongDouble);
     REGISTER_API(LoadLongDouble);
+    REGISTER_API(SaveDataTypeToString);
+    REGISTER_API(LoadDataTypeFromString);
     REGISTER_API(EmitAOF);
     REGISTER_API(Log);
     REGISTER_API(LogIOError);
