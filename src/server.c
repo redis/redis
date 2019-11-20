@@ -5100,7 +5100,6 @@ int main(int argc, char **argv) {
         if (server.sofd > 0)
             serverLog(LL_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);
         if (server.supervised_mode == SUPERVISED_SYSTEMD) {
-            /* XXX TODO is this sufficient to pass readiness control off to readSyncBulkPayload()? */
             if (!server.masterhost) {
                 redisCommunicateSystemd("STATUS=Ready to accept connections\n");
                 redisCommunicateSystemd("READY=1\n");
