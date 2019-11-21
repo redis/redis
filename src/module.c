@@ -5995,19 +5995,23 @@ int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *fctx, int pos)
     return REDISMODULE_OK;
 }
 
-/*
- * For a given pointer, return The amount of memory
- * allocated for this pointer.
+/* For a given pointer allocated via RedisModule_Alloc() or
+ * RedisModule_Realloc(), return the amount of memory allocated for it.
+ * Note that this may be different (larger) than the memory we allocated
+ * with the allocation calls, since sometimes the underlying allocator
+ * will allocate more memory.
  */
 size_t RM_MallocSize(void* ptr){
     return zmalloc_size(ptr);
 }
 
-/*
- * Return the a number between 0 to 1 indicating
- * the amount of memory currently used.
- * 0 - no memory limit
- * 1 and above, memory limit reached.
+/* Return the a number between 0 to 1 indicating the amount of memory
+ * currently used, relative to the Redis "maxmemory" configuration.
+ *
+ * 0 - No memory limit configured.
+ * Between 0 and 1 - The percentage of the memory used normalized in 0-1 range.
+ * Exactly 1 - Memory limit reached.
+ * Greater 1 - More memory used than the configured limit.
  */
 float RM_GetUsedMemoryRatio(){
     float level;
