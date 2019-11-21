@@ -4966,7 +4966,7 @@ void restoreCommand(client *c) {
         if (!absttl) ttl+=mstime();
         setExpire(c,c->db,c->argv[1],ttl);
     }
-    objectSetLRUOrLFU(obj,lfu_freq,lru_idle,lru_clock);
+    objectSetLRUOrLFU(obj,lfu_freq,lru_idle,lru_clock,1000);
     signalModifiedKey(c->db,c->argv[1]);
     addReply(c,shared.ok);
     server.dirty++;

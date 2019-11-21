@@ -19,7 +19,9 @@ TEST_MODULES = \
     propagate.so \
     misc.so \
     hooks.so \
-    blockonkeys.so
+    blockonkeys.so \
+    scan.so \
+    datatype.so
 
 .PHONY: all
 
