@@ -151,9 +151,13 @@ robj *lookupKeyRead(redisDb *db, robj *key) {
  *
  * Returns the linked value object if the key exists or NULL if the key
  * does not exist in the specified DB. */
-robj *lookupKeyWrite(redisDb *db, robj *key) {
+robj *lookupKeyWriteWithFlags(redisDb *db, robj *key, int flags) {
     expireIfNeeded(db,key);
-    return lookupKey(db,key,LOOKUP_NONE);
+    return lookupKey(db,key,flags);
+}
+
+robj *lookupKeyWrite(redisDb *db, robj *key) {
+    return lookupKeyWriteWithFlags(db, key, LOOKUP_NONE);
 }
 
 robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply) {
@@ -461,6 +465,29 @@ int getFlushCommandFlags(client *c, int *flags) {
     return C_OK;
 }
 
+/* Flushes the whole server data set. */
+void flushAllDataAndResetRDB(int flags) {
+    server.dirty += emptyDb(-1,flags,NULL);
+    if (server.rdb_child_pid != -1) killRDBChild();
+    if (server.saveparamslen > 0) {
+        /* Normally rdbSave() will reset dirty, but we don't want this here
+         * as otherwise FLUSHALL will not be replicated nor put into the AOF. */
+        int saved_dirty = server.dirty;
+        rdbSaveInfo rsi, *rsiptr;
+        rsiptr = rdbPopulateSaveInfo(&rsi);
+        rdbSave(server.rdb_filename,rsiptr);
+        server.dirty = saved_dirty;
+    }
+    server.dirty++;
+#if defined(USE_JEMALLOC)
+    /* jemalloc 5 doesn't release pages back to the OS when there's no traffic.
+     * for large databases, flushdb blocks for long anyway, so a bit more won't
+     * harm and this way the flush and purge will be synchroneus. */
+    if (!(flags & EMPTYDB_ASYNC))
+        jemalloc_purge();
+#endif
+}
+
 /* FLUSHDB [ASYNC]
  *
  * Flushes the currently SELECTed Redis DB. */
@@ -484,28 +511,9 @@ void flushdbCommand(client *c) {
  * Flushes the whole server data set. */
 void flushallCommand(client *c) {
     int flags;
-
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
-    server.dirty += emptyDb(-1,flags,NULL);
+    flushAllDataAndResetRDB(flags);
     addReply(c,shared.ok);
-    if (server.rdb_child_pid != -1) killRDBChild();
-    if (server.saveparamslen > 0) {
-        /* Normally rdbSave() will reset dirty, but we don't want this here
-         * as otherwise FLUSHALL will not be replicated nor put into the AOF. */
-        int saved_dirty = server.dirty;
-        rdbSaveInfo rsi, *rsiptr;
-        rsiptr = rdbPopulateSaveInfo(&rsi);
-        rdbSave(server.rdb_filename,rsiptr);
-        server.dirty = saved_dirty;
-    }
-    server.dirty++;
-#if defined(USE_JEMALLOC)
-    /* jemalloc 5 doesn't release pages back to the OS when there's no traffic.
-     * for large databases, flushdb blocks for long anyway, so a bit more won't
-     * harm and this way the flush and purge will be synchroneus. */
-    if (!(flags & EMPTYDB_ASYNC))
-        jemalloc_purge();
-#endif
 }
 
 /* This command implements DEL and LAZYDEL. */
@@ -1069,10 +1077,12 @@ int dbSwapDatabases(long id1, long id2) {
     db1->dict = db2->dict;
     db1->expires = db2->expires;
     db1->avg_ttl = db2->avg_ttl;
+    db1->expires_cursor = db2->expires_cursor;
 
     db2->dict = aux.dict;
     db2->expires = aux.expires;
     db2->avg_ttl = aux.avg_ttl;
+    db2->expires_cursor = aux.expires_cursor;
 
     /* Now we need to handle clients blocked on lists: as an effect
      * of swapping the two DBs, a client that was waiting for list
@@ -1188,6 +1198,7 @@ void propagateExpire(redisDb *db, robj *key, int lazy) {
 /* Check if the key is expired. */
 int keyIsExpired(redisDb *db, robj *key) {
     mstime_t when = getExpire(db,key);
+    mstime_t now;
 
     if (when < 0) return 0; /* No expire for this key */
 
@@ -1199,8 +1210,26 @@ int keyIsExpired(redisDb *db, robj *key) {
      * only the first time it is accessed and not in the middle of the
      * script execution, making propagation to slaves / AOF consistent.
      * See issue #1525 on Github for more information. */
-    mstime_t now = server.lua_caller ? server.lua_time_start : mstime();
+    if (server.lua_caller) {
+        now = server.lua_time_start;
+    }
+    /* If we are in the middle of a command execution, we still want to use
+     * a reference time that does not change: in that case we just use the
+     * cached time, that we update before each call in the call() function.
+     * This way we avoid that commands such as RPOPLPUSH or similar, that
+     * may re-open the same key multiple times, can invalidate an already
+     * open object in a next call, if the next call will see the key expired,
+     * while the first did not. */
+    else if (server.fixed_time_expire > 0) {
+        now = server.mstime;
+    }
+    /* For the other cases, we want to use the most fresh time we have. */
+    else {
+        now = mstime();
+    }
 
+    /* The key expired if the current (virtual or real) time is greater
+     * than the expire time of the key. */
     return now > when;
 }
 

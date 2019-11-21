@@ -79,6 +79,12 @@ start_server {
         assert {[streamCompareID $id2 $id3] == -1}
     }
 
+    test {XADD IDs correctly report an error when overflowing} {
+        r DEL mystream
+        r xadd mystream 18446744073709551615-18446744073709551615 a b
+        assert_error ERR* {r xadd mystream * c d}
+    }
+
     test {XADD with MAXLEN option} {
         r DEL mystream
         for {set j 0} {$j < 1000} {incr j} {
@@ -115,6 +121,12 @@ start_server {
             assert {[lrange [lindex $items $j 1] 0 1] eq [list item $j]}
         }
         assert {[r xlen mystream] == $j}
+    }
+
+    test {XADD with ID 0-0} {
+        r DEL otherstream
+        catch {r XADD otherstream 0-0 k v} err
+        assert {[r EXISTS otherstream] == 0}
     }
 
     test {XRANGE COUNT works as expected} {

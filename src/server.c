@@ -1691,8 +1691,7 @@ void databasesCron(void) {
     }
 
     /* Defrag keys gradually. */
-    if (server.active_defrag_enabled)
-        activeDefragCycle();
+    activeDefragCycle();
 
     /* Perform hash tables rehashing if needed, but only if there are no
      * other processes saving the DB on disk. Otherwise rehashing is bad
@@ -1736,20 +1735,29 @@ void databasesCron(void) {
 /* We take a cached value of the unix time in the global state because with
  * virtual memory and aging there is to store the current time in objects at
  * every object access, and accuracy is not needed. To access a global var is
- * a lot faster than calling time(NULL) */
-void updateCachedTime(void) {
-    server.unixtime = time(NULL);
-    server.mstime = mstime();
+ * a lot faster than calling time(NULL).
+ *
+ * This function should be fast because it is called at every command execution
+ * in call(), so it is possible to decide if to update the daylight saving
+ * info or not using the 'update_daylight_info' argument. Normally we update
+ * such info only when calling this function from serverCron() but not when
+ * calling it from call(). */
+void updateCachedTime(int update_daylight_info) {
+    server.ustime = ustime();
+    server.mstime = server.ustime / 1000;
+    server.unixtime = server.mstime / 1000;
 
     /* To get information about daylight saving time, we need to call
      * localtime_r and cache the result. However calling localtime_r in this
      * context is safe since we will never fork() while here, in the main
      * thread. The logging function will call a thread safe version of
      * localtime that has no locks. */
-    struct tm tm;
-    time_t ut = server.unixtime;
-    localtime_r(&ut,&tm);
-    server.daylight_active = tm.tm_isdst;
+    if (update_daylight_info) {
+        struct tm tm;
+        time_t ut = server.unixtime;
+        localtime_r(&ut,&tm);
+        server.daylight_active = tm.tm_isdst;
+    }
 }
 
 void checkChildrenDone(void) {
@@ -1838,7 +1846,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     if (server.watchdog_period) watchdogScheduleSignal(server.watchdog_period);
 
     /* Update the time cache. */
-    updateCachedTime();
+    updateCachedTime(1);
 
     server.hz = server.config_hz;
     /* Adapt the server.hz value to the number of configured clients. If we have
@@ -2056,6 +2064,12 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             server.rdb_bgsave_scheduled = 0;
     }
 
+    /* Fire the cron loop modules event. */
+    RedisModuleCronLoopV1 ei = {REDISMODULE_CRON_LOOP_VERSION,server.hz};
+    moduleFireServerEvent(REDISMODULE_EVENT_CRON_LOOP,
+                          0,
+                          &ei);
+
     server.cronloops++;
     return 1000/server.hz;
 }
@@ -2252,7 +2266,7 @@ void createSharedObjects(void) {
 void initServerConfig(void) {
     int j;
 
-    updateCachedTime();
+    updateCachedTime(1);
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';
     changeReplicationId();
@@ -2279,6 +2293,7 @@ void initServerConfig(void) {
     server.maxidletime = CONFIG_DEFAULT_CLIENT_TIMEOUT;
     server.tcpkeepalive = CONFIG_DEFAULT_TCP_KEEPALIVE;
     server.active_expire_enabled = 1;
+    server.active_expire_effort = CONFIG_DEFAULT_ACTIVE_EXPIRE_EFFORT;
     server.jemalloc_bg_thread = 1;
     server.active_defrag_enabled = CONFIG_DEFAULT_ACTIVE_DEFRAG;
     server.active_defrag_ignore_bytes = CONFIG_DEFAULT_DEFRAG_IGNORE_BYTES;
@@ -2730,6 +2745,7 @@ void resetServerStats(void) {
     server.stat_expiredkeys = 0;
     server.stat_expired_stale_perc = 0;
     server.stat_expired_time_cap_reached_count = 0;
+    server.stat_expire_cycle_time_used = 0;
     server.stat_evictedkeys = 0;
     server.stat_keyspace_misses = 0;
     server.stat_keyspace_hits = 0;
@@ -2771,6 +2787,7 @@ void initServer(void) {
     server.hz = server.config_hz;
     server.pid = getpid();
     server.current_client = NULL;
+    server.fixed_time_expire = 0;
     server.clients = listCreate();
     server.clients_index = raxNew();
     server.clients_to_close = listCreate();
@@ -2832,12 +2849,14 @@ void initServer(void) {
     for (j = 0; j < server.dbnum; j++) {
         server.db[j].dict = dictCreate(&dbDictType,NULL);
         server.db[j].expires = dictCreate(&keyptrDictType,NULL);
+        server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
         server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType,NULL);
         server.db[j].watched_keys = dictCreate(&keylistDictType,NULL);
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
         server.db[j].defrag_later = listCreate();
+        listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
     server.pubsub_channels = dictCreate(&keylistDictType,NULL);
@@ -3238,9 +3257,12 @@ void preventCommandReplication(client *c) {
  *
  */
 void call(client *c, int flags) {
-    long long dirty, start, duration;
+    long long dirty;
+    ustime_t start, duration;
     int client_old_flags = c->flags;
     struct redisCommand *real_cmd = c->cmd;
+
+    server.fixed_time_expire++;
 
     /* Sent the command to clients in MONITOR mode, only if the commands are
      * not generated from reading an AOF. */
@@ -3259,7 +3281,8 @@ void call(client *c, int flags) {
 
     /* Call the command. */
     dirty = server.dirty;
-    start = ustime();
+    updateCachedTime(0);
+    start = server.ustime;
     c->cmd->proc(c);
     duration = ustime()-start;
     dirty = server.dirty-dirty;
@@ -3366,6 +3389,7 @@ void call(client *c, int flags) {
             trackingRememberKeys(caller);
     }
 
+    server.fixed_time_expire--;
     server.stat_numcommands++;
 }
 
@@ -3681,6 +3705,9 @@ int prepareForShutdown(int flags) {
             return C_ERR;
         }
     }
+
+    /* Fire the shutdown modules event. */
+    moduleFireServerEvent(REDISMODULE_EVENT_SHUTDOWN,0,NULL);
 
     /* Remove the pid file if possible and needed. */
     if (server.daemonize || server.pidfile) {
@@ -4244,6 +4271,7 @@ sds genRedisInfoString(const char *section) {
             "expired_keys:%lld\r\n"
             "expired_stale_perc:%.2f\r\n"
             "expired_time_cap_reached_count:%lld\r\n"
+            "expire_cycle_cpu_milliseconds:%lld\r\n"
             "evicted_keys:%lld\r\n"
             "keyspace_hits:%lld\r\n"
             "keyspace_misses:%lld\r\n"
@@ -4271,6 +4299,7 @@ sds genRedisInfoString(const char *section) {
             server.stat_expiredkeys,
             server.stat_expired_stale_perc*100,
             server.stat_expired_time_cap_reached_count,
+            server.stat_expire_cycle_time_used/1000,
             server.stat_evictedkeys,
             server.stat_keyspace_hits,
             server.stat_keyspace_misses,
@@ -4767,7 +4796,7 @@ void loadDataFromDisk(void) {
             serverLog(LL_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
     } else {
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
-        if (rdbLoad(server.rdb_filename,&rsi) == C_OK) {
+        if (rdbLoad(server.rdb_filename,&rsi,RDBFLAGS_NONE) == C_OK) {
             serverLog(LL_NOTICE,"DB loaded from disk: %.3f seconds",
                 (float)(ustime()-start)/1000000);
 

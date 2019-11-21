@@ -178,7 +178,7 @@ robj *createStringObjectFromLongLongForValue(long long value) {
  * The 'humanfriendly' option is used for INCRBYFLOAT and HINCRBYFLOAT. */
 robj *createStringObjectFromLongDouble(long double value, int humanfriendly) {
     char buf[MAX_LONG_DOUBLE_CHARS];
-    int len = ld2string(buf,sizeof(buf),value,humanfriendly);
+    int len = ld2string(buf,sizeof(buf),value,humanfriendly? LD_STR_HUMAN: LD_STR_AUTO);
     return createStringObject(buf,len);
 }
 
@@ -1201,19 +1201,20 @@ sds getMemoryDoctorReport(void) {
  * The lru_idle and lru_clock args are only relevant if policy
  * is MAXMEMORY_FLAG_LRU.
  * Either or both of them may be <0, in that case, nothing is set. */
-void objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
-                       long long lru_clock) {
+int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
+                       long long lru_clock, int lru_multiplier) {
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         if (lfu_freq >= 0) {
             serverAssert(lfu_freq <= 255);
             val->lru = (LFUGetTimeInMinutes()<<8) | lfu_freq;
+            return 1;
         }
     } else if (lru_idle >= 0) {
         /* Provided LRU idle time is in seconds. Scale
          * according to the LRU clock resolution this Redis
          * instance was compiled with (normally 1000 ms, so the
          * below statement will expand to lru_idle*1000/1000. */
-        lru_idle = lru_idle*1000/LRU_CLOCK_RESOLUTION;
+        lru_idle = lru_idle*lru_multiplier/LRU_CLOCK_RESOLUTION;
         long lru_abs = lru_clock - lru_idle; /* Absolute access time. */
         /* If the LRU field underflows (since LRU it is a wrapping
          * clock), the best we can do is to provide a large enough LRU
@@ -1223,7 +1224,9 @@ void objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
         if (lru_abs < 0)
             lru_abs = (lru_clock+(LRU_CLOCK_MAX/2)) % LRU_CLOCK_MAX;
         val->lru = lru_abs;
+        return 1;
     }
+    return 0;
 }
 
 /* ======================= The OBJECT and MEMORY commands =================== */
