@@ -3243,6 +3243,11 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
      * a Lua script in the context of AOF and slaves. */
     if (replicate) moduleReplicateMultiIfNeeded(ctx);
 
+    if (ctx->client->flags & CLIENT_MULTI ||
+        ctx->flags & REDISMODULE_CTX_MULTI_EMITTED) {
+        c->flags |= CLIENT_MULTI;
+    }
+
     /* Run the command */
     int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS;
     if (replicate) {
