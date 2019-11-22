@@ -115,6 +115,9 @@ typedef struct boolConfigData {
 typedef struct stringConfigData {
     char **config; /* The pointer to the server config this value is stored in */
     const char *default_value; /* The default value of the config on rewrite */
+    int convert_empty_to_null; /* A boolean indicating if empty strings should 
+                                  be stored as a NULL value. */
+                                  
 } stringConfigData;
 
 typedef struct enumConfigData {
@@ -145,7 +148,7 @@ typedef struct numericConfigData {
 } numericConfigData;
 
 typedef union typeData {
-    boolConfigData yesno;
+    boolConfigData bool;
     stringConfigData string;
     enumConfigData enumd;
     numericConfigData numeric;
@@ -166,7 +169,7 @@ typedef struct standardConfig {
     const char *name; /* The user visible name of this config */
     const char *alias; /* An alias that can also be used for this config */
     const int modifiable; /* Can this value be updated by CONFIG SET? */
-    typeInterface interface; /* The function points that define the type interface */
+    typeInterface interface; /* The function pointers that define the type interface */
     typeData data; /* The type specific data exposed used by the interface */
 } standardConfig;
 
@@ -1840,9 +1843,6 @@ int rewriteConfig(char *path) {
 #define LOADBUF_SIZE 256
 static char loadbuf[LOADBUF_SIZE];
 
-#define MEMORY_CONFIG 1
-#define INTEGER_CONFIG 0
-
 #define MODIFIABLE_CONFIG 1
 #define IMMUTABLE_CONFIG 0
 
@@ -1876,7 +1876,7 @@ static int boolConfigLoad(typeData data, sds *argv, int argc, char **err) {
         *err = "wrong number of arguments";
         return 0;
     }
-    if ((*(data.yesno.config) = yesnotoi(argv[1])) == -1) {
+    if ((*(data.bool.config) = yesnotoi(argv[1])) == -1) {
         *err = "argument must be 'yes' or 'no'";
         return 0;
     }
@@ -1886,22 +1886,22 @@ static int boolConfigLoad(typeData data, sds *argv, int argc, char **err) {
 static int boolConfigSet(typeData data, sds value) {
     int yn = yesnotoi(value);
     if (yn == -1) return 0;
-    *(data.yesno.config) = yn;
+    *(data.bool.config) = yn;
     return 1;
 }
 
 static void boolConfigGet(client *c, typeData data) {
-    addReplyBulkCString(c, data.yesno.config ? "yes" : "no");
+    addReplyBulkCString(c, data.bool.config ? "yes" : "no");
 }
 
 static void boolConfigRewrite(typeData data, const char *name, struct rewriteConfigState *state) {
-    rewriteConfigYesNoOption(state, name,*(data.yesno.config), data.yesno.default_value);
+    rewriteConfigYesNoOption(state, name,*(data.bool.config), data.bool.default_value);
 }
 
 #define createBoolConfig(name, alias, modifiable, config_addr, default) { \
     embedCommonConfig(name, alias, modifiable) \
     embedConfigInterface(boolConfigLoad, boolConfigSet, boolConfigGet, boolConfigRewrite) \
-    .data.yesno = { \
+    .data.bool = { \
         .config = &(config_addr), \
         .default_value = (default) \
     } \
@@ -1914,13 +1914,21 @@ static int stringConfigLoad(typeData data, sds *argv, int argc, char **err) {
         return 0;
     }
     zfree(*data.string.config);
-    *data.string.config = argv[1][0] ? zstrdup(argv[1]) : NULL;
+    if (data.string.convert_empty_to_null) {
+        *data.string.config = argv[1][0] ? zstrdup(argv[1]) : NULL;
+    } else {
+        *data.string.config = zstrdup(argv[1]);
+    }
     return 1;
 }
 
 static int stringConfigSet(typeData data, sds value) {
     zfree(*data.string.config);
-    *data.string.config = value ? zstrdup(value) : NULL;
+    if (data.string.convert_empty_to_null) {
+        *data.string.config = value[0] ? zstrdup(value) : NULL;
+    } else {
+        *data.string.config = zstrdup(value);
+    }
     return 1;
 }
 
@@ -1932,12 +1940,16 @@ static void stringConfigRewrite(typeData data, const char *name, struct rewriteC
     rewriteConfigStringOption(state, name,*(data.string.config), data.string.default_value);
 }
 
-#define createStringConfig(name, alias, modifiable, config_addr, default) { \
+#define ALLOW_EMPTY_STRING 0
+#define EMPTY_STRING_IS_NULL 1
+
+#define createStringConfig(name, alias, modifiable, empty_to_null, config_addr, default) { \
     embedCommonConfig(name, alias, modifiable) \
     embedConfigInterface(stringConfigLoad, stringConfigSet, stringConfigGet, stringConfigRewrite) \
     .data.string = { \
         .config = &(config_addr), \
         .default_value = (default), \
+        .convert_empty_to_null = (empty_to_null) \
     } \
 }
 
@@ -2057,6 +2069,7 @@ static int numericConfigSet(typeData data, sds value) {
                ll < data.numeric.lower_bound) {
         return 0;
     }
+
     if (data.numeric.numeric_type == NUMERIC_TYPE_INT) {
         *(data.numeric.config.i) = (int) ll;
     } else if (data.numeric.numeric_type == NUMERIC_TYPE_UNSIGNED_LONG) {
@@ -2106,6 +2119,9 @@ static void numericConfigRewrite(typeData data, const char *name, struct rewrite
         rewriteConfigNumericalOption(state, name, value, data.numeric.default_value);
     }
 }
+
+#define INTEGER_CONFIG 0
+#define MEMORY_CONFIG 1
 
 #define embedCommonNumericalConfig(name, alias, modifiable, lower, upper, config_addr, default, memory) { \
     embedCommonConfig(name, alias, modifiable) \
@@ -2176,13 +2192,13 @@ standardConfig configs[] = {
     createBoolConfig("jemalloc-bg-thread", NULL, MODIFIABLE_CONFIG, server.jemalloc_bg_thread, 1), 
 
     /* String Configs */
-    createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, server.acl_filename, CONFIG_DEFAULT_ACL_FILENAME), 
-    createStringConfig("unixsocket", NULL, IMMUTABLE_CONFIG, server.unixsocket, NULL), 
-    createStringConfig("pidfile", NULL, IMMUTABLE_CONFIG, server.pidfile, CONFIG_DEFAULT_PID_FILE), 
-    createStringConfig("replica-announce-ip", "slave-announce-ip", MODIFIABLE_CONFIG, server.slave_announce_ip, CONFIG_DEFAULT_SLAVE_ANNOUNCE_IP), 
-    createStringConfig("masteruser", NULL, MODIFIABLE_CONFIG, server.masteruser, NULL), 
-    createStringConfig("masterauth", NULL, MODIFIABLE_CONFIG, server.masterauth, NULL), 
-    createStringConfig("cluster-announce-ip", NULL, MODIFIABLE_CONFIG, server.cluster_announce_ip, NULL), 
+    createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, CONFIG_DEFAULT_ACL_FILENAME), 
+    createStringConfig("unixsocket", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.unixsocket, NULL), 
+    createStringConfig("pidfile", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.pidfile, CONFIG_DEFAULT_PID_FILE), 
+    createStringConfig("replica-announce-ip", "slave-announce-ip", MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.slave_announce_ip, CONFIG_DEFAULT_SLAVE_ANNOUNCE_IP), 
+    createStringConfig("masteruser", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.masteruser, NULL), 
+    createStringConfig("masterauth", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.masterauth, NULL), 
+    createStringConfig("cluster-announce-ip", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_ip, NULL), 
 
     /* Enum Configs */
     createEnumConfig("supervised", NULL, IMMUTABLE_CONFIG, supervised_mode_enum, server.supervised_mode, SUPERVISED_NONE), 
