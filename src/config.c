@@ -148,7 +148,7 @@ typedef struct numericConfigData {
 } numericConfigData;
 
 typedef union typeData {
-    boolConfigData bool;
+    boolConfigData yesno;
     stringConfigData string;
     enumConfigData enumd;
     numericConfigData numeric;
@@ -409,6 +409,10 @@ void loadServerConfigFromString(char *config) {
             }
             zfree(server.aof_filename);
             server.aof_filename = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"auto-aof-rewrite-min-size") &&
+                   argc == 2)
+        {
+            server.aof_rewrite_min_size = memtoll(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"requirepass") && argc == 2) {
             if (strlen(argv[1]) > CONFIG_AUTHPASS_MAX_LEN) {
                 err = "Password is longer than CONFIG_AUTHPASS_MAX_LEN";
@@ -427,6 +431,8 @@ void loadServerConfigFromString(char *config) {
             }
             zfree(server.rdb_filename);
             server.rdb_filename = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"stream-node-max-entries") && argc == 2) {
+            server.stream_node_max_entries = atoi(argv[1]);
         } else if (!strcasecmp(argv[0],"list-max-ziplist-entries") && argc == 2){
             /* DEAD OPTION */
         } else if (!strcasecmp(argv[0],"list-max-ziplist-value") && argc == 2) {
@@ -851,6 +857,8 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "repl-backlog-ttl",server.repl_backlog_time_limit,0,LONG_MAX) {
     } config_set_numerical_field(
+      "stream-node-max-entries",server.stream_node_max_entries,0,LLONG_MAX) {
+    } config_set_numerical_field(
       "min-slaves-to-write",server.repl_min_slaves_to_write,0,INT_MAX) {
         refreshGoodSlavesCount();
     } config_set_numerical_field(
@@ -887,6 +895,8 @@ void configSetCommand(client *c) {
        "client-query-buffer-limit",server.client_max_querybuf_len) {
     } config_set_memory_field("repl-backlog-size",ll) {
         resizeReplicationBacklog(ll);
+    } config_set_memory_field("auto-aof-rewrite-min-size",ll) {
+        server.aof_rewrite_min_size = ll;
 #ifdef USE_OPENSSL
     /* TLS fields. */
     } config_set_special_field("tls-cert-file") {
@@ -1067,6 +1077,10 @@ void configGetCommand(client *c) {
     /* Numerical values */
     config_get_numerical_field("maxmemory",server.maxmemory);
     config_get_numerical_field("client-query-buffer-limit",server.client_max_querybuf_len);
+    config_get_numerical_field("auto-aof-rewrite-min-size",
+            server.aof_rewrite_min_size);
+    config_get_numerical_field("stream-node-max-entries",
+            server.stream_node_max_entries);
     config_get_numerical_field("tls-port",server.tls_port);
     config_get_numerical_field("repl-backlog-size",server.repl_backlog_size);
     config_get_numerical_field("repl-backlog-ttl",server.repl_backlog_time_limit);
@@ -1798,8 +1812,10 @@ int rewriteConfig(char *path) {
     rewriteConfigYesNoOption(state,"appendonly",server.aof_enabled,0);
     rewriteConfigStringOption(state,"appendfilename",server.aof_filename,CONFIG_DEFAULT_AOF_FILENAME);
     rewriteConfigYesNoOption(state,"cluster-enabled",server.cluster_enabled,0);
+    rewriteConfigBytesOption(state,"auto-aof-rewrite-min-size",server.aof_rewrite_min_size,AOF_REWRITE_MIN_SIZE);
     rewriteConfigStringOption(state,"cluster-config-file",server.cluster_configfile,CONFIG_DEFAULT_CLUSTER_CONFIG_FILE);
     rewriteConfigNotifykeyspaceeventsOption(state);
+    rewriteConfigNumericalOption(state,"stream-node-max-entries",server.stream_node_max_entries,OBJ_STREAM_NODE_MAX_ENTRIES);
     rewriteConfigYesNoOption(state,"activedefrag",server.active_defrag_enabled,CONFIG_DEFAULT_ACTIVE_DEFRAG);
     rewriteConfigClientoutputbufferlimitOption(state);
     rewriteConfigNumericalOption(state,"hz",server.config_hz,CONFIG_DEFAULT_HZ);
@@ -1876,7 +1892,7 @@ static int boolConfigLoad(typeData data, sds *argv, int argc, char **err) {
         *err = "wrong number of arguments";
         return 0;
     }
-    if ((*(data.bool.config) = yesnotoi(argv[1])) == -1) {
+    if ((*(data.yesno.config) = yesnotoi(argv[1])) == -1) {
         *err = "argument must be 'yes' or 'no'";
         return 0;
     }
@@ -1886,22 +1902,22 @@ static int boolConfigLoad(typeData data, sds *argv, int argc, char **err) {
 static int boolConfigSet(typeData data, sds value) {
     int yn = yesnotoi(value);
     if (yn == -1) return 0;
-    *(data.bool.config) = yn;
+    *(data.yesno.config) = yn;
     return 1;
 }
 
 static void boolConfigGet(client *c, typeData data) {
-    addReplyBulkCString(c, data.bool.config ? "yes" : "no");
+    addReplyBulkCString(c, data.yesno.config ? "yes" : "no");
 }
 
 static void boolConfigRewrite(typeData data, const char *name, struct rewriteConfigState *state) {
-    rewriteConfigYesNoOption(state, name,*(data.bool.config), data.bool.default_value);
+    rewriteConfigYesNoOption(state, name,*(data.yesno.config), data.yesno.default_value);
 }
 
 #define createBoolConfig(name, alias, modifiable, config_addr, default) { \
     embedCommonConfig(name, alias, modifiable) \
     embedConfigInterface(boolConfigLoad, boolConfigSet, boolConfigGet, boolConfigRewrite) \
-    .data.bool = { \
+    .data.yesno = { \
         .config = &(config_addr), \
         .default_value = (default) \
     } \
@@ -2102,7 +2118,7 @@ static void numericConfigGet(client *c, typeData data) {
 }
 
 static void numericConfigRewrite(typeData data, const char *name, struct rewriteConfigState *state) {
-    long long value;
+    long long value = 0;
     if (data.numeric.numeric_type == NUMERIC_TYPE_INT) {
         value = *(data.numeric.config.i);
     } else if (data.numeric.numeric_type == NUMERIC_TYPE_UNSIGNED_LONG) {
@@ -2244,13 +2260,11 @@ standardConfig configs[] = {
     createUnsignedLongConfig("slowlog-max-len", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.slowlog_max_len, CONFIG_DEFAULT_SLOWLOG_MAX_LEN, INTEGER_CONFIG), 
 
     /* Long Long configs */
-    createLongLongConfig("stream-node-max-entries", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.stream_node_max_entries, OBJ_STREAM_NODE_MAX_ENTRIES, INTEGER_CONFIG), 
     createLongLongConfig("lua-time-limit", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.lua_time_limit, LUA_SCRIPT_TIME_LIMIT, INTEGER_CONFIG), 
     createLongLongConfig("cluster-node-timeout", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.cluster_node_timeout, CLUSTER_DEFAULT_NODE_TIMEOUT, INTEGER_CONFIG), 
     createLongLongConfig("slowlog-log-slower-than", NULL, MODIFIABLE_CONFIG, -1, LLONG_MAX, server.slowlog_log_slower_than, CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN, INTEGER_CONFIG), 
     createLongLongConfig("latency-monitor-threshold", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.latency_monitor_threshold, CONFIG_DEFAULT_LATENCY_MONITOR_THRESHOLD, INTEGER_CONFIG), 
     createLongLongConfig("proto-max-bulk-len", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.proto_max_bulk_len, CONFIG_DEFAULT_PROTO_MAX_BULK_LEN, MEMORY_CONFIG), 
-    createLongLongConfig("auto-aof-rewrite-min-size", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.aof_rewrite_min_size, AOF_REWRITE_MIN_SIZE, MEMORY_CONFIG), 
 
     /* Size_t configs */
     createSizeTConfig("hash-max-ziplist-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_ziplist_entries, OBJ_HASH_MAX_ZIPLIST_ENTRIES, INTEGER_CONFIG), 
