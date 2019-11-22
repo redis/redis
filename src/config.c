@@ -662,8 +662,8 @@ void loadServerConfig(char *filename, char *options) {
 #define config_set_special_field(_name) \
     } else if (!strcasecmp(c->argv[2]->ptr,_name)) {
 
-#define config_set_special_field_with_alias(_name,_name2) \
-    } else if (!strcasecmp(c->argv[2]->ptr,_name) || \
+#define config_set_special_field_with_alias(_name1,_name2) \
+    } else if (!strcasecmp(c->argv[2]->ptr,_name1) || \
                !strcasecmp(c->argv[2]->ptr,_name2)) {
 
 #define config_set_else } else
@@ -855,9 +855,9 @@ void configSetCommand(client *c) {
     /* Numerical fields.
      * config_set_numerical_field(name,var,min,max) */
     } config_set_numerical_field(
-      "repl-backlog-ttl",server.repl_backlog_time_limit,0,LONG_MAX) {
-    } config_set_numerical_field(
       "stream-node-max-entries",server.stream_node_max_entries,0,LLONG_MAX) {
+    } config_set_numerical_field(
+      "repl-backlog-ttl",server.repl_backlog_time_limit,0,LONG_MAX) {
     } config_set_numerical_field(
       "min-slaves-to-write",server.repl_min_slaves_to_write,0,INT_MAX) {
         refreshGoodSlavesCount();
@@ -891,8 +891,8 @@ void configSetCommand(client *c) {
             }
             freeMemoryIfNeededAndSafe();
         }
-     } config_set_memory_field(
-       "client-query-buffer-limit",server.client_max_querybuf_len) {
+    } config_set_memory_field(
+      "client-query-buffer-limit",server.client_max_querybuf_len) {
     } config_set_memory_field("repl-backlog-size",ll) {
         resizeReplicationBacklog(ll);
     } config_set_memory_field("auto-aof-rewrite-min-size",ll) {
@@ -1811,8 +1811,8 @@ int rewriteConfig(char *path) {
     rewriteConfigBytesOption(state,"client-query-buffer-limit",server.client_max_querybuf_len,PROTO_MAX_QUERYBUF_LEN);
     rewriteConfigYesNoOption(state,"appendonly",server.aof_enabled,0);
     rewriteConfigStringOption(state,"appendfilename",server.aof_filename,CONFIG_DEFAULT_AOF_FILENAME);
-    rewriteConfigYesNoOption(state,"cluster-enabled",server.cluster_enabled,0);
     rewriteConfigBytesOption(state,"auto-aof-rewrite-min-size",server.aof_rewrite_min_size,AOF_REWRITE_MIN_SIZE);
+    rewriteConfigYesNoOption(state,"cluster-enabled",server.cluster_enabled,0);
     rewriteConfigStringOption(state,"cluster-config-file",server.cluster_configfile,CONFIG_DEFAULT_CLUSTER_CONFIG_FILE);
     rewriteConfigNotifykeyspaceeventsOption(state);
     rewriteConfigNumericalOption(state,"stream-node-max-entries",server.stream_node_max_entries,OBJ_STREAM_NODE_MAX_ENTRIES);
@@ -1981,8 +1981,8 @@ static int configEnumLoad(typeData data, sds *argv, int argc, char **err) {
         sds enumerr = sdsnew("argument must be one of the following: ");
         configEnum *enumNode = data.enumd.enum_value;
         while(enumNode->name != NULL) {
-            sdscatlen(enumerr, enumNode->name, strlen(enumNode->name));
-            sdscatlen(enumerr, ", ", 2);
+            enumerr = sdscatlen(enumerr, enumNode->name, strlen(enumNode->name));
+            enumerr = sdscatlen(enumerr, ", ", 2);
             enumNode++;
         }
 
