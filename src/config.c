@@ -363,7 +363,7 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"maxmemory") && argc == 2) {
             server.maxmemory = memtoll(argv[1],NULL);
-	    } else if ((!strcasecmp(argv[0],"client-query-buffer-limit")) && argc == 2) {
+        } else if ((!strcasecmp(argv[0],"client-query-buffer-limit")) && argc == 2) {
              server.client_max_querybuf_len = memtoll(argv[1],NULL);
         } else if ((!strcasecmp(argv[0],"slaveof") ||
                     !strcasecmp(argv[0],"replicaof")) && argc == 3) {
