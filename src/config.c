@@ -105,7 +105,7 @@ clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUNT] = {
     {1024*1024*32, 1024*1024*8, 60}  /* pubsub */
 };
 
-/* Configuration values that require no special handling to set, get, load or 
+/* Configuration values that require no special handling to set, get, load or
  * rewrite. */
 typedef struct boolConfigData {
     int *config; /* The pointer to the server config this value is stored in */
@@ -113,11 +113,10 @@ typedef struct boolConfigData {
 } boolConfigData;
 
 typedef struct stringConfigData {
-    char **config; /* The pointer to the server config this value is stored in */
-    const char *default_value; /* The default value of the config on rewrite */
-    int convert_empty_to_null; /* A boolean indicating if empty strings should 
+    char **config; /* Pointer to the server config this value is stored in. */
+    const char *default_value; /* Default value of the config on rewrite. */
+    int convert_empty_to_null; /* Boolean indicating if empty strings should
                                   be stored as a NULL value. */
-                                  
 } stringConfigData;
 
 typedef struct enumConfigData {
@@ -127,9 +126,9 @@ typedef struct enumConfigData {
 } enumConfigData;
 
 typedef enum numericType {
-    NUMERIC_TYPE_INT, 
-    NUMERIC_TYPE_LONG_LONG, 
-    NUMERIC_TYPE_UNSIGNED_LONG, 
+    NUMERIC_TYPE_INT,
+    NUMERIC_TYPE_LONG_LONG,
+    NUMERIC_TYPE_UNSIGNED_LONG,
     NUMERIC_TYPE_SIZE_T
 } numericType;
 
@@ -137,7 +136,7 @@ typedef struct numericConfigData {
     union {
         int *i;
         long long *ll;
-        unsigned long *ul; 
+        unsigned long *ul;
         size_t *st;
     } config; /* The pointer to the numeric config this value is stored in */
     int is_memory; /* Indicates if this value can be loaded as a memory value */
@@ -156,9 +155,9 @@ typedef union typeData {
 
 typedef struct typeInterface {
     /* Called on server start, should return 1 on success, 0 on error and should set err */
-    int (*load)(typeData data, sds *argc, int argv, char **err);  
+    int (*load)(typeData data, sds *argc, int argv, char **err);
     /* Called on CONFIG SET, returns 1 on success, 0 on error */
-    int (*set)(typeData data, sds value); 
+    int (*set)(typeData data, sds value);
     /* Called on CONFIG GET, required to add output to the client */
     void (*get)(client *c, typeData data);
     /* Called on CONFIG REWRITE, required to rewrite the config state */
@@ -282,7 +281,7 @@ void loadServerConfigFromString(char *config) {
         int match = 0;
         for (standardConfig *config = configs; config->name != NULL; config++) {
             if ((!strcasecmp(argv[0],config->name) ||
-                (config->alias && !strcasecmp(argv[0],config->alias)))) 
+                (config->alias && !strcasecmp(argv[0],config->alias))))
             {
                 if (!config->interface.load(config->data, argv, argc, &err)) {
                     goto loaderr;
@@ -679,7 +678,7 @@ void configSetCommand(client *c) {
     /* Iterate the configs that are standard */
     for (standardConfig *config = configs; config->name != NULL; config++) {
         if(config->modifiable && (!strcasecmp(c->argv[2]->ptr,config->name) ||
-            (config->alias && !strcasecmp(c->argv[2]->ptr,config->alias))))  
+            (config->alias && !strcasecmp(c->argv[2]->ptr,config->alias))))
         {
             if (!config->interface.set(config->data,o->ptr)) {
                 goto badfmt;
@@ -1874,18 +1873,18 @@ static char loadbuf[LOADBUF_SIZE];
     .rewrite = (rewritefn) \
 },
 
-/* 
- * What follows is the generic config types that are supported. To add a new
+/* What follows is the generic config types that are supported. To add a new
  * config with one of these types, add it to the standardConfig table with
  * the creation macro for each type.
- * 
+ *
  * Each type contains the following:
  * * A function defining how to load this type on startup.
  * * A function defining how to update this type on CONFIG SET.
  * * A function defining how to serialize this type on CONFIG SET.
  * * A function defining how to rewrite this type on CONFIG REWRITE.
- * * A Macro defining how to create this type. 
+ * * A Macro defining how to create this type.
  */
+
 /* Bool Configs */
 static int boolConfigLoad(typeData data, sds *argv, int argc, char **err) {
     if (argc != 2) {
@@ -2040,19 +2039,19 @@ static int numericConfigLoad(typeData data, sds *argv, int argc, char **err) {
         if (memerr || ll < 0) {
             *err = "argument must be a memory value";
             return 0;
-        } 
+        }
     } else {
         if (!string2ll(argv[1], sdslen(argv[1]),&ll)) {
             *err = "argument couldn't be parsed into an integer" ;
-            return 0;   
+            return 0;
         }
     }
 
     if (ll > data.numeric.upper_bound ||
                ll < data.numeric.lower_bound) {
-        snprintf(loadbuf, LOADBUF_SIZE, 
-            "argument must be between %lld and %lld inclusive", 
-            data.numeric.lower_bound, 
+        snprintf(loadbuf, LOADBUF_SIZE,
+            "argument must be between %lld and %lld inclusive",
+            data.numeric.lower_bound,
             data.numeric.upper_bound);
         *err = loadbuf;
         return 0;
@@ -2178,103 +2177,103 @@ static void numericConfigRewrite(typeData data, const char *name, struct rewrite
 
 standardConfig configs[] = {
     /* Bool configs */
-    createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, CONFIG_DEFAULT_RDB_CHECKSUM), 
+    createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, CONFIG_DEFAULT_RDB_CHECKSUM),
     createBoolConfig("daemonize", NULL, IMMUTABLE_CONFIG, server.daemonize, 0), 
     createBoolConfig("io-threads-do-reads", NULL, IMMUTABLE_CONFIG, server.io_threads_do_reads, CONFIG_DEFAULT_IO_THREADS_DO_READS),
     createBoolConfig("lua-replicate-commands", NULL, IMMUTABLE_CONFIG, server.lua_always_replicate_commands, 1),
-    createBoolConfig("always-show-logo", NULL, IMMUTABLE_CONFIG, server.always_show_logo, CONFIG_DEFAULT_ALWAYS_SHOW_LOGO), 
-    createBoolConfig("protected-mode", NULL, MODIFIABLE_CONFIG, server.protected_mode, CONFIG_DEFAULT_PROTECTED_MODE), 
-    createBoolConfig("rdbcompression", NULL, MODIFIABLE_CONFIG, server.rdb_compression, CONFIG_DEFAULT_RDB_COMPRESSION), 
-    createBoolConfig("activerehashing", NULL, MODIFIABLE_CONFIG, server.activerehashing, CONFIG_DEFAULT_ACTIVE_REHASHING), 
-    createBoolConfig("stop-writes-on-bgsave-error", NULL, MODIFIABLE_CONFIG, server.stop_writes_on_bgsave_err, CONFIG_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR), 
-    createBoolConfig("dynamic-hz", NULL, MODIFIABLE_CONFIG, server.dynamic_hz, CONFIG_DEFAULT_DYNAMIC_HZ), 
-    createBoolConfig("lazyfree-lazy-eviction", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_eviction, CONFIG_DEFAULT_LAZYFREE_LAZY_EVICTION), 
-    createBoolConfig("lazyfree-lazy-expire", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_expire, CONFIG_DEFAULT_LAZYFREE_LAZY_EXPIRE), 
-    createBoolConfig("lazyfree-lazy-server-del", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_server_del, CONFIG_DEFAULT_LAZYFREE_LAZY_SERVER_DEL), 
-    createBoolConfig("repl-disable-tcp-nodelay", NULL, MODIFIABLE_CONFIG, server.repl_disable_tcp_nodelay, CONFIG_DEFAULT_REPL_DISABLE_TCP_NODELAY), 
-    createBoolConfig("repl-diskless-sync", NULL, MODIFIABLE_CONFIG, server.repl_diskless_sync, CONFIG_DEFAULT_REPL_DISKLESS_SYNC), 
-    createBoolConfig("gopher-enabled", NULL, MODIFIABLE_CONFIG, server.gopher_enabled, CONFIG_DEFAULT_GOPHER_ENABLED), 
-    createBoolConfig("aof-rewrite-incremental-fsync", NULL, MODIFIABLE_CONFIG, server.aof_rewrite_incremental_fsync, CONFIG_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC), 
-    createBoolConfig("no-appendfsync-on-rewrite", NULL, MODIFIABLE_CONFIG, server.aof_no_fsync_on_rewrite, CONFIG_DEFAULT_AOF_NO_FSYNC_ON_REWRITE), 
-    createBoolConfig("cluster-require-full-coverage", NULL, MODIFIABLE_CONFIG, server.cluster_require_full_coverage, CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE), 
-    createBoolConfig("rdb-save-incremental-fsync", NULL, MODIFIABLE_CONFIG, server.rdb_save_incremental_fsync, CONFIG_DEFAULT_RDB_SAVE_INCREMENTAL_FSYNC), 
-    createBoolConfig("aof-load-truncated", NULL, MODIFIABLE_CONFIG, server.aof_load_truncated, CONFIG_DEFAULT_AOF_LOAD_TRUNCATED), 
-    createBoolConfig("aof-use-rdb-preamble", NULL, MODIFIABLE_CONFIG, server.aof_use_rdb_preamble, CONFIG_DEFAULT_AOF_USE_RDB_PREAMBLE), 
-    createBoolConfig("cluster-replica-no-failover", "cluster-slave-no-failover", MODIFIABLE_CONFIG, server.cluster_slave_no_failover, CLUSTER_DEFAULT_SLAVE_NO_FAILOVER), 
-    createBoolConfig("replica-lazy-flush", "slave-lazy-flush", MODIFIABLE_CONFIG, server.repl_slave_lazy_flush, CONFIG_DEFAULT_SLAVE_LAZY_FLUSH), 
-    createBoolConfig("replica-serve-stale-data", "slave-serve-stale-data", MODIFIABLE_CONFIG, server.repl_serve_stale_data, CONFIG_DEFAULT_SLAVE_SERVE_STALE_DATA), 
-    createBoolConfig("replica-read-only", "slave-read-only", MODIFIABLE_CONFIG, server.repl_slave_ro, CONFIG_DEFAULT_SLAVE_READ_ONLY), 
-    createBoolConfig("replica-ignore-maxmemory", "slave-ignore-maxmemory", MODIFIABLE_CONFIG, server.repl_slave_ignore_maxmemory, CONFIG_DEFAULT_SLAVE_IGNORE_MAXMEMORY), 
-    createBoolConfig("jemalloc-bg-thread", NULL, MODIFIABLE_CONFIG, server.jemalloc_bg_thread, 1), 
+    createBoolConfig("always-show-logo", NULL, IMMUTABLE_CONFIG, server.always_show_logo, CONFIG_DEFAULT_ALWAYS_SHOW_LOGO),
+    createBoolConfig("protected-mode", NULL, MODIFIABLE_CONFIG, server.protected_mode, CONFIG_DEFAULT_PROTECTED_MODE),
+    createBoolConfig("rdbcompression", NULL, MODIFIABLE_CONFIG, server.rdb_compression, CONFIG_DEFAULT_RDB_COMPRESSION),
+    createBoolConfig("activerehashing", NULL, MODIFIABLE_CONFIG, server.activerehashing, CONFIG_DEFAULT_ACTIVE_REHASHING),
+    createBoolConfig("stop-writes-on-bgsave-error", NULL, MODIFIABLE_CONFIG, server.stop_writes_on_bgsave_err, CONFIG_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR),
+    createBoolConfig("dynamic-hz", NULL, MODIFIABLE_CONFIG, server.dynamic_hz, CONFIG_DEFAULT_DYNAMIC_HZ),
+    createBoolConfig("lazyfree-lazy-eviction", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_eviction, CONFIG_DEFAULT_LAZYFREE_LAZY_EVICTION),
+    createBoolConfig("lazyfree-lazy-expire", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_expire, CONFIG_DEFAULT_LAZYFREE_LAZY_EXPIRE),
+    createBoolConfig("lazyfree-lazy-server-del", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_server_del, CONFIG_DEFAULT_LAZYFREE_LAZY_SERVER_DEL),
+    createBoolConfig("repl-disable-tcp-nodelay", NULL, MODIFIABLE_CONFIG, server.repl_disable_tcp_nodelay, CONFIG_DEFAULT_REPL_DISABLE_TCP_NODELAY),
+    createBoolConfig("repl-diskless-sync", NULL, MODIFIABLE_CONFIG, server.repl_diskless_sync, CONFIG_DEFAULT_REPL_DISKLESS_SYNC),
+    createBoolConfig("gopher-enabled", NULL, MODIFIABLE_CONFIG, server.gopher_enabled, CONFIG_DEFAULT_GOPHER_ENABLED),
+    createBoolConfig("aof-rewrite-incremental-fsync", NULL, MODIFIABLE_CONFIG, server.aof_rewrite_incremental_fsync, CONFIG_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC),
+    createBoolConfig("no-appendfsync-on-rewrite", NULL, MODIFIABLE_CONFIG, server.aof_no_fsync_on_rewrite, CONFIG_DEFAULT_AOF_NO_FSYNC_ON_REWRITE),
+    createBoolConfig("cluster-require-full-coverage", NULL, MODIFIABLE_CONFIG, server.cluster_require_full_coverage, CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE),
+    createBoolConfig("rdb-save-incremental-fsync", NULL, MODIFIABLE_CONFIG, server.rdb_save_incremental_fsync, CONFIG_DEFAULT_RDB_SAVE_INCREMENTAL_FSYNC),
+    createBoolConfig("aof-load-truncated", NULL, MODIFIABLE_CONFIG, server.aof_load_truncated, CONFIG_DEFAULT_AOF_LOAD_TRUNCATED),
+    createBoolConfig("aof-use-rdb-preamble", NULL, MODIFIABLE_CONFIG, server.aof_use_rdb_preamble, CONFIG_DEFAULT_AOF_USE_RDB_PREAMBLE),
+    createBoolConfig("cluster-replica-no-failover", "cluster-slave-no-failover", MODIFIABLE_CONFIG, server.cluster_slave_no_failover, CLUSTER_DEFAULT_SLAVE_NO_FAILOVER),
+    createBoolConfig("replica-lazy-flush", "slave-lazy-flush", MODIFIABLE_CONFIG, server.repl_slave_lazy_flush, CONFIG_DEFAULT_SLAVE_LAZY_FLUSH),
+    createBoolConfig("replica-serve-stale-data", "slave-serve-stale-data", MODIFIABLE_CONFIG, server.repl_serve_stale_data, CONFIG_DEFAULT_SLAVE_SERVE_STALE_DATA),
+    createBoolConfig("replica-read-only", "slave-read-only", MODIFIABLE_CONFIG, server.repl_slave_ro, CONFIG_DEFAULT_SLAVE_READ_ONLY),
+    createBoolConfig("replica-ignore-maxmemory", "slave-ignore-maxmemory", MODIFIABLE_CONFIG, server.repl_slave_ignore_maxmemory, CONFIG_DEFAULT_SLAVE_IGNORE_MAXMEMORY),
+    createBoolConfig("jemalloc-bg-thread", NULL, MODIFIABLE_CONFIG, server.jemalloc_bg_thread, 1),
 
     /* String Configs */
-    createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, CONFIG_DEFAULT_ACL_FILENAME), 
-    createStringConfig("unixsocket", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.unixsocket, NULL), 
-    createStringConfig("pidfile", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.pidfile, CONFIG_DEFAULT_PID_FILE), 
-    createStringConfig("replica-announce-ip", "slave-announce-ip", MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.slave_announce_ip, CONFIG_DEFAULT_SLAVE_ANNOUNCE_IP), 
-    createStringConfig("masteruser", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.masteruser, NULL), 
-    createStringConfig("masterauth", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.masterauth, NULL), 
-    createStringConfig("cluster-announce-ip", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_ip, NULL), 
+    createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, CONFIG_DEFAULT_ACL_FILENAME),
+    createStringConfig("unixsocket", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.unixsocket, NULL),
+    createStringConfig("pidfile", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.pidfile, CONFIG_DEFAULT_PID_FILE),
+    createStringConfig("replica-announce-ip", "slave-announce-ip", MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.slave_announce_ip, CONFIG_DEFAULT_SLAVE_ANNOUNCE_IP),
+    createStringConfig("masteruser", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.masteruser, NULL),
+    createStringConfig("masterauth", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.masterauth, NULL),
+    createStringConfig("cluster-announce-ip", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_ip, NULL),
 
     /* Enum Configs */
-    createEnumConfig("supervised", NULL, IMMUTABLE_CONFIG, supervised_mode_enum, server.supervised_mode, SUPERVISED_NONE), 
-    createEnumConfig("syslog-facility", NULL, IMMUTABLE_CONFIG, syslog_facility_enum, server.syslog_facility, LOG_LOCAL0), 
-    createEnumConfig("repl-diskless-load", NULL, MODIFIABLE_CONFIG, repl_diskless_load_enum, server.repl_diskless_load, CONFIG_DEFAULT_REPL_DISKLESS_LOAD), 
-    createEnumConfig("loglevel", NULL, MODIFIABLE_CONFIG, loglevel_enum, server.verbosity, CONFIG_DEFAULT_VERBOSITY), 
-    createEnumConfig("maxmemory-policy", NULL, MODIFIABLE_CONFIG, maxmemory_policy_enum, server.maxmemory_policy, CONFIG_DEFAULT_MAXMEMORY_POLICY), 
-    createEnumConfig("appendfsync", NULL, MODIFIABLE_CONFIG, aof_fsync_enum, server.aof_fsync, CONFIG_DEFAULT_AOF_FSYNC), 
+    createEnumConfig("supervised", NULL, IMMUTABLE_CONFIG, supervised_mode_enum, server.supervised_mode, SUPERVISED_NONE),
+    createEnumConfig("syslog-facility", NULL, IMMUTABLE_CONFIG, syslog_facility_enum, server.syslog_facility, LOG_LOCAL0),
+    createEnumConfig("repl-diskless-load", NULL, MODIFIABLE_CONFIG, repl_diskless_load_enum, server.repl_diskless_load, CONFIG_DEFAULT_REPL_DISKLESS_LOAD),
+    createEnumConfig("loglevel", NULL, MODIFIABLE_CONFIG, loglevel_enum, server.verbosity, CONFIG_DEFAULT_VERBOSITY),
+    createEnumConfig("maxmemory-policy", NULL, MODIFIABLE_CONFIG, maxmemory_policy_enum, server.maxmemory_policy, CONFIG_DEFAULT_MAXMEMORY_POLICY),
+    createEnumConfig("appendfsync", NULL, MODIFIABLE_CONFIG, aof_fsync_enum, server.aof_fsync, CONFIG_DEFAULT_AOF_FSYNC),
 
     /* Integer configs */
-    createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, CONFIG_DEFAULT_DBNUM, INTEGER_CONFIG), 
-    createIntConfig("port", NULL, IMMUTABLE_CONFIG, 0, 65535, server.port, CONFIG_DEFAULT_SERVER_PORT, INTEGER_CONFIG), 
-    createIntConfig("io-threads", NULL, IMMUTABLE_CONFIG, 1, 512, server.io_threads_num, CONFIG_DEFAULT_IO_THREADS_NUM, INTEGER_CONFIG), 
-    createIntConfig("auto-aof-rewrite-percentage", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.aof_rewrite_perc, AOF_REWRITE_PERC, INTEGER_CONFIG), 
-    createIntConfig("cluster-replica-validity-factor", "cluster-slave-validity-factor", MODIFIABLE_CONFIG, 0, INT_MAX, server.cluster_slave_validity_factor, CLUSTER_DEFAULT_SLAVE_VALIDITY, INTEGER_CONFIG), 
-    createIntConfig("list-max-ziplist-size", NULL, MODIFIABLE_CONFIG, INT_MIN, INT_MAX, server.list_max_ziplist_size, OBJ_LIST_MAX_ZIPLIST_SIZE, INTEGER_CONFIG), 
-    createIntConfig("tcp-keepalive", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.tcpkeepalive, CONFIG_DEFAULT_TCP_KEEPALIVE, INTEGER_CONFIG), 
-    createIntConfig("cluster-migration-barrier", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.cluster_migration_barrier, CLUSTER_DEFAULT_MIGRATION_BARRIER, INTEGER_CONFIG), 
-    createIntConfig("active-defrag-cycle-min", NULL, MODIFIABLE_CONFIG, 1, 99, server.active_defrag_cycle_min, CONFIG_DEFAULT_DEFRAG_CYCLE_MIN, INTEGER_CONFIG), 
-    createIntConfig("active-defrag-cycle-max", NULL, MODIFIABLE_CONFIG, 1, 99, server.active_defrag_cycle_max, CONFIG_DEFAULT_DEFRAG_CYCLE_MAX, INTEGER_CONFIG), 
-    createIntConfig("active-defrag-threshold-lower", NULL, MODIFIABLE_CONFIG, 0, 1000, server.active_defrag_threshold_lower, CONFIG_DEFAULT_DEFRAG_THRESHOLD_LOWER, INTEGER_CONFIG), 
-    createIntConfig("active-defrag-threshold-upper", NULL, MODIFIABLE_CONFIG, 0, 1000, server.active_defrag_threshold_upper, CONFIG_DEFAULT_DEFRAG_THRESHOLD_UPPER, INTEGER_CONFIG), 
-    createIntConfig("lfu-log-factor", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.lfu_log_factor, CONFIG_DEFAULT_LFU_LOG_FACTOR, INTEGER_CONFIG), 
-    createIntConfig("lfu-decay-time", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.lfu_decay_time, CONFIG_DEFAULT_LFU_DECAY_TIME, INTEGER_CONFIG), 
-    createIntConfig("replica-priority", "slave-priority", MODIFIABLE_CONFIG, 0, INT_MAX, server.slave_priority, CONFIG_DEFAULT_SLAVE_PRIORITY, INTEGER_CONFIG), 
-    createIntConfig("repl-diskless-sync-delay", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.repl_diskless_sync_delay, CONFIG_DEFAULT_REPL_DISKLESS_SYNC_DELAY, INTEGER_CONFIG), 
-    createIntConfig("maxmemory-samples", NULL, MODIFIABLE_CONFIG, 1, INT_MAX, server.maxmemory_samples, CONFIG_DEFAULT_MAXMEMORY_SAMPLES, INTEGER_CONFIG), 
-    createIntConfig("timeout", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.maxidletime, CONFIG_DEFAULT_CLIENT_TIMEOUT, INTEGER_CONFIG), 
-    createIntConfig("replica-announce-port", "slave-announce-port", MODIFIABLE_CONFIG, 0, 65535, server.slave_announce_port, CONFIG_DEFAULT_SLAVE_ANNOUNCE_PORT, INTEGER_CONFIG), 
-    createIntConfig("tcp-backlog", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.tcp_backlog, CONFIG_DEFAULT_TCP_BACKLOG, INTEGER_CONFIG), 
-    createIntConfig("cluster-announce-bus-port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.cluster_announce_bus_port, CONFIG_DEFAULT_CLUSTER_ANNOUNCE_BUS_PORT, INTEGER_CONFIG), 
-    createIntConfig("cluster-announce-port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.cluster_announce_port, CONFIG_DEFAULT_CLUSTER_ANNOUNCE_PORT, INTEGER_CONFIG), 
-    createIntConfig("repl-timeout", NULL, MODIFIABLE_CONFIG, 1, INT_MAX, server.repl_timeout, CONFIG_DEFAULT_REPL_TIMEOUT, INTEGER_CONFIG), 
-    createIntConfig("repl-ping-replica-period", "repl-ping-slave-period", MODIFIABLE_CONFIG, 1, INT_MAX, server.repl_ping_slave_period, CONFIG_DEFAULT_REPL_PING_SLAVE_PERIOD, INTEGER_CONFIG), 
-    createIntConfig("list-compress-depth", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.list_compress_depth, OBJ_LIST_COMPRESS_DEPTH, INTEGER_CONFIG), 
-    createIntConfig("rdb-key-save-delay", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.rdb_key_save_delay, CONFIG_DEFAULT_RDB_KEY_SAVE_DELAY, INTEGER_CONFIG), 
-    createIntConfig("key-load-delay", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.key_load_delay, CONFIG_DEFAULT_KEY_LOAD_DELAY, INTEGER_CONFIG), 
-    createIntConfig("tracking-table-max-fill", NULL, MODIFIABLE_CONFIG, 0, 100, server.tracking_table_max_fill, CONFIG_DEFAULT_TRACKING_TABLE_MAX_FILL, INTEGER_CONFIG), 
+    createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, CONFIG_DEFAULT_DBNUM, INTEGER_CONFIG),
+    createIntConfig("port", NULL, IMMUTABLE_CONFIG, 0, 65535, server.port, CONFIG_DEFAULT_SERVER_PORT, INTEGER_CONFIG),
+    createIntConfig("io-threads", NULL, IMMUTABLE_CONFIG, 1, 512, server.io_threads_num, CONFIG_DEFAULT_IO_THREADS_NUM, INTEGER_CONFIG),
+    createIntConfig("auto-aof-rewrite-percentage", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.aof_rewrite_perc, AOF_REWRITE_PERC, INTEGER_CONFIG),
+    createIntConfig("cluster-replica-validity-factor", "cluster-slave-validity-factor", MODIFIABLE_CONFIG, 0, INT_MAX, server.cluster_slave_validity_factor, CLUSTER_DEFAULT_SLAVE_VALIDITY, INTEGER_CONFIG),
+    createIntConfig("list-max-ziplist-size", NULL, MODIFIABLE_CONFIG, INT_MIN, INT_MAX, server.list_max_ziplist_size, OBJ_LIST_MAX_ZIPLIST_SIZE, INTEGER_CONFIG),
+    createIntConfig("tcp-keepalive", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.tcpkeepalive, CONFIG_DEFAULT_TCP_KEEPALIVE, INTEGER_CONFIG),
+    createIntConfig("cluster-migration-barrier", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.cluster_migration_barrier, CLUSTER_DEFAULT_MIGRATION_BARRIER, INTEGER_CONFIG),
+    createIntConfig("active-defrag-cycle-min", NULL, MODIFIABLE_CONFIG, 1, 99, server.active_defrag_cycle_min, CONFIG_DEFAULT_DEFRAG_CYCLE_MIN, INTEGER_CONFIG),
+    createIntConfig("active-defrag-cycle-max", NULL, MODIFIABLE_CONFIG, 1, 99, server.active_defrag_cycle_max, CONFIG_DEFAULT_DEFRAG_CYCLE_MAX, INTEGER_CONFIG),
+    createIntConfig("active-defrag-threshold-lower", NULL, MODIFIABLE_CONFIG, 0, 1000, server.active_defrag_threshold_lower, CONFIG_DEFAULT_DEFRAG_THRESHOLD_LOWER, INTEGER_CONFIG),
+    createIntConfig("active-defrag-threshold-upper", NULL, MODIFIABLE_CONFIG, 0, 1000, server.active_defrag_threshold_upper, CONFIG_DEFAULT_DEFRAG_THRESHOLD_UPPER, INTEGER_CONFIG),
+    createIntConfig("lfu-log-factor", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.lfu_log_factor, CONFIG_DEFAULT_LFU_LOG_FACTOR, INTEGER_CONFIG),
+    createIntConfig("lfu-decay-time", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.lfu_decay_time, CONFIG_DEFAULT_LFU_DECAY_TIME, INTEGER_CONFIG),
+    createIntConfig("replica-priority", "slave-priority", MODIFIABLE_CONFIG, 0, INT_MAX, server.slave_priority, CONFIG_DEFAULT_SLAVE_PRIORITY, INTEGER_CONFIG),
+    createIntConfig("repl-diskless-sync-delay", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.repl_diskless_sync_delay, CONFIG_DEFAULT_REPL_DISKLESS_SYNC_DELAY, INTEGER_CONFIG),
+    createIntConfig("maxmemory-samples", NULL, MODIFIABLE_CONFIG, 1, INT_MAX, server.maxmemory_samples, CONFIG_DEFAULT_MAXMEMORY_SAMPLES, INTEGER_CONFIG),
+    createIntConfig("timeout", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.maxidletime, CONFIG_DEFAULT_CLIENT_TIMEOUT, INTEGER_CONFIG),
+    createIntConfig("replica-announce-port", "slave-announce-port", MODIFIABLE_CONFIG, 0, 65535, server.slave_announce_port, CONFIG_DEFAULT_SLAVE_ANNOUNCE_PORT, INTEGER_CONFIG),
+    createIntConfig("tcp-backlog", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.tcp_backlog, CONFIG_DEFAULT_TCP_BACKLOG, INTEGER_CONFIG),
+    createIntConfig("cluster-announce-bus-port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.cluster_announce_bus_port, CONFIG_DEFAULT_CLUSTER_ANNOUNCE_BUS_PORT, INTEGER_CONFIG),
+    createIntConfig("cluster-announce-port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.cluster_announce_port, CONFIG_DEFAULT_CLUSTER_ANNOUNCE_PORT, INTEGER_CONFIG),
+    createIntConfig("repl-timeout", NULL, MODIFIABLE_CONFIG, 1, INT_MAX, server.repl_timeout, CONFIG_DEFAULT_REPL_TIMEOUT, INTEGER_CONFIG),
+    createIntConfig("repl-ping-replica-period", "repl-ping-slave-period", MODIFIABLE_CONFIG, 1, INT_MAX, server.repl_ping_slave_period, CONFIG_DEFAULT_REPL_PING_SLAVE_PERIOD, INTEGER_CONFIG),
+    createIntConfig("list-compress-depth", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.list_compress_depth, OBJ_LIST_COMPRESS_DEPTH, INTEGER_CONFIG),
+    createIntConfig("rdb-key-save-delay", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.rdb_key_save_delay, CONFIG_DEFAULT_RDB_KEY_SAVE_DELAY, INTEGER_CONFIG),
+    createIntConfig("key-load-delay", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.key_load_delay, CONFIG_DEFAULT_KEY_LOAD_DELAY, INTEGER_CONFIG),
+    createIntConfig("tracking-table-max-fill", NULL, MODIFIABLE_CONFIG, 0, 100, server.tracking_table_max_fill, CONFIG_DEFAULT_TRACKING_TABLE_MAX_FILL, INTEGER_CONFIG),
     createIntConfig("active-expire-effort", NULL, MODIFIABLE_CONFIG, 1, 10, server.active_expire_effort, CONFIG_DEFAULT_ACTIVE_EXPIRE_EFFORT, INTEGER_CONFIG),
 
     /* Unsigned Long configs */
-    createUnsignedLongConfig("active-defrag-max-scan-fields", NULL, MODIFIABLE_CONFIG, 1, LONG_MAX, server.active_defrag_max_scan_fields, CONFIG_DEFAULT_DEFRAG_MAX_SCAN_FIELDS, INTEGER_CONFIG), 
-    createUnsignedLongConfig("slowlog-max-len", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.slowlog_max_len, CONFIG_DEFAULT_SLOWLOG_MAX_LEN, INTEGER_CONFIG), 
+    createUnsignedLongConfig("active-defrag-max-scan-fields", NULL, MODIFIABLE_CONFIG, 1, LONG_MAX, server.active_defrag_max_scan_fields, CONFIG_DEFAULT_DEFRAG_MAX_SCAN_FIELDS, INTEGER_CONFIG),
+    createUnsignedLongConfig("slowlog-max-len", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.slowlog_max_len, CONFIG_DEFAULT_SLOWLOG_MAX_LEN, INTEGER_CONFIG),
 
     /* Long Long configs */
-    createLongLongConfig("lua-time-limit", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.lua_time_limit, LUA_SCRIPT_TIME_LIMIT, INTEGER_CONFIG), 
-    createLongLongConfig("cluster-node-timeout", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.cluster_node_timeout, CLUSTER_DEFAULT_NODE_TIMEOUT, INTEGER_CONFIG), 
-    createLongLongConfig("slowlog-log-slower-than", NULL, MODIFIABLE_CONFIG, -1, LLONG_MAX, server.slowlog_log_slower_than, CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN, INTEGER_CONFIG), 
-    createLongLongConfig("latency-monitor-threshold", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.latency_monitor_threshold, CONFIG_DEFAULT_LATENCY_MONITOR_THRESHOLD, INTEGER_CONFIG), 
-    createLongLongConfig("proto-max-bulk-len", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.proto_max_bulk_len, CONFIG_DEFAULT_PROTO_MAX_BULK_LEN, MEMORY_CONFIG), 
+    createLongLongConfig("lua-time-limit", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.lua_time_limit, LUA_SCRIPT_TIME_LIMIT, INTEGER_CONFIG),
+    createLongLongConfig("cluster-node-timeout", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.cluster_node_timeout, CLUSTER_DEFAULT_NODE_TIMEOUT, INTEGER_CONFIG),
+    createLongLongConfig("slowlog-log-slower-than", NULL, MODIFIABLE_CONFIG, -1, LLONG_MAX, server.slowlog_log_slower_than, CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN, INTEGER_CONFIG),
+    createLongLongConfig("latency-monitor-threshold", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.latency_monitor_threshold, CONFIG_DEFAULT_LATENCY_MONITOR_THRESHOLD, INTEGER_CONFIG),
+    createLongLongConfig("proto-max-bulk-len", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.proto_max_bulk_len, CONFIG_DEFAULT_PROTO_MAX_BULK_LEN, MEMORY_CONFIG),
 
     /* Size_t configs */
-    createSizeTConfig("hash-max-ziplist-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_ziplist_entries, OBJ_HASH_MAX_ZIPLIST_ENTRIES, INTEGER_CONFIG), 
-    createSizeTConfig("set-max-intset-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.set_max_intset_entries, OBJ_SET_MAX_INTSET_ENTRIES, INTEGER_CONFIG), 
-    createSizeTConfig("zset-max-ziplist-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.zset_max_ziplist_entries, OBJ_ZSET_MAX_ZIPLIST_ENTRIES, INTEGER_CONFIG), 
-    createSizeTConfig("active-defrag-ignore-bytes", NULL, MODIFIABLE_CONFIG, 1, LONG_MAX, server.active_defrag_ignore_bytes, CONFIG_DEFAULT_DEFRAG_IGNORE_BYTES, MEMORY_CONFIG), 
-    createSizeTConfig("hash-max-ziplist-value", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_ziplist_value, OBJ_HASH_MAX_ZIPLIST_VALUE, MEMORY_CONFIG), 
-    createSizeTConfig("stream-node-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.stream_node_max_bytes, OBJ_STREAM_NODE_MAX_BYTES, MEMORY_CONFIG), 
-    createSizeTConfig("zset-max-ziplist-value", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.zset_max_ziplist_value, OBJ_ZSET_MAX_ZIPLIST_VALUE, MEMORY_CONFIG), 
-    createSizeTConfig("hll-sparse-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hll_sparse_max_bytes, CONFIG_DEFAULT_HLL_SPARSE_MAX_BYTES, MEMORY_CONFIG), 
+    createSizeTConfig("hash-max-ziplist-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_ziplist_entries, OBJ_HASH_MAX_ZIPLIST_ENTRIES, INTEGER_CONFIG),
+    createSizeTConfig("set-max-intset-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.set_max_intset_entries, OBJ_SET_MAX_INTSET_ENTRIES, INTEGER_CONFIG),
+    createSizeTConfig("zset-max-ziplist-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.zset_max_ziplist_entries, OBJ_ZSET_MAX_ZIPLIST_ENTRIES, INTEGER_CONFIG),
+    createSizeTConfig("active-defrag-ignore-bytes", NULL, MODIFIABLE_CONFIG, 1, LONG_MAX, server.active_defrag_ignore_bytes, CONFIG_DEFAULT_DEFRAG_IGNORE_BYTES, MEMORY_CONFIG),
+    createSizeTConfig("hash-max-ziplist-value", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_ziplist_value, OBJ_HASH_MAX_ZIPLIST_VALUE, MEMORY_CONFIG),
+    createSizeTConfig("stream-node-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.stream_node_max_bytes, OBJ_STREAM_NODE_MAX_BYTES, MEMORY_CONFIG),
+    createSizeTConfig("zset-max-ziplist-value", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.zset_max_ziplist_value, OBJ_ZSET_MAX_ZIPLIST_VALUE, MEMORY_CONFIG),
+    createSizeTConfig("hll-sparse-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hll_sparse_max_bytes, CONFIG_DEFAULT_HLL_SPARSE_MAX_BYTES, MEMORY_CONFIG),
 
     /* NULL Terminator */
     {NULL}
