@@ -574,11 +574,8 @@ void moduleHandlePropagationAfterCommandCallback(RedisModuleCtx *ctx) {
 
     /* Handle the replication of the final EXEC, since whatever a command
      * emits is always wrapped around MULTI/EXEC. */
-    robj *propargv[1];
-    propargv[0] = createStringObject("EXEC",4);
-    alsoPropagate(server.execCommand,c->db->id,propargv,1,
+    alsoPropagate(server.execCommand,c->db->id,&shared.exec,1,
         PROPAGATE_AOF|PROPAGATE_REPL);
-    decrRefCount(propargv[0]);
 
     /* If this is not a module command context (but is instead a simple
      * callback context), we have to handle directly the "also propagate"
