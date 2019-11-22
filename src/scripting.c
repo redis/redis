@@ -1591,8 +1591,7 @@ void evalGenericCommand(client *c, int evalsha) {
     if (server.lua_replicate_commands) {
         preventCommandPropagation(c);
         if (server.lua_multi_emitted) {
-            alsoPropagate(server.execCommand,c->db->id,&shared.exec,1,
-                PROPAGATE_AOF|PROPAGATE_REPL);
+            execCommandPropagateExec(c);
         }
     }
 
