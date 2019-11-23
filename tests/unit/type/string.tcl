@@ -428,4 +428,13 @@ start_server {tags {"string"}} {
         set ttl [r ttl foo]
         assert_equal $ttl -2
     }
+
+    test {Anomalous behavior with PX option} {
+        r del foo
+        catch {
+            r set foo bar px 10000 px 100000
+        }
+        set ttl [r ttl foo]
+        assert_equal $ttl -2
+    }
 }
