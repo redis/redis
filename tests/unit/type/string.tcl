@@ -419,4 +419,13 @@ start_server {tags {"string"}} {
         r set foo bar
         r getrange foo 0 4294967297
     } {bar}
+
+    test {Anomalous behavior with EX option} {
+        r del foo
+        catch {
+            r set foo bar ex 10 ex 100
+        }
+        set ttl [r ttl foo]
+        assert_equal $ttl -2
+    }
 }
