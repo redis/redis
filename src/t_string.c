@@ -115,7 +115,7 @@ void setCommand(client *c) {
             flags |= OBJ_SET_XX;
         } else if ((a[0] == 'e' || a[0] == 'E') &&
                    (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
-                   !(flags & OBJ_SET_PX) && next)
+                   !(flags & OBJ_SET_EX) && next)
         {
             flags |= OBJ_SET_EX;
             unit = UNIT_SECONDS;
@@ -123,7 +123,7 @@ void setCommand(client *c) {
             j++;
         } else if ((a[0] == 'p' || a[0] == 'P') &&
                    (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
-                   !(flags & OBJ_SET_EX) && next)
+                   !(flags & OBJ_SET_PX) && next)
         {
             flags |= OBJ_SET_PX;
             unit = UNIT_MILLISECONDS;
@@ -133,6 +133,11 @@ void setCommand(client *c) {
             addReply(c,shared.syntaxerr);
             return;
         }
+    }
+
+    if ((flags & OBJ_SET_EX) && (flags & OBJ_SET_PX)) {
+        addReply(c,shared.syntaxerr);
+        return;
     }
 
     c->argv[2] = tryObjectEncoding(c->argv[2]);
