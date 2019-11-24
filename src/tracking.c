@@ -29,6 +29,7 @@
  */
 
 #include "server.h"
+#include <assert.h>
 
 /* The tracking table is constituted by 2^24 radix trees (each tree, and the
  * table itself, are allocated in a lazy way only when needed) tracking
@@ -154,6 +155,15 @@ void sendTrackingMessage(client *c, long long hash) {
     }
 }
 
+/* Retrieves client ID from key.
+ * Originally stored there by trackingRememberKeys() */
+uint64_t getClientID(const raxIterator *ri) {
+    client c;
+    assert(ri->key_len == sizeof(c.id));
+    memcpy((unsigned char*)&c.id, ri->key, sizeof(c.id));
+    return c.id;
+}
+
 /* Invalidates a caching slot: this is actually the low level implementation
  * of the API that Redis calls externally, that is trackingInvalidateKey(). */
 void trackingInvalidateSlot(uint64_t slot) {
@@ -163,8 +173,7 @@ void trackingInvalidateSlot(uint64_t slot) {
     raxStart(&ri,TrackingTable[slot]);
     raxSeek(&ri,"^",NULL,0);
     while(raxNext(&ri)) {
-        uint64_t id;
-        memcpy(&id,ri.key,ri.key_len);
+        uint64_t id = getClientID(&ri);
         client *c = lookupClientByID(id);
         if (c == NULL || !(c->flags & CLIENT_TRACKING)) continue;
         sendTrackingMessage(c,slot);
