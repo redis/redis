@@ -1,9 +1,7 @@
 set testmodule [file normalize tests/modules/hooks.so]
 
 tags "modules" {
-    start_server {} {
-        r module load $testmodule
-        r config set appendonly yes
+    start_server [list overrides [list loadmodule "$testmodule" appendonly yes]] {
 
         test {Test clients connection / disconnection hooks} {
             for {set j 0} {$j < 2} {incr j} {
@@ -44,15 +42,19 @@ tags "modules" {
                 r set "bar$j" x
             }
             # set some configs that will cause many loading progress events during aof loading
-            r config set key-load-delay 1
+            r config set key-load-delay 500
             r config set dynamic-hz no
             r config set hz 500
             r DEBUG LOADAOF
             assert_equal [r hooks.event_last loading-aof-start] 0
             assert_equal [r hooks.event_last loading-end] 0
             assert {[r hooks.event_count loading-rdb-start] == 0}
-            assert {[r hooks.event_count loading-progress-rdb] >= 2} ;# comes from the preamble section
-            assert {[r hooks.event_count loading-progress-aof] >= 2}
+            assert_lessthan 2 [r hooks.event_count loading-progress-rdb] ;# comes from the preamble section
+            assert_lessthan 2 [r hooks.event_count loading-progress-aof]
+            if {$::verbose} {
+                puts "rdb progress events [r hooks.event_count loading-progress-rdb]"
+                puts "aof progress events [r hooks.event_count loading-progress-aof]"
+            }
         }
         # undo configs before next test
         r config set dynamic-hz yes
