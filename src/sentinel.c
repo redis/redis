@@ -3993,11 +3993,14 @@ int sentinelSendSlaveOf(sentinelRedisInstance *ri, char *host, int port) {
      * an issue because CLIENT is variadic command, so Redis will not
      * recognized as a syntax error, and the transaction will not fail (but
      * only the unsupported command will fail). */
-    retval = redisAsyncCommand(ri->link->cc,
-        sentinelDiscardReplyCallback, ri, "%s KILL TYPE normal",
-        sentinelInstanceMapCommand(ri,"CLIENT"));
-    if (retval == C_ERR) return retval;
-    ri->link->pending_commands++;
+    for (int type = 0; type < 2; type++) {
+        retval = redisAsyncCommand(ri->link->cc,
+            sentinelDiscardReplyCallback, ri, "%s KILL TYPE %s",
+            sentinelInstanceMapCommand(ri,"CLIENT"),
+            type == 0 ? "normal" : "pubsub");
+        if (retval == C_ERR) return retval;
+        ri->link->pending_commands++;
+    }
 
     retval = redisAsyncCommand(ri->link->cc,
         sentinelDiscardReplyCallback, ri, "%s",
