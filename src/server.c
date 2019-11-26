@@ -2295,7 +2295,6 @@ void initServerConfig(void) {
     server.active_expire_enabled = 1;
     server.active_expire_effort = CONFIG_DEFAULT_ACTIVE_EXPIRE_EFFORT;
     server.jemalloc_bg_thread = 1;
-    server.active_defrag_enabled = CONFIG_DEFAULT_ACTIVE_DEFRAG;
     server.active_defrag_ignore_bytes = CONFIG_DEFAULT_DEFRAG_IGNORE_BYTES;
     server.active_defrag_threshold_lower = CONFIG_DEFAULT_DEFRAG_THRESHOLD_LOWER;
     server.active_defrag_threshold_upper = CONFIG_DEFAULT_DEFRAG_THRESHOLD_UPPER;
@@ -2485,6 +2484,8 @@ void initServerConfig(void) {
      * script to the slave / AOF. This is the new way starting from
      * Redis 5. However it is possible to revert it via redis.conf. */
     server.lua_always_replicate_commands = 1;
+
+    initConfigValues();
 }
 
 extern char **environ;
