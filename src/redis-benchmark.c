@@ -1687,6 +1687,12 @@ int main(int argc, const char **argv) {
             free(cmd);
         }
 
+        if (test_is_selected("hdel")) {
+            len = redisFormatCommand(&cmd,"HDEL myhash:{tag}:__rand_int__ element:__rand_int__");
+            benchmark("HDEL",cmd,len);
+            free(cmd);
+        }
+
         if (test_is_selected("spop")) {
             len = redisFormatCommand(&cmd,"SPOP myset:{tag}");
             benchmark("SPOP",cmd,len);
