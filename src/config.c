@@ -105,20 +105,32 @@ clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUNT] = {
     {1024*1024*32, 1024*1024*8, 60}  /* pubsub */
 };
 
+/* Generic config infrastructure function pointers
+ * int is_valid_fn(val, err)
+ *     Return 1 when val is valid, and 0 when invalid.
+ *     Optionslly set err to a static error string.
+ * int update_fn(val, prev, err)
+ *     This function is called only for CONFIG SET command (not at config file parsing)
+ *     It is called after the actual config is applied,
+ *     Return 1 for success, and 0 for failure.
+ *     Optionslly set err to a static error string.
+ *     On failure the config change will be reverted.
+ */
+
 /* Configuration values that require no special handling to set, get, load or
  * rewrite. */
 typedef struct boolConfigData {
     int *config; /* The pointer to the server config this value is stored in */
     const int default_value; /* The default value of the config on rewrite */
-    int (*is_valid_fn)(int,char**); /* Optional function to check validity of new value */
-    void (*update_fn)(int); /* Optional function to apply new value at runtime (only for CONFIG SET) */
+    int (*is_valid_fn)(int val, char **err); /* Optional function to check validity of new value (generic doc above) */
+    int (*update_fn)(int val, int prev, char **err); /* Optional function to apply new value at runtime (generic doc above) */
 } boolConfigData;
 
 typedef struct stringConfigData {
     char **config; /* Pointer to the server config this value is stored in. */
     const char *default_value; /* Default value of the config on rewrite. */
-    int (*is_valid_fn)(char*,char**); /* Optional function to check validity of new value */
-    void (*update_fn)(char*); /* Optional function to apply new value at runtime (only for CONFIG SET) */
+    int (*is_valid_fn)(char* val, char **err); /* Optional function to check validity of new value (generic doc above) */
+    int (*update_fn)(char* val, char* prev, char **err); /* Optional function to apply new value at runtime (generic doc above) */
     int convert_empty_to_null; /* Boolean indicating if empty strings should
                                   be stored as a NULL value. */
 } stringConfigData;
@@ -127,31 +139,43 @@ typedef struct enumConfigData {
     int *config; /* The pointer to the server config this value is stored in */
     configEnum *enum_value; /* The underlying enum type this data represents */
     const int default_value; /* The default value of the config on rewrite */
-    int (*is_valid_fn)(int,char**); /* Optional function to check validity of new value */
-    void (*update_fn)(int); /* Optional function to apply new value at runtime (only for CONFIG SET) */
+    int (*is_valid_fn)(int val, char **err); /* Optional function to check validity of new value (generic doc above) */
+    int (*update_fn)(int val, int prev, char **err); /* Optional function to apply new value at runtime (generic doc above) */
 } enumConfigData;
 
 typedef enum numericType {
     NUMERIC_TYPE_INT,
+    NUMERIC_TYPE_UINT,
+    NUMERIC_TYPE_LONG,
+    NUMERIC_TYPE_ULONG,
     NUMERIC_TYPE_LONG_LONG,
-    NUMERIC_TYPE_UNSIGNED_LONG,
-    NUMERIC_TYPE_SIZE_T
+    NUMERIC_TYPE_ULONG_LONG,
+    NUMERIC_TYPE_SIZE_T,
+    NUMERIC_TYPE_SSIZE_T,
+    NUMERIC_TYPE_OFF_T,
+    NUMERIC_TYPE_TIME_T,
 } numericType;
 
 typedef struct numericConfigData {
     union {
         int *i;
-        long long *ll;
+        unsigned int *ui;
+        long *l;
         unsigned long *ul;
+        long long *ll;
+        unsigned long long *ull;
         size_t *st;
+        ssize_t *sst;
+        off_t *ot;
+        time_t *tt;
     } config; /* The pointer to the numeric config this value is stored in */
     int is_memory; /* Indicates if this value can be loaded as a memory value */
     numericType numeric_type; /* An enum indicating the type of this value */
     long long lower_bound; /* The lower bound of this numeric value */
     long long upper_bound; /* The upper bound of this numeric value */
     const long long default_value; /* The default value of the config on rewrite */
-    int (*is_valid_fn)(long long,char**); /* Optional function to check validity of new value */
-    void (*update_fn)(long long); /* Optional function to apply new value at runtime (only for CONFIG SET) */
+    int (*is_valid_fn)(long long val, char **err); /* Optional function to check validity of new value (generic doc above) */
+    int (*update_fn)(long long val, long long prev, char **err); /* Optional function to apply new value at runtime (generic doc above) */
 } numericConfigData;
 
 typedef union typeData {
@@ -1910,9 +1934,12 @@ static int boolConfigSet(typeData data, sds value, char **err) {
     if (yn == -1) return 0;
     if (data.yesno.is_valid_fn && !data.yesno.is_valid_fn(yn, err))
         return 0;
+    int prev = *(data.yesno.config);
     *(data.yesno.config) = yn;
-    if (data.yesno.update_fn)
-        data.yesno.update_fn(yn);
+    if (data.yesno.update_fn && !data.yesno.update_fn(yn, prev, err)) {
+        *(data.yesno.config) = prev;
+        return 0;
+    }
     return 1;
 }
 
@@ -1963,14 +1990,18 @@ static int stringConfigLoad(typeData data, sds *argv, int argc, char **err) {
 static int stringConfigSet(typeData data, sds value, char **err) {
     if (data.string.is_valid_fn && !data.string.is_valid_fn(value, err))
         return 0;
-    zfree(*data.string.config);
+    char *prev = *data.string.config;
     if (data.string.convert_empty_to_null) {
         *data.string.config = value[0] ? zstrdup(value) : NULL;
     } else {
         *data.string.config = zstrdup(value);
     }
-    if (data.string.update_fn)
-        data.string.update_fn(*data.string.config);
+    if (data.string.update_fn && !data.string.update_fn(*data.string.config, prev, err)) {
+        zfree(*data.string.config);
+        *data.string.config = prev;
+        return 0;
+    }
+    zfree(prev);
     return 1;
 }
 
@@ -2039,9 +2070,12 @@ static int configEnumSet(typeData data, sds value, char **err) {
     if (enumval == INT_MIN) return 0;
     if (data.enumd.is_valid_fn && !data.enumd.is_valid_fn(enumval, err))
         return 0;
+    int prev = *(data.enumd.config);
     *(data.enumd.config) = enumval;
-    if (data.enumd.update_fn)
-        data.enumd.update_fn(enumval);
+    if (data.enumd.update_fn && !data.enumd.update_fn(enumval, prev, err)) {
+        *(data.enumd.config) = prev;
+        return 0;
+    }
     return 1;
 }
 
@@ -2065,17 +2099,59 @@ static void configEnumRewrite(typeData data, const char *name, struct rewriteCon
     } \
 }
 
+/* Gets a 'long long val' and sets it into the union, using a macro to get
+ * compile time type check. */
+#define SET_NUMERIC_TYPE(val) \
+    if (data.numeric.numeric_type == NUMERIC_TYPE_INT) { \
+        *(data.numeric.config.i) = (int) val; \
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_UINT) { \
+        *(data.numeric.config.ui) = (unsigned int) val; \
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_LONG) { \
+        *(data.numeric.config.l) = (long) val; \
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_ULONG) { \
+        *(data.numeric.config.ul) = (unsigned long) val; \
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_LONG_LONG) { \
+        *(data.numeric.config.ll) = (long long) val; \
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_ULONG_LONG) { \
+        *(data.numeric.config.ull) = (unsigned long long) val; \
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_SIZE_T) { \
+        *(data.numeric.config.st) = (size_t) val; \
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_SSIZE_T) { \
+        *(data.numeric.config.sst) = (ssize_t) val; \
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_OFF_T) { \
+        *(data.numeric.config.ot) = (off_t) val; \
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_TIME_T) { \
+        *(data.numeric.config.tt) = (time_t) val; \
+    }
+
+/* Gets a 'long long val' and sets it with the value from the union, using a
+ * macro to get compile time type check. */
+#define GET_NUMERIC_TYPE(val) \
+    if (data.numeric.numeric_type == NUMERIC_TYPE_INT) { \
+        val = *(data.numeric.config.i); \
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_UINT) { \
+        val = *(data.numeric.config.ui); \
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_LONG) { \
+        val = *(data.numeric.config.l); \
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_ULONG) { \
+        val = *(data.numeric.config.ul); \
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_LONG_LONG) { \
+        val = *(data.numeric.config.ll); \
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_ULONG_LONG) { \
+        val = *(data.numeric.config.ull); \
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_SIZE_T) { \
+        val = *(data.numeric.config.st); \
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_SSIZE_T) { \
+        val = *(data.numeric.config.sst); \
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_OFF_T) { \
+        val = *(data.numeric.config.ot); \
+    } else if (data.numeric.numeric_type == NUMERIC_TYPE_TIME_T) { \
+        val = *(data.numeric.config.tt); \
+    }
+
 /* Numeric configs */
 static void numericConfigInit(typeData data) {
-    if (data.numeric.numeric_type == NUMERIC_TYPE_INT) {
-        *(data.numeric.config.i) = (int) data.numeric.default_value;
-    } else if (data.numeric.numeric_type == NUMERIC_TYPE_UNSIGNED_LONG) {
-        *(data.numeric.config.ul) = (unsigned long) data.numeric.default_value;
-    } else if (data.numeric.numeric_type == NUMERIC_TYPE_LONG_LONG) {
-        *(data.numeric.config.ll) = (long long) data.numeric.default_value;
-    } else if (data.numeric.numeric_type == NUMERIC_TYPE_SIZE_T) {
-        *(data.numeric.config.st) = (size_t) data.numeric.default_value;
-    }
+    SET_NUMERIC_TYPE(data.numeric.default_value)
 }
 
 static int numericConfigLoad(typeData data, sds *argv, int argc, char **err) {
@@ -2100,34 +2176,44 @@ static int numericConfigLoad(typeData data, sds *argv, int argc, char **err) {
         }
     }
 
-    if (ll > data.numeric.upper_bound ||
-               ll < data.numeric.lower_bound) {
-        snprintf(loadbuf, LOADBUF_SIZE,
-            "argument must be between %lld and %lld inclusive",
-            data.numeric.lower_bound,
-            data.numeric.upper_bound);
-        *err = loadbuf;
-        return 0;
+    if (data.numeric.numeric_type == NUMERIC_TYPE_ULONG_LONG ||
+        data.numeric.numeric_type == NUMERIC_TYPE_UINT ||
+        data.numeric.numeric_type == NUMERIC_TYPE_SIZE_T) {
+        /* Boundary check for unsigned types */
+        unsigned long long ull = ll;
+        unsigned long long upper_bound = data.numeric.upper_bound;
+        unsigned long long lower_bound = data.numeric.lower_bound;
+        if (ull > upper_bound || ull < lower_bound) {
+            snprintf(loadbuf, LOADBUF_SIZE,
+                "argument must be between %llu and %llu inclusive",
+                lower_bound,
+                upper_bound);
+            *err = loadbuf;
+            return 0;
+        }
+    } else {
+        /* Boundary check for signed types */
+        if (ll > data.numeric.upper_bound ||
+                   ll < data.numeric.lower_bound) {
+            snprintf(loadbuf, LOADBUF_SIZE,
+                "argument must be between %lld and %lld inclusive",
+                data.numeric.lower_bound,
+                data.numeric.upper_bound);
+            *err = loadbuf;
+            return 0;
+        }
     }
 
     if (data.numeric.is_valid_fn && !data.numeric.is_valid_fn(ll, err))
         return 0;
 
-    if (data.numeric.numeric_type == NUMERIC_TYPE_INT) {
-        *(data.numeric.config.i) = (int) ll;
-    } else if (data.numeric.numeric_type == NUMERIC_TYPE_UNSIGNED_LONG) {
-        *(data.numeric.config.ul) = (unsigned long) ll;
-    } else if (data.numeric.numeric_type == NUMERIC_TYPE_LONG_LONG) {
-        *(data.numeric.config.ll) = ll;
-    } else if (data.numeric.numeric_type == NUMERIC_TYPE_SIZE_T) {
-        *(data.numeric.config.st) = (size_t) ll;
-    }
+    SET_NUMERIC_TYPE(ll)
 
     return 1;
 }
 
 static int numericConfigSet(typeData data, sds value, char **err) {
-    long long ll;
+    long long ll, prev = 0;
     if (data.numeric.is_memory) {
         int memerr;
         ll = memtoll(value, &memerr);
@@ -2136,26 +2222,44 @@ static int numericConfigSet(typeData data, sds value, char **err) {
         if (!string2ll(value, sdslen(value),&ll)) return 0;
     }
 
-    if (ll > data.numeric.upper_bound ||
-               ll < data.numeric.lower_bound) {
-        return 0;
+    if (data.numeric.numeric_type == NUMERIC_TYPE_ULONG_LONG ||
+        data.numeric.numeric_type == NUMERIC_TYPE_UINT ||
+        data.numeric.numeric_type == NUMERIC_TYPE_SIZE_T) {
+        /* Boundary check for unsigned types */
+        unsigned long long ull = ll;
+        unsigned long long upper_bound = data.numeric.upper_bound;
+        unsigned long long lower_bound = data.numeric.lower_bound;
+        if (ull > upper_bound || ull < lower_bound) {
+            snprintf(loadbuf, LOADBUF_SIZE,
+                "argument must be between %llu and %llu inclusive",
+                lower_bound,
+                upper_bound);
+            *err = loadbuf;
+            return 0;
+        }
+    } else {
+        /* Boundary check for signed types */
+        if (ll > data.numeric.upper_bound ||
+                   ll < data.numeric.lower_bound) {
+            snprintf(loadbuf, LOADBUF_SIZE,
+                "argument must be between %lld and %lld inclusive",
+                data.numeric.lower_bound,
+                data.numeric.upper_bound);
+            *err = loadbuf;
+            return 0;
+        }
     }
 
     if (data.numeric.is_valid_fn && !data.numeric.is_valid_fn(ll, err))
         return 0;
 
-    if (data.numeric.numeric_type == NUMERIC_TYPE_INT) {
-        *(data.numeric.config.i) = (int) ll;
-    } else if (data.numeric.numeric_type == NUMERIC_TYPE_UNSIGNED_LONG) {
-        *(data.numeric.config.ul) = (unsigned long) ll;
-    } else if (data.numeric.numeric_type == NUMERIC_TYPE_LONG_LONG) {
-        *(data.numeric.config.ll) = ll;
-    } else if (data.numeric.numeric_type == NUMERIC_TYPE_SIZE_T) {
-        *(data.numeric.config.st) = (size_t) ll;
-    }
+    GET_NUMERIC_TYPE(prev)
+    SET_NUMERIC_TYPE(ll)
 
-    if (data.numeric.update_fn)
-        data.numeric.update_fn(ll);
+    if (data.numeric.update_fn && !data.numeric.update_fn(ll, prev, err)) {
+        SET_NUMERIC_TYPE(prev)
+        return 0;
+    }
     return 1;
 }
 
@@ -2163,15 +2267,7 @@ static void numericConfigGet(client *c, typeData data) {
     char buf[128];
     long long value = 0;
 
-    if (data.numeric.numeric_type == NUMERIC_TYPE_INT) {
-        value = *(data.numeric.config.i);
-    } else if (data.numeric.numeric_type == NUMERIC_TYPE_UNSIGNED_LONG) {
-        value = *(data.numeric.config.ul);
-    } else if (data.numeric.numeric_type == NUMERIC_TYPE_LONG_LONG) {
-        value = *(data.numeric.config.ll);
-    } else if (data.numeric.numeric_type == NUMERIC_TYPE_SIZE_T) {
-        value = *(data.numeric.config.st);
-    }
+    GET_NUMERIC_TYPE(value)
 
     ll2string(buf, sizeof(buf), value);
     addReplyBulkCString(c, buf);
@@ -2179,15 +2275,8 @@ static void numericConfigGet(client *c, typeData data) {
 
 static void numericConfigRewrite(typeData data, const char *name, struct rewriteConfigState *state) {
     long long value = 0;
-    if (data.numeric.numeric_type == NUMERIC_TYPE_INT) {
-        value = *(data.numeric.config.i);
-    } else if (data.numeric.numeric_type == NUMERIC_TYPE_UNSIGNED_LONG) {
-        value = *(data.numeric.config.ul);
-    } else if (data.numeric.numeric_type == NUMERIC_TYPE_LONG_LONG) {
-        value = *(data.numeric.config.ll);
-    } else if (data.numeric.numeric_type == NUMERIC_TYPE_SIZE_T) {
-        value = *(data.numeric.config.st);
-    }
+
+    GET_NUMERIC_TYPE(value)
 
     if (data.numeric.is_memory) {
         rewriteConfigBytesOption(state, name, value, data.numeric.default_value);
@@ -2217,9 +2306,23 @@ static void numericConfigRewrite(typeData data, const char *name, struct rewrite
     } \
 }
 
-#define createUnsignedLongConfig(name, alias, modifiable, lower, upper, config_addr, default, memory, is_valid, update) \
+#define createUIntConfig(name, alias, modifiable, lower, upper, config_addr, default, memory, is_valid, update) \
     embedCommonNumericalConfig(name, alias, modifiable, lower, upper, config_addr, default, memory, is_valid, update) \
-        .numeric_type = NUMERIC_TYPE_UNSIGNED_LONG, \
+        .numeric_type = NUMERIC_TYPE_UINT, \
+        .config.ui = &(config_addr) \
+    } \
+}
+
+#define createLongConfig(name, alias, modifiable, lower, upper, config_addr, default, memory, is_valid, update) \
+    embedCommonNumericalConfig(name, alias, modifiable, lower, upper, config_addr, default, memory, is_valid, update) \
+        .numeric_type = NUMERIC_TYPE_LONG, \
+        .config.l = &(config_addr) \
+    } \
+}
+
+#define createULongConfig(name, alias, modifiable, lower, upper, config_addr, default, memory, is_valid, update) \
+    embedCommonNumericalConfig(name, alias, modifiable, lower, upper, config_addr, default, memory, is_valid, update) \
+        .numeric_type = NUMERIC_TYPE_ULONG, \
         .config.ul = &(config_addr) \
     } \
 }
@@ -2231,6 +2334,13 @@ static void numericConfigRewrite(typeData data, const char *name, struct rewrite
     } \
 }
 
+#define createULongLongConfig(name, alias, modifiable, lower, upper, config_addr, default, memory, is_valid, update) \
+    embedCommonNumericalConfig(name, alias, modifiable, lower, upper, config_addr, default, memory, is_valid, update) \
+        .numeric_type = NUMERIC_TYPE_ULONG_LONG, \
+        .config.ull = &(config_addr) \
+    } \
+}
+
 #define createSizeTConfig(name, alias, modifiable, lower, upper, config_addr, default, memory, is_valid, update) \
     embedCommonNumericalConfig(name, alias, modifiable, lower, upper, config_addr, default, memory, is_valid, update) \
         .numeric_type = NUMERIC_TYPE_SIZE_T, \
@@ -2238,7 +2348,28 @@ static void numericConfigRewrite(typeData data, const char *name, struct rewrite
     } \
 }
 
-int is_active_defrag_valid(int val, char **err) {
+#define createSSizeTConfig(name, alias, modifiable, lower, upper, config_addr, default, memory, is_valid, update) \
+    embedCommonNumericalConfig(name, alias, modifiable, lower, upper, config_addr, default, memory, is_valid, update) \
+        .numeric_type = NUMERIC_TYPE_SSIZE_T, \
+        .config.sst = &(config_addr) \
+    } \
+}
+
+#define createTimeTConfig(name, alias, modifiable, lower, upper, config_addr, default, memory, is_valid, update) \
+    embedCommonNumericalConfig(name, alias, modifiable, lower, upper, config_addr, default, memory, is_valid, update) \
+        .numeric_type = NUMERIC_TYPE_TIME_T, \
+        .config.tt = &(config_addr) \
+    } \
+}
+
+#define createOffTConfig(name, alias, modifiable, lower, upper, config_addr, default, memory, is_valid, update) \
+    embedCommonNumericalConfig(name, alias, modifiable, lower, upper, config_addr, default, memory, is_valid, update) \
+        .numeric_type = NUMERIC_TYPE_OFF_T, \
+        .config.ot = &(config_addr) \
+    } \
+}
+
+static int isValidActiveDefrag(int val, char **err) {
 #ifndef HAVE_DEFRAG
     if (val) {
         *err = "Active defragmentation cannot be enabled: it "
@@ -2254,6 +2385,12 @@ int is_active_defrag_valid(int val, char **err) {
     return 1;
 }
 
+static int updateJemallocBgThread(int val, int prev, char **err) {
+    UNUSED(prev);
+    UNUSED(err);
+    set_jemalloc_bg_thread(val);
+    return 1;
+}
 
 standardConfig configs[] = {
     /* Bool configs */
@@ -2284,8 +2421,8 @@ standardConfig configs[] = {
     createBoolConfig("replica-serve-stale-data", "slave-serve-stale-data", MODIFIABLE_CONFIG, server.repl_serve_stale_data, CONFIG_DEFAULT_SLAVE_SERVE_STALE_DATA ,NULL, NULL),
     createBoolConfig("replica-read-only", "slave-read-only", MODIFIABLE_CONFIG, server.repl_slave_ro, CONFIG_DEFAULT_SLAVE_READ_ONLY ,NULL, NULL),
     createBoolConfig("replica-ignore-maxmemory", "slave-ignore-maxmemory", MODIFIABLE_CONFIG, server.repl_slave_ignore_maxmemory, CONFIG_DEFAULT_SLAVE_IGNORE_MAXMEMORY ,NULL, NULL),
-    createBoolConfig("jemalloc-bg-thread", NULL, MODIFIABLE_CONFIG, server.jemalloc_bg_thread, 1, NULL, set_jemalloc_bg_thread),
-    createBoolConfig("activedefrag",NULL, MODIFIABLE_CONFIG, server.active_defrag_enabled, 0, is_active_defrag_valid, NULL),
+    createBoolConfig("jemalloc-bg-thread", NULL, MODIFIABLE_CONFIG, server.jemalloc_bg_thread, 1, NULL, updateJemallocBgThread),
+    createBoolConfig("activedefrag", NULL, MODIFIABLE_CONFIG, server.active_defrag_enabled, 0, isValidActiveDefrag, NULL),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, CONFIG_DEFAULT_ACL_FILENAME ,NULL, NULL),
@@ -2336,8 +2473,8 @@ standardConfig configs[] = {
     createIntConfig("active-expire-effort", NULL, MODIFIABLE_CONFIG, 1, 10, server.active_expire_effort, CONFIG_DEFAULT_ACTIVE_EXPIRE_EFFORT, INTEGER_CONFIG ,NULL, NULL),
 
     /* Unsigned Long configs */
-    createUnsignedLongConfig("active-defrag-max-scan-fields", NULL, MODIFIABLE_CONFIG, 1, LONG_MAX, server.active_defrag_max_scan_fields, CONFIG_DEFAULT_DEFRAG_MAX_SCAN_FIELDS, INTEGER_CONFIG ,NULL, NULL),
-    createUnsignedLongConfig("slowlog-max-len", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.slowlog_max_len, CONFIG_DEFAULT_SLOWLOG_MAX_LEN, INTEGER_CONFIG ,NULL, NULL),
+    createULongConfig("active-defrag-max-scan-fields", NULL, MODIFIABLE_CONFIG, 1, LONG_MAX, server.active_defrag_max_scan_fields, CONFIG_DEFAULT_DEFRAG_MAX_SCAN_FIELDS, INTEGER_CONFIG ,NULL, NULL),
+    createULongConfig("slowlog-max-len", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.slowlog_max_len, CONFIG_DEFAULT_SLOWLOG_MAX_LEN, INTEGER_CONFIG ,NULL, NULL),
 
     /* Long Long configs */
     createLongLongConfig("lua-time-limit", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.lua_time_limit, LUA_SCRIPT_TIME_LIMIT, INTEGER_CONFIG ,NULL, NULL),
