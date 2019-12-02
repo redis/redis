@@ -388,6 +388,14 @@ int jemalloc_purge() {
 
 #endif
 
+#if defined(__APPLE__)
+/* For proc_pidinfo() used later in zmalloc_get_smap_bytes_by_field().
+ * Note that this file cannot be included in zmalloc.h because it includes
+ * a Darwin queue.h file where there is a "LIST_HEAD" macro (!) defined
+ * conficting with Redis user code. */
+#include <libproc.h>
+#endif
+
 /* Get the sum of the specified field (converted form kb to bytes) in
  * /proc/self/smaps. The field must be specified with trailing ":" as it
  * apperas in the smaps output.
