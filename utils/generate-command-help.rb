@@ -14,7 +14,8 @@ GROUPS = [
   "scripting",
   "hyperloglog",
   "cluster",
-  "geo"
+  "geo",
+  "stream"
 ].freeze
 
 GROUPS_BY_NAME = Hash[*

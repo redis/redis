@@ -53,6 +53,51 @@ start_server {tags {"scan"}} {
         assert_equal 100 [llength $keys]
     }
 
+    test "SCAN TYPE" {
+        r flushdb
+        # populate only creates strings
+        r debug populate 1000
+
+        # Check non-strings are excluded
+        set cur 0
+        set keys {}
+        while 1 {
+            set res [r scan $cur type "list"]
+            set cur [lindex $res 0]
+            set k [lindex $res 1]
+            lappend keys {*}$k
+            if {$cur == 0} break
+        }
+
+        assert_equal 0 [llength $keys]
+
+        # Check strings are included
+        set cur 0
+        set keys {}
+        while 1 {
+            set res [r scan $cur type "string"]
+            set cur [lindex $res 0]
+            set k [lindex $res 1]
+            lappend keys {*}$k
+            if {$cur == 0} break
+        }
+
+        assert_equal 1000 [llength $keys]
+
+        # Check all three args work together
+        set cur 0
+        set keys {}
+        while 1 {
+            set res [r scan $cur type "string" match "key:*" count 10]
+            set cur [lindex $res 0]
+            set k [lindex $res 1]
+            lappend keys {*}$k
+            if {$cur == 0} break
+        }
+
+        assert_equal 1000 [llength $keys]
+    }
+
     foreach enc {intset hashtable} {
         test "SSCAN with encoding $enc" {
             # Create the Set
@@ -235,5 +280,51 @@ start_server {tags {"scan"}} {
         set res [lindex [r zscan mykey 0] 1]
         set first_score [lindex $res 1]
         assert {$first_score != 0}
+    }
+
+    test "SCAN regression test for issue #4906" {
+        for {set k 0} {$k < 100} {incr k} {
+            r del set
+            r sadd set x; # Make sure it's not intset encoded
+            set toremove {}
+            unset -nocomplain found
+            array set found {}
+
+            # Populate the set
+            set numele [expr {101+[randomInt 1000]}]
+            for {set j 0} {$j < $numele} {incr j} {
+                r sadd set $j
+                if {$j >= 100} {
+                    lappend toremove $j
+                }
+            }
+
+            # Start scanning
+            set cursor 0
+            set iteration 0
+            set del_iteration [randomInt 10]
+            while {!($cursor == 0 && $iteration != 0)} {
+                lassign [r sscan set $cursor] cursor items
+
+                # Mark found items. We expect to find from 0 to 99 at the end
+                # since those elements will never be removed during the scanning.
+                foreach i $items {
+                    set found($i) 1
+                }
+                incr iteration
+                # At some point remove most of the items to trigger the
+                # rehashing to a smaller hash table.
+                if {$iteration == $del_iteration} {
+                    r srem set {*}$toremove
+                }
+            }
+
+            # Verify that SSCAN reported everything from 0 to 99
+            for {set j 0} {$j < 100} {incr j} {
+                if {![info exists found($j)]} {
+                    fail "SSCAN element missing $j"
+                }
+            }
+        }
     }
 }

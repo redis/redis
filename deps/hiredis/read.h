@@ -45,6 +45,7 @@
 #define REDIS_ERR_EOF 3 /* End of file */
 #define REDIS_ERR_PROTOCOL 4 /* Protocol error */
 #define REDIS_ERR_OOM 5 /* Out of memory */
+#define REDIS_ERR_TIMEOUT 6 /* Timed out */
 #define REDIS_ERR_OTHER 2 /* Everything else... */
 
 #define REDIS_REPLY_STRING 1
@@ -53,6 +54,14 @@
 #define REDIS_REPLY_NIL 4
 #define REDIS_REPLY_STATUS 5
 #define REDIS_REPLY_ERROR 6
+#define REDIS_REPLY_DOUBLE 7
+#define REDIS_REPLY_BOOL 8
+#define REDIS_REPLY_MAP 9
+#define REDIS_REPLY_SET 10
+#define REDIS_REPLY_ATTR 11
+#define REDIS_REPLY_PUSH 12
+#define REDIS_REPLY_BIGNUM 13
+#define REDIS_REPLY_VERB 14
 
 #define REDIS_READER_MAX_BUF (1024*16)  /* Default max unused reader buffer. */
 
@@ -71,9 +80,11 @@ typedef struct redisReadTask {
 
 typedef struct redisReplyObjectFunctions {
     void *(*createString)(const redisReadTask*, char*, size_t);
-    void *(*createArray)(const redisReadTask*, int);
+    void *(*createArray)(const redisReadTask*, size_t);
     void *(*createInteger)(const redisReadTask*, long long);
+    void *(*createDouble)(const redisReadTask*, double, char*, size_t);
     void *(*createNil)(const redisReadTask*);
+    void *(*createBool)(const redisReadTask*, int);
     void (*freeObject)(void*);
 } redisReplyObjectFunctions;
 

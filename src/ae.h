@@ -38,9 +38,14 @@
 #define AE_OK 0
 #define AE_ERR -1
 
-#define AE_NONE 0
-#define AE_READABLE 1
-#define AE_WRITABLE 2
+#define AE_NONE 0       /* No events registered. */
+#define AE_READABLE 1   /* Fire when descriptor is readable. */
+#define AE_WRITABLE 2   /* Fire when descriptor is writable. */
+#define AE_BARRIER 4    /* With WRITABLE, never fire the event if the
+                           READABLE event already fired in the same event
+                           loop iteration. Useful when you want to persist
+                           things to disk before sending replies, and want
+                           to do that in a group fashion. */
 
 #define AE_FILE_EVENTS 1
 #define AE_TIME_EVENTS 2
@@ -64,7 +69,7 @@ typedef void aeBeforeSleepProc(struct aeEventLoop *eventLoop);
 
 /* File event structure */
 typedef struct aeFileEvent {
-    int mask; /* one of AE_(READABLE|WRITABLE) */
+    int mask; /* one of AE_(READABLE|WRITABLE|BARRIER) */
     aeFileProc *rfileProc;
     aeFileProc *wfileProc;
     void *clientData;
@@ -78,6 +83,7 @@ typedef struct aeTimeEvent {
     aeTimeProc *timeProc;
     aeEventFinalizerProc *finalizerProc;
     void *clientData;
+    struct aeTimeEvent *prev;
     struct aeTimeEvent *next;
 } aeTimeEvent;
 
@@ -100,6 +106,7 @@ typedef struct aeEventLoop {
     void *apidata; /* This is used for polling API specific data */
     aeBeforeSleepProc *beforesleep;
     aeBeforeSleepProc *aftersleep;
+    int flags;
 } aeEventLoop;
 
 /* Prototypes */
@@ -122,5 +129,6 @@ void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep
 void aeSetAfterSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *aftersleep);
 int aeGetSetSize(aeEventLoop *eventLoop);
 int aeResizeSetSize(aeEventLoop *eventLoop, int setsize);
+void aeSetDontWait(aeEventLoop *eventLoop, int noWait);
 
 #endif

@@ -23,10 +23,10 @@ size_t lazyfreeGetPendingObjectsCount(void) {
  * the function just returns the number of elements the object is composed of.
  *
  * Objects composed of single allocations are always reported as having a
- * single item even if they are actaully logical composed of multiple
+ * single item even if they are actually logical composed of multiple
  * elements.
  *
- * For lists the funciton returns the number of elements in the quicklist
+ * For lists the function returns the number of elements in the quicklist
  * representing the list. */
 size_t lazyfreeGetFreeEffort(robj *obj) {
     if (obj->type == OBJ_LIST) {
@@ -64,9 +64,15 @@ int dbAsyncDelete(redisDb *db, robj *key) {
         robj *val = dictGetVal(de);
         size_t free_effort = lazyfreeGetFreeEffort(val);
 
-        /* If releasing the object is too much work, let's put it into the
-         * lazy free list. */
-        if (free_effort > LAZYFREE_THRESHOLD) {
+        /* If releasing the object is too much work, do it in the background
+         * by adding the object to the lazy free list.
+         * Note that if the object is shared, to reclaim it now it is not
+         * possible. This rarely happens, however sometimes the implementation
+         * of parts of the Redis core may call incrRefCount() to protect
+         * objects, and then call dbDelete(). In this case we'll fall
+         * through and reach the dictFreeUnlinkedEntry() call, that will be
+         * equivalent to just calling decrRefCount(). */
+        if (free_effort > LAZYFREE_THRESHOLD && val->refcount == 1) {
             atomicIncr(lazyfree_objects,1);
             bioCreateBackgroundJob(BIO_LAZY_FREE,val,NULL,NULL);
             dictSetVal(db->dict,de,NULL);
@@ -81,6 +87,17 @@ int dbAsyncDelete(redisDb *db, robj *key) {
         return 1;
     } else {
         return 0;
+    }
+}
+
+/* Free an object, if the object is huge enough, free it in async way. */
+void freeObjAsync(robj *o) {
+    size_t free_effort = lazyfreeGetFreeEffort(o);
+    if (free_effort > LAZYFREE_THRESHOLD && o->refcount == 1) {
+        atomicIncr(lazyfree_objects,1);
+        bioCreateBackgroundJob(BIO_LAZY_FREE,o,NULL,NULL);
+    } else {
+        decrRefCount(o);
     }
 }
 

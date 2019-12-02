@@ -83,6 +83,7 @@ start_server {tags {"other"}} {
             } {1}
 
             test {Same dataset digest if saving/reloading as AOF?} {
+                r config set aof-use-rdb-preamble no
                 r bgrewriteaof
                 waitForBgrewriteaof r
                 r debug loadaof
@@ -126,6 +127,7 @@ start_server {tags {"other"}} {
     test {EXPIRES after AOF reload (without rewrite)} {
         r flushdb
         r config set appendonly yes
+        r config set aof-use-rdb-preamble no
         r set x somevalue
         r expire x 1000
         r setex y 2000 somevalue
@@ -164,7 +166,11 @@ start_server {tags {"other"}} {
 
     tags {protocol} {
         test {PIPELINING stresser (also a regression for the old epoll bug)} {
-            set fd2 [socket $::host $::port]
+            if {$::tls} {
+                set fd2 [::tls::socket $::host $::port]
+            } else {
+                set fd2 [socket $::host $::port]
+            }
             fconfigure $fd2 -encoding binary -translation binary
             puts -nonewline $fd2 "SELECT 9\r\n"
             flush $fd2

@@ -62,7 +62,9 @@
 #endif
 
 /* Test for backtrace() */
-#if defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__))
+#if defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__)) || \
+    defined(__FreeBSD__) || (defined(__OpenBSD__) && defined(USE_BACKTRACE))\
+ || defined(__DragonFly__)
 #define HAVE_BACKTRACE 1
 #endif
 
@@ -87,11 +89,11 @@
 #endif
 #endif
 
-/* Define aof_fsync to fdatasync() in Linux and fsync() for all the rest */
+/* Define redis_fsync to fdatasync() in Linux and fsync() for all the rest */
 #ifdef __linux__
-#define aof_fsync fdatasync
+#define redis_fsync fdatasync
 #else
-#define aof_fsync fsync
+#define redis_fsync fsync
 #endif
 
 /* Define rdb_fsync_range to sync_file_range() on Linux, otherwise we use

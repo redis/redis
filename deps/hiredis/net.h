@@ -37,9 +37,9 @@
 
 #include "hiredis.h"
 
-#if defined(__sun)
-#define AF_LOCAL AF_UNIX
-#endif
+void redisNetClose(redisContext *c);
+int redisNetRead(redisContext *c, char *buf, size_t bufcap);
+int redisNetWrite(redisContext *c);
 
 int redisCheckSocketError(redisContext *c);
 int redisContextSetTimeout(redisContext *c, const struct timeval tv);
@@ -49,5 +49,6 @@ int redisContextConnectBindTcp(redisContext *c, const char *addr, int port,
                                const char *source_addr);
 int redisContextConnectUnix(redisContext *c, const char *path, const struct timeval *timeout);
 int redisKeepAlive(redisContext *c, int interval);
+int redisCheckConnectDone(redisContext *c, int *completed);
 
 #endif
