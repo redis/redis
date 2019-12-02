@@ -57,6 +57,7 @@
 
 #elif defined(__APPLE__)
 #include <malloc/malloc.h>
+#include <libproc.h>
 #define HAVE_MALLOC_SIZE 1
 #define zmalloc_size(p) malloc_size(p)
 #endif
