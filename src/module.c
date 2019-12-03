@@ -5150,7 +5150,7 @@ RedisModuleTimerID RM_CreateTimer(RedisModuleCtx *ctx, mstime_t period, RedisMod
     timer->module = ctx->module;
     timer->callback = callback;
     timer->data = data;
-    timer->dbid = ctx->client->db->id;
+    timer->dbid = ctx->client ? ctx->client->db->id : 0;
     uint64_t expiretime = ustime()+period*1000;
     uint64_t key;
 
