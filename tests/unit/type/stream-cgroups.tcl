@@ -311,4 +311,17 @@ start_server {
             }
         }
     }
+
+    start_server {tags {"stream"} overrides {appendonly yes aof-use-rdb-preamble no}} {
+        test {Empty stream with no lastid can be rewrite into AOF correctly} {
+            r XGROUP CREATE mystream group-name $ MKSTREAM
+            assert {[dict get [r xinfo stream mystream] length] == 0}
+            set grpinfo [r xinfo groups mystream]
+            r bgrewriteaof
+            waitForBgrewriteaof r
+            r debug loadaof
+            assert {[dict get [r xinfo stream mystream] length] == 0}
+            assert {[r xinfo groups mystream] == $grpinfo}
+        }
+    }
 }
