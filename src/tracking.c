@@ -164,7 +164,7 @@ void trackingInvalidateSlot(uint64_t slot) {
     raxSeek(&ri,"^",NULL,0);
     while(raxNext(&ri)) {
         uint64_t id;
-        memcpy(&id,ri.key,ri.key_len);
+        memcpy(&id,ri.key,sizeof(id));
         client *c = lookupClientByID(id);
         if (c == NULL || !(c->flags & CLIENT_TRACKING)) continue;
         sendTrackingMessage(c,slot);
