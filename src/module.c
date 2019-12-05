@@ -4192,7 +4192,10 @@ void moduleBlockedClientPipeReadable(aeEventLoop *el, int fd, void *privdata, in
 void unblockClientFromModule(client *c) {
     RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
 
-    /* Call the disconnection callback if any. */
+    /* Call the disconnection callback if any. Note that
+     * bc->disconnect_callback is set to NULL if the client gets disconnected
+     * by the module itself, so the callback will NOT get called if this is
+     * not an actual disconnection event. */
     if (bc->disconnect_callback) {
         RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
         ctx.blocked_privdata = bc->privdata;
