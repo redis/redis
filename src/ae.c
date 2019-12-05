@@ -46,6 +46,8 @@
 
 /* Include the best multiplexing layer supported by this system.
  * The following should be ordered by performances, descending. */
+#define HAVE_EPOLL justTest
+
 #ifdef HAVE_EVPORT
 #include "ae_evport.c"
 #else
@@ -132,6 +134,7 @@ void aeStop(aeEventLoop *eventLoop) {
     eventLoop->stop = 1;
 }
 
+//向epoll中添加关心的文件事件
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData)
 {
@@ -151,7 +154,7 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         eventLoop->maxfd = fd;
     return AE_OK;
 }
-
+//mask为1的位置代表要取消关注的事件类型
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 {
     if (fd >= eventLoop->setsize) return;
@@ -159,7 +162,7 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
     if (fe->mask == AE_NONE) return;
 
     aeApiDelEvent(eventLoop, fd, mask);
-    fe->mask = fe->mask & (~mask);
+    fe->mask = fe->mask & (~mask);//因为aeApiDelEvent是生成拷贝对象去epoll中删除，所以这里需要重新&下
     if (fd == eventLoop->maxfd && fe->mask == AE_NONE) {
         /* Update the max fd */
         int j;
@@ -170,6 +173,7 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
     }
 }
 
+//获取fd关注的事件类型
 int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
     if (fd >= eventLoop->setsize) return 0;
     aeFileEvent *fe = &eventLoop->events[fd];
@@ -177,6 +181,7 @@ int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
     return fe->mask;
 }
 
+//获取当前时间
 static void aeGetTime(long *seconds, long *milliseconds)
 {
     struct timeval tv;
@@ -186,6 +191,7 @@ static void aeGetTime(long *seconds, long *milliseconds)
     *milliseconds = tv.tv_usec/1000;
 }
 
+//当前时间 + milliseconds 毫秒
 static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) {
     long cur_sec, cur_ms, when_sec, when_ms;
 
@@ -200,6 +206,7 @@ static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) 
     *ms = when_ms;
 }
 
+//创建milliseconds毫秒后的时间事件，处理函数是proc
 long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
         aeTimeProc *proc, void *clientData,
         aeEventFinalizerProc *finalizerProc)
@@ -214,11 +221,12 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
     te->timeProc = proc;
     te->finalizerProc = finalizerProc;
     te->clientData = clientData;
-    te->next = eventLoop->timeEventHead;
+    te->next = eventLoop->timeEventHead;//添加在链表头
     eventLoop->timeEventHead = te;
     return id;
 }
 
+//时间事件链表中删除id的时间事件
 int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
 {
     aeTimeEvent *te, *prev = NULL;
@@ -252,6 +260,7 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
  *    Much better but still insertion or deletion of timers is O(N).
  * 2) Use a skiplist to have this operation as O(1) and insertion as O(log(N)).
  */
+//返回最近的时间事件
 static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
 {
     aeTimeEvent *te = eventLoop->timeEventHead;
@@ -268,6 +277,7 @@ static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
 }
 
 /* Process time events */
+//处理所有的时间事件
 static int processTimeEvents(aeEventLoop *eventLoop) {
     int processed = 0;
     aeTimeEvent *te;
@@ -282,6 +292,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
      * events to be processed ASAP when this happens: the idea is that
      * processing events earlier is less dangerous than delaying them
      * indefinitely, and practice suggests it is. */
+    //当系统时钟出现问题，则执行所有时间事件，我们认为早执行比晚执行更安全
     if (now < eventLoop->lastTime) {
         te = eventLoop->timeEventHead;
         while(te) {
@@ -374,11 +385,11 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             /* Calculate the time missing for the nearest
              * timer to fire. */
             aeGetTime(&now_sec, &now_ms);
-            tvp = &tv;
-            tvp->tv_sec = shortest->when_sec - now_sec;
+            tvp = &tv;//now:1000.900  nearst:1001.100
+            tvp->tv_sec = shortest->when_sec - now_sec;//1s
             if (shortest->when_ms < now_ms) {
-                tvp->tv_usec = ((shortest->when_ms+1000) - now_ms)*1000;
-                tvp->tv_sec --;
+                tvp->tv_usec = ((shortest->when_ms+1000) - now_ms)*1000;//200ms
+                tvp->tv_sec --;//0s
             } else {
                 tvp->tv_usec = (shortest->when_ms - now_ms)*1000;
             }
@@ -397,7 +408,8 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             }
         }
 
-        numevents = aeApiPoll(eventLoop, tvp);
+        numevents = aeApiPoll(eventLoop, tvp);//阻塞最长时间直到最近的时间事件，再返回，保证每次都至少有时间处理
+        //或者有文件事件到达能提前处理
         for (j = 0; j < numevents; j++) {
             aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
             int mask = eventLoop->fired[j].mask;

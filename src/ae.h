@@ -72,7 +72,7 @@ typedef struct aeTimeEvent {
     long when_sec; /* seconds */
     long when_ms; /* milliseconds */
     aeTimeProc *timeProc;
-    aeEventFinalizerProc *finalizerProc;
+    aeEventFinalizerProc *finalizerProc;//删除定时器时调用的函数
     void *clientData;
     struct aeTimeEvent *next;
 } aeTimeEvent;

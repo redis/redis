@@ -1,0 +1,1004 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CodeBlocks_project_file>
+	<FileVersion major="1" minor="6"/>
+	<Project>
+		<Option title="redis"/>
+		<Option makefile_is_custom="1"/>
+		<Option compiler="gcc"/>
+		<Option virtualFolders="CMake Files\;"/>
+		<Build>
+			<Target title="all">
+				<Option working_dir="/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug"/>
+				<Option type="4"/>
+				<MakeCommands>
+					<Build command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug/Makefile&quot;  VERBOSE=1 all"/>
+					<CompileFile command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug/Makefile&quot;  VERBOSE=1 &quot;$file&quot;"/>
+					<Clean command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+					<DistClean command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+				</MakeCommands>
+			</Target>
+			<Target title="rebuild_cache">
+				<Option working_dir="/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug"/>
+				<Option type="4"/>
+				<MakeCommands>
+					<Build command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug/Makefile&quot;  VERBOSE=1 rebuild_cache"/>
+					<CompileFile command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug/Makefile&quot;  VERBOSE=1 &quot;$file&quot;"/>
+					<Clean command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+					<DistClean command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+				</MakeCommands>
+			</Target>
+			<Target title="edit_cache">
+				<Option working_dir="/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug"/>
+				<Option type="4"/>
+				<MakeCommands>
+					<Build command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug/Makefile&quot;  VERBOSE=1 edit_cache"/>
+					<CompileFile command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug/Makefile&quot;  VERBOSE=1 &quot;$file&quot;"/>
+					<Clean command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+					<DistClean command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+				</MakeCommands>
+			</Target>
+			<Target title="redis">
+				<Option output="/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug/redis" prefix_auto="0" extension_auto="0"/>
+				<Option working_dir="/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug"/>
+				<Option object_output="./"/>
+				<Option type="1"/>
+				<Option compiler="gcc"/>
+				<Compiler>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis/adapters"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/msvc_compat"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/include"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/include/test"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/deps/linenoise"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/etc"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/src"/>
+					<Add directory="/Library/Developer/CommandLineTools/usr/bin/../include/c++/v1"/>
+					<Add directory="/usr/local/include"/>
+					<Add directory="/Library/Developer/CommandLineTools/usr/lib/clang/11.0.0/include"/>
+					<Add directory="/Library/Developer/CommandLineTools/usr/include"/>
+					<Add directory="/System/Library/Frameworks"/>
+					<Add directory="/Library/Frameworks"/>
+				</Compiler>
+				<MakeCommands>
+					<Build command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug/Makefile&quot;  VERBOSE=1 redis"/>
+					<CompileFile command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug/Makefile&quot;  VERBOSE=1 &quot;$file&quot;"/>
+					<Clean command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+					<DistClean command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+				</MakeCommands>
+			</Target>
+			<Target title="redis/fast">
+				<Option output="/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug/redis" prefix_auto="0" extension_auto="0"/>
+				<Option working_dir="/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug"/>
+				<Option object_output="./"/>
+				<Option type="1"/>
+				<Option compiler="gcc"/>
+				<Compiler>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis/adapters"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/msvc_compat"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/include"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/include/test"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/deps/linenoise"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/etc"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/src"/>
+					<Add directory="/Library/Developer/CommandLineTools/usr/bin/../include/c++/v1"/>
+					<Add directory="/usr/local/include"/>
+					<Add directory="/Library/Developer/CommandLineTools/usr/lib/clang/11.0.0/include"/>
+					<Add directory="/Library/Developer/CommandLineTools/usr/include"/>
+					<Add directory="/System/Library/Frameworks"/>
+					<Add directory="/Library/Frameworks"/>
+				</Compiler>
+				<MakeCommands>
+					<Build command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug/Makefile&quot;  VERBOSE=1 redis/fast"/>
+					<CompileFile command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug/Makefile&quot;  VERBOSE=1 &quot;$file&quot;"/>
+					<Clean command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+					<DistClean command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+				</MakeCommands>
+			</Target>
+		</Build>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis/adapters/ae.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis/adapters/libev.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis/adapters/libevent.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis/adapters/libuv.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis/async.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis/async.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis/dict.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis/dict.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis/examples/example-ae.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis/examples/example-libev.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis/examples/example-libevent.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis/examples/example-libuv.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis/examples/example.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis/fmacros.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis/hiredis.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis/hiredis.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis/net.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis/net.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis/sds.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis/sds.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis/test.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/hiredis/zmalloc.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/arena.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/atomic.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/base.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/bitmap.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/chunk.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/chunk_dss.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/chunk_mmap.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/ckh.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/ctl.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/extent.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/hash.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/huge.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/jemalloc_internal_macros.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/mb.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/mutex.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/prng.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/prof.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/ql.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/qr.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/quarantine.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/rb.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/rtree.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/stats.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/tcache.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/tsd.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/jemalloc/internal/util.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/msvc_compat/inttypes.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/msvc_compat/stdbool.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/msvc_compat/stdint.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/include/msvc_compat/strings.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/src/arena.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/src/atomic.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/src/base.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/src/bitmap.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/src/chunk.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/src/chunk_dss.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/src/chunk_mmap.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/src/ckh.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/src/ctl.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/src/extent.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/src/hash.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/src/huge.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/src/jemalloc.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/src/mb.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/src/mutex.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/src/prof.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/src/quarantine.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/src/rtree.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/src/stats.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/src/tcache.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/src/tsd.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/src/util.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/src/zone.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/include/test/SFMT-alti.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/include/test/SFMT-params.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/include/test/SFMT-params11213.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/include/test/SFMT-params1279.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/include/test/SFMT-params132049.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/include/test/SFMT-params19937.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/include/test/SFMT-params216091.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/include/test/SFMT-params2281.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/include/test/SFMT-params4253.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/include/test/SFMT-params44497.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/include/test/SFMT-params607.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/include/test/SFMT-params86243.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/include/test/SFMT-sse2.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/include/test/SFMT.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/include/test/math.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/include/test/mq.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/include/test/mtx.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/include/test/test.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/include/test/thd.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/integration/MALLOCX_ARENA.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/integration/aligned_alloc.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/integration/allocated.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/integration/allocm.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/integration/mallocx.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/integration/mremap.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/integration/posix_memalign.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/integration/rallocm.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/integration/rallocx.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/integration/thread_arena.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/integration/thread_tcache_enabled.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/integration/xallocx.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/src/SFMT.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/src/math.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/src/mtx.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/src/test.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/src/thd.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit/SFMT.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit/bitmap.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit/ckh.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit/hash.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit/junk.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit/mallctl.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit/math.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit/mq.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit/mtx.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit/prof_accum.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit/prof_accum.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit/prof_accum_a.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit/prof_accum_b.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit/prof_gdump.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit/prof_idump.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit/ql.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit/qr.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit/quarantine.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit/rb.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit/rtree.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit/stats.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit/tsd.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit/util.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/jemalloc/test/unit/zero.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/linenoise/example.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/linenoise/linenoise.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/linenoise/linenoise.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/etc/all.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/etc/lua.hpp">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/etc/min.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/etc/noparser.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/fpconv.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/fpconv.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lapi.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lapi.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lauxlib.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lauxlib.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lbaselib.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lcode.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lcode.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/ldblib.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/ldebug.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/ldebug.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/ldo.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/ldo.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/ldump.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lfunc.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lfunc.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lgc.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lgc.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/linit.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/liolib.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/llex.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/llex.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/llimits.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lmathlib.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lmem.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lmem.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/loadlib.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lobject.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lobject.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lopcodes.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lopcodes.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/loslib.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lparser.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lparser.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lstate.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lstate.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lstring.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lstring.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lstrlib.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/ltable.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/ltable.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/ltablib.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/ltm.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/ltm.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lua.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lua.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lua_bit.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lua_cjson.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lua_cmsgpack.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lua_struct.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/luac.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/luaconf.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lualib.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lundump.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lundump.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lvm.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lvm.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lzio.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/lzio.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/print.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/strbuf.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/deps/lua/src/strbuf.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/adlist.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/adlist.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/ae.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/ae.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/ae_epoll.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/ae_evport.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/ae_kqueue.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/ae_select.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/anet.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/anet.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/aof.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/asciilogo.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/bio.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/bio.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/bitops.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/blocked.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/cluster.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/cluster.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/config.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/config.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/crc16.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/crc64.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/crc64.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/db.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/debug.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/dict.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/dict.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/endianconv.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/endianconv.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/fmacros.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/help.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/hyperloglog.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/intset.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/intset.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/latency.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/latency.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/lzf.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/lzfP.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/lzf_c.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/lzf_d.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/memtest.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/multi.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/networking.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/notify.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/object.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/pqsort.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/pqsort.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/pubsub.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/rand.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/rand.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/rdb.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/rdb.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/redis-benchmark.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/redis-check-aof.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/redis-check-dump.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/redis-cli.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/redis.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/redis.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/redisassert.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/release.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/replication.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/rio.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/rio.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/scripting.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/sds.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/sds.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/sentinel.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/setproctitle.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/sha1.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/sha1.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/slowlog.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/slowlog.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/solarisfixes.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/sort.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/sparkline.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/sparkline.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/syncio.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/t_hash.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/t_list.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/t_set.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/t_string.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/t_zset.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/testhelp.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/util.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/util.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/version.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/ziplist.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/ziplist.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/zipmap.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/zipmap.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/zmalloc.c">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/zmalloc.h">
+			<Option target="redis"/>
+		</Unit>
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/CMakeLists.txt">
+			<Option virtualFolder="CMake Files\"/>
+		</Unit>
+	</Project>
+</CodeBlocks_project_file>

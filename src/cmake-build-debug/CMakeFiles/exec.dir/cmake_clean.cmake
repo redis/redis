@@ -58,8 +58,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/exec.dir/ziplist.c.o"
   "CMakeFiles/exec.dir/zipmap.c.o"
   "CMakeFiles/exec.dir/zmalloc.c.o"
-  "exec.pdb"
   "exec"
+  "exec.pdb"
 )
 
 # Per-language clean rules from dependency scanning.

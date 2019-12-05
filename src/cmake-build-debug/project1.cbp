@@ -8,332 +8,332 @@
 		<Option virtualFolders="CMake Files\;"/>
 		<Build>
 			<Target title="all">
-				<Option working_dir="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug"/>
+				<Option working_dir="/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug"/>
 				<Option type="4"/>
 				<MakeCommands>
-					<Build command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 all"/>
-					<CompileFile command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 &quot;$file&quot;"/>
-					<Clean command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
-					<DistClean command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+					<Build command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 all"/>
+					<CompileFile command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 &quot;$file&quot;"/>
+					<Clean command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+					<DistClean command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
 				</MakeCommands>
 			</Target>
 			<Target title="rebuild_cache">
-				<Option working_dir="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug"/>
+				<Option working_dir="/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug"/>
 				<Option type="4"/>
 				<MakeCommands>
-					<Build command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 rebuild_cache"/>
-					<CompileFile command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 &quot;$file&quot;"/>
-					<Clean command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
-					<DistClean command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+					<Build command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 rebuild_cache"/>
+					<CompileFile command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 &quot;$file&quot;"/>
+					<Clean command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+					<DistClean command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
 				</MakeCommands>
 			</Target>
 			<Target title="edit_cache">
-				<Option working_dir="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug"/>
+				<Option working_dir="/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug"/>
 				<Option type="4"/>
 				<MakeCommands>
-					<Build command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 edit_cache"/>
-					<CompileFile command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 &quot;$file&quot;"/>
-					<Clean command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
-					<DistClean command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+					<Build command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 edit_cache"/>
+					<CompileFile command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 &quot;$file&quot;"/>
+					<Clean command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+					<DistClean command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
 				</MakeCommands>
 			</Target>
 			<Target title="exec">
-				<Option output="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/exec" prefix_auto="0" extension_auto="0"/>
-				<Option working_dir="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug"/>
+				<Option output="/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug/exec" prefix_auto="0" extension_auto="0"/>
+				<Option working_dir="/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug"/>
 				<Option object_output="./"/>
 				<Option type="1"/>
 				<Option compiler="gcc"/>
 				<Compiler>
-					<Add directory="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/."/>
-					<Add directory="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/../../../linux-kernel/usr/include"/>
-					<Add directory="/Library/Developer/CommandLineTools/usr/include/c++/v1"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/src/."/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/src/../../../linux-kernel/usr/include"/>
+					<Add directory="/Library/Developer/CommandLineTools/usr/bin/../include/c++/v1"/>
 					<Add directory="/usr/local/include"/>
-					<Add directory="/Library/Developer/CommandLineTools/usr/lib/clang/10.0.0/include"/>
+					<Add directory="/Library/Developer/CommandLineTools/usr/lib/clang/11.0.0/include"/>
 					<Add directory="/Library/Developer/CommandLineTools/usr/include"/>
 					<Add directory="/System/Library/Frameworks"/>
 					<Add directory="/Library/Frameworks"/>
 				</Compiler>
 				<MakeCommands>
-					<Build command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 exec"/>
-					<CompileFile command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 &quot;$file&quot;"/>
-					<Clean command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
-					<DistClean command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+					<Build command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 exec"/>
+					<CompileFile command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 &quot;$file&quot;"/>
+					<Clean command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+					<DistClean command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
 				</MakeCommands>
 			</Target>
 			<Target title="exec/fast">
-				<Option output="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/exec" prefix_auto="0" extension_auto="0"/>
-				<Option working_dir="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug"/>
+				<Option output="/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug/exec" prefix_auto="0" extension_auto="0"/>
+				<Option working_dir="/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug"/>
 				<Option object_output="./"/>
 				<Option type="1"/>
 				<Option compiler="gcc"/>
 				<Compiler>
-					<Add directory="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/."/>
-					<Add directory="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/../../../linux-kernel/usr/include"/>
-					<Add directory="/Library/Developer/CommandLineTools/usr/include/c++/v1"/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/src/."/>
+					<Add directory="/Users/eurusouou/Desktop/code/learn/redis/src/../../../linux-kernel/usr/include"/>
+					<Add directory="/Library/Developer/CommandLineTools/usr/bin/../include/c++/v1"/>
 					<Add directory="/usr/local/include"/>
-					<Add directory="/Library/Developer/CommandLineTools/usr/lib/clang/10.0.0/include"/>
+					<Add directory="/Library/Developer/CommandLineTools/usr/lib/clang/11.0.0/include"/>
 					<Add directory="/Library/Developer/CommandLineTools/usr/include"/>
 					<Add directory="/System/Library/Frameworks"/>
 					<Add directory="/Library/Frameworks"/>
 				</Compiler>
 				<MakeCommands>
-					<Build command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 exec/fast"/>
-					<CompileFile command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 &quot;$file&quot;"/>
-					<Clean command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
-					<DistClean command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+					<Build command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 exec/fast"/>
+					<CompileFile command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 &quot;$file&quot;"/>
+					<Clean command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+					<DistClean command="/usr/bin/make -j16 -f &quot;/Users/eurusouou/Desktop/code/learn/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
 				</MakeCommands>
 			</Target>
 		</Build>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/adlist.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/adlist.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/adlist.h">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/adlist.h">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/ae.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/ae.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/ae.h">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/ae.h">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/ae_epoll.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/ae_epoll.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/ae_evport.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/ae_evport.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/ae_kqueue.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/ae_kqueue.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/ae_select.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/ae_select.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/anet.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/anet.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/anet.h">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/anet.h">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/aof.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/aof.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/bio.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/bio.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/bio.h">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/bio.h">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/bitops.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/bitops.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/blocked.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/blocked.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cluster.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/cluster.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cluster.h">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/cluster.h">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/config.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/config.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/config.h">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/config.h">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/crc16.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/crc16.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/crc64.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/crc64.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/crc64.h">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/crc64.h">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/db.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/db.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/debug.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/debug.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/dict.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/dict.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/dict.h">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/dict.h">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/endianconv.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/endianconv.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/endianconv.h">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/endianconv.h">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/hyperloglog.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/hyperloglog.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/intset.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/intset.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/intset.h">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/intset.h">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/latency.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/latency.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/latency.h">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/latency.h">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/lzf_c.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/lzf_c.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/lzf_d.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/lzf_d.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/memtest.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/memtest.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/multi.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/multi.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/networking.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/networking.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/notify.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/notify.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/object.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/object.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/pqsort.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/pqsort.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/pqsort.h">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/pqsort.h">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/pubsub.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/pubsub.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/rand.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/rand.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/rand.h">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/rand.h">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/rdb.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/rdb.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/rdb.h">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/rdb.h">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/redis-benchmark.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/redis-benchmark.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/redis-check-aof.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/redis-check-aof.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/redis-check-dump.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/redis-check-dump.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/redis-cli.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/redis-cli.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/redis.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/redis.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/redis.h">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/redis.h">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/release.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/release.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/replication.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/replication.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/rio.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/rio.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/rio.h">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/rio.h">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/scripting.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/scripting.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/sds.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/sds.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/sds.h">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/sds.h">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/sentinel.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/sentinel.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/setproctitle.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/setproctitle.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/sha1.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/sha1.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/sha1.h">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/sha1.h">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/slowlog.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/slowlog.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/slowlog.h">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/slowlog.h">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/sort.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/sort.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/sparkline.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/sparkline.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/sparkline.h">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/sparkline.h">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/syncio.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/syncio.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/t_hash.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/t_hash.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/t_list.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/t_list.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/t_set.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/t_set.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/t_string.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/t_string.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/t_zset.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/t_zset.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/util.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/util.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/util.h">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/util.h">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/ziplist.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/ziplist.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/ziplist.h">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/ziplist.h">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/zipmap.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/zipmap.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/zipmap.h">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/zipmap.h">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/zmalloc.c">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/zmalloc.c">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/zmalloc.h">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/zmalloc.h">
 			<Option target="exec"/>
 		</Unit>
-		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/CMakeLists.txt">
+		<Unit filename="/Users/eurusouou/Desktop/code/learn/redis/src/CMakeLists.txt">
 			<Option virtualFolder="CMake Files\"/>
 		</Unit>
 	</Project>
