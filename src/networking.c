@@ -356,6 +356,16 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
     addReplyProto(c,s,len);
     addReplyProto(c,"\r\n",2);
 
+    struct redisError *err = lookupError(shared.all_errors);
+    if (err!=NULL) {
+        err->calls++;
+    }
+
+    struct redisCommand *real_cmd = c->cmd;
+    if (real_cmd!=NULL) {
+        real_cmd->failed_calls++;
+    }
+
     /* Sometimes it could be normal that a slave replies to a master with
      * an error and this function gets called. Actually the error will never
      * be sent because addReply*() against master clients has no effect...
@@ -374,6 +384,7 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
                              "to its %s: '%s' after processing the command "
                              "'%s'", from, to, s, cmdname);
     }
+
 }
 
 void addReplyError(client *c, const char *err) {

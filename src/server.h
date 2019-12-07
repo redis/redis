@@ -833,7 +833,7 @@ struct sharedObjectsStruct {
     *integers[OBJ_SHARED_INTEGERS],
     *mbulkhdr[OBJ_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
     *bulkhdr[OBJ_SHARED_BULKHDR_LEN];  /* "$<value>\r\n" */
-    sds minstring, maxstring;
+    sds minstring, maxstring, all_errors;
 };
 
 /* ZSETs use a specialized version of Skiplists */
@@ -999,6 +999,7 @@ struct redisServer {
     dict *commands;             /* Command table */
     dict *orig_commands;        /* Command table before command renaming. */
     aeEventLoop *el;
+    dict *errors;               /* Errors table */
     _Atomic unsigned int lruclock; /* Clock for LRU eviction */
     int shutdown_asap;          /* SHUTDOWN needed ASAP */
     int activerehashing;        /* Incremental rehash in serverCron() */
@@ -1398,12 +1399,17 @@ struct redisCommand {
     int firstkey; /* The first argument that's a key (0 = no keys) */
     int lastkey;  /* The last argument that's a key */
     int keystep;  /* The step between first and last key */
-    long long microseconds, calls;
+    long long microseconds, calls, failed_calls;
     int id;     /* Command ID. This is a progressive ID starting from 0 that
                    is assigned at runtime, and is used in order to check
                    ACLs. A connection is able to execute a given command if
                    the user associated to the connection has this command
                    bit set in the bitmap of allowed commands. */
+};
+
+struct redisError {
+    char *name;
+    long long calls;
 };
 
 struct redisFunctionSym {
@@ -1906,8 +1912,12 @@ void usage(void);
 void updateDictResizePolicy(void);
 int htNeedsResize(dict *dict);
 void populateCommandTable(void);
+void populateErrorTable(void);
 void resetCommandTableStats(void);
+void resetErrorTableStats(void);
 void adjustOpenFilesLimit(void);
+struct redisError *lookupError(sds name);
+struct redisError *lookupErrorByCString(char *s);
 void closeListeningSockets(int unlink_unix_socket);
 void updateCachedTime(int update_daylight_info);
 void resetServerStats(void);

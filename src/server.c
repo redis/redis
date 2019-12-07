@@ -1003,6 +1003,13 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0}
 };
 
+struct redisError redisErrorTable[] = {
+    /*
+     * monitors all errors
+     */
+    {"all_errors",0},
+};
+
 /*============================ Utility functions ============================ */
 
 /* We use a private localtime implementation which is fork-safe. The logging
@@ -1316,6 +1323,16 @@ dictType keyptrDictType = {
 
 /* Command table. sds string -> command struct pointer. */
 dictType commandTableDictType = {
+    dictSdsCaseHash,            /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictSdsKeyCaseCompare,      /* key compare */
+    dictSdsDestructor,          /* key destructor */
+    NULL                        /* val destructor */
+};
+
+/* Error table. sds string -> error struct pointer. */
+dictType errorTableDictType = {
     dictSdsCaseHash,            /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
@@ -2163,6 +2180,10 @@ void createSharedObjects(void) {
     shared.pong = createObject(OBJ_STRING,sdsnew("+PONG\r\n"));
     shared.queued = createObject(OBJ_STRING,sdsnew("+QUEUED\r\n"));
     shared.emptyscan = createObject(OBJ_STRING,sdsnew("*2\r\n$1\r\n0\r\n*0\r\n"));
+
+    /* The following shared objects, are related to error replies */
+    shared.all_errors = sdsnew("all_errors");
+
     shared.wrongtypeerr = createObject(OBJ_STRING,sdsnew(
         "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"));
     shared.nokeyerr = createObject(OBJ_STRING,sdsnew(
@@ -2383,6 +2404,12 @@ void initServerConfig(void) {
     server.lua_always_replicate_commands = 1;
 
     initConfigValues();
+}
+
+void initErrorConfig(){
+    /* Error table */
+    server.errors = dictCreate(&errorTableDictType,NULL);
+    populateErrorTable();
 }
 
 extern char **environ;
@@ -2965,6 +2992,19 @@ void populateCommandTable(void) {
     }
 }
 
+/* Populates the Redis Error Table starting from the hard coded list
+ * we have on top of redis.c file. */
+void populateErrorTable(void) {
+    int j;
+    int numerrors = sizeof(redisErrorTable)/sizeof(struct redisError);
+
+    for (j = 0; j < numerrors; j++) {
+        struct redisError *e = redisErrorTable+j;
+        const int retval1 = dictAdd(server.errors, sdsnew(e->name), e);
+        serverAssert(retval1 == DICT_OK);
+    }
+}
+
 void resetCommandTableStats(void) {
     struct redisCommand *c;
     dictEntry *de;
@@ -2975,6 +3015,21 @@ void resetCommandTableStats(void) {
         c = (struct redisCommand *) dictGetVal(de);
         c->microseconds = 0;
         c->calls = 0;
+        c->failed_calls = 0;
+    }
+    dictReleaseIterator(di);
+
+}
+
+void resetErrorTableStats(void) {
+    struct redisError *e;
+    dictEntry *de;
+    dictIterator *di;
+
+    di = dictGetSafeIterator(server.errors);
+    while((de = dictNext(di)) != NULL) {
+        e = (struct redisError *) dictGetVal(de);
+        e->calls = 0;
     }
     dictReleaseIterator(di);
 
@@ -3526,6 +3581,21 @@ int processCommand(client *c) {
             handleClientsBlockedOnKeys();
     }
     return C_OK;
+}
+
+/* ====================== Error lookup and execution ===================== */
+
+struct redisError *lookupError(sds name) {
+    return dictFetchValue(server.errors, name);
+}
+
+struct redisError *lookupErrorByCString(char *s) {
+    struct redisError *err;
+    sds name = sdsnew(s);
+
+    err = dictFetchValue(server.errors, name);
+    sdsfree(name);
+    return err;
 }
 
 /*================================== Shutdown =============================== */
@@ -4376,11 +4446,30 @@ sds genRedisInfoString(const char *section) {
         di = dictGetSafeIterator(server.commands);
         while((de = dictNext(di)) != NULL) {
             c = (struct redisCommand *) dictGetVal(de);
-            if (!c->calls) continue;
+            if ((!c->calls)&&(!c->failed_calls)) continue;
             info = sdscatprintf(info,
-                "cmdstat_%s:calls=%lld,usec=%lld,usec_per_call=%.2f\r\n",
-                c->name, c->calls, c->microseconds,
+                "cmdstat_%s:calls=%lld,failed_calls=%lld,usec=%lld,usec_per_call=%.2f\r\n",
+                c->name, c->calls, c->failed_calls, c->microseconds,
                 (c->calls == 0) ? 0 : ((float)c->microseconds/c->calls));
+        }
+        dictReleaseIterator(di);
+    }
+
+    /* Error statistics */
+    if (allsections || !strcasecmp(section,"errorstats")) {
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info, "# Errorstats\r\n");
+
+        struct redisError *e;
+        dictEntry *de;
+        dictIterator *di;
+        di = dictGetSafeIterator(server.errors);
+        while((de = dictNext(di)) != NULL) {
+            e = (struct redisError *) dictGetVal(de);
+            if (!e->calls) continue;
+            info = sdscatprintf(info,
+                                "errorstat_%s:calls=%lld\r\n",
+                                e->name, e->calls);
         }
         dictReleaseIterator(di);
     }
@@ -4441,6 +4530,7 @@ void monitorCommand(client *c) {
     if (c->flags & CLIENT_SLAVE) return;
 
     c->flags |= (CLIENT_SLAVE|CLIENT_MONITOR);
+
     listAddNodeTail(server.monitors,c);
     addReply(c,shared.ok);
 }
@@ -4908,6 +4998,8 @@ int main(int argc, char **argv) {
         initSentinelConfig();
         initSentinel();
     }
+
+    initErrorConfig();
 
     /* Check if we need to start in redis-check-rdb/aof mode. We just execute
      * the program main. However the program is part of the Redis executable
