@@ -239,7 +239,7 @@ typedef long long ustime_t; /* microsecond time type. */
                                           we return single threaded that the
                                           client has already pending commands
                                           to be executed. */
-#define CLIENT_TRACKING (1<<31) /* Client enabled keys tracking in order to
+#define CLIENT_TRACKING (1ULL<<31) /* Client enabled keys tracking in order to
                                    perform client side caching. */
 #define CLIENT_TRACKING_BROKEN_REDIR (1ULL<<32) /* Target client is invalid. */
 
