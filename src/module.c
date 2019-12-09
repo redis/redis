@@ -4194,8 +4194,8 @@ void unblockClientFromModule(client *c) {
 
     /* Call the disconnection callback if any. Note that
      * bc->disconnect_callback is set to NULL if the client gets disconnected
-     * by the module itself, so the callback will NOT get called if this is
-     * not an actual disconnection event. */
+     * by the module itself or because of a timeout, so the callback will NOT
+     * get called if this is not an actual disconnection event. */
     if (bc->disconnect_callback) {
         RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
         ctx.blocked_privdata = bc->privdata;
