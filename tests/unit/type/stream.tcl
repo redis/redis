@@ -138,6 +138,50 @@ start_server {
         assert_equal [lindex $items 1 1] {item 2 value b}
     }
 
+    test {XADD with MINID option} {
+        r DEL mystream
+        for {set j 1} {$j < 1001} {incr j} {
+            set minid 1000
+            if {$j >= 5} {
+                set minid [expr {$j-5}]
+            }
+            if {rand() < 0.9} {
+                r XADD mystream MINID $minid $j xitem $j
+            } else {
+                r XADD mystream MINID $minid $j yitem $j
+            }
+        }
+        set res [r xrange mystream - +]
+        set expected 995
+        foreach r $res {
+            assert {[lindex $r 1 1] == $expected}
+            incr expected
+        }
+    }
+
+    test {XTRIM with MINID option} {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XADD mystream 2-0 f v
+        r XADD mystream 3-0 f v
+        r XADD mystream 4-0 f v
+        r XADD mystream 5-0 f v
+        r XTRIM mystream MINID = 3-0
+        assert_equal [r XRANGE mystream - +] {{3-0 {f v}} {4-0 {f v}} {5-0 {f v}}}
+    }
+
+    test {XTRIM with MAXAGE option} {
+        r DEL mystream
+        set id1 [r XADD mystream * f v]
+        set id2 [r XADD mystream * f v]
+        after 500
+        set id3 [r XADD mystream * f v]
+        set id4 [r XADD mystream * f v]
+        set id5 [r XADD mystream * f v]
+        r XTRIM mystream MAXAGE = 400
+        assert_equal [r XRANGE mystream - +] [list [list $id3 {f v}] [list $id4 {f v}] [list $id5 {f v}]]
+    }
+
     test {XADD mass insertion and XLEN} {
         r DEL mystream
         r multi
@@ -467,6 +511,22 @@ start_server {tags {"stream"} overrides {appendonly yes}} {
 }
 
 start_server {tags {"stream"} overrides {appendonly yes}} {
+    test {XADD with MINID > lastid can propagate correctly} {
+        for {set j 0} {$j < 100} {incr j} {
+            set id [expr {$j+1}]
+            r XADD mystream $id xitem v
+        }
+        r XADD mystream MINID 1 * xitem v
+        incr j
+        assert {[r xlen mystream] == $j}
+        r debug loadaof
+        r XADD mystream * xitem v
+        incr j
+        assert {[r xlen mystream] == $j}
+    }
+}
+
+start_server {tags {"stream"} overrides {appendonly yes}} {
     test {XADD with ~ MAXLEN can propagate correctly} {
         for {set j 0} {$j < 100} {incr j} {
             r XADD mystream * xitem v
@@ -479,6 +539,81 @@ start_server {tags {"stream"} overrides {appendonly yes}} {
         r XADD mystream * xitem v
         incr j
         assert {[r xlen mystream] == $j}
+    }
+}
+
+start_server {tags {"stream"} overrides {appendonly yes stream-node-max-entries 10}} {
+    test {XADD with ~ MAXLEN and MAXNODES can propagate correctly} {
+        for {set j 0} {$j < 100} {incr j} {
+            r XADD mystream * xitem v
+        }
+        r XADD mystream MAXLEN ~ 55 MAXNODES 3 * xitem v
+        assert {[r xlen mystream] == 71}
+        r config set stream-node-max-entries 1
+        r debug loadaof
+        r XADD mystream * xitem v
+        assert {[r xlen mystream] == 72}
+    }
+}
+
+start_server {tags {"stream"} overrides {appendonly yes stream-node-max-entries 10}} {
+    test {XADD with MAXLEN and MAXNODES can propagate correctly} {
+        for {set j 0} {$j < 100} {incr j} {
+            r XADD mystream * xitem v
+        }
+        r XADD mystream MAXLEN 55 MAXNODES 3 * xitem v
+        assert {[r xlen mystream] == 71}
+        r config set stream-node-max-entries 1
+        r debug loadaof
+        r XADD mystream * xitem v
+        assert {[r xlen mystream] == 72}
+    }
+}
+
+start_server {tags {"stream"} overrides {appendonly yes}} {
+    test {XADD with ~ MINID can propagate correctly} {
+        for {set j 0} {$j < 100} {incr j} {
+            set id [expr {$j+1}]
+            r XADD mystream $id xitem v
+        }
+        r XADD mystream MINID ~ $j * xitem v
+        incr j
+        assert {[r xlen mystream] == $j}
+        r config set stream-node-max-entries 1
+        r debug loadaof
+        r XADD mystream * xitem v
+        incr j
+        assert {[r xlen mystream] == $j}
+    }
+}
+
+start_server {tags {"stream"} overrides {appendonly yes stream-node-max-entries 10}} {
+    test {XADD with ~ MINID and MAXNODES can propagate correctly} {
+        for {set j 0} {$j < 100} {incr j} {
+            set id [expr {$j+1}]
+            r XADD mystream $id xitem v
+        }
+        r XADD mystream MINID ~ 55 MAXNODES 3 * xitem v
+        assert {[r xlen mystream] == 71}
+        r config set stream-node-max-entries 1
+        r debug loadaof
+        r XADD mystream * xitem v
+        assert {[r xlen mystream] == 72}
+    }
+}
+
+start_server {tags {"stream"} overrides {appendonly yes stream-node-max-entries 10}} {
+    test {XADD with MINID and MAXNODES can propagate correctly} {
+        for {set j 0} {$j < 100} {incr j} {
+            set id [expr {$j+1}]
+            r XADD mystream $id xitem v
+        }
+        r XADD mystream MINID 55 MAXNODES 3 * xitem v
+        assert {[r xlen mystream] == 71}
+        r config set stream-node-max-entries 1
+        r debug loadaof
+        r XADD mystream * xitem v
+        assert {[r xlen mystream] == 72}
     }
 }
 
