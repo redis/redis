@@ -1942,7 +1942,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Show information about connected clients */
     if (!server.sentinel_mode) {
         run_with_period(5000) {
-            serverLog(LL_VERBOSE,
+            serverLog(LL_DEBUG,
                 "%lu clients connected (%lu replicas), %zu bytes in use",
                 listLength(server.clients)-listLength(server.slaves),
                 listLength(server.slaves),
