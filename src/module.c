@@ -3963,6 +3963,7 @@ void RM_DigestEndSequence(RedisModuleDigest *md) {
 void *RM_LoadDataTypeFromString(const RedisModuleString *str, const moduleType *mt) {
     rio payload;
     RedisModuleIO io;
+    void *ret;
 
     rioInitWithBuffer(&payload, str->ptr);
     moduleInitIOContext(io,(moduleType *)mt,&payload,NULL);
@@ -3971,7 +3972,12 @@ void *RM_LoadDataTypeFromString(const RedisModuleString *str, const moduleType *
      * need to make sure we read the same.
      */
     io.ver = 2;
-    return mt->rdb_load(&io,0);
+    ret = mt->rdb_load(&io,0);
+    if (io.ctx) {
+        moduleFreeContext(io.ctx);
+        zfree(io.ctx);
+    }
+    return ret;
 }
 
 /* Encode a module data type 'mt' value 'data' into serialized form, and return it
@@ -3989,11 +3995,15 @@ RedisModuleString *RM_SaveDataTypeToString(RedisModuleCtx *ctx, void *data, cons
     rioInitWithBuffer(&payload,sdsempty());
     moduleInitIOContext(io,(moduleType *)mt,&payload,NULL);
     mt->rdb_save(&io,data);
+    if (io.ctx) {
+        moduleFreeContext(io.ctx);
+        zfree(io.ctx);
+    }
     if (io.error) {
         return NULL;
     } else {
         robj *str = createObject(OBJ_STRING,payload.io.buffer.ptr);
-        autoMemoryAdd(ctx,REDISMODULE_AM_STRING,str);
+        if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_STRING,str);
         return str;
     }
 }
