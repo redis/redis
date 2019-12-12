@@ -24,4 +24,21 @@ start_server {tags {"modules"}} {
         catch {r datatype.restore dtkeycopy $truncated} e
         set e
     } {*Invalid*}
+
+    test {DataType: ModuleTypeReplaceValue() happy path works} {
+        r datatype.set key-a 1 AAA
+        r datatype.set key-b 2 BBB
+
+        assert {[r datatype.swap key-a key-b] eq {OK}}
+        assert {[r datatype.get key-a] eq {2 BBB}}
+        assert {[r datatype.get key-b] eq {1 AAA}}
+    }
+
+    test {DataType: ModuleTypeReplaceValue() fails on non-module keys} {
+        r datatype.set key-a 1 AAA
+        r set key-b RedisString
+
+        catch {r datatype.swap key-a key-b} e
+        set e
+    } {*ERR*}
 }

@@ -7308,22 +7308,30 @@ int RM_GetLFU(RedisModuleKey *key, long long *lfu_freq) {
  * Unlike RM_ModuleTypeSetValue() which will free the old value, this function
  * simply swaps the old value with the new value.
  *
- * The function returns the old value, or NULL if any of the above conditions is
- * not met.
+ * The function returns REDISMODULE_OK on success, REDISMODULE_ERR on errors
+ * such as:
+ *
+ * 1. Key is not opened for writing.
+ * 2. Key is not a module data type key.
+ * 3. Key is a module datatype other than 'mt'.
+ *
+ * If old_value is non-NULL, the old value is returned by reference.
  */
-void *RM_ModuleTypeReplaceValue(RedisModuleKey *key, moduleType *mt, void *new_value) {
+int RM_ModuleTypeReplaceValue(RedisModuleKey *key, moduleType *mt, void *new_value, void **old_value) {
     if (!(key->mode & REDISMODULE_WRITE) || key->iter)
-        return NULL;
+        return REDISMODULE_ERR;
     if (!key->value || key->value->type != OBJ_MODULE)
-        return NULL;
+        return REDISMODULE_ERR;
 
     moduleValue *mv = key->value->ptr;
     if (mv->type != mt)
-        return NULL;
+        return REDISMODULE_ERR;
 
-    void *old_val = mv->value;
+    if (old_value)
+        *old_value = mv->value;
     mv->value = new_value;
-    return old_val;
+
+    return REDISMODULE_OK;
 }
 
 /* Register all the APIs we export. Keep this function at the end of the
