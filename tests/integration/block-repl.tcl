@@ -2,9 +2,9 @@
 # Unlike stream operations such operations are "pop" style, so they consume
 # the list or sorted set, and must be replicated correctly.
 
-proc start_bg_block_op {host port db ops} {
+proc start_bg_block_op {host port db ops tls} {
     set tclsh [info nameofexecutable]
-    exec $tclsh tests/helpers/bg_block_op.tcl $host $port $db $ops &
+    exec $tclsh tests/helpers/bg_block_op.tcl $host $port $db $ops $tls &
 }
 
 proc stop_bg_block_op {handle} {
@@ -18,9 +18,9 @@ start_server {tags {"repl"}} {
         set master_port [srv -1 port]
         set slave [srv 0 client]
 
-        set load_handle0 [start_bg_block_op $master_host $master_port 9 100000]
-        set load_handle1 [start_bg_block_op $master_host $master_port 9 100000]
-        set load_handle2 [start_bg_block_op $master_host $master_port 9 100000]
+        set load_handle0 [start_bg_block_op $master_host $master_port 9 100000 $::tls]
+        set load_handle1 [start_bg_block_op $master_host $master_port 9 100000 $::tls]
+        set load_handle2 [start_bg_block_op $master_host $master_port 9 100000 $::tls]
 
         test {First server should have role slave after SLAVEOF} {
             $slave slaveof $master_host $master_port

@@ -76,6 +76,7 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     eventLoop->maxfd = -1;
     eventLoop->beforesleep = NULL;
     eventLoop->aftersleep = NULL;
+    eventLoop->flags = 0;
     if (aeApiCreate(eventLoop) == -1) goto err;
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
@@ -95,6 +96,14 @@ err:
 /* Return the current set size. */
 int aeGetSetSize(aeEventLoop *eventLoop) {
     return eventLoop->setsize;
+}
+
+/* Tells the next iteration/s of the event processing to set timeout of 0. */
+void aeSetDontWait(aeEventLoop *eventLoop, int noWait) {
+    if (noWait)
+        eventLoop->flags |= AE_DONT_WAIT;
+    else
+        eventLoop->flags &= ~AE_DONT_WAIT;
 }
 
 /* Resize the maximum set size of the event loop.
@@ -404,6 +413,11 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
                 /* Otherwise we can block */
                 tvp = NULL; /* wait forever */
             }
+        }
+
+        if (eventLoop->flags & AE_DONT_WAIT) {
+            tv.tv_sec = tv.tv_usec = 0;
+            tvp = &tv;
         }
 
         /* Call the multiplexing API, will return only on timeout or when

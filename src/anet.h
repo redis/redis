@@ -49,12 +49,12 @@
 #undef ip_len
 #endif
 
-int anetTcpConnect(char *err, char *addr, int port);
-int anetTcpNonBlockConnect(char *err, char *addr, int port);
-int anetTcpNonBlockBindConnect(char *err, char *addr, int port, char *source_addr);
-int anetTcpNonBlockBestEffortBindConnect(char *err, char *addr, int port, char *source_addr);
-int anetUnixConnect(char *err, char *path);
-int anetUnixNonBlockConnect(char *err, char *path);
+int anetTcpConnect(char *err, const char *addr, int port);
+int anetTcpNonBlockConnect(char *err, const char *addr, int port);
+int anetTcpNonBlockBindConnect(char *err, const char *addr, int port, const char *source_addr);
+int anetTcpNonBlockBestEffortBindConnect(char *err, const char *addr, int port, const char *source_addr);
+int anetUnixConnect(char *err, const char *path);
+int anetUnixNonBlockConnect(char *err, const char *path);
 int anetRead(int fd, char *buf, int count);
 int anetResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len);
 int anetResolveIP(char *err, char *host, char *ipbuf, size_t ipbuf_len);

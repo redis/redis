@@ -60,6 +60,7 @@
  * use the most significant bits instead of the full 24 bits. */
 #define TRACKING_TABLE_SIZE (1<<24)
 rax **TrackingTable = NULL;
+unsigned long TrackingTableUsedSlots = 0;
 robj *TrackingChannelName;
 
 /* Remove the tracking state from the client 'c'. Note that there is not much
@@ -109,8 +110,10 @@ void trackingRememberKeys(client *c) {
         sds sdskey = c->argv[idx]->ptr;
         uint64_t hash = crc64(0,
             (unsigned char*)sdskey,sdslen(sdskey))&(TRACKING_TABLE_SIZE-1);
-        if (TrackingTable[hash] == NULL)
+        if (TrackingTable[hash] == NULL) {
             TrackingTable[hash] = raxNew();
+            TrackingTableUsedSlots++;
+        }
         raxTryInsert(TrackingTable[hash],
             (unsigned char*)&c->id,sizeof(c->id),NULL,NULL);
     }
@@ -151,44 +154,143 @@ void sendTrackingMessage(client *c, long long hash) {
     }
 }
 
-/* This function is called from signalModifiedKey() or other places in Redis
- * when a key changes value. In the context of keys tracking, our task here is
- * to send a notification to every client that may have keys about such . */
-void trackingInvalidateKey(robj *keyobj) {
-    sds sdskey = keyobj->ptr;
-    uint64_t hash = crc64(0,
-        (unsigned char*)sdskey,sdslen(sdskey))&(TRACKING_TABLE_SIZE-1);
-    if (TrackingTable == NULL || TrackingTable[hash] == NULL) return;
+/* Invalidates a caching slot: this is actually the low level implementation
+ * of the API that Redis calls externally, that is trackingInvalidateKey(). */
+void trackingInvalidateSlot(uint64_t slot) {
+    if (TrackingTable == NULL || TrackingTable[slot] == NULL) return;
 
     raxIterator ri;
-    raxStart(&ri,TrackingTable[hash]);
+    raxStart(&ri,TrackingTable[slot]);
     raxSeek(&ri,"^",NULL,0);
     while(raxNext(&ri)) {
         uint64_t id;
-        memcpy(&id,ri.key,ri.key_len);
+        memcpy(&id,ri.key,sizeof(id));
         client *c = lookupClientByID(id);
         if (c == NULL || !(c->flags & CLIENT_TRACKING)) continue;
-        sendTrackingMessage(c,hash);
+        sendTrackingMessage(c,slot);
     }
     raxStop(&ri);
 
     /* Free the tracking table: we'll create the radix tree and populate it
-     * again if more keys will be modified in this hash slot. */
-    raxFree(TrackingTable[hash]);
-    TrackingTable[hash] = NULL;
+     * again if more keys will be modified in this caching slot. */
+    raxFree(TrackingTable[slot]);
+    TrackingTable[slot] = NULL;
+    TrackingTableUsedSlots--;
 }
 
-void trackingInvalidateKeysOnFlush(int dbid) {
-    UNUSED(dbid);
-    if (server.tracking_clients == 0) return;
+/* This function is called from signalModifiedKey() or other places in Redis
+ * when a key changes value. In the context of keys tracking, our task here is
+ * to send a notification to every client that may have keys about such caching
+ * slot. */
+void trackingInvalidateKey(robj *keyobj) {
+    if (TrackingTable == NULL || TrackingTableUsedSlots == 0) return;
 
-    listNode *ln;
-    listIter li;
-    listRewind(server.clients,&li);
-    while ((ln = listNext(&li)) != NULL) {
-        client *c = listNodeValue(ln);
-        if (c->flags & CLIENT_TRACKING) {
-            sendTrackingMessage(c,-1);
+    sds sdskey = keyobj->ptr;
+    uint64_t hash = crc64(0,
+        (unsigned char*)sdskey,sdslen(sdskey))&(TRACKING_TABLE_SIZE-1);
+    trackingInvalidateSlot(hash);
+}
+
+/* This function is called when one or all the Redis databases are flushed
+ * (dbid == -1 in case of FLUSHALL). Caching slots are not specific for
+ * each DB but are global: currently what we do is sending a special
+ * notification to clients with tracking enabled, invalidating the caching
+ * slot "-1", which means, "all the keys", in order to avoid flooding clients
+ * with many invalidation messages for all the keys they may hold.
+ *
+ * However trying to flush the tracking table here is very costly:
+ * we need scanning 16 million caching slots in the table to check
+ * if they are used, this introduces a big delay. So what we do is to really
+ * flush the table in the case of FLUSHALL. When a FLUSHDB is called instead
+ * we just send the invalidation message to all the clients, but don't
+ * flush the table: it will slowly get garbage collected as more keys
+ * are modified in the used caching slots. */
+void trackingInvalidateKeysOnFlush(int dbid) {
+    if (server.tracking_clients) {
+        listNode *ln;
+        listIter li;
+        listRewind(server.clients,&li);
+        while ((ln = listNext(&li)) != NULL) {
+            client *c = listNodeValue(ln);
+            if (c->flags & CLIENT_TRACKING) {
+                sendTrackingMessage(c,-1);
+            }
         }
     }
+
+    /* In case of FLUSHALL, reclaim all the memory used by tracking. */
+    if (dbid == -1 && TrackingTable) {
+        for (int j = 0; j < TRACKING_TABLE_SIZE && TrackingTableUsedSlots > 0; j++) {
+            if (TrackingTable[j] != NULL) {
+                raxFree(TrackingTable[j]);
+                TrackingTable[j] = NULL;
+                TrackingTableUsedSlots--;
+            }
+        }
+
+        /* If there are no clients with tracking enabled, we can even
+         * reclaim the memory used by the table itself. The code assumes
+         * the table is allocated only if there is at least one client alive
+         * with tracking enabled. */
+        if (server.tracking_clients == 0) {
+            zfree(TrackingTable);
+            TrackingTable = NULL;
+        }
+    }
+}
+
+/* Tracking forces Redis to remember information about which client may have
+ * keys about certian caching slots. In workloads where there are a lot of
+ * reads, but keys are hardly modified, the amount of information we have
+ * to remember server side could be a lot: for each 16 millions of caching
+ * slots we may end with a radix tree containing many entries.
+ *
+ * So Redis allows the user to configure a maximum fill rate for the
+ * invalidation table. This function makes sure that we don't go over the
+ * specified fill rate: if we are over, we can just evict informations about
+ * random caching slots, and send invalidation messages to clients like if
+ * the key was modified. */
+void trackingLimitUsedSlots(void) {
+    static unsigned int timeout_counter = 0;
+
+    if (server.tracking_table_max_fill == 0) return; /* No limits set. */
+    unsigned int max_slots =
+        (TRACKING_TABLE_SIZE/100) * server.tracking_table_max_fill;
+    if (TrackingTableUsedSlots <= max_slots) {
+        timeout_counter = 0;
+        return; /* Limit not reached. */
+    }
+
+    /* We have to invalidate a few slots to reach the limit again. The effort
+     * we do here is proportional to the number of times we entered this
+     * function and found that we are still over the limit. */
+    int effort = 100 * (timeout_counter+1);
+
+    /* Let's start at a random position, and perform linear probing, in order
+     * to improve cache locality. However once we are able to find an used
+     * slot, jump again randomly, in order to avoid creating big holes in the
+     * table (that will make this funciton use more resourced later). */
+    while(effort > 0) {
+        unsigned int idx = rand() % TRACKING_TABLE_SIZE;
+        do {
+            effort--;
+            idx = (idx+1) % TRACKING_TABLE_SIZE;
+            if (TrackingTable[idx] != NULL) {
+                trackingInvalidateSlot(idx);
+                if (TrackingTableUsedSlots <= max_slots) {
+                    timeout_counter = 0;
+                    return; /* Return ASAP: we are again under the limit. */
+                } else {
+                    break; /* Jump to next random position. */
+                }
+            }
+        } while(effort > 0);
+    }
+    timeout_counter++;
+}
+
+/* This is just used in order to access the amount of used slots in the
+ * tracking table. */
+unsigned long long trackingGetUsedSlots(void) {
+    return TrackingTableUsedSlots;
 }

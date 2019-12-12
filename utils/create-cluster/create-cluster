@@ -1,10 +1,13 @@
 #!/bin/bash
 
 # Settings
+CLUSTER_HOST=127.0.0.1
 PORT=30000
 TIMEOUT=2000
 NODES=6
 REPLICAS=1
+PROTECTED_MODE=yes
+ADDITIONAL_OPTIONS=""
 
 # You may want to put the above config parameters into config.sh in order to
 # override the defaults without modifying this script.
@@ -22,7 +25,7 @@ then
     while [ $((PORT < ENDPORT)) != "0" ]; do
         PORT=$((PORT+1))
         echo "Starting $PORT"
-        ../../src/redis-server --port $PORT --cluster-enabled yes --cluster-config-file nodes-${PORT}.conf --cluster-node-timeout $TIMEOUT --appendonly yes --appendfilename appendonly-${PORT}.aof --dbfilename dump-${PORT}.rdb --logfile ${PORT}.log --daemonize yes
+        ../../src/redis-server --port $PORT  --protected-mode $PROTECTED_MODE --cluster-enabled yes --cluster-config-file nodes-${PORT}.conf --cluster-node-timeout $TIMEOUT --appendonly yes --appendfilename appendonly-${PORT}.aof --dbfilename dump-${PORT}.rdb --logfile ${PORT}.log --daemonize yes ${ADDITIONAL_OPTIONS}
     done
     exit 0
 fi
@@ -32,7 +35,7 @@ then
     HOSTS=""
     while [ $((PORT < ENDPORT)) != "0" ]; do
         PORT=$((PORT+1))
-        HOSTS="$HOSTS 127.0.0.1:$PORT"
+        HOSTS="$HOSTS $CLUSTER_HOST:$PORT"
     done
     ../../src/redis-cli --cluster create $HOSTS --cluster-replicas $REPLICAS
     exit 0
@@ -68,6 +71,12 @@ then
     exit 0
 fi
 
+if [ "$1" == "tailall" ]
+then
+    tail -f *.log
+    exit 0
+fi
+
 if [ "$1" == "call" ]
 then
     while [ $((PORT < ENDPORT)) != "0" ]; do
@@ -98,5 +107,6 @@ echo "create      -- Create a cluster using redis-cli --cluster create."
 echo "stop        -- Stop Redis Cluster instances."
 echo "watch       -- Show CLUSTER NODES output (first 30 lines) of first node."
 echo "tail <id>   -- Run tail -f of instance at base port + ID."
+echo "tailall     -- Run tail -f for all the log files at once."
 echo "clean       -- Remove all instances data, logs, configs."
 echo "clean-logs  -- Remove just instances logs."

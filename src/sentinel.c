@@ -30,6 +30,10 @@
 
 #include "server.h"
 #include "hiredis.h"
+#ifdef USE_OPENSSL
+#include "openssl/ssl.h"
+#include "hiredis_ssl.h"
+#endif
 #include "async.h"
 
 #include <ctype.h>
@@ -39,6 +43,10 @@
 #include <fcntl.h>
 
 extern char **environ;
+
+#ifdef USE_OPENSSL
+extern SSL_CTX *redis_tls_ctx;
+#endif
 
 #define REDIS_SENTINEL_PORT 26379
 
@@ -1995,6 +2003,19 @@ void sentinelSetClientName(sentinelRedisInstance *ri, redisAsyncContext *c, char
     }
 }
 
+static int instanceLinkNegotiateTLS(redisAsyncContext *context) {
+#ifndef USE_OPENSSL
+    (void) context;
+#else
+    if (!redis_tls_ctx) return C_ERR;
+    SSL *ssl = SSL_new(redis_tls_ctx);
+    if (!ssl) return C_ERR;
+
+    if (redisInitiateSSL(&context->c, ssl) == REDIS_ERR) return C_ERR;
+#endif
+    return C_OK;
+}
+
 /* Create the async connections for the instance link if the link
  * is disconnected. Note that link->disconnected is true even if just
  * one of the two links (commands and pub/sub) is missing. */
@@ -2010,7 +2031,11 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
     /* Commands connection. */
     if (link->cc == NULL) {
         link->cc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,NET_FIRST_BIND_ADDR);
-        if (link->cc->err) {
+        if (!link->cc->err && server.tls_replication &&
+                (instanceLinkNegotiateTLS(link->cc) == C_ERR)) {
+            sentinelEvent(LL_DEBUG,"-cmd-link-reconnection",ri,"%@ #Failed to initialize TLS");
+            instanceLinkCloseConnection(link,link->cc);
+        } else if (link->cc->err) {
             sentinelEvent(LL_DEBUG,"-cmd-link-reconnection",ri,"%@ #%s",
                 link->cc->errstr);
             instanceLinkCloseConnection(link,link->cc);
@@ -2033,7 +2058,10 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
     /* Pub / Sub */
     if ((ri->flags & (SRI_MASTER|SRI_SLAVE)) && link->pc == NULL) {
         link->pc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,NET_FIRST_BIND_ADDR);
-        if (link->pc->err) {
+        if (!link->pc->err && server.tls_replication &&
+                (instanceLinkNegotiateTLS(link->pc) == C_ERR)) {
+            sentinelEvent(LL_DEBUG,"-pubsub-link-reconnection",ri,"%@ #Failed to initialize TLS");
+        } else if (link->pc->err) {
             sentinelEvent(LL_DEBUG,"-pubsub-link-reconnection",ri,"%@ #%s",
                 link->pc->errstr);
             instanceLinkCloseConnection(link,link->pc);
@@ -2584,8 +2612,9 @@ int sentinelSendHello(sentinelRedisInstance *ri) {
             return C_ERR;
         announce_ip = ip;
     }
-    announce_port = sentinel.announce_port ?
-                    sentinel.announce_port : server.port;
+    if (sentinel.announce_port) announce_port = sentinel.announce_port;
+    else if (server.tls_replication && server.tls_port) announce_port = server.tls_port;
+    else announce_port = server.port;
 
     /* Format and send the Hello message. */
     snprintf(payload,sizeof(payload),
@@ -3964,11 +3993,14 @@ int sentinelSendSlaveOf(sentinelRedisInstance *ri, char *host, int port) {
      * an issue because CLIENT is variadic command, so Redis will not
      * recognized as a syntax error, and the transaction will not fail (but
      * only the unsupported command will fail). */
-    retval = redisAsyncCommand(ri->link->cc,
-        sentinelDiscardReplyCallback, ri, "%s KILL TYPE normal",
-        sentinelInstanceMapCommand(ri,"CLIENT"));
-    if (retval == C_ERR) return retval;
-    ri->link->pending_commands++;
+    for (int type = 0; type < 2; type++) {
+        retval = redisAsyncCommand(ri->link->cc,
+            sentinelDiscardReplyCallback, ri, "%s KILL TYPE %s",
+            sentinelInstanceMapCommand(ri,"CLIENT"),
+            type == 0 ? "normal" : "pubsub");
+        if (retval == C_ERR) return retval;
+        ri->link->pending_commands++;
+    }
 
     retval = redisAsyncCommand(ri->link->cc,
         sentinelDiscardReplyCallback, ri, "%s",

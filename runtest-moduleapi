@@ -13,4 +13,15 @@ then
 fi
 
 make -C tests/modules && \
-$TCLSH tests/test_helper.tcl --single unit/moduleapi/commandfilter "${@}"
+$TCLSH tests/test_helper.tcl \
+--single unit/moduleapi/commandfilter \
+--single unit/moduleapi/fork \
+--single unit/moduleapi/testrdb \
+--single unit/moduleapi/infotest \
+--single unit/moduleapi/propagate \
+--single unit/moduleapi/hooks \
+--single unit/moduleapi/misc \
+--single unit/moduleapi/blockonkeys \
+--single unit/moduleapi/scan \
+--single unit/moduleapi/datatype \
+"${@}"

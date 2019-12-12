@@ -67,6 +67,12 @@ void freeStream(stream *s) {
     zfree(s);
 }
 
+/* Return the length of a stream. */
+unsigned long streamLength(const robj *subject) {
+    stream *s = subject->ptr;
+    return s->length;
+}
+
 /* Generate the next stream item ID given the previous one. If the current
  * milliseconds Unix time is greater than the previous one, just use this
  * as time part and start with sequence part of zero. Otherwise we use the
@@ -173,9 +179,19 @@ int streamCompareID(streamID *a, streamID *b) {
  * C_ERR if an ID was given via 'use_id', but adding it failed since the
  * current top ID is greater or equal. */
 int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_id, streamID *use_id) {
-    /* If an ID was given, check that it's greater than the last entry ID
-     * or return an error. */
-    if (use_id && streamCompareID(use_id,&s->last_id) <= 0) return C_ERR;
+    
+    /* Generate the new entry ID. */
+    streamID id;
+    if (use_id)
+        id = *use_id;
+    else
+        streamNextID(&s->last_id,&id);
+
+    /* Check that the new ID is greater than the last entry ID
+     * or return an error. Automatically generated IDs might
+     * overflow (and wrap-around) when incrementing the sequence 
+       part. */
+    if (streamCompareID(&id,&s->last_id) <= 0) return C_ERR;
 
     /* Add the new entry. */
     raxIterator ri;
@@ -191,13 +207,6 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
         lp_bytes = lpBytes(lp);
     }
     raxStop(&ri);
-
-    /* Generate the new entry ID. */
-    streamID id;
-    if (use_id)
-        id = *use_id;
-    else
-        streamNextID(&s->last_id,&id);
 
     /* We have to add the key into the radix tree in lexicographic order,
      * to do so we consider the ID as a single 128 bit number written in
@@ -242,17 +251,17 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
      * the current node is full. */
     if (lp != NULL) {
         if (server.stream_node_max_bytes &&
-            lp_bytes > server.stream_node_max_bytes)
+            lp_bytes >= server.stream_node_max_bytes)
         {
             lp = NULL;
         } else if (server.stream_node_max_entries) {
             int64_t count = lpGetInteger(lpFirst(lp));
-            if (count > server.stream_node_max_entries) lp = NULL;
+            if (count >= server.stream_node_max_entries) lp = NULL;
         }
     }
 
     int flags = STREAM_ITEM_FLAG_NONE;
-    if (lp == NULL || lp_bytes > server.stream_node_max_bytes) {
+    if (lp == NULL || lp_bytes >= server.stream_node_max_bytes) {
         master_id = id;
         streamEncodeID(rax_key,&id);
         /* Create the listpack having the master entry ID and fields. */
@@ -1070,26 +1079,6 @@ robj *streamTypeLookupWriteOrCreate(client *c, robj *key) {
     return o;
 }
 
-/* Helper function to convert a string to an unsigned long long value.
- * The function attempts to use the faster string2ll() function inside
- * Redis: if it fails, strtoull() is used instead. The function returns
- * 1 if the conversion happened successfully or 0 if the number is
- * invalid or out of range. */
-int string2ull(const char *s, unsigned long long *value) {
-    long long ll;
-    if (string2ll(s,strlen(s),&ll)) {
-        if (ll < 0) return 0; /* Negative values are out of range. */
-        *value = ll;
-        return 1;
-    }
-    errno = 0;
-    char *endptr = NULL;
-    *value = strtoull(s,&endptr,10);
-    if (errno == EINVAL || errno == ERANGE || !(*s != '\0' && *endptr == '\0'))
-        return 0; /* strtoull() failed. */
-    return 1; /* Conversion done! */
-}
-
 /* Parse a stream ID in the format given by clients to Redis, that is
  * <ms>-<seq>, and converts it into a streamID structure. If
  * the specified ID is invalid C_ERR is returned and an error is reported
@@ -1214,6 +1203,14 @@ void xaddCommand(client *c) {
     /* Check arity. */
     if ((c->argc - field_pos) < 2 || ((c->argc-field_pos) % 2) == 1) {
         addReplyError(c,"wrong number of arguments for XADD");
+        return;
+    }
+
+    /* Return ASAP if minimal ID (0-0) was given so we avoid possibly creating
+     * a new stream and have streamAppendItem fail, leaving an empty key in the
+     * database. */
+    if (id_given && id.ms == 0 && id.seq == 0) {
+        addReplyError(c,"The ID specified in XADD must be greater than 0-0");
         return;
     }
 
