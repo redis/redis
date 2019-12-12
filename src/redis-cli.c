@@ -1945,8 +1945,12 @@ static void repl(void) {
                 }
             }
 
-            /* Won't save auth command in history file */
-            if (!(argv && argc > 0 && !strcasecmp(argv[0+skipargs], "auth"))) {
+            /* Won't save auth or acl setuser commands in history file */
+            if (!(argv && argc > 0 &&
+                (!strcasecmp(argv[0+skipargs], "auth") ||
+                (skipargs + 1 < argc &&
+                !strcasecmp(argv[0+skipargs], "acl") &&
+                !strcasecmp(argv[0+skipargs+1], "setuser"))))) {
                 if (history) linenoiseHistoryAdd(line);
                 if (historyfile) linenoiseHistorySave(historyfile);
             }
