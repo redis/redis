@@ -1946,11 +1946,19 @@ static void repl(void) {
             }
 
             /* Won't save auth or acl setuser commands in history file */
-            if (!(argv && argc > 0 &&
-                (!strcasecmp(argv[0+skipargs], "auth") ||
-                (skipargs + 1 < argc &&
-                !strcasecmp(argv[0+skipargs], "acl") &&
-                !strcasecmp(argv[0+skipargs+1], "setuser"))))) {
+            int dangerous = 0;
+            if (argv && argc > 0) {
+                if (!strcasecmp(argv[skipargs], "auth")) {
+                    dangerous = 1;
+                } else if (skipargs+1 < argc &&
+                           !strcasecmp(argv[skipargs], "acl") &&
+                           !strcasecmp(argv[skipargs+1], "setuser"))
+                {
+                    dangerous = 1;
+                }
+            }
+
+            if (!dangerous) {
                 if (history) linenoiseHistoryAdd(line);
                 if (historyfile) linenoiseHistorySave(historyfile);
             }
