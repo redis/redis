@@ -6985,7 +6985,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
     int (*onload)(void *, void **, int);
     void *handle;
     RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
-    
+
     struct stat st;
     if (stat(path, &st) == 0)
     {   // this check is best effort
