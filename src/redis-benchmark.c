@@ -1000,6 +1000,18 @@ static int fetchClusterConfiguration() {
     clusterNode *firstNode = createClusterNode((char *) config.hostip,
                                                config.hostport);
     if (!firstNode) {success = 0; goto cleanup;}
+    if (config.auth) {
+        reply = redisCommand(ctx, "AUTH %s", config.auth);
+        if (reply && reply->type == REDIS_REPLY_ERROR) {
+            if (config.hostsocket == NULL) {
+                fprintf(stderr, "Cluster node %s:%d replied with error:\n%s\n",
+                        config.hostip, config.hostport, reply->str);
+            } else {
+                fprintf(stderr, "Cluster node %s replied with error:\n%s\n",
+                        config.hostsocket, reply->str);
+            }
+        }
+    };
     reply = redisCommand(ctx, "CLUSTER NODES");
     success = (reply != NULL);
     if (!success) goto cleanup;
