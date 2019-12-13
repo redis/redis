@@ -6985,6 +6985,8 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
     int (*onload)(void *, void **, int);
     void *handle;
     RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+    ctx.client = moduleFreeContextReusedClient;
+    selectDb(ctx.client, 0);
 
     struct stat st;
     if (stat(path, &st) == 0)
