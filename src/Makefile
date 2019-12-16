@@ -156,8 +156,11 @@ ifeq ($(MALLOC),jemalloc)
 	FINAL_LIBS := ../deps/jemalloc/lib/libjemalloc.a $(FINAL_LIBS)
 endif
 
+DTRACE=/usr/bin/dtrace # FIXME autodetect or bail?
+TRACE_DEPENDENCIES=
 ifeq ($(BUILD_USDT),yes)
     FINAL_CFLAGS+=-DUSE_USDT
+    TRACE_DEPENDENCIES+=redis_dtrace.o
 endif
 
 ifeq ($(BUILD_TLS),yes)
@@ -192,7 +195,6 @@ REDIS_BENCHMARK_NAME=redis-benchmark
 REDIS_BENCHMARK_OBJ=ae.o anet.o redis-benchmark.o adlist.o dict.o zmalloc.o siphash.o redis-benchmark.o
 REDIS_CHECK_RDB_NAME=redis-check-rdb
 REDIS_CHECK_AOF_NAME=redis-check-aof
-REDIS_DEPENDENCIES=
 
 all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME)
 	@echo ""
@@ -204,12 +206,6 @@ Makefile.dep:
 
 ifeq (0, $(words $(findstring $(MAKECMDGOALS), $(NODEPS))))
 -include Makefile.dep
-endif
-
-DTRACE=/usr/bin/dtrace # FIXME
-
-ifeq ($(BUILD_USDT),yes)
-    REDIS_DEPENDENCIES+=redis_dtrace.o
 endif
 
 .PHONY: all
@@ -252,7 +248,7 @@ redis_dtrace.o: $(REDIS_SERVER_OBJ)
 	$(DTRACE) -G -o redis_dtrace.o -s redis_dtrace.d $(REDIS_SERVER_OBJ)
 
 # redis-server
-$(REDIS_SERVER_NAME): $(REDIS_SERVER_OBJ) $(REDIS_DEPENDENCIES)
+$(REDIS_SERVER_NAME): $(REDIS_SERVER_OBJ) $(TRACE_DEPENDENCIES)
 	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a $(FINAL_LIBS)
 
 # redis-sentinel
