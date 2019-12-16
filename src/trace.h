@@ -12,4 +12,14 @@
 #define REDIS_CALL_END_ENABLED() (0)
 #endif
 
+#define UNLIKELY(x)    __builtin_expect(!!(x), 0)
+
+#define REDIS_USDT_PROBE_HOOK(name, ...) if (UNLIKELY(REDIS_##name##_ENABLED())) { REDIS_##name(__VA_ARGS__); }
+
+#define TRACE_CALL_START(arg0)\
+  REDIS_USDT_PROBE_HOOK(CALL_START, arg0)
+
+#define TRACE_CALL_END(arg0)\
+  REDIS_USDT_PROBE_HOOK(CALL_END, arg0)
+
 #endif
