@@ -72,7 +72,7 @@ start_server {tags {"expire"}} {
         list [r persist foo] [r persist nokeyatall]
     } {0 0}
 
-    test {EXPIRE pricision is now the millisecond} {
+    test {EXPIRE precision is now the millisecond} {
         # This test is very likely to do a false positive if the
         # server is under pressure, so if it does not work give it a few more
         # chances.
