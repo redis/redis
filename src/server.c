@@ -2266,12 +2266,15 @@ void createSharedObjects(void) {
 void initServerConfig(void) {
     int j;
 
-    server.hz = CONFIG_DEFAULT_HZ;
     updateCachedTime(1);
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';
     changeReplicationId();
     clearReplicationId2();
+    server.hz = CONFIG_DEFAULT_HZ; /* Initialize it ASAP, even if it may get
+                                      updated later after loading the config.
+                                      This value may be used before the server
+                                      is initialized. */
     server.timezone = getTimeZone(); /* Initialized by tzset(). */
     server.configfile = NULL;
     server.executable = NULL;
