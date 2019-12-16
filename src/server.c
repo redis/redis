@@ -2266,6 +2266,7 @@ void createSharedObjects(void) {
 void initServerConfig(void) {
     int j;
 
+    server.hz = CONFIG_DEFAULT_HZ;
     updateCachedTime(1);
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';
