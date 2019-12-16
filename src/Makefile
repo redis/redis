@@ -156,6 +156,10 @@ ifeq ($(MALLOC),jemalloc)
 	FINAL_LIBS := ../deps/jemalloc/lib/libjemalloc.a $(FINAL_LIBS)
 endif
 
+ifeq ($(BUILD_USDT),yes)
+    FINAL_CFLAGS+=-DUSE_USDT
+endif
+
 ifeq ($(BUILD_TLS),yes)
     FINAL_CFLAGS+=-DUSE_OPENSSL $(OPENSSL_CFLAGS)
     FINAL_LDFLAGS+=$(OPENSSL_LDFLAGS)
@@ -188,6 +192,7 @@ REDIS_BENCHMARK_NAME=redis-benchmark
 REDIS_BENCHMARK_OBJ=ae.o anet.o redis-benchmark.o adlist.o dict.o zmalloc.o siphash.o redis-benchmark.o
 REDIS_CHECK_RDB_NAME=redis-check-rdb
 REDIS_CHECK_AOF_NAME=redis-check-aof
+REDIS_DEPENDENCIES=
 
 all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME)
 	@echo ""
@@ -199,6 +204,12 @@ Makefile.dep:
 
 ifeq (0, $(words $(findstring $(MAKECMDGOALS), $(NODEPS))))
 -include Makefile.dep
+endif
+
+DTRACE=/usr/bin/dtrace # FIXME
+
+ifeq ($(BUILD_USDT),yes)
+    REDIS_DEPENDENCIES+=redis_dtrace.o
 endif
 
 .PHONY: all
@@ -231,8 +242,17 @@ ifneq ($(strip $(PREV_FINAL_LDFLAGS)), $(strip $(FINAL_LDFLAGS)))
 .make-prerequisites: persist-settings
 endif
 
+redis_dtrace.h: redis_dtrace.d
+	${DTRACE} -h -s redis_dtrace.d
+	sed -e 's,void \*,const void \*,g' redis_dtrace.h | \
+            sed -e 's,char \*,const char \*,g' | tr '\t' ' ' > redis_dtrace.tmp
+	mv redis_dtrace.tmp redis_dtrace.h
+
+redis_dtrace.o: $(REDIS_SERVER_OBJ)
+	$(DTRACE) -G -o redis_dtrace.o -s redis_dtrace.d $(REDIS_SERVER_OBJ)
+
 # redis-server
-$(REDIS_SERVER_NAME): $(REDIS_SERVER_OBJ)
+$(REDIS_SERVER_NAME): $(REDIS_SERVER_OBJ) $(REDIS_DEPENDENCIES)
 	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a $(FINAL_LIBS)
 
 # redis-sentinel

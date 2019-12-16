@@ -3187,7 +3187,9 @@ void call(client *c, int flags) {
     dirty = server.dirty;
     updateCachedTime(0);
     start = server.ustime;
+    REDIS_CALL_START(real_cmd->id);
     c->cmd->proc(c);
+    REDIS_CALL_END(real_cmd->id);
     duration = ustime()-start;
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
