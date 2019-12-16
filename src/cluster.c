@@ -4248,7 +4248,7 @@ void clusterCommand(client *c) {
 "FORGET <node-id> -- Remove a node from the cluster.",
 "GETKEYSINSLOT <slot> <count> -- Return key names stored by current node in a slot.",
 "FLUSHSLOTS -- Delete current node own slots information.",
-"INFO - Return onformation about the cluster.",
+"INFO - Return information about the cluster.",
 "KEYSLOT <key> -- Return the hash slot for <key>.",
 "MEET <ip> <port> [bus-port] -- Connect nodes into a working cluster.",
 "MYID -- Return the node id.",
