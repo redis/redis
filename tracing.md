@@ -59,17 +59,42 @@ New probes are added in the dtrace macro format:
    probe my__probe(int my_arg);
 ```
 
-This specifies the tracepoint signature, which can be called later like:
+This specifies the tracepoint signature, which will be used to generate a
+header that defines two macros:
+
+```c
+REDIS_MY_PROBE(arg0);
+REDIS_MY_PROBE_ENABLED();
+```
+
+A stub definition for each is added to `src/trace.h`, so that the code will
+nop if tracepoints aren't enabled.
+
+Within `src/trace.h`, a wrapper definition should also be created:
+
+```c
+#define TRACE_MY_PROBE(arg0)\
+  REDIS_USDT_PROBE_HOOK(MY_PROBE, arg0)
+```
+
+This will ensure that all tracepoints are wrapped for efficiency purposes, and
+allows them to be called idiomatically from within the Redis source code, like
+`TRACE_##name(...)`, such as:
 
 ```c
 a = 1
 TRACE_MY_PROBE(a);
 ```
 
-If collecting an argument would be expensive, then it can be guarded with:
+These macros can be placed within the C source code at strategic locations,
+which will allow instrumentation to be placed within arbitrary contexts of the
+source code, for any file with access to the scope of `src/trace.h`.
+
+If collecting an argument would be expensive, then it should be additionally
+guarded with:
 
 ```c
-if(UNLIKELY(REDIS_CALL_START_ENABLED())
+if(UNLIKELY(REDIS_MY_PROBE_ENABLED())
 {
 ...
 // expensive code to get an expensive_arg
@@ -80,7 +105,7 @@ if(UNLIKELY(REDIS_CALL_START_ENABLED())
 ```
 
 On Linux a maximum of only 6 arguments is supported so as a best practice is
-to not exceed 6 arguments to a tracepoint
+to not exceed 6 arguments to a tracepoint definition.
 
 Performance
 ==========
@@ -88,6 +113,9 @@ Performance
 Well-placed USDT tracepoints can help to solve performance problems. There is
 a cost associated with executing a USDT tracepoint that should be considered
 when tracing them.
+
+Calls to a tracepoint are done like method calls, but should have no overhead
+if all values emitted to the tracepoint are already available / computed.
 
 In some cases where overhead is necessary, the long-term benefit of performance
 gains may outweigh the short-term risk of performance losses while Redis is
