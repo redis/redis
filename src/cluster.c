@@ -5599,14 +5599,22 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
      * if it is a read command and when allow_reads_when_down is enabled. */
     if (server.cluster->state != CLUSTER_OK) {
         if (!server.cluster_allow_reads_when_down) {
+            /* The cluster is configured to block commands when the
+             * cluster is down. */
             if (error_code) *error_code = CLUSTER_REDIR_DOWN_STATE;
             return NULL;
-        }
-
-        if (!(cmd->flags & CMD_READONLY) && !(cmd->proc == evalCommand) 
-                && !(cmd->proc == evalShaCommand)) {
+        } else if (!(cmd->flags & CMD_READONLY) && !(cmd->proc == evalCommand)
+                && !(cmd->proc == evalShaCommand))
+        {
+            /* The cluster is configured to allow read only commands
+             * but this command is neither readonly, nor EVAL or
+             * EVALSHA. */
             if (error_code) *error_code = CLUSTER_REDIR_DOWN_RO_STATE;
             return NULL;
+        } else {
+            /* Fall through and allow the command to be executed:
+             * this happens when server.cluster_allow_reads_when_down is
+             * true and the command is a readonly command or EVAL / EVALSHA. */
         }
     }
 
