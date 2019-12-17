@@ -688,13 +688,13 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         {
             if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) { 
                 luaPushError(lua,
-                    "Lua script attempted to execute a write command while the"
+                    "Lua script attempted to execute a write command while the "
                     "cluster is down and readonly");
             } else if (error_code == CLUSTER_REDIR_DOWN_STATE) { 
                 luaPushError(lua,
-                    "Lua script attempted to execute a command while the"
+                    "Lua script attempted to execute a command while the "
                     "cluster is down");
-            } else {}
+            } else {
                 luaPushError(lua,
                     "Lua script attempted to access a non local key in a "
                     "cluster node");
