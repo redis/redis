@@ -1,4 +1,5 @@
-/* ACL API example - An example of performing custom password authentication
+/* ACL API example - An example for performing custom synchronous and
+ * asynchronous password authentication.
  *
  * -----------------------------------------------------------------------------
  *
@@ -32,11 +33,6 @@
 
 #define REDISMODULE_EXPERIMENTAL_API
 #include "../redismodule.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <ctype.h>
-#include <string.h>
-#include <strings.h>
 #include <pthread.h>
 #include <unistd.h>
 
@@ -51,7 +47,7 @@ int RevokeCommand_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
     REDISMODULE_NOT_USED(argc);
 
     if (global_auth_client_id) {
-        RedisModule_DisconnectClient(ctx, global_auth_client_id);
+        RedisModule_DeauthenticateAndCloseClient(ctx, global_auth_client_id);
         return RedisModule_ReplyWithSimpleString(ctx, "OK");
     } else {
         return RedisModule_ReplyWithError(ctx, "Global user currently not used");    

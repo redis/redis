@@ -34,7 +34,7 @@
 #include "redismodule.h"
 
 // A simple global user
-static RedisModuleUser *global;
+static RedisModuleUser *global = NULL;
 static long long client_change_delta = 0;
 
 void UserChangedCallback(uint64_t client_id, void *privdata) {
@@ -44,6 +44,8 @@ void UserChangedCallback(uint64_t client_id, void *privdata) {
 }
 
 int Auth_CreateModuleUser(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
 
     if (global) {
         RedisModule_FreeModuleUser(global);
@@ -58,6 +60,8 @@ int Auth_CreateModuleUser(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 }
 
 int Auth_AuthModuleUser(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
     uint64_t client_id;
     RedisModule_AuthenticateClientWithUser(ctx, global, UserChangedCallback, NULL, &client_id);
 
@@ -82,6 +86,8 @@ int Auth_AuthRealUser(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int Auth_ChangeCount(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
     long long result = client_change_delta;
     client_change_delta = 0;
     return RedisModule_ReplyWithLongLong(ctx, result);
@@ -111,8 +117,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"auth.changecount",
         Auth_ChangeCount,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-
-    client_change_delta = 0;
 
     return REDISMODULE_OK;
 }

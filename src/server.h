@@ -481,7 +481,8 @@ typedef void (*moduleTypeDigestFunc)(struct RedisModuleDigest *digest, void *val
 typedef size_t (*moduleTypeMemUsageFunc)(const void *value);
 typedef void (*moduleTypeFreeFunc)(void *value);
 
-/* TODO */
+/* A callback that is called when the client authentication changes. This
+ * needs to be exposed since you can't cast a function pointer to (void *) */
 typedef void (*RedisModuleUserChangedFunc) (uint64_t client_id, void *privdata);
 
 
@@ -803,13 +804,15 @@ typedef struct client {
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
     listNode *client_list_node; /* list node in client list */
-    RedisModuleUserChangedFunc auth_callback; /* Callback to execute when the 
-                                                * authentication changes */
+    RedisModuleUserChangedFunc auth_callback; /* Module callback to execute
+                                               * when the authenticated user
+                                               * changes. */
     void *auth_callback_privdata; /* Private data that is passed when the auth
-                                   * callback is executed */
+                                   * changed callback is executed. Opaque for 
+                                   * Redis Core. */
     void *auth_module;      /* The module that owns the callback, which is used
                              * to disconnect the client if the module is 
-                             * unloaded to allow for cleanup. */
+                             * unloaded for cleanup. Opaque for Redis Core.*/
 
     /* If this client is in tracking mode and this field is non zero,
      * invalidation messages for keys fetched by this client will be send to
