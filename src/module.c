@@ -3174,6 +3174,9 @@ fmterr:
  * EINVAL: wrong command arity.
  * ENOENT: command does not exist.
  * EPERM:  operation in Cluster instance with key in non local slot.
+ * EROFS:  operation in Cluster instance when a write command is sent
+ *         in a readonly state.
+ * ENETDOWN: operation in Cluster instance when cluster is down.
  *
  * This API is documented here: https://redis.io/topics/modules-intro
  */
@@ -3231,13 +3234,20 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
      * trying to access non-local keys, with the exception of commands
      * received from our master. */
     if (server.cluster_enabled && !(ctx->client->flags & CLIENT_MASTER)) {
+        int error_code;
         /* Duplicate relevant flags in the module client. */
         c->flags &= ~(CLIENT_READONLY|CLIENT_ASKING);
         c->flags |= ctx->client->flags & (CLIENT_READONLY|CLIENT_ASKING);
-        if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,NULL) !=
+        if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,&error_code) !=
                            server.cluster->myself)
         {
-            errno = EPERM;
+            if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) { 
+                errno = EROFS;
+            } else if (error_code == CLUSTER_REDIR_DOWN_STATE) { 
+                errno = ENETDOWN;
+            } else {
+                errno = EPERM;
+            }
             goto cleanup;
         }
     }

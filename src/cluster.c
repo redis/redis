@@ -5476,8 +5476,8 @@ void readwriteCommand(client *c) {
  * already "down" but it is fragile to rely on the update of the global state,
  * so we also handle it here.
  *
- * CLUSTER_REDIR_DOWN_STATE if the cluster is down but the user attempts to
- * execute a command that addresses one or more keys. */
+ * CLUSTER_REDIR_DOWN_STATE and CLUSTER_REDIR_DOWN_RO_STATE if the cluster is 
+ * down but the user attempts to execute a command that addresses one or more keys. */
 clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *error_code) {
     clusterNode *n = NULL;
     robj *firstkey = NULL;
@@ -5595,10 +5595,19 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
      * without redirections or errors in all the cases. */
     if (n == NULL) return myself;
 
-    /* Cluster is globally down but we got keys? We can't serve the request. */
+    /* Cluster is globally down but we got keys? We only serve the request
+     * if it is a read command and when allow_reads_when_down is enabled. */
     if (server.cluster->state != CLUSTER_OK) {
-        if (error_code) *error_code = CLUSTER_REDIR_DOWN_STATE;
-        return NULL;
+        if (!server.cluster_allow_reads_when_down) {
+            if (error_code) *error_code = CLUSTER_REDIR_DOWN_STATE;
+            return NULL;
+        }
+
+        if (!(cmd->flags & CMD_READONLY) && !(cmd->proc == evalCommand) 
+                && !(cmd->proc == evalShaCommand)) {
+            if (error_code) *error_code = CLUSTER_REDIR_DOWN_RO_STATE;
+            return NULL;
+        }
     }
 
     /* Return the hashslot by reference. */
@@ -5667,6 +5676,8 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
         addReplySds(c,sdsnew("-TRYAGAIN Multiple keys request during rehashing of slot\r\n"));
     } else if (error_code == CLUSTER_REDIR_DOWN_STATE) {
         addReplySds(c,sdsnew("-CLUSTERDOWN The cluster is down\r\n"));
+    } else if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) {
+        addReplySds(c,sdsnew("-CLUSTERDOWN The cluster is down and only accepts read commands\r\n"));
     } else if (error_code == CLUSTER_REDIR_DOWN_UNBOUND) {
         addReplySds(c,sdsnew("-CLUSTERDOWN Hash slot not served\r\n"));
     } else if (error_code == CLUSTER_REDIR_MOVED ||
@@ -5701,7 +5712,10 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
         dictEntry *de;
         dictIterator *di;
 
-        /* If the cluster is down, unblock the client with the right error. */
+        /* If the cluster is down, unblock the client with the right error.
+         * If the cluster is configured to allow reads on cluster down, we
+         * still want to emit this error since a write will be required
+         * to unblock them which may never come.  */
         if (server.cluster->state == CLUSTER_FAIL) {
             clusterRedirectClient(c,NULL,0,CLUSTER_REDIR_DOWN_STATE);
             return 1;
