@@ -355,6 +355,21 @@ list *RedisModule_EventListeners; /* Global list of all the active events. */
 unsigned long long ModulesInHooks = 0; /* Total number of modules in hooks
                                           callbacks right now. */
 
+/* Data structures related to the redis module users */
+
+/* This callback type is called by moduleNotifyUserChanged() every time
+ * a user authenticated via the module API is associated with a different
+ * user or gets disconnected. */
+typedef void (*RedisModuleUserChangedFunc) (uint64_t client_id, void *privdata);
+
+/* This is the object returned by RM_CreateModuleUser(). The module API is
+ * able to create users, set ACLs to such users, and later authenticate
+ * clients using such newly created users. */
+typedef struct RedisModuleUser {
+    user *user; /* Reference to the real redis user */
+} RedisModuleUser;
+
+
 /* --------------------------------------------------------------------------
  * Prototypes
  * -------------------------------------------------------------------------- */
@@ -719,6 +734,7 @@ int commandFlagsFromString(char *s) {
         else if (!strcasecmp(t,"allow-stale")) flags |= CMD_STALE;
         else if (!strcasecmp(t,"no-monitor")) flags |= CMD_SKIP_MONITOR;
         else if (!strcasecmp(t,"fast")) flags |= CMD_FAST;
+        else if (!strcasecmp(t,"no-auth")) flags |= CMD_NO_AUTH;
         else if (!strcasecmp(t,"getkeys-api")) flags |= CMD_MODULE_GETKEYS;
         else if (!strcasecmp(t,"no-cluster")) flags |= CMD_MODULE_NO_CLUSTER;
         else break;
@@ -780,6 +796,9 @@ int commandFlagsFromString(char *s) {
  *                     example, is unable to report the position of the
  *                     keys, programmatically creates key names, or any
  *                     other reason.
+ * * **"no-auth"**:    This command can be run by an un-authenticated client.
+ *                     Normally this is used by a command that is used
+ *                     to authenticate a client. 
  */
 int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
     int flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
@@ -5247,6 +5266,200 @@ int RM_GetTimerInfo(RedisModuleCtx *ctx, RedisModuleTimerID id, uint64_t *remain
 }
 
 /* --------------------------------------------------------------------------
+ * Modules ACL API
+ *
+ * Implements a hook into the authentication and authorization within Redis. 
+ * --------------------------------------------------------------------------*/
+
+/* This function is called when a client's user has changed and invokes the
+ * client's user changed callback if it was set. This callback should
+ * cleanup any state the module was tracking about this client. 
+ * 
+ * A client's user can be changed through the AUTH command, module 
+ * authentication, and when a client is freed. */
+void moduleNotifyUserChanged(client *c) {
+    if (c->auth_callback) {
+        c->auth_callback(c->id, c->auth_callback_privdata);
+
+        /* The callback will fire exactly once, even if the user remains 
+         * the same. It is expected to completely clean up the state
+         * so all references are cleared here. */
+        c->auth_callback = NULL;
+        c->auth_callback_privdata = NULL;
+        c->auth_module = NULL;
+    }
+}
+
+void revokeClientAuthentication(client *c) {
+    /* Freeing the client would result in moduleNotifyUserChanged() to be
+     * called later, however since we use revokeClientAuthentication() also
+     * in moduleFreeAuthenticatedClients() to implement module unloading, we
+     * do this action ASAP: this way if the module is unloaded, when the client
+     * is eventually freed we don't rely on the module to still exist. */
+    moduleNotifyUserChanged(c);
+
+    c->user = DefaultUser;
+    c->authenticated = 0;
+    freeClientAsync(c);
+}
+
+/* Cleanup all clients that have been authenticated with this module. This
+ * is called from onUnload() to give the module a chance to cleanup any
+ * resources associated with clients it has authenticated. */
+static void moduleFreeAuthenticatedClients(RedisModule *module) {
+    listIter li;
+    listNode *ln;
+    listRewind(server.clients,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        client *c = listNodeValue(ln);
+        if (!c->auth_module) continue;
+
+        RedisModule *auth_module = (RedisModule *) c->auth_module;
+        if (auth_module == module) { 
+            revokeClientAuthentication(c);
+        }
+    }
+}
+
+/* Creates a Redis ACL user that the module can use to authenticate a client.
+ * After obtaining the user, the module should set what such user can do
+ * using the RM_SetUserACL() function. Once configured, the user
+ * can be used in order to authenticate a connection, with the specified
+ * ACL rules, using the RedisModule_AuthClientWithUser() function.
+ *
+ * Note that:
+ *
+ * * Users created here are not listed by the ACL command.
+ * * Users created here are not checked for duplicated name, so it's up to
+ *   the module calling this function to take care of not creating users
+ *   with the same name.
+ * * The created user can be used to authenticate multiple Redis connections.
+ *
+ * The caller can later free the user using the function
+ * RM_FreeModuleUser(). When this function is called, if there are
+ * still clients authenticated with this user, they are disconnected.
+ * The function to free the user should only be used when the caller really
+ * wants to invalidate the user to define a new one with different
+ * capabilities. */
+RedisModuleUser *RM_CreateModuleUser(const char *name) {
+    RedisModuleUser *new_user = zmalloc(sizeof(RedisModuleUser));
+    new_user->user = ACLCreateUnlinkedUser();
+
+    /* Free the previous temporarily assigned name to assign the new one */
+    sdsfree(new_user->user->name);
+    new_user->user->name = sdsnew(name);
+    return new_user;
+}
+
+/* Frees a given user and disconnects all of the clients that have been
+ * authenticated with it. See RM_CreateModuleUser for detailed usage.*/
+int RM_FreeModuleUser(RedisModuleUser *user) {
+    ACLFreeUserAndKillClients(user->user);
+    zfree(user);
+    return REDISMODULE_OK;
+}
+
+/* Sets the permissions of a user created through the redis module 
+ * interface. The syntax is the same as ACL SETUSER, so refer to the 
+ * documentation in acl.c for more information. See RM_CreateModuleUser
+ * for detailed usage.
+ * 
+ * Returns REDISMODULE_OK on success and REDISMODULE_ERR on failure
+ * and will set an errno describing why the operation failed. */
+int RM_SetModuleUserACL(RedisModuleUser *user, const char* acl) {
+    return ACLSetUser(user->user, acl, -1);
+}
+
+/* Authenticate the client associated with the context with 
+ * the provided user. Returns REDISMODULE_OK on success and
+ * REDISMODULE_ERR on error.
+ * 
+ * This authentication can be tracked with the optional callback and private
+ * data fields. The callback will be called whenever the user of the client
+ * changes. This callback should be used to cleanup any state that is being
+ * kept in the module related to the client authentication. It will only be
+ * called once, even when the user hasn't changed, in order to allow for a
+ * new callback to be specified. If this authentication does not need to be
+ * tracked, pass in NULL for the callback and privdata. 
+ * 
+ * If client_id is not NULL, it will be filled with the id of the client
+ * that was authenticated. This can be used with the 
+ * RM_DeauthenticateAndCloseClient() API in order to deauthenticate a 
+ * previously authenticated client if the authentication is no longer valid. 
+ * 
+ * For expensive authentication operations, it is recommended to block the
+ * client and do the authentication in the background and then attach the user
+ * to the client in a threadsafe context.  */
+static int authenticateClientWithUser(RedisModuleCtx *ctx, user *user, RedisModuleUserChangedFunc callback, void *privdata, uint64_t *client_id) {
+    if (user->flags & USER_FLAG_DISABLED) {
+        return REDISMODULE_ERR;
+    }
+
+    moduleNotifyUserChanged(ctx->client);
+
+    ctx->client->user = user;
+    ctx->client->authenticated = 1;
+
+    if (callback) {
+        ctx->client->auth_callback = callback;
+        ctx->client->auth_callback_privdata = privdata;
+        ctx->client->auth_module = ctx->module;
+    }
+
+    if (client_id) {
+        *client_id = ctx->client->id;
+    }
+
+    return REDISMODULE_OK;
+}
+
+
+/* Authenticate the current context's user with the provided redis acl user. 
+ * Returns REDISMODULE_ERR if the user is disabled.
+ * 
+ * See authenticateClientWithUser for information about callback, client_id,
+ * and general usage for authentication. */
+int RM_AuthenticateClientWithUser(RedisModuleCtx *ctx, RedisModuleUser *module_user, RedisModuleUserChangedFunc callback, void *privdata, uint64_t *client_id) {
+    return authenticateClientWithUser(ctx, module_user->user, callback, privdata, client_id);
+}
+
+/* Authenticate the current context's user with the provided redis acl user. 
+ * Returns REDISMODULE_ERR if the user is disabled or the user does not exist.
+ * 
+ * See authenticateClientWithUser for information about callback, client_id,
+ * and general usage for authentication. */
+int RM_AuthenticateClientWithACLUser(RedisModuleCtx *ctx, const char *name, size_t len, RedisModuleUserChangedFunc callback, void *privdata, uint64_t *client_id) {
+    user *acl_user = ACLGetUserByName(name, len);
+
+    if (!acl_user) {
+        return REDISMODULE_ERR;
+    }
+    return authenticateClientWithUser(ctx, acl_user, callback, privdata, client_id);
+}
+
+/* Deauthenticate and close the client. The client resources will not be
+ * be immediately freed, but will be cleaned up in a background job. This is 
+ * the recommended way to deauthenicate a client since most clients can't 
+ * handle users becomming deauthenticated. Returns REDISMODULE_ERR when the 
+ * client doesn't exist and REDISMODULE_OK when the operation was successful. 
+ * 
+ * The client ID is returned from the RM_AuthenticateClientWithUser and
+ * RM_AuthenticateClientWithACLUser APIs, but can be obtained through
+ * the CLIENT api or through server events. 
+ * 
+ * This function is not thread safe, and must be executed within the context
+ * of a command or thread safe context. */
+int RM_DeauthenticateAndCloseClient(RedisModuleCtx *ctx, uint64_t client_id) {
+    UNUSED(ctx);
+    client *c = lookupClientByID(client_id);
+    if (c == NULL) return REDISMODULE_ERR;
+
+    /* Revoke also marks client to be closed ASAP */
+    revokeClientAuthentication(c);
+    return REDISMODULE_OK;
+}
+
+/* --------------------------------------------------------------------------
  * Modules Dictionary API
  *
  * Implements a sorted dictionary (actually backed by a radix tree) with
@@ -7088,6 +7301,7 @@ int moduleUnload(sds name) {
         }
     }
 
+    moduleFreeAuthenticatedClients(module);
     moduleUnregisterCommands(module);
     moduleUnregisterSharedAPI(module);
     moduleUnregisterUsedAPI(module);
@@ -7571,4 +7785,10 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ScanCursorRestart);
     REGISTER_API(Scan);
     REGISTER_API(ScanKey);
+    REGISTER_API(CreateModuleUser);
+    REGISTER_API(SetModuleUserACL);
+    REGISTER_API(FreeModuleUser);
+    REGISTER_API(DeauthenticateAndCloseClient);
+    REGISTER_API(AuthenticateClientWithACLUser);
+    REGISTER_API(AuthenticateClientWithUser);
 }
