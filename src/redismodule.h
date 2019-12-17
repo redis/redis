@@ -396,7 +396,6 @@ typedef struct RedisModuleInfoCtx RedisModuleInfoCtx;
 typedef struct RedisModuleServerInfoData RedisModuleServerInfoData;
 typedef struct RedisModuleScanCursor RedisModuleScanCursor;
 typedef struct RedisModuleUser RedisModuleUser;
-typedef struct RedisModuleAuthCtx RedisModuleAuthCtx;
 
 typedef int (*RedisModuleCmdFunc)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 typedef void (*RedisModuleDisconnectFunc)(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc);
