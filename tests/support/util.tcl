@@ -99,6 +99,25 @@ proc wait_for_ofs_sync {r1 r2} {
     }
 }
 
+proc wait_for_log_message {srv_idx pattern last_lines maxtries delay} {
+    set retry $maxtries
+    set stdout [srv $srv_idx stdout]
+    while {$retry} {
+        set result [exec tail -$last_lines < $stdout]
+        set result [split $result "\n"]
+        foreach line $result {
+            if {[string match $pattern $line]} {
+                return $line
+            }
+        }
+        incr retry -1
+        after $delay
+    }
+    if {$retry == 0} {
+        fail "log message of '$pattern' not found"
+    }
+}
+
 # Random integer between 0 and max (excluded).
 proc randomInt {max} {
     expr {int(rand()*$max)}
@@ -376,7 +395,7 @@ proc colorstr {color str} {
 # of seconds to the specified Redis instance.
 proc start_write_load {host port seconds} {
     set tclsh [info nameofexecutable]
-    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds &
+    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds $::tls &
 }
 
 # Stop a process generating write load executed with start_write_load.
@@ -398,4 +417,16 @@ proc lshuffle {list} {
         set list [lreplace [K $list [set list {}]] $j $j $temp]
     }
     return $slist
+}
+
+# Execute a background process writing complex data for the specified number
+# of ops to the specified Redis instance.
+proc start_bg_complex_data {host port db ops} {
+    set tclsh [info nameofexecutable]
+    exec $tclsh tests/helpers/bg_complex_data.tcl $host $port $db $ops $::tls &
+}
+
+# Stop a process generating write load executed with start_bg_complex_data.
+proc stop_bg_complex_data {handle} {
+    catch {exec /bin/kill -9 $handle}
 }

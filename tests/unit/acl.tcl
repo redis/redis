@@ -35,6 +35,32 @@ start_server {tags {"acl"}} {
         set e
     } {*WRONGPASS*}
 
+    test {Test password hashes can be added} {
+        r ACL setuser newuser #34344e4d60c2b6d639b7bd22e18f2b0b91bc34bf0ac5f9952744435093cfb4e6
+        catch {r AUTH newuser passwd4} e
+        assert {$e eq "OK"}
+    }
+
+    test {Test password hashes validate input} {
+        # Validate Length
+        catch {r ACL setuser newuser #34344e4d60c2b6d639b7bd22e18f2b0b91bc34bf0ac5f9952744435093cfb4e} e
+        # Validate character outside set
+        catch {r ACL setuser newuser #34344e4d60c2b6d639b7bd22e18f2b0b91bc34bf0ac5f9952744435093cfb4eq} e
+        set e
+    } {*Error in ACL SETUSER modifier*}
+
+    test {ACL GETUSER returns the password hash instead of the actual password} {
+        set passstr [dict get [r ACL getuser newuser] passwords]
+        assert_match {*34344e4d60c2b6d639b7bd22e18f2b0b91bc34bf0ac5f9952744435093cfb4e6*} $passstr
+        assert_no_match {*passwd4*} $passstr
+    }
+
+    test {Test hashed passwords removal} {
+        r ACL setuser newuser !34344e4d60c2b6d639b7bd22e18f2b0b91bc34bf0ac5f9952744435093cfb4e6
+        set passstr [dict get [r ACL getuser newuser] passwords]
+        assert_no_match {*34344e4d60c2b6d639b7bd22e18f2b0b91bc34bf0ac5f9952744435093cfb4e6*} $passstr
+    }
+
     test {By default users are not able to access any command} {
         catch {r SET foo bar} e
         set e
@@ -67,7 +93,7 @@ start_server {tags {"acl"}} {
         set e
     } {*NOPERM*}
 
-    test {ACLs can include or excluse whole classes of commands} {
+    test {ACLs can include or exclude whole classes of commands} {
         r ACL setuser newuser -@all +@set +acl
         r SADD myset a b c; # Should not raise an error
         r ACL setuser newuser +@all -@string
@@ -107,5 +133,12 @@ start_server {tags {"acl"}} {
         assert_match {*+debug|digest*} $cmdstr
         assert_match {*+debug|segfault*} $cmdstr
         assert_match {*+acl*} $cmdstr
+    }
+
+    test {ACL #5998 regression: memory leaks adding / removing subcommands} {
+        r AUTH default ""
+        r ACL setuser newuser reset -debug +debug|a +debug|b +debug|c
+        r ACL setuser newuser -debug
+        # The test framework will detect a leak if any.
     }
 }

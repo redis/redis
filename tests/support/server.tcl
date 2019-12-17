@@ -92,7 +92,11 @@ proc is_alive config {
 proc ping_server {host port} {
     set retval 0
     if {[catch {
-        set fd [socket $host $port]
+        if {$::tls} {
+            set fd [::tls::socket $host $port] 
+        } else {
+            set fd [socket $host $port]
+        }
         fconfigure $fd -translation binary
         puts $fd "PING\r\n"
         flush $fd
@@ -136,7 +140,6 @@ proc tags {tags code} {
     uplevel 1 $code
     set ::tags [lrange $::tags 0 end-[llength $tags]]
 }
-
 proc start_server {options {code undefined}} {
     # If we are running against an external server, we just push the
     # host/port pair in the stack the first time
@@ -145,7 +148,7 @@ proc start_server {options {code undefined}} {
             set srv {}
             dict set srv "host" $::host
             dict set srv "port" $::port
-            set client [redis $::host $::port]
+            set client [redis $::host $::port 0 $::tls]
             dict set srv "client" $client
             $client select 9
 
@@ -178,6 +181,13 @@ proc start_server {options {code undefined}} {
 
     set data [split [exec cat "tests/assets/$baseconfig"] "\n"]
     set config {}
+    if {$::tls} {
+        dict set config "tls-cert-file" [format "%s/tests/tls/redis.crt" [pwd]]
+        dict set config "tls-key-file" [format "%s/tests/tls/redis.key" [pwd]]
+        dict set config "tls-dh-params-file" [format "%s/tests/tls/redis.dh" [pwd]]
+        dict set config "tls-ca-cert-file" [format "%s/tests/tls/ca.crt" [pwd]]
+        dict set config "loglevel" "debug"
+    }
     foreach line $data {
         if {[string length $line] > 0 && [string index $line 0] ne "#"} {
             set elements [split $line " "]
@@ -192,7 +202,17 @@ proc start_server {options {code undefined}} {
 
     # start every server on a different port
     set ::port [find_available_port [expr {$::port+1}]]
-    dict set config port $::port
+    if {$::tls} {
+        dict set config "port" 0
+        dict set config "tls-port" $::port
+        dict set config "tls-cluster" "yes"
+        dict set config "tls-replication" "yes"
+    } else {
+        dict set config port $::port
+    }
+
+    set unixsocket [file normalize [format "%s/%s" [dict get $config "dir"] "socket"]]
+    dict set config "unixsocket" $unixsocket
 
     # apply overrides from global space and arguments
     foreach {directive arguments} [concat $::global_overrides $overrides] {
@@ -254,10 +274,11 @@ proc start_server {options {code undefined}} {
     }
 
     # setup properties to be able to initialize a client object
+    set port_param [expr $::tls ? {"tls-port"} : {"port"}]
     set host $::host
     set port $::port
     if {[dict exists $config bind]} { set host [dict get $config bind] }
-    if {[dict exists $config port]} { set port [dict get $config port] }
+    if {[dict exists $config $port_param]} { set port [dict get $config $port_param] }
 
     # setup config dict
     dict set srv "config_file" $config_file
@@ -267,6 +288,7 @@ proc start_server {options {code undefined}} {
     dict set srv "port" $port
     dict set srv "stdout" $stdout
     dict set srv "stderr" $stderr
+    dict set srv "unixsocket" $unixsocket
 
     # if a block of code is supplied, we wait for the server to become
     # available, create a client object and kill the server afterwards

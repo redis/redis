@@ -78,7 +78,7 @@ unsigned int getLRUClock(void) {
 unsigned int LRU_CLOCK(void) {
     unsigned int lruclock;
     if (1000/server.hz <= LRU_CLOCK_RESOLUTION) {
-        atomicGet(server.lruclock,lruclock);
+        lruclock = server.lruclock;
     } else {
         lruclock = getLRUClock();
     }
@@ -444,6 +444,7 @@ int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *lev
  * Otehrwise if we are over the memory limit, but not enough memory
  * was freed to return back under the limit, the function returns C_ERR. */
 int freeMemoryIfNeeded(void) {
+    int keys_freed = 0;
     /* By default replicas should ignore maxmemory
      * and just be masters exact copies. */
     if (server.masterhost && server.repl_slave_ignore_maxmemory) return C_OK;
@@ -467,7 +468,7 @@ int freeMemoryIfNeeded(void) {
 
     latencyStartMonitor(latency);
     while (mem_freed < mem_tofree) {
-        int j, k, i, keys_freed = 0;
+        int j, k, i;
         static unsigned int next_db = 0;
         sds bestkey = NULL;
         int bestdbid;
@@ -598,9 +599,7 @@ int freeMemoryIfNeeded(void) {
                     mem_freed = mem_tofree;
                 }
             }
-        }
-
-        if (!keys_freed) {
+        } else {
             latencyEndMonitor(latency);
             latencyAddSampleIfNeeded("eviction-cycle",latency);
             goto cant_free; /* nothing to free... */

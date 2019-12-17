@@ -402,7 +402,7 @@ void lrangeCommand(client *c) {
     if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != C_OK) ||
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != C_OK)) return;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyarray)) == NULL
          || checkType(c,o,OBJ_LIST)) return;
     llen = listTypeLength(o);
 
@@ -414,7 +414,7 @@ void lrangeCommand(client *c) {
     /* Invariant: start >= 0, so this test will be true when end < 0.
      * The range is empty when start > end or start >= length. */
     if (start > end || start >= llen) {
-        addReplyNull(c);
+        addReply(c,shared.emptyarray);
         return;
     }
     if (end >= llen) end = llen-1;
@@ -520,7 +520,7 @@ void lremCommand(client *c) {
 
     if (removed) {
         signalModifiedKey(c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_GENERIC,"lrem",c->argv[1],c->db->id);
+        notifyKeyspaceEvent(NOTIFY_LIST,"lrem",c->argv[1],c->db->id);
     }
 
     if (listTypeLength(subject) == 0) {
@@ -606,7 +606,7 @@ void rpoplpushCommand(client *c) {
  * Blocking POP operations
  *----------------------------------------------------------------------------*/
 
-/* This is a helper function for handleClientsBlockedOnLists(). It's work
+/* This is a helper function for handleClientsBlockedOnKeys(). It's work
  * is to serve a specific client (receiver) that is blocked on 'key'
  * in the context of the specified 'db', doing the following:
  *
@@ -617,7 +617,7 @@ void rpoplpushCommand(client *c) {
  *    the AOF and replication channel.
  *
  * The argument 'where' is LIST_TAIL or LIST_HEAD, and indicates if the
- * 'value' element was popped fron the head (BLPOP) or tail (BRPOP) so that
+ * 'value' element was popped from the head (BLPOP) or tail (BRPOP) so that
  * we can propagate the command properly.
  *
  * The function returns C_OK if we are able to serve the client, otherwise

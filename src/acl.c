@@ -28,6 +28,7 @@
  */
 
 #include "server.h"
+#include "sha256.h"
 #include <fcntl.h>
 
 /* =============================================================================
@@ -93,6 +94,9 @@ void ACLResetSubcommandsForCommand(user *u, unsigned long id);
 void ACLResetSubcommands(user *u);
 void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub);
 
+/* The length of the string representation of a hashed password. */
+#define HASH_PASSWORD_LEN SHA256_BLOCK_SIZE*2
+
 /* =============================================================================
  * Helper functions for the rest of the ACL implementation
  * ==========================================================================*/
@@ -137,6 +141,25 @@ int time_independent_strcmp(char *a, char *b) {
     /* Length must be equal as well. */
     diff |= alen ^ blen;
     return diff; /* If zero strings are the same. */
+}
+
+/* Given an SDS string, returns the SHA256 hex representation as a
+ * new SDS string. */
+sds ACLHashPassword(unsigned char *cleartext, size_t len) {
+    SHA256_CTX ctx;
+    unsigned char hash[SHA256_BLOCK_SIZE];
+    char hex[HASH_PASSWORD_LEN];
+    char *cset = "0123456789abcdef";
+
+    sha256_init(&ctx);
+    sha256_update(&ctx,(unsigned char*)cleartext,len);
+    sha256_final(&ctx,hash);
+
+    for (int j = 0; j < SHA256_BLOCK_SIZE; j++) {
+        hex[j*2] = cset[((hash[j]&0xF0)>>4)];
+        hex[j*2+1] = cset[(hash[j]&0xF)];
+    }
+    return sdsnewlen(hex,HASH_PASSWORD_LEN);
 }
 
 /* =============================================================================
@@ -295,7 +318,7 @@ int ACLGetCommandBitCoordinates(uint64_t id, uint64_t *word, uint64_t *bit) {
  * Note that this function does not check the ALLCOMMANDS flag of the user
  * but just the lowlevel bitmask.
  *
- * If the bit overflows the user internal represetation, zero is returned
+ * If the bit overflows the user internal representation, zero is returned
  * in order to disallow the execution of the command in such edge case. */
 int ACLGetUserCommandBit(user *u, unsigned long id) {
     uint64_t word, bit;
@@ -311,7 +334,7 @@ int ACLUserCanExecuteFutureCommands(user *u) {
 }
 
 /* Set the specified command bit for the specified user to 'value' (0 or 1).
- * If the bit overflows the user internal represetation, no operation
+ * If the bit overflows the user internal representation, no operation
  * is performed. As a side effect of calling this function with a value of
  * zero, the user flag ALLCOMMANDS is cleared since it is no longer possible
  * to skip the command bit explicit test. */
@@ -350,7 +373,7 @@ int ACLSetUserCommandBitsForCategory(user *u, const char *category, int value) {
 
 /* Return the number of commands allowed (on) and denied (off) for the user 'u'
  * in the subset of commands flagged with the specified category name.
- * If the categoty name is not valid, C_ERR is returend, otherwise C_OK is
+ * If the category name is not valid, C_ERR is returned, otherwise C_OK is
  * returned and on and off are populated by reference. */
 int ACLCountCategoryBitsForUser(user *u, unsigned long *on, unsigned long *off,
                                 const char *category)
@@ -502,7 +525,7 @@ sds ACLDescribeUser(user *u) {
     listRewind(u->passwords,&li);
     while((ln = listNext(&li))) {
         sds thispass = listNodeValue(ln);
-        res = sdscatlen(res,">",1);
+        res = sdscatlen(res,"#",1);
         res = sdscatsds(res,thispass);
         res = sdscatlen(res," ",1);
     }
@@ -542,6 +565,8 @@ struct redisCommand *ACLLookupCommand(const char *name) {
  * and command ID. */
 void ACLResetSubcommandsForCommand(user *u, unsigned long id) {
     if (u->allowed_subcommands && u->allowed_subcommands[id]) {
+        for (int i = 0; u->allowed_subcommands[id][i]; i++)
+            sdsfree(u->allowed_subcommands[id][i]);
         zfree(u->allowed_subcommands[id]);
         u->allowed_subcommands[id] = NULL;
     }
@@ -624,10 +649,17 @@ void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub) {
  *              It is possible to specify multiple patterns.
  * allkeys      Alias for ~*
  * resetkeys    Flush the list of allowed keys patterns.
- * ><password>  Add this passowrd to the list of valid password for the user.
+ * ><password>  Add this password to the list of valid password for the user.
  *              For example >mypass will add "mypass" to the list.
  *              This directive clears the "nopass" flag (see later).
+ * #<hash>      Add this password hash to the list of valid hashes for
+ *              the user. This is useful if you have previously computed
+ *              the hash, and don't want to store it in plaintext.
+ *              This directive clears the "nopass" flag (see later).
  * <<password>  Remove this password from the list of valid passwords.
+ * !<hash>      Remove this hashed password from the list of valid passwords.
+ *              This is useful when you want to remove a password just by
+ *              hash without knowing its plaintext version at all.
  * nopass       All the set passwords of the user are removed, and the user
  *              is flagged as requiring no password: it means that every
  *              password will work against this user. If this directive is
@@ -663,6 +695,7 @@ void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub) {
  * EEXIST: You are adding a key pattern after "*" was already added. This is
  *         almost surely an error on the user side.
  * ENODEV: The password you are trying to remove from the user does not exist.
+ * EBADMSG: The hash you are trying to add is not a valid hash. 
  */
 int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     if (oplen == -1) oplen = strlen(op);
@@ -698,14 +731,48 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     } else if (!strcasecmp(op,"resetpass")) {
         u->flags &= ~USER_FLAG_NOPASS;
         listEmpty(u->passwords);
-    } else if (op[0] == '>') {
-        sds newpass = sdsnewlen(op+1,oplen-1);
+    } else if (op[0] == '>' || op[0] == '#') {
+        sds newpass;
+        if (op[0] == '>') {
+            newpass = ACLHashPassword((unsigned char*)op+1,oplen-1);
+        } else {
+            if (oplen != HASH_PASSWORD_LEN + 1) {
+                errno = EBADMSG;
+                return C_ERR;
+            }
+
+            /* Password hashes can only be characters that represent
+             * hexadecimal values, which are numbers and lowercase
+             * characters 'a' through 'f'.
+             */
+            for(int i = 1; i < HASH_PASSWORD_LEN + 1; i++) {
+                char c = op[i];
+                if ((c < 'a' || c > 'f') && (c < '0' || c > '9')) {
+                    errno = EBADMSG;
+                    return C_ERR;
+                }
+            }
+            newpass = sdsnewlen(op+1,oplen-1);
+        }
+
         listNode *ln = listSearchKey(u->passwords,newpass);
         /* Avoid re-adding the same password multiple times. */
-        if (ln == NULL) listAddNodeTail(u->passwords,newpass);
+        if (ln == NULL)
+            listAddNodeTail(u->passwords,newpass);
+        else
+            sdsfree(newpass);
         u->flags &= ~USER_FLAG_NOPASS;
-    } else if (op[0] == '<') {
-        sds delpass = sdsnewlen(op+1,oplen-1);
+    } else if (op[0] == '<' || op[0] == '!') {
+        sds delpass;
+        if (op[0] == '<') {
+            delpass = ACLHashPassword((unsigned char*)op+1,oplen-1);
+        } else {
+            if (oplen != HASH_PASSWORD_LEN + 1) {
+                errno = EBADMSG;
+                return C_ERR;
+            }
+            delpass = sdsnewlen(op+1,oplen-1);
+        }
         listNode *ln = listSearchKey(u->passwords,delpass);
         sdsfree(delpass);
         if (ln) {
@@ -722,7 +789,10 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         sds newpat = sdsnewlen(op+1,oplen-1);
         listNode *ln = listSearchKey(u->patterns,newpat);
         /* Avoid re-adding the same pattern multiple times. */
-        if (ln == NULL) listAddNodeTail(u->patterns,newpat);
+        if (ln == NULL)
+            listAddNodeTail(u->patterns,newpat);
+        else
+            sdsfree(newpat);
         u->flags &= ~USER_FLAG_ALLKEYS;
     } else if (op[0] == '+' && op[1] != '@') {
         if (strchr(op,'|') == NULL) {
@@ -820,6 +890,9 @@ char *ACLSetUserStringError(void) {
     else if (errno == ENODEV)
         errmsg = "The password you are trying to remove from the user does "
                  "not exist";
+    else if (errno == EBADMSG)
+        errmsg = "The password hash must be exactly 64 characters and contain "
+                 "only lowercase hexadecimal characters";
     return errmsg;
 }
 
@@ -877,11 +950,15 @@ int ACLCheckUserCredentials(robj *username, robj *password) {
     listIter li;
     listNode *ln;
     listRewind(u->passwords,&li);
+    sds hashed = ACLHashPassword(password->ptr,sdslen(password->ptr));
     while((ln = listNext(&li))) {
         sds thispass = listNodeValue(ln);
-        if (!time_independent_strcmp(password->ptr, thispass))
+        if (!time_independent_strcmp(hashed, thispass)) {
+            sdsfree(hashed);
             return C_OK;
+        }
     }
+    sdsfree(hashed);
 
     /* If we reached this point, no password matched. */
     errno = EINVAL;
@@ -947,9 +1024,9 @@ user *ACLGetUserByName(const char *name, size_t namelen) {
     return myuser;
 }
 
-/* Check if the command ready to be excuted in the client 'c', and already
- * referenced by c->cmd, can be executed by this client according to the
- * ACls associated to the client user c->user.
+/* Check if the command is ready to be executed in the client 'c', already
+ * referenced by c->cmd, and can be executed by this client according to the
+ * ACLs associated to the client user c->user.
  *
  * If the user can execute the command ACL_OK is returned, otherwise
  * ACL_DENIED_CMD or ACL_DENIED_KEY is returned: the first in case the
@@ -1120,7 +1197,7 @@ int ACLLoadConfiguredUsers(void) {
 }
 
 /* This function loads the ACL from the specified filename: every line
- * is validated and shold be either empty or in the format used to specify
+ * is validated and should be either empty or in the format used to specify
  * users in the redis.conf configuration or in the ACL file, that is:
  *
  *  user <username> ... rules ...
@@ -1170,7 +1247,7 @@ sds ACLLoadFromFile(const char *filename) {
      * to the real user mentioned in the ACL line. */
     user *fakeuser = ACLCreateUnlinkedUser();
 
-    /* We do all the loading in a fresh insteance of the Users radix tree,
+    /* We do all the loading in a fresh instance of the Users radix tree,
      * so if there are errors loading the ACL file we can rollback to the
      * old version. */
     rax *old_users = Users;
@@ -1246,7 +1323,7 @@ sds ACLLoadFromFile(const char *filename) {
         }
 
         /* Note that the same rules already applied to the fake user, so
-         * we just assert that everything goess well: it should. */
+         * we just assert that everything goes well: it should. */
         for (j = 2; j < argc; j++)
             serverAssert(ACLSetUser(u,argv[j],sdslen(argv[j])) == C_OK);
 
@@ -1609,7 +1686,7 @@ void addReplyCommandCategories(client *c, struct redisCommand *cmd) {
     setDeferredSetLen(c, flaglen, flagcount);
 }
 
-/* AUTH <passowrd>
+/* AUTH <password>
  * AUTH <username> <password> (Redis >= 6.0 form)
  *
  * When the user is omitted it means that we are trying to authenticate

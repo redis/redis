@@ -183,85 +183,94 @@ start_server {tags {"repl"}} {
     }
 }
 
-foreach dl {no yes} {
-    start_server {tags {"repl"}} {
-        set master [srv 0 client]
-        $master config set repl-diskless-sync $dl
-        set master_host [srv 0 host]
-        set master_port [srv 0 port]
-        set slaves {}
-        set load_handle0 [start_write_load $master_host $master_port 3]
-        set load_handle1 [start_write_load $master_host $master_port 5]
-        set load_handle2 [start_write_load $master_host $master_port 20]
-        set load_handle3 [start_write_load $master_host $master_port 8]
-        set load_handle4 [start_write_load $master_host $master_port 4]
-        start_server {} {
-            lappend slaves [srv 0 client]
+foreach mdl {no yes} {
+    foreach sdl {disabled swapdb} {
+        start_server {tags {"repl"}} {
+            set master [srv 0 client]
+            $master config set repl-diskless-sync $mdl
+            $master config set repl-diskless-sync-delay 1
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
+            set slaves {}
             start_server {} {
                 lappend slaves [srv 0 client]
                 start_server {} {
                     lappend slaves [srv 0 client]
-                    test "Connect multiple replicas at the same time (issue #141), diskless=$dl" {
-                        # Send SLAVEOF commands to slaves
-                        [lindex $slaves 0] slaveof $master_host $master_port
-                        [lindex $slaves 1] slaveof $master_host $master_port
-                        [lindex $slaves 2] slaveof $master_host $master_port
+                    start_server {} {
+                        lappend slaves [srv 0 client]
+                        test "Connect multiple replicas at the same time (issue #141), master diskless=$mdl, replica diskless=$sdl" {
+                            # start load handles only inside the test, so that the test can be skipped
+                            set load_handle0 [start_bg_complex_data $master_host $master_port 9 100000000]
+                            set load_handle1 [start_bg_complex_data $master_host $master_port 11 100000000]
+                            set load_handle2 [start_bg_complex_data $master_host $master_port 12 100000000]
+                            set load_handle3 [start_write_load $master_host $master_port 8]
+                            set load_handle4 [start_write_load $master_host $master_port 4]
+                            after 5000 ;# wait for some data to accumulate so that we have RDB part for the fork
 
-                        # Wait for all the three slaves to reach the "online"
-                        # state from the POV of the master.
-                        set retry 500
-                        while {$retry} {
-                            set info [r -3 info]
-                            if {[string match {*slave0:*state=online*slave1:*state=online*slave2:*state=online*} $info]} {
-                                break
-                            } else {
-                                incr retry -1
-                                after 100
+                            # Send SLAVEOF commands to slaves
+                            [lindex $slaves 0] config set repl-diskless-load $sdl
+                            [lindex $slaves 1] config set repl-diskless-load $sdl
+                            [lindex $slaves 2] config set repl-diskless-load $sdl
+                            [lindex $slaves 0] slaveof $master_host $master_port
+                            [lindex $slaves 1] slaveof $master_host $master_port
+                            [lindex $slaves 2] slaveof $master_host $master_port
+
+                            # Wait for all the three slaves to reach the "online"
+                            # state from the POV of the master.
+                            set retry 500
+                            while {$retry} {
+                                set info [r -3 info]
+                                if {[string match {*slave0:*state=online*slave1:*state=online*slave2:*state=online*} $info]} {
+                                    break
+                                } else {
+                                    incr retry -1
+                                    after 100
+                                }
                             }
-                        }
-                        if {$retry == 0} {
-                            error "assertion:Replicas not correctly synchronized"
-                        }
+                            if {$retry == 0} {
+                                error "assertion:Slaves not correctly synchronized"
+                            }
 
-                        # Wait that slaves acknowledge they are online so
-                        # we are sure that DBSIZE and DEBUG DIGEST will not
-                        # fail because of timing issues.
-                        wait_for_condition 500 100 {
-                            [lindex [[lindex $slaves 0] role] 3] eq {connected} &&
-                            [lindex [[lindex $slaves 1] role] 3] eq {connected} &&
-                            [lindex [[lindex $slaves 2] role] 3] eq {connected}
-                        } else {
-                            fail "Replicas still not connected after some time"
+                            # Wait that slaves acknowledge they are online so
+                            # we are sure that DBSIZE and DEBUG DIGEST will not
+                            # fail because of timing issues.
+                            wait_for_condition 500 100 {
+                                [lindex [[lindex $slaves 0] role] 3] eq {connected} &&
+                                [lindex [[lindex $slaves 1] role] 3] eq {connected} &&
+                                [lindex [[lindex $slaves 2] role] 3] eq {connected}
+                            } else {
+                                fail "Slaves still not connected after some time"
+                            }
+
+                            # Stop the write load
+                            stop_bg_complex_data $load_handle0
+                            stop_bg_complex_data $load_handle1
+                            stop_bg_complex_data $load_handle2
+                            stop_write_load $load_handle3
+                            stop_write_load $load_handle4
+
+                            # Make sure that slaves and master have same
+                            # number of keys
+                            wait_for_condition 500 100 {
+                                [$master dbsize] == [[lindex $slaves 0] dbsize] &&
+                                [$master dbsize] == [[lindex $slaves 1] dbsize] &&
+                                [$master dbsize] == [[lindex $slaves 2] dbsize]
+                            } else {
+                                fail "Different number of keys between master and replica after too long time."
+                            }
+
+                            # Check digests
+                            set digest [$master debug digest]
+                            set digest0 [[lindex $slaves 0] debug digest]
+                            set digest1 [[lindex $slaves 1] debug digest]
+                            set digest2 [[lindex $slaves 2] debug digest]
+                            assert {$digest ne 0000000000000000000000000000000000000000}
+                            assert {$digest eq $digest0}
+                            assert {$digest eq $digest1}
+                            assert {$digest eq $digest2}
                         }
-
-                        # Stop the write load
-                        stop_write_load $load_handle0
-                        stop_write_load $load_handle1
-                        stop_write_load $load_handle2
-                        stop_write_load $load_handle3
-                        stop_write_load $load_handle4
-
-                        # Make sure that slaves and master have same
-                        # number of keys
-                        wait_for_condition 500 100 {
-                            [$master dbsize] == [[lindex $slaves 0] dbsize] &&
-                            [$master dbsize] == [[lindex $slaves 1] dbsize] &&
-                            [$master dbsize] == [[lindex $slaves 2] dbsize]
-                        } else {
-                            fail "Different number of keys between masted and replica after too long time."
-                        }
-
-                        # Check digests
-                        set digest [$master debug digest]
-                        set digest0 [[lindex $slaves 0] debug digest]
-                        set digest1 [[lindex $slaves 1] debug digest]
-                        set digest2 [[lindex $slaves 2] debug digest]
-                        assert {$digest ne 0000000000000000000000000000000000000000}
-                        assert {$digest eq $digest0}
-                        assert {$digest eq $digest1}
-                        assert {$digest eq $digest2}
-                    }
-               }
+                   }
+                }
             }
         }
     }
@@ -271,9 +280,9 @@ start_server {tags {"repl"}} {
     set master [srv 0 client]
     set master_host [srv 0 host]
     set master_port [srv 0 port]
-    set load_handle0 [start_write_load $master_host $master_port 3]
     start_server {} {
         test "Master stream is correctly processed while the replica has a script in -BUSY state" {
+            set load_handle0 [start_write_load $master_host $master_port 3]
             set slave [srv 0 client]
             $slave config set lua-time-limit 500
             $slave slaveof $master_host $master_port
@@ -305,6 +314,318 @@ start_server {tags {"repl"}} {
                 [$master debug digest] eq [$slave debug digest]
             } else {
                 fail "Different datasets between replica and master"
+            }
+        }
+    }
+}
+
+test {slave fails full sync and diskless load swapdb recovers it} {
+    start_server {tags {"repl"}} {
+        set slave [srv 0 client]
+        set slave_host [srv 0 host]
+        set slave_port [srv 0 port]
+        set slave_log [srv 0 stdout]
+        start_server {} {
+            set master [srv 0 client]
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
+
+            # Put different data sets on the master and slave
+            # we need to put large keys on the master since the slave replies to info only once in 2mb
+            $slave debug populate 2000 slave 10
+            $master debug populate 200 master 100000
+            $master config set rdbcompression no
+
+            # Set master and slave to use diskless replication
+            $master config set repl-diskless-sync yes
+            $master config set repl-diskless-sync-delay 0
+            $slave config set repl-diskless-load swapdb
+
+            # Set master with a slow rdb generation, so that we can easily disconnect it mid sync
+            # 10ms per key, with 200 keys is 2 seconds
+            $master config set rdb-key-save-delay 10000
+
+            # Start the replication process...
+            $slave slaveof $master_host $master_port
+
+            # wait for the slave to start reading the rdb
+            wait_for_condition 50 100 {
+                [s -1 loading] eq 1
+            } else {
+                fail "Replica didn't get into loading mode"
+            }
+
+            # make sure that next sync will not start immediately so that we can catch the slave in betweeen syncs
+            $master config set repl-diskless-sync-delay 5
+            # for faster server shutdown, make rdb saving fast again (the fork is already uses the slow one)
+            $master config set rdb-key-save-delay 0
+
+            # waiting slave to do flushdb (key count drop)
+            wait_for_condition 50 100 {
+                2000 != [scan [regexp -inline {keys\=([\d]*)} [$slave info keyspace]] keys=%d]
+            } else {
+                fail "Replica didn't flush"
+            }
+
+            # make sure we're still loading
+            assert_equal [s -1 loading] 1
+
+            # kill the slave connection on the master
+            set killed [$master client kill type slave]
+
+            # wait for loading to stop (fail)
+            wait_for_condition 50 100 {
+                [s -1 loading] eq 0
+            } else {
+                fail "Replica didn't disconnect"
+            }
+
+            # make sure the original keys were restored
+            assert_equal [$slave dbsize] 2000
+        }
+    }
+}
+
+test {diskless loading short read} {
+    start_server {tags {"repl"}} {
+        set replica [srv 0 client]
+        set replica_host [srv 0 host]
+        set replica_port [srv 0 port]
+        start_server {} {
+            set master [srv 0 client]
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
+
+            # Set master and replica to use diskless replication
+            $master config set repl-diskless-sync yes
+            $master config set rdbcompression no
+            $replica config set repl-diskless-load swapdb
+            # Try to fill the master with all types of data types / encodings
+            for {set k 0} {$k < 3} {incr k} {
+                for {set i 0} {$i < 10} {incr i} {
+                    r set "$k int_$i" [expr {int(rand()*10000)}]
+                    r expire "$k int_$i" [expr {int(rand()*10000)}]
+                    r set "$k string_$i" [string repeat A [expr {int(rand()*1000000)}]]
+                    r hset "$k hash_small" [string repeat A [expr {int(rand()*10)}]]  0[string repeat A [expr {int(rand()*10)}]]
+                    r hset "$k hash_large" [string repeat A [expr {int(rand()*10000)}]] [string repeat A [expr {int(rand()*1000000)}]]
+                    r sadd "$k set_small" [string repeat A [expr {int(rand()*10)}]]
+                    r sadd "$k set_large" [string repeat A [expr {int(rand()*1000000)}]]
+                    r zadd "$k zset_small" [expr {rand()}] [string repeat A [expr {int(rand()*10)}]]
+                    r zadd "$k zset_large" [expr {rand()}] [string repeat A [expr {int(rand()*1000000)}]]
+                    r lpush "$k list_small" [string repeat A [expr {int(rand()*10)}]]
+                    r lpush "$k list_large" [string repeat A [expr {int(rand()*1000000)}]]
+                    for {set j 0} {$j < 10} {incr j} {
+                        r xadd "$k stream" * foo "asdf" bar "1234"
+                    }
+                    r xgroup create "$k stream" "mygroup_$i" 0
+                    r xreadgroup GROUP "mygroup_$i" Alice COUNT 1 STREAMS "$k stream" >
+                }
+            }
+
+            # Start the replication process...
+            $master config set repl-diskless-sync-delay 0
+            $replica replicaof $master_host $master_port
+
+            # kill the replication at various points
+            set attempts 3
+            if {$::accurate} { set attempts 10 }
+            for {set i 0} {$i < $attempts} {incr i} {
+                # wait for the replica to start reading the rdb
+                # using the log file since the replica only responds to INFO once in 2mb
+                wait_for_log_message -1 "*Loading DB in memory*" 5 2000 1
+
+                # add some additional random sleep so that we kill the master on a different place each time
+                after [expr {int(rand()*100)}]
+
+                # kill the replica connection on the master
+                set killed [$master client kill type replica]
+
+                if {[catch {
+                    set res [wait_for_log_message -1 "*Internal error in RDB*" 5 100 10]
+                    if {$::verbose} {
+                        puts $res
+                    }
+                }]} {
+                    puts "failed triggering short read"
+                    # force the replica to try another full sync
+                    $master client kill type replica
+                    $master set asdf asdf
+                    # the side effect of resizing the backlog is that it is flushed (16k is the min size)
+                    $master config set repl-backlog-size [expr {16384 + $i}]
+                }
+                # wait for loading to stop (fail)
+                wait_for_condition 100 10 {
+                    [s -1 loading] eq 0
+                } else {
+                    fail "Replica didn't disconnect"
+                }
+            }
+            # enable fast shutdown
+            $master config set rdb-key-save-delay 0
+        }
+    }
+}
+
+# get current stime and utime metrics for a thread (since it's creation)
+proc get_cpu_metrics { statfile } {
+    if { [ catch {
+        set fid   [ open $statfile r ]
+        set data  [ read $fid 1024 ]
+        ::close $fid
+        set data  [ split $data ]
+
+        ;## number of jiffies it has been scheduled...
+        set utime [ lindex $data 13 ]
+        set stime [ lindex $data 14 ]
+    } err ] } {
+        error "assertion:can't parse /proc: $err"
+    }
+    set mstime [clock milliseconds]
+    return [ list $mstime $utime $stime ]
+}
+
+# compute %utime and %stime of a thread between two measurements
+proc compute_cpu_usage {start end} {
+    set clock_ticks [exec getconf CLK_TCK]
+    # convert ms time to jiffies and calc delta
+    set dtime [ expr { ([lindex $end 0] - [lindex $start 0]) * double($clock_ticks) / 1000 } ]
+    set utime [ expr { [lindex $end 1] - [lindex $start 1] } ]
+    set stime [ expr { [lindex $end 2] - [lindex $start 2] } ]
+    set pucpu  [ expr { ($utime / $dtime) * 100 } ]
+    set pscpu  [ expr { ($stime / $dtime) * 100 } ]
+    return [ list $pucpu $pscpu ]
+}
+
+
+# test diskless rdb pipe with multiple replicas, which may drop half way
+start_server {tags {"repl"}} {
+    set master [srv 0 client]
+    $master config set repl-diskless-sync yes
+    $master config set repl-diskless-sync-delay 1
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+    set master_pid [srv 0 pid]
+    # put enough data in the db that the rdb file will be bigger than the socket buffers
+    # and since we'll have key-load-delay of 100, 10000 keys will take at least 1 second
+    # we also need the replica to process requests during transfer (which it does only once in 2mb)
+    $master debug populate 10000 test 10000
+    $master config set rdbcompression no
+    # If running on Linux, we also measure utime/stime to detect possible I/O handling issues
+    set os [catch {exec unamee}]
+    set measure_time [expr {$os == "Linux"} ? 1 : 0]
+    foreach all_drop {no slow fast all} {
+        test "diskless $all_drop replicas drop during rdb pipe" {
+            set replicas {}
+            set replicas_alive {}
+            # start one replica that will read the rdb fast, and one that will be slow
+            start_server {} {
+                lappend replicas [srv 0 client]
+                lappend replicas_alive [srv 0 client]
+                start_server {} {
+                    lappend replicas [srv 0 client]
+                    lappend replicas_alive [srv 0 client]
+
+                    # start replication
+                    # it's enough for just one replica to be slow, and have it's write handler enabled
+                    # so that the whole rdb generation process is bound to that
+                    [lindex $replicas 0] config set repl-diskless-load swapdb
+                    [lindex $replicas 0] config set key-load-delay 100
+                    [lindex $replicas 0] replicaof $master_host $master_port
+                    [lindex $replicas 1] replicaof $master_host $master_port
+
+                    # wait for the replicas to start reading the rdb
+                    # using the log file since the replica only responds to INFO once in 2mb
+                    wait_for_log_message -1 "*Loading DB in memory*" 8 800 10
+
+                    if {$measure_time} {
+                        set master_statfile "/proc/$master_pid/stat"
+                        set master_start_metrics [get_cpu_metrics $master_statfile]
+                        set start_time [clock seconds]
+                    }
+
+                    # wait a while so that the pipe socket writer will be
+                    # blocked on write (since replica 0 is slow to read from the socket)
+                    after 500
+
+                    # add some command to be present in the command stream after the rdb.
+                    $master incr $all_drop
+
+                    # disconnect replicas depending on the current test
+                    if {$all_drop == "all" || $all_drop == "fast"} {
+                        exec kill [srv 0 pid]
+                        set replicas_alive [lreplace $replicas_alive 1 1]
+                    }
+                    if {$all_drop == "all" || $all_drop == "slow"} {
+                        exec kill [srv -1 pid]
+                        set replicas_alive [lreplace $replicas_alive 0 0]
+                    }
+
+                    # wait for rdb child to exit
+                    wait_for_condition 500 100 {
+                        [s -2 rdb_bgsave_in_progress] == 0
+                    } else {
+                        fail "rdb child didn't terminate"
+                    }
+
+                    # make sure we got what we were aiming for, by looking for the message in the log file
+                    if {$all_drop == "all"} {
+                        wait_for_log_message -2 "*Diskless rdb transfer, last replica dropped, killing fork child*" 12 1 1
+                    }
+                    if {$all_drop == "no"} {
+                        wait_for_log_message -2 "*Diskless rdb transfer, done reading from pipe, 2 replicas still up*" 12 1 1
+                    }
+                    if {$all_drop == "slow" || $all_drop == "fast"} {
+                        wait_for_log_message -2 "*Diskless rdb transfer, done reading from pipe, 1 replicas still up*" 12 1 1
+                    }
+
+                    # make sure we don't have a busy loop going thought epoll_wait
+                    if {$measure_time} {
+                        set master_end_metrics [get_cpu_metrics $master_statfile]
+                        set time_elapsed [expr {[clock seconds]-$start_time}]
+                        set master_cpu [compute_cpu_usage $master_start_metrics $master_end_metrics]
+                        set master_utime [lindex $master_cpu 0]
+                        set master_stime [lindex $master_cpu 1]
+                        if {$::verbose} {
+                            puts "elapsed: $time_elapsed"
+                            puts "master utime: $master_utime"
+                            puts "master stime: $master_stime"
+                        }
+                        if {$all_drop == "all" || $all_drop == "slow"} {
+                            assert {$master_utime < 70}
+                            assert {$master_stime < 70}
+                        }
+                        if {$all_drop == "none" || $all_drop == "fast"} {
+                            assert {$master_utime < 15}
+                            assert {$master_stime < 15}
+                        }
+                    }
+
+                    # verify the data integrity
+                    foreach replica $replicas_alive {
+                        # Wait that replicas acknowledge they are online so
+                        # we are sure that DBSIZE and DEBUG DIGEST will not
+                        # fail because of timing issues.
+                        wait_for_condition 50 100 {
+                            [lindex [$replica role] 3] eq {connected}
+                        } else {
+                            fail "replicas still not connected after some time"
+                        }
+
+                        # Make sure that replicas and master have same
+                        # number of keys
+                        wait_for_condition 50 100 {
+                            [$master dbsize] == [$replica dbsize]
+                        } else {
+                            fail "Different number of keys between master and replicas after too long time."
+                        }
+
+                        # Check digests
+                        set digest [$master debug digest]
+                        set digest0 [$replica debug digest]
+                        assert {$digest ne 0000000000000000000000000000000000000000}
+                        assert {$digest eq $digest0}
+                    }
+                }
             }
         }
     }

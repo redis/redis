@@ -257,7 +257,11 @@ sds sdsRemoveFreeSpace(sds s) {
     char type, oldtype = s[-1] & SDS_TYPE_MASK;
     int hdrlen, oldhdrlen = sdsHdrSize(oldtype);
     size_t len = sdslen(s);
+    size_t avail = sdsavail(s);
     sh = (char*)s-oldhdrlen;
+
+    /* Return ASAP if there is no space left. */
+    if (avail == 0) return s;
 
     /* Check what would be the minimum SDS header that is just good enough to
      * fit this string. */
@@ -599,6 +603,10 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
     long i;
     va_list ap;
 
+    /* To avoid continuous reallocations, let's start with a buffer that
+     * can hold at least two times the format string itself. It's not the
+     * best heuristic but seems to work in practice. */
+    s = sdsMakeRoomFor(s, initlen + strlen(fmt)*2);
     va_start(ap,fmt);
     f = fmt;    /* Next format specifier byte to process. */
     i = initlen; /* Position of the next byte to write to dest str. */

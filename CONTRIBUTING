@@ -14,9 +14,7 @@ each source file that you contribute.
 
   PLEASE DO NOT POST GENERAL QUESTIONS that are not about bugs or suspected
   bugs in the Github issues system. We'll be very happy to help you and provide
-  all the support at the Reddit sub:
-
-      http://reddit.com/r/redis
+  all the support in the mailing list.
 
   There is also an active community of Redis users at Stack Overflow:
 
@@ -24,7 +22,12 @@ each source file that you contribute.
 
 # How to provide a patch for a new feature
 
-1. If it is a major feature or a semantical change, please post it as a new submission in r/redis on Reddit at http://reddit.com/r/redis. Try to be passionate about why the feature is needed, make users upvote your proposal to gain traction and so forth. Read feedbacks about the community. But in this first step **please don't write code yet**.
+1. If it is a major feature or a semantical change, please don't start coding
+straight away: if your feature is not a conceptual fit you'll lose a lot of
+time writing the code without any reason. Start by posting in the mailing list
+and creating an issue at Github with the description of, exactly, what you want
+to accomplish and why. Use cases are important for features to be accepted.
+Here you'll see if there is consensus about your idea.
 
 2. If in step 1 you get an acknowledgment from the project leaders, use the
    following procedure to submit a patch:
@@ -35,6 +38,13 @@ each source file that you contribute.
     d. Initiate a pull request on github ( https://help.github.com/articles/creating-a-pull-request/ )
     e. Done :)
 
-For minor fixes just open a pull request on Github.
+3. Keep in mind that we are very overloaded, so issues and PRs sometimes wait
+for a *very* long time. However this is not lack of interest, as the project
+gets more and more users, we find ourselves in a constant need to prioritize
+certain issues/PRs over others. If you think your issue/PR is very important
+try to popularize it, have other users commenting and sharing their point of
+view and so forth. This helps.
+
+4. For minor fixes just open a pull request on Github.
 
 Thanks!

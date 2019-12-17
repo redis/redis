@@ -536,7 +536,7 @@ foreach cmdrepl {0 1} {
     start_server {tags {"scripting repl"}} {
         start_server {} {
             if {$cmdrepl == 1} {
-                set rt "(commmands replication)"
+                set rt "(commands replication)"
             } else {
                 set rt "(scripts replication)"
                 r debug lua-always-replicate-commands 1

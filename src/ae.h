@@ -106,6 +106,7 @@ typedef struct aeEventLoop {
     void *apidata; /* This is used for polling API specific data */
     aeBeforeSleepProc *beforesleep;
     aeBeforeSleepProc *aftersleep;
+    int flags;
 } aeEventLoop;
 
 /* Prototypes */
@@ -128,5 +129,6 @@ void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep
 void aeSetAfterSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *aftersleep);
 int aeGetSetSize(aeEventLoop *eventLoop);
 int aeResizeSetSize(aeEventLoop *eventLoop, int setsize);
+void aeSetDontWait(aeEventLoop *eventLoop, int noWait);
 
 #endif
