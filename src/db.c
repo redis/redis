@@ -216,10 +216,11 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
  *
  * 1) The ref count of the value object is incremented.
  * 2) clients WATCHing for the destination key notified.
- * 3) The expire time of the key is reset (the key is made persistent).
+ * 3) The expire time of the key is reset (the key is made persistent),
+ *    unless 'keepttl' is true.
  *
  * All the new keys in the database should be created via this interface. */
-void setKey(redisDb *db, robj *key, robj *val, int keepttl) {
+void genericSetKey(redisDb *db, robj *key, robj *val, int keepttl) {
     if (lookupKeyWrite(db,key) == NULL) {
         dbAdd(db,key,val);
     } else {
@@ -230,6 +231,13 @@ void setKey(redisDb *db, robj *key, robj *val, int keepttl) {
     signalModifiedKey(db,key);
 }
 
+/* Common case for genericSetKey() where the TTL is not retained. */
+void setKey(redisDb *db, robj *key, robj *val) {
+    genericSetKey(db,key,val,0);
+}
+
+/* Return true if the specified key exists in the specified database.
+ * LRU/LFU info is not updated in any way. */
 int dbExists(redisDb *db, robj *key) {
     return dictFind(db->dict,key->ptr) != NULL;
 }

@@ -657,7 +657,7 @@ void georadiusGeneric(client *c, int flags) {
 
         if (returned_items) {
             zsetConvertToZiplistIfNeeded(zobj,maxelelen);
-            setKey(c->db,storekey,zobj,0);
+            setKey(c->db,storekey,zobj);
             decrRefCount(zobj);
             notifyKeyspaceEvent(NOTIFY_ZSET,"georadiusstore",storekey,
                                 c->db->id);
