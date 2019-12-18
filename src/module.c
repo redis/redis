@@ -1900,10 +1900,26 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
     return flags;
 }
 
-/* Returns true when the module should avoid actions that cause traffic to replicas.
- * This is required during manual failover when waiting for the replica
- * to be in perfect sync with the master. Modules doing background operations
- * which are not a result of user traffic should check this flag periodically. */
+/* Returns true if some client sent the CLIENT PAUSE command to the server or
+ * if Redis Cluster is doing a manual failover, and paused tue clients.
+ * This is needed when we have a master with replicas, and want to write,
+ * without adding further data to the replication channel, that the replicas
+ * replication offset, match the one of the master. When this happens, it is
+ * safe to failover the master without data loss.
+ *
+ * However modules may generate traffic by calling RedisModule_Call() with
+ * the "!" flag, or by calling RedisModule_Replicate(), in a context outside
+ * commands execution, for instance in timeout callbacks, threads safe
+ * contexts, and so forth. When modules will generate too much traffic, it
+ * will be hard for the master and replicas offset to match, because there
+ * is more data to send in the replication channel.
+ *
+ * So modules may want to try to avoid very heavy background work that has
+ * the effect of creating data to the replication channel, when this function
+ * returns true. This is mostly useful for modules that have background
+ * garbage collection tasks, or that do writes and replicate such writes
+ * periodically in timer callbacks or other periodic callbacks.
+ */
 int RM_AvoidReplicaTraffic() {
     return clientsArePaused();
 }
