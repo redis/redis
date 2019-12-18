@@ -734,14 +734,14 @@ void geohashCommand(client *c) {
             r[1].max = 90;
             geohashEncode(&r[0],&r[1],xy[0],xy[1],26,&hash);
 
-            char buf[11];
+            char buf[12];
             int i;
-            for (i = 0; i < 10; i++) {
+            for (i = 0; i < 11; i++) {
                 int idx = (hash.bits >> (52-((i+1)*5))) & 0x1f;
                 buf[i] = geoalphabet[idx];
             }
-            buf[10] = '\0';
-            addReplyBulkCBuffer(c,buf,10);
+            buf[11] = '\0';
+            addReplyBulkCBuffer(c,buf,11);
         }
     }
 }
