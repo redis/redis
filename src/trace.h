@@ -12,7 +12,11 @@
 #define REDIS_CALL_END_ENABLED() (0)
 #endif
 
-#define UNLIKELY(x)    __builtin_expect(!!(x), 0)
+#ifdef __GNUC__
+#  define UNLIKELY(x) __builtin_expect(!!(x), 0)
+#else
+#  define UNLIKELY(x) !!(x)
+#endif
 
 #define REDIS_USDT_PROBE_HOOK(name, ...) if (UNLIKELY(REDIS_##name##_ENABLED())) { REDIS_##name(__VA_ARGS__); }
 
