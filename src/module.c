@@ -2107,7 +2107,7 @@ RedisModuleString *RM_RandomKey(RedisModuleCtx *ctx) {
 int RM_StringSet(RedisModuleKey *key, RedisModuleString *str) {
     if (!(key->mode & REDISMODULE_WRITE) || key->iter) return REDISMODULE_ERR;
     RM_DeleteKey(key);
-    setKey(key->db,key->key,str);
+    setKey(key->db,key->key,str,0);
     key->value = str;
     return REDISMODULE_OK;
 }
@@ -2187,7 +2187,7 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
     if (key->value == NULL) {
         /* Empty key: create it with the new size. */
         robj *o = createObject(OBJ_STRING,sdsnewlen(NULL, newlen));
-        setKey(key->db,key->key,o);
+        setKey(key->db,key->key,o,0);
         key->value = o;
         decrRefCount(o);
     } else {
@@ -3571,7 +3571,7 @@ int RM_ModuleTypeSetValue(RedisModuleKey *key, moduleType *mt, void *value) {
     if (!(key->mode & REDISMODULE_WRITE) || key->iter) return REDISMODULE_ERR;
     RM_DeleteKey(key);
     robj *o = createModuleObject(mt,value);
-    setKey(key->db,key->key,o);
+    setKey(key->db,key->key,o,0);
     decrRefCount(o);
     key->value = o;
     return REDISMODULE_OK;

@@ -219,14 +219,14 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
  * 3) The expire time of the key is reset (the key is made persistent).
  *
  * All the new keys in the database should be created via this interface. */
-void setKey(redisDb *db, robj *key, robj *val) {
+void setKey(redisDb *db, robj *key, robj *val, int keepttl) {
     if (lookupKeyWrite(db,key) == NULL) {
         dbAdd(db,key,val);
     } else {
         dbOverwrite(db,key,val);
     }
     incrRefCount(val);
-    removeExpire(db,key);
+    if (!keepttl) removeExpire(db,key);
     signalModifiedKey(db,key);
 }
 

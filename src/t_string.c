@@ -46,7 +46,7 @@ static int checkStringLength(client *c, long long size) {
  * options and variants. This function is called in order to implement the
  * following commands: SET, SETEX, PSETEX, SETNX.
  *
- * 'flags' changes the behavior of the command (NX or XX, see belove).
+ * 'flags' changes the behavior of the command (NX or XX, see below).
  *
  * 'expire' represents an expire to set in form of a Redis object as passed
  * by the user. It is interpreted according to the specified 'unit'.
@@ -59,10 +59,11 @@ static int checkStringLength(client *c, long long size) {
  * If abort_reply is NULL, "$-1" is used. */
 
 #define OBJ_SET_NO_FLAGS 0
-#define OBJ_SET_NX (1<<0)     /* Set if key not exists. */
-#define OBJ_SET_XX (1<<1)     /* Set if key exists. */
-#define OBJ_SET_EX (1<<2)     /* Set if time in seconds is given */
-#define OBJ_SET_PX (1<<3)     /* Set if time in ms in given */
+#define OBJ_SET_NX (1<<0)          /* Set if key not exists. */
+#define OBJ_SET_XX (1<<1)          /* Set if key exists. */
+#define OBJ_SET_EX (1<<2)          /* Set if time in seconds is given */
+#define OBJ_SET_PX (1<<3)          /* Set if time in ms in given */
+#define OBJ_SET_KEEPTTL (1<<4)     /* Set and keep the ttl */
 
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
@@ -83,7 +84,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         addReply(c, abort_reply ? abort_reply : shared.null[c->resp]);
         return;
     }
-    setKey(c->db,key,val);
+    setKey(c->db,key,val,flags & OBJ_SET_KEEPTTL);
     server.dirty++;
     if (expire) setExpire(c,c->db,key,mstime()+milliseconds);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
@@ -92,7 +93,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     addReply(c, ok_reply ? ok_reply : shared.ok);
 }
 
-/* SET key value [NX] [XX] [EX <seconds>] [PX <milliseconds>] */
+/* SET key value [NX] [XX] [KEEPTTL] [EX <seconds>] [PX <milliseconds>] */
 void setCommand(client *c) {
     int j;
     robj *expire = NULL;
@@ -113,8 +114,13 @@ void setCommand(client *c) {
                    !(flags & OBJ_SET_NX))
         {
             flags |= OBJ_SET_XX;
+        } else if (!strcasecmp(c->argv[j]->ptr,"KEEPTTL") &&
+                   !(flags & OBJ_SET_EX) && !(flags & OBJ_SET_PX))
+        {
+            flags |= OBJ_SET_KEEPTTL;
         } else if ((a[0] == 'e' || a[0] == 'E') &&
                    (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
+                   !(flags & OBJ_SET_KEEPTTL) &&
                    !(flags & OBJ_SET_PX) && next)
         {
             flags |= OBJ_SET_EX;
@@ -123,6 +129,7 @@ void setCommand(client *c) {
             j++;
         } else if ((a[0] == 'p' || a[0] == 'P') &&
                    (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
+                   !(flags & OBJ_SET_KEEPTTL) &&
                    !(flags & OBJ_SET_EX) && next)
         {
             flags |= OBJ_SET_PX;
@@ -176,7 +183,7 @@ void getCommand(client *c) {
 void getsetCommand(client *c) {
     if (getGenericCommand(c) == C_ERR) return;
     c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setKey(c->db,c->argv[1],c->argv[2]);
+    setKey(c->db,c->argv[1],c->argv[2],0);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[1],c->db->id);
     server.dirty++;
 }
@@ -321,7 +328,7 @@ void msetGenericCommand(client *c, int nx) {
 
     for (j = 1; j < c->argc; j += 2) {
         c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
-        setKey(c->db,c->argv[j],c->argv[j+1]);
+        setKey(c->db,c->argv[j],c->argv[j+1],0);
         notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
     }
     server.dirty += (c->argc-1)/2;
@@ -398,7 +405,7 @@ void decrbyCommand(client *c) {
 
 void incrbyfloatCommand(client *c) {
     long double incr, value;
-    robj *o, *new, *aux;
+    robj *o, *new, *aux1, *aux2;
 
     o = lookupKeyWrite(c->db,c->argv[1]);
     if (o != NULL && checkType(c,o,OBJ_STRING)) return;
@@ -424,10 +431,13 @@ void incrbyfloatCommand(client *c) {
     /* Always replicate INCRBYFLOAT as a SET command with the final value
      * in order to make sure that differences in float precision or formatting
      * will not create differences in replicas or after an AOF restart. */
-    aux = createStringObject("SET",3);
-    rewriteClientCommandArgument(c,0,aux);
-    decrRefCount(aux);
+    aux1 = createStringObject("SET",3);
+    rewriteClientCommandArgument(c,0,aux1);
+    decrRefCount(aux1);
     rewriteClientCommandArgument(c,2,new);
+    aux2 = createStringObject("KEEPTTL",7);
+    rewriteClientCommandArgument(c,3,aux2);
+    decrRefCount(aux2);
 }
 
 void appendCommand(client *c) {
