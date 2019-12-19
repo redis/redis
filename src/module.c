@@ -590,11 +590,8 @@ void moduleHandlePropagationAfterCommandCallback(RedisModuleCtx *ctx) {
 
     /* Handle the replication of the final EXEC, since whatever a command
      * emits is always wrapped around MULTI/EXEC. */
-    robj *propargv[1];
-    propargv[0] = createStringObject("EXEC",4);
-    alsoPropagate(server.execCommand,c->db->id,propargv,1,
+    alsoPropagate(server.execCommand,c->db->id,&shared.exec,1,
         PROPAGATE_AOF|PROPAGATE_REPL);
-    decrRefCount(propargv[0]);
 
     /* If this is not a module command context (but is instead a simple
      * callback context), we have to handle directly the "also propagate"
@@ -3299,6 +3296,11 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
      * we propagate into a MULTI/EXEC block, so that it will be atomic like
      * a Lua script in the context of AOF and slaves. */
     if (replicate) moduleReplicateMultiIfNeeded(ctx);
+
+    if (ctx->client->flags & CLIENT_MULTI ||
+        ctx->flags & REDISMODULE_CTX_MULTI_EMITTED) {
+        c->flags |= CLIENT_MULTI;
+    }
 
     /* Run the command */
     int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS;
