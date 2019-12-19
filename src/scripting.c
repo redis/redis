@@ -485,13 +485,6 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     static size_t cached_objects_len[LUA_CMD_OBJCACHE_SIZE];
     static int inuse = 0;   /* Recursive calls detection. */
 
-    /* Reflect MULTI state */
-    if (server.lua_multi_emitted || (server.lua_caller->flags & CLIENT_MULTI)) {
-        c->flags |= CLIENT_MULTI;
-    } else {
-        c->flags &= ~CLIENT_MULTI;
-    }
-
     /* By using Lua debug hooks it is possible to trigger a recursive call
      * to luaRedisGenericCommand(), which normally should never happen.
      * To make this function reentrant is futile and makes it slower, but
@@ -715,6 +708,9 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     {
         execCommandPropagateMulti(server.lua_caller);
         server.lua_multi_emitted = 1;
+        /* Now we are in the MULTI context, the lua_client should be
+         * flag as CLIENT_MULTI. */
+        c->flags |= CLIENT_MULTI;
     }
 
     /* Run the command */
@@ -1441,6 +1437,22 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
     }
 }
 
+void prepareLuaClient(void) {
+    /* Select the right DB in the context of the Lua client */
+    selectDb(server.lua_client,server.lua_caller->db->id);
+    server.lua_client->resp = 2; /* Default is RESP2, scripts can change it. */
+
+    /* If we are in MULTI context, flag Lua client as CLIENT_MULTI. */
+    if (server.lua_caller->flags & CLIENT_MULTI) {
+        server.lua_client->flags |= CLIENT_MULTI;
+    }
+}
+
+void resetLuaClient(void) {
+    /* After the script done, remove the MULTI state. */
+    server.lua_client->flags &= ~CLIENT_MULTI;
+}
+
 void evalGenericCommand(client *c, int evalsha) {
     lua_State *lua = server.lua;
     char funcname[43];
@@ -1529,10 +1541,6 @@ void evalGenericCommand(client *c, int evalsha) {
     luaSetGlobalArray(lua,"KEYS",c->argv+3,numkeys);
     luaSetGlobalArray(lua,"ARGV",c->argv+3+numkeys,c->argc-3-numkeys);
 
-    /* Set the Lua client database and protocol. */
-    selectDb(server.lua_client,c->db->id);
-    server.lua_client->resp = 2; /* Default is RESP2, scripts can change it. */
-
     /* Set a hook in order to be able to stop the script execution if it
      * is running for too much time.
      * We set the hook only if the time limit is enabled as the hook will
@@ -1552,10 +1560,14 @@ void evalGenericCommand(client *c, int evalsha) {
         delhook = 1;
     }
 
+    prepareLuaClient();
+
     /* At this point whether this script was never seen before or if it was
      * already defined, we can call it. We have zero arguments and expect
      * a single return value. */
     err = lua_pcall(lua,0,1,-2);
+
+    resetLuaClient();
 
     /* Perform some cleanup that we need to do both on error and success. */
     if (delhook) lua_sethook(lua,NULL,0,0); /* Disable hook */
