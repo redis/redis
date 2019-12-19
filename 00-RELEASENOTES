@@ -1,16 +1,130 @@
-Hello! This file is just a placeholder, since this is the "unstable" branch
-of Redis, the place where all the development happens.
+Redis 6.0 release notes
+=======================
 
-There is no release notes for this branch, it gets forked into another branch
-every time there is a partial feature freeze in order to eventually create
-a new stable release.
+--------------------------------------------------------------------------------
+Upgrade urgency levels:
 
-Usually "unstable" is stable enough for you to use it in development environments
-however you should never use it in production environments. It is possible
-to download the latest stable release here:
+LOW:      No need to upgrade unless there are new features you want to use.
+MODERATE: Program an upgrade of the server, but it's not urgent.
+HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
+CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
+SECURITY: There are security fixes in the release.
+--------------------------------------------------------------------------------
 
-    http://download.redis.io/releases/redis-stable.tar.gz
+================================================================================
+Redis 6.0 RC1   Released Thu Dec 19 09:58:24 CEST 2019
+================================================================================
 
-More information is available at http://redis.io
+Upgrade urgency LOW: This is the first RC of Redis 6.
 
-Happy hacking!
+Introduction to the Redis 6 release
+===================================
+
+Redis 6 improves Redis in a number of key areas and is one of the largest
+Redis releases in the history of the project, so here we'll list only
+the biggest features in this release:
+
+* The modules system now has a number of new APIs that allow module authors
+  to make things otherwise not possible in the past. It is possible to
+  store arbitrary module private data in RDB files, to hook on different
+  server events, capture and rewrite commands executions, block clients on
+  keys, and so forth. 
+* The Redis active expire cycle was rewritten for much faster eviction of keys
+  that are already expired. Now the effort is tunable.
+* Redis now supports SSL on all channels.
+* ACL support, you can define users that can run only certain commands and/or
+  can only access only certain keys patterns.
+* Redis now supports a new protocol called RESP3, which returns more
+  semantical replies: new clients using this protocol can understand just
+  from the reply what type to return to the calling program.
+* There is server-side support for client-side caching of key values. This
+  feature is still experimental and will get more changes during the next
+  release candidates, but you can already test it and read about it here:
+  https://redis.io/topics/client-side-caching
+* Redis can now optionally use threads to handle I/O, allowing to serve
+  2 times as much operations per second in a single instance when
+  pipelining cannot be used.
+* Diskless replication is now supported even on replicas: a replica is now
+  able, under certain conditions the user can configure, to load the RDB
+  in the first synchronization directly from the socket to the memory.
+* Redis-benchmark now supports a Redis Cluster mode.
+* SRANDMEMBER and similar commands have a better distribution.
+* Redis-cli improvements.
+* Systemd support rewritten.
+* A Redis Cluster proxy was released here:
+  https://github.com/artix75/redis-cluster-proxy
+* A Disque module for Redis was released here:
+  https://github.com/antirez/disque-module
+
+Thanks to all the users and developers who made this release possible.
+We'll follow up with more RC releases, until the code looks production ready
+and we don't get reports of serious issues for a while.
+
+A special thank you for the amount of work put into this release
+(in decreasing number of commits, only listing contributors with more
+than a single commit) by:
+
+   685  antirez
+    81  zhaozhao.zz
+    76  Oran Agra
+    51  artix
+    28  Madelyn Olson
+    27  Yossi Gottlieb
+    15  David Carlier
+    14  Guy Benoish
+    14  Guy Korland
+    13  Itamar Haber
+     9  Angus Pearson
+     8  WuYunlong
+     8  yongman
+     7  vattezhang
+     7  Chris Lamb
+     5  Dvir Volk
+     5  meir@redislabs.com
+     5  chendianqiang
+     5  John Sully
+     4  dejun.xdj
+     4  Daniel Dai
+     4  Johannes Truschnigg
+     4  swilly22
+     3  Bruce Merry
+     3  filipecosta90
+     3  youjiali1995
+     2  James Rouzier
+     2  Andrey Bugaevskiy
+     2  Brad Solomon
+     2  Hamid Alaei
+     2  Michael Chaten
+     2  Steve Webster
+     2  Wander Hillen
+     2  Weiliang Li
+     2  Yuan Zhou
+     2  charsyam
+     2  hujie
+     2  jem
+     2  shenlongxing
+     2  valentino
+     2  zhudacai 00228490
+     2  喜欢兰花山丘
+
+Migrating from 5.0 to 6.0
+=========================
+
+Redis 6.0 is mostly a strict superset of 5.0, you should not have any problem
+upgrading your application from 5.0 to 6.0. However this is a list of small
+non-backward compatible changes introduced in the 6.0 release:
+
+* Nothing found yet.
+
+--------------------------------------------------------------------------------
+
+Credits: For each release, a list of changes with the relative author is
+provided. Where not specified the implementation and design is done by
+Salvatore Sanfilippo. Thanks to Redis Labs for making all this possible.
+Also many thanks to all the other contributors and the amazing community
+we have.
+
+Commit messages may contain additional credits.
+
+Enjoy,
+Salvatore
