@@ -50,6 +50,10 @@
 #include <lua.h>
 #include <signal.h>
 
+#ifdef HAVE_LIBSYSTEMD
+#include <systemd/sd-daemon.h>
+#endif
+
 typedef long long mstime_t; /* millisecond time type. */
 typedef long long ustime_t; /* microsecond time type. */
 
@@ -1544,6 +1548,7 @@ uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 void exitFromChild(int retcode);
 size_t redisPopcount(void *s, long count);
 void redisSetProcTitle(char *title);
+int redisCommunicateSystemd(const char *sd_notify_msg);
 
 /* networking.c -- Networking and Client related operations */
 client *createClient(connection *conn);
