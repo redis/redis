@@ -61,6 +61,77 @@ start_server {
         assert_equal [lindex $items 1 1] {item 2 value b}
     }
 
+    test {XADD adds into a stream, if EXPECTLAST value is equal to the last ID in the stream} {
+        r DEL mystream
+        r XADD mystream EXPECTLAST 0 0 1-0 item 1 value a
+        r XADD mystream EXPECTLAST 1-0 0 2-0 item 2 value b
+        assert_equal [r XLEN mystream] 2
+        set items [r XRANGE mystream - +]
+        assert_equal [lindex $items 0 1] {item 1 value a}
+        assert_equal [lindex $items 1 1] {item 2 value b}
+    }
+
+    test {XADD returns an error, if EXPECTLAST value differs from the last ID, and outstrip limit == 0} {
+        assert_error "ERR stale EXPECTLAST value" {r XADD mystream EXPECTLAST 0 0 * item 1 value a}
+        assert_error "ERR stale EXPECTLAST value" {r XADD mystream EXPECTLAST 3-0 0 * item 1 value a}
+        # should work also for an empty stream
+        assert_error "ERR stale EXPECTLAST value" {r XADD emptystream EXPECTLAST 0-1 0 * item 1 value a}
+        # nothing has been added to the stream
+        assert_equal [r XLEN mystream] 2
+    }
+
+    test {XADD returns an empty array, if EXPECTLAST value > last ID, and outstrip limit > 0} {
+        assert_equal [array size [r XADD mystream EXPECTLAST 2-1 1 3-0 item 3 value c]] 0
+        # nothing has been added to the stream
+        assert_equal [r XLEN mystream] 2
+    }
+
+    test {XADD returns an empty array, if the stream is empty, and outstrip limit != 0} {
+        assert_equal [array size [r XADD emptystream EXPECTLAST 0-1 1 * item 1 value a]] 0
+        assert_equal [array size [r XADD emptystream EXPECTLAST 0-1 -1 * item 1 value a]] 0
+        # nothing has been added to the stream
+        assert_equal [r XLEN mystream] 2
+    }
+
+    test {XADD returns an array of entries from stale EXPECTLAST's successor, if outstrip limit > 0} {
+        # adding a bit more entries ("given" section)
+        r XADD mystream 3-0 item 3 value c
+        r XADD mystream 4-0 item 4 value d
+        assert_equal [r XLEN mystream] 4
+
+        set res [r XADD mystream EXPECTLAST 1-0 2 5-0 item 5 value e]
+        assert_equal [llength $res] 2
+        assert_equal [lindex $res 0 1] {item 2 value b}
+        assert_equal [lindex $res 1 1] {item 3 value c}
+
+        set res [r XADD mystream EXPECTLAST 3-0 2 5-0 item 5 value e]
+        assert_equal [llength $res] 1
+        assert_equal [lindex $res 0 1] {item 4 value d}
+        # no more entries
+
+        # nothing has been added to the stream
+        assert_equal [r XLEN mystream] 4
+    }
+
+    test {XADD returns an array of entries from the last one to the first, but limited by (-outstrip), if outstrip limit < 0} {
+        set res [r XADD mystream EXPECTLAST 1-0 -2 5-0 item 5 value e]
+        assert_equal [llength $res] 2
+        assert_equal [lindex $res 0 1] {item 4 value d}
+        assert_equal [lindex $res 1 1] {item 3 value c}
+
+        set res [r XADD mystream EXPECTLAST 555-0 -2 5-0 item 5 value e]
+        assert_equal [llength $res] 2
+        assert_equal [lindex $res 0 1] {item 4 value d}
+        assert_equal [lindex $res 1 1] {item 3 value c}
+
+        set res [r XADD mystream EXPECTLAST 1-0 -222 5-0 item 5 value e]
+        # limited by stream size
+        assert_equal [llength $res] 4
+
+        # nothing has been added to the stream
+        assert_equal [r XLEN mystream] 4
+    }
+
     test {XADD IDs are incremental} {
         set id1 [r XADD mystream * item 1 value a]
         set id2 [r XADD mystream * item 2 value b]
