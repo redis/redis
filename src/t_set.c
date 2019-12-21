@@ -415,7 +415,7 @@ void spopWithCountCommand(client *c) {
 
     /* Make sure a key with the name inputted exists, and that it's type is
      * indeed a set. Otherwise, return nil */
-    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.null[c->resp]))
+    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.emptyset[c->resp]))
         == NULL || checkType(c,set,OBJ_SET)) return;
 
     /* If count is zero, serve an empty set ASAP to avoid special
