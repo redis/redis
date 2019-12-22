@@ -395,6 +395,7 @@ typedef struct RedisModuleCommandFilter RedisModuleCommandFilter;
 typedef struct RedisModuleInfoCtx RedisModuleInfoCtx;
 typedef struct RedisModuleServerInfoData RedisModuleServerInfoData;
 typedef struct RedisModuleScanCursor RedisModuleScanCursor;
+typedef struct RedisModuleUser RedisModuleUser;
 
 typedef int (*RedisModuleCmdFunc)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 typedef void (*RedisModuleDisconnectFunc)(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc);
@@ -414,6 +415,7 @@ typedef void (*RedisModuleForkDoneHandler) (int exitcode, int bysignal, void *us
 typedef void (*RedisModuleInfoFunc)(RedisModuleInfoCtx *ctx, int for_crash_report);
 typedef void (*RedisModuleScanCB)(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key, void *privdata);
 typedef void (*RedisModuleScanKeyCB)(RedisModuleKey *key, RedisModuleString *field, RedisModuleString *value, void *privdata);
+typedef void (*RedisModuleUserChangedFunc) (uint64_t client_id, void *privdata);
 
 #define REDISMODULE_TYPE_METHOD_VERSION 2
 typedef struct RedisModuleTypeMethods {
@@ -522,10 +524,11 @@ unsigned long long REDISMODULE_API_FUNC(RedisModule_GetClientId)(RedisModuleCtx 
 int REDISMODULE_API_FUNC(RedisModule_GetClientInfoById)(void *ci, uint64_t id);
 int REDISMODULE_API_FUNC(RedisModule_PublishMessage)(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleString *message);
 int REDISMODULE_API_FUNC(RedisModule_GetContextFlags)(RedisModuleCtx *ctx);
+int REDISMODULE_API_FUNC(RedisModule_AvoidReplicaTraffic)();
 void *REDISMODULE_API_FUNC(RedisModule_PoolAlloc)(RedisModuleCtx *ctx, size_t bytes);
 RedisModuleType *REDISMODULE_API_FUNC(RedisModule_CreateDataType)(RedisModuleCtx *ctx, const char *name, int encver, RedisModuleTypeMethods *typemethods);
 int REDISMODULE_API_FUNC(RedisModule_ModuleTypeSetValue)(RedisModuleKey *key, RedisModuleType *mt, void *value);
-void *REDISMODULE_API_FUNC(RedisModule_ModuleTypeReplaceValue)(RedisModuleKey *key, RedisModuleType *mt, void *new_value);
+int REDISMODULE_API_FUNC(RedisModule_ModuleTypeReplaceValue)(RedisModuleKey *key, RedisModuleType *mt, void *new_value, void **old_value);
 RedisModuleType *REDISMODULE_API_FUNC(RedisModule_ModuleTypeGetType)(RedisModuleKey *key);
 void *REDISMODULE_API_FUNC(RedisModule_ModuleTypeGetValue)(RedisModuleKey *key);
 int REDISMODULE_API_FUNC(RedisModule_IsIOError)(RedisModuleIO *io);
@@ -613,7 +616,6 @@ void REDISMODULE_API_FUNC(RedisModule_ScanCursorRestart)(RedisModuleScanCursor *
 void REDISMODULE_API_FUNC(RedisModule_ScanCursorDestroy)(RedisModuleScanCursor *cursor);
 int REDISMODULE_API_FUNC(RedisModule_Scan)(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleScanCB fn, void *privdata);
 int REDISMODULE_API_FUNC(RedisModule_ScanKey)(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleScanKeyCB fn, void *privdata);
-
 /* Experimental APIs */
 #ifdef REDISMODULE_EXPERIMENTAL_API
 #define REDISMODULE_EXPERIMENTAL_API_VERSION 3
@@ -660,6 +662,12 @@ int REDISMODULE_API_FUNC(RedisModule_ExitFromChild)(int retcode);
 int REDISMODULE_API_FUNC(RedisModule_KillForkChild)(int child_pid);
 float REDISMODULE_API_FUNC(RedisModule_GetUsedMemoryRatio)();
 size_t REDISMODULE_API_FUNC(RedisModule_MallocSize)(void* ptr);
+RedisModuleUser *REDISMODULE_API_FUNC(RedisModule_CreateModuleUser)(const char *name);
+void REDISMODULE_API_FUNC(RedisModule_FreeModuleUser)(RedisModuleUser *user);
+int REDISMODULE_API_FUNC(RedisModule_SetModuleUserACL)(RedisModuleUser *user, const char* acl);
+int REDISMODULE_API_FUNC(RedisModule_AuthenticateClientWithACLUser)(RedisModuleCtx *ctx, const char *name, size_t len, RedisModuleUserChangedFunc callback, void *privdata, uint64_t *client_id);
+int REDISMODULE_API_FUNC(RedisModule_AuthenticateClientWithUser)(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModuleUserChangedFunc callback, void *privdata, uint64_t *client_id);
+void REDISMODULE_API_FUNC(RedisModule_DeauthenticateAndCloseClient)(RedisModuleCtx *ctx, uint64_t client_id);
 #endif
 
 #define RedisModule_IsAOFClient(id) ((id) == UINT64_MAX)
@@ -753,6 +761,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(KeyAtPos);
     REDISMODULE_GET_API(GetClientId);
     REDISMODULE_GET_API(GetContextFlags);
+    REDISMODULE_GET_API(AvoidReplicaTraffic);
     REDISMODULE_GET_API(PoolAlloc);
     REDISMODULE_GET_API(CreateDataType);
     REDISMODULE_GET_API(ModuleTypeSetValue);
@@ -891,6 +900,12 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(KillForkChild);
     REDISMODULE_GET_API(GetUsedMemoryRatio);
     REDISMODULE_GET_API(MallocSize);
+    REDISMODULE_GET_API(CreateModuleUser);
+    REDISMODULE_GET_API(FreeModuleUser);
+    REDISMODULE_GET_API(SetModuleUserACL);
+    REDISMODULE_GET_API(DeauthenticateAndCloseClient);
+    REDISMODULE_GET_API(AuthenticateClientWithACLUser);
+    REDISMODULE_GET_API(AuthenticateClientWithUser);
 #endif
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;

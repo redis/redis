@@ -106,11 +106,13 @@ void discardCommand(client *c) {
 /* Send a MULTI command to all the slaves and AOF file. Check the execCommand
  * implementation for more information. */
 void execCommandPropagateMulti(client *c) {
-    robj *multistring = createStringObject("MULTI",5);
-
-    propagate(server.multiCommand,c->db->id,&multistring,1,
+    propagate(server.multiCommand,c->db->id,&shared.multi,1,
               PROPAGATE_AOF|PROPAGATE_REPL);
-    decrRefCount(multistring);
+}
+
+void execCommandPropagateExec(client *c) {
+    propagate(server.execCommand,c->db->id,&shared.exec,1,
+              PROPAGATE_AOF|PROPAGATE_REPL);
 }
 
 void execCommand(client *c) {

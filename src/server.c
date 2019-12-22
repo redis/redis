@@ -629,7 +629,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"auth",authCommand,-2,
-     "no-script ok-loading ok-stale fast no-monitor no-slowlog @connection",
+     "no-auth no-script ok-loading ok-stale fast no-monitor no-slowlog @connection",
      0,NULL,0,0,0,0,0,0},
 
     /* We don't allow PING during loading since in Redis PING is used as
@@ -824,7 +824,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"hello",helloCommand,-2,
-     "no-script fast no-monitor no-slowlog @connection",
+     "no-auth no-script fast no-monitor no-slowlog @connection",
      0,NULL,0,0,0,0,0,0},
 
     /* EVAL can modify the dataset, however it is not flagged as a write
@@ -999,7 +999,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"acl",aclCommand,-2,
-     "admin no-script ok-loading ok-stale",
+     "admin no-script no-slowlog ok-loading ok-stale",
      0,NULL,0,0,0,0,0,0}
 };
 
@@ -1942,7 +1942,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Show information about connected clients */
     if (!server.sentinel_mode) {
         run_with_period(5000) {
-            serverLog(LL_VERBOSE,
+            serverLog(LL_DEBUG,
                 "%lu clients connected (%lu replicas), %zu bytes in use",
                 listLength(server.clients)-listLength(server.slaves),
                 listLength(server.slaves),
@@ -2244,6 +2244,8 @@ void createSharedObjects(void) {
     shared.rpoplpush = createStringObject("RPOPLPUSH",9);
     shared.zpopmin = createStringObject("ZPOPMIN",7);
     shared.zpopmax = createStringObject("ZPOPMAX",7);
+    shared.multi = createStringObject("MULTI",5);
+    shared.exec = createStringObject("EXEC",4);
     for (j = 0; j < OBJ_SHARED_INTEGERS; j++) {
         shared.integers[j] =
             makeObjectShared(createObject(OBJ_STRING,(void*)(long)j));
@@ -2271,53 +2273,25 @@ void initServerConfig(void) {
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';
     changeReplicationId();
     clearReplicationId2();
+    server.hz = CONFIG_DEFAULT_HZ; /* Initialize it ASAP, even if it may get
+                                      updated later after loading the config.
+                                      This value may be used before the server
+                                      is initialized. */
     server.timezone = getTimeZone(); /* Initialized by tzset(). */
     server.configfile = NULL;
     server.executable = NULL;
-    server.hz = server.config_hz = CONFIG_DEFAULT_HZ;
-    server.dynamic_hz = CONFIG_DEFAULT_DYNAMIC_HZ;
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
-    server.port = CONFIG_DEFAULT_SERVER_PORT;
-    server.tls_port = CONFIG_DEFAULT_SERVER_TLS_PORT;
-    server.tcp_backlog = CONFIG_DEFAULT_TCP_BACKLOG;
     server.bindaddr_count = 0;
-    server.unixsocket = NULL;
     server.unixsocketperm = CONFIG_DEFAULT_UNIX_SOCKET_PERM;
     server.ipfd_count = 0;
     server.tlsfd_count = 0;
     server.sofd = -1;
-    server.protected_mode = CONFIG_DEFAULT_PROTECTED_MODE;
-    server.gopher_enabled = CONFIG_DEFAULT_GOPHER_ENABLED;
-    server.dbnum = CONFIG_DEFAULT_DBNUM;
-    server.verbosity = CONFIG_DEFAULT_VERBOSITY;
-    server.maxidletime = CONFIG_DEFAULT_CLIENT_TIMEOUT;
-    server.tcpkeepalive = CONFIG_DEFAULT_TCP_KEEPALIVE;
     server.active_expire_enabled = 1;
-    server.active_expire_effort = CONFIG_DEFAULT_ACTIVE_EXPIRE_EFFORT;
-    server.jemalloc_bg_thread = 1;
-    server.active_defrag_enabled = CONFIG_DEFAULT_ACTIVE_DEFRAG;
-    server.active_defrag_ignore_bytes = CONFIG_DEFAULT_DEFRAG_IGNORE_BYTES;
-    server.active_defrag_threshold_lower = CONFIG_DEFAULT_DEFRAG_THRESHOLD_LOWER;
-    server.active_defrag_threshold_upper = CONFIG_DEFAULT_DEFRAG_THRESHOLD_UPPER;
-    server.active_defrag_cycle_min = CONFIG_DEFAULT_DEFRAG_CYCLE_MIN;
-    server.active_defrag_cycle_max = CONFIG_DEFAULT_DEFRAG_CYCLE_MAX;
-    server.active_defrag_max_scan_fields = CONFIG_DEFAULT_DEFRAG_MAX_SCAN_FIELDS;
-    server.proto_max_bulk_len = CONFIG_DEFAULT_PROTO_MAX_BULK_LEN;
     server.client_max_querybuf_len = PROTO_MAX_QUERYBUF_LEN;
     server.saveparams = NULL;
     server.loading = 0;
     server.logfile = zstrdup(CONFIG_DEFAULT_LOGFILE);
-    server.syslog_enabled = CONFIG_DEFAULT_SYSLOG_ENABLED;
-    server.syslog_ident = zstrdup(CONFIG_DEFAULT_SYSLOG_IDENT);
-    server.syslog_facility = LOG_LOCAL0;
-    server.daemonize = CONFIG_DEFAULT_DAEMONIZE;
-    server.supervised = 0;
-    server.supervised_mode = SUPERVISED_NONE;
     server.aof_state = AOF_OFF;
-    server.aof_fsync = CONFIG_DEFAULT_AOF_FSYNC;
-    server.aof_no_fsync_on_rewrite = CONFIG_DEFAULT_AOF_NO_FSYNC_ON_REWRITE;
-    server.aof_rewrite_perc = AOF_REWRITE_PERC;
-    server.aof_rewrite_min_size = AOF_REWRITE_MIN_SIZE;
     server.aof_rewrite_base_size = 0;
     server.aof_rewrite_scheduled = 0;
     server.aof_flush_sleep = 0;
@@ -2329,63 +2303,18 @@ void initServerConfig(void) {
     server.aof_fd = -1;
     server.aof_selected_db = -1; /* Make sure the first time will not match */
     server.aof_flush_postponed_start = 0;
-    server.aof_rewrite_incremental_fsync = CONFIG_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC;
-    server.rdb_save_incremental_fsync = CONFIG_DEFAULT_RDB_SAVE_INCREMENTAL_FSYNC;
-    server.rdb_key_save_delay = CONFIG_DEFAULT_RDB_KEY_SAVE_DELAY;
-    server.key_load_delay = CONFIG_DEFAULT_KEY_LOAD_DELAY;
-    server.aof_load_truncated = CONFIG_DEFAULT_AOF_LOAD_TRUNCATED;
-    server.aof_use_rdb_preamble = CONFIG_DEFAULT_AOF_USE_RDB_PREAMBLE;
     server.pidfile = NULL;
-    server.rdb_filename = zstrdup(CONFIG_DEFAULT_RDB_FILENAME);
-    server.aof_filename = zstrdup(CONFIG_DEFAULT_AOF_FILENAME);
-    server.acl_filename = zstrdup(CONFIG_DEFAULT_ACL_FILENAME);
-    server.rdb_compression = CONFIG_DEFAULT_RDB_COMPRESSION;
-    server.rdb_checksum = CONFIG_DEFAULT_RDB_CHECKSUM;
-    server.stop_writes_on_bgsave_err = CONFIG_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR;
-    server.activerehashing = CONFIG_DEFAULT_ACTIVE_REHASHING;
     server.active_defrag_running = 0;
     server.notify_keyspace_events = 0;
-    server.maxclients = CONFIG_DEFAULT_MAX_CLIENTS;
     server.blocked_clients = 0;
     memset(server.blocked_clients_by_type,0,
            sizeof(server.blocked_clients_by_type));
-    server.maxmemory = CONFIG_DEFAULT_MAXMEMORY;
-    server.maxmemory_policy = CONFIG_DEFAULT_MAXMEMORY_POLICY;
-    server.maxmemory_samples = CONFIG_DEFAULT_MAXMEMORY_SAMPLES;
-    server.lfu_log_factor = CONFIG_DEFAULT_LFU_LOG_FACTOR;
-    server.lfu_decay_time = CONFIG_DEFAULT_LFU_DECAY_TIME;
-    server.hash_max_ziplist_entries = OBJ_HASH_MAX_ZIPLIST_ENTRIES;
-    server.hash_max_ziplist_value = OBJ_HASH_MAX_ZIPLIST_VALUE;
-    server.list_max_ziplist_size = OBJ_LIST_MAX_ZIPLIST_SIZE;
-    server.list_compress_depth = OBJ_LIST_COMPRESS_DEPTH;
-    server.set_max_intset_entries = OBJ_SET_MAX_INTSET_ENTRIES;
-    server.zset_max_ziplist_entries = OBJ_ZSET_MAX_ZIPLIST_ENTRIES;
-    server.zset_max_ziplist_value = OBJ_ZSET_MAX_ZIPLIST_VALUE;
-    server.hll_sparse_max_bytes = CONFIG_DEFAULT_HLL_SPARSE_MAX_BYTES;
-    server.stream_node_max_bytes = OBJ_STREAM_NODE_MAX_BYTES;
-    server.stream_node_max_entries = OBJ_STREAM_NODE_MAX_ENTRIES;
     server.shutdown_asap = 0;
-    server.cluster_enabled = 0;
-    server.cluster_node_timeout = CLUSTER_DEFAULT_NODE_TIMEOUT;
-    server.cluster_migration_barrier = CLUSTER_DEFAULT_MIGRATION_BARRIER;
-    server.cluster_slave_validity_factor = CLUSTER_DEFAULT_SLAVE_VALIDITY;
-    server.cluster_require_full_coverage = CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE;
-    server.cluster_slave_no_failover = CLUSTER_DEFAULT_SLAVE_NO_FAILOVER;
     server.cluster_configfile = zstrdup(CONFIG_DEFAULT_CLUSTER_CONFIG_FILE);
-    server.cluster_announce_ip = CONFIG_DEFAULT_CLUSTER_ANNOUNCE_IP;
-    server.cluster_announce_port = CONFIG_DEFAULT_CLUSTER_ANNOUNCE_PORT;
-    server.cluster_announce_bus_port = CONFIG_DEFAULT_CLUSTER_ANNOUNCE_BUS_PORT;
     server.cluster_module_flags = CLUSTER_MODULE_FLAG_NONE;
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType,NULL);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.loading_process_events_interval_bytes = (1024*1024*2);
-    server.lazyfree_lazy_eviction = CONFIG_DEFAULT_LAZYFREE_LAZY_EVICTION;
-    server.lazyfree_lazy_expire = CONFIG_DEFAULT_LAZYFREE_LAZY_EXPIRE;
-    server.lazyfree_lazy_server_del = CONFIG_DEFAULT_LAZYFREE_LAZY_SERVER_DEL;
-    server.always_show_logo = CONFIG_DEFAULT_ALWAYS_SHOW_LOGO;
-    server.lua_time_limit = LUA_SCRIPT_TIME_LIMIT;
-    server.io_threads_num = CONFIG_DEFAULT_IO_THREADS_NUM;
-    server.io_threads_do_reads = CONFIG_DEFAULT_IO_THREADS_DO_READS;
 
     server.lruclock = getLRUClock();
     resetServerSaveParams();
@@ -2406,31 +2335,14 @@ void initServerConfig(void) {
     server.repl_transfer_fd = -1;
     server.repl_transfer_s = NULL;
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
-    server.repl_serve_stale_data = CONFIG_DEFAULT_SLAVE_SERVE_STALE_DATA;
-    server.repl_slave_ro = CONFIG_DEFAULT_SLAVE_READ_ONLY;
-    server.repl_slave_ignore_maxmemory = CONFIG_DEFAULT_SLAVE_IGNORE_MAXMEMORY;
-    server.repl_slave_lazy_flush = CONFIG_DEFAULT_SLAVE_LAZY_FLUSH;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
-    server.repl_disable_tcp_nodelay = CONFIG_DEFAULT_REPL_DISABLE_TCP_NODELAY;
-    server.repl_diskless_sync = CONFIG_DEFAULT_REPL_DISKLESS_SYNC;
-    server.repl_diskless_load = CONFIG_DEFAULT_REPL_DISKLESS_LOAD;
-    server.repl_diskless_sync_delay = CONFIG_DEFAULT_REPL_DISKLESS_SYNC_DELAY;
-    server.repl_ping_slave_period = CONFIG_DEFAULT_REPL_PING_SLAVE_PERIOD;
-    server.repl_timeout = CONFIG_DEFAULT_REPL_TIMEOUT;
-    server.repl_min_slaves_to_write = CONFIG_DEFAULT_MIN_SLAVES_TO_WRITE;
-    server.repl_min_slaves_max_lag = CONFIG_DEFAULT_MIN_SLAVES_MAX_LAG;
-    server.slave_priority = CONFIG_DEFAULT_SLAVE_PRIORITY;
-    server.slave_announce_ip = CONFIG_DEFAULT_SLAVE_ANNOUNCE_IP;
-    server.slave_announce_port = CONFIG_DEFAULT_SLAVE_ANNOUNCE_PORT;
     server.master_repl_offset = 0;
 
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
-    server.repl_backlog_size = CONFIG_DEFAULT_REPL_BACKLOG_SIZE;
     server.repl_backlog_histlen = 0;
     server.repl_backlog_idx = 0;
     server.repl_backlog_off = 0;
-    server.repl_backlog_time_limit = CONFIG_DEFAULT_REPL_BACKLOG_TIME_LIMIT;
     server.repl_no_slaves_since = time(NULL);
 
     /* Client output buffer limits */
@@ -2462,16 +2374,7 @@ void initServerConfig(void) {
     server.pexpireCommand = lookupCommandByCString("pexpire");
     server.xclaimCommand = lookupCommandByCString("xclaim");
     server.xgroupCommand = lookupCommandByCString("xgroup");
-
-    /* Slow log */
-    server.slowlog_log_slower_than = CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN;
-    server.slowlog_max_len = CONFIG_DEFAULT_SLOWLOG_MAX_LEN;
-
-    /* Latency monitor */
-    server.latency_monitor_threshold = CONFIG_DEFAULT_LATENCY_MONITOR_THRESHOLD;
-
-    /* Tracking. */
-    server.tracking_table_max_fill = CONFIG_DEFAULT_TRACKING_TABLE_MAX_FILL;
+    server.rpoplpushCommand = lookupCommandByCString("rpoplpush");
 
     /* Debugging */
     server.assert_failed = "<no assertion failed>";
@@ -2485,6 +2388,8 @@ void initServerConfig(void) {
      * script to the slave / AOF. This is the new way starting from
      * Redis 5. However it is possible to revert it via redis.conf. */
     server.lua_always_replicate_commands = 1;
+
+    initConfigValues();
 }
 
 extern char **environ;
@@ -2784,6 +2689,8 @@ void initServer(void) {
             server.syslog_facility);
     }
 
+    /* Initialization after setting defaults from the config system. */
+    server.aof_state = server.aof_enabled ? AOF_ON : AOF_OFF;
     server.hz = server.config_hz;
     server.pid = getpid();
     server.current_client = NULL;
@@ -3021,6 +2928,8 @@ int populateCommandTableParseFlags(struct redisCommand *c, char *strflags) {
             c->flags |= CMD_ASKING;
         } else if (!strcasecmp(flag,"fast")) {
             c->flags |= CMD_FAST | CMD_CATEGORY_FAST;
+        } else if (!strcasecmp(flag,"no-auth")) {
+            c->flags |= CMD_NO_AUTH;
         } else {
             /* Parse ACL categories here if the flag name starts with @. */
             uint64_t catflag;
@@ -3366,6 +3275,18 @@ void call(client *c, int flags) {
         redisOp *rop;
 
         if (flags & CMD_CALL_PROPAGATE) {
+            int multi_emitted = 0;
+            /* Wrap the commands in server.also_propagate array,
+             * but don't wrap it if we are already in MULIT context,
+             * in case the nested MULIT/EXEC.
+             *
+             * And if the array contains only one command, no need to
+             * wrap it, since the single command is atomic. */
+            if (server.also_propagate.numops > 1 && !(c->flags & CLIENT_MULTI)) {
+                execCommandPropagateMulti(c);
+                multi_emitted = 1;
+            }
+
             for (j = 0; j < server.also_propagate.numops; j++) {
                 rop = &server.also_propagate.ops[j];
                 int target = rop->target;
@@ -3374,6 +3295,10 @@ void call(client *c, int flags) {
                 if (!(flags&CMD_CALL_PROPAGATE_REPL)) target &= ~PROPAGATE_REPL;
                 if (target)
                     propagate(rop->cmd,rop->dbid,rop->argv,rop->argc,target);
+            }
+
+            if (multi_emitted) {
+                execCommandPropagateExec(c);
             }
         }
         redisOpArrayFree(&server.also_propagate);
@@ -3441,8 +3366,9 @@ int processCommand(client *c) {
                            DefaultUser->flags & USER_FLAG_DISABLED) &&
                         !c->authenticated;
     if (auth_required) {
-        /* AUTH and HELLO are valid even in non authenticated state. */
-        if (c->cmd->proc != authCommand && c->cmd->proc != helloCommand) {
+        /* AUTH and HELLO and no auth modules are valid even in
+         * non-authenticated state. */
+        if (!(c->cmd->flags & CMD_NO_AUTH)) {
             flagTransaction(c);
             addReply(c,shared.noautherr);
             return C_OK;
@@ -3651,6 +3577,8 @@ int prepareForShutdown(int flags) {
     int nosave = flags & SHUTDOWN_NOSAVE;
 
     serverLog(LL_WARNING,"User requested shutdown...");
+    if (server.supervised_mode == SUPERVISED_SYSTEMD)
+        redisCommunicateSystemd("STOPPING=1\n");
 
     /* Kill all the Lua debugger forked sessions. */
     ldbKillForkedSessions();
@@ -3692,6 +3620,8 @@ int prepareForShutdown(int flags) {
     /* Create a new RDB file before exiting. */
     if ((server.saveparamslen > 0 && !nosave) || save) {
         serverLog(LL_NOTICE,"Saving the final RDB snapshot before exiting.");
+        if (server.supervised_mode == SUPERVISED_SYSTEMD)
+            redisCommunicateSystemd("STATUS=Saving the final RDB snapshot\n");
         /* Snapshotting. Perform a SYNC SAVE and exit */
         rdbSaveInfo rsi, *rsiptr;
         rsiptr = rdbPopulateSaveInfo(&rsi);
@@ -3702,6 +3632,8 @@ int prepareForShutdown(int flags) {
              * saving aborted, handling special stuff like slaves pending for
              * synchronization... */
             serverLog(LL_WARNING,"Error trying to save the DB, can't exit.");
+            if (server.supervised_mode == SUPERVISED_SYSTEMD)
+                redisCommunicateSystemd("STATUS=Error trying to save the DB, can't exit.\n");
             return C_ERR;
         }
     }
@@ -4867,61 +4799,19 @@ int redisSupervisedUpstart(void) {
     return 1;
 }
 
-int redisSupervisedSystemd(void) {
+int redisCommunicateSystemd(const char *sd_notify_msg) {
     const char *notify_socket = getenv("NOTIFY_SOCKET");
-    int fd = 1;
-    struct sockaddr_un su;
-    struct iovec iov;
-    struct msghdr hdr;
-    int sendto_flags = 0;
-
     if (!notify_socket) {
         serverLog(LL_WARNING,
                 "systemd supervision requested, but NOTIFY_SOCKET not found");
-        return 0;
     }
 
-    if ((strchr("@/", notify_socket[0])) == NULL || strlen(notify_socket) < 2) {
-        return 0;
-    }
-
-    serverLog(LL_NOTICE, "supervised by systemd, will signal readiness");
-    if ((fd = socket(AF_UNIX, SOCK_DGRAM, 0)) == -1) {
-        serverLog(LL_WARNING,
-                "Can't connect to systemd socket %s", notify_socket);
-        return 0;
-    }
-
-    memset(&su, 0, sizeof(su));
-    su.sun_family = AF_UNIX;
-    strncpy (su.sun_path, notify_socket, sizeof(su.sun_path) -1);
-    su.sun_path[sizeof(su.sun_path) - 1] = '\0';
-
-    if (notify_socket[0] == '@')
-        su.sun_path[0] = '\0';
-
-    memset(&iov, 0, sizeof(iov));
-    iov.iov_base = "READY=1";
-    iov.iov_len = strlen("READY=1");
-
-    memset(&hdr, 0, sizeof(hdr));
-    hdr.msg_name = &su;
-    hdr.msg_namelen = offsetof(struct sockaddr_un, sun_path) +
-        strlen(notify_socket);
-    hdr.msg_iov = &iov;
-    hdr.msg_iovlen = 1;
-
-    unsetenv("NOTIFY_SOCKET");
-#ifdef HAVE_MSG_NOSIGNAL
-    sendto_flags |= MSG_NOSIGNAL;
-#endif
-    if (sendmsg(fd, &hdr, sendto_flags) < 0) {
-        serverLog(LL_WARNING, "Can't send notification to systemd");
-        close(fd);
-        return 0;
-    }
-    close(fd);
-    return 1;
+    #ifdef HAVE_LIBSYSTEMD
+    (void) sd_notify(0, sd_notify_msg);
+    #else
+    UNUSED(sd_notify_msg);
+    #endif
+    return 0;
 }
 
 int redisIsSupervised(int mode) {
@@ -4932,12 +4822,17 @@ int redisIsSupervised(int mode) {
         if (upstart_job) {
             redisSupervisedUpstart();
         } else if (notify_socket) {
-            redisSupervisedSystemd();
+            server.supervised_mode = SUPERVISED_SYSTEMD;
+            serverLog(LL_WARNING,
+                "WARNING auto-supervised by systemd - you MUST set appropriate values for TimeoutStartSec and TimeoutStopSec in your service unit.");
+            return redisCommunicateSystemd("STATUS=Redis is loading...\n");
         }
     } else if (mode == SUPERVISED_UPSTART) {
         return redisSupervisedUpstart();
     } else if (mode == SUPERVISED_SYSTEMD) {
-        return redisSupervisedSystemd();
+        serverLog(LL_WARNING,
+            "WARNING supervised by systemd - you MUST set appropriate values for TimeoutStartSec and TimeoutStopSec in your service unit.");
+        return redisCommunicateSystemd("STATUS=Redis is loading...\n");
     }
 
     return 0;
@@ -5130,6 +5025,14 @@ int main(int argc, char **argv) {
             serverLog(LL_NOTICE,"Ready to accept connections");
         if (server.sofd > 0)
             serverLog(LL_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);
+        if (server.supervised_mode == SUPERVISED_SYSTEMD) {
+            if (!server.masterhost) {
+                redisCommunicateSystemd("STATUS=Ready to accept connections\n");
+                redisCommunicateSystemd("READY=1\n");
+            } else {
+                redisCommunicateSystemd("STATUS=Waiting for MASTER <-> REPLICA sync\n");
+            }
+        }
     } else {
         InitServerLast();
         sentinelIsRunning();

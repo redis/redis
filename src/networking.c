@@ -154,6 +154,9 @@ client *createClient(connection *conn) {
     c->peerid = NULL;
     c->client_list_node = NULL;
     c->client_tracking_redirection = 0;
+    c->auth_callback = NULL;
+    c->auth_callback_privdata = NULL;
+    c->auth_module = NULL;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
     if (conn) linkClient(c);
@@ -1050,6 +1053,9 @@ void freeClient(client *c) {
                               REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED,
                               c);
     }
+
+    /* Notify module system that this client auth status changed. */
+    moduleNotifyUserChanged(c);
 
     /* If it is our master that's beging disconnected we should make sure
      * to cache the state to try a partial resynchronization later.

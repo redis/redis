@@ -32,6 +32,7 @@ OPT=$(OPTIMIZATION)
 PREFIX?=/usr/local
 INSTALL_BIN=$(PREFIX)/bin
 INSTALL=install
+PKG_CONFIG?=pkg-config
 
 # Default allocator defaults to Jemalloc if it's not an ARM
 MALLOC=libc
@@ -139,6 +140,30 @@ endif
 endif
 # Include paths to dependencies
 FINAL_CFLAGS+= -I../deps/hiredis -I../deps/linenoise -I../deps/lua/src
+
+# Determine systemd support and/or build preference (defaulting to auto-detection)
+BUILD_WITH_SYSTEMD=no
+# If 'USE_SYSTEMD' in the environment is neither "no" nor "yes", try to
+# auto-detect libsystemd's presence and link accordingly.
+ifneq ($(USE_SYSTEMD),no)
+	LIBSYSTEMD_PKGCONFIG := $(shell $(PKG_CONFIG) --exists libsystemd && echo $$?)
+# If libsystemd cannot be detected, continue building without support for it
+# (unless a later check tells us otherwise)
+ifeq ($(LIBSYSTEMD_PKGCONFIG),0)
+	BUILD_WITH_SYSTEMD=yes
+endif
+endif
+ifeq ($(USE_SYSTEMD),yes)
+ifneq ($(LIBSYSTEMD_PKGCONFIG),0)
+$(error USE_SYSTEMD is set to "$(USE_SYSTEMD)", but $(PKG_CONFIG) cannot find libsystemd)
+endif
+# Force building with libsystemd
+	BUILD_WITH_SYSTEMD=yes
+endif
+ifeq ($(BUILD_WITH_SYSTEMD),yes)
+	FINAL_LIBS+=$(shell $(PKG_CONFIG) --libs libsystemd)
+	FINAL_CFLAGS+= -DHAVE_LIBSYSTEMD
+endif
 
 ifeq ($(MALLOC),tcmalloc)
 	FINAL_CFLAGS+= -DUSE_TCMALLOC
