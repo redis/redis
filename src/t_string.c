@@ -84,7 +84,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         addReply(c, abort_reply ? abort_reply : shared.null[c->resp]);
         return;
     }
-    genericSetKey(c->db,key,val,flags & OBJ_SET_KEEPTTL);
+    genericSetKey(c->db,key,val,flags & OBJ_SET_KEEPTTL,1);
     server.dirty++;
     if (expire) setExpire(c,c->db,key,mstime()+milliseconds);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
