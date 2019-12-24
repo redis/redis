@@ -2850,7 +2850,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
  *
  * Example of REDISMODULE_HASH_CFIELDS:
  *
- *      char *username, *hashedpass;
+ *      RedisModuleString *username, *hashedpass;
  *      RedisModule_HashGet(mykey,REDISMODULE_HASH_CFIELDS,"username",&username,"hp",&hashedpass, NULL);
  *
  * Example of REDISMODULE_HASH_EXISTS:
