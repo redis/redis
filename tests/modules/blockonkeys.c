@@ -172,13 +172,13 @@ int bpopgt_reply_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
     RedisModuleString *keyname = RedisModule_GetBlockedClientReadyKey(ctx);
-    long long gt = (long long)RedisModule_GetBlockedClientPrivateData(ctx);
+    long long *pgt = RedisModule_GetBlockedClientPrivateData(ctx);
 
     fsl_t *fsl;
     if (!get_fsl(ctx, keyname, REDISMODULE_READ, 0, &fsl, 0))
         return REDISMODULE_ERR;
 
-    if (!fsl || fsl->list[fsl->length-1] <= gt)
+    if (!fsl || fsl->list[fsl->length-1] <= *pgt)
         return REDISMODULE_ERR;
 
     RedisModule_ReplyWithLongLong(ctx, fsl->list[--fsl->length]);
@@ -192,10 +192,8 @@ int bpopgt_timeout_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 }
 
 void bpopgt_free_privdata(RedisModuleCtx *ctx, void *privdata) {
-    /* Nothing to do because privdata is actually a 'long long',
-     * not a pointer to the heap */
     REDISMODULE_NOT_USED(ctx);
-    REDISMODULE_NOT_USED(privdata);
+    RedisModule_Free(privdata);
 }
 
 /* FSL.BPOPGT <key> <gt> <timeout> - Block clients until list has an element greater than <gt>.
@@ -217,9 +215,12 @@ int fsl_bpopgt(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return REDISMODULE_OK;
 
     if (!fsl || fsl->list[fsl->length-1] <= gt) {
+        /* We use malloc so the tests in blockedonkeys.tcl can check for memory leaks */
+        long long *pgt = RedisModule_Alloc(sizeof(long long));
+        *pgt = gt;
         /* Key is empty or has <2 elements, we must block */
         RedisModule_BlockClientOnKeys(ctx, bpopgt_reply_callback, bpopgt_timeout_callback,
-                                      bpopgt_free_privdata, timeout, &argv[1], 1, (void*)gt);
+                                      bpopgt_free_privdata, timeout, &argv[1], 1, pgt);
     } else {
         RedisModule_ReplyWithLongLong(ctx, fsl->list[--fsl->length]);
     }

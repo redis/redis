@@ -4271,6 +4271,15 @@ void unblockClientFromModule(client *c) {
         moduleFreeContext(&ctx);
     }
 
+    /* If we made it here and client is still blocked it means that the command
+     * timed-out, client was killed or disconnected and disconnect_callback was
+     * not implemented (or it was, but RM_UnblockClient was not called from
+     * within it, as it should).
+     * We must call moduleUnblockClient in order to free privdata and
+     * RedisModuleBlockedClient */
+    if (!bc->unblocked)
+        moduleUnblockClient(c);
+
     bc->client = NULL;
     /* Reset the client for a new query since, for blocking commands implemented
      * into modules, we do not it immediately after the command returns (and
