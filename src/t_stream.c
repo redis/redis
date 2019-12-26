@@ -67,6 +67,21 @@ void freeStream(stream *s) {
     zfree(s);
 }
 
+/* Set 'id' to be its successor streamID */
+void streamIncrID(streamID *id) {
+    if (id->seq == UINT64_MAX) {
+        if (id->ms == UINT64_MAX) {
+            /* Special case where 'id' is the last possible streamID... */
+            id->ms = id->seq = 0;
+        } else {
+            id->ms++;
+            id->seq = 0;
+        }
+    } else {
+        id->seq++;
+    }
+}
+
 /* Generate the next stream item ID given the previous one. If the current
  * milliseconds Unix time is greater than the previous one, just use this
  * as time part and start with sequence part of zero. Otherwise we use the
@@ -77,8 +92,8 @@ void streamNextID(streamID *last_id, streamID *new_id) {
         new_id->ms = ms;
         new_id->seq = 0;
     } else {
-        new_id->ms = last_id->ms;
-        new_id->seq = last_id->seq+1;
+        *new_id = *last_id;
+        streamIncrID(new_id);
     }
 }
 
@@ -1233,6 +1248,13 @@ void xaddCommand(client *c) {
     if ((o = streamTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
     s = o->ptr;
 
+    /* Return ASAP if the stream has reached the last possible ID */
+    if (s->last_id.ms == UINT64_MAX && s->last_id.seq == UINT64_MAX) {
+        addReplyError(c,"The stream has exhausted the last possible ID, "
+                        "unable to add more items");
+        return;
+    }
+
     /* Append using the low level function and return the ID. */
     if (streamAppendItem(s,c->argv+field_pos,(c->argc-field_pos)/2,
         &id, id_given ? &id : NULL)
@@ -1521,7 +1543,7 @@ void xreadCommand(client *c) {
              * so start from the next ID, since we want only messages with
              * IDs greater than start. */
             streamID start = *gt;
-            start.seq++; /* uint64_t can't overflow in this context. */
+            streamIncrID(&start);
 
             /* Emit the two elements sub-array consisting of the name
              * of the stream and the data we extracted from it. */

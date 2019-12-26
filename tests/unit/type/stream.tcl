@@ -328,6 +328,33 @@ start_server {
 
         assert_equal [r xrevrange teststream2 1234567891245 -] {{1234567891240-0 {key1 value2}} {1234567891230-0 {key1 value1}}}
     }
+
+    test {XREAD streamID edge (no-blocking)} {
+        r del x
+        r XADD x 1-1 f v
+        r XADD x 1-18446744073709551615 f v
+        r XADD x 2-1 f v
+        set res [r XREAD BLOCK 0 STREAMS x 1-18446744073709551615]
+        assert {[lindex $res 0 1 0] == {2-1 {f v}}}
+    }
+
+    test {XREAD streamID edge (blocking)} {
+        r del x
+        set rd [redis_deferring_client]
+        $rd XREAD BLOCK 0 STREAMS x 1-18446744073709551615
+        r XADD x 1-1 f v
+        r XADD x 1-18446744073709551615 f v
+        r XADD x 2-1 f v
+        set res [$rd read]
+        assert {[lindex $res 0 1 0] == {2-1 {f v}}}
+    }
+
+    test {XADD streamID edge} {
+        r del x
+        r XADD x 2577343934890-18446744073709551615 f v ;# we need the timestamp to be in the future
+        r XADD x * f2 v2
+        assert_equal [r XRANGE x - +] {{2577343934890-18446744073709551615 {f v}} {2577343934891-0 {f2 v2}}}
+    }
 }
 
 start_server {tags {"stream"} overrides {appendonly yes}} {
