@@ -388,7 +388,7 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
 
             if (streamCompareID(&s->last_id, gt) > 0) {
                 streamID start = *gt;
-                start.seq++; /* Can't overflow, it's an uint64_t */
+                streamIncrID(&start);
 
                 /* Lookup the consumer for the group, if any. */
                 streamConsumer *consumer = NULL;
