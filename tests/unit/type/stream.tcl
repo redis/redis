@@ -191,6 +191,17 @@ start_server {
         assert {[lindex $res 0 1 0 1] eq {old abcd1234}}
     }
 
+    test {Blocking XREAD will not reply with an empty array} {
+        r del s1
+        r XADD s1 666 f v
+        r XADD s1 667 f2 v2
+        r XDEL s1 667
+        set rd [redis_deferring_client]
+        $rd XREAD BLOCK 10 STREAMS s1 666
+        after 20
+        assert {[$rd read] == {}} ;# before the fix, client didn't even block, but was served synchronously with {s1 {}}
+    }
+
     test "XREAD: XADD + DEL should not awake client" {
         set rd [redis_deferring_client]
         r del s1
