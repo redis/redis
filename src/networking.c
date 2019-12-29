@@ -1998,7 +1998,6 @@ int clientSetNameOrReply(client *c, robj *name) {
     if (len == 0) {
         if (c->name) decrRefCount(c->name);
         c->name = NULL;
-        addReply(c,shared.ok);
         return C_OK;
     }
 
