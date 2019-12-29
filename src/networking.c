@@ -1230,12 +1230,8 @@ int processInlineBuffer(client *c) {
 
     /* Create redis objects for all arguments. */
     for (c->argc = 0, j = 0; j < argc; j++) {
-        if (sdslen(argv[j])) {
-            c->argv[c->argc] = createObject(OBJ_STRING,argv[j]);
-            c->argc++;
-        } else {
-            sdsfree(argv[j]);
-        }
+        c->argv[c->argc] = createObject(OBJ_STRING,argv[j]);
+        c->argc++;
     }
     zfree(argv);
     return C_OK;
