@@ -969,9 +969,9 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         (float)server.cron_malloc_stats.allocator_resident / server.cron_malloc_stats.allocator_active;
     mh->allocator_rss_bytes =
         server.cron_malloc_stats.allocator_resident - server.cron_malloc_stats.allocator_active;
-    mh->rss_extra =
+    mh->rss_overhead =
         (float)server.cron_malloc_stats.process_rss / server.cron_malloc_stats.allocator_resident;
-    mh->rss_extra_bytes =
+    mh->rss_overhead_bytes =
         server.cron_malloc_stats.process_rss - server.cron_malloc_stats.allocator_resident;
 
     mem_total += server.initial_memory_usage;
@@ -1126,7 +1126,7 @@ sds getMemoryDoctorReport(void) {
         }
 
         /* Non-Allocator fss is higher than 1.1 and 10MB ? */
-        if (mh->rss_extra > 1.1 && mh->rss_extra_bytes > 10<<20) {
+        if (mh->rss_overhead > 1.1 && mh->rss_overhead_bytes > 10<<20) {
             high_proc_rss = 1;
             num_reports++;
         }
@@ -1419,10 +1419,10 @@ NULL
         addReplyLongLong(c,mh->allocator_rss_bytes);
 
         addReplyBulkCString(c,"rss-overhead.ratio");
-        addReplyDouble(c,mh->rss_extra);
+        addReplyDouble(c,mh->rss_overhead);
 
         addReplyBulkCString(c,"rss-overhead.bytes");
-        addReplyLongLong(c,mh->rss_extra_bytes);
+        addReplyLongLong(c,mh->rss_overhead_bytes);
 
         addReplyBulkCString(c,"fragmentation"); /* this is the total RSS overhead, including fragmentation */
         addReplyDouble(c,mh->total_frag); /* it is kept here for backwards compatibility */
