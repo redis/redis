@@ -2094,12 +2094,6 @@ static int updateMaxclients(long long val, long long prev, char **err) {
     /* Try to check if the OS is capable of supporting so many FDs. */
     if (val > prev) {
         adjustOpenFilesLimit();
-        if (server.maxclients != val) {
-            static char msg[128];
-            sprintf(msg, "The operating system is not able to handle the specified number of clients, try with %d", server.maxclients);
-            *err = msg;
-            return 0;
-        }
         if ((unsigned int) aeGetSetSize(server.el) <
             server.maxclients + CONFIG_FDSET_INCR)
         {
@@ -2109,6 +2103,12 @@ static int updateMaxclients(long long val, long long prev, char **err) {
                 *err = "The event loop API used by Redis is not able to handle the specified number of clients";
                 return 0;
             }
+        }
+        if (server.maxclients != val) {
+            static char msg[128];
+            sprintf(msg, "The operating system is not able to handle the specified number of clients, try with %d", server.maxclients);
+            *err = msg;
+            return 0;
         }
     }
     return 1;
