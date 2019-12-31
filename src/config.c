@@ -2098,6 +2098,10 @@ static int updateMaxclients(long long val, long long prev, char **err) {
             static char msg[128];
             sprintf(msg, "The operating system is not able to handle the specified number of clients, try with %d", server.maxclients);
             *err = msg;
+            if (server.maxclients > prev) {
+                server.maxclients = prev;
+                adjustOpenFilesLimit();
+            }
             return 0;
         }
         if ((unsigned int) aeGetSetSize(server.el) <
