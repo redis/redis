@@ -29,7 +29,6 @@
 
 #include "server.h"
 #include "cluster.h"
-#include "atomicvar.h"
 
 #include <signal.h>
 #include <ctype.h>
