@@ -297,7 +297,7 @@ static int processLineItem(redisReader *r) {
                 if (strcasecmp(buf,",inf") == 0) {
                     d = INFINITY; /* Positive infinite. */
                 } else if (strcasecmp(buf,",-inf") == 0) {
-                    d = -INFINITY; /* Nevative infinite. */
+                    d = -INFINITY; /* Negative infinite. */
                 } else {
                     d = strtod((char*)buf,&eptr);
                     if (buf[0] == '\0' || eptr[0] != '\0' || isnan(d)) {
