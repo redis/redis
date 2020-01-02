@@ -65,7 +65,7 @@ start_server {tags {"introspection"}} {
             rdbchecksum
             daemonize
             io-threads-do-reads
-            lua-replicate-commands
+            tcp-backlog
             always-show-logo
             syslog-enabled
             cluster-enabled

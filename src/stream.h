@@ -111,5 +111,6 @@ streamNACK *streamCreateNACK(streamConsumer *consumer);
 void streamDecodeID(void *buf, streamID *id);
 int streamCompareID(streamID *a, streamID *b);
 void streamFreeNACK(streamNACK *na);
+void streamIncrID(streamID *id);
 
 #endif
