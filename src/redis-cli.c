@@ -242,6 +242,8 @@ static struct config {
     clusterManagerCommand cluster_manager_command;
     int no_auth_warning;
     int resp3;
+    int in_multi;
+    int pre_multi_dbnum;
 } config;
 
 /* User preferences. */
@@ -1301,6 +1303,10 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
         !strcasecmp(command,"psubscribe")) config.pubsub_mode = 1;
     if (!strcasecmp(command,"sync") ||
         !strcasecmp(command,"psync")) config.slave_mode = 1;
+    if (!strcasecmp(command,"multi") && argc == 1) {
+        config.in_multi = 1;
+        config.pre_multi_dbnum = config.dbnum;
+    }
 
     /* When the user manually calls SCRIPT DEBUG, setup the activation of
      * debugging mode on the next eval if needed. */
@@ -1358,9 +1364,18 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             if (!strcasecmp(command,"select") && argc == 2 && config.last_cmd_type != REDIS_REPLY_ERROR) {
                 config.dbnum = atoi(argv[1]);
                 cliRefreshPrompt();
-            } else if (!strcasecmp(command,"auth") && (argc == 2 || argc == 3))
-            {
+            } else if (!strcasecmp(command,"auth") && (argc == 2 || argc == 3)) {
                 cliSelect();
+            } else if (!strcasecmp(command,"exec") && argc == 1 && config.in_multi) {
+                config.in_multi = 0;
+                if (config.last_cmd_type == REDIS_REPLY_ERROR) {
+                    config.dbnum = config.pre_multi_dbnum;
+                    cliRefreshPrompt();
+                }
+            } else if (!strcasecmp(command,"discard") && argc == 1 && config.last_cmd_type != REDIS_REPLY_ERROR) {
+                config.in_multi = 0;
+                config.dbnum = config.pre_multi_dbnum;
+                cliRefreshPrompt();
             }
         }
         if (config.cluster_reissue_command){
@@ -7901,6 +7916,7 @@ int main(int argc, char **argv) {
     config.last_cmd_type = -1;
     config.verbose = 0;
     config.no_auth_warning = 0;
+    config.in_multi = 0;
     config.cluster_manager_command.name = NULL;
     config.cluster_manager_command.argc = 0;
     config.cluster_manager_command.argv = NULL;
