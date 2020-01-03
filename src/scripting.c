@@ -706,7 +706,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         server.lua_write_dirty &&
         server.lua_repl != PROPAGATE_NONE)
     {
-        execCommandPropagateMulti(server.lua_caller);
+        execCommandPropagateMulti(server.lua_caller, PROPAGATE_AOF|PROPAGATE_REPL);
         server.lua_multi_emitted = 1;
         /* Now we are in the MULTI context, the lua_client should be
          * flag as CLIENT_MULTI. */
@@ -1615,7 +1615,7 @@ void evalGenericCommand(client *c, int evalsha) {
     if (server.lua_replicate_commands) {
         preventCommandPropagation(c);
         if (server.lua_multi_emitted) {
-            execCommandPropagateExec(c);
+            execCommandPropagateExec(c, PROPAGATE_AOF|PROPAGATE_REPL);
         }
     }
 

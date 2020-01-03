@@ -103,16 +103,16 @@ void discardCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-/* Send a MULTI command to all the slaves and AOF file. Check the execCommand
- * implementation for more information. */
-void execCommandPropagateMulti(client *c) {
+/* Send a MULTI command to all the slaves and AOF file according to the flags. 
+ * Check the execCommand implementation for more information. */
+void execCommandPropagateMulti(client *c, int flags) {
     propagate(server.multiCommand,c->db->id,&shared.multi,1,
-              PROPAGATE_AOF|PROPAGATE_REPL);
+              flags);
 }
 
-void execCommandPropagateExec(client *c) {
+void execCommandPropagateExec(client *c, int flags) {
     propagate(server.execCommand,c->db->id,&shared.exec,1,
-              PROPAGATE_AOF|PROPAGATE_REPL);
+              flags);
 }
 
 void execCommand(client *c) {
@@ -173,7 +173,7 @@ void execCommand(client *c) {
          * both the AOF and the replication link will have the same consistency
          * and atomicity guarantees. */
         if (!must_propagate && !(c->cmd->flags & (CMD_READONLY|CMD_ADMIN))) {
-            execCommandPropagateMulti(c);
+            execCommandPropagateMulti(c, PROPAGATE_AOF|PROPAGATE_REPL);
             must_propagate = 1;
         }
 
