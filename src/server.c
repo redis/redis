@@ -3923,6 +3923,7 @@ sds genRedisInfoString(const char *section) {
             "uptime_in_days:%I\r\n"
             "hz:%i\r\n"
             "configured_hz:%i\r\n"
+            "dynamic_hz:%i\r\n"
             "lru_clock:%u\r\n"
             "executable:%s\r\n"
             "config_file:%s\r\n",
@@ -3947,6 +3948,7 @@ sds genRedisInfoString(const char *section) {
             (int64_t)(uptime/(3600*24)),
             server.hz,
             server.config_hz,
+            server.dynamic_hz,
             server.lruclock,
             server.executable ? server.executable : "",
             server.configfile ? server.configfile : "");
