@@ -1139,7 +1139,10 @@ int rioWriteBulkStreamID(rio *r,streamID *id) {
     int retval;
 
     sds replyid = sdscatfmt(sdsempty(),"%U-%U",id->ms,id->seq);
-    if ((retval = rioWriteBulkString(r,replyid,sdslen(replyid))) == 0) return 0;
+    if ((retval = rioWriteBulkString(r,replyid,sdslen(replyid))) == 0) {
+        sdsfree(replyid);
+        return 0;
+    }
     sdsfree(replyid);
     return retval;
 }
