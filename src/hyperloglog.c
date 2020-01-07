@@ -1535,6 +1535,7 @@ void pfdebugCommand(client *c) {
         sds decoded = sdsempty();
 
         if (hdr->encoding != HLL_SPARSE) {
+            sdsfree(decoded);
             addReplyError(c,"HLL encoding is not sparse");
             return;
         }
