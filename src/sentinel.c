@@ -4308,7 +4308,7 @@ void sentinelFailoverDetectEnd(sentinelRedisInstance *master) {
             sentinelRedisInstance *slave = dictGetVal(de);
             int retval;
 
-            if (slave->flags & (SRI_RECONF_DONE|SRI_RECONF_SENT)) continue;
+            if (slave->flags & (SRI_PROMOTED|SRI_RECONF_DONE|SRI_RECONF_SENT)) continue;
             if (slave->link->disconnected) continue;
 
             retval = sentinelSendSlaveOf(slave,
