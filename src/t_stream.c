@@ -2255,7 +2255,7 @@ void xclaimCommand(client *c) {
     }
 
     /* Do the actual claiming. */
-    streamConsumer *consumer = streamLookupConsumer(group,c->argv[3]->ptr,1);
+    streamConsumer *consumer = NULL;
     void *arraylenptr = addDeferredMultiBulkLength(c);
     size_t arraylen = 0;
     for (int j = 5; j <= last_id_arg; j++) {
@@ -2307,9 +2307,11 @@ void xclaimCommand(client *c) {
             if (nack->consumer)
                 raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
             /* Update the consumer and idle time. */
+            if (consumer == NULL)
+                consumer = streamLookupConsumer(group,c->argv[3]->ptr,1);
             nack->consumer = consumer;
             nack->delivery_time = deliverytime;
-            /* Set the delivery attempts counter if given, otherwise 
+            /* Set the delivery attempts counter if given, otherwise
              * autoincrement unless JUSTID option provided */
             if (retrycount >= 0) {
                 nack->delivery_count = retrycount;
