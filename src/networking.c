@@ -779,9 +779,11 @@ void clientAcceptHandler(connection *conn) {
     client *c = connGetPrivateData(conn);
 
     if (connGetState(conn) != CONN_STATE_CONNECTED) {
+        char conninfo[100];
         serverLog(LL_WARNING,
-                "Error accepting a client connection: %s",
-                connGetLastError(conn));
+                "Error accepting a client connection: %s (conn: %s)",
+                connGetLastError(conn), 
+                connGetInfo(conn, conninfo, sizeof(conninfo)));
         freeClient(c);
         return;
     }
@@ -906,7 +908,7 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                     "Accepting client connection: %s", server.neterr);
             return;
         }
-        serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
+        serverLog(LL_VERBOSE,"Accepted %s:%d (fd: %i)", cip, cport, fd);
         acceptCommonHandler(connCreateAcceptedSocket(cfd),0,cip);
     }
 }
@@ -926,7 +928,7 @@ void acceptTLSHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                     "Accepting client connection: %s", server.neterr);
             return;
         }
-        serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
+        serverLog(LL_VERBOSE,"Accepted %s:%d (fd: %i)", cip, cport, fd);
         acceptCommonHandler(connCreateAcceptedTLS(cfd, server.tls_auth_clients),0,cip);
     }
 }
@@ -945,7 +947,7 @@ void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                     "Accepting client connection: %s", server.neterr);
             return;
         }
-        serverLog(LL_VERBOSE,"Accepted connection to %s", server.unixsocket);
+        serverLog(LL_VERBOSE,"Accepted connection to %s (fd: %i)", server.unixsocket, fd);
         acceptCommonHandler(connCreateAcceptedSocket(cfd),CLIENT_UNIX_SOCKET,NULL);
     }
 }
@@ -1823,7 +1825,9 @@ void readQueryFromClient(connection *conn) {
             return;
         }
     } else if (nread == 0) {
-        serverLog(LL_VERBOSE, "Client closed connection");
+        sds client = catClientInfoString(sdsempty(),c);
+        serverLog(LL_VERBOSE, "Client closed connection (client: %s)", client);
+        sdsfree(client);
         freeClientAsync(c);
         return;
     } else if (c->flags & CLIENT_MASTER) {
