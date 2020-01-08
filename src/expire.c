@@ -203,8 +203,10 @@ void activeExpireCycle(int type) {
          * distribute the time evenly across DBs. */
         current_db++;
 
-        /* Continue to expire if at the end of the cycle more than 25%
-         * of the keys were expired. */
+        /* Continue to expire if at the end of the cycle there are still
+         * a big percentage of keys to expire, compared to the number of keys
+         * we scanned. The percentage, stored in config_cycle_acceptable_stale
+         * is not fixed, but depends on the Redis configured "expire effort". */
         do {
             unsigned long num, slots;
             long long now, ttl_sum;
@@ -305,8 +307,9 @@ void activeExpireCycle(int type) {
             }
             /* We don't repeat the cycle for the current database if there are
              * an acceptable amount of stale keys (logically expired but yet
-             * not reclained). */
-        } while ((expired*100/sampled) > config_cycle_acceptable_stale);
+             * not reclaimed). */
+        } while (sampled == 0 ||
+                 (expired*100/sampled) > config_cycle_acceptable_stale);
     }
 
     elapsed = ustime()-start;

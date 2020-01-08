@@ -154,6 +154,9 @@ client *createClient(connection *conn) {
     c->peerid = NULL;
     c->client_list_node = NULL;
     c->client_tracking_redirection = 0;
+    c->auth_callback = NULL;
+    c->auth_callback_privdata = NULL;
+    c->auth_module = NULL;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
     if (conn) linkClient(c);
@@ -1051,6 +1054,9 @@ void freeClient(client *c) {
                               c);
     }
 
+    /* Notify module system that this client auth status changed. */
+    moduleNotifyUserChanged(c);
+
     /* If it is our master that's beging disconnected we should make sure
      * to cache the state to try a partial resynchronization later.
      *
@@ -1447,12 +1453,8 @@ int processInlineBuffer(client *c) {
 
     /* Create redis objects for all arguments. */
     for (c->argc = 0, j = 0; j < argc; j++) {
-        if (sdslen(argv[j])) {
-            c->argv[c->argc] = createObject(OBJ_STRING,argv[j]);
-            c->argc++;
-        } else {
-            sdsfree(argv[j]);
-        }
+        c->argv[c->argc] = createObject(OBJ_STRING,argv[j]);
+        c->argc++;
     }
     zfree(argv);
     return C_OK;
@@ -1996,7 +1998,6 @@ int clientSetNameOrReply(client *c, robj *name) {
     if (len == 0) {
         if (c->name) decrRefCount(c->name);
         c->name = NULL;
-        addReply(c,shared.ok);
         return C_OK;
     }
 
