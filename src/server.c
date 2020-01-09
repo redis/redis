@@ -1795,16 +1795,24 @@ void checkChildrenDone(void) {
                 (int) server.rdb_child_pid,
                 (int) server.aof_child_pid,
                 (int) server.module_child_pid);
+            closeChildInfoPipe();
         } else if (pid == server.rdb_child_pid) {
+            if (!bysignal && exitcode == 0) receiveChildInfo();
+            closeChildInfoPipe();
             backgroundSaveDoneHandler(exitcode,bysignal);
-            if (!bysignal && exitcode == 0) receiveChildInfo();
         } else if (pid == server.aof_child_pid) {
+            if (!bysignal && exitcode == 0) receiveChildInfo();
+            closeChildInfoPipe();
             backgroundRewriteDoneHandler(exitcode,bysignal);
-            if (!bysignal && exitcode == 0) receiveChildInfo();
         } else if (pid == server.module_child_pid) {
-            ModuleForkDoneHandler(exitcode,bysignal);
             if (!bysignal && exitcode == 0) receiveChildInfo();
+            closeChildInfoPipe();
+            ModuleForkDoneHandler(exitcode,bysignal);
         } else {
+            /* closeChildInfoPipe() is intentionally not called here, as the
+             * pipe is only opened by background saving, AOF rewrite, and
+             * module child processes. Closing it here would lead to the loss
+             * of ChildInfo data if one of those child processes are active. */
             if (!ldbRemoveChild(pid)) {
                 serverLog(LL_WARNING,
                     "Warning, detected child with unmatched pid: %ld",
@@ -1812,7 +1820,6 @@ void checkChildrenDone(void) {
             }
         }
         updateDictResizePolicy();
-        closeChildInfoPipe();
     }
 }
 

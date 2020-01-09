@@ -34,6 +34,9 @@
  * RDB / AOF saving process from the child to the parent (for instance
  * the amount of copy on write memory used) */
 void openChildInfoPipe(void) {
+    serverAssert(server.child_info_pipe[0] == -1);
+    serverAssert(server.child_info_pipe[1] == -1);
+
     if (pipe(server.child_info_pipe) == -1) {
         /* On error our two file descriptors should be still set to -1,
          * but we call anyway cloesChildInfoPipe() since can't hurt. */
