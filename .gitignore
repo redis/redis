@@ -1,5 +1,7 @@
 .*.swp
 *.o
+*.xo
+*.so
 *.d
 *.log
 dump.rdb
