@@ -774,18 +774,24 @@ int loadAppendOnlyFile(char *filename) {
         argc = atoi(buf+1);
         if (argc < 1) goto fmterr;
 
+        /* Load the next command in the AOF as our fake client
+         * argv. */
         argv = zmalloc(sizeof(robj*)*argc);
         fakeClient->argc = argc;
         fakeClient->argv = argv;
 
         for (j = 0; j < argc; j++) {
-            if (fgets(buf,sizeof(buf),fp) == NULL) {
+            /* Parse the argument len. */
+            if (fgets(buf,sizeof(buf),fp) == NULL ||
+                buf[0] != '$')
+            {
                 fakeClient->argc = j; /* Free up to j-1. */
                 freeFakeClientArgv(fakeClient);
                 goto readerr;
             }
-            if (buf[0] != '$') goto fmterr;
             len = strtol(buf+1,NULL,10);
+
+            /* Read it into a string object. */
             argsds = sdsnewlen(SDS_NOINIT,len);
             if (len && fread(argsds,len,1,fp) == 0) {
                 sdsfree(argsds);
@@ -794,10 +800,12 @@ int loadAppendOnlyFile(char *filename) {
                 goto readerr;
             }
             argv[j] = createObject(OBJ_STRING,argsds);
+
+            /* Discard CRLF. */
             if (fread(buf,2,1,fp) == 0) {
                 fakeClient->argc = j+1; /* Free up to j. */
                 freeFakeClientArgv(fakeClient);
-                goto readerr; /* discard CRLF */
+                goto readerr;
             }
         }
 
