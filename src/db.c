@@ -602,7 +602,7 @@ void keysCommand(client *c) {
     void *replylen = addReplyDeferredLen(c);
 
     di = dictGetSafeIterator(c->db->dict);
-    allkeys = (pattern[0] == '*' && pattern[1] == '\0');
+    allkeys = (pattern[0] == '*' && plen == 1);
     while((de = dictNext(di)) != NULL) {
         sds key = dictGetKey(de);
         robj *keyobj;
