@@ -2822,7 +2822,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     listRewind(io_threads_list[server.io_threads_num],&li);
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
-        writeToClient(c->fd,c,0);
+        writeToClient(c,0);
     }
     listEmpty(io_threads_list[server.io_threads_num]);
 
@@ -2907,7 +2907,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     listRewind(io_threads_list[server.io_threads_num],&li);
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
-        readQueryFromClient(NULL,c->fd,c,0);
+        readQueryFromClient(c->conn);
     }
     listEmpty(io_threads_list[server.io_threads_num]);
 
