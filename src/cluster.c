@@ -276,11 +276,9 @@ int clusterLoadConfig(char *filename) {
             } else {
                 start = stop = atoi(argv[j]);
             }
-            if (start < 0 || start >= CLUSTER_SLOTS) {
-                sdsfreesplitres(argv,argc);
-                goto fmterr;
-            }
-            if (stop < 0 || stop >= CLUSTER_SLOTS) {
+            if (start < 0 || start >= CLUSTER_SLOTS ||
+                stop < 0 || stop >= CLUSTER_SLOTS)
+            {
                 sdsfreesplitres(argv,argc);
                 goto fmterr;
             }
