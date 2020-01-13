@@ -11,7 +11,7 @@ start_server {tags {"acl"}} {
         r ACL setuser newuser >passwd1
         catch {r AUTH newuser passwd1} err
         set err
-    } {*WRONGPASS*}
+    } {*DISABLEDUSER*}
 
     test {Enabling the user allows the login} {
         r ACL setuser newuser on +acl
