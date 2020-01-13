@@ -928,6 +928,7 @@ void ACLInit(void) {
  *
  *  EINVAL: if the username-password do not match.
  *  ENONENT: if the specified user does not exist at all.
+ *  EPERM: if the specified user was disabled.
  */
 int ACLCheckUserCredentials(robj *username, robj *password) {
     user *u = ACLGetUserByName(username->ptr,sdslen(username->ptr));
@@ -938,7 +939,7 @@ int ACLCheckUserCredentials(robj *username, robj *password) {
 
     /* Disabled users can't login. */
     if (u->flags & USER_FLAG_DISABLED) {
-        errno = EINVAL;
+        errno = EPERM;
         return C_ERR;
     }
 
@@ -963,6 +964,19 @@ int ACLCheckUserCredentials(robj *username, robj *password) {
     /* If we reached this point, no password matched. */
     errno = EINVAL;
     return C_ERR;
+}
+
+/* Return a description of the error that occurred in ACLCheckUserCredentials() according to
+ * the errno value set by the function on error. */
+char *ACLCheckUserCredentialsStringError(void) {
+    char *errmsg = "Invalid username-password pair";
+    if (errno == ENOENT)
+        errmsg = "-WRONGUSER The user name specified for auth does not exist";
+    else if (errno == EINVAL)
+        errmsg = "-WRONGPASS The password specified for auth is not correct";
+    else if (errno == EPERM)
+        errmsg = "-DISABLEDUSER The user name specified was disabled";
+    return errmsg;
 }
 
 /* This is like ACLCheckUserCredentials(), however if the user/pass
@@ -1722,7 +1736,8 @@ void authCommand(client *c) {
     if (ACLAuthenticateUser(c,username,password) == C_OK) {
         addReply(c,shared.ok);
     } else {
-        addReplyError(c,"-WRONGPASS invalid username-password pair");
+        char *errmsg = ACLCheckUserCredentialsStringError();
+        addReplyError(c,errmsg);
     }
 
     /* Free the "default" string object we created for the two
