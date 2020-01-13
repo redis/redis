@@ -782,12 +782,14 @@ int loadAppendOnlyFile(char *filename) {
 
         for (j = 0; j < argc; j++) {
             /* Parse the argument len. */
-            if (fgets(buf,sizeof(buf),fp) == NULL ||
-                buf[0] != '$')
-            {
+            char *readres = fgets(buf,sizeof(buf),fp);
+            if (readres == NULL || buf[0] != '$') {
                 fakeClient->argc = j; /* Free up to j-1. */
                 freeFakeClientArgv(fakeClient);
-                goto readerr;
+                if (readres == NULL)
+                    goto readerr;
+                else
+                    goto fmterr;
             }
             len = strtol(buf+1,NULL,10);
 
