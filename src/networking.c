@@ -2656,6 +2656,10 @@ pthread_mutex_t io_threads_mutex[IO_THREADS_MAX_NUM];
 _Atomic unsigned long io_threads_pending[IO_THREADS_MAX_NUM];
 int io_threads_active;  /* Are the threads currently spinning waiting I/O? */
 int io_threads_op;      /* IO_THREADS_OP_WRITE or IO_THREADS_OP_READ. */
+
+/* This is the list of clients each thread will serve when threaded I/O is
+ * used. We spawn N threads, and the N+1 list is used for the clients that
+ * are processed by the main thread itself (this is why ther is "+1"). */
 list *io_threads_list[IO_THREADS_MAX_NUM+1];
 
 void *IOThreadMain(void *myid) {
@@ -2729,7 +2733,7 @@ void initThreadedIO(void) {
         }
         io_threads[i] = tid;
     }
-    io_threads_list[server.io_threads_num] = listCreate();
+    io_threads_list[server.io_threads_num] = listCreate(); /* For main thread */
 }
 
 void startThreadedIO(void) {
@@ -2814,6 +2818,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
         io_threads_pending[j] = count;
     }
 
+    /* Also use the main thread to process a slide of clients. */
     listRewind(io_threads_list[server.io_threads_num],&li);
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
@@ -2898,6 +2903,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
         io_threads_pending[j] = count;
     }
 
+    /* Also use the main thread to process a slide of clients. */
     listRewind(io_threads_list[server.io_threads_num],&li);
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
