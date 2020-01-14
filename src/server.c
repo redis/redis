@@ -816,7 +816,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,2,2,1,0,0,0},
 
     {"memory",memoryCommand,-2,
-     "random read-only",
+     "random read-only @dangerous",
      0,NULL,0,0,0,0,0,0},
 
     {"client",clientCommand,-2,
@@ -846,7 +846,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"time",timeCommand,1,
-     "read-only random fast",
+     "read-only random fast @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"bitop",bitopCommand,-4,
@@ -983,11 +983,11 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,1,1,1,0,0,0},
 
     {"post",securityWarningCommand,-1,
-     "ok-loading ok-stale read-only",
+     "ok-loading ok-stale read-only @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"host:",securityWarningCommand,-1,
-     "ok-loading ok-stale read-only",
+     "ok-loading ok-stale read-only @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"latency",latencyCommand,-2,
@@ -995,7 +995,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"lolwut",lolwutCommand,-1,
-     "read-only fast",
+     "read-only fast @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"acl",aclCommand,-2,
