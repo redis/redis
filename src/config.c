@@ -108,12 +108,12 @@ clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUNT] = {
 /* Generic config infrastructure function pointers
  * int is_valid_fn(val, err)
  *     Return 1 when val is valid, and 0 when invalid.
- *     Optionslly set err to a static error string.
+ *     Optionally set err to a static error string.
  * int update_fn(val, prev, err)
  *     This function is called only for CONFIG SET command (not at config file parsing)
  *     It is called after the actual config is applied,
  *     Return 1 for success, and 0 for failure.
- *     Optionslly set err to a static error string.
+ *     Optionally set err to a static error string.
  *     On failure the config change will be reverted.
  */
 
@@ -720,7 +720,7 @@ void configSetCommand(client *c) {
      * config_set_memory_field(name,var) */
     } config_set_memory_field(
       "client-query-buffer-limit",server.client_max_querybuf_len) {
-    /* Everyhing else is an error... */
+    /* Everything else is an error... */
     } config_set_else {
         addReplyErrorFormat(c,"Unsupported CONFIG parameter: %s",
             (char*)c->argv[2]->ptr);
@@ -1699,9 +1699,9 @@ static int configEnumLoad(typeData data, sds *argv, int argc, char **err) {
 
         enumerr[sdslen(enumerr) - 2] = '\0';
 
-        /* Make sure we don't overrun the fixed buffer */
-        enumerr[LOADBUF_SIZE - 1] = '\0';
         strncpy(loadbuf, enumerr, LOADBUF_SIZE);
+        /* strncpy does not if null terminate if source string length is >= destination buffer. */
+        loadbuf[LOADBUF_SIZE - 1] = '\0';
 
         sdsfree(enumerr);
         *err = loadbuf;
