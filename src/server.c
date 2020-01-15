@@ -3499,8 +3499,8 @@ int processCommand(client *c) {
         c->cmd->proc != psubscribeCommand &&
         c->cmd->proc != punsubscribeCommand) {
         addReplyErrorFormat(c,
-            "'%s' command submitted, but only (P)SUBSCRIBE / "
-            "(P)UNSUBSCRIBE / PING / QUIT allowed in this context",
+            "Can't execute '%s': only (P)SUBSCRIBE / "
+            "(P)UNSUBSCRIBE / PING / QUIT are allowed in this context",
             c->cmd->name);
         return C_OK;
     }
