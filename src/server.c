@@ -683,7 +683,7 @@ struct redisCommand redisCommandTable[] = {
      "admin no-script",
      0,NULL,0,0,0,0,0,0},
 
-    {"psync",syncCommand,3,
+    {"psync",syncCommand,-3,
      "admin no-script",
      0,NULL,0,0,0,0,0,0},
 
@@ -1000,6 +1000,10 @@ struct redisCommand redisCommandTable[] = {
 
     {"acl",aclCommand,-2,
      "admin no-script no-slowlog ok-loading ok-stale",
+     0,NULL,0,0,0,0,0,0},
+
+    {"failoverto",failovertoCommand,-3,
+     "admin no-script ok-stale",
      0,NULL,0,0,0,0,0,0}
 };
 
@@ -2030,6 +2034,16 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * detect transfer failures, start background RDB transfers and so forth. */
     run_with_period(1000) replicationCron();
 
+    /* If Redis is trying to failover then run a job to check if failover can be
+     * completed. Also run replicationCron in this faster loop so if this node
+     * starts sync with a master the sync handshake progresses quickly. */
+    run_with_period(20) {
+        if (server.failover_end_time) {
+            replicationCron();
+            failoverCron();
+        }
+    }
+
     /* Run the Redis Cluster cron. */
     run_with_period(100) {
         if (server.cluster_enabled) clusterCron();
@@ -2344,6 +2358,12 @@ void initServerConfig(void) {
     server.repl_backlog_idx = 0;
     server.repl_backlog_off = 0;
     server.repl_no_slaves_since = time(NULL);
+
+    /* Failover related */
+    server.failover_end_time = 0;
+    server.force_failover = 0;
+    server.target_replica_host = NULL;
+    server.target_replica_port = 0;
 
     /* Client output buffer limits */
     for (j = 0; j < CLIENT_TYPE_OBUF_COUNT; j++)

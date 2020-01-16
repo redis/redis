@@ -2207,11 +2207,11 @@ NULL
             addReplyNull(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"pause") && c->argc == 3) {
         /* CLIENT PAUSE */
-        long long duration;
+        mstime_t end;
 
-        if (getTimeoutFromObjectOrReply(c,c->argv[2],&duration,
+        if (getTimeoutFromObjectOrReply(c,c->argv[2],&end,
                 UNIT_MILLISECONDS) != C_OK) return;
-        pauseClients(duration);
+        pauseClients(end);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"tracking") &&
                (c->argc == 3 || c->argc == 5))
@@ -2587,6 +2587,13 @@ void pauseClients(mstime_t end) {
     if (!server.clients_paused || end > server.clients_pause_end_time)
         server.clients_pause_end_time = end;
     server.clients_paused = 1;
+}
+
+/* Unpause clients. Used after a failover is complete to start processing
+ * commands again. */
+void unpauseClients() {
+    server.clients_pause_end_time = server.mstime - 1;
+    clientsArePaused();
 }
 
 /* Return non-zero if clients are currently paused. As a side effect the
