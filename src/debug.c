@@ -683,7 +683,7 @@ NULL
         sds stats = sdsempty();
         char buf[4096];
 
-        if (getLongFromObjectOrReply(c, c->argv[2], &dbid, NULL) != C_OK){
+        if (getLongFromObjectOrReply(c, c->argv[2], &dbid, NULL) != C_OK) {
             sdsfree(stats);
             return;
         }
