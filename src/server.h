@@ -115,6 +115,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define NET_ADDR_STR_LEN (NET_IP_STR_LEN+32) /* Must be enough for ip:port */
 #define CONFIG_BINDADDR_MAX 16
 #define CONFIG_MIN_RESERVED_FDS 32
+#define FAILOVERTO_TIMEOUT 5000 /* failoverto timeout (in milliseconds) */
 
 #define ACTIVE_EXPIRE_CYCLE_SLOW 0
 #define ACTIVE_EXPIRE_CYCLE_FAST 1
@@ -1554,6 +1555,13 @@ struct redisServer {
     char *bio_cpulist; /* cpu affinity list of bio thread. */
     char *aof_rewrite_cpulist; /* cpu affinity list of aof rewrite process. */
     char *bgsave_cpulist; /* cpu affinity list of bgsave process. */
+    /* Coordinate failover info */
+    mstime_t failover_end_time; /* Deadline for failoverto command. */
+    int force_failover; /* If true then failover will be foreced at the
+                         * deadline, otherwise failover is aborted. */
+    char *target_replica_host; /* Failover target host. If null during a
+                                * failover then any replica can be used. */
+    int target_replica_port; /* Failover target port */
 };
 
 typedef struct pubsubPattern {
@@ -1973,6 +1981,7 @@ void feedReplicationBacklog(void *ptr, size_t len);
 void showLatestBacklog(void);
 void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask);
 void rdbPipeWriteHandlerConnRemoved(struct connection *conn);
+void failoverCron(void);
 
 /* Generic persistence functions */
 void startLoadingFile(FILE* fp, char* filename, int rdbflags);
@@ -2607,6 +2616,7 @@ void lolwutCommand(client *c);
 void aclCommand(client *c);
 void stralgoCommand(client *c);
 void resetCommand(client *c);
+void failovertoCommand(client *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
