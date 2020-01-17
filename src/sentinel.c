@@ -461,8 +461,8 @@ struct redisCommand sentinelcmds[] = {
     {"role",sentinelRoleCommand,1,"ok-loading",0,NULL,0,0,0,0,0},
     {"client",clientCommand,-2,"read-only no-script",0,NULL,0,0,0,0,0},
     {"shutdown",shutdownCommand,-1,"",0,NULL,0,0,0,0,0},
-    {"auth",authCommand,2,"no-script ok-loading ok-stale fast",0,NULL,0,0,0,0,0},
-    {"hello",helloCommand,-2,"no-script fast",0,NULL,0,0,0,0,0}
+    {"auth",authCommand,2,"no-auth no-script ok-loading ok-stale fast",0,NULL,0,0,0,0,0},
+    {"hello",helloCommand,-2,"no-auth no-script fast",0,NULL,0,0,0,0,0}
 };
 
 /* This function overwrites a few normal Redis config default with Sentinel
@@ -4308,7 +4308,7 @@ void sentinelFailoverDetectEnd(sentinelRedisInstance *master) {
             sentinelRedisInstance *slave = dictGetVal(de);
             int retval;
 
-            if (slave->flags & (SRI_RECONF_DONE|SRI_RECONF_SENT)) continue;
+            if (slave->flags & (SRI_PROMOTED|SRI_RECONF_DONE|SRI_RECONF_SENT)) continue;
             if (slave->link->disconnected) continue;
 
             retval = sentinelSendSlaveOf(slave,

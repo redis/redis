@@ -154,6 +154,9 @@ client *createClient(connection *conn) {
     c->peerid = NULL;
     c->client_list_node = NULL;
     c->client_tracking_redirection = 0;
+    c->auth_callback = NULL;
+    c->auth_callback_privdata = NULL;
+    c->auth_module = NULL;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
     if (conn) linkClient(c);
@@ -1051,6 +1054,9 @@ void freeClient(client *c) {
                               c);
     }
 
+    /* Notify module system that this client auth status changed. */
+    moduleNotifyUserChanged(c);
+
     /* If it is our master that's beging disconnected we should make sure
      * to cache the state to try a partial resynchronization later.
      *
@@ -1447,12 +1453,8 @@ int processInlineBuffer(client *c) {
 
     /* Create redis objects for all arguments. */
     for (c->argc = 0, j = 0; j < argc; j++) {
-        if (sdslen(argv[j])) {
-            c->argv[c->argc] = createObject(OBJ_STRING,argv[j]);
-            c->argc++;
-        } else {
-            sdsfree(argv[j]);
-        }
+        c->argv[c->argc] = createObject(OBJ_STRING,argv[j]);
+        c->argc++;
     }
     zfree(argv);
     return C_OK;
@@ -1996,7 +1998,6 @@ int clientSetNameOrReply(client *c, robj *name) {
     if (len == 0) {
         if (c->name) decrRefCount(c->name);
         c->name = NULL;
-        addReply(c,shared.ok);
         return C_OK;
     }
 
@@ -2655,6 +2656,10 @@ pthread_mutex_t io_threads_mutex[IO_THREADS_MAX_NUM];
 _Atomic unsigned long io_threads_pending[IO_THREADS_MAX_NUM];
 int io_threads_active;  /* Are the threads currently spinning waiting I/O? */
 int io_threads_op;      /* IO_THREADS_OP_WRITE or IO_THREADS_OP_READ. */
+
+/* This is the list of clients each thread will serve when threaded I/O is
+ * used. We spawn io_threads_num-1 threads, since one is the main thread
+ * itself. */
 list *io_threads_list[IO_THREADS_MAX_NUM];
 
 void *IOThreadMain(void *myid) {
@@ -2715,12 +2720,16 @@ void initThreadedIO(void) {
         exit(1);
     }
 
-    /* Spawn the I/O threads. */
+    /* Spawn and initialize the I/O threads. */
     for (int i = 0; i < server.io_threads_num; i++) {
+        /* Things we do for all the threads including the main thread. */
+        io_threads_list[i] = listCreate();
+        if (i == 0) continue; /* Thread 0 is the main thread. */
+
+        /* Things we do only for the additional threads. */
         pthread_t tid;
         pthread_mutex_init(&io_threads_mutex[i],NULL);
         io_threads_pending[i] = 0;
-        io_threads_list[i] = listCreate();
         pthread_mutex_lock(&io_threads_mutex[i]); /* Thread will be stopped. */
         if (pthread_create(&tid,NULL,IOThreadMain,(void*)(long)i) != 0) {
             serverLog(LL_WARNING,"Fatal: Can't initialize IO thread.");
@@ -2734,7 +2743,7 @@ void startThreadedIO(void) {
     if (tio_debug) { printf("S"); fflush(stdout); }
     if (tio_debug) printf("--- STARTING THREADED IO ---\n");
     serverAssert(io_threads_active == 0);
-    for (int j = 0; j < server.io_threads_num; j++)
+    for (int j = 1; j < server.io_threads_num; j++)
         pthread_mutex_unlock(&io_threads_mutex[j]);
     io_threads_active = 1;
 }
@@ -2748,7 +2757,7 @@ void stopThreadedIO(void) {
         (int) listLength(server.clients_pending_read),
         (int) listLength(server.clients_pending_write));
     serverAssert(io_threads_active == 1);
-    for (int j = 0; j < server.io_threads_num; j++)
+    for (int j = 1; j < server.io_threads_num; j++)
         pthread_mutex_lock(&io_threads_mutex[j]);
     io_threads_active = 0;
 }
@@ -2807,15 +2816,23 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     /* Give the start condition to the waiting threads, by setting the
      * start condition atomic var. */
     io_threads_op = IO_THREADS_OP_WRITE;
-    for (int j = 0; j < server.io_threads_num; j++) {
+    for (int j = 1; j < server.io_threads_num; j++) {
         int count = listLength(io_threads_list[j]);
         io_threads_pending[j] = count;
     }
 
-    /* Wait for all threads to end their work. */
+    /* Also use the main thread to process a slice of clients. */
+    listRewind(io_threads_list[0],&li);
+    while((ln = listNext(&li))) {
+        client *c = listNodeValue(ln);
+        writeToClient(c,0);
+    }
+    listEmpty(io_threads_list[0]);
+
+    /* Wait for all the other threads to end their work. */
     while(1) {
         unsigned long pending = 0;
-        for (int j = 0; j < server.io_threads_num; j++)
+        for (int j = 1; j < server.io_threads_num; j++)
             pending += io_threads_pending[j];
         if (pending == 0) break;
     }
@@ -2884,15 +2901,23 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     /* Give the start condition to the waiting threads, by setting the
      * start condition atomic var. */
     io_threads_op = IO_THREADS_OP_READ;
-    for (int j = 0; j < server.io_threads_num; j++) {
+    for (int j = 1; j < server.io_threads_num; j++) {
         int count = listLength(io_threads_list[j]);
         io_threads_pending[j] = count;
     }
 
-    /* Wait for all threads to end their work. */
+    /* Also use the main thread to process a slice of clients. */
+    listRewind(io_threads_list[0],&li);
+    while((ln = listNext(&li))) {
+        client *c = listNodeValue(ln);
+        readQueryFromClient(c->conn);
+    }
+    listEmpty(io_threads_list[0]);
+
+    /* Wait for all the other threads to end their work. */
     while(1) {
         unsigned long pending = 0;
-        for (int j = 0; j < server.io_threads_num; j++)
+        for (int j = 1; j < server.io_threads_num; j++)
             pending += io_threads_pending[j];
         if (pending == 0) break;
     }

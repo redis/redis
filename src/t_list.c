@@ -653,20 +653,13 @@ int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb 
         if (!(dstobj &&
              checkType(receiver,dstobj,OBJ_LIST)))
         {
-            /* Propagate the RPOP operation. */
-            argv[0] = shared.rpop;
-            argv[1] = key;
-            propagate(server.rpopCommand,
-                db->id,argv,2,
-                PROPAGATE_AOF|
-                PROPAGATE_REPL);
             rpoplpushHandlePush(receiver,dstkey,dstobj,
                 value);
-            /* Propagate the LPUSH operation. */
-            argv[0] = shared.lpush;
-            argv[1] = dstkey;
-            argv[2] = value;
-            propagate(server.lpushCommand,
+            /* Propagate the RPOPLPUSH operation. */
+            argv[0] = shared.rpoplpush;
+            argv[1] = key;
+            argv[2] = dstkey;
+            propagate(server.rpoplpushCommand,
                 db->id,argv,3,
                 PROPAGATE_AOF|
                 PROPAGATE_REPL);

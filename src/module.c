@@ -31,6 +31,7 @@
 #include "cluster.h"
 #include "rdb.h"
 #include <dlfcn.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 
 /* --------------------------------------------------------------------------
@@ -354,6 +355,21 @@ list *RedisModule_EventListeners; /* Global list of all the active events. */
 unsigned long long ModulesInHooks = 0; /* Total number of modules in hooks
                                           callbacks right now. */
 
+/* Data structures related to the redis module users */
+
+/* This callback type is called by moduleNotifyUserChanged() every time
+ * a user authenticated via the module API is associated with a different
+ * user or gets disconnected. */
+typedef void (*RedisModuleUserChangedFunc) (uint64_t client_id, void *privdata);
+
+/* This is the object returned by RM_CreateModuleUser(). The module API is
+ * able to create users, set ACLs to such users, and later authenticate
+ * clients using such newly created users. */
+typedef struct RedisModuleUser {
+    user *user; /* Reference to the real redis user */
+} RedisModuleUser;
+
+
 /* --------------------------------------------------------------------------
  * Prototypes
  * -------------------------------------------------------------------------- */
@@ -574,11 +590,8 @@ void moduleHandlePropagationAfterCommandCallback(RedisModuleCtx *ctx) {
 
     /* Handle the replication of the final EXEC, since whatever a command
      * emits is always wrapped around MULTI/EXEC. */
-    robj *propargv[1];
-    propargv[0] = createStringObject("EXEC",4);
-    alsoPropagate(server.execCommand,c->db->id,propargv,1,
+    alsoPropagate(server.execCommand,c->db->id,&shared.exec,1,
         PROPAGATE_AOF|PROPAGATE_REPL);
-    decrRefCount(propargv[0]);
 
     /* If this is not a module command context (but is instead a simple
      * callback context), we have to handle directly the "also propagate"
@@ -718,6 +731,7 @@ int commandFlagsFromString(char *s) {
         else if (!strcasecmp(t,"allow-stale")) flags |= CMD_STALE;
         else if (!strcasecmp(t,"no-monitor")) flags |= CMD_SKIP_MONITOR;
         else if (!strcasecmp(t,"fast")) flags |= CMD_FAST;
+        else if (!strcasecmp(t,"no-auth")) flags |= CMD_NO_AUTH;
         else if (!strcasecmp(t,"getkeys-api")) flags |= CMD_MODULE_GETKEYS;
         else if (!strcasecmp(t,"no-cluster")) flags |= CMD_MODULE_NO_CLUSTER;
         else break;
@@ -779,6 +793,9 @@ int commandFlagsFromString(char *s) {
  *                     example, is unable to report the position of the
  *                     keys, programmatically creates key names, or any
  *                     other reason.
+ * * **"no-auth"**:    This command can be run by an un-authenticated client.
+ *                     Normally this is used by a command that is used
+ *                     to authenticate a client. 
  */
 int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
     int flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
@@ -1825,6 +1842,12 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
          flags |= REDISMODULE_CTX_FLAGS_REPLICATED;
     }
 
+    /* For DIRTY flags, we need the blocked client if used */
+    client *c = ctx->blocked_client ? ctx->blocked_client->client : ctx->client;
+    if (c && (c->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC))) {
+        flags |= REDISMODULE_CTX_FLAGS_MULTI_DIRTY;
+    }
+
     if (server.cluster_enabled)
         flags |= REDISMODULE_CTX_FLAGS_CLUSTER;
 
@@ -1878,6 +1901,30 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
     if (hasActiveChildProcess()) flags |= REDISMODULE_CTX_FLAGS_ACTIVE_CHILD;
 
     return flags;
+}
+
+/* Returns true if some client sent the CLIENT PAUSE command to the server or
+ * if Redis Cluster is doing a manual failover, and paused tue clients.
+ * This is needed when we have a master with replicas, and want to write,
+ * without adding further data to the replication channel, that the replicas
+ * replication offset, match the one of the master. When this happens, it is
+ * safe to failover the master without data loss.
+ *
+ * However modules may generate traffic by calling RedisModule_Call() with
+ * the "!" flag, or by calling RedisModule_Replicate(), in a context outside
+ * commands execution, for instance in timeout callbacks, threads safe
+ * contexts, and so forth. When modules will generate too much traffic, it
+ * will be hard for the master and replicas offset to match, because there
+ * is more data to send in the replication channel.
+ *
+ * So modules may want to try to avoid very heavy background work that has
+ * the effect of creating data to the replication channel, when this function
+ * returns true. This is mostly useful for modules that have background
+ * garbage collection tasks, or that do writes and replicate such writes
+ * periodically in timer callbacks or other periodic callbacks.
+ */
+int RM_AvoidReplicaTraffic() {
+    return clientsArePaused();
 }
 
 /* Change the currently selected DB. Returns an error if the id
@@ -3173,6 +3220,9 @@ fmterr:
  * EINVAL: wrong command arity.
  * ENOENT: command does not exist.
  * EPERM:  operation in Cluster instance with key in non local slot.
+ * EROFS:  operation in Cluster instance when a write command is sent
+ *         in a readonly state.
+ * ENETDOWN: operation in Cluster instance when cluster is down.
  *
  * This API is documented here: https://redis.io/topics/modules-intro
  */
@@ -3230,13 +3280,20 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
      * trying to access non-local keys, with the exception of commands
      * received from our master. */
     if (server.cluster_enabled && !(ctx->client->flags & CLIENT_MASTER)) {
+        int error_code;
         /* Duplicate relevant flags in the module client. */
         c->flags &= ~(CLIENT_READONLY|CLIENT_ASKING);
         c->flags |= ctx->client->flags & (CLIENT_READONLY|CLIENT_ASKING);
-        if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,NULL) !=
+        if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,&error_code) !=
                            server.cluster->myself)
         {
-            errno = EPERM;
+            if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) { 
+                errno = EROFS;
+            } else if (error_code == CLUSTER_REDIR_DOWN_STATE) { 
+                errno = ENETDOWN;
+            } else {
+                errno = EPERM;
+            }
             goto cleanup;
         }
     }
@@ -3245,6 +3302,11 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
      * we propagate into a MULTI/EXEC block, so that it will be atomic like
      * a Lua script in the context of AOF and slaves. */
     if (replicate) moduleReplicateMultiIfNeeded(ctx);
+
+    if (ctx->client->flags & CLIENT_MULTI ||
+        ctx->flags & REDISMODULE_CTX_MULTI_EMITTED) {
+        c->flags |= CLIENT_MULTI;
+    }
 
     /* Run the command */
     int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS;
@@ -3963,6 +4025,7 @@ void RM_DigestEndSequence(RedisModuleDigest *md) {
 void *RM_LoadDataTypeFromString(const RedisModuleString *str, const moduleType *mt) {
     rio payload;
     RedisModuleIO io;
+    void *ret;
 
     rioInitWithBuffer(&payload, str->ptr);
     moduleInitIOContext(io,(moduleType *)mt,&payload,NULL);
@@ -3971,7 +4034,12 @@ void *RM_LoadDataTypeFromString(const RedisModuleString *str, const moduleType *
      * need to make sure we read the same.
      */
     io.ver = 2;
-    return mt->rdb_load(&io,0);
+    ret = mt->rdb_load(&io,0);
+    if (io.ctx) {
+        moduleFreeContext(io.ctx);
+        zfree(io.ctx);
+    }
+    return ret;
 }
 
 /* Encode a module data type 'mt' value 'data' into serialized form, and return it
@@ -3989,11 +4057,15 @@ RedisModuleString *RM_SaveDataTypeToString(RedisModuleCtx *ctx, void *data, cons
     rioInitWithBuffer(&payload,sdsempty());
     moduleInitIOContext(io,(moduleType *)mt,&payload,NULL);
     mt->rdb_save(&io,data);
+    if (io.ctx) {
+        moduleFreeContext(io.ctx);
+        zfree(io.ctx);
+    }
     if (io.error) {
         return NULL;
     } else {
         robj *str = createObject(OBJ_STRING,payload.io.buffer.ptr);
-        autoMemoryAdd(ctx,REDISMODULE_AM_STRING,str);
+        if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_STRING,str);
         return str;
     }
 }
@@ -4192,7 +4264,10 @@ void moduleBlockedClientPipeReadable(aeEventLoop *el, int fd, void *privdata, in
 void unblockClientFromModule(client *c) {
     RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
 
-    /* Call the disconnection callback if any. */
+    /* Call the disconnection callback if any. Note that
+     * bc->disconnect_callback is set to NULL if the client gets disconnected
+     * by the module itself or because of a timeout, so the callback will NOT
+     * get called if this is not an actual disconnection event. */
     if (bc->disconnect_callback) {
         RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
         ctx.blocked_privdata = bc->privdata;
@@ -5013,10 +5088,13 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
     UNUSED(ctx);
 
     clusterNode *node = clusterLookupNode(id);
-    if (node->flags & (CLUSTER_NODE_NOADDR|CLUSTER_NODE_HANDSHAKE))
+    if (node == NULL ||
+        node->flags & (CLUSTER_NODE_NOADDR|CLUSTER_NODE_HANDSHAKE))
+    {
         return REDISMODULE_ERR;
+    }
 
-    if (ip) memcpy(ip,node->name,REDISMODULE_NODE_ID_LEN);
+    if (ip) strncpy(ip,node->ip,NET_IP_STR_LEN);
 
     if (master_id) {
         /* If the information is not available, the function will set the
@@ -5150,7 +5228,7 @@ RedisModuleTimerID RM_CreateTimer(RedisModuleCtx *ctx, mstime_t period, RedisMod
     timer->module = ctx->module;
     timer->callback = callback;
     timer->data = data;
-    timer->dbid = ctx->client->db->id;
+    timer->dbid = ctx->client ? ctx->client->db->id : 0;
     uint64_t expiretime = ustime()+period*1000;
     uint64_t key;
 
@@ -5219,6 +5297,200 @@ int RM_GetTimerInfo(RedisModuleCtx *ctx, RedisModuleTimerID id, uint64_t *remain
         *remaining = rem/1000; /* Scale to milliseconds. */
     }
     if (data) *data = timer->data;
+    return REDISMODULE_OK;
+}
+
+/* --------------------------------------------------------------------------
+ * Modules ACL API
+ *
+ * Implements a hook into the authentication and authorization within Redis. 
+ * --------------------------------------------------------------------------*/
+
+/* This function is called when a client's user has changed and invokes the
+ * client's user changed callback if it was set. This callback should
+ * cleanup any state the module was tracking about this client. 
+ * 
+ * A client's user can be changed through the AUTH command, module 
+ * authentication, and when a client is freed. */
+void moduleNotifyUserChanged(client *c) {
+    if (c->auth_callback) {
+        c->auth_callback(c->id, c->auth_callback_privdata);
+
+        /* The callback will fire exactly once, even if the user remains 
+         * the same. It is expected to completely clean up the state
+         * so all references are cleared here. */
+        c->auth_callback = NULL;
+        c->auth_callback_privdata = NULL;
+        c->auth_module = NULL;
+    }
+}
+
+void revokeClientAuthentication(client *c) {
+    /* Freeing the client would result in moduleNotifyUserChanged() to be
+     * called later, however since we use revokeClientAuthentication() also
+     * in moduleFreeAuthenticatedClients() to implement module unloading, we
+     * do this action ASAP: this way if the module is unloaded, when the client
+     * is eventually freed we don't rely on the module to still exist. */
+    moduleNotifyUserChanged(c);
+
+    c->user = DefaultUser;
+    c->authenticated = 0;
+    freeClientAsync(c);
+}
+
+/* Cleanup all clients that have been authenticated with this module. This
+ * is called from onUnload() to give the module a chance to cleanup any
+ * resources associated with clients it has authenticated. */
+static void moduleFreeAuthenticatedClients(RedisModule *module) {
+    listIter li;
+    listNode *ln;
+    listRewind(server.clients,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        client *c = listNodeValue(ln);
+        if (!c->auth_module) continue;
+
+        RedisModule *auth_module = (RedisModule *) c->auth_module;
+        if (auth_module == module) { 
+            revokeClientAuthentication(c);
+        }
+    }
+}
+
+/* Creates a Redis ACL user that the module can use to authenticate a client.
+ * After obtaining the user, the module should set what such user can do
+ * using the RM_SetUserACL() function. Once configured, the user
+ * can be used in order to authenticate a connection, with the specified
+ * ACL rules, using the RedisModule_AuthClientWithUser() function.
+ *
+ * Note that:
+ *
+ * * Users created here are not listed by the ACL command.
+ * * Users created here are not checked for duplicated name, so it's up to
+ *   the module calling this function to take care of not creating users
+ *   with the same name.
+ * * The created user can be used to authenticate multiple Redis connections.
+ *
+ * The caller can later free the user using the function
+ * RM_FreeModuleUser(). When this function is called, if there are
+ * still clients authenticated with this user, they are disconnected.
+ * The function to free the user should only be used when the caller really
+ * wants to invalidate the user to define a new one with different
+ * capabilities. */
+RedisModuleUser *RM_CreateModuleUser(const char *name) {
+    RedisModuleUser *new_user = zmalloc(sizeof(RedisModuleUser));
+    new_user->user = ACLCreateUnlinkedUser();
+
+    /* Free the previous temporarily assigned name to assign the new one */
+    sdsfree(new_user->user->name);
+    new_user->user->name = sdsnew(name);
+    return new_user;
+}
+
+/* Frees a given user and disconnects all of the clients that have been
+ * authenticated with it. See RM_CreateModuleUser for detailed usage.*/
+int RM_FreeModuleUser(RedisModuleUser *user) {
+    ACLFreeUserAndKillClients(user->user);
+    zfree(user);
+    return REDISMODULE_OK;
+}
+
+/* Sets the permissions of a user created through the redis module 
+ * interface. The syntax is the same as ACL SETUSER, so refer to the 
+ * documentation in acl.c for more information. See RM_CreateModuleUser
+ * for detailed usage.
+ * 
+ * Returns REDISMODULE_OK on success and REDISMODULE_ERR on failure
+ * and will set an errno describing why the operation failed. */
+int RM_SetModuleUserACL(RedisModuleUser *user, const char* acl) {
+    return ACLSetUser(user->user, acl, -1);
+}
+
+/* Authenticate the client associated with the context with 
+ * the provided user. Returns REDISMODULE_OK on success and
+ * REDISMODULE_ERR on error.
+ * 
+ * This authentication can be tracked with the optional callback and private
+ * data fields. The callback will be called whenever the user of the client
+ * changes. This callback should be used to cleanup any state that is being
+ * kept in the module related to the client authentication. It will only be
+ * called once, even when the user hasn't changed, in order to allow for a
+ * new callback to be specified. If this authentication does not need to be
+ * tracked, pass in NULL for the callback and privdata. 
+ * 
+ * If client_id is not NULL, it will be filled with the id of the client
+ * that was authenticated. This can be used with the 
+ * RM_DeauthenticateAndCloseClient() API in order to deauthenticate a 
+ * previously authenticated client if the authentication is no longer valid. 
+ * 
+ * For expensive authentication operations, it is recommended to block the
+ * client and do the authentication in the background and then attach the user
+ * to the client in a threadsafe context.  */
+static int authenticateClientWithUser(RedisModuleCtx *ctx, user *user, RedisModuleUserChangedFunc callback, void *privdata, uint64_t *client_id) {
+    if (user->flags & USER_FLAG_DISABLED) {
+        return REDISMODULE_ERR;
+    }
+
+    moduleNotifyUserChanged(ctx->client);
+
+    ctx->client->user = user;
+    ctx->client->authenticated = 1;
+
+    if (callback) {
+        ctx->client->auth_callback = callback;
+        ctx->client->auth_callback_privdata = privdata;
+        ctx->client->auth_module = ctx->module;
+    }
+
+    if (client_id) {
+        *client_id = ctx->client->id;
+    }
+
+    return REDISMODULE_OK;
+}
+
+
+/* Authenticate the current context's user with the provided redis acl user. 
+ * Returns REDISMODULE_ERR if the user is disabled.
+ * 
+ * See authenticateClientWithUser for information about callback, client_id,
+ * and general usage for authentication. */
+int RM_AuthenticateClientWithUser(RedisModuleCtx *ctx, RedisModuleUser *module_user, RedisModuleUserChangedFunc callback, void *privdata, uint64_t *client_id) {
+    return authenticateClientWithUser(ctx, module_user->user, callback, privdata, client_id);
+}
+
+/* Authenticate the current context's user with the provided redis acl user. 
+ * Returns REDISMODULE_ERR if the user is disabled or the user does not exist.
+ * 
+ * See authenticateClientWithUser for information about callback, client_id,
+ * and general usage for authentication. */
+int RM_AuthenticateClientWithACLUser(RedisModuleCtx *ctx, const char *name, size_t len, RedisModuleUserChangedFunc callback, void *privdata, uint64_t *client_id) {
+    user *acl_user = ACLGetUserByName(name, len);
+
+    if (!acl_user) {
+        return REDISMODULE_ERR;
+    }
+    return authenticateClientWithUser(ctx, acl_user, callback, privdata, client_id);
+}
+
+/* Deauthenticate and close the client. The client resources will not be
+ * be immediately freed, but will be cleaned up in a background job. This is 
+ * the recommended way to deauthenicate a client since most clients can't 
+ * handle users becomming deauthenticated. Returns REDISMODULE_ERR when the 
+ * client doesn't exist and REDISMODULE_OK when the operation was successful. 
+ * 
+ * The client ID is returned from the RM_AuthenticateClientWithUser and
+ * RM_AuthenticateClientWithACLUser APIs, but can be obtained through
+ * the CLIENT api or through server events. 
+ * 
+ * This function is not thread safe, and must be executed within the context
+ * of a command or thread safe context. */
+int RM_DeauthenticateAndCloseClient(RedisModuleCtx *ctx, uint64_t client_id) {
+    UNUSED(ctx);
+    client *c = lookupClientByID(client_id);
+    if (c == NULL) return REDISMODULE_ERR;
+
+    /* Revoke also marks client to be closed ASAP */
+    revokeClientAuthentication(c);
     return REDISMODULE_OK;
 }
 
@@ -6971,6 +7243,17 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
     int (*onload)(void *, void **, int);
     void *handle;
     RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+    ctx.client = moduleFreeContextReusedClient;
+    selectDb(ctx.client, 0);
+
+    struct stat st;
+    if (stat(path, &st) == 0)
+    {   // this check is best effort
+        if (!(st.st_mode & (S_IXUSR  | S_IXGRP | S_IXOTH))) {
+            serverLog(LL_WARNING, "Module %s failed to load: It does not have execute permissions.", path);
+            return C_ERR;
+        }
+    }
 
     handle = dlopen(path,RTLD_NOW|RTLD_LOCAL);
     if (handle == NULL) {
@@ -7053,6 +7336,7 @@ int moduleUnload(sds name) {
         }
     }
 
+    moduleFreeAuthenticatedClients(module);
     moduleUnregisterCommands(module);
     moduleUnregisterSharedAPI(module);
     moduleUnregisterUsedAPI(module);
@@ -7285,22 +7569,30 @@ int RM_GetLFU(RedisModuleKey *key, long long *lfu_freq) {
  * Unlike RM_ModuleTypeSetValue() which will free the old value, this function
  * simply swaps the old value with the new value.
  *
- * The function returns the old value, or NULL if any of the above conditions is
- * not met.
+ * The function returns REDISMODULE_OK on success, REDISMODULE_ERR on errors
+ * such as:
+ *
+ * 1. Key is not opened for writing.
+ * 2. Key is not a module data type key.
+ * 3. Key is a module datatype other than 'mt'.
+ *
+ * If old_value is non-NULL, the old value is returned by reference.
  */
-void *RM_ModuleTypeReplaceValue(RedisModuleKey *key, moduleType *mt, void *new_value) {
+int RM_ModuleTypeReplaceValue(RedisModuleKey *key, moduleType *mt, void *new_value, void **old_value) {
     if (!(key->mode & REDISMODULE_WRITE) || key->iter)
-        return NULL;
+        return REDISMODULE_ERR;
     if (!key->value || key->value->type != OBJ_MODULE)
-        return NULL;
+        return REDISMODULE_ERR;
 
     moduleValue *mv = key->value->ptr;
     if (mv->type != mt)
-        return NULL;
+        return REDISMODULE_ERR;
 
-    void *old_val = mv->value;
+    if (old_value)
+        *old_value = mv->value;
     mv->value = new_value;
-    return old_val;
+
+    return REDISMODULE_OK;
 }
 
 /* Register all the APIs we export. Keep this function at the end of the
@@ -7392,6 +7684,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(KeyAtPos);
     REGISTER_API(GetClientId);
     REGISTER_API(GetContextFlags);
+    REGISTER_API(AvoidReplicaTraffic);
     REGISTER_API(PoolAlloc);
     REGISTER_API(CreateDataType);
     REGISTER_API(ModuleTypeSetValue);
@@ -7528,4 +7821,10 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ScanCursorRestart);
     REGISTER_API(Scan);
     REGISTER_API(ScanKey);
+    REGISTER_API(CreateModuleUser);
+    REGISTER_API(SetModuleUserACL);
+    REGISTER_API(FreeModuleUser);
+    REGISTER_API(DeauthenticateAndCloseClient);
+    REGISTER_API(AuthenticateClientWithACLUser);
+    REGISTER_API(AuthenticateClientWithUser);
 }

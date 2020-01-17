@@ -183,12 +183,12 @@ int ACLListMatchSds(void *a, void *b) {
     return sdscmp(a,b) == 0;
 }
 
-/* Method to free list elements from ACL users password/ptterns lists. */
+/* Method to free list elements from ACL users password/patterns lists. */
 void ACLListFreeSds(void *item) {
     sdsfree(item);
 }
 
-/* Method to duplicate list elements from ACL users password/ptterns lists. */
+/* Method to duplicate list elements from ACL users password/patterns lists. */
 void *ACLListDupSds(void *item) {
     return sdsdup(item);
 }
@@ -975,6 +975,7 @@ int ACLAuthenticateUser(client *c, robj *username, robj *password) {
     if (ACLCheckUserCredentials(username,password) == C_OK) {
         c->authenticated = 1;
         c->user = ACLGetUserByName(username->ptr,sdslen(username->ptr));
+        moduleNotifyUserChanged(c);
         return C_OK;
     } else {
         return C_ERR;

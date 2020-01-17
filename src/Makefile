@@ -32,6 +32,7 @@ OPT=$(OPTIMIZATION)
 PREFIX?=/usr/local
 INSTALL_BIN=$(PREFIX)/bin
 INSTALL=install
+PKG_CONFIG?=pkg-config
 
 # Default allocator defaults to Jemalloc if it's not an ARM
 MALLOC=libc
@@ -76,6 +77,15 @@ FINAL_CFLAGS=$(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS)
 FINAL_LDFLAGS=$(LDFLAGS) $(REDIS_LDFLAGS) $(DEBUG)
 FINAL_LIBS=-lm
 DEBUG=-g -ggdb
+
+# Linux ARM needs -latomic at linking time
+ifneq (,$(filter aarch64 armv,$(uname_M)))
+        FINAL_LIBS+=-latomic
+else
+ifneq (,$(findstring armv,$(uname_M)))
+        FINAL_LIBS+=-latomic
+endif
+endif
 
 ifeq ($(uname_S),SunOS)
 	# SunOS
@@ -130,6 +140,30 @@ endif
 endif
 # Include paths to dependencies
 FINAL_CFLAGS+= -I../deps/hiredis -I../deps/linenoise -I../deps/lua/src
+
+# Determine systemd support and/or build preference (defaulting to auto-detection)
+BUILD_WITH_SYSTEMD=no
+# If 'USE_SYSTEMD' in the environment is neither "no" nor "yes", try to
+# auto-detect libsystemd's presence and link accordingly.
+ifneq ($(USE_SYSTEMD),no)
+	LIBSYSTEMD_PKGCONFIG := $(shell $(PKG_CONFIG) --exists libsystemd && echo $$?)
+# If libsystemd cannot be detected, continue building without support for it
+# (unless a later check tells us otherwise)
+ifeq ($(LIBSYSTEMD_PKGCONFIG),0)
+	BUILD_WITH_SYSTEMD=yes
+endif
+endif
+ifeq ($(USE_SYSTEMD),yes)
+ifneq ($(LIBSYSTEMD_PKGCONFIG),0)
+$(error USE_SYSTEMD is set to "$(USE_SYSTEMD)", but $(PKG_CONFIG) cannot find libsystemd)
+endif
+# Force building with libsystemd
+	BUILD_WITH_SYSTEMD=yes
+endif
+ifeq ($(BUILD_WITH_SYSTEMD),yes)
+	FINAL_LIBS+=$(shell $(PKG_CONFIG) --libs libsystemd)
+	FINAL_CFLAGS+= -DHAVE_LIBSYSTEMD
+endif
 
 ifeq ($(MALLOC),tcmalloc)
 	FINAL_CFLAGS+= -DUSE_TCMALLOC
@@ -249,14 +283,18 @@ $(REDIS_BENCHMARK_NAME): $(REDIS_BENCHMARK_OBJ)
 dict-benchmark: dict.c zmalloc.c sds.c siphash.c
 	$(REDIS_CC) $(FINAL_CFLAGS) $^ -D DICT_BENCHMARK_MAIN -o $@ $(FINAL_LIBS)
 
+DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:%.o=%.d) $(REDIS_BENCHMARK_OBJ:%.o=%.d)
+-include $(DEP)
+
 # Because the jemalloc.h header is generated as a part of the jemalloc build,
 # building it should complete before building any other object. Instead of
 # depending on a single artifact, build all dependencies first.
 %.o: %.c .make-prerequisites
-	$(REDIS_CC) -c $<
+	$(REDIS_CC) -MMD -o $@ -c $<
 
 clean:
 	rm -rf $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) *.o *.gcda *.gcno *.gcov redis.info lcov-html Makefile.dep dict-benchmark
+	rm -f $(DEP)
 
 .PHONY: clean
 
