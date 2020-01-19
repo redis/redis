@@ -574,6 +574,14 @@ struct redisCommand redisCommandTable[] = {
      "write use-memory @string",
      0,NULL,1,-1,2,0,0,0},
 
+    {"msetex",msetexCommand,-3,
+     "write use-memory @string",
+     0,NULL,1,-1,2,0,0,0},
+    
+    {"msetnxex",msetnxexCommand,-3,
+     "write use-memory @string",
+     0,NULL,1,-1,2,0,0,0},
+
     {"randomkey",randomkeyCommand,1,
      "read-only random @keyspace",
      0,NULL,0,0,0,0,0,0},
