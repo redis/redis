@@ -2667,6 +2667,13 @@ int processCommand(client *c) {
             addReply(c, shared.oomerr);
             return C_OK;
         }
+
+        /* Save out_of_memory result at script start, otherwise if we check OOM
+         * untill first write within script, memory used by lua stack and
+         * arguments might interfere. */
+        if (c->cmd->proc == evalCommand || c->cmd->proc == evalShaCommand) {
+            server.lua_oom = out_of_memory;
+        }
     }
 
     /* Don't accept write commands if there are problems persisting on disk
