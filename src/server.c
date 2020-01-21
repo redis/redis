@@ -3981,7 +3981,7 @@ sds genRedisInfoString(const char *section) {
             maxin, maxout,
             server.blocked_clients,
             server.tracking_clients,
-            raxSize(server.clients_timeout_table));
+            (unsigned long long)raxSize(server.clients_timeout_table));
     }
 
     /* Memory */
