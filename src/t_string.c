@@ -76,9 +76,9 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
             return;
         }
         if (unit == UNIT_SECONDS){
-            if (milliseconds > INT_MAX / 1000){ /* Overflow. */
+            if (milliseconds > INT_MAX / 1000){
                 addReplyErrorFormat(c,"expire time value is out of range in %s",c->cmd->name);
-            }else{
+            } else {
                 milliseconds *= 1000;
             }
         }
