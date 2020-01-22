@@ -75,7 +75,13 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
             addReplyErrorFormat(c,"invalid expire time in %s",c->cmd->name);
             return;
         }
-        if (unit == UNIT_SECONDS) milliseconds *= 1000;
+        if (unit == UNIT_SECONDS){
+            if (milliseconds > INT_MAX / 1000){ /* Overflow. */
+                addReplyErrorFormat(c,"expire time value is out of range in %s",c->cmd->name);
+            }else{
+                milliseconds *= 1000;
+            }
+        }
     }
 
     if ((flags & OBJ_SET_NX && lookupKeyWrite(c->db,key) != NULL) ||
