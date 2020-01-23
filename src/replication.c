@@ -31,6 +31,7 @@
 
 #include "server.h"
 #include "cluster.h"
+#include "bio.h"
 
 #include <sys/time.h>
 #include <unistd.h>
@@ -1616,14 +1617,20 @@ void readSyncBulkPayload(connection *conn) {
             killRDBChild();
         }
 
+        /* Rename rdb like renaming rewrite aof asynchronously. */
+        int old_rdb_fd = open(server.rdb_filename,O_RDONLY|O_NONBLOCK);
         if (rename(server.repl_transfer_tmpfile,server.rdb_filename) == -1) {
             serverLog(LL_WARNING,
                 "Failed trying to rename the temp DB into %s in "
                 "MASTER <-> REPLICA synchronization: %s",
                 server.rdb_filename, strerror(errno));
             cancelReplicationHandshake();
+            if (old_rdb_fd != -1) close(old_rdb_fd);
             return;
         }
+        /* Close old rdb asynchronously. */
+        if (old_rdb_fd != -1) bioCreateBackgroundJob(BIO_CLOSE_FILE,(void*)(long)old_rdb_fd,NULL,NULL);
+
         if (rdbLoad(server.rdb_filename,&rsi,RDBFLAGS_REPLICATION) != C_OK) {
             serverLog(LL_WARNING,
                 "Failed trying to load the MASTER synchronization "
@@ -1664,6 +1671,11 @@ void readSyncBulkPayload(connection *conn) {
      * masters after a failover. */
     if (server.repl_backlog == NULL) createReplicationBacklog();
     serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Finished with success");
+
+    if (server.supervised_mode == SUPERVISED_SYSTEMD) {
+        redisCommunicateSystemd("STATUS=MASTER <-> REPLICA sync: Finished with success. Ready to accept connections.\n");
+        redisCommunicateSystemd("READY=1\n");
+    }
 
     /* Restart the AOF subsystem now that we finished the sync. This
      * will trigger an AOF rewrite, and when done will start appending

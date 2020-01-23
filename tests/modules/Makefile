@@ -21,7 +21,8 @@ TEST_MODULES = \
     hooks.so \
     blockonkeys.so \
     scan.so \
-    datatype.so
+    datatype.so \
+    auth.so
 
 .PHONY: all
 
