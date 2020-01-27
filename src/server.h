@@ -1824,7 +1824,7 @@ int ACLCheckUserCredentials(robj *username, robj *password);
 int ACLAuthenticateUser(client *c, robj *username, robj *password);
 unsigned long ACLGetCommandID(const char *cmdname);
 user *ACLGetUserByName(const char *name, size_t namelen);
-int ACLCheckCommandPerm(client *c);
+int ACLCheckCommandPerm(client *c, int *keyidxptr);
 int ACLSetUser(user *u, const char *op, ssize_t oplen);
 sds ACLDefaultUserFirstPassword(void);
 uint64_t ACLGetCommandCategoryFlagByName(const char *name);

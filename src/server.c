@@ -3377,7 +3377,7 @@ int processCommand(client *c) {
 
     /* Check if the user can run this command according to the current
      * ACLs. */
-    int acl_retval = ACLCheckCommandPerm(c);
+    int acl_retval = ACLCheckCommandPerm(c,NULL);
     if (acl_retval != ACL_OK) {
         flagTransaction(c);
         if (acl_retval == ACL_DENIED_CMD)
