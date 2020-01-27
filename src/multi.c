@@ -177,7 +177,7 @@ void execCommand(client *c) {
             must_propagate = 1;
         }
 
-        int acl_retval = ACLCheckCommandPerm(c);
+        int acl_retval = ACLCheckCommandPerm(c,NULL);
         if (acl_retval != ACL_OK) {
             addReplyErrorFormat(c,
                 "-NOPERM ACLs rules changed between the moment the "

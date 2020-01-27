@@ -49,6 +49,8 @@ list *UsersToLoad;  /* This is a list of users found in the configuration file
                        array of SDS pointers: the first is the user name,
                        all the remaining pointers are ACL rules in the same
                        format as ACLSetUser(). */
+list *ACLLog;       /* Our security log, the user is able to inspect that
+                       using the ACL LOG command .*/
 
 struct ACLCategoryItem {
     const char *name;
@@ -920,6 +922,7 @@ void ACLInitDefaultUser(void) {
 void ACLInit(void) {
     Users = raxNew();
     UsersToLoad = listCreate();
+    ACLLog = listCreate();
     ACLInitDefaultUser();
 }
 
@@ -1034,7 +1037,7 @@ user *ACLGetUserByName(const char *name, size_t namelen) {
  * command cannot be executed because the user is not allowed to run such
  * command, the second if the command is denied because the user is trying
  * to access keys that are not among the specified patterns. */
-int ACLCheckCommandPerm(client *c) {
+int ACLCheckCommandPerm(client *c, int *keyidxptr) {
     user *u = c->user;
     uint64_t id = c->cmd->id;
 
@@ -1094,6 +1097,7 @@ int ACLCheckCommandPerm(client *c) {
                 }
             }
             if (!match) {
+                if (keyidxptr) *keyidxptr = keyidx[j];
                 getKeysFreeResult(keyidx);
                 return ACL_DENIED_KEY;
             }
@@ -1452,6 +1456,51 @@ void ACLLoadUsersAtStartup(void) {
             exit(1);
         }
     }
+}
+
+/* =============================================================================
+ * ACL log
+ * ==========================================================================*/
+
+#define ACL_LOG_CTX_TOPLEVEL 0
+#define ACL_LOG_CTX_LUA 1
+#define ACL_LOG_CTX_MULTI 2
+
+/* This structure defines an entry inside the ACL log. */
+typedef struct aclLogEntry {
+    uint64_t count;     /* Number of times this happened recently. */
+    int reason;         /* Reason for denying the command. ACL_DENIED_*. */
+    int context;        /* Toplevel, Lua or MULTI/EXEC? ACL_LOG_CTX_*. */
+    sds object;         /* The key name or command name. */
+    sds username;       /* User the client is authenticated with. */
+    mstime_t ctime;     /* Milliseconds time of last update to this entry. */
+    sds cinfo;          /* Client info (last client if updated). */
+} aclLogEntry;
+
+void addACLLogEntry(client *c, int reason, int keypos) {
+    /* Create a new entry. */
+    struct aclLogEntry *le = zmalloc(sizeof(*le));
+    le->count = 1;
+    le->object = (reason == ACL_DENIED_CMD) ? sdsnew(c->cmd->name) :
+                                              sdsdup(c->argv[keypos]->ptr);
+    le->username = sdsdup(c->user->name);
+    le->ctime = mstime();
+
+    client *realclient = c;
+    if (realclient->flags & CLIENT_LUA) realclient = server.lua_caller;
+
+    le->cinfo = catClientInfoString(sdsempty(),realclient);
+    if (c->flags & CLIENT_MULTI) {
+        le->context = ACL_LOG_CTX_MULTI;
+    } else if (c->flags & CLIENT_LUA) {
+        le->context = ACL_LOG_CTX_LUA;
+    } else {
+        le->context = ACL_LOG_CTX_TOPLEVEL;
+    }
+
+    /* Add it to our list of entires. We'll have to trim the list
+     * to its maximum size. */
+    listAddNodeHead(ACLLog, le);
 }
 
 /* =============================================================================

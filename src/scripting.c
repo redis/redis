@@ -606,7 +606,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     }
 
     /* Check the ACLs. */
-    int acl_retval = ACLCheckCommandPerm(c);
+    int acl_retval = ACLCheckCommandPerm(c,NULL);
     if (acl_retval != ACL_OK) {
         if (acl_retval == ACL_DENIED_CMD)
             luaPushError(lua, "The user executing the script can't run this "
