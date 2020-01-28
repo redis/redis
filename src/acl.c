@@ -1467,7 +1467,7 @@ void ACLLoadUsersAtStartup(void) {
 #define ACL_LOG_CTX_MULTI 2
 
 /* This structure defines an entry inside the ACL log. */
-typedef struct aclLogEntry {
+typedef struct ACLLogEntry {
     uint64_t count;     /* Number of times this happened recently. */
     int reason;         /* Reason for denying the command. ACL_DENIED_*. */
     int context;        /* Toplevel, Lua or MULTI/EXEC? ACL_LOG_CTX_*. */
@@ -1475,7 +1475,7 @@ typedef struct aclLogEntry {
     sds username;       /* User the client is authenticated with. */
     mstime_t ctime;     /* Milliseconds time of last update to this entry. */
     sds cinfo;          /* Client info (last client if updated). */
-} aclLogEntry;
+} ACLLogEntry;
 
 /* Adds a new entry in the ACL log, making sure to delete the old entry
  * if we reach the maximum length allowed for the log. This function attempts
@@ -1484,8 +1484,9 @@ typedef struct aclLogEntry {
  * rules issues. */
 void addACLLogEntry(client *c, int reason, int keypos) {
     /* Create a new entry. */
-    struct aclLogEntry *le = zmalloc(sizeof(*le));
+    struct ACLLogEntry *le = zmalloc(sizeof(*le));
     le->count = 1;
+    le->reason = reason;
     le->object = (reason == ACL_DENIED_CMD) ? sdsnew(c->cmd->name) :
                                               sdsdup(c->argv[keypos]->ptr);
     le->username = sdsdup(c->user->name);
@@ -1737,8 +1738,33 @@ void aclCommand(client *c) {
         listIter li;
         listNode *ln;
         listRewind(ACLLog,&li);
+        mstime_t now = mstime();
         while (count-- && (ln = listNext(&li)) != NULL) {
-            addReplyLongLong(c,1234);
+            ACLLogEntry *le = listNodeValue(ln);
+            addReplyMapLen(c,7);
+            addReplyBulkCString(c,"count");
+            addReplyLongLong(c,le->count);
+            addReplyBulkCString(c,"reason");
+            addReplyBulkCString(c,(le->reason == ACL_DENIED_CMD) ?
+                                  "command" : "key");
+            char *ctxstr;
+            switch(le->context) {
+            case ACL_LOG_CTX_TOPLEVEL: ctxstr="toplevel"; break;
+            case ACL_LOG_CTX_MULTI: ctxstr="multi"; break;
+            case ACL_LOG_CTX_LUA: ctxstr="lua"; break;
+            default: ctxstr="unknown";
+            }
+            addReplyBulkCString(c,"context");
+            addReplyBulkCString(c,ctxstr);
+            addReplyBulkCString(c,"object");
+            addReplyBulkCBuffer(c,le->object,sdslen(le->object));
+            addReplyBulkCString(c,"username");
+            addReplyBulkCBuffer(c,le->username,sdslen(le->username));
+            addReplyBulkCString(c,"age-seconds");
+            double age = (double)(now - le->ctime)/1000;
+            addReplyDouble(c,age);
+            addReplyBulkCString(c,"client-info");
+            addReplyBulkCBuffer(c,le->cinfo,sdslen(le->cinfo));
         }
     } else if (!strcasecmp(sub,"help")) {
         const char *help[] = {
