@@ -1477,6 +1477,11 @@ typedef struct aclLogEntry {
     sds cinfo;          /* Client info (last client if updated). */
 } aclLogEntry;
 
+/* Adds a new entry in the ACL log, making sure to delete the old entry
+ * if we reach the maximum length allowed for the log. This function attempts
+ * to find similar entries in the current log in order to bump the counter of
+ * the log entry instead of creating many entries for very similar ACL
+ * rules issues. */
 void addACLLogEntry(client *c, int reason, int keypos) {
     /* Create a new entry. */
     struct aclLogEntry *le = zmalloc(sizeof(*le));
@@ -1518,6 +1523,7 @@ void addACLLogEntry(client *c, int reason, int keypos) {
  * ACL GETUSER <username>
  * ACL GENPASS
  * ACL WHOAMI
+ * ACL LOG [<count> | RESET]
  */
 void aclCommand(client *c) {
     char *sub = c->argv[1]->ptr;
@@ -1704,6 +1710,36 @@ void aclCommand(client *c) {
         char pass[32]; /* 128 bits of actual pseudo random data. */
         getRandomHexChars(pass,sizeof(pass));
         addReplyBulkCBuffer(c,pass,sizeof(pass));
+    } else if (!strcasecmp(sub,"log") && (c->argc == 2 || c->argc ==3)) {
+        long count = 10; /* Number of entries to emit by default. */
+
+        /* Parse the only argument that LOG may have: it could be either
+         * the number of entires the user wants to display, or alternatively
+         * the "RESET" command in order to flush the old entires. */
+        if (c->argc == 3) {
+            if (!strcasecmp(c->argv[2]->ptr,"reset")) {
+                /* TODO: reset the log. */
+                addReply(c,shared.ok);
+                return;
+            } else if (getLongFromObjectOrReply(c,c->argv[2],&count,NULL)
+                       != C_OK)
+            {
+                return;
+            }
+            if (count < 0) count = 0;
+        }
+
+        /* Fix the count according to the number of entries we got. */
+        if ((size_t)count > listLength(ACLLog))
+            count = listLength(ACLLog);
+
+        addReplyArrayLen(c,count);
+        listIter li;
+        listNode *ln;
+        listRewind(ACLLog,&li);
+        while (count-- && (ln = listNext(&li)) != NULL) {
+            addReplyLongLong(c,1234);
+        }
     } else if (!strcasecmp(sub,"help")) {
         const char *help[] = {
 "LOAD                              -- Reload users from the ACL file.",
@@ -1716,6 +1752,7 @@ void aclCommand(client *c) {
 "CAT <category>                    -- List commands inside category.",
 "GENPASS                           -- Generate a secure user password.",
 "WHOAMI                            -- Return the current connection username.",
+"LOG [<count> | RESET]             -- Show the ACL log entries.",
 NULL
         };
         addReplyHelp(c,help);
