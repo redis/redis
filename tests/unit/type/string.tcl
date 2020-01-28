@@ -419,4 +419,9 @@ start_server {tags {"string"}} {
         r set foo bar
         r getrange foo 0 4294967297
     } {bar}
+
+    test {Overflow guard on SET with TTL conversion from sec to ms, Github issue #6800} {
+        assert {[r set a b px 9223372036854775807] eq {OK}}
+        assert_error "*out of range*" {r set a b ex 9223372036854775807}
+    }
 }
