@@ -4282,7 +4282,13 @@ void unblockClientFromModule(client *c) {
      * not implemented (or it was, but RM_UnblockClient was not called from
      * within it, as it should).
      * We must call moduleUnblockClient in order to free privdata and
-     * RedisModuleBlockedClient */
+     * RedisModuleBlockedClient.
+     *
+     * Note that clients implementing threads and working with private data,
+     * should make sure to stop the threads or protect the private data
+     * in some other way in the disconnection and timeout callback, because
+     * here we are going to free the private data associated with the
+     * blocked client. */
     if (!bc->unblocked)
         moduleUnblockClient(c);
 
