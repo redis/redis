@@ -390,6 +390,47 @@ start_server {tags {"hash"}} {
         lappend rv [string match "ERR*not*float*" $bigerr]
     } {1 1}
 
+    test {HAPPEND against non existing database key} {
+        r del htest
+        list [r happend htest foo bar]
+    } {3}
+
+    test {HAPPEND against non existing hash key} {
+        set rv {}
+        r hdel smallhash tmp
+        r hdel bighash tmp
+        lappend rv [r happend smallhash tmp bar]
+        lappend rv [r hget smallhash tmp]
+        lappend rv [r happend bighash tmp bar]
+        lappend rv [r hget bighash tmp]
+    } {3 bar 3 bar}
+
+    test {HAPPEND against hash key created by happend itself} {
+        set rv {}
+        lappend rv [r happend smallhash tmp foo]
+        lappend rv [r hget smallhash tmp]
+        lappend rv [r happend bighash tmp foo]
+        lappend rv [r hget bighash tmp]
+    } {6 barfoo 6 barfoo}
+
+    test {HAPPEND against hash key originally set with HSET} {
+        r hset smallhash tmp taz
+        r hset bighash tmp taz
+        list [r happend smallhash tmp nom] \
+             [r hget smallhash tmp] \
+             [r happend bighash tmp nom] \
+             [r hget bighash tmp]
+    } {6 taznom 6 taznom}
+    
+    test {HAPPEND against hash key originally set with HSET as number} {
+        r hset smallhash tmp 1.23
+        r hset bighash tmp 123
+        list [r happend smallhash tmp foo] \
+             [r hget smallhash tmp] \
+             [r happend bighash tmp foo] \
+             [r hget bighash tmp]
+    } {7 1.23foo 6 123foo}    
+
     test {HSTRLEN against the small hash} {
         set err {}
         foreach k [array names smallhash *] {
