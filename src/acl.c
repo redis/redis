@@ -95,6 +95,7 @@ struct ACLUserFlag {
 void ACLResetSubcommandsForCommand(user *u, unsigned long id);
 void ACLResetSubcommands(user *u);
 void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub);
+void ACLFreeLogEntry(void *le);
 
 /* The length of the string representation of a hashed password. */
 #define HASH_PASSWORD_LEN SHA256_BLOCK_SIZE*2
@@ -1493,7 +1494,8 @@ int ACLLogMatchEntry(ACLLogEntry *a, ACLLogEntry *b) {
 }
 
 /* Release an ACL log entry. */
-void ACLFreeLogEntry(ACLLogEntry *le) {
+void ACLFreeLogEntry(void *leptr) {
+    ACLLogEntry *le = leptr;
     sdsfree(le->object);
     sdsfree(le->username);
     sdsfree(le->cinfo);
@@ -1774,7 +1776,9 @@ void aclCommand(client *c) {
          * the "RESET" command in order to flush the old entires. */
         if (c->argc == 3) {
             if (!strcasecmp(c->argv[2]->ptr,"reset")) {
-                /* TODO: reset the log. */
+                listSetFreeMethod(ACLLog,ACLFreeLogEntry);
+                listEmpty(ACLLog);
+                listSetFreeMethod(ACLLog,NULL);
                 addReply(c,shared.ok);
                 return;
             } else if (getLongFromObjectOrReply(c,c->argv[2],&count,NULL)
