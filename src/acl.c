@@ -1465,6 +1465,7 @@ void ACLLoadUsersAtStartup(void) {
 #define ACL_LOG_CTX_TOPLEVEL 0
 #define ACL_LOG_CTX_LUA 1
 #define ACL_LOG_CTX_MULTI 2
+#define ACL_LOG_GROUPING_MAX_TIME_DELTA 60000
 
 /* This structure defines an entry inside the ACL log. */
 typedef struct ACLLogEntry {
@@ -1476,6 +1477,28 @@ typedef struct ACLLogEntry {
     mstime_t ctime;     /* Milliseconds time of last update to this entry. */
     sds cinfo;          /* Client info (last client if updated). */
 } ACLLogEntry;
+
+/* This function will check if ACL entries 'a' and 'b' are similar enough
+ * that we should actually update the existing entry in our ACL log instead
+ * of creating a new one. */
+int ACLLogMatchEntry(ACLLogEntry *a, ACLLogEntry *b) {
+    if (a->reason != b->reason) return 0;
+    if (a->context != b->context) return 0;
+    mstime_t delta = a->ctime - b->ctime;
+    if (delta < 0) delta = -delta;
+    if (delta > ACL_LOG_GROUPING_MAX_TIME_DELTA) return 0;
+    if (sdscmp(a->object,b->object) != 0) return 0;
+    if (sdscmp(a->username,b->username) != 0) return 0;
+    return 1;
+}
+
+/* Release an ACL log entry. */
+void ACLFreeLogEntry(ACLLogEntry *le) {
+    sdsfree(le->object);
+    sdsfree(le->username);
+    sdsfree(le->cinfo);
+    zfree(le);
+}
 
 /* Adds a new entry in the ACL log, making sure to delete the old entry
  * if we reach the maximum length allowed for the log. This function attempts
@@ -1504,9 +1527,41 @@ void addACLLogEntry(client *c, int reason, int keypos) {
         le->context = ACL_LOG_CTX_TOPLEVEL;
     }
 
-    /* Add it to our list of entires. We'll have to trim the list
-     * to its maximum size. */
-    listAddNodeHead(ACLLog, le);
+    /* Try to match this entry with past ones, to see if we can just
+     * update an existing entry instead of creating a new one. */
+    long toscan = 10; /* Do a limited work trying to find duplicated. */
+    listIter li;
+    listNode *ln;
+    listRewind(ACLLog,&li);
+    ACLLogEntry *match = NULL;
+    while (toscan-- && (ln = listNext(&li)) != NULL) {
+        ACLLogEntry *current = listNodeValue(ln);
+        if (ACLLogMatchEntry(current,le)) {
+            match = current;
+            listDelNode(ACLLog,ln);
+            listAddNodeHead(ACLLog,current);
+            break;
+        }
+    }
+
+    /* If there is a match update the entry, otherwise add it as a
+     * new one. */
+    if (match) {
+        /* We update a few fields of the existing entry and bump the
+         * counter of events for this entry. */
+        sdsfree(match->cinfo);
+        match->cinfo = le->cinfo;
+        match->ctime = le->ctime;
+        match->count++;
+
+        /* Release the old entry. */
+        le->cinfo = NULL;
+        ACLFreeLogEntry(le);
+    } else {
+        /* Add it to our list of entires. We'll have to trim the list
+         * to its maximum size. */
+        listAddNodeHead(ACLLog, le);
+    }
 }
 
 /* =============================================================================
