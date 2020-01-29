@@ -49,6 +49,7 @@
 #include <hiredis.h>
 #ifdef USE_OPENSSL
 #include <openssl/ssl.h>
+#include <openssl/err.h>
 #include <hiredis_ssl.h>
 #endif
 #include <sds.h> /* use sds.h from hiredis, so that only one set of sds functions will be present in the binary */
@@ -7932,6 +7933,14 @@ int main(int argc, char **argv) {
     argv += firstarg;
 
     parseEnv();
+
+#ifdef USE_OPENSSL
+    if (config.tls) {
+        ERR_load_crypto_strings();
+        SSL_load_error_strings();
+        SSL_library_init();
+    }
+#endif
 
     /* Cluster Manager mode */
     if (CLUSTER_MANAGER_MODE()) {
