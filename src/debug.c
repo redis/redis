@@ -538,6 +538,10 @@ NULL
         if (c->argc == 5)
             if (getLongFromObjectOrReply(c, c->argv[4], &valsize, NULL) != C_OK)
                 return;
+        if (valsize < 0) {
+            addReplyError(c,"The value size argument must be >= 0");
+            return;
+        }
         dictExpand(c->db->dict,keys);
         for (j = 0; j < keys; j++) {
             snprintf(buf,sizeof(buf),"%s:%lu",
