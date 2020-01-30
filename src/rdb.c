@@ -1002,8 +1002,8 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key) {
  * the rdbSaveObject() function. Currently we use a trick to get
  * this length with very little changes to the code. In the future
  * we could switch to a faster solution. */
-size_t rdbSavedObjectLen(robj *o) {
-    ssize_t len = rdbSaveObject(NULL,o,NULL);
+size_t rdbSavedObjectLen(robj *o, robj *key) {
+    ssize_t len = rdbSaveObject(NULL,o,key);
     serverAssertWithInfo(NULL,o,len != -1);
     return len;
 }
