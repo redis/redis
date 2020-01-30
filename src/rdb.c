@@ -1550,9 +1550,15 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, robj *key) {
             len--;
             /* Load raw strings */
             if ((field = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL))
-                == NULL) return NULL;
+                == NULL) {
+                decrRefCount(o);
+                return NULL;
+            }
             if ((value = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL))
-                == NULL) return NULL;
+                == NULL) {
+                decrRefCount(o);
+                return NULL;
+            }
 
             /* Add pair to ziplist */
             o->ptr = ziplistPush(o->ptr, (unsigned char*)field,
@@ -1581,9 +1587,15 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, robj *key) {
             len--;
             /* Load encoded strings */
             if ((field = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL))
-                == NULL) return NULL;
+                == NULL) {
+                decrRefCount(o);
+                return NULL;        
+            }
             if ((value = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL))
-                == NULL) return NULL;
+                == NULL) {
+                decrRefCount(o);
+                return NULL;
+            }
 
             /* Add pair to hash table */
             ret = dictAdd((dict*)o->ptr, field, value);
