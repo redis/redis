@@ -141,4 +141,91 @@ start_server {tags {"acl"}} {
         r ACL setuser newuser -debug
         # The test framework will detect a leak if any.
     }
+
+    test {ACL LOG shows failed command executions at toplevel} {
+        r ACL LOG RESET
+        r ACL setuser antirez >foo on +set ~object:1234
+        r ACL setuser antirez +eval +multi +exec
+        r AUTH antirez foo
+        catch {r GET foo}
+        r AUTH default ""
+        set entry [lindex [r ACL LOG] 0]
+        assert {[dict get $entry username] eq {antirez}}
+        assert {[dict get $entry context] eq {toplevel}}
+        assert {[dict get $entry reason] eq {command}}
+        assert {[dict get $entry object] eq {get}}
+    }
+
+    test {ACL LOG is able to test similar events} {
+        r AUTH antirez foo
+        catch {r GET foo}
+        catch {r GET foo}
+        catch {r GET foo}
+        r AUTH default ""
+        set entry [lindex [r ACL LOG] 0]
+        assert {[dict get $entry count] == 4}
+    }
+
+    test {ACL LOG is able to log keys access violations and key name} {
+        r AUTH antirez foo
+        catch {r SET somekeynotallowed 1234}
+        r AUTH default ""
+        set entry [lindex [r ACL LOG] 0]
+        assert {[dict get $entry reason] eq {key}}
+        assert {[dict get $entry object] eq {somekeynotallowed}}
+    }
+
+    test {ACL LOG RESET is able to flush the entries in the log} {
+        r ACL LOG RESET
+        assert {[llength [r ACL LOG]] == 0}
+    }
+
+    test {ACL LOG can distinguish the transaction context (1)} {
+        r AUTH antirez foo
+        r MULTI
+        catch {r INCR foo}
+        catch {r EXEC}
+        r AUTH default ""
+        set entry [lindex [r ACL LOG] 0]
+        assert {[dict get $entry context] eq {multi}}
+        assert {[dict get $entry object] eq {incr}}
+    }
+
+    test {ACL LOG can distinguish the transaction context (2)} {
+        set rd1 [redis_deferring_client]
+        r ACL SETUSER antirez +incr
+
+        r AUTH antirez foo
+        r MULTI
+        r INCR object:1234
+        $rd1 ACL SETUSER antirez -incr
+        $rd1 read
+        catch {r EXEC}
+        $rd1 close
+        r AUTH default ""
+        set entry [lindex [r ACL LOG] 0]
+        assert {[dict get $entry context] eq {multi}}
+        assert {[dict get $entry object] eq {incr}}
+        r ACL SETUSER antirez -incr
+    }
+
+    test {ACL can log errors in the context of Lua scripting} {
+        r AUTH antirez foo
+        catch {r EVAL {redis.call('incr','foo')} 0}
+        r AUTH default ""
+        set entry [lindex [r ACL LOG] 0]
+        assert {[dict get $entry context] eq {lua}}
+        assert {[dict get $entry object] eq {incr}}
+    }
+
+    test {ACL LOG can accept a numerical argument to show less entries} {
+        r AUTH antirez foo
+        catch {r INCR foo}
+        catch {r INCR foo}
+        catch {r INCR foo}
+        catch {r INCR foo}
+        r AUTH default ""
+        assert {[llength [r ACL LOG]] > 1}
+        assert {[llength [r ACL LOG 2]] == 2}
+    }
 }
