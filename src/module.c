@@ -3901,7 +3901,7 @@ void RM_SaveLongDouble(RedisModuleIO *io, long double value) {
     /* Long double has different number of bits in different platforms, so we
      * save it as a string type. */
     size_t len = ld2string(buf,sizeof(buf),value,LD_STR_HEX);
-    RM_SaveStringBuffer(io,buf,len+1); /* len+1 for '\0' */
+    RM_SaveStringBuffer(io,buf,len);
 }
 
 /* In the context of the rdb_save method of a module data type, loads back the

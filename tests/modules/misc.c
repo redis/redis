@@ -74,6 +74,15 @@ int test_ld_conv(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         RedisModule_ReplyWithError(ctx, err);
         goto final;
     }
+    /* Make sure we can't convert a string that has \0 in it */
+    char buf[4] = "123";
+    buf[1] = '\0';
+    RedisModuleString *s3 = RedisModule_CreateString(ctx, buf, 3);
+    long double ld3;
+    if (RedisModule_StringToLongDouble(s3, &ld3) == REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "Invalid string successfully converted to long double");
+        goto final;
+    }
     RedisModule_ReplyWithLongDouble(ctx, ld2);
 final:
     RedisModule_FreeString(ctx, s1);
