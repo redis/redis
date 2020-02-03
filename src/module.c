@@ -859,6 +859,7 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->in_call = 0;
     module->in_hook = 0;
     module->options = 0;
+    module->info_cb = 0;
     ctx->module = module;
 }
 
