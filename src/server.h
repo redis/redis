@@ -1385,6 +1385,7 @@ struct redisServer {
     dict *latency_events;
     /* ACLs */
     char *acl_filename;     /* ACL Users file. NULL if not configured. */
+    unsigned long acllog_max_len; /* Maximum length of the ACL LOG list. */
     /* Assert & bug reporting */
     const char *assert_failed;
     const char *assert_file;

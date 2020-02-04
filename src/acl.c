@@ -1576,6 +1576,12 @@ void addACLLogEntry(client *c, int reason, int keypos, sds username) {
         /* Add it to our list of entires. We'll have to trim the list
          * to its maximum size. */
         listAddNodeHead(ACLLog, le);
+        while(listLength(ACLLog) > server.acllog_max_len) {
+            listNode *ln = listLast(ACLLog);
+            ACLLogEntry *le = listNodeValue(ln);
+            ACLFreeLogEntry(le);
+            listDelNode(ACLLog,ln);
+        }
     }
 }
 
