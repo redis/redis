@@ -741,3 +741,8 @@ start_server {tags {"scripting repl"}} {
     }
 }
 
+start_server {tags {"scripting"}} {
+    r script debug sync
+    r eval {return 'hello'} 0
+    r eval {return 'hello'} 0
+}
