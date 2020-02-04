@@ -609,7 +609,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     int acl_keypos;
     int acl_retval = ACLCheckCommandPerm(c,&acl_keypos);
     if (acl_retval != ACL_OK) {
-        addACLLogEntry(c,acl_retval,acl_keypos);
+        addACLLogEntry(c,acl_retval,acl_keypos,NULL);
         if (acl_retval == ACL_DENIED_CMD)
             luaPushError(lua, "The user executing the script can't run this "
                               "command or subcommand");

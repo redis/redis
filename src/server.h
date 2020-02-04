@@ -1820,6 +1820,7 @@ void ACLInit(void);
 #define ACL_OK 0
 #define ACL_DENIED_CMD 1
 #define ACL_DENIED_KEY 2
+#define ACL_DENIED_AUTH 3 /* Only used for ACL LOG entries. */
 int ACLCheckUserCredentials(robj *username, robj *password);
 int ACLAuthenticateUser(client *c, robj *username, robj *password);
 unsigned long ACLGetCommandID(const char *cmdname);
@@ -1836,7 +1837,7 @@ void ACLLoadUsersAtStartup(void);
 void addReplyCommandCategories(client *c, struct redisCommand *cmd);
 user *ACLCreateUnlinkedUser();
 void ACLFreeUserAndKillClients(user *u);
-void addACLLogEntry(client *c, int reason, int keypos);
+void addACLLogEntry(client *c, int reason, int keypos, sds username);
 
 /* Sorted sets data type */
 
