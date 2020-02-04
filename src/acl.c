@@ -982,6 +982,7 @@ int ACLAuthenticateUser(client *c, robj *username, robj *password) {
         moduleNotifyUserChanged(c);
         return C_OK;
     } else {
+        addACLLogEntry(c,ACL_DENIED_AUTH,0,username->ptr);
         return C_ERR;
     }
 }
@@ -1506,16 +1507,28 @@ void ACLFreeLogEntry(void *leptr) {
  * if we reach the maximum length allowed for the log. This function attempts
  * to find similar entries in the current log in order to bump the counter of
  * the log entry instead of creating many entries for very similar ACL
- * rules issues. */
-void addACLLogEntry(client *c, int reason, int keypos) {
+ * rules issues.
+ *
+ * The keypos argument is only used when the reason is ACL_DENIED_KEY, since
+ * it allows the function to log the key name that caused the problem.
+ * Similarly the username is only passed when we failed to authenticate the
+ * user with AUTH or HELLO, for the ACL_DENIED_AUTH reason. Otherwise
+ * it will just be NULL.
+ */
+void addACLLogEntry(client *c, int reason, int keypos, sds username) {
     /* Create a new entry. */
     struct ACLLogEntry *le = zmalloc(sizeof(*le));
     le->count = 1;
     le->reason = reason;
-    le->object = (reason == ACL_DENIED_CMD) ? sdsnew(c->cmd->name) :
-                                              sdsdup(c->argv[keypos]->ptr);
-    le->username = sdsdup(c->user->name);
+    le->username = sdsdup(reason == ACL_DENIED_AUTH ? username : c->user->name);
     le->ctime = mstime();
+
+    switch(reason) {
+    case ACL_DENIED_CMD: le->object = sdsnew(c->cmd->name); break;
+    case ACL_DENIED_KEY: le->object = sdsnew(c->argv[keypos]->ptr); break;
+    case ACL_DENIED_AUTH: le->object = sdsnew(c->argv[0]->ptr); break;
+    default: le->object = sdsempty();
+    }
 
     client *realclient = c;
     if (realclient->flags & CLIENT_LUA) realclient = server.lua_caller;
@@ -1803,9 +1816,17 @@ void aclCommand(client *c) {
             addReplyMapLen(c,7);
             addReplyBulkCString(c,"count");
             addReplyLongLong(c,le->count);
+
             addReplyBulkCString(c,"reason");
-            addReplyBulkCString(c,(le->reason == ACL_DENIED_CMD) ?
-                                  "command" : "key");
+            char *reasonstr;
+            switch(le->reason) {
+            case ACL_DENIED_CMD: reasonstr="command"; break;
+            case ACL_DENIED_KEY: reasonstr="key"; break;
+            case ACL_DENIED_AUTH: reasonstr="auth"; break;
+            }
+            addReplyBulkCString(c,reasonstr);
+
+            addReplyBulkCString(c,"context");
             char *ctxstr;
             switch(le->context) {
             case ACL_LOG_CTX_TOPLEVEL: ctxstr="toplevel"; break;
@@ -1813,8 +1834,8 @@ void aclCommand(client *c) {
             case ACL_LOG_CTX_LUA: ctxstr="lua"; break;
             default: ctxstr="unknown";
             }
-            addReplyBulkCString(c,"context");
             addReplyBulkCString(c,ctxstr);
+
             addReplyBulkCString(c,"object");
             addReplyBulkCBuffer(c,le->object,sdslen(le->object));
             addReplyBulkCString(c,"username");

@@ -3380,7 +3380,7 @@ int processCommand(client *c) {
     int acl_keypos;
     int acl_retval = ACLCheckCommandPerm(c,&acl_keypos);
     if (acl_retval != ACL_OK) {
-        addACLLogEntry(c,acl_retval,acl_keypos);
+        addACLLogEntry(c,acl_retval,acl_keypos,NULL);
         flagTransaction(c);
         if (acl_retval == ACL_DENIED_CMD)
             addReplyErrorFormat(c,
