@@ -2213,6 +2213,7 @@ void ldbEval(lua_State *lua, sds *argv, int argc) {
             ldbLog(sdscatfmt(sdsempty(),"<error> %s",lua_tostring(lua,-1)));
             lua_pop(lua,1);
             sdsfree(code);
+            sdsfree(expr);
             return;
         }
     }
