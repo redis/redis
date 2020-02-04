@@ -228,4 +228,13 @@ start_server {tags {"acl"}} {
         assert {[llength [r ACL LOG]] > 1}
         assert {[llength [r ACL LOG 2]] == 2}
     }
+
+    test {ACL LOG can log failed auth attempts} {
+        catch {r AUTH antirez wrong-password}
+        set entry [lindex [r ACL LOG] 0]
+        assert {[dict get $entry context] eq {toplevel}}
+        assert {[dict get $entry reason] eq {auth}}
+        assert {[dict get $entry object] eq {AUTH}}
+        assert {[dict get $entry username] eq {antirez}}
+    }
 }
