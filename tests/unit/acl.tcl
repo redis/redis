@@ -237,4 +237,15 @@ start_server {tags {"acl"}} {
         assert {[dict get $entry object] eq {AUTH}}
         assert {[dict get $entry username] eq {antirez}}
     }
+
+    test {ACL LOG entries are limited to a maximum amount} {
+        r ACL LOG RESET
+        r CONFIG SET acllog-max-len 5
+        r AUTH antirez foo
+        for {set j 0} {$j < 10} {incr j} {
+            catch {r SET obj:$j 123}
+        }
+        r AUTH default ""
+        assert {[llength [r ACL LOG]] == 5}
+    }
 }
