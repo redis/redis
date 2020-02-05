@@ -817,7 +817,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"memory",memoryCommand,-2,
      "random read-only",
-     0,NULL,0,0,0,0,0,0},
+     0,memoryGetKeys,0,0,0,0,0,0},
 
     {"client",clientCommand,-2,
      "admin no-script random @connection",
