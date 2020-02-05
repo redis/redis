@@ -6553,9 +6553,13 @@ void RM_ScanCursorDestroy(RedisModuleScanCursor *cursor) {
  *      }
  *      RedisModule_ScanCursorDestroy(c);
  *
- *  The function will return 1 if there are more elements to scan and 0 otherwise,
- *  possibly setting errno if the call failed.
- *  It is also possible to restart and existing cursor using RM_CursorRestart. */
+ * The function will return 1 if there are more elements to scan and 0 otherwise,
+ * possibly setting errno if the call failed.
+ * It is also possible to restart and existing cursor using RM_CursorRestart.
+ *
+ * NOTE: You must avoid doing any database changes from within the callback, you should avoid any
+ * RedisModule_OpenKey or RedisModule_Call, if you need to do these, you need to keep the key name
+ * and do any work you need to do after the call to Scan returns. */
 int RM_Scan(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleScanCB fn, void *privdata) {
     if (cursor->done) {
         errno = ENOENT;
@@ -6633,9 +6637,13 @@ static void moduleScanKeyCallback(void *privdata, const dictEntry *de) {
  *      RedisModule_CloseKey(key);
  *      RedisModule_ScanCursorDestroy(c);
  *
- *  The function will return 1 if there are more elements to scan and 0 otherwise,
- *  possibly setting errno if the call failed.
- *  It is also possible to restart and existing cursor using RM_CursorRestart. */
+ * The function will return 1 if there are more elements to scan and 0 otherwise,
+ * possibly setting errno if the call failed.
+ * It is also possible to restart and existing cursor using RM_CursorRestart.
+ *
+ * NOTE: You must avoid doing any database changes from within the callback, you should avoid any
+ * RedisModule_OpenKey or RedisModule_Call, if you need to do these, you need to keep the field name
+ * and do any work you need to do after the call to Scan returns. */
 int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleScanKeyCB fn, void *privdata) {
     if (key == NULL || key->value == NULL) {
         errno = EINVAL;
