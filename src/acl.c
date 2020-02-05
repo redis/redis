@@ -1255,6 +1255,10 @@ sds ACLLoadFromFile(const char *filename) {
     user *old_default_user = DefaultUser;
     Users = raxNew();
     ACLInitDefaultUser();
+    /* We must keep the default user password which was loaded from config file
+     * or CONFIG SET requirepass. */
+    DefaultUser->passwords = listDup(old_default_user->passwords);
+    DefaultUser->flags = old_default_user->flags;
 
     /* Load each line of the file. */
     for (int i = 0; i < totlines; i++) {
