@@ -1,8 +1,5 @@
-TLS Support -- Work In Progress
-===============================
-
-This is a brief note to capture current thoughts/ideas and track pending action
-items.
+TLS Support
+===========
 
 Getting Started
 ---------------
@@ -69,37 +66,23 @@ probably not be so hard. For cluster keys migration it might be more difficult,
 but there are probably other good reasons to improve that part anyway.
 
 To-Do List
-==========
+----------
 
-Additional TLS Features
------------------------
+- [ ] Add session caching support. Check if/how it's handled by clients to
+  assess how useful/important it is.
+- [ ] redis-benchmark support. The current implementation is a mix of using
+  hiredis for parsing and basic networking (establishing connections), but
+  directly manipulating sockets for most actions. This will need to be cleaned
+  up for proper TLS support. The best approach is probably to migrate to hiredis
+  async mode.
+- [ ] redis-cli `--slave` and `--rdb` support.
 
-1. Add metrics to INFO?
-2. Add session caching support. Check if/how it's handled by clients to assess
-   how useful/important it is.
-
-redis-benchmark
----------------
-
-The current implementation is a mix of using hiredis for parsing and basic
-networking (establishing connections), but directly manipulating sockets for
-most actions.
-
-This will need to be cleaned up for proper TLS support. The best approach is
-probably to migrate to hiredis async mode.
-
-redis-cli
----------
-
-1. Add support for TLS in --slave and --rdb modes.
-
-Others
-------
+Multi-port
+----------
 
 Consider the implications of allowing TLS to be configured on a separate port,
-making Redis listening on multiple ports.
+making Redis listening on multiple ports:
 
-This impacts many things, like
 1. Startup banner port notification
 2. Proctitle
 3. How slaves announce themselves
