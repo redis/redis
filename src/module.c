@@ -890,7 +890,8 @@ void RM_SetModuleOptions(RedisModuleCtx *ctx, int options) {
     ctx->module->options = options;
 }
 
-/* Signals that the key is modified from user's perspective (i.e. invalidate WATCH). */
+/* Signals that the key is modified from user's perspective (i.e. invalidate WATCH
+ * and client side caching). */
 int RM_SignalModifiedKey(RedisModuleCtx *ctx, RedisModuleString *keyname) {
     signalModifiedKey(ctx->client->db,keyname);
     return REDISMODULE_OK;
