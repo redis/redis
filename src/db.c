@@ -1292,6 +1292,8 @@ int expireIfNeeded(redisDb *db, robj *key) {
 /* -----------------------------------------------------------------------------
  * API to get key arguments from commands
  * ---------------------------------------------------------------------------*/
+#define MAX_KEYS_BUFFER 65536
+static int getKeysTempBuffer[MAX_KEYS_BUFFER];
 
 /* The base case is to use the keys position as given in the command table
  * (firstkey, lastkey, step). */
@@ -1306,7 +1308,12 @@ int *getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, in
 
     last = cmd->lastkey;
     if (last < 0) last = argc+last;
-    keys = zmalloc(sizeof(int)*((last - cmd->firstkey)+1));
+
+    int count = ((last - cmd->firstkey)+1);
+    keys = getKeysTempBuffer;
+    if (count > MAX_KEYS_BUFFER)
+        keys = zmalloc(sizeof(int)*count);
+
     for (j = cmd->firstkey; j <= last; j += cmd->keystep) {
         if (j >= argc) {
             /* Modules commands, and standard commands with a not fixed number
@@ -1316,7 +1323,7 @@ int *getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, in
              * return no keys and expect the command implementation to report
              * an arity or syntax error. */
             if (cmd->flags & CMD_MODULE || cmd->arity < 0) {
-                zfree(keys);
+                getKeysFreeResult(keys);
                 *numkeys = 0;
                 return NULL;
             } else {
@@ -1352,7 +1359,8 @@ int *getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, int *nu
 
 /* Free the result of getKeysFromCommand. */
 void getKeysFreeResult(int *result) {
-    zfree(result);
+    if (result != getKeysTempBuffer)
+        zfree(result);
 }
 
 /* Helper function to extract keys from following commands:
@@ -1373,7 +1381,9 @@ int *zunionInterGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *nu
     /* Keys in z{union,inter}store come from two places:
      * argv[1] = storage key,
      * argv[3...n] = keys to intersect */
-    keys = zmalloc(sizeof(int)*(num+1));
+    keys = getKeysTempBuffer;
+    if (num+1>MAX_KEYS_BUFFER)
+        keys = zmalloc(sizeof(int)*(num+1));
 
     /* Add all key positions for argv[3...n] to keys[] */
     for (i = 0; i < num; i++) keys[i] = 3+i;
@@ -1399,7 +1409,10 @@ int *evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) 
         return NULL;
     }
 
-    keys = zmalloc(sizeof(int)*num);
+    keys = getKeysTempBuffer;
+    if (num>MAX_KEYS_BUFFER)
+        keys = zmalloc(sizeof(int)*num);
+
     *numkeys = num;
 
     /* Add all key positions for argv[3...n] to keys[] */
@@ -1420,7 +1433,7 @@ int *sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) 
     UNUSED(cmd);
 
     num = 0;
-    keys = zmalloc(sizeof(int)*2); /* Alloc 2 places for the worst case. */
+    keys = getKeysTempBuffer; /* Alloc 2 places for the worst case. */
 
     keys[num++] = 1; /* <sort-key> is always present. */
 
@@ -1478,7 +1491,10 @@ int *migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkey
         }
     }
 
-    keys = zmalloc(sizeof(int)*num);
+    keys = getKeysTempBuffer;
+    if (num>MAX_KEYS_BUFFER)
+        keys = zmalloc(sizeof(int)*num);
+
     for (i = 0; i < num; i++) keys[i] = first+i;
     *numkeys = num;
     return keys;
@@ -1511,7 +1527,9 @@ int *georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numk
      * argv[1] = key,
      * argv[5...n] = stored key if present
      */
-    keys = zmalloc(sizeof(int) * num);
+    keys = getKeysTempBuffer;
+    if (num>MAX_KEYS_BUFFER)
+        keys = zmalloc(sizeof(int) * num);
 
     /* Add all key positions to keys[] */
     keys[0] = 1;
@@ -1529,7 +1547,7 @@ int *memoryGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys
     UNUSED(cmd);
 
     if (argc >= 3 && !strcasecmp(argv[1]->ptr,"usage")) {
-        keys = zmalloc(sizeof(int) * 1);
+        keys = getKeysTempBuffer;
         keys[0] = 2;
         *numkeys = 1;
         return keys;
@@ -1576,7 +1594,10 @@ int *xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys)
     num /= 2; /* We have half the keys as there are arguments because
                  there are also the IDs, one per key. */
 
-    keys = zmalloc(sizeof(int) * num);
+    keys = getKeysTempBuffer;
+    if (num>MAX_KEYS_BUFFER)
+        keys = zmalloc(sizeof(int) * num);
+
     for (i = streams_pos+1; i < argc-num; i++) keys[i-streams_pos-1] = i;
     *numkeys = num;
     return keys;
