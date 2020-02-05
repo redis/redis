@@ -302,22 +302,28 @@ void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t bufle
     }
 }
 
-void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc) {
+void replicationFeedMonitors(client *caller, list *monitors, int dictid, robj **argv, int argc) {
     listNode *ln;
     listIter li;
     int j;
     sds cmdrepr = sdsnew("+");
     robj *cmdobj;
     struct timeval tv;
+    client *c = (caller->flags & CLIENT_LUA) ? server.lua_caller : caller;
 
     gettimeofday(&tv,NULL);
-    cmdrepr = sdscatprintf(cmdrepr,"%ld.%06ld ",(long)tv.tv_sec,(long)tv.tv_usec);
-    if (c->flags & CLIENT_LUA) {
+    cmdrepr = sdscatprintf(cmdrepr,"%ld.%06ld %s %s ",
+                           (long)tv.tv_sec,(long)tv.tv_usec,
+                           c->user ? c->user->name : "(root)",
+                           c->name ? (char*)c->name->ptr : "(nil)");
+    if (caller->flags & CLIENT_LUA) {
         cmdrepr = sdscatprintf(cmdrepr,"[%d lua] ",dictid);
-    } else if (c->flags & CLIENT_UNIX_SOCKET) {
+    } else if (caller->flags & CLIENT_MODULE) {
+        cmdrepr = sdscatprintf(cmdrepr,"[%d module] ",dictid);
+    } else if (caller->flags & CLIENT_UNIX_SOCKET) {
         cmdrepr = sdscatprintf(cmdrepr,"[%d unix:%s] ",dictid,server.unixsocket);
     } else {
-        cmdrepr = sdscatprintf(cmdrepr,"[%d %s] ",dictid,getClientPeerId(c));
+        cmdrepr = sdscatprintf(cmdrepr,"[%d %s] ",dictid,getClientPeerId(caller));
     }
 
     for (j = 0; j < argc; j++) {

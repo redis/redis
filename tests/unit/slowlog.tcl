@@ -34,7 +34,7 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         r client setname foobar
         r debug sleep 0.2
         set e [lindex [r slowlog get] 0]
-        assert_equal [llength $e] 6
+        assert_equal [llength $e] 7
         assert_equal [lindex $e 0] 105
         assert_equal [expr {[lindex $e 2] > 100000}] 1
         assert_equal [lindex $e 3] {debug sleep 0.2}
