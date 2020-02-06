@@ -349,6 +349,10 @@ void loadServerConfigFromString(char *config) {
             if (addresses > CONFIG_BINDADDR_MAX) {
                 err = "Too many bind addresses specified"; goto loaderr;
             }
+            /* Free old bind addresses */
+            for (j = 0; j < server.bindaddr_count; j++) {
+                zfree(server.bindaddr[j]);
+            }
             for (j = 0; j < addresses; j++)
                 server.bindaddr[j] = zstrdup(argv[j+1]);
             server.bindaddr_count = addresses;
