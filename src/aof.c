@@ -242,6 +242,7 @@ void stopAppendOnly(void) {
     server.aof_fd = -1;
     server.aof_selected_db = -1;
     server.aof_state = AOF_OFF;
+    server.aof_rewrite_scheduled = 0;
     killAppendOnlyChild();
 }
 
