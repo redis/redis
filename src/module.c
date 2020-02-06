@@ -730,6 +730,7 @@ int commandFlagsFromString(char *s) {
         else if (!strcasecmp(t,"random")) flags |= CMD_RANDOM;
         else if (!strcasecmp(t,"allow-stale")) flags |= CMD_STALE;
         else if (!strcasecmp(t,"no-monitor")) flags |= CMD_SKIP_MONITOR;
+        else if (!strcasecmp(t,"no-slowlog")) flags |= CMD_SKIP_SLOWLOG;
         else if (!strcasecmp(t,"fast")) flags |= CMD_FAST;
         else if (!strcasecmp(t,"no-auth")) flags |= CMD_NO_AUTH;
         else if (!strcasecmp(t,"getkeys-api")) flags |= CMD_MODULE_GETKEYS;
@@ -780,6 +781,8 @@ int commandFlagsFromString(char *s) {
  *                      serve stale data. Don't use if you don't know what
  *                      this means.
  * * **"no-monitor"**: Don't propagate the command on monitor. Use this if
+ *                     the command has sensible data among the arguments.
+ * * **"no-slowlog"**: Don't log this command in the slowlog. Use this if
  *                     the command has sensible data among the arguments.
  * * **"fast"**:      The command time complexity is not greater
  *                    than O(log(N)) where N is the size of the collection or
