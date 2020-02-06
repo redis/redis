@@ -3649,14 +3649,15 @@ void moduleRDBLoadError(RedisModuleIO *io) {
         io->error = 1;
         return;
     }
-    serverLog(LL_WARNING,
+    serverPanic(
         "Error loading data from RDB (short read or EOF). "
         "Read performed by module '%s' about type '%s' "
-        "after reading '%llu' bytes of a value.",
+        "after reading '%llu' bytes of a value "
+        "for key named: '%s'.",
         io->type->module->name,
         io->type->name,
-        (unsigned long long)io->bytes);
-    exit(1);
+        (unsigned long long)io->bytes,
+        io->key? (char*)io->key->ptr: "(null)");
 }
 
 /* Returns 0 if there's at least one registered data type that did not declare
