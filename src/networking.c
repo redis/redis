@@ -1162,9 +1162,14 @@ void freeClientAsync(client *c) {
      * may access the list while Redis uses I/O threads. All the other accesses
      * are in the context of the main thread while the other threads are
      * idle. */
-    static pthread_mutex_t async_free_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
     if (c->flags & CLIENT_CLOSE_ASAP || c->flags & CLIENT_LUA) return;
     c->flags |= CLIENT_CLOSE_ASAP;
+    if (server.io_threads_num == 1) {
+        /* no need to bother with locking if there's just one thread (the main thread) */
+        listAddNodeTail(server.clients_to_close,c);
+        return;
+    }
+    static pthread_mutex_t async_free_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_lock(&async_free_queue_mutex);
     listAddNodeTail(server.clients_to_close,c);
     pthread_mutex_unlock(&async_free_queue_mutex);
