@@ -949,6 +949,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
 
     if (!(flags & STREAM_RWR_RAWENTRIES))
         arraylen_ptr = addReplyDeferredLen(c);
+    mstime_t now = mstime();
     streamIteratorStart(&si,s,start,end,rev);
     while(streamIteratorGetID(&si,&id,&numfields)) {
         /* Update the group last_id if needed. */
@@ -989,7 +990,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
             /* Try to add a new NACK. Most of the time this will work and
              * will not require extra lookups. We'll fix the problem later
              * if we find that there is already a entry for this ID. */
-            streamNACK *nack = streamCreateNACK(consumer);
+            streamNACK *nack = streamCreateNACK(consumer, now);
             int group_inserted =
                 raxTryInsert(group->pel,buf,sizeof(buf),nack,NULL);
             int consumer_inserted =
@@ -1005,7 +1006,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
                 /* Update the consumer and NACK metadata. */
                 nack->consumer = consumer;
-                nack->delivery_time = mstime();
+                nack->delivery_time = now;
                 nack->delivery_count = 1;
                 /* Add the entry in the new consumer local PEL. */
                 raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
@@ -1052,6 +1053,7 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
     streamEncodeID(startkey,start);
     if (end) streamEncodeID(endkey,end);
 
+    mstime_t now = mstime();
     size_t arraylen = 0;
     void *arraylen_ptr = addReplyDeferredLen(c);
     raxStart(&ri,consumer->pel);
@@ -1074,7 +1076,7 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
             addReplyNullArray(c);
         } else {
             streamNACK *nack = ri.data;
-            nack->delivery_time = mstime();
+            nack->delivery_time = now;
             nack->delivery_count++;
         }
         arraylen++;
@@ -1495,6 +1497,7 @@ void xreadCommand(client *c) {
     }
 
     /* Try to serve the client synchronously. */
+    mstime_t now = groups ? mstime() : 0;
     size_t arraylen = 0;
     void *arraylen_ptr = NULL;
     for (int i = 0; i < streams_count; i++) {
@@ -1551,8 +1554,9 @@ void xreadCommand(client *c) {
             if (c->resp == 2) addReplyArrayLen(c,2);
             addReplyBulk(c,c->argv[streams_arg+i]);
             streamConsumer *consumer = NULL;
-            if (groups) consumer = streamLookupConsumer(groups[i],
-                                                        consumername->ptr,1);
+            if (groups)
+                consumer = streamLookupConsumer(groups[i], consumername->ptr,
+                                                1, now);
             streamPropInfo spi = {c->argv[i+streams_arg],groupname};
             int flags = 0;
             if (noack) flags |= STREAM_RWR_NOACK;
@@ -1624,11 +1628,11 @@ cleanup: /* Cleanup. */
  * ----------------------------------------------------------------------- */
 
 /* Create a NACK entry setting the delivery count to 1 and the delivery
- * time to the current time. The NACK consumer will be set to the one
+ * time to 'delivery_time'. The NACK consumer will be set to the one
  * specified as argument of the function. */
-streamNACK *streamCreateNACK(streamConsumer *consumer) {
+streamNACK *streamCreateNACK(streamConsumer *consumer, mstime_t delivery_time) {
     streamNACK *nack = zmalloc(sizeof(*nack));
-    nack->delivery_time = mstime();
+    nack->delivery_time = delivery_time;
     nack->delivery_count = 1;
     nack->consumer = consumer;
     return nack;
@@ -1688,7 +1692,7 @@ streamCG *streamLookupCG(stream *s, sds groupname) {
  * consumer does not exist it is automatically created as a side effect
  * of calling this function, otherwise its last seen time is updated and
  * the existing consumer reference returned. */
-streamConsumer *streamLookupConsumer(streamCG *cg, sds name, int create) {
+streamConsumer *streamLookupConsumer(streamCG *cg, sds name, int create, mstime_t seen_time) {
     streamConsumer *consumer = raxFind(cg->consumers,(unsigned char*)name,
                                sdslen(name));
     if (consumer == raxNotFound) {
@@ -1699,7 +1703,7 @@ streamConsumer *streamLookupConsumer(streamCG *cg, sds name, int create) {
         raxInsert(cg->consumers,(unsigned char*)name,sdslen(name),
                   consumer,NULL);
     }
-    consumer->seen_time = mstime();
+    consumer->seen_time = seen_time;
     return consumer;
 }
 
@@ -1707,7 +1711,7 @@ streamConsumer *streamLookupConsumer(streamCG *cg, sds name, int create) {
  * may have pending messages: they are removed from the PEL, and the number
  * of pending messages "lost" is returned. */
 uint64_t streamDelConsumer(streamCG *cg, sds name) {
-    streamConsumer *consumer = streamLookupConsumer(cg,name,0);
+    streamConsumer *consumer = streamLookupConsumer(cg,name,0,0);
     if (consumer == NULL) return 0;
 
     uint64_t retval = raxSize(consumer->pel);
@@ -2038,9 +2042,9 @@ void xpendingCommand(client *c) {
     }
     /* XPENDING <key> <group> <start> <stop> <count> [<consumer>] variant. */
     else {
+        mstime_t now = mstime();
         streamConsumer *consumer = consumername ?
-                                streamLookupConsumer(group,consumername->ptr,0):
-                                NULL;
+                streamLookupConsumer(group,consumername->ptr,0,now) : NULL;
 
         /* If a consumer name was mentioned but it does not exist, we can
          * just return an empty array. */
@@ -2053,7 +2057,6 @@ void xpendingCommand(client *c) {
         unsigned char startkey[sizeof(streamID)];
         unsigned char endkey[sizeof(streamID)];
         raxIterator ri;
-        mstime_t now = mstime();
 
         streamEncodeID(startkey,&startid);
         streamEncodeID(endkey,&endid);
@@ -2286,7 +2289,7 @@ void xclaimCommand(client *c) {
             if (!found) continue;
 
             /* Create the NACK. */
-            nack = streamCreateNACK(NULL);
+            nack = streamCreateNACK(NULL, now);
             raxInsert(group->pel,buf,sizeof(buf),nack,NULL);
         }
 
@@ -2308,7 +2311,7 @@ void xclaimCommand(client *c) {
                 raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
             /* Update the consumer and idle time. */
             if (consumer == NULL)
-                consumer = streamLookupConsumer(group,c->argv[3]->ptr,1);
+                consumer = streamLookupConsumer(group,c->argv[3]->ptr,1,now);
             nack->consumer = consumer;
             nack->delivery_time = deliverytime;
             /* Set the delivery attempts counter if given, otherwise

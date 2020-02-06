@@ -1796,7 +1796,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, robj *key) {
                     decrRefCount(o);
                     return NULL;
                 }
-                streamNACK *nack = streamCreateNACK(NULL);
+                streamNACK *nack = streamCreateNACK(NULL, 0);
                 nack->delivery_time = rdbLoadMillisecondTime(rdb,RDB_VERSION);
                 nack->delivery_count = rdbLoadLen(rdb,NULL);
                 if (rioGetReadError(rdb)) {
@@ -1827,7 +1827,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, robj *key) {
                     return NULL;
                 }
                 streamConsumer *consumer = streamLookupConsumer(cgroup,cname,
-                                           1);
+                                           1, 0);
                 sdsfree(cname);
                 consumer->seen_time = rdbLoadMillisecondTime(rdb,RDB_VERSION);
                 if (rioGetReadError(rdb)) {

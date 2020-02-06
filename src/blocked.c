@@ -349,6 +349,7 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
      * to all the clients that are waiting for an offset smaller
      * than the current top item. */
     if (de) {
+        mstime_t now = mstime();
         list *clients = dictGetVal(de);
         listNode *ln;
         listIter li;
@@ -397,7 +398,7 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
                 if (group) {
                     consumer = streamLookupConsumer(group,
                                receiver->bpop.xread_consumer->ptr,
-                               1);
+                               1, now);
                     noack = receiver->bpop.xread_group_noack;
                 }
 
