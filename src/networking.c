@@ -369,9 +369,10 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
      * Where the master must propagate the first change even if the second
      * will produce an error. However it is useful to log such events since
      * they are rare and may hint at errors in a script or a bug in Redis. */
-    if (c->flags & (CLIENT_MASTER|CLIENT_SLAVE) && !(c->flags & CLIENT_MONITOR)) {
-        char* to = c->flags & CLIENT_MASTER? "master": "replica";
-        char* from = c->flags & CLIENT_MASTER? "replica": "master";
+    int ctype = getClientType(c);
+    if (ctype == CLIENT_TYPE_MASTER || ctype == CLIENT_TYPE_SLAVE) {
+        char* to = ctype == CLIENT_TYPE_MASTER? "master": "replica";
+        char* from = ctype == CLIENT_TYPE_MASTER? "replica": "master";
         char *cmdname = c->lastcmd ? c->lastcmd->name : "<unknown>";
         serverLog(LL_WARNING,"== CRITICAL == This %s is sending an error "
                              "to its %s: '%s' after processing the command "
@@ -1074,7 +1075,7 @@ void freeClient(client *c) {
     }
 
     /* Log link disconnection with slave */
-    if ((c->flags & CLIENT_SLAVE) && !(c->flags & CLIENT_MONITOR)) {
+    if (getClientType(c) == CLIENT_TYPE_SLAVE) {
         serverLog(LL_WARNING,"Connection with replica %s lost.",
             replicationGetSlaveName(c));
     }
