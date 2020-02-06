@@ -1995,8 +1995,9 @@ static int updateMaxmemory(long long val, long long prev, char **err) {
     UNUSED(prev);
     UNUSED(err);
     if (val) {
-        if ((unsigned long long)val < zmalloc_used_memory()) {
-            serverLog(LL_WARNING,"WARNING: the new maxmemory value set via CONFIG SET is smaller than the current memory usage. This will result in key eviction and/or the inability to accept new write commands depending on the maxmemory-policy.");
+        size_t used = zmalloc_used_memory()-freeMemoryGetNotCountedMemory();
+        if ((unsigned long long)val < used) {
+            serverLog(LL_WARNING,"WARNING: the new maxmemory value set via CONFIG SET (%llu) is smaller than the current memory usage (%zu). This will result in key eviction and/or the inability to accept new write commands depending on the maxmemory-policy.", server.maxmemory, used);
         }
         freeMemoryIfNeededAndSafe();
     }
