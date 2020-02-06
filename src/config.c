@@ -33,6 +33,7 @@
 
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 /*-----------------------------------------------------------------------------
  * Config file name-value maps.
@@ -543,6 +544,18 @@ void loadServerConfig(char *filename, char *options) {
         if (filename[0] == '-' && filename[1] == '\0') {
             fp = stdin;
         } else {
+            /* Check if the file exists */
+            if (access(filename, F_OK) == -1) {
+                serverLog(LL_WARNING,
+                    "Fatal error, config file does not exist '%s'", filename);
+                exit(1);
+            }
+            /* Check if file has read permission */
+            if (access(filename, R_OK) == -1) {
+                serverLog(LL_WARNING,
+                    "Fatal error, no permissions to read config file '%s'", filename);
+                exit(1);
+            }
             if ((fp = fopen(filename,"r")) == NULL) {
                 serverLog(LL_WARNING,
                     "Fatal error, can't open config file '%s'", filename);
