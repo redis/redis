@@ -1592,6 +1592,7 @@ void addACLLogEntry(client *c, int reason, int keypos, sds username) {
 /* ACL -- show and modify the configuration of ACL users.
  * ACL HELP
  * ACL LOAD
+ * ACL SAVE
  * ACL LIST
  * ACL USERS
  * ACL CAT [<category>]
@@ -1855,6 +1856,7 @@ void aclCommand(client *c) {
     } else if (!strcasecmp(sub,"help")) {
         const char *help[] = {
 "LOAD                              -- Reload users from the ACL file.",
+"SAVE                              -- Save the current config to the ACL file."
 "LIST                              -- Show user details in config file format.",
 "USERS                             -- List all the registered usernames.",
 "SETUSER <username> [attribs ...]  -- Create or modify a user.",

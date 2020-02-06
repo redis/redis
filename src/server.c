@@ -579,7 +579,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"select",selectCommand,2,
-     "ok-loading fast @keyspace",
+     "ok-loading fast ok-stale @keyspace",
      0,NULL,0,0,0,0,0,0},
 
     {"swapdb",swapdbCommand,3,
@@ -660,7 +660,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"lastsave",lastsaveCommand,1,
-     "read-only random fast @admin @dangerous",
+     "read-only random fast ok-loading ok-stale @admin @dangerous",
      0,NULL,0,0,0,0,0,0},
 
     {"type",typeCommand,2,
@@ -708,7 +708,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"monitor",monitorCommand,1,
-     "admin no-script",
+     "admin no-script ok-loading ok-stale",
      0,NULL,0,0,0,0,0,0},
 
     {"ttl",ttlCommand,2,
@@ -740,7 +740,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"debug",debugCommand,-2,
-     "admin no-script",
+     "admin no-script ok-loading ok-stale",
      0,NULL,0,0,0,0,0,0},
 
     {"config",configCommand,-2,
@@ -817,14 +817,14 @@ struct redisCommand redisCommandTable[] = {
 
     {"memory",memoryCommand,-2,
      "random read-only",
-     0,NULL,0,0,0,0,0,0},
+     0,memoryGetKeys,0,0,0,0,0,0},
 
     {"client",clientCommand,-2,
-     "admin no-script random @connection",
+     "admin no-script random ok-loading ok-stale @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"hello",helloCommand,-2,
-     "no-auth no-script fast no-monitor no-slowlog @connection",
+     "no-auth no-script fast no-monitor ok-loading ok-stale no-slowlog @connection",
      0,NULL,0,0,0,0,0,0},
 
     /* EVAL can modify the dataset, however it is not flagged as a write
@@ -838,7 +838,7 @@ struct redisCommand redisCommandTable[] = {
      0,evalGetKeys,0,0,0,0,0,0},
 
     {"slowlog",slowlogCommand,-2,
-     "admin random",
+     "admin random ok-loading ok-stale",
      0,NULL,0,0,0,0,0,0},
 
     {"script",scriptCommand,-2,
@@ -846,7 +846,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"time",timeCommand,1,
-     "read-only random fast",
+     "read-only random fast ok-loading ok-stale",
      0,NULL,0,0,0,0,0,0},
 
     {"bitop",bitopCommand,-4,
@@ -1498,7 +1498,7 @@ int clientsCronHandleTimeout(client *c, mstime_t now_ms) {
     time_t now = now_ms/1000;
 
     if (server.maxidletime &&
-        !(c->flags & CLIENT_SLAVE) &&    /* no timeout for slaves */
+        !(c->flags & CLIENT_SLAVE) &&    /* no timeout for slaves and monitors */
         !(c->flags & CLIENT_MASTER) &&   /* no timeout for masters */
         !(c->flags & CLIENT_BLOCKED) &&  /* no timeout for BLPOP */
         !(c->flags & CLIENT_PUBSUB) &&   /* no timeout for Pub/Sub clients */

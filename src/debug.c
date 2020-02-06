@@ -355,6 +355,7 @@ void debugCommand(client *c) {
 "CRASH-AND-RECOVER <milliseconds> -- Hard crash and restart after <milliseconds> delay.",
 "DIGEST -- Output a hex signature representing the current DB content.",
 "DIGEST-VALUE <key-1> ... <key-N>-- Output a hex signature of the values of all the specified keys.",
+"DEBUG PROTOCOL [string|integer|double|bignum|null|array|set|map|attrib|push|verbatim|true|false]",
 "ERROR <string> -- Return a Redis protocol error with <string> as message. Useful for clients unit tests to simulate Redis errors.",
 "LOG <message> -- write message to the server log.",
 "HTSTATS <dbid> -- Return hash table statistics of the specified Redis database.",
@@ -586,7 +587,7 @@ NULL
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"protocol") && c->argc == 3) {
         /* DEBUG PROTOCOL [string|integer|double|bignum|null|array|set|map|
-         *                 attrib|push|verbatim|true|false|state|err|bloberr] */
+         *                 attrib|push|verbatim|true|false] */
         char *name = c->argv[2]->ptr;
         if (!strcasecmp(name,"string")) {
             addReplyBulkCString(c,"Hello World");
@@ -634,7 +635,7 @@ NULL
         } else if (!strcasecmp(name,"verbatim")) {
             addReplyVerbatim(c,"This is a verbatim\nstring",25,"txt");
         } else {
-            addReplyError(c,"Wrong protocol type name. Please use one of the following: string|integer|double|bignum|null|array|set|map|attrib|push|verbatim|true|false|state|err|bloberr");
+            addReplyError(c,"Wrong protocol type name. Please use one of the following: string|integer|double|bignum|null|array|set|map|attrib|push|verbatim|true|false");
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"sleep") && c->argc == 3) {
         double dtime = strtod(c->argv[2]->ptr,NULL);
