@@ -918,7 +918,7 @@ void freeClient(client *c) {
         /* We need to remember the time when we started to have zero
          * attached slaves, as after some time we'll free the replication
          * backlog. */
-        if (c->flags & CLIENT_SLAVE && listLength(server.slaves) == 0)
+        if (getClientType(c) == CLIENT_TYPE_SLAVE && listLength(server.slaves) == 0)
             server.repl_no_slaves_since = server.unixtime;
         refreshGoodSlavesCount();
     }
@@ -1030,8 +1030,8 @@ int writeToClient(int fd, client *c, int handler_installed) {
          * just deliver as much data as it is possible to deliver.
          *
          * Moreover, we also send as much as possible if the client is
-         * a slave (otherwise, on high-speed traffic, the replication
-         * buffer will grow indefinitely) */
+         * a slave or a monitor (otherwise, on high-speed traffic, the
+         * replication/output buffer will grow indefinitely) */
         if (totwritten > NET_MAX_WRITES_PER_EVENT &&
             (server.maxmemory == 0 ||
              zmalloc_used_memory() < server.maxmemory) &&
@@ -1216,7 +1216,7 @@ int processInlineBuffer(client *c) {
     /* Newline from slaves can be used to refresh the last ACK time.
      * This is useful for a slave to ping back while loading a big
      * RDB file. */
-    if (querylen == 0 && c->flags & CLIENT_SLAVE)
+    if (querylen == 0 && getClientType(c) == CLIENT_TYPE_SLAVE)
         c->repl_ack_time = server.unixtime;
 
     /* Move querybuffer position to the next query in the buffer. */
@@ -2033,12 +2033,14 @@ unsigned long getClientOutputBufferMemoryUsage(client *c) {
  *
  * The function will return one of the following:
  * CLIENT_TYPE_NORMAL -> Normal client
- * CLIENT_TYPE_SLAVE  -> Slave or client executing MONITOR command
+ * CLIENT_TYPE_SLAVE  -> Slave
  * CLIENT_TYPE_PUBSUB -> Client subscribed to Pub/Sub channels
  * CLIENT_TYPE_MASTER -> The client representing our replication master.
  */
 int getClientType(client *c) {
     if (c->flags & CLIENT_MASTER) return CLIENT_TYPE_MASTER;
+    /* Even though MONITOR clients are marked as replicas, we
+     * want the expose them as normal clients. */
     if ((c->flags & CLIENT_SLAVE) && !(c->flags & CLIENT_MONITOR))
         return CLIENT_TYPE_SLAVE;
     if (c->flags & CLIENT_PUBSUB) return CLIENT_TYPE_PUBSUB;

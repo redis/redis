@@ -821,7 +821,7 @@ int clientsCronHandleTimeout(client *c, mstime_t now_ms) {
     time_t now = now_ms/1000;
 
     if (server.maxidletime &&
-        !(c->flags & CLIENT_SLAVE) &&    /* no timeout for slaves */
+        !(c->flags & CLIENT_SLAVE) &&    /* no timeout for slaves and monitors */
         !(c->flags & CLIENT_MASTER) &&   /* no timeout for masters */
         !(c->flags & CLIENT_BLOCKED) &&  /* no timeout for BLPOP */
         !(c->flags & CLIENT_PUBSUB) &&   /* no timeout for Pub/Sub clients */
