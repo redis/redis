@@ -1766,6 +1766,7 @@ int raxRandomWalk(raxIterator *it, size_t steps) {
         if (n->iskey) steps--;
     }
     it->node = n;
+    it->data = raxGetData(it->node);
     return 1;
 }
 
