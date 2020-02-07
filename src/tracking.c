@@ -223,8 +223,8 @@ void trackingInvalidateKeysOnFlush(int dbid) {
 void trackingLimitUsedSlots(void) {
     static unsigned int timeout_counter = 0;
     if (TrackingTable == NULL) return;
-    if (server.tracking_table_max_fill == 0) return; /* No limits set. */
-    size_t max_keys = server.tracking_table_max_fill;
+    if (server.tracking_table_max_keys == 0) return; /* No limits set. */
+    size_t max_keys = server.tracking_table_max_keys;
     if (raxSize(TrackingTable) <= max_keys) {
         timeout_counter = 0;
         return; /* Limit not reached. */
@@ -263,4 +263,8 @@ void trackingLimitUsedSlots(void) {
  * tracking table. */
 uint64_t trackingGetTotalItems(void) {
     return TrackingTableTotalItems;
+}
+
+uint64_t trackingGetTotalKeys(void) {
+    return raxSize(TrackingTable);
 }

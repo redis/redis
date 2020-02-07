@@ -1306,7 +1306,7 @@ struct redisServer {
     list *ready_keys;        /* List of readyList structures for BLPOP & co */
     /* Client side caching. */
     unsigned int tracking_clients;  /* # of clients with tracking enabled.*/
-    int tracking_table_max_fill;    /* Max fill percentage. */
+    int tracking_table_max_keys;    /* Max number of keys in tracking table. */
     /* Sort parameters - qsort_r() is only available under BSD so we
      * have to take this state global, in order to pass it to sortCompare() */
     int sort_desc;
@@ -1655,6 +1655,7 @@ void trackingInvalidateKey(robj *keyobj);
 void trackingInvalidateKeysOnFlush(int dbid);
 void trackingLimitUsedSlots(void);
 uint64_t trackingGetTotalItems(void);
+uint64_t trackingGetTotalKeys(void);
 
 /* List data type */
 void listTypeTryConversion(robj *subject, robj *value);
