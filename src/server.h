@@ -1654,7 +1654,7 @@ void trackingRememberKeys(client *c);
 void trackingInvalidateKey(robj *keyobj);
 void trackingInvalidateKeysOnFlush(int dbid);
 void trackingLimitUsedSlots(void);
-unsigned long long trackingGetUsedSlots(void);
+uint64_t trackingGetTotalItems(void);
 
 /* List data type */
 void listTypeTryConversion(robj *subject, robj *value);
