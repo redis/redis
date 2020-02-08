@@ -604,6 +604,66 @@ void randomkeyCommand(client *c) {
     decrRefCount(key);
 }
 
+void updateKeyTypeCount(keyTypeDist *ktd, robj *valobj) {
+    if (valobj == NULL) {
+        return;
+    }
+
+    switch(valobj->type) {
+        case OBJ_STRING: ktd->typeString++; break;
+        case OBJ_LIST: ktd->typeList++; break;
+        case OBJ_SET: ktd->typeSet++; break;
+        case OBJ_ZSET: ktd->typeZset++; break;
+        case OBJ_HASH: ktd->typeHash++; break;
+        case OBJ_STREAM: ktd->typeStream++; break;
+    }
+}
+
+sds genTypeDistString(keyTypeDist *ktd) {
+    sds dist = sdsempty();
+
+    dist = sdscatfmt(dist,
+        "string:%I\r\n"
+        "list:%I\r\n"
+        "set:%I\r\n"
+        "zset:%I\r\n"
+        "hash:%I\r\n"
+        "stream:%I\r\n",
+        ktd->typeString,
+        ktd->typeList,
+        ktd->typeSet,
+        ktd->typeZset,
+        ktd->typeHash,
+        ktd->typeStream);
+
+    return dist;
+}
+
+void typedistCommand(client *c) {
+    dictIterator *di;
+    dictEntry *de;
+    keyTypeDist ktd = {0};
+
+    di = dictGetSafeIterator(c->db->dict);
+    while((de = dictNext(di)) != NULL) {
+        sds key = dictGetKey(de);
+        robj *keyobj;
+        robj *valobj;
+
+        keyobj = createStringObject(key, sdslen(key));
+        if (!keyIsExpired(c->db, keyobj)) {
+            valobj = lookupKeyReadWithFlags(c->db, keyobj, LOOKUP_NOTOUCH);
+            updateKeyTypeCount(&ktd, valobj);
+        }
+        decrRefCount(keyobj);
+    }
+
+    dictReleaseIterator(di);
+    sds keyTypeDistString = genTypeDistString(&ktd);
+    addReplyVerbatim(c,keyTypeDistString,sdslen(keyTypeDistString),"txt");
+    sdsfree(keyTypeDistString);
+}
+
 void keysCommand(client *c) {
     dictIterator *di;
     dictEntry *de;
@@ -617,7 +677,6 @@ void keysCommand(client *c) {
     while((de = dictNext(di)) != NULL) {
         sds key = dictGetKey(de);
         robj *keyobj;
-
         if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
             keyobj = createStringObject(key,sdslen(key));
             if (!keyIsExpired(c->db,keyobj)) {

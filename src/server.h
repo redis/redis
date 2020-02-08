@@ -507,6 +507,19 @@ typedef struct RedisModuleType {
     char name[10]; /* 9 bytes name + null term. Charset: A-Z a-z 0-9 _- */
 } moduleType;
 
+/* This struct is used to hold the count of various native redis data types
+ * This will be populated when TYPEDIST command is executed */
+
+typedef struct RedisKeyTypeDist {
+    int64_t typeString;
+    int64_t typeList;
+    int64_t typeSet;
+    int64_t typeZset;
+    int64_t typeHash;
+    int64_t typeStream;
+
+} keyTypeDist;
+
 /* In Redis objects 'robj' structures of type OBJ_MODULE, the value pointer
  * is set to the following structure, referencing the moduleType structure
  * in order to work with the value, and at the same time providing a raw
@@ -2195,6 +2208,7 @@ void lindexCommand(client *c);
 void lrangeCommand(client *c);
 void ltrimCommand(client *c);
 void typeCommand(client *c);
+void typedistCommand(client *c);
 void lsetCommand(client *c);
 void saddCommand(client *c);
 void sremCommand(client *c);
