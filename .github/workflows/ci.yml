@@ -9,7 +9,7 @@ jobs:
         platform: [ubuntu-latest, ubuntu-16.04]
     runs-on: ${{ matrix.platform }}
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - name: make
       run: make
     - name: test
@@ -23,6 +23,6 @@ jobs:
         platform: [macos-latest, macOS-10.14]
     runs-on: ${{ matrix.platform }}
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - name: make
       run: make
