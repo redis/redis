@@ -247,6 +247,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CLIENT_TRACKING (1ULL<<31) /* Client enabled keys tracking in order to
                                    perform client side caching. */
 #define CLIENT_TRACKING_BROKEN_REDIR (1ULL<<32) /* Target client is invalid. */
+#define CLIENT_TRACKING_BCAST (1ULL<<33) /* Tracking in BCAST mode. */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -822,6 +823,11 @@ typedef struct client {
      * invalidation messages for keys fetched by this client will be send to
      * the specified client ID. */
     uint64_t client_tracking_redirection;
+    list *client_tracking_prefix_nodes; /* This list contains listNode pointers
+                                           to the nodes we have in every list
+                                           of clients in the tracking bcast
+                                           table. This way we can remove our
+                                           client in O(1) for each list. */
 
     /* Response buffer */
     int bufpos;
@@ -1648,7 +1654,7 @@ void addReplyStatusFormat(client *c, const char *fmt, ...);
 #endif
 
 /* Client side caching (tracking mode) */
-void enableTracking(client *c, uint64_t redirect_to);
+void enableTracking(client *c, uint64_t redirect_to, int bcast, robj **prefix, size_t numprefix);
 void disableTracking(client *c);
 void trackingRememberKeys(client *c);
 void trackingInvalidateKey(robj *keyobj);

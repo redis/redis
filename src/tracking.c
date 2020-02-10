@@ -42,6 +42,7 @@
  * Clients will normally take frequently requested objects in memory, removing
  * them when invalidation messages are received. */
 rax *TrackingTable = NULL;
+rax *PrefixTable = NULL;
 uint64_t TrackingTableTotalItems = 0; /* Total number of IDs stored across
                                          the whole tracking table. This givesn
                                          an hint about the total memory we
@@ -68,15 +69,24 @@ void disableTracking(client *c) {
  * eventually get freed, we'll send a message to the original client to
  * inform it of the condition. Multiple clients can redirect the invalidation
  * messages to the same client ID. */
-void enableTracking(client *c, uint64_t redirect_to) {
-    if (c->flags & CLIENT_TRACKING) return;
+void enableTracking(client *c, uint64_t redirect_to, int bcast, robj **prefix, size_t numprefix) {
     c->flags |= CLIENT_TRACKING;
     c->flags &= ~CLIENT_TRACKING_BROKEN_REDIR;
     c->client_tracking_redirection = redirect_to;
-    server.tracking_clients++;
+    if (!(c->flags & CLIENT_TRACKING)) server.tracking_clients++;
     if (TrackingTable == NULL) {
         TrackingTable = raxNew();
+        PrefixTable = raxNew();
         TrackingChannelName = createStringObject("__redis__:invalidate",20);
+    }
+
+    if (bcast) {
+        c->flags |= CLIENT_TRACKING_BCAST;
+        if (numprefix == 0) enableBcastTrackingForPrefix(c,"",0);
+        for (int j = 0; j < numprefix; j++) {
+            sds sdsprefix = prefix[j]->ptr;
+            enableBcastTrackingForPrefix(c,sdsprefix,sdslen(prefix));
+        }
     }
 }
 
