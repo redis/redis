@@ -6706,7 +6706,7 @@ int RM_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
         server.module_child_pid = childpid;
         moduleForkInfo.done_handler = cb;
         moduleForkInfo.done_handler_user_data = user_data;
-        serverLog(LL_NOTICE, "Module fork started pid: %d ", childpid);
+        serverLog(LL_VERBOSE, "Module fork started pid: %d ", childpid);
     }
     return childpid;
 }
@@ -6729,7 +6729,7 @@ int TerminateModuleForkChild(int child_pid, int wait) {
         server.module_child_pid != child_pid) return C_ERR;
 
     int statloc;
-    serverLog(LL_NOTICE,"Killing running module fork child: %ld",
+    serverLog(LL_VERBOSE,"Killing running module fork child: %ld",
         (long) server.module_child_pid);
     if (kill(server.module_child_pid,SIGUSR1) != -1 && wait) {
         while(wait4(server.module_child_pid,&statloc,0,NULL) !=
