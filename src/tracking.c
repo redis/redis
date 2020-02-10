@@ -132,13 +132,16 @@ void sendTrackingMessage(client *c, char *keyname, size_t keylen) {
     if (c->resp > 2) {
         addReplyPushLen(c,2);
         addReplyBulkCBuffer(c,"invalidate",10);
+        addReplyArrayLen(c,1);
         addReplyBulkCBuffer(c,keyname,keylen);
     } else if (using_redirection && c->flags & CLIENT_PUBSUB) {
         /* We use a static object to speedup things, however we assume
          * that addReplyPubsubMessage() will not take a reference. */
         robj keyobj;
         initStaticStringObject(keyobj,keyname);
-        addReplyPubsubMessage(c,TrackingChannelName,&keyobj);
+        addReplyPubsubMessage(c,TrackingChannelName,NULL);
+        addReplyArrayLen(c,1);
+        addReplyBulk(c,&keyobj);
         serverAssert(keyobj.refcount == 1);
     }
 }
