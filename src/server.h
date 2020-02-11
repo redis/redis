@@ -1659,6 +1659,7 @@ void trackingInvalidateKeysOnFlush(int dbid);
 void trackingLimitUsedSlots(void);
 uint64_t trackingGetTotalItems(void);
 uint64_t trackingGetTotalKeys(void);
+void trackingBroadcastInvalidationMessages(void);
 
 /* List data type */
 void listTypeTryConversion(robj *subject, robj *value);
