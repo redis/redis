@@ -823,12 +823,9 @@ typedef struct client {
      * invalidation messages for keys fetched by this client will be send to
      * the specified client ID. */
     uint64_t client_tracking_redirection;
-    list *client_tracking_prefix_nodes; /* This list contains listNode pointers
-                                           to the nodes we have in every list
-                                           of clients in the tracking bcast
-                                           table. This way we can remove our
-                                           client in O(1) for each list. */
-
+    rax *client_tracking_prefixes; /* A dictionary of prefixes we are already
+                                      subscribed to in BCAST mode, in the
+                                      context of client side caching. */
     /* Response buffer */
     int bufpos;
     char buf[PROTO_REPLY_CHUNK_BYTES];
