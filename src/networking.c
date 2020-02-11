@@ -154,7 +154,7 @@ client *createClient(connection *conn) {
     c->peerid = NULL;
     c->client_list_node = NULL;
     c->client_tracking_redirection = 0;
-    c->client_tracking_prefix_nodes = NULL;
+    c->client_tracking_prefixes = NULL;
     c->auth_callback = NULL;
     c->auth_callback_privdata = NULL;
     c->auth_module = NULL;
@@ -2028,7 +2028,6 @@ int clientSetNameOrReply(client *c, robj *name) {
 void clientCommand(client *c) {
     listNode *ln;
     listIter li;
-    client *client;
 
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
@@ -2142,7 +2141,7 @@ NULL
         /* Iterate clients killing all the matching clients. */
         listRewind(server.clients,&li);
         while ((ln = listNext(&li)) != NULL) {
-            client = listNodeValue(ln);
+            client *client = listNodeValue(ln);
             if (addr && strcmp(getClientPeerId(client),addr) != 0) continue;
             if (type != -1 && getClientType(client) != type) continue;
             if (id != 0 && client->id != id) continue;
@@ -2229,7 +2228,7 @@ NULL
         size_t numprefix = 0;
 
         /* Parse the options. */
-        if (for int j = 3; j < argc; j++) {
+        for (int j = 3; j < c->argc; j++) {
             int moreargs = (c->argc-1) - j;
 
             if (!strcasecmp(c->argv[j]->ptr,"redirect") && moreargs) {
@@ -2246,10 +2245,10 @@ NULL
                 }
             } else if (!strcasecmp(c->argv[j]->ptr,"bcast")) {
                 bcast++;
-            } else if (!strcasecmp(c->argv[j]->ptr,"prefix") && morearg) {
+            } else if (!strcasecmp(c->argv[j]->ptr,"prefix") && moreargs) {
                 j++;
-                prefix = zrealloc(sizeof(robj*)*(numprefix+1));
-                prefix[numprefix++] = argv[j];
+                prefix = zrealloc(prefix,sizeof(robj*)*(numprefix+1));
+                prefix[numprefix++] = c->argv[j];
             } else {
                 addReply(c,shared.syntaxerr);
                 return;
@@ -2259,16 +2258,16 @@ NULL
         /* Make sure options are compatible among each other and with the
          * current state of the client. */
         if (!bcast && numprefix) {
-            addReplyError("PREFIX option requires BCAST mode to be enabled");
+            addReplyError(c,"PREFIX option requires BCAST mode to be enabled");
             zfree(prefix);
             return;
         }
 
-        if (client->flags & CLIENT_TRACKING) {
-            int oldbcast = !!client->flags & CLIENT_TRACKING_BCAST;
+        if (c->flags & CLIENT_TRACKING) {
+            int oldbcast = !!c->flags & CLIENT_TRACKING_BCAST;
             if (oldbcast != bcast) {
             }
-            addReplyError(
+            addReplyError(c,
                 "You can't switch BCAST mode on/off before disabling "
                 "tracking for this client, and then re-enabling it with "
                 "a different mode.");
