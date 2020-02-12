@@ -2224,7 +2224,7 @@ NULL
          *                          [PREFIX second] ... */
         long long redir = 0;
         int bcast = 0;
-        robj **prefix;
+        robj **prefix = NULL;
         size_t numprefix = 0;
 
         /* Parse the options. */
