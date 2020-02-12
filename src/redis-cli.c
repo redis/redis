@@ -1643,7 +1643,7 @@ static int parseOptions(int argc, char **argv) {
     }
 
     if (!config.no_auth_warning && config.auth != NULL) {
-        fputs("Warning: Using a password with '-a' or '-u' option on the command"
+        fputs("Warning: Using a password with '-a' or '--pass' option on the command"
               " line interface may not be safe.\n", stderr);
     }
 
