@@ -2250,37 +2250,39 @@ NULL
                 prefix = zrealloc(prefix,sizeof(robj*)*(numprefix+1));
                 prefix[numprefix++] = c->argv[j];
             } else {
+                zfree(prefix);
                 addReply(c,shared.syntaxerr);
                 return;
             }
         }
 
-        /* Make sure options are compatible among each other and with the
-         * current state of the client. */
-        if (!bcast && numprefix) {
-            addReplyError(c,"PREFIX option requires BCAST mode to be enabled");
-            zfree(prefix);
-            return;
-        }
-
-        if (c->flags & CLIENT_TRACKING) {
-            int oldbcast = !!c->flags & CLIENT_TRACKING_BCAST;
-            if (oldbcast != bcast) {
-            }
-            addReplyError(c,
-                "You can't switch BCAST mode on/off before disabling "
-                "tracking for this client, and then re-enabling it with "
-                "a different mode.");
-            zfree(prefix);
-            return;
-        }
-
         /* Options are ok: enable or disable the tracking for this client. */
         if (!strcasecmp(c->argv[2]->ptr,"on")) {
+            /* Before enabling tracking, make sure options are compatible
+             * among each other and with the current state of the client. */
+            if (!bcast && numprefix) {
+                addReplyError(c,
+                    "PREFIX option requires BCAST mode to be enabled");
+                zfree(prefix);
+                return;
+            }
+
+            if (c->flags & CLIENT_TRACKING) {
+                int oldbcast = !!c->flags & CLIENT_TRACKING_BCAST;
+                if (oldbcast != bcast) {
+                    addReplyError(c,
+                    "You can't switch BCAST mode on/off before disabling "
+                    "tracking for this client, and then re-enabling it with "
+                    "a different mode.");
+                    zfree(prefix);
+                    return;
+                }
+            }
             enableTracking(c,redir,bcast,prefix,numprefix);
         } else if (!strcasecmp(c->argv[2]->ptr,"off")) {
             disableTracking(c);
         } else {
+            zfree(prefix);
             addReply(c,shared.syntaxerr);
             return;
         }
