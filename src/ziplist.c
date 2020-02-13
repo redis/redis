@@ -179,7 +179,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <mach/memory_object_types.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
