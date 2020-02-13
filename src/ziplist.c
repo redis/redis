@@ -179,11 +179,13 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <mach/memory_object_types.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 #include <limits.h>
+#include "adlist.h"
 #include "zmalloc.h"
 #include "util.h"
 #include "ziplist.h"
@@ -593,6 +595,13 @@ unsigned char *ziplistResize(unsigned char *zl, unsigned int len) {
     return zl;
 }
 
+typedef struct UpdateEntry {
+    size_t offset;
+    size_t prevlen;
+    size_t prevlensize;
+    zlentry entry;
+} UpdateEntry;
+
 /* When an entry is inserted, we need to set the prevlen field of the next
  * entry to equal the length of the inserted entry. It can occur that this
  * length cannot be encoded in 1 byte and the next entry needs to be grow
@@ -614,63 +623,84 @@ unsigned char *ziplistResize(unsigned char *zl, unsigned int len) {
  * The pointer "p" points to the first entry that does NOT need to be
  * updated, i.e. consecutive fields MAY need an update. */
 unsigned char *__ziplistCascadeUpdate(unsigned char *zl, unsigned char *p) {
-    size_t curlen = intrev32ifbe(ZIPLIST_BYTES(zl)), rawlen, rawlensize;
-    size_t offset, noffset, extra;
-    unsigned char *np;
-    zlentry cur, next;
 
+    if (p[0] == ZIP_END) return zl;
+
+    zlentry cur;
+    size_t prevlen, prevlensize, rawlen, curlen = intrev32ifbe(ZIPLIST_BYTES(zl));
+    size_t extra, totdiff = 0;
+    unsigned char *tail = zl + intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl));
+
+    zipEntry(p, &cur);
+    prevlen = cur.headersize + cur.len;
+    prevlensize = zipStorePrevEntryLength(NULL, prevlen);
+    p += prevlen;
+
+    list *entries = listCreate();
     while (p[0] != ZIP_END) {
         zipEntry(p, &cur);
+
+        if (cur.prevrawlen == prevlen) break;
+
         rawlen = cur.headersize + cur.len;
-        rawlensize = zipStorePrevEntryLength(NULL,rawlen);
 
-        /* Abort if there is no next entry. */
-        if (p[rawlen] == ZIP_END) break;
-        zipEntry(p+rawlen, &next);
+        UpdateEntry *e = zmalloc(sizeof(*e));
+        e->offset = p - zl;
+        e->prevlen = prevlen;
+        e->prevlensize = prevlensize;
+        e->entry = cur;
+        listAddNodeTail(entries, e);
 
-        /* Abort when "prevlen" has not changed. */
-        if (next.prevrawlen == rawlen) break;
+        if (cur.prevrawlensize >= prevlensize) break;
 
-        if (next.prevrawlensize < rawlensize) {
-            /* The "prevlen" field of "next" needs more bytes to hold
-             * the raw length of "cur". */
-            offset = p-zl;
-            extra = rawlensize-next.prevrawlensize;
-            zl = ziplistResize(zl,curlen+extra);
-            p = zl+offset;
+        extra = prevlensize - cur.prevrawlensize;
+        if (tail != p) {
+            ZIPLIST_TAIL_OFFSET(zl) =
+                intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+extra);
+        }
 
-            /* Current pointer and offset for next element. */
-            np = p+rawlen;
-            noffset = np-zl;
+        prevlen = rawlen + extra;
+        prevlensize = zipStorePrevEntryLength(NULL, prevlen);
 
-            /* Update tail offset when next element is not the tail element. */
-            if ((zl+intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))) != np) {
-                ZIPLIST_TAIL_OFFSET(zl) =
-                    intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+extra);
+        p += rawlen;
+        totdiff += extra;
+    }
+
+    if (totdiff != 0) {
+        zl = ziplistResize(zl, curlen + totdiff);
+        UpdateEntry *e = listLast(entries)->value;
+        p = zl + e->offset + e->entry.headersize + e->entry.len;
+        memmove(p + totdiff, p, curlen - (p - zl) - 1);
+        p += totdiff;
+    }
+
+    listIter it;
+    listNode *node;
+    listRewindTail(entries, &it);
+    while ((node = listNext(&it)) != NULL) {
+        UpdateEntry *e = node->value;
+        if (e->prevlensize <= e->entry.prevrawlensize) {
+            if (totdiff != 0) {
+                size_t len = e->entry.headersize + e->entry.len;
+                memmove(p - len, zl + e->offset, len);
+                p -= len;
             }
 
-            /* Move the tail to the back. */
-            memmove(np+rawlensize,
-                np+next.prevrawlensize,
-                curlen-noffset-next.prevrawlensize-1);
-            zipStorePrevEntryLength(np,rawlen);
-
-            /* Advance the cursor */
-            p += rawlen;
-            curlen += extra;
-        } else {
-            if (next.prevrawlensize > rawlensize) {
-                /* This would result in shrinking, which we want to avoid.
-                 * So, set "rawlen" in the available bytes. */
-                zipStorePrevEntryLengthLarge(p+rawlen,rawlen);
+            if (e->prevlensize < e->entry.prevrawlensize) {
+                zipStorePrevEntryLengthLarge(p, e->prevlen);
             } else {
-                zipStorePrevEntryLength(p+rawlen,rawlen);
+                zipStorePrevEntryLength(p, e->prevlen);
             }
-
-            /* Stop here, as the raw length of "next" has not changed. */
-            break;
+        } else {
+            size_t len = e->entry.headersize + e->entry.len - e->entry.prevrawlensize;
+            memmove(p-len, zl+e->offset+e->entry.prevrawlensize, len);
+            p -= (len + e->prevlensize);
+            zipStorePrevEntryLength(p, e->prevlen);
         }
     }
+
+    listSetFreeMethod(entries, zfree);
+    listRelease(entries);
     return zl;
 }
 
