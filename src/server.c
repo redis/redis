@@ -5468,6 +5468,7 @@ void infoCommand(client *c) {
         return;
     }
 
+<<<<<<< HEAD
     char defSections[11][15] = {"server", "clients", "memory", "persistence", "stats", "replication", "cpu", "modules", "errorstats", "cluster", "keyspace"};
     dict * final = dictCreate(&setDictType); /* Set to add the subsections to print*/
     dict * defaultSet = dictCreate(&setDictType); /* Set Containing all subsections of default */
@@ -5482,11 +5483,32 @@ void infoCommand(client *c) {
     /* When info is called with no other arguments */
     if (c->argc == 1) {
         sds info = genRedisInfoString("default");
+=======
+    if (c->argc == 1) {
+        sds info = genRedisInfoString("default");
         addReplyVerbatim(c,info,sdslen(info),"txt");
         sdsfree(info);
         return;
     }
 
+    int defsections = 0, allsections = 0;
+    // first time find all/default flag
+    for (int i = 1; i < c->argc; i++) {
+
+        defsections = !strcasecmp(c->argv[i]->ptr,"default");
+        allsections = !strcasecmp(c->argv[i]->ptr,"all");
+    }
+
+    if (defsections || allsections) {
+
+        sds info = allsections ? genRedisInfoString("all") : genRedisInfoString("default");
+>>>>>>> initial commit for sentinel info command change
+        addReplyVerbatim(c,info,sdslen(info),"txt");
+        sdsfree(info);
+        return;
+    }
+
+<<<<<<< HEAD
     int has_all_sections = 0;
     int has_def_sections = 0;
 
@@ -5540,15 +5562,26 @@ void infoCommand(client *c) {
     int lastValid = 0; 
     while((de = dictNext(di)) != NULL) { /* Adding info of subsections to info */
         char * subcommand = dictGetKey(de);
+=======
+    sds info = sdsempty();
+    int lastValid = 0; 
+    // second time parse specific section flag
+    for (int i = 1; i < c->argc; i++) {
+>>>>>>> initial commit for sentinel info command change
 
         if (lastValid) {
             info = sdscat(info,"\r\n");
         }
+<<<<<<< HEAD
         sds sectionInfo = genRedisInfoString(subcommand);
+=======
+        sds sectionInfo = genRedisInfoString(c->argv[i]->ptr);
+>>>>>>> initial commit for sentinel info command change
         info = sdscatlen(info,sectionInfo,sdslen(sectionInfo));
         lastValid = sdslen(sectionInfo) > 0 ? 1 : 0;
         sdsfree(sectionInfo); 
     }
+<<<<<<< HEAD
     dictReleaseIterator(di);
 
     addReplyVerbatim(c,info,sdslen(info),"txt");
@@ -5556,6 +5589,12 @@ void infoCommand(client *c) {
     dictRelease(final);
     dictRelease(defaultSet);
     dictRelease(allSet);
+=======
+
+    addReplyVerbatim(c,info,sdslen(info),"txt");
+    sdsfree(info);
+
+>>>>>>> initial commit for sentinel info command change
     return;
 }
 
