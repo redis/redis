@@ -5468,15 +5468,47 @@ void infoCommand(client *c) {
         return;
     }
 
-    char *section = c->argc == 2 ? c->argv[1]->ptr : "default";
-
-    if (c->argc > 2) {
-        addReplyErrorObject(c,shared.syntaxerr);
+    if (c->argc == 1) {
+        sds info = genRedisInfoString("default");
+        addReplyVerbatim(c,info,sdslen(info),"txt");
+        sdsfree(info);
         return;
     }
-    sds info = genRedisInfoString(section);
+
+    int defsections = 0, allsections = 0;
+    // first time find all/default flag
+    for (int i = 1; i < c->argc; i++) {
+
+        defsections = !strcasecmp(c->argv[i]->ptr,"default");
+        allsections = !strcasecmp(c->argv[i]->ptr,"all");
+    }
+
+    if (defsections || allsections) {
+
+        sds info = allsections ? genRedisInfoString("all") : genRedisInfoString("default");
+        addReplyVerbatim(c,info,sdslen(info),"txt");
+        sdsfree(info);
+        return;
+    }
+
+    sds info = sdsempty();
+    int lastValid = 0; 
+    // second time parse specific section flag
+    for (int i = 1; i < c->argc; i++) {
+
+        if (lastValid) {
+            info = sdscat(info,"\r\n");
+        }
+        sds sectionInfo = genRedisInfoString(c->argv[i]->ptr);
+        info = sdscatlen(info,sectionInfo,sdslen(sectionInfo));
+        lastValid = sdslen(sectionInfo) > 0 ? 1 : 0;
+        sdsfree(sectionInfo); 
+    }
+
     addReplyVerbatim(c,info,sdslen(info),"txt");
     sdsfree(info);
+
+    return;
 }
 
 void monitorCommand(client *c) {
