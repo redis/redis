@@ -269,7 +269,17 @@ void trackingInvalidateKey(robj *keyobj) {
         uint64_t id;
         memcpy(&id,ri.key,sizeof(id));
         client *c = lookupClientByID(id);
-        if (c == NULL || !(c->flags & CLIENT_TRACKING)) continue;
+        /* Note that if the client is in BCAST mode, we don't want to
+         * send invalidation messages that were pending in the case
+         * previously the client was not in BCAST mode. This can happen if
+         * TRACKING is enabled normally, and then the client switches to
+         * BCAST mode. */
+        if (c == NULL ||
+            !(c->flags & CLIENT_TRACKING)||
+            c->flags & CLIENT_TRACKING_BCAST)
+        {
+            continue;
+        }
         sendTrackingMessage(c,sdskey,sdslen(sdskey),0);
     }
     raxStop(&ri);
