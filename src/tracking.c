@@ -441,5 +441,6 @@ uint64_t trackingGetTotalItems(void) {
 }
 
 uint64_t trackingGetTotalKeys(void) {
+    if (TrackingTable == NULL) return 0;
     return raxSize(TrackingTable);
 }
