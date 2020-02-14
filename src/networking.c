@@ -2268,7 +2268,7 @@ NULL
             }
 
             if (c->flags & CLIENT_TRACKING) {
-                int oldbcast = !!c->flags & CLIENT_TRACKING_BCAST;
+                int oldbcast = !!(c->flags & CLIENT_TRACKING_BCAST);
                 if (oldbcast != bcast) {
                     addReplyError(c,
                     "You can't switch BCAST mode on/off before disabling "
