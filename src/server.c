@@ -5593,8 +5593,11 @@ void infoCommand(client *c) {
 
     addReplyVerbatim(c,info,sdslen(info),"txt");
     sdsfree(info);
+<<<<<<< HEAD
 
 >>>>>>> initial commit for sentinel info command change
+=======
+>>>>>>> remove extra space
     return;
 }
 
