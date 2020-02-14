@@ -154,6 +154,7 @@ client *createClient(connection *conn) {
     c->peerid = NULL;
     c->client_list_node = NULL;
     c->client_tracking_redirection = 0;
+    c->client_tracking_prefixes = NULL;
     c->auth_callback = NULL;
     c->auth_callback_privdata = NULL;
     c->auth_module = NULL;
@@ -2027,7 +2028,6 @@ int clientSetNameOrReply(client *c, robj *name) {
 void clientCommand(client *c) {
     listNode *ln;
     listIter li;
-    client *client;
 
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
@@ -2141,7 +2141,7 @@ NULL
         /* Iterate clients killing all the matching clients. */
         listRewind(server.clients,&li);
         while ((ln = listNext(&li)) != NULL) {
-            client = listNodeValue(ln);
+            client *client = listNodeValue(ln);
             if (addr && strcmp(getClientPeerId(client),addr) != 0) continue;
             if (type != -1 && getClientType(client) != type) continue;
             if (id != 0 && client->id != id) continue;
@@ -2219,38 +2219,74 @@ NULL
                 UNIT_MILLISECONDS) != C_OK) return;
         pauseClients(duration);
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"tracking") &&
-               (c->argc == 3 || c->argc == 5))
-    {
-        /* CLIENT TRACKING (on|off) [REDIRECT <id>] */
+    } else if (!strcasecmp(c->argv[1]->ptr,"tracking") && c->argc >= 3) {
+        /* CLIENT TRACKING (on|off) [REDIRECT <id>] [BCAST] [PREFIX first]
+         *                          [PREFIX second] ... */
         long long redir = 0;
+        int bcast = 0;
+        robj **prefix = NULL;
+        size_t numprefix = 0;
 
-        /* Parse the redirection option: we'll require the client with
-         * the specified ID to exist right now, even if it is possible
-         * it will get disconnected later. */
-        if (c->argc == 5) {
-            if (strcasecmp(c->argv[3]->ptr,"redirect") != 0) {
-                addReply(c,shared.syntaxerr);
-                return;
-            } else {
-                if (getLongLongFromObjectOrReply(c,c->argv[4],&redir,NULL) !=
+        /* Parse the options. */
+        for (int j = 3; j < c->argc; j++) {
+            int moreargs = (c->argc-1) - j;
+
+            if (!strcasecmp(c->argv[j]->ptr,"redirect") && moreargs) {
+                j++;
+                if (getLongLongFromObjectOrReply(c,c->argv[j],&redir,NULL) !=
                     C_OK) return;
+                /* We will require the client with the specified ID to exist
+                 * right now, even if it is possible that it gets disconnected
+                 * later. Still a valid sanity check. */
                 if (lookupClientByID(redir) == NULL) {
                     addReplyError(c,"The client ID you want redirect to "
                                     "does not exist");
                     return;
                 }
+            } else if (!strcasecmp(c->argv[j]->ptr,"bcast")) {
+                bcast++;
+            } else if (!strcasecmp(c->argv[j]->ptr,"prefix") && moreargs) {
+                j++;
+                prefix = zrealloc(prefix,sizeof(robj*)*(numprefix+1));
+                prefix[numprefix++] = c->argv[j];
+            } else {
+                zfree(prefix);
+                addReply(c,shared.syntaxerr);
+                return;
             }
         }
 
+        /* Options are ok: enable or disable the tracking for this client. */
         if (!strcasecmp(c->argv[2]->ptr,"on")) {
-            enableTracking(c,redir);
+            /* Before enabling tracking, make sure options are compatible
+             * among each other and with the current state of the client. */
+            if (!bcast && numprefix) {
+                addReplyError(c,
+                    "PREFIX option requires BCAST mode to be enabled");
+                zfree(prefix);
+                return;
+            }
+
+            if (c->flags & CLIENT_TRACKING) {
+                int oldbcast = !!(c->flags & CLIENT_TRACKING_BCAST);
+                if (oldbcast != bcast) {
+                    addReplyError(c,
+                    "You can't switch BCAST mode on/off before disabling "
+                    "tracking for this client, and then re-enabling it with "
+                    "a different mode.");
+                    zfree(prefix);
+                    return;
+                }
+            }
+            enableTracking(c,redir,bcast,prefix,numprefix);
         } else if (!strcasecmp(c->argv[2]->ptr,"off")) {
             disableTracking(c);
         } else {
+            zfree(prefix);
             addReply(c,shared.syntaxerr);
             return;
         }
+        zfree(prefix);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"getredir") && c->argc == 2) {
         /* CLIENT GETREDIR */

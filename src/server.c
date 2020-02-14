@@ -2124,6 +2124,10 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     if (listLength(server.unblocked_clients))
         processUnblockedClients();
 
+    /* Send the invalidation messages to clients participating to the
+     * client side caching protocol in broadcasting (BCAST) mode. */
+    trackingBroadcastInvalidationMessages();
+
     /* Write the AOF buffer on disk */
     flushAppendOnlyFile(0);
 
@@ -3310,8 +3314,11 @@ void call(client *c, int flags) {
     if (c->cmd->flags & CMD_READONLY) {
         client *caller = (c->flags & CLIENT_LUA && server.lua_caller) ?
                             server.lua_caller : c;
-        if (caller->flags & CLIENT_TRACKING)
+        if (caller->flags & CLIENT_TRACKING &&
+            !(caller->flags & CLIENT_TRACKING_BCAST))
+        {
             trackingRememberKeys(caller);
+        }
     }
 
     server.fixed_time_expire--;
@@ -4221,7 +4228,8 @@ sds genRedisInfoString(const char *section) {
             "active_defrag_misses:%lld\r\n"
             "active_defrag_key_hits:%lld\r\n"
             "active_defrag_key_misses:%lld\r\n"
-            "tracking_used_slots:%lld\r\n",
+            "tracking_total_keys:%lld\r\n"
+            "tracking_total_items:%lld\r\n",
             server.stat_numconnections,
             server.stat_numcommands,
             getInstantaneousMetric(STATS_METRIC_COMMAND),
@@ -4249,7 +4257,8 @@ sds genRedisInfoString(const char *section) {
             server.stat_active_defrag_misses,
             server.stat_active_defrag_key_hits,
             server.stat_active_defrag_key_misses,
-            trackingGetUsedSlots());
+            (unsigned long long) trackingGetTotalKeys(),
+            (unsigned long long) trackingGetTotalItems());
     }
 
     /* Replication */
