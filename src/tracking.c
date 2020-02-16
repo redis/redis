@@ -44,7 +44,7 @@
 rax *TrackingTable = NULL;
 rax *PrefixTable = NULL;
 uint64_t TrackingTableTotalItems = 0; /* Total number of IDs stored across
-                                         the whole tracking table. This givesn
+                                         the whole tracking table. This gives
                                          an hint about the total memory we
                                          are using server side for CSC. */
 robj *TrackingChannelName;
@@ -145,9 +145,9 @@ void enableTracking(client *c, uint64_t redirect_to, int bcast, robj **prefix, s
     }
 }
 
-/* This function is called after the excution of a readonly command in the
+/* This function is called after the execution of a readonly command in the
  * case the client 'c' has keys tracking enabled. It will populate the
- * tracking ivalidation table according to the keys the user fetched, so that
+ * tracking invalidation table according to the keys the user fetched, so that
  * Redis will know what are the clients that should receive an invalidation
  * message with certain groups of keys are modified. */
 void trackingRememberKeys(client *c) {
@@ -292,19 +292,12 @@ void trackingInvalidateKey(robj *keyobj) {
 }
 
 /* This function is called when one or all the Redis databases are flushed
- * (dbid == -1 in case of FLUSHALL). Caching slots are not specific for
- * each DB but are global: currently what we do is sending a special
+ * (dbid == -1 in case of FLUSHALL). Caching keys are not specific for
+ * each DB but are global: currently what we do is send a special
  * notification to clients with tracking enabled, invalidating the caching
- * slot "-1", which means, "all the keys", in order to avoid flooding clients
+ * key "", which means, "all the keys", in order to avoid flooding clients
  * with many invalidation messages for all the keys they may hold.
- *
- * However trying to flush the tracking table here is very costly:
- * we need scanning 16 million caching slots in the table to check
- * if they are used, this introduces a big delay. So what we do is to really
- * flush the table in the case of FLUSHALL. When a FLUSHDB is called instead
- * we just send the invalidation message to all the clients, but don't
- * flush the table: it will slowly get garbage collected as more keys
- * are modified in the used caching slots. */
+ */
 void freeTrackingRadixTree(void *rt) {
     raxFree(rt);
 }
@@ -325,6 +318,7 @@ void trackingInvalidateKeysOnFlush(int dbid) {
     /* In case of FLUSHALL, reclaim all the memory used by tracking. */
     if (dbid == -1 && TrackingTable) {
         raxFreeWithCallback(TrackingTable,freeTrackingRadixTree);
+        TrackingTable = raxNew();
         TrackingTableTotalItems = 0;
     }
 }
