@@ -3529,6 +3529,8 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
  *          // Optional fields
  *          .digest = myType_DigestCallBack,
  *          .mem_usage = myType_MemUsageCallBack,
+ *          .aux_load = myType_AuxRDBLoadCallBack,
+ *          .aux_save = myType_AuxRDBSaveCallBack,
  *      }
  *
  * * **rdb_load**: A callback function pointer that loads data from RDB files.
@@ -3536,6 +3538,10 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
  * * **aof_rewrite**: A callback function pointer that rewrites data as commands.
  * * **digest**: A callback function pointer that is used for `DEBUG DIGEST`.
  * * **free**: A callback function pointer that can free a type value.
+ * * **aux_save**: A callback function pointer that saves out of keyspace data to RDB files.
+ *   'when' argument is either REDISMODULE_AUX_BEFORE_RDB or REDISMODULE_AUX_AFTER_RDB.
+ * * **aux_load**: A callback function pointer that loads out of keyspace data from RDB files.
+ *   Similar to aux_save, returns REDISMODULE_OK on success, and ERR otherwise.
  *
  * The **digest* and **mem_usage** methods should currently be omitted since
  * they are not yet implemented inside the Redis modules core.
