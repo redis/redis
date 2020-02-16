@@ -2044,7 +2044,7 @@ void clientCommand(client *c) {
 "REPLY (on|off|skip)    -- Control the replies sent to the current connection.",
 "SETNAME <name>         -- Assign the name <name> to the current connection.",
 "UNBLOCK <clientid> [TIMEOUT|ERROR] -- Unblock the specified blocked client.",
-"TRACKING (on|off) [REDIRECT <id>] -- Enable client keys tracking for client side caching.",
+"TRACKING (on|off) [REDIRECT <id>] [BCAST] [PREFIX first] [PREFIX second] ... -- Enable client keys tracking for client side caching.",
 "GETREDIR               -- Return the client ID we are redirecting to when tracking is enabled.",
 NULL
         };
@@ -2234,17 +2234,22 @@ NULL
             if (!strcasecmp(c->argv[j]->ptr,"redirect") && moreargs) {
                 j++;
                 if (getLongLongFromObjectOrReply(c,c->argv[j],&redir,NULL) !=
-                    C_OK) return;
+                    C_OK)
+                {
+                    zfree(prefix);
+                    return;
+                }
                 /* We will require the client with the specified ID to exist
                  * right now, even if it is possible that it gets disconnected
                  * later. Still a valid sanity check. */
                 if (lookupClientByID(redir) == NULL) {
                     addReplyError(c,"The client ID you want redirect to "
                                     "does not exist");
+                    zfree(prefix);
                     return;
                 }
             } else if (!strcasecmp(c->argv[j]->ptr,"bcast")) {
-                bcast++;
+                bcast = 1;
             } else if (!strcasecmp(c->argv[j]->ptr,"prefix") && moreargs) {
                 j++;
                 prefix = zrealloc(prefix,sizeof(robj*)*(numprefix+1));
