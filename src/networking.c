@@ -2233,6 +2233,13 @@ NULL
 
             if (!strcasecmp(c->argv[j]->ptr,"redirect") && moreargs) {
                 j++;
+                if (redir != 0) {
+                    addReplyError(c,"A client can only redirect to a single "
+                                    "other client");
+                    zfree(prefix);
+                    return;
+                }
+
                 if (getLongLongFromObjectOrReply(c,c->argv[j],&redir,NULL) !=
                     C_OK)
                 {
