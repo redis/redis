@@ -347,7 +347,10 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
  * DB number if we want to flush only a single Redis database number.
  *
  * Flags are be EMPTYDB_NO_FLAGS if no special flags are specified or
- * EMPTYDB_ASYNC if we want the memory to be freed in a different thread
+ * 1. EMPTYDB_ASYNC if we want the memory to be freed in a different thread.
+ * 2. EMPTYDB_BACKUP if we want to empty the backup dictionaries created by
+ *    disklessLoadMakeBackups. In that case we only free memory and avoid
+ *    firing module events.
  * and the function to return ASAP.
  *
  * On success the fuction returns the number of keys removed from the
@@ -355,6 +358,8 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
  * DB number is out of range, and errno is set to EINVAL. */
 long long emptyDbGeneric(redisDb *dbarray, int dbnum, int flags, void(callback)(void*)) {
     int async = (flags & EMPTYDB_ASYNC);
+    int backup = (flags & EMPTYDB_BACKUP); /* Just free the memory, nothing else */
+    RedisModuleFlushInfoV1 fi = {REDISMODULE_FLUSHINFO_VERSION,!async,dbnum};
     long long removed = 0;
 
     if (dbnum < -1 || dbnum >= server.dbnum) {
@@ -362,16 +367,18 @@ long long emptyDbGeneric(redisDb *dbarray, int dbnum, int flags, void(callback)(
         return -1;
     }
 
-    /* Fire the flushdb modules event. */
-    RedisModuleFlushInfoV1 fi = {REDISMODULE_FLUSHINFO_VERSION,!async,dbnum};
-    moduleFireServerEvent(REDISMODULE_EVENT_FLUSHDB,
-                          REDISMODULE_SUBEVENT_FLUSHDB_START,
-                          &fi);
+    /* Pre-flush actions */
+    if (!backup) {
+        /* Fire the flushdb modules event. */
+        moduleFireServerEvent(REDISMODULE_EVENT_FLUSHDB,
+                              REDISMODULE_SUBEVENT_FLUSHDB_START,
+                              &fi);
 
-    /* Make sure the WATCHed keys are affected by the FLUSH* commands.
-     * Note that we need to call the function while the keys are still
-     * there. */
-    signalFlushedDb(dbnum);
+        /* Make sure the WATCHed keys are affected by the FLUSH* commands.
+         * Note that we need to call the function while the keys are still
+         * there. */
+        signalFlushedDb(dbnum);
+    }
 
     int startdb, enddb;
     if (dbnum == -1) {
@@ -390,20 +397,24 @@ long long emptyDbGeneric(redisDb *dbarray, int dbnum, int flags, void(callback)(
             dictEmpty(dbarray[j].expires,callback);
         }
     }
-    if (server.cluster_enabled) {
-        if (async) {
-            slotToKeyFlushAsync();
-        } else {
-            slotToKeyFlush();
-        }
-    }
-    if (dbnum == -1) flushSlaveKeysWithExpireList();
 
-    /* Also fire the end event. Note that this event will fire almost
-     * immediately after the start event if the flush is asynchronous. */
-    moduleFireServerEvent(REDISMODULE_EVENT_FLUSHDB,
-                          REDISMODULE_SUBEVENT_FLUSHDB_END,
-                          &fi);
+    /* Post-flush actions */
+    if (!backup) {
+        if (server.cluster_enabled) {
+            if (async) {
+                slotToKeyFlushAsync();
+            } else {
+                slotToKeyFlush();
+            }
+        }
+        if (dbnum == -1) flushSlaveKeysWithExpireList();
+
+        /* Also fire the end event. Note that this event will fire almost
+         * immediately after the start event if the flush is asynchronous. */
+        moduleFireServerEvent(REDISMODULE_EVENT_FLUSHDB,
+                              REDISMODULE_SUBEVENT_FLUSHDB_END,
+                              &fi);
+    }
 
     return removed;
 }
@@ -1285,8 +1296,10 @@ int expireIfNeeded(redisDb *db, robj *key) {
     propagateExpire(db,key,server.lazyfree_lazy_expire);
     notifyKeyspaceEvent(NOTIFY_EXPIRED,
         "expired",key,db->id);
-    return server.lazyfree_lazy_expire ? dbAsyncDelete(db,key) :
-                                         dbSyncDelete(db,key);
+    int retval = server.lazyfree_lazy_expire ? dbAsyncDelete(db,key) :
+                                               dbSyncDelete(db,key);
+    if (retval) signalModifiedKey(db,key);
+    return retval;
 }
 
 /* -----------------------------------------------------------------------------
@@ -1520,6 +1533,22 @@ int *georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numk
     }
     *numkeys = num;
     return keys;
+}
+
+/* Helper function to extract keys from memory command.
+ * MEMORY USAGE <key> */
+int *memoryGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+    int *keys;
+    UNUSED(cmd);
+
+    if (argc >= 3 && !strcasecmp(argv[1]->ptr,"usage")) {
+        keys = zmalloc(sizeof(int) * 1);
+        keys[0] = 2;
+        *numkeys = 1;
+        return keys;
+    }
+    *numkeys = 0;
+    return NULL;
 }
 
 /* XREAD [BLOCK <milliseconds>] [COUNT <count>] [GROUP <groupname> <ttl>]

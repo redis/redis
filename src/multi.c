@@ -177,8 +177,10 @@ void execCommand(client *c) {
             must_propagate = 1;
         }
 
-        int acl_retval = ACLCheckCommandPerm(c);
+        int acl_keypos;
+        int acl_retval = ACLCheckCommandPerm(c,&acl_keypos);
         if (acl_retval != ACL_OK) {
+            addACLLogEntry(c,acl_retval,acl_keypos,NULL);
             addReplyErrorFormat(c,
                 "-NOPERM ACLs rules changed between the moment the "
                 "transaction was accumulated and the EXEC call. "

@@ -640,21 +640,13 @@ int getDoubleFromObjectOrReply(client *c, robj *o, double *target, const char *m
 
 int getLongDoubleFromObject(robj *o, long double *target) {
     long double value;
-    char *eptr;
 
     if (o == NULL) {
         value = 0;
     } else {
         serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
         if (sdsEncodedObject(o)) {
-            errno = 0;
-            value = strtold(o->ptr, &eptr);
-            if (sdslen(o->ptr) == 0 ||
-                isspace(((const char*)o->ptr)[0]) ||
-                (size_t)(eptr-(char*)o->ptr) != sdslen(o->ptr) ||
-                (errno == ERANGE &&
-                    (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
-                isnan(value))
+            if (!string2ld(o->ptr, sdslen(o->ptr), &value))
                 return C_ERR;
         } else if (o->encoding == OBJ_ENCODING_INT) {
             value = (long)o->ptr;
@@ -983,37 +975,28 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mem_total += mem;
 
     mem = 0;
-    if (listLength(server.slaves)) {
-        listIter li;
-        listNode *ln;
-
-        listRewind(server.slaves,&li);
-        while((ln = listNext(&li))) {
-            client *c = listNodeValue(ln);
-            mem += getClientOutputBufferMemoryUsage(c);
-            mem += sdsAllocSize(c->querybuf);
-            mem += sizeof(client);
-        }
-    }
-    mh->clients_slaves = mem;
-    mem_total+=mem;
-
-    mem = 0;
     if (listLength(server.clients)) {
         listIter li;
         listNode *ln;
+        size_t mem_normal = 0, mem_slaves = 0;
 
         listRewind(server.clients,&li);
         while((ln = listNext(&li))) {
+            size_t mem_curr = 0;
             client *c = listNodeValue(ln);
-            if (c->flags & CLIENT_SLAVE && !(c->flags & CLIENT_MONITOR))
-                continue;
-            mem += getClientOutputBufferMemoryUsage(c);
-            mem += sdsAllocSize(c->querybuf);
-            mem += sizeof(client);
+            int type = getClientType(c);
+            mem_curr += getClientOutputBufferMemoryUsage(c);
+            mem_curr += sdsAllocSize(c->querybuf);
+            mem_curr += sizeof(client);
+            if (type == CLIENT_TYPE_SLAVE)
+                mem_slaves += mem_curr;
+            else
+                mem_normal += mem_curr;
         }
+        mh->clients_slaves = mem_slaves;
+        mh->clients_normal = mem_normal;
+        mem = mem_slaves + mem_normal;
     }
-    mh->clients_normal = mem;
     mem_total+=mem;
 
     mem = 0;

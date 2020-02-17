@@ -154,6 +154,7 @@ client *createClient(connection *conn) {
     c->peerid = NULL;
     c->client_list_node = NULL;
     c->client_tracking_redirection = 0;
+    c->client_tracking_prefixes = NULL;
     c->auth_callback = NULL;
     c->auth_callback_privdata = NULL;
     c->auth_module = NULL;
@@ -369,9 +370,10 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
      * Where the master must propagate the first change even if the second
      * will produce an error. However it is useful to log such events since
      * they are rare and may hint at errors in a script or a bug in Redis. */
-    if (c->flags & (CLIENT_MASTER|CLIENT_SLAVE) && !(c->flags & CLIENT_MONITOR)) {
-        char* to = c->flags & CLIENT_MASTER? "master": "replica";
-        char* from = c->flags & CLIENT_MASTER? "replica": "master";
+    int ctype = getClientType(c);
+    if (ctype == CLIENT_TYPE_MASTER || ctype == CLIENT_TYPE_SLAVE) {
+        char* to = ctype == CLIENT_TYPE_MASTER? "master": "replica";
+        char* from = ctype == CLIENT_TYPE_MASTER? "replica": "master";
         char *cmdname = c->lastcmd ? c->lastcmd->name : "<unknown>";
         serverLog(LL_WARNING,"== CRITICAL == This %s is sending an error "
                              "to its %s: '%s' after processing the command "
@@ -1074,7 +1076,7 @@ void freeClient(client *c) {
     }
 
     /* Log link disconnection with slave */
-    if ((c->flags & CLIENT_SLAVE) && !(c->flags & CLIENT_MONITOR)) {
+    if (getClientType(c) == CLIENT_TYPE_SLAVE) {
         serverLog(LL_WARNING,"Connection with replica %s lost.",
             replicationGetSlaveName(c));
     }
@@ -1121,7 +1123,7 @@ void freeClient(client *c) {
         /* We need to remember the time when we started to have zero
          * attached slaves, as after some time we'll free the replication
          * backlog. */
-        if (c->flags & CLIENT_SLAVE && listLength(server.slaves) == 0)
+        if (getClientType(c) == CLIENT_TYPE_SLAVE && listLength(server.slaves) == 0)
             server.repl_no_slaves_since = server.unixtime;
         refreshGoodSlavesCount();
         /* Fire the replica change modules event. */
@@ -1162,9 +1164,14 @@ void freeClientAsync(client *c) {
      * may access the list while Redis uses I/O threads. All the other accesses
      * are in the context of the main thread while the other threads are
      * idle. */
-    static pthread_mutex_t async_free_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
     if (c->flags & CLIENT_CLOSE_ASAP || c->flags & CLIENT_LUA) return;
     c->flags |= CLIENT_CLOSE_ASAP;
+    if (server.io_threads_num == 1) {
+        /* no need to bother with locking if there's just one thread (the main thread) */
+        listAddNodeTail(server.clients_to_close,c);
+        return;
+    }
+    static pthread_mutex_t async_free_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_lock(&async_free_queue_mutex);
     listAddNodeTail(server.clients_to_close,c);
     pthread_mutex_unlock(&async_free_queue_mutex);
@@ -1252,8 +1259,8 @@ int writeToClient(client *c, int handler_installed) {
          * just deliver as much data as it is possible to deliver.
          *
          * Moreover, we also send as much as possible if the client is
-         * a slave (otherwise, on high-speed traffic, the replication
-         * buffer will grow indefinitely) */
+         * a slave or a monitor (otherwise, on high-speed traffic, the
+         * replication/output buffer will grow indefinitely) */
         if (totwritten > NET_MAX_WRITES_PER_EVENT &&
             (server.maxmemory == 0 ||
              zmalloc_used_memory() < server.maxmemory) &&
@@ -1439,7 +1446,7 @@ int processInlineBuffer(client *c) {
     /* Newline from slaves can be used to refresh the last ACK time.
      * This is useful for a slave to ping back while loading a big
      * RDB file. */
-    if (querylen == 0 && c->flags & CLIENT_SLAVE)
+    if (querylen == 0 && getClientType(c) == CLIENT_TYPE_SLAVE)
         c->repl_ack_time = server.unixtime;
 
     /* Move querybuffer position to the next query in the buffer. */
@@ -2021,7 +2028,6 @@ int clientSetNameOrReply(client *c, robj *name) {
 void clientCommand(client *c) {
     listNode *ln;
     listIter li;
-    client *client;
 
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
@@ -2135,7 +2141,7 @@ NULL
         /* Iterate clients killing all the matching clients. */
         listRewind(server.clients,&li);
         while ((ln = listNext(&li)) != NULL) {
-            client = listNodeValue(ln);
+            client *client = listNodeValue(ln);
             if (addr && strcmp(getClientPeerId(client),addr) != 0) continue;
             if (type != -1 && getClientType(client) != type) continue;
             if (id != 0 && client->id != id) continue;
@@ -2213,38 +2219,74 @@ NULL
                 UNIT_MILLISECONDS) != C_OK) return;
         pauseClients(duration);
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"tracking") &&
-               (c->argc == 3 || c->argc == 5))
-    {
-        /* CLIENT TRACKING (on|off) [REDIRECT <id>] */
+    } else if (!strcasecmp(c->argv[1]->ptr,"tracking") && c->argc >= 3) {
+        /* CLIENT TRACKING (on|off) [REDIRECT <id>] [BCAST] [PREFIX first]
+         *                          [PREFIX second] ... */
         long long redir = 0;
+        int bcast = 0;
+        robj **prefix = NULL;
+        size_t numprefix = 0;
 
-        /* Parse the redirection option: we'll require the client with
-         * the specified ID to exist right now, even if it is possible
-         * it will get disconnected later. */
-        if (c->argc == 5) {
-            if (strcasecmp(c->argv[3]->ptr,"redirect") != 0) {
-                addReply(c,shared.syntaxerr);
-                return;
-            } else {
-                if (getLongLongFromObjectOrReply(c,c->argv[4],&redir,NULL) !=
+        /* Parse the options. */
+        for (int j = 3; j < c->argc; j++) {
+            int moreargs = (c->argc-1) - j;
+
+            if (!strcasecmp(c->argv[j]->ptr,"redirect") && moreargs) {
+                j++;
+                if (getLongLongFromObjectOrReply(c,c->argv[j],&redir,NULL) !=
                     C_OK) return;
+                /* We will require the client with the specified ID to exist
+                 * right now, even if it is possible that it gets disconnected
+                 * later. Still a valid sanity check. */
                 if (lookupClientByID(redir) == NULL) {
                     addReplyError(c,"The client ID you want redirect to "
                                     "does not exist");
                     return;
                 }
+            } else if (!strcasecmp(c->argv[j]->ptr,"bcast")) {
+                bcast++;
+            } else if (!strcasecmp(c->argv[j]->ptr,"prefix") && moreargs) {
+                j++;
+                prefix = zrealloc(prefix,sizeof(robj*)*(numprefix+1));
+                prefix[numprefix++] = c->argv[j];
+            } else {
+                zfree(prefix);
+                addReply(c,shared.syntaxerr);
+                return;
             }
         }
 
+        /* Options are ok: enable or disable the tracking for this client. */
         if (!strcasecmp(c->argv[2]->ptr,"on")) {
-            enableTracking(c,redir);
+            /* Before enabling tracking, make sure options are compatible
+             * among each other and with the current state of the client. */
+            if (!bcast && numprefix) {
+                addReplyError(c,
+                    "PREFIX option requires BCAST mode to be enabled");
+                zfree(prefix);
+                return;
+            }
+
+            if (c->flags & CLIENT_TRACKING) {
+                int oldbcast = !!(c->flags & CLIENT_TRACKING_BCAST);
+                if (oldbcast != bcast) {
+                    addReplyError(c,
+                    "You can't switch BCAST mode on/off before disabling "
+                    "tracking for this client, and then re-enabling it with "
+                    "a different mode.");
+                    zfree(prefix);
+                    return;
+                }
+            }
+            enableTracking(c,redir,bcast,prefix,numprefix);
         } else if (!strcasecmp(c->argv[2]->ptr,"off")) {
             disableTracking(c);
         } else {
+            zfree(prefix);
             addReply(c,shared.syntaxerr);
             return;
         }
+        zfree(prefix);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"getredir") && c->argc == 2) {
         /* CLIENT GETREDIR */
@@ -2433,12 +2475,14 @@ unsigned long getClientOutputBufferMemoryUsage(client *c) {
  *
  * The function will return one of the following:
  * CLIENT_TYPE_NORMAL -> Normal client
- * CLIENT_TYPE_SLAVE  -> Slave or client executing MONITOR command
+ * CLIENT_TYPE_SLAVE  -> Slave
  * CLIENT_TYPE_PUBSUB -> Client subscribed to Pub/Sub channels
  * CLIENT_TYPE_MASTER -> The client representing our replication master.
  */
 int getClientType(client *c) {
     if (c->flags & CLIENT_MASTER) return CLIENT_TYPE_MASTER;
+    /* Even though MONITOR clients are marked as replicas, we
+     * want the expose them as normal clients. */
     if ((c->flags & CLIENT_SLAVE) && !(c->flags & CLIENT_MONITOR))
         return CLIENT_TYPE_SLAVE;
     if (c->flags & CLIENT_PUBSUB) return CLIENT_TYPE_PUBSUB;

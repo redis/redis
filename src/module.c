@@ -714,9 +714,9 @@ void RM_KeyAtPos(RedisModuleCtx *ctx, int pos) {
  * flags into the command flags used by the Redis core.
  *
  * It returns the set of flags, or -1 if unknown flags are found. */
-int commandFlagsFromString(char *s) {
+int64_t commandFlagsFromString(char *s) {
     int count, j;
-    int flags = 0;
+    int64_t flags = 0;
     sds *tokens = sdssplitlen(s,strlen(s)," ",1,&count);
     for (j = 0; j < count; j++) {
         char *t = tokens[j];
@@ -730,6 +730,7 @@ int commandFlagsFromString(char *s) {
         else if (!strcasecmp(t,"random")) flags |= CMD_RANDOM;
         else if (!strcasecmp(t,"allow-stale")) flags |= CMD_STALE;
         else if (!strcasecmp(t,"no-monitor")) flags |= CMD_SKIP_MONITOR;
+        else if (!strcasecmp(t,"no-slowlog")) flags |= CMD_SKIP_SLOWLOG;
         else if (!strcasecmp(t,"fast")) flags |= CMD_FAST;
         else if (!strcasecmp(t,"no-auth")) flags |= CMD_NO_AUTH;
         else if (!strcasecmp(t,"getkeys-api")) flags |= CMD_MODULE_GETKEYS;
@@ -781,6 +782,8 @@ int commandFlagsFromString(char *s) {
  *                      this means.
  * * **"no-monitor"**: Don't propagate the command on monitor. Use this if
  *                     the command has sensible data among the arguments.
+ * * **"no-slowlog"**: Don't log this command in the slowlog. Use this if
+ *                     the command has sensible data among the arguments.
  * * **"fast"**:      The command time complexity is not greater
  *                    than O(log(N)) where N is the size of the collection or
  *                    anything else representing the normal scalability
@@ -798,7 +801,7 @@ int commandFlagsFromString(char *s) {
  *                     to authenticate a client. 
  */
 int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
-    int flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
+    int64_t flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
     if (flags == -1) return REDISMODULE_ERR;
     if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
         return REDISMODULE_ERR;
@@ -859,6 +862,7 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->in_call = 0;
     module->in_hook = 0;
     module->options = 0;
+    module->info_cb = 0;
     ctx->module = module;
 }
 
@@ -889,7 +893,8 @@ void RM_SetModuleOptions(RedisModuleCtx *ctx, int options) {
     ctx->module->options = options;
 }
 
-/* Signals that the key is modified from user's perspective (i.e. invalidate WATCH). */
+/* Signals that the key is modified from user's perspective (i.e. invalidate WATCH
+ * and client side caching). */
 int RM_SignalModifiedKey(RedisModuleCtx *ctx, RedisModuleString *keyname) {
     signalModifiedKey(ctx->client->db,keyname);
     return REDISMODULE_OK;
@@ -3648,14 +3653,15 @@ void moduleRDBLoadError(RedisModuleIO *io) {
         io->error = 1;
         return;
     }
-    serverLog(LL_WARNING,
+    serverPanic(
         "Error loading data from RDB (short read or EOF). "
         "Read performed by module '%s' about type '%s' "
-        "after reading '%llu' bytes of a value.",
+        "after reading '%llu' bytes of a value "
+        "for key named: '%s'.",
         io->type->module->name,
         io->type->name,
-        (unsigned long long)io->bytes);
-    exit(1);
+        (unsigned long long)io->bytes,
+        io->key? (char*)io->key->ptr: "(null)");
 }
 
 /* Returns 0 if there's at least one registered data type that did not declare
@@ -3901,7 +3907,7 @@ void RM_SaveLongDouble(RedisModuleIO *io, long double value) {
     /* Long double has different number of bits in different platforms, so we
      * save it as a string type. */
     size_t len = ld2string(buf,sizeof(buf),value,LD_STR_HEX);
-    RM_SaveStringBuffer(io,buf,len+1); /* len+1 for '\0' */
+    RM_SaveStringBuffer(io,buf,len);
 }
 
 /* In the context of the rdb_save method of a module data type, loads back the
@@ -4276,6 +4282,21 @@ void unblockClientFromModule(client *c) {
         bc->disconnect_callback(&ctx,bc);
         moduleFreeContext(&ctx);
     }
+
+    /* If we made it here and client is still blocked it means that the command
+     * timed-out, client was killed or disconnected and disconnect_callback was
+     * not implemented (or it was, but RM_UnblockClient was not called from
+     * within it, as it should).
+     * We must call moduleUnblockClient in order to free privdata and
+     * RedisModuleBlockedClient.
+     *
+     * Note that clients implementing threads and working with private data,
+     * should make sure to stop the threads or protect the private data
+     * in some other way in the disconnection and timeout callback, because
+     * here we are going to free the private data associated with the
+     * blocked client. */
+    if (!bc->unblocked)
+        moduleUnblockClient(c);
 
     bc->client = NULL;
     /* Reset the client for a new query since, for blocking commands implemented
@@ -4789,7 +4810,8 @@ void moduleReleaseGIL(void) {
  *  - REDISMODULE_NOTIFY_EXPIRED: Expiration events
  *  - REDISMODULE_NOTIFY_EVICTED: Eviction events
  *  - REDISMODULE_NOTIFY_STREAM: Stream events
- *  - REDISMODULE_NOTIFY_ALL: All events
+ *  - REDISMODULE_NOTIFY_KEYMISS: Key-miss events
+ *  - REDISMODULE_NOTIFY_ALL: All events (Excluding REDISMODULE_NOTIFY_KEYMISS)
  *
  * We do not distinguish between key events and keyspace events, and it is up
  * to the module to filter the actions taken based on the key.
