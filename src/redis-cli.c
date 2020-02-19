@@ -6437,12 +6437,14 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
                                 listLength(cluster_manager.errors));
     config.cluster_manager_command.backup_dir = argv[1];
     /* TODO: check if backup_dir is a valid directory. */
+    int first_node;
+    first_node = 0;
     sds json;
     json = sdsnew("[\n");
     listIter li;
     listNode *ln;
     listRewind(cluster_manager.nodes, &li);
-    for (int first_node = 0; (ln = listNext(&li)) != NULL;) {
+    while ((ln = listNext(&li)) != NULL) {
         if (!first_node) first_node = 1;
         else json = sdscat(json, ",\n");
         clusterManagerNode *node = ln->value;
