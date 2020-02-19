@@ -936,8 +936,8 @@ struct redisMemOverhead {
     ssize_t allocator_frag_bytes;
     float allocator_rss;
     ssize_t allocator_rss_bytes;
-    float rss_extra;
-    size_t rss_extra_bytes;
+    float rss_overhead;
+    size_t rss_overhead_bytes;
     size_t num_dbs;
     struct {
         size_t dbid;

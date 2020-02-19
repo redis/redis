@@ -4083,8 +4083,8 @@ sds genRedisInfoString(const char *section) {
             mh->allocator_frag_bytes,
             mh->allocator_rss,
             mh->allocator_rss_bytes,
-            mh->rss_extra,
-            mh->rss_extra_bytes,
+            mh->rss_overhead,
+            mh->rss_overhead_bytes,
             mh->total_frag,       /* This is the total RSS overhead, including
                                      fragmentation, but not just it. This field
                                      (and the next one) is named like that just
