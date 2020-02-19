@@ -302,20 +302,16 @@ void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t bufle
     }
 }
 
-void replicationFeedMonitors(client *caller, list *monitors, int dictid, robj **argv, int argc) {
-    listNode *ln;
-    listIter li;
+robj *createMonitorLine(client *caller, struct timeval *tv, int monitor_flags, int dictid, robj **argv, int argc) {
     int j;
     sds cmdrepr = sdsnew("+");
-    robj *cmdobj;
-    struct timeval tv;
     client *c = (caller->flags & CLIENT_LUA) ? server.lua_caller : caller;
 
-    gettimeofday(&tv,NULL);
-    cmdrepr = sdscatprintf(cmdrepr,"%ld.%06ld %s %s ",
-                           (long)tv.tv_sec,(long)tv.tv_usec,
-                           c->user ? c->user->name : "(root)",
-                           c->name ? (char*)c->name->ptr : "(nil)");
+    cmdrepr = sdscatprintf(cmdrepr,"%ld.%06ld ",(long)tv->tv_sec,(long)tv->tv_usec);
+    if (monitor_flags & MONITOR_CLIENT_INFO)
+        cmdrepr = sdscatprintf(cmdrepr,"%s %s ",
+                               c->user ? c->user->name : "(root)",
+                               c->name ? (char*)c->name->ptr : "(nil)");
     if (caller->flags & CLIENT_LUA) {
         cmdrepr = sdscatprintf(cmdrepr,"[%d lua] ",dictid);
     } else if (caller->flags & CLIENT_MODULE) {
@@ -337,14 +333,22 @@ void replicationFeedMonitors(client *caller, list *monitors, int dictid, robj **
             cmdrepr = sdscatlen(cmdrepr," ",1);
     }
     cmdrepr = sdscatlen(cmdrepr,"\r\n",2);
-    cmdobj = createObject(OBJ_STRING,cmdrepr);
+    return createObject(OBJ_STRING,cmdrepr);
+}
 
+void replicationFeedMonitors(client *caller, list *monitors, int dictid, robj **argv, int argc) {
+    listNode *ln;
+    listIter li;
+    struct timeval tv;
+    gettimeofday(&tv,NULL);
+    
     listRewind(monitors,&li);
     while((ln = listNext(&li))) {
         client *monitor = ln->value;
+        robj *cmdobj = createMonitorLine(caller, &tv, monitor->monitor_flags, dictid, argv, argc);
         addReply(monitor,cmdobj);
+        decrRefCount(cmdobj);
     }
-    decrRefCount(cmdobj);
 }
 
 /* Feed the slave 'c' with the replication backlog starting from the

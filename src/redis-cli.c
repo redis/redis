@@ -1255,6 +1255,8 @@ static int cliReadReply(int output_raw_strings) {
         }
         fwrite(out,sdslen(out),1,stdout);
         sdsfree(out);
+        if (reply->type == REDIS_REPLY_ERROR && config.monitor_mode)
+            config.monitor_mode = 0;
     }
     freeReplyObject(reply);
     return REDIS_OK;
@@ -1333,6 +1335,10 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
         while (config.monitor_mode) {
             if (cliReadReply(output_raw) != REDIS_OK) exit(1);
             fflush(stdout);
+            if (!config.monitor_mode) {
+                zfree(argvlen);
+                return REDIS_OK;
+            }
         }
 
         if (config.pubsub_mode) {
