@@ -161,6 +161,15 @@ start_server {
         assert {[$rd read] == {}} ;# before the fix, client didn't even block, but was served synchronously with {mystream {}}
     }
 
+    test {XGROUP DESTROY should unblock XREADGROUP with -NOGROUP} {
+        r del mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        set rd [redis_deferring_client]
+        $rd XREADGROUP GROUP mygroup Alice BLOCK 100 STREAMS mystream ">"
+        r XGROUP DESTROY mystream mygroup
+        assert_error "*NOGROUP*" {$rd read}
+    }
+
     test {XCLAIM can claim PEL items from another consumer} {
         # Add 3 items into the stream, and create a consumer group
         r del mystream
