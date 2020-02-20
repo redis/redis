@@ -42,7 +42,7 @@ int fork_create(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     /* child */
     RedisModule_Log(ctx, "notice", "fork child started");
-    usleep(200000);
+    usleep(500000);
     RedisModule_Log(ctx, "notice", "fork child exiting");
     RedisModule_ExitFromChild(code_to_exit_with);
     /* unreachable */
