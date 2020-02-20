@@ -1629,6 +1629,8 @@ int rewriteAppendOnlyFileBackground(void) {
 }
 
 void bgrewriteaofCommand(client *c) {
+    if(server.aof_state == AOF_OFF)
+        addReplyError(c,"AOF is off, can not exec this command");
     if (server.aof_child_pid != -1) {
         addReplyError(c,"Background append only file rewriting already in progress");
     } else if (hasActiveChildProcess()) {
