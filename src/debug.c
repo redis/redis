@@ -363,6 +363,7 @@ void debugCommand(client *c) {
 "LOADAOF -- Flush the AOF buffers on disk and reload the AOF in memory.",
 "LUA-ALWAYS-REPLICATE-COMMANDS <0|1> -- Setting it to 1 makes Lua replication defaulting to replicating single commands, without the script having to enable effects replication.",
 "OBJECT <key> -- Show low level info about key and associated value.",
+"OOM -- Crash the server simulating an out-of-memory error.",
 "PANIC -- Crash the server simulating a panic.",
 "POPULATE <count> [prefix] [size] -- Create <count> string keys named key:<num>. If a prefix is specified is used instead of the 'key' prefix.",
 "RELOAD -- Save the RDB on disk and reload it back in memory.",
