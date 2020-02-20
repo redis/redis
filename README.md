@@ -1,3 +1,5 @@
+[![Actions Status](https://github.com/antirez/redis/workflows/CI/badge.svg)](https://github.com/antirez/redis/actions)
+
 This README is just a fast *quick start* document. You can find more detailed documentation at [redis.io](https://redis.io).
 
 What is Redis?
