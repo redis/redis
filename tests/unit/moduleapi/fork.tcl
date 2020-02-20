@@ -20,9 +20,8 @@ start_server {tags {"modules"}} {
 
     test {Module fork kill} {
         r fork.create 3
-        after 20
+        after 250
         r fork.kill
-        after 100
 
         assert {[count_log_message "fork child started"] eq "2"}
         assert {[count_log_message "Received SIGUSR1 in child"] eq "1"}
