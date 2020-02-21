@@ -289,7 +289,7 @@ proc read_from_test_client fd {
         puts "\[$completed_tests_count/$all_tests_count [colorstr yellow $status]\]: $data ($elapsed seconds)"
         lappend ::clients_time_history $elapsed $data
         signal_idle_client $fd
-        set ::active_clients_task($fd) DONE
+        set ::active_clients_task($fd) "(DONE) $data"
     } elseif {$status eq {ok}} {
         if {!$::quiet} {
             puts "\[[colorstr green $status]\]: $data"
@@ -320,10 +320,16 @@ proc read_from_test_client fd {
         exit 1
     } elseif {$status eq {testing}} {
         set ::active_clients_task($fd) "(IN PROGRESS) $data"
+    } elseif {$status eq {server-spawning}} {
+        set ::active_clients_task($fd) "(SPAWNING SERVER) $data"
     } elseif {$status eq {server-spawned}} {
         lappend ::active_servers $data
+        set ::active_clients_task($fd) "(SPAWNED SERVER) pid:$data"
+    } elseif {$status eq {server-killing}} {
+        set ::active_clients_task($fd) "(KILLING SERVER) pid:$data"
     } elseif {$status eq {server-killed}} {
         set ::active_servers [lsearch -all -inline -not -exact $::active_servers $data]
+        set ::active_clients_task($fd) "(KILLED SERVER) pid:$data"
     } else {
         if {!$::quiet} {
             puts "\[$status\]: $data"
@@ -333,7 +339,7 @@ proc read_from_test_client fd {
 
 proc show_clients_state {} {
     # The following loop is only useful for debugging tests that may
-    # enter an infinite loop. Commented out normally.
+    # enter an infinite loop.
     foreach x $::active_clients {
         if {[info exist ::active_clients_task($x)]} {
             puts "$x => $::active_clients_task($x)"
@@ -363,8 +369,6 @@ proc signal_idle_client fd {
     set ::active_clients \
         [lsearch -all -inline -not -exact $::active_clients $fd]
 
-    if 0 {show_clients_state}
-
     # New unit to process?
     if {$::next_test != [llength $::all_tests]} {
         if {!$::quiet} {
@@ -380,6 +384,7 @@ proc signal_idle_client fd {
         }
     } else {
         lappend ::idle_clients $fd
+        set ::active_clients_task($fd) "SLEEPING, no more units to assign"
         if {[llength $::active_clients] == 0} {
             the_end
         }

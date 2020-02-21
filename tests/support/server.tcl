@@ -53,6 +53,7 @@ proc kill_server config {
     }
 
     # kill server and wait for the process to be totally exited
+    send_data_packet $::test_server_fd server-killing $pid
     catch {exec kill $pid}
     if {$::valgrind} {
         set max_wait 60000
@@ -230,6 +231,8 @@ proc start_server {options {code undefined}} {
 
     set stdout [format "%s/%s" [dict get $config "dir"] "stdout"]
     set stderr [format "%s/%s" [dict get $config "dir"] "stderr"]
+
+    send_data_packet $::test_server_fd "server-spawning" "port $::port"
 
     if {$::valgrind} {
         set pid [exec valgrind --track-origins=yes --suppressions=src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full src/redis-server $config_file > $stdout 2> $stderr &]
