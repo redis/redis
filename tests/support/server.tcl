@@ -271,9 +271,19 @@ proc start_server {options {code undefined}} {
     }
 
     # Wait for actual startup
+    set checkperiod 100; # Milliseconds
+    set maxiter [expr {120*1000/100}] ; # Wait up to 2 minutes.
     while {![info exists _pid]} {
         regexp {PID:\s(\d+)} [exec cat $stdout] _ _pid
-        after 100
+        after $checkperiod
+        incr maxiter -1
+        if {$maxiter == 0} {
+            start_server_error $config_file "No PID detected in log $stdout"
+            puts "--- LOG CONTENT ---"
+            puts [exec cat $stdout]
+            puts "-------------------"
+            break
+        }
     }
 
     # setup properties to be able to initialize a client object
