@@ -106,11 +106,13 @@ void discardCommand(client *c) {
 /* Send a MULTI command to all the slaves and AOF file. Check the execCommand
  * implementation for more information. */
 void execCommandPropagateMulti(client *c) {
-    robj *multistring = createStringObject("MULTI",5);
-
-    propagate(server.multiCommand,c->db->id,&multistring,1,
+    propagate(server.multiCommand,c->db->id,&shared.multi,1,
               PROPAGATE_AOF|PROPAGATE_REPL);
-    decrRefCount(multistring);
+}
+
+void execCommandPropagateExec(client *c) {
+    propagate(server.execCommand,c->db->id,&shared.exec,1,
+              PROPAGATE_AOF|PROPAGATE_REPL);
 }
 
 void execCommand(client *c) {
@@ -175,7 +177,21 @@ void execCommand(client *c) {
             must_propagate = 1;
         }
 
-        call(c,server.loading ? CMD_CALL_NONE : CMD_CALL_FULL);
+        int acl_keypos;
+        int acl_retval = ACLCheckCommandPerm(c,&acl_keypos);
+        if (acl_retval != ACL_OK) {
+            addACLLogEntry(c,acl_retval,acl_keypos,NULL);
+            addReplyErrorFormat(c,
+                "-NOPERM ACLs rules changed between the moment the "
+                "transaction was accumulated and the EXEC call. "
+                "This command is no longer allowed for the "
+                "following reason: %s",
+                (acl_retval == ACL_DENIED_CMD) ?
+                "no permission to execute the command or subcommand" :
+                "no permission to touch the specified keys");
+        } else {
+            call(c,server.loading ? CMD_CALL_NONE : CMD_CALL_FULL);
+        }
 
         /* Commands may alter argc/argv, restore mstate. */
         c->mstate.commands[j].argc = c->argc;

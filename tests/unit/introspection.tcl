@@ -57,4 +57,69 @@ start_server {tags {"introspection"}} {
             fail "Client still listed in CLIENT LIST after SETNAME."
         }
     }
+
+    test {CONFIG sanity} {
+        # Do CONFIG GET, CONFIG SET and then CONFIG GET again
+        # Skip immutable configs, one with no get, and other complicated configs
+        set skip_configs {
+            rdbchecksum
+            daemonize
+            io-threads-do-reads
+            tcp-backlog
+            always-show-logo
+            syslog-enabled
+            cluster-enabled
+            aclfile
+            unixsocket
+            pidfile
+            syslog-ident
+            appendfilename
+            supervised
+            syslog-facility
+            databases
+            port
+            io-threads
+            tls-port
+            tls-prefer-server-ciphers
+            tls-cert-file
+            tls-key-file
+            tls-dh-params-file
+            tls-ca-cert-file
+            tls-ca-cert-dir
+            tls-protocols
+            tls-ciphers
+            tls-ciphersuites
+            logfile
+            unixsocketperm
+            slaveof
+            bind
+            requirepass
+        }
+
+        set configs {}
+        foreach {k v} [r config get *] {
+            if {[lsearch $skip_configs $k] != -1} {
+                continue
+            }
+            dict set configs $k $v
+            # try to set the config to the same value it already has
+            r config set $k $v
+        }
+
+        set newconfigs {}
+        foreach {k v} [r config get *] {
+            if {[lsearch $skip_configs $k] != -1} {
+                continue
+            }
+            dict set newconfigs $k $v
+        }
+
+        dict for {k v} $configs {
+            set vv [dict get $newconfigs $k]
+            if {$v != $vv} {
+                fail "config $k mismatch, expecting $v but got $vv"
+            }
+
+        }
+    }
 }

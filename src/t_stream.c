@@ -67,6 +67,27 @@ void freeStream(stream *s) {
     zfree(s);
 }
 
+/* Return the length of a stream. */
+unsigned long streamLength(const robj *subject) {
+    stream *s = subject->ptr;
+    return s->length;
+}
+
+/* Set 'id' to be its successor streamID */
+void streamIncrID(streamID *id) {
+    if (id->seq == UINT64_MAX) {
+        if (id->ms == UINT64_MAX) {
+            /* Special case where 'id' is the last possible streamID... */
+            id->ms = id->seq = 0;
+        } else {
+            id->ms++;
+            id->seq = 0;
+        }
+    } else {
+        id->seq++;
+    }
+}
+
 /* Generate the next stream item ID given the previous one. If the current
  * milliseconds Unix time is greater than the previous one, just use this
  * as time part and start with sequence part of zero. Otherwise we use the
@@ -77,8 +98,8 @@ void streamNextID(streamID *last_id, streamID *new_id) {
         new_id->ms = ms;
         new_id->seq = 0;
     } else {
-        new_id->ms = last_id->ms;
-        new_id->seq = last_id->seq+1;
+        *new_id = *last_id;
+        streamIncrID(new_id);
     }
 }
 
@@ -173,9 +194,19 @@ int streamCompareID(streamID *a, streamID *b) {
  * C_ERR if an ID was given via 'use_id', but adding it failed since the
  * current top ID is greater or equal. */
 int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_id, streamID *use_id) {
-    /* If an ID was given, check that it's greater than the last entry ID
-     * or return an error. */
-    if (use_id && streamCompareID(use_id,&s->last_id) <= 0) return C_ERR;
+    
+    /* Generate the new entry ID. */
+    streamID id;
+    if (use_id)
+        id = *use_id;
+    else
+        streamNextID(&s->last_id,&id);
+
+    /* Check that the new ID is greater than the last entry ID
+     * or return an error. Automatically generated IDs might
+     * overflow (and wrap-around) when incrementing the sequence 
+       part. */
+    if (streamCompareID(&id,&s->last_id) <= 0) return C_ERR;
 
     /* Add the new entry. */
     raxIterator ri;
@@ -191,13 +222,6 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
         lp_bytes = lpBytes(lp);
     }
     raxStop(&ri);
-
-    /* Generate the new entry ID. */
-    streamID id;
-    if (use_id)
-        id = *use_id;
-    else
-        streamNextID(&s->last_id,&id);
 
     /* We have to add the key into the radix tree in lexicographic order,
      * to do so we consider the ID as a single 128 bit number written in
@@ -242,17 +266,17 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
      * the current node is full. */
     if (lp != NULL) {
         if (server.stream_node_max_bytes &&
-            lp_bytes > server.stream_node_max_bytes)
+            lp_bytes >= server.stream_node_max_bytes)
         {
             lp = NULL;
         } else if (server.stream_node_max_entries) {
             int64_t count = lpGetInteger(lpFirst(lp));
-            if (count > server.stream_node_max_entries) lp = NULL;
+            if (count >= server.stream_node_max_entries) lp = NULL;
         }
     }
 
     int flags = STREAM_ITEM_FLAG_NONE;
-    if (lp == NULL || lp_bytes > server.stream_node_max_bytes) {
+    if (lp == NULL || lp_bytes >= server.stream_node_max_bytes) {
         master_id = id;
         streamEncodeID(rax_key,&id);
         /* Create the listpack having the master entry ID and fields. */
@@ -492,14 +516,14 @@ void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamI
         streamEncodeID(si->start_key,start);
     } else {
         si->start_key[0] = 0;
-        si->start_key[0] = 0;
+        si->start_key[1] = 0;
     }
 
     if (end) {
         streamEncodeID(si->end_key,end);
     } else {
         si->end_key[0] = UINT64_MAX;
-        si->end_key[0] = UINT64_MAX;
+        si->end_key[1] = UINT64_MAX;
     }
 
     /* Seek the correct node in the radix tree. */
@@ -771,6 +795,16 @@ int streamDeleteItem(stream *s, streamID *id) {
     }
     streamIteratorStop(&si);
     return deleted;
+}
+
+/* Get the last valid (non-tombstone) streamID of 's'. */
+void streamLastValidID(stream *s, streamID *maxid)
+{
+    streamIterator si;
+    streamIteratorStart(&si,s,NULL,NULL,1);
+    int64_t numfields;
+    streamIteratorGetID(&si,maxid,&numfields);
+    streamIteratorStop(&si);
 }
 
 /* Emit a reply in the client output buffer by formatting a Stream ID
@@ -1070,26 +1104,6 @@ robj *streamTypeLookupWriteOrCreate(client *c, robj *key) {
     return o;
 }
 
-/* Helper function to convert a string to an unsigned long long value.
- * The function attempts to use the faster string2ll() function inside
- * Redis: if it fails, strtoull() is used instead. The function returns
- * 1 if the conversion happened successfully or 0 if the number is
- * invalid or out of range. */
-int string2ull(const char *s, unsigned long long *value) {
-    long long ll;
-    if (string2ll(s,strlen(s),&ll)) {
-        if (ll < 0) return 0; /* Negative values are out of range. */
-        *value = ll;
-        return 1;
-    }
-    errno = 0;
-    char *endptr = NULL;
-    *value = strtoull(s,&endptr,10);
-    if (errno == EINVAL || errno == ERANGE || !(*s != '\0' && *endptr == '\0'))
-        return 0; /* strtoull() failed. */
-    return 1; /* Conversion done! */
-}
-
 /* Parse a stream ID in the format given by clients to Redis, that is
  * <ms>-<seq>, and converts it into a streamID structure. If
  * the specified ID is invalid C_ERR is returned and an error is reported
@@ -1217,11 +1231,26 @@ void xaddCommand(client *c) {
         return;
     }
 
+    /* Return ASAP if minimal ID (0-0) was given so we avoid possibly creating
+     * a new stream and have streamAppendItem fail, leaving an empty key in the
+     * database. */
+    if (id_given && id.ms == 0 && id.seq == 0) {
+        addReplyError(c,"The ID specified in XADD must be greater than 0-0");
+        return;
+    }
+
     /* Lookup the stream at key. */
     robj *o;
     stream *s;
     if ((o = streamTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
     s = o->ptr;
+
+    /* Return ASAP if the stream has reached the last possible ID */
+    if (s->last_id.ms == UINT64_MAX && s->last_id.seq == UINT64_MAX) {
+        addReplyError(c,"The stream has exhausted the last possible ID, "
+                        "unable to add more items");
+        return;
+    }
 
     /* Append using the low level function and return the ID. */
     if (streamAppendItem(s,c->argv+field_pos,(c->argc-field_pos)/2,
@@ -1487,20 +1516,23 @@ void xreadCommand(client *c) {
             {
                 serve_synchronously = 1;
                 serve_history = 1;
-            } else {
+            } else if (s->length) {
                 /* We also want to serve a consumer in a consumer group
                  * synchronously in case the group top item delivered is smaller
                  * than what the stream has inside. */
-                streamID *last = &groups[i]->last_id;
-                if (s->length && (streamCompareID(&s->last_id, last) > 0)) {
+                streamID maxid, *last = &groups[i]->last_id;
+                streamLastValidID(s, &maxid);
+                if (streamCompareID(&maxid, last) > 0) {
                     serve_synchronously = 1;
                     *gt = *last;
                 }
             }
-        } else {
+        } else if (s->length) {
             /* For consumers without a group, we serve synchronously if we can
              * actually provide at least one item from the stream. */
-            if (s->length && (streamCompareID(&s->last_id, gt) > 0)) {
+            streamID maxid;
+            streamLastValidID(s, &maxid);
+            if (streamCompareID(&maxid, gt) > 0) {
                 serve_synchronously = 1;
             }
         }
@@ -1512,7 +1544,7 @@ void xreadCommand(client *c) {
              * so start from the next ID, since we want only messages with
              * IDs greater than start. */
             streamID start = *gt;
-            start.seq++; /* uint64_t can't overflow in this context. */
+            streamIncrID(&start);
 
             /* Emit the two elements sub-array consisting of the name
              * of the stream and the data we extracted from it. */
@@ -1737,22 +1769,23 @@ NULL
     /* Everything but the "HELP" option requires a key and group name. */
     if (c->argc >= 4) {
         o = lookupKeyWrite(c->db,c->argv[2]);
-        if (o) s = o->ptr;
+        if (o) {
+            if (checkType(c,o,OBJ_STREAM)) return;
+            s = o->ptr;
+        }
         grpname = c->argv[3]->ptr;
     }
 
     /* Check for missing key/group. */
     if (c->argc >= 4 && !mkstream) {
         /* At this point key must exist, or there is an error. */
-        if (o == NULL) {
+        if (s == NULL) {
             addReplyError(c,
                 "The XGROUP subcommand requires the key to exist. "
                 "Note that for CREATE you may want to use the MKSTREAM "
                 "option to create an empty stream automatically.");
             return;
         }
-
-        if (checkType(c,o,OBJ_STREAM)) return;
 
         /* Certain subcommands require the group to exist. */
         if ((cg = streamLookupCG(s,grpname)) == NULL &&
@@ -1781,7 +1814,8 @@ NULL
         }
 
         /* Handle the MKSTREAM option now that the command can no longer fail. */
-        if (s == NULL && mkstream) {
+        if (s == NULL) {
+            serverAssert(mkstream);
             o = createStreamObject();
             dbAdd(c->db,c->argv[2],o);
             s = o->ptr;
@@ -1816,6 +1850,8 @@ NULL
             server.dirty++;
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-destroy",
                                 c->argv[2],c->db->id);
+            /* We want to unblock any XREADGROUP consumers with -NOGROUP. */
+            signalKeyAsReady(c->db,c->argv[2]);
         } else {
             addReply(c,shared.czero);
         }
@@ -1850,11 +1886,7 @@ void xsetidCommand(client *c) {
      * item, otherwise the fundamental ID monotonicity assumption is violated. */
     if (s->length > 0) {
         streamID maxid;
-        streamIterator si;
-        streamIteratorStart(&si,s,NULL,NULL,1);
-        int64_t numfields;
-        streamIteratorGetID(&si,&maxid,&numfields);
-        streamIteratorStop(&si);
+        streamLastValidID(s,&maxid);
 
         if (streamCompareID(&id,&maxid) < 0) {
             addReplyError(c,"The ID specified in XSETID is smaller than the "
@@ -2225,7 +2257,7 @@ void xclaimCommand(client *c) {
     }
 
     /* Do the actual claiming. */
-    streamConsumer *consumer = streamLookupConsumer(group,c->argv[3]->ptr,1);
+    streamConsumer *consumer = NULL;
     void *arraylenptr = addReplyDeferredLen(c);
     size_t arraylen = 0;
     for (int j = 5; j <= last_id_arg; j++) {
@@ -2277,10 +2309,17 @@ void xclaimCommand(client *c) {
             if (nack->consumer)
                 raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
             /* Update the consumer and idle time. */
+            if (consumer == NULL)
+                consumer = streamLookupConsumer(group,c->argv[3]->ptr,1);
             nack->consumer = consumer;
             nack->delivery_time = deliverytime;
-            /* Set the delivery attempts counter if given. */
-            if (retrycount >= 0) nack->delivery_count = retrycount;
+            /* Set the delivery attempts counter if given, otherwise
+             * autoincrement unless JUSTID option provided */
+            if (retrycount >= 0) {
+                nack->delivery_count = retrycount;
+            } else if (!justid) {
+                nack->delivery_count++;
+            }
             /* Add the entry in the new consumer local PEL. */
             raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
             /* Send the reply for this entry. */

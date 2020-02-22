@@ -5,8 +5,8 @@
  * We do that by scanning the keyspace and for each pointer we have, we can try to
  * ask the allocator if moving it to a new address will help reduce fragmentation.
  *
- * Copyright (c) 2017, Oran Agra
- * Copyright (c) 2017, Redis Labs, Inc
+ * Copyright (c) 2020, Oran Agra
+ * Copyright (c) 2020, Redis Labs, Inc
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -47,7 +47,7 @@ int je_get_defrag_hint(void* ptr, int *bin_util, int *run_util);
 
 /* forward declarations*/
 void defragDictBucketCallback(void *privdata, dictEntry **bucketref);
-dictEntry* replaceSateliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, sds newkey, unsigned int hash, long *defragged);
+dictEntry* replaceSateliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, sds newkey, uint64_t hash, long *defragged);
 
 /* Defrag helper for generic allocations.
  *
@@ -355,7 +355,7 @@ long activeDefragSdsListAndDict(list *l, dict *d, int dict_val_type) {
         sdsele = ln->value;
         if ((newsds = activeDefragSds(sdsele))) {
             /* When defragging an sds value, we need to update the dict key */
-            unsigned int hash = dictGetHash(d, sdsele);
+            uint64_t hash = dictGetHash(d, sdsele);
             replaceSateliteDictKeyPtrAndOrDefragDictEntry(d, sdsele, newsds, hash, &defragged);
             ln->value = newsds;
             defragged++;
@@ -374,7 +374,7 @@ long activeDefragSdsListAndDict(list *l, dict *d, int dict_val_type) {
             if ((newele = activeDefragStringOb(ele, &defragged)))
                 de->v.val = newele, defragged++;
         } else if (dict_val_type == DEFRAG_SDS_DICT_VAL_VOID_PTR) {
-            void *newptr, *ptr = ln->value;
+            void *newptr, *ptr = dictGetVal(de);
             if ((newptr = activeDefragAlloc(ptr)))
                 ln->value = newptr, defragged++;
         }
@@ -392,7 +392,7 @@ long activeDefragSdsListAndDict(list *l, dict *d, int dict_val_type) {
  * moved. Return value is the the dictEntry if found, or NULL if not found.
  * NOTE: this is very ugly code, but it let's us avoid the complication of
  * doing a scan on another dict. */
-dictEntry* replaceSateliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, sds newkey, unsigned int hash, long *defragged) {
+dictEntry* replaceSateliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, sds newkey, uint64_t hash, long *defragged) {
     dictEntry **deref = dictFindEntryRefByPtrAndHash(d, oldkey, hash);
     if (deref) {
         dictEntry *de = *deref;
@@ -408,25 +408,32 @@ dictEntry* replaceSateliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, sd
     return NULL;
 }
 
-long activeDefragQuickListNodes(quicklist *ql) {
-    quicklistNode *node = ql->head, *newnode;
+long activeDefragQuickListNode(quicklist *ql, quicklistNode **node_ref) {
+    quicklistNode *newnode, *node = *node_ref;
     long defragged = 0;
     unsigned char *newzl;
+    if ((newnode = activeDefragAlloc(node))) {
+        if (newnode->prev)
+            newnode->prev->next = newnode;
+        else
+            ql->head = newnode;
+        if (newnode->next)
+            newnode->next->prev = newnode;
+        else
+            ql->tail = newnode;
+        *node_ref = node = newnode;
+        defragged++;
+    }
+    if ((newzl = activeDefragAlloc(node->zl)))
+        defragged++, node->zl = newzl;
+    return defragged;
+}
+
+long activeDefragQuickListNodes(quicklist *ql) {
+    quicklistNode *node = ql->head;
+    long defragged = 0;
     while (node) {
-        if ((newnode = activeDefragAlloc(node))) {
-            if (newnode->prev)
-                newnode->prev->next = newnode;
-            else
-                ql->head = newnode;
-            if (newnode->next)
-                newnode->next->prev = newnode;
-            else
-                ql->tail = newnode;
-            node = newnode;
-            defragged++;
-        }
-        if ((newzl = activeDefragAlloc(node->zl)))
-            defragged++, node->zl = newzl;
+        defragged += activeDefragQuickListNode(ql, &node);
         node = node->next;
     }
     return defragged;
@@ -440,12 +447,48 @@ void defragLater(redisDb *db, dictEntry *kde) {
     listAddNodeTail(db->defrag_later, key);
 }
 
-long scanLaterList(robj *ob) {
+/* returns 0 if no more work needs to be been done, and 1 if time is up and more work is needed. */
+long scanLaterList(robj *ob, unsigned long *cursor, long long endtime, long long *defragged) {
     quicklist *ql = ob->ptr;
+    quicklistNode *node;
+    long iterations = 0;
+    int bookmark_failed = 0;
     if (ob->type != OBJ_LIST || ob->encoding != OBJ_ENCODING_QUICKLIST)
         return 0;
-    server.stat_active_defrag_scanned+=ql->len;
-    return activeDefragQuickListNodes(ql);
+
+    if (*cursor == 0) {
+        /* if cursor is 0, we start new iteration */
+        node = ql->head;
+    } else {
+        node = quicklistBookmarkFind(ql, "_AD");
+        if (!node) {
+            /* if the bookmark was deleted, it means we reached the end. */
+            *cursor = 0;
+            return 0;
+        }
+        node = node->next;
+    }
+
+    (*cursor)++;
+    while (node) {
+        (*defragged) += activeDefragQuickListNode(ql, &node);
+        server.stat_active_defrag_scanned++;
+        if (++iterations > 128 && !bookmark_failed) {
+            if (ustime() > endtime) {
+                if (!quicklistBookmarkCreate(&ql, "_AD", node)) {
+                    bookmark_failed = 1;
+                } else {
+                    ob->ptr = ql; /* bookmark creation may have re-allocated the quicklist */
+                    return 1;
+                }
+            }
+            iterations = 0;
+        }
+        node = node->next;
+    }
+    quicklistBookmarkDelete(ql, "_AD");
+    *cursor = 0;
+    return bookmark_failed? 1: 0;
 }
 
 typedef struct {
@@ -638,7 +681,8 @@ int scanLaterStraemListpacks(robj *ob, unsigned long *cursor, long long endtime,
         void *newdata = activeDefragAlloc(ri.data);
         if (newdata)
             raxSetData(ri.node, ri.data=newdata), (*defragged)++;
-        if (++iterations > 16) {
+        server.stat_active_defrag_scanned++;
+        if (++iterations > 128) {
             if (ustime() > endtime) {
                 serverAssert(ri.key_len==sizeof(last));
                 memcpy(last,ri.key,ri.key_len);
@@ -900,8 +944,7 @@ int defragLaterItem(dictEntry *de, unsigned long *cursor, long long endtime) {
     if (de) {
         robj *ob = dictGetVal(de);
         if (ob->type == OBJ_LIST) {
-            server.stat_active_defrag_hits += scanLaterList(ob);
-            *cursor = 0; /* list has no scan, we must finish it in one go */
+            return scanLaterList(ob, cursor, endtime, &server.stat_active_defrag_hits);
         } else if (ob->type == OBJ_SET) {
             server.stat_active_defrag_hits += scanLaterSet(ob, cursor);
         } else if (ob->type == OBJ_ZSET) {
@@ -919,10 +962,12 @@ int defragLaterItem(dictEntry *de, unsigned long *cursor, long long endtime) {
     return 0;
 }
 
+/* static variables serving defragLaterStep to continue scanning a key from were we stopped last time. */
+static sds defrag_later_current_key = NULL;
+static unsigned long defrag_later_cursor = 0;
+
 /* returns 0 if no more work needs to be been done, and 1 if time is up and more work is needed. */
 int defragLaterStep(redisDb *db, long long endtime) {
-    static sds current_key = NULL;
-    static unsigned long cursor = 0;
     unsigned int iterations = 0;
     unsigned long long prev_defragged = server.stat_active_defrag_hits;
     unsigned long long prev_scanned = server.stat_active_defrag_scanned;
@@ -930,16 +975,15 @@ int defragLaterStep(redisDb *db, long long endtime) {
 
     do {
         /* if we're not continuing a scan from the last call or loop, start a new one */
-        if (!cursor) {
+        if (!defrag_later_cursor) {
             listNode *head = listFirst(db->defrag_later);
 
             /* Move on to next key */
-            if (current_key) {
-                serverAssert(current_key == head->value);
-                sdsfree(head->value);
+            if (defrag_later_current_key) {
+                serverAssert(defrag_later_current_key == head->value);
                 listDelNode(db->defrag_later, head);
-                cursor = 0;
-                current_key = NULL;
+                defrag_later_cursor = 0;
+                defrag_later_current_key = NULL;
             }
 
             /* stop if we reached the last one. */
@@ -948,22 +992,17 @@ int defragLaterStep(redisDb *db, long long endtime) {
                 return 0;
 
             /* start a new key */
-            current_key = head->value;
-            cursor = 0;
+            defrag_later_current_key = head->value;
+            defrag_later_cursor = 0;
         }
 
         /* each time we enter this function we need to fetch the key from the dict again (if it still exists) */
-        dictEntry *de = dictFind(db->dict, current_key);
+        dictEntry *de = dictFind(db->dict, defrag_later_current_key);
         key_defragged = server.stat_active_defrag_hits;
         do {
             int quit = 0;
-            if (defragLaterItem(de, &cursor, endtime))
+            if (defragLaterItem(de, &defrag_later_cursor, endtime))
                 quit = 1; /* time is up, we didn't finish all the work */
-
-            /* Don't start a new BIG key in this loop, this is because the
-             * next key can be a list, and scanLaterList must be done in once cycle */
-            if (!cursor)
-                quit = 1;
 
             /* Once in 16 scan iterations, 512 pointer reallocations, or 64 fields
              * (if we have a lot of pointers in one hash bucket, or rehashing),
@@ -982,7 +1021,7 @@ int defragLaterStep(redisDb *db, long long endtime) {
                 prev_defragged = server.stat_active_defrag_hits;
                 prev_scanned = server.stat_active_defrag_scanned;
             }
-        } while(cursor);
+        } while(defrag_later_cursor);
         if(key_defragged != server.stat_active_defrag_hits)
             server.stat_active_defrag_key_hits++;
         else
@@ -1039,7 +1078,22 @@ void activeDefragCycle(void) {
     mstime_t latency;
     int quit = 0;
 
-    if (server.aof_child_pid!=-1 || server.rdb_child_pid!=-1)
+    if (!server.active_defrag_enabled) {
+        if (server.active_defrag_running) {
+            /* if active defrag was disabled mid-run, start from fresh next time. */
+            server.active_defrag_running = 0;
+            if (db)
+                listEmpty(db->defrag_later);
+            defrag_later_current_key = NULL;
+            defrag_later_cursor = 0;
+            current_db = -1;
+            cursor = 0;
+            db = NULL;
+        }
+        return;
+    }
+
+    if (hasActiveChildProcess())
         return; /* Defragging memory while there's a fork will just do damage. */
 
     /* Once a second, check if we the fragmentation justfies starting a scan
