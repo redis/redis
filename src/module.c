@@ -6234,7 +6234,7 @@ int moduleUnregisterUsedAPI(RedisModule *module) {
         RedisModule *used = ln->value;
         listNode *ln = listSearchKey(used->usedby,module);
         if (ln) {
-            listDelNode(module->using,ln);
+            listDelNode(used->usedby,ln);
             count++;
         }
     }
