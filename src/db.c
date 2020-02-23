@@ -1148,7 +1148,7 @@ void swapdbCommand(client *c) {
         addReplyError(c,"DB index is out of range");
         return;
     } else {
-        server.dirty++;
+        server.dirty += (dictSize(server.db[id1].dict) + dictSize(server.db[id2].dict));
         addReply(c,shared.ok);
     }
 }
