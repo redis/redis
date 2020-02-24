@@ -647,6 +647,70 @@ void lremCommand(client *c) {
     addReplyLongLong(c,removed);
 }
 
+void poppushHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value,
+                       int where) {
+    /* Create the list if the key does not exist */
+    if (!dstobj) {
+        dstobj = createQuicklistObject();
+        quicklistSetOptions(dstobj->ptr, server.list_max_ziplist_size,
+                            server.list_compress_depth);
+        dbAdd(c->db,dstkey,dstobj);
+    }
+    signalModifiedKey(c,c->db,dstkey);
+    listTypePush(dstobj,value,where);
+    notifyKeyspaceEvent(NOTIFY_LIST,
+                        where == LIST_HEAD ? "lpush" : "rpush",
+                        dstkey,
+                        c->db->id);
+    /* Always send the pushed value to the client. */
+    addReplyBulk(c,value);
+}
+
+void poppushGenericCommand(client *c, int wherefrom, int whereto) {
+    robj *sobj, *value;
+    if ((sobj = lookupKeyWriteOrReply(c,c->argv[1],shared.null[c->resp]))
+        == NULL || checkType(c,sobj,OBJ_LIST)) return;
+
+    if (listTypeLength(sobj) == 0) {
+        /* This may only happen after loading very old RDB files. Recent
+         * versions of Redis delete keys of empty lists. */
+        addReplyNull(c);
+    } else {
+        robj *dobj = lookupKeyWrite(c->db,c->argv[2]);
+        robj *touchedkey = c->argv[1];
+
+        if (dobj && checkType(c,dobj,OBJ_LIST)) return;
+        value = listTypePop(sobj,wherefrom);
+        /* We saved touched key, and protect it, since poppushHandlePush
+         * may change the client command argument vector (it does not
+         * currently). */
+        incrRefCount(touchedkey);
+        poppushHandlePush(c,c->argv[2],dobj,value,whereto);
+
+        /* listTypePop returns an object with its refcount incremented */
+        decrRefCount(value);
+
+        /* Delete the source list when it is empty */
+        notifyKeyspaceEvent(NOTIFY_LIST,
+                            wherefrom == LIST_HEAD ? "lpop" : "rpop",
+                            touchedkey,
+                            c->db->id);
+        if (listTypeLength(sobj) == 0) {
+            dbDelete(c->db,touchedkey);
+            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",
+                                touchedkey,c->db->id);
+        }
+        signalModifiedKey(c,c->db,touchedkey);
+        decrRefCount(touchedkey);
+        server.dirty++;
+        if (c->cmd->proc == brpoplpushCommand) {
+            rewriteClientCommandVector(c,3,shared.rpoplpush,c->argv[1],c->argv[2]);
+        }
+    }
+}
+
+
+
 /* This is the semantic of this command:
  *  RPOPLPUSH srclist dstlist:
  *    IF LLEN(srclist) > 0
@@ -663,59 +727,20 @@ void lremCommand(client *c) {
  * as well. This command was originally proposed by Ezra Zygmuntowicz.
  */
 
-void rpoplpushHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value) {
-    /* Create the list if the key does not exist */
-    if (!dstobj) {
-        dstobj = createQuicklistObject();
-        quicklistSetOptions(dstobj->ptr, server.list_max_ziplist_size,
-                            server.list_compress_depth);
-        dbAdd(c->db,dstkey,dstobj);
-    }
-    signalModifiedKey(c,c->db,dstkey);
-    listTypePush(dstobj,value,LIST_HEAD);
-    notifyKeyspaceEvent(NOTIFY_LIST,"lpush",dstkey,c->db->id);
-    /* Always send the pushed value to the client. */
-    addReplyBulk(c,value);
+void rpoplpushCommand(client *c) {
+    poppushGenericCommand(c, LIST_TAIL, LIST_HEAD);
 }
 
-void rpoplpushCommand(client *c) {
-    robj *sobj, *value;
-    if ((sobj = lookupKeyWriteOrReply(c,c->argv[1],shared.null[c->resp]))
-        == NULL || checkType(c,sobj,OBJ_LIST)) return;
+void lpoprpushCommand(client *c) {
+    poppushGenericCommand(c, LIST_HEAD, LIST_TAIL);
+}
 
-    if (listTypeLength(sobj) == 0) {
-        /* This may only happen after loading very old RDB files. Recent
-         * versions of Redis delete keys of empty lists. */
-        addReplyNull(c);
-    } else {
-        robj *dobj = lookupKeyWrite(c->db,c->argv[2]);
-        robj *touchedkey = c->argv[1];
+void rpoprpushCommand(client *c) {
+    poppushGenericCommand(c, LIST_TAIL, LIST_TAIL);
+}
 
-        if (dobj && checkType(c,dobj,OBJ_LIST)) return;
-        value = listTypePop(sobj,LIST_TAIL);
-        /* We saved touched key, and protect it, since rpoplpushHandlePush
-         * may change the client command argument vector (it does not
-         * currently). */
-        incrRefCount(touchedkey);
-        rpoplpushHandlePush(c,c->argv[2],dobj,value);
-
-        /* listTypePop returns an object with its refcount incremented */
-        decrRefCount(value);
-
-        /* Delete the source list when it is empty */
-        notifyKeyspaceEvent(NOTIFY_LIST,"rpop",touchedkey,c->db->id);
-        if (listTypeLength(sobj) == 0) {
-            dbDelete(c->db,touchedkey);
-            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",
-                                touchedkey,c->db->id);
-        }
-        signalModifiedKey(c,c->db,touchedkey);
-        decrRefCount(touchedkey);
-        server.dirty++;
-        if (c->cmd->proc == brpoplpushCommand) {
-            rewriteClientCommandVector(c,3,shared.rpoplpush,c->argv[1],c->argv[2]);
-        }
-    }
+void lpoplpushCommand(client *c) {
+    poppushGenericCommand(c, LIST_HEAD, LIST_HEAD);
 }
 
 /*-----------------------------------------------------------------------------
@@ -769,8 +794,8 @@ int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb 
         if (!(dstobj &&
              checkType(receiver,dstobj,OBJ_LIST)))
         {
-            rpoplpushHandlePush(receiver,dstkey,dstobj,
-                value);
+            poppushHandlePush(receiver,dstkey,dstobj,
+                value,LIST_HEAD);
             /* Propagate the RPOPLPUSH operation. */
             argv[0] = shared.rpoplpush;
             argv[1] = key;
@@ -880,7 +905,7 @@ void brpoplpushCommand(client *c) {
             /* The list exists and has elements, so
              * the regular rpoplpushCommand is executed. */
             serverAssertWithInfo(c,key,listTypeLength(key) > 0);
-            rpoplpushCommand(c);
+            poppushGenericCommand(c,LIST_TAIL,LIST_HEAD);
         }
     }
 }
