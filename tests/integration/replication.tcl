@@ -88,12 +88,75 @@ start_server {tags {"repl"}} {
             }
         }
 
+        test {BRPOPRPUSH replication, when blocking against empty list} {
+            set rd [redis_deferring_client]
+            $rd brpoprpush a b 5
+            r lpush a foo
+            wait_for_condition 50 100 {
+                [$A debug digest] eq [$B debug digest]
+            } else {
+                fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
+            }
+        }
+
+        test {BLPOPLPUSH replication, when blocking against empty list} {
+            set rd [redis_deferring_client]
+            $rd blpoplpush a b 5
+            r lpush a foo
+            wait_for_condition 50 100 {
+                [$A debug digest] eq [$B debug digest]
+            } else {
+                fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
+            }
+        }
+
+        test {BLPOPRPUSH replication, when blocking against empty list} {
+            set rd [redis_deferring_client]
+            $rd blpoprpush a b 5
+            r lpush a foo
+            wait_for_condition 50 100 {
+                [$A debug digest] eq [$B debug digest]
+            } else {
+                fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
+            }
+        }
+
         test {BRPOPLPUSH replication, list exists} {
             set rd [redis_deferring_client]
             r lpush c 1
             r lpush c 2
             r lpush c 3
             $rd brpoplpush c d 5
+            after 1000
+            assert_equal [$A debug digest] [$B debug digest]
+        }
+
+        test {BRPOPRPUSH replication, list exists} {
+            set rd [redis_deferring_client]
+            r lpush c 1
+            r lpush c 2
+            r lpush c 3
+            $rd brpoprpush c d 5
+            after 1000
+            assert_equal [$A debug digest] [$B debug digest]
+        }
+
+        test {BLPOPLPUSH replication, list exists} {
+            set rd [redis_deferring_client]
+            r lpush c 1
+            r lpush c 2
+            r lpush c 3
+            $rd blpoplpush c d 5
+            after 1000
+            assert_equal [$A debug digest] [$B debug digest]
+        }
+
+        test {BLPOPRPUSH replication, list exists} {
+            set rd [redis_deferring_client]
+            r lpush c 1
+            r lpush c 2
+            r lpush c 3
+            $rd blpoprpush c d 5
             after 1000
             assert_equal [$A debug digest] [$B debug digest]
         }

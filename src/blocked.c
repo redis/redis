@@ -62,7 +62,7 @@
 
 #include "server.h"
 
-int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb *db, robj *value, int where);
+int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb *db, robj *value, int wherefrom, int whereto);
 
 /* This structure represents the blocked key information that we store
  * in the client structure. Each client blocked on keys, has a
@@ -231,10 +231,16 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
             }
 
             robj *dstkey = receiver->bpop.target;
-            int where = (receiver->lastcmd &&
-                         receiver->lastcmd->proc == blpopCommand) ?
-                         LIST_HEAD : LIST_TAIL;
-            robj *value = listTypePop(o,where);
+            int wherefrom = (receiver->lastcmd &&
+                              (receiver->lastcmd->proc == blpopCommand ||
+                               receiver->lastcmd->proc == blpoplpushCommand ||
+                               receiver->lastcmd->proc == blpoprpushCommand)
+                            ) ? LIST_HEAD : LIST_TAIL;
+            int whereto = (receiver->lastcmd &&
+                            (receiver->lastcmd->proc == blpoplpushCommand ||
+                             receiver->lastcmd->proc == brpoplpushCommand)
+                          ) ? LIST_HEAD : LIST_TAIL;
+            robj *value = listTypePop(o, wherefrom);
 
             if (value) {
                 /* Protect receiver->bpop.target, that will be
@@ -245,11 +251,11 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
 
                 if (serveClientBlockedOnList(receiver,
                     rl->key,dstkey,rl->db,value,
-                    where) == C_ERR)
+                    wherefrom, whereto) == C_ERR)
                 {
                     /* If we failed serving the client we need
                      * to also undo the POP operation. */
-                    listTypePush(o,value,where);
+                    listTypePush(o,value,wherefrom);
                 }
 
                 if (dstkey) decrRefCount(dstkey);

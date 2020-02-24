@@ -647,6 +647,37 @@ void lremCommand(client *c) {
     addReplyLongLong(c,removed);
 }
 
+robj* getPopPushShared(int wherefrom, int whereto) {
+    if (wherefrom == LIST_TAIL && whereto == LIST_HEAD) {
+        return shared.rpoplpush;
+    } else if (wherefrom == LIST_TAIL && whereto == LIST_TAIL) {
+        return shared.rpoprpush;
+    } else if (wherefrom == LIST_HEAD && whereto == LIST_HEAD) {
+        return shared.lpoplpush;
+    } else { // if (wherefrom == LIST_HEAD && whereto == LIST_TAIL) {
+        return shared.lpoprpush;
+    }
+}
+
+struct redisCommand* getPopPushCommand(int wherefrom, int whereto) {
+    if (wherefrom == LIST_TAIL && whereto == LIST_HEAD) {
+        return server.rpoplpushCommand;
+    } else if (wherefrom == LIST_TAIL && whereto == LIST_TAIL) {
+        return server.rpoprpushCommand;
+    } else if (wherefrom == LIST_HEAD && whereto == LIST_HEAD) {
+        return server.lpoplpushCommand;
+    } else { // if (wherefrom == LIST_HEAD && whereto == LIST_TAIL) {
+        return server.lpoprpushCommand;
+    }
+}
+
+int isPopPushCommand(redisCommandProc *proc) {
+    return (proc == brpoplpushCommand ||
+            proc == brpoprpushCommand ||
+            proc == blpoplpushCommand ||
+            proc == blpoprpushCommand);
+}
+
 void poppushHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value,
                        int where) {
     /* Create the list if the key does not exist */
@@ -703,8 +734,9 @@ void poppushGenericCommand(client *c, int wherefrom, int whereto) {
         signalModifiedKey(c,c->db,touchedkey);
         decrRefCount(touchedkey);
         server.dirty++;
-        if (c->cmd->proc == brpoplpushCommand) {
-            rewriteClientCommandVector(c,3,shared.rpoplpush,c->argv[1],c->argv[2]);
+        if (isPopPushCommand(c->cmd->proc)) {
+            rewriteClientCommandVector(c,3,getPopPushShared(wherefrom,whereto),
+                                       c->argv[1],c->argv[2]);
         }
     }
 }
@@ -752,30 +784,34 @@ void lpoplpushCommand(client *c) {
  * in the context of the specified 'db', doing the following:
  *
  * 1) Provide the client with the 'value' element.
- * 2) If the dstkey is not NULL (we are serving a BRPOPLPUSH) also push the
- *    'value' element on the destination list (the LPUSH side of the command).
- * 3) Propagate the resulting BRPOP, BLPOP and additional LPUSH if any into
+ * 2) If the dstkey is not NULL (we are serving a BxPOPxPUSH) also push the
+ *    'value' element on the destination list (the xPUSH side of the command).
+ * 3) Propagate the resulting BRPOP, BLPOP and additional xPUSH if any into
  *    the AOF and replication channel.
  *
- * The argument 'where' is LIST_TAIL or LIST_HEAD, and indicates if the
+ * The argument 'wherefrom' is LIST_TAIL or LIST_HEAD, and indicates if the
  * 'value' element was popped from the head (BLPOP) or tail (BRPOP) so that
  * we can propagate the command properly.
+ *
+ * The argument 'whereto' is LIST_TAIL or LIST_HEAD, and indicates if the
+ * 'value' element is to be pushed to the head (BxPOPLPUSH) or tail
+ * (BxPOPRPUSH) so that we can propagate the command properly.
  *
  * The function returns C_OK if we are able to serve the client, otherwise
  * C_ERR is returned to signal the caller that the list POP operation
  * should be undone as the client was not served: This only happens for
- * BRPOPLPUSH that fails to push the value to the destination key as it is
+ * BxPOPxPUSH that fails to push the value to the destination key as it is
  * of the wrong type. */
-int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb *db, robj *value, int where)
+int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb *db, robj *value, int wherefrom, int whereto)
 {
     robj *argv[3];
 
     if (dstkey == NULL) {
         /* Propagate the [LR]POP operation. */
-        argv[0] = (where == LIST_HEAD) ? shared.lpop :
-                                          shared.rpop;
+        argv[0] = (wherefrom == LIST_HEAD) ? shared.lpop :
+                                             shared.rpop;
         argv[1] = key;
-        propagate((where == LIST_HEAD) ?
+        propagate((wherefrom == LIST_HEAD) ?
             server.lpopCommand : server.rpopCommand,
             db->id,argv,2,PROPAGATE_AOF|PROPAGATE_REPL);
 
@@ -785,30 +821,31 @@ int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb 
         addReplyBulk(receiver,value);
 
         /* Notify event. */
-        char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
+        char *event = (wherefrom == LIST_HEAD) ? "lpop" : "rpop";
         notifyKeyspaceEvent(NOTIFY_LIST,event,key,receiver->db->id);
     } else {
-        /* BRPOPLPUSH */
+        /* BxPOPxPUSH */
         robj *dstobj =
             lookupKeyWrite(receiver->db,dstkey);
         if (!(dstobj &&
              checkType(receiver,dstobj,OBJ_LIST)))
         {
             poppushHandlePush(receiver,dstkey,dstobj,
-                value,LIST_HEAD);
-            /* Propagate the RPOPLPUSH operation. */
-            argv[0] = shared.rpoplpush;
+                value,whereto);
+            /* Propagate the xPOPxPUSH operation. */
+            argv[0] = getPopPushShared(wherefrom,whereto);
             argv[1] = key;
             argv[2] = dstkey;
-            propagate(server.rpoplpushCommand,
+            propagate(getPopPushCommand(wherefrom, whereto),
                 db->id,argv,3,
                 PROPAGATE_AOF|
                 PROPAGATE_REPL);
 
-            /* Notify event ("lpush" was notified by rpoplpushHandlePush). */
-            notifyKeyspaceEvent(NOTIFY_LIST,"rpop",key,receiver->db->id);
+            /* Notify event ("lpush" or "rpush" was notified by poppushHandlePush). */
+            notifyKeyspaceEvent(NOTIFY_LIST,wherefrom == LIST_TAIL ? "rpop" : "lpop",
+                                key,receiver->db->id);
         } else {
-            /* BRPOPLPUSH failed because of wrong
+            /* BxPOPxPUSH failed because of wrong
              * destination type. */
             return C_ERR;
         }
@@ -881,7 +918,7 @@ void brpopCommand(client *c) {
     blockingPopGenericCommand(c,LIST_TAIL);
 }
 
-void brpoplpushCommand(client *c) {
+void blockingPopPushGenericCommand(client *c, int wherefrom, int whereto) {
     mstime_t timeout;
 
     if (getTimeoutFromObjectOrReply(c,c->argv[3],&timeout,UNIT_SECONDS)
@@ -903,9 +940,25 @@ void brpoplpushCommand(client *c) {
             addReply(c, shared.wrongtypeerr);
         } else {
             /* The list exists and has elements, so
-             * the regular rpoplpushCommand is executed. */
+             * the regular poppushGenericCommand is executed. */
             serverAssertWithInfo(c,key,listTypeLength(key) > 0);
-            poppushGenericCommand(c,LIST_TAIL,LIST_HEAD);
+            poppushGenericCommand(c,wherefrom,whereto);
         }
     }
+}
+
+void brpoplpushCommand(client *c) {
+    blockingPopPushGenericCommand(c,LIST_TAIL,LIST_HEAD);
+}
+
+void blpoprpushCommand(client *c) {
+    blockingPopPushGenericCommand(c,LIST_HEAD,LIST_TAIL);
+}
+
+void brpoprpushCommand(client *c) {
+    blockingPopPushGenericCommand(c,LIST_TAIL,LIST_TAIL);
+}
+
+void blpoplpushCommand(client *c) {
+    blockingPopPushGenericCommand(c,LIST_HEAD,LIST_HEAD);
 }

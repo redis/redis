@@ -302,9 +302,21 @@ struct redisCommand redisCommandTable[] = {
      "write use-memory no-script @list @blocking",
      0,NULL,1,2,1,0,0,0},
 
+    {"brpoprpush",brpoprpushCommand,4,
+     "write use-memory no-script @list @blocking",
+     0,NULL,1,2,1,0,0,0},
+
     {"blpop",blpopCommand,-3,
      "write no-script @list @blocking",
      0,NULL,1,-2,1,0,0,0},
+
+    {"blpoplpush",blpoplpushCommand,4,
+     "write use-memory no-script @list @blocking",
+     0,NULL,1,2,1,0,0,0},
+
+    {"blpoprpush",blpoprpushCommand,4,
+     "write use-memory no-script @list @blocking",
+     0,NULL,1,2,1,0,0,0},
 
     {"llen",llenCommand,2,
      "read-only fast @list",

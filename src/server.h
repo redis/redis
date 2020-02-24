@@ -684,7 +684,7 @@ typedef struct blockingState {
     dict *keys;             /* The keys we are waiting to terminate a blocking
                              * operation such as BLPOP or XREAD. Or NULL. */
     robj *target;           /* The key that should receive the element,
-                             * for BRPOPLPUSH. */
+                             * for BxPOPxPUSH. */
 
     /* BLOCK_STREAM */
     size_t xread_count;     /* XREAD COUNT option. */
@@ -2322,6 +2322,9 @@ void discardCommand(client *c);
 void blpopCommand(client *c);
 void brpopCommand(client *c);
 void brpoplpushCommand(client *c);
+void brpoprpushCommand(client *c);
+void blpoplpushCommand(client *c);
+void blpoprpushCommand(client *c);
 void appendCommand(client *c);
 void strlenCommand(client *c);
 void zrankCommand(client *c);
