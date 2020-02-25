@@ -100,7 +100,7 @@ start_server {tags {"defrag"}} {
                 assert {$frag < 1.1}
                 # due to high fragmentation, 100hz, and active-defrag-cycle-max set to 75,
                 # we expect max latency to be not much higher than 7.5ms but due to rare slowness threshold is set higher
-                assert {$max_latency <= 60}
+                assert {$max_latency <= 30}
             } else {
                 set _ ""
             }
@@ -226,7 +226,7 @@ start_server {tags {"defrag"}} {
                 assert {$frag < 1.1}
                 # due to high fragmentation, 100hz, and active-defrag-cycle-max set to 75,
                 # we expect max latency to be not much higher than 7.5ms but due to rare slowness threshold is set higher
-                assert {$max_latency <= 60}
+                assert {$max_latency <= 30}
             }
             # verify the data isn't corrupted or changed
             set newdigest [r debug digest]
@@ -317,7 +317,7 @@ start_server {tags {"defrag"}} {
                 assert {$frag < 1.1}
                 # due to high fragmentation, 100hz, and active-defrag-cycle-max set to 75,
                 # we expect max latency to be not much higher than 7.5ms but due to rare slowness threshold is set higher
-                assert {$max_latency <= 60}
+                assert {$max_latency <= 30}
             }
             # verify the data isn't corrupted or changed
             set newdigest [r debug digest]
