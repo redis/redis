@@ -672,15 +672,15 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,1,1,1,0,0,0},
 
     {"multi",multiCommand,1,
-     "no-script fast @transaction",
+     "no-script fast ok-loading ok-stale @transaction",
      0,NULL,0,0,0,0,0,0},
 
     {"exec",execCommand,1,
-     "no-script no-monitor no-slowlog @transaction",
+     "no-script no-monitor no-slowlog ok-loading ok-stale @transaction",
      0,NULL,0,0,0,0,0,0},
 
     {"discard",discardCommand,1,
-     "no-script fast @transaction",
+     "no-script fast ok-loading ok-stale @transaction",
      0,NULL,0,0,0,0,0,0},
 
     {"sync",syncCommand,1,
