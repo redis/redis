@@ -12,9 +12,9 @@ jobs:
     - name: test
       run: |
         sudo apt-get install tcl8.5
-        ./runtest --clients 1 --verbose
+        ./runtest --clients 2 --verbose
 
-  test-ubuntu-old:
+  build-ubuntu-old:
     runs-on: ubuntu-16.04
     steps:
     - uses: actions/checkout@v1
