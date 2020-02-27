@@ -1666,12 +1666,12 @@ static int enumConfigSet(typeData data, sds value, int update, char **err) {
         sds enumerr = sdsnew("argument must be one of the following: ");
         configEnum *enumNode = data.enumd.enum_value;
         while(enumNode->name != NULL) {
-            enumerr = sdscatlen(enumerr, enumNode->name, strlen(enumNode->name));
+            enumerr = sdscatlen(enumerr, enumNode->name,
+                                strlen(enumNode->name));
             enumerr = sdscatlen(enumerr, ", ", 2);
             enumNode++;
         }
-
-        enumerr[sdslen(enumerr) - 2] = '\0';
+        sdsrange(enumerr,0,-3); /* Remove final ", ". */
 
         strncpy(loadbuf, enumerr, LOADBUF_SIZE);
         loadbuf[LOADBUF_SIZE - 1] = '\0';
