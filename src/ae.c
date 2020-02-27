@@ -135,6 +135,13 @@ void aeDeleteEventLoop(aeEventLoop *eventLoop) {
     aeApiFree(eventLoop);
     zfree(eventLoop->events);
     zfree(eventLoop->fired);
+    /* Free time event. */
+    aeTimeEvent *next_te, *te = eventLoop->timeEventHead;
+    while (te) {
+        next_te = te->next;
+        zfree(te);
+        te = next_te;
+    }
     zfree(eventLoop);
 }
 
