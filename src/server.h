@@ -1401,7 +1401,21 @@ struct redisServer {
     int watchdog_period;  /* Software watchdog period in ms. 0 = off */
     /* System hardware info */
     size_t system_memory_size;  /* Total memory in system as reported by OS */
-    /* TLS Configuration */
+
+    /* Mutexes used to protect atomic variables when atomic builtins are
+     * not available. */
+    pthread_mutex_t lruclock_mutex;
+    pthread_mutex_t next_client_id_mutex;
+    pthread_mutex_t unixtime_mutex;
+
+    /* add a field for start time of current command. */
+    long long current_command_start_mstime;
+
+    // Field to control the status dump interval.
+    //   0 to disable status dump entirely.
+    int status_dump_interval_sec;
+
+  /* TLS Configuration */
     int tls_cluster;
     int tls_replication;
     int tls_auth_clients;

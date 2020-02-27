@@ -55,6 +55,7 @@
 #include <sys/utsname.h>
 #include <locale.h>
 #include <sys/socket.h>
+#include "status_dump.h"
 
 /* Our shared "common" objects */
 
@@ -2387,6 +2388,8 @@ void initServerConfig(void) {
     server.bug_report_start = 0;
     server.watchdog_period = 0;
 
+    server.status_dump_interval_sec = 1;
+
     /* By default we want scripts to be always replicated by effects
      * (single commands executed by the script), and not by sending the
      * script to the slave / AOF. This is the new way starting from
@@ -2812,6 +2815,9 @@ void initServer(void) {
     server.aof_last_write_errno = 0;
     server.repl_good_slaves_count = 0;
 
+    server.current_command_start_mstime = 0;
+
+
     /* Create the timer callback, this is our way to process many background
      * operations incrementally, like clients timeout, eviction of unaccessed
      * expired keys and so forth. */
@@ -3175,6 +3181,8 @@ void call(client *c, int flags) {
     int client_old_flags = c->flags;
     struct redisCommand *real_cmd = c->cmd;
 
+    __atomic_store_n(&server.current_command_start_mstime, server.mstime,
+                     __ATOMIC_SEQ_CST);
     server.fixed_time_expire++;
 
     /* Sent the command to clients in MONITOR mode, only if the commands are
@@ -3322,7 +3330,10 @@ void call(client *c, int flags) {
     }
 
     server.fixed_time_expire--;
-    server.stat_numcommands++;
+
+    __atomic_add_fetch(&server.stat_numcommands, 1, __ATOMIC_SEQ_CST);
+
+    __atomic_store_n(&server.current_command_start_mstime, 0, __ATOMIC_SEQ_CST);
 }
 
 /* If this function gets called we already read a whole
@@ -4852,7 +4863,6 @@ int redisIsSupervised(int mode) {
     return 0;
 }
 
-
 int main(int argc, char **argv) {
     struct timeval tv;
     int j;
@@ -5057,10 +5067,14 @@ int main(int argc, char **argv) {
         serverLog(LL_WARNING,"WARNING: You specified a maxmemory value that is less than 1MB (current value is %llu bytes). Are you sure this is what you really want?", server.maxmemory);
     }
 
+    reset_status_dump_thread(server.status_dump_interval_sec);
+
     aeSetBeforeSleepProc(server.el,beforeSleep);
     aeSetAfterSleepProc(server.el,afterSleep);
     aeMain(server.el);
     aeDeleteEventLoop(server.el);
+
+    reset_status_dump_thread(0);
     return 0;
 }
 
