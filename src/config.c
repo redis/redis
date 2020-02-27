@@ -38,6 +38,8 @@
  * Config file name-value maps.
  *----------------------------------------------------------------------------*/
 
+#define MIN(a,b) ((a) < (b) ? (a) : (b))
+
 typedef struct configEnum {
     const char *name;
     const int val;
@@ -1535,7 +1537,7 @@ int rewriteConfig(char *path) {
  * Configs that fit one of the major types and require no special handling
  *----------------------------------------------------------------------------*/
 #define LOADBUF_SIZE 256
-static char loadbuf[LOADBUF_SIZE];
+static char loadbuf[LOADBUF_SIZE+4];
 
 #define MODIFIABLE_CONFIG 1
 #define IMMUTABLE_CONFIG 0
@@ -1671,10 +1673,8 @@ static int enumConfigSet(typeData data, sds value, int update, char **err) {
             enumNode++;
         }
 
-        enumerr[sdslen(enumerr) - 2] = '\0';
-
         /* Make sure we don't overrun the fixed buffer */
-        enumerr[LOADBUF_SIZE - 1] = '\0';
+        enumerr[MIN(sdslen(enumerr) - 2, LOADBUF_SIZE-1)] = '\0';
         strncpy(loadbuf, enumerr, LOADBUF_SIZE);
 
         sdsfree(enumerr);
