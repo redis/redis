@@ -114,7 +114,10 @@ Redis 6.0 is mostly a strict superset of 5.0, you should not have any problem
 upgrading your application from 5.0 to 6.0. However this is a list of small
 non-backward compatible changes introduced in the 6.0 release:
 
-* Nothing found yet.
+* The SPOP <count> command no longer returns null when the set key does not
+  exist. Now it returns the empty set as it should and as happens when it is
+  called with a 0 argument. This is technically a fix, however it changes the
+  old behavior.
 
 --------------------------------------------------------------------------------
 
