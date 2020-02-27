@@ -60,6 +60,7 @@ start_server {tags {"defrag"}} {
 
             r config set latency-monitor-threshold 5
             r latency reset
+            r config set maxmemory 110mb ;# prevent further eviction (not to fail the digest test)
             set digest [r debug digest]
             catch {r config set activedefrag yes} e
             if {![string match {DISABLED*} $e]} {
@@ -166,7 +167,7 @@ start_server {tags {"defrag"}} {
             for {set j 0} {$j < 500000} {incr j} {
                 $rd read ; # Discard replies
             }
-            assert {[r dbsize] == 500010}
+            assert_equal [r dbsize] 500010
 
             # create some fragmentation
             for {set j 0} {$j < 500000} {incr j 2} {
@@ -175,7 +176,7 @@ start_server {tags {"defrag"}} {
             for {set j 0} {$j < 500000} {incr j 2} {
                 $rd read ; # Discard replies
             }
-            assert {[r dbsize] == 250010}
+            assert_equal [r dbsize] 250010
 
             # start defrag
             after 120 ;# serverCron only updates the info once in 100ms
