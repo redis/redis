@@ -1674,7 +1674,6 @@ static int enumConfigSet(typeData data, sds value, int update, char **err) {
         enumerr[sdslen(enumerr) - 2] = '\0';
 
         strncpy(loadbuf, enumerr, LOADBUF_SIZE);
-        /* strncpy does not if null terminate if source string length is >= destination buffer. */
         loadbuf[LOADBUF_SIZE - 1] = '\0';
 
         sdsfree(enumerr);
