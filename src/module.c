@@ -6557,9 +6557,21 @@ void RM_ScanCursorDestroy(RedisModuleScanCursor *cursor) {
  * possibly setting errno if the call failed.
  * It is also possible to restart and existing cursor using RM_CursorRestart.
  *
- * NOTE: You must avoid doing any database changes from within the callback, you should avoid any
- * RedisModule_OpenKey or RedisModule_Call, if you need to do these, you need to keep the key name
- * and do any work you need to do after the call to Scan returns. */
+ * IMPORTANT: This API is very similar to the Redis SCAN command from the
+ * point of view of the guarantees it provides. This means that the API
+ * may report duplicated keys, but guarantees to report at least one time
+ * every key that was there from the start to the end of the scanning process.
+ *
+ * NOTE: If you do database changes within the callback, you should be aware
+ * that the internal state of the database may change. For instance it is safe
+ * to delete or modify the current key, but may not be safe to delete any
+ * other key.
+ * Moreover playing with the Redis keyspace while iterating may have the
+ * effect of returning more duplicates. A safe pattern is to store the keys
+ * names you want to modify elsewhere, and perform the actions on the keys
+ * later when the iteration is complete. Howerver this can cost a lot of
+ * memory, so it may make sense to just operate on the current key when
+ * possible during the iteration, given that this is safe. */
 int RM_Scan(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleScanCB fn, void *privdata) {
     if (cursor->done) {
         errno = ENOENT;
@@ -6641,9 +6653,13 @@ static void moduleScanKeyCallback(void *privdata, const dictEntry *de) {
  * possibly setting errno if the call failed.
  * It is also possible to restart and existing cursor using RM_CursorRestart.
  *
- * NOTE: You must avoid doing any database changes from within the callback, you should avoid any
- * RedisModule_OpenKey or RedisModule_Call, if you need to do these, you need to keep the field name
- * and do any work you need to do after the call to Scan returns. */
+ * NOTE: Certain operations are unsafe while iterating the object. For instance
+ * while the API guarantees to return at least one time all the elements that
+ * are present in the data structure consistently from the start to the end
+ * of the iteration (see HSCAN and similar commands documentation), the more
+ * you play with the elements, the more duplicates you may get. In general
+ * deleting the current element of the data structure is safe, while removing
+ * the key you are iterating is not safe. */
 int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleScanKeyCB fn, void *privdata) {
     if (key == NULL || key->value == NULL) {
         errno = EINVAL;
