@@ -3773,6 +3773,7 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
         flagcount += addReplyCommandFlag(c,cmd,CMD_SKIP_SLOWLOG, "skip_slowlog");
         flagcount += addReplyCommandFlag(c,cmd,CMD_ASKING, "asking");
         flagcount += addReplyCommandFlag(c,cmd,CMD_FAST, "fast");
+        flagcount += addReplyCommandFlag(c,cmd,CMD_NO_AUTH, "no_auth");
         if ((cmd->getkeys_proc && !(cmd->flags & CMD_MODULE)) ||
             cmd->flags & CMD_MODULE_GETKEYS)
         {
