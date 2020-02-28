@@ -6526,24 +6526,32 @@ void RM_ScanCursorDestroy(RedisModuleScanCursor *cursor) {
     zfree(cursor);
 }
 
-/* Scan api that allows a module to scan all the keys and value in the selected db.
+/* Scan API that allows a module to scan all the keys and value in
+ * the selected db.
  *
  * Callback for scan implementation.
- * void scan_callback(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key, void *privdata);
- * - ctx - the redis module context provided to for the scan.
- * - keyname - owned by the caller and need to be retained if used after this function.
- * - key - holds info on the key and value, it is provided as best effort, in some cases it might
- *   be NULL, in which case the user should (can) use RedisModule_OpenKey (and CloseKey too).
- *   when it is provided, it is owned by the caller and will be free when the callback returns.
- * - privdata - the user data provided to RedisModule_Scan.
+ * void scan_callback(RedisModuleCtx *ctx, RedisModuleString *keyname,
+ *                    RedisModuleKey *key, void *privdata);
+ * ctx - the redis module context provided to for the scan.
+ * keyname - owned by the caller and need to be retained if used after this
+ * function.
+ *
+ * key - holds info on the key and value, it is provided as best effort, in
+ * some cases it might be NULL, in which case the user should (can) use
+ * RedisModule_OpenKey (and CloseKey too).
+ * when it is provided, it is owned by the caller and will be free when the
+ * callback returns.
+ *
+ * privdata - the user data provided to RedisModule_Scan.
  *
  * The way it should be used:
  *      RedisModuleCursor *c = RedisModule_ScanCursorCreate();
  *      while(RedisModule_Scan(ctx, c, callback, privateData));
  *      RedisModule_ScanCursorDestroy(c);
  *
- * It is also possible to use this API from another thread while the lock is acquired durring 
- * the actuall call to RM_Scan:
+ * It is also possible to use this API from another thread while the lock
+ * is acquired durring the actuall call to RM_Scan:
+ *
  *      RedisModuleCursor *c = RedisModule_ScanCursorCreate();
  *      RedisModule_ThreadSafeContextLock(ctx);
  *      while(RedisModule_Scan(ctx, c, callback, privateData)){
@@ -6553,8 +6561,9 @@ void RM_ScanCursorDestroy(RedisModuleScanCursor *cursor) {
  *      }
  *      RedisModule_ScanCursorDestroy(c);
  *
- * The function will return 1 if there are more elements to scan and 0 otherwise,
- * possibly setting errno if the call failed.
+ * The function will return 1 if there are more elements to scan and
+ * 0 otherwise, possibly setting errno if the call failed.
+ *
  * It is also possible to restart and existing cursor using RM_CursorRestart.
  *
  * IMPORTANT: This API is very similar to the Redis SCAN command from the
