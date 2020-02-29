@@ -1830,6 +1830,7 @@ void aclCommand(client *c) {
             case ACL_DENIED_CMD: reasonstr="command"; break;
             case ACL_DENIED_KEY: reasonstr="key"; break;
             case ACL_DENIED_AUTH: reasonstr="auth"; break;
+            default: reasonstr="unknown";
             }
             addReplyBulkCString(c,reasonstr);
 
