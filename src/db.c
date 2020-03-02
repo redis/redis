@@ -1305,7 +1305,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
 /* -----------------------------------------------------------------------------
  * API to get key arguments from commands
  * ---------------------------------------------------------------------------*/
-#define MAX_KEYS_BUFFER 65536
+#define MAX_KEYS_BUFFER 256
 static int getKeysTempBuffer[MAX_KEYS_BUFFER];
 
 /* The base case is to use the keys position as given in the command table
