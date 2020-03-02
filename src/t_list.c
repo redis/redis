@@ -576,6 +576,13 @@ void rpoplpushCommand(client *c) {
         robj *touchedkey = c->argv[1];
 
         if (dobj && checkType(c,dobj,OBJ_LIST)) return;
+
+        /* the key is expired when src and dest is same */
+        if (!dobj && !sdscmp(c->argv[1]->ptr,c->argv[2]->ptr)) {
+            addReply(c,shared.null[c->resp]);
+            return;
+        }
+
         value = listTypePop(sobj,LIST_TAIL);
         /* We saved touched key, and protect it, since rpoplpushHandlePush
          * may change the client command argument vector (it does not
