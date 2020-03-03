@@ -45,6 +45,11 @@ void replicationSendAck(void);
 void putSlaveOnline(client *slave);
 int cancelReplicationHandshake(void);
 
+/* We take a global flag to remember if this instance generated an RDB
+ * because of replication, so that we can remove the RDB file in case
+ * the instance is configured to have no persistence. */
+int RDBGeneratedByReplication = 0;
+
 /* --------------------------- Utility functions ---------------------------- */
 
 /* Return the pointer to a string representing the slave ip:listening_port
@@ -591,6 +596,10 @@ int startBgsaveForReplication(int mincapa) {
         retval = C_ERR;
     }
 
+    /* If we succeeded to start a BGSAVE with disk target, let's remember
+     * this fact, so that we can later delete the file if needed. */
+    if (retval == C_OK && !socket_target) RDBGeneratedByReplication = 1;
+
     /* If we failed to BGSAVE, remove the slaves waiting for a full
      * resynchronization from the list of slaves, inform them with
      * an error about what happened, close the connection ASAP. */
@@ -883,6 +892,36 @@ void putSlaveOnline(client *slave) {
         replicationGetSlaveName(slave));
 }
 
+/* We call this function periodically to remove an RDB file that was
+ * generated because of replication, in an instance that is otherwise
+ * without any persistence. We don't want instances without persistence
+ * to take RDB files around, this violates certain policies in certain
+ * environments. */
+void removeRDBUsedToSyncReplicas(void) {
+    if (allPersistenceDisabled() && RDBGeneratedByReplication) {
+        client *slave;
+        listNode *ln;
+        listIter li;
+
+        int delrdb = 1;
+        listRewind(server.slaves,&li);
+        while((ln = listNext(&li))) {
+            slave = ln->value;
+            if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START ||
+                slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END ||
+                slave->replstate == SLAVE_STATE_SEND_BULK)
+            {
+                delrdb = 0;
+                break; /* No need to check the other replicas. */
+            }
+        }
+        if (delrdb) {
+            RDBGeneratedByReplication = 0;
+            unlink(server.rdb_filename);
+        }
+    }
+}
+
 void sendBulkToSlave(connection *conn) {
     client *slave = connGetPrivateData(conn);
     char buf[PROTO_IOBUF_LEN];
@@ -894,7 +933,8 @@ void sendBulkToSlave(connection *conn) {
     if (slave->replpreamble) {
         nwritten = connWrite(conn,slave->replpreamble,sdslen(slave->replpreamble));
         if (nwritten == -1) {
-            serverLog(LL_VERBOSE,"Write error sending RDB preamble to replica: %s",
+            serverLog(LL_VERBOSE,
+                "Write error sending RDB preamble to replica: %s",
                 connGetLastError(conn));
             freeClient(slave);
             return;
@@ -1639,12 +1679,14 @@ void readSyncBulkPayload(connection *conn) {
                 "Failed trying to load the MASTER synchronization "
                 "DB from disk");
             cancelReplicationHandshake();
+            if (allPersistenceDisabled()) unlink(server.rdb_filename);
             /* Note that there's no point in restarting the AOF on sync failure,
                it'll be restarted when sync succeeds or replica promoted. */
             return;
         }
 
         /* Cleanup. */
+        if (allPersistenceDisabled()) unlink(server.rdb_filename);
         zfree(server.repl_transfer_tmpfile);
         close(server.repl_transfer_fd);
         server.repl_transfer_fd = -1;
@@ -3148,6 +3190,10 @@ void replicationCron(void) {
             startBgsaveForReplication(mincapa);
         }
     }
+
+    /* Remove the RDB file used for replication if Redis is not running
+     * with any persistence. */
+    removeRDBUsedToSyncReplicas();
 
     /* Refresh the number of slaves with lag <= min-slaves-max-lag. */
     refreshGoodSlavesCount();

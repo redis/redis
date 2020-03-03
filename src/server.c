@@ -1455,10 +1455,18 @@ void updateDictResizePolicy(void) {
         dictDisableResize();
 }
 
+/* Return true if there are no active children processes doing RDB saving,
+ * AOF rewriting, or some side process spawned by a loaded module. */
 int hasActiveChildProcess() {
     return server.rdb_child_pid != -1 ||
            server.aof_child_pid != -1 ||
            server.module_child_pid != -1;
+}
+
+/* Return true if this instance has persistence completely turned off:
+ * both RDB and AOF are disabled. */
+int allPersistenceDisabled(void) {
+    return server.saveparamslen == 0 && server.aof_state == AOF_OFF;
 }
 
 /* ======================= Cron: called every 100 ms ======================== */
