@@ -20,17 +20,21 @@
  */
 
 #ifndef RB_H_
-#define	RB_H_
+#define RB_H_
+
+#ifndef __PGI
+#define RB_COMPACT
+#endif
 
 #ifdef RB_COMPACT
 /* Node structure. */
-#define	rb_node(a_type)							\
+#define rb_node(a_type)							\
 struct {								\
     a_type *rbn_left;							\
     a_type *rbn_right_red;						\
 }
 #else
-#define	rb_node(a_type)							\
+#define rb_node(a_type)							\
 struct {								\
     a_type *rbn_left;							\
     a_type *rbn_right;							\
@@ -39,48 +43,48 @@ struct {								\
 #endif
 
 /* Root structure. */
-#define	rb_tree(a_type)							\
+#define rb_tree(a_type)							\
 struct {								\
     a_type *rbt_root;							\
 }
 
 /* Left accessors. */
-#define	rbtn_left_get(a_type, a_field, a_node)				\
+#define rbtn_left_get(a_type, a_field, a_node)				\
     ((a_node)->a_field.rbn_left)
-#define	rbtn_left_set(a_type, a_field, a_node, a_left) do {		\
+#define rbtn_left_set(a_type, a_field, a_node, a_left) do {		\
     (a_node)->a_field.rbn_left = a_left;				\
 } while (0)
 
 #ifdef RB_COMPACT
 /* Right accessors. */
-#define	rbtn_right_get(a_type, a_field, a_node)				\
+#define rbtn_right_get(a_type, a_field, a_node)				\
     ((a_type *) (((intptr_t) (a_node)->a_field.rbn_right_red)		\
       & ((ssize_t)-2)))
-#define	rbtn_right_set(a_type, a_field, a_node, a_right) do {		\
+#define rbtn_right_set(a_type, a_field, a_node, a_right) do {		\
     (a_node)->a_field.rbn_right_red = (a_type *) (((uintptr_t) a_right)	\
       | (((uintptr_t) (a_node)->a_field.rbn_right_red) & ((size_t)1)));	\
 } while (0)
 
 /* Color accessors. */
-#define	rbtn_red_get(a_type, a_field, a_node)				\
+#define rbtn_red_get(a_type, a_field, a_node)				\
     ((bool) (((uintptr_t) (a_node)->a_field.rbn_right_red)		\
       & ((size_t)1)))
-#define	rbtn_color_set(a_type, a_field, a_node, a_red) do {		\
+#define rbtn_color_set(a_type, a_field, a_node, a_red) do {		\
     (a_node)->a_field.rbn_right_red = (a_type *) ((((intptr_t)		\
       (a_node)->a_field.rbn_right_red) & ((ssize_t)-2))			\
       | ((ssize_t)a_red));						\
 } while (0)
-#define	rbtn_red_set(a_type, a_field, a_node) do {			\
+#define rbtn_red_set(a_type, a_field, a_node) do {			\
     (a_node)->a_field.rbn_right_red = (a_type *) (((uintptr_t)		\
       (a_node)->a_field.rbn_right_red) | ((size_t)1));			\
 } while (0)
-#define	rbtn_black_set(a_type, a_field, a_node) do {			\
+#define rbtn_black_set(a_type, a_field, a_node) do {			\
     (a_node)->a_field.rbn_right_red = (a_type *) (((intptr_t)		\
       (a_node)->a_field.rbn_right_red) & ((ssize_t)-2));		\
 } while (0)
 
 /* Node initializer. */
-#define	rbt_node_new(a_type, a_field, a_rbt, a_node) do {		\
+#define rbt_node_new(a_type, a_field, a_rbt, a_node) do {		\
     /* Bookkeeping bit cannot be used by node pointer. */		\
     assert(((uintptr_t)(a_node) & 0x1) == 0);				\
     rbtn_left_set(a_type, a_field, (a_node), NULL);	\
@@ -89,27 +93,27 @@ struct {								\
 } while (0)
 #else
 /* Right accessors. */
-#define	rbtn_right_get(a_type, a_field, a_node)				\
+#define rbtn_right_get(a_type, a_field, a_node)				\
     ((a_node)->a_field.rbn_right)
-#define	rbtn_right_set(a_type, a_field, a_node, a_right) do {		\
+#define rbtn_right_set(a_type, a_field, a_node, a_right) do {		\
     (a_node)->a_field.rbn_right = a_right;				\
 } while (0)
 
 /* Color accessors. */
-#define	rbtn_red_get(a_type, a_field, a_node)				\
+#define rbtn_red_get(a_type, a_field, a_node)				\
     ((a_node)->a_field.rbn_red)
-#define	rbtn_color_set(a_type, a_field, a_node, a_red) do {		\
+#define rbtn_color_set(a_type, a_field, a_node, a_red) do {		\
     (a_node)->a_field.rbn_red = (a_red);				\
 } while (0)
-#define	rbtn_red_set(a_type, a_field, a_node) do {			\
+#define rbtn_red_set(a_type, a_field, a_node) do {			\
     (a_node)->a_field.rbn_red = true;					\
 } while (0)
-#define	rbtn_black_set(a_type, a_field, a_node) do {			\
+#define rbtn_black_set(a_type, a_field, a_node) do {			\
     (a_node)->a_field.rbn_red = false;					\
 } while (0)
 
 /* Node initializer. */
-#define	rbt_node_new(a_type, a_field, a_rbt, a_node) do {		\
+#define rbt_node_new(a_type, a_field, a_rbt, a_node) do {		\
     rbtn_left_set(a_type, a_field, (a_node), NULL);	\
     rbtn_right_set(a_type, a_field, (a_node), NULL);	\
     rbtn_red_set(a_type, a_field, (a_node));				\
@@ -117,12 +121,12 @@ struct {								\
 #endif
 
 /* Tree initializer. */
-#define	rb_new(a_type, a_field, a_rbt) do {				\
+#define rb_new(a_type, a_field, a_rbt) do {				\
     (a_rbt)->rbt_root = NULL;						\
 } while (0)
 
 /* Internal utility macros. */
-#define	rbtn_first(a_type, a_field, a_rbt, a_root, r_node) do {		\
+#define rbtn_first(a_type, a_field, a_rbt, a_root, r_node) do {		\
     (r_node) = (a_root);						\
     if ((r_node) != NULL) {						\
 	for (;								\
@@ -132,7 +136,7 @@ struct {								\
     }									\
 } while (0)
 
-#define	rbtn_last(a_type, a_field, a_rbt, a_root, r_node) do {		\
+#define rbtn_last(a_type, a_field, a_rbt, a_root, r_node) do {		\
     (r_node) = (a_root);						\
     if ((r_node) != NULL) {						\
 	for (; rbtn_right_get(a_type, a_field, (r_node)) != NULL;	\
@@ -141,14 +145,14 @@ struct {								\
     }									\
 } while (0)
 
-#define	rbtn_rotate_left(a_type, a_field, a_node, r_node) do {		\
+#define rbtn_rotate_left(a_type, a_field, a_node, r_node) do {		\
     (r_node) = rbtn_right_get(a_type, a_field, (a_node));		\
     rbtn_right_set(a_type, a_field, (a_node),				\
       rbtn_left_get(a_type, a_field, (r_node)));			\
     rbtn_left_set(a_type, a_field, (r_node), (a_node));			\
 } while (0)
 
-#define	rbtn_rotate_right(a_type, a_field, a_node, r_node) do {		\
+#define rbtn_rotate_right(a_type, a_field, a_node, r_node) do {		\
     (r_node) = rbtn_left_get(a_type, a_field, (a_node));		\
     rbtn_left_set(a_type, a_field, (a_node),				\
       rbtn_right_get(a_type, a_field, (r_node)));			\
@@ -160,7 +164,7 @@ struct {								\
  * functions generated by an equivalently parameterized call to rb_gen().
  */
 
-#define	rb_proto(a_attr, a_prefix, a_rbt_type, a_type)			\
+#define rb_proto(a_attr, a_prefix, a_rbt_type, a_type)			\
 a_attr void								\
 a_prefix##new(a_rbt_type *rbtree);					\
 a_attr bool								\
@@ -335,7 +339,7 @@ a_prefix##destroy(a_rbt_type *rbtree, void (*cb)(a_type *, void *),	\
  *               has begun.
  *         arg : Opaque pointer passed to cb().
  */
-#define	rb_gen(a_attr, a_prefix, a_rbt_type, a_type, a_field, a_cmp)	\
+#define rb_gen(a_attr, a_prefix, a_rbt_type, a_type, a_field, a_cmp)	\
 a_attr void								\
 a_prefix##new(a_rbt_type *rbtree) {					\
     rb_new(a_type, a_field, rbtree);					\
@@ -348,13 +352,13 @@ a_attr a_type *								\
 a_prefix##first(a_rbt_type *rbtree) {					\
     a_type *ret;							\
     rbtn_first(a_type, a_field, rbtree, rbtree->rbt_root, ret);		\
-    return (ret);							\
+    return ret;								\
 }									\
 a_attr a_type *								\
 a_prefix##last(a_rbt_type *rbtree) {					\
     a_type *ret;							\
     rbtn_last(a_type, a_field, rbtree, rbtree->rbt_root, ret);		\
-    return (ret);							\
+    return ret;								\
 }									\
 a_attr a_type *								\
 a_prefix##next(a_rbt_type *rbtree, a_type *node) {			\
@@ -379,7 +383,7 @@ a_prefix##next(a_rbt_type *rbtree, a_type *node) {			\
 	    assert(tnode != NULL);					\
 	}								\
     }									\
-    return (ret);							\
+    return ret;								\
 }									\
 a_attr a_type *								\
 a_prefix##prev(a_rbt_type *rbtree, a_type *node) {			\
@@ -404,7 +408,7 @@ a_prefix##prev(a_rbt_type *rbtree, a_type *node) {			\
 	    assert(tnode != NULL);					\
 	}								\
     }									\
-    return (ret);							\
+    return ret;								\
 }									\
 a_attr a_type *								\
 a_prefix##search(a_rbt_type *rbtree, const a_type *key) {		\
@@ -419,7 +423,7 @@ a_prefix##search(a_rbt_type *rbtree, const a_type *key) {		\
 	    ret = rbtn_right_get(a_type, a_field, ret);			\
 	}								\
     }									\
-    return (ret);							\
+    return ret;								\
 }									\
 a_attr a_type *								\
 a_prefix##nsearch(a_rbt_type *rbtree, const a_type *key) {		\
@@ -438,7 +442,7 @@ a_prefix##nsearch(a_rbt_type *rbtree, const a_type *key) {		\
 	    break;							\
 	}								\
     }									\
-    return (ret);							\
+    return ret;								\
 }									\
 a_attr a_type *								\
 a_prefix##psearch(a_rbt_type *rbtree, const a_type *key) {		\
@@ -457,7 +461,7 @@ a_prefix##psearch(a_rbt_type *rbtree, const a_type *key) {		\
 	    break;							\
 	}								\
     }									\
-    return (ret);							\
+    return ret;								\
 }									\
 a_attr void								\
 a_prefix##insert(a_rbt_type *rbtree, a_type *node) {			\
@@ -550,8 +554,7 @@ a_prefix##remove(a_rbt_type *rbtree, a_type *node) {			\
 	        /* Find node's successor, in preparation for swap. */	\
 		pathp->cmp = 1;						\
 		nodep = pathp;						\
-		for (pathp++; pathp->node != NULL;			\
-		  pathp++) {						\
+		for (pathp++; pathp->node != NULL; pathp++) {		\
 		    pathp->cmp = -1;					\
 		    pathp[1].node = rbtn_left_get(a_type, a_field,	\
 		      pathp->node);					\
@@ -873,16 +876,16 @@ a_attr a_type *								\
 a_prefix##iter_recurse(a_rbt_type *rbtree, a_type *node,		\
   a_type *(*cb)(a_rbt_type *, a_type *, void *), void *arg) {		\
     if (node == NULL) {							\
-	return (NULL);							\
+	return NULL;							\
     } else {								\
 	a_type *ret;							\
 	if ((ret = a_prefix##iter_recurse(rbtree, rbtn_left_get(a_type,	\
 	  a_field, node), cb, arg)) != NULL || (ret = cb(rbtree, node,	\
 	  arg)) != NULL) {						\
-	    return (ret);						\
+	    return ret;							\
 	}								\
-	return (a_prefix##iter_recurse(rbtree, rbtn_right_get(a_type,	\
-	  a_field, node), cb, arg));					\
+	return a_prefix##iter_recurse(rbtree, rbtn_right_get(a_type,	\
+	  a_field, node), cb, arg);					\
     }									\
 }									\
 a_attr a_type *								\
@@ -894,20 +897,20 @@ a_prefix##iter_start(a_rbt_type *rbtree, a_type *start, a_type *node,	\
 	if ((ret = a_prefix##iter_start(rbtree, start,			\
 	  rbtn_left_get(a_type, a_field, node), cb, arg)) != NULL ||	\
 	  (ret = cb(rbtree, node, arg)) != NULL) {			\
-	    return (ret);						\
+	    return ret;							\
 	}								\
-	return (a_prefix##iter_recurse(rbtree, rbtn_right_get(a_type,	\
-	  a_field, node), cb, arg));					\
+	return a_prefix##iter_recurse(rbtree, rbtn_right_get(a_type,	\
+	  a_field, node), cb, arg);					\
     } else if (cmp > 0) {						\
-	return (a_prefix##iter_start(rbtree, start,			\
-	  rbtn_right_get(a_type, a_field, node), cb, arg));		\
+	return a_prefix##iter_start(rbtree, start,			\
+	  rbtn_right_get(a_type, a_field, node), cb, arg);		\
     } else {								\
 	a_type *ret;							\
 	if ((ret = cb(rbtree, node, arg)) != NULL) {			\
-	    return (ret);						\
+	    return ret;							\
 	}								\
-	return (a_prefix##iter_recurse(rbtree, rbtn_right_get(a_type,	\
-	  a_field, node), cb, arg));					\
+	return a_prefix##iter_recurse(rbtree, rbtn_right_get(a_type,	\
+	  a_field, node), cb, arg);					\
     }									\
 }									\
 a_attr a_type *								\
@@ -920,22 +923,22 @@ a_prefix##iter(a_rbt_type *rbtree, a_type *start, a_type *(*cb)(	\
     } else {								\
 	ret = a_prefix##iter_recurse(rbtree, rbtree->rbt_root, cb, arg);\
     }									\
-    return (ret);							\
+    return ret;								\
 }									\
 a_attr a_type *								\
 a_prefix##reverse_iter_recurse(a_rbt_type *rbtree, a_type *node,	\
   a_type *(*cb)(a_rbt_type *, a_type *, void *), void *arg) {		\
     if (node == NULL) {							\
-	return (NULL);							\
+	return NULL;							\
     } else {								\
 	a_type *ret;							\
 	if ((ret = a_prefix##reverse_iter_recurse(rbtree,		\
 	  rbtn_right_get(a_type, a_field, node), cb, arg)) != NULL ||	\
 	  (ret = cb(rbtree, node, arg)) != NULL) {			\
-	    return (ret);						\
+	    return ret;							\
 	}								\
-	return (a_prefix##reverse_iter_recurse(rbtree,			\
-	  rbtn_left_get(a_type, a_field, node), cb, arg));		\
+	return a_prefix##reverse_iter_recurse(rbtree,			\
+	  rbtn_left_get(a_type, a_field, node), cb, arg);		\
     }									\
 }									\
 a_attr a_type *								\
@@ -948,20 +951,20 @@ a_prefix##reverse_iter_start(a_rbt_type *rbtree, a_type *start,		\
 	if ((ret = a_prefix##reverse_iter_start(rbtree, start,		\
 	  rbtn_right_get(a_type, a_field, node), cb, arg)) != NULL ||	\
 	  (ret = cb(rbtree, node, arg)) != NULL) {			\
-	    return (ret);						\
+	    return ret;							\
 	}								\
-	return (a_prefix##reverse_iter_recurse(rbtree,			\
-	  rbtn_left_get(a_type, a_field, node), cb, arg));		\
+	return a_prefix##reverse_iter_recurse(rbtree,			\
+	  rbtn_left_get(a_type, a_field, node), cb, arg);		\
     } else if (cmp < 0) {						\
-	return (a_prefix##reverse_iter_start(rbtree, start,		\
-	  rbtn_left_get(a_type, a_field, node), cb, arg));		\
+	return a_prefix##reverse_iter_start(rbtree, start,		\
+	  rbtn_left_get(a_type, a_field, node), cb, arg);		\
     } else {								\
 	a_type *ret;							\
 	if ((ret = cb(rbtree, node, arg)) != NULL) {			\
-	    return (ret);						\
+	    return ret;							\
 	}								\
-	return (a_prefix##reverse_iter_recurse(rbtree,			\
-	  rbtn_left_get(a_type, a_field, node), cb, arg));		\
+	return a_prefix##reverse_iter_recurse(rbtree,			\
+	  rbtn_left_get(a_type, a_field, node), cb, arg);		\
     }									\
 }									\
 a_attr a_type *								\
@@ -975,7 +978,7 @@ a_prefix##reverse_iter(a_rbt_type *rbtree, a_type *start,		\
 	ret = a_prefix##reverse_iter_recurse(rbtree, rbtree->rbt_root,	\
 	  cb, arg);							\
     }									\
-    return (ret);							\
+    return ret;								\
 }									\
 a_attr void								\
 a_prefix##destroy_recurse(a_rbt_type *rbtree, a_type *node, void (*cb)(	\

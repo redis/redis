@@ -16,7 +16,7 @@ test "We can failover with Sentinel 1 crashed" {
             wait_for_condition 1000 50 {
                 [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] != $old_port
             } else {
-                fail "Sentinel $id did not received failover info"
+                fail "Sentinel $id did not receive failover info"
             }
         }
     }
@@ -30,7 +30,7 @@ test "After Sentinel 1 is restarted, its config gets updated" {
     wait_for_condition 1000 50 {
         [lindex [S 1 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] != $old_port
     } else {
-        fail "Restarted Sentinel did not received failover info"
+        fail "Restarted Sentinel did not receive failover info"
     }
 }
 

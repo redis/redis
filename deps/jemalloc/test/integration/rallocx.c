@@ -1,8 +1,7 @@
 #include "test/jemalloc_test.h"
 
 static unsigned
-get_nsizes_impl(const char *cmd)
-{
+get_nsizes_impl(const char *cmd) {
 	unsigned ret;
 	size_t z;
 
@@ -10,19 +9,16 @@ get_nsizes_impl(const char *cmd)
 	assert_d_eq(mallctl(cmd, (void *)&ret, &z, NULL, 0), 0,
 	    "Unexpected mallctl(\"%s\", ...) failure", cmd);
 
-	return (ret);
+	return ret;
 }
 
 static unsigned
-get_nhuge(void)
-{
-
-	return (get_nsizes_impl("arenas.nhchunks"));
+get_nlarge(void) {
+	return get_nsizes_impl("arenas.nlextents");
 }
 
 static size_t
-get_size_impl(const char *cmd, size_t ind)
-{
+get_size_impl(const char *cmd, size_t ind) {
 	size_t ret;
 	size_t z;
 	size_t mib[4];
@@ -36,25 +32,22 @@ get_size_impl(const char *cmd, size_t ind)
 	assert_d_eq(mallctlbymib(mib, miblen, (void *)&ret, &z, NULL, 0),
 	    0, "Unexpected mallctlbymib([\"%s\", %zu], ...) failure", cmd, ind);
 
-	return (ret);
+	return ret;
 }
 
 static size_t
-get_huge_size(size_t ind)
-{
-
-	return (get_size_impl("arenas.hchunk.0.size", ind));
+get_large_size(size_t ind) {
+	return get_size_impl("arenas.lextent.0.size", ind);
 }
 
-TEST_BEGIN(test_grow_and_shrink)
-{
+TEST_BEGIN(test_grow_and_shrink) {
 	void *p, *q;
 	size_t tsz;
-#define	NCYCLES 3
+#define NCYCLES 3
 	unsigned i, j;
-#define	NSZS 2500
+#define NSZS 1024
 	size_t szs[NSZS];
-#define	MAXSZ ZU(12 * 1024 * 1024)
+#define MAXSZ ZU(12 * 1024 * 1024)
 
 	p = mallocx(1, 0);
 	assert_ptr_not_null(p, "Unexpected mallocx() error");
@@ -92,8 +85,7 @@ TEST_BEGIN(test_grow_and_shrink)
 TEST_END
 
 static bool
-validate_fill(const void *p, uint8_t c, size_t offset, size_t len)
-{
+validate_fill(const void *p, uint8_t c, size_t offset, size_t len) {
 	bool ret = false;
 	const uint8_t *buf = (const uint8_t *)p;
 	size_t i;
@@ -108,16 +100,15 @@ validate_fill(const void *p, uint8_t c, size_t offset, size_t len)
 		}
 	}
 
-	return (ret);
+	return ret;
 }
 
-TEST_BEGIN(test_zero)
-{
+TEST_BEGIN(test_zero) {
 	void *p, *q;
 	size_t psz, qsz, i, j;
 	size_t start_sizes[] = {1, 3*1024, 63*1024, 4095*1024};
-#define	FILL_BYTE 0xaaU
-#define	RANGE 2048
+#define FILL_BYTE 0xaaU
+#define RANGE 2048
 
 	for (i = 0; i < sizeof(start_sizes)/sizeof(size_t); i++) {
 		size_t start_size = start_sizes[i];
@@ -156,11 +147,10 @@ TEST_BEGIN(test_zero)
 }
 TEST_END
 
-TEST_BEGIN(test_align)
-{
+TEST_BEGIN(test_align) {
 	void *p, *q;
 	size_t align;
-#define	MAX_ALIGN (ZU(1) << 25)
+#define MAX_ALIGN (ZU(1) << 25)
 
 	align = ZU(1);
 	p = mallocx(1, MALLOCX_ALIGN(align));
@@ -181,13 +171,12 @@ TEST_BEGIN(test_align)
 }
 TEST_END
 
-TEST_BEGIN(test_lg_align_and_zero)
-{
+TEST_BEGIN(test_lg_align_and_zero) {
 	void *p, *q;
 	unsigned lg_align;
 	size_t sz;
-#define	MAX_LG_ALIGN 25
-#define	MAX_VALIDATE (ZU(1) << 22)
+#define MAX_LG_ALIGN 25
+#define MAX_VALIDATE (ZU(1) << 22)
 
 	lg_align = 0;
 	p = mallocx(1, MALLOCX_LG_ALIGN(lg_align)|MALLOCX_ZERO);
@@ -219,18 +208,17 @@ TEST_BEGIN(test_lg_align_and_zero)
 }
 TEST_END
 
-TEST_BEGIN(test_overflow)
-{
-	size_t hugemax;
+TEST_BEGIN(test_overflow) {
+	size_t largemax;
 	void *p;
 
-	hugemax = get_huge_size(get_nhuge()-1);
+	largemax = get_large_size(get_nlarge()-1);
 
 	p = mallocx(1, 0);
 	assert_ptr_not_null(p, "Unexpected mallocx() failure");
 
-	assert_ptr_null(rallocx(p, hugemax+1, 0),
-	    "Expected OOM for rallocx(p, size=%#zx, 0)", hugemax+1);
+	assert_ptr_null(rallocx(p, largemax+1, 0),
+	    "Expected OOM for rallocx(p, size=%#zx, 0)", largemax+1);
 
 	assert_ptr_null(rallocx(p, ZU(PTRDIFF_MAX)+1, 0),
 	    "Expected OOM for rallocx(p, size=%#zx, 0)", ZU(PTRDIFF_MAX)+1);
@@ -247,13 +235,11 @@ TEST_BEGIN(test_overflow)
 TEST_END
 
 int
-main(void)
-{
-
-	return (test(
+main(void) {
+	return test(
 	    test_grow_and_shrink,
 	    test_zero,
 	    test_align,
 	    test_lg_align_and_zero,
-	    test_overflow));
+	    test_overflow);
 }

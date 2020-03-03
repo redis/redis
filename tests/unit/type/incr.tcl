@@ -144,4 +144,11 @@ start_server {tags {"incr"}} {
         r set foo 1
         roundFloat [r incrbyfloat foo -1.1]
     } {-0.1}
+
+    test {string to double with null terminator} {
+        r set foo 1
+        r setrange foo 2 2
+        catch {r incrbyfloat foo 1} err
+        format $err
+    } {ERR*valid*}
 }

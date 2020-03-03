@@ -1,13 +1,8 @@
 #include "test/jemalloc_test.h"
 
-#ifdef JEMALLOC_PROF
-const char *malloc_conf = "prof:true,prof_active:false";
-#endif
-
 static void
 mallctl_thread_name_get_impl(const char *thread_name_expected, const char *func,
-    int line)
-{
+    int line) {
 	const char *thread_name_old;
 	size_t sz;
 
@@ -19,25 +14,22 @@ mallctl_thread_name_get_impl(const char *thread_name_expected, const char *func,
 	assert_str_eq(thread_name_old, thread_name_expected,
 	    "%s():%d: Unexpected thread.prof.name value", func, line);
 }
-#define	mallctl_thread_name_get(a)					\
+#define mallctl_thread_name_get(a)					\
 	mallctl_thread_name_get_impl(a, __func__, __LINE__)
 
 static void
 mallctl_thread_name_set_impl(const char *thread_name, const char *func,
-    int line)
-{
-
+    int line) {
 	assert_d_eq(mallctl("thread.prof.name", NULL, NULL,
 	    (void *)&thread_name, sizeof(thread_name)), 0,
 	    "%s():%d: Unexpected mallctl failure reading thread.prof.name",
 	    func, line);
 	mallctl_thread_name_get_impl(thread_name, func, line);
 }
-#define	mallctl_thread_name_set(a)					\
+#define mallctl_thread_name_set(a)					\
 	mallctl_thread_name_set_impl(a, __func__, __LINE__)
 
-TEST_BEGIN(test_prof_thread_name_validation)
-{
+TEST_BEGIN(test_prof_thread_name_validation) {
 	const char *thread_name;
 
 	test_skip_if(!config_prof);
@@ -76,11 +68,10 @@ TEST_BEGIN(test_prof_thread_name_validation)
 }
 TEST_END
 
-#define	NTHREADS	4
-#define	NRESET		25
+#define NTHREADS	4
+#define NRESET		25
 static void *
-thd_start(void *varg)
-{
+thd_start(void *varg) {
 	unsigned thd_ind = *(unsigned *)varg;
 	char thread_name[16] = "";
 	unsigned i;
@@ -99,11 +90,10 @@ thd_start(void *varg)
 	mallctl_thread_name_set(thread_name);
 	mallctl_thread_name_set("");
 
-	return (NULL);
+	return NULL;
 }
 
-TEST_BEGIN(test_prof_thread_name_threaded)
-{
+TEST_BEGIN(test_prof_thread_name_threaded) {
 	thd_t thds[NTHREADS];
 	unsigned thd_args[NTHREADS];
 	unsigned i;
@@ -114,18 +104,17 @@ TEST_BEGIN(test_prof_thread_name_threaded)
 		thd_args[i] = i;
 		thd_create(&thds[i], thd_start, (void *)&thd_args[i]);
 	}
-	for (i = 0; i < NTHREADS; i++)
+	for (i = 0; i < NTHREADS; i++) {
 		thd_join(thds[i], NULL);
+	}
 }
 TEST_END
 #undef NTHREADS
 #undef NRESET
 
 int
-main(void)
-{
-
-	return (test(
+main(void) {
+	return test(
 	    test_prof_thread_name_validation,
-	    test_prof_thread_name_threaded));
+	    test_prof_thread_name_threaded);
 }

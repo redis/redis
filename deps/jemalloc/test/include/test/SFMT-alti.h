@@ -33,8 +33,8 @@
  *   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  *   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-/** 
- * @file SFMT-alti.h 
+/**
+ * @file SFMT-alti.h
  *
  * @brief SIMD oriented Fast Mersenne Twister(SFMT)
  * pseudorandom number generator
@@ -95,7 +95,7 @@ vector unsigned int vec_recursion(vector unsigned int a,
  * This function fills the internal state array with pseudorandom
  * integers.
  */
-JEMALLOC_INLINE void gen_rand_all(sfmt_t *ctx) {
+static inline void gen_rand_all(sfmt_t *ctx) {
     int i;
     vector unsigned int r, r1, r2;
 
@@ -119,10 +119,10 @@ JEMALLOC_INLINE void gen_rand_all(sfmt_t *ctx) {
  * This function fills the user-specified array with pseudorandom
  * integers.
  *
- * @param array an 128-bit array to be filled by pseudorandom numbers.  
+ * @param array an 128-bit array to be filled by pseudorandom numbers.
  * @param size number of 128-bit pesudorandom numbers to be generated.
  */
-JEMALLOC_INLINE void gen_rand_array(sfmt_t *ctx, w128_t *array, int size) {
+static inline void gen_rand_array(sfmt_t *ctx, w128_t *array, int size) {
     int i, j;
     vector unsigned int r, r1, r2;
 
@@ -173,7 +173,7 @@ JEMALLOC_INLINE void gen_rand_array(sfmt_t *ctx, w128_t *array, int size) {
  * @param array an 128-bit array to be swaped.
  * @param size size of 128-bit array.
  */
-JEMALLOC_INLINE void swap(w128_t *array, int size) {
+static inline void swap(w128_t *array, int size) {
     int i;
     const vector unsigned char perm = ALTI_SWAP;
 
