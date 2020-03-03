@@ -1786,6 +1786,7 @@ void loadingProgress(off_t pos);
 void stopLoading(int success);
 void startSaving(int rdbflags);
 void stopSaving(int success);
+int allPersistenceDisabled(void);
 
 #define DISK_ERROR_TYPE_AOF 1       /* Don't accept writes: AOF errors. */
 #define DISK_ERROR_TYPE_RDB 2       /* Don't accept writes: RDB errors. */
