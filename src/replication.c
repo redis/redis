@@ -944,10 +944,14 @@ void removeRDBUsedToSyncReplicas(void) {
             }
         }
         if (delrdb) {
-            serverLog(LL_NOTICE,"Removing the RDB file used to feed replicas "
-                                "in a persistence-less instance");
-            RDBGeneratedByReplication = 0;
-            bg_unlink(server.rdb_filename);
+            struct stat sb;
+            if (lstat(server.rdb_filename,&sb) != -1) {
+                RDBGeneratedByReplication = 0;
+                serverLog(LL_NOTICE,
+                    "Removing the RDB file used to feed replicas "
+                    "in a persistence-less instance");
+                bg_unlink(server.rdb_filename);
+            }
         }
     }
 }
