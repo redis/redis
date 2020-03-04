@@ -944,6 +944,8 @@ void removeRDBUsedToSyncReplicas(void) {
             }
         }
         if (delrdb) {
+            serverLog(LL_NOTICE,"Removing the RDB file used to feed replicas "
+                                "in a persistence-less instance");
             RDBGeneratedByReplication = 0;
             bg_unlink(server.rdb_filename);
         }
@@ -1707,14 +1709,25 @@ void readSyncBulkPayload(connection *conn) {
                 "Failed trying to load the MASTER synchronization "
                 "DB from disk");
             cancelReplicationHandshake();
-            if (allPersistenceDisabled()) bg_unlink(server.rdb_filename);
+            if (allPersistenceDisabled()) {
+                serverLog(LL_NOTICE,"Removing the RDB file obtained from "
+                                    "the master. This replica has persistence "
+                                    "disabled");
+                bg_unlink(server.rdb_filename);
+            }
             /* Note that there's no point in restarting the AOF on sync failure,
                it'll be restarted when sync succeeds or replica promoted. */
             return;
         }
 
         /* Cleanup. */
-        if (allPersistenceDisabled()) bg_unlink(server.rdb_filename);
+        if (allPersistenceDisabled()) {
+            serverLog(LL_NOTICE,"Removing the RDB file obtained from "
+                                "the master. This replica has persistence "
+                                "disabled");
+            bg_unlink(server.rdb_filename);
+        }
+
         zfree(server.repl_transfer_tmpfile);
         close(server.repl_transfer_fd);
         server.repl_transfer_fd = -1;
