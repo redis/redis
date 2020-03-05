@@ -12,6 +12,609 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 6.0 RC2     Released Thu Mar 05 15:40:53 CET 2020
+================================================================================
+
+Upgrade urgency MODERATE: Normal bugfixing release of a non-GA branch.
+
+Hi Redis users, Redis 6 is approaching and will be released 30th of April.
+New release candidates will be released at the end of March, then another
+one mid April, to finally reach the GA at the end of April.
+
+Redis 6 RC2 brings many fixes and new things, especially in the area of
+client side caching. This is the list of big changes in this release. As
+usually you can find the full list of commits at the end:
+
+New features and improvements:
+
+* ACL LOG: log denied commands, keys accesses and authentications.
+* Client side caching redesigned. Now we use keys not caching slots.
+* Client side caching: Broadcasting mode implemented.
+* Client side caching: OPTIN/OUTPUT modes implemented.
+* Remove RDB files used for replication in persistence-less instances (option).
+
+Fixes (only selected ones, see commits for all the fixes):
+
+* Different fixes to streams in edge cases.
+* Fix duplicated CLIENT SETNAME reply because of RESP3 changes.
+* Fix crash due to new active expire division by zero.
+* Avoid sentinel changes promoted_slave to be its own replica.
+* Fix bug on KEYS command where pattern starts with * followed by \x00.
+* Threaded I/O: now the main thread is used as well to do I/O.
+* Many fixes to modules APIs, and more to come in the next RCs.
+* ld2string should fail if string contains \0 in the middle.
+* Make the Redis test more reliable.
+* Fix SPOP returning nil (see #4709). WARNING: API change.
+
+qetu3790 in commit 4af0d7fd:
+ Fix not used constant in lru_test_mode.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+hwware in commit 6ef01878:
+ add missing file marco
+ 1 file changed, 5 insertions(+)
+
+ShooterIT in commit fe81d5c8:
+ Avoid compiler warnings
+ 1 file changed, 1 insertion(+)
+
+antirez in commit c2f01d7f:
+ RDB deletion: document it in example redis.conf.
+ 1 file changed, 13 insertions(+)
+
+antirez in commit 127e09bc:
+ Make sync RDB deletion configurable. Default to no.
+ 3 files changed, 22 insertions(+), 4 deletions(-)
+
+antirez in commit a20303c6:
+ Check that the file exists in removeRDBUsedToSyncReplicas().
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+
+antirez in commit 7a23b945:
+ Log RDB deletion in persistence-less instances.
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+
+antirez in commit baaf869f:
+ Introduce bg_unlink().
+ 1 file changed, 31 insertions(+), 3 deletions(-)
+
+antirez in commit be4bc1a5:
+ Remove RDB files used for replication in persistence-less instances.
+ 3 files changed, 56 insertions(+), 1 deletion(-)
+
+antirez in commit 07dc1b42:
+ Use a smaller getkeys global buffer.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Oran Agra in commit 10e71b3d:
+ Optimize temporary memory allocations for getKeysFromCommand mechanism
+ 1 file changed, 31 insertions(+), 10 deletions(-)
+
+antirez in commit edc0ed14:
+ Modules: reformat RM_Scan() top comment a bit.
+ 1 file changed, 21 insertions(+), 12 deletions(-)
+
+antirez in commit c5319612:
+ Modules: more details in RM_Scan API top comment.
+ 1 file changed, 22 insertions(+), 6 deletions(-)
+
+Oran Agra in commit fff6b26a:
+ RM_Scan disable dict rehashing
+ 2 files changed, 21 insertions(+), 6 deletions(-)
+
+Guy Benoish in commit 65048460:
+ Add RM_CreateStringFromDouble
+ 2 files changed, 14 insertions(+)
+
+Oran Agra in commit 3144a278:
+ add no_auth to COMMAND INFO
+ 1 file changed, 1 insertion(+)
+
+Oran Agra in commit afe0b16c:
+ module api docs for aux_save and aux_load
+ 2 files changed, 7 insertions(+), 1 deletion(-)
+
+Guy Benoish in commit df152b0c:
+ streamReplyWithRangeFromConsumerPEL: Redundant streamDecodeID
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+antirez in commit e3c1f439:
+ Show Redis version when not understanding a config directive.
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+antirez in commit 141c0679:
+ Changelog: explain Redis 6 SPOP change.
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+bodong.ybd in commit fe902461:
+ Fix spop return nil #4709
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 9d4219eb:
+ Fix SDS misuse in enumConfigSet(). Related to #6778.
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+antirez in commit 84243064:
+ Remove useless comment from enumConfigSet().
+ 1 file changed, 1 deletion(-)
+
+Ponnuvel Palaniyappan in commit dafb94db:
+ Fix a potential overflow with strncpy
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+antirez in commit ea697b63:
+ Improve aeDeleteEventLoop() top comment grammar.
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+wangyuan21 in commit dd479880:
+ free time event when delete eventloop
+ 1 file changed, 7 insertions(+)
+
+srzhao in commit ecf3b2ef:
+ fix impl of aof-child whitelist SIGUSR1 feature.
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+meir@redislabs.com in commit 2966132c:
+ Changed log level for module fork api from 'notice' to 'verbos'.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+hwware in commit 7277e5d8:
+ format fix
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+hwware in commit 1bb5ee9c:
+ fix potentical memory leaks
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+Hengjian Tang in commit 97329733:
+ modify the read buf size according to the write buf size PROTO_IOBUF_LEN defined before
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Ariel in commit 15ea1324:
+ fix ThreadSafeContext lock/unlock function names
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Guy Benoish in commit 4d12c37c:
+ XREADGROUP should propagate XCALIM/SETID in MULTI/EXEC
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Oran Agra in commit 12626ce9:
+ fix race in module api test for fork
+ 2 files changed, 2 insertions(+), 3 deletions(-)
+
+Guy Benoish in commit 2ecab0b6:
+ Modules: Do not auto-unblock clients if not blocked on keys
+ 1 file changed, 22 insertions(+), 7 deletions(-)
+
+Oran Agra in commit 635321d4:
+ fix github actions failing latency test for active defrag - part 2
+ 2 files changed, 5 insertions(+), 4 deletions(-)
+
+Oran Agra in commit 0b988fa9:
+ fix github actions failing latency test for active defrag
+ 2 files changed, 14 insertions(+), 13 deletions(-)
+
+Oran Agra in commit 60096bc1:
+ Fix latency sensitivity of new defrag test
+ 1 file changed, 32 insertions(+), 8 deletions(-)
+
+antirez in commit b4395426:
+ Tracking: optin/out implemented.
+ 3 files changed, 82 insertions(+), 16 deletions(-)
+
+antirez in commit ef3551d1:
+ Test engine: experimental change to avoid busy port problems.
+ 1 file changed, 84 insertions(+), 49 deletions(-)
+
+antirez in commit 72c05351:
+ Test engine: detect timeout when checking for Redis startup.
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+antirez in commit 294c9af4:
+ Test engine: better tracking of what workers are doing.
+ 2 files changed, 12 insertions(+), 4 deletions(-)
+
+hwware in commit ba027079:
+ add missing subcommand description for debug oom
+ 1 file changed, 1 insertion(+)
+
+Guy Benoish in commit 5d0890c0:
+ Fix memory leak in test_ld_conv
+ 1 file changed, 4 insertions(+)
+
+Madelyn Olson in commit d1f22eac:
+ Give an error message if you specify redirect twice
+ 1 file changed, 7 insertions(+)
+
+Madelyn Olson in commit 762fbcb6:
+ Minor CSC fixes and fixed documentation
+ 2 files changed, 16 insertions(+), 17 deletions(-)
+
+Oran Agra in commit 349aa245:
+ Defrag big lists in portions to avoid latency and freeze
+ 4 files changed, 350 insertions(+), 34 deletions(-)
+
+Guy Benoish in commit b4ddc7b7:
+ XGROUP DESTROY should unblock XREADGROUP with -NOGROUP
+ 2 files changed, 11 insertions(+)
+
+hayashier in commit 73806f74:
+ fix typo from fss to rss
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit b6129f86:
+ Test is more complex now, increase default timeout.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit f15fb727:
+ Tracking: fix max-keys configuration directive.
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+Itamar Haber in commit e374573f:
+ Fixes segfault on calling trackingGetTotalKeys
+ 1 file changed, 1 insertion(+)
+
+antirez in commit 73d47d57:
+ Signal key as modified when expired on-access.
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+antirez in commit b7cb28d5:
+ Tracking: first set of tests for the feature.
+ 1 file changed, 66 insertions(+)
+
+antirez in commit 1db72571:
+ Tracking: fix operators precedence error in bcast check.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit fe96e29d:
+ Tracking: fix behavior when switchinig from normal to BCAST.
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+antirez in commit f21be1ec:
+ Tracking: fix sending messages bug + tracking off bug.
+ 2 files changed, 28 insertions(+), 20 deletions(-)
+
+antirez in commit 6fb1aa23:
+ Tracking: BCAST: basic feature now works.
+ 3 files changed, 55 insertions(+), 40 deletions(-)
+
+antirez in commit d4fe79a1:
+ Tracking: BCAST: broadcasting of keys in prefixes implemented.
+ 2 files changed, 94 insertions(+), 9 deletions(-)
+
+antirez in commit abb81c63:
+ Tracking: BCAST: registration in the prefix table.
+ 3 files changed, 67 insertions(+), 20 deletions(-)
+
+antirez in commit 77da9608:
+ Tracking: BCAST: parsing of the options + skeleton.
+ 4 files changed, 73 insertions(+), 19 deletions(-)
+
+antirez in commit 3e8c69a9:
+ Tracking: always reply with an array of keys.
+ 2 files changed, 10 insertions(+), 3 deletions(-)
+
+antirez in commit a788c373:
+ Tracking: minor change of names and new INFO field.
+ 4 files changed, 11 insertions(+), 4 deletions(-)
+
+antirez in commit df838927:
+ Rax.c: populate data field after random walk.
+ 1 file changed, 1 insertion(+)
+
+antirez in commit 0517da36:
+ Tracking: rename INFO field with total items.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 3c16d6b3:
+ Tracking: first conversion from hashing to key names.
+ 3 files changed, 84 insertions(+), 114 deletions(-)
+
+Oran Agra in commit 3b4f1477:
+ add no-slowlog option to RM_CreateCommand
+ 1 file changed, 3 insertions(+)
+
+Khem Raj in commit 5e762d84:
+ Mark extern definition of SDS_NOINIT in sds.h
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+lifubang in commit 54f5499a:
+ correct help info for --user and --pass
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Seunghoon Woo in commit 0c952b13:
+ [FIX] revisit CVE-2015-8080 vulnerability
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+Guy Benoish in commit dd34f703:
+ Diskless-load emptyDb-related fixes
+ 3 files changed, 44 insertions(+), 28 deletions(-)
+
+lifubang in commit 5e042dbc:
+ fix ssl flag check for redis-cli
+ 1 file changed, 10 insertions(+), 9 deletions(-)
+
+Guy Benoish in commit dcbe8bfa:
+ Exclude "keymiss" notification from NOTIFY_ALL
+ 5 files changed, 12 insertions(+), 7 deletions(-)
+
+Oran Agra in commit 36caf2e4:
+ update RM_SignalModifiedKey doc comment
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+Oran Agra in commit 3067352a:
+ Add handling of short read of module id in rdb
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+Yossi Gottlieb in commit 9baaf858:
+ TLS: Update documentation.
+ 2 files changed, 32 insertions(+), 31 deletions(-)
+
+Oran Agra in commit 4440133e:
+ A few non-data commands that should be allowed while loading or stale
+ 1 file changed, 8 insertions(+), 8 deletions(-)
+
+Oran Agra in commit c9577941:
+ Memory leak when bind config is provided twice
+ 1 file changed, 4 insertions(+)
+
+Oran Agra in commit 1333a46b:
+ fix maxmemory config warning
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+Oran Agra in commit 8e7282eb:
+ Fix client flags to be int64 in module.c
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+Oran Agra in commit a678390e:
+ moduleRDBLoadError, add key name, and use panic rather than exit
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+Oran Agra in commit 919fbf42:
+ reduce repeated calls to use_diskless_load
+ 1 file changed, 3 insertions(+), 4 deletions(-)
+
+Oran Agra in commit 22e45d46:
+ freeClientAsync don't lock mutex if there's just one thread
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+Oran Agra in commit ba289244:
+ move restartAOFAfterSYNC from replicaofCommand to replicationUnsetMaster
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+Oran Agra in commit f42ce57d:
+ stopAppendOnly resets aof_rewrite_scheduled
+ 1 file changed, 1 insertion(+)
+
+Oran Agra in commit df096bc9:
+ add SAVE subcommand to ACL HELP and top comment
+ 1 file changed, 2 insertions(+)
+
+Oran Agra in commit a55e5847:
+ DEBUG HELP - add PROTOCOL
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+Guy Benoish in commit 5a6cfbf4:
+ Some refactroing using getClientType instead of CLIENT_SLAVE
+ 2 files changed, 18 insertions(+), 26 deletions(-)
+
+Guy Benoish in commit fae306b3:
+ Fix small bugs related to replica and monitor ambiguity
+ 2 files changed, 8 insertions(+), 6 deletions(-)
+
+Yossi Gottlieb in commit 73630966:
+ TLS: Some redis.conf clarifications.
+ 1 file changed, 10 insertions(+), 11 deletions(-)
+
+Oran Agra in commit 488e1947:
+ config.c verbose error replies for CONFIG SET, like config file parsing
+ 1 file changed, 31 insertions(+), 97 deletions(-)
+
+Oran Agra in commit c82ccf06:
+ memoryGetKeys helper function so that ACL can limit access to keys for MEMORY command
+ 3 files changed, 18 insertions(+), 1 deletion(-)
+
+antirez in commit 51c1a9f8:
+ ACL LOG: make max log entries configurable.
+ 4 files changed, 19 insertions(+)
+
+antirez in commit ea1e1b12:
+ ACL LOG: test for AUTH reason.
+ 1 file changed, 9 insertions(+)
+
+antirez in commit 7379c78a:
+ ACL LOG: log failed auth attempts.
+ 5 files changed, 34 insertions(+), 12 deletions(-)
+
+antirez in commit 9f6e84f6:
+ ACL LOG: implement a few basic tests.
+ 1 file changed, 87 insertions(+)
+
+antirez in commit 82790e51:
+ ACL LOG: also log ACL errors in the scripting/MULTI ctx.
+ 2 files changed, 6 insertions(+), 2 deletions(-)
+
+antirez in commit 943008eb:
+ ACL LOG: implement LOG RESET.
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+antirez in commit e271a611:
+ ACL LOG: group similar entries in a given time delta.
+ 1 file changed, 58 insertions(+), 3 deletions(-)
+
+antirez in commit f1974d5d:
+ ACL LOG: actually emit entries.
+ 3 files changed, 34 insertions(+), 5 deletions(-)
+
+antirez in commit d9b153c9:
+ ACL LOG: implement ACL LOG subcommadn skeleton.
+ 1 file changed, 37 insertions(+)
+
+antirez in commit 577fc438:
+ ACL LOG: data structures and initial functions.
+ 5 files changed, 54 insertions(+), 5 deletions(-)
+
+Leo Murillo in commit f7a94526:
+ Set ZSKIPLIST_MAXLEVEL to optimal value given 2^64 elements and p=0.25
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+WuYunlong in commit eecfa979:
+ Fix lua related memory leak.
+ 1 file changed, 1 insertion(+)
+
+WuYunlong in commit d2509811:
+ Add tcl regression test in scripting.tcl to reproduce memory leak.
+ 1 file changed, 5 insertions(+)
+
+Yossi Gottlieb in commit 29d4a150:
+ TLS: Fix missing initialization in redis-cli.
+ 1 file changed, 9 insertions(+)
+
+Oran Agra in commit ec0c61da:
+ fix uninitialized info_cb var in module.c
+ 1 file changed, 1 insertion(+)
+
+Guy Benoish in commit 6fe55c2f:
+ ld2string should fail if string contains \0 in the middle
+ 5 files changed, 20 insertions(+), 11 deletions(-)
+
+antirez in commit bbce3ba9:
+ Add more info in the unblockClientFromModule() function.
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+Guy Benoish in commit 40295fb3:
+ Modules: Fix blocked-client-related memory leak
+ 3 files changed, 51 insertions(+), 6 deletions(-)
+
+antirez in commit 8e9d19bc:
+ Change error message for #6775.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Vasyl Melnychuk in commit ba146d4c:
+ Make error when submitting command in incorrect context more explicit
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+antirez in commit 721a39dd:
+ Document I/O threads in redis.conf.
+ 1 file changed, 46 insertions(+)
+
+antirez in commit 5be3a15a:
+ Setting N I/O threads should mean N-1 additional + 1 main thread.
+ 1 file changed, 25 insertions(+), 22 deletions(-)
+
+antirez in commit cbabf779:
+ Simplify #6379 changes.
+ 2 files changed, 4 insertions(+), 9 deletions(-)
+
+WuYunlong in commit 658749cc:
+ Free allocated sds in pfdebugCommand() to avoid memory leak.
+ 1 file changed, 1 insertion(+)
+
+WuYunlong in commit 47988c96:
+ Fix potential memory leak of clusterLoadConfig().
+ 1 file changed, 20 insertions(+), 5 deletions(-)
+
+WuYunlong in commit cc90f79b:
+ Fix potential memory leak of rioWriteBulkStreamID().
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+antirez in commit ecd17e81:
+ Jump to right label on AOF parsing error.
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+antirez in commit 1927932b:
+ Port PR #6110 to new connection object code.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit f2df5773:
+ A few comments about main thread serving I/O as well.
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+zhaozhao.zz in commit b3ff8a4b:
+ Threaded IO: use main thread to handle read work
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+zhaozhao.zz in commit b1f2c510:
+ Threaded IO: use main thread to handle write work
+ 1 file changed, 10 insertions(+), 2 deletions(-)
+
+ShooterIT in commit 7bbafc56:
+ Rename rdb asynchronously
+ 1 file changed, 7 insertions(+)
+
+Leo Murillo in commit c7f75266:
+ Fix bug on KEYS command where pattern starts with * followed by \x00 (null char).
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Jamie Scott in commit ed7ea13a:
+ Update to directive in redis.conf (missing s)
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 3be77623:
+ Free fakeclient argv on AOF error.
+ 1 file changed, 11 insertions(+), 3 deletions(-)
+
+antirez in commit 15f6b748:
+ Git ignore: ignore more files.
+ 1 file changed, 2 insertions(+)
+
+Guy Benoish in commit 1b5bf40c:
+ Blocking XREAD[GROUP] should always reply with valid data (or timeout)
+ 3 files changed, 44 insertions(+), 10 deletions(-)
+
+John Sully in commit 954c20ed:
+ Add support for incremental build with header files
+ 2 files changed, 6 insertions(+), 1 deletion(-)
+
+WuYunlong in commit 11c3afd7:
+ Fix petential cluster link error.
+ 1 file changed, 4 insertions(+)
+
+Yossi Gottlieb in commit b752e83d:
+ Add REDISMODULE_CTX_FLAGS_MULTI_DIRTY.
+ 2 files changed, 8 insertions(+)
+
+hwware in commit e16eb874:
+ typo fix in acl.c
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Itamar Haber in commit 35ea9d23:
+ Adjusts 'io_threads_num' max to 128
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 38729126:
+ XCLAIM: Create the consumer only on successful claims.
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+yz1509 in commit b9a15303:
+ avoid sentinel changes promoted_slave to be its own replica.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 5e7e5e6b:
+ Fix active expire division by zero.
+ 1 file changed, 7 insertions(+), 4 deletions(-)
+
+antirez in commit e61dde88:
+ Fix duplicated CLIENT SETNAME reply.
+ 1 file changed, 1 deletion(-)
+
+Guy Benoish in commit cddf1da2:
+ Stream: Handle streamID-related edge cases
+ 4 files changed, 54 insertions(+), 4 deletions(-)
+
+Oran Agra in commit 52ea44e5:
+ config.c adjust config limits and mutable
+ 2 files changed, 7 insertions(+), 7 deletions(-)
+
+antirez in commit 0f28ea16:
+ Inline protocol: handle empty strings well.
+ 1 file changed, 2 insertions(+), 6 deletions(-)
+
+antirez in commit 00e5fefe:
+ Fix ip and missing mode in RM_GetClusterNodeInfo().
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+================================================================================
 Redis 6.0 RC1   Released Thu Dec 19 09:58:24 CEST 2019
 ================================================================================
 
