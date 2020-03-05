@@ -7737,7 +7737,7 @@ static void LRUTestMode(void) {
          * to fill the target instance easily. */
         start_cycle = mstime();
         long long hits = 0, misses = 0;
-        while(mstime() - start_cycle < 1000) {
+        while(mstime() - start_cycle < LRU_CYCLE_PERIOD) {
             /* Write cycle. */
             for (j = 0; j < LRU_CYCLE_PIPELINE_SIZE; j++) {
                 char val[6];
