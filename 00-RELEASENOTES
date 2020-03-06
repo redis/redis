@@ -30,7 +30,7 @@ New features and improvements:
 * ACL LOG: log denied commands, keys accesses and authentications.
 * Client side caching redesigned. Now we use keys not caching slots.
 * Client side caching: Broadcasting mode implemented.
-* Client side caching: OPTIN/OUTPUT modes implemented.
+* Client side caching: OPTIN/OPTOUT modes implemented.
 * Remove RDB files used for replication in persistence-less instances (option).
 
 Fixes (only selected ones, see commits for all the fixes):
