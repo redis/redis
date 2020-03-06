@@ -2182,6 +2182,10 @@ void syncWithMaster(connection *conn) {
 
     if (psync_result == PSYNC_CONTINUE) {
         serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Master accepted a Partial Resynchronization.");
+        if (server.supervised_mode == SUPERVISED_SYSTEMD) {
+            redisCommunicateSystemd("STATUS=MASTER <-> REPLICA sync: Partial Resynchronization accepted. Ready to accept connections.\n");
+            redisCommunicateSystemd("READY=1\n");
+        }
         return;
     }
 
