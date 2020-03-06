@@ -1352,7 +1352,7 @@ void disklessLoadRestoreBackups(redisDb *backup, int restore, int empty_db_flags
 /* Asynchronously read the SYNC payload we receive from a master */
 #define REPL_MAX_WRITTEN_BEFORE_FSYNC (1024*1024*8) /* 8 MB */
 void readSyncBulkPayload(connection *conn) {
-    char buf[4096];
+    char buf[PROTO_IOBUF_LEN];
     ssize_t nread, readlen, nwritten;
     int use_diskless_load = useDisklessLoad();
     redisDb *diskless_load_backup = NULL;

@@ -108,12 +108,12 @@ clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUNT] = {
 /* Generic config infrastructure function pointers
  * int is_valid_fn(val, err)
  *     Return 1 when val is valid, and 0 when invalid.
- *     Optionslly set err to a static error string.
+ *     Optionally set err to a static error string.
  * int update_fn(val, prev, err)
  *     This function is called only for CONFIG SET command (not at config file parsing)
  *     It is called after the actual config is applied,
  *     Return 1 for success, and 0 for failure.
- *     Optionslly set err to a static error string.
+ *     Optionally set err to a static error string.
  *     On failure the config change will be reverted.
  */
 
@@ -518,7 +518,8 @@ void loadServerConfigFromString(char *config) {
     return;
 
 loaderr:
-    fprintf(stderr, "\n*** FATAL CONFIG FILE ERROR ***\n");
+    fprintf(stderr, "\n*** FATAL CONFIG FILE ERROR (Redis %s) ***\n",
+        REDIS_VERSION);
     fprintf(stderr, "Reading the configuration file, at line %d\n", linenum);
     fprintf(stderr, ">>> '%s'\n", lines[i]);
     fprintf(stderr, "%s\n", err);
@@ -729,7 +730,7 @@ void configSetCommand(client *c) {
      * config_set_memory_field(name,var) */
     } config_set_memory_field(
       "client-query-buffer-limit",server.client_max_querybuf_len) {
-    /* Everyhing else is an error... */
+    /* Everything else is an error... */
     } config_set_else {
         addReplyErrorFormat(c,"Unsupported CONFIG parameter: %s",
             (char*)c->argv[2]->ptr);
@@ -1666,16 +1667,15 @@ static int enumConfigSet(typeData data, sds value, int update, char **err) {
         sds enumerr = sdsnew("argument must be one of the following: ");
         configEnum *enumNode = data.enumd.enum_value;
         while(enumNode->name != NULL) {
-            enumerr = sdscatlen(enumerr, enumNode->name, strlen(enumNode->name));
+            enumerr = sdscatlen(enumerr, enumNode->name,
+                                strlen(enumNode->name));
             enumerr = sdscatlen(enumerr, ", ", 2);
             enumNode++;
         }
+        sdsrange(enumerr,0,-3); /* Remove final ", ". */
 
-        enumerr[sdslen(enumerr) - 2] = '\0';
-
-        /* Make sure we don't overrun the fixed buffer */
-        enumerr[LOADBUF_SIZE - 1] = '\0';
         strncpy(loadbuf, enumerr, LOADBUF_SIZE);
+        loadbuf[LOADBUF_SIZE - 1] = '\0';
 
         sdsfree(enumerr);
         *err = loadbuf;

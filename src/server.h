@@ -248,6 +248,10 @@ typedef long long ustime_t; /* microsecond time type. */
                                    perform client side caching. */
 #define CLIENT_TRACKING_BROKEN_REDIR (1ULL<<32) /* Target client is invalid. */
 #define CLIENT_TRACKING_BCAST (1ULL<<33) /* Tracking in BCAST mode. */
+#define CLIENT_TRACKING_OPTIN (1ULL<<34)  /* Tracking in opt-in mode. */
+#define CLIENT_TRACKING_OPTOUT (1ULL<<35) /* Tracking in opt-out mode. */
+#define CLIENT_TRACKING_CACHING (1ULL<<36) /* CACHING yes/no was given,
+                                              depending on optin/optout mode. */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -1651,7 +1655,7 @@ void addReplyStatusFormat(client *c, const char *fmt, ...);
 #endif
 
 /* Client side caching (tracking mode) */
-void enableTracking(client *c, uint64_t redirect_to, int bcast, robj **prefix, size_t numprefix);
+void enableTracking(client *c, uint64_t redirect_to, uint64_t options, robj **prefix, size_t numprefix);
 void disableTracking(client *c);
 void trackingRememberKeys(client *c);
 void trackingInvalidateKey(robj *keyobj);

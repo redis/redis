@@ -39,6 +39,8 @@ start_server {tags {"memefficiency"}} {
 start_server {tags {"defrag"}} {
     if {[string match {*jemalloc*} [s mem_allocator]]} {
         test "Active defrag" {
+            r config set save "" ;# prevent bgsave from interfereing with save below
+            r config set hz 100
             r config set activedefrag no
             r config set active-defrag-threshold-lower 5
             r config set active-defrag-cycle-min 65
@@ -46,8 +48,8 @@ start_server {tags {"defrag"}} {
             r config set active-defrag-ignore-bytes 2mb
             r config set maxmemory 100mb
             r config set maxmemory-policy allkeys-lru
-            r debug populate 700000 asdf 150
-            r debug populate 170000 asdf 300
+            r debug populate 700000 asdf1 150
+            r debug populate 170000 asdf2 300
             r ping ;# trigger eviction following the previous population
             after 120 ;# serverCron only updates the info once in 100ms
             set frag [s allocator_frag_ratio]
@@ -55,6 +57,11 @@ start_server {tags {"defrag"}} {
                 puts "frag $frag"
             }
             assert {$frag >= 1.4}
+
+            r config set latency-monitor-threshold 5
+            r latency reset
+            r config set maxmemory 110mb ;# prevent further eviction (not to fail the digest test)
+            set digest [r debug digest]
             catch {r config set activedefrag yes} e
             if {![string match {DISABLED*} $e]} {
                 # Wait for the active defrag to start working (decision once a
@@ -78,19 +85,37 @@ start_server {tags {"defrag"}} {
                 # Test the the fragmentation is lower.
                 after 120 ;# serverCron only updates the info once in 100ms
                 set frag [s allocator_frag_ratio]
+                set max_latency 0
+                foreach event [r latency latest] {
+                    lassign $event eventname time latency max
+                    if {$eventname == "active-defrag-cycle"} {
+                        set max_latency $max
+                    }
+                }
                 if {$::verbose} {
                     puts "frag $frag"
+                    puts "max latency $max_latency"
+                    puts [r latency latest]
+                    puts [r latency history active-defrag-cycle]
                 }
                 assert {$frag < 1.1}
+                # due to high fragmentation, 100hz, and active-defrag-cycle-max set to 75,
+                # we expect max latency to be not much higher than 7.5ms but due to rare slowness threshold is set higher
+                assert {$max_latency <= 30}
             } else {
                 set _ ""
             }
-        } {}
+            # verify the data isn't corrupted or changed
+            set newdigest [r debug digest]
+            assert {$digest eq $newdigest}
+            r save ;# saving an rdb iterates over all the data / pointers
+        } {OK}
 
         test "Active defrag big keys" {
             r flushdb
             r config resetstat
             r config set save "" ;# prevent bgsave from interfereing with save below
+            r config set hz 100
             r config set activedefrag no
             r config set active-defrag-max-scan-fields 1000
             r config set active-defrag-threshold-lower 5
@@ -142,7 +167,7 @@ start_server {tags {"defrag"}} {
             for {set j 0} {$j < 500000} {incr j} {
                 $rd read ; # Discard replies
             }
-            assert {[r dbsize] == 500010}
+            assert_equal [r dbsize] 500010
 
             # create some fragmentation
             for {set j 0} {$j < 500000} {incr j 2} {
@@ -151,7 +176,7 @@ start_server {tags {"defrag"}} {
             for {set j 0} {$j < 500000} {incr j 2} {
                 $rd read ; # Discard replies
             }
-            assert {[r dbsize] == 250010}
+            assert_equal [r dbsize] 250010
 
             # start defrag
             after 120 ;# serverCron only updates the info once in 100ms
@@ -200,9 +225,9 @@ start_server {tags {"defrag"}} {
                     puts [r latency history active-defrag-cycle]
                 }
                 assert {$frag < 1.1}
-                # due to high fragmentation, 10hz, and active-defrag-cycle-max set to 75,
-                # we expect max latency to be not much higher than 75ms
-                assert {$max_latency <= 120}
+                # due to high fragmentation, 100hz, and active-defrag-cycle-max set to 75,
+                # we expect max latency to be not much higher than 7.5ms but due to rare slowness threshold is set higher
+                assert {$max_latency <= 30}
             }
             # verify the data isn't corrupted or changed
             set newdigest [r debug digest]
@@ -292,8 +317,8 @@ start_server {tags {"defrag"}} {
                 }
                 assert {$frag < 1.1}
                 # due to high fragmentation, 100hz, and active-defrag-cycle-max set to 75,
-                # we expect max latency to be not much higher than 7.5ms
-                assert {$max_latency <= 12}
+                # we expect max latency to be not much higher than 7.5ms but due to rare slowness threshold is set higher
+                assert {$max_latency <= 30}
             }
             # verify the data isn't corrupted or changed
             set newdigest [r debug digest]
