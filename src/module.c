@@ -1591,7 +1591,7 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
     int argc = 0, flags = 0, j;
     va_list ap;
 
-    cmd = lookupCommandByCString((char*)cmdname);
+    cmd = lookupCommandByCString((const char*)cmdname);
     if (!cmd) return REDISMODULE_ERR;
 
     /* Create the client and dispatch the command. */
@@ -4109,7 +4109,7 @@ void RM_EmitAOF(RedisModuleIO *io, const char *cmdname, const char *fmt, ...) {
     int argc = 0, flags = 0, j;
     va_list ap;
 
-    cmd = lookupCommandByCString((char*)cmdname);
+    cmd = lookupCommandByCString((const char*)cmdname);
     if (!cmd) {
         serverLog(LL_WARNING,
             "Fatal: AOF method for module data type '%s' tried to "

@@ -49,6 +49,7 @@
 #include <sys/socket.h>
 #include <lua.h>
 #include <signal.h>
+#include <atomic>
 
 #ifdef HAVE_LIBSYSTEMD
 #include <systemd/sd-daemon.h>
@@ -537,7 +538,7 @@ typedef struct moduleValue {
  * to care about error conditions. */
 typedef struct RedisModuleIO {
     size_t bytes;       /* Bytes read / written so far. */
-    rio *rio;           /* Rio stream. */
+    _rio *rio;           /* Rio stream. */
     moduleType *type;   /* Module type doing the operation. */
     int error;          /* True if error condition happened. */
     int ver;            /* Module serialization version: 1 (old),
@@ -633,11 +634,11 @@ typedef struct clientReplyBlock {
  * by integers from 0 (the default database) up to the max configured
  * database. The database number is the 'id' field in the structure. */
 typedef struct redisDb {
-    dict *dict;                 /* The keyspace for this DB */
-    dict *expires;              /* Timeout of keys with a timeout set */
-    dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
-    dict *ready_keys;           /* Blocked keys that received a PUSH */
-    dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
+    struct dict *dict;                 /* The keyspace for this DB */
+    struct dict *expires;              /* Timeout of keys with a timeout set */
+    struct dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
+    struct dict *ready_keys;           /* Blocked keys that received a PUSH */
+    struct dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
     int id;                     /* Database ID */
     long long avg_ttl;          /* Average TTL, just for stats */
     unsigned long expires_cursor; /* Cursor of the active expire cycle. */
@@ -772,7 +773,7 @@ typedef struct client {
     int argc;               /* Num of arguments of current command. */
     robj **argv;            /* Arguments of current command. */
     struct redisCommand *cmd, *lastcmd;  /* Last command executed. */
-    user *user;             /* User associated with this connection. If the
+    struct user *user;             /* User associated with this connection. If the
                                user is set to NULL the connection can do
                                anything (admin). */
     int reqtype;            /* Request protocol type: PROTO_REQ_* */
@@ -881,7 +882,7 @@ typedef struct zskiplist {
 } zskiplist;
 
 typedef struct zset {
-    dict *dict;
+    struct dict *dict;
     zskiplist *zsl;
 } zset;
 
@@ -1026,7 +1027,7 @@ struct redisServer {
     dict *commands;             /* Command table */
     dict *orig_commands;        /* Command table before command renaming. */
     aeEventLoop *el;
-    _Atomic unsigned int lruclock; /* Clock for LRU eviction */
+	std::atomic<unsigned int> lruclock; /* Clock for LRU eviction */
     int shutdown_asap;          /* SHUTDOWN needed ASAP */
     int activerehashing;        /* Incremental rehash in serverCron() */
     int active_defrag_running;  /* Active defragmentation running (holds current scan aggressiveness) */
@@ -1073,7 +1074,7 @@ struct redisServer {
     mstime_t clients_pause_end_time; /* Time when we undo clients_paused */
     char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */
     dict *migrate_cached_sockets;/* MIGRATE cached sockets */
-    _Atomic uint64_t next_client_id; /* Next client unique ID. Incremental. */
+	std::atomic<uint64_t> next_client_id; /* Next client unique ID. Incremental. */
     int protected_mode;         /* Don't accept external connections. */
     int gopher_enabled;         /* If true the server will reply to gopher
                                    queries. Will still serve RESP2 queries. */
@@ -1120,8 +1121,8 @@ struct redisServer {
     long long slowlog_log_slower_than; /* SLOWLOG time limit (to get logged) */
     unsigned long slowlog_max_len;     /* SLOWLOG max number of items logged */
     struct malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
-    _Atomic long long stat_net_input_bytes; /* Bytes read from network. */
-    _Atomic long long stat_net_output_bytes; /* Bytes written to network. */
+	std::atomic<long long> stat_net_input_bytes; /* Bytes read from network. */
+	std::atomic<long long> stat_net_output_bytes; /* Bytes written to network. */
     size_t stat_rdb_cow_bytes;      /* Copy on write bytes during RDB saving. */
     size_t stat_aof_cow_bytes;      /* Copy on write bytes during AOF rewrite. */
     size_t stat_module_cow_bytes;   /* Copy on write bytes during module fork. */
@@ -1147,7 +1148,7 @@ struct redisServer {
     int active_defrag_cycle_min;       /* minimal effort for defrag in CPU percentage */
     int active_defrag_cycle_max;       /* maximal effort for defrag in CPU percentage */
     unsigned long active_defrag_max_scan_fields; /* maximum number of fields of set/hash/zset/list to process from within the main dict scan */
-    _Atomic size_t client_max_querybuf_len; /* Limit for client query buffer length */
+	std::atomic<size_t> client_max_querybuf_len; /* Limit for client query buffer length */
     int dbnum;                      /* Total number of configured DBs */
     int supervised;                 /* 1 if supervised, 0 otherwise. */
     int supervised_mode;            /* See SUPERVISED_* */
@@ -1333,7 +1334,7 @@ struct redisServer {
     int list_max_ziplist_size;
     int list_compress_depth;
     /* time cache */
-    _Atomic time_t unixtime;    /* Unix time sampled every cron cycle. */
+	std::atomic<time_t> unixtime;    /* Unix time sampled every cron cycle. */
     time_t timezone;            /* Cached timezone. As set by tzset(). */
     int daylight_active;        /* Currently in daylight saving time. */
     mstime_t mstime;            /* 'unixtime' in milliseconds. */
@@ -1409,17 +1410,17 @@ struct redisServer {
 };
 
 typedef struct pubsubPattern {
-    client *client;
+    struct client *client;
     robj *pattern;
 } pubsubPattern;
 
 typedef void redisCommandProc(client *c);
 typedef int *redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
 struct redisCommand {
-    char *name;
+    const char *name;
     redisCommandProc *proc;
     int arity;
-    char *sflags;   /* Flags as string representation, one char per flag. */
+    const char *sflags;   /* Flags as string representation, one char per flag. */
     uint64_t flags; /* The actual flags, obtained from the 'sflags' field. */
     /* Use a function to determine keys arguments in a command line.
      * Used for Redis Cluster redirect. */
@@ -1623,8 +1624,8 @@ unsigned long getClientOutputBufferMemoryUsage(client *c);
 void freeClientsInAsyncFreeQueue(void);
 void asyncCloseClientOnOutputBufferLimitReached(client *c);
 int getClientType(client *c);
-int getClientTypeByName(char *name);
-char *getClientTypeName(int class);
+int getClientTypeByName(const char *name);
+const char *getClientTypeName(int client_class);
 void flushSlavesOutputBuffers(void);
 void disconnectSlaves(void);
 int listenToPort(int port, int *fds, int *count);
@@ -1734,7 +1735,7 @@ int getDoubleFromObject(const robj *o, double *target);
 int getLongLongFromObject(robj *o, long long *target);
 int getLongDoubleFromObject(robj *o, long double *target);
 int getLongDoubleFromObjectOrReply(client *c, robj *o, long double *target, const char *msg);
-char *strEncoding(int encoding);
+const char *strEncoding(int encoding);
 int compareStringObjects(robj *a, robj *b);
 int collateStringObjects(robj *a, robj *b);
 int equalStringObjects(robj *a, robj *b);
@@ -1921,7 +1922,7 @@ int freeMemoryIfNeededAndSafe(void);
 int processCommand(client *c);
 void setupSignalHandlers(void);
 struct redisCommand *lookupCommand(sds name);
-struct redisCommand *lookupCommandByCString(char *s);
+struct redisCommand *lookupCommandByCString(const char *s);
 struct redisCommand *lookupCommandOrOriginal(sds name);
 void call(client *c, int flags);
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int flags);
@@ -2376,7 +2377,7 @@ void serverLogHexDump(int level, char *descr, void *value, size_t len);
 int memtest_preserving_test(unsigned long *m, size_t bytes, int passes);
 void mixDigest(unsigned char *digest, void *ptr, size_t len);
 void xorDigest(unsigned char *digest, void *ptr, size_t len);
-int populateCommandTableParseFlags(struct redisCommand *c, char *strflags);
+int populateCommandTableParseFlags(struct redisCommand *c, const char *strflags);
 
 /* TLS stuff */
 void tlsInit(void);

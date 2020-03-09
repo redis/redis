@@ -114,7 +114,7 @@ typedef struct quicklist {
 } quicklist;
 
 typedef struct quicklistIter {
-    const quicklist *quicklist;
+    const struct quicklist *quicklist;
     quicklistNode *current;
     unsigned char *zi;
     long offset; /* offset in current ziplist */
@@ -122,7 +122,7 @@ typedef struct quicklistIter {
 } quicklistIter;
 
 typedef struct quicklistEntry {
-    const quicklist *quicklist;
+    const struct quicklist *quicklist;
     quicklistNode *node;
     unsigned char *zi;
     unsigned char *value;

@@ -14,10 +14,10 @@ typedef struct streamID {
 } streamID;
 
 typedef struct stream {
-    rax *rax;               /* The radix tree holding the stream. */
+    struct rax *rax;               /* The radix tree holding the stream. */
     uint64_t length;        /* Number of elements inside this stream. */
     streamID last_id;       /* Zero if there are yet no items. */
-    rax *cgroups;           /* Consumer groups dictionary: name -> streamCG */
+    struct rax *cgroups;           /* Consumer groups dictionary: name -> streamCG */
 } stream;
 
 /* We define an iterator to iterate stream items in an abstract way, without
@@ -27,7 +27,7 @@ typedef struct stream {
  * rewriting code that also needs to iterate the stream to emit the XADD
  * commands. */
 typedef struct streamIterator {
-    stream *stream;         /* The stream we are iterating. */
+    struct stream *stream;         /* The stream we are iterating. */
     streamID master_id;     /* ID of the master entry at listpack head. */
     uint64_t master_fields_count;       /* Master entries # of fields. */
     unsigned char *master_fields_start; /* Master entries start in listpack. */

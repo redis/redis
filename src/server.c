@@ -1163,7 +1163,7 @@ int dictSdsKeyCaseCompare(void *privdata, const void *key1,
 {
     DICT_NOTUSED(privdata);
 
-    return strcasecmp(key1, key2) == 0;
+    return strcasecmp((const char *)key1, (const char *)key2) == 0;
 }
 
 void dictObjectDestructor(void *privdata, void *val)
@@ -1171,25 +1171,25 @@ void dictObjectDestructor(void *privdata, void *val)
     DICT_NOTUSED(privdata);
 
     if (val == NULL) return; /* Lazy freeing will set value to NULL. */
-    decrRefCount(val);
+    decrRefCount((robj *)val);
 }
 
 void dictSdsDestructor(void *privdata, void *val)
 {
     DICT_NOTUSED(privdata);
 
-    sdsfree(val);
+    sdsfree((sds)val);
 }
 
 int dictObjKeyCompare(void *privdata, const void *key1,
         const void *key2)
 {
-    const robj *o1 = key1, *o2 = key2;
+    const robj *o1 = (const robj *)key1, *o2 = (const robj *)key2;
     return dictSdsKeyCompare(privdata,o1->ptr,o2->ptr);
 }
 
 uint64_t dictObjHash(const void *key) {
-    const robj *o = key;
+    const robj *o = (const robj *)key;
     return dictGenHashFunction(o->ptr, sdslen((sds)o->ptr));
 }
 
@@ -1666,7 +1666,7 @@ void clientsCron(void) {
          * first element and we don't incur into O(N) computation. */
         listRotate(server.clients);
         head = listFirst(server.clients);
-        c = listNodeValue(head);
+        c = (client *)listNodeValue(head);
         /* The following functions do different service checks on the client.
          * The protocol is that they return non-zero if the client was
          * terminated. */
@@ -2728,7 +2728,7 @@ void initServer(void) {
             strerror(errno));
         exit(1);
     }
-    server.db = zmalloc(sizeof(redisDb)*server.dbnum);
+    server.db = (redisDb *)zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Open the TCP listening socket for the user commands. */
     if (server.port != 0 &&
@@ -2894,7 +2894,7 @@ void InitServerLast() {
 /* Parse the flags string description 'strflags' and set them to the
  * command 'c'. If the flags are all valid C_OK is returned, otherwise
  * C_ERR is returned (yet the recognized flags are set in the command). */
-int populateCommandTableParseFlags(struct redisCommand *c, char *strflags) {
+int populateCommandTableParseFlags(struct redisCommand *c, const char *strflags) {
     int argc;
     sds *argv;
 
@@ -3005,7 +3005,7 @@ int redisOpArrayAppend(redisOpArray *oa, struct redisCommand *cmd, int dbid,
 {
     redisOp *op;
 
-    oa->ops = zrealloc(oa->ops,sizeof(redisOp)*(oa->numops+1));
+    oa->ops = (redisOp *)zrealloc(oa->ops,sizeof(redisOp)*(oa->numops+1));
     op = oa->ops+oa->numops;
     op->cmd = cmd;
     op->dbid = dbid;
@@ -3033,14 +3033,14 @@ void redisOpArrayFree(redisOpArray *oa) {
 /* ====================== Commands lookup and execution ===================== */
 
 struct redisCommand *lookupCommand(sds name) {
-    return dictFetchValue(server.commands, name);
+    return (redisCommand *)dictFetchValue(server.commands, name);
 }
 
-struct redisCommand *lookupCommandByCString(char *s) {
+struct redisCommand *lookupCommandByCString(const char *s) {
     struct redisCommand *cmd;
     sds name = sdsnew(s);
 
-    cmd = dictFetchValue(server.commands, name);
+    cmd = (redisCommand *)dictFetchValue(server.commands, name);
     sdsfree(name);
     return cmd;
 }
@@ -3053,9 +3053,9 @@ struct redisCommand *lookupCommandByCString(char *s) {
  * rewriteClientCommandVector() in order to set client->cmd pointer
  * correctly even if the command was renamed. */
 struct redisCommand *lookupCommandOrOriginal(sds name) {
-    struct redisCommand *cmd = dictFetchValue(server.commands, name);
+    struct redisCommand *cmd = (redisCommand *)dictFetchValue(server.commands, name);
 
-    if (!cmd) cmd = dictFetchValue(server.orig_commands,name);
+    if (!cmd) cmd = (redisCommand *)dictFetchValue(server.orig_commands,name);
     return cmd;
 }
 
@@ -3099,7 +3099,7 @@ void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
 
     if (server.loading) return; /* No propagation during loading. */
 
-    argvcopy = zmalloc(sizeof(robj*)*argc);
+    argvcopy = (robj **)zmalloc(sizeof(robj*)*argc);
     for (j = 0; j < argc; j++) {
         argvcopy[j] = argv[j];
         incrRefCount(argv[j]);
@@ -3219,7 +3219,7 @@ void call(client *c, int flags) {
     /* Log the command into the Slow log if needed, and populate the
      * per-command statistics that we show in INFO commandstats. */
     if (flags & CMD_CALL_SLOWLOG && !(c->cmd->flags & CMD_SKIP_SLOWLOG)) {
-        char *latency_event = (c->cmd->flags & CMD_FAST) ?
+        const char *latency_event = (c->cmd->flags & CMD_FAST) ?
                               "fast-command" : "command";
         latencyAddSampleIfNeeded(latency_event,duration/1000);
         slowlogPushEntryIfNeeded(c,c->argv,c->argc,duration);
@@ -3340,7 +3340,7 @@ int processCommand(client *c) {
      * go through checking for replication and QUIT will cause trouble
      * when FORCE_REPLICATION is enabled and would be implemented in
      * a regular command proc. */
-    if (!strcasecmp(c->argv[0]->ptr,"quit")) {
+    if (!strcasecmp((const char *)c->argv[0]->ptr,"quit")) {
         addReply(c,shared.ok);
         c->flags |= CLIENT_CLOSE_AFTER_REPLY;
         return C_ERR;
@@ -3348,7 +3348,7 @@ int processCommand(client *c) {
 
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth. */
-    c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);
+    c->cmd = c->lastcmd = lookupCommand((sds)c->argv[0]->ptr);
     if (!c->cmd) {
         flagTransaction(c);
         sds args = sdsempty();
@@ -3739,7 +3739,7 @@ void timeCommand(client *c) {
 }
 
 /* Helper function for addReplyCommand() to output flags. */
-int addReplyCommandFlag(client *c, struct redisCommand *cmd, int f, char *reply) {
+int addReplyCommandFlag(client *c, struct redisCommand *cmd, int f, const char *reply) {
     if (cmd->flags & f) {
         addReplyStatus(c, reply);
         return 1;
@@ -3795,7 +3795,7 @@ void commandCommand(client *c) {
     dictIterator *di;
     dictEntry *de;
 
-    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+    if (c->argc == 2 && !strcasecmp((const char *)c->argv[1]->ptr,"help")) {
         const char *help[] = {
 "(no subcommand) -- Return details about all Redis commands.",
 "COUNT -- Return the total number of commands in this Redis server.",
@@ -3808,19 +3808,19 @@ NULL
         addReplyArrayLen(c, dictSize(server.commands));
         di = dictGetIterator(server.commands);
         while ((de = dictNext(di)) != NULL) {
-            addReplyCommand(c, dictGetVal(de));
+            addReplyCommand(c, (redisCommand *)dictGetVal(de));
         }
         dictReleaseIterator(di);
-    } else if (!strcasecmp(c->argv[1]->ptr, "info")) {
+    } else if (!strcasecmp((const char *)c->argv[1]->ptr, "info")) {
         int i;
         addReplyArrayLen(c, c->argc-2);
         for (i = 2; i < c->argc; i++) {
-            addReplyCommand(c, dictFetchValue(server.commands, c->argv[i]->ptr));
+            addReplyCommand(c, (redisCommand *)dictFetchValue(server.commands, c->argv[i]->ptr));
         }
-    } else if (!strcasecmp(c->argv[1]->ptr, "count") && c->argc == 2) {
+    } else if (!strcasecmp((const char *)c->argv[1]->ptr, "count") && c->argc == 2) {
         addReplyLongLong(c, dictSize(server.commands));
-    } else if (!strcasecmp(c->argv[1]->ptr,"getkeys") && c->argc >= 3) {
-        struct redisCommand *cmd = lookupCommand(c->argv[2]->ptr);
+    } else if (!strcasecmp((const char *)c->argv[1]->ptr,"getkeys") && c->argc >= 3) {
+        struct redisCommand *cmd = lookupCommand((sds)c->argv[2]->ptr);
         int *keys, numkeys, j;
 
         if (!cmd) {
@@ -3960,7 +3960,7 @@ sds genRedisInfoString(const char *section) {
             (int64_t)(uptime/(3600*24)),
             server.hz,
             server.config_hz,
-            server.lruclock,
+            server.lruclock.load(),
             server.executable ? server.executable : "",
             server.configfile ? server.configfile : "");
     }
@@ -4234,8 +4234,8 @@ sds genRedisInfoString(const char *section) {
             server.stat_numconnections,
             server.stat_numcommands,
             getInstantaneousMetric(STATS_METRIC_COMMAND),
-            server.stat_net_input_bytes,
-            server.stat_net_output_bytes,
+            server.stat_net_input_bytes.load(),
+            server.stat_net_output_bytes.load(),
             (float)getInstantaneousMetric(STATS_METRIC_NET_INPUT)/1024,
             (float)getInstantaneousMetric(STATS_METRIC_NET_OUTPUT)/1024,
             server.stat_rejected_conn,
@@ -4336,8 +4336,8 @@ sds genRedisInfoString(const char *section) {
 
             listRewind(server.slaves,&li);
             while((ln = listNext(&li))) {
-                client *slave = listNodeValue(ln);
-                char *state = NULL;
+                client *slave = (client *)listNodeValue(ln);
+                const char *state = NULL;
                 char ip[NET_IP_STR_LEN], *slaveip = slave->slave_ip;
                 int port;
                 long lag = 0;
@@ -4472,7 +4472,7 @@ sds genRedisInfoString(const char *section) {
 }
 
 void infoCommand(client *c) {
-    char *section = c->argc == 2 ? c->argv[1]->ptr : "default";
+    const char *section = c->argc == 2 ? (const char *)c->argv[1]->ptr : "default";
 
     if (c->argc > 2) {
         addReply(c,shared.syntaxerr);
@@ -4579,8 +4579,8 @@ void usage(void) {
 
 void redisAsciiArt(void) {
 #include "asciilogo.h"
-    char *buf = zmalloc(1024*16);
-    char *mode;
+    char *buf = (char *)zmalloc(1024*16);
+    const char *mode;
 
     if (server.cluster_enabled) mode = "cluster";
     else if (server.sentinel_mode) mode = "sentinel";
@@ -4614,7 +4614,7 @@ void redisAsciiArt(void) {
 }
 
 static void sigShutdownHandler(int sig) {
-    char *msg;
+    const char *msg;
 
     switch (sig) {
     case SIGINT:
@@ -4853,6 +4853,9 @@ int redisIsSupervised(int mode) {
     return 0;
 }
 
+class CppBuildTest
+{
+};
 
 int main(int argc, char **argv) {
     struct timeval tv;
@@ -4907,7 +4910,7 @@ int main(int argc, char **argv) {
     /* Store the executable path and arguments in a safe place in order
      * to be able to restart the server later. */
     server.executable = getAbsolutePath(argv[0]);
-    server.exec_argv = zmalloc(sizeof(char*)*(argc+1));
+    server.exec_argv = (char **)zmalloc(sizeof(char*)*(argc+1));
     server.exec_argv[argc] = NULL;
     for (j = 0; j < argc; j++) server.exec_argv[j] = zstrdup(argv[j]);
 

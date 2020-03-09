@@ -20,8 +20,8 @@ DEPENDENCY_TARGETS=hiredis linenoise lua
 NODEPS:=clean distclean
 
 # Default settings
-STD=-std=c11 -pedantic -DREDIS_STATIC=''
-ifneq (,$(findstring clang,$(CC)))
+STD=-std=c++11 -pedantic -DREDIS_STATIC=''
+ifneq (,$(findstring clang,$(CXX)))
 ifneq (,$(findstring FreeBSD,$(uname_S)))
   STD+=-Wno-c11-extensions
 endif
@@ -187,8 +187,8 @@ ifeq ($(BUILD_TLS),yes)
     FINAL_LIBS += ../deps/hiredis/libhiredis_ssl.a -lssl -lcrypto
 endif
 
-REDIS_CC=$(QUIET_CC)$(CC) $(FINAL_CFLAGS)
-REDIS_LD=$(QUIET_LINK)$(CC) $(FINAL_LDFLAGS)
+REDIS_CC=$(QUIET_CC)$(CXX) $(FINAL_CFLAGS)
+REDIS_LD=$(QUIET_LINK)$(CXX) $(FINAL_LDFLAGS)
 REDIS_INSTALL=$(QUIET_INSTALL)$(INSTALL)
 
 CCCOLOR="\033[34m"

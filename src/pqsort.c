@@ -81,9 +81,9 @@ swapfunc(char *a, char *b, size_t n, int swaptype)
 		*(long *)(void *)(a) = *(long *)(void *)(b);	\
 		*(long *)(void *)(b) = t;			\
 	} else							\
-		swapfunc(a, b, es, swaptype)
+		swapfunc((char *)a, b, es, swaptype)
 
-#define vecswap(a, b, n) if ((n) > 0) swapfunc((a), (b), (size_t)(n), swaptype)
+#define vecswap(a, b, n) if ((n) > 0) swapfunc((char *)(a), (b), (size_t)(n), swaptype)
 
 static inline char *
 med3(char *a, char *b, char *c,

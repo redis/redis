@@ -88,7 +88,7 @@ uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k);
 uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k);
 
 uint64_t dictGenHashFunction(const void *key, int len) {
-    return siphash(key,len,dict_hash_function_seed);
+    return siphash((const uint8_t *)key,len,dict_hash_function_seed);
 }
 
 uint64_t dictGenCaseHashFunction(const unsigned char *buf, int len) {
@@ -111,7 +111,7 @@ static void _dictReset(dictht *ht)
 dict *dictCreate(dictType *type,
         void *privDataPtr)
 {
-    dict *d = zmalloc(sizeof(*d));
+    dict *d = (dict *)zmalloc(sizeof(*d));
 
     _dictInit(d,type,privDataPtr);
     return d;
@@ -160,7 +160,7 @@ int dictExpand(dict *d, unsigned long size)
     /* Allocate the new hash table and initialize all pointers to NULL */
     n.size = realsize;
     n.sizemask = realsize-1;
-    n.table = zcalloc(realsize*sizeof(dictEntry*));
+    n.table = (dictEntry **)zcalloc(realsize*sizeof(dictEntry*));
     n.used = 0;
 
     /* Is this the first initialization? If so it's not really a rehashing
@@ -307,7 +307,7 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
      * system it is more likely that recently added entries are accessed
      * more frequently. */
     ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
-    entry = zmalloc(sizeof(*entry));
+    entry = (dictEntry *)zmalloc(sizeof(*entry));
     entry->next = ht->table[index];
     ht->table[index] = entry;
     ht->used++;
@@ -541,7 +541,7 @@ long long dictFingerprint(dict *d) {
 
 dictIterator *dictGetIterator(dict *d)
 {
-    dictIterator *iter = zmalloc(sizeof(*iter));
+    dictIterator *iter = (dictIterator *)zmalloc(sizeof(*iter));
 
     iter->d = d;
     iter->table = 0;

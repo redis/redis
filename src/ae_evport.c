@@ -315,6 +315,6 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     return nevents;
 }
 
-static char *aeApiName(void) {
+static const char *aeApiName(void) {
     return "evport";
 }

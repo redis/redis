@@ -33,7 +33,9 @@
 #define _BSD_SOURCE
 
 #if defined(__linux__)
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #define _DEFAULT_SOURCE
 #endif
 

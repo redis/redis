@@ -74,12 +74,12 @@ int stringmatchlen(const char *pattern, int patternLen,
             break;
         case '[':
         {
-            int not, match;
+            int reverse, match;
 
             pattern++;
             patternLen--;
-            not = pattern[0] == '^';
-            if (not) {
+            reverse = pattern[0] == '^';
+            if (reverse) {
                 pattern++;
                 patternLen--;
             }
@@ -126,7 +126,7 @@ int stringmatchlen(const char *pattern, int patternLen,
                 pattern++;
                 patternLen--;
             }
-            if (not)
+            if (reverse)
                 match = !match;
             if (!match)
                 return 0; /* no match */

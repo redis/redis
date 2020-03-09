@@ -527,7 +527,7 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
     /* We try to start using a static buffer for speed.
      * If not possible we revert to heap allocation. */
     if (buflen > sizeof(staticbuf)) {
-        buf = s_malloc(buflen);
+        buf = (char *)s_malloc(buflen);
         if (buf == NULL) return NULL;
     } else {
         buflen = sizeof(staticbuf);
@@ -543,7 +543,7 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
         if (buf[buflen-2] != '\0') {
             if (buf != staticbuf) s_free(buf);
             buflen *= 2;
-            buf = s_malloc(buflen);
+            buf = (char *)s_malloc(buflen);
             if (buf == NULL) return NULL;
             continue;
         }
@@ -824,7 +824,7 @@ sds *sdssplitlen(const char *s, ssize_t len, const char *sep, int seplen, int *c
 
     if (seplen < 1 || len < 0) return NULL;
 
-    tokens = s_malloc(sizeof(sds)*slots);
+    tokens = (char **)s_malloc(sizeof(sds)*slots);
     if (tokens == NULL) return NULL;
 
     if (len == 0) {
@@ -837,7 +837,7 @@ sds *sdssplitlen(const char *s, ssize_t len, const char *sep, int seplen, int *c
             sds *newtokens;
 
             slots *= 2;
-            newtokens = s_realloc(tokens,sizeof(sds)*slots);
+            newtokens = (char **)s_realloc(tokens,sizeof(sds)*slots);
             if (newtokens == NULL) goto cleanup;
             tokens = newtokens;
         }
@@ -1046,13 +1046,13 @@ sds *sdssplitargs(const char *line, int *argc) {
                 if (*p) p++;
             }
             /* add the token to the vector */
-            vector = s_realloc(vector,((*argc)+1)*sizeof(char*));
+            vector = (char **)s_realloc(vector,((*argc)+1)*sizeof(char*));
             vector[*argc] = current;
             (*argc)++;
             current = NULL;
         } else {
             /* Even on empty input string return something not NULL. */
-            if (vector == NULL) vector = s_malloc(sizeof(void*));
+            if (vector == NULL) vector = (char **)s_malloc(sizeof(void*));
             return vector;
         }
     }
