@@ -254,8 +254,8 @@ static struct pref {
 static volatile sig_atomic_t force_cancel_loop = 0;
 static void usage(void);
 static void slaveMode(void);
-char *redisGitSHA1(void);
-char *redisGitDirty(void);
+const char *redisGitSHA1(void);
+const char *redisGitDirty(void);
 static int cliConnect(int force);
 
 static char *getInfoField(char *info, char *field);

@@ -481,7 +481,7 @@ void loadServerConfigFromString(char *config) {
             int argc_err;
             if (ACLAppendUserForLoading(argv,argc,&argc_err) == C_ERR) {
                 char buf[1024];
-                char *errmsg = ACLSetUserStringError();
+                const char *errmsg = ACLSetUserStringError();
                 snprintf(buf,sizeof(buf),"Error in user declaration '%s': %s",
                     argv[argc_err],errmsg);
                 err = buf;
@@ -1306,7 +1306,7 @@ void rewriteConfigClientoutputbufferlimitOption(struct rewriteConfigState *state
         rewriteConfigFormatMemory(soft,sizeof(soft),
                 server.client_obuf_limits[j].soft_limit_bytes);
 
-        char *typename = getClientTypeName(j);
+        const char *typename = getClientTypeName(j);
         if (!strcmp(typename,"slave")) typename = "replica";
         line = sdscatprintf(sdsempty(),"%s %s %s %s %ld",
                 option, typename, hard, soft,

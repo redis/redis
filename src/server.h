@@ -607,7 +607,7 @@ typedef struct redisObject {
 /* The a string name for an object's type as listed above
  * Native types are checked against the OBJ_STRING, OBJ_LIST, OBJ_* defines,
  * and Module types have their registered name returned. */
-char *getObjectTypeName(robj*);
+const char *getObjectTypeName(const robj *);
 
 /* Macro used to initialize a Redis object allocated on the stack.
  * Note that this macro is taken near the structure definition to make sure
@@ -1624,7 +1624,7 @@ void freeClientsInAsyncFreeQueue(void);
 void asyncCloseClientOnOutputBufferLimitReached(client *c);
 int getClientType(client *c);
 int getClientTypeByName(char *name);
-char *getClientTypeName(int class);
+const char *getClientTypeName(int class);
 void flushSlavesOutputBuffers(void);
 void disconnectSlaves(void);
 int listenToPort(int port, int *fds, int *count);
@@ -1734,7 +1734,7 @@ int getDoubleFromObject(const robj *o, double *target);
 int getLongLongFromObject(robj *o, long long *target);
 int getLongDoubleFromObject(robj *o, long double *target);
 int getLongDoubleFromObjectOrReply(client *c, robj *o, long double *target, const char *msg);
-char *strEncoding(int encoding);
+const char *strEncoding(int encoding);
 int compareStringObjects(robj *a, robj *b);
 int collateStringObjects(robj *a, robj *b);
 int equalStringObjects(robj *a, robj *b);
@@ -1840,7 +1840,7 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen);
 sds ACLDefaultUserFirstPassword(void);
 uint64_t ACLGetCommandCategoryFlagByName(const char *name);
 int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err);
-char *ACLSetUserStringError(void);
+const char *ACLSetUserStringError(void);
 int ACLLoadConfiguredUsers(void);
 sds ACLDescribeUser(user *u);
 void ACLLoadUsersAtStartup(void);
@@ -2150,8 +2150,8 @@ int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
 void dictSdsDestructor(void *privdata, void *val);
 
 /* Git SHA1 */
-char *redisGitSHA1(void);
-char *redisGitDirty(void);
+const char *redisGitSHA1(void);
+const char *redisGitDirty(void);
 uint64_t redisBuildId(void);
 char *redisBuildIdString(void);
 

@@ -38,11 +38,11 @@
 #include "version.h"
 #include "crc64.h"
 
-char *redisGitSHA1(void) {
+const char *redisGitSHA1(void) {
     return REDIS_GIT_SHA1;
 }
 
-char *redisGitDirty(void) {
+const char *redisGitDirty(void) {
     return REDIS_GIT_DIRTY;
 }
 

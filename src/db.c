@@ -836,7 +836,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         /* Filter an element if it isn't the type we want. */
         if (!filter && o == NULL && typename){
             robj* typecheck = lookupKeyReadWithFlags(c->db, kobj, LOOKUP_NOTOUCH);
-            char* type = getObjectTypeName(typecheck);
+            const char* type = getObjectTypeName(typecheck);
             if (strcasecmp((char*) typename, type)) filter = 1;
         }
 
@@ -896,8 +896,8 @@ void lastsaveCommand(client *c) {
     addReplyLongLong(c,server.lastsave);
 }
 
-char* getObjectTypeName(robj *o) {
-    char* type;
+const char *getObjectTypeName(const robj *o) {
+    const char *type;
     if (o == NULL) {
         type = "none";
     } else {

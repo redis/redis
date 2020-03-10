@@ -443,7 +443,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"object") && c->argc == 3) {
         dictEntry *de;
         robj *val;
-        char *strenc;
+        const char *strenc;
 
         if ((de = dictFind(c->db->dict,c->argv[2]->ptr)) == NULL) {
             addReply(c,shared.nokeyerr);
