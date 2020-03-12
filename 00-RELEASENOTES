@@ -12,6 +12,104 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 5.0.8     Released Thu Mar 12 16:05:41 CET 2020
+================================================================================
+
+Upgrade urgency HIGH: This release fixes security issues.
+
+This is a list of fixes in this release:
+
+Salvatore Sanfilippo in commit 2bea502d:
+ Merge pull request #6975 from dustinmm80/add-arm-latomic-linking
+Dustin Collins in commit b5931405:
+ Fix Pi building needing -latomic, backport
+ 1 file changed, 9 insertions(+)
+
+srzhao in commit fd441300:
+ fix impl of aof-child whitelist SIGUSR1 feature.
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+Ariel in commit 77ff332b:
+ fix ThreadSafeContext lock/unlock function names
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Guy Benoish in commit 4f0f799c:
+ XREADGROUP should propagate XCALIM/SETID in MULTI/EXEC
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Oran Agra in commit 0c1273c3:
+ Fix client flags to be int64 in module.c
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+Guy Benoish in commit 708a4e8a:
+ Fix small bugs related to replica and monitor ambiguity
+ 2 files changed, 8 insertions(+), 6 deletions(-)
+
+WuYunlong in commit eac4115d:
+ Fix lua related memory leak.
+ 1 file changed, 1 insertion(+)
+
+antirez in commit d075df17:
+ Simplify #6379 changes.
+ 2 files changed, 4 insertions(+), 9 deletions(-)
+
+WuYunlong in commit 80a49c37:
+ Free allocated sds in pfdebugCommand() to avoid memory leak.
+ 1 file changed, 1 insertion(+)
+
+antirez in commit 60870d3a:
+ Jump to right label on AOF parsing error.
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+antirez in commit d90f599b:
+ Free fakeclient argv on AOF error.
+ 1 file changed, 11 insertions(+), 3 deletions(-)
+
+WuYunlong in commit 8ee3bddf:
+ Fix potential memory leak of rioWriteBulkStreamID().
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+WuYunlong in commit 4780fe78:
+ Fix potential memory leak of clusterLoadConfig().
+ 1 file changed, 20 insertions(+), 5 deletions(-)
+
+Leo Murillo in commit f3b77510:
+ Fix bug on KEYS command where pattern starts with * followed by \x00 (null char).
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Guy Benoish in commit 7f3fcedb:
+ Blocking XREAD[GROUP] should always reply with valid data (or timeout)
+ 3 files changed, 44 insertions(+), 10 deletions(-)
+
+antirez in commit f93b2fa5:
+ XCLAIM: Create the consumer only on successful claims.
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+Guy Benoish in commit 89682d96:
+ Stream: Handle streamID-related edge cases
+ 4 files changed, 54 insertions(+), 4 deletions(-)
+
+antirez in commit 920e108f:
+ Fix ip and missing mode in RM_GetClusterNodeInfo().
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+antirez in commit 7569b210:
+ Inline protocol: handle empty strings well.
+ 1 file changed, 2 insertions(+), 6 deletions(-)
+
+Khem Raj in commit 3c610b4e:
+ Mark extern definition of SDS_NOINIT in sds.h
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Seunghoon Woo in commit 16b2d07f:
+ [FIX] revisit CVE-2015-8080 vulnerability
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+yz1509 in commit 19f33585:
+ avoid sentinel changes promoted_slave to be its own replica.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+================================================================================
 Redis 5.0.7     Released Tue Nov 19 17:52:44 CET 2019
 ================================================================================
 
