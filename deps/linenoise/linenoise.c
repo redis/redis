@@ -598,7 +598,8 @@ static void refreshMultiLine(struct linenoiseState *l) {
     /* Write the prompt and the current buffer content */
     abAppend(&ab,l->prompt,strlen(l->prompt));
     if (maskmode == 1) {
-        for (uint i = 0; i < l->len; i++) abAppend(&ab,"*",1);
+        unsigned int i;
+        for (i = 0; i < l->len; i++) abAppend(&ab,"*",1);
     } else {
         abAppend(&ab,l->buf,l->len);
     }
