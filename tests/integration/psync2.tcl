@@ -114,6 +114,27 @@ start_server {} {
             }
         }
 
+        # wait for all the slaves to be in sync with the master
+        set master_ofs [status $R($master_id) master_repl_offset]
+        wait_for_condition 500 100 {
+            $master_ofs == [status $R(0) master_repl_offset] &&
+            $master_ofs == [status $R(1) master_repl_offset] &&
+            $master_ofs == [status $R(2) master_repl_offset] &&
+            $master_ofs == [status $R(3) master_repl_offset] &&
+            $master_ofs == [status $R(4) master_repl_offset]
+        } else {
+            if {$debug_msg} {
+                for {set j 0} {$j < 5} {incr j} {
+                    puts "$j: sync_full: [status $R($j) sync_full]"
+                    puts "$j: id1      : [status $R($j) master_replid]:[status $R($j) master_repl_offset]"
+                    puts "$j: id2      : [status $R($j) master_replid2]:[status $R($j) second_repl_offset]"
+                    puts "$j: backlog  : firstbyte=[status $R($j) repl_backlog_first_byte_offset] len=[status $R($j) repl_backlog_histlen]"
+                    puts "---"
+                }
+            }
+            fail "Slaves are not in sync with the master after too long time."
+        }
+
         # Put down the old master so that it cannot generate more
         # replication stream, this way in the next master switch, the time at
         # which we move slaves away is not important, each will have full

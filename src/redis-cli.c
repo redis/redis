@@ -229,6 +229,7 @@ static struct config {
     int hotkeys;
     int stdinarg; /* get last arg from stdin. (-x option) */
     char *auth;
+    int askpass;
     char *user;
     int output; /* output mode, see OUTPUT_* defines */
     sds mb_delim;
@@ -1450,6 +1451,8 @@ static int parseOptions(int argc, char **argv) {
             config.dbnum = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--no-auth-warning")) {
             config.no_auth_warning = 1;
+        } else if (!strcmp(argv[i], "--askpass")) {
+            config.askpass = 1;
         } else if ((!strcmp(argv[i],"-a") || !strcmp(argv[i],"--pass"))
                    && !lastarg)
         {
@@ -1690,6 +1693,9 @@ static void usage(void) {
 "                     (if both are used, this argument takes predecence).\n"
 "  --user <username>  Used to send ACL style 'AUTH username pass'. Needs -a.\n"
 "  --pass <password>  Alias of -a for consistency with the new --user option.\n"
+"  --askpass          Force user to input password with mask from STDIN.\n"
+"                     If this argument is used, '-a' and " REDIS_CLI_AUTH_ENV "\n"
+"                     environment variable will be ignored.\n"
 "  -u <uri>           Server URI.\n"
 "  -r <repeat>        Execute specified command N times.\n"
 "  -i <interval>      When -r is used, waits <interval> seconds per command.\n"
@@ -7858,6 +7864,13 @@ static void intrinsicLatencyMode(void) {
     }
 }
 
+static sds askPassword() {
+    linenoiseMaskModeEnable();
+    sds auth = linenoise("Please input password: ");
+    linenoiseMaskModeDisable();
+    return auth;
+}
+
 /*------------------------------------------------------------------------------
  * Program main()
  *--------------------------------------------------------------------------- */
@@ -7894,6 +7907,7 @@ int main(int argc, char **argv) {
     config.hotkeys = 0;
     config.stdinarg = 0;
     config.auth = NULL;
+    config.askpass = 0;
     config.user = NULL;
     config.eval = NULL;
     config.eval_ldb = 0;
@@ -7934,6 +7948,10 @@ int main(int argc, char **argv) {
     argv += firstarg;
 
     parseEnv();
+
+    if (config.askpass) {
+        config.auth = askPassword();
+    }
 
 #ifdef USE_OPENSSL
     if (config.tls) {
