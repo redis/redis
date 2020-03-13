@@ -505,6 +505,9 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
     } elseif {$opt eq {--host}} {
         set ::external 1
         set ::host $arg
+        # If we use an external server, we can only set numclients to 1,
+        # otherwise the port will be miscalculated.
+        set ::numclients 1
         incr j
     } elseif {$opt eq {--port}} {
         set ::port $arg
