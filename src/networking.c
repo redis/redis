@@ -3040,16 +3040,22 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     if (tio_debug) printf("I/O READ All threads finshed\n");
 
     /* Run the list of clients again to process the new buffers. */
-    listRewind(server.clients_pending_read,&li);
-    while((ln = listNext(&li))) {
+    while(listLength(server.clients_pending_read)) {
+        ln = listFirst(server.clients_pending_read);
         client *c = listNodeValue(ln);
         c->flags &= ~CLIENT_PENDING_READ;
+        listDelNode(server.clients_pending_read,ln);
+
         if (c->flags & CLIENT_PENDING_COMMAND) {
-            c->flags &= ~ CLIENT_PENDING_COMMAND;
-            processCommandAndResetClient(c);
+            c->flags &= ~CLIENT_PENDING_COMMAND;
+            if (processCommandAndResetClient(c) == C_ERR) {
+                /* If the client is no longer valid, we avoid
+                 * processing the client later. So we just go
+                 * to the next. */
+                continue;
+            }
         }
         processInputBufferAndReplicate(c);
     }
-    listEmpty(server.clients_pending_read);
     return processed;
 }
