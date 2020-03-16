@@ -899,16 +899,6 @@ char *ACLSetUserStringError(void) {
     return errmsg;
 }
 
-/* Return the first password of the default user or NULL.
- * This function is needed for backward compatibility with the old
- * directive "requirepass" when Redis supported a single global
- * password. */
-sds ACLDefaultUserFirstPassword(void) {
-    if (listLength(DefaultUser->passwords) == 0) return NULL;
-    listNode *first = listFirst(DefaultUser->passwords);
-    return listNodeValue(first);
-}
-
 /* Initialize the default user, that will always exist for all the process
  * lifetime. */
 void ACLInitDefaultUser(void) {
@@ -925,6 +915,7 @@ void ACLInit(void) {
     UsersToLoad = listCreate();
     ACLLog = listCreate();
     ACLInitDefaultUser();
+    server.requirepass = NULL; /* Only used for backward compatibility. */
 }
 
 /* Check the username and password pair and return C_OK if they are valid,

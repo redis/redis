@@ -411,11 +411,15 @@ void loadServerConfigFromString(char *config) {
                 goto loaderr;
             }
             /* The old "requirepass" directive just translates to setting
-             * a password to the default user. */
+             * a password to the default user. The only thing we do
+             * additionally is to remember the cleartext password in this
+             * case, for backward compatibility with Redis <= 5. */
             ACLSetUser(DefaultUser,"resetpass",-1);
             sds aclop = sdscatprintf(sdsempty(),">%s",argv[1]);
             ACLSetUser(DefaultUser,aclop,sdslen(aclop));
             sdsfree(aclop);
+            sdsfree(server.requirepass);
+            server.requirepass = sdsnew(argv[1]);
         } else if (!strcasecmp(argv[0],"list-max-ziplist-entries") && argc == 2){
             /* DEAD OPTION */
         } else if (!strcasecmp(argv[0],"list-max-ziplist-value") && argc == 2) {
@@ -623,11 +627,15 @@ void configSetCommand(client *c) {
     config_set_special_field("requirepass") {
         if (sdslen(o->ptr) > CONFIG_AUTHPASS_MAX_LEN) goto badfmt;
         /* The old "requirepass" directive just translates to setting
-         * a password to the default user. */
+         * a password to the default user. The only thing we do
+         * additionally is to remember the cleartext password in this
+         * case, for backward compatibility with Redis <= 5. */
         ACLSetUser(DefaultUser,"resetpass",-1);
         sds aclop = sdscatprintf(sdsempty(),">%s",(char*)o->ptr);
         ACLSetUser(DefaultUser,aclop,sdslen(aclop));
         sdsfree(aclop);
+        sdsfree(server.requirepass);
+        server.requirepass = sdsnew(o->ptr);
     } config_set_special_field("save") {
         int vlen, j;
         sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
@@ -899,7 +907,7 @@ void configGetCommand(client *c) {
     }
     if (stringmatch(pattern,"requirepass",1)) {
         addReplyBulkCString(c,"requirepass");
-        sds password = ACLDefaultUserFirstPassword();
+        sds password = server.requirepass;
         if (password) {
             addReplyBulkCBuffer(c,password,sdslen(password));
         } else {
@@ -1341,7 +1349,7 @@ void rewriteConfigBindOption(struct rewriteConfigState *state) {
 void rewriteConfigRequirepassOption(struct rewriteConfigState *state, char *option) {
     int force = 1;
     sds line;
-    sds password = ACLDefaultUserFirstPassword();
+    sds password = server.requirepass;
 
     /* If there is no password set, we don't want the requirepass option
      * to be present in the configuration at all. */

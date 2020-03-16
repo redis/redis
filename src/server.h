@@ -1395,6 +1395,9 @@ struct redisServer {
     /* ACLs */
     char *acl_filename;     /* ACL Users file. NULL if not configured. */
     unsigned long acllog_max_len; /* Maximum length of the ACL LOG list. */
+    sds requirepass;        /* Remember the cleartext password set with the
+                               old "requirepass" directive for backward
+                               compatibility with Redis <= 5. */
     /* Assert & bug reporting */
     const char *assert_failed;
     const char *assert_file;
