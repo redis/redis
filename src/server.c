@@ -2088,6 +2088,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 void beforeSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
 
+    /* We should handle pending reads clients ASAP after event loop. */
+    handleClientsWithPendingReadsUsingThreads();
+
     /* Handle TLS pending data. (must be done before flushAppendOnlyFile) */
     tlsProcessPendingData();
     /* If tls still has pending unread data don't sleep at all. */
@@ -2157,7 +2160,6 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 void afterSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
     if (moduleCount()) moduleAcquireGIL();
-    handleClientsWithPendingReadsUsingThreads();
 }
 
 /* =========================== Server initialization ======================== */
