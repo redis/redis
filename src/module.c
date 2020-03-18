@@ -1848,20 +1848,22 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
 
     int flags = 0;
     /* Client specific flags */
-    if (ctx->client) {
-        if (ctx->client->flags & CLIENT_LUA)
-         flags |= REDISMODULE_CTX_FLAGS_LUA;
-        if (ctx->client->flags & CLIENT_MULTI)
-         flags |= REDISMODULE_CTX_FLAGS_MULTI;
-        /* Module command recieved from MASTER, is replicated. */
-        if (ctx->client->flags & CLIENT_MASTER)
-         flags |= REDISMODULE_CTX_FLAGS_REPLICATED;
-    }
+    if (ctx) {
+        if (ctx->client) {
+            if (ctx->client->flags & CLIENT_LUA)
+             flags |= REDISMODULE_CTX_FLAGS_LUA;
+            if (ctx->client->flags & CLIENT_MULTI)
+             flags |= REDISMODULE_CTX_FLAGS_MULTI;
+            /* Module command recieved from MASTER, is replicated. */
+            if (ctx->client->flags & CLIENT_MASTER)
+             flags |= REDISMODULE_CTX_FLAGS_REPLICATED;
+        }
 
-    /* For DIRTY flags, we need the blocked client if used */
-    client *c = ctx->blocked_client ? ctx->blocked_client->client : ctx->client;
-    if (c && (c->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC))) {
-        flags |= REDISMODULE_CTX_FLAGS_MULTI_DIRTY;
+        /* For DIRTY flags, we need the blocked client if used */
+        client *c = ctx->blocked_client ? ctx->blocked_client->client : ctx->client;
+        if (c && (c->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC))) {
+            flags |= REDISMODULE_CTX_FLAGS_MULTI_DIRTY;
+        }
     }
 
     if (server.cluster_enabled)
