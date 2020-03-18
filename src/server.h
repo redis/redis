@@ -2393,4 +2393,6 @@ int tlsConfigure(redisTLSContextConfig *ctx_config);
 #define redisDebugMark() \
     printf("-- MARK %s:%d --\n", __FILE__, __LINE__)
 
+int iAmMaster(void);
+
 #endif

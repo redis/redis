@@ -1691,7 +1691,7 @@ void databasesCron(void) {
     /* Expire keys by random sampling. Not required for slaves
      * as master will synthesize DELs for us. */
     if (server.active_expire_enabled) {
-        if (server.masterhost == NULL) {
+        if (iAmMaster()) {
             activeExpireCycle(ACTIVE_EXPIRE_CYCLE_SLOW);
         } else {
             expireSlaveKeys();
@@ -4861,6 +4861,11 @@ int redisIsSupervised(int mode) {
     }
 
     return 0;
+}
+
+int iAmMaster(void) {
+    return ((!server.cluster_enabled && server.masterhost == NULL) ||
+            (server.cluster_enabled && nodeIsMaster(server.cluster->myself)));
 }
 
 
