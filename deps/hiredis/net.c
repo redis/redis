@@ -41,7 +41,9 @@
 #include <stdio.h>
 #include <limits.h>
 #include <stdlib.h>
+#if !(defined(__APPLE__) && defined(__MACH__))
 #include <linux/tcp.h>
+#endif
 #include "net.h"
 #include "sds.h"
 #include "sockcompat.h"
@@ -115,10 +117,19 @@ static int redisSetReuseAddr(redisContext *c) {
 
 static int redisCreateSocket(redisContext *c, int type) {
     redisFD s;
+#if defined(__APPLE__) && defined(__MACH__)
+    if ((s = socket(type, SOCK_STREAM, 0)) == REDIS_INVALID_FD) {
+        __redisSetErrorFromErrno(c,REDIS_ERR_IO,NULL);
+        return REDIS_ERR;
+    }
+#else
+#if defined(__GLIBC__) && !defined(__FreeBSD_kernel__)
     if ((s = socket(type, SOCK_STREAM|SOCK_CLOEXEC, 0)) == REDIS_INVALID_FD) {
         __redisSetErrorFromErrno(c,REDIS_ERR_IO,NULL);
         return REDIS_ERR;
     }
+#endif
+#endif
     c->fd = s;
     if (type == AF_INET) {
         if (redisSetReuseAddr(c) == REDIS_ERR) {
@@ -414,9 +425,16 @@ static int _redisContextConnectTcp(redisContext *c, const char *addr, int port,
     }
     for (p = servinfo; p != NULL; p = p->ai_next) {
 addrretry:
+    
+#if defined(__APPLE__) && defined(__MACH__)
+        if ((s = socket(p->ai_family,p->ai_socktype,p->ai_protocol)) == REDIS_INVALID_FD)
+            continue;
+#else
+#if defined(__GLIBC__) && !defined(__FreeBSD_kernel__)
         if ((s = socket(p->ai_family,p->ai_socktype|SOCK_CLOEXEC,p->ai_protocol)) == REDIS_INVALID_FD)
             continue;
-
+#endif
+#endif
         c->fd = s;
         if (redisSetBlocking(c,0) != REDIS_OK)
             goto error;
