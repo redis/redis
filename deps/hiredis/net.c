@@ -41,7 +41,7 @@
 #include <stdio.h>
 #include <limits.h>
 #include <stdlib.h>
-
+#include <linux/tcp.h>
 #include "net.h"
 #include "sds.h"
 #include "sockcompat.h"
