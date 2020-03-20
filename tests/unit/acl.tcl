@@ -248,4 +248,11 @@ start_server {tags {"acl"}} {
         r AUTH default ""
         assert {[llength [r ACL LOG]] == 5}
     }
+
+    test {When default user is off, new connections are not authenticated} {
+        r ACL setuser default off
+        catch {set rd1 [redis_deferring_client]} e
+        r ACL setuser default on
+        set e
+    } {*NOAUTH*}
 }
