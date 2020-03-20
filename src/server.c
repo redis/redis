@@ -3380,7 +3380,7 @@ int processCommand(client *c) {
     /* Check if the user is authenticated. This check is skipped in case
      * the default user is flagged as "nopass" and is active. */
     int auth_required = (!(DefaultUser->flags & USER_FLAG_NOPASS) ||
-                           DefaultUser->flags & USER_FLAG_DISABLED) &&
+                          (DefaultUser->flags & USER_FLAG_DISABLED)) &&
                         !c->authenticated;
     if (auth_required) {
         /* AUTH and HELLO and no auth modules are valid even in
