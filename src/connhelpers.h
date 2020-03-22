@@ -37,46 +37,49 @@
  * implementations (currently sockets in connection.c and TLS in tls.c).
  *
  * Currently helpers implement the mechanisms for invoking connection
- * handlers, tracking in-handler states and dealing with deferred
- * destruction (if invoked by a handler).
+ * handlers and tracking connection references, to allow safe destruction
+ * of connections from within a handler.
  */
 
-/* Called whenever a handler is invoked on a connection and sets the
- * CONN_FLAG_IN_HANDLER flag to indicate we're in a handler context.
+/* Incremenet connection references.
  *
- * An attempt to close a connection while CONN_FLAG_IN_HANDLER is
- * set will result with deferred close, i.e. setting the CONN_FLAG_CLOSE_SCHEDULED
- * instead of destructing it.
+ * Inside a connection handler, we guarantee refs >= 1 so it is always
+ * safe to connClose().
+ *
+ * In other cases where we don't want to prematurely lose the connection,
+ * it can go beyond 1 as well; currently it is only done by connAccept().
  */
-static inline void enterHandler(connection *conn) {
-    conn->flags |= CONN_FLAG_IN_HANDLER;
+static inline void connIncrRefs(connection *conn) {
+    conn->refs++;
 }
 
-/* Called whenever a handler returns. This unsets the CONN_FLAG_IN_HANDLER
- * flag and performs actual close/destruction if a deferred close was
- * scheduled by the handler.
+/* Decrement connection references.
+ *
+ * Note that this is not intended to provide any automatic free logic!
+ * callHandler() takes care of that for the common flows, and anywhere an
+ * explicit connIncrRefs() is used, the caller is expected to take care of
+ * that.
  */
-static inline int exitHandler(connection *conn) {
-    conn->flags &= ~CONN_FLAG_IN_HANDLER;
-    if (conn->flags & CONN_FLAG_CLOSE_SCHEDULED) {
-        connClose(conn);
-        return 0;
-    }
-    return 1;
+
+static inline void connDecrRefs(connection *conn) {
+    conn->refs--;
+}
+
+static inline int connHasRefs(connection *conn) {
+    return conn->refs;
 }
 
 /* Helper for connection implementations to call handlers:
- * 1. Mark the handler in use.
+ * 1. Increment refs to protect the connection.
  * 2. Execute the handler (if set).
- * 3. Mark the handler as NOT in use and perform deferred close if was
- * requested by the handler at any time.
+ * 3. Decrement refs and perform deferred close, if refs==0.
  */
 static inline int callHandler(connection *conn, ConnectionCallbackFunc handler) {
-    conn->flags |= CONN_FLAG_IN_HANDLER;
+    connIncrRefs(conn);
     if (handler) handler(conn);
-    conn->flags &= ~CONN_FLAG_IN_HANDLER;
+    connDecrRefs(conn);
     if (conn->flags & CONN_FLAG_CLOSE_SCHEDULED) {
-        connClose(conn);
+        if (!connHasRefs(conn)) connClose(conn);
         return 0;
     }
     return 1;
