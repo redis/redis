@@ -786,7 +786,7 @@ void clientAcceptHandler(connection *conn) {
         serverLog(LL_WARNING,
                 "Error accepting a client connection: %s",
                 connGetLastError(conn));
-        freeClient(c);
+        freeClientAsync(c);
         return;
     }
 
@@ -828,7 +828,7 @@ void clientAcceptHandler(connection *conn) {
                 /* Nothing to do, Just to avoid the warning... */
             }
             server.stat_rejected_conn++;
-            freeClient(c);
+            freeClientAsync(c);
             return;
         }
     }
@@ -887,9 +887,10 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
      */
     if (connAccept(conn, clientAcceptHandler) == C_ERR) {
         char conninfo[100];
-        serverLog(LL_WARNING,
-                "Error accepting a client connection: %s (conn: %s)",
-                connGetLastError(conn), connGetInfo(conn, conninfo, sizeof(conninfo)));
+        if (connGetState(conn) == CONN_STATE_ERROR)
+            serverLog(LL_WARNING,
+                    "Error accepting a client connection: %s (conn: %s)",
+                    connGetLastError(conn), connGetInfo(conn, conninfo, sizeof(conninfo)));
         freeClient(connGetPrivateData(conn));
         return;
     }
