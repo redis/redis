@@ -226,7 +226,7 @@ start_server {tags {"repl"}} {
 
         test {bitfield_ro with write option} {
             catch {$slave bitfield_ro bits set u8 0 100 get u8 0} err
-            assert_match {*ERR bitfield_ro only support get subcommand*} $err
+            assert_match {*ERR BITFIELD_RO only support the GET subcommand*} $err
         }
     }
 }
