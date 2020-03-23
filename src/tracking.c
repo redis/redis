@@ -94,7 +94,7 @@ void disableTracking(client *c) {
         server.tracking_clients--;
         c->flags &= ~(CLIENT_TRACKING|CLIENT_TRACKING_BROKEN_REDIR|
                       CLIENT_TRACKING_BCAST|CLIENT_TRACKING_OPTIN|
-                      CLIENT_TRACKING_OPTOUT);
+                      CLIENT_TRACKING_OPTOUT|CLIENT_TRACKING_CACHING);
     }
 }
 
@@ -271,7 +271,7 @@ void trackingInvalidateKey(robj *keyobj) {
         trackingRememberKeyToBroadcast(sdskey,sdslen(sdskey));
 
     rax *ids = raxFind(TrackingTable,(unsigned char*)sdskey,sdslen(sdskey));
-    if (ids == raxNotFound) return;;
+    if (ids == raxNotFound) return;
 
     raxIterator ri;
     raxStart(&ri,ids);
