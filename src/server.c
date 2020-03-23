@@ -3553,6 +3553,7 @@ int processCommand(client *c) {
           c->cmd->proc != authCommand &&
           c->cmd->proc != helloCommand &&
           c->cmd->proc != replconfCommand &&
+          c->cmd->proc != multiCommand && c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
         !(c->cmd->proc == shutdownCommand &&
           c->argc == 2 &&
           tolower(((char*)c->argv[1]->ptr)[0]) == 'n') &&
