@@ -1795,7 +1795,12 @@ int RM_GetSelectedDb(RedisModuleCtx *ctx) {
  * current request context (whether the client is a Lua script or in a MULTI),
  * and about the Redis instance in general, i.e replication and persistence.
  *
- * The available flags are:
+ * It is possible to call this function even with a NULL context, however
+ * in this case the following flags will not be reported:
+ *
+ *  * LUA, MULTI, REPLICATED, DIRTY (see below for more info).
+ *
+ * Available flags and their meaning:
  *
  *  * REDISMODULE_CTX_FLAGS_LUA: The command is running in a Lua script
  *
