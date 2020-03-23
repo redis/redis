@@ -3509,6 +3509,7 @@ int processCommand(client *c) {
         !(c->flags & CLIENT_MASTER) &&
         c->cmd->flags & CMD_WRITE)
     {
+        flagTransaction(c);
         addReply(c, shared.roslaveerr);
         return C_OK;
     }
