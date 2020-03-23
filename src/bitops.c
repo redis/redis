@@ -902,6 +902,9 @@ void bitposCommand(client *c) {
  * OVERFLOW [WRAP|SAT|FAIL]
  */
 
+#define BITFIELD_COMMON (1<<0)
+#define BITFIELD_READONLY (1<<1)
+
 struct bitfieldOp {
     uint64_t offset;    /* Bitfield offset. */
     int64_t i64;        /* Increment amount (INCRBY) or SET value */
@@ -911,7 +914,7 @@ struct bitfieldOp {
     int sign;           /* True if signed, otherwise unsigned op. */
 };
 
-void bitfieldCommand(client *c) {
+void bitfieldGeneric(client *c, int flags) {
     robj *o;
     size_t bitoffset;
     int j, numops = 0, changes = 0;
@@ -999,6 +1002,12 @@ void bitfieldCommand(client *c) {
             return;
         }
     } else {
+        if (flags & BITFIELD_READONLY) {
+            zfree(ops);
+            addReplyError(c, "bitfield_ro only support get subcommand");
+            return;
+        }
+
         /* Lookup by making room up to the farest bit reached by
          * this operation. */
         if ((o = lookupStringForBitCommand(c,
@@ -1128,4 +1137,12 @@ void bitfieldCommand(client *c) {
         server.dirty += changes;
     }
     zfree(ops);
+}
+
+void bitfieldCommand(client *c) {
+    bitfieldGeneric(c, BITFIELD_COMMON);
+}
+
+void bitfieldroCommand(client *c) {
+    bitfieldGeneric(c, BITFIELD_READONLY);
 }
