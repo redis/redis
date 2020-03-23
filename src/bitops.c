@@ -1007,7 +1007,7 @@ void bitfieldGeneric(client *c, int flags) {
     } else {
         if (flags & BITFIELD_FLAG_READONLY) {
             zfree(ops);
-            addReplyError(c, "BITFIELD_RO only support the GET subcommand");
+            addReplyError(c, "BITFIELD_RO only supports the GET subcommand");
             return;
         }
 

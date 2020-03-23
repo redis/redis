@@ -207,7 +207,7 @@ start_server {tags {"repl"}} {
         set master_port [srv -1 port]
         set slave [srv 0 client]
 
-        test {setup slave} {
+        test {BITFIELD: setup slave} {
             $slave slaveof $master_host $master_port
             wait_for_condition 50 100 {
                 [s 0 master_link_status] eq {up}
@@ -216,7 +216,7 @@ start_server {tags {"repl"}} {
             }
         }
 
-        test {write on master, read on slave} {
+        test {BITFIELD: write on master, read on slave} {
             $master del bits
             assert_equal 0 [$master bitfield bits set u8 0 255]
             assert_equal 255 [$master bitfield bits set u8 0 100]
@@ -224,9 +224,9 @@ start_server {tags {"repl"}} {
             assert_equal 100 [$slave bitfield_ro bits get u8 0]
         }
 
-        test {bitfield_ro with write option} {
+        test {BITFIELD_RO fails when write option is used} {
             catch {$slave bitfield_ro bits set u8 0 100 get u8 0} err
-            assert_match {*ERR bitfield_ro only support get subcommand*} $err
+            assert_match {*ERR BITFIELD_RO only supports the GET subcommand*} $err
         }
     }
 }
