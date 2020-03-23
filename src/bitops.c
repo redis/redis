@@ -902,8 +902,8 @@ void bitposCommand(client *c) {
  * OVERFLOW [WRAP|SAT|FAIL]
  */
 
-#define BITFIELD_COMMON (1<<0)
-#define BITFIELD_READONLY (1<<1)
+#define BITFIELD_FLAG_NONE      0
+#define BITFIELD_FLAG_READONLY  (1<<0)
 
 struct bitfieldOp {
     uint64_t offset;    /* Bitfield offset. */
@@ -914,6 +914,9 @@ struct bitfieldOp {
     int sign;           /* True if signed, otherwise unsigned op. */
 };
 
+/* This implements both the BITFIELD command and the BITFIELD_RO command
+ * when flags is set to BITFIELD_FLAG_READONLY: in this case only the
+ * GET subcommand is allowed, other subcommands will return an error. */
 void bitfieldGeneric(client *c, int flags) {
     robj *o;
     size_t bitoffset;
@@ -1002,9 +1005,9 @@ void bitfieldGeneric(client *c, int flags) {
             return;
         }
     } else {
-        if (flags & BITFIELD_READONLY) {
+        if (flags & BITFIELD_FLAG_READONLY) {
             zfree(ops);
-            addReplyError(c, "bitfield_ro only support get subcommand");
+            addReplyError(c, "BITFIELD_RO only support the GET subcommand");
             return;
         }
 
@@ -1140,9 +1143,9 @@ void bitfieldGeneric(client *c, int flags) {
 }
 
 void bitfieldCommand(client *c) {
-    bitfieldGeneric(c, BITFIELD_COMMON);
+    bitfieldGeneric(c, BITFIELD_FLAG_NONE);
 }
 
 void bitfieldroCommand(client *c) {
-    bitfieldGeneric(c, BITFIELD_READONLY);
+    bitfieldGeneric(c, BITFIELD_FLAG_READONLY);
 }
