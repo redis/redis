@@ -271,7 +271,7 @@ void trackingInvalidateKey(robj *keyobj) {
         trackingRememberKeyToBroadcast(sdskey,sdslen(sdskey));
 
     rax *ids = raxFind(TrackingTable,(unsigned char*)sdskey,sdslen(sdskey));
-    if (ids == raxNotFound) return;;
+    if (ids == raxNotFound) return;
 
     raxIterator ri;
     raxStart(&ri,ids);
