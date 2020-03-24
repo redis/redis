@@ -162,6 +162,7 @@ void feedReplicationBacklog(void *ptr, size_t len) {
     unsigned char *p = ptr;
 
     server.master_repl_offset += len;
+    server.master_repl_meaningful_offset = server.master_repl_offset;
 
     /* This is a circular buffer, so write as much data we can at every
      * iteration and rewind the "idx" index if we reach the limit. */
@@ -1768,6 +1769,7 @@ void readSyncBulkPayload(connection *conn) {
      * we are starting a new history. */
     memcpy(server.replid,server.master->replid,sizeof(server.replid));
     server.master_repl_offset = server.master->reploff;
+    server.master_repl_meaningful_offset = server.master->reploff;
     clearReplicationId2();
 
     /* Let's create the replication backlog if needed. Slaves need to
@@ -2725,11 +2727,36 @@ void replicationCacheMaster(client *c) {
  * current offset if no data was lost during the failover. So we use our
  * current replication ID and offset in order to synthesize a cached master. */
 void replicationCacheMasterUsingMyself(void) {
+    serverLog(LL_NOTICE,
+        "Before turning into a replica, using my own master parameters "
+        "to synthesize a cached master: I may be able to synchronize with "
+        "the new master with just a partial transfer.");
+
     /* This will be used to populate the field server.master->reploff
      * by replicationCreateMasterClient(). We'll later set the created
      * master as server.cached_master, so the replica will use such
      * offset for PSYNC. */
     server.master_initial_offset = server.master_repl_offset;
+
+    /* However if the "meaningful" offset, that is the offset without
+     * the final PINGs in the stream, is different, use this instead:
+     * often when the master is no longer reachable, replicas will never
+     * receive the PINGs, however the master will end with an incremented
+     * offset because of the PINGs and will not be able to incrementally
+     * PSYNC with the new master. */
+    if (server.master_repl_offset > server.master_repl_meaningful_offset) {
+        long long delta = server.master_repl_offset -
+                          server.master_repl_meaningful_offset;
+        serverLog(LL_NOTICE,
+            "Using the meaningful offset %lld instead of %lld to exclude "
+            "the final PINGs (%lld bytes difference)",
+                server.master_repl_meaningful_offset,
+                server.master_repl_offset,
+                delta);
+        server.master_initial_offset = server.master_repl_meaningful_offset;
+        server.repl_backlog_histlen -= delta;
+        if (server.repl_backlog_histlen < 0) server.repl_backlog_histlen = 0;
+    }
 
     /* The master client we create can be set to any DBID, because
      * the new master will start its replication stream with SELECT. */
@@ -2742,7 +2769,6 @@ void replicationCacheMasterUsingMyself(void) {
     unlinkClient(server.master);
     server.cached_master = server.master;
     server.master = NULL;
-    serverLog(LL_NOTICE,"Before turning into a replica, using my master parameters to synthesize a cached master: I may be able to synchronize with the new master with just a partial transfer.");
 }
 
 /* Free a cached master, called when there are no longer the conditions for
@@ -3122,10 +3148,18 @@ void replicationCron(void) {
             clientsArePaused();
 
         if (!manual_failover_in_progress) {
+            long long before_ping = server.master_repl_meaningful_offset;
             ping_argv[0] = createStringObject("PING",4);
             replicationFeedSlaves(server.slaves, server.slaveseldb,
                 ping_argv, 1);
             decrRefCount(ping_argv[0]);
+            /* The server.master_repl_meaningful_offset variable represents
+             * the offset of the replication stream without the pending PINGs.
+             * This is useful to set the right replication offset for PSYNC
+             * when the master is turned into a replica. Otherwise pending
+             * PINGs may not allow it to perform an incremental sync with the
+             * new master. */
+            server.master_repl_meaningful_offset = before_ping;
         }
     }
 

@@ -2355,6 +2355,7 @@ void initServerConfig(void) {
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
     server.master_repl_offset = 0;
+    server.master_repl_meaningful_offset = 0;
 
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
@@ -4398,6 +4399,7 @@ sds genRedisInfoString(const char *section) {
             "master_replid:%s\r\n"
             "master_replid2:%s\r\n"
             "master_repl_offset:%lld\r\n"
+            "master_repl_meaningful_offset:%lld\r\n"
             "second_repl_offset:%lld\r\n"
             "repl_backlog_active:%d\r\n"
             "repl_backlog_size:%lld\r\n"
@@ -4406,6 +4408,7 @@ sds genRedisInfoString(const char *section) {
             server.replid,
             server.replid2,
             server.master_repl_offset,
+            server.master_repl_meaningful_offset,
             server.second_replid_offset,
             server.repl_backlog != NULL,
             server.repl_backlog_size,
@@ -4783,6 +4786,7 @@ void loadDataFromDisk(void) {
             {
                 memcpy(server.replid,rsi.repl_id,sizeof(server.replid));
                 server.master_repl_offset = rsi.repl_offset;
+                server.master_repl_meaningful_offset = rsi.repl_offset;
                 /* If we are a slave, create a cached master from this
                  * information, in order to allow partial resynchronizations
                  * with masters. */
