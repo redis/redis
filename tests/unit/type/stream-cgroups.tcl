@@ -93,6 +93,18 @@ start_server {
         assert {[r XACK mystream mygroup $id1 $id2] eq 1}
     }
 
+    test {XACK should fail if got at least one invalid ID} {
+        r del mystream
+        r xgroup create s g $ MKSTREAM
+        r xadd s * f1 v1
+        set c [llength [lindex [r xreadgroup group g c streams s >] 0 1]]
+        assert {$c == 1}
+        set pending [r xpending s g - + 10 c]
+        set id1 [lindex $pending 0 0]
+        assert_error "*Invalid stream ID specified*" {r xack s g $id1 invalid-id}
+        assert {[r xack s g $id1] eq 1}
+    }
+
     test {PEL NACK reassignment after XGROUP SETID event} {
         r del events
         r xadd events * f1 v1

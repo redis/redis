@@ -1921,11 +1921,21 @@ void xackCommand(client *c) {
         return;
     }
 
+    /* Start parsing the IDs, so that we abort ASAP if there is a syntax
+     * error: the return value of this command cannot be an error in case
+     * the client successfully acknowledged some messages, so it should be
+     * executed in a "all or nothing" fashion. */
+    for (int j = 3; j < c->argc; j++) {
+        streamID id;
+        if (streamParseStrictIDOrReply(c,c->argv[j],&id,0) != C_OK) return;
+    }
+
     int acknowledged = 0;
     for (int j = 3; j < c->argc; j++) {
         streamID id;
         unsigned char buf[sizeof(streamID)];
-        if (streamParseStrictIDOrReply(c,c->argv[j],&id,0) != C_OK) return;
+        if (streamParseStrictIDOrReply(c,c->argv[j],&id,0) != C_OK)
+            serverPanic("StreamID invalid after check. Should not be possible.");
         streamEncodeID(buf,&id);
 
         /* Lookup the ID in the group PEL: it will have a reference to the
