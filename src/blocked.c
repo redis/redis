@@ -111,7 +111,7 @@ void blockClient(client *c, int btype) {
     c->btype = btype;
     server.blocked_clients++;
     server.blocked_clients_by_type[btype]++;
-    addClientToShortTimeoutTable(c);
+    addClientToTimeoutTable(c);
 }
 
 /* This function is called in the beforeSleep() function of the event loop
