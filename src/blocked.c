@@ -619,6 +619,7 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
         listAddNodeTail(l,c);
     }
     blockClient(c,btype);
+    addClientToShortTimeoutTable(c);
 }
 
 /* Unblock a client that's waiting in a blocking operation such as BLPOP.
