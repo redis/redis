@@ -1070,6 +1070,7 @@ struct redisServer {
     list *clients_pending_read;  /* Client has pending read socket buffers. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
     client *current_client;     /* Current client executing the command. */
+    rax *clients_timeout_table; /* Radix tree for clients with short timeout. */
     long fixed_time_expire;     /* If > 0, expire keys against server.mstime. */
     rax *clients_index;         /* Active clients dictionary by client ID. */
     int clients_paused;         /* True if clients are currently paused */
@@ -2139,6 +2140,7 @@ void disconnectAllBlockedClients(void);
 void handleClientsBlockedOnKeys(void);
 void signalKeyAsReady(redisDb *db, robj *key);
 void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, robj *target, streamID *ids);
+void addClientToShortTimeoutTable(client *c);
 
 /* expire.c -- Handling of expired keys */
 void activeExpireCycle(int type);
