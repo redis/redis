@@ -1502,6 +1502,23 @@ long long getInstantaneousMetric(int metric) {
     return sum / STATS_METRIC_SAMPLES;
 }
 
+/* Check if this blocked client timedout (does nothing if the client is
+ * not blocked right now). If so send a reply, unblock it, and return 1.
+ * Otherwise 0 is returned and no operation is performed. */
+int checkBlockedClientTimeout(client *c, mstime_t now) {
+    if (c->flags & CLIENT_BLOCKED &&
+        c->bpop.timeout != 0
+        && c->bpop.timeout < now)
+    {
+        /* Handle blocking operation specific timeout. */
+        replyToBlockedClientTimedOut(c);
+        unblockClient(c);
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
 /* Check for timeouts. Returns non-zero if the client was terminated.
  * The function gets the current time in milliseconds as argument since
  * it gets called multiple times in a loop, so calling gettimeofday() for
@@ -1510,10 +1527,11 @@ int clientsCronHandleTimeout(client *c, mstime_t now_ms) {
     time_t now = now_ms/1000;
 
     if (server.maxidletime &&
-        !(c->flags & CLIENT_SLAVE) &&    /* no timeout for slaves and monitors */
-        !(c->flags & CLIENT_MASTER) &&   /* no timeout for masters */
-        !(c->flags & CLIENT_BLOCKED) &&  /* no timeout for BLPOP */
-        !(c->flags & CLIENT_PUBSUB) &&   /* no timeout for Pub/Sub clients */
+        /* This handles the idle clients connection timeout if set. */
+        !(c->flags & CLIENT_SLAVE) &&   /* No timeout for slaves and monitors */
+        !(c->flags & CLIENT_MASTER) &&  /* No timeout for masters */
+        !(c->flags & CLIENT_BLOCKED) && /* No timeout for BLPOP */
+        !(c->flags & CLIENT_PUBSUB) &&  /* No timeout for Pub/Sub clients */
         (now - c->lastinteraction > server.maxidletime))
     {
         serverLog(LL_VERBOSE,"Closing idle client");
@@ -1522,15 +1540,14 @@ int clientsCronHandleTimeout(client *c, mstime_t now_ms) {
     } else if (c->flags & CLIENT_BLOCKED) {
         /* Blocked OPS timeout is handled with milliseconds resolution.
          * However note that the actual resolution is limited by
-         * server.hz. */
+         * server.hz. So for short timeouts (less than SERVER_SHORT_TIMEOUT
+         * milliseconds) we populate a Radix tree and handle such timeouts
+         * in clientsHandleShortTimeout(). */
+        if (checkBlockedClientTimeout(c,now_ms)) return 0;
 
-        if (c->bpop.timeout != 0 && c->bpop.timeout < now_ms) {
-            /* Handle blocking operation specific timeout. */
-            replyToBlockedClientTimedOut(c);
-            unblockClient(c);
-        } else if (server.cluster_enabled) {
-            /* Cluster: handle unblock & redirect of clients blocked
-             * into keys no longer served by this server. */
+        /* Cluster: handle unblock & redirect of clients blocked
+         * into keys no longer served by this server. */
+        if (server.cluster_enabled) {
             if (clusterRedirectBlockedClientIfNeeded(c))
                 unblockClient(c);
         }

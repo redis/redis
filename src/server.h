@@ -277,6 +277,9 @@ typedef long long ustime_t; /* microsecond time type. */
                                     buffer configuration. Just the first
                                     three: normal, slave, pubsub. */
 
+/* Other client related defines. */
+#define CLIENT_SHORT_TIMEOUT 2000  /* See clientsHandleShortTimeout(). */
+
 /* Slave replication state. Used in server.repl_state for slaves to remember
  * what to do next. */
 #define REPL_STATE_NONE 0 /* No active replication */
