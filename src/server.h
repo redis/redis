@@ -277,9 +277,6 @@ typedef long long ustime_t; /* microsecond time type. */
                                     buffer configuration. Just the first
                                     three: normal, slave, pubsub. */
 
-/* Other client related defines. */
-#define CLIENT_SHORT_TIMEOUT 2000  /* See clientsHandleShortTimeout(). */
-
 /* Slave replication state. Used in server.repl_state for slaves to remember
  * what to do next. */
 #define REPL_STATE_NONE 0 /* No active replication */
@@ -2140,7 +2137,7 @@ void disconnectAllBlockedClients(void);
 void handleClientsBlockedOnKeys(void);
 void signalKeyAsReady(redisDb *db, robj *key);
 void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, robj *target, streamID *ids);
-void addClientToShortTimeoutTable(client *c);
+void addClientToTimeoutTable(client *c);
 
 /* expire.c -- Handling of expired keys */
 void activeExpireCycle(int type);
