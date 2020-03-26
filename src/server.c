@@ -1530,7 +1530,7 @@ int clientsCronHandleTimeout(client *c, mstime_t now_ms) {
  * reached the timeout already, if they are no longer existing or no longer
  * blocked with such timeout, we just go forward.
  *
- * Every time a client blocks with a short timeout, we add the client in
+ * Every time a client blocks with a timeout, we add the client in
  * the tree. In beforeSleep() we call clientsHandleTimeout() to run
  * the tree and unblock the clients. */
 
@@ -1552,8 +1552,8 @@ void decodeTimeoutKey(unsigned char *buf, uint64_t *toptr, uint64_t *idptr) {
 }
 
 /* Add the specified client id / timeout as a key in the radix tree we use
- * to handle short timeouts. The client is not added to the list if its
- * timeout is zero (block forever). */
+ * to handle blocked clients timeouts. The client is not added to the list
+ * if its timeout is zero (block forever). */
 void addClientToTimeoutTable(client *c) {
     if (c->bpop.timeout == 0) return;
     uint64_t timeout = c->bpop.timeout;
@@ -1563,8 +1563,8 @@ void addClientToTimeoutTable(client *c) {
     raxTryInsert(server.clients_timeout_table,buf,sizeof(buf),NULL,NULL);
 }
 
-/* This function is called in beforeSleep() in order to unblock ASAP clients
- * that are waiting in blocking operations with a short timeout set. */
+/* This function is called in beforeSleep() in order to unblock clients
+ * that are waiting in blocking operations with a timeout set. */
 void clientsHandleTimeout(void) {
     if (raxSize(server.clients_timeout_table) == 0) return;
     uint64_t now = mstime();
