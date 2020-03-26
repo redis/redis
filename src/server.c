@@ -1588,6 +1588,7 @@ void clientsHandleShortTimeout(void) {
     uint64_t now = mstime();
     raxIterator ri;
     raxStart(&ri,server.clients_timeout_table);
+    raxSeek(&ri,"^",NULL,0);
 
     while(raxNext(&ri)) {
         uint64_t id, timeout;
@@ -1745,6 +1746,9 @@ void getExpansiveClientsInfo(size_t *in_usage, size_t *out_usage) {
  */
 #define CLIENTS_CRON_MIN_ITERATIONS 5
 void clientsCron(void) {
+    /* Unblock short timeout clients ASAP. */
+    clientsHandleShortTimeout();
+
     /* Try to process at least numclients/server.hz of clients
      * per call. Since normally (if there are no big latency events) this
      * function is called server.hz times per second, in the average case we
