@@ -1585,6 +1585,7 @@ void addClientToShortTimeoutTable(client *c) {
 /* This function is called in beforeSleep() in order to unblock ASAP clients
  * that are waiting in blocking operations with a short timeout set. */
 void clientsHandleShortTimeout(void) {
+    if (raxSize(server.clients_timeout_table) == 0) return;
     uint64_t now = mstime();
     raxIterator ri;
     raxStart(&ri,server.clients_timeout_table);
