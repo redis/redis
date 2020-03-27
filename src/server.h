@@ -252,6 +252,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CLIENT_TRACKING_OPTOUT (1ULL<<35) /* Tracking in opt-out mode. */
 #define CLIENT_TRACKING_CACHING (1ULL<<36) /* CACHING yes/no was given,
                                               depending on optin/optout mode. */
+#define CLIENT_IN_TO_TABLE (1ULL<<37) /* This client is in the timeout table. */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -2138,6 +2139,7 @@ void handleClientsBlockedOnKeys(void);
 void signalKeyAsReady(redisDb *db, robj *key);
 void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, robj *target, streamID *ids);
 void addClientToTimeoutTable(client *c);
+void removeClientFromTimeoutTable(client *c);
 
 /* expire.c -- Handling of expired keys */
 void activeExpireCycle(int type);

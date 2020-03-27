@@ -186,6 +186,7 @@ void unblockClient(client *c) {
     server.blocked_clients_by_type[c->btype]--;
     c->flags &= ~CLIENT_BLOCKED;
     c->btype = BLOCKED_NONE;
+    removeClientFromTimeoutTable(c);
     queueClientForReprocessing(c);
 }
 
