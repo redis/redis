@@ -1560,7 +1560,20 @@ void addClientToTimeoutTable(client *c) {
     uint64_t id = c->id;
     unsigned char buf[CLIENT_ST_KEYLEN];
     encodeTimeoutKey(buf,timeout,id);
-    raxTryInsert(server.clients_timeout_table,buf,sizeof(buf),NULL,NULL);
+    if (raxTryInsert(server.clients_timeout_table,buf,sizeof(buf),NULL,NULL))
+        c->flags |= CLIENT_IN_TO_TABLE;
+}
+
+/* Remove the client from the table when it is unblocked for reasons
+ * different than timing out. */
+void removeClientFromTimeoutTable(client *c) {
+    if (!(c->flags & CLIENT_IN_TO_TABLE)) return;
+    c->flags &= ~CLIENT_IN_TO_TABLE;
+    uint64_t timeout = c->bpop.timeout;
+    uint64_t id = c->id;
+    unsigned char buf[CLIENT_ST_KEYLEN];
+    encodeTimeoutKey(buf,timeout,id);
+    raxRemove(server.clients_timeout_table,buf,sizeof(buf),NULL);
 }
 
 /* This function is called in beforeSleep() in order to unblock clients
@@ -1577,7 +1590,10 @@ void clientsHandleTimeout(void) {
         decodeTimeoutKey(ri.key,&timeout,&id);
         if (timeout >= now) break; /* All the timeouts are in the future. */
         client *c = lookupClientByID(id);
-        if (c) checkBlockedClientTimeout(c,now);
+        if (c) {
+            c->flags &= ~CLIENT_IN_TO_TABLE;
+            checkBlockedClientTimeout(c,now);
+        }
         raxRemove(server.clients_timeout_table,ri.key,ri.key_len,NULL);
         raxSeek(&ri,"^",NULL,0);
     }
