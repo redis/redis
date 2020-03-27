@@ -109,9 +109,7 @@ int bg_unlink(const char *filename) {
 
 /* ---------------------------------- MASTER -------------------------------- */
 
-void createReplicationBacklog(void) {
-    serverAssert(server.repl_backlog == NULL);
-    server.repl_backlog = zmalloc(server.repl_backlog_size);
+void resetReplicationBacklog(void) {
     server.repl_backlog_histlen = 0;
     server.repl_backlog_idx = 0;
 
@@ -119,6 +117,12 @@ void createReplicationBacklog(void) {
      * byte we have is the next byte that will be generated for the
      * replication stream. */
     server.repl_backlog_off = server.master_repl_offset+1;
+}
+
+void createReplicationBacklog(void) {
+    serverAssert(server.repl_backlog == NULL);
+    server.repl_backlog = zmalloc(server.repl_backlog_size);
+    resetReplicationBacklog();
 }
 
 /* This function is called when the user modifies the replication backlog
@@ -141,10 +145,29 @@ void resizeReplicationBacklog(long long newsize) {
          * old buffer. */
         zfree(server.repl_backlog);
         server.repl_backlog = zmalloc(server.repl_backlog_size);
-        server.repl_backlog_histlen = 0;
-        server.repl_backlog_idx = 0;
-        /* Next byte we have is... the next since the buffer is empty. */
-        server.repl_backlog_off = server.master_repl_offset+1;
+        resetReplicationBacklog();
+    }
+}
+
+void rollbackReplicationBacklog(long long delta) {
+    if (server.repl_backlog == NULL) return;
+
+    if (server.repl_backlog_histlen <= delta) {
+        resetReplicationBacklog();
+    } else if (server.repl_backlog_histlen < server.repl_backlog_size ||
+               server.repl_backlog_idx == 0) {
+        server.repl_backlog_histlen -= delta;
+        server.repl_backlog_idx = server.repl_backlog_histlen;
+    } else {
+        char *tmp = zmalloc(server.repl_backlog_size);
+        long long thislen = server.repl_backlog_size - server.repl_backlog_idx;
+        memcpy(tmp, server.repl_backlog+server.repl_backlog_idx, thislen);
+        memcpy(tmp+thislen, server.repl_backlog, server.repl_backlog_idx);
+        zfree(server.repl_backlog);
+        server.repl_backlog = tmp;
+
+        server.repl_backlog_histlen -= delta;
+        server.repl_backlog_idx = server.repl_backlog_histlen;
     }
 }
 
@@ -2753,9 +2776,9 @@ void replicationCacheMasterUsingMyself(void) {
                 server.master_repl_meaningful_offset,
                 server.master_repl_offset,
                 delta);
-        server.master_initial_offset = server.master_repl_meaningful_offset;
-        server.repl_backlog_histlen -= delta;
-        if (server.repl_backlog_histlen < 0) server.repl_backlog_histlen = 0;
+        server.master_repl_offset = server.master_repl_meaningful_offset;
+        server.master_initial_offset = server.master_repl_offset;
+        rollbackReplicationBacklog(delta);
     }
 
     /* The master client we create can be set to any DBID, because
