@@ -31,9 +31,6 @@
  *
  * API:
  *
- * getTimeoutFromObjectOrReply() is just an utility function to parse a
- * timeout argument since blocking operations usually require a timeout.
- *
  * blockClient() set the CLIENT_BLOCKED flag in the client, and set the
  * specified block type 'btype' filed to one of BLOCKED_* macros.
  *
@@ -66,42 +63,6 @@
 #include "server.h"
 
 int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb *db, robj *value, int where);
-
-/* Get a timeout value from an object and store it into 'timeout'.
- * The final timeout is always stored as milliseconds as a time where the
- * timeout will expire, however the parsing is performed according to
- * the 'unit' that can be seconds or milliseconds.
- *
- * Note that if the timeout is zero (usually from the point of view of
- * commands API this means no timeout) the value stored into 'timeout'
- * is zero. */
-int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int unit) {
-    long long tval;
-    long double ftval;
-
-    if (unit == UNIT_SECONDS) {
-        if (getLongDoubleFromObjectOrReply(c,object,&ftval,
-            "timeout is not an float or out of range") != C_OK)
-            return C_ERR;
-        tval = (long long) (ftval * 1000.0);
-    } else {
-        if (getLongLongFromObjectOrReply(c,object,&tval,
-            "timeout is not an integer or out of range") != C_OK)
-            return C_ERR;
-    }
-
-    if (tval < 0) {
-        addReplyError(c,"timeout is negative");
-        return C_ERR;
-    }
-
-    if (tval > 0) {
-        tval += mstime();
-    }
-    *timeout = tval;
-
-    return C_OK;
-}
 
 /* Block a client for the specific operation type. Once the CLIENT_BLOCKED
  * flag is set client query buffer is not longer processed, but accumulated,

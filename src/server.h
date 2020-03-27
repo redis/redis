@@ -2138,8 +2138,12 @@ void disconnectAllBlockedClients(void);
 void handleClientsBlockedOnKeys(void);
 void signalKeyAsReady(redisDb *db, robj *key);
 void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, robj *target, streamID *ids);
+
+/* timeout.c -- Blocked clients timeout and connections timeout. */
 void addClientToTimeoutTable(client *c);
 void removeClientFromTimeoutTable(client *c);
+void handleBlockedClientsTimeout(void);
+int clientsCronHandleTimeout(client *c, mstime_t now_ms);
 
 /* expire.c -- Handling of expired keys */
 void activeExpireCycle(int type);
