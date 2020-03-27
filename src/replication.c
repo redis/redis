@@ -2755,6 +2755,9 @@ void replicationCacheMasterUsingMyself(void) {
                 delta);
         server.master_initial_offset = server.master_repl_meaningful_offset;
         server.repl_backlog_histlen -= delta;
+        server.repl_backlog_idx =
+            (server.repl_backlog_idx + (server.repl_backlog_size - delta)) %
+            server.repl_backlog_size;
         if (server.repl_backlog_histlen < 0) server.repl_backlog_histlen = 0;
     }
 
