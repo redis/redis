@@ -2754,11 +2754,16 @@ void replicationCacheMasterUsingMyself(void) {
                 server.master_repl_offset,
                 delta);
         server.master_initial_offset = server.master_repl_meaningful_offset;
-        server.repl_backlog_histlen -= delta;
-        server.repl_backlog_idx =
-            (server.repl_backlog_idx + (server.repl_backlog_size - delta)) %
-            server.repl_backlog_size;
-        if (server.repl_backlog_histlen < 0) server.repl_backlog_histlen = 0;
+        server.master_repl_offset = server.master_repl_meaningful_offset;
+        if (server.repl_backlog_histlen <= delta) {
+            server.repl_backlog_histlen = 0;
+            server.repl_backlog_idx = 0;
+        } else {
+            server.repl_backlog_histlen -= delta;
+            server.repl_backlog_idx =
+                (server.repl_backlog_idx + (server.repl_backlog_size - delta)) %
+                server.repl_backlog_size;
+        }
     }
 
     /* The master client we create can be set to any DBID, because
