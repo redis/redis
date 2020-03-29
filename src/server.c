@@ -2661,6 +2661,7 @@ void resetServerStats(void) {
     }
     server.stat_net_input_bytes = 0;
     server.stat_net_output_bytes = 0;
+    server.stat_unexpected_error_replies = 0;
     server.aof_delayed_fsync = 0;
 }
 
@@ -3265,7 +3266,7 @@ void call(client *c, int flags) {
         if (flags & CMD_CALL_PROPAGATE) {
             int multi_emitted = 0;
             /* Wrap the commands in server.also_propagate array,
-             * but don't wrap it if we are already in MULIT context,
+             * but don't wrap it if we are already in MULTI context,
              * in case the nested MULTI/EXEC.
              *
              * And if the array contains only one command, no need to
@@ -3974,7 +3975,7 @@ sds genRedisInfoString(const char *section) {
             "client_recent_max_output_buffer:%zu\r\n"
             "blocked_clients:%d\r\n"
             "tracking_clients:%d\r\n"
-            "clients_in_timeout_table:%lld\r\n",
+            "clients_in_timeout_table:%ld\r\n",
             listLength(server.clients)-listLength(server.slaves),
             maxin, maxout,
             server.blocked_clients,
@@ -4229,7 +4230,8 @@ sds genRedisInfoString(const char *section) {
             "active_defrag_key_hits:%lld\r\n"
             "active_defrag_key_misses:%lld\r\n"
             "tracking_total_keys:%lld\r\n"
-            "tracking_total_items:%lld\r\n",
+            "tracking_total_items:%lld\r\n"
+            "unexpected_error_replies:%lld\r\n",
             server.stat_numconnections,
             server.stat_numcommands,
             getInstantaneousMetric(STATS_METRIC_COMMAND),
@@ -4258,7 +4260,8 @@ sds genRedisInfoString(const char *section) {
             server.stat_active_defrag_key_hits,
             server.stat_active_defrag_key_misses,
             (unsigned long long) trackingGetTotalKeys(),
-            (unsigned long long) trackingGetTotalItems());
+            (unsigned long long) trackingGetTotalItems(),
+            server.stat_unexpected_error_replies);
     }
 
     /* Replication */
