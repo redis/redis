@@ -935,7 +935,6 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
     streamIterator si;
     int64_t numfields;
     streamID id;
-    int propagate_last_id = 0;
 
     /* If the client is asking for some history, we serve it using a
      * different function, so that we return entries *solely* from its
@@ -951,6 +950,8 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
         arraylen_ptr = addReplyDeferredLen(c);
     streamIteratorStart(&si,s,start,end,rev);
     while(streamIteratorGetID(&si,&id,&numfields)) {
+        int propagate_last_id = 0;
+
         /* Update the group last_id if needed. */
         if (group && streamCompareID(&id,&group->last_id) > 0) {
             group->last_id = id;
