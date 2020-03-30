@@ -5098,11 +5098,11 @@ void migrateCloseTimedoutSockets(void) {
     dictReleaseIterator(di);
 }
 
-/* MIGRATE host port key dbid timeout [COPY | REPLACE | AUTH password]
+/* MIGRATE host port key dbid timeout [COPY | REPLACE | AUTH [username] password]
  *
  * On in the multiple keys form:
  *
- * MIGRATE host port "" dbid timeout [COPY | REPLACE | AUTH password] KEYS key1
+ * MIGRATE host port "" dbid timeout [COPY | REPLACE | AUTH [username] password] KEYS key1
  * key2 ... keyN */
 void migrateCommand(client *c) {
     migrateCachedSocket *cs;
