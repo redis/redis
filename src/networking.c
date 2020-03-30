@@ -2314,10 +2314,21 @@ NULL
                 return;
             }
 
-            if ((options & CLIENT_TRACKING_OPTIN) && (options & CLIENT_TRACKING_OPTOUT))
+            if (options & CLIENT_TRACKING_OPTIN && options & CLIENT_TRACKING_OPTOUT)
             {
                 addReplyError(c,
                 "You can't specify both OPTIN mode and OPTOUT mode");
+                zfree(prefix);
+                return;
+            }
+
+            if ((options & CLIENT_TRACKING_OPTIN && c->flags & CLIENT_TRACKING_OPTOUT) ||
+                (options & CLIENT_TRACKING_OPTOUT && c->flags & CLIENT_TRACKING_OPTIN))
+            {
+                addReplyError(c,
+                "You can't switch OPTIN/OPTOUT mode before disabling "
+                "tracking for this client, and then re-enabling it with "
+                "a different mode.");
                 zfree(prefix);
                 return;
             }
