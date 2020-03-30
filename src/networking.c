@@ -2326,6 +2326,14 @@ NULL
                 return;
             }
 
+            if ((options & CLIENT_TRACKING_OPTIN) && (options & CLIENT_TRACKING_OPTOUT))
+            {
+                addReplyError(c,
+                "You can't specify both OPTIN mode and OPTOUT mode");
+                zfree(prefix);
+                return;
+            }
+
             enableTracking(c,redir,options,prefix,numprefix);
         } else if (!strcasecmp(c->argv[2]->ptr,"off")) {
             disableTracking(c);
