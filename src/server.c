@@ -3158,6 +3158,8 @@ void call(client *c, int flags) {
     ustime_t start, duration;
     int client_old_flags = c->flags;
     struct redisCommand *real_cmd = c->cmd;
+    int propagate_flags = PROPAGATE_NONE;
+
 
     server.fixed_time_expire++;
 
@@ -3221,8 +3223,6 @@ void call(client *c, int flags) {
     if (flags & CMD_CALL_PROPAGATE &&
         (c->flags & CLIENT_PREVENT_PROP) != CLIENT_PREVENT_PROP)
     {
-        int propagate_flags = PROPAGATE_NONE;
-
         /* Check if the command operated changes in the data set. If so
          * set for replication / AOF propagation. */
         if (dirty) propagate_flags |= (PROPAGATE_AOF|PROPAGATE_REPL);
@@ -3271,7 +3271,7 @@ void call(client *c, int flags) {
              * And if the array contains only one command, no need to
              * wrap it, since the single command is atomic. */
             if (server.also_propagate.numops > 1 && !(c->flags & CLIENT_MULTI)) {
-                execCommandPropagateMulti(c);
+                execCommandPropagateMulti(c, propagate_flags);
                 multi_emitted = 1;
             }
 
@@ -3286,7 +3286,7 @@ void call(client *c, int flags) {
             }
 
             if (multi_emitted) {
-                execCommandPropagateExec(c);
+                execCommandPropagateExec(c, propagate_flags);
             }
         }
         redisOpArrayFree(&server.also_propagate);

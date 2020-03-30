@@ -1698,8 +1698,8 @@ void touchWatchedKey(redisDb *db, robj *key);
 void touchWatchedKeysOnFlush(int dbid);
 void discardTransaction(client *c);
 void flagTransaction(client *c);
-void execCommandPropagateMulti(client *c);
-void execCommandPropagateExec(client *c);
+void execCommandPropagateMulti(client *c, int flags);
+void execCommandPropagateExec(client *c, int flags);
 
 /* Redis object implementation */
 void decrRefCount(robj *o);

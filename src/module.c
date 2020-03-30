@@ -378,7 +378,7 @@ void RM_FreeCallReply(RedisModuleCallReply *reply);
 void RM_CloseKey(RedisModuleKey *key);
 void autoMemoryCollect(RedisModuleCtx *ctx);
 robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *flags, va_list ap);
-void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx);
+void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx, int flags);
 void RM_ZsetRangeStop(RedisModuleKey *kp);
 static void zsetKeyReset(RedisModuleKey *key);
 void RM_FreeDict(RedisModuleCtx *ctx, RedisModuleDict *d);
@@ -581,6 +581,7 @@ int RM_GetApi(const char *funcname, void **targetPtrPtr) {
  * details needed to correctly replicate commands. */
 void moduleHandlePropagationAfterCommandCallback(RedisModuleCtx *ctx) {
     client *c = ctx->client;
+    int propagate_flags = PROPAGATE_NONE;
 
     /* We don't need to do anything here if the context was never used
      * in order to propagate commands. */
@@ -588,10 +589,16 @@ void moduleHandlePropagationAfterCommandCallback(RedisModuleCtx *ctx) {
 
     if (c->flags & CLIENT_LUA) return;
 
+
+    /* If the client forced AOF / replication of the command, set
+     * the flags regardless of the command effects on the data set. */
+    if (c->flags & CLIENT_FORCE_REPL) propagate_flags |= PROPAGATE_REPL;
+    if (c->flags & CLIENT_FORCE_AOF) propagate_flags |= PROPAGATE_AOF;
+
     /* Handle the replication of the final EXEC, since whatever a command
      * emits is always wrapped around MULTI/EXEC. */
     alsoPropagate(server.execCommand,c->db->id,&shared.exec,1,
-        PROPAGATE_AOF|PROPAGATE_REPL);
+        propagate_flags);
 
     /* If this is not a module command context (but is instead a simple
      * callback context), we have to handle directly the "also propagate"
@@ -1527,7 +1534,7 @@ int RM_ReplyWithLongDouble(RedisModuleCtx *ctx, long double ld) {
 /* Helper function to replicate MULTI the first time we replicate something
  * in the context of a command execution. EXEC will be handled by the
  * RedisModuleCommandDispatcher() function. */
-void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx) {
+void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx, int flags) {
     /* Skip this if client explicitly wrap the command with MULTI, or if
      * the module command was called by a script. */
     if (ctx->client->flags & (CLIENT_MULTI|CLIENT_LUA)) return;
@@ -1544,7 +1551,7 @@ void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx) {
         ctx->saved_oparray = server.also_propagate;
         redisOpArrayInit(&server.also_propagate);
     }
-    execCommandPropagateMulti(ctx->client);
+    execCommandPropagateMulti(ctx->client, flags);
     ctx->flags |= REDISMODULE_CTX_MULTI_EMITTED;
 }
 
@@ -1604,8 +1611,14 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
      * the caller can exclude one or the other using the "A" or "R"
      * modifiers. */
     int target = 0;
-    if (!(flags & REDISMODULE_ARGV_NO_AOF)) target |= PROPAGATE_AOF;
-    if (!(flags & REDISMODULE_ARGV_NO_REPLICAS)) target |= PROPAGATE_REPL;
+    if (!(flags & REDISMODULE_ARGV_NO_AOF)) {
+        target |= PROPAGATE_AOF;
+        ctx->client->flags |= CLIENT_FORCE_AOF;
+    }
+    if (!(flags & REDISMODULE_ARGV_NO_REPLICAS)) {
+        target |= PROPAGATE_REPL;
+        ctx->client->flags |= CLIENT_FORCE_REPL;
+    }
 
     /* Replicate! When we are in a threaded context, we want to just insert
      * the replicated command ASAP, since it is not clear when the context
@@ -1614,7 +1627,7 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
     if (ctx->flags & REDISMODULE_CTX_THREAD_SAFE) {
         propagate(cmd,ctx->client->db->id,argv,argc,target);
     } else {
-        moduleReplicateMultiIfNeeded(ctx);
+        moduleReplicateMultiIfNeeded(ctx, target);
         alsoPropagate(cmd,ctx->client->db->id,argv,argc,target);
     }
 
@@ -3264,6 +3277,18 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     c->user = NULL; /* Root user. */
     argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&flags,ap);
     replicate = flags & REDISMODULE_ARGV_REPLICATE;
+    /* Select the propagation target. Usually is AOF + replicas, however
+     * the caller can exclude one or the other using the "A" or "R"
+     * modifiers. */
+    int target = 0;
+    if (!(flags & REDISMODULE_ARGV_NO_AOF)) {
+        target |= PROPAGATE_AOF;
+        ctx->client->flags |= CLIENT_FORCE_AOF;
+    }
+    if (!(flags & REDISMODULE_ARGV_NO_REPLICAS)) {
+        target |= PROPAGATE_REPL;
+        ctx->client->flags |= CLIENT_FORCE_REPL;
+    }
     va_end(ap);
 
     /* Setup our fake client for command execution. */
@@ -3324,7 +3349,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     /* If we are using single commands replication, we need to wrap what
      * we propagate into a MULTI/EXEC block, so that it will be atomic like
      * a Lua script in the context of AOF and slaves. */
-    if (replicate) moduleReplicateMultiIfNeeded(ctx);
+    if (replicate) moduleReplicateMultiIfNeeded(ctx, target);
 
     if (ctx->client->flags & CLIENT_MULTI ||
         ctx->flags & REDISMODULE_CTX_MULTI_EMITTED) {
