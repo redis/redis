@@ -62,7 +62,9 @@
 #endif
 
 /* Test for backtrace() */
-#if defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__))
+#if defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__)) || \
+    defined(__FreeBSD__) || (defined(__OpenBSD__) && defined(USE_BACKTRACE))\
+ || defined(__DragonFly__)
 #define HAVE_BACKTRACE 1
 #endif
 
@@ -87,11 +89,11 @@
 #endif
 #endif
 
-/* Define aof_fsync to fdatasync() in Linux and fsync() for all the rest */
+/* Define redis_fsync to fdatasync() in Linux and fsync() for all the rest */
 #ifdef __linux__
-#define aof_fsync fdatasync
+#define redis_fsync fdatasync
 #else
-#define aof_fsync fsync
+#define redis_fsync fsync
 #endif
 
 /* Define rdb_fsync_range to sync_file_range() on Linux, otherwise we use
@@ -204,6 +206,24 @@ void setproctitle(const char *fmt, ...);
 #define HAVE_ATOMIC
 #endif
 #endif
+#endif
+
+/* Make sure we can test for ARM just checking for __arm__, since sometimes
+ * __arm is defined but __arm__ is not. */
+#if defined(__arm) && !defined(__arm__)
+#define __arm__
+#endif
+#if defined (__aarch64__) && !defined(__arm64__)
+#define __arm64__
+#endif
+
+/* Make sure we can test for SPARC just checking for __sparc__. */
+#if defined(__sparc) && !defined(__sparc__)
+#define __sparc__
+#endif
+
+#if defined(__sparc__) || defined(__arm__)
+#define USE_ALIGNED_ACCESS
 #endif
 
 #endif
