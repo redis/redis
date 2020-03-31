@@ -12,6 +12,323 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 6.0-rc3     Released Tue Mar 31 17:42:39 CEST 2020
+================================================================================
+
+Upgrade urgency CRITICAL: A connection management bug introduced with the
+                          SSL implementation can crash Redis easily.
+
+Dear users, this is a list of the major changes in this release, please check 
+the list of commits for detail:
+
+* Fix crash due to refactoring for SSL, for the connection code.
+* Precise timeouts for blocking commands. Now the timeouts have HZ
+  resolution regardless of the number of connected clinets. New timeouts
+  are stored in a radix tree and sorted by expire time.
+* Fix rare crash when resizing the event loop because of CONFIG maxclients.
+* Fix systemd readiness after successful partial resync.
+* Redis-cli ask password mode to be prompted at startup (for additional safety).
+* Keyspace notifications added to MIGRATE / RESTORE.
+* Threaded I/O bugs fixed.
+* Implement new ACL style AUTH in Sentinel.
+* Make 'requirepass' more backward compatible with Redis <= 5.
+* ACL: Handle default user as disabled if it's off regardless of "nopass".
+* Fix a potential inconsistency when upgrading an instance in Redis Cluster
+  and restarting it. The instance will act as a replica but will actually be
+  set as a master immediately. However the choice of what to do with already
+  expired keys, on loading, was made from the POV of replicas.
+* Abort transactions after -READONLY error.
+* Many different fixes to module APIs.
+* BITFIELD_RO added to call the command on read only replicas.
+* PSYNC2: meaningful offset implementation. Allow the disconnected master
+  that is still sending PINGs to replicas, to be able to successfully
+  PSYNC incrementally to new slaves, discarding the last part of the
+  replication backlog consisting only of PINGs.
+* Fix pipelined MULTI/EXEC during Lua scripts are in BUSY state.
+* Re-fix propagation API in modules, broken again after other changes.
+
+antirez in commit ef1b1f01:
+ cast raxSize() to avoid warning with format spec.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 9f347fab:
+ Minor changes to #7037.
+ 2 files changed, 14 insertions(+), 5 deletions(-)
+
+Guy Benoish in commit a509400d:
+ Modules: Test MULTI/EXEC replication of RM_Replicate
+ 6 files changed, 49 insertions(+), 9 deletions(-)
+
+Guy Benoish in commit 805c8c94:
+ RENAME can unblock XREADGROUP
+ 3 files changed, 25 insertions(+), 1 deletion(-)
+
+antirez in commit 97b80b57:
+ Fix the propagate Tcl test after module changes.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 4f6b6b80:
+ Modify the propagate unit test to show more cases.
+ 1 file changed, 30 insertions(+), 2 deletions(-)
+
+antirez in commit 616b1cb7:
+ Fix module commands propagation double MULTI bug.
+ 4 files changed, 25 insertions(+), 8 deletions(-)
+
+antirez in commit 08fdef4b:
+ Fix RM_Call() stale comment due to cut&paste.
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+OMG-By in commit 26b79ca1:
+ fix: dict.c->dictResize()->minimal  type
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+zhaozhao.zz in commit fa418637:
+ PSYNC2: reset backlog_idx and master_repl_offset correctly
+ 1 file changed, 10 insertions(+), 5 deletions(-)
+
+antirez in commit bbbc80ac:
+ Precise timeouts: reference client pointer directly.
+ 1 file changed, 13 insertions(+), 16 deletions(-)
+
+antirez in commit c3b268a0:
+ timeout.c created: move client timeouts code there.
+ 5 files changed, 198 insertions(+), 167 deletions(-)
+
+Oran Agra in commit 0f7dfc37:
+ AOFRW on an empty stream created with MKSTREAM loads badkly
+ 2 files changed, 15 insertions(+), 1 deletion(-)
+
+antirez in commit 67643ead:
+ Precise timeouts: cleaup the table on unblock.
+ 3 files changed, 21 insertions(+), 2 deletions(-)
+
+antirez in commit ad94066e:
+ Precise timeouts: fix comments after functional change.
+ 2 files changed, 6 insertions(+), 6 deletions(-)
+
+antirez in commit a443ec2e:
+ Precise timeouts: use only radix tree for timeouts.
+ 3 files changed, 15 insertions(+), 38 deletions(-)
+
+antirez in commit 6862fd70:
+ Precise timeouts: fast exit for clientsHandleShortTimeout().
+ 1 file changed, 1 insertion(+)
+
+antirez in commit 30f1df8c:
+ Precise timeouts: fix bugs in initial implementation.
+ 2 files changed, 5 insertions(+), 1 deletion(-)
+
+antirez in commit 7add0f24:
+ Precise timeouts: working initial implementation.
+ 3 files changed, 110 insertions(+), 28 deletions(-)
+
+antirez in commit 9d6d1779:
+ Precise timeouts: refactor unblocking on timeout.
+ 2 files changed, 33 insertions(+), 13 deletions(-)
+
+antirez in commit 316a8f15:
+ PSYNC2: fix backlog_idx when adjusting for meaningful offset
+ 1 file changed, 3 insertions(+)
+
+伯成 in commit 11db53f8:
+ Boost up performance for redis PUB-SUB patterns matching
+ 3 files changed, 43 insertions(+), 11 deletions(-)
+
+antirez in commit e257f121:
+ PSYNC2: meaningful offset test.
+ 2 files changed, 62 insertions(+)
+
+antirez in commit 5f72f696:
+ PSYNC2: meaningful offset implemented.
+ 3 files changed, 40 insertions(+), 1 deletion(-)
+
+antirez in commit 8caa2714:
+ Explain why we allow transactions in -BUSY state.
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+Oran Agra in commit e43cd831:
+ MULTI/EXEC during LUA script timeout are messed up
+ 2 files changed, 73 insertions(+)
+
+antirez in commit 34b89832:
+ Improve comments of replicationCacheMasterUsingMyself().
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+antirez in commit 70a98a43:
+ Fix BITFIELD_RO test.
+ 2 files changed, 5 insertions(+), 5 deletions(-)
+
+antirez in commit 8783304a:
+ Abort transactions after -READONLY error. Fix #7014.
+ 1 file changed, 1 insertion(+)
+
+antirez in commit ec9cf002:
+ Minor changes to BITFIELD_RO PR #6951.
+ 1 file changed, 9 insertions(+), 6 deletions(-)
+
+bodong.ybd in commit b3e4abf0:
+ Added BITFIELD_RO variants for read-only operations.
+ 4 files changed, 54 insertions(+), 1 deletion(-)
+
+antirez in commit 50f8f950:
+ Modules: updated function doc after #7003.
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+Guy Benoish in commit f2f3dc5e:
+ Allow RM_GetContextFlags to work with ctx==NULL
+ 1 file changed, 16 insertions(+), 14 deletions(-)
+
+hwware in commit eb808879:
+ fix potentical memory leak in redis-cli
+ 1 file changed, 2 insertions(+)
+
+Yossi Gottlieb in commit cdcab0e8:
+ Fix crashes related to failed/rejected accepts.
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+Yossi Gottlieb in commit 50dcd9f9:
+ Cluster: fix misleading accept errors.
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+Yossi Gottlieb in commit 87dbd8f5:
+ Conns: Fix connClose() / connAccept() behavior.
+ 3 files changed, 48 insertions(+), 32 deletions(-)
+
+hwware in commit 81e8686c:
+ remove redundant Semicolon
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+hwware in commit c7524a7e:
+ clean CLIENT_TRACKING_CACHING flag when disabled caching
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+hwware in commit 2dd1ca6a:
+ add missing commands in cluster help
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+artix in commit 95324b81:
+ Support Redis Cluster Proxy PROXY INFO command
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+박승현 in commit 04c53fa1:
+ Update redis.conf
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+WuYunlong in commit 0578157d:
+ Fix master replica inconsistency for upgrading scenario.
+ 3 files changed, 9 insertions(+), 2 deletions(-)
+
+WuYunlong in commit 299f1d02:
+ Add 14-consistency-check.tcl to prove there is a data consistency issue.
+ 1 file changed, 87 insertions(+)
+
+antirez in commit 61b98f32:
+ Regression test for #7011.
+ 1 file changed, 7 insertions(+)
+
+antirez in commit 34ea2f4e:
+ ACL: default user off should not allow automatic authentication.
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+antirez in commit cbbf9b39:
+ Sentinel: document auth-user directive.
+ 1 file changed, 12 insertions(+)
+
+antirez in commit 9c2e42dd:
+ ACL: Make Redis 6 more backward compatible with requirepass.
+ 4 files changed, 17 insertions(+), 15 deletions(-)
+
+antirez in commit d387f67d:
+ Sentinel: implement auth-user directive for ACLs.
+ 1 file changed, 38 insertions(+), 7 deletions(-)
+
+zhaozhao.zz in commit 7c078416:
+ Threaded IO: bugfix client kill may crash redis
+ 1 file changed, 11 insertions(+), 5 deletions(-)
+
+zhaozhao.zz in commit 9cc7038e:
+ Threaded IO: handle pending reads clients ASAP after event loop
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+antirez in commit da8c7c49:
+ Example sentinel conf: document requirepass.
+ 1 file changed, 8 insertions(+)
+
+antirez in commit bdb338cf:
+ Aesthetic changes in PR #6989.
+ 1 file changed, 9 insertions(+), 5 deletions(-)
+
+zhaozhao.zz in commit b3e03054:
+ Threaded IO: bugfix #6988 process events while blocked
+ 1 file changed, 5 insertions(+)
+
+antirez in commit e628f944:
+ Restore newline at the end of redis-cli.c
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+chendianqiang in commit 5d4c4df3:
+ use correct list for moduleUnregisterUsedAPI
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+guodongxiaren in commit da14982d:
+ string literal should be const char*
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Itamar Haber in commit dc8885a1:
+ Adds keyspace notifications to migrate and restore
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+bodong.ybd in commit bfb18e55:
+ Remove duplicate obj files in Makefile
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+bodong.ybd in commit 76d57161:
+ Fix bug of tcl test using external server
+ 2 files changed, 8 insertions(+), 2 deletions(-)
+
+fengpf in commit 0e5820d8:
+ fix comments in latency.c
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+
+antirez in commit 916dd79f:
+ Update linenoise.
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+lifubang in commit c0c67c9b:
+ add askpass mode
+ 1 file changed, 19 insertions(+), 1 deletion(-)
+
+lifubang in commit e1c29434:
+ update linenoise to https://github.com/antirez/linenoise/tree/fc9667a81d43911a6690fb1e68c16e6e3bb8df05
+ 4 files changed, 59 insertions(+), 4 deletions(-)
+
+Jamie Scott in commit e5a063bc:
+ Remove default guidance in Redis.conf
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+Jamie Scott in commit d28cbaf7:
+ Update Redis.conf to improve TLS usability
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+Johannes Truschnigg in commit 23d5e8b8:
+ Signal systemd readiness atfer Partial Resync
+ 1 file changed, 4 insertions(+)
+
+Oran Agra in commit 61738154:
+ fix for flaky psync2 test
+ 1 file changed, 21 insertions(+)
+
+antirez in commit 70e0e499:
+ ae.c: fix crash when resizing the event loop.
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+antirez in commit b3e4aa67:
+ Fix release notes spelling mistake.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+
+================================================================================
 Redis 6.0 RC2     Released Thu Mar 05 15:40:53 CET 2020
 ================================================================================
 
