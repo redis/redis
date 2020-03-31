@@ -20,7 +20,7 @@ tags "modules" {
 
                 wait_for_condition 5000 10 {
                     ([$replica get timer] eq "10") && \
-                    ([$replica get thread] eq "10")
+                    ([$replica get a-from-thread] eq "10")
                 } else {
                     fail "The two counters don't match the expected value."
                 }
