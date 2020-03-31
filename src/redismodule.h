@@ -673,7 +673,7 @@ int REDISMODULE_API_FUNC(RedisModule_AuthenticateClientWithUser)(RedisModuleCtx 
 void REDISMODULE_API_FUNC(RedisModule_DeauthenticateAndCloseClient)(RedisModuleCtx *ctx, uint64_t client_id);
 #endif
 
-#define RedisModule_IsAOFClient(id) ((id) == UINT64_MAX)
+#define RedisModule_IsAOFClient(id) ((id) == CLIENT_ID_AOF)
 
 /* This is included inline inside each Redis module. */
 static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int apiver) __attribute__((unused));

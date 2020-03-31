@@ -373,13 +373,16 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
      * will produce an error. However it is useful to log such events since
      * they are rare and may hint at errors in a script or a bug in Redis. */
     int ctype = getClientType(c);
-    if (ctype == CLIENT_TYPE_MASTER || ctype == CLIENT_TYPE_SLAVE) {
-        char* to = ctype == CLIENT_TYPE_MASTER? "master": "replica";
-        char* from = ctype == CLIENT_TYPE_MASTER? "replica": "master";
+    if (ctype == CLIENT_TYPE_MASTER || ctype == CLIENT_TYPE_SLAVE || c->id == CLIENT_ID_AOF) {
+        char* to = c->id == CLIENT_ID_AOF ? "AOF-client" :
+                       ctype == CLIENT_TYPE_MASTER ? "master" : "replica";
+        char* from = c->id == CLIENT_ID_AOF ? "server" :
+                         ctype == CLIENT_TYPE_MASTER ? "replica" : "master";
         char *cmdname = c->lastcmd ? c->lastcmd->name : "<unknown>";
         serverLog(LL_WARNING,"== CRITICAL == This %s is sending an error "
                              "to its %s: '%s' after processing the command "
                              "'%s'", from, to, s, cmdname);
+        server.stat_unexpected_error_replies++;
     }
 }
 
