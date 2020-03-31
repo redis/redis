@@ -395,6 +395,8 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CMD_CALL_PROPAGATE_REPL (1<<3)
 #define CMD_CALL_PROPAGATE (CMD_CALL_PROPAGATE_AOF|CMD_CALL_PROPAGATE_REPL)
 #define CMD_CALL_FULL (CMD_CALL_SLOWLOG | CMD_CALL_STATS | CMD_CALL_PROPAGATE)
+#define CMD_CALL_NOWRAP (1<<4)  /* Don't wrap also propagate array into
+                                   MULTI/EXEC: the caller will handle it.  */
 
 /* Command propagation flags, see propagate() function */
 #define PROPAGATE_NONE 0
