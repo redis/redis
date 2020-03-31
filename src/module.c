@@ -3341,9 +3341,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     }
     call(c,call_flags);
 
-    /* Convert the result of the Redis command into a suitable Lua type.
-     * The first thing we need is to create a single string from the client
-     * output buffers. */
+    /* Convert the result of the Redis command into a module reply. */
     sds proto = sdsnewlen(c->buf,c->bufpos);
     c->bufpos = 0;
     while(listLength(c->reply)) {
