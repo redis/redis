@@ -3267,11 +3267,15 @@ void call(client *c, int flags) {
             int multi_emitted = 0;
             /* Wrap the commands in server.also_propagate array,
              * but don't wrap it if we are already in MULIT context,
-             * in case the nested MULIT/EXEC.
+             * in case the nested MULTI/EXEC.
              *
              * And if the array contains only one command, no need to
              * wrap it, since the single command is atomic. */
-            if (server.also_propagate.numops > 1 && !(c->flags & CLIENT_MULTI)) {
+            if (server.also_propagate.numops > 1 &&
+                !(c->cmd->flags & CMD_MODULE) &&
+                !(c->flags & CLIENT_MULTI) &&
+                !(flags & CMD_CALL_NOWRAP))
+            {
                 execCommandPropagateMulti(c);
                 multi_emitted = 1;
             }
