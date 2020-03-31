@@ -182,7 +182,8 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
 
     serverAssertWithInfo(NULL,key,retval == DICT_OK);
     if (val->type == OBJ_LIST ||
-        val->type == OBJ_ZSET)
+        val->type == OBJ_ZSET ||
+        val->type == OBJ_STREAM)
         signalKeyAsReady(db, key);
     if (server.cluster_enabled) slotToKeyAdd(key);
 }
