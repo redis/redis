@@ -1,7 +1,7 @@
 #include "test/jemalloc_test.h"
 
-#define	MAX_REL_ERR 1.0e-9
-#define	MAX_ABS_ERR 1.0e-9
+#define MAX_REL_ERR 1.0e-9
+#define MAX_ABS_ERR 1.0e-9
 
 #include <float.h>
 
@@ -10,34 +10,33 @@
 #endif
 
 #ifndef INFINITY
-#define	INFINITY (DBL_MAX + DBL_MAX)
+#define INFINITY (DBL_MAX + DBL_MAX)
 #endif
 
 static bool
-double_eq_rel(double a, double b, double max_rel_err, double max_abs_err)
-{
+double_eq_rel(double a, double b, double max_rel_err, double max_abs_err) {
 	double rel_err;
 
-	if (fabs(a - b) < max_abs_err)
-		return (true);
+	if (fabs(a - b) < max_abs_err) {
+		return true;
+	}
 	rel_err = (fabs(b) > fabs(a)) ? fabs((a-b)/b) : fabs((a-b)/a);
 	return (rel_err < max_rel_err);
 }
 
 static uint64_t
-factorial(unsigned x)
-{
+factorial(unsigned x) {
 	uint64_t ret = 1;
 	unsigned i;
 
-	for (i = 2; i <= x; i++)
+	for (i = 2; i <= x; i++) {
 		ret *= (uint64_t)i;
+	}
 
-	return (ret);
+	return ret;
 }
 
-TEST_BEGIN(test_ln_gamma_factorial)
-{
+TEST_BEGIN(test_ln_gamma_factorial) {
 	unsigned x;
 
 	/* exp(ln_gamma(x)) == (x-1)! for integer x. */
@@ -188,8 +187,7 @@ static const double ln_gamma_misc_expected[] = {
 	359.13420536957539753
 };
 
-TEST_BEGIN(test_ln_gamma_misc)
-{
+TEST_BEGIN(test_ln_gamma_misc) {
 	unsigned i;
 
 	for (i = 1; i < sizeof(ln_gamma_misc_expected)/sizeof(double); i++) {
@@ -239,8 +237,7 @@ static const double pt_norm_expected[] = {
 	1.88079360815125041, 2.05374891063182208, 2.32634787404084076
 };
 
-TEST_BEGIN(test_pt_norm)
-{
+TEST_BEGIN(test_pt_norm) {
 	unsigned i;
 
 	for (i = 1; i < sizeof(pt_norm_expected)/sizeof(double); i++) {
@@ -289,8 +286,7 @@ static const double pt_chi2_expected[] = {
 	1046.4872561869577, 1063.5717461999654, 1107.0741966053859
 };
 
-TEST_BEGIN(test_pt_chi2)
-{
+TEST_BEGIN(test_pt_chi2) {
 	unsigned i, j;
 	unsigned e = 0;
 
@@ -351,8 +347,7 @@ static const double pt_gamma_expected[] = {
 	4.7230515633946677, 5.6417477865306020, 8.4059469148854635
 };
 
-TEST_BEGIN(test_pt_gamma_shape)
-{
+TEST_BEGIN(test_pt_gamma_shape) {
 	unsigned i, j;
 	unsigned e = 0;
 
@@ -371,8 +366,7 @@ TEST_BEGIN(test_pt_gamma_shape)
 }
 TEST_END
 
-TEST_BEGIN(test_pt_gamma_scale)
-{
+TEST_BEGIN(test_pt_gamma_scale) {
 	double shape = 1.0;
 	double ln_gamma_shape = ln_gamma(shape);
 
@@ -385,14 +379,12 @@ TEST_BEGIN(test_pt_gamma_scale)
 TEST_END
 
 int
-main(void)
-{
-
-	return (test(
+main(void) {
+	return test(
 	    test_ln_gamma_factorial,
 	    test_ln_gamma_misc,
 	    test_pt_norm,
 	    test_pt_chi2,
 	    test_pt_gamma_shape,
-	    test_pt_gamma_scale));
+	    test_pt_gamma_scale);
 }

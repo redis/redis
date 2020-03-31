@@ -10,7 +10,7 @@ start_server {} {
     # Config
     set debug_msg 0                 ; # Enable additional debug messages
 
-    set no_exit 0;                  ; # Do not exit at end of the test
+    set no_exit 0                   ; # Do not exit at end of the test
 
     set duration 20                 ; # Total test seconds
 
@@ -33,9 +33,8 @@ start_server {} {
 
     set cycle 1
     while {([clock seconds]-$start_time) < $duration} {
-        test "PSYNC2: --- CYCLE $cycle ---" {
-            incr cycle
-        }
+        test "PSYNC2: --- CYCLE $cycle ---" {}
+        incr cycle
 
         # Create a random replication layout.
         # Start with switching master (this simulates a failover).
@@ -96,7 +95,7 @@ start_server {} {
                     if {$disconnect} {
                         $R($slave_id) client kill type master
                         if {$debug_msg} {
-                            puts "+++ Breaking link for slave #$slave_id"
+                            puts "+++ Breaking link for replica #$slave_id"
                         }
                     }
                 }
@@ -113,6 +112,27 @@ start_server {} {
                     fail "Instance #$j x variable is inconsistent"
                 }
             }
+        }
+
+        # wait for all the slaves to be in sync with the master
+        set master_ofs [status $R($master_id) master_repl_offset]
+        wait_for_condition 500 100 {
+            $master_ofs == [status $R(0) master_repl_offset] &&
+            $master_ofs == [status $R(1) master_repl_offset] &&
+            $master_ofs == [status $R(2) master_repl_offset] &&
+            $master_ofs == [status $R(3) master_repl_offset] &&
+            $master_ofs == [status $R(4) master_repl_offset]
+        } else {
+            if {$debug_msg} {
+                for {set j 0} {$j < 5} {incr j} {
+                    puts "$j: sync_full: [status $R($j) sync_full]"
+                    puts "$j: id1      : [status $R($j) master_replid]:[status $R($j) master_repl_offset]"
+                    puts "$j: id2      : [status $R($j) master_replid2]:[status $R($j) second_repl_offset]"
+                    puts "$j: backlog  : firstbyte=[status $R($j) repl_backlog_first_byte_offset] len=[status $R($j) repl_backlog_histlen]"
+                    puts "---"
+                }
+            }
+            fail "Slaves are not in sync with the master after too long time."
         }
 
         # Put down the old master so that it cannot generate more
@@ -139,6 +159,11 @@ start_server {} {
             }
             assert {$sum == 4}
         }
+
+        # Limit anyway the maximum number of cycles. This is useful when the
+        # test is skipped via --only option of the test suite. In that case
+        # we don't want to see many seconds of this test being just skipped.
+        if {$cycle > 50} break
     }
 
     test "PSYNC2: Bring the master back again for next test" {
@@ -154,7 +179,7 @@ start_server {} {
         wait_for_condition 50 1000 {
             [status $R($master_id) connected_slaves] == 4
         } else {
-            fail "Slave not reconnecting"
+            fail "Replica not reconnecting"
         }
     }
 
@@ -162,17 +187,83 @@ start_server {} {
         # Pick a random slave
         set slave_id [expr {($master_id+1)%5}]
         set sync_count [status $R($master_id) sync_full]
+        set sync_partial [status $R($master_id) sync_partial_ok]
         catch {
             $R($slave_id) config rewrite
             $R($slave_id) debug restart
         }
+        # note: just waiting for connected_slaves==4 has a race condition since
+        # we might do the check before the master realized that the slave disconnected
         wait_for_condition 50 1000 {
-            [status $R($master_id) connected_slaves] == 4
+            [status $R($master_id) sync_partial_ok] == $sync_partial + 1
         } else {
-            fail "Slave not reconnecting"
+            fail "Replica not reconnecting"
         }
         set new_sync_count [status $R($master_id) sync_full]
         assert {$sync_count == $new_sync_count}
+    }
+
+    test "PSYNC2: Replica RDB restart with EVALSHA in backlog issue #4483" {
+        # Pick a random slave
+        set slave_id [expr {($master_id+1)%5}]
+        set sync_count [status $R($master_id) sync_full]
+
+        # Make sure to replicate the first EVAL while the salve is online
+        # so that it's part of the scripts the master believes it's safe
+        # to propagate as EVALSHA.
+        $R($master_id) EVAL {return redis.call("incr","__mycounter")} 0
+        $R($master_id) EVALSHA e6e0b547500efcec21eddb619ac3724081afee89 0
+
+        # Wait for the two to sync
+        wait_for_condition 50 1000 {
+            [$R($master_id) debug digest] == [$R($slave_id) debug digest]
+        } else {
+            fail "Replica not reconnecting"
+        }
+
+        # Prevent the slave from receiving master updates, and at
+        # the same time send a new script several times to the
+        # master, so that we'll end with EVALSHA into the backlog.
+        $R($slave_id) slaveof 127.0.0.1 0
+
+        $R($master_id) EVALSHA e6e0b547500efcec21eddb619ac3724081afee89 0
+        $R($master_id) EVALSHA e6e0b547500efcec21eddb619ac3724081afee89 0
+        $R($master_id) EVALSHA e6e0b547500efcec21eddb619ac3724081afee89 0
+
+        catch {
+            $R($slave_id) config rewrite
+            $R($slave_id) debug restart
+        }
+
+        # Reconfigure the slave correctly again, when it's back online.
+        set retry 50
+        while {$retry} {
+            if {[catch {
+                $R($slave_id) slaveof $master_host $master_port
+            }]} {
+                after 1000
+            } else {
+                break
+            }
+            incr retry -1
+        }
+
+        # The master should be back at 4 slaves eventually
+        wait_for_condition 50 1000 {
+            [status $R($master_id) connected_slaves] == 4
+        } else {
+            fail "Replica not reconnecting"
+        }
+        set new_sync_count [status $R($master_id) sync_full]
+        assert {$sync_count == $new_sync_count}
+
+        # However if the slave started with the full state of the
+        # scripting engine, we should now have the same digest.
+        wait_for_condition 50 1000 {
+            [$R($master_id) debug digest] == [$R($slave_id) debug digest]
+        } else {
+            fail "Debug digest mismatch between master and replica in post-restart handshake"
+        }
     }
 
     if {$no_exit} {

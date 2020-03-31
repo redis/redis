@@ -12,6 +12,20 @@ environment:
     CPU: x86_64
   - MSYSTEM: MINGW32
     CPU: i686
+  - MSYSTEM: MINGW64
+    CPU: x86_64
+    MSVC: amd64
+    CONFIG_FLAGS: --enable-debug
+  - MSYSTEM: MINGW32
+    CPU: i686
+    MSVC: x86
+    CONFIG_FLAGS: --enable-debug
+  - MSYSTEM: MINGW64
+    CPU: x86_64
+    CONFIG_FLAGS: --enable-debug
+  - MSYSTEM: MINGW32
+    CPU: i686
+    CONFIG_FLAGS: --enable-debug
 
 install:
   - set PATH=c:\msys64\%MSYSTEM%\bin;c:\msys64\usr\bin;%PATH%
@@ -21,8 +35,8 @@ install:
 
 build_script:
   - bash -c "autoconf"
-  - bash -c "./configure"
-  - mingw32-make -j3
+  - bash -c "./configure $CONFIG_FLAGS"
+  - mingw32-make
   - file lib/jemalloc.dll
-  - mingw32-make -j3 tests
+  - mingw32-make tests
   - mingw32-make -k check

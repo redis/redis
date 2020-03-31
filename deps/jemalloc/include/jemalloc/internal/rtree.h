@@ -1,75 +1,72 @@
+#ifndef JEMALLOC_INTERNAL_RTREE_H
+#define JEMALLOC_INTERNAL_RTREE_H
+
+#include "jemalloc/internal/atomic.h"
+#include "jemalloc/internal/mutex.h"
+#include "jemalloc/internal/rtree_tsd.h"
+#include "jemalloc/internal/size_classes.h"
+#include "jemalloc/internal/tsd.h"
+
 /*
  * This radix tree implementation is tailored to the singular purpose of
- * associating metadata with chunks that are currently owned by jemalloc.
+ * associating metadata with extents that are currently owned by jemalloc.
  *
  *******************************************************************************
  */
-#ifdef JEMALLOC_H_TYPES
+
+/* Number of high insignificant bits. */
+#define RTREE_NHIB ((1U << (LG_SIZEOF_PTR+3)) - LG_VADDR)
+/* Number of low insigificant bits. */
+#define RTREE_NLIB LG_PAGE
+/* Number of significant bits. */
+#define RTREE_NSB (LG_VADDR - RTREE_NLIB)
+/* Number of levels in radix tree. */
+#if RTREE_NSB <= 10
+#  define RTREE_HEIGHT 1
+#elif RTREE_NSB <= 36
+#  define RTREE_HEIGHT 2
+#elif RTREE_NSB <= 52
+#  define RTREE_HEIGHT 3
+#else
+#  error Unsupported number of significant virtual address bits
+#endif
+/* Use compact leaf representation if virtual address encoding allows. */
+#if RTREE_NHIB >= LG_CEIL_NSIZES
+#  define RTREE_LEAF_COMPACT
+#endif
+
+/* Needed for initialization only. */
+#define RTREE_LEAFKEY_INVALID ((uintptr_t)1)
 
 typedef struct rtree_node_elm_s rtree_node_elm_t;
-typedef struct rtree_level_s rtree_level_t;
-typedef struct rtree_s rtree_t;
-
-/*
- * RTREE_BITS_PER_LEVEL must be a power of two that is no larger than the
- * machine address width.
- */
-#define	LG_RTREE_BITS_PER_LEVEL	4
-#define	RTREE_BITS_PER_LEVEL	(1U << LG_RTREE_BITS_PER_LEVEL)
-/* Maximum rtree height. */
-#define	RTREE_HEIGHT_MAX						\
-    ((1U << (LG_SIZEOF_PTR+3)) / RTREE_BITS_PER_LEVEL)
-
-/* Used for two-stage lock-free node initialization. */
-#define	RTREE_NODE_INITIALIZING	((rtree_node_elm_t *)0x1)
-
-/*
- * The node allocation callback function's argument is the number of contiguous
- * rtree_node_elm_t structures to allocate, and the resulting memory must be
- * zeroed.
- */
-typedef rtree_node_elm_t *(rtree_node_alloc_t)(size_t);
-typedef void (rtree_node_dalloc_t)(rtree_node_elm_t *);
-
-#endif /* JEMALLOC_H_TYPES */
-/******************************************************************************/
-#ifdef JEMALLOC_H_STRUCTS
-
 struct rtree_node_elm_s {
-	union {
-		void			*pun;
-		rtree_node_elm_t	*child;
-		extent_node_t		*val;
-	};
+	atomic_p_t	child; /* (rtree_{node,leaf}_elm_t *) */
 };
 
-struct rtree_level_s {
+struct rtree_leaf_elm_s {
+#ifdef RTREE_LEAF_COMPACT
 	/*
-	 * A non-NULL subtree points to a subtree rooted along the hypothetical
-	 * path to the leaf node corresponding to key 0.  Depending on what keys
-	 * have been used to store to the tree, an arbitrary combination of
-	 * subtree pointers may remain NULL.
+	 * Single pointer-width field containing all three leaf element fields.
+	 * For example, on a 64-bit x64 system with 48 significant virtual
+	 * memory address bits, the index, extent, and slab fields are packed as
+	 * such:
 	 *
-	 * Suppose keys comprise 48 bits, and LG_RTREE_BITS_PER_LEVEL is 4.
-	 * This results in a 3-level tree, and the leftmost leaf can be directly
-	 * accessed via subtrees[2], the subtree prefixed by 0x0000 (excluding
-	 * 0x00000000) can be accessed via subtrees[1], and the remainder of the
-	 * tree can be accessed via subtrees[0].
+	 * x: index
+	 * e: extent
+	 * b: slab
 	 *
-	 *   levels[0] : [<unused> | 0x0001******** | 0x0002******** | ...]
-	 *
-	 *   levels[1] : [<unused> | 0x00000001**** | 0x00000002**** | ... ]
-	 *
-	 *   levels[2] : [val(0x000000000000) | val(0x000000000001) | ...]
-	 *
-	 * This has practical implications on x64, which currently uses only the
-	 * lower 47 bits of virtual address space in userland, thus leaving
-	 * subtrees[0] unused and avoiding a level of tree traversal.
+	 *   00000000 xxxxxxxx eeeeeeee [...] eeeeeeee eeee000b
 	 */
-	union {
-		void			*subtree_pun;
-		rtree_node_elm_t	*subtree;
-	};
+	atomic_p_t	le_bits;
+#else
+	atomic_p_t	le_extent; /* (extent_t *) */
+	atomic_u_t	le_szind; /* (szind_t) */
+	atomic_b_t	le_slab; /* (bool) */
+#endif
+};
+
+typedef struct rtree_level_s rtree_level_t;
+struct rtree_level_s {
 	/* Number of key bits distinguished by this level. */
 	unsigned		bits;
 	/*
@@ -79,288 +76,417 @@ struct rtree_level_s {
 	unsigned		cumbits;
 };
 
+typedef struct rtree_s rtree_t;
 struct rtree_s {
-	rtree_node_alloc_t	*alloc;
-	rtree_node_dalloc_t	*dalloc;
-	unsigned		height;
-	/*
-	 * Precomputed table used to convert from the number of leading 0 key
-	 * bits to which subtree level to start at.
-	 */
-	unsigned		start_level[RTREE_HEIGHT_MAX];
-	rtree_level_t		levels[RTREE_HEIGHT_MAX];
+	malloc_mutex_t		init_lock;
+	/* Number of elements based on rtree_levels[0].bits. */
+#if RTREE_HEIGHT > 1
+	rtree_node_elm_t	root[1U << (RTREE_NSB/RTREE_HEIGHT)];
+#else
+	rtree_leaf_elm_t	root[1U << (RTREE_NSB/RTREE_HEIGHT)];
+#endif
 };
 
-#endif /* JEMALLOC_H_STRUCTS */
-/******************************************************************************/
-#ifdef JEMALLOC_H_EXTERNS
-
-bool rtree_new(rtree_t *rtree, unsigned bits, rtree_node_alloc_t *alloc,
-    rtree_node_dalloc_t *dalloc);
-void	rtree_delete(rtree_t *rtree);
-rtree_node_elm_t	*rtree_subtree_read_hard(rtree_t *rtree,
-    unsigned level);
-rtree_node_elm_t	*rtree_child_read_hard(rtree_t *rtree,
-    rtree_node_elm_t *elm, unsigned level);
-
-#endif /* JEMALLOC_H_EXTERNS */
-/******************************************************************************/
-#ifdef JEMALLOC_H_INLINES
-
-#ifndef JEMALLOC_ENABLE_INLINE
-unsigned	rtree_start_level(rtree_t *rtree, uintptr_t key);
-uintptr_t	rtree_subkey(rtree_t *rtree, uintptr_t key, unsigned level);
-
-bool	rtree_node_valid(rtree_node_elm_t *node);
-rtree_node_elm_t	*rtree_child_tryread(rtree_node_elm_t *elm,
-    bool dependent);
-rtree_node_elm_t	*rtree_child_read(rtree_t *rtree, rtree_node_elm_t *elm,
-    unsigned level, bool dependent);
-extent_node_t	*rtree_val_read(rtree_t *rtree, rtree_node_elm_t *elm,
-    bool dependent);
-void	rtree_val_write(rtree_t *rtree, rtree_node_elm_t *elm,
-    const extent_node_t *val);
-rtree_node_elm_t	*rtree_subtree_tryread(rtree_t *rtree, unsigned level,
-    bool dependent);
-rtree_node_elm_t	*rtree_subtree_read(rtree_t *rtree, unsigned level,
-    bool dependent);
-
-extent_node_t	*rtree_get(rtree_t *rtree, uintptr_t key, bool dependent);
-bool	rtree_set(rtree_t *rtree, uintptr_t key, const extent_node_t *val);
+/*
+ * Split the bits into one to three partitions depending on number of
+ * significant bits.  It the number of bits does not divide evenly into the
+ * number of levels, place one remainder bit per level starting at the leaf
+ * level.
+ */
+static const rtree_level_t rtree_levels[] = {
+#if RTREE_HEIGHT == 1
+	{RTREE_NSB, RTREE_NHIB + RTREE_NSB}
+#elif RTREE_HEIGHT == 2
+	{RTREE_NSB/2, RTREE_NHIB + RTREE_NSB/2},
+	{RTREE_NSB/2 + RTREE_NSB%2, RTREE_NHIB + RTREE_NSB}
+#elif RTREE_HEIGHT == 3
+	{RTREE_NSB/3, RTREE_NHIB + RTREE_NSB/3},
+	{RTREE_NSB/3 + RTREE_NSB%3/2,
+	    RTREE_NHIB + RTREE_NSB/3*2 + RTREE_NSB%3/2},
+	{RTREE_NSB/3 + RTREE_NSB%3 - RTREE_NSB%3/2, RTREE_NHIB + RTREE_NSB}
+#else
+#  error Unsupported rtree height
 #endif
+};
 
-#if (defined(JEMALLOC_ENABLE_INLINE) || defined(JEMALLOC_RTREE_C_))
-JEMALLOC_ALWAYS_INLINE unsigned
-rtree_start_level(rtree_t *rtree, uintptr_t key)
-{
-	unsigned start_level;
+bool rtree_new(rtree_t *rtree, bool zeroed);
 
-	if (unlikely(key == 0))
-		return (rtree->height - 1);
+typedef rtree_node_elm_t *(rtree_node_alloc_t)(tsdn_t *, rtree_t *, size_t);
+extern rtree_node_alloc_t *JET_MUTABLE rtree_node_alloc;
 
-	start_level = rtree->start_level[lg_floor(key) >>
-	    LG_RTREE_BITS_PER_LEVEL];
-	assert(start_level < rtree->height);
-	return (start_level);
+typedef rtree_leaf_elm_t *(rtree_leaf_alloc_t)(tsdn_t *, rtree_t *, size_t);
+extern rtree_leaf_alloc_t *JET_MUTABLE rtree_leaf_alloc;
+
+typedef void (rtree_node_dalloc_t)(tsdn_t *, rtree_t *, rtree_node_elm_t *);
+extern rtree_node_dalloc_t *JET_MUTABLE rtree_node_dalloc;
+
+typedef void (rtree_leaf_dalloc_t)(tsdn_t *, rtree_t *, rtree_leaf_elm_t *);
+extern rtree_leaf_dalloc_t *JET_MUTABLE rtree_leaf_dalloc;
+#ifdef JEMALLOC_JET
+void rtree_delete(tsdn_t *tsdn, rtree_t *rtree);
+#endif
+rtree_leaf_elm_t *rtree_leaf_elm_lookup_hard(tsdn_t *tsdn, rtree_t *rtree,
+    rtree_ctx_t *rtree_ctx, uintptr_t key, bool dependent, bool init_missing);
+
+JEMALLOC_ALWAYS_INLINE uintptr_t
+rtree_leafkey(uintptr_t key) {
+	unsigned ptrbits = ZU(1) << (LG_SIZEOF_PTR+3);
+	unsigned cumbits = (rtree_levels[RTREE_HEIGHT-1].cumbits -
+	    rtree_levels[RTREE_HEIGHT-1].bits);
+	unsigned maskbits = ptrbits - cumbits;
+	uintptr_t mask = ~((ZU(1) << maskbits) - 1);
+	return (key & mask);
+}
+
+JEMALLOC_ALWAYS_INLINE size_t
+rtree_cache_direct_map(uintptr_t key) {
+	unsigned ptrbits = ZU(1) << (LG_SIZEOF_PTR+3);
+	unsigned cumbits = (rtree_levels[RTREE_HEIGHT-1].cumbits -
+	    rtree_levels[RTREE_HEIGHT-1].bits);
+	unsigned maskbits = ptrbits - cumbits;
+	return (size_t)((key >> maskbits) & (RTREE_CTX_NCACHE - 1));
 }
 
 JEMALLOC_ALWAYS_INLINE uintptr_t
-rtree_subkey(rtree_t *rtree, uintptr_t key, unsigned level)
-{
+rtree_subkey(uintptr_t key, unsigned level) {
+	unsigned ptrbits = ZU(1) << (LG_SIZEOF_PTR+3);
+	unsigned cumbits = rtree_levels[level].cumbits;
+	unsigned shiftbits = ptrbits - cumbits;
+	unsigned maskbits = rtree_levels[level].bits;
+	uintptr_t mask = (ZU(1) << maskbits) - 1;
+	return ((key >> shiftbits) & mask);
+}
 
-	return ((key >> ((ZU(1) << (LG_SIZEOF_PTR+3)) -
-	    rtree->levels[level].cumbits)) & ((ZU(1) <<
-	    rtree->levels[level].bits) - 1));
+/*
+ * Atomic getters.
+ *
+ * dependent: Reading a value on behalf of a pointer to a valid allocation
+ *            is guaranteed to be a clean read even without synchronization,
+ *            because the rtree update became visible in memory before the
+ *            pointer came into existence.
+ * !dependent: An arbitrary read, e.g. on behalf of ivsalloc(), may not be
+ *             dependent on a previous rtree write, which means a stale read
+ *             could result if synchronization were omitted here.
+ */
+#  ifdef RTREE_LEAF_COMPACT
+JEMALLOC_ALWAYS_INLINE uintptr_t
+rtree_leaf_elm_bits_read(tsdn_t *tsdn, rtree_t *rtree, rtree_leaf_elm_t *elm,
+    bool dependent) {
+	return (uintptr_t)atomic_load_p(&elm->le_bits, dependent
+	    ? ATOMIC_RELAXED : ATOMIC_ACQUIRE);
+}
+
+JEMALLOC_ALWAYS_INLINE extent_t *
+rtree_leaf_elm_bits_extent_get(uintptr_t bits) {
+#    ifdef __aarch64__
+	/*
+	 * aarch64 doesn't sign extend the highest virtual address bit to set
+	 * the higher ones.  Instead, the high bits gets zeroed.
+	 */
+	uintptr_t high_bit_mask = ((uintptr_t)1 << LG_VADDR) - 1;
+	/* Mask off the slab bit. */
+	uintptr_t low_bit_mask = ~(uintptr_t)1;
+	uintptr_t mask = high_bit_mask & low_bit_mask;
+	return (extent_t *)(bits & mask);
+#    else
+	/* Restore sign-extended high bits, mask slab bit. */
+	return (extent_t *)((uintptr_t)((intptr_t)(bits << RTREE_NHIB) >>
+	    RTREE_NHIB) & ~((uintptr_t)0x1));
+#    endif
+}
+
+JEMALLOC_ALWAYS_INLINE szind_t
+rtree_leaf_elm_bits_szind_get(uintptr_t bits) {
+	return (szind_t)(bits >> LG_VADDR);
 }
 
 JEMALLOC_ALWAYS_INLINE bool
-rtree_node_valid(rtree_node_elm_t *node)
-{
-
-	return ((uintptr_t)node > (uintptr_t)RTREE_NODE_INITIALIZING);
+rtree_leaf_elm_bits_slab_get(uintptr_t bits) {
+	return (bool)(bits & (uintptr_t)0x1);
 }
 
-JEMALLOC_ALWAYS_INLINE rtree_node_elm_t *
-rtree_child_tryread(rtree_node_elm_t *elm, bool dependent)
-{
-	rtree_node_elm_t *child;
+#  endif
 
-	/* Double-checked read (first read may be stale. */
-	child = elm->child;
-	if (!dependent && !rtree_node_valid(child))
-		child = atomic_read_p(&elm->pun);
-	assert(!dependent || child != NULL);
-	return (child);
+JEMALLOC_ALWAYS_INLINE extent_t *
+rtree_leaf_elm_extent_read(UNUSED tsdn_t *tsdn, UNUSED rtree_t *rtree,
+    rtree_leaf_elm_t *elm, bool dependent) {
+#ifdef RTREE_LEAF_COMPACT
+	uintptr_t bits = rtree_leaf_elm_bits_read(tsdn, rtree, elm, dependent);
+	return rtree_leaf_elm_bits_extent_get(bits);
+#else
+	extent_t *extent = (extent_t *)atomic_load_p(&elm->le_extent, dependent
+	    ? ATOMIC_RELAXED : ATOMIC_ACQUIRE);
+	return extent;
+#endif
 }
 
-JEMALLOC_ALWAYS_INLINE rtree_node_elm_t *
-rtree_child_read(rtree_t *rtree, rtree_node_elm_t *elm, unsigned level,
-    bool dependent)
-{
-	rtree_node_elm_t *child;
-
-	child = rtree_child_tryread(elm, dependent);
-	if (!dependent && unlikely(!rtree_node_valid(child)))
-		child = rtree_child_read_hard(rtree, elm, level);
-	assert(!dependent || child != NULL);
-	return (child);
+JEMALLOC_ALWAYS_INLINE szind_t
+rtree_leaf_elm_szind_read(UNUSED tsdn_t *tsdn, UNUSED rtree_t *rtree,
+    rtree_leaf_elm_t *elm, bool dependent) {
+#ifdef RTREE_LEAF_COMPACT
+	uintptr_t bits = rtree_leaf_elm_bits_read(tsdn, rtree, elm, dependent);
+	return rtree_leaf_elm_bits_szind_get(bits);
+#else
+	return (szind_t)atomic_load_u(&elm->le_szind, dependent ? ATOMIC_RELAXED
+	    : ATOMIC_ACQUIRE);
+#endif
 }
 
-JEMALLOC_ALWAYS_INLINE extent_node_t *
-rtree_val_read(rtree_t *rtree, rtree_node_elm_t *elm, bool dependent)
-{
+JEMALLOC_ALWAYS_INLINE bool
+rtree_leaf_elm_slab_read(UNUSED tsdn_t *tsdn, UNUSED rtree_t *rtree,
+    rtree_leaf_elm_t *elm, bool dependent) {
+#ifdef RTREE_LEAF_COMPACT
+	uintptr_t bits = rtree_leaf_elm_bits_read(tsdn, rtree, elm, dependent);
+	return rtree_leaf_elm_bits_slab_get(bits);
+#else
+	return atomic_load_b(&elm->le_slab, dependent ? ATOMIC_RELAXED :
+	    ATOMIC_ACQUIRE);
+#endif
+}
 
-	if (dependent) {
-		/*
-		 * Reading a val on behalf of a pointer to a valid allocation is
-		 * guaranteed to be a clean read even without synchronization,
-		 * because the rtree update became visible in memory before the
-		 * pointer came into existence.
-		 */
-		return (elm->val);
-	} else {
-		/*
-		 * An arbitrary read, e.g. on behalf of ivsalloc(), may not be
-		 * dependent on a previous rtree write, which means a stale read
-		 * could result if synchronization were omitted here.
-		 */
-		return (atomic_read_p(&elm->pun));
+static inline void
+rtree_leaf_elm_extent_write(UNUSED tsdn_t *tsdn, UNUSED rtree_t *rtree,
+    rtree_leaf_elm_t *elm, extent_t *extent) {
+#ifdef RTREE_LEAF_COMPACT
+	uintptr_t old_bits = rtree_leaf_elm_bits_read(tsdn, rtree, elm, true);
+	uintptr_t bits = ((uintptr_t)rtree_leaf_elm_bits_szind_get(old_bits) <<
+	    LG_VADDR) | ((uintptr_t)extent & (((uintptr_t)0x1 << LG_VADDR) - 1))
+	    | ((uintptr_t)rtree_leaf_elm_bits_slab_get(old_bits));
+	atomic_store_p(&elm->le_bits, (void *)bits, ATOMIC_RELEASE);
+#else
+	atomic_store_p(&elm->le_extent, extent, ATOMIC_RELEASE);
+#endif
+}
+
+static inline void
+rtree_leaf_elm_szind_write(UNUSED tsdn_t *tsdn, UNUSED rtree_t *rtree,
+    rtree_leaf_elm_t *elm, szind_t szind) {
+	assert(szind <= NSIZES);
+
+#ifdef RTREE_LEAF_COMPACT
+	uintptr_t old_bits = rtree_leaf_elm_bits_read(tsdn, rtree, elm,
+	    true);
+	uintptr_t bits = ((uintptr_t)szind << LG_VADDR) |
+	    ((uintptr_t)rtree_leaf_elm_bits_extent_get(old_bits) &
+	    (((uintptr_t)0x1 << LG_VADDR) - 1)) |
+	    ((uintptr_t)rtree_leaf_elm_bits_slab_get(old_bits));
+	atomic_store_p(&elm->le_bits, (void *)bits, ATOMIC_RELEASE);
+#else
+	atomic_store_u(&elm->le_szind, szind, ATOMIC_RELEASE);
+#endif
+}
+
+static inline void
+rtree_leaf_elm_slab_write(UNUSED tsdn_t *tsdn, UNUSED rtree_t *rtree,
+    rtree_leaf_elm_t *elm, bool slab) {
+#ifdef RTREE_LEAF_COMPACT
+	uintptr_t old_bits = rtree_leaf_elm_bits_read(tsdn, rtree, elm,
+	    true);
+	uintptr_t bits = ((uintptr_t)rtree_leaf_elm_bits_szind_get(old_bits) <<
+	    LG_VADDR) | ((uintptr_t)rtree_leaf_elm_bits_extent_get(old_bits) &
+	    (((uintptr_t)0x1 << LG_VADDR) - 1)) | ((uintptr_t)slab);
+	atomic_store_p(&elm->le_bits, (void *)bits, ATOMIC_RELEASE);
+#else
+	atomic_store_b(&elm->le_slab, slab, ATOMIC_RELEASE);
+#endif
+}
+
+static inline void
+rtree_leaf_elm_write(tsdn_t *tsdn, rtree_t *rtree, rtree_leaf_elm_t *elm,
+    extent_t *extent, szind_t szind, bool slab) {
+#ifdef RTREE_LEAF_COMPACT
+	uintptr_t bits = ((uintptr_t)szind << LG_VADDR) |
+	    ((uintptr_t)extent & (((uintptr_t)0x1 << LG_VADDR) - 1)) |
+	    ((uintptr_t)slab);
+	atomic_store_p(&elm->le_bits, (void *)bits, ATOMIC_RELEASE);
+#else
+	rtree_leaf_elm_slab_write(tsdn, rtree, elm, slab);
+	rtree_leaf_elm_szind_write(tsdn, rtree, elm, szind);
+	/*
+	 * Write extent last, since the element is atomically considered valid
+	 * as soon as the extent field is non-NULL.
+	 */
+	rtree_leaf_elm_extent_write(tsdn, rtree, elm, extent);
+#endif
+}
+
+static inline void
+rtree_leaf_elm_szind_slab_update(tsdn_t *tsdn, rtree_t *rtree,
+    rtree_leaf_elm_t *elm, szind_t szind, bool slab) {
+	assert(!slab || szind < NBINS);
+
+	/*
+	 * The caller implicitly assures that it is the only writer to the szind
+	 * and slab fields, and that the extent field cannot currently change.
+	 */
+	rtree_leaf_elm_slab_write(tsdn, rtree, elm, slab);
+	rtree_leaf_elm_szind_write(tsdn, rtree, elm, szind);
+}
+
+JEMALLOC_ALWAYS_INLINE rtree_leaf_elm_t *
+rtree_leaf_elm_lookup(tsdn_t *tsdn, rtree_t *rtree, rtree_ctx_t *rtree_ctx,
+    uintptr_t key, bool dependent, bool init_missing) {
+	assert(key != 0);
+	assert(!dependent || !init_missing);
+
+	size_t slot = rtree_cache_direct_map(key);
+	uintptr_t leafkey = rtree_leafkey(key);
+	assert(leafkey != RTREE_LEAFKEY_INVALID);
+
+	/* Fast path: L1 direct mapped cache. */
+	if (likely(rtree_ctx->cache[slot].leafkey == leafkey)) {
+		rtree_leaf_elm_t *leaf = rtree_ctx->cache[slot].leaf;
+		assert(leaf != NULL);
+		uintptr_t subkey = rtree_subkey(key, RTREE_HEIGHT-1);
+		return &leaf[subkey];
 	}
-}
-
-JEMALLOC_INLINE void
-rtree_val_write(rtree_t *rtree, rtree_node_elm_t *elm, const extent_node_t *val)
-{
-
-	atomic_write_p(&elm->pun, val);
-}
-
-JEMALLOC_ALWAYS_INLINE rtree_node_elm_t *
-rtree_subtree_tryread(rtree_t *rtree, unsigned level, bool dependent)
-{
-	rtree_node_elm_t *subtree;
-
-	/* Double-checked read (first read may be stale. */
-	subtree = rtree->levels[level].subtree;
-	if (!dependent && unlikely(!rtree_node_valid(subtree)))
-		subtree = atomic_read_p(&rtree->levels[level].subtree_pun);
-	assert(!dependent || subtree != NULL);
-	return (subtree);
-}
-
-JEMALLOC_ALWAYS_INLINE rtree_node_elm_t *
-rtree_subtree_read(rtree_t *rtree, unsigned level, bool dependent)
-{
-	rtree_node_elm_t *subtree;
-
-	subtree = rtree_subtree_tryread(rtree, level, dependent);
-	if (!dependent && unlikely(!rtree_node_valid(subtree)))
-		subtree = rtree_subtree_read_hard(rtree, level);
-	assert(!dependent || subtree != NULL);
-	return (subtree);
-}
-
-JEMALLOC_ALWAYS_INLINE extent_node_t *
-rtree_get(rtree_t *rtree, uintptr_t key, bool dependent)
-{
-	uintptr_t subkey;
-	unsigned start_level;
-	rtree_node_elm_t *node;
-
-	start_level = rtree_start_level(rtree, key);
-
-	node = rtree_subtree_tryread(rtree, start_level, dependent);
-#define	RTREE_GET_BIAS	(RTREE_HEIGHT_MAX - rtree->height)
-	switch (start_level + RTREE_GET_BIAS) {
-#define	RTREE_GET_SUBTREE(level)					\
-	case level:							\
-		assert(level < (RTREE_HEIGHT_MAX-1));			\
-		if (!dependent && unlikely(!rtree_node_valid(node)))	\
-			return (NULL);					\
-		subkey = rtree_subkey(rtree, key, level -		\
-		    RTREE_GET_BIAS);					\
-		node = rtree_child_tryread(&node[subkey], dependent);	\
-		/* Fall through. */
-#define	RTREE_GET_LEAF(level)						\
-	case level:							\
-		assert(level == (RTREE_HEIGHT_MAX-1));			\
-		if (!dependent && unlikely(!rtree_node_valid(node)))	\
-			return (NULL);					\
-		subkey = rtree_subkey(rtree, key, level -		\
-		    RTREE_GET_BIAS);					\
-		/*							\
-		 * node is a leaf, so it contains values rather than	\
-		 * child pointers.					\
-		 */							\
-		return (rtree_val_read(rtree, &node[subkey],		\
-		    dependent));
-#if RTREE_HEIGHT_MAX > 1
-	RTREE_GET_SUBTREE(0)
-#endif
-#if RTREE_HEIGHT_MAX > 2
-	RTREE_GET_SUBTREE(1)
-#endif
-#if RTREE_HEIGHT_MAX > 3
-	RTREE_GET_SUBTREE(2)
-#endif
-#if RTREE_HEIGHT_MAX > 4
-	RTREE_GET_SUBTREE(3)
-#endif
-#if RTREE_HEIGHT_MAX > 5
-	RTREE_GET_SUBTREE(4)
-#endif
-#if RTREE_HEIGHT_MAX > 6
-	RTREE_GET_SUBTREE(5)
-#endif
-#if RTREE_HEIGHT_MAX > 7
-	RTREE_GET_SUBTREE(6)
-#endif
-#if RTREE_HEIGHT_MAX > 8
-	RTREE_GET_SUBTREE(7)
-#endif
-#if RTREE_HEIGHT_MAX > 9
-	RTREE_GET_SUBTREE(8)
-#endif
-#if RTREE_HEIGHT_MAX > 10
-	RTREE_GET_SUBTREE(9)
-#endif
-#if RTREE_HEIGHT_MAX > 11
-	RTREE_GET_SUBTREE(10)
-#endif
-#if RTREE_HEIGHT_MAX > 12
-	RTREE_GET_SUBTREE(11)
-#endif
-#if RTREE_HEIGHT_MAX > 13
-	RTREE_GET_SUBTREE(12)
-#endif
-#if RTREE_HEIGHT_MAX > 14
-	RTREE_GET_SUBTREE(13)
-#endif
-#if RTREE_HEIGHT_MAX > 15
-	RTREE_GET_SUBTREE(14)
-#endif
-#if RTREE_HEIGHT_MAX > 16
-#  error Unsupported RTREE_HEIGHT_MAX
-#endif
-	RTREE_GET_LEAF(RTREE_HEIGHT_MAX-1)
-#undef RTREE_GET_SUBTREE
-#undef RTREE_GET_LEAF
-	default: not_reached();
+	/*
+	 * Search the L2 LRU cache.  On hit, swap the matching element into the
+	 * slot in L1 cache, and move the position in L2 up by 1.
+	 */
+#define RTREE_CACHE_CHECK_L2(i) do {					\
+	if (likely(rtree_ctx->l2_cache[i].leafkey == leafkey)) {	\
+		rtree_leaf_elm_t *leaf = rtree_ctx->l2_cache[i].leaf;	\
+		assert(leaf != NULL);					\
+		if (i > 0) {						\
+			/* Bubble up by one. */				\
+			rtree_ctx->l2_cache[i].leafkey =		\
+				rtree_ctx->l2_cache[i - 1].leafkey;	\
+			rtree_ctx->l2_cache[i].leaf =			\
+				rtree_ctx->l2_cache[i - 1].leaf;	\
+			rtree_ctx->l2_cache[i - 1].leafkey =		\
+			    rtree_ctx->cache[slot].leafkey;		\
+			rtree_ctx->l2_cache[i - 1].leaf =		\
+			    rtree_ctx->cache[slot].leaf;		\
+		} else {						\
+			rtree_ctx->l2_cache[0].leafkey =		\
+			    rtree_ctx->cache[slot].leafkey;		\
+			rtree_ctx->l2_cache[0].leaf =			\
+			    rtree_ctx->cache[slot].leaf;		\
+		}							\
+		rtree_ctx->cache[slot].leafkey = leafkey;		\
+		rtree_ctx->cache[slot].leaf = leaf;			\
+		uintptr_t subkey = rtree_subkey(key, RTREE_HEIGHT-1);	\
+		return &leaf[subkey];					\
+	}								\
+} while (0)
+	/* Check the first cache entry. */
+	RTREE_CACHE_CHECK_L2(0);
+	/* Search the remaining cache elements. */
+	for (unsigned i = 1; i < RTREE_CTX_NCACHE_L2; i++) {
+		RTREE_CACHE_CHECK_L2(i);
 	}
-#undef RTREE_GET_BIAS
-	not_reached();
+#undef RTREE_CACHE_CHECK_L2
+
+	return rtree_leaf_elm_lookup_hard(tsdn, rtree, rtree_ctx, key,
+	    dependent, init_missing);
 }
 
-JEMALLOC_INLINE bool
-rtree_set(rtree_t *rtree, uintptr_t key, const extent_node_t *val)
-{
-	uintptr_t subkey;
-	unsigned i, start_level;
-	rtree_node_elm_t *node, *child;
+static inline bool
+rtree_write(tsdn_t *tsdn, rtree_t *rtree, rtree_ctx_t *rtree_ctx, uintptr_t key,
+    extent_t *extent, szind_t szind, bool slab) {
+	/* Use rtree_clear() to set the extent to NULL. */
+	assert(extent != NULL);
 
-	start_level = rtree_start_level(rtree, key);
-
-	node = rtree_subtree_read(rtree, start_level, false);
-	if (node == NULL)
-		return (true);
-	for (i = start_level; /**/; i++, node = child) {
-		subkey = rtree_subkey(rtree, key, i);
-		if (i == rtree->height - 1) {
-			/*
-			 * node is a leaf, so it contains values rather than
-			 * child pointers.
-			 */
-			rtree_val_write(rtree, &node[subkey], val);
-			return (false);
-		}
-		assert(i + 1 < rtree->height);
-		child = rtree_child_read(rtree, &node[subkey], i, false);
-		if (child == NULL)
-			return (true);
+	rtree_leaf_elm_t *elm = rtree_leaf_elm_lookup(tsdn, rtree, rtree_ctx,
+	    key, false, true);
+	if (elm == NULL) {
+		return true;
 	}
-	not_reached();
-}
-#endif
 
-#endif /* JEMALLOC_H_INLINES */
-/******************************************************************************/
+	assert(rtree_leaf_elm_extent_read(tsdn, rtree, elm, false) == NULL);
+	rtree_leaf_elm_write(tsdn, rtree, elm, extent, szind, slab);
+
+	return false;
+}
+
+JEMALLOC_ALWAYS_INLINE rtree_leaf_elm_t *
+rtree_read(tsdn_t *tsdn, rtree_t *rtree, rtree_ctx_t *rtree_ctx, uintptr_t key,
+    bool dependent) {
+	rtree_leaf_elm_t *elm = rtree_leaf_elm_lookup(tsdn, rtree, rtree_ctx,
+	    key, dependent, false);
+	if (!dependent && elm == NULL) {
+		return NULL;
+	}
+	assert(elm != NULL);
+	return elm;
+}
+
+JEMALLOC_ALWAYS_INLINE extent_t *
+rtree_extent_read(tsdn_t *tsdn, rtree_t *rtree, rtree_ctx_t *rtree_ctx,
+    uintptr_t key, bool dependent) {
+	rtree_leaf_elm_t *elm = rtree_read(tsdn, rtree, rtree_ctx, key,
+	    dependent);
+	if (!dependent && elm == NULL) {
+		return NULL;
+	}
+	return rtree_leaf_elm_extent_read(tsdn, rtree, elm, dependent);
+}
+
+JEMALLOC_ALWAYS_INLINE szind_t
+rtree_szind_read(tsdn_t *tsdn, rtree_t *rtree, rtree_ctx_t *rtree_ctx,
+    uintptr_t key, bool dependent) {
+	rtree_leaf_elm_t *elm = rtree_read(tsdn, rtree, rtree_ctx, key,
+	    dependent);
+	if (!dependent && elm == NULL) {
+		return NSIZES;
+	}
+	return rtree_leaf_elm_szind_read(tsdn, rtree, elm, dependent);
+}
+
+/*
+ * rtree_slab_read() is intentionally omitted because slab is always read in
+ * conjunction with szind, which makes rtree_szind_slab_read() a better choice.
+ */
+
+JEMALLOC_ALWAYS_INLINE bool
+rtree_extent_szind_read(tsdn_t *tsdn, rtree_t *rtree, rtree_ctx_t *rtree_ctx,
+    uintptr_t key, bool dependent, extent_t **r_extent, szind_t *r_szind) {
+	rtree_leaf_elm_t *elm = rtree_read(tsdn, rtree, rtree_ctx, key,
+	    dependent);
+	if (!dependent && elm == NULL) {
+		return true;
+	}
+	*r_extent = rtree_leaf_elm_extent_read(tsdn, rtree, elm, dependent);
+	*r_szind = rtree_leaf_elm_szind_read(tsdn, rtree, elm, dependent);
+	return false;
+}
+
+JEMALLOC_ALWAYS_INLINE bool
+rtree_szind_slab_read(tsdn_t *tsdn, rtree_t *rtree, rtree_ctx_t *rtree_ctx,
+    uintptr_t key, bool dependent, szind_t *r_szind, bool *r_slab) {
+	rtree_leaf_elm_t *elm = rtree_read(tsdn, rtree, rtree_ctx, key,
+	    dependent);
+	if (!dependent && elm == NULL) {
+		return true;
+	}
+#ifdef RTREE_LEAF_COMPACT
+	uintptr_t bits = rtree_leaf_elm_bits_read(tsdn, rtree, elm, dependent);
+	*r_szind = rtree_leaf_elm_bits_szind_get(bits);
+	*r_slab = rtree_leaf_elm_bits_slab_get(bits);
+#else
+	*r_szind = rtree_leaf_elm_szind_read(tsdn, rtree, elm, dependent);
+	*r_slab = rtree_leaf_elm_slab_read(tsdn, rtree, elm, dependent);
+#endif
+	return false;
+}
+
+static inline void
+rtree_szind_slab_update(tsdn_t *tsdn, rtree_t *rtree, rtree_ctx_t *rtree_ctx,
+    uintptr_t key, szind_t szind, bool slab) {
+	assert(!slab || szind < NBINS);
+
+	rtree_leaf_elm_t *elm = rtree_read(tsdn, rtree, rtree_ctx, key, true);
+	rtree_leaf_elm_szind_slab_update(tsdn, rtree, elm, szind, slab);
+}
+
+static inline void
+rtree_clear(tsdn_t *tsdn, rtree_t *rtree, rtree_ctx_t *rtree_ctx,
+    uintptr_t key) {
+	rtree_leaf_elm_t *elm = rtree_read(tsdn, rtree, rtree_ctx, key, true);
+	assert(rtree_leaf_elm_extent_read(tsdn, rtree, elm, false) !=
+	    NULL);
+	rtree_leaf_elm_write(tsdn, rtree, elm, NULL, NSIZES, false);
+}
+
+#endif /* JEMALLOC_INTERNAL_RTREE_H */

@@ -1,9 +1,8 @@
 #include "test/jemalloc_test.h"
 
-#define	BILLION	UINT64_C(1000000000)
+#define BILLION	UINT64_C(1000000000)
 
-TEST_BEGIN(test_nstime_init)
-{
+TEST_BEGIN(test_nstime_init) {
 	nstime_t nst;
 
 	nstime_init(&nst, 42000000043);
@@ -13,8 +12,7 @@ TEST_BEGIN(test_nstime_init)
 }
 TEST_END
 
-TEST_BEGIN(test_nstime_init2)
-{
+TEST_BEGIN(test_nstime_init2) {
 	nstime_t nst;
 
 	nstime_init2(&nst, 42, 43);
@@ -23,8 +21,7 @@ TEST_BEGIN(test_nstime_init2)
 }
 TEST_END
 
-TEST_BEGIN(test_nstime_copy)
-{
+TEST_BEGIN(test_nstime_copy) {
 	nstime_t nsta, nstb;
 
 	nstime_init2(&nsta, 42, 43);
@@ -35,8 +32,7 @@ TEST_BEGIN(test_nstime_copy)
 }
 TEST_END
 
-TEST_BEGIN(test_nstime_compare)
-{
+TEST_BEGIN(test_nstime_compare) {
 	nstime_t nsta, nstb;
 
 	nstime_init2(&nsta, 42, 43);
@@ -70,8 +66,7 @@ TEST_BEGIN(test_nstime_compare)
 }
 TEST_END
 
-TEST_BEGIN(test_nstime_add)
-{
+TEST_BEGIN(test_nstime_add) {
 	nstime_t nsta, nstb;
 
 	nstime_init2(&nsta, 42, 43);
@@ -90,8 +85,24 @@ TEST_BEGIN(test_nstime_add)
 }
 TEST_END
 
-TEST_BEGIN(test_nstime_subtract)
-{
+TEST_BEGIN(test_nstime_iadd) {
+	nstime_t nsta, nstb;
+
+	nstime_init2(&nsta, 42, BILLION - 1);
+	nstime_iadd(&nsta, 1);
+	nstime_init2(&nstb, 43, 0);
+	assert_d_eq(nstime_compare(&nsta, &nstb), 0,
+	    "Incorrect addition result");
+
+	nstime_init2(&nsta, 42, 1);
+	nstime_iadd(&nsta, BILLION + 1);
+	nstime_init2(&nstb, 43, 2);
+	assert_d_eq(nstime_compare(&nsta, &nstb), 0,
+	    "Incorrect addition result");
+}
+TEST_END
+
+TEST_BEGIN(test_nstime_subtract) {
 	nstime_t nsta, nstb;
 
 	nstime_init2(&nsta, 42, 43);
@@ -110,8 +121,24 @@ TEST_BEGIN(test_nstime_subtract)
 }
 TEST_END
 
-TEST_BEGIN(test_nstime_imultiply)
-{
+TEST_BEGIN(test_nstime_isubtract) {
+	nstime_t nsta, nstb;
+
+	nstime_init2(&nsta, 42, 43);
+	nstime_isubtract(&nsta, 42*BILLION + 43);
+	nstime_init(&nstb, 0);
+	assert_d_eq(nstime_compare(&nsta, &nstb), 0,
+	    "Incorrect subtraction result");
+
+	nstime_init2(&nsta, 42, 43);
+	nstime_isubtract(&nsta, 41*BILLION + 44);
+	nstime_init2(&nstb, 0, BILLION - 1);
+	assert_d_eq(nstime_compare(&nsta, &nstb), 0,
+	    "Incorrect subtraction result");
+}
+TEST_END
+
+TEST_BEGIN(test_nstime_imultiply) {
 	nstime_t nsta, nstb;
 
 	nstime_init2(&nsta, 42, 43);
@@ -128,8 +155,7 @@ TEST_BEGIN(test_nstime_imultiply)
 }
 TEST_END
 
-TEST_BEGIN(test_nstime_idivide)
-{
+TEST_BEGIN(test_nstime_idivide) {
 	nstime_t nsta, nstb;
 
 	nstime_init2(&nsta, 42, 43);
@@ -148,8 +174,7 @@ TEST_BEGIN(test_nstime_idivide)
 }
 TEST_END
 
-TEST_BEGIN(test_nstime_divide)
-{
+TEST_BEGIN(test_nstime_divide) {
 	nstime_t nsta, nstb, nstc;
 
 	nstime_init2(&nsta, 42, 43);
@@ -176,15 +201,12 @@ TEST_BEGIN(test_nstime_divide)
 }
 TEST_END
 
-TEST_BEGIN(test_nstime_monotonic)
-{
-
+TEST_BEGIN(test_nstime_monotonic) {
 	nstime_monotonic();
 }
 TEST_END
 
-TEST_BEGIN(test_nstime_update)
-{
+TEST_BEGIN(test_nstime_update) {
 	nstime_t nst;
 
 	nstime_init(&nst, 0);
@@ -209,19 +231,19 @@ TEST_BEGIN(test_nstime_update)
 TEST_END
 
 int
-main(void)
-{
-
-	return (test(
+main(void) {
+	return test(
 	    test_nstime_init,
 	    test_nstime_init2,
 	    test_nstime_copy,
 	    test_nstime_compare,
 	    test_nstime_add,
+	    test_nstime_iadd,
 	    test_nstime_subtract,
+	    test_nstime_isubtract,
 	    test_nstime_imultiply,
 	    test_nstime_idivide,
 	    test_nstime_divide,
 	    test_nstime_monotonic,
-	    test_nstime_update));
+	    test_nstime_update);
 }

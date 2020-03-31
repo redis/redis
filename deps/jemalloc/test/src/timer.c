@@ -1,34 +1,28 @@
 #include "test/jemalloc_test.h"
 
 void
-timer_start(timedelta_t *timer)
-{
-
+timer_start(timedelta_t *timer) {
 	nstime_init(&timer->t0, 0);
 	nstime_update(&timer->t0);
 }
 
 void
-timer_stop(timedelta_t *timer)
-{
-
+timer_stop(timedelta_t *timer) {
 	nstime_copy(&timer->t1, &timer->t0);
 	nstime_update(&timer->t1);
 }
 
 uint64_t
-timer_usec(const timedelta_t *timer)
-{
+timer_usec(const timedelta_t *timer) {
 	nstime_t delta;
 
 	nstime_copy(&delta, &timer->t1);
 	nstime_subtract(&delta, &timer->t0);
-	return (nstime_ns(&delta) / 1000);
+	return nstime_ns(&delta) / 1000;
 }
 
 void
-timer_ratio(timedelta_t *a, timedelta_t *b, char *buf, size_t buflen)
-{
+timer_ratio(timedelta_t *a, timedelta_t *b, char *buf, size_t buflen) {
 	uint64_t t0 = timer_usec(a);
 	uint64_t t1 = timer_usec(b);
 	uint64_t mult;
@@ -38,11 +32,13 @@ timer_ratio(timedelta_t *a, timedelta_t *b, char *buf, size_t buflen)
 	/* Whole. */
 	n = malloc_snprintf(&buf[i], buflen-i, "%"FMTu64, t0 / t1);
 	i += n;
-	if (i >= buflen)
+	if (i >= buflen) {
 		return;
+	}
 	mult = 1;
-	for (j = 0; j < n; j++)
+	for (j = 0; j < n; j++) {
 		mult *= 10;
+	}
 
 	/* Decimal. */
 	n = malloc_snprintf(&buf[i], buflen-i, ".");

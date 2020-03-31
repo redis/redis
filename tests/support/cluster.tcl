@@ -62,7 +62,7 @@ proc ::redis_cluster::__method__refresh_nodes_map {id} {
         lassign [split $ip_port :] start_host start_port
         if {[catch {
             set r {}
-            set r [redis $start_host $start_port]
+            set r [redis $start_host $start_port 0 $::tls]
             set nodes_descr [$r cluster nodes]
             $r close
         } e]} {
@@ -107,7 +107,7 @@ proc ::redis_cluster::__method__refresh_nodes_map {id} {
 
         # Connect to the node
         set link {}
-        catch {set link [redis $host $port]}
+        catch {set link [redis $host $port 0 $::tls]}
 
         # Build this node description as an hash.
         set node [dict create \

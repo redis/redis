@@ -104,6 +104,7 @@ long redisBitpos(void *s, unsigned long count, int bit) {
     unsigned long skipval, word = 0, one;
     long pos = 0; /* Position of bit, to return to the caller. */
     unsigned long j;
+    int found;
 
     /* Process whole words first, seeking for first word that is not
      * all ones or all zeros respectively if we are lookig for zeros
@@ -117,21 +118,27 @@ long redisBitpos(void *s, unsigned long count, int bit) {
     /* Skip initial bits not aligned to sizeof(unsigned long) byte by byte. */
     skipval = bit ? 0 : UCHAR_MAX;
     c = (unsigned char*) s;
+    found = 0;
     while((unsigned long)c & (sizeof(*l)-1) && count) {
-        if (*c != skipval) break;
+        if (*c != skipval) {
+            found = 1;
+            break;
+        }
         c++;
         count--;
         pos += 8;
     }
 
     /* Skip bits with full word step. */
-    skipval = bit ? 0 : ULONG_MAX;
     l = (unsigned long*) c;
-    while (count >= sizeof(*l)) {
-        if (*l != skipval) break;
-        l++;
-        count -= sizeof(*l);
-        pos += sizeof(*l)*8;
+    if (!found) {
+        skipval = bit ? 0 : ULONG_MAX;
+        while (count >= sizeof(*l)) {
+            if (*l != skipval) break;
+            l++;
+            count -= sizeof(*l);
+            pos += sizeof(*l)*8;
+        }
     }
 
     /* Load bytes into "word" considering the first byte as the most significant
@@ -654,8 +661,11 @@ void bitopCommand(client *c) {
 
         /* Fast path: as far as we have data for all the input bitmaps we
          * can take a fast path that performs much better than the
-         * vanilla algorithm. */
+         * vanilla algorithm. On ARM we skip the fast path since it will
+         * result in GCC compiling the code using multiple-words load/store
+         * operations that are not supported even in ARM >= v6. */
         j = 0;
+        #ifndef USE_ALIGNED_ACCESS
         if (minlen >= sizeof(unsigned long)*4 && numkeys <= 16) {
             unsigned long *lp[16];
             unsigned long *lres = (unsigned long*) res;
@@ -716,6 +726,7 @@ void bitopCommand(client *c) {
                 }
             }
         }
+        #endif
 
         /* j is set to the next byte to process by the previous loop. */
         for (; j < maxlen; j++) {
@@ -891,6 +902,9 @@ void bitposCommand(client *c) {
  * OVERFLOW [WRAP|SAT|FAIL]
  */
 
+#define BITFIELD_FLAG_NONE      0
+#define BITFIELD_FLAG_READONLY  (1<<0)
+
 struct bitfieldOp {
     uint64_t offset;    /* Bitfield offset. */
     int64_t i64;        /* Increment amount (INCRBY) or SET value */
@@ -900,14 +914,17 @@ struct bitfieldOp {
     int sign;           /* True if signed, otherwise unsigned op. */
 };
 
-void bitfieldCommand(client *c) {
+/* This implements both the BITFIELD command and the BITFIELD_RO command
+ * when flags is set to BITFIELD_FLAG_READONLY: in this case only the
+ * GET subcommand is allowed, other subcommands will return an error. */
+void bitfieldGeneric(client *c, int flags) {
     robj *o;
     size_t bitoffset;
     int j, numops = 0, changes = 0;
     struct bitfieldOp *ops = NULL; /* Array of ops to execute at end. */
     int owtype = BFOVERFLOW_WRAP; /* Overflow type. */
     int readonly = 1;
-    size_t higest_write_offset = 0;
+    size_t highest_write_offset = 0;
 
     for (j = 2; j < c->argc; j++) {
         int remargs = c->argc-j-1; /* Remaining args other than current. */
@@ -957,8 +974,8 @@ void bitfieldCommand(client *c) {
 
         if (opcode != BITFIELDOP_GET) {
             readonly = 0;
-            if (higest_write_offset < bitoffset + bits - 1)
-                higest_write_offset = bitoffset + bits - 1;
+            if (highest_write_offset < bitoffset + bits - 1)
+                highest_write_offset = bitoffset + bits - 1;
             /* INCRBY and SET require another argument. */
             if (getLongLongFromObjectOrReply(c,c->argv[j+3],&i64,NULL) != C_OK){
                 zfree(ops);
@@ -983,15 +1000,27 @@ void bitfieldCommand(client *c) {
         /* Lookup for read is ok if key doesn't exit, but errors
          * if it's not a string. */
         o = lookupKeyRead(c->db,c->argv[1]);
-        if (o != NULL && checkType(c,o,OBJ_STRING)) return;
+        if (o != NULL && checkType(c,o,OBJ_STRING)) {
+            zfree(ops);
+            return;
+        }
     } else {
+        if (flags & BITFIELD_FLAG_READONLY) {
+            zfree(ops);
+            addReplyError(c, "BITFIELD_RO only supports the GET subcommand");
+            return;
+        }
+
         /* Lookup by making room up to the farest bit reached by
          * this operation. */
         if ((o = lookupStringForBitCommand(c,
-            higest_write_offset)) == NULL) return;
+            highest_write_offset)) == NULL) {
+            zfree(ops);
+            return;
+        }
     }
 
-    addReplyMultiBulkLen(c,numops);
+    addReplyArrayLen(c,numops);
 
     /* Actually process the operations. */
     for (j = 0; j < numops; j++) {
@@ -1036,7 +1065,7 @@ void bitfieldCommand(client *c) {
                     setSignedBitfield(o->ptr,thisop->offset,
                                       thisop->bits,newval);
                 } else {
-                    addReply(c,shared.nullbulk);
+                    addReplyNull(c);
                 }
             } else {
                 uint64_t oldval, newval, wrapped, retval;
@@ -1065,7 +1094,7 @@ void bitfieldCommand(client *c) {
                     setUnsignedBitfield(o->ptr,thisop->offset,
                                         thisop->bits,newval);
                 } else {
-                    addReply(c,shared.nullbulk);
+                    addReplyNull(c);
                 }
             }
             changes++;
@@ -1111,4 +1140,12 @@ void bitfieldCommand(client *c) {
         server.dirty += changes;
     }
     zfree(ops);
+}
+
+void bitfieldCommand(client *c) {
+    bitfieldGeneric(c, BITFIELD_FLAG_NONE);
+}
+
+void bitfieldroCommand(client *c) {
+    bitfieldGeneric(c, BITFIELD_FLAG_READONLY);
 }

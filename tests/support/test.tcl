@@ -1,6 +1,8 @@
 set ::num_tests 0
 set ::num_passed 0
 set ::num_failed 0
+set ::num_skipped 0
+set ::num_aborted 0
 set ::tests_failed {}
 
 proc fail {msg} {
@@ -9,22 +11,55 @@ proc fail {msg} {
 
 proc assert {condition} {
     if {![uplevel 1 [list expr $condition]]} {
-        error "assertion:Expected condition '$condition' to be true ([uplevel 1 [list subst -nocommands $condition]])"
+        set context "(context: [info frame -1])"
+        error "assertion:Expected [uplevel 1 [list subst -nocommands $condition]] $context"
+    }
+}
+
+proc assert_no_match {pattern value} {
+    if {[string match $pattern $value]} {
+        set context "(context: [info frame -1])"
+        error "assertion:Expected '$value' to not match '$pattern' $context"
     }
 }
 
 proc assert_match {pattern value} {
     if {![string match $pattern $value]} {
-        error "assertion:Expected '$value' to match '$pattern'"
+        set context "(context: [info frame -1])"
+        error "assertion:Expected '$value' to match '$pattern' $context"
     }
 }
 
-proc assert_equal {expected value {detail ""}} {
+proc assert_equal {value expected {detail ""}} {
     if {$expected ne $value} {
         if {$detail ne ""} {
-            set detail " (detail: $detail)"
+            set detail "(detail: $detail)"
+        } else {
+            set detail "(context: [info frame -1])"
         }
-        error "assertion:Expected '$value' to be equal to '$expected'$detail"
+        error "assertion:Expected '$value' to be equal to '$expected' $detail"
+    }
+}
+
+proc assert_lessthan {value expected {detail ""}} {
+    if {!($value < $expected)} {
+        if {$detail ne ""} {
+            set detail "(detail: $detail)"
+        } else {
+            set detail "(context: [info frame -1])"
+        }
+        error "assertion:Expected '$value' to be lessthan to '$expected' $detail"
+    }
+}
+
+proc assert_range {value min max {detail ""}} {
+    if {!($value <= $max && $value >= $min)} {
+        if {$detail ne ""} {
+            set detail "(detail: $detail)"
+        } else {
+            set detail "(context: [info frame -1])"
+        }
+        error "assertion:Expected '$value' to be between to '$min' and '$max' $detail"
     }
 }
 
@@ -68,8 +103,24 @@ proc test {name code {okpattern undefined}} {
     # abort if tagged with a tag to deny
     foreach tag $::denytags {
         if {[lsearch $::tags $tag] >= 0} {
+            incr ::num_aborted
+            send_data_packet $::test_server_fd ignore $name
             return
         }
+    }
+
+    # abort if test name in skiptests
+    if {[lsearch $::skiptests $name] >= 0} {
+        incr ::num_skipped
+        send_data_packet $::test_server_fd skip $name
+        return
+    }
+
+    # abort if test name in skiptests
+    if {[llength $::only_tests] > 0 && [lsearch $::only_tests $name] < 0} {
+        incr ::num_skipped
+        send_data_packet $::test_server_fd skip $name
+        return
     }
 
     # check if tagged with at least 1 tag to allow when there *is* a list
@@ -82,6 +133,8 @@ proc test {name code {okpattern undefined}} {
             }
         }
         if {$matched < 1} {
+            incr ::num_aborted
+            send_data_packet $::test_server_fd ignore $name
             return
         }
     }

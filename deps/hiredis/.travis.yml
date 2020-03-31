@@ -8,6 +8,12 @@ os:
   - linux
   - osx
 
+branches:
+  only:
+    - staging
+    - trying
+    - master
+
 before_script:
     - if [ "$TRAVIS_OS_NAME" == "osx" ] ; then brew update; brew install redis; fi
 
@@ -20,20 +26,72 @@ addons:
     - libc6-dev-i386
     - libc6-dbg:i386
     - gcc-multilib
+    - g++-multilib
     - valgrind
 
 env:
-    - CFLAGS="-Werror"
-    - PRE="valgrind --track-origins=yes --leak-check=full"
-    - TARGET="32bit" TARGET_VARS="32bit-vars" CFLAGS="-Werror"
-    - TARGET="32bit" TARGET_VARS="32bit-vars" PRE="valgrind --track-origins=yes --leak-check=full"
+  - BITS="32"
+  - BITS="64"
+
+script:
+  - EXTRA_CMAKE_OPTS="-DENABLE_EXAMPLES:BOOL=ON -DHIREDIS_SSL:BOOL=ON";
+    if [ "$TRAVIS_OS_NAME" == "osx" ]; then
+      if [ "$BITS" == "32" ]; then
+        CFLAGS="-m32 -Werror";
+        CXXFLAGS="-m32 -Werror";
+        LDFLAGS="-m32";
+        EXTRA_CMAKE_OPTS=;
+      else
+        CFLAGS="-Werror";
+        CXXFLAGS="-Werror";
+      fi;
+    else
+      TEST_PREFIX="valgrind --track-origins=yes --leak-check=full";
+      if [ "$BITS" == "32" ]; then
+        CFLAGS="-m32 -Werror";
+        CXXFLAGS="-m32 -Werror";
+        LDFLAGS="-m32";
+        EXTRA_CMAKE_OPTS=;
+      else
+        CFLAGS="-Werror";
+        CXXFLAGS="-Werror";
+      fi;
+    fi;
+    export CFLAGS CXXFLAGS LDFLAGS TEST_PREFIX EXTRA_CMAKE_OPTS
+  - mkdir build/ && cd build/
+  - cmake .. ${EXTRA_CMAKE_OPTS}
+  - make VERBOSE=1
+  - ctest -V
 
 matrix:
-  exclude:
-    - os: osx
-      env: PRE="valgrind --track-origins=yes --leak-check=full"
+  include:
+    # Windows MinGW cross compile on Linux
+    - os: linux
+      dist: xenial
+      compiler: mingw
+      addons:
+        apt:
+          packages:
+            - ninja-build
+            - gcc-mingw-w64-x86-64
+            - g++-mingw-w64-x86-64
+      script:
+        - mkdir build && cd build
+        - CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_BUILD_WITH_INSTALL_RPATH=on
+        - ninja -v
 
-    - os: osx
-      env: TARGET="32bit" TARGET_VARS="32bit-vars" PRE="valgrind --track-origins=yes --leak-check=full"
-
-script: make $TARGET CFLAGS="$CFLAGS" && make check PRE="$PRE" && make $TARGET_VARS hiredis-example
+    # Windows MSVC 2017
+    - os: windows
+      compiler: msvc
+      env:
+        - MATRIX_EVAL="CC=cl.exe && CXX=cl.exe"
+      before_install:
+        - eval "${MATRIX_EVAL}"
+      install:
+        - choco install ninja
+      script:
+        - mkdir build && cd build
+        - cmd.exe /C '"C:\Program Files (x86)\Microsoft Visual Studio\2017\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" amd64 &&
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release &&
+          ninja -v'
+        - ctest -V
