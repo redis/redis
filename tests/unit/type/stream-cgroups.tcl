@@ -170,6 +170,27 @@ start_server {
         assert_error "*NOGROUP*" {$rd read}
     }
 
+    test {RENAME can unblock XREADGROUP with data} {
+        r del mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        set rd [redis_deferring_client]
+        $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        r XGROUP CREATE mystream2 mygroup $ MKSTREAM
+        r XADD mystream2 100 f1 v1
+        r RENAME mystream2 mystream
+        assert_equal "{mystream {{100-0 {f1 v1}}}}" [$rd read] ;# mystream2 had mygroup before RENAME
+    }
+
+    test {RENAME can unblock XREADGROUP with -NOGROUP} {
+        r del mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        set rd [redis_deferring_client]
+        $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        r XADD mystream2 100 f1 v1
+        r RENAME mystream2 mystream
+        assert_error "*NOGROUP*" {$rd read} ;# mystream2 didn't have mygroup before RENAME
+    }
+
     test {XCLAIM can claim PEL items from another consumer} {
         # Add 3 items into the stream, and create a consumer group
         r del mystream
