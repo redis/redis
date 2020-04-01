@@ -482,12 +482,13 @@ void strlenCommand(client *c) {
 
 /* LCS -- Longest common subsequence.
  *
- * LCS [IDX] [STOREIDX <key>] STRINGS <string> <string> */
+ * LCS [IDX] [STOREIDX <key>] STRINGS <string> <string> | KEYS <keya> <keyb> */
 void lcsCommand(client *c) {
     uint32_t i, j;
     sds a = NULL, b = NULL;
     int getlen = 0, getidx = 0;
     robj *idxkey = NULL; /* STOREIDX will set this and getidx to 1. */
+    robj *obja = NULL, *objb = NULL;
 
     for (j = 1; j < (uint32_t)c->argc; j++) {
         char *opt = c->argv[j]->ptr;
@@ -509,6 +510,18 @@ void lcsCommand(client *c) {
             a = c->argv[j+1]->ptr;
             b = c->argv[j+2]->ptr;
             j += 2;
+        } else if (!strcasecmp(opt,"KEYS")) {
+            if (moreargs != 2) {
+                addReplyError(c,"LCS requires exactly two keys");
+                return;
+            }
+            obja = lookupKeyRead(c->db,c->argv[j+1]);
+            objb = lookupKeyRead(c->db,c->argv[j+2]);
+            obja = obja ? getDecodedObject(obja) : createStringObject("",0);
+            objb = objb ? getDecodedObject(objb) : createStringObject("",0);
+            a = obja->ptr;
+            b = objb->ptr;
+            j += 2;
         } else {
             addReply(c,shared.syntaxerr);
             return;
@@ -517,7 +530,8 @@ void lcsCommand(client *c) {
 
     /* Complain if the user passed ambiguous parameters. */
     if (a == NULL) {
-        addReplyError(c,"STRINGS <string-a> <string-b> is mandatory");
+        addReplyError(c,"Please specify two strings: "
+                        "STRINGS or KEYS options are mandatory");
         return;
     } else if (getlen && (getidx && idxkey == NULL)) {
         addReplyError(c,
@@ -651,6 +665,8 @@ void lcsCommand(client *c) {
     }
 
     /* Cleanup. */
+    if (obja) decrRefCount(obja);
+    if (objb) decrRefCount(objb);
     sdsfree(result);
     zfree(lcs);
     return;
