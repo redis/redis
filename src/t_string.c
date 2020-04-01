@@ -595,7 +595,6 @@ void lcsCommand(client *c) {
                 arange_end = i-1;
                 brange_start = j-1;
                 brange_end = j-1;
-                if (i == 0 || j == 0) emit_range = 1;
             } else {
                 /* Let's see if we can extend the range backward since
                  * it is contiguous. */
@@ -606,6 +605,7 @@ void lcsCommand(client *c) {
                     emit_range = 1;
                 }
             }
+            if (arange_start == 0 || brange_start == 0) emit_range = 1;
 
             /* Emit the current range if needed. */
             if (emit_range) {
