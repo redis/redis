@@ -584,12 +584,13 @@ void lcsCommand(client *c) {
 
     i = alen, j = blen;
     while (computelcs && i > 0 && j > 0) {
+        int emit_range = 0;
         if (a[i-1] == b[j-1]) {
             /* If there is a match, store the character and reduce
              * the indexes to look for a new match. */
             result[idx-1] = a[i-1];
+
             /* Track the current range. */
-            int emit_range = 0;
             if (arange_start == alen) {
                 arange_start = i-1;
                 arange_end = i-1;
@@ -605,22 +606,9 @@ void lcsCommand(client *c) {
                     emit_range = 1;
                 }
             }
+            /* Emit the range if we matched with the first byte of
+             * one of the two strings. We'll exit the loop ASAP. */
             if (arange_start == 0 || brange_start == 0) emit_range = 1;
-
-            /* Emit the current range if needed. */
-            if (emit_range) {
-                if (arraylenptr) {
-                    addReplyArrayLen(c,2);
-                    addReplyArrayLen(c,2);
-                    addReplyLongLong(c,arange_start);
-                    addReplyLongLong(c,arange_end);
-                    addReplyArrayLen(c,2);
-                    addReplyLongLong(c,brange_start);
-                    addReplyLongLong(c,brange_end);
-                }
-                arange_start = alen; /* Restart at the next match. */
-                arraylen++;
-            }
             idx--; i--; j--;
         } else {
             /* Otherwise reduce i and j depending on the largest
@@ -631,6 +619,22 @@ void lcsCommand(client *c) {
                 i--;
             else
                 j--;
+            if (arange_start != alen) emit_range = 1;
+        }
+
+        /* Emit the current range if needed. */
+        if (emit_range) {
+            if (arraylenptr) {
+                addReplyArrayLen(c,2);
+                addReplyArrayLen(c,2);
+                addReplyLongLong(c,arange_start);
+                addReplyLongLong(c,arange_end);
+                addReplyArrayLen(c,2);
+                addReplyLongLong(c,brange_start);
+                addReplyLongLong(c,brange_end);
+            }
+            arange_start = alen; /* Restart at the next match. */
+            arraylen++;
         }
     }
 
