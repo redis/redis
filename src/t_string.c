@@ -551,7 +551,7 @@ void lcsCommand(client *c) {
      * LCS A0..i-1, B0..j-1. Note that we have a linear array here, so
      * we index it as LCS[i+alen*j] */
     uint32_t *lcs = zmalloc((alen+1)*(blen+1)*sizeof(uint32_t));
-    #define LCS(A,B) lcs[(A)+((B)*(alen+1))]
+    #define LCS(A,B) lcs[(B)+((A)*(blen+1))]
 
     /* Start building the LCS table. */
     for (uint32_t i = 0; i <= alen; i++) {
