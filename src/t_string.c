@@ -479,3 +479,126 @@ void strlenCommand(client *c) {
         checkType(c,o,OBJ_STRING)) return;
     addReplyLongLong(c,stringObjectLen(o));
 }
+
+/* LCS -- Longest common subsequence.
+ *
+ * LCS [LEN] [IDX] [STOREIDX <key>] STRINGS <string> <string> */
+void lcsCommand(client *c) {
+    uint32_t i, j;
+    sds a = NULL, b = NULL;
+    int getlen = 0, getidx = 0;
+    robj *idxkey = NULL; /* STOREIDX will set this and getidx to 1. */
+
+    for (j = 1; j < (uint32_t)c->argc; j++) {
+        char *opt = c->argv[j]->ptr;
+        int moreargs = (c->argc-1) - j;
+
+        if (!strcasecmp(opt,"IDX")) {
+            getidx = 1;
+        } else if (!strcasecmp(opt,"STOREIDX") && moreargs) {
+            getidx = 1;
+            idxkey = c->argv[j+1];
+            j++;
+        } else if (!strcasecmp(opt,"LEN")) {
+            getlen++;
+        } else if (!strcasecmp(opt,"STRINGS")) {
+            if (moreargs != 2) {
+                addReplyError(c,"LCS requires exactly two strings");
+                return;
+            }
+            a = c->argv[j+1]->ptr;
+            b = c->argv[j+2]->ptr;
+            j += 2;
+        } else {
+            addReply(c,shared.syntaxerr);
+            return;
+        }
+    }
+
+    /* Complain if the user didn't pass the STRING option. */
+    if (a == NULL) {
+        addReplyError(c,"STRINGS <string-a> <string-b> is mandatory");
+        return;
+    }
+
+    /* Compute the LCS using the vanilla dynamic programming technique of
+     * building a table of LCS(x,y) substrings. */
+    uint32_t alen = sdslen(a);
+    uint32_t blen = sdslen(b);
+
+    /* Setup an uint32_t array to store at LCS[i,j] the length of the
+     * LCS A0..i-1, B0..j-1. Note that we have a linear array here, so
+     * we index it as LCS[i+alen*j] */
+    uint32_t *lcs = zmalloc((alen+1)*(blen+1)*sizeof(uint32_t));
+    #define LCS(A,B) lcs[(A)+((B)*(alen+1))]
+
+    /* Start building the LCS table. */
+    for (uint32_t i = 0; i <= alen; i++) {
+        for (uint32_t j = 0; j <= blen; j++) {
+            if (i == 0 || j == 0) {
+                /* If one substring has length of zero, the
+                 * LCS length is zero. */
+                LCS(i,j) = 0;
+            } else if (a[i-1] == b[j-1]) {
+                /* The len LCS (and the LCS itself) of two
+                 * sequences with the same final character, is the
+                 * LCS of the two sequences without the last char
+                 * plus that last char. */
+                LCS(i,j) = LCS(i-1,j-1)+1;
+            } else {
+                /* If the last character is different, take the longest
+                 * between the LCS of the first string and the second
+                 * minus the last char, and the reverse. */
+                uint32_t lcs1 = LCS(i-1,j);
+                uint32_t lcs2 = LCS(i,j-1);
+                LCS(i,j) = lcs1 > lcs2 ? lcs1 : lcs2;
+            }
+        }
+    }
+
+    /* Store the actual LCS string in "result" if needed. We create
+     * it backward, but the length is already known, we store it into idx. */
+    uint32_t idx = LCS(alen,blen);
+    sds result = NULL;
+
+    /* Do we need to compute the actual LCS string? Allocate it in that case. */
+    int computelcs = getidx || !getlen;
+    if (computelcs) result = sdsnewlen(SDS_NOINIT,idx);
+
+    i = alen, j = blen;
+    while (computelcs && i > 0 && j > 0) {
+        if (a[i-1] == b[j-1]) {
+            /* If there is a match, store the character and reduce
+             * the indexes to look for a new match. */
+            result[idx-1] = a[i-1];
+            idx--;
+            i--;
+            j--;
+        } else {
+            /* Otherwise reduce i and j depending on the largest
+             * LCS between, to understand what direction we need to go. */
+            uint32_t lcs1 = LCS(i-1,j);
+            uint32_t lcs2 = LCS(i,j-1);
+            if (lcs1 > lcs2)
+                i--;
+            else
+                j--;
+        }
+    }
+
+    /* Signal modified key, increment dirty, ... */
+
+    /* Reply depending on the given options. */
+    if (getlen) {
+        addReplyLongLong(c,LCS(alen,blen));
+    } else {
+        addReplyBulkSds(c,result);
+        result = NULL;
+    }
+
+    /* Cleanup. */
+    sdsfree(result);
+    zfree(lcs);
+    return;
+}
+

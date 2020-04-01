@@ -1554,6 +1554,32 @@ int *georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numk
     return keys;
 }
 
+/* LCS ... [STOREIDX <key>] ... */
+int *lcsGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys)
+{
+    int i;
+    int *keys;
+    UNUSED(cmd);
+
+    /* We need to parse the options of the command in order to check for the
+     * "STOREIDX" argument before the STRINGS argument. */
+    for (i = 1; i < argc; i++) {
+        char *arg = argv[i]->ptr;
+        int moreargs = (argc-1) - i;
+
+        if (!strcasecmp(arg, "strings")) {
+            break;
+        } else if (!strcasecmp(arg, "storeidx") && moreargs) {
+            keys = getKeysTempBuffer;
+            keys[0] = i+1;
+            *numkeys = 1;
+            return keys;
+        }
+    }
+    *numkeys = 0;
+    return NULL;
+}
+
 /* Helper function to extract keys from memory command.
  * MEMORY USAGE <key> */
 int *memoryGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
