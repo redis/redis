@@ -482,7 +482,7 @@ void strlenCommand(client *c) {
 
 /* LCS -- Longest common subsequence.
  *
- * LCS [LEN] [IDX] [STOREIDX <key>] STRINGS <string> <string> */
+ * LCS [IDX] [STOREIDX <key>] STRINGS <string> <string> */
 void lcsCommand(client *c) {
     uint32_t i, j;
     sds a = NULL, b = NULL;
@@ -495,12 +495,12 @@ void lcsCommand(client *c) {
 
         if (!strcasecmp(opt,"IDX")) {
             getidx = 1;
+        } else if (!strcasecmp(opt,"LEN")) {
+            getlen = 1;
         } else if (!strcasecmp(opt,"STOREIDX") && moreargs) {
             getidx = 1;
             idxkey = c->argv[j+1];
             j++;
-        } else if (!strcasecmp(opt,"LEN")) {
-            getlen++;
         } else if (!strcasecmp(opt,"STRINGS")) {
             if (moreargs != 2) {
                 addReplyError(c,"LCS requires exactly two strings");
@@ -515,9 +515,16 @@ void lcsCommand(client *c) {
         }
     }
 
-    /* Complain if the user didn't pass the STRING option. */
+    /* Complain if the user passed ambiguous parameters. */
     if (a == NULL) {
         addReplyError(c,"STRINGS <string-a> <string-b> is mandatory");
+        return;
+    } else if (getlen && (getidx && idxkey == NULL)) {
+        addReplyError(c,
+            "If you want both the LEN and indexes, please "
+            "store the indexes into a key with STOREIDX. However note "
+            "that the IDX output also includes both the LCS string and "
+            "its length");
         return;
     }
 
@@ -559,11 +566,21 @@ void lcsCommand(client *c) {
     /* Store the actual LCS string in "result" if needed. We create
      * it backward, but the length is already known, we store it into idx. */
     uint32_t idx = LCS(alen,blen);
-    sds result = NULL;
+    sds result = NULL;        /* Resulting LCS string. */
+    void *arraylenptr = NULL; /* Deffered length of the array for IDX. */
+    uint32_t arange_start = alen, /* alen signals that values are not set. */
+             arange_end = 0,
+             brange_start = 0,
+             brange_end = 0;
 
     /* Do we need to compute the actual LCS string? Allocate it in that case. */
     int computelcs = getidx || !getlen;
     if (computelcs) result = sdsnewlen(SDS_NOINIT,idx);
+
+    /* Start with a deferred array if we have to emit the ranges. */
+    uint32_t arraylen = 0;  /* Number of ranges emitted in the array. */
+    if (getidx && idxkey == NULL)
+        arraylenptr = addReplyDeferredLen(c);
 
     i = alen, j = blen;
     while (computelcs && i > 0 && j > 0) {
@@ -571,9 +588,40 @@ void lcsCommand(client *c) {
             /* If there is a match, store the character and reduce
              * the indexes to look for a new match. */
             result[idx-1] = a[i-1];
-            idx--;
-            i--;
-            j--;
+            /* Track the current range. */
+            int emit_range = 0;
+            if (arange_start == alen) {
+                arange_start = i-1;
+                arange_end = i-1;
+                brange_start = j-1;
+                brange_end = j-1;
+                if (i == 0 || j == 0) emit_range = 1;
+            } else {
+                /* Let's see if we can extend the range backward since
+                 * it is contiguous. */
+                if (arange_start == i && brange_start == j) {
+                    arange_start--;
+                    brange_start--;
+                } else {
+                    emit_range = 1;
+                }
+            }
+
+            /* Emit the current range if needed. */
+            if (emit_range) {
+                if (arraylenptr) {
+                    addReplyArrayLen(c,2);
+                    addReplyArrayLen(c,2);
+                    addReplyLongLong(c,arange_start);
+                    addReplyLongLong(c,arange_end);
+                    addReplyArrayLen(c,2);
+                    addReplyLongLong(c,brange_start);
+                    addReplyLongLong(c,brange_end);
+                }
+                arange_start = alen; /* Restart at the next match. */
+                arraylen++;
+            }
+            idx--; i--; j--;
         } else {
             /* Otherwise reduce i and j depending on the largest
              * LCS between, to understand what direction we need to go. */
@@ -589,7 +637,9 @@ void lcsCommand(client *c) {
     /* Signal modified key, increment dirty, ... */
 
     /* Reply depending on the given options. */
-    if (getlen) {
+    if (arraylenptr) {
+        setDeferredArrayLen(c,arraylenptr,arraylen);
+    } else if (getlen) {
         addReplyLongLong(c,LCS(alen,blen));
     } else {
         addReplyBulkSds(c,result);
