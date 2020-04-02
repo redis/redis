@@ -482,11 +482,13 @@ void strlenCommand(client *c) {
 
 /* LCS -- Longest common subsequence.
  *
- * LCS [IDX] [STOREIDX <key>] STRINGS <string> <string> | KEYS <keya> <keyb> */
+ * LCS [IDX] [STOREIDX <key>] [MINMATCHLEN <len>]
+ *     STRINGS <string> <string> | KEYS <keya> <keyb> */
 void lcsCommand(client *c) {
     uint32_t i, j;
+    long long minmatchlen = 0;
     sds a = NULL, b = NULL;
-    int getlen = 0, getidx = 0;
+    int getlen = 0, getidx = 0, withmatchlen = 0;
     robj *idxkey = NULL; /* STOREIDX will set this and getidx to 1. */
     robj *obja = NULL, *objb = NULL;
 
@@ -498,9 +500,16 @@ void lcsCommand(client *c) {
             getidx = 1;
         } else if (!strcasecmp(opt,"LEN")) {
             getlen = 1;
+        } else if (!strcasecmp(opt,"WITHMATCHLEN")) {
+            withmatchlen = 1;
         } else if (!strcasecmp(opt,"STOREIDX") && moreargs) {
             getidx = 1;
             idxkey = c->argv[j+1];
+            j++;
+        } else if (!strcasecmp(opt,"MINMATCHLEN") && moreargs) {
+            if (getLongLongFromObjectOrReply(c,c->argv[j+1],&minmatchlen,NULL)
+                != C_OK) return;
+            if (minmatchlen < 0) minmatchlen = 0;
             j++;
         } else if (!strcasecmp(opt,"STRINGS")) {
             if (moreargs != 2) {
@@ -637,18 +646,22 @@ void lcsCommand(client *c) {
         }
 
         /* Emit the current range if needed. */
+        uint32_t match_len = arange_end - arange_start + 1;
         if (emit_range) {
-            if (arraylenptr) {
-                addReplyArrayLen(c,2);
-                addReplyArrayLen(c,2);
-                addReplyLongLong(c,arange_start);
-                addReplyLongLong(c,arange_end);
-                addReplyArrayLen(c,2);
-                addReplyLongLong(c,brange_start);
-                addReplyLongLong(c,brange_end);
+            if (minmatchlen == 0 || match_len >= minmatchlen) {
+                if (arraylenptr) {
+                    addReplyArrayLen(c,2+withmatchlen);
+                    addReplyArrayLen(c,2);
+                    addReplyLongLong(c,arange_start);
+                    addReplyLongLong(c,arange_end);
+                    addReplyArrayLen(c,2);
+                    addReplyLongLong(c,brange_start);
+                    addReplyLongLong(c,brange_end);
+                    if (withmatchlen) addReplyLongLong(c,match_len);
+                    arraylen++;
+                }
             }
             arange_start = alen; /* Restart at the next match. */
-            arraylen++;
         }
     }
 
