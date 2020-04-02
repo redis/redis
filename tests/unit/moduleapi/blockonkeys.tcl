@@ -11,6 +11,12 @@ start_server {tags {"modules"}} {
 
         $rd1 fsl.bpoppush src dst 0
         $rd2 fsl.bpoppush dst src 0
+        ;# wait until clients are actually blocked
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {2}
+        } else {
+            fail "Clients are not blocked"
+        }
 
         r fsl.push src 42
 
@@ -24,7 +30,12 @@ start_server {tags {"modules"}} {
         r del src
 
         $rd1 fsl.bpoppush src src 0
-
+        ;# wait until clients are actually blocked
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {1}
+        } else {
+            fail "Clients are not blocked"
+        }
         r fsl.push src 42
 
         assert_equal {42} [r fsl.getall src]
@@ -48,6 +59,12 @@ start_server {tags {"modules"}} {
         r del k
         set rd [redis_deferring_client]
         $rd fsl.bpop k 0
+        ;# wait until clients are actually blocked
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {1}
+        } else {
+            fail "Clients are not blocked"
+        }
         r fsl.push k 34
         assert_equal {34} [$rd read]
     }
@@ -76,6 +93,12 @@ start_server {tags {"modules"}} {
         set cid [$rd read]
         r fsl.push k 33
         $rd fsl.bpopgt k 33 0
+        ;# wait until clients are actually blocked
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {1}
+        } else {
+            fail "Clients are not blocked"
+        }
         r fsl.push k 34
         assert_equal {34} [$rd read]
         r client kill id $cid ;# try to smoke-out client-related memory leak
@@ -85,6 +108,12 @@ start_server {tags {"modules"}} {
         r del k
         set rd [redis_deferring_client]
         $rd fsl.bpopgt k 35 0
+        ;# wait until clients are actually blocked
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {1}
+        } else {
+            fail "Clients are not blocked"
+        }
         r fsl.push k 33
         r fsl.push k 34
         r fsl.push k 35
@@ -98,6 +127,12 @@ start_server {tags {"modules"}} {
         $rd client id
         set cid [$rd read]
         $rd fsl.bpopgt k 35 0
+        ;# wait until clients are actually blocked
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {1}
+        } else {
+            fail "Clients are not blocked"
+        }
         r client kill id $cid ;# try to smoke-out client-related memory leak
     }
 
@@ -107,6 +142,12 @@ start_server {tags {"modules"}} {
         $rd client id
         set cid [$rd read]
         $rd fsl.bpopgt k 35 0
+        ;# wait until clients are actually blocked
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {1}
+        } else {
+            fail "Clients are not blocked"
+        }
         r client unblock $cid timeout ;# try to smoke-out client-related memory leak
         assert_equal {Request timedout} [$rd read]
     }
@@ -117,6 +158,12 @@ start_server {tags {"modules"}} {
         $rd client id
         set cid [$rd read]
         $rd fsl.bpopgt k 35 0
+        ;# wait until clients are actually blocked
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {1}
+        } else {
+            fail "Clients are not blocked"
+        }
         r client unblock $cid error ;# try to smoke-out client-related memory leak
         assert_error "*unblocked*" {$rd read}
     }
@@ -125,6 +172,12 @@ start_server {tags {"modules"}} {
         r del k
         set rd [redis_deferring_client]
         $rd fsl.bpop k 0
+        ;# wait until clients are actually blocked
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {1}
+        } else {
+            fail "Clients are not blocked"
+        }
         r lpush k 12
         r lpush k 13
         r lpush k 14
