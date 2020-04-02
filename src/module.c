@@ -5978,7 +5978,7 @@ sds modulesCollectInfo(sds info, const char *section, int for_crash_report, int 
         struct RedisModule *module = dictGetVal(de);
         if (!module->info_cb)
             continue;
-        RedisModuleInfoCtx info_ctx = {module, section, info, sections, 0};
+        RedisModuleInfoCtx info_ctx = {module, section, info, sections, 0, 0};
         module->info_cb(&info_ctx, for_crash_report);
         /* Implicitly end dicts (no way to handle errors, and we must add the newline). */
         if (info_ctx.in_dict_field)
