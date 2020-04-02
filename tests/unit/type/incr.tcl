@@ -153,6 +153,7 @@ start_server {tags {"incr"}} {
     } {ERR*valid*}
 
     test {No negative zero} {
+        r del foo
         r incrbyfloat foo [expr double(1)/41]
         r incrbyfloat foo [expr double(-1)/41]
         r get foo
