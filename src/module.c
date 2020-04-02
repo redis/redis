@@ -4398,21 +4398,12 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
 int moduleTryServeClientBlockedOnKey(client *c, robj *key) {
     int served = 0;
     RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+
     /* Protect against re-processing: don't serve clients that are already
      * in the unblocking list for any reason (including RM_UnblockClient()
-     * explicit call).
-     * For example, the following pathological case:
-     * Assume a module called LIST implements the same command as
-     * the Redis list data type.
-     * LIST.BRPOPLPUSH src dst 0 ('src' goes into db->blocking_keys)
-     * LIST.BRPOPLPUSH dst src 0 ('dst' goes into db->blocking_keys)
-     * LIST.LPUSH src foo
-     * 'src' is in db->blocking_keys after the first BRPOPLPUSH is served
-     * (and stays there until the next beforeSleep).
-     * The second BRPOPLPUSH will signal 'src' as ready, leading to the
-     * unblocking of the already unblocked (and worst, freed) reply_client
-     * of the first BRPOPLPUSH. */
+     * explicit call). See #6798. */
     if (bc->unblocked) return 0;
+
     RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
     ctx.flags |= REDISMODULE_CTX_BLOCKED_REPLY;
     ctx.blocked_ready_key = key;
