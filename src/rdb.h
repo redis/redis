@@ -143,7 +143,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi);
 void rdbRemoveTempFile(pid_t childpid);
 int rdbSave(char *filename, rdbSaveInfo *rsi);
 ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key);
-size_t rdbSavedObjectLen(robj *o);
+size_t rdbSavedObjectLen(robj *o, robj *key);
 robj *rdbLoadObject(int type, rio *rdb, robj *key);
 void backgroundSaveDoneHandler(int exitcode, int bysignal);
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime);
