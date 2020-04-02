@@ -602,6 +602,10 @@ int ld2string(char *buf, size_t len, long double value, ld2string_mode mode) {
                 }
                 if (*p == '.') l--;
             }
+            if (l == 2 && buf[0] == '-' && buf[1] == '0') {
+                buf[0] = '0';
+                l = 1;
+            }
             break;
         default: return 0; /* Invalid mode. */
         }
