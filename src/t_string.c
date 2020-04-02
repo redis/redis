@@ -602,8 +602,11 @@ void lcsCommand(client *c) {
 
     /* Start with a deferred array if we have to emit the ranges. */
     uint32_t arraylen = 0;  /* Number of ranges emitted in the array. */
-    if (getidx && idxkey == NULL)
+    if (getidx && idxkey == NULL) {
+        addReplyMapLen(c,2);
+        addReplyBulkCString(c,"matches");
         arraylenptr = addReplyDeferredLen(c);
+    }
 
     i = alen, j = blen;
     while (computelcs && i > 0 && j > 0) {
@@ -669,6 +672,8 @@ void lcsCommand(client *c) {
 
     /* Reply depending on the given options. */
     if (arraylenptr) {
+        addReplyBulkCString(c,"len");
+        addReplyLongLong(c,LCS(alen,blen));
         setDeferredArrayLen(c,arraylenptr,arraylen);
     } else if (getlen) {
         addReplyLongLong(c,LCS(alen,blen));
