@@ -16,6 +16,11 @@ start_server {tags {"modules"}} {
         assert { [string match "*cmdstat_module*" $info] }
     }
 
+    test {test RM_CreateStringVaprintf} {
+        set str [r test.call_vaprintf text 42]
+        assert { $str eq {Got 2 args. argv[1]: text, argv[2]: 42} }
+    }
+
     test {test long double conversions} {
         set ld [r test.ld_conversion]
         assert {[string match $ld "0.00000000000000001"]}

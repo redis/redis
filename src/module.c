@@ -1028,6 +1028,18 @@ RedisModuleString *RM_CreateStringPrintf(RedisModuleCtx *ctx, const char *fmt, .
 }
 
 
+/* Like RM_CreateStringPrintf, but with va_list. */
+RedisModuleString *RM_CreateStringVaprintf(RedisModuleCtx *ctx, const char *fmt, va_list ap) {
+    sds s = sdsempty();
+    s = sdscatvprintf(s, fmt, ap);
+
+    RedisModuleString *o = createObject(OBJ_STRING, s);
+    if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_STRING,o);
+
+    return o;
+}
+
+
 /* Like RedisModule_CreatString(), but creates a string starting from a long long
  * integer instead of taking a buffer and its length.
  *
@@ -7741,6 +7753,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CreateStringFromLongDouble);
     REGISTER_API(CreateStringFromString);
     REGISTER_API(CreateStringPrintf);
+    REGISTER_API(CreateStringVaprintf);
     REGISTER_API(FreeString);
     REGISTER_API(StringPtrLen);
     REGISTER_API(AutoMemory);

@@ -4,6 +4,7 @@
 #include <sys/types.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdarg.h>
 
 /* ---------------- Defines common between core and modules --------------- */
 
@@ -471,6 +472,7 @@ RedisModuleString *REDISMODULE_API_FUNC(RedisModule_CreateStringFromDouble)(Redi
 RedisModuleString *REDISMODULE_API_FUNC(RedisModule_CreateStringFromLongDouble)(RedisModuleCtx *ctx, long double ld, int humanfriendly);
 RedisModuleString *REDISMODULE_API_FUNC(RedisModule_CreateStringFromString)(RedisModuleCtx *ctx, const RedisModuleString *str);
 RedisModuleString *REDISMODULE_API_FUNC(RedisModule_CreateStringPrintf)(RedisModuleCtx *ctx, const char *fmt, ...);
+RedisModuleString *REDISMODULE_API_FUNC(RedisModule_CreateStringVaprintf)(RedisModuleCtx *ctx, const char *fmt, va_list ap);
 void REDISMODULE_API_FUNC(RedisModule_FreeString)(RedisModuleCtx *ctx, RedisModuleString *str);
 const char *REDISMODULE_API_FUNC(RedisModule_StringPtrLen)(const RedisModuleString *str, size_t *len);
 int REDISMODULE_API_FUNC(RedisModule_ReplyWithError)(RedisModuleCtx *ctx, const char *err);
@@ -731,6 +733,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(CreateStringFromLongDouble);
     REDISMODULE_GET_API(CreateStringFromString);
     REDISMODULE_GET_API(CreateStringPrintf);
+    REDISMODULE_GET_API(CreateStringVaprintf);
     REDISMODULE_GET_API(FreeString);
     REDISMODULE_GET_API(StringPtrLen);
     REDISMODULE_GET_API(AutoMemory);

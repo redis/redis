@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <unistd.h>
 #include <errno.h>
+#include <stdlib.h>
 
 #define UNUSED(x) (void)(x)
 
@@ -39,6 +40,30 @@ int test_call_info(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     } else {
         RedisModule_ReplyWithError(ctx, strerror(errno));
     }
+    return REDISMODULE_OK;
+}
+
+static RedisModuleString *_test_varpintf(RedisModuleCtx *ctx, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    RedisModuleString *s = RedisModule_CreateStringVaprintf(ctx, fmt, ap);
+    va_end(ap);
+    return s;
+}
+
+int test_call_vaprintf(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+   RedisModule_AutoMemory(ctx);
+    if (argc < 3) {
+        return RedisModule_WrongArity(ctx);
+    }
+    RedisModuleString *s = _test_varpintf(ctx,
+        "Got %d args. argv[1]: %s, argv[2]: %d",
+        argc - 1,
+        RedisModule_StringPtrLen(argv[1], NULL),
+        atoi(RedisModule_StringPtrLen(argv[2], NULL))
+    );
+
+    RedisModule_ReplyWithString(ctx, s);
     return REDISMODULE_OK;
 }
 
@@ -198,12 +223,14 @@ int test_setlfu(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
-    if (RedisModule_Init(ctx,"misc",1,REDISMODULE_APIVER_1)== REDISMODULE_ERR)
+    if (RedisModule_Init(ctx, "misc", 1, REDISMODULE_APIVER_1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"test.call_generic", test_call_generic,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.call_info", test_call_info,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"test.call_vaprintf", test_call_vaprintf, "",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.ld_conversion", test_ld_conv, "",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
