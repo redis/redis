@@ -947,11 +947,11 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,1,1,1,0,0,0},
 
     {"xread",xreadCommand,-4,
-     "read-only no-script @stream @blocking",
+     "read-only @stream @blocking",
      0,xreadGetKeys,1,1,1,0,0,0},
 
     {"xreadgroup",xreadCommand,-7,
-     "write no-script @stream @blocking",
+     "write @stream @blocking",
      0,xreadGetKeys,1,1,1,0,0,0},
 
     {"xgroup",xgroupCommand,-2,
