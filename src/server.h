@@ -1397,6 +1397,7 @@ struct redisServer {
     int lazyfree_lazy_eviction;
     int lazyfree_lazy_expire;
     int lazyfree_lazy_server_del;
+    int lazyfree_lazy_user_del;
     /* Latency monitor */
     long long latency_monitor_threshold;
     dict *latency_events;
