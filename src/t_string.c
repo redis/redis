@@ -482,14 +482,13 @@ void strlenCommand(client *c) {
 
 /* LCS -- Longest common subsequence.
  *
- * LCS [IDX] [STOREIDX <key>] [MINMATCHLEN <len>]
+ * LCS [IDX] [MINMATCHLEN <len>]
  *     STRINGS <string> <string> | KEYS <keya> <keyb> */
 void lcsCommand(client *c) {
     uint32_t i, j;
     long long minmatchlen = 0;
     sds a = NULL, b = NULL;
     int getlen = 0, getidx = 0, withmatchlen = 0;
-    robj *idxkey = NULL; /* STOREIDX will set this and getidx to 1. */
     robj *obja = NULL, *objb = NULL;
 
     for (j = 1; j < (uint32_t)c->argc; j++) {
@@ -502,17 +501,16 @@ void lcsCommand(client *c) {
             getlen = 1;
         } else if (!strcasecmp(opt,"WITHMATCHLEN")) {
             withmatchlen = 1;
-        } else if (!strcasecmp(opt,"STOREIDX") && moreargs) {
-            getidx = 1;
-            idxkey = c->argv[j+1];
-            j++;
         } else if (!strcasecmp(opt,"MINMATCHLEN") && moreargs) {
             if (getLongLongFromObjectOrReply(c,c->argv[j+1],&minmatchlen,NULL)
                 != C_OK) return;
             if (minmatchlen < 0) minmatchlen = 0;
             j++;
         } else if (!strcasecmp(opt,"STRINGS")) {
-            if (moreargs != 2) {
+            if (a != NULL) {
+                addReplyError(c,"Either use STRINGS or KEYS");
+                return;
+            } else if (moreargs != 2) {
                 addReplyError(c,"LCS requires exactly two strings");
                 return;
             }
@@ -520,7 +518,10 @@ void lcsCommand(client *c) {
             b = c->argv[j+2]->ptr;
             j += 2;
         } else if (!strcasecmp(opt,"KEYS")) {
-            if (moreargs != 2) {
+            if (a != NULL) {
+                addReplyError(c,"Either use STRINGS or KEYS");
+                return;
+            } else if (moreargs != 2) {
                 addReplyError(c,"LCS requires exactly two keys");
                 return;
             }
@@ -542,12 +543,10 @@ void lcsCommand(client *c) {
         addReplyError(c,"Please specify two strings: "
                         "STRINGS or KEYS options are mandatory");
         return;
-    } else if (getlen && (getidx && idxkey == NULL)) {
+    } else if (getlen && getidx) {
         addReplyError(c,
-            "If you want both the LEN and indexes, please "
-            "store the indexes into a key with STOREIDX. However note "
-            "that the IDX output also includes both the LCS string and "
-            "its length");
+            "If you want both the length and indexes, please "
+            "just use IDX.");
         return;
     }
 
@@ -602,7 +601,7 @@ void lcsCommand(client *c) {
 
     /* Start with a deferred array if we have to emit the ranges. */
     uint32_t arraylen = 0;  /* Number of ranges emitted in the array. */
-    if (getidx && idxkey == NULL) {
+    if (getidx) {
         addReplyMapLen(c,2);
         addReplyBulkCString(c,"matches");
         arraylenptr = addReplyDeferredLen(c);
