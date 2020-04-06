@@ -441,4 +441,12 @@ start_server {tags {"string"}} {
     test {LCS indexes} {
         dict get [r LCS IDX KEYS virus1 virus2] matches
     } {{{238 238} {239 239}} {{236 236} {238 238}} {{229 230} {236 237}} {{224 224} {235 235}} {{1 222} {13 234}}}
+
+    test {LCS indexes with match len} {
+        dict get [r LCS IDX KEYS virus1 virus2 WITHMATCHLEN] matches
+    } {{{238 238} {239 239} 1} {{236 236} {238 238} 1} {{229 230} {236 237} 2} {{224 224} {235 235} 1} {{1 222} {13 234} 222}}
+
+    test {LCS indexes with match len and minimum match len} {
+        dict get [r LCS IDX KEYS virus1 virus2 WITHMATCHLEN MINMATCHLEN 5] matches
+    } {{{1 222} {13 234} 222}}
 }
