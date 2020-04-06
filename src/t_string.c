@@ -510,9 +510,6 @@ void lcsCommand(client *c) {
             if (a != NULL) {
                 addReplyError(c,"Either use STRINGS or KEYS");
                 return;
-            } else if (moreargs != 2) {
-                addReplyError(c,"LCS requires exactly two strings");
-                return;
             }
             a = c->argv[j+1]->ptr;
             b = c->argv[j+2]->ptr;
@@ -520,9 +517,6 @@ void lcsCommand(client *c) {
         } else if (!strcasecmp(opt,"KEYS")) {
             if (a != NULL) {
                 addReplyError(c,"Either use STRINGS or KEYS");
-                return;
-            } else if (moreargs != 2) {
-                addReplyError(c,"LCS requires exactly two keys");
                 return;
             }
             obja = lookupKeyRead(c->db,c->argv[j+1]);
