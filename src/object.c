@@ -974,30 +974,15 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mh->repl_backlog = mem;
     mem_total += mem;
 
-    mem = 0;
-    if (listLength(server.clients)) {
-        listIter li;
-        listNode *ln;
-        size_t mem_normal = 0, mem_slaves = 0;
-
-        listRewind(server.clients,&li);
-        while((ln = listNext(&li))) {
-            size_t mem_curr = 0;
-            client *c = listNodeValue(ln);
-            int type = getClientType(c);
-            mem_curr += getClientOutputBufferMemoryUsage(c);
-            mem_curr += sdsAllocSize(c->querybuf);
-            mem_curr += sizeof(client);
-            if (type == CLIENT_TYPE_SLAVE)
-                mem_slaves += mem_curr;
-            else
-                mem_normal += mem_curr;
-        }
-        mh->clients_slaves = mem_slaves;
-        mh->clients_normal = mem_normal;
-        mem = mem_slaves + mem_normal;
-    }
-    mem_total+=mem;
+    /* Computing the memory used by the clients would be O(N) if done
+     * here online. We use our values computed incrementally by
+     * clientsCronTrackClientsMemUsage(). */
+    mh->clients_slaves = server.stat_clients_type_memory[CLIENT_TYPE_SLAVE];
+    mh->clients_normal = server.stat_clients_type_memory[CLIENT_TYPE_MASTER]+
+                         server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB]+
+                         server.stat_clients_type_memory[CLIENT_TYPE_NORMAL];
+    mem_total += mh->clients_slaves;
+    mem_total += mh->clients_normal;
 
     mem = 0;
     if (server.aof_state != AOF_OFF) {
