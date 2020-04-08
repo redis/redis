@@ -987,7 +987,7 @@ void clientsCron(void) {
         /* Rotate the list, take the current head, process.
          * This way if the client must be removed from the list it's the
          * first element and we don't incur into O(N) computation. */
-        listRotate(server.clients);
+        listRotateTailToHead(server.clients);
         head = listFirst(server.clients);
         c = listNodeValue(head);
         /* The following functions do different service checks on the client.
