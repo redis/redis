@@ -1847,18 +1847,18 @@ void aclCommand(client *c) {
         }
     } else if (!strcasecmp(sub,"help")) {
         const char *help[] = {
-"LOAD                              -- Reload users from the ACL file.",
-"SAVE                              -- Save the current config to the ACL file."
-"LIST                              -- Show user details in config file format.",
-"USERS                             -- List all the registered usernames.",
-"SETUSER <username> [attribs ...]  -- Create or modify a user.",
-"GETUSER <username>                -- Get the user details.",
-"DELUSER <username> [...]          -- Delete a list of users.",
-"CAT                               -- List available categories.",
-"CAT <category>                    -- List commands inside category.",
-"GENPASS                           -- Generate a secure user password.",
-"WHOAMI                            -- Return the current connection username.",
-"LOG [<count> | RESET]             -- Show the ACL log entries.",
+"LOAD                             -- Reload users from the ACL file.",
+"SAVE                             -- Save the current config to the ACL file.",
+"LIST                             -- Show user details in config file format.",
+"USERS                            -- List all the registered usernames.",
+"SETUSER <username> [attribs ...] -- Create or modify a user.",
+"GETUSER <username>               -- Get the user details.",
+"DELUSER <username> [...]         -- Delete a list of users.",
+"CAT                              -- List available categories.",
+"CAT <category>                   -- List commands inside category.",
+"GENPASS                          -- Generate a secure user password.",
+"WHOAMI                           -- Return the current connection username.",
+"LOG [<count> | RESET]            -- Show the ACL log entries.",
 NULL
         };
         addReplyHelp(c,help);
