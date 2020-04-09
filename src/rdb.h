@@ -125,6 +125,7 @@
 #define RDBFLAGS_NONE 0
 #define RDBFLAGS_AOF_PREAMBLE (1<<0)
 #define RDBFLAGS_REPLICATION (1<<1)
+#define RDBFLAGS_ALLOW_DUP (1<<2)
 
 int rdbSaveType(rio *rdb, unsigned char type);
 int rdbLoadType(rio *rdb);
