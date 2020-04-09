@@ -2242,18 +2242,28 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             sdsfree(key);
             decrRefCount(val);
         } else {
+            robj keyobj;
+
             /* Add the new object in the hash table */
             int retval = dictAdd(db->dict, key, val);
             if (retval != DICT_OK) {
-                serverLog(LL_WARNING,
-                    "RDB has duplicated key '%s' in DB %d",key,db->id);
-                serverPanic("Duplicated key found in RDB file");
+                if (rdbflags & RDBFLAGS_ALLOW_DUP) {
+                    /* This flag is useful for DEBUG RELOAD special modes.
+                     * When it's set we allow new keys to replace the current
+                     * keys with the same name. */
+                    initStaticStringObject(keyobj,key);
+                    dbSyncDelete(db,&keyobj);
+                    dictAdd(db->dict, key, val);
+                } else {
+                    serverLog(LL_WARNING,
+                        "RDB has duplicated key '%s' in DB %d",key,db->id);
+                    serverPanic("Duplicated key found in RDB file");
+                }
             }
             if (server.cluster_enabled) slotToKeyAdd(key);
 
             /* Set the expire time if needed */
             if (expiretime != -1) {
-                robj keyobj;
                 initStaticStringObject(keyobj,key);
                 setExpire(NULL,db,&keyobj,expiretime);
             }
