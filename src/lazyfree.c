@@ -83,7 +83,7 @@ int dbAsyncDelete(redisDb *db, robj *key) {
      * field to NULL in order to lazy free it later. */
     if (de) {
         dictFreeUnlinkedEntry(db->dict,de);
-        if (server.cluster_enabled) slotToKeyDel(key);
+        if (server.cluster_enabled) slotToKeyDel(key->ptr);
         return 1;
     } else {
         return 0;

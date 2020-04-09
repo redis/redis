@@ -366,7 +366,7 @@ void debugCommand(client *c) {
 "OOM -- Crash the server simulating an out-of-memory error.",
 "PANIC -- Crash the server simulating a panic.",
 "POPULATE <count> [prefix] [size] -- Create <count> string keys named key:<num>. If a prefix is specified is used instead of the 'key' prefix.",
-"RELOAD -- Save the RDB on disk and reload it back in memory.",
+"RELOAD [MERGE] [NOFLUSH] [NOSAVE] -- Save the RDB on disk and reload it back in memory. By default it will save the RDB file and load it back. With the NOFLUSH option the current database is not removed before loading the new one, but conficts in keys will kill the server with an exception. When MERGE is used, conflicting keys will be loaded (the key in the loaded RDB file will win). When NOSAVE is used, the server will not save the current dataset in the RDB file before loading. Use DEBUG RELOAD NOSAVE when you want just to load the RDB file you placed in the Redis working directory in order to replace the current dataset in memory. Use DEBUG RELOAD NOSAVE NOFLUSH MERGE when you want to add what is in the current RDB file placed in the Redis current directory, with the current memory content. Use DEBUG RELOAD when you want to verify Redis is able to persist the current dataset in the RDB file, flush the memory content, and load it back.",
 "RESTART -- Graceful restart: save config, db, restart.",
 "SDSLEN <key> -- Show low level SDS string info representing key and value.",
 "SEGFAULT -- Crash the server with sigsegv.",
@@ -411,15 +411,44 @@ NULL
         serverLog(LL_WARNING, "DEBUG LOG: %s", (char*)c->argv[2]->ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"reload")) {
-        rdbSaveInfo rsi, *rsiptr;
-        rsiptr = rdbPopulateSaveInfo(&rsi);
-        if (rdbSave(server.rdb_filename,rsiptr) != C_OK) {
-            addReply(c,shared.err);
-            return;
+        int flush = 1, save = 1;
+        int flags = RDBFLAGS_NONE;
+
+        /* Parse the additional options that modify the RELOAD
+         * behavior. */
+        for (int j = 2; j < c->argc; j++) {
+            char *opt = c->argv[j]->ptr;
+            if (!strcasecmp(opt,"MERGE")) {
+                flags |= RDBFLAGS_ALLOW_DUP;
+            } else if (!strcasecmp(opt,"NOFLUSH")) {
+                flush = 0;
+            } else if (!strcasecmp(opt,"NOSAVE")) {
+                save = 0;
+            } else {
+                addReplyError(c,"DEBUG RELOAD only supports the "
+                                "MERGE, NOFLUSH and NOSAVE options.");
+                return;
+            }
         }
-        emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
+
+        /* The default beahvior is to save the RDB file before loading
+         * it back. */
+        if (save) {
+            rdbSaveInfo rsi, *rsiptr;
+            rsiptr = rdbPopulateSaveInfo(&rsi);
+            if (rdbSave(server.rdb_filename,rsiptr) != C_OK) {
+                addReply(c,shared.err);
+                return;
+            }
+        }
+
+        /* The default behavior is to remove the current dataset from
+         * memory before loading the RDB file, however when MERGE is
+         * used together with NOFLUSH, we are able to merge two datasets. */
+        if (flush) emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
+
         protectClient(c);
-        int ret = rdbLoad(server.rdb_filename,NULL,RDBFLAGS_NONE);
+        int ret = rdbLoad(server.rdb_filename,NULL,flags);
         unprotectClient(c);
         if (ret != C_OK) {
             addReplyError(c,"Error trying to load the RDB dump");

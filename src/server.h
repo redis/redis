@@ -597,7 +597,9 @@ typedef struct RedisModuleDigest {
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
 #define LRU_CLOCK_RESOLUTION 1000 /* LRU clock resolution in ms */
 
-#define OBJ_SHARED_REFCOUNT INT_MAX
+#define OBJ_SHARED_REFCOUNT INT_MAX     /* Global object never destroyed. */
+#define OBJ_STATIC_REFCOUNT (INT_MAX-1) /* Object allocated in the stack. */
+#define OBJ_FIRST_SPECIAL_REFCOUNT OBJ_STATIC_REFCOUNT
 typedef struct redisObject {
     unsigned type:4;
     unsigned encoding:4;
@@ -618,7 +620,7 @@ char *getObjectTypeName(robj*);
  * we'll update it when the structure is changed, to avoid bugs like
  * bug #85 introduced exactly in this way. */
 #define initStaticStringObject(_var,_ptr) do { \
-    _var.refcount = 1; \
+    _var.refcount = OBJ_STATIC_REFCOUNT; \
     _var.type = OBJ_STRING; \
     _var.encoding = OBJ_ENCODING_RAW; \
     _var.ptr = _ptr; \
@@ -2067,6 +2069,7 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
 #define LOOKUP_NONE 0
 #define LOOKUP_NOTOUCH (1<<0)
 void dbAdd(redisDb *db, robj *key, robj *val);
+int dbAddRDBLoad(redisDb *db, sds key, robj *val);
 void dbOverwrite(redisDb *db, robj *key, robj *val);
 void genericSetKey(redisDb *db, robj *key, robj *val, int keepttl, int signal);
 void setKey(redisDb *db, robj *key, robj *val);
@@ -2093,8 +2096,8 @@ unsigned int delKeysInSlot(unsigned int hashslot);
 int verifyClusterConfigWithData(void);
 void scanGenericCommand(client *c, robj *o, unsigned long cursor);
 int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor);
-void slotToKeyAdd(robj *key);
-void slotToKeyDel(robj *key);
+void slotToKeyAdd(sds key);
+void slotToKeyDel(sds key);
 void slotToKeyFlush(void);
 int dbAsyncDelete(redisDb *db, robj *key);
 void emptyDbAsync(redisDb *db);

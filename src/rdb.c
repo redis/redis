@@ -1422,7 +1422,7 @@ robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename) {
 
 /* Load a Redis object of the specified type from the specified file.
  * On success a newly allocated object is returned, otherwise NULL. */
-robj *rdbLoadObject(int rdbtype, rio *rdb, robj *key) {
+robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
     robj *o = NULL, *ele, *dec;
     uint64_t len;
     unsigned int i;
@@ -1886,7 +1886,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, robj *key) {
             exit(1);
         }
         RedisModuleIO io;
-        moduleInitIOContext(io,mt,rdb,key);
+        robj keyobj;
+        initStaticStringObject(keyobj,key);
+        moduleInitIOContext(io,mt,rdb,&keyobj);
         io.ver = (rdbtype == RDB_TYPE_MODULE) ? 1 : 2;
         /* Call the rdb_load method of the module providing the 10 bit
          * encoding version in the lower 10 bits of the module ID. */
@@ -2044,7 +2046,8 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
     long long lru_clock = LRU_CLOCK();
 
     while(1) {
-        robj *key, *val;
+        sds key;
+        robj *val;
 
         /* Read type. */
         if ((type = rdbLoadType(rdb)) == -1) goto eoferr;
@@ -2216,10 +2219,11 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
         }
 
         /* Read key */
-        if ((key = rdbLoadStringObject(rdb)) == NULL) goto eoferr;
+        if ((key = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL)
+            goto eoferr;
         /* Read value */
         if ((val = rdbLoadObject(type,rdb,key)) == NULL) {
-            decrRefCount(key);
+            sdsfree(key);
             goto eoferr;
         }
 
@@ -2227,26 +2231,49 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
          * an RDB file from disk, either at startup, or when an RDB was
          * received from the master. In the latter case, the master is
          * responsible for key expiry. If we would expire keys here, the
-         * snapshot taken by the master may not be reflected on the slave. */
-        if (iAmMaster() && !(rdbflags&RDBFLAGS_AOF_PREAMBLE) && expiretime != -1 && expiretime < now) {
-            decrRefCount(key);
+         * snapshot taken by the master may not be reflected on the slave.
+         * Similarly if the RDB is the preamble of an AOF file, we want to
+         * load all the keys as they are, since the log of operations later
+         * assume to work in an exact keyspace state. */
+        if (iAmMaster() &&
+            !(rdbflags&RDBFLAGS_AOF_PREAMBLE) &&
+            expiretime != -1 && expiretime < now)
+        {
+            sdsfree(key);
             decrRefCount(val);
         } else {
+            robj keyobj;
+
             /* Add the new object in the hash table */
-            dbAdd(db,key,val);
+            int added = dbAddRDBLoad(db,key,val);
+            if (!added) {
+                if (rdbflags & RDBFLAGS_ALLOW_DUP) {
+                    /* This flag is useful for DEBUG RELOAD special modes.
+                     * When it's set we allow new keys to replace the current
+                     * keys with the same name. */
+                    initStaticStringObject(keyobj,key);
+                    dbSyncDelete(db,&keyobj);
+                    dbAddRDBLoad(db,key,val);
+                } else {
+                    serverLog(LL_WARNING,
+                        "RDB has duplicated key '%s' in DB %d",key,db->id);
+                    serverPanic("Duplicated key found in RDB file");
+                }
+            }
 
             /* Set the expire time if needed */
-            if (expiretime != -1) setExpire(NULL,db,key,expiretime);
+            if (expiretime != -1) {
+                initStaticStringObject(keyobj,key);
+                setExpire(NULL,db,&keyobj,expiretime);
+            }
 
             /* Set usage information (for eviction). */
             objectSetLRUOrLFU(val,lfu_freq,lru_idle,lru_clock,1000);
-
-            /* Decrement the key refcount since dbAdd() will take its
-             * own reference. */
-            decrRefCount(key);
         }
-        if (server.key_load_delay)
-            usleep(server.key_load_delay);
+
+        /* Loading the database more slowly is useful in order to test
+         * certain edge cases. */
+        if (server.key_load_delay) usleep(server.key_load_delay);
 
         /* Reset the state that is key-specified and is populated by
          * opcodes before the key, so that we start from scratch again. */

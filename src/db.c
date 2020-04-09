@@ -185,7 +185,25 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
         val->type == OBJ_ZSET ||
         val->type == OBJ_STREAM)
         signalKeyAsReady(db, key);
+    if (server.cluster_enabled) slotToKeyAdd(key->ptr);
+}
+
+/* This is a special version of dbAdd() that is used only when loading
+ * keys from the RDB file: the key is passed as an SDS string that is
+ * retained by the function (and not freed by the caller).
+ *
+ * Moreover this function will not abort if the key is already busy, to
+ * give more control to the caller, nor will signal the key as ready
+ * since it is not useful in this context.
+ *
+ * The function returns 1 if the key was added to the database, taking
+ * ownership of the SDS string, otherwise 0 is returned, and is up to the
+ * caller to free the SDS string. */
+int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
+    int retval = dictAdd(db->dict, key, val);
+    if (retval != DICT_OK) return 0;
     if (server.cluster_enabled) slotToKeyAdd(key);
+    return 1;
 }
 
 /* Overwrite an existing key with a new value. Incrementing the reference
@@ -288,7 +306,7 @@ int dbSyncDelete(redisDb *db, robj *key) {
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
     if (dictDelete(db->dict,key->ptr) == DICT_OK) {
-        if (server.cluster_enabled) slotToKeyDel(key);
+        if (server.cluster_enabled) slotToKeyDel(key->ptr);
         return 1;
     } else {
         return 0;
@@ -1647,17 +1665,17 @@ int *xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys)
  * a fast way a key that belongs to a specified hash slot. This is useful
  * while rehashing the cluster and in other conditions when we need to
  * understand if we have keys for a given hash slot. */
-void slotToKeyUpdateKey(robj *key, int add) {
-    unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
+void slotToKeyUpdateKey(sds key, int add) {
+    size_t keylen = sdslen(key);
+    unsigned int hashslot = keyHashSlot(key,keylen);
     unsigned char buf[64];
     unsigned char *indexed = buf;
-    size_t keylen = sdslen(key->ptr);
 
     server.cluster->slots_keys_count[hashslot] += add ? 1 : -1;
     if (keylen+2 > 64) indexed = zmalloc(keylen+2);
     indexed[0] = (hashslot >> 8) & 0xff;
     indexed[1] = hashslot & 0xff;
-    memcpy(indexed+2,key->ptr,keylen);
+    memcpy(indexed+2,key,keylen);
     if (add) {
         raxInsert(server.cluster->slots_to_keys,indexed,keylen+2,NULL,NULL);
     } else {
@@ -1666,11 +1684,11 @@ void slotToKeyUpdateKey(robj *key, int add) {
     if (indexed != buf) zfree(indexed);
 }
 
-void slotToKeyAdd(robj *key) {
+void slotToKeyAdd(sds key) {
     slotToKeyUpdateKey(key,1);
 }
 
-void slotToKeyDel(robj *key) {
+void slotToKeyDel(sds key) {
     slotToKeyUpdateKey(key,0);
 }
 
