@@ -1422,7 +1422,7 @@ robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename) {
 
 /* Load a Redis object of the specified type from the specified file.
  * On success a newly allocated object is returned, otherwise NULL. */
-robj *rdbLoadObject(int rdbtype, rio *rdb, robj *key) {
+robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
     robj *o = NULL, *ele, *dec;
     uint64_t len;
     unsigned int i;
@@ -1886,7 +1886,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, robj *key) {
             exit(1);
         }
         RedisModuleIO io;
-        moduleInitIOContext(io,mt,rdb,key);
+        robj keyobj;
+        initStaticStringObject(keyobj,key);
+        moduleInitIOContext(io,mt,rdb,&keyobj);
         io.ver = (rdbtype == RDB_TYPE_MODULE) ? 1 : 2;
         /* Call the rdb_load method of the module providing the 10 bit
          * encoding version in the lower 10 bits of the module ID. */
@@ -2044,7 +2046,8 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
     long long lru_clock = LRU_CLOCK();
 
     while(1) {
-        robj *key, *val;
+        sds key;
+        robj *val;
 
         /* Read type. */
         if ((type = rdbLoadType(rdb)) == -1) goto eoferr;
@@ -2216,10 +2219,11 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
         }
 
         /* Read key */
-        if ((key = rdbLoadStringObject(rdb)) == NULL) goto eoferr;
+        if ((key = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL)
+            goto eoferr;
         /* Read value */
         if ((val = rdbLoadObject(type,rdb,key)) == NULL) {
-            decrRefCount(key);
+            sdsfree(key);
             goto eoferr;
         }
 
@@ -2229,24 +2233,32 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
          * responsible for key expiry. If we would expire keys here, the
          * snapshot taken by the master may not be reflected on the slave. */
         if (iAmMaster() && !(rdbflags&RDBFLAGS_AOF_PREAMBLE) && expiretime != -1 && expiretime < now) {
-            decrRefCount(key);
+            sdsfree(key);
             decrRefCount(val);
         } else {
             /* Add the new object in the hash table */
-            dbAdd(db,key,val);
+            int retval = dictAdd(db->dict, key, val);
+            if (retval != DICT_OK) {
+                serverLog(LL_WARNING,
+                    "RDB has duplicated key '%s' in DB %d",key,db->id);
+                serverPanic("Duplicated key found in RDB file");
+            }
+            if (server.cluster_enabled) slotToKeyAdd(key);
 
             /* Set the expire time if needed */
-            if (expiretime != -1) setExpire(NULL,db,key,expiretime);
+            if (expiretime != -1) {
+                robj keyobj;
+                initStaticStringObject(keyobj,key);
+                setExpire(NULL,db,&keyobj,expiretime);
+            }
 
             /* Set usage information (for eviction). */
             objectSetLRUOrLFU(val,lfu_freq,lru_idle,lru_clock,1000);
-
-            /* Decrement the key refcount since dbAdd() will take its
-             * own reference. */
-            decrRefCount(key);
         }
-        if (server.key_load_delay)
-            usleep(server.key_load_delay);
+
+        /* Loading the database more slowly is useful in order to test
+         * certain edge cases. */
+        if (server.key_load_delay) usleep(server.key_load_delay);
 
         /* Reset the state that is key-specified and is populated by
          * opcodes before the key, so that we start from scratch again. */
