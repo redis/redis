@@ -963,7 +963,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
         addReplyArrayLen(c,2);
         addReplyStreamID(c,&id);
 
-        addReplyMapLen(c,numfields);
+        addReplyArrayLen(c,numfields*2);
 
         /* Emit the field-value pairs. */
         while(numfields--) {
