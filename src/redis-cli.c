@@ -1957,7 +1957,8 @@ static void repl(void) {
                 }
             }
 
-            /* Won't save auth or acl setuser commands in history file */
+            /* Won't save 'auth', 'acl setuser' or 'config set requirepass'
+            * commands in history file */
             int dangerous = 0;
             if (argv && argc > 0) {
                 if (!strcasecmp(argv[skipargs], "auth")) {
@@ -1966,6 +1967,11 @@ static void repl(void) {
                            !strcasecmp(argv[skipargs], "acl") &&
                            !strcasecmp(argv[skipargs+1], "setuser"))
                 {
+                    dangerous = 1;
+                } else if (skipargs+2 < argc &&
+                           !strcasecmp(argv[skipargs], "config") &&
+                           !strcasecmp(argv[skipargs+1], "set") &&
+                           !strcasecmp(argv[skipargs+2], "requirepass")) {
                     dangerous = 1;
                 }
             }
