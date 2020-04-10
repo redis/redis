@@ -269,7 +269,7 @@ int64_t getSignedBitfield(unsigned char *p, uint64_t offset, uint64_t bits) {
  * then zero is returned, otherwise in case of overflow, 1 is returned,
  * otherwise in case of underflow, -1 is returned.
  *
- * When non-zero is returned (oferflow or underflow), if not NULL, *limit is
+ * When non-zero is returned (overflow or underflow), if not NULL, *limit is
  * set to the value the operation should result when an overflow happens,
  * depending on the specified overflow semantics:
  *
