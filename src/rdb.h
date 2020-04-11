@@ -68,6 +68,8 @@
 #define RDB_ENC_INT16 1       /* 16 bit signed integer */
 #define RDB_ENC_INT32 2       /* 32 bit signed integer */
 #define RDB_ENC_LZF 3         /* string compressed with FASTLZ */
+#define RDB_ENC_INT64 4       /* 64 bit signed integer */
+
 
 /* Map object types to RDB object types. Macros starting with OBJ_ are for
  * memory storage and may change. Instead RDB types must be fixed because
