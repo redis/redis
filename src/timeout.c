@@ -166,7 +166,7 @@ int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int 
 
     if (unit == UNIT_SECONDS) {
         if (getLongDoubleFromObjectOrReply(c,object,&ftval,
-            "timeout is not an float or out of range") != C_OK)
+            "timeout is not a float or out of range") != C_OK)
             return C_ERR;
         tval = (long long) (ftval * 1000.0);
     } else {
