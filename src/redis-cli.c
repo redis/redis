@@ -1971,7 +1971,9 @@ static void repl(void) {
                 } else if (skipargs+2 < argc &&
                            !strcasecmp(argv[skipargs], "config") &&
                            !strcasecmp(argv[skipargs+1], "set") &&
-                           !strcasecmp(argv[skipargs+2], "requirepass")) {
+                           (!strcasecmp(argv[skipargs+2], "requirepass") ||
+                           !strcasecmp(argv[skipargs+2], "masterauth") ||
+                           !strcasecmp(argv[skipargs+2], "masteruser"))) {
                     dangerous = 1;
                 }
             }
