@@ -1914,6 +1914,9 @@ void authCommand(client *c) {
     if (ACLAuthenticateUser(c,username,password) == C_OK) {
         addReply(c,shared.ok);
     } else {
+        char *peer;
+        peer = getClientPeerId(c);
+        serverLog(LL_NOTICE, "WRONGPASS from %s", peer);
         addReplyError(c,"-WRONGPASS invalid username-password pair");
     }
 
