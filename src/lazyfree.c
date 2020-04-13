@@ -15,7 +15,7 @@ size_t lazyfreeGetPendingObjectsCount(void) {
 
 /* Return the amount of work needed in order to free an object.
  * The return value is not always the actual number of allocations the
- * object is compoesd of, but a number proportional to it.
+ * object is composed of, but a number proportional to it.
  *
  * For strings the function always returns 1.
  *
