@@ -1783,8 +1783,8 @@ void aclCommand(client *c) {
         long count = 10; /* Number of entries to emit by default. */
 
         /* Parse the only argument that LOG may have: it could be either
-         * the number of entires the user wants to display, or alternatively
-         * the "RESET" command in order to flush the old entires. */
+         * the number of entries the user wants to display, or alternatively
+         * the "RESET" command in order to flush the old entries. */
         if (c->argc == 3) {
             if (!strcasecmp(c->argv[2]->ptr,"reset")) {
                 listSetFreeMethod(ACLLog,ACLFreeLogEntry);
