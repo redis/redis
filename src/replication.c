@@ -972,10 +972,41 @@ void removeRDBUsedToSyncReplicas(void) {
     }
 }
 
+#if HAVE_SENDFILE
+/* Implements redis_sendfile to transfer data between file descriptors and
+ * avoid transferring data to and from user space.
+ * 
+ * The function prototype is just like sendfile(2) on Linux. in_fd is a file
+ * descriptor opened for reading and out_fd is a descriptor opened for writing.
+ * offset specifies where to start reading data from in_fd. count is the number
+ * of bytes to copy between the file descriptors.
+ * 
+ * The return value is the number of bytes written to out_fd, if the transfer
+ * was successful. On error, -1 is returned, and errno is set appropriately. */
+ssize_t redis_sendfile(int out_fd, int in_fd, off_t offset, size_t count) {
+#if defined(__linux__)
+    #include <sys/sendfile.h>
+    return sendfile(out_fd, in_fd, &offset, count);
+
+#elif defined(__APPLE__)
+    off_t len = count;
+    /* Notice that it may return -1 and errno is set to EAGAIN even if some
+     * bytes have been sent successfully and the len argument is set correctly
+     * when using a socket marked for non-blocking I/O. */
+    if (sendfile(in_fd, out_fd, offset, &len, NULL, 0) == -1 &&
+        errno != EAGAIN) return -1;
+    else
+        return (ssize_t)len;
+
+#endif
+    errno = ENOSYS;
+    return -1;
+}
+#endif
+
 void sendBulkToSlave(connection *conn) {
     client *slave = connGetPrivateData(conn);
-    char buf[PROTO_IOBUF_LEN];
-    ssize_t nwritten, buflen;
+    ssize_t nwritten;
 
     /* Before sending the RDB file, we send the preamble as configured by the
      * replication process. Currently the preamble is just the bulk count of
@@ -1001,6 +1032,21 @@ void sendBulkToSlave(connection *conn) {
     }
 
     /* If the preamble was already transferred, send the RDB bulk data. */
+#if HAVE_SENDFILE
+    if ((nwritten = redis_sendfile(conn->fd,slave->repldbfd,
+        slave->repldboff,PROTO_IOBUF_LEN)) == -1)
+    {
+        if (errno != EAGAIN) {
+            serverLog(LL_WARNING,"Sendfile error sending DB to replica: %s",
+                strerror(errno));
+            freeClient(slave);
+        }
+        return;
+    }
+#else
+    ssize_t buflen;
+    char buf[PROTO_IOBUF_LEN];
+
     lseek(slave->repldbfd,slave->repldboff,SEEK_SET);
     buflen = read(slave->repldbfd,buf,PROTO_IOBUF_LEN);
     if (buflen <= 0) {
@@ -1017,6 +1063,7 @@ void sendBulkToSlave(connection *conn) {
         }
         return;
     }
+#endif
     slave->repldboff += nwritten;
     server.stat_net_output_bytes += nwritten;
     if (slave->repldboff == slave->repldbsize) {
