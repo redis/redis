@@ -1301,14 +1301,14 @@ int zsetScore(robj *zobj, sds member, double *score) {
  * none could be set if we re-added an element using the same score it used
  * to have, or in the case a zero increment is used).
  *
- * The function returns 0 on erorr, currently only when the increment
+ * The function returns 0 on error, currently only when the increment
  * produces a NAN condition, or when the 'score' value is NAN since the
  * start.
  *
- * The commad as a side effect of adding a new element may convert the sorted
+ * The command as a side effect of adding a new element may convert the sorted
  * set internal encoding from ziplist to hashtable+skiplist.
  *
- * Memory managemnet of 'ele':
+ * Memory management of 'ele':
  *
  * The function does not take ownership of the 'ele' SDS string, but copies
  * it if needed. */
