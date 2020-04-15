@@ -30,6 +30,7 @@
 #include "server.h"
 #include "sha256.h"
 #include <fcntl.h>
+#include <ctype.h>
 
 /* =============================================================================
  * Global state for ACLs
@@ -690,7 +691,8 @@ void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub) {
  *
  * When an error is returned, errno is set to the following values:
  *
- * EINVAL: The specified opcode is not understood.
+ * EINVAL: The specified opcode is not understood or the key pattern is
+ *         invalid (contains non allowed characters).
  * ENOENT: The command name or command category provided with + or - is not
  *         known.
  * EBUSY:  The subcommand you want to add is about a command that is currently
@@ -788,6 +790,15 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         if (u->flags & USER_FLAG_ALLKEYS) {
             errno = EEXIST;
             return C_ERR;
+        }
+        /* Validate the pattern: no spaces nor null characters
+         * are allowed, for simpler rewriting of the ACLs without
+         * using quoting. */
+        for (int i = 1; i < oplen; i++) {
+            if (isspace(op[i]) || op[i] == 0) {
+                errno = EINVAL;
+                return C_ERR;
+            }
         }
         sds newpat = sdsnewlen(op+1,oplen-1);
         listNode *ln = listSearchKey(u->patterns,newpat);
