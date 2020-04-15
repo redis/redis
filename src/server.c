@@ -115,7 +115,7 @@ volatile unsigned long lru_clock; /* Server global current LRU time. */
  * write:       Write command (may modify the key space).
  *
  * read-only:   All the non special commands just reading from keys without
- *              changing the content, or returning other informations like
+ *              changing the content, or returning other information like
  *              the TIME command. Special commands such administrative commands
  *              or transaction related commands (multi, exec, discard, ...)
  *              are not flagged as read-only commands, since they affect the
@@ -1432,7 +1432,7 @@ void tryResizeHashTables(int dbid) {
 /* Our hash table implementation performs rehashing incrementally while
  * we write/read from the hash table. Still if the server is idle, the hash
  * table will use two tables for a long time. So we try to use 1 millisecond
- * of CPU time at every call of this function to perform some rehahsing.
+ * of CPU time at every call of this function to perform some rehashing.
  *
  * The function returns 1 if some rehashing was performed, otherwise 0
  * is returned. */
@@ -1605,7 +1605,7 @@ int clientsCronTrackClientsMemUsage(client *c) {
     mem += sdsAllocSize(c->querybuf);
     mem += sizeof(client);
     /* Now that we have the memory used by the client, remove the old
-     * value from the old categoty, and add it back. */
+     * value from the old category, and add it back. */
     server.stat_clients_type_memory[c->client_cron_last_memory_type] -=
         c->client_cron_last_memory_usage;
     server.stat_clients_type_memory[type] += mem;
@@ -1897,18 +1897,18 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
          * the frag ratio calculate may be off (ratio of two samples at different times) */
         server.cron_malloc_stats.process_rss = zmalloc_get_rss();
         server.cron_malloc_stats.zmalloc_used = zmalloc_used_memory();
-        /* Sampling the allcator info can be slow too.
-         * The fragmentation ratio it'll show is potentically more accurate
+        /* Sampling the allocator info can be slow too.
+         * The fragmentation ratio it'll show is potentially more accurate
          * it excludes other RSS pages such as: shared libraries, LUA and other non-zmalloc
          * allocations, and allocator reserved pages that can be pursed (all not actual frag) */
         zmalloc_get_allocator_info(&server.cron_malloc_stats.allocator_allocated,
                                    &server.cron_malloc_stats.allocator_active,
                                    &server.cron_malloc_stats.allocator_resident);
         /* in case the allocator isn't providing these stats, fake them so that
-         * fragmention info still shows some (inaccurate metrics) */
+         * fragmentation info still shows some (inaccurate metrics) */
         if (!server.cron_malloc_stats.allocator_resident) {
             /* LUA memory isn't part of zmalloc_used, but it is part of the process RSS,
-             * so we must desuct it in order to be able to calculate correct
+             * so we must destruct it in order to be able to calculate correct
              * "allocator fragmentation" ratio */
             size_t lua_memory = lua_gc(server.lua,LUA_GCCOUNT,0)*1024LL;
             server.cron_malloc_stats.allocator_resident = server.cron_malloc_stats.process_rss - lua_memory;
@@ -2153,7 +2153,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     if (moduleCount()) moduleReleaseGIL();
 }
 
-/* This function is called immadiately after the event loop multiplexing
+/* This function is called immediately after the event loop multiplexing
  * API returned, and the control is going to soon return to Redis by invoking
  * the different events callbacks. */
 void afterSleep(struct aeEventLoop *eventLoop) {
@@ -2369,7 +2369,7 @@ void initServerConfig(void) {
     R_NegInf = -1.0/R_Zero;
     R_Nan = R_Zero/R_Zero;
 
-    /* Command table -- we initiialize it here as it is part of the
+    /* Command table -- we initialize it here as it is part of the
      * initial configuration, since command names may be changed via
      * redis.conf using the rename-command directive. */
     server.commands = dictCreate(&commandTableDictType,NULL);
@@ -3099,12 +3099,12 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
  *
  * 'cmd' must be a pointer to the Redis command to replicate, dbid is the
  * database ID the command should be propagated into.
- * Arguments of the command to propagte are passed as an array of redis
+ * Arguments of the command to propagate are passed as an array of redis
  * objects pointers of len 'argc', using the 'argv' vector.
  *
  * The function does not take a reference to the passed 'argv' vector,
  * so it is up to the caller to release the passed argv (but it is usually
- * stack allocated).  The function autoamtically increments ref count of
+ * stack allocated).  The function automatically increments ref count of
  * passed objects, so the caller does not need to. */
 void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
                    int target)
@@ -3472,7 +3472,7 @@ int processCommand(client *c) {
         }
 
         /* Save out_of_memory result at script start, otherwise if we check OOM
-         * untill first write within script, memory used by lua stack and
+         * until first write within script, memory used by lua stack and
          * arguments might interfere. */
         if (c->cmd->proc == evalCommand || c->cmd->proc == evalShaCommand) {
             server.lua_oom = out_of_memory;
@@ -3707,7 +3707,7 @@ int prepareForShutdown(int flags) {
 
 /*================================== Commands =============================== */
 
-/* Sometimes Redis cannot accept write commands because there is a perstence
+/* Sometimes Redis cannot accept write commands because there is a persistence
  * error with the RDB or AOF file, and Redis is configured in order to stop
  * accepting writes in such situation. This function returns if such a
  * condition is active, and the type of the condition.
