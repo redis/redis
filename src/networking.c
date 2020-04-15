@@ -2460,7 +2460,7 @@ void helloCommand(client *c) {
 
     addReplyBulkCString(c,"mode");
     if (server.sentinel_mode) addReplyBulkCString(c,"sentinel");
-    if (server.cluster_enabled) addReplyBulkCString(c,"cluster");
+    else if (server.cluster_enabled) addReplyBulkCString(c,"cluster");
     else addReplyBulkCString(c,"standalone");
 
     if (!server.sentinel_mode) {
