@@ -36,6 +36,7 @@ start_server {tags {"memefficiency"}} {
     }
 }
 
+run_solo {defrag} {
 start_server {tags {"defrag"}} {
     if {[string match {*jemalloc*} [s mem_allocator]]} {
         test "Active defrag" {
@@ -328,3 +329,4 @@ start_server {tags {"defrag"}} {
         } {1}
     }
 }
+} ;# run_solo
