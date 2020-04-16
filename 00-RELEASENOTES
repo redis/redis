@@ -12,6 +12,275 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 6.0-rc4     Released Thu Apr 16 16:10:35 CEST 2020
+================================================================================
+
+Upgrade urgency LOW: If you are using RC3 without issues, don't rush.
+
+Hi all, this the latest release candidate of Redis 6. This is likely to
+be very similar to what you'll see in Redis 6 GA. Please test it and
+report any issue :-)
+
+Main changes in this release:
+
+    * Big INFO speedup when using a lot of of clients.
+    * Big speedup on all the blocking commands: now blocking
+      on the same key is O(1) instead of being O(N).
+    * Stale replicas now allow MULTI/EXEC.
+    * New command: LCS (Longest Common Subsequence).
+    * Add a new configuration to make DEL like UNLINK.
+    * RDB loading speedup.
+    * Many bugs fixed (see the commit messages at the end of this node)
+
+See you in 14 days for Redis 6 GA.
+
+List of commits:
+
+antirez in commit 9f594e243:
+ Update SDS to latest version.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 48781dd95:
+ RESP3: fix HELLO map len in Sentinel mode.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 371ab0cff:
+ Don't allow empty spaces in ACL usernames.
+ 1 file changed, 36 insertions(+), 8 deletions(-)
+
+antirez in commit b86140ac5:
+ Don't allow empty spaces in ACL key patterns.
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+liumiuyong in commit a7ee3c3e7:
+ FIX: truncate max/min longitude,latitude related geo_point (ex:  {180, 85.05112878} )
+ 1 file changed, 4 insertions(+)
+
+Guy Benoish in commit e5b9eb817:
+ Typo in getTimeoutFromObjectOrReply's error reply
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 0f31bb5c1:
+ Fix HELLO reply in Sentinel mode, see #6160.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+hwware in commit b92d9a895:
+ fix spelling in acl.c
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit 8f896e57a:
+ Fix zsetAdd() top comment spelling.
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+hayleeliu in commit 8f5157058:
+ fix spelling mistake in bitops.c
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit ddeda9ceb:
+ Fix function names in zslDeleteNode() top comment.
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+antirez in commit bde1f0a8e:
+ RESP3: change streams items from maps to arrays.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit bec68bff2:
+ Use the special static refcount for stack objects.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 0f239e51b:
+ RDB: refactor some RDB loading code into dbAddRDBLoad().
+ 3 files changed, 22 insertions(+), 4 deletions(-)
+
+antirez in commit f855db61b:
+ incrRefCount(): abort on statically allocated object.
+ 2 files changed, 12 insertions(+), 2 deletions(-)
+
+antirez in commit 23094ba01:
+ More powerful DEBUG RELOAD.
+ 3 files changed, 55 insertions(+), 16 deletions(-)
+
+antirez in commit 8161a7a3e:
+ RDB: clarify a condition in rdbLoadRio().
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+
+antirez in commit 61b153073:
+ RDB: load files faster avoiding useless free+realloc.
+ 7 files changed, 40 insertions(+), 28 deletions(-)
+
+antirez in commit 414debfd0:
+ Speedup: unblock clients on keys in O(1).
+ 4 files changed, 50 insertions(+), 23 deletions(-)
+
+antirez in commit cbcd07777:
+ Fix ACL HELP table missing comma.
+ 1 file changed, 12 insertions(+), 12 deletions(-)
+
+mymilkbottles in commit 2437455f2:
+ Judge the log level in advance
+ 1 file changed, 1 insertion(+)
+
+antirez in commit 35c64b898:
+ Speedup INFO by counting client memory incrementally.
+ 4 files changed, 52 insertions(+), 26 deletions(-)
+
+qetu3790 in commit c3ac71748:
+ fix comments about RESIZE DB opcode in rdb.c
+ 1 file changed, 1 insertion(+), 4 deletions(-)
+
+antirez in commit c8dbcff9d:
+ Clarify redis.conf comment about lazyfree-lazy-user-del.
+ 1 file changed, 9 insertions(+), 5 deletions(-)
+
+zhaozhao.zz in commit abd5156f2:
+ lazyfree: add a new configuration lazyfree-lazy-user-del
+ 4 files changed, 7 insertions(+), 2 deletions(-)
+
+antirez in commit 5719b3054:
+ LCS: more tests.
+ 1 file changed, 8 insertions(+)
+
+antirez in commit c89e1f293:
+ LCS: allow KEYS / STRINGS to be anywhere.
+ 1 file changed, 6 deletions(-)
+
+antirez in commit 0b16f8d44:
+ LCS tests.
+ 1 file changed, 22 insertions(+)
+
+antirez in commit 9254a805d:
+ LCS: get rid of STOREIDX option. Fix get keys helper.
+ 2 files changed, 20 insertions(+), 21 deletions(-)
+
+antirez in commit a4c490703:
+ LCS: fix stale comment.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit cb92c23de:
+ LCS: output LCS len as well in IDX mode.
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+antirez in commit 56a52e804:
+ LCS: MINMATCHLEN and WITHMATCHLEN options.
+ 1 file changed, 24 insertions(+), 11 deletions(-)
+
+antirez in commit ebb09a5c3:
+ LCS: 7x speedup by accessing the array with better locality.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit a9f8a8cba:
+ LCS: implement KEYS option.
+ 1 file changed, 18 insertions(+), 2 deletions(-)
+
+antirez in commit 4aa24e62a:
+ LCS: other fixes to range emission.
+ 1 file changed, 20 insertions(+), 16 deletions(-)
+
+antirez in commit 2b67b6b87:
+ LCS: fix emission of last range starting at index 0.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 420aac727:
+ LCS: implement range indexes option.
+ 1 file changed, 59 insertions(+), 9 deletions(-)
+
+antirez in commit a518a9a76:
+ LCS: initial functionality implemented.
+ 4 files changed, 156 insertions(+), 1 deletion(-)
+
+srzhao in commit 026cc11b0:
+ Check OOM at script start to get stable lua OOM state.
+ 3 files changed, 11 insertions(+), 4 deletions(-)
+
+Oran Agra in commit 02b594f6a:
+ diffrent fix for runtest --host --port
+ 2 files changed, 13 insertions(+), 13 deletions(-)
+
+Guy Benoish in commit f695d1830:
+ Try to fix time-sensitive tests in blockonkey.tcl
+ 1 file changed, 54 insertions(+), 1 deletion(-)
+
+Guy Benoish in commit 0e42cfc36:
+ Use __attribute__ only if __GNUC__ is defined
+ 1 file changed, 12 insertions(+), 3 deletions(-)
+
+Guy Benoish in commit 91ed9b3c4:
+ Modules: Perform printf-like format checks in variadic API
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+Valentino Geron in commit 3e0d20962:
+ XREAD and XREADGROUP should not be allowed from scripts when BLOCK option is being used
+ 3 files changed, 18 insertions(+), 2 deletions(-)
+
+Guy Benoish in commit 240094c9b:
+ Stale replica should allow MULTI/EXEC
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+Xudong Zhang in commit 209f3a1eb:
+ fix integer overflow
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Guy Benoish in commit 024c380b9:
+ Fix no-negative-zero test
+ 1 file changed, 1 insertion(+)
+
+Oran Agra in commit a38ff404b:
+ modules don't signalModifiedKey in setKey() since that's done (optionally) in RM_CloseKey
+ 4 files changed, 8 insertions(+), 8 deletions(-)
+
+Oran Agra in commit 814874d68:
+ change CI to build and run the module api tests
+ 1 file changed, 2 insertions(+)
+
+Oran Agra in commit 061616c1b:
+ fix possible warning on incomplete struct init
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Guy Benoish in commit 7764996be:
+ Make sure Redis does not reply with negative zero
+ 2 files changed, 10 insertions(+)
+
+Guy Benoish in commit eba28e2ce:
+ DEBUG OBJECT should pass keyname to module when loading
+ 3 files changed, 4 insertions(+), 4 deletions(-)
+
+David Carlier in commit 15c9e79a7:
+ debug, dump registers on arm too.
+ 1 file changed, 55 insertions(+), 27 deletions(-)
+
+hwware in commit cd2b5df97:
+ fix spelling in cluster.c
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Valentino Geron in commit 8cdc153f5:
+ XACK should be executed in a "all or nothing" fashion.
+ 2 files changed, 23 insertions(+), 1 deletion(-)
+
+hwware in commit b35407fa7:
+ add check for not switching between optin optout mode directly
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+hwware in commit 4395889c9:
+ add check for not providing both optin optout flag
+ 1 file changed, 8 insertions(+)
+
+Guy Benoish in commit 1907e0f18:
+ PERSIST should notify a keyspace event
+ 1 file changed, 1 insertion(+)
+
+Guy Benoish in commit c35a53169:
+ streamReplyWithRange: Redundant XSETIDs to replica
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+antirez in commit 6fe66e096:
+ Simplify comment in moduleTryServeClientBlockedOnKey().
+ 1 file changed, 3 insertions(+), 12 deletions(-)
+
+Guy Benoish in commit 193fc241c:
+ Fix memory corruption in moduleHandleBlockedClients
+ 3 files changed, 149 insertions(+), 46 deletions(-)
+
+================================================================================
 Redis 6.0-rc3     Released Tue Mar 31 17:42:39 CEST 2020
 ================================================================================
 
