@@ -212,45 +212,53 @@ void sdsclear(sds s) {
  * by sdslen(), but only the free buffer space we have. */
 sds sdsMakeRoomFor(sds s, size_t addlen) {
     void *sh, *newsh;
-    size_t avail = sdsavail(s);
+    size_t avail = sdsavail(s); // 获取当前可用的长度
     size_t len, newlen;
     char type, oldtype = s[-1] & SDS_TYPE_MASK;
     int hdrlen;
 
     /* Return ASAP if there is enough space left. */
-    if (avail >= addlen) return s;
+    if (avail >= addlen) return s; // 如果当前可用长度大于添加的字符串长度，直接返回s
 
-    len = sdslen(s);
-    sh = (char*)s-sdsHdrSize(oldtype);
-    newlen = (len+addlen);
-    if (newlen < SDS_MAX_PREALLOC)
-        newlen *= 2;
+    len = sdslen(s); // 获取当前sdshdr的长度
+    sh = (char*)s-sdsHdrSize(oldtype); // 获取sdshdr的指针
+    newlen = (len+addlen); // 新长度等于当前字符串长度+添加的长度
+    if (newlen < SDS_MAX_PREALLOC) // 如果新长度小于1M
+        newlen *= 2; // 新长度等于乘以2倍
     else
-        newlen += SDS_MAX_PREALLOC;
+        newlen += SDS_MAX_PREALLOC; // 新长度等于newlen+1M
 
-    type = sdsReqType(newlen);
+    type = sdsReqType(newlen); // 根据新长度获取对应的sds类型
 
     /* Don't use type 5: the user is appending to the string and type 5 is
      * not able to remember empty space, so sdsMakeRoomFor() must be called
      * at every appending operation. */
-    if (type == SDS_TYPE_5) type = SDS_TYPE_8;
+    if (type == SDS_TYPE_5) type = SDS_TYPE_8; // 强制转为SDS_TYPE_8
 
-    hdrlen = sdsHdrSize(type);
+    hdrlen = sdsHdrSize(type); // 获取sdshdr的大小,len+alloc+flag
     if (oldtype==type) {
+        // 类型一致，在原基础上重新分配
         newsh = s_realloc(sh, hdrlen+newlen+1);
         if (newsh == NULL) return NULL;
         s = (char*)newsh+hdrlen;
     } else {
         /* Since the header size changes, need to move the string forward,
          * and can't use realloc */
+        // 分配内存,分配大小为sdshdr头大小+新拼接字符串的长度+\0
         newsh = s_malloc(hdrlen+newlen+1);
         if (newsh == NULL) return NULL;
+        // 将s数组的长度为len+1字符迁移到新的数组指针
         memcpy((char*)newsh+hdrlen, s, len+1);
+        // 释放旧指针内存
         s_free(sh);
+        // s数组指针位置调整为new sdshdr+hdrlen的位置
         s = (char*)newsh+hdrlen;
+        // s[-1]指定为类型
         s[-1] = type;
+        // 设定sds字符串长度
         sdssetlen(s, len);
     }
+    // 设定sds已分配长度大小
     sdssetalloc(s, newlen);
     return s;
 }
@@ -403,9 +411,12 @@ sds sdsgrowzero(sds s, size_t len) {
  *
  * After the call, the passed sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
+// 拼接字符串-当前字符串指针，需要添加的字符串指针，添加的字符串长度
 sds sdscatlen(sds s, const void *t, size_t len) {
+    // 获取当前长度
     size_t curlen = sdslen(s);
-
+    
+    // 通过sdsMakeRoomFor方法，来进行扩容判断
     s = sdsMakeRoomFor(s,len);
     if (s == NULL) return NULL;
     memcpy(s+curlen, t, len);
