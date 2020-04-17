@@ -1701,6 +1701,11 @@ int processCommandAndResetClient(client *c) {
     }
     if (server.current_client == NULL) deadclient = 1;
     server.current_client = NULL;
+
+    /* Process clients blocked on keys, it is possible that the command
+     * we just executed made certain keys ready. */
+    if (listLength(server.ready_keys)) handleClientsBlockedOnKeys();
+
     /* freeMemoryIfNeeded may flush slave output buffers. This may
      * result into a slave, that may be the active client, to be
      * freed. */
