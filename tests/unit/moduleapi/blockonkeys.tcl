@@ -186,3 +186,31 @@ start_server {tags {"modules"}} {
         assert_equal {34} [$rd read]
     }
 }
+
+start_server {tags {"modules"} overrides {appendonly yes aof-use-rdb-preamble no}} {
+    r module load $testmodule
+
+    test {Module blocked on keys: RM_Replicate is replicated correctly} {
+        r del k
+        set rd [redis_deferring_client]
+        $rd client id
+        set cid [$rd read]
+        r fsl.push k 33
+        $rd fsl.bpopgt k 33 0
+        ;# wait until clients are actually blocked
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {1}
+        } else {
+            fail "Clients are not blocked"
+        }
+        r fsl.push k 34
+        assert_equal {34} [$rd read]
+        assert_equal {1} [r get unblock-success-repl-by-call]
+        assert_equal {1} [r get unblock-success-repl-by-replicate]
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
+        assert_equal {1} [r get unblock-success-repl-by-call]
+        assert_equal {1} [r get unblock-success-repl-by-replicate]
+    }
+}

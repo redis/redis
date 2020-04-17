@@ -124,12 +124,18 @@ int bpop_reply_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_ERR;
 
     RedisModule_ReplyWithLongLong(ctx, fsl->list[--fsl->length]);
+    RedisModule_Call(ctx, "INCR", "c!", "unblock-success-repl-by-call");
+    RedisModule_Call(ctx, "INCR", "c", "unblock-success-repl-by-replicate");
+    RedisModule_Replicate(ctx, "INCR", "c", "unblock-success-repl-by-replicate");
     return REDISMODULE_OK;
 }
 
 int bpop_timeout_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
+    RedisModule_Call(ctx, "INCR", "c!", "unblock-timeout-repl-by-call");
+    RedisModule_Call(ctx, "INCR", "c", "unblock-timeout-repl-by-replicate");
+    RedisModule_Replicate(ctx, "INCR", "c", "unblock-timeout-repl-by-replicate");
     return RedisModule_ReplyWithSimpleString(ctx, "Request timedout");
 }
 
@@ -147,7 +153,7 @@ int fsl_bpop(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (!get_fsl(ctx, argv[1], REDISMODULE_READ, 0, &fsl, 1))
         return REDISMODULE_OK;
 
-    if (!fsl) {
+    if (!fsl || fsl->length == 0) {
         RedisModule_BlockClientOnKeys(ctx, bpop_reply_callback, bpop_timeout_callback,
                                       NULL, timeout, &argv[1], 1, NULL);
     } else {
@@ -171,12 +177,18 @@ int bpopgt_reply_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
         return REDISMODULE_ERR;
 
     RedisModule_ReplyWithLongLong(ctx, fsl->list[--fsl->length]);
+    RedisModule_Call(ctx, "INCR", "c!", "unblock-success-repl-by-call");
+    RedisModule_Call(ctx, "INCR", "c", "unblock-success-repl-by-replicate");
+    RedisModule_Replicate(ctx, "INCR", "c", "unblock-success-repl-by-replicate");
     return REDISMODULE_OK;
 }
 
 int bpopgt_timeout_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
+    RedisModule_Call(ctx, "INCR", "c!", "unblock-timeout-repl-by-call");
+    RedisModule_Call(ctx, "INCR", "c", "unblock-timeout-repl-by-replicate");
+    RedisModule_Replicate(ctx, "INCR", "c", "unblock-timeout-repl-by-replicate");
     return RedisModule_ReplyWithSimpleString(ctx, "Request timedout");
 }
 
@@ -233,12 +245,18 @@ int bpoppush_reply_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     long long ele = src->list[--src->length];
     dst->list[dst->length++] = ele;
     RedisModule_SignalKeyAsReady(ctx, dst_keyname);
+    RedisModule_Call(ctx, "INCR", "c!", "unblock-success-repl-by-call");
+    RedisModule_Call(ctx, "INCR", "c", "unblock-success-repl-by-replicate");
+    RedisModule_Replicate(ctx, "INCR", "c", "unblock-success-repl-by-replicate");
     return RedisModule_ReplyWithLongLong(ctx, ele);
 }
 
 int bpoppush_timeout_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
+    RedisModule_Call(ctx, "INCR", "c!", "unblock-timeout-repl-by-call");
+    RedisModule_Call(ctx, "INCR", "c", "unblock-timeout-repl-by-replicate");
+    RedisModule_Replicate(ctx, "INCR", "c", "unblock-timeout-repl-by-replicate");
     return RedisModule_ReplyWithSimpleString(ctx, "Request timedout");
 }
 

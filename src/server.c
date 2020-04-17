@@ -3122,6 +3122,48 @@ void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
     redisOpArrayAppend(&server.also_propagate,cmd,dbid,argvcopy,argc,target);
 }
 
+/* Handle the alsoPropagate() API to handle commands that want to propagate
+ * multiple separated commands. Note that alsoPropagate() is not affected
+ * by CLIENT_PREVENT_PROP flag. */
+void handleAlsoPropagate(client *c, int flags) {
+    int j, multi_emitted = 0;
+    redisOp *rop;
+
+    if (server.also_propagate.numops == 0 || !(flags & CMD_CALL_PROPAGATE))
+        return;
+
+    /* Wrap the commands in server.also_propagate array,
+     * but don't wrap it if we are already in MULTI context,
+     * in case the nested MULTI/EXEC.
+     *
+     * And if the array contains only one command, no need to
+     * wrap it, since the single command is atomic. */
+    if (server.also_propagate.numops > 1 &&
+        !(c->cmd->flags & CMD_MODULE) &&
+        !(c->flags & CLIENT_MULTI) &&
+        !(flags & CMD_CALL_NOWRAP))
+    {
+        execCommandPropagateMulti(c);
+        multi_emitted = 1;
+    }
+
+    for (j = 0; j < server.also_propagate.numops; j++) {
+        rop = &server.also_propagate.ops[j];
+        int target = rop->target;
+        /* Whatever the command wish is, we honor the call() flags. */
+        if (!(flags&CMD_CALL_PROPAGATE_AOF)) target &= ~PROPAGATE_AOF;
+        if (!(flags&CMD_CALL_PROPAGATE_REPL)) target &= ~PROPAGATE_REPL;
+        if (target)
+            propagate(rop->cmd,rop->dbid,rop->argv,rop->argc,target);
+    }
+
+    if (multi_emitted) {
+        execCommandPropagateExec(c);
+    }
+
+    redisOpArrayFree(&server.also_propagate);
+}
+
 /* It is possible to call the function forceCommandPropagation() inside a
  * Redis command implementation in order to to force the propagation of a
  * specific command execution into AOF / Replication. */
@@ -3286,46 +3328,8 @@ void call(client *c, int flags) {
     c->flags |= client_old_flags &
         (CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
 
-    /* Handle the alsoPropagate() API to handle commands that want to propagate
-     * multiple separated commands. Note that alsoPropagate() is not affected
-     * by CLIENT_PREVENT_PROP flag. */
-    if (server.also_propagate.numops) {
-        int j;
-        redisOp *rop;
-
-        if (flags & CMD_CALL_PROPAGATE) {
-            int multi_emitted = 0;
-            /* Wrap the commands in server.also_propagate array,
-             * but don't wrap it if we are already in MULTI context,
-             * in case the nested MULTI/EXEC.
-             *
-             * And if the array contains only one command, no need to
-             * wrap it, since the single command is atomic. */
-            if (server.also_propagate.numops > 1 &&
-                !(c->cmd->flags & CMD_MODULE) &&
-                !(c->flags & CLIENT_MULTI) &&
-                !(flags & CMD_CALL_NOWRAP))
-            {
-                execCommandPropagateMulti(c);
-                multi_emitted = 1;
-            }
-
-            for (j = 0; j < server.also_propagate.numops; j++) {
-                rop = &server.also_propagate.ops[j];
-                int target = rop->target;
-                /* Whatever the command wish is, we honor the call() flags. */
-                if (!(flags&CMD_CALL_PROPAGATE_AOF)) target &= ~PROPAGATE_AOF;
-                if (!(flags&CMD_CALL_PROPAGATE_REPL)) target &= ~PROPAGATE_REPL;
-                if (target)
-                    propagate(rop->cmd,rop->dbid,rop->argv,rop->argc,target);
-            }
-
-            if (multi_emitted) {
-                execCommandPropagateExec(c);
-            }
-        }
-        redisOpArrayFree(&server.also_propagate);
-    }
+    /* Replicate remaining commands */
+    handleAlsoPropagate(c, flags);
     server.also_propagate = prev_also_propagate;
 
     /* If the client has keys tracking enabled for client side caching,

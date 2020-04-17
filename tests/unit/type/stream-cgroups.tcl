@@ -357,4 +357,19 @@ start_server {
             assert {[r xinfo groups mystream] == $grpinfo}
         }
     }
+
+    start_server {tags {"stream"} overrides {appendonly yes aof-use-rdb-preamble no}} {
+        test {Blocking XREADGROUP is replicated correctly} {
+            r XGROUP CREATE mystream mygroup $ MKSTREAM
+            set rd [redis_deferring_client]
+            $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+            r XADD mystream 100 f1 v1
+            assert_equal "{mystream {{100-0 {f1 v1}}}}" [$rd read]
+            set grpinfo [r xinfo groups mystream]
+            r bgrewriteaof
+            waitForBgrewriteaof r
+            r debug loadaof
+            assert {[r xinfo groups mystream] == $grpinfo}
+        }
+    }
 }

@@ -402,6 +402,10 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
                  * valid, so we must do the setup above before
                  * this call. */
                 unblockClient(receiver);
+
+                /* Replicate any commands that were replicated using
+                 * alsoPropagate (See streamReplyWithRange). */
+                handleAlsoPropagate(receiver, CMD_CALL_FULL);
             }
         }
     }
@@ -445,6 +449,10 @@ void serveClientsBlockedOnKeyByModule(readyList *rl) {
             if (!moduleTryServeClientBlockedOnKey(receiver, rl->key)) continue;
 
             moduleUnblockClient(receiver);
+
+            /* Note: Here we don't need to call handleAlsoPropagate because the
+             * propagation of module commands is already handled by
+             * moduleHandlePropagationAfterCommandCallback. */
         }
     }
 }
@@ -471,6 +479,10 @@ void serveClientsBlockedOnKeyByModule(readyList *rl) {
  * be used only for a single type, like virtually any Redis application will
  * do, the function is already fair. */
 void handleClientsBlockedOnKeys(void) {
+    /* If we got here and we still have commands that were not replicated
+     * it means there's a bug somewhere. */
+    serverAssert(server.also_propagate.numops == 0);
+
     while(listLength(server.ready_keys) != 0) {
         list *l;
 
