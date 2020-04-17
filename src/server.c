@@ -3110,7 +3110,10 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
  * The function does not take a reference to the passed 'argv' vector,
  * so it is up to the caller to release the passed argv (but it is usually
  * stack allocated).  The function autoamtically increments ref count of
- * passed objects, so the caller does not need to. */
+ * passed objects, so the caller does not need to.
+ *
+ * Note that if we are outside the execution of a command, that is we
+ * are not inside call(), this function will just act like propagate(). */
 void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
                    int target)
 {
@@ -3118,6 +3121,13 @@ void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
     int j;
 
     if (server.loading) return; /* No propagation during loading. */
+
+    /* Just call propagate() if we are out of the scope of a command.
+     * For asynchronous operations usually we want to propagate immediately. */
+    if (server.current_client == NULL) {
+        propagate(cmd,dbid,argv,argc,target);
+        return;
+    }
 
     argvcopy = zmalloc(sizeof(robj*)*argc);
     for (j = 0; j < argc; j++) {
