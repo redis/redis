@@ -86,14 +86,16 @@ static inline char sdsReqType(size_t string_size) {
  * You can print the string with printf() as there is an implicit \0 at the
  * end of the string. However the string is binary safe and can contain
  * \0 characters in the middle, as the length is stored in the sds header. */
+// 创建字符串入口,入参为字符串指针&字符串长度
 sds sdsnewlen(const void *init, size_t initlen) {
     void *sh;
     sds s;
-    char type = sdsReqType(initlen);
+    char type = sdsReqType(initlen); // 根据字符串长度选择不同的sdshdr类型
     /* Empty strings are usually created in order to append. Use type 8
      * since type 5 is not good at this. */
+    // 如果类型判断为SDS_TYPE_5且字符串长度为0，通常使用append操作，所以需要将类型改为SDS_TYPE_8
     if (type == SDS_TYPE_5 && initlen == 0) type = SDS_TYPE_8;
-    int hdrlen = sdsHdrSize(type);
+    int hdrlen = sdsHdrSize(type); // 计算出sdshdr头的长度大小,len+alloc
     unsigned char *fp; /* flags pointer. */
 
     sh = s_malloc(hdrlen+initlen+1);
