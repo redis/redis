@@ -12,6 +12,27 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 5.0.9     Released Thu Apr 17 12:41:00 CET 2020
+================================================================================
+
+Upgrade urgency:CRITICAL if you use Streams with AOF ore replicas.
+                Otherwise the upgrade urgency is LOW.
+
+This release has a speed improvement and a critical fix:
+
+    * FIX: XREADGROUP when fetching data in a blocking way, would not
+           emit the XCLAIM in the AOF file and to replicas. This means
+           that the last ID is not updated, and that restarting the server
+           will have the effect of reprocessing some entries.
+    * NEW: Clients blocked on the same key are now unblocked on
+           O(1) time. Backported from Redis 6.
+
+Commits:
+
+    1fc8ef81a Fix XCLAIM propagation in AOF/replicas for blocking XREADGROUP.
+    a5e24eabc Speedup: unblock clients on keys in O(1).
+
+================================================================================
 Redis 5.0.8     Released Thu Mar 12 16:05:41 CET 2020
 ================================================================================
 
