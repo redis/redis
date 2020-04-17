@@ -3088,7 +3088,8 @@ struct redisCommand *lookupCommandOrOriginal(sds name) {
  *
  * However for functions that need to (also) propagate out of the context of a
  * command execution, for example when serving a blocked client, you
- * want to use propagate().
+ * can use propagate() as alsoPropagate() will just fall back to propagate()
+ * semantics in this case.
  */
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
                int flags)
@@ -3114,10 +3115,19 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
 void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
                    int target)
 {
+    if (server.loading) return; /* No propagation during loading. */
+
+    /* If we aren't in the context of a command execution, we just
+     * propagate() directly: there is no command execution and we are not
+     * in the context of call(), we would lost this propagation. */
+    printf("%p\n", (void*)server.current_client);
+    if (server.current_client == NULL) {
+        propagate(cmd,dbid,argv,argc,target);
+        return;
+    }
+
     robj **argvcopy;
     int j;
-
-    if (server.loading) return; /* No propagation during loading. */
 
     argvcopy = zmalloc(sizeof(robj*)*argc);
     for (j = 0; j < argc; j++) {

@@ -395,7 +395,7 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
                 };
                 streamReplyWithRange(receiver,s,&start,NULL,
                                      receiver->bpop.xread_count,
-                                     0, group, consumer, noack, &pi);
+                                     0, group, consumer, noack, &pi, 1);
 
                 /* Note that after we unblock the client, 'gt'
                  * and other receiver->bpop stuff are no longer
