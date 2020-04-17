@@ -170,6 +170,7 @@ sds sdsdup(const sds s) {
 /* Free an sds string. No operation is performed if 's' is NULL. */
 void sdsfree(sds s) {
     if (s == NULL) return;
+    // 通过s[-1]获取flag,根据flag判断是哪个类型，获取对应的sdshdr长度，再通过s减去长度获取到sdshdr指针地址，通过s_free释放
     s_free((char*)s-sdsHdrSize(s[-1]));
 }
 
