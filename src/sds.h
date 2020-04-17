@@ -82,6 +82,8 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 #define SDS_TYPE_MASK 7
 #define SDS_TYPE_BITS 3
 #define SDS_HDR_VAR(T,s) struct sdshdr##T *sh = (void*)((s)-(sizeof(struct sdshdr##T)));
+// 获取对应的SDSHDR结构的指针，由于SDSHDR结构为len + alloc + flags + buf指针,而buf不占用内存空间,通过sizeof获取到SDSHDR的结构大小(len+alloc+flags)
+// 再通过s(对应为buf的指针位置)减去size后,即可获取SDSHDR的指针位置,再通过该指针获取到len、alloc值，同时可以通过s[-1]即buf[-1]获取到flags的值
 #define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
 
