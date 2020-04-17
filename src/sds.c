@@ -95,17 +95,18 @@ sds sdsnewlen(const void *init, size_t initlen) {
      * since type 5 is not good at this. */
     // 如果类型判断为SDS_TYPE_5且字符串长度为0，通常使用append操作，所以需要将类型改为SDS_TYPE_8
     if (type == SDS_TYPE_5 && initlen == 0) type = SDS_TYPE_8;
-    int hdrlen = sdsHdrSize(type); // 计算出sdshdr头的长度大小,len+alloc
-    unsigned char *fp; /* flags pointer. */
+    int hdrlen = sdsHdrSize(type); // 计算出sdshdr头的长度大小,len+alloc+flags
+    unsigned char *fp; /* flags pointer. */ // flags指针
 
-    sh = s_malloc(hdrlen+initlen+1);
+    sh = s_malloc(hdrlen+initlen+1); // 分配内存空间，sdshdar大小+字符串大小+字符串结尾\0
     if (init==SDS_NOINIT)
         init = NULL;
     else if (!init)
         memset(sh, 0, hdrlen+initlen+1);
     if (sh == NULL) return NULL;
-    s = (char*)sh+hdrlen;
-    fp = ((unsigned char*)s)-1;
+    s = (char*)sh+hdrlen;  // 获取字符串数组buf的指针地址
+    fp = ((unsigned char*)s)-1;  // 指针位置为s[-1]
+    // 根据类型生成sh的len,alloc,*fp(类型)等信息
     switch(type) {
         case SDS_TYPE_5: {
             *fp = type | (initlen << SDS_TYPE_BITS);
@@ -140,9 +141,12 @@ sds sdsnewlen(const void *init, size_t initlen) {
             break;
         }
     }
+    // 将s-buf数组内容移动到新的位置
     if (initlen && init)
         memcpy(s, init, initlen);
+    // 字符串数组s的最后一位结束为为\0代表结束
     s[initlen] = '\0';
+    // 返回字符串数组s
     return s;
 }
 
