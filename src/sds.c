@@ -198,7 +198,9 @@ void sdsupdatelen(sds s) {
  * so that next append operations will not require allocations up to the
  * number of bytes previously available. */
 void sdsclear(sds s) {
+    // 先根据s获取到sdshdr,将其长度设置为0
     sdssetlen(s, 0);
+    // 将字符串第一位设置为结束,此时相当于清空,下次有append的操作时可以不需要重新分配内存空间，直接在原有sds添加即可
     s[0] = '\0';
 }
 
