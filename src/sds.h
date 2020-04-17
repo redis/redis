@@ -45,34 +45,35 @@ typedef char *sds;
 /* Note: sdshdr5 is never used, we just access the flags byte directly.
  * However is here to document the layout of type 5 SDS strings. */
 struct __attribute__ ((__packed__)) sdshdr5 {
-    unsigned char flags; /* 3 lsb of type, and 5 msb of string length */
-    char buf[];
+    unsigned char flags; /* 3 lsb of type, and 5 msb of string length */ //只使用低三位，高5位代表字符串长度
+    char buf[]; // 柔性数组，存放实际内容
 };
 struct __attribute__ ((__packed__)) sdshdr8 {
-    uint8_t len; /* used */
-    uint8_t alloc; /* excluding the header and null terminator */
-    unsigned char flags; /* 3 lsb of type, 5 unused bits */
-    char buf[];
+    uint8_t len; /* used */ // 8位（1个字节）标识字符串长度
+    uint8_t alloc; /* excluding the header and null terminator */ // 已分配的长度大小,即总长度，用一个字节表示长度大小
+    unsigned char flags; /* 3 lsb of type, 5 unused bits */ // 低三位判断类型，高5位不用
+    char buf[]; // 柔性数组，存放实际内容
 };
 struct __attribute__ ((__packed__)) sdshdr16 {
-    uint16_t len; /* used */
-    uint16_t alloc; /* excluding the header and null terminator */
-    unsigned char flags; /* 3 lsb of type, 5 unused bits */
-    char buf[];
+    uint16_t len; /* used */ // 16位（2个字节）标识字符串长度
+    uint16_t alloc; /* excluding the header and null terminator */ // 已分配的长度大小,即总长度，用2个字节表示长度大小
+    unsigned char flags; /* 3 lsb of type, 5 unused bits */ // 低三位判断类型，高5位不用
+    char buf[]; // 柔性数组，存放实际内容
 };
 struct __attribute__ ((__packed__)) sdshdr32 {
-    uint32_t len; /* used */
-    uint32_t alloc; /* excluding the header and null terminator */
-    unsigned char flags; /* 3 lsb of type, 5 unused bits */
-    char buf[];
+    uint32_t len; /* used */ // 32位（3个字节）标识字符串长度
+    uint32_t alloc; /* excluding the header and null terminator */ // 已分配的长度大小,即总长度，用3个字节表示长度大小
+    unsigned char flags; /* 3 lsb of type, 5 unused bits */ // 低三位判断类型，高5位不用
+    char buf[]; // 柔性数组，存放实际内容
 };
 struct __attribute__ ((__packed__)) sdshdr64 {
-    uint64_t len; /* used */
-    uint64_t alloc; /* excluding the header and null terminator */
-    unsigned char flags; /* 3 lsb of type, 5 unused bits */
-    char buf[];
+    uint64_t len; /* used */ // 64位（4个字节）标识字符串长度
+    uint64_t alloc; /* excluding the header and null terminator */ // 已分配的长度大小,即总长度，用4个字节表示长度大小
+    unsigned char flags; /* 3 lsb of type, 5 unused bits */ // 低三位判断类型，高5位不用
+    char buf[]; // 柔性数组，存放实际内容
 };
 
+// 对应类型，通过s[-1]获取到来获取到flags字段,与SDS_TYPE_MASK进行与操作获得类型
 #define SDS_TYPE_5  0
 #define SDS_TYPE_8  1
 #define SDS_TYPE_16 2
