@@ -104,7 +104,7 @@ sds sdsnewlen(const void *init, size_t initlen) {
     else if (!init)
         memset(sh, 0, hdrlen+initlen+1);
     if (sh == NULL) return NULL;
-    s = (char*)sh+hdrlen;  // 获取字符串数组buf的指针地址
+    s = (char*)sh+hdrlen;  // 新字符串数组指针，地址为sh+hdrlen
     fp = ((unsigned char*)s)-1;  // 指针位置为s[-1]
     // 根据类型生成sh的len,alloc,*fp(类型)等信息
     switch(type) {
