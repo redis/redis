@@ -15,7 +15,7 @@ SECURITY: There are security fixes in the release.
 Redis 5.0.9     Released Thu Apr 17 12:41:00 CET 2020
 ================================================================================
 
-Upgrade urgency:CRITICAL if you use Streams with AOF ore replicas.
+Upgrade urgency:CRITICAL if you use Streams with AOF or replicas.
                 Otherwise the upgrade urgency is LOW.
 
 This release has a speed improvement and a critical fix:
