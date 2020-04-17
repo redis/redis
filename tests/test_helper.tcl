@@ -106,14 +106,23 @@ set ::tlsdir "tests/tls"
 set ::client 0
 set ::numclients 16
 
-proc execute_tests name {
+# This function is called by one of the test clients when it receives
+# a "run" command from the server, with a filename as data.
+# It will run the specified test source file and signal it to the
+# test server when finished.
+proc execute_test_file name {
     set path "tests/$name.tcl"
     set ::curfile $path
     source $path
     send_data_packet $::test_server_fd done "$name"
 }
 
-proc execute_code {name code} {
+# This function is called by one of the test clients when it receives
+# a "run_code" command from the server, with a verbatim test source code
+# as argument, and an associated name.
+# It will run the specified code and signal it to the test server when
+# finished.
+proc execute_test_code {name code} {
     eval $code
     send_data_packet $::test_server_fd done "$name"
 }
@@ -467,10 +476,10 @@ proc test_client_main server_port {
         set payload [read $::test_server_fd $bytes]
         foreach {cmd data} $payload break
         if {$cmd eq {run}} {
-            execute_tests $data
+            execute_test_file $data
         } elseif {$cmd eq {run_code}} {
             foreach {name code} $data break
-            execute_code $name $code
+            execute_test_code $name $code
         } else {
             error "Unknown test client command: $cmd"
         }
