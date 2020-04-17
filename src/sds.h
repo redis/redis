@@ -85,6 +85,7 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 #define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
 
+// 这里头接收到的sds其实是对应sdshdr里头的buf指针,由于sdshdr的结构是连续内存排布，通过buf[-1]可以找到flags，通过flags判断属于哪种结构类型
 static inline size_t sdslen(const sds s) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
