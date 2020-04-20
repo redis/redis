@@ -4037,7 +4037,7 @@ sds genRedisInfoString(const char *section) {
         size_t zmalloc_used = zmalloc_used_memory();
         size_t total_system_mem = server.system_memory_size;
         const char *evict_policy = evictPolicyToString();
-        long long memory_lua = (long long)lua_gc(server.lua,LUA_GCCOUNT,0)*1024;
+        long long memory_lua = server.lua ? (long long)lua_gc(server.lua,LUA_GCCOUNT,0)*1024 : 0;
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
         /* Peak memory is updated from time to time by serverCron() so it
