@@ -4148,10 +4148,16 @@ void clusterReplyMultiBulkSlots(client *c) {
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
         int j = 0, start = -1;
+        int i, nested_elements = 0;
 
         /* Skip slaves (that are iterated when producing the output of their
          * master) and  masters not serving any slot. */
         if (!nodeIsMaster(node) || node->numslots == 0) continue;
+
+        for(i = 0; i < node->numslaves; i++) {
+            if (nodeFailed(node->slaves[i])) continue;
+            nested_elements++;
+        }
 
         for (j = 0; j < CLUSTER_SLOTS; j++) {
             int bit, i;
@@ -4160,8 +4166,7 @@ void clusterReplyMultiBulkSlots(client *c) {
                 if (start == -1) start = j;
             }
             if (start != -1 && (!bit || j == CLUSTER_SLOTS-1)) {
-                int nested_elements = 3; /* slots (2) + master addr (1). */
-                void *nested_replylen = addDeferredMultiBulkLength(c);
+                addReplyMultiBulkLen(c, nested_elements + 3); /* slots (2) + master addr (1). */
 
                 if (bit && j == CLUSTER_SLOTS-1) j++;
 
@@ -4191,9 +4196,7 @@ void clusterReplyMultiBulkSlots(client *c) {
                     addReplyBulkCString(c, node->slaves[i]->ip);
                     addReplyLongLong(c, node->slaves[i]->port);
                     addReplyBulkCBuffer(c, node->slaves[i]->name, CLUSTER_NAMELEN);
-                    nested_elements++;
                 }
-                setDeferredMultiBulkLength(c, nested_replylen, nested_elements);
                 num_masters++;
             }
         }
