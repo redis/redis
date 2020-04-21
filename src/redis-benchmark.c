@@ -1223,6 +1223,7 @@ static int fetchClusterSlotsConfiguration(client c) {
         assert(nr->type == REDIS_REPLY_ARRAY && nr->elements >= 3);
         assert(nr->element[2]->str != NULL);
         sds name =  sdsnew(nr->element[2]->str);
+		assert(name != NULL);
         dictEntry *entry = dictFind(masters, name);
         if (entry == NULL) {
             success = 0;
