@@ -5117,4 +5117,37 @@ int main(int argc, char **argv) {
     return 0;
 }
 
+
+/**
+ * @authors Hossein Mobashe
+ * @brief publish changed keys in hset command.
+ */
+sds getMapKeyEvent(int argc, robj **argv, int step)
+{
+    int i = 0;
+    size_t size = strlen(argv[1]->ptr) + 1;
+    for (i = 2; i < argc; i += step) {
+        size += strlen(argv[i]->ptr);
+
+        if (i + step != argc) {
+            size ++;
+        }
+    }
+
+    char event[size];
+    memset(event, 0, size);
+    strcat(event, argv[1]->ptr);
+    strcat(event, "#");
+    for (i = 2; i < argc; i += step) {
+        strcat(event, argv[i]->ptr);
+
+        if (i + step != argc) {
+            strcat(event, "|");
+        }
+    }
+
+    sds eventString = sdsnewlen(event, size);
+    return eventString;
+}
+
 /* The End */
