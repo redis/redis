@@ -2289,6 +2289,8 @@ NULL
                 options |= CLIENT_TRACKING_OPTIN;
             } else if (!strcasecmp(c->argv[j]->ptr,"optout")) {
                 options |= CLIENT_TRACKING_OPTOUT;
+            } else if (!strcasecmp(c->argv[j]->ptr,"noloop")) {
+                options |= CLIENT_TRACKING_NOLOOP;
             } else if (!strcasecmp(c->argv[j]->ptr,"prefix") && moreargs) {
                 j++;
                 prefix = zrealloc(prefix,sizeof(robj*)*(numprefix+1));

@@ -94,7 +94,8 @@ void disableTracking(client *c) {
         server.tracking_clients--;
         c->flags &= ~(CLIENT_TRACKING|CLIENT_TRACKING_BROKEN_REDIR|
                       CLIENT_TRACKING_BCAST|CLIENT_TRACKING_OPTIN|
-                      CLIENT_TRACKING_OPTOUT|CLIENT_TRACKING_CACHING);
+                      CLIENT_TRACKING_OPTOUT|CLIENT_TRACKING_CACHING|
+                      CLIENT_TRACKING_NOLOOP);
     }
 }
 
@@ -129,14 +130,19 @@ void enableTracking(client *c, uint64_t redirect_to, uint64_t options, robj **pr
     if (!(c->flags & CLIENT_TRACKING)) server.tracking_clients++;
     c->flags |= CLIENT_TRACKING;
     c->flags &= ~(CLIENT_TRACKING_BROKEN_REDIR|CLIENT_TRACKING_BCAST|
-                  CLIENT_TRACKING_OPTIN|CLIENT_TRACKING_OPTOUT);
+                  CLIENT_TRACKING_OPTIN|CLIENT_TRACKING_OPTOUT|
+                  CLIENT_TRACKING_NOLOOP);
     c->client_tracking_redirection = redirect_to;
+
+    /* This may be the first client we ever enable. Crete the tracking
+     * table if it does not exist. */
     if (TrackingTable == NULL) {
         TrackingTable = raxNew();
         PrefixTable = raxNew();
         TrackingChannelName = createStringObject("__redis__:invalidate",20);
     }
 
+    /* For broadcasting, set the list of prefixes in the client. */
     if (options & CLIENT_TRACKING_BCAST) {
         c->flags |= CLIENT_TRACKING_BCAST;
         if (numprefix == 0) enableBcastTrackingForPrefix(c,"",0);
@@ -145,7 +151,10 @@ void enableTracking(client *c, uint64_t redirect_to, uint64_t options, robj **pr
             enableBcastTrackingForPrefix(c,sdsprefix,sdslen(sdsprefix));
         }
     }
-    c->flags |= options & (CLIENT_TRACKING_OPTIN|CLIENT_TRACKING_OPTOUT);
+
+    /* Set the remaining flags that don't need any special handling. */
+    c->flags |= options & (CLIENT_TRACKING_OPTIN|CLIENT_TRACKING_OPTOUT|
+                           CLIENT_TRACKING_NOLOOP);
 }
 
 /* This function is called after the execution of a readonly command in the
@@ -459,10 +468,12 @@ void trackingBroadcastInvalidationMessages(void) {
 
     raxStart(&ri,PrefixTable);
     raxSeek(&ri,"^",NULL,0);
+
+    /* For each prefix... */
     while(raxNext(&ri)) {
         bcastState *bs = ri.data;
-        if (raxSize(bs->keys)) {
 
+        if (raxSize(bs->keys)) {
             /* Generate the common protocol for all the clients that are
              * not using the NOLOOP option. */
             sds proto = trackingBuildBroadcastReply(NULL,bs->keys);
@@ -476,8 +487,10 @@ void trackingBroadcastInvalidationMessages(void) {
                 if (c->flags & CLIENT_TRACKING_NOLOOP) {
                     /* This client may have certain keys excluded. */
                     sds adhoc = trackingBuildBroadcastReply(c,bs->keys);
-                    sendTrackingMessage(c,adhoc,sdslen(adhoc),1);
-                    sdsfree(adhoc);
+                    if (adhoc) {
+                        sendTrackingMessage(c,adhoc,sdslen(adhoc),1);
+                        sdsfree(adhoc);
+                    }
                 } else {
                     sendTrackingMessage(c,proto,sdslen(proto),1);
                 }
