@@ -554,7 +554,7 @@ void setbitCommand(client *c) {
     byteval &= ~(1 << bit);
     byteval |= ((on & 0x1) << bit);
     ((uint8_t*)o->ptr)[byte] = byteval;
-    signalModifiedKey(c->db,c->argv[1]);
+    signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
     server.dirty++;
     addReply(c, bitval ? shared.cone : shared.czero);
@@ -754,11 +754,11 @@ void bitopCommand(client *c) {
     /* Store the computed value into the target key */
     if (maxlen) {
         o = createObject(OBJ_STRING,res);
-        setKey(c->db,targetkey,o);
+        setKey(c,c->db,targetkey,o);
         notifyKeyspaceEvent(NOTIFY_STRING,"set",targetkey,c->db->id);
         decrRefCount(o);
     } else if (dbDelete(c->db,targetkey)) {
-        signalModifiedKey(c->db,targetkey);
+        signalModifiedKey(c,c->db,targetkey);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",targetkey,c->db->id);
     }
     server.dirty++;
@@ -1135,7 +1135,7 @@ void bitfieldGeneric(client *c, int flags) {
     }
 
     if (changes) {
-        signalModifiedKey(c->db,c->argv[1]);
+        signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
         server.dirty += changes;
     }

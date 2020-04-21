@@ -252,7 +252,9 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CLIENT_TRACKING_OPTOUT (1ULL<<35) /* Tracking in opt-out mode. */
 #define CLIENT_TRACKING_CACHING (1ULL<<36) /* CACHING yes/no was given,
                                               depending on optin/optout mode. */
-#define CLIENT_IN_TO_TABLE (1ULL<<37) /* This client is in the timeout table. */
+#define CLIENT_TRACKING_NOLOOP (1ULL<<37) /* Don't send invalidation messages
+                                             about writes performed by myself.*/
+#define CLIENT_IN_TO_TABLE (1ULL<<38) /* This client is in the timeout table. */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -1683,7 +1685,7 @@ void addReplyStatusFormat(client *c, const char *fmt, ...);
 void enableTracking(client *c, uint64_t redirect_to, uint64_t options, robj **prefix, size_t numprefix);
 void disableTracking(client *c);
 void trackingRememberKeys(client *c);
-void trackingInvalidateKey(robj *keyobj);
+void trackingInvalidateKey(client *c, robj *keyobj);
 void trackingInvalidateKeysOnFlush(int dbid);
 void trackingLimitUsedSlots(void);
 uint64_t trackingGetTotalItems(void);
@@ -2071,8 +2073,8 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
 void dbAdd(redisDb *db, robj *key, robj *val);
 int dbAddRDBLoad(redisDb *db, sds key, robj *val);
 void dbOverwrite(redisDb *db, robj *key, robj *val);
-void genericSetKey(redisDb *db, robj *key, robj *val, int keepttl, int signal);
-void setKey(redisDb *db, robj *key, robj *val);
+void genericSetKey(client *c, redisDb *db, robj *key, robj *val, int keepttl, int signal);
+void setKey(client *c, redisDb *db, robj *key, robj *val);
 int dbExists(redisDb *db, robj *key);
 robj *dbRandomKey(redisDb *db);
 int dbSyncDelete(redisDb *db, robj *key);
@@ -2088,7 +2090,7 @@ void flushAllDataAndResetRDB(int flags);
 long long dbTotalServerKeyCount();
 
 int selectDb(client *c, int id);
-void signalModifiedKey(redisDb *db, robj *key);
+void signalModifiedKey(client *c, redisDb *db, robj *key);
 void signalFlushedDb(int dbid);
 unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count);
 unsigned int countKeysInSlot(unsigned int hashslot);

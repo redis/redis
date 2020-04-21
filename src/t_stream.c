@@ -1262,7 +1262,7 @@ void xaddCommand(client *c) {
     }
     addReplyStreamID(c,&id);
 
-    signalModifiedKey(c->db,c->argv[1]);
+    signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STREAM,"xadd",c->argv[1],c->db->id);
     server.dirty++;
 
@@ -2390,7 +2390,7 @@ void xdelCommand(client *c) {
 
     /* Propagate the write if needed. */
     if (deleted) {
-        signalModifiedKey(c->db,c->argv[1]);
+        signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
         server.dirty += deleted;
     }
@@ -2467,7 +2467,7 @@ void xtrimCommand(client *c) {
 
     /* Propagate the write if needed. */
     if (deleted) {
-        signalModifiedKey(c->db,c->argv[1]);
+        signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_STREAM,"xtrim",c->argv[1],c->db->id);
         server.dirty += deleted;
         if (approx_maxlen) streamRewriteApproxMaxlen(c,s,maxlen_arg_idx);

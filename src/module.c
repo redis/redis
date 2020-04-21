@@ -896,7 +896,7 @@ void RM_SetModuleOptions(RedisModuleCtx *ctx, int options) {
 /* Signals that the key is modified from user's perspective (i.e. invalidate WATCH
  * and client side caching). */
 int RM_SignalModifiedKey(RedisModuleCtx *ctx, RedisModuleString *keyname) {
-    signalModifiedKey(ctx->client->db,keyname);
+    signalModifiedKey(ctx->client,ctx->client->db,keyname);
     return REDISMODULE_OK;
 }
 
@@ -2016,7 +2016,7 @@ void *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
 static void moduleCloseKey(RedisModuleKey *key) {
     int signal = SHOULD_SIGNAL_MODIFIED_KEYS(key->ctx);
     if ((key->mode & REDISMODULE_WRITE) && signal)
-        signalModifiedKey(key->db,key->key);
+        signalModifiedKey(key->ctx->client,key->db,key->key);
     /* TODO: if (key->iter) RM_KeyIteratorStop(kp); */
     RM_ZsetRangeStop(key);
     decrRefCount(key->key);
@@ -2157,7 +2157,7 @@ RedisModuleString *RM_RandomKey(RedisModuleCtx *ctx) {
 int RM_StringSet(RedisModuleKey *key, RedisModuleString *str) {
     if (!(key->mode & REDISMODULE_WRITE) || key->iter) return REDISMODULE_ERR;
     RM_DeleteKey(key);
-    genericSetKey(key->db,key->key,str,0,0);
+    genericSetKey(key->ctx->client,key->db,key->key,str,0,0);
     key->value = str;
     return REDISMODULE_OK;
 }
@@ -2237,7 +2237,7 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
     if (key->value == NULL) {
         /* Empty key: create it with the new size. */
         robj *o = createObject(OBJ_STRING,sdsnewlen(NULL, newlen));
-        genericSetKey(key->db,key->key,o,0,0);
+        genericSetKey(key->ctx->client,key->db,key->key,o,0,0);
         key->value = o;
         decrRefCount(o);
     } else {
@@ -3625,7 +3625,7 @@ int RM_ModuleTypeSetValue(RedisModuleKey *key, moduleType *mt, void *value) {
     if (!(key->mode & REDISMODULE_WRITE) || key->iter) return REDISMODULE_ERR;
     RM_DeleteKey(key);
     robj *o = createModuleObject(mt,value);
-    genericSetKey(key->db,key->key,o,0,0);
+    genericSetKey(key->ctx->client,key->db,key->key,o,0,0);
     decrRefCount(o);
     key->value = o;
     return REDISMODULE_OK;

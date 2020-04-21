@@ -657,13 +657,13 @@ void georadiusGeneric(client *c, int flags) {
 
         if (returned_items) {
             zsetConvertToZiplistIfNeeded(zobj,maxelelen);
-            setKey(c->db,storekey,zobj);
+            setKey(c,c->db,storekey,zobj);
             decrRefCount(zobj);
             notifyKeyspaceEvent(NOTIFY_ZSET,"georadiusstore",storekey,
                                 c->db->id);
             server.dirty += returned_items;
         } else if (dbDelete(c->db,storekey)) {
-            signalModifiedKey(c->db,storekey);
+            signalModifiedKey(c,c->db,storekey);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",storekey,c->db->id);
             server.dirty++;
         }
