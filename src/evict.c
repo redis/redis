@@ -569,6 +569,7 @@ int freeMemoryIfNeeded(void) {
                 dbAsyncDelete(db,keyobj);
             else
                 dbSyncDelete(db,keyobj);
+            signalModifiedKey(NULL,db,keyobj);
             latencyEndMonitor(eviction_latency);
             latencyAddSampleIfNeeded("eviction-del",eviction_latency);
             latencyRemoveNestedEvent(latency,eviction_latency);
