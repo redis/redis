@@ -160,7 +160,7 @@ int tlsConfigure(redisTLSContextConfig *ctx_config) {
 #endif
 
 #ifdef SSL_OP_NO_CLIENT_RENEGOTIATION
-    SSL_CTX_set_options(ssl->ctx, SSL_OP_NO_CLIENT_RENEGOTIATION);
+    SSL_CTX_set_options(ctx, SSL_OP_NO_CLIENT_RENEGOTIATION);
 #endif
 
     if (ctx_config->prefer_server_ciphers)
