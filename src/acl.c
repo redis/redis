@@ -1055,6 +1055,10 @@ int ACLCheckCommandPerm(client *c, int *keyidxptr) {
     /* If there is no associated user, the connection can run anything. */
     if (u == NULL) return ACL_OK;
 
+    /* If the user is disabled we don't allow the execution of any
+     * command. */
+    if (!(u->flags & USER_FLAG_ENABLED)) return ACL_DENIED_CMD;
+
     /* Check if the user can execute this command. */
     if (!(u->flags & USER_FLAG_ALLCOMMANDS) &&
         c->cmd->proc != authCommand)
