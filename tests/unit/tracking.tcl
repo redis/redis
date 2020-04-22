@@ -94,5 +94,18 @@ start_server {tags {"tracking"}} {
         assert {$keys eq {otherkey1 otherkey2}}
     }
 
+    test {Tracking gets notification of expired keys} {
+        r CLIENT TRACKING off
+        r CLIENT TRACKING on BCAST REDIRECT $redir NOLOOP
+        r SET mykey myval px 1
+        r SET mykeyotherkey myval ; # We should not get it
+        after 1000
+        # Because of the internals, we know we are going to receive
+        # two separated notifications for the two different prefixes.
+        set keys1 [lsort [lindex [$rd1 read] 2]]
+        set keys [lsort [list {*}$keys1]]
+        assert {$keys eq {mykey}}
+    }
+
     $rd1 close
 }
