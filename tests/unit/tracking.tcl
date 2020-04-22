@@ -7,6 +7,9 @@ start_server {tags {"tracking"}} {
     $rd1 subscribe __redis__:invalidate
     $rd1 read ; # Consume the SUBSCRIBE reply.
 
+    # Create another client as well in order to test NOLOOP
+    set rd2 [redis_deferring_client]
+
     test {Clients are able to enable tracking and redirect it} {
         r CLIENT TRACKING on REDIRECT $redir
     } {*OK}
@@ -60,6 +63,35 @@ start_server {tags {"tracking"}} {
         r INCR c:1234
         set keys [lsort [lindex [$rd1 read] 2]]
         assert {$keys eq {c:1234}}
+    }
+
+    test {Tracking NOLOOP mode in standard mode works} {
+        r CLIENT TRACKING off
+        r CLIENT TRACKING on REDIRECT $redir NOLOOP
+        r MGET otherkey1 loopkey otherkey2
+        $rd2 SET otherkey1 1; # We should get this
+        r SET loopkey 1 ; # We should not get this
+        $rd2 SET otherkey2 1; # We should get this
+        # Because of the internals, we know we are going to receive
+        # two separated notifications for the two different prefixes.
+        set keys1 [lsort [lindex [$rd1 read] 2]]
+        set keys2 [lsort [lindex [$rd1 read] 2]]
+        set keys [lsort [list {*}$keys1 {*}$keys2]]
+        assert {$keys eq {otherkey1 otherkey2}}
+    }
+
+    test {Tracking NOLOOP mode in BCAST mode works} {
+        r CLIENT TRACKING off
+        r CLIENT TRACKING on BCAST REDIRECT $redir NOLOOP
+        $rd2 SET otherkey1 1; # We should get this
+        r SET loopkey 1 ; # We should not get this
+        $rd2 SET otherkey2 1; # We should get this
+        # Because of the internals, we know we are going to receive
+        # two separated notifications for the two different prefixes.
+        set keys1 [lsort [lindex [$rd1 read] 2]]
+        set keys2 [lsort [lindex [$rd1 read] 2]]
+        set keys [lsort [list {*}$keys1 {*}$keys2]]
+        assert {$keys eq {otherkey1 otherkey2}}
     }
 
     $rd1 close
