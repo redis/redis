@@ -1626,7 +1626,7 @@ void addACLLogEntry(client *c, int reason, int keypos, sds username) {
  * ACL SETUSER <username> ... acl rules ...
  * ACL DELUSER <username> [...]
  * ACL GETUSER <username>
- * ACL GENPASS
+ * ACL GENPASS [<bits>]
  * ACL WHOAMI
  * ACL LOG [<count> | RESET]
  */
@@ -1818,10 +1818,25 @@ void aclCommand(client *c) {
         }
         dictReleaseIterator(di);
         setDeferredArrayLen(c,dl,arraylen);
-    } else if (!strcasecmp(sub,"genpass") && c->argc == 2) {
-        char pass[64]; /* 256 bits of actual pseudo random data. */
-        getRandomHexChars(pass,sizeof(pass));
-        addReplyBulkCBuffer(c,pass,sizeof(pass));
+    } else if (!strcasecmp(sub,"genpass") && (c->argc == 2 || c->argc == 3)) {
+        #define GENPASS_MAX_BITS 4096
+        char pass[GENPASS_MAX_BITS/8*2]; /* Hex representation. */
+        long bits = 256; /* By default generate 256 bits passwords. */
+
+        if (c->argc == 3 && getLongFromObjectOrReply(c,c->argv[2],&bits,NULL)
+            != C_OK) return;
+
+        if (bits <= 0 || bits > GENPASS_MAX_BITS) {
+            addReplyErrorFormat(c,
+                "ACL GENPASS argument must be the number of "
+                "bits for the output password, a positive number "
+                "up to %d",GENPASS_MAX_BITS);
+            return;
+        }
+
+        long chars = (bits+3)/4; /* Round to number of characters to emit. */
+        getRandomHexChars(pass,chars);
+        addReplyBulkCBuffer(c,pass,chars);
     } else if (!strcasecmp(sub,"log") && (c->argc == 2 || c->argc ==3)) {
         long count = 10; /* Number of entries to emit by default. */
 
@@ -1899,7 +1914,7 @@ void aclCommand(client *c) {
 "DELUSER <username> [...]         -- Delete a list of users.",
 "CAT                              -- List available categories.",
 "CAT <category>                   -- List commands inside category.",
-"GENPASS                          -- Generate a secure user password.",
+"GENPASS [<bits>]                 -- Generate a secure user password.",
 "WHOAMI                           -- Return the current connection username.",
 "LOG [<count> | RESET]            -- Show the ACL log entries.",
 NULL
