@@ -1819,7 +1819,7 @@ void aclCommand(client *c) {
         dictReleaseIterator(di);
         setDeferredArrayLen(c,dl,arraylen);
     } else if (!strcasecmp(sub,"genpass") && c->argc == 2) {
-        char pass[32]; /* 128 bits of actual pseudo random data. */
+        char pass[64]; /* 256 bits of actual pseudo random data. */
         getRandomHexChars(pass,sizeof(pass));
         addReplyBulkCBuffer(c,pass,sizeof(pass));
     } else if (!strcasecmp(sub,"log") && (c->argc == 2 || c->argc ==3)) {
