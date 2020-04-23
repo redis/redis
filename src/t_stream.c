@@ -955,11 +955,10 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
         /* Update the group last_id if needed. */
         if (group && streamCompareID(&id,&group->last_id) > 0) {
             group->last_id = id;
-            /* Group last id should be propagated only if NOACK was
-             * specified, otherwise the last id would be included
-             * in XCLAIM. */
-            if (noack)
-                propagate_last_id = 1;
+            /* Group last ID should be propagated only if NOACK was
+             * specified, otherwise the last id will be included
+             * in the propagation of XCLAIM itself. */
+            if (noack) propagate_last_id = 1;
         }
 
         /* Emit a two elements array for each item. The first is
@@ -1030,9 +1029,8 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
         if (count && count == arraylen) break;
     }
 
-    if (spi && propagate_last_id) {
+    if (spi && propagate_last_id)
         streamPropagateGroupID(c,spi->keyname,group,spi->groupname);
-    }
 
     streamIteratorStop(&si);
     if (arraylen_ptr) setDeferredArrayLen(c,arraylen_ptr,arraylen);
