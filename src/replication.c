@@ -39,6 +39,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 
+long long adjustMeaningfulReplOffset();
 void replicationDiscardCachedMaster(void);
 void replicationResurrectCachedMaster(connection *conn);
 void replicationSendAck(void);
@@ -2693,6 +2694,9 @@ void replicationCacheMaster(client *c) {
      * pending outputs to the master. */
     sdsclear(server.master->querybuf);
     sdsclear(server.master->pending_querybuf);
+    /* Adjust reploff and read_reploff to the last meaningful offset we executed.
+     * this is the offset the replica will use for future PSYNC. */
+    server.master->reploff = adjustMeaningfulReplOffset();
     server.master->read_reploff = server.master->reploff;
     if (c->flags & CLIENT_MULTI) discardTransaction(c);
     listEmpty(c->reply);
@@ -2717,6 +2721,38 @@ void replicationCacheMaster(client *c) {
     replicationHandleMasterDisconnection();
 }
 
+/* If the "meaningful" offset, that is the offset without the final PINGs
+ * in the stream, is different than the last offset, use it instead:
+ * often when the master is no longer reachable, replicas will never
+ * receive the PINGs, however the master will end with an incremented
+ * offset because of the PINGs and will not be able to incrementally
+ * PSYNC with the new master.
+ * This function trims the replication backlog when needed, and returns
+ * the offset to be used for future partial sync. */
+long long adjustMeaningfulReplOffset() {
+    if (server.master_repl_offset > server.master_repl_meaningful_offset) {
+        long long delta = server.master_repl_offset -
+                          server.master_repl_meaningful_offset;
+        serverLog(LL_NOTICE,
+            "Using the meaningful offset %lld instead of %lld to exclude "
+            "the final PINGs (%lld bytes difference)",
+                server.master_repl_meaningful_offset,
+                server.master_repl_offset,
+                delta);
+        server.master_repl_offset = server.master_repl_meaningful_offset;
+        if (server.repl_backlog_histlen <= delta) {
+            server.repl_backlog_histlen = 0;
+            server.repl_backlog_idx = 0;
+        } else {
+            server.repl_backlog_histlen -= delta;
+            server.repl_backlog_idx =
+                (server.repl_backlog_idx + (server.repl_backlog_size - delta)) %
+                server.repl_backlog_size;
+        }
+    }
+    return server.master_repl_offset;
+}
+
 /* This function is called when a master is turend into a slave, in order to
  * create from scratch a cached master for the new client, that will allow
  * to PSYNC with the slave that was promoted as the new master after a
@@ -2736,35 +2772,7 @@ void replicationCacheMasterUsingMyself(void) {
      * by replicationCreateMasterClient(). We'll later set the created
      * master as server.cached_master, so the replica will use such
      * offset for PSYNC. */
-    server.master_initial_offset = server.master_repl_offset;
-
-    /* However if the "meaningful" offset, that is the offset without
-     * the final PINGs in the stream, is different, use this instead:
-     * often when the master is no longer reachable, replicas will never
-     * receive the PINGs, however the master will end with an incremented
-     * offset because of the PINGs and will not be able to incrementally
-     * PSYNC with the new master. */
-    if (server.master_repl_offset > server.master_repl_meaningful_offset) {
-        long long delta = server.master_repl_offset -
-                          server.master_repl_meaningful_offset;
-        serverLog(LL_NOTICE,
-            "Using the meaningful offset %lld instead of %lld to exclude "
-            "the final PINGs (%lld bytes difference)",
-                server.master_repl_meaningful_offset,
-                server.master_repl_offset,
-                delta);
-        server.master_initial_offset = server.master_repl_meaningful_offset;
-        server.master_repl_offset = server.master_repl_meaningful_offset;
-        if (server.repl_backlog_histlen <= delta) {
-            server.repl_backlog_histlen = 0;
-            server.repl_backlog_idx = 0;
-        } else {
-            server.repl_backlog_histlen -= delta;
-            server.repl_backlog_idx =
-                (server.repl_backlog_idx + (server.repl_backlog_size - delta)) %
-                server.repl_backlog_size;
-        }
-    }
+    server.master_initial_offset = adjustMeaningfulReplOffset();
 
     /* The master client we create can be set to any DBID, because
      * the new master will start its replication stream with SELECT. */
