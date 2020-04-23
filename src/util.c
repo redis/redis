@@ -42,7 +42,7 @@
 #include <time.h>
 
 #include "util.h"
-#include "sha1.h"
+#include "sha256.h"
 
 /* Glob-style pattern matching. */
 int stringmatchlen(const char *pattern, int patternLen,
@@ -622,7 +622,7 @@ int ld2string(char *buf, size_t len, long double value, ld2string_mode mode) {
 void getRandomBytes(unsigned char *p, size_t len) {
     /* Global state. */
     static int seed_initialized = 0;
-    static unsigned char seed[20]; /* The SHA1 seed, from /dev/urandom. */
+    static unsigned char seed[64]; /* 512 bit internal block size. */
     static uint64_t counter = 0; /* The counter we hash with the seed. */
 
     if (!seed_initialized) {
@@ -647,14 +647,34 @@ void getRandomBytes(unsigned char *p, size_t len) {
     }
 
     while(len) {
-        unsigned char digest[20];
-        SHA1_CTX ctx;
-        unsigned int copylen = len > 20 ? 20 : len;
+        /* This implements SHA256-HMAC. */
+        unsigned char digest[SHA256_BLOCK_SIZE];
+        unsigned char kxor[64];
+        unsigned int copylen =
+            len > SHA256_BLOCK_SIZE ? SHA256_BLOCK_SIZE : len;
 
-        SHA1Init(&ctx);
-        SHA1Update(&ctx, seed, sizeof(seed));
-        SHA1Update(&ctx, (unsigned char*)&counter,sizeof(counter));
-        SHA1Final(digest, &ctx);
+        /* IKEY: key xored with 0x36. */
+        memcpy(kxor,seed,sizeof(kxor));
+        for (unsigned int i = 0; i < sizeof(kxor); i++) kxor[i] ^= 0x36;
+
+        /* Obtain HASH(IKEY||MESSAGE). */
+        SHA256_CTX ctx;
+        sha256_init(&ctx);
+        sha256_update(&ctx,kxor,sizeof(kxor));
+        sha256_update(&ctx,(unsigned char*)&counter,sizeof(counter));
+        sha256_final(&ctx,digest);
+
+        /* OKEY: key xored with 0x5c. */
+        memcpy(kxor,seed,sizeof(kxor));
+        for (unsigned int i = 0; i < sizeof(kxor); i++) kxor[i] ^= 0x5C;
+
+        /* Obtain HASH(OKEY || HASH(IKEY||MESSAGE)). */
+        sha256_init(&ctx);
+        sha256_update(&ctx,kxor,sizeof(kxor));
+        sha256_update(&ctx,digest,SHA256_BLOCK_SIZE);
+        sha256_final(&ctx,digest);
+
+        /* Increment the counter for the next iteration. */
         counter++;
 
         memcpy(p,digest,copylen);
