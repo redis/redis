@@ -44,6 +44,7 @@ start_server {} {
         set used [list $master_id]
         test "PSYNC2: \[NEW LAYOUT\] Set #$master_id as master" {
             $R($master_id) slaveof no one
+            $R($master_id) config set repl-ping-replica-period 1 ;# increse the chance that random ping will cause issues
             if {$counter_value == 0} {
                 $R($master_id) set x $counter_value
             }
@@ -114,23 +115,20 @@ start_server {} {
             }
         }
 
-        # wait for all the slaves to be in sync with the master
-        set master_ofs [status $R($master_id) master_repl_offset]
+        # wait for all the slaves to be in sync with the master, due to pings, we have to re-sample the master constantly too
         wait_for_condition 500 100 {
-            $master_ofs == [status $R(0) master_repl_offset] &&
-            $master_ofs == [status $R(1) master_repl_offset] &&
-            $master_ofs == [status $R(2) master_repl_offset] &&
-            $master_ofs == [status $R(3) master_repl_offset] &&
-            $master_ofs == [status $R(4) master_repl_offset]
+            [status $R($master_id) master_repl_offset] == [status $R(0) master_repl_offset] &&
+            [status $R($master_id) master_repl_offset] == [status $R(1) master_repl_offset] &&
+            [status $R($master_id) master_repl_offset] == [status $R(2) master_repl_offset] &&
+            [status $R($master_id) master_repl_offset] == [status $R(3) master_repl_offset] &&
+            [status $R($master_id) master_repl_offset] == [status $R(4) master_repl_offset]
         } else {
-            if {$debug_msg} {
-                for {set j 0} {$j < 5} {incr j} {
-                    puts "$j: sync_full: [status $R($j) sync_full]"
-                    puts "$j: id1      : [status $R($j) master_replid]:[status $R($j) master_repl_offset]"
-                    puts "$j: id2      : [status $R($j) master_replid2]:[status $R($j) second_repl_offset]"
-                    puts "$j: backlog  : firstbyte=[status $R($j) repl_backlog_first_byte_offset] len=[status $R($j) repl_backlog_histlen]"
-                    puts "---"
-                }
+            for {set j 0} {$j < 5} {incr j} {
+                puts "$j: sync_full: [status $R($j) sync_full]"
+                puts "$j: id1      : [status $R($j) master_replid]:[status $R($j) master_repl_offset]"
+                puts "$j: id2      : [status $R($j) master_replid2]:[status $R($j) second_repl_offset]"
+                puts "$j: backlog  : firstbyte=[status $R($j) repl_backlog_first_byte_offset] len=[status $R($j) repl_backlog_histlen]"
+                puts "---"
             }
             fail "Slaves are not in sync with the master after too long time."
         }
@@ -175,9 +173,14 @@ start_server {} {
             $R($j) slaveof $master_host $master_port
         }
 
-        # Wait for slaves to sync
+        # Wait for replicas to sync. it is not enough to just wait for connected_slaves==4
+        # since we might do the check before the master realized that they're disconnected
         wait_for_condition 50 1000 {
-            [status $R($master_id) connected_slaves] == 4
+            [status $R($master_id) connected_slaves] == 4 &&
+            [status $R([expr {($master_id+1)%5}]) master_link_status] == "up" &&
+            [status $R([expr {($master_id+2)%5}]) master_link_status] == "up" &&
+            [status $R([expr {($master_id+3)%5}]) master_link_status] == "up" &&
+            [status $R([expr {($master_id+4)%5}]) master_link_status] == "up"
         } else {
             fail "Replica not reconnecting"
         }
@@ -188,6 +191,7 @@ start_server {} {
         set slave_id [expr {($master_id+1)%5}]
         set sync_count [status $R($master_id) sync_full]
         set sync_partial [status $R($master_id) sync_partial_ok]
+        set sync_partial_err [status $R($master_id) sync_partial_err]
         catch {
             $R($slave_id) config rewrite
             $R($slave_id) debug restart
@@ -197,7 +201,11 @@ start_server {} {
         wait_for_condition 50 1000 {
             [status $R($master_id) sync_partial_ok] == $sync_partial + 1
         } else {
-            fail "Replica not reconnecting"
+            puts "prev sync_full: $sync_count"
+            puts "prev sync_partial_ok: $sync_partial"
+            puts "prev sync_partial_err: $sync_partial_err"
+            puts [$R($master_id) info stats]
+            fail "Replica didn't partial sync"
         }
         set new_sync_count [status $R($master_id) sync_full]
         assert {$sync_count == $new_sync_count}
@@ -270,4 +278,104 @@ start_server {} {
         while 1 { puts -nonewline .; flush stdout; after 1000}
     }
 
+}}}}}
+
+start_server {tags {"psync2"}} {
+start_server {} {
+start_server {} {
+start_server {} {
+start_server {} {
+    test {pings at the end of replication stream are ignored for psync} {
+        set master [srv -4 client]
+        set master_host [srv -4 host]
+        set master_port [srv -4 port]
+        set replica1 [srv -3 client]
+        set replica2 [srv -2 client]
+        set replica3 [srv -1 client]
+        set replica4 [srv -0 client]
+
+        $replica1 replicaof $master_host $master_port
+        $replica2 replicaof $master_host $master_port
+        $replica3 replicaof $master_host $master_port
+        $replica4 replicaof $master_host $master_port
+        wait_for_condition 50 1000 {
+            [status $master connected_slaves] == 4
+        } else {
+            fail "replicas didn't connect"
+        }
+
+        $master incr x
+        wait_for_condition 50 1000 {
+            [$replica1 get x] == 1 && [$replica2 get x] == 1 &&
+            [$replica3 get x] == 1 && [$replica4 get x] == 1
+        } else {
+            fail "replicas didn't get incr"
+        }
+
+        # disconnect replica1 and replica2
+        # and wait for the master to send a ping to replica3 and replica4
+        $replica1 replicaof no one
+        $replica2 replicaof 127.0.0.1 1 ;# we can't promote it to master since that will cycle the replication id
+        $master config set repl-ping-replica-period 1
+        after 1500
+
+        # make everyone sync from the replica1 that didn't get the last ping from the old master
+        # replica4 will keep syncing from the old master which now syncs from replica1
+        # and replica2 will re-connect to the old master (which went back in time)
+        set new_master_host [srv -3 host]
+        set new_master_port [srv -3 port]
+        $replica3 replicaof $new_master_host $new_master_port
+        $master replicaof $new_master_host $new_master_port
+        $replica2 replicaof $master_host $master_port
+        wait_for_condition 50 1000 {
+            [status $replica2 master_link_status] == "up" &&
+            [status $replica3 master_link_status] == "up" &&
+            [status $replica4 master_link_status] == "up" &&
+            [status $master master_link_status] == "up"
+        } else {
+            fail "replicas didn't connect"
+        }
+
+        # make sure replication is still alive and kicking
+        $replica1 incr x
+        wait_for_condition 50 1000 {
+            [$replica2 get x] == 2 &&
+            [$replica3 get x] == 2 &&
+            [$replica4 get x] == 2 &&
+            [$master get x] == 2
+        } else {
+            fail "replicas didn't get incr"
+        }
+
+        # make sure there are full syncs other than the initial ones
+        assert_equal [status $master sync_full] 4
+        assert_equal [status $replica1 sync_full] 0
+        assert_equal [status $replica2 sync_full] 0
+        assert_equal [status $replica3 sync_full] 0
+        assert_equal [status $replica4 sync_full] 0
+
+        # force psync
+        $master client kill type master
+        $replica2 client kill type master
+        $replica3 client kill type master
+        $replica4 client kill type master
+
+        # make sure replication is still alive and kicking
+        $replica1 incr x
+        wait_for_condition 50 1000 {
+            [$replica2 get x] == 3 &&
+            [$replica3 get x] == 3 &&
+            [$replica4 get x] == 3 &&
+            [$master get x] == 3
+        } else {
+            fail "replicas didn't get incr"
+        }
+
+        # make sure there are full syncs other than the initial ones
+        assert_equal [status $master sync_full] 4
+        assert_equal [status $replica1 sync_full] 0
+        assert_equal [status $replica2 sync_full] 0
+        assert_equal [status $replica3 sync_full] 0
+        assert_equal [status $replica4 sync_full] 0
+}
 }}}}}
