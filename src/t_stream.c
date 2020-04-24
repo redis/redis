@@ -842,6 +842,11 @@ void streamPropagateXCLAIM(client *c, robj *key, streamCG *group, robj *groupnam
     argv[11] = createStringObject("JUSTID",6);
     argv[12] = createStringObject("LASTID",6);
     argv[13] = createObjectFromStreamID(&group->last_id);
+
+    /* We use progagate() because this code path is not always called from
+     * the command execution context. Moreover this will just alter the
+     * consumer group state, and we don't need MULTI/EXEC wrapping because
+     * there is no message state cross-message atomicity required. */
     propagate(server.xclaimCommand,c->db->id,argv,14,PROPAGATE_AOF|PROPAGATE_REPL);
     decrRefCount(argv[0]);
     decrRefCount(argv[3]);
@@ -869,7 +874,12 @@ void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupna
     argv[2] = key;
     argv[3] = groupname;
     argv[4] = createObjectFromStreamID(&group->last_id);
-    alsoPropagate(server.xgroupCommand,c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
+
+    /* We use progagate() because this code path is not always called from
+     * the command execution context. Moreover this will just alter the
+     * consumer group state, and we don't need MULTI/EXEC wrapping because
+     * there is no message state cross-message atomicity required. */
+    propagate(server.xgroupCommand,c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
     decrRefCount(argv[0]);
     decrRefCount(argv[1]);
     decrRefCount(argv[4]);
