@@ -480,18 +480,31 @@ void strlenCommand(client *c) {
     addReplyLongLong(c,stringObjectLen(o));
 }
 
-/* LCS -- Longest common subsequence.
+
+/* STRALGO -- Implement complex algorithms on strings.
  *
- * LCS [IDX] [MINMATCHLEN <len>]
- *     STRINGS <string> <string> | KEYS <keya> <keyb> */
-void lcsCommand(client *c) {
+ * STRALGO <algorithm> ... arguments ... */
+void stralgoLCS(client *c);     /* This implements the LCS algorithm. */
+void stralgoCommand(client *c) {
+    /* Select the algorithm. */
+    if (!strcasecmp(c->argv[1]->ptr,"lcs")) {
+        stralgoLCS(c);
+    } else {
+        addReply(c,shared.syntaxerr);
+    }
+}
+
+/* STRALGO <algo> [IDX] [MINMATCHLEN <len>] [WITHMATCHLEN]
+ *     STRINGS <string> <string> | KEYS <keya> <keyb>
+ */
+void stralgoLCS(client *c) {
     uint32_t i, j;
     long long minmatchlen = 0;
     sds a = NULL, b = NULL;
     int getlen = 0, getidx = 0, withmatchlen = 0;
     robj *obja = NULL, *objb = NULL;
 
-    for (j = 1; j < (uint32_t)c->argc; j++) {
+    for (j = 2; j < (uint32_t)c->argc; j++) {
         char *opt = c->argv[j]->ptr;
         int moreargs = (c->argc-1) - j;
 

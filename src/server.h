@@ -2389,7 +2389,7 @@ void xdelCommand(client *c);
 void xtrimCommand(client *c);
 void lolwutCommand(client *c);
 void aclCommand(client *c);
-void lcsCommand(client *c);
+void stralgoCommand(client *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
