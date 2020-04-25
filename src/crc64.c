@@ -30,6 +30,7 @@
 #include "crcspeed.h"
 static uint64_t crc64_table[8][256] = {{0}};
 
+#define POLY UINT64_C(0xad93d23594c935a9)
 /******************** BEGIN GENERATED PYCRC FUNCTIONS ********************/
 /**
  * Generated on Sun Dec 21 14:14:07 2014,
@@ -122,7 +123,7 @@ uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l) {
 }
 
 /* Test main */
-#if defined(REDIS_TEST) || defined(REDIS_TEST_MAIN)
+#ifdef REDIS_TEST
 #include <stdio.h>
 
 #define UNUSED(x) (void)(x)
@@ -133,7 +134,7 @@ int crc64Test(int argc, char *argv[]) {
     printf("[calcula]: e9c6d914c4b8d9ca == %016" PRIx64 "\n",
            (uint64_t)_crc64(0, "123456789", 9));
     printf("[64speed]: e9c6d914c4b8d9ca == %016" PRIx64 "\n",
-           (uint64_t)crc64speed(0, "123456789", 9));
+           (uint64_t)crc64(0, "123456789", 9));
     char li[] = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed "
                 "do eiusmod tempor incididunt ut labore et dolore magna "
                 "aliqua. Ut enim ad minim veniam, quis nostrud exercitation "
