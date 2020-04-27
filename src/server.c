@@ -1007,7 +1007,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"stralgo",stralgoCommand,-2,
-     "write use-memory @string",
+     "read-only @string",
      0,lcsGetKeys,0,0,0,0,0,0}
 };
 
