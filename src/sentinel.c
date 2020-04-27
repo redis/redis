@@ -1958,7 +1958,7 @@ void sentinelFlushConfig(void) {
 
     if (rewrite_status == -1) goto werr;
     if ((fd = open(server.configfile,O_RDONLY)) == -1) goto werr;
-    if (fsync(fd) == -1) goto werr;
+    if (redis_fsync(fd) == -1) goto werr;
     if (close(fd) == EOF) goto werr;
     return;
 
