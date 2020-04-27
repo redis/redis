@@ -1219,16 +1219,15 @@ int dictEncObjKeyCompare(void *privdata, const void *key1,
         o2->encoding == OBJ_ENCODING_INT)
             return o1->ptr == o2->ptr;
 
-    /* due to OBJ_STATIC_REFCOUNT, we rather not call sdsEncodedObject unnecessarily */
-    if (!sdsEncodedObject(o1))
-        o1 = getDecodedObject(o1);
-    if (!sdsEncodedObject(o2))
-        o2 = getDecodedObject(o2);
+    /* Due to OBJ_STATIC_REFCOUNT, we avoid calling getDecodedObject() without
+     * good reasons, because it would incrRefCount() the object, which
+     * is invalid. So we check to make sure dictFind() works with static
+     * objects as well. */
+    if (!sdsEncodedObject(o1)) o1 = getDecodedObject(o1);
+    if (!sdsEncodedObject(o2)) o2 = getDecodedObject(o2);
     cmp = dictSdsKeyCompare(privdata,o1->ptr,o2->ptr);
-    if (o1!=key1)
-        decrRefCount(o1);
-    if (o2!=key2)
-        decrRefCount(o2);
+    if (o1!=key1) decrRefCount(o1);
+    if (o2!=key2) decrRefCount(o2);
     return cmp;
 }
 
