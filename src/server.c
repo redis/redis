@@ -1219,11 +1219,16 @@ int dictEncObjKeyCompare(void *privdata, const void *key1,
         o2->encoding == OBJ_ENCODING_INT)
             return o1->ptr == o2->ptr;
 
-    o1 = getDecodedObject(o1);
-    o2 = getDecodedObject(o2);
+    /* due to OBJ_STATIC_REFCOUNT, we rather not call sdsEncodedObject unnecessarily */
+    if (!sdsEncodedObject(o1))
+        o1 = getDecodedObject(o1);
+    if (!sdsEncodedObject(o2))
+        o2 = getDecodedObject(o2);
     cmp = dictSdsKeyCompare(privdata,o1->ptr,o2->ptr);
-    decrRefCount(o1);
-    decrRefCount(o2);
+    if (o1!=key1)
+        decrRefCount(o1);
+    if (o2!=key2)
+        decrRefCount(o2);
     return cmp;
 }
 
