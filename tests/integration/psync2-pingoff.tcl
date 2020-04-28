@@ -20,6 +20,7 @@ start_server {} {
         $R(1) replicaof $R_host(0) $R_port(0)
         $R(0) set foo bar
         wait_for_condition 50 1000 {
+            [status $R(1) master_link_status] == "up" &&
             [$R(0) dbsize] == 1 && [$R(1) dbsize] == 1
         } else {
             fail "Replicas not replicating from master"
