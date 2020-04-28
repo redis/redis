@@ -2493,7 +2493,7 @@ void xtrimCommand(client *c) {
  * Handles the variants of XINFO STREAM */
 void xinfoReplyWithStreamInfo(client *c, stream *s) {
     int full = 1;
-    long long count = 0;
+    long long count = 10; /* Default COUNT is 10 so we don't block the server */
     robj **optv = c->argv + 3; /* Options start after XINFO STREAM <key> */
     int optc = c->argc - 3;
 
@@ -2521,7 +2521,7 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
             }
             if (getLongLongFromObjectOrReply(c,optv[2],&count,NULL) == C_ERR)
                 return;
-            if (count < 0) count = 0;
+            if (count < 0) count = 10;
         }
     }
 
@@ -2548,11 +2548,11 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
         end.ms = end.seq = UINT64_MAX;
         addReplyBulkCString(c,"first-entry");
         emitted = streamReplyWithRange(c,s,&start,&end,1,0,NULL,NULL,
-                                     STREAM_RWR_RAWENTRIES,NULL);
+                                       STREAM_RWR_RAWENTRIES,NULL);
         if (!emitted) addReplyNull(c);
         addReplyBulkCString(c,"last-entry");
         emitted = streamReplyWithRange(c,s,&start,&end,1,1,NULL,NULL,
-                                     STREAM_RWR_RAWENTRIES,NULL);
+                                       STREAM_RWR_RAWENTRIES,NULL);
         if (!emitted) addReplyNull(c);
     } else {
         /* XINFO STREAM <key> FULL [COUNT <count>] */
@@ -2682,6 +2682,10 @@ void xinfoCommand(client *c) {
 "CONSUMERS <key> <groupname>         -- Show consumer groups of group <groupname>.",
 "GROUPS <key>                        -- Show the stream consumer groups.",
 "STREAM <key> [FULL [COUNT <count>]] -- Show information about the stream.",
+"                                       FULL will return the full state of the stream,",
+"                                            including all entries, groups, consumers and PELs.",
+"                                            It's possible to show only the first stream/PEL entries",
+"                                            by using the COUNT modifier (Default is 10)",
 "HELP                                -- Print this help.",
 NULL
     };
