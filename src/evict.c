@@ -97,6 +97,31 @@ unsigned long long estimateObjectIdleTime(robj *o) {
     }
 }
 
+/* Calculate the idle time according to the policy. This is called
+ * idle just because the code initially handled LRU, but is in fact
+ * just a score where an higher score means better candidate. */
+unsigned long long getEvictionIdleTime(void *val) {
+    unsigned long long idle;
+    if (server.maxmemory_policy & MAXMEMORY_FLAG_LRU) {
+        idle = estimateObjectIdleTime(val);
+    } else if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
+        /* When we use an LRU policy, we sort the keys by idle time
+         * so that we expire keys starting from greater idle time.
+         * However when the policy is an LFU one, we have a frequency
+         * estimation, and we want to evict keys with lower frequency
+         * first. So inside the pool we put objects using the inverted
+         * frequency subtracting the actual frequency to the maximum
+         * frequency of 255. */
+        idle = 255-LFUDecrAndReturn(val);
+    } else if (server.maxmemory_policy == MAXMEMORY_VOLATILE_TTL) {
+        /* In this case the sooner the expire the better. */
+        idle = ULLONG_MAX - (long)(val);
+    } else {
+        serverPanic("Unknown eviction policy in evictionPoolPopulate()");
+    }
+    return idle;
+}
+
 /* freeMemoryIfNeeded() gets called when 'maxmemory' is set on the config
  * file to limit the max memory used by the server, before processing a
  * command.
@@ -150,6 +175,68 @@ void evictionPoolAlloc(void) {
     EvictionPoolLRU = ep;
 }
 
+/* Remove the entry from the pool. */
+void removeEntryFromPool(struct evictionPoolEntry *pool, int i) {
+    if (pool[i].key != pool[i].cached)
+        sdsfree(pool[i].key);
+    pool[i].key = NULL;
+    pool[i].idle = 0;
+}
+
+/* Insert the element inside the pool. */
+void evictionPoolInsert(int dbid, sds key, unsigned long long idle, struct evictionPoolEntry *pool) {
+    int k = 0;
+    /* First, find the first empty bucket or the first populated
+     * bucket that has an idle time smaller than our idle time. */
+    while (k < EVPOOL_SIZE &&
+           pool[k].key &&
+           pool[k].idle < idle) k++;
+    if (k == 0 && pool[EVPOOL_SIZE-1].key != NULL) {
+        /* Can't insert if the element is < the worst element we have
+         * and there are no empty buckets. */
+        return;
+    } else if (k < EVPOOL_SIZE && pool[k].key == NULL) {
+        /* Inserting into empty position. No setup needed before insert. */
+    } else {
+        /* Inserting in the middle. Now k points to the first element
+         * greater than the element to insert.  */
+        if (pool[EVPOOL_SIZE-1].key == NULL) {
+            /* Free space on the right? Insert at k shifting
+             * all the elements from k to end to the right. */
+
+            /* Save SDS before overwriting. */
+            sds cached = pool[EVPOOL_SIZE-1].cached;
+            memmove(pool+k+1,pool+k,
+                sizeof(pool[0])*(EVPOOL_SIZE-k-1));
+            pool[k].cached = cached;
+        } else {
+            /* No free space on right? Insert at k-1 */
+            k--;
+            /* Shift all elements on the left of k (included) to the
+             * left, so we discard the element with smaller idle time. */
+            sds cached = pool[0].cached; /* Save SDS before overwriting. */
+            if (pool[0].key != pool[0].cached) sdsfree(pool[0].key);
+            memmove(pool,pool+1,sizeof(pool[0])*k);
+            pool[k].cached = cached;
+        }
+    }
+
+    /* Try to reuse the cached SDS string allocated in the pool entry,
+     * because allocating and deallocating this object is costly
+     * (according to the profiler, not my fantasy. Remember:
+     * premature optimizbla bla bla bla. */
+    int klen = sdslen(key);
+    if (klen > EVPOOL_CACHED_SDS_SIZE) {
+        pool[k].key = sdsdup(key);
+    } else {
+        memcpy(pool[k].cached,key,klen+1);
+        sdssetlen(pool[k].cached,klen);
+        pool[k].key = pool[k].cached;
+    }
+    pool[k].idle = idle;
+    pool[k].dbid = dbid;
+}
+
 /* This is an helper function for freeMemoryIfNeeded(), it is used in order
  * to populate the evictionPool with a few entries every time we want to
  * expire a key. Keys with idle time smaller than one of the current
@@ -158,16 +245,14 @@ void evictionPoolAlloc(void) {
  * We insert keys on place in ascending order, so keys with the smaller
  * idle time are on the left, and keys with the higher idle time on the
  * right. */
-
 void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evictionPoolEntry *pool) {
-    int j, k, count;
+    int j, count;
     dictEntry *samples[server.maxmemory_samples];
 
     count = dictGetSomeKeys(sampledict,samples,server.maxmemory_samples);
     for (j = 0; j < count; j++) {
         unsigned long long idle;
         sds key;
-        robj *o;
         dictEntry *de;
 
         de = samples[j];
@@ -178,82 +263,65 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
          * again in the key dictionary to obtain the value object. */
         if (server.maxmemory_policy != MAXMEMORY_VOLATILE_TTL) {
             if (sampledict != keydict) de = dictFind(keydict, key);
-            o = dictGetVal(de);
         }
 
-        /* Calculate the idle time according to the policy. This is called
-         * idle just because the code initially handled LRU, but is in fact
-         * just a score where an higher score means better candidate. */
-        if (server.maxmemory_policy & MAXMEMORY_FLAG_LRU) {
-            idle = estimateObjectIdleTime(o);
-        } else if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
-            /* When we use an LRU policy, we sort the keys by idle time
-             * so that we expire keys starting from greater idle time.
-             * However when the policy is an LFU one, we have a frequency
-             * estimation, and we want to evict keys with lower frequency
-             * first. So inside the pool we put objects using the inverted
-             * frequency subtracting the actual frequency to the maximum
-             * frequency of 255. */
-            idle = 255-LFUDecrAndReturn(o);
-        } else if (server.maxmemory_policy == MAXMEMORY_VOLATILE_TTL) {
-            /* In this case the sooner the expire the better. */
-            idle = ULLONG_MAX - (long)dictGetVal(de);
-        } else {
-            serverPanic("Unknown eviction policy in evictionPoolPopulate()");
-        }
-
-        /* Insert the element inside the pool.
-         * First, find the first empty bucket or the first populated
-         * bucket that has an idle time smaller than our idle time. */
-        k = 0;
-        while (k < EVPOOL_SIZE &&
-               pool[k].key &&
-               pool[k].idle < idle) k++;
-        if (k == 0 && pool[EVPOOL_SIZE-1].key != NULL) {
-            /* Can't insert if the element is < the worst element we have
-             * and there are no empty buckets. */
-            continue;
-        } else if (k < EVPOOL_SIZE && pool[k].key == NULL) {
-            /* Inserting into empty position. No setup needed before insert. */
-        } else {
-            /* Inserting in the middle. Now k points to the first element
-             * greater than the element to insert.  */
-            if (pool[EVPOOL_SIZE-1].key == NULL) {
-                /* Free space on the right? Insert at k shifting
-                 * all the elements from k to end to the right. */
-
-                /* Save SDS before overwriting. */
-                sds cached = pool[EVPOOL_SIZE-1].cached;
-                memmove(pool+k+1,pool+k,
-                    sizeof(pool[0])*(EVPOOL_SIZE-k-1));
-                pool[k].cached = cached;
-            } else {
-                /* No free space on right? Insert at k-1 */
-                k--;
-                /* Shift all elements on the left of k (included) to the
-                 * left, so we discard the element with smaller idle time. */
-                sds cached = pool[0].cached; /* Save SDS before overwriting. */
-                if (pool[0].key != pool[0].cached) sdsfree(pool[0].key);
-                memmove(pool,pool+1,sizeof(pool[0])*k);
-                pool[k].cached = cached;
-            }
-        }
-
-        /* Try to reuse the cached SDS string allocated in the pool entry,
-         * because allocating and deallocating this object is costly
-         * (according to the profiler, not my fantasy. Remember:
-         * premature optimizbla bla bla bla. */
-        int klen = sdslen(key);
-        if (klen > EVPOOL_CACHED_SDS_SIZE) {
-            pool[k].key = sdsdup(key);
-        } else {
-            memcpy(pool[k].cached,key,klen+1);
-            sdssetlen(pool[k].cached,klen);
-            pool[k].key = pool[k].cached;
-        }
-        pool[k].idle = idle;
-        pool[k].dbid = dbid;
+        idle = getEvictionIdleTime(dictGetVal(de));
+        evictionPoolInsert(dbid, key, idle, pool);
     }
+}
+
+/* Compare two evictionPoolEntry, if key is NULL,
+ * we take it as maximum. */
+int evictionPoolEntryCompare(const void *p1, const void *p2) {
+    const struct evictionPoolEntry *a = p1;
+    const struct evictionPoolEntry *b = p2;
+    if (a->key == NULL && b->key == NULL) {
+        return 0;
+    } else if (a->key == NULL) {
+        return 1;
+    } else if (b->key == NULL) {
+        return -1;
+    } else {
+        return a->idle - b->idle;
+    }
+}
+
+/* Update the cache of possible candidates in the evictionPool,
+ * in case the old candidates is not the best, imagine that:
+ *
+ * Time1: we need free memory and populate some keys to evictionPool
+ *        like that: A:10,B:9,C:8
+ * Time2: we delete the bestkey A and free enough memory, then keys
+ *        in evictionPool are: B:9,C:8
+ * Time3: we need free memory again, and the idle time of B is 3,
+ *        but B is already in evctionPool and idle time is 9, so
+ *        we take it as the bestkey to delete, but it is not the
+ *        correct bestkey.
+ *
+ * Also we should update evictionPool in case maxmemory-policy changed,
+ * because LRU, LFU and TTL has different meanings. */
+void evictionPoolUpdate(struct evictionPoolEntry *pool) {
+    dict *dict;
+    dictEntry *de;
+    int j, count = 0;
+    for (j = 0; j < EVPOOL_SIZE; j++) {
+        if (pool[j].key == NULL) break;
+        dict = (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) ?
+                server.db[pool[j].dbid].dict : server.db[pool[j].dbid].expires;
+        de = dictFind(dict, pool[j].key);
+        if (de == NULL) {
+            removeEntryFromPool(pool,j);
+        } else {
+            if (server.maxmemory_policy != MAXMEMORY_VOLATILE_TTL &&
+                dict == server.db[pool[j].dbid].expires) {
+                de = dictFind(server.db[pool[j].dbid].dict, pool[j].key);
+            }
+            pool[j].idle = getEvictionIdleTime(dictGetVal(de));
+        }
+        count++;
+    }
+
+    if (count > 1) qsort(pool, count, sizeof(pool[0]), evictionPoolEntryCompare);
 }
 
 /* ----------------------------------------------------------------------------
@@ -467,6 +535,12 @@ int freeMemoryIfNeeded(void) {
         goto cant_free; /* We need to free memory, but policy forbids. */
 
     latencyStartMonitor(latency);
+    struct evictionPoolEntry *pool = EvictionPoolLRU;
+    if (server.maxmemory_policy & (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LFU) ||
+        server.maxmemory_policy == MAXMEMORY_VOLATILE_TTL)
+    {
+        evictionPoolUpdate(pool);
+    }
     while (mem_freed < mem_tofree) {
         int j, k, i;
         static unsigned int next_db = 0;
@@ -479,8 +553,6 @@ int freeMemoryIfNeeded(void) {
         if (server.maxmemory_policy & (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LFU) ||
             server.maxmemory_policy == MAXMEMORY_VOLATILE_TTL)
         {
-            struct evictionPoolEntry *pool = EvictionPoolLRU;
-
             while(bestkey == NULL) {
                 unsigned long total_keys = 0, keys;
 
@@ -512,10 +584,7 @@ int freeMemoryIfNeeded(void) {
                     }
 
                     /* Remove the entry from the pool. */
-                    if (pool[k].key != pool[k].cached)
-                        sdsfree(pool[k].key);
-                    pool[k].key = NULL;
-                    pool[k].idle = 0;
+                    removeEntryFromPool(pool,k);
 
                     /* If the key exists, is our pick. Otherwise it is
                      * a ghost and we need to try the next element. */
