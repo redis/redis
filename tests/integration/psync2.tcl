@@ -67,6 +67,16 @@ start_server {} {
             lappend used $slave_id
         }
 
+        # Wait for replicas to sync. so next loop won't get -LOADING error
+        wait_for_condition 50 1000 {
+            [status $R([expr {($master_id+1)%5}]) master_link_status] == "up" &&
+            [status $R([expr {($master_id+2)%5}]) master_link_status] == "up" &&
+            [status $R([expr {($master_id+3)%5}]) master_link_status] == "up" &&
+            [status $R([expr {($master_id+4)%5}]) master_link_status] == "up"
+        } else {
+            fail "Replica not reconnecting"
+        }
+
         # 3) Increment the counter and wait for all the instances
         # to converge.
         test "PSYNC2: cluster is consistent after failover" {
