@@ -4295,17 +4295,18 @@ static int clusterManagerGetCoveredSlots(char *all_slots) {
 }
 
 static void clusterManagerPrintSlotsList(list *slots) {
+    clusterManagerNode n = {0};
     listIter li;
     listNode *ln;
     listRewind(slots, &li);
-    sds first = NULL;
     while ((ln = listNext(&li)) != NULL) {
-        sds slot = ln->value;
-        if (!first) first = slot;
-        else printf(", ");
-        printf("%s", slot);
+        int slot = atoi(ln->value);
+        if (slot >= 0 && slot < CLUSTER_MANAGER_SLOTS)
+            n.slots[slot] = 1;
     }
-    printf("\n");
+    sds nodeslist = clusterManagerNodeSlotsString(&n);
+    printf("%s\n", nodeslist);
+    sdsfree(nodeslist);
 }
 
 /* Return the node, among 'nodes' with the greatest number of keys
@@ -4398,15 +4399,10 @@ static int clusterManagerFixSlotsCoverage(char *all_slots) {
     int i, fixed = 0;
     list *none = NULL, *single = NULL, *multi = NULL;
     clusterManagerLogInfo(">>> Fixing slots coverage...\n");
-    printf("List of not covered slots: \n");
-    int uncovered_count = 0;
-    sds log = sdsempty();
     for (i = 0; i < CLUSTER_MANAGER_SLOTS; i++) {
         int covered = all_slots[i];
         if (!covered) {
-            sds key = sdsfromlonglong((long long) i);
-            if (uncovered_count++ > 0) printf(",");
-            printf("%s", (char *) key);
+            sds slot = sdsfromlonglong((long long) i);
             list *slot_nodes = listCreate();
             sds slot_nodes_str = sdsempty();
             listIter li;
@@ -4433,13 +4429,11 @@ static int clusterManagerFixSlotsCoverage(char *all_slots) {
                 }
                 freeReplyObject(reply);
             }
-            log = sdscatfmt(log, "\nSlot %S has keys in %u nodes: %S",
-                            key, listLength(slot_nodes), slot_nodes_str);
             sdsfree(slot_nodes_str);
-            dictAdd(clusterManagerUncoveredSlots, key, slot_nodes);
+            dictAdd(clusterManagerUncoveredSlots, slot, slot_nodes);
         }
     }
-    printf("\n%s\n", log);
+
     /* For every slot, take action depending on the actual condition:
      * 1) No node has keys for this slot.
      * 2) A single node has keys for this slot.
@@ -4581,7 +4575,6 @@ static int clusterManagerFixSlotsCoverage(char *all_slots) {
         }
     }
 cleanup:
-    sdsfree(log);
     if (none) listRelease(none);
     if (single) listRelease(single);
     if (multi) listRelease(multi);
