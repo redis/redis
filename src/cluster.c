@@ -5101,15 +5101,16 @@ void migrateCloseTimedoutSockets(void) {
     dictReleaseIterator(di);
 }
 
-/* MIGRATE host port key dbid timeout [COPY | REPLACE | AUTH password]
+/* MIGRATE host port key dbid timeout [COPY | REPLACE | AUTH [username] password]
  *
  * On in the multiple keys form:
  *
- * MIGRATE host port "" dbid timeout [COPY | REPLACE | AUTH password] KEYS key1
+ * MIGRATE host port "" dbid timeout [COPY | REPLACE | AUTH [username] password] KEYS key1
  * key2 ... keyN */
 void migrateCommand(client *c) {
     migrateCachedSocket *cs;
     int copy = 0, replace = 0, j;
+    char *username = NULL;
     char *password = NULL;
     long timeout;
     long dbid;
@@ -5138,7 +5139,24 @@ void migrateCommand(client *c) {
                 return;
             }
             j++;
-            password = c->argv[j]->ptr;
+            moreargs = j < c->argc-1;
+            if (!moreargs) {
+                // last parameter is the password
+                password = c->argv[j]->ptr;
+            } else {
+                username = c->argv[j]->ptr;
+                password = c->argv[j+1]->ptr;
+                // check if the password is one of the command options
+                // if this is the case, this means username is not set
+                if ( (!strcasecmp(password,"copy")) || 
+                    (!strcasecmp(password,"replace")) ||
+                    (!strcasecmp(password,"keys")) ) {
+                    password = c->argv[j]->ptr;
+                    username = NULL; // set to Null in case it is migrateing to an older Redis
+                } else {
+                    j++; // move to next if username & password are bot set
+                }
+            }
         } else if (!strcasecmp(c->argv[j]->ptr,"keys")) {
             if (sdslen(c->argv[3]->ptr) != 0) {
                 addReplyError(c,
@@ -5199,8 +5217,16 @@ try_again:
 
     /* Authentication */
     if (password) {
-        serverAssertWithInfo(c,NULL,rioWriteBulkCount(&cmd,'*',2));
+        int nbOfArgs = 2;
+        if (username) {
+            nbOfArgs = 3;
+        }
+        serverAssertWithInfo(c,NULL,rioWriteBulkCount(&cmd,'*',nbOfArgs));
         serverAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"AUTH",4));
+        if (username) {
+            serverAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,username,
+                sdslen(username)));
+        }
         serverAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,password,
             sdslen(password)));
     }
