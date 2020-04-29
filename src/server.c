@@ -2124,7 +2124,10 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         processUnblockedClients();
 
     /* Send all the slaves an ACK request if at least one client blocked
-     * during the previous event loop iteration. */
+     * during the previous event loop iteration. Note that we do this after
+     * processUnblockedClients(), so if there are multiple pipelined WAITs
+     * and the just unblocked WAIT gets blocked again, we don't have to wait
+     * a server cron cycle in absence of other event loop events. See #6623. */
     if (server.get_ack_from_slaves) {
         robj *argv[3];
 
