@@ -4596,20 +4596,26 @@ static int clusterManagerFixOpenSlot(int slot) {
     /* Try to obtain the current slot owner, according to the current
      * nodes configuration. */
     int success = 1;
-    list *owners = listCreate();
+    list *owners = listCreate();    /* List of nodes claiming some ownership.
+                                       it could be stating in the configuration
+                                       to have the node ownership, or just
+                                       holding keys for such slot. */
     list *migrating = listCreate();
     list *importing = listCreate();
     sds migrating_str = sdsempty();
     sds importing_str = sdsempty();
-    clusterManagerNode *owner = NULL;
+    clusterManagerNode *owner = NULL; /* The obvious slot owner if any. */
+
+    /* Iterate all the nodes, looking for potential owners of this slot. */
     listIter li;
     listNode *ln;
     listRewind(cluster_manager.nodes, &li);
     while ((ln = listNext(&li)) != NULL) {
         clusterManagerNode *n = ln->value;
         if (n->flags & CLUSTER_MANAGER_FLAG_SLAVE) continue;
-        if (n->slots[slot]) listAddNodeTail(owners, n);
-        else {
+        if (n->slots[slot]) {
+            listAddNodeTail(owners, n);
+        } else {
             redisReply *r = CLUSTER_MANAGER_COMMAND(n,
                 "CLUSTER COUNTKEYSINSLOT %d", slot);
             success = clusterManagerCheckRedisReply(n, r, NULL);
@@ -4623,7 +4629,14 @@ static int clusterManagerFixOpenSlot(int slot) {
             if (!success) goto cleanup;
         }
     }
+
+    /* If we have only a single potential owner for this slot,
+     * set it as "owner". */
     if (listLength(owners) == 1) owner = listFirst(owners)->value;
+
+    /* Scan the list of nodes again, in order to populate the
+     * list of nodes in importing or migrating state for
+     * this slot. */
     listRewind(cluster_manager.nodes, &li);
     while ((ln = listNext(&li)) != NULL) {
         clusterManagerNode *n = ln->value;
@@ -4655,6 +4668,7 @@ static int clusterManagerFixOpenSlot(int slot) {
                 }
             }
         }
+
         /* If the node is neither migrating nor importing and it's not
          * the owner, then is added to the importing list in case
          * it has keys in the slot. */
@@ -4679,11 +4693,12 @@ static int clusterManagerFixOpenSlot(int slot) {
         printf("Set as migrating in: %s\n", migrating_str);
     if (sdslen(importing_str) > 0)
         printf("Set as importing in: %s\n", importing_str);
+
     /* If there is no slot owner, set as owner the node with the biggest
      * number of keys, among the set of migrating / importing nodes. */
     if (owner == NULL) {
-        clusterManagerLogInfo(">>> Nobody claims ownership, "
-                              "selecting an owner...\n");
+        clusterManagerLogInfo(">>> No single clear owner for the slot, "
+                              "selecting an owner by # of keys...\n");
         owner = clusterManagerGetNodeWithMostKeysInSlot(cluster_manager.nodes,
                                                         slot, NULL);
         // If we still don't have an owner, we can't fix it.
@@ -4714,6 +4729,7 @@ static int clusterManagerFixOpenSlot(int slot) {
         clusterManagerRemoveNodeFromList(migrating, owner);
         clusterManagerRemoveNodeFromList(importing, owner);
     }
+
     /* If there are multiple owners of the slot, we need to fix it
      * so that a single node is the owner and all the other nodes
      * are in importing state. Later the fix can be handled by one
@@ -4746,6 +4762,7 @@ static int clusterManagerFixOpenSlot(int slot) {
         }
     }
     int move_opts = CLUSTER_MANAGER_OPT_VERBOSE;
+
     /* Case 1: The slot is in migrating state in one node, and in
      *         importing state in 1 node. That's trivial to address. */
     if (listLength(migrating) == 1 && listLength(importing) == 1) {
@@ -4757,6 +4774,7 @@ static int clusterManagerFixOpenSlot(int slot) {
         move_opts |= CLUSTER_MANAGER_OPT_UPDATE;
         success = clusterManagerMoveSlot(src, dst, slot, move_opts, NULL);
     }
+
     /* Case 2: There are multiple nodes that claim the slot as importing,
      * they probably got keys about the slot after a restart so opened
      * the slot. In this case we just move all the keys to the owner
@@ -4787,6 +4805,7 @@ static int clusterManagerFixOpenSlot(int slot) {
             if (!success) goto cleanup;
         }
     }
+
     /* Case 3: The slot is in migrating state in one node but multiple
      * other nodes claim to be in importing state and don't have any key in
      * the slot. We search for the importing node having the same ID as
