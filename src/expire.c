@@ -97,7 +97,7 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
  * conditions:
  *
  * If type is ACTIVE_EXPIRE_CYCLE_FAST the function will try to run a
- * "fast" expire cycle that takes no longer than EXPIRE_FAST_CYCLE_DURATION
+ * "fast" expire cycle that takes no longer than ACTIVE_EXPIRE_CYCLE_FAST_DURATION
  * microseconds, and is not repeated again before the same amount of time.
  * The cycle will also refuse to run at all if the latest slow cycle did not
  * terminate because of a time limit condition.
