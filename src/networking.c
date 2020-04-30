@@ -2101,6 +2101,7 @@ void clientCommand(client *c) {
 "KILL <option> <value> [option value ...] -- Kill connections. Options are:",
 "     ADDR <ip:port>                      -- Kill connection made from <ip:port>",
 "     TYPE (normal|master|replica|pubsub) -- Kill connections by type.",
+"     USER <username>   -- Kill connections authenticated with such user.",
 "     SKIPME (yes|no)   -- Skip killing current connection (default: yes).",
 "LIST [options ...]     -- Return information about client connections. Options:",
 "     TYPE (normal|master|replica|pubsub) -- Return clients of specified type.",
@@ -2151,6 +2152,7 @@ NULL
         /* CLIENT KILL <ip:port>
          * CLIENT KILL <option> [value] ... <option> [value] */
         char *addr = NULL;
+        user *user = NULL;
         int type = -1;
         uint64_t id = 0;
         int skipme = 1;
@@ -2182,6 +2184,14 @@ NULL
                     }
                 } else if (!strcasecmp(c->argv[i]->ptr,"addr") && moreargs) {
                     addr = c->argv[i+1]->ptr;
+                } else if (!strcasecmp(c->argv[i]->ptr,"user") && moreargs) {
+                    user = ACLGetUserByName(c->argv[i+1]->ptr,
+                                            sdslen(c->argv[i+1]->ptr));
+                    if (user == NULL) {
+                        addReplyErrorFormat(c,"No such user '%s'",
+                            (char*) c->argv[i+1]->ptr);
+                        return;
+                    }
                 } else if (!strcasecmp(c->argv[i]->ptr,"skipme") && moreargs) {
                     if (!strcasecmp(c->argv[i+1]->ptr,"yes")) {
                         skipme = 1;
@@ -2209,6 +2219,7 @@ NULL
             if (addr && strcmp(getClientPeerId(client),addr) != 0) continue;
             if (type != -1 && getClientType(client) != type) continue;
             if (id != 0 && client->id != id) continue;
+            if (user && client->user != user) continue;
             if (c == client && skipme) continue;
 
             /* Kill it. */
