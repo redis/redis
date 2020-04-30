@@ -699,7 +699,8 @@ static char *hintsCallback(const char *buf, int *color, int *bold) {
     for (i = 0; i < helpEntriesLen; i++) {
         if (!(helpEntries[i].type & CLI_HELP_COMMAND)) continue;
 
-        if (strcasecmp(argv[0],helpEntries[i].full) == 0)
+        if (strcasecmp(argv[0],helpEntries[i].full) == 0 ||
+            strcasecmp(buf,helpEntries[i].full) == 0)
         {
             *color = 90;
             *bold = 0;
