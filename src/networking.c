@@ -436,36 +436,6 @@ void addReplyStatusFormat(client *c, const char *fmt, ...) {
     sdsfree(s);
 }
 
-/* Sometimes we are forced to create a new reply node, and we can't append to
- * the previous one, when that happens, we wanna try to trim the unused space
- * at the end of the last reply node which we won't use anymore. */
-void trimReplyUnusedTailSpace(client *c) {
-    listNode *ln = listLast(c->reply);
-    clientReplyBlock *tail = ln? listNodeValue(ln): NULL;
-
-    /* Note that 'tail' may be NULL even if we have a tail node, becuase when
-     * addDeferredMultiBulkLength() is used */
-    if (!tail) return;
-
-    /* We only try to trim the space is relatively high (more than a 1/4 of the
-     * allocation), otherwise there's a high chance realloc will NOP.
-     * Also, to avoid large memmove which happens as part of realloc, we only do
-     * that if the used part is small.  */
-    if (tail->size - tail->used > tail->size / 4 &&
-        tail->used < PROTO_REPLY_CHUNK_BYTES)
-    {
-        size_t old_size = tail->size;
-        tail = zrealloc(tail, tail->used + sizeof(clientReplyBlock));
-        /* If realloc was a NOP, we got the same value which has internal frag */
-        if (tail == listNodeValue(ln)) return;
-        /* take over the allocation's internal fragmentation (at least for
-         * memory usage tracking) */
-        tail->size = zmalloc_usable(tail) - sizeof(clientReplyBlock);
-        c->reply_bytes += tail->size - old_size;
-        listNodeValue(ln) = tail;
-    }
-}
-
 /* Adds an empty object to the reply list that will contain the multi bulk
  * length, which is not known when this function is called. */
 void *addReplyDeferredLen(client *c) {
@@ -473,7 +443,6 @@ void *addReplyDeferredLen(client *c) {
      * ready to be sent, since we are sure that before returning to the
      * event loop setDeferredAggregateLen() will be called. */
     if (prepareClientToWrite(c) != C_OK) return NULL;
-    trimReplyUnusedTailSpace(c);
     listAddNodeTail(c->reply,NULL); /* NULL is our placeholder. */
     return listLast(c->reply);
 }
