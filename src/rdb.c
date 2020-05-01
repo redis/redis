@@ -2292,7 +2292,9 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                 serverLog(LL_WARNING,"RDB file was saved with checksum disabled: no check performed.");
             } else if (cksum != expected) {
                 serverLog(LL_WARNING,"Wrong RDB checksum expected: (%llx) but "
-                    "got (%llx). Aborting now.",expected,cksum);
+                    "got (%llx). Aborting now.",
+                        (unsigned long long)expected,
+                        (unsigned long long)cksum);
                 rdbExitReportCorruptRDB("RDB CRC error");
             }
         }
