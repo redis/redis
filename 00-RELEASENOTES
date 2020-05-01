@@ -12,6 +12,34 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 6.0.1     Released Sat May 02 00:06:07 CEST 2020
+================================================================================
+
+Upgrade urgency HIGH: This release fixes a crash when builiding against
+                      Libc malloc.
+
+Here we revert 8110ba888, an optimization that causes a crash due to a
+bug in the code. It does not happen with the default allocator because of
+differences between Jemalloc and libc malloc, so this escaped all our
+testing but was reported by a user. We'll add back the original optimization
+that was reverted here later, after checking what happens: it is not a
+critical optimization.
+
+The other commits are minor stuff:
+
+antirez in commit db73d0998:
+ Cast printf() argument to the format specifier.
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+antirez in commit 7c0fe7271:
+ Revert "optimize memory usage of deferred replies"
+ 1 file changed, 31 deletions(-)
+
+antirez in commit 8fe25edc7:
+ Save a call to stopThreadedIOIfNeeded() for the base case.
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+================================================================================
 Redis 6.0.0 GA  Released Thu Apr 30 14:55:02 CEST 2020
 ================================================================================
 
