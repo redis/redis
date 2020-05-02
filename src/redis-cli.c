@@ -3416,6 +3416,7 @@ static redisReply *clusterManagerMigrateKeysInReply(clusterManagerNode *source,
     size_t *argv_len = NULL;
     int c = (replace ? 8 : 7);
     if (config.auth) c += 2;
+    if (config.user) c += 1;
     size_t argc = c + reply->elements;
     size_t i, offset = 6; // Keys Offset
     argv = zcalloc(argc * sizeof(char *));
@@ -3442,12 +3443,24 @@ static redisReply *clusterManagerMigrateKeysInReply(clusterManagerNode *source,
         offset++;
     }
     if (config.auth) {
-        argv[offset] = "AUTH";
-        argv_len[offset] = 4;
-        offset++;
-        argv[offset] = config.auth;
-        argv_len[offset] = strlen(config.auth);
-        offset++;
+        if (config.user) {
+            argv[offset] = "AUTH2";
+            argv_len[offset] = 5;
+            offset++;
+            argv[offset] = config.user;
+            argv_len[offset] = strlen(config.user);
+            offset++;
+            argv[offset] = config.auth;
+            argv_len[offset] = strlen(config.auth);
+            offset++;
+        } else {
+            argv[offset] = "AUTH";
+            argv_len[offset] = 4;
+            offset++;
+            argv[offset] = config.auth;
+            argv_len[offset] = strlen(config.auth);
+            offset++;
+        }
     }
     argv[offset] = "KEYS";
     argv_len[offset] = 4;
