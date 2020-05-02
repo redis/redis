@@ -1689,6 +1689,7 @@ void trackingInvalidateKeysOnFlush(int dbid);
 void trackingLimitUsedSlots(void);
 uint64_t trackingGetTotalItems(void);
 uint64_t trackingGetTotalKeys(void);
+uint64_t trackingGetTotalPrefixes(void);
 void trackingBroadcastInvalidationMessages(void);
 
 /* List data type */

@@ -518,3 +518,8 @@ uint64_t trackingGetTotalKeys(void) {
     if (TrackingTable == NULL) return 0;
     return raxSize(TrackingTable);
 }
+
+uint64_t trackingGetTotalPrefixes(void) {
+    if (PrefixTable == NULL) return 0;
+    return raxSize(PrefixTable);
+}
