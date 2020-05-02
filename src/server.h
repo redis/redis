@@ -1433,6 +1433,11 @@ struct redisServer {
     int tls_replication;
     int tls_auth_clients;
     redisTLSContextConfig tls_ctx_config;
+    /* cpu affinity */
+    char *server_cpulist; /* cpu affinity list of redis server main/io thread. */
+    char *bio_cpulist; /* cpu affinity list of bio thread. */
+    char *aof_rewrite_cpulist; /* cpu affinity list of aof rewrite process. */
+    char *bgsave_cpulist; /* cpu affinity list of bgsave process. */
 };
 
 typedef struct pubsubPattern {
@@ -1585,6 +1590,7 @@ void exitFromChild(int retcode);
 size_t redisPopcount(void *s, long count);
 void redisSetProcTitle(char *title);
 int redisCommunicateSystemd(const char *sd_notify_msg);
+void redisSetCpuAffinity(const char *cpulist);
 
 /* networking.c -- Networking and Client related operations */
 client *createClient(connection *conn);
