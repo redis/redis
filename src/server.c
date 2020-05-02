@@ -1205,6 +1205,14 @@ uint64_t dictSdsHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, sdslen((char*)key));
 }
 
+uint64_t dictCacheHash(const void *key) {
+    if (key != server.cached_key) {
+        server.cached_key = (void*) key;
+        server.cached_hash = dictGenHashFunction((unsigned char*)key, sdslen((char*)key));
+    }
+    return server.cached_hash;
+}
+
 uint64_t dictSdsCaseHash(const void *key) {
     return dictGenCaseHashFunction((unsigned char*)key, sdslen((char*)key));
 }
@@ -1284,7 +1292,7 @@ dictType setDictType = {
 
 /* Sorted sets hash (note: a skiplist is used in addition to the hash table) */
 dictType zsetDictType = {
-    dictSdsHash,               /* hash function */
+    dictSdsHash,             /* hash function */
     NULL,                      /* key dup */
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
@@ -1294,7 +1302,7 @@ dictType zsetDictType = {
 
 /* Db->dict, keys are sds strings, vals are Redis objects. */
 dictType dbDictType = {
-    dictSdsHash,                /* hash function */
+    dictCacheHash,                /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
     dictSdsKeyCompare,          /* key compare */
@@ -1314,7 +1322,7 @@ dictType shaScriptObjectDictType = {
 
 /* Db->expires */
 dictType keyptrDictType = {
-    dictSdsHash,                /* hash function */
+    dictCacheHash,              /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
     dictSdsKeyCompare,          /* key compare */
@@ -2725,6 +2733,8 @@ void initServer(void) {
     server.get_ack_from_slaves = 0;
     server.clients_paused = 0;
     server.system_memory_size = zmalloc_get_memory_size();
+    server.cached_key = NULL;
+    server.cached_hash = 0;
 
     if (server.tls_port && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
         serverLog(LL_WARNING, "Failed to configure TLS. Check logs for more info.");

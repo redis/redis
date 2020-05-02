@@ -1431,6 +1431,9 @@ struct redisServer {
     int tls_replication;
     int tls_auth_clients;
     redisTLSContextConfig tls_ctx_config;
+    /* cache hash value */
+    void* cached_key;
+    uint64_t cached_hash;
 };
 
 typedef struct pubsubPattern {

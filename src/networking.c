@@ -1785,6 +1785,8 @@ void processInputBuffer(client *c) {
                 return;
             }
         }
+        /* clear cached hash */
+        server.cached_key = NULL;
     }
 
     /* Trim to pos */
