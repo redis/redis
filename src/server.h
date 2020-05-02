@@ -198,6 +198,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CMD_CATEGORY_CONNECTION (1ULL<<36)
 #define CMD_CATEGORY_TRANSACTION (1ULL<<37)
 #define CMD_CATEGORY_SCRIPTING (1ULL<<38)
+#define CMD_CATEGORY_REPLICATION (1ULL<<39)
 
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */

@@ -18,7 +18,8 @@ static char *commandGroups[] = {
     "hyperloglog",
     "cluster",
     "geo",
-    "stream"
+    "stream",
+    "replication"
 };
 
 struct commandHelp {

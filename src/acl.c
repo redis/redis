@@ -78,6 +78,7 @@ struct ACLCategoryItem {
     {"connection", CMD_CATEGORY_CONNECTION},
     {"transaction", CMD_CATEGORY_TRANSACTION},
     {"scripting", CMD_CATEGORY_SCRIPTING},
+    {"replication", CMD_CATEGORY_REPLICATION},
     {NULL,0} /* Terminator. */
 };
 
