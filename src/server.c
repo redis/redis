@@ -4850,6 +4850,14 @@ void redisSetProcTitle(char *title) {
 #endif
 }
 
+void redisSetCpuAffinity(const char *cpulist) {
+#ifdef USE_SETCPUAFFINITY
+    setcpuaffinity(cpulist);
+#else
+    UNUSED(cpulist);
+#endif
+}
+
 /*
  * Check whether systemd or upstart have been used to start redis.
  */
@@ -5118,6 +5126,7 @@ int main(int argc, char **argv) {
         serverLog(LL_WARNING,"WARNING: You specified a maxmemory value that is less than 1MB (current value is %llu bytes). Are you sure this is what you really want?", server.maxmemory);
     }
 
+    redisSetCpuAffinity(server.server_cpulist);
     aeSetBeforeSleepProc(server.el,beforeSleep);
     aeSetAfterSleepProc(server.el,afterSleep);
     aeMain(server.el);
