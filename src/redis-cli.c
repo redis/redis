@@ -3706,7 +3706,7 @@ static int clusterManagerFlushNodeConfig(clusterManagerNode *node, char **err) {
     if (node->replicate != NULL) {
         reply = CLUSTER_MANAGER_COMMAND(node, "CLUSTER REPLICATE %s",
                                         node->replicate);
-        if (reply == NULL || (is_err = (reply->type == REDIS_REPLY_ERROR))) {
+        if (reply != NULL && (is_err = (reply->type == REDIS_REPLY_ERROR))) {
             if (is_err && err != NULL) {
                 *err = zmalloc((reply->len + 1) * sizeof(char));
                 strcpy(*err, reply->str);
