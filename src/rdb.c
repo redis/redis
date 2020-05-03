@@ -1768,8 +1768,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, robj *key) {
                     rdbExitReportCorruptRDB(
                         "Error reading the consumer name from Stream group");
                 }
-                streamConsumer *consumer = streamLookupConsumer(cgroup,cname,
-                                           1);
+                streamConsumer *consumer =
+                    streamLookupConsumer(cgroup,cname,SLC_NONE);
                 sdsfree(cname);
                 consumer->seen_time = rdbLoadMillisecondTime(rdb,RDB_VERSION);
 
