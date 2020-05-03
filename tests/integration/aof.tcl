@@ -54,6 +54,12 @@ tags {"aof"} {
 
         set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
 
+        wait_for_condition 50 100 {
+            [catch {$client ping} e] == 0
+        } else {
+            fail "Loading DB is taking too much time."
+        }
+
         test "Truncated AOF loaded: we expect foo to be equal to 5" {
             assert {[$client get foo] eq "5"}
         }
@@ -70,6 +76,12 @@ tags {"aof"} {
         }
 
         set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+
+        wait_for_condition 50 100 {
+            [catch {$client ping} e] == 0
+        } else {
+            fail "Loading DB is taking too much time."
+        }
 
         test "Truncated AOF loaded: we expect foo to be equal to 6 now" {
             assert {[$client get foo] eq "6"}
