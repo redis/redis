@@ -452,7 +452,7 @@ void handleClientsBlockedOnKeys(void) {
                             if (group) {
                                 consumer = streamLookupConsumer(group,
                                            receiver->bpop.xread_consumer->ptr,
-                                           1);
+                                           SLC_NONE);
                                 noack = receiver->bpop.xread_group_noack;
                             }
 
