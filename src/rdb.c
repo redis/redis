@@ -1823,8 +1823,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                     decrRefCount(o);
                     return NULL;
                 }
-                streamConsumer *consumer = streamLookupConsumer(cgroup,cname,
-                                           1);
+                streamConsumer *consumer =
+                    streamLookupConsumer(cgroup,cname,SLC_NONE);
                 sdsfree(cname);
                 consumer->seen_time = rdbLoadMillisecondTime(rdb,RDB_VERSION);
                 if (rioGetReadError(rdb)) {
