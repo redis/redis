@@ -244,4 +244,10 @@ int pthread_setname_np(const char *name);
 #endif
 #endif
 
+/* Check if we can use setcpuaffinity(). */
+#if (defined __linux || defined __NetBSD__ || defined __FreeBSD__ || defined __OpenBSD__)
+#define USE_SETCPUAFFINITY
+void setcpuaffinity(const char *cpulist);
+#endif
+
 #endif

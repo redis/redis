@@ -166,6 +166,8 @@ void *bioProcessBackgroundJobs(void *arg) {
         break;
     }
 
+    redisSetCpuAffinity(server.bio_cpulist);
+
     /* Make the thread killable at any time, so that bioKillThreads()
      * can work reliably. */
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
