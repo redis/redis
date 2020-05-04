@@ -4281,6 +4281,7 @@ sds genRedisInfoString(const char *section) {
             "active_defrag_key_misses:%lld\r\n"
             "tracking_total_keys:%lld\r\n"
             "tracking_total_items:%lld\r\n"
+            "tracking_total_prefixes:%lld\r\n"
             "unexpected_error_replies:%lld\r\n",
             server.stat_numconnections,
             server.stat_numcommands,
@@ -4311,6 +4312,7 @@ sds genRedisInfoString(const char *section) {
             server.stat_active_defrag_key_misses,
             (unsigned long long) trackingGetTotalKeys(),
             (unsigned long long) trackingGetTotalItems(),
+            (unsigned long long) trackingGetTotalPrefixes(),
             server.stat_unexpected_error_replies);
     }
 
