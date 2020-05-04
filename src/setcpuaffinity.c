@@ -1,5 +1,5 @@
 /* ==========================================================================
- * setproctitle.c - Linux/BSD setcpuaffinity.
+ * setcpuaffinity.c - Linux/BSD setcpuaffinity.
  * --------------------------------------------------------------------------
  * Copyright (C) 2020  zhenwei pi
  *
