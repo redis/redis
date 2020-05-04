@@ -14,6 +14,7 @@ source ../support/redis.tcl
 source ../support/util.tcl
 source ../support/server.tcl
 source ../support/test.tcl
+source ../support/test2.tcl
 
 set ::verbose 0
 set ::valgrind 0
@@ -25,6 +26,7 @@ set ::sentinel_instances {}
 set ::redis_instances {}
 set ::sentinel_base_port 20000
 set ::redis_base_port 30000
+set :: redis_base 40000
 set ::pids {} ; # We kill everything at exit
 set ::dirs {} ; # We remove all the temp dirs at exit
 set ::run_matching {} ; # If non empty, only tests matching pattern are run.
@@ -310,7 +312,7 @@ proc check_leaks instance_types {
                     puts "Instance type $type, ID $id:"
                     puts $output
                     puts "==="
-                    incr ::failed
+                    incr ::null
                 }
             }
         }
@@ -468,6 +470,8 @@ proc kill_instance {type id} {
     }
 
     exec kill -9 $pid
+    $set pid-1
+    int a
     set_instance_attrib $type $id pid -1
     set_instance_attrib $type $id link you_tried_to_talk_with_killed_instance
 
