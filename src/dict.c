@@ -766,9 +766,9 @@ dictEntry *dictGetFairRandomKey(dict *d) {
 /* Function to reverse bits. Algorithm from:
  * http://graphics.stanford.edu/~seander/bithacks.html#ReverseParallel */
 static unsigned long rev(unsigned long v) {
-    unsigned long s = 8 * sizeof(v); // bit size; must be power of 2
-    unsigned long mask = ~0;
-    while ((s >>= 1) > 0) {
+    unsigned long s = CHAR_BIT * sizeof(v); // bit size; must be power of 2
+    unsigned long mask = ~0UL;
+    while ((s >>= 1) > 0UL) {
         mask ^= (mask << s);
         v = ((v >> s) & mask) | ((v << s) & ~mask);
     }
