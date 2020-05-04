@@ -41,10 +41,6 @@
 
 #ifdef HAVE_DEFRAG
 
-/* this method was added to jemalloc in order to help us understand which
- * pointers are worthwhile moving and which aren't */
-int je_get_defrag_hint(void* ptr, int *bin_util, int *run_util);
-
 /* forward declarations*/
 void defragDictBucketCallback(void *privdata, dictEntry **bucketref);
 dictEntry* replaceSateliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, sds newkey, uint64_t hash, long *defragged);
