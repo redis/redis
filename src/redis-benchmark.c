@@ -94,6 +94,7 @@ static struct config {
     sds dbnumstr;
     char *tests;
     char *auth;
+    const char *user;
     int precision;
     int num_threads;
     struct benchmarkThread **threads;
@@ -258,7 +259,10 @@ static redisConfig *getRedisConfig(const char *ip, int port,
 
     if(config.auth) {
         void *authReply = NULL;
-        redisAppendCommand(c, "AUTH %s", config.auth);
+        if (config.user == NULL)
+            redisAppendCommand(c, "AUTH %s", config.auth);
+        else
+            redisAppendCommand(c, "AUTH %s %s", config.user, config.auth);
         if (REDIS_OK != redisGetReply(c, &authReply)) goto fail;
         if (reply) freeReplyObject(reply);
         reply = ((redisReply *) authReply);
@@ -628,7 +632,12 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
     c->prefix_pending = 0;
     if (config.auth) {
         char *buf = NULL;
-        int len = redisFormatCommand(&buf, "AUTH %s", config.auth);
+        int len;
+        if (config.user == NULL)
+            len = redisFormatCommand(&buf, "AUTH %s", config.auth);
+        else
+            len = redisFormatCommand(&buf, "AUTH %s %s",
+                                     config.user, config.auth);
         c->obuf = sdscatlen(c->obuf, buf, len);
         free(buf);
         c->prefix_pending++;
@@ -1299,6 +1308,9 @@ int parseOptions(int argc, const char **argv) {
         } else if (!strcmp(argv[i],"-a") ) {
             if (lastarg) goto invalid;
             config.auth = strdup(argv[++i]);
+        } else if (!strcmp(argv[i],"--user")) {
+            if (lastarg) goto invalid;
+            config.user = argv[++i];
         } else if (!strcmp(argv[i],"-d")) {
             if (lastarg) goto invalid;
             config.datasize = atoi(argv[++i]);
@@ -1385,6 +1397,7 @@ usage:
 " -p <port>          Server port (default 6379)\n"
 " -s <socket>        Server socket (overrides host and port)\n"
 " -a <password>      Password for Redis Auth\n"
+" --user <username>  Used to send ACL style 'AUTH username pass'. Needs -a.\n"
 " -c <clients>       Number of parallel connections (default 50)\n"
 " -n <requests>      Total number of requests (default 100000)\n"
 " -d <size>          Data size of SET/GET value in bytes (default 3)\n"
