@@ -29,6 +29,7 @@
 #include "crc64.h"
 #include "crcspeed.h"
 static uint64_t crc64_table[8][256] = {{0}};
+static int crc64_table_initialized = 0;
 
 #define POLY UINT64_C(0xad93d23594c935a9)
 /******************** BEGIN GENERATED PYCRC FUNCTIONS ********************/
@@ -115,10 +116,12 @@ uint64_t _crc64(uint_fast64_t crc, const void *in_data, const uint64_t len) {
 /* Initializes the 16KB lookup tables. */
 void crc64_init(void) {
     crcspeed64native_init(_crc64, crc64_table);
+    crc64_table_initialized = 1;
 }
 
 /* Compute crc64 */
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l) {
+    if (!crc64_table_initialized) crc64_init();
     return crcspeed64native(crc64_table, crc, (void *) s, l);
 }
 
