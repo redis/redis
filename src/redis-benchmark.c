@@ -275,7 +275,7 @@ static redisConfig *getRedisConfig(const char *ip, int port,
     for (; i < 2; i++) {
         int res = redisGetReply(c, &r);
         if (reply) freeReplyObject(reply);
-        reply = ((redisReply *) r);
+        reply = res == REDIS_OK ? ((redisReply *) r) : NULL;
         if (res != REDIS_OK || !r) goto fail;
         if (reply->type == REDIS_REPLY_ERROR) {
             fprintf(stderr, "ERROR: %s\n", reply->str);
