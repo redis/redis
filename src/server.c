@@ -2899,7 +2899,6 @@ void initServer(void) {
     scriptingInit(1);
     slowlogInit();
     latencyMonitorInit();
-    crc64_init();
 }
 
 /* Some steps in server initialization need to be done last (after modules
@@ -4963,6 +4962,7 @@ int main(int argc, char **argv) {
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
     srand(time(NULL)^getpid());
     gettimeofday(&tv,NULL);
+    crc64_init();
 
     uint8_t hashseed[16];
     getRandomBytes(hashseed,sizeof(hashseed));
