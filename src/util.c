@@ -67,8 +67,6 @@ int stringmatchlen(const char *pattern, int patternLen,
             return 0; /* no match */
             break;
         case '?':
-            if (stringLen == 0)
-                return 0; /* no match */
             string++;
             stringLen--;
             break;
