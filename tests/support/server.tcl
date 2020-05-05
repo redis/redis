@@ -17,9 +17,14 @@ proc check_valgrind_errors stderr {
     set buf [read $fd]
     close $fd
 
+    # look for stack trace and other errors
     if {[regexp -- { at 0x} $buf] ||
-        (![regexp -- {definitely lost: 0 bytes} $buf] &&
-         ![regexp -- {no leaks are possible} $buf])} {
+        [regexp -- {Warning} $buf] ||
+        [regexp -- {Invalid} $buf] ||
+        [regexp -- {Mismatched} $buf] ||
+        [regexp -- {uninitialized} $buf] ||
+        [regexp -- {has a fishy} $buf] ||
+        [regexp -- {overlap} $buf]} {
         send_data_packet $::test_server_fd err "Valgrind error: $buf\n"
     }
 }
