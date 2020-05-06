@@ -1009,6 +1009,18 @@ static int fetchClusterConfiguration() {
     clusterNode *firstNode = createClusterNode((char *) config.hostip,
                                                config.hostport);
     if (!firstNode) {success = 0; goto cleanup;}
+
+    /* Maybe we need to authenticate */
+    if (config.auth) {
+        if (config.user == NULL)
+            reply = redisCommand(ctx, "AUTH %s", config.auth);
+        else
+            reply = redisCommand(ctx, "AUTH %s %s", config.user, config.auth);
+        success = (reply != NULL);
+        if (!success) goto cleanup;
+	freeReplyObject(reply);
+    }
+
     reply = redisCommand(ctx, "CLUSTER NODES");
     success = (reply != NULL);
     if (!success) goto cleanup;
