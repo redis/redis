@@ -51,7 +51,7 @@ int stringmatchlen(const char *pattern, int patternLen,
     while(patternLen && stringLen) {
         switch(pattern[0]) {
         case '*':
-            while (pattern[1] == '*') {
+            while (patternLen && pattern[1] == '*') {
                 pattern++;
                 patternLen--;
             }
@@ -94,7 +94,7 @@ int stringmatchlen(const char *pattern, int patternLen,
                     pattern--;
                     patternLen++;
                     break;
-                } else if (pattern[1] == '-' && patternLen >= 3) {
+                } else if (patternLen >= 3 && pattern[1] == '-') {
                     int start = pattern[0];
                     int end = pattern[2];
                     int c = string[0];
