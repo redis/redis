@@ -1018,7 +1018,7 @@ static int fetchClusterConfiguration() {
             reply = redisCommand(ctx, "AUTH %s %s", config.user, config.auth);
         success = (reply != NULL);
         if (!success) goto cleanup;
-	freeReplyObject(reply);
+        freeReplyObject(reply);
     }
 
     reply = redisCommand(ctx, "CLUSTER NODES");
