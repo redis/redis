@@ -4899,6 +4899,7 @@ int redisIsSupervised(int mode) {
         const char *notify_socket = getenv("NOTIFY_SOCKET");
 
         if (upstart_job) {
+            server.supervised_mode = SUPERVISED_UPSTART;
             redisSupervisedUpstart();
         } else if (notify_socket) {
             server.supervised_mode = SUPERVISED_SYSTEMD;
