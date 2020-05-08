@@ -3564,15 +3564,17 @@ void clusterCron(void) {
         /* If we are not receiving any data for more than half the cluster
          * timeout, reconnect the link: maybe there is a connection
          * issue even if the node is alive. */
+        mstime_t ping_delay = now - node->ping_sent;
+        mstime_t data_delay = now - node->data_received;
         if (node->link && /* is connected */
             now - node->link->ctime >
             server.cluster_node_timeout && /* was not already reconnected */
             node->ping_sent && /* we already sent a ping */
             node->pong_received < node->ping_sent && /* still waiting pong */
             /* and we are waiting for the pong more than timeout/2 */
-            now - node->ping_sent > server.cluster_node_timeout/2 &&
+            ping_delay > server.cluster_node_timeout/2 &&
             /* and in such interval we are not seeing any traffic at all. */
-            now - node->data_received > server.cluster_node_timeout/2)
+            data_delay > server.cluster_node_timeout/2)
         {
             /* Disconnect the link, it will be reconnected automatically. */
             freeClusterLink(node->link);
@@ -3604,18 +3606,18 @@ void clusterCron(void) {
         /* Check only if we have an active ping for this instance. */
         if (node->ping_sent == 0) continue;
 
-        /* Compute the delay of the PONG. Note that if we already received
-         * the PONG, then node->ping_sent is zero, so can't reach this
-         * code at all. */
-        mstime_t delay = now - node->ping_sent;
-
-        /* We consider every incoming data as proof of liveness, since
+        /* Check if this node looks unreachable.
+         * Note that if we already received the PONG, then node->ping_sent
+         * is zero, so can't reach this code at all, so we don't risk of
+         * checking for a PONG delay if we didn't sent the PING.
+         *
+         * We also consider every incoming data as proof of liveness, since
          * our cluster bus link is also used for data: under heavy data
          * load pong delays are possible. */
-        mstime_t data_delay = now - node->data_received;
-        if (data_delay < delay) delay = data_delay;
+        mstime_t node_delay = (ping_delay < data_delay) ? ping_delay :
+                                                          data_delay;
 
-        if (delay > server.cluster_node_timeout) {
+        if (node_delay > server.cluster_node_timeout) {
             /* Timeout reached. Set the node as possibly failing if it is
              * not already in this state. */
             if (!(node->flags & (CLUSTER_NODE_PFAIL|CLUSTER_NODE_FAIL))) {
