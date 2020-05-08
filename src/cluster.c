@@ -1382,6 +1382,13 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
     clusterMsgDataGossip *g = (clusterMsgDataGossip*) hdr->data.ping.gossip;
     clusterNode *sender = link->node ? link->node : clusterLookupNode(hdr->sender);
 
+    // Consider PING packet from the sender as proof of liveness similarly to the receival of
+    // PONG reply.
+    if (sender && sender->ping_sent) {
+        sender->ping_sent = 0;
+        sender->pong_received = mstime();
+    }
+
     while(count--) {
         uint16_t flags = ntohs(g->flags);
         clusterNode *node;
