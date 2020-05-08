@@ -262,6 +262,26 @@ start_server {tags {"hash"}} {
         list [r hincrby htest foo 2]
     } {2}
 
+    test {HINCRBY against non existing database key, multi, ret kv} {
+        r del htest
+        list [r hincrby htest foo 2 boo 3 kv]
+    } {{foo 2 boo 3}}
+
+    test {HINCRBY against non existing database key, multi, ret default=kv} {
+        r del htest
+        list [r hincrby htest foo 2 boo 3]
+    } {{foo 2 boo 3}}
+
+	test {HINCRBY against non existing database key, multi, ret v} {
+        r del htest
+        list [r hincrby htest foo 2 boo 3 v]
+    } {{2 3}}
+
+	test {HINCRBY against non existing database key, multi, ret cnt} {
+        r del htest
+        list [r hincrby htest foo 2 boo 3 cnt]
+    } {2}
+
     test {HINCRBY against non existing hash key} {
         set rv {}
         r hdel smallhash tmp
@@ -272,6 +292,17 @@ start_server {tags {"hash"}} {
         lappend rv [r hget bighash tmp]
     } {2 2 2 2}
 
+    test {HINCRBY against non existing hash key, multi, ret kv} {
+        set rv {}
+        r hdel smallhash tmp tmp2
+        r hdel bighash tmp rst
+        lappend rv [r hincrby smallhash tmp 2 tmp2 3 kv]
+        lappend rv [r hget smallhash tmp2]
+        lappend rv [r hget smallhash tmp]
+        lappend rv [r hincrby bighash tmp 2 rst 1 kv]
+        lappend rv [r hget bighash rst]
+    } {{tmp 2 tmp2 3} 3 2 {tmp 2 rst 1} 1}
+
     test {HINCRBY against hash key created by hincrby itself} {
         set rv {}
         lappend rv [r hincrby smallhash tmp 3]
@@ -279,6 +310,14 @@ start_server {tags {"hash"}} {
         lappend rv [r hincrby bighash tmp 3]
         lappend rv [r hget bighash tmp]
     } {5 5 5 5}
+
+	test {HINCRBY against hash key created by hincrby itself, multi, ret kv} {
+        set rv {}
+        lappend rv [r hincrby smallhash tmp2 2 kv]
+        lappend rv [r hget smallhash tmp2]
+        lappend rv [r hincrby bighash tmp 3 rst 2 kv]
+        lappend rv [r hget bighash tmp]
+    } {{tmp2 5} 5 {tmp 8 rst 3} 8}
 
     test {HINCRBY against hash key originally set with HSET} {
         r hset smallhash tmp 100

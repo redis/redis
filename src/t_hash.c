@@ -30,6 +30,15 @@
 #include "server.h"
 #include <math.h>
 
+#ifdef _WIN32
+    #include <string.h>
+    #ifndef strcasecmp
+        #define strncasecmp _strnicmp
+    #endif
+#else
+    #include <strings.h>
+#endif
+
 /*-----------------------------------------------------------------------------
  * Hash type API
  *----------------------------------------------------------------------------*/
@@ -556,36 +565,128 @@ void hsetCommand(client *c) {
     server.dirty++;
 }
 
+static void addHashFieldToReply(client *c, robj *o, sds field, int bAddField) {
+    int ret;
+
+    if (o == NULL) {
+        addReplyNull(c);
+        return;
+    }
+
+    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+        unsigned char *vstr = NULL;
+        unsigned int vlen = UINT_MAX;
+        long long vll = LLONG_MAX;
+
+        if (bAddField)
+            addReplyBulkCBuffer(c, field, sdslen(field));
+        ret = hashTypeGetFromZiplist(o, field, &vstr, &vlen, &vll);
+        if (ret < 0) {
+            addReplyNull(c);
+        } else {
+            if (vstr) {
+                addReplyBulkCBuffer(c, vstr, vlen);
+            } else {
+                addReplyBulkLongLong(c, vll);
+            }
+        }
+
+    } else if (o->encoding == OBJ_ENCODING_HT) {
+        if (bAddField)
+            addReplyBulkCBuffer(c, field, sdslen(field));
+        sds value = hashTypeGetFromHashTable(o, field);
+        if (value == NULL)
+            addReplyNull(c);
+        else
+            addReplyBulkCBuffer(c, value, sdslen(value));
+    } else {
+        serverPanic("Unknown hash encoding");
+    }
+}
+
 void hincrbyCommand(client *c) {
-    long long value, incr, oldvalue;
+    long long value, incr;
     robj *o;
     sds new;
     unsigned char *vstr;
     unsigned int vlen;
+    int i, retType, argsCnt;
 
-    if (getLongLongFromObjectOrReply(c,c->argv[3],&incr,NULL) != C_OK) return;
-    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
-    if (hashTypeGetValue(o,c->argv[2]->ptr,&vstr,&vlen,&value) == C_OK) {
-        if (vstr) {
-            if (string2ll((char*)vstr,vlen,&value) == 0) {
-                addReplyError(c,"hash value is not an integer");
-                return;
-            }
-        } /* Else hashTypeGetValue() already stored it into &value */
-    } else {
-        value = 0;
-    }
-
-    oldvalue = value;
-    if ((incr < 0 && oldvalue < 0 && incr < (LLONG_MIN-oldvalue)) ||
-        (incr > 0 && oldvalue > 0 && incr > (LLONG_MAX-oldvalue))) {
-        addReplyError(c,"increment or decrement would overflow");
+    argsCnt = c->argc;
+    if (argsCnt < 4) {
+        addReplyError(c,"wrong number of arguments for HINCRBY");
         return;
     }
-    value += incr;
-    new = sdsfromlonglong(value);
-    hashTypeSet(o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE);
-    addReplyLongLong(c,value);
+
+    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
+    hashTypeTryConversion(o,c->argv,2,argsCnt-1);
+
+    retType = (argsCnt == 4 ? 0 : 3); /* 0 - single value, 1 - amount of changed elements, 2 - array of values, 3 - array of keys,values */
+    if ((argsCnt % 2) == 1) { /* Uses custom return type */
+        vstr = c->argv[argsCnt-1]->ptr;
+        if (!strcasecmp((char*)vstr, "SV"))
+            retType = 0;
+        else if (!strcasecmp((char*)vstr, "CNT"))
+            retType = 1;
+        else if (!strcasecmp((char*)vstr, "V"))
+            retType = 2;
+        else if (!strcasecmp((char*)vstr, "KV"))
+            retType = 3;
+        else {
+            addReplyError(c,"invalid ret_type argument for HINCRBY");
+            return;
+        }
+        argsCnt --;
+    }
+
+    for (i = 2; i < argsCnt; i += 2) /* Validate arguments */
+    {
+        if (getLongLongFromObjectOrReply(c,c->argv[i+1],&incr,NULL) != C_OK) return;
+        if (hashTypeGetValue(o,c->argv[i]->ptr,&vstr,&vlen,&value) == C_OK) {
+            if (vstr) {
+                if (string2ll((char*)vstr,vlen,&value) == 0) {
+                    addReplyError(c,"hash value is not an integer");
+                    return;
+                }
+            } /* Else hashTypeGetValue() already stored it into &value */
+        } else {
+            value = 0;
+        }
+        if ((incr < 0 && value < 0 && incr < (LLONG_MIN-value)) ||
+            (incr > 0 && value > 0 && incr > (LLONG_MAX-value))) {
+            addReplyError(c,"increment or decrement would overflow");
+            return;
+        }
+    }
+
+    /* Initialize reply array meta if array shall be returned */
+    if (retType == 2)
+        addReplyArrayLen(c, (argsCnt-2)/2);
+    if (retType == 3)
+        addReplyArrayLen(c, argsCnt-2);
+
+    for (i = 2; i < argsCnt; i += 2)
+    {
+        getLongLongFromObjectOrReply(c,c->argv[i+1],&incr,NULL);
+        if (hashTypeGetValue(o,c->argv[i]->ptr,&vstr,&vlen,&value) == C_OK) {
+            if (vstr)
+                string2ll((char*)vstr,vlen,&value);
+        } else {
+            value = 0;
+        }
+
+        value += incr;
+        new = sdsfromlonglong(value);
+        hashTypeSet(o,c->argv[i]->ptr,new,HASH_SET_TAKE_VALUE);
+        if (!retType && i == 2)
+            addReplyLongLong(c,value);
+        else if (retType >= 2)
+            addHashFieldToReply(c, o, c->argv[i]->ptr, retType-2);
+    }
+
+    if (retType == 1)
+        addReplyLongLong(c,(argsCnt-2)/2);
+
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrby",c->argv[1],c->db->id);
     server.dirty++;
@@ -641,48 +742,13 @@ void hincrbyfloatCommand(client *c) {
     decrRefCount(newobj);
 }
 
-static void addHashFieldToReply(client *c, robj *o, sds field) {
-    int ret;
-
-    if (o == NULL) {
-        addReplyNull(c);
-        return;
-    }
-
-    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-        unsigned char *vstr = NULL;
-        unsigned int vlen = UINT_MAX;
-        long long vll = LLONG_MAX;
-
-        ret = hashTypeGetFromZiplist(o, field, &vstr, &vlen, &vll);
-        if (ret < 0) {
-            addReplyNull(c);
-        } else {
-            if (vstr) {
-                addReplyBulkCBuffer(c, vstr, vlen);
-            } else {
-                addReplyBulkLongLong(c, vll);
-            }
-        }
-
-    } else if (o->encoding == OBJ_ENCODING_HT) {
-        sds value = hashTypeGetFromHashTable(o, field);
-        if (value == NULL)
-            addReplyNull(c);
-        else
-            addReplyBulkCBuffer(c, value, sdslen(value));
-    } else {
-        serverPanic("Unknown hash encoding");
-    }
-}
-
 void hgetCommand(client *c) {
     robj *o;
 
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
 
-    addHashFieldToReply(c, o, c->argv[2]->ptr);
+    addHashFieldToReply(c, o, c->argv[2]->ptr, 0);
 }
 
 void hmgetCommand(client *c) {
@@ -699,7 +765,7 @@ void hmgetCommand(client *c) {
 
     addReplyArrayLen(c, c->argc-2);
     for (i = 2; i < c->argc; i++) {
-        addHashFieldToReply(c, o, c->argv[i]->ptr);
+        addHashFieldToReply(c, o, c->argv[i]->ptr, 0);
     }
 }
 
