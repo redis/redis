@@ -1741,7 +1741,9 @@ int clusterProcessPacket(clusterLink *link) {
         if (totlen != explen) return 1;
     }
 
-    /* Check if the sender is a known node. */
+    /* Check if the sender is a known node. Note that for incoming connections
+     * we don't store link->node information, but resolve the node by the
+     * ID in the header each time in the current implementation. */
     sender = clusterLookupNode(hdr->sender);
 
     /* Update the last time we saw any data from this node. We
