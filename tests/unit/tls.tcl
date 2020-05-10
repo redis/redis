@@ -25,26 +25,6 @@ start_server {tags {"tls"}} {
         }
 
         test {TLS: Verify tls-protocols behaves as expected} {
-            r CONFIG SET tls-protocols TLSv1
-
-            set s [redis [srv 0 host] [srv 0 port] 0 1 {-tls1 0}]
-            catch {$s PING} e
-            assert_match {*I/O error*} $e
-
-            set s [redis [srv 0 host] [srv 0 port] 0 1 {-tls1 1}]
-            catch {$s PING} e
-            assert_match {PONG} $e
-
-            r CONFIG SET tls-protocols TLSv1.1
-
-            set s [redis [srv 0 host] [srv 0 port] 0 1 {-tls1.1 0}]
-            catch {$s PING} e
-            assert_match {*I/O error*} $e
-
-            set s [redis [srv 0 host] [srv 0 port] 0 1 {-tls1.1 1}]
-            catch {$s PING} e
-            assert_match {PONG} $e
-
             r CONFIG SET tls-protocols TLSv1.2
 
             set s [redis [srv 0 host] [srv 0 port] 0 1 {-tls1.2 0}]
