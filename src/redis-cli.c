@@ -259,8 +259,8 @@ char *redisGitSHA1(void);
 char *redisGitDirty(void);
 static int cliConnect(int force);
 
-static char *getInfoField(char *info, char *field);
-static long getLongInfoField(char *info, char *field);
+static char *getInfoField(char *info, const char *field);
+static long getLongInfoField(char *info, const char *field);
 
 /*------------------------------------------------------------------------------
  * Utility functions
@@ -312,7 +312,7 @@ static void cliRefreshPrompt(void) {
  * The function returns NULL (if the file is /dev/null or cannot be
  * obtained for some error), or an SDS string that must be freed by
  * the user. */
-static sds getDotfilePath(char *envoverride, char *dotfilename) {
+static sds getDotfilePath(const char *envoverride, const char *dotfilename) {
     char *path = NULL;
     sds dotPath = NULL;
 
@@ -559,17 +559,18 @@ static void cliIntegrateHelp(void) {
         sdstoupper(new->argv[0]);
 
         struct commandHelp *ch = zmalloc(sizeof(*ch));
-        ch->name = new->argv[0];
-        ch->params = sdsempty();
+        ch->name = new->argv[0];        
+        sds sds_params = sdsempty();
         int args = llabs(entry->element[1]->integer);
         args--; /* Remove the command name itself. */
         if (entry->element[3]->integer == 1) {
-            ch->params = sdscat(ch->params,"key ");
+            sds_params = sdscat(sds_params,"key ");
             args--;
         }
-        while(args-- > 0) ch->params = sdscat(ch->params,"arg ");
+        while(args-- > 0) sds_params = sdscat(sds_params,"arg ");
         if (entry->element[1]->integer < 0)
-            ch->params = sdscat(ch->params,"...options...");
+            sds_params = sdscat(sds_params,"...options...");
+        ch->params = sds_params;
         ch->summary = "Help not available";
         ch->group = 0;
         ch->since = "not known";
@@ -916,7 +917,7 @@ static void cliPrintContextError(void) {
     fprintf(stderr,"Error: %s\n",context->errstr);
 }
 
-static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
+static sds cliFormatReplyTTY(redisReply *r, const char *prefix) {
     sds out = sdsempty();
     switch (r->type) {
     case REDIS_REPLY_ERROR:
@@ -1797,7 +1798,7 @@ static void usage(void) {
     exit(1);
 }
 
-static int confirmWithYes(char *msg) {
+static int confirmWithYes(const char *msg) {
     printf("%s (type 'yes' to accept): ", msg);
     fflush(stdout);
     char buf[4];
@@ -2280,11 +2281,11 @@ static int clusterManagerCommandHelp(int argc, char **argv);
 static int clusterManagerCommandBackup(int argc, char **argv);
 
 typedef struct clusterManagerCommandDef {
-    char *name;
+    const char *name;
     clusterManagerCommandProc *proc;
     int arity;
-    char *args;
-    char *options;
+    const char *args;
+    const char *options;
 } clusterManagerCommandDef;
 
 clusterManagerCommandDef clusterManagerCommands[] = {
@@ -2867,7 +2868,7 @@ static void clusterManagerOptimizeAntiAffinity(clusterManagerNodeArray *ipnodes,
         maxiter--;
     }
     score = clusterManagerGetAntiAffinityScore(ipnodes, ip_count, NULL, NULL);
-    char *msg;
+    const char *msg;
     int perfect = (score == 0);
     int log_level = (perfect ? CLUSTER_MANAGER_LOG_LVL_SUCCESS :
                                CLUSTER_MANAGER_LOG_LVL_WARN);
@@ -7184,7 +7185,7 @@ static int getDbSize(void) {
 }
 
 typedef struct {
-    const char *name;
+    sds name;
     const char *sizecmd;
     const char *sizeunit;
     unsigned long long biggest;
@@ -7201,7 +7202,7 @@ const typeinfo type_zset = { "zset", "ZCARD", "members" };
 const typeinfo type_stream = { "stream", "XLEN", "entries" };
 const typeinfo type_other = { "other", NULL, "?" };
 
-static typeinfo* typeinfo_add(dict *types, const char* name, typeinfo* type_template) {
+static typeinfo* typeinfo_add(dict *types, const char* name, const typeinfo* type_template) {
     typeinfo *info = zmalloc(sizeof(typeinfo));
     *info = *type_template;
     info->name = sdsnew(name);
@@ -7584,7 +7585,7 @@ static void findHotKeys(void) {
 /* Return the specified INFO field from the INFO command output "info".
  * A new buffer is allocated for the result, that needs to be free'd.
  * If the field is not found NULL is returned. */
-static char *getInfoField(char *info, char *field) {
+static char *getInfoField(char *info, const char *field) {
     char *p = strstr(info,field);
     char *n1, *n2;
     char *result;
@@ -7602,7 +7603,7 @@ static char *getInfoField(char *info, char *field) {
 
 /* Like the above function but automatically convert the result into
  * a long. On error (missing field) LONG_MIN is returned. */
-static long getLongInfoField(char *info, char *field) {
+static long getLongInfoField(char *info, const char *field) {
     char *value = getInfoField(info,field);
     long l;
 
