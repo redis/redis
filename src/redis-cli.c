@@ -7184,24 +7184,24 @@ static int getDbSize(void) {
 }
 
 typedef struct {
-    char *name;
-    char *sizecmd;
-    char *sizeunit;
+    const char *name;
+    const char *sizecmd;
+    const char *sizeunit;
     unsigned long long biggest;
     unsigned long long count;
     unsigned long long totalsize;
     sds biggest_key;
 } typeinfo;
 
-typeinfo type_string = { "string", "STRLEN", "bytes" };
-typeinfo type_list = { "list", "LLEN", "items" };
-typeinfo type_set = { "set", "SCARD", "members" };
-typeinfo type_hash = { "hash", "HLEN", "fields" };
-typeinfo type_zset = { "zset", "ZCARD", "members" };
-typeinfo type_stream = { "stream", "XLEN", "entries" };
-typeinfo type_other = { "other", NULL, "?" };
+const typeinfo type_string = { "string", "STRLEN", "bytes" };
+const typeinfo type_list = { "list", "LLEN", "items" };
+const typeinfo type_set = { "set", "SCARD", "members" };
+const typeinfo type_hash = { "hash", "HLEN", "fields" };
+const typeinfo type_zset = { "zset", "ZCARD", "members" };
+const typeinfo type_stream = { "stream", "XLEN", "entries" };
+const typeinfo type_other = { "other", NULL, "?" };
 
-static typeinfo* typeinfo_add(dict *types, char* name, typeinfo* type_template) {
+static typeinfo* typeinfo_add(dict *types, const char* name, typeinfo* type_template) {
     typeinfo *info = zmalloc(sizeof(typeinfo));
     *info = *type_template;
     info->name = sdsnew(name);
