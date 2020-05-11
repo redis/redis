@@ -1804,6 +1804,7 @@ error:
  */
 #define SYNC_CMD_READ (1<<0)
 #define SYNC_CMD_WRITE (1<<1)
+#define SYNC_CMD_WRITE_SDS (1<<2)
 #define SYNC_CMD_FULL (SYNC_CMD_READ|SYNC_CMD_WRITE)
 char *sendSynchronousCommand(int flags, connection *conn, ...) {
 
@@ -1821,8 +1822,13 @@ char *sendSynchronousCommand(int flags, connection *conn, ...) {
         while(1) {
             arg = va_arg(ap, char*);
             if (arg == NULL) break;
-
-            cmdargs = sdscatprintf(cmdargs,"$%zu\r\n%s\r\n",strlen(arg),arg);
+            if (flags & SYNC_CMD_WRITE_SDS) {
+                cmdargs = sdscatprintf(cmdargs,"$%zu\r\n", sdslen((sds)arg));
+                cmdargs = sdscatsds(cmdargs, (sds)arg);
+                cmdargs = sdscat(cmdargs, "\r\n");
+            } else {
+                cmdargs = sdscatprintf(cmdargs,"$%zu\r\n%s\r\n",strlen(arg),arg);
+            }
             argslen++;
         }
 
@@ -2135,13 +2141,20 @@ void syncWithMaster(connection *conn) {
     /* AUTH with the master if required. */
     if (server.repl_state == REPL_STATE_SEND_AUTH) {
         if (server.masteruser && server.masterauth) {
-            err = sendSynchronousCommand(SYNC_CMD_WRITE,conn,"AUTH",
-                                         server.masteruser,server.masterauth,NULL);
+            sds masteruser = sdsnew(server.masteruser);
+            sds auth = sdsnew("AUTH");
+            err = sendSynchronousCommand(SYNC_CMD_WRITE | SYNC_CMD_WRITE_SDS, conn, auth,
+                                         masteruser, server.masterauth, NULL);
+            sdsfree(masteruser);
+            sdsfree(auth);
             if (err) goto write_error;
             server.repl_state = REPL_STATE_RECEIVE_AUTH;
             return;
         } else if (server.masterauth) {
-            err = sendSynchronousCommand(SYNC_CMD_WRITE,conn,"AUTH",server.masterauth,NULL);
+            sds auth = sdsnew("AUTH");
+            err = sendSynchronousCommand(SYNC_CMD_WRITE | SYNC_CMD_WRITE_SDS, conn, auth,
+                    server.masterauth, NULL);
+            sdsfree(auth);
             if (err) goto write_error;
             server.repl_state = REPL_STATE_RECEIVE_AUTH;
             return;
