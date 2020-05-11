@@ -511,8 +511,15 @@ void loadServerConfigFromString(char *config) {
                 err = "Invalid master port"; goto loaderr;
             }
             server.repl_state = REPL_STATE_CONNECT;
+        } else if (!strcasecmp(argv[0],"masterauth") && argc == 2) {
+            if (sdslen(argv[1]) > CONFIG_AUTHPASS_MAX_LEN) {
+                err = "Masterauth is longer than CONFIG_AUTHPASS_MAX_LEN";
+                goto loaderr;
+            }
+            sdsfree(server.masterauth);
+            server.masterauth = sdsdup(argv[1]);
         } else if (!strcasecmp(argv[0],"requirepass") && argc == 2) {
-            if (strlen(argv[1]) > CONFIG_AUTHPASS_MAX_LEN) {
+            if (sdslen(argv[1]) > CONFIG_AUTHPASS_MAX_LEN) {
                 err = "Password is longer than CONFIG_AUTHPASS_MAX_LEN";
                 goto loaderr;
             }
@@ -524,10 +531,10 @@ void loadServerConfigFromString(char *config) {
             sdsfree(server.requirepass);
             server.requirepass = NULL;
             if (sdslen(argv[1])) {
-                sds aclop = sdscatprintf(sdsempty(),">%s",argv[1]);
+                sds aclop = sdscatlen(sdsnew(">"), argv[1], sdslen(argv[1]));
                 ACLSetUser(DefaultUser,aclop,sdslen(aclop));
                 sdsfree(aclop);
-                server.requirepass = sdsnew(argv[1]);
+                server.requirepass = sdsdup(argv[1]);
             } else {
                 ACLSetUser(DefaultUser,"nopass",-1);
             }
@@ -751,10 +758,10 @@ void configSetCommand(client *c) {
         sdsfree(server.requirepass);
         server.requirepass = NULL;
         if (sdslen(o->ptr)) {
-            sds aclop = sdscatprintf(sdsempty(),">%s",(char*)o->ptr);
+            sds aclop = sdscatlen(sdsnew(">"), o->ptr, sdslen(o->ptr));
             ACLSetUser(DefaultUser,aclop,sdslen(aclop));
             sdsfree(aclop);
-            server.requirepass = sdsnew(o->ptr);
+            server.requirepass = sdsdup(o->ptr);
         } else {
             ACLSetUser(DefaultUser,"nopass",-1);
         }
@@ -1043,6 +1050,16 @@ void configGetCommand(client *c) {
         sds password = server.requirepass;
         if (password) {
             addReplyBulkCBuffer(c,password,sdslen(password));
+        } else {
+            addReplyBulkCString(c,"");
+        }
+        matches++;
+    }
+    if (stringmatch(pattern,"masterauth",1)) {
+        addReplyBulkCString(c,"masterauth");
+        sds masterauth = server.masterauth;
+        if (masterauth) {
+            addReplyBulkCBuffer(c,masterauth,sdslen(masterauth));
         } else {
             addReplyBulkCString(c,"");
         }
@@ -1545,6 +1562,26 @@ void rewriteConfigRequirepassOption(struct rewriteConfigState *state, char *opti
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
+/* Rewrite the masterauth option. */
+void rewriteConfigMasterauthOption(struct rewriteConfigState *state, char *option) {
+    int force = 1;
+    sds line;
+    sds masterauth = server.masterauth;
+
+    /* If there is no masterauth set, we don't want the masterauth option
+     * to be present in the configuration at all. */
+    if (masterauth == NULL) {
+        rewriteConfigMarkAsProcessed(state,option);
+        return;
+    }
+
+    line = sdsnew(option);
+    line = sdscatlen(line, " ", 1);
+    line = sdscatsds(line, masterauth);
+
+    rewriteConfigRewriteLine(state,option,line,force);
+}
+
 /* Glue together the configuration lines in the current configuration
  * rewrite state into a single string, stripping multiple empty lines. */
 sds rewriteConfigGetContentFromState(struct rewriteConfigState *state) {
@@ -1702,6 +1739,7 @@ int rewriteConfig(char *path, int force_all) {
     rewriteConfigDirOption(state);
     rewriteConfigSlaveofOption(state,"replicaof");
     rewriteConfigRequirepassOption(state,"requirepass");
+    rewriteConfigMasterauthOption(state,"masterauth");
     rewriteConfigBytesOption(state,"client-query-buffer-limit",server.client_max_querybuf_len,PROTO_MAX_QUERYBUF_LEN);
     rewriteConfigStringOption(state,"cluster-config-file",server.cluster_configfile,CONFIG_DEFAULT_CLUSTER_CONFIG_FILE);
     rewriteConfigNotifykeyspaceeventsOption(state);
@@ -2349,7 +2387,6 @@ standardConfig configs[] = {
     createStringConfig("pidfile", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.pidfile, NULL, NULL, NULL),
     createStringConfig("replica-announce-ip", "slave-announce-ip", MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.slave_announce_ip, NULL, NULL, NULL),
     createStringConfig("masteruser", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.masteruser, NULL, NULL, NULL),
-    createStringConfig("masterauth", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.masterauth, NULL, NULL, NULL),
     createStringConfig("cluster-announce-ip", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_ip, NULL, NULL, NULL),
     createStringConfig("syslog-ident", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.syslog_ident, "redis", NULL, NULL),
     createStringConfig("dbfilename", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.rdb_filename, "dump.rdb", isValidDBfilename, NULL),
