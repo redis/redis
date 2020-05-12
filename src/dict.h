@@ -150,10 +150,10 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 /* API */
 dict *dictCreate(dictType *type, void *privDataPtr);
 int dictExpand(dict *d, unsigned long size);
-int dictAdd(dict *d, void *key, void *val);
-dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing);
-dictEntry *dictAddOrFind(dict *d, void *key);
-int dictReplace(dict *d, void *key, void *val);
+int dictAdd(dict *d, const void *key, void *val);
+dictEntry *dictAddRaw(dict *d, const void *key, dictEntry **existing);
+dictEntry *dictAddOrFind(dict *d, const void *key);
+int dictReplace(dict *d, const void *key, void *val);
 int dictDelete(dict *d, const void *key);
 dictEntry *dictUnlink(dict *ht, const void *key);
 void dictFreeUnlinkedEntry(dict *d, dictEntry *he);
