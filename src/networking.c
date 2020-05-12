@@ -2863,8 +2863,9 @@ int processEventsWhileBlocked(void) {
     ProcessingEventsWhileBlocked = 1;
     while (iterations--) {
         int events = 0;
-        events += aeProcessEvents(server.el, AE_FILE_EVENTS|AE_DONT_WAIT);
-        events += handleClientsWithPendingWrites();
+        events += aeProcessEvents(server.el,
+            AE_FILE_EVENTS|AE_DONT_WAIT|
+            AE_CALL_BEFORE_SLEEP|AE_CALL_AFTER_SLEEP);
         if (!events) break;
         count += events;
     }

@@ -2086,21 +2086,32 @@ extern int ProcessingEventsWhileBlocked;
 /* This function gets called every time Redis is entering the
  * main loop of the event driven library, that is, before to sleep
  * for ready file descriptors.
+ *
  * Note: This function is (currently) called from two functions:
  * 1. aeMain - The main server loop
  * 2. processEventsWhileBlocked - Process clients during RDB/AOF load
+ *
  * If it was called from processEventsWhileBlocked we don't want
  * to perform all actions (For example, we don't want to expire
  * keys), but we do need to perform some actions.
+ *
  * The most important is freeClientsInAsyncFreeQueue but we also
  * call some other low-risk functions. */
 void beforeSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
 
-    if (!ProcessingEventsWhileBlocked) {
-        /* Handle precise timeouts of blocked clients. */
-        handleBlockedClientsTimeout();
+    /* Just call a subset of vital functions in case we are re-entering
+     * the event loop from processEventsWhileBlocked(). */
+    if (ProcessingEventsWhileBlocked) {
+        handleClientsWithPendingReadsUsingThreads();
+        tlsProcessPendingData();
+        handleClientsWithPendingWrites();
+        freeClientsInAsyncFreeQueue();
+        return;
     }
+
+    /* Handle precise timeouts of blocked clients. */
+    handleBlockedClientsTimeout();
 
     /* We should handle pending reads clients ASAP after event loop. */
     handleClientsWithPendingReadsUsingThreads();
@@ -2111,56 +2122,54 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* If tls still has pending unread data don't sleep at all. */
     aeSetDontWait(server.el, tlsHasPendingData());
 
-    if (!ProcessingEventsWhileBlocked) {
-        /* Call the Redis Cluster before sleep function. Note that this function
-         * may change the state of Redis Cluster (from ok to fail or vice versa),
-         * so it's a good idea to call it before serving the unblocked clients
-         * later in this function. */
-        if (server.cluster_enabled) clusterBeforeSleep();
+    /* Call the Redis Cluster before sleep function. Note that this function
+     * may change the state of Redis Cluster (from ok to fail or vice versa),
+     * so it's a good idea to call it before serving the unblocked clients
+     * later in this function. */
+    if (server.cluster_enabled) clusterBeforeSleep();
 
-        /* Run a fast expire cycle (the called function will return
-         * ASAP if a fast cycle is not needed). */
-        if (server.active_expire_enabled && server.masterhost == NULL)
-            activeExpireCycle(ACTIVE_EXPIRE_CYCLE_FAST);
+    /* Run a fast expire cycle (the called function will return
+     * ASAP if a fast cycle is not needed). */
+    if (server.active_expire_enabled && server.masterhost == NULL)
+        activeExpireCycle(ACTIVE_EXPIRE_CYCLE_FAST);
 
-        /* Unblock all the clients blocked for synchronous replication
-         * in WAIT. */
-        if (listLength(server.clients_waiting_acks))
-            processClientsWaitingReplicas();
+    /* Unblock all the clients blocked for synchronous replication
+     * in WAIT. */
+    if (listLength(server.clients_waiting_acks))
+        processClientsWaitingReplicas();
 
-        /* Check if there are clients unblocked by modules that implement
-         * blocking commands. */
-        if (moduleCount()) moduleHandleBlockedClients();
+    /* Check if there are clients unblocked by modules that implement
+     * blocking commands. */
+    if (moduleCount()) moduleHandleBlockedClients();
 
-        /* Try to process pending commands for clients that were just unblocked. */
-        if (listLength(server.unblocked_clients))
-            processUnblockedClients();
+    /* Try to process pending commands for clients that were just unblocked. */
+    if (listLength(server.unblocked_clients))
+        processUnblockedClients();
 
-        /* Send all the slaves an ACK request if at least one client blocked
-         * during the previous event loop iteration. Note that we do this after
-         * processUnblockedClients(), so if there are multiple pipelined WAITs
-         * and the just unblocked WAIT gets blocked again, we don't have to wait
-         * a server cron cycle in absence of other event loop events. See #6623. */
-        if (server.get_ack_from_slaves) {
-            robj *argv[3];
+    /* Send all the slaves an ACK request if at least one client blocked
+     * during the previous event loop iteration. Note that we do this after
+     * processUnblockedClients(), so if there are multiple pipelined WAITs
+     * and the just unblocked WAIT gets blocked again, we don't have to wait
+     * a server cron cycle in absence of other event loop events. See #6623. */
+    if (server.get_ack_from_slaves) {
+        robj *argv[3];
 
-            argv[0] = createStringObject("REPLCONF",8);
-            argv[1] = createStringObject("GETACK",6);
-            argv[2] = createStringObject("*",1); /* Not used argument. */
-            replicationFeedSlaves(server.slaves, server.slaveseldb, argv, 3);
-            decrRefCount(argv[0]);
-            decrRefCount(argv[1]);
-            decrRefCount(argv[2]);
-            server.get_ack_from_slaves = 0;
-        }
-
-        /* Send the invalidation messages to clients participating to the
-         * client side caching protocol in broadcasting (BCAST) mode. */
-        trackingBroadcastInvalidationMessages();
-
-        /* Write the AOF buffer on disk */
-        flushAppendOnlyFile(0);
+        argv[0] = createStringObject("REPLCONF",8);
+        argv[1] = createStringObject("GETACK",6);
+        argv[2] = createStringObject("*",1); /* Not used argument. */
+        replicationFeedSlaves(server.slaves, server.slaveseldb, argv, 3);
+        decrRefCount(argv[0]);
+        decrRefCount(argv[1]);
+        decrRefCount(argv[2]);
+        server.get_ack_from_slaves = 0;
     }
+
+    /* Send the invalidation messages to clients participating to the
+     * client side caching protocol in broadcasting (BCAST) mode. */
+    trackingBroadcastInvalidationMessages();
+
+    /* Write the AOF buffer on disk */
+    flushAppendOnlyFile(0);
 
     /* Handle writes with pending output buffers. */
     handleClientsWithPendingWritesUsingThreads();
@@ -2168,12 +2177,10 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Close clients that need to be closed asynchronous */
     freeClientsInAsyncFreeQueue();
 
-    if (!ProcessingEventsWhileBlocked) {
-        /* Before we are going to sleep, let the threads access the dataset by
-         * releasing the GIL. Redis main thread will not touch anything at this
-         * time. */
-        if (moduleCount()) moduleReleaseGIL();
-    }
+    /* Before we are going to sleep, let the threads access the dataset by
+     * releasing the GIL. Redis main thread will not touch anything at this
+     * time. */
+    if (moduleCount()) moduleReleaseGIL();
 }
 
 /* This function is called immadiately after the event loop multiplexing
