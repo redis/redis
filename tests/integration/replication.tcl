@@ -513,9 +513,9 @@ start_server {tags {"repl"}} {
     set master_port [srv 0 port]
     set master_pid [srv 0 pid]
     # put enough data in the db that the rdb file will be bigger than the socket buffers
-    # and since we'll have key-load-delay of 100, 10000 keys will take at least 1 second
+    # and since we'll have key-load-delay of 100, 20000 keys will take at least 2 seconds
     # we also need the replica to process requests during transfer (which it does only once in 2mb)
-    $master debug populate 10000 test 10000
+    $master debug populate 20000 test 10000
     $master config set rdbcompression no
     # If running on Linux, we also measure utime/stime to detect possible I/O handling issues
     set os [catch {exec unamee}]
