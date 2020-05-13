@@ -8088,7 +8088,7 @@ int main(int argc, char **argv) {
         if (cliConnect(0) == REDIS_ERR) exit(1);
         if (config.interval == 0) config.interval = 1000000;
         statMode();
-(    }
+    }
 
     /* Scan mode */
     if (config.scan_mode) {
