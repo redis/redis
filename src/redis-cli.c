@@ -1798,6 +1798,10 @@ static void usage(void) {
 }
 
 static int confirmWithYes(char *msg) {
+    if (config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_YES) {
+        return 1;
+    }
+    
     printf("%s (type 'yes' to accept): ", msg);
     fflush(stdout);
     char buf[4];
@@ -8084,7 +8088,7 @@ int main(int argc, char **argv) {
         if (cliConnect(0) == REDIS_ERR) exit(1);
         if (config.interval == 0) config.interval = 1000000;
         statMode();
-    }
+(    }
 
     /* Scan mode */
     if (config.scan_mode) {
