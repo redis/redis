@@ -1095,6 +1095,7 @@ struct redisServer {
                                    queries. Will still serve RESP2 queries. */
     int io_threads_num;         /* Number of IO threads to use. */
     int io_threads_do_reads;    /* Read and parse from IO threads? */
+    long long events_processed_while_blocked; /* processEventsWhileBlocked() */
 
     /* RDB / AOF loading information */
     int loading;                /* We are loading data from disk if true */
@@ -1652,7 +1653,7 @@ void rewriteClientCommandVector(client *c, int argc, ...);
 void rewriteClientCommandArgument(client *c, int i, robj *newval);
 void replaceClientCommandVector(client *c, int argc, robj **argv);
 unsigned long getClientOutputBufferMemoryUsage(client *c);
-void freeClientsInAsyncFreeQueue(void);
+int freeClientsInAsyncFreeQueue(void);
 void asyncCloseClientOnOutputBufferLimitReached(client *c);
 int getClientType(client *c);
 int getClientTypeByName(char *name);
@@ -1662,7 +1663,7 @@ void disconnectSlaves(void);
 int listenToPort(int port, int *fds, int *count);
 void pauseClients(mstime_t duration);
 int clientsArePaused(void);
-int processEventsWhileBlocked(void);
+void processEventsWhileBlocked(void);
 int handleClientsWithPendingWrites(void);
 int handleClientsWithPendingWritesUsingThreads(void);
 int handleClientsWithPendingReadsUsingThreads(void);

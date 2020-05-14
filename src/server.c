@@ -2101,12 +2101,17 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
 
     /* Just call a subset of vital functions in case we are re-entering
-     * the event loop from processEventsWhileBlocked(). */
+     * the event loop from processEventsWhileBlocked(). Note that in this
+     * case we keep track of the number of events we are processing, since
+     * processEventsWhileBlocked() wants to stop ASAP if there are no longer
+     * events to handle. */
     if (ProcessingEventsWhileBlocked) {
-        handleClientsWithPendingReadsUsingThreads();
-        tlsProcessPendingData();
-        handleClientsWithPendingWrites();
-        freeClientsInAsyncFreeQueue();
+        uint64_t processed = 0;
+        processed += handleClientsWithPendingReadsUsingThreads();
+        processed += tlsProcessPendingData();
+        processed += handleClientsWithPendingWrites();
+        processed += freeClientsInAsyncFreeQueue();
+        server.events_processed_while_blocked += processed;
         return;
     }
 
@@ -2757,6 +2762,7 @@ void initServer(void) {
     server.clients_waiting_acks = listCreate();
     server.get_ack_from_slaves = 0;
     server.clients_paused = 0;
+    server.events_processed_while_blocked = 0;
     server.system_memory_size = zmalloc_get_memory_size();
 
     if (server.tls_port && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
