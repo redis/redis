@@ -2053,6 +2053,12 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Stop the I/O threads if we don't have enough pending work. */
     stopThreadedIOIfNeeded();
 
+    /* Resize tracking keys table if needed. This is also done at every
+     * command execution, but we want to be sure that if the last command
+     * executed changes the value via CONFIG SET, the server will perform
+     * the operation even if completely idle. */
+    if (server.tracking_clients) trackingLimitUsedSlots();
+
     /* Start a scheduled BGSAVE if the corresponding flag is set. This is
      * useful when we are forced to postpone a BGSAVE because an AOF
      * rewrite is in progress.
