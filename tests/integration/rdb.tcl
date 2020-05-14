@@ -129,3 +129,55 @@ start_server {} {
         r set x xx
     }
 }
+
+test {client freed during loading} {
+    start_server [list overrides [list key-load-delay 10 rdbcompression no]] {
+        # create a big rdb that will take long to load. it is important
+        # for keys to be big since the server processes events only once in 2mb.
+        # 100mb of rdb, 100k keys will load in more than 1 second
+        r debug populate 100000 key 1000
+
+        catch {
+            r debug restart
+        }
+
+        set stdout [srv 0 stdout]
+        while 1 {
+            # check that the new server actually started and is ready for connections
+            if {[exec grep -i "Server initialized" | wc -l < $stdout] > 1} {
+                break
+            }
+            after 10
+        }
+        # make sure it's still loading
+        assert_equal [s loading] 1
+
+        # connect and disconnect 10 clients
+        set clients {}
+        for {set j 0} {$j < 10} {incr j} {
+            lappend clients [redis_deferring_client]
+        }
+        foreach rd $clients {
+            $rd debug log bla
+        }
+        foreach rd $clients {
+            $rd read
+        }
+        foreach rd $clients {
+            $rd close
+        }
+
+        # make sure the server freed the clients
+        wait_for_condition 100 100 {
+            [s connected_clients] < 3
+        } else {
+            fail "clients didn't disconnect"
+        }
+
+        # make sure it's still loading
+        assert_equal [s loading] 1
+
+        # no need to keep waiting for loading to complete
+        exec kill [srv 0 pid]
+    }
+}

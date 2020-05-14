@@ -222,6 +222,6 @@ const char *connGetInfo(connection *conn, char *buf, size_t buf_len);
 
 /* Helpers for tls special considerations */
 int tlsHasPendingData();
-void tlsProcessPendingData();
+int tlsProcessPendingData();
 
 #endif  /* __REDIS_CONNECTION_H */

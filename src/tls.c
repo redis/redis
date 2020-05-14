@@ -768,15 +768,17 @@ int tlsHasPendingData() {
     return listLength(pending_list) > 0;
 }
 
-void tlsProcessPendingData() {
+int tlsProcessPendingData() {
     listIter li;
     listNode *ln;
 
+    int processed = listLength(pending_list);
     listRewind(pending_list,&li);
     while((ln = listNext(&li))) {
         tls_connection *conn = listNodeValue(ln);
         tlsHandleEvent(conn, AE_READABLE);
     }
+    return processed;
 }
 
 #else   /* USE_OPENSSL */
@@ -804,7 +806,8 @@ int tlsHasPendingData() {
     return 0;
 }
 
-void tlsProcessPendingData() {
+int tlsProcessPendingData() {
+    return 0;
 }
 
 #endif
