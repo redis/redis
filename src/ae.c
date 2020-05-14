@@ -238,6 +238,7 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
     te->clientData = clientData;
     te->prev = NULL;
     te->next = eventLoop->timeEventHead;
+    te->refcount = 0;
     if (te->next)
         te->next->prev = te;
     eventLoop->timeEventHead = te;
@@ -316,6 +317,13 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
         /* Remove events scheduled for deletion. */
         if (te->id == AE_DELETED_EVENT_ID) {
             aeTimeEvent *next = te->next;
+            /* If a reference exists for this timer event,
+             * don't free it. This is currently incremented
+             * for recursive timerProc calls */
+            if (te->refcount) {
+                te = next;
+                continue;
+            }
             if (te->prev)
                 te->prev->next = te->next;
             else
@@ -345,7 +353,9 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
             int retval;
 
             id = te->id;
+            te->refcount++;
             retval = te->timeProc(eventLoop, id, te->clientData);
+            te->refcount--;
             processed++;
             if (retval != AE_NOMORE) {
                 aeAddMillisecondsToNow(retval,&te->when_sec,&te->when_ms);

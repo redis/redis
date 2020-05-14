@@ -86,6 +86,8 @@ typedef struct aeTimeEvent {
     void *clientData;
     struct aeTimeEvent *prev;
     struct aeTimeEvent *next;
+    int refcount; /* refcount to prevent timer events from being
+  		   * freed in recursive time event calls. */
 } aeTimeEvent;
 
 /* A fired event */
