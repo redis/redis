@@ -1257,7 +1257,10 @@ void freeClientAsync(client *c) {
     pthread_mutex_unlock(&async_free_queue_mutex);
 }
 
-void freeClientsInAsyncFreeQueue(void) {
+/* Free the clietns marked as CLOSE_ASAP, return the number of clients
+ * freed. */
+int freeClientsInAsyncFreeQueue(void) {
+    int freed = listLength(server.clients_to_close);
     while (listLength(server.clients_to_close)) {
         listNode *ln = listFirst(server.clients_to_close);
         client *c = listNodeValue(ln);
@@ -1266,6 +1269,7 @@ void freeClientsInAsyncFreeQueue(void) {
         freeClient(c);
         listDelNode(server.clients_to_close,ln);
     }
+    return freed;
 }
 
 /* Return a client by ID, or NULL if the client ID is not in the set
@@ -2852,9 +2856,8 @@ int clientsArePaused(void) {
  * write, close sequence needed to serve a client.
  *
  * The function returns the total number of events processed. */
-int processEventsWhileBlocked(void) {
+void processEventsWhileBlocked(void) {
     int iterations = 4; /* See the function top-comment. */
-    int count = 0;
 
     /* Note: when we are processing events while blocked (for instance during
      * busy Lua scripts), we set a global flag. When such flag is set, we
@@ -2862,15 +2865,17 @@ int processEventsWhileBlocked(void) {
      * See https://github.com/antirez/redis/issues/6988 for more info. */
     ProcessingEventsWhileBlocked = 1;
     while (iterations--) {
-        int events = 0;
-        events += aeProcessEvents(server.el,
+        long long startval = server.events_processed_while_blocked;
+        long long ae_events = aeProcessEvents(server.el,
             AE_FILE_EVENTS|AE_DONT_WAIT|
             AE_CALL_BEFORE_SLEEP|AE_CALL_AFTER_SLEEP);
+        /* Note that server.events_processed_while_blocked will also get
+         * incremeted by callbacks called by the event loop handlers. */
+        server.events_processed_while_blocked += ae_events;
+        long long events = server.events_processed_while_blocked - startval;
         if (!events) break;
-        count += events;
     }
     ProcessingEventsWhileBlocked = 0;
-    return count;
 }
 
 /* ==========================================================================
