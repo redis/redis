@@ -279,15 +279,22 @@ void trackingRememberKeyToBroadcast(client *c, char *keyname, size_t keylen) {
  *
  * Note that 'c' may be NULL in case the operation was performed outside the
  * context of a client modifying the database (for instance when we delete a
- * key because of expire). */
-void trackingInvalidateKey(client *c, robj *keyobj) {
+ * key because of expire).
+ *
+ * The last argument 'bcast' tells the function if it should also schedule
+ * the key for broadcasting to clients in BCAST mode. This is the case when
+ * the function is called from the Redis core once a key is modified, however
+ * we also call the function in order to evict keys in the key table in case
+ * of memory pressure: in that case the key didn't really change, so we want
+ * just to notify the clients that are in the table for this key, that would
+ * otherwise miss the fact we are no longer tracking the key for them. */
+void trackingInvalidateKeyRaw(client *c, char *key, size_t keylen, int bcast) {
     if (TrackingTable == NULL) return;
-    sds sdskey = keyobj->ptr;
 
-    if (raxSize(PrefixTable) > 0)
-        trackingRememberKeyToBroadcast(c,sdskey,sdslen(sdskey));
+    if (bcast && raxSize(PrefixTable) > 0)
+        trackingRememberKeyToBroadcast(c,key,keylen);
 
-    rax *ids = raxFind(TrackingTable,(unsigned char*)sdskey,sdslen(sdskey));
+    rax *ids = raxFind(TrackingTable,(unsigned char*)key,keylen);
     if (ids == raxNotFound) return;
 
     raxIterator ri;
@@ -317,7 +324,7 @@ void trackingInvalidateKey(client *c, robj *keyobj) {
             continue;
         }
 
-        sendTrackingMessage(target,sdskey,sdslen(sdskey),0);
+        sendTrackingMessage(target,key,keylen,0);
     }
     raxStop(&ri);
 
@@ -325,7 +332,13 @@ void trackingInvalidateKey(client *c, robj *keyobj) {
      * again if more keys will be modified in this caching slot. */
     TrackingTableTotalItems -= raxSize(ids);
     raxFree(ids);
-    raxRemove(TrackingTable,(unsigned char*)sdskey,sdslen(sdskey),NULL);
+    raxRemove(TrackingTable,(unsigned char*)key,keylen,NULL);
+}
+
+/* Wrapper (the one actually called across the core) to pass the key
+ * as object. */
+void trackingInvalidateKey(client *c, robj *keyobj) {
+    trackingInvalidateKeyRaw(c,keyobj->ptr,sdslen(keyobj->ptr),1);
 }
 
 /* This function is called when one or all the Redis databases are flushed
@@ -392,10 +405,8 @@ void trackingLimitUsedSlots(void) {
         effort--;
         raxSeek(&ri,"^",NULL,0);
         raxRandomWalk(&ri,0);
-        rax *ids = ri.data;
-        TrackingTableTotalItems -= raxSize(ids);
-        raxFree(ids);
-        raxRemove(TrackingTable,ri.key,ri.key_len,NULL);
+        if (raxEOF(&ri)) break;
+        trackingInvalidateKeyRaw(NULL,(char*)ri.key,ri.key_len,0);
         if (raxSize(TrackingTable) <= max_keys) {
             timeout_counter = 0;
             raxStop(&ri);
