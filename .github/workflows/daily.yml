@@ -1,0 +1,48 @@
+name: Daily
+
+on:
+  schedule:
+    - cron: '0 7 * * *'
+
+jobs:
+  test-jemalloc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1200
+    steps:
+    - uses: actions/checkout@v1
+    - name: make
+      run: make
+    - name: test
+      run: |
+        sudo apt-get install tcl8.5
+        ./runtest --accurate --verbose
+    - name: module api test
+      run: ./runtest-moduleapi --verbose
+
+  test-libc-malloc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1200
+    steps:
+    - uses: actions/checkout@v1
+    - name: make
+      run: make MALLOC=libc
+    - name: test
+      run: |
+        sudo apt-get install tcl8.5
+        ./runtest --accurate --verbose
+    - name: module api test
+      run: ./runtest-moduleapi --verbose
+
+  test-valgrind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14400
+    steps:
+    - uses: actions/checkout@v1
+    - name: make
+      run: make valgrind
+    - name: test
+      run: |
+        sudo apt-get install tcl8.5 valgrind -y
+        ./runtest --valgrind --verbose --clients 1
+    - name: module api test
+      run: ./runtest-moduleapi --valgrind --verbose --clients 1

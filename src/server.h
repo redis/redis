@@ -252,7 +252,10 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CLIENT_TRACKING_OPTOUT (1ULL<<35) /* Tracking in opt-out mode. */
 #define CLIENT_TRACKING_CACHING (1ULL<<36) /* CACHING yes/no was given,
                                               depending on optin/optout mode. */
-#define CLIENT_IN_TO_TABLE (1ULL<<37) /* This client is in the timeout table. */
+#define CLIENT_TRACKING_NOLOOP (1ULL<<37) /* Don't send invalidation messages
+                                             about writes performed by myself.*/
+#define CLIENT_IN_TO_TABLE (1ULL<<38) /* This client is in the timeout table. */
+#define CLIENT_PROTOCOL_ERROR (1ULL<<39) /* Protocol error chatting with it. */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -730,7 +733,7 @@ typedef struct readyList {
                                            no AUTH is needed, and every
                                            connection is immediately
                                            authenticated. */
-typedef struct user {
+typedef struct {
     sds name;       /* The username as an SDS string. */
     uint64_t flags; /* See USER_FLAG_* */
 
@@ -1093,6 +1096,7 @@ struct redisServer {
                                    queries. Will still serve RESP2 queries. */
     int io_threads_num;         /* Number of IO threads to use. */
     int io_threads_do_reads;    /* Read and parse from IO threads? */
+    long long events_processed_while_blocked; /* processEventsWhileBlocked() */
 
     /* RDB / AOF loading information */
     int loading;                /* We are loading data from disk if true */
@@ -1434,6 +1438,11 @@ struct redisServer {
     /* cache hash value */
     void* cached_key;
     uint64_t cached_hash;
+    /* cpu affinity */
+    char *server_cpulist; /* cpu affinity list of redis server main/io thread. */
+    char *bio_cpulist; /* cpu affinity list of bio thread. */
+    char *aof_rewrite_cpulist; /* cpu affinity list of aof rewrite process. */
+    char *bgsave_cpulist; /* cpu affinity list of bgsave process. */
 };
 
 typedef struct pubsubPattern {
@@ -1586,6 +1595,7 @@ void exitFromChild(int retcode);
 size_t redisPopcount(void *s, long count);
 void redisSetProcTitle(char *title);
 int redisCommunicateSystemd(const char *sd_notify_msg);
+void redisSetCpuAffinity(const char *cpulist);
 
 /* networking.c -- Networking and Client related operations */
 client *createClient(connection *conn);
@@ -1601,7 +1611,6 @@ void setDeferredSetLen(client *c, void *node, long length);
 void setDeferredAttributeLen(client *c, void *node, long length);
 void setDeferredPushLen(client *c, void *node, long length);
 void processInputBuffer(client *c);
-void processInputBufferAndReplicate(client *c);
 void processGopherRequest(client *c);
 void acceptHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask);
@@ -1648,7 +1657,7 @@ void rewriteClientCommandVector(client *c, int argc, ...);
 void rewriteClientCommandArgument(client *c, int i, robj *newval);
 void replaceClientCommandVector(client *c, int argc, robj **argv);
 unsigned long getClientOutputBufferMemoryUsage(client *c);
-void freeClientsInAsyncFreeQueue(void);
+int freeClientsInAsyncFreeQueue(void);
 void asyncCloseClientOnOutputBufferLimitReached(client *c);
 int getClientType(client *c);
 int getClientTypeByName(char *name);
@@ -1658,7 +1667,7 @@ void disconnectSlaves(void);
 int listenToPort(int port, int *fds, int *count);
 void pauseClients(mstime_t duration);
 int clientsArePaused(void);
-int processEventsWhileBlocked(void);
+void processEventsWhileBlocked(void);
 int handleClientsWithPendingWrites(void);
 int handleClientsWithPendingWritesUsingThreads(void);
 int handleClientsWithPendingReadsUsingThreads(void);
@@ -1686,11 +1695,12 @@ void addReplyStatusFormat(client *c, const char *fmt, ...);
 void enableTracking(client *c, uint64_t redirect_to, uint64_t options, robj **prefix, size_t numprefix);
 void disableTracking(client *c);
 void trackingRememberKeys(client *c);
-void trackingInvalidateKey(robj *keyobj);
+void trackingInvalidateKey(client *c, robj *keyobj);
 void trackingInvalidateKeysOnFlush(int dbid);
 void trackingLimitUsedSlots(void);
 uint64_t trackingGetTotalItems(void);
 uint64_t trackingGetTotalKeys(void);
+uint64_t trackingGetTotalPrefixes(void);
 void trackingBroadcastInvalidationMessages(void);
 
 /* List data type */
@@ -2074,8 +2084,8 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
 void dbAdd(redisDb *db, robj *key, robj *val);
 int dbAddRDBLoad(redisDb *db, sds key, robj *val);
 void dbOverwrite(redisDb *db, robj *key, robj *val);
-void genericSetKey(redisDb *db, robj *key, robj *val, int keepttl, int signal);
-void setKey(redisDb *db, robj *key, robj *val);
+void genericSetKey(client *c, redisDb *db, robj *key, robj *val, int keepttl, int signal);
+void setKey(client *c, redisDb *db, robj *key, robj *val);
 int dbExists(redisDb *db, robj *key);
 robj *dbRandomKey(redisDb *db);
 int dbSyncDelete(redisDb *db, robj *key);
@@ -2091,7 +2101,7 @@ void flushAllDataAndResetRDB(int flags);
 long long dbTotalServerKeyCount();
 
 int selectDb(client *c, int id);
-void signalModifiedKey(redisDb *db, robj *key);
+void signalModifiedKey(client *c, redisDb *db, robj *key);
 void signalFlushedDb(int dbid);
 unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count);
 unsigned int countKeysInSlot(unsigned int hashslot);
@@ -2390,7 +2400,7 @@ void xdelCommand(client *c);
 void xtrimCommand(client *c);
 void lolwutCommand(client *c);
 void aclCommand(client *c);
-void lcsCommand(client *c);
+void stralgoCommand(client *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));

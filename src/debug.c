@@ -588,7 +588,7 @@ NULL
                 memcpy(val->ptr, buf, valsize<=buflen? valsize: buflen);
             }
             dbAdd(c->db,key,val);
-            signalModifiedKey(c->db,key);
+            signalModifiedKey(c,c->db,key);
             decrRefCount(key);
         }
         addReply(c,shared.ok);
@@ -1636,7 +1636,7 @@ void enableWatchdog(int period) {
         /* Watchdog was actually disabled, so we have to setup the signal
          * handler. */
         sigemptyset(&act.sa_mask);
-        act.sa_flags = SA_ONSTACK | SA_SIGINFO;
+        act.sa_flags = SA_SIGINFO;
         act.sa_sigaction = watchdogSignalHandler;
         sigaction(SIGALRM, &act, NULL);
     }

@@ -848,6 +848,11 @@ void streamPropagateXCLAIM(client *c, robj *key, streamCG *group, robj *groupnam
     argv[11] = createStringObject("JUSTID",6);
     argv[12] = createStringObject("LASTID",6);
     argv[13] = createObjectFromStreamID(&group->last_id);
+
+    /* We use progagate() because this code path is not always called from
+     * the command execution context. Moreover this will just alter the
+     * consumer group state, and we don't need MULTI/EXEC wrapping because
+     * there is no message state cross-message atomicity required. */
     propagate(server.xclaimCommand,c->db->id,argv,14,PROPAGATE_AOF|PROPAGATE_REPL);
     decrRefCount(argv[0]);
     decrRefCount(argv[3]);
@@ -875,7 +880,12 @@ void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupna
     argv[2] = key;
     argv[3] = groupname;
     argv[4] = createObjectFromStreamID(&group->last_id);
-    alsoPropagate(server.xgroupCommand,c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
+
+    /* We use progagate() because this code path is not always called from
+     * the command execution context. Moreover this will just alter the
+     * consumer group state, and we don't need MULTI/EXEC wrapping because
+     * there is no message state cross-message atomicity required. */
+    propagate(server.xgroupCommand,c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
     decrRefCount(argv[0]);
     decrRefCount(argv[1]);
     decrRefCount(argv[4]);
@@ -935,6 +945,8 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
     streamIterator si;
     int64_t numfields;
     streamID id;
+    int propagate_last_id = 0;
+    int noack = flags & STREAM_RWR_NOACK;
 
     /* If the client is asking for some history, we serve it using a
      * different function, so that we return entries *solely* from its
@@ -950,12 +962,13 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
         arraylen_ptr = addReplyDeferredLen(c);
     streamIteratorStart(&si,s,start,end,rev);
     while(streamIteratorGetID(&si,&id,&numfields)) {
-        int propagate_last_id = 0;
-
         /* Update the group last_id if needed. */
         if (group && streamCompareID(&id,&group->last_id) > 0) {
             group->last_id = id;
-            propagate_last_id = 1;
+            /* Group last ID should be propagated only if NOACK was
+             * specified, otherwise the last id will be included
+             * in the propagation of XCLAIM itself. */
+            if (noack) propagate_last_id = 1;
         }
 
         /* Emit a two elements array for each item. The first is
@@ -983,7 +996,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
          * XGROUP SETID command. So if we find that there is already
          * a NACK for the entry, we need to associate it to the new
          * consumer. */
-        if (group && !(flags & STREAM_RWR_NOACK)) {
+        if (group && !noack) {
             unsigned char buf[sizeof(streamID)];
             streamEncodeID(buf,&id);
 
@@ -1020,14 +1033,15 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 streamPropagateXCLAIM(c,spi->keyname,group,spi->groupname,idarg,nack);
                 decrRefCount(idarg);
             }
-        } else {
-            if (propagate_last_id)
-                streamPropagateGroupID(c,spi->keyname,group,spi->groupname);
         }
 
         arraylen++;
         if (count && count == arraylen) break;
     }
+
+    if (spi && propagate_last_id)
+        streamPropagateGroupID(c,spi->keyname,group,spi->groupname);
+
     streamIteratorStop(&si);
     if (arraylen_ptr) setDeferredArrayLen(c,arraylen_ptr,arraylen);
     return arraylen;
@@ -1262,7 +1276,7 @@ void xaddCommand(client *c) {
     }
     addReplyStreamID(c,&id);
 
-    signalModifiedKey(c->db,c->argv[1]);
+    signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STREAM,"xadd",c->argv[1],c->db->id);
     server.dirty++;
 
@@ -1556,7 +1570,8 @@ void xreadCommand(client *c) {
             addReplyBulk(c,c->argv[streams_arg+i]);
             streamConsumer *consumer = NULL;
             if (groups) consumer = streamLookupConsumer(groups[i],
-                                                        consumername->ptr,1);
+                                                        consumername->ptr,
+                                                        SLC_NONE);
             streamPropInfo spi = {c->argv[i+streams_arg],groupname};
             int flags = 0;
             if (noack) flags |= STREAM_RWR_NOACK;
@@ -1692,7 +1707,9 @@ streamCG *streamLookupCG(stream *s, sds groupname) {
  * consumer does not exist it is automatically created as a side effect
  * of calling this function, otherwise its last seen time is updated and
  * the existing consumer reference returned. */
-streamConsumer *streamLookupConsumer(streamCG *cg, sds name, int create) {
+streamConsumer *streamLookupConsumer(streamCG *cg, sds name, int flags) {
+    int create = !(flags & SLC_NOCREAT);
+    int refresh = !(flags & SLC_NOREFRESH);
     streamConsumer *consumer = raxFind(cg->consumers,(unsigned char*)name,
                                sdslen(name));
     if (consumer == raxNotFound) {
@@ -1703,7 +1720,7 @@ streamConsumer *streamLookupConsumer(streamCG *cg, sds name, int create) {
         raxInsert(cg->consumers,(unsigned char*)name,sdslen(name),
                   consumer,NULL);
     }
-    consumer->seen_time = mstime();
+    if (refresh) consumer->seen_time = mstime();
     return consumer;
 }
 
@@ -1711,7 +1728,8 @@ streamConsumer *streamLookupConsumer(streamCG *cg, sds name, int create) {
  * may have pending messages: they are removed from the PEL, and the number
  * of pending messages "lost" is returned. */
 uint64_t streamDelConsumer(streamCG *cg, sds name) {
-    streamConsumer *consumer = streamLookupConsumer(cg,name,0);
+    streamConsumer *consumer =
+        streamLookupConsumer(cg,name,SLC_NOCREAT|SLC_NOREFRESH);
     if (consumer == NULL) return 0;
 
     uint64_t retval = raxSize(consumer->pel);
@@ -2054,15 +2072,18 @@ void xpendingCommand(client *c) {
     }
     /* XPENDING <key> <group> <start> <stop> <count> [<consumer>] variant. */
     else {
-        streamConsumer *consumer = consumername ?
-                                streamLookupConsumer(group,consumername->ptr,0):
-                                NULL;
+        streamConsumer *consumer = NULL;
+        if (consumername) {
+            consumer = streamLookupConsumer(group,
+                                            consumername->ptr,
+                                            SLC_NOCREAT|SLC_NOREFRESH);
 
-        /* If a consumer name was mentioned but it does not exist, we can
-         * just return an empty array. */
-        if (consumername && consumer == NULL) {
-            addReplyArrayLen(c,0);
-            return;
+            /* If a consumer name was mentioned but it does not exist, we can
+             * just return an empty array. */
+            if (consumer == NULL) {
+                addReplyArrayLen(c,0);
+                return;
+            }
         }
 
         rax *pel = consumer ? consumer->pel : group->pel;
@@ -2324,7 +2345,7 @@ void xclaimCommand(client *c) {
                 raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
             /* Update the consumer and idle time. */
             if (consumer == NULL)
-                consumer = streamLookupConsumer(group,c->argv[3]->ptr,1);
+                consumer = streamLookupConsumer(group,c->argv[3]->ptr,SLC_NONE);
             nack->consumer = consumer;
             nack->delivery_time = deliverytime;
             /* Set the delivery attempts counter if given, otherwise
@@ -2390,7 +2411,7 @@ void xdelCommand(client *c) {
 
     /* Propagate the write if needed. */
     if (deleted) {
-        signalModifiedKey(c->db,c->argv[1]);
+        signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
         server.dirty += deleted;
     }
@@ -2467,7 +2488,7 @@ void xtrimCommand(client *c) {
 
     /* Propagate the write if needed. */
     if (deleted) {
-        signalModifiedKey(c->db,c->argv[1]);
+        signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_STREAM,"xtrim",c->argv[1],c->db->id);
         server.dirty += deleted;
         if (approx_maxlen) streamRewriteApproxMaxlen(c,s,maxlen_arg_idx);
@@ -2475,16 +2496,204 @@ void xtrimCommand(client *c) {
     addReplyLongLong(c,deleted);
 }
 
+/* Helper function for xinfoCommand.
+ * Handles the variants of XINFO STREAM */
+void xinfoReplyWithStreamInfo(client *c, stream *s) {
+    int full = 1;
+    long long count = 10; /* Default COUNT is 10 so we don't block the server */
+    robj **optv = c->argv + 3; /* Options start after XINFO STREAM <key> */
+    int optc = c->argc - 3;
+
+    /* Parse options. */
+    if (optc == 0) {
+        full = 0;
+    } else {
+        /* Valid options are [FULL] or [FULL COUNT <count>] */
+        if (optc != 1 && optc != 3) {
+            addReplySubcommandSyntaxError(c);
+            return;
+        }
+
+        /* First option must be "FULL" */
+        if (strcasecmp(optv[0]->ptr,"full")) {
+            addReplySubcommandSyntaxError(c);
+            return;
+        }
+
+        if (optc == 3) {
+            /* First option must be "FULL" */
+            if (strcasecmp(optv[1]->ptr,"count")) {
+                addReplySubcommandSyntaxError(c);
+                return;
+            }
+            if (getLongLongFromObjectOrReply(c,optv[2],&count,NULL) == C_ERR)
+                return;
+            if (count < 0) count = 10;
+        }
+    }
+
+    addReplyMapLen(c,full ? 6 : 7);
+    addReplyBulkCString(c,"length");
+    addReplyLongLong(c,s->length);
+    addReplyBulkCString(c,"radix-tree-keys");
+    addReplyLongLong(c,raxSize(s->rax));
+    addReplyBulkCString(c,"radix-tree-nodes");
+    addReplyLongLong(c,s->rax->numnodes);
+    addReplyBulkCString(c,"last-generated-id");
+    addReplyStreamID(c,&s->last_id);
+
+    if (!full) {
+        /* XINFO STREAM <key> */
+
+        addReplyBulkCString(c,"groups");
+        addReplyLongLong(c,s->cgroups ? raxSize(s->cgroups) : 0);
+
+        /* To emit the first/last entry we use streamReplyWithRange(). */
+        int emitted;
+        streamID start, end;
+        start.ms = start.seq = 0;
+        end.ms = end.seq = UINT64_MAX;
+        addReplyBulkCString(c,"first-entry");
+        emitted = streamReplyWithRange(c,s,&start,&end,1,0,NULL,NULL,
+                                       STREAM_RWR_RAWENTRIES,NULL);
+        if (!emitted) addReplyNull(c);
+        addReplyBulkCString(c,"last-entry");
+        emitted = streamReplyWithRange(c,s,&start,&end,1,1,NULL,NULL,
+                                       STREAM_RWR_RAWENTRIES,NULL);
+        if (!emitted) addReplyNull(c);
+    } else {
+        /* XINFO STREAM <key> FULL [COUNT <count>] */
+
+        /* Stream entries */
+        addReplyBulkCString(c,"entries");
+        streamReplyWithRange(c,s,NULL,NULL,count,0,NULL,NULL,0,NULL);
+
+        /* Consumer groups */
+        addReplyBulkCString(c,"groups");
+        if (s->cgroups == NULL) {
+            addReplyArrayLen(c,0);
+        } else {
+            addReplyArrayLen(c,raxSize(s->cgroups));
+            raxIterator ri_cgroups;
+            raxStart(&ri_cgroups,s->cgroups);
+            raxSeek(&ri_cgroups,"^",NULL,0);
+            while(raxNext(&ri_cgroups)) {
+                streamCG *cg = ri_cgroups.data;
+                addReplyMapLen(c,5);
+
+                /* Name */
+                addReplyBulkCString(c,"name");
+                addReplyBulkCBuffer(c,ri_cgroups.key,ri_cgroups.key_len);
+
+                /* Last delivered ID */
+                addReplyBulkCString(c,"last-delivered-id");
+                addReplyStreamID(c,&cg->last_id);
+
+                /* Group PEL count */
+                addReplyBulkCString(c,"pel-count");
+                addReplyLongLong(c,raxSize(cg->pel));
+
+                /* Group PEL */
+                addReplyBulkCString(c,"pending");
+                long long arraylen_cg_pel = 0;
+                void *arrayptr_cg_pel = addReplyDeferredLen(c);
+                raxIterator ri_cg_pel;
+                raxStart(&ri_cg_pel,cg->pel);
+                raxSeek(&ri_cg_pel,"^",NULL,0);
+                while(raxNext(&ri_cg_pel) && (!count || arraylen_cg_pel < count)) {
+                    streamNACK *nack = ri_cg_pel.data;
+                    addReplyArrayLen(c,4);
+
+                    /* Entry ID. */
+                    streamID id;
+                    streamDecodeID(ri_cg_pel.key,&id);
+                    addReplyStreamID(c,&id);
+
+                    /* Consumer name. */
+                    addReplyBulkCBuffer(c,nack->consumer->name,
+                                        sdslen(nack->consumer->name));
+
+                    /* Last delivery. */
+                    addReplyLongLong(c,nack->delivery_time);
+
+                    /* Number of deliveries. */
+                    addReplyLongLong(c,nack->delivery_count);
+
+                    arraylen_cg_pel++;
+                }
+                setDeferredArrayLen(c,arrayptr_cg_pel,arraylen_cg_pel);
+                raxStop(&ri_cg_pel);
+
+                /* Consumers */
+                addReplyBulkCString(c,"consumers");
+                addReplyArrayLen(c,raxSize(cg->consumers));
+                raxIterator ri_consumers;
+                raxStart(&ri_consumers,cg->consumers);
+                raxSeek(&ri_consumers,"^",NULL,0);
+                while(raxNext(&ri_consumers)) {
+                    streamConsumer *consumer = ri_consumers.data;
+                    addReplyMapLen(c,4);
+
+                    /* Consumer name */
+                    addReplyBulkCString(c,"name");
+                    addReplyBulkCBuffer(c,consumer->name,sdslen(consumer->name));
+
+                    /* Seen-time */
+                    addReplyBulkCString(c,"seen-time");
+                    addReplyLongLong(c,consumer->seen_time);
+
+                    /* Consumer PEL count */
+                    addReplyBulkCString(c,"pel-count");
+                    addReplyLongLong(c,raxSize(consumer->pel));
+
+                    /* Consumer PEL */
+                    addReplyBulkCString(c,"pending");
+                    long long arraylen_cpel = 0;
+                    void *arrayptr_cpel = addReplyDeferredLen(c);
+                    raxIterator ri_cpel;
+                    raxStart(&ri_cpel,consumer->pel);
+                    raxSeek(&ri_cpel,"^",NULL,0);
+                    while(raxNext(&ri_cpel) && (!count || arraylen_cpel < count)) {
+                        streamNACK *nack = ri_cpel.data;
+                        addReplyArrayLen(c,3);
+
+                        /* Entry ID. */
+                        streamID id;
+                        streamDecodeID(ri_cpel.key,&id);
+                        addReplyStreamID(c,&id);
+
+                        /* Last delivery. */
+                        addReplyLongLong(c,nack->delivery_time);
+
+                        /* Number of deliveries. */
+                        addReplyLongLong(c,nack->delivery_count);
+
+                        arraylen_cpel++;
+                    }
+                    setDeferredArrayLen(c,arrayptr_cpel,arraylen_cpel);
+                    raxStop(&ri_cpel);
+                }
+                raxStop(&ri_consumers);
+            }
+            raxStop(&ri_cgroups);
+        }
+    }
+}
+
 /* XINFO CONSUMERS <key> <group>
  * XINFO GROUPS <key>
- * XINFO STREAM <key>
+ * XINFO STREAM <key> [FULL [COUNT <count>]]
  * XINFO HELP. */
 void xinfoCommand(client *c) {
     const char *help[] = {
-"CONSUMERS <key> <groupname>  -- Show consumer groups of group <groupname>.",
-"GROUPS <key>                 -- Show the stream consumer groups.",
-"STREAM <key>                 -- Show information about the stream.",
-"HELP                         -- Print this help.",
+"CONSUMERS <key> <groupname>         -- Show consumer groups of group <groupname>.",
+"GROUPS <key>                        -- Show the stream consumer groups.",
+"STREAM <key> [FULL [COUNT <count>]] -- Show information about the stream.",
+"                                       FULL will return the full state of the stream,",
+"                                            including all entries, groups, consumers and PELs.",
+"                                            It's possible to show only the first stream/PEL entries",
+"                                            by using the COUNT modifier (Default is 10)",
+"HELP                                -- Print this help.",
 NULL
     };
     stream *s = NULL;
@@ -2564,36 +2773,10 @@ NULL
             addReplyStreamID(c,&cg->last_id);
         }
         raxStop(&ri);
-    } else if (!strcasecmp(opt,"STREAM") && c->argc == 3) {
-        /* XINFO STREAM <key> (or the alias XINFO <key>). */
-        addReplyMapLen(c,7);
-        addReplyBulkCString(c,"length");
-        addReplyLongLong(c,s->length);
-        addReplyBulkCString(c,"radix-tree-keys");
-        addReplyLongLong(c,raxSize(s->rax));
-        addReplyBulkCString(c,"radix-tree-nodes");
-        addReplyLongLong(c,s->rax->numnodes);
-        addReplyBulkCString(c,"groups");
-        addReplyLongLong(c,s->cgroups ? raxSize(s->cgroups) : 0);
-        addReplyBulkCString(c,"last-generated-id");
-        addReplyStreamID(c,&s->last_id);
-
-        /* To emit the first/last entry we us the streamReplyWithRange()
-         * API. */
-        int count;
-        streamID start, end;
-        start.ms = start.seq = 0;
-        end.ms = end.seq = UINT64_MAX;
-        addReplyBulkCString(c,"first-entry");
-        count = streamReplyWithRange(c,s,&start,&end,1,0,NULL,NULL,
-                                     STREAM_RWR_RAWENTRIES,NULL);
-        if (!count) addReplyNull(c);
-        addReplyBulkCString(c,"last-entry");
-        count = streamReplyWithRange(c,s,&start,&end,1,1,NULL,NULL,
-                                     STREAM_RWR_RAWENTRIES,NULL);
-        if (!count) addReplyNull(c);
+    } else if (!strcasecmp(opt,"STREAM")) {
+        /* XINFO STREAM <key> [FULL [COUNT <count>]]. */
+        xinfoReplyWithStreamInfo(c,s);
     } else {
         addReplySubcommandSyntaxError(c);
     }
 }
-

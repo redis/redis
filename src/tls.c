@@ -93,10 +93,55 @@ static int parseProtocolsConfig(const char *str) {
  * served to the reader yet. */
 static list *pending_list = NULL;
 
+/**
+ * OpenSSL global initialization and locking handling callbacks.
+ * Note that this is only required for OpenSSL < 1.1.0.
+ */
+
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#define USE_CRYPTO_LOCKS
+#endif
+
+#ifdef USE_CRYPTO_LOCKS
+
+static pthread_mutex_t *openssl_locks;
+
+static void sslLockingCallback(int mode, int lock_id, const char *f, int line) {
+    pthread_mutex_t *mt = openssl_locks + lock_id;
+
+    if (mode & CRYPTO_LOCK) {
+        pthread_mutex_lock(mt);
+    } else {
+        pthread_mutex_unlock(mt);
+    }
+
+    (void)f;
+    (void)line;
+}
+
+static void initCryptoLocks(void) {
+    unsigned i, nlocks;
+    if (CRYPTO_get_locking_callback() != NULL) {
+        /* Someone already set the callback before us. Don't destroy it! */
+        return;
+    }
+    nlocks = CRYPTO_num_locks();
+    openssl_locks = zmalloc(sizeof(*openssl_locks) * nlocks);
+    for (i = 0; i < nlocks; i++) {
+        pthread_mutex_init(openssl_locks + i, NULL);
+    }
+    CRYPTO_set_locking_callback(sslLockingCallback);
+}
+#endif /* USE_CRYPTO_LOCKS */
+
 void tlsInit(void) {
     ERR_load_crypto_strings();
     SSL_load_error_strings();
     SSL_library_init();
+
+#ifdef USE_CRYPTO_LOCKS
+    initCryptoLocks();
+#endif
 
     if (!RAND_poll()) {
         serverLog(LL_WARNING, "OpenSSL: Failed to seed random number generator.");
@@ -160,7 +205,7 @@ int tlsConfigure(redisTLSContextConfig *ctx_config) {
 #endif
 
 #ifdef SSL_OP_NO_CLIENT_RENEGOTIATION
-    SSL_CTX_set_options(ssl->ctx, SSL_OP_NO_CLIENT_RENEGOTIATION);
+    SSL_CTX_set_options(ctx, SSL_OP_NO_CLIENT_RENEGOTIATION);
 #endif
 
     if (ctx_config->prefer_server_ciphers)
@@ -768,15 +813,17 @@ int tlsHasPendingData() {
     return listLength(pending_list) > 0;
 }
 
-void tlsProcessPendingData() {
+int tlsProcessPendingData() {
     listIter li;
     listNode *ln;
 
+    int processed = listLength(pending_list);
     listRewind(pending_list,&li);
     while((ln = listNext(&li))) {
         tls_connection *conn = listNodeValue(ln);
         tlsHandleEvent(conn, AE_READABLE);
     }
+    return processed;
 }
 
 #else   /* USE_OPENSSL */
@@ -804,7 +851,8 @@ int tlsHasPendingData() {
     return 0;
 }
 
-void tlsProcessPendingData() {
+int tlsProcessPendingData() {
+    return 0;
 }
 
 #endif

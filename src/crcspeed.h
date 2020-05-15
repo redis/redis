@@ -1,5 +1,4 @@
-/*
- * Copyright (c) 2018-2019, Salvatore Sanfilippo <antirez at gmail dot com>
+/* Copyright (c) 2014, Matt Stancliff <matt@genges.com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -24,32 +23,38 @@
  * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
- */
+ * POSSIBILITY OF SUCH DAMAGE. */
 
-/* This structure represents our canvas. Drawing functions will take a pointer
- * to a canvas to write to it. Later the canvas can be rendered to a string
- * suitable to be printed on the screen, using unicode Braille characters. */
+#ifndef CRCSPEED_H
+#define CRCSPEED_H
 
-/* This represents a very simple generic canvas in order to draw stuff.
- * It's up to each LOLWUT versions to translate what they draw to the
- * screen, depending on the result to accomplish. */
+#include <inttypes.h>
+#include <stdio.h>
 
-#ifndef __LOLWUT_H
-#define __LOLWUT_H
+typedef uint64_t (*crcfn64)(uint64_t, const void *, const uint64_t);
+typedef uint16_t (*crcfn16)(uint16_t, const void *, const uint64_t);
 
-typedef struct lwCanvas {
-    int width;
-    int height;
-    char *pixels;
-} lwCanvas;
+/* CRC-64 */
+void crcspeed64little_init(crcfn64 fn, uint64_t table[8][256]);
+void crcspeed64big_init(crcfn64 fn, uint64_t table[8][256]);
+void crcspeed64native_init(crcfn64 fn, uint64_t table[8][256]);
 
-/* Drawing functions implemented inside lolwut.c. */
-lwCanvas *lwCreateCanvas(int width, int height, int bgcolor);
-void lwFreeCanvas(lwCanvas *canvas);
-void lwDrawPixel(lwCanvas *canvas, int x, int y, int color);
-int lwGetPixel(lwCanvas *canvas, int x, int y);
-void lwDrawLine(lwCanvas *canvas, int x1, int y1, int x2, int y2, int color);
-void lwDrawSquare(lwCanvas *canvas, int x, int y, float size, float angle, int color);
+uint64_t crcspeed64little(uint64_t table[8][256], uint64_t crc, void *buf,
+                          size_t len);
+uint64_t crcspeed64big(uint64_t table[8][256], uint64_t crc, void *buf,
+                       size_t len);
+uint64_t crcspeed64native(uint64_t table[8][256], uint64_t crc, void *buf,
+                          size_t len);
 
+/* CRC-16 */
+void crcspeed16little_init(crcfn16 fn, uint16_t table[8][256]);
+void crcspeed16big_init(crcfn16 fn, uint16_t table[8][256]);
+void crcspeed16native_init(crcfn16 fn, uint16_t table[8][256]);
+
+uint16_t crcspeed16little(uint16_t table[8][256], uint16_t crc, void *buf,
+                          size_t len);
+uint16_t crcspeed16big(uint16_t table[8][256], uint16_t crc, void *buf,
+                       size_t len);
+uint16_t crcspeed16native(uint16_t table[8][256], uint16_t crc, void *buf,
+                          size_t len);
 #endif

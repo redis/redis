@@ -216,9 +216,6 @@ proc run_solo {name code} {
 }
 
 proc cleanup {} {
-    if {$::dont_clean} {
-        return
-    }
     if {!$::quiet} {puts -nonewline "Cleanup: may take some time... "}
     flush stdout
     catch {exec rm -rf {*}[glob tests/tmp/redis.conf.*]}
@@ -456,11 +453,11 @@ proc the_end {} {
         foreach failed $::failed_tests {
             puts "*** $failed"
         }
-        cleanup
+        if {!$::dont_clean} cleanup
         exit 1
     } else {
         puts "\n[colorstr bold-white {\o/}] [colorstr bold-green {All tests passed without errors!}]\n"
-        cleanup
+        if {!$::dont_clean} cleanup
         exit 0
     }
 }

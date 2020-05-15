@@ -414,7 +414,7 @@ start_server {tags {"stream"} overrides {appendonly yes stream-node-max-entries 
     }
 }
 
-start_server {tags {"xsetid"}} {
+start_server {tags {"stream xsetid"}} {
     test {XADD can CREATE an empty stream} {
         r XADD mystream MAXLEN 0 * a b
         assert {[dict get [r xinfo stream mystream] length] == 0}

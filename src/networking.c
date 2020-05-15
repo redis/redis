@@ -393,6 +393,35 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
         serverLog(LL_WARNING,"== CRITICAL == This %s is sending an error "
                              "to its %s: '%s' after processing the command "
                              "'%s'", from, to, s, cmdname);
+        if (ctype == CLIENT_TYPE_MASTER && server.repl_backlog &&
+            server.repl_backlog_histlen > 0)
+        {
+            long long dumplen = 256;
+            if (server.repl_backlog_histlen < dumplen)
+                dumplen = server.repl_backlog_histlen;
+
+            /* Identify the first byte to dump. */
+            long long idx =
+              (server.repl_backlog_idx + (server.repl_backlog_size - dumplen)) %
+               server.repl_backlog_size;
+
+            /* Scan the circular buffer to collect 'dumplen' bytes. */
+            sds dump = sdsempty();
+            while(dumplen) {
+                long long thislen =
+                    ((server.repl_backlog_size - idx) < dumplen) ?
+                    (server.repl_backlog_size - idx) : dumplen;
+
+                dump = sdscatrepr(dump,server.repl_backlog+idx,thislen);
+                dumplen -= thislen;
+                idx = 0;
+            }
+
+            /* Finally log such bytes: this is vital debugging info to
+             * understand what happened. */
+            serverLog(LL_WARNING,"Latest backlog is: '%s'", dump);
+            sdsfree(dump);
+        }
         server.stat_unexpected_error_replies++;
     }
 }
@@ -436,6 +465,34 @@ void addReplyStatusFormat(client *c, const char *fmt, ...) {
     sdsfree(s);
 }
 
+/* Sometimes we are forced to create a new reply node, and we can't append to
+ * the previous one, when that happens, we wanna try to trim the unused space
+ * at the end of the last reply node which we won't use anymore. */
+void trimReplyUnusedTailSpace(client *c) {
+    listNode *ln = listLast(c->reply);
+    clientReplyBlock *tail = ln? listNodeValue(ln): NULL;
+
+    /* Note that 'tail' may be NULL even if we have a tail node, becuase when
+     * addDeferredMultiBulkLength() is used */
+    if (!tail) return;
+
+    /* We only try to trim the space is relatively high (more than a 1/4 of the
+     * allocation), otherwise there's a high chance realloc will NOP.
+     * Also, to avoid large memmove which happens as part of realloc, we only do
+     * that if the used part is small.  */
+    if (tail->size - tail->used > tail->size / 4 &&
+        tail->used < PROTO_REPLY_CHUNK_BYTES)
+    {
+        size_t old_size = tail->size;
+        tail = zrealloc(tail, tail->used + sizeof(clientReplyBlock));
+        /* take over the allocation's internal fragmentation (at least for
+         * memory usage tracking) */
+        tail->size = zmalloc_usable(tail) - sizeof(clientReplyBlock);
+        c->reply_bytes += tail->size - old_size;
+        listNodeValue(ln) = tail;
+    }
+}
+
 /* Adds an empty object to the reply list that will contain the multi bulk
  * length, which is not known when this function is called. */
 void *addReplyDeferredLen(client *c) {
@@ -443,6 +500,7 @@ void *addReplyDeferredLen(client *c) {
      * ready to be sent, since we are sure that before returning to the
      * event loop setDeferredAggregateLen() will be called. */
     if (prepareClientToWrite(c) != C_OK) return NULL;
+    trimReplyUnusedTailSpace(c);
     listAddNodeTail(c->reply,NULL); /* NULL is our placeholder. */
     return listLast(c->reply);
 }
@@ -1083,10 +1141,7 @@ void freeClient(client *c) {
      * some unexpected state, by checking its flags. */
     if (server.master && c->flags & CLIENT_MASTER) {
         serverLog(LL_WARNING,"Connection with master lost.");
-        if (!(c->flags & (CLIENT_CLOSE_AFTER_REPLY|
-                          CLIENT_CLOSE_ASAP|
-                          CLIENT_BLOCKED)))
-        {
+        if (!(c->flags & (CLIENT_PROTOCOL_ERROR|CLIENT_BLOCKED))) {
             replicationCacheMaster(c);
             return;
         }
@@ -1199,7 +1254,10 @@ void freeClientAsync(client *c) {
     pthread_mutex_unlock(&async_free_queue_mutex);
 }
 
-void freeClientsInAsyncFreeQueue(void) {
+/* Free the clietns marked as CLOSE_ASAP, return the number of clients
+ * freed. */
+int freeClientsInAsyncFreeQueue(void) {
+    int freed = listLength(server.clients_to_close);
     while (listLength(server.clients_to_close)) {
         listNode *ln = listFirst(server.clients_to_close);
         client *c = listNodeValue(ln);
@@ -1208,6 +1266,7 @@ void freeClientsInAsyncFreeQueue(void) {
         freeClient(c);
         listDelNode(server.clients_to_close,ln);
     }
+    return freed;
 }
 
 /* Return a client by ID, or NULL if the client ID is not in the set
@@ -1496,7 +1555,8 @@ int processInlineBuffer(client *c) {
 }
 
 /* Helper function. Record protocol erro details in server log,
- * and set the client as CLIENT_CLOSE_AFTER_REPLY. */
+ * and set the client as CLIENT_CLOSE_AFTER_REPLY and
+ * CLIENT_PROTOCOL_ERROR. */
 #define PROTO_DUMP_LEN 128
 static void setProtocolError(const char *errstr, client *c) {
     if (server.verbosity <= LL_VERBOSE) {
@@ -1522,7 +1582,7 @@ static void setProtocolError(const char *errstr, client *c) {
             "Protocol error (%s) from client: %s. %s", errstr, client, buf);
         sdsfree(client);
     }
-    c->flags |= CLIENT_CLOSE_AFTER_REPLY;
+    c->flags |= (CLIENT_CLOSE_AFTER_REPLY|CLIENT_PROTOCOL_ERROR);
 }
 
 /* Process the query buffer for client 'c', setting up the client argument
@@ -1671,12 +1731,55 @@ int processMultibulkBuffer(client *c) {
     return C_ERR;
 }
 
+/* Perform necessary tasks after a command was executed:
+ *
+ * 1. The client is reset unless there are reasons to avoid doing it.
+ * 2. In the case of master clients, the replication offset is updated.
+ * 3. Propagate commands we got from our master to replicas down the line. */
+void commandProcessed(client *c) {
+    int cmd_is_ping = c->cmd && c->cmd->proc == pingCommand;
+    long long prev_offset = c->reploff;
+    if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
+        /* Update the applied replication offset of our master. */
+        c->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
+    }
+
+    /* Don't reset the client structure for clients blocked in a
+     * module blocking command, so that the reply callback will
+     * still be able to access the client argv and argc field.
+     * The client will be reset in unblockClientFromModule(). */
+    if (!(c->flags & CLIENT_BLOCKED) ||
+        c->btype != BLOCKED_MODULE)
+    {
+        resetClient(c);
+    }
+
+    /* If the client is a master we need to compute the difference
+     * between the applied offset before and after processing the buffer,
+     * to understand how much of the replication stream was actually
+     * applied to the master state: this quantity, and its corresponding
+     * part of the replication stream, will be propagated to the
+     * sub-replicas and to the replication backlog. */
+    if (c->flags & CLIENT_MASTER) {
+        long long applied = c->reploff - prev_offset;
+        long long prev_master_repl_meaningful_offset = server.master_repl_meaningful_offset;
+        if (applied) {
+            replicationFeedSlavesFromMasterStream(server.slaves,
+                    c->pending_querybuf, applied);
+            sdsrange(c->pending_querybuf,applied,-1);
+        }
+        /* The server.master_repl_meaningful_offset variable represents
+         * the offset of the replication stream without the pending PINGs. */
+        if (cmd_is_ping)
+            server.master_repl_meaningful_offset = prev_master_repl_meaningful_offset;
+    }
+}
+
 /* This function calls processCommand(), but also performs a few sub tasks
- * that are useful in that context:
+ * for the client that are useful in that context:
  *
  * 1. It sets the current client to the client 'c'.
- * 2. In the case of master clients, the replication offset is updated.
- * 3. The client is reset unless there are reasons to avoid doing it.
+ * 2. calls commandProcessed() if the command was handled.
  *
  * The function returns C_ERR in case the client was freed as a side effect
  * of processing the command, otherwise C_OK is returned. */
@@ -1684,20 +1787,7 @@ int processCommandAndResetClient(client *c) {
     int deadclient = 0;
     server.current_client = c;
     if (processCommand(c) == C_OK) {
-        if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
-            /* Update the applied replication offset of our master. */
-            c->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
-        }
-
-        /* Don't reset the client structure for clients blocked in a
-         * module blocking command, so that the reply callback will
-         * still be able to access the client argv and argc field.
-         * The client will be reset in unblockClientFromModule(). */
-        if (!(c->flags & CLIENT_BLOCKED) ||
-            c->btype != BLOCKED_MODULE)
-        {
-            resetClient(c);
-        }
+        commandProcessed(c);
     }
     if (server.current_client == NULL) deadclient = 1;
     server.current_client = NULL;
@@ -1796,31 +1886,6 @@ void processInputBuffer(client *c) {
     }
 }
 
-/* This is a wrapper for processInputBuffer that also cares about handling
- * the replication forwarding to the sub-replicas, in case the client 'c'
- * is flagged as master. Usually you want to call this instead of the
- * raw processInputBuffer(). */
-void processInputBufferAndReplicate(client *c) {
-    if (!(c->flags & CLIENT_MASTER)) {
-        processInputBuffer(c);
-    } else {
-        /* If the client is a master we need to compute the difference
-         * between the applied offset before and after processing the buffer,
-         * to understand how much of the replication stream was actually
-         * applied to the master state: this quantity, and its corresponding
-         * part of the replication stream, will be propagated to the
-         * sub-replicas and to the replication backlog. */
-        size_t prev_offset = c->reploff;
-        processInputBuffer(c);
-        size_t applied = c->reploff - prev_offset;
-        if (applied) {
-            replicationFeedSlavesFromMasterStream(server.slaves,
-                    c->pending_querybuf, applied);
-            sdsrange(c->pending_querybuf,applied,-1);
-        }
-    }
-}
-
 void readQueryFromClient(connection *conn) {
     client *c = connGetPrivateData(conn);
     int nread, readlen;
@@ -1888,7 +1953,7 @@ void readQueryFromClient(connection *conn) {
 
     /* There is more data in the client input buffer, continue parsing it
      * in case to check if there is a full command to execute. */
-     processInputBufferAndReplicate(c);
+     processInputBuffer(c);
 }
 
 void getClientsMaxBuffers(unsigned long *longest_output_list,
@@ -2067,6 +2132,7 @@ void clientCommand(client *c) {
 "KILL <option> <value> [option value ...] -- Kill connections. Options are:",
 "     ADDR <ip:port>                      -- Kill connection made from <ip:port>",
 "     TYPE (normal|master|replica|pubsub) -- Kill connections by type.",
+"     USER <username>   -- Kill connections authenticated with such user.",
 "     SKIPME (yes|no)   -- Skip killing current connection (default: yes).",
 "LIST [options ...]     -- Return information about client connections. Options:",
 "     TYPE (normal|master|replica|pubsub) -- Return clients of specified type.",
@@ -2117,6 +2183,7 @@ NULL
         /* CLIENT KILL <ip:port>
          * CLIENT KILL <option> [value] ... <option> [value] */
         char *addr = NULL;
+        user *user = NULL;
         int type = -1;
         uint64_t id = 0;
         int skipme = 1;
@@ -2148,6 +2215,14 @@ NULL
                     }
                 } else if (!strcasecmp(c->argv[i]->ptr,"addr") && moreargs) {
                     addr = c->argv[i+1]->ptr;
+                } else if (!strcasecmp(c->argv[i]->ptr,"user") && moreargs) {
+                    user = ACLGetUserByName(c->argv[i+1]->ptr,
+                                            sdslen(c->argv[i+1]->ptr));
+                    if (user == NULL) {
+                        addReplyErrorFormat(c,"No such user '%s'",
+                            (char*) c->argv[i+1]->ptr);
+                        return;
+                    }
                 } else if (!strcasecmp(c->argv[i]->ptr,"skipme") && moreargs) {
                     if (!strcasecmp(c->argv[i+1]->ptr,"yes")) {
                         skipme = 1;
@@ -2175,6 +2250,7 @@ NULL
             if (addr && strcmp(getClientPeerId(client),addr) != 0) continue;
             if (type != -1 && getClientType(client) != type) continue;
             if (id != 0 && client->id != id) continue;
+            if (user && client->user != user) continue;
             if (c == client && skipme) continue;
 
             /* Kill it. */
@@ -2291,6 +2367,8 @@ NULL
                 options |= CLIENT_TRACKING_OPTIN;
             } else if (!strcasecmp(c->argv[j]->ptr,"optout")) {
                 options |= CLIENT_TRACKING_OPTOUT;
+            } else if (!strcasecmp(c->argv[j]->ptr,"noloop")) {
+                options |= CLIENT_TRACKING_NOLOOP;
             } else if (!strcasecmp(c->argv[j]->ptr,"prefix") && moreargs) {
                 j++;
                 prefix = zrealloc(prefix,sizeof(robj*)*(numprefix+1));
@@ -2778,9 +2856,8 @@ int clientsArePaused(void) {
  * write, close sequence needed to serve a client.
  *
  * The function returns the total number of events processed. */
-int processEventsWhileBlocked(void) {
+void processEventsWhileBlocked(void) {
     int iterations = 4; /* See the function top-comment. */
-    int count = 0;
 
     /* Note: when we are processing events while blocked (for instance during
      * busy Lua scripts), we set a global flag. When such flag is set, we
@@ -2788,14 +2865,17 @@ int processEventsWhileBlocked(void) {
      * See https://github.com/antirez/redis/issues/6988 for more info. */
     ProcessingEventsWhileBlocked = 1;
     while (iterations--) {
-        int events = 0;
-        events += aeProcessEvents(server.el, AE_FILE_EVENTS|AE_DONT_WAIT);
-        events += handleClientsWithPendingWrites();
+        long long startval = server.events_processed_while_blocked;
+        long long ae_events = aeProcessEvents(server.el,
+            AE_FILE_EVENTS|AE_DONT_WAIT|
+            AE_CALL_BEFORE_SLEEP|AE_CALL_AFTER_SLEEP);
+        /* Note that server.events_processed_while_blocked will also get
+         * incremeted by callbacks called by the event loop handlers. */
+        server.events_processed_while_blocked += ae_events;
+        long long events = server.events_processed_while_blocked - startval;
         if (!events) break;
-        count += events;
     }
     ProcessingEventsWhileBlocked = 0;
-    return count;
 }
 
 /* ==========================================================================
@@ -2827,6 +2907,7 @@ void *IOThreadMain(void *myid) {
 
     snprintf(thdname, sizeof(thdname), "io_thd_%ld", id);
     redis_set_thread_title(thdname);
+    redisSetCpuAffinity(server.server_cpulist);
 
     while(1) {
         /* Wait for start */
@@ -2950,9 +3031,9 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     int processed = listLength(server.clients_pending_write);
     if (processed == 0) return 0; /* Return ASAP if there are no clients. */
 
-    /* If we have just a few clients to serve, don't use I/O threads, but the
-     * boring synchronous code. */
-    if (stopThreadedIOIfNeeded()) {
+    /* If I/O threads are disabled or we have few clients to serve, don't
+     * use I/O threads, but thejboring synchronous code. */
+    if (server.io_threads_num == 1 || stopThreadedIOIfNeeded()) {
         return handleClientsWithPendingWrites();
     }
 
@@ -3101,7 +3182,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
                 continue;
             }
         }
-        processInputBufferAndReplicate(c);
+        processInputBuffer(c);
     }
     return processed;
 }

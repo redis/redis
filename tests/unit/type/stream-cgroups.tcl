@@ -294,6 +294,40 @@ start_server {
         assert {[lindex $reply 0 3] == 2}
     }
 
+    test {XINFO FULL output} {
+        r del x
+        r XADD x 100 a 1
+        r XADD x 101 b 1
+        r XADD x 102 c 1
+        r XADD x 103 e 1
+        r XADD x 104 f 1
+        r XGROUP CREATE x g1 0
+        r XGROUP CREATE x g2 0
+        r XREADGROUP GROUP g1 Alice COUNT 1 STREAMS x >
+        r XREADGROUP GROUP g1 Bob COUNT 1 STREAMS x >
+        r XREADGROUP GROUP g1 Bob NOACK COUNT 1 STREAMS x >
+        r XREADGROUP GROUP g2 Charlie COUNT 4 STREAMS x >
+        r XDEL x 103
+
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [llength $reply] 12
+        assert_equal [lindex $reply 1] 4 ;# stream length
+        assert_equal [lindex $reply 9] "{100-0 {a 1}} {101-0 {b 1}} {102-0 {c 1}} {104-0 {f 1}}" ;# entries
+        assert_equal [lindex $reply 11 0 1] "g1" ;# first group name
+        assert_equal [lindex $reply 11 0 7 0 0] "100-0" ;# first entry in group's PEL
+        assert_equal [lindex $reply 11 0 9 0 1] "Alice" ;# first consumer
+        assert_equal [lindex $reply 11 0 9 0 7 0 0] "100-0" ;# first entry in first consumer's PEL
+        assert_equal [lindex $reply 11 1 1] "g2" ;# second group name
+        assert_equal [lindex $reply 11 1 9 0 1] "Charlie" ;# first consumer
+        assert_equal [lindex $reply 11 1 9 0 7 0 0] "100-0" ;# first entry in first consumer's PEL
+        assert_equal [lindex $reply 11 1 9 0 7 1 0] "101-0" ;# second entry in first consumer's PEL
+
+        set reply [r XINFO STREAM x FULL COUNT 1]
+        assert_equal [llength $reply] 12
+        assert_equal [lindex $reply 1] 4
+        assert_equal [lindex $reply 9] "{100-0 {a 1}}"
+    }
+
     start_server {} {
         set master [srv -1 client]
         set master_host [srv -1 host]

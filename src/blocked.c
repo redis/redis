@@ -110,7 +110,7 @@ void processUnblockedClients(void) {
          * the code is conceptually more correct this way. */
         if (!(c->flags & CLIENT_BLOCKED)) {
             if (c->querybuf && sdslen(c->querybuf) > 0) {
-                processInputBufferAndReplicate(c);
+                processInputBuffer(c);
             }
         }
     }
@@ -371,9 +371,10 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
                 int noack = 0;
 
                 if (group) {
-                    consumer = streamLookupConsumer(group,
-                               receiver->bpop.xread_consumer->ptr,
-                               1);
+                    consumer =
+                        streamLookupConsumer(group,
+                                             receiver->bpop.xread_consumer->ptr,
+                                             SLC_NONE);
                     noack = receiver->bpop.xread_group_noack;
                 }
 

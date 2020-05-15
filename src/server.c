@@ -1006,8 +1006,8 @@ struct redisCommand redisCommandTable[] = {
      "admin no-script no-slowlog ok-loading ok-stale",
      0,NULL,0,0,0,0,0,0},
 
-    {"lcs",lcsCommand,-4,
-     "write use-memory @string",
+    {"stralgo",stralgoCommand,-2,
+     "read-only @string",
      0,lcsGetKeys,0,0,0,0,0,0}
 };
 
@@ -1227,11 +1227,15 @@ int dictEncObjKeyCompare(void *privdata, const void *key1,
         o2->encoding == OBJ_ENCODING_INT)
             return o1->ptr == o2->ptr;
 
-    o1 = getDecodedObject(o1);
-    o2 = getDecodedObject(o2);
+    /* Due to OBJ_STATIC_REFCOUNT, we avoid calling getDecodedObject() without
+     * good reasons, because it would incrRefCount() the object, which
+     * is invalid. So we check to make sure dictFind() works with static
+     * objects as well. */
+    if (o1->refcount != OBJ_STATIC_REFCOUNT) o1 = getDecodedObject(o1);
+    if (o2->refcount != OBJ_STATIC_REFCOUNT) o2 = getDecodedObject(o2);
     cmp = dictSdsKeyCompare(privdata,o1->ptr,o2->ptr);
-    decrRefCount(o1);
-    decrRefCount(o2);
+    if (o1->refcount != OBJ_STATIC_REFCOUNT) decrRefCount(o1);
+    if (o2->refcount != OBJ_STATIC_REFCOUNT) decrRefCount(o2);
     return cmp;
 }
 
@@ -2057,6 +2061,12 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Stop the I/O threads if we don't have enough pending work. */
     stopThreadedIOIfNeeded();
 
+    /* Resize tracking keys table if needed. This is also done at every
+     * command execution, but we want to be sure that if the last command
+     * executed changes the value via CONFIG SET, the server will perform
+     * the operation even if completely idle. */
+    if (server.tracking_clients) trackingLimitUsedSlots();
+
     /* Start a scheduled BGSAVE if the corresponding flag is set. This is
      * useful when we are forced to postpone a BGSAVE because an AOF
      * rewrite is in progress.
@@ -2085,11 +2095,39 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     return 1000/server.hz;
 }
 
+extern int ProcessingEventsWhileBlocked;
+
 /* This function gets called every time Redis is entering the
  * main loop of the event driven library, that is, before to sleep
- * for ready file descriptors. */
+ * for ready file descriptors.
+ *
+ * Note: This function is (currently) called from two functions:
+ * 1. aeMain - The main server loop
+ * 2. processEventsWhileBlocked - Process clients during RDB/AOF load
+ *
+ * If it was called from processEventsWhileBlocked we don't want
+ * to perform all actions (For example, we don't want to expire
+ * keys), but we do need to perform some actions.
+ *
+ * The most important is freeClientsInAsyncFreeQueue but we also
+ * call some other low-risk functions. */
 void beforeSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
+
+    /* Just call a subset of vital functions in case we are re-entering
+     * the event loop from processEventsWhileBlocked(). Note that in this
+     * case we keep track of the number of events we are processing, since
+     * processEventsWhileBlocked() wants to stop ASAP if there are no longer
+     * events to handle. */
+    if (ProcessingEventsWhileBlocked) {
+        uint64_t processed = 0;
+        processed += handleClientsWithPendingReadsUsingThreads();
+        processed += tlsProcessPendingData();
+        processed += handleClientsWithPendingWrites();
+        processed += freeClientsInAsyncFreeQueue();
+        server.events_processed_while_blocked += processed;
+        return;
+    }
 
     /* Handle precise timeouts of blocked clients. */
     handleBlockedClientsTimeout();
@@ -2114,21 +2152,6 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     if (server.active_expire_enabled && server.masterhost == NULL)
         activeExpireCycle(ACTIVE_EXPIRE_CYCLE_FAST);
 
-    /* Send all the slaves an ACK request if at least one client blocked
-     * during the previous event loop iteration. */
-    if (server.get_ack_from_slaves) {
-        robj *argv[3];
-
-        argv[0] = createStringObject("REPLCONF",8);
-        argv[1] = createStringObject("GETACK",6);
-        argv[2] = createStringObject("*",1); /* Not used argument. */
-        replicationFeedSlaves(server.slaves, server.slaveseldb, argv, 3);
-        decrRefCount(argv[0]);
-        decrRefCount(argv[1]);
-        decrRefCount(argv[2]);
-        server.get_ack_from_slaves = 0;
-    }
-
     /* Unblock all the clients blocked for synchronous replication
      * in WAIT. */
     if (listLength(server.clients_waiting_acks))
@@ -2141,6 +2164,24 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Try to process pending commands for clients that were just unblocked. */
     if (listLength(server.unblocked_clients))
         processUnblockedClients();
+
+    /* Send all the slaves an ACK request if at least one client blocked
+     * during the previous event loop iteration. Note that we do this after
+     * processUnblockedClients(), so if there are multiple pipelined WAITs
+     * and the just unblocked WAIT gets blocked again, we don't have to wait
+     * a server cron cycle in absence of other event loop events. See #6623. */
+    if (server.get_ack_from_slaves) {
+        robj *argv[3];
+
+        argv[0] = createStringObject("REPLCONF",8);
+        argv[1] = createStringObject("GETACK",6);
+        argv[2] = createStringObject("*",1); /* Not used argument. */
+        replicationFeedSlaves(server.slaves, server.slaveseldb, argv, 3);
+        decrRefCount(argv[0]);
+        decrRefCount(argv[1]);
+        decrRefCount(argv[2]);
+        server.get_ack_from_slaves = 0;
+    }
 
     /* Send the invalidation messages to clients participating to the
      * client side caching protocol in broadcasting (BCAST) mode. */
@@ -2166,7 +2207,10 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
  * the different events callbacks. */
 void afterSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
-    if (moduleCount()) moduleAcquireGIL();
+
+    if (!ProcessingEventsWhileBlocked) {
+        if (moduleCount()) moduleAcquireGIL();
+    }
 }
 
 /* =========================== Server initialization ======================== */
@@ -2732,6 +2776,7 @@ void initServer(void) {
     server.clients_waiting_acks = listCreate();
     server.get_ack_from_slaves = 0;
     server.clients_paused = 0;
+    server.events_processed_while_blocked = 0;
     server.system_memory_size = zmalloc_get_memory_size();
     server.cached_key = NULL;
     server.cached_hash = 0;
@@ -2875,6 +2920,11 @@ void initServer(void) {
                 "Error registering the readable event for the module "
                 "blocked clients subsystem.");
     }
+
+    /* Register before and after sleep handlers (note this needs to be done
+     * before loading persistence since it is used by processEventsWhileBlocked. */
+    aeSetBeforeSleepProc(server.el,beforeSleep);
+    aeSetAfterSleepProc(server.el,afterSleep);
 
     /* Open the AOF file if needed. */
     if (server.aof_state == AOF_ON) {
@@ -3207,8 +3257,8 @@ void call(client *c, int flags) {
 
     server.fixed_time_expire++;
 
-    /* Sent the command to clients in MONITOR mode, only if the commands are
-     * not generated from reading an AOF. */
+    /* Send the command to clients in MONITOR mode if applicable.
+     * Administrative commands are considered too dangerous to be shown. */
     if (listLength(server.monitors) &&
         !server.loading &&
         !(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN)))
@@ -4047,7 +4097,7 @@ sds genRedisInfoString(const char *section) {
         size_t zmalloc_used = zmalloc_used_memory();
         size_t total_system_mem = server.system_memory_size;
         const char *evict_policy = evictPolicyToString();
-        long long memory_lua = (long long)lua_gc(server.lua,LUA_GCCOUNT,0)*1024;
+        long long memory_lua = server.lua ? (long long)lua_gc(server.lua,LUA_GCCOUNT,0)*1024 : 0;
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
         /* Peak memory is updated from time to time by serverCron() so it
@@ -4283,6 +4333,7 @@ sds genRedisInfoString(const char *section) {
             "active_defrag_key_misses:%lld\r\n"
             "tracking_total_keys:%lld\r\n"
             "tracking_total_items:%lld\r\n"
+            "tracking_total_prefixes:%lld\r\n"
             "unexpected_error_replies:%lld\r\n",
             server.stat_numconnections,
             server.stat_numcommands,
@@ -4313,6 +4364,7 @@ sds genRedisInfoString(const char *section) {
             server.stat_active_defrag_key_misses,
             (unsigned long long) trackingGetTotalKeys(),
             (unsigned long long) trackingGetTotalItems(),
+            (unsigned long long) trackingGetTotalPrefixes(),
             server.stat_unexpected_error_replies);
     }
 
@@ -4852,6 +4904,14 @@ void redisSetProcTitle(char *title) {
 #endif
 }
 
+void redisSetCpuAffinity(const char *cpulist) {
+#ifdef USE_SETCPUAFFINITY
+    setcpuaffinity(cpulist);
+#else
+    UNUSED(cpulist);
+#endif
+}
+
 /*
  * Check whether systemd or upstart have been used to start redis.
  */
@@ -4955,6 +5015,7 @@ int main(int argc, char **argv) {
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
     srand(time(NULL)^getpid());
     gettimeofday(&tv,NULL);
+    crc64_init();
 
     uint8_t hashseed[16];
     getRandomBytes(hashseed,sizeof(hashseed));
@@ -5120,8 +5181,7 @@ int main(int argc, char **argv) {
         serverLog(LL_WARNING,"WARNING: You specified a maxmemory value that is less than 1MB (current value is %llu bytes). Are you sure this is what you really want?", server.maxmemory);
     }
 
-    aeSetBeforeSleepProc(server.el,beforeSleep);
-    aeSetAfterSleepProc(server.el,afterSleep);
+    redisSetCpuAffinity(server.server_cpulist);
     aeMain(server.el);
     aeDeleteEventLoop(server.el);
     return 0;

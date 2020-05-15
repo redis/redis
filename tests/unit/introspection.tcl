@@ -94,6 +94,10 @@ start_server {tags {"introspection"}} {
             slaveof
             bind
             requirepass
+            server_cpulist
+            bio_cpulist
+            aof_rewrite_cpulist
+            bgsave_cpulist
         }
 
         set configs {}
