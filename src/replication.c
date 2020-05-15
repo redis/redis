@@ -2688,14 +2688,18 @@ void replicationCacheMaster(client *c) {
     /* Unlink the client from the server structures. */
     unlinkClient(c);
 
+    /* Clear flags that can create issues once we reconnect the client. */
+    c->flags &= ~(CLIENT_CLOSE_ASAP|CLIENT_CLOSE_AFTER_REPLY);
+
     /* Reset the master client so that's ready to accept new commands:
      * we want to discard te non processed query buffers and non processed
      * offsets, including pending transactions, already populated arguments,
      * pending outputs to the master. */
     sdsclear(server.master->querybuf);
     sdsclear(server.master->pending_querybuf);
-    /* Adjust reploff and read_reploff to the last meaningful offset we executed.
-     * this is the offset the replica will use for future PSYNC. */
+
+    /* Adjust reploff and read_reploff to the last meaningful offset we
+     * executed. This is the offset the replica will use for future PSYNC. */
     server.master->reploff = adjustMeaningfulReplOffset();
     server.master->read_reploff = server.master->reploff;
     if (c->flags & CLIENT_MULTI) discardTransaction(c);
