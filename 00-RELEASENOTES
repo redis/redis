@@ -12,6 +12,185 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 6.0.2     Released Fri May 15 22:24:36 CEST 2020
+================================================================================
+
+Upgrade urgency MODERATE: many not critical bugfixes in different areas.
+                          Critical fix to client side caching when
+                          keys are evicted from the tracking table but
+                          no notifications are sent.
+
+The following are the most serious fix:
+
+* XPENDING should not update consumer's seen-time
+* optimize memory usage of deferred replies - fixed
+* Fix CRC64 initialization outside the Redis server itself.
+* stringmatchlen() should not expect null terminated strings.
+* Cluster nodes availability checks improved when there is
+  high Pub/Sub load on the cluster bus.
+* Redis Benchmark: Fix coredump because of double free
+* Tracking: send eviction messages when evicting entries.
+* rax.c updated from upstream antirez/rax.
+* fix redis 6.0 not freeing closed connections during loading.
+
+New features:
+
+* Support setcpuaffinity on linux/bsd
+* Client Side Caching: Add Tracking Prefix Number Stats in Server Info
+* Add --user argument to redis-benchmark.c (ACL)
+
+Full list of commits:
+
+Yossi Gottlieb in commit 16ba33c05:
+ TLS: Fix test failures on recent Debian/Ubuntu.
+ 1 file changed, 20 deletions(-)
+
+Yossi Gottlieb in commit 77ae66930:
+ TLS: Add crypto locks for older OpenSSL support.
+ 1 file changed, 45 insertions(+)
+
+David Carlier in commit 389697988:
+ NetBSD build update.
+ 3 files changed, 30 insertions(+), 1 deletion(-)
+
+Madelyn Olson in commit 2435341d7:
+ Added a refcount on timer events to prevent deletion of recursive timer calls
+ 2 files changed, 12 insertions(+)
+
+antirez in commit 80c906bd3:
+ Cache master without checking of deferred close flags.
+ 3 files changed, 11 insertions(+), 8 deletions(-)
+
+antirez in commit 74249be4a:
+ Track events processed while blocked globally.
+ 5 files changed, 32 insertions(+), 17 deletions(-)
+
+antirez in commit 8bf660af9:
+ Some rework of #7234.
+ 4 files changed, 77 insertions(+), 65 deletions(-)
+
+Oran Agra in commit 9da134cd8:
+ fix redis 6.0 not freeing closed connections during loading.
+ 3 files changed, 133 insertions(+), 58 deletions(-)
+
+antirez in commit f7f219a13:
+ Regression test for #7249.
+ 1 file changed, 22 insertions(+)
+
+antirez in commit 693629585:
+ rax.c updated from upstream antirez/rax.
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+antirez in commit e3b5648df:
+ Tracking: send eviction messages when evicting entries.
+ 2 files changed, 29 insertions(+), 12 deletions(-)
+
+Oran Agra in commit 5c41802d5:
+ fix unstable replication test
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+ShooterIT in commit a23cdbb94:
+ Redis Benchmark: Fix coredump because of double free
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 1276058ea:
+ Cluster: clarify we always resolve the sender.
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+antirez in commit 002fcde3d:
+ Cluster: refactor ping/data delay handling.
+ 1 file changed, 13 insertions(+), 11 deletions(-)
+
+antirez in commit 960186a71:
+ Cluster: introduce data_received field.
+ 2 files changed, 27 insertions(+), 10 deletions(-)
+
+antirez in commit 3672875b4:
+ stringmatchlen() should not expect null terminated strings.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Brad Dunbar in commit 24e12641d:
+ Remove unreachable branch.
+ 1 file changed, 2 deletions(-)
+
+hwware in commit c7edffbd5:
+ add jemalloc-bg-thread config in redis conf
+ 1 file changed, 3 insertions(+)
+
+hwware in commit 8a9c84f4a:
+ add include guard for lolwut.h
+ 1 file changed, 6 insertions(+)
+
+antirez in commit cb683a84f:
+ Don't propagate spurious MULTI on DEBUG LOADAOF.
+ 2 files changed, 6 insertions(+), 3 deletions(-)
+
+antirez in commit 84d9766d6:
+ Dump recent backlog on master query generating errors.
+ 1 file changed, 29 insertions(+)
+
+Titouan Christophe in commit ec1e106ec:
+ make struct user anonymous (only typedefed)
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit e48c37316:
+ Test: --dont-clean should do first cleanup.
+ 1 file changed, 2 insertions(+), 5 deletions(-)
+
+Benjamin Sergeant in commit 1e561cfaa:
+ Add --user argument to redis-benchmark.c (ACL)
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+
+antirez in commit d1af82a88:
+ Drop not needed part from #7194.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Muhammad Zahalqa in commit 897a360d0:
+ Fix compiler warnings on function rev(unsigned long)
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+antirez in commit ac316d8cc:
+ Move CRC64 initialization in main().
+ 2 files changed, 1 insertion(+), 4 deletions(-)
+
+antirez in commit fc7bc3204:
+ Fix CRC64 initialization outside the Redis server itself.
+ 1 file changed, 3 insertions(+)
+
+hwware in commit a6e55c096:
+ Client Side Caching: Add Tracking Prefix Number Stats in Server Info
+ 3 files changed, 8 insertions(+)
+
+antirez in commit b062fd523:
+ Fix NetBSD build by fixing redis_set_thread_title() support.
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+antirez in commit 4efb25d9c:
+ Rework a bit the documentation for CPU pinning.
+ 2 files changed, 18 insertions(+), 8 deletions(-)
+
+zhenwei pi in commit d6436eb7c:
+ Support setcpuaffinity on linux/bsd
+ 12 files changed, 180 insertions(+), 1 deletion(-)
+
+Guy Benoish in commit 3a441c7d9:
+ XPENDING should not update consumer's seen-time
+ 4 files changed, 33 insertions(+), 20 deletions(-)
+
+Oran Agra in commit 75addb4fe:
+ optimize memory usage of deferred replies - fixed
+ 1 file changed, 29 insertions(+)
+
+Deliang Yang in commit c57d9146f:
+ reformat code
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Oran Agra in commit 3d3861dd8:
+ add daily github actions with libc malloc and valgrind
+ 5 files changed, 106 insertions(+), 18 deletions(-)
+
+
+================================================================================
 Redis 6.0.1     Released Sat May 02 00:06:07 CEST 2020
 ================================================================================
 
