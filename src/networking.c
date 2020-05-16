@@ -1134,6 +1134,16 @@ void freeClient(client *c) {
     /* Notify module system that this client auth status changed. */
     moduleNotifyUserChanged(c);
 
+    /* If this client was scheduled for async freeing we need to remove it
+     * from the queue. Note that we need to do this here, because later
+     * we may call replicationCacheMaster() and the client should already
+     * be removed from the list of clients to free. */
+    if (c->flags & CLIENT_CLOSE_ASAP) {
+        ln = listSearchKey(server.clients_to_close,c);
+        serverAssert(ln != NULL);
+        listDelNode(server.clients_to_close,ln);
+    }
+
     /* If it is our master that's beging disconnected we should make sure
      * to cache the state to try a partial resynchronization later.
      *
@@ -1142,6 +1152,7 @@ void freeClient(client *c) {
     if (server.master && c->flags & CLIENT_MASTER) {
         serverLog(LL_WARNING,"Connection with master lost.");
         if (!(c->flags & (CLIENT_PROTOCOL_ERROR|CLIENT_BLOCKED))) {
+            c->flags &= ~(CLIENT_CLOSE_ASAP|CLIENT_CLOSE_AFTER_REPLY);
             replicationCacheMaster(c);
             return;
         }
@@ -1209,15 +1220,7 @@ void freeClient(client *c) {
      * we lost the connection with the master. */
     if (c->flags & CLIENT_MASTER) replicationHandleMasterDisconnection();
 
-    /* If this client was scheduled for async freeing we need to remove it
-     * from the queue. */
-    if (c->flags & CLIENT_CLOSE_ASAP) {
-        ln = listSearchKey(server.clients_to_close,c);
-        serverAssert(ln != NULL);
-        listDelNode(server.clients_to_close,ln);
-    }
-
-    /* Remove the contribution that this client gave to our
+   /* Remove the contribution that this client gave to our
      * incrementally computed memory usage. */
     server.stat_clients_type_memory[c->client_cron_last_memory_type] -=
         c->client_cron_last_memory_usage;
