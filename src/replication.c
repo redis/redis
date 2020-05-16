@@ -2688,9 +2688,6 @@ void replicationCacheMaster(client *c) {
     /* Unlink the client from the server structures. */
     unlinkClient(c);
 
-    /* Clear flags that can create issues once we reconnect the client. */
-    c->flags &= ~(CLIENT_CLOSE_ASAP|CLIENT_CLOSE_AFTER_REPLY);
-
     /* Reset the master client so that's ready to accept new commands:
      * we want to discard te non processed query buffers and non processed
      * offsets, including pending transactions, already populated arguments,
