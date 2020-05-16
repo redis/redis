@@ -12,7 +12,7 @@ start_server {} {
 
     set no_exit 0                   ; # Do not exit at end of the test
 
-    set duration 20                 ; # Total test seconds
+    set duration 40                 ; # Total test seconds
 
     set genload 1                   ; # Load master with writes at every cycle
 
@@ -125,14 +125,16 @@ start_server {} {
             }
         }
 
-        # wait for all the slaves to be in sync with the master, due to pings, we have to re-sample the master constantly too
+        # wait for all the slaves to be in sync.
+        set masteroff [status $R($master_id) master_repl_offset]
         wait_for_condition 500 100 {
-            [status $R($master_id) master_repl_offset] == [status $R(0) master_repl_offset] &&
-            [status $R($master_id) master_repl_offset] == [status $R(1) master_repl_offset] &&
-            [status $R($master_id) master_repl_offset] == [status $R(2) master_repl_offset] &&
-            [status $R($master_id) master_repl_offset] == [status $R(3) master_repl_offset] &&
-            [status $R($master_id) master_repl_offset] == [status $R(4) master_repl_offset]
+            [status $R(0) master_repl_offset] >= $masteroff &&
+            [status $R(1) master_repl_offset] >= $masteroff &&
+            [status $R(2) master_repl_offset] >= $masteroff &&
+            [status $R(3) master_repl_offset] >= $masteroff &&
+            [status $R(4) master_repl_offset] >= $masteroff
         } else {
+            puts "Master ID is $master_id"
             for {set j 0} {$j < 5} {incr j} {
                 puts "$j: sync_full: [status $R($j) sync_full]"
                 puts "$j: id1      : [status $R($j) master_replid]:[status $R($j) master_repl_offset]"
@@ -140,17 +142,11 @@ start_server {} {
                 puts "$j: backlog  : firstbyte=[status $R($j) repl_backlog_first_byte_offset] len=[status $R($j) repl_backlog_histlen]"
                 puts "---"
             }
-            fail "Slaves are not in sync with the master after too long time."
+            fail "Replicas offsets didn't catch up with the master after too long time."
         }
 
-        # Put down the old master so that it cannot generate more
-        # replication stream, this way in the next master switch, the time at
-        # which we move slaves away is not important, each will have full
-        # history (otherwise PINGs will make certain slaves have more history),
-        # and sometimes a full resync will be needed.
-        $R($master_id) slaveof 127.0.0.1 0 ;# We use port zero to make it fail.
-
         if {$debug_msg} {
+            puts "Master ID is $master_id"
             for {set j 0} {$j < 5} {incr j} {
                 puts "$j: sync_full: [status $R($j) sync_full]"
                 puts "$j: id1      : [status $R($j) master_replid]:[status $R($j) master_repl_offset]"
@@ -167,6 +163,28 @@ start_server {} {
             }
             assert {$sum == 4}
         }
+
+        # In absence of pings, are the instances really able to have
+        # the exact same offset?
+        $R($master_id) config set repl-ping-replica-period 3600
+        wait_for_condition 500 100 {
+            [status $R($master_id) master_repl_offset] == [status $R(0) master_repl_offset] &&
+            [status $R($master_id) master_repl_offset] == [status $R(1) master_repl_offset] &&
+            [status $R($master_id) master_repl_offset] == [status $R(2) master_repl_offset] &&
+            [status $R($master_id) master_repl_offset] == [status $R(3) master_repl_offset] &&
+            [status $R($master_id) master_repl_offset] == [status $R(4) master_repl_offset]
+        } else {
+            puts "Master ID is $master_id"
+            for {set j 0} {$j < 5} {incr j} {
+                puts "$j: sync_full: [status $R($j) sync_full]"
+                puts "$j: id1      : [status $R($j) master_replid]:[status $R($j) master_repl_offset]"
+                puts "$j: id2      : [status $R($j) master_replid2]:[status $R($j) second_repl_offset]"
+                puts "$j: backlog  : firstbyte=[status $R($j) repl_backlog_first_byte_offset] len=[status $R($j) repl_backlog_histlen]"
+                puts "---"
+            }
+            fail "Replicas and master offsets were unable to match *exactly*."
+        }
+        $R($master_id) config set repl-ping-replica-period 10
 
         # Limit anyway the maximum number of cycles. This is useful when the
         # test is skipped via --only option of the test suite. In that case
