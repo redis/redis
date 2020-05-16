@@ -54,6 +54,18 @@ endif
 endif
 
 # Backwards compatibility for selecting an allocator
+ifeq ($(USE_MIMALLOC),yes)
+	MALLOC=mimalloc
+endif
+
+ifeq ($(USE_SNMALLOC),yes)
+	MALLOC=snmalloc
+endif
+
+ifeq ($(USE_SNMALLOC_1MIB),yes)
+	MALLOC=snmalloc-1mib
+endif
+
 ifeq ($(USE_TCMALLOC),yes)
 	MALLOC=tcmalloc
 endif
@@ -173,6 +185,24 @@ endif
 ifeq ($(BUILD_WITH_SYSTEMD),yes)
 	FINAL_LIBS+=$(shell $(PKG_CONFIG) --libs libsystemd)
 	FINAL_CFLAGS+= -DHAVE_LIBSYSTEMD
+endif
+
+ifeq ($(MALLOC),snmalloc)
+	DEPENDENCY_TARGETS+= snmalloc	
+	FINAL_CFLAGS+= -mcx16 -DUSE_SNMALLOC
+	FINAL_LIBS := ../deps/snmalloc/libsnmallocshim-static.a -lstdc++ -latomic $(FINAL_LIBS)
+endif
+
+ifeq ($(MALLOC),snmalloc-1mib)
+	DEPENDENCY_TARGETS+= snmalloc-1mib
+	FINAL_CFLAGS+= -mcx16 -DUSE_SNMALLOC
+	FINAL_LIBS := ../deps/snmalloc/libsnmallocshim-1mib-static.a -lstdc++ -latomic $(FINAL_LIBS)
+endif
+
+ifeq ($(MALLOC),mimalloc)
+	DEPENDENCY_TARGETS+= mimalloc
+	FINAL_CFLAGS+= -DUSE_MIMALLOC -I../deps/mimalloc/include
+	FINAL_LIBS := ../deps/mimalloc/libmimalloc.a $(FINAL_LIBS)
 endif
 
 ifeq ($(MALLOC),tcmalloc)

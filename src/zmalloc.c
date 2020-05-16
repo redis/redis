@@ -57,6 +57,7 @@ void zlibc_free(void *ptr) {
 #endif
 
 /* Explicitly override malloc/free etc when using tcmalloc. */
+/* Not overriding the malloc here if using snmalloc         */
 #if defined(USE_TCMALLOC)
 #define malloc(size) tc_malloc(size)
 #define calloc(count,size) tc_calloc(count,size)
@@ -69,6 +70,11 @@ void zlibc_free(void *ptr) {
 #define free(ptr) je_free(ptr)
 #define mallocx(size,flags) je_mallocx(size,flags)
 #define dallocx(ptr,flags) je_dallocx(ptr,flags)
+#elif defined(USE_MIMALLOC)
+#define malloc(size) mi_malloc(size)
+#define calloc(count, size) mi_calloc(count, size)
+#define realloc(ptr, size) mi_realloc(ptr, size)
+#define free(ptr) mi_free(ptr)
 #endif
 
 #define update_zmalloc_stat_alloc(__n) do { \

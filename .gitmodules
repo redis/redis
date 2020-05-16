@@ -1,0 +1,9 @@
+[submodule "deps/snmalloc"]
+	path = deps/snmalloc
+	url = https://github.com/microsoft/snmalloc
+[submodule "deps/mimalloc"]
+	path = deps/mimalloc
+	url = https://github.com/microsoft/mimalloc
+[submodule "temp-snmalloc"]
+	path = deps/snmalloc
+	url = https://github.com/schrodingerzhu/snmalloc

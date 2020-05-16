@@ -85,3 +85,21 @@ jemalloc: .make-prerequisites
 	cd jemalloc && $(MAKE) CFLAGS="$(JEMALLOC_CFLAGS)" LDFLAGS="$(JEMALLOC_LDFLAGS)" lib/libjemalloc.a
 
 .PHONY: jemalloc
+
+mimalloc: .make-prerequisites
+	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
+	cd mimalloc && cmake . -DCMAKE_BUILD_TYPE=Release && cmake --build . --target mimalloc-static
+
+.PHONY: mimalloc
+
+snmalloc: .make-prerequisites
+	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
+	cd snmalloc && cmake . -DCMAKE_BUILD_TYPE=Release -DSNMALLOC_STATIC_LIBRARY=On && cmake --build . --target snmallocshim-static
+
+.PHONY: snmalloc
+
+snmalloc-1mib: .make-prerequisites
+	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
+	cd snmalloc && cmake . -DCMAKE_BUILD_TYPE=Release -DSNMALLOC_STATIC_LIBRARY=On && cmake --build . --target snmallocshim-1mib-static
+
+.PHONY: snmalloc-1mib
