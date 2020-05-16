@@ -1268,7 +1268,13 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
             }
         }
     }
-    if (startbgsave) startBgsaveForReplication(mincapa);
+    
+    if (startbgsave){
+        if(server.repl_diskless_sync && (mincapa & SLAVE_CAPA_EOF))
+            return;
+        else
+            startBgsaveForReplication(mincapa);
+    }
 }
 
 /* Change the current instance replication ID with a new, random one.
