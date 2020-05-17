@@ -75,6 +75,11 @@ void zlibc_free(void *ptr) {
 #define calloc(count, size) mi_calloc(count, size)
 #define realloc(ptr, size) mi_realloc(ptr, size)
 #define free(ptr) mi_free(ptr)
+#elif defined(USE_SNMALLOC)
+#define malloc(size) sn_malloc(size)
+#define calloc(count, size) sn_calloc(count, size)
+#define realloc(ptr, size) sn_realloc(ptr, size)
+#define free(ptr) sn_free(ptr)
 #endif
 
 #define update_zmalloc_stat_alloc(__n) do { \
