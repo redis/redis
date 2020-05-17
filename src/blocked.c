@@ -118,7 +118,7 @@ void processUnblockedClients(void) {
 
 /* This function will schedule the client for reprocessing at a safe time.
  *
- * This is useful when a client was blocked for some reason (blocking opeation,
+ * This is useful when a client was blocked for some reason (blocking operation,
  * CLIENT PAUSE, or whatever), because it may end with some accumulated query
  * buffer that needs to be processed ASAP:
  *
