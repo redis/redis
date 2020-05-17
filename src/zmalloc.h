@@ -37,12 +37,12 @@
 
 #if defined(USE_MIMALLOC)
 #include <mimalloc.h>
-#define ZMALLOC_LIB ("mimalloc-" __xstr(MI_MALLOC_VERSION))
+#define ZMALLOC_LIB ("mimalloc-" MIMALLOC_VERSION)
 #define HAVE_MALLOC_SIZE 1
 #define zmalloc_size(p) mi_malloc_usable_size(p)
 
 #elif defined(USE_SNMALLOC)
-#define ZMALLOC_LIB ("snmalloc-git") // TODO: FIXME
+#define ZMALLOC_LIB ("snmalloc-" SNMALLOC_VERSION)
 #define HAVE_MALLOC_SIZE 1
 #define zmalloc_size(p) malloc_usable_size(p)
 extern size_t malloc_usable_size(void *);

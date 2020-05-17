@@ -188,20 +188,23 @@ ifeq ($(BUILD_WITH_SYSTEMD),yes)
 endif
 
 ifeq ($(MALLOC),snmalloc)
+	__version := $(shell sh -c 'git submodule status | grep "snmalloc" | grep -oP "(?<=\()(.+)(?=\))"')
 	DEPENDENCY_TARGETS+= snmalloc	
-	FINAL_CFLAGS+= -mcx16 -DUSE_SNMALLOC
+	FINAL_CFLAGS+= -mcx16 -DUSE_SNMALLOC -DSNMALLOC_VERSION=\"$(__version)\"
 	FINAL_LIBS := ../deps/snmalloc/libsnmallocshim-static.a -lstdc++ -latomic $(FINAL_LIBS)
 endif
 
 ifeq ($(MALLOC),snmalloc-1mib)
+	__version := $(shell sh -c 'git submodule status | grep "snmalloc" | grep -oP "(?<=\()(.+)(?=\))"')
 	DEPENDENCY_TARGETS+= snmalloc-1mib
-	FINAL_CFLAGS+= -mcx16 -DUSE_SNMALLOC
+	FINAL_CFLAGS+= -mcx16 -DUSE_SNMALLOC -DSNMALLOC_VERSION='"$(__version) (1mib)"'
 	FINAL_LIBS := ../deps/snmalloc/libsnmallocshim-1mib-static.a -lstdc++ -latomic $(FINAL_LIBS)
 endif
 
 ifeq ($(MALLOC),mimalloc)
+	__version := $(shell sh -c 'git submodule status | grep "mimalloc" | grep -oP "(?<=\()(.+)(?=\))"')
 	DEPENDENCY_TARGETS+= mimalloc
-	FINAL_CFLAGS+= -DUSE_MIMALLOC -I../deps/mimalloc/include
+	FINAL_CFLAGS+= -DUSE_MIMALLOC -I../deps/mimalloc/include -DMIMALLOC_VERSION=\"$(__version)\"
 	FINAL_LIBS := ../deps/mimalloc/libmimalloc.a $(FINAL_LIBS)
 endif
 
