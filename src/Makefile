@@ -190,14 +190,14 @@ endif
 ifeq ($(MALLOC),snmalloc)
 	__version := $(shell sh -c 'git submodule status | grep "snmalloc" | grep -oP "(?<=\()(.+)(?=\))"')
 	DEPENDENCY_TARGETS+= snmalloc	
-	FINAL_CFLAGS+= -mcx16 -DUSE_SNMALLOC -DSNMALLOC_VERSION=\"$(__version)\"
+	FINAL_CFLAGS+= -DUSE_SNMALLOC -DSNMALLOC_VERSION=\"$(__version)\"
 	FINAL_LIBS := ../deps/snmalloc/libsnmallocshim-static.a -lstdc++ -latomic $(FINAL_LIBS)
 endif
 
 ifeq ($(MALLOC),snmalloc-1mib)
 	__version := $(shell sh -c 'git submodule status | grep "snmalloc" | grep -oP "(?<=\()(.+)(?=\))"')
 	DEPENDENCY_TARGETS+= snmalloc-1mib
-	FINAL_CFLAGS+= -mcx16 -DUSE_SNMALLOC -DSNMALLOC_VERSION='"$(__version) (1mib)"'
+	FINAL_CFLAGS+= -DUSE_SNMALLOC -DSNMALLOC_VERSION='"$(__version) (1mib)"'
 	FINAL_LIBS := ../deps/snmalloc/libsnmallocshim-1mib-static.a -lstdc++ -latomic $(FINAL_LIBS)
 endif
 
