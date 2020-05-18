@@ -375,12 +375,13 @@ int ACLUserCanExecuteFutureCommands(user *u) {
  * to skip the command bit explicit test. */
 void ACLSetUserCommandBit(user *u, unsigned long id, int value) {
     uint64_t word, bit;
-    if (value == 0) u->flags &= ~USER_FLAG_ALLCOMMANDS;
     if (ACLGetCommandBitCoordinates(id,&word,&bit) == C_ERR) return;
-    if (value)
+    if (value) {
         u->allowed_commands[word] |= bit;
-    else
+    } else {
         u->allowed_commands[word] &= ~bit;
+        u->flags &= ~USER_FLAG_ALLCOMMANDS;
+    }
 }
 
 /* This is like ACLSetUserCommandBit(), but instead of setting the specified
@@ -845,7 +846,6 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
                 errno = ENOENT;
                 return C_ERR;
             }
-            unsigned long id = ACLGetCommandID(copy);
 
             /* The subcommand cannot be empty, so things like DEBUG|
              * are syntax errors of course. */
@@ -858,6 +858,7 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
             /* The command should not be set right now in the command
              * bitmap, because adding a subcommand of a fully added
              * command is probably an error on the user side. */
+            unsigned long id = ACLGetCommandID(copy);
             if (ACLGetUserCommandBit(u,id) == 1) {
                 zfree(copy);
                 errno = EBUSY;
