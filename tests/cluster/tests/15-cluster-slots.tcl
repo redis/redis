@@ -42,3 +42,9 @@ test "client do not break when cluster slot" {
         fail "output overflow when cluster slots"
     }
 }
+
+test "client can handle keys with hash tag" {
+    set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
+    $cluster set foo{tag} bar
+    $cluster close
+}
