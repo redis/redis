@@ -303,7 +303,7 @@ fail:
     else fprintf(stderr, "%s\n", hostsocket);
     freeReplyObject(reply);
     redisFree(c);
-    zfree(cfg);
+    freeRedisConfig(cfg);
     return NULL;
 }
 static void freeRedisConfig(redisConfig *cfg) {
