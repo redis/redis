@@ -94,12 +94,12 @@ mimalloc: .make-prerequisites
 
 snmalloc: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
-	cd snmalloc && cmake -E env CXXFLAGS='-D"SNMALLOC_NAME_MANGLE(x)=sn_##x"' cmake . -DCMAKE_BUILD_TYPE=Release -DSNMALLOC_STATIC_LIBRARY=On  && cmake --build . --target snmallocshim-static
+	cd snmalloc && cmake . && cmake --build . --target snmallocshim-static
 
 .PHONY: snmalloc
 
 snmalloc-1mib: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
-	cd snmalloc && cmake -E env CXXFLAGS='-D"SNMALLOC_NAME_MANGLE(x)=sn_##x"' cmake . -DCMAKE_BUILD_TYPE=Release -DSNMALLOC_STATIC_LIBRARY=On && cmake --build . --target snmallocshim-1mib-static
+	cd snmalloc && cmake . && cmake --build . --target snmallocshim-1mib-static
 
 .PHONY: snmalloc-1mib
