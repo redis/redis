@@ -494,9 +494,8 @@ void stralgoCommand(client *c) {
     }
 }
 
-/* STRALGO <algo> [IDX] [MINMATCHLEN <len>] [WITHMATCHLEN]
- *     STRINGS <string> <string> | KEYS <keya> <keyb>
- */
+/* STRALGO LCS [IDX] [MINMATCHLEN <len>] [WITHMATCHLEN]
+ *     STRINGS <string> <string> | KEYS <keya> <keyb> */
 void stralgoLCS(client *c) {
     uint32_t i, j;
     long long minmatchlen = 0;
