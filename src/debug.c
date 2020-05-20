@@ -311,6 +311,13 @@ void mallctl_int(client *c, robj **argv, int argc) {
     size_t sz = sizeof(old);
     while (sz > 0) {
         if ((ret=je_mallctl(argv[0]->ptr, &old, &sz, argc > 1? &val: NULL, argc > 1?sz: 0))) {
+            if (ret == EPERM && argc > 1) {
+                /* if this option is write only, try just writing to it. */
+                if (!(ret=je_mallctl(argv[0]->ptr, NULL, 0, &val, sz))) {
+                    addReply(c, shared.ok);
+                    return;
+                }
+            }
             if (ret==EINVAL) {
                 /* size might be wrong, try a smaller one */
                 sz /= 2;
@@ -333,17 +340,30 @@ void mallctl_int(client *c, robj **argv, int argc) {
 }
 
 void mallctl_string(client *c, robj **argv, int argc) {
-    int ret;
+    int rret, wret;
     char *old;
     size_t sz = sizeof(old);
     /* for strings, it seems we need to first get the old value, before overriding it. */
-    if ((ret=je_mallctl(argv[0]->ptr, &old, &sz, NULL, 0))) {
-        addReplyErrorFormat(c,"%s", strerror(ret));
-        return;
+    if ((rret=je_mallctl(argv[0]->ptr, &old, &sz, NULL, 0))) {
+        /* return error unless this option is write only. */
+        if (!(rret == EPERM && argc > 1)) {
+            addReplyErrorFormat(c,"%s", strerror(rret));
+            return;
+        }
     }
-    addReplyBulkCString(c, old);
-    if(argc > 1)
-        je_mallctl(argv[0]->ptr, NULL, 0, &argv[1]->ptr, sizeof(char*));
+    if(argc > 1) {
+        char *val = argv[1]->ptr;
+        char **valref = &val;
+        if ((!strcmp(val,"VOID")))
+            valref = NULL, sz = 0;
+        wret = je_mallctl(argv[0]->ptr, NULL, 0, valref, sz);
+    }
+    if (!rret)
+        addReplyBulkCString(c, old);
+    else if (wret)
+        addReplyErrorFormat(c,"%s", strerror(wret));
+    else
+        addReply(c, shared.ok);
 }
 #endif
 

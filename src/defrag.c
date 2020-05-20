@@ -43,7 +43,7 @@
 
 /* this method was added to jemalloc in order to help us understand which
  * pointers are worthwhile moving and which aren't */
-int je_get_defrag_hint(void* ptr, int *bin_util, int *run_util);
+int je_get_defrag_hint(void* ptr);
 
 /* forward declarations*/
 void defragDictBucketCallback(void *privdata, dictEntry **bucketref);
@@ -55,18 +55,11 @@ dictEntry* replaceSateliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, sd
  * when it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
 void* activeDefragAlloc(void *ptr) {
-    int bin_util, run_util;
     size_t size;
     void *newptr;
-    if(!je_get_defrag_hint(ptr, &bin_util, &run_util)) {
+    if(!je_get_defrag_hint(ptr)) {
         server.stat_active_defrag_misses++;
-        return NULL;
-    }
-    /* if this run is more utilized than the average utilization in this bin
-     * (or it is full), skip it. This will eventually move all the allocations
-     * from relatively empty runs into relatively full runs. */
-    if (run_util > bin_util || run_util == 1<<16) {
-        server.stat_active_defrag_misses++;
+        size = zmalloc_size(ptr);
         return NULL;
     }
     /* move this allocation to a new allocation.
