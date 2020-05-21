@@ -1526,6 +1526,10 @@ void readSyncBulkPayload(connection *conn) {
 
         nread = connRead(conn,buf,readlen);
         if (nread <= 0) {
+            if (connGetState(conn) == CONN_STATE_CONNECTED) {
+                /* equivalent to EAGAIN */
+                return;
+            }
             serverLog(LL_WARNING,"I/O error trying to sync with MASTER: %s",
                 (nread == -1) ? strerror(errno) : "connection lost");
             cancelReplicationHandshake();
