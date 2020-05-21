@@ -519,7 +519,7 @@ void stralgoLCS(client *c) {
                 != C_OK) return;
             if (minmatchlen < 0) minmatchlen = 0;
             j++;
-        } else if (!strcasecmp(opt,"STRINGS")) {
+        } else if (!strcasecmp(opt,"STRINGS") && moreargs > 1) {
             if (a != NULL) {
                 addReplyError(c,"Either use STRINGS or KEYS");
                 return;
@@ -527,7 +527,7 @@ void stralgoLCS(client *c) {
             a = c->argv[j+1]->ptr;
             b = c->argv[j+2]->ptr;
             j += 2;
-        } else if (!strcasecmp(opt,"KEYS")) {
+        } else if (!strcasecmp(opt,"KEYS") && moreargs > 1) {
             if (a != NULL) {
                 addReplyError(c,"Either use STRINGS or KEYS");
                 return;
