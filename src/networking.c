@@ -268,7 +268,7 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
     clientReplyBlock *tail = ln? listNodeValue(ln): NULL;
 
     /* Note that 'tail' may be NULL even if we have a tail node, becuase when
-     * addDeferredMultiBulkLength() is used, it sets a dummy node to NULL just
+     * addReplyDeferredLen() is used, it sets a dummy node to NULL just
      * fo fill it later, when the size of the bulk length is set. */
 
     /* Append to tail string when possible. */
@@ -473,7 +473,7 @@ void trimReplyUnusedTailSpace(client *c) {
     clientReplyBlock *tail = ln? listNodeValue(ln): NULL;
 
     /* Note that 'tail' may be NULL even if we have a tail node, becuase when
-     * addDeferredMultiBulkLength() is used */
+     * addReplyDeferredLen() is used */
     if (!tail) return;
 
     /* We only try to trim the space is relatively high (more than a 1/4 of the
