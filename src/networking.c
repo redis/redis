@@ -488,7 +488,7 @@ void trimReplyUnusedTailSpace(client *c) {
         /* take over the allocation's internal fragmentation (at least for
          * memory usage tracking) */
         tail->size = zmalloc_usable(tail) - sizeof(clientReplyBlock);
-        c->reply_bytes += tail->size - old_size;
+        c->reply_bytes = c->reply_bytes + tail->size - old_size;
         listNodeValue(ln) = tail;
     }
 }
