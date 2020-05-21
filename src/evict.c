@@ -41,7 +41,7 @@
 /* To improve the quality of the LRU approximation we take a set of keys
  * that are good candidate for eviction across freeMemoryIfNeeded() calls.
  *
- * Entries inside the eviciton pool are taken ordered by idle time, putting
+ * Entries inside the eviction pool are taken ordered by idle time, putting
  * greater idle times to the right (ascending order).
  *
  * When an LFU policy is used instead, a reverse frequency indication is used
