@@ -76,7 +76,7 @@ int siptlw(int c) {
     U32TO8_LE((p) + 4, (uint32_t)((v) >> 32));
 
 #ifdef UNALIGNED_LE_CPU
-#define U8TO64_LE(p) (*((uint64_t*)(p)))
+#define U8TO64_LE(p) (((uint64_t)(*p)))
 #else
 #define U8TO64_LE(p)                                                           \
     (((uint64_t)((p)[0])) | ((uint64_t)((p)[1]) << 8) |                        \
