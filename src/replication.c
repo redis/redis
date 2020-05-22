@@ -2076,7 +2076,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
                 memcpy(server.cached_master->replid,new,sizeof(server.replid));
 
                 /* Disconnect all the sub-slaves: they need to be notified. */
-                disconnectSlaves();
+                disconnectSlaves(0);
             }
         }
 
@@ -2349,7 +2349,7 @@ void syncWithMaster(connection *conn) {
      * as well, if we have any sub-slaves. The master may transfer us an
      * entirely different data set and we have no way to incrementally feed
      * our slaves after that. */
-    disconnectSlaves(); /* Force our slaves to resync with us as well. */
+    disconnectSlaves(0); /* Force our slaves to resync with us as well. */
     freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
 
     /* Fall back to SYNC if needed. Otherwise psync_result == PSYNC_FULLRESYNC
@@ -2496,7 +2496,7 @@ void replicationSetMaster(char *ip, int port) {
 
     /* Force our slaves to resync with us as well. They may hopefully be able
      * to partially resync with us, but we can notify the replid change. */
-    disconnectSlaves();
+    disconnectSlaves(0);
     cancelReplicationHandshake();
     /* Before destroying our master state, create a cached master using
      * our own parameters, to later PSYNC with the new master. */
@@ -2543,7 +2543,7 @@ void replicationUnsetMaster(void) {
      * of the replication ID change (see shiftReplicationId() call). However
      * the slaves will be able to partially resync with us, so it will be
      * a very fast reconnection. */
-    disconnectSlaves();
+    disconnectSlaves(0);
     server.repl_state = REPL_STATE_NONE;
 
     /* We need to make sure the new master will start the replication stream
@@ -2778,7 +2778,7 @@ void replicationCacheMaster(client *c) {
      * from the stream and their offset would no longer match: upon
      * disconnection they will also trim the final PINGs and will be able
      * to incrementally sync without issues. */
-    if (offset_adjusted) disconnectSlaves();
+    if (offset_adjusted) disconnectSlaves(1);
 }
 
 /* If the "meaningful" offset, that is the offset without the final PINGs

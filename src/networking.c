@@ -1037,14 +1037,25 @@ static void freeClientArgv(client *c) {
 
 /* Close all the slaves connections. This is useful in chained replication
  * when we resync with our own master and want to force all our slaves to
- * resync with us as well. */
-void disconnectSlaves(void) {
+ * resync with us as well.
+ *
+ * If 'async' is non-zero we free the clients asynchronously. This is needed
+ * when we call this function from a context where in the chain of the
+ * callers somebody is iterating the list of clients. For instance when
+ * CLIENT KILL TYPE master is called, caching the master client may
+ * adjust the meaningful offset of replication, and in turn call
+ * discionectSlaves(). Since CLIENT KILL iterates the clients this is
+ * not safe. */
+void disconnectSlaves(int async) {
     listIter li;
     listNode *ln;
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
         listNode *ln = listFirst(server.slaves);
-        freeClientAsync((client*)ln->value);
+        if (async)
+            freeClientAsync((client*)ln->value);
+        else
+            freeClient((client*)ln->value);
     }
 }
 
