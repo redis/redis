@@ -60,3 +60,53 @@ start_server {} {
         }
     }
 }}
+
+
+start_server {tags {"psync2"}} {
+start_server {} {
+start_server {} {
+
+    for {set j 0} {$j < 3} {incr j} {
+        set R($j) [srv [expr 0-$j] client]
+        set R_host($j) [srv [expr 0-$j] host]
+        set R_port($j) [srv [expr 0-$j] port]
+        $R($j) CONFIG SET repl-ping-replica-period 1
+    }
+
+    test "Chained replicas disconnect when replica re-connect with the same master" {
+        # Add a second replica as a chained replica of the current replica
+        $R(1) replicaof $R_host(0) $R_port(0)
+        $R(2) replicaof $R_host(1) $R_port(1)
+        wait_for_condition 50 1000 {
+            [status $R(2) master_link_status] == "up"
+        } else {
+            fail "Chained replica not replicating from its master"
+        }
+
+        # Do a write on the master, and wait for 3 seconds for the master to
+        # send some PINGs to its replica
+        $R(0) INCR counter2
+        after 2000
+        set sync_partial_master [status $R(0) sync_partial_ok]
+        set sync_partial_replica [status $R(1) sync_partial_ok]
+        $R(0) CONFIG SET repl-ping-replica-period 100
+
+        # Disconnect the master's direct replica
+        $R(0) client kill type replica
+        wait_for_condition 50 1000 {
+            [status $R(1) master_link_status] == "up" && 
+            [status $R(2) master_link_status] == "up" &&
+            [status $R(0) sync_partial_ok] == $sync_partial_master + 1 &&
+            [status $R(1) sync_partial_ok] == $sync_partial_replica + 1
+        } else {
+            fail "Disconnected replica failed to PSYNC with master"
+        }
+
+        # Verify that the replica and its replica's meaningful and real
+        # offsets match with the master
+        assert_equal [status $R(0) master_repl_offset] [status $R(1) master_repl_offset]
+        assert_equal [status $R(0) master_repl_offset] [status $R(2) master_repl_offset]
+        assert_equal [status $R(0) master_repl_meaningful_offset] [status $R(1) master_repl_meaningful_offset]
+        assert_equal [status $R(0) master_repl_meaningful_offset] [status $R(2) master_repl_meaningful_offset]
+    }
+}}}
