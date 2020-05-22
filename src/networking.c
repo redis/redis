@@ -2344,9 +2344,10 @@ void clientCommand(client *c) {
 "REPLY (on|off|skip)    -- Control the replies sent to the current connection.",
 "SETNAME <name>         -- Assign the name <name> to the current connection.",
 "UNBLOCK <clientid> [TIMEOUT|ERROR] -- Unblock the specified blocked client.",
-"TRACKING (on|off) [REDIRECT <id>] [BCAST] [PREFIX first] [PREFIX second] [OPTIN] [OPTOUT]... -- Enable client keys tracking for client side caching.",
+"TRACKING (on|off) [REDIRECT <id>] [BCAST] [PREFIX first] [PREFIX second] [OPTIN] [OPTOUT] [NOLOOP]... -- Enable client keys tracking for client side caching.",
 "CACHING  (yes|no)      -- Enable/Disable tracking of the keys for next command in OPTIN/OPTOUT mode.",
 "GETREDIR               -- Return the client ID we are redirecting to when tracking is enabled.",
+"TRACKINGINFO           -- Return information about current client's tracking status.",
 NULL
         };
         addReplyHelp(c, help);
@@ -2687,6 +2688,79 @@ NULL
             addReplyLongLong(c,c->client_tracking_redirection);
         } else {
             addReplyLongLong(c,-1);
+        }
+    } else if (!strcasecmp(c->argv[1]->ptr,"trackinginfo") && c->argc == 2) {
+        addReplyMapLen(c,5);
+
+        /* Flags */
+        addReplyBulkCString(c,"flags");
+        void *arraylen_ptr = addReplyDeferredLen(c);
+        int numflags = 0;
+        addReplyBulkCString(c,c->flags & CLIENT_TRACKING ? "on" : "off");
+        numflags++;
+        if (c->flags & CLIENT_TRACKING_BCAST) {
+            addReplyBulkCString(c,"bcast");
+            numflags++;
+        }
+        if (c->flags & CLIENT_TRACKING_OPTIN) {
+            addReplyBulkCString(c,"optin");
+            numflags++;
+        }
+        if (c->flags & CLIENT_TRACKING_OPTOUT) {
+            addReplyBulkCString(c,"optout");
+            numflags++;
+        }
+        if (c->flags & CLIENT_TRACKING_NOLOOP) {
+            addReplyBulkCString(c,"noloop");
+            numflags++;
+        }
+        if (c->flags & CLIENT_TRACKING_BROKEN_REDIR) {
+            addReplyBulkCString(c,"broken_redirect");
+            numflags++;
+        }
+        setDeferredSetLen(c,arraylen_ptr,numflags);
+
+        /* Redirect */
+        addReplyBulkCString(c,"redirect");
+        if (c->flags & CLIENT_TRACKING) {
+            addReplyLongLong(c,c->client_tracking_redirection);
+        } else {
+            addReplyLongLong(c,-1);
+        }
+
+        /* Prefixes */
+        addReplyBulkCString(c,"prefixes");
+        if (c->client_tracking_prefixes) {
+            addReplyArrayLen(c,raxSize(c->client_tracking_prefixes));
+            raxIterator ri;
+            raxStart(&ri,c->client_tracking_prefixes);
+            raxSeek(&ri,"^",NULL,0);
+            while(raxNext(&ri)) {
+                addReplyBulkCBuffer(c,ri.key,ri.key_len);
+            }
+            raxStop(&ri);
+        } else {
+            addReplyArrayLen(c,0);
+        }
+
+        /* Opt mode */
+        addReplyBulkCString(c,"opt-mode");
+        if (c->flags & CLIENT_TRACKING_OPTIN) {
+            addReplyBulkCString(c,"optin");
+        } else if (c->flags & CLIENT_TRACKING_OPTOUT) {
+            addReplyBulkCString(c,"optout");
+        } else {
+            addReplyNull(c);
+        }
+
+        /* Caching */
+        addReplyBulkCString(c,"caching");
+        if (c->flags & CLIENT_TRACKING_OPTIN) {
+            addReplyBulkCString(c,c->flags & CLIENT_TRACKING_CACHING ? "yes" : "no");
+        } else if (c->flags & CLIENT_TRACKING_OPTOUT) {
+            addReplyBulkCString(c,c->flags & CLIENT_TRACKING_CACHING ? "no" : "yes");
+        } else {
+            addReplyNull(c);
         }
     } else {
         addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try CLIENT HELP", (char*)c->argv[1]->ptr);
