@@ -1039,9 +1039,12 @@ static void freeClientArgv(client *c) {
  * when we resync with our own master and want to force all our slaves to
  * resync with us as well. */
 void disconnectSlaves(void) {
-    while (listLength(server.slaves)) {
+    listIter li;
+    listNode *ln;
+    listRewind(server.slaves,&li);
+    while((ln = listNext(&li))) {
         listNode *ln = listFirst(server.slaves);
-        freeClient((client*)ln->value);
+        freeClientAsync((client*)ln->value);
     }
 }
 

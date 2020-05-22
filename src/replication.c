@@ -39,7 +39,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 
-long long adjustMeaningfulReplOffset();
+long long adjustMeaningfulReplOffset(int *adjusted);
 void replicationDiscardCachedMaster(void);
 void replicationResurrectCachedMaster(connection *conn);
 void replicationSendAck(void);
@@ -2027,18 +2027,11 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
                  * new one. */
                 memcpy(server.replid,new,sizeof(server.replid));
                 memcpy(server.cached_master->replid,new,sizeof(server.replid));
+
+                /* Disconnect all the sub-slaves: they need to be notified. */
+                disconnectSlaves();
             }
         }
-
-        /* Disconnect all the sub-replicas: they need to be notified always because
-         * in case the master has last replicated some non-meaningful commands
-         * (e.g. PINGs), the primary replica will request the PSYNC offset for the
-         * last known meaningful command. This means the master will again replicate
-         * the non-meaningful commands. If the sub-replicas still remains connected,
-         * they will receive those commands a second time and increment the master
-         * replication offset to be higher than the master's offset forever.
-         */
-        disconnectSlaves();
 
         /* Setup the replication to continue. */
         sdsfree(reply);
@@ -2708,7 +2701,8 @@ void replicationCacheMaster(client *c) {
 
     /* Adjust reploff and read_reploff to the last meaningful offset we
      * executed. This is the offset the replica will use for future PSYNC. */
-    server.master->reploff = adjustMeaningfulReplOffset();
+    int offset_adjusted;
+    server.master->reploff = adjustMeaningfulReplOffset(&offset_adjusted);
     server.master->read_reploff = server.master->reploff;
     if (c->flags & CLIENT_MULTI) discardTransaction(c);
     listEmpty(c->reply);
@@ -2731,6 +2725,13 @@ void replicationCacheMaster(client *c) {
      * so make sure to adjust the replication state. This function will
      * also set server.master to NULL. */
     replicationHandleMasterDisconnection();
+
+    /* If we trimmed this replica backlog, we need to disconnect our chained
+     * replicas (if any), otherwise they may have the PINGs we removed
+     * from the stream and their offset would no longer match: upon
+     * disconnection they will also trim the final PINGs and will be able
+     * to incrementally sync without issues. */
+    if (offset_adjusted) disconnectSlaves();
 }
 
 /* If the "meaningful" offset, that is the offset without the final PINGs
@@ -2740,8 +2741,13 @@ void replicationCacheMaster(client *c) {
  * offset because of the PINGs and will not be able to incrementally
  * PSYNC with the new master.
  * This function trims the replication backlog when needed, and returns
- * the offset to be used for future partial sync. */
-long long adjustMeaningfulReplOffset() {
+ * the offset to be used for future partial sync.
+ *
+ * If the integer 'adjusted' was passed by reference, it is set to 1
+ * if the function call actually modified the offset and the replication
+ * backlog, otherwise it is set to 0. It can be NULL if the caller is
+ * not interested in getting this info. */
+long long adjustMeaningfulReplOffset(int *adjusted) {
     if (server.master_repl_offset > server.master_repl_meaningful_offset) {
         long long delta = server.master_repl_offset -
                           server.master_repl_meaningful_offset;
@@ -2761,6 +2767,9 @@ long long adjustMeaningfulReplOffset() {
                 (server.repl_backlog_idx + (server.repl_backlog_size - delta)) %
                 server.repl_backlog_size;
         }
+        if (adjusted) *adjusted = 1;
+    } else {
+        if (adjusted) *adjusted = 0;
     }
     return server.master_repl_offset;
 }
@@ -2784,7 +2793,7 @@ void replicationCacheMasterUsingMyself(void) {
      * by replicationCreateMasterClient(). We'll later set the created
      * master as server.cached_master, so the replica will use such
      * offset for PSYNC. */
-    server.master_initial_offset = adjustMeaningfulReplOffset();
+    server.master_initial_offset = adjustMeaningfulReplOffset(NULL);
 
     /* The master client we create can be set to any DBID, because
      * the new master will start its replication stream with SELECT. */
