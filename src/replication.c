@@ -2023,11 +2023,18 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
                  * new one. */
                 memcpy(server.replid,new,sizeof(server.replid));
                 memcpy(server.cached_master->replid,new,sizeof(server.replid));
-
-                /* Disconnect all the sub-slaves: they need to be notified. */
-                disconnectSlaves();
             }
         }
+
+        /* Disconnect all the sub-replicas: they need to be notified always because
+         * in case the master has last replicated some non-meaningful commands
+         * (e.g. PINGs), the primary replica will request the PSYNC offset for the
+         * last known meaningful command. This means the master will again replicate
+         * the non-meaningful commands. If the sub-replicas still remains connected,
+         * they will receive those commands a second time and increment the master
+         * replication offset to be higher than the master's offset forever.
+         */
+        disconnectSlaves();
 
         /* Setup the replication to continue. */
         sdsfree(reply);
