@@ -39,6 +39,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 
+long long adjustMeaningfulReplOffset();
 void replicationDiscardCachedMaster(void);
 void replicationResurrectCachedMaster(connection *conn);
 void replicationSendAck(void);
@@ -162,6 +163,7 @@ void feedReplicationBacklog(void *ptr, size_t len) {
     unsigned char *p = ptr;
 
     server.master_repl_offset += len;
+    server.master_repl_meaningful_offset = server.master_repl_offset;
 
     /* This is a circular buffer, so write as much data we can at every
      * iteration and rewind the "idx" index if we reach the limit. */
@@ -1524,6 +1526,10 @@ void readSyncBulkPayload(connection *conn) {
 
         nread = connRead(conn,buf,readlen);
         if (nread <= 0) {
+            if (connGetState(conn) == CONN_STATE_CONNECTED) {
+                /* equivalent to EAGAIN */
+                return;
+            }
             serverLog(LL_WARNING,"I/O error trying to sync with MASTER: %s",
                 (nread == -1) ? strerror(errno) : "connection lost");
             cancelReplicationHandshake();
@@ -1768,6 +1774,7 @@ void readSyncBulkPayload(connection *conn) {
      * we are starting a new history. */
     memcpy(server.replid,server.master->replid,sizeof(server.replid));
     server.master_repl_offset = server.master->reploff;
+    server.master_repl_meaningful_offset = server.master->reploff;
     clearReplicationId2();
 
     /* Let's create the replication backlog if needed. Slaves need to
@@ -2020,11 +2027,18 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
                  * new one. */
                 memcpy(server.replid,new,sizeof(server.replid));
                 memcpy(server.cached_master->replid,new,sizeof(server.replid));
-
-                /* Disconnect all the sub-slaves: they need to be notified. */
-                disconnectSlaves();
             }
         }
+
+        /* Disconnect all the sub-replicas: they need to be notified always because
+         * in case the master has last replicated some non-meaningful commands
+         * (e.g. PINGs), the primary replica will request the PSYNC offset for the
+         * last known meaningful command. This means the master will again replicate
+         * the non-meaningful commands. If the sub-replicas still remains connected,
+         * they will receive those commands a second time and increment the master
+         * replication offset to be higher than the master's offset forever.
+         */
+        disconnectSlaves();
 
         /* Setup the replication to continue. */
         sdsfree(reply);
@@ -2691,6 +2705,10 @@ void replicationCacheMaster(client *c) {
      * pending outputs to the master. */
     sdsclear(server.master->querybuf);
     sdsclear(server.master->pending_querybuf);
+
+    /* Adjust reploff and read_reploff to the last meaningful offset we
+     * executed. This is the offset the replica will use for future PSYNC. */
+    server.master->reploff = adjustMeaningfulReplOffset();
     server.master->read_reploff = server.master->reploff;
     if (c->flags & CLIENT_MULTI) discardTransaction(c);
     listEmpty(c->reply);
@@ -2715,6 +2733,38 @@ void replicationCacheMaster(client *c) {
     replicationHandleMasterDisconnection();
 }
 
+/* If the "meaningful" offset, that is the offset without the final PINGs
+ * in the stream, is different than the last offset, use it instead:
+ * often when the master is no longer reachable, replicas will never
+ * receive the PINGs, however the master will end with an incremented
+ * offset because of the PINGs and will not be able to incrementally
+ * PSYNC with the new master.
+ * This function trims the replication backlog when needed, and returns
+ * the offset to be used for future partial sync. */
+long long adjustMeaningfulReplOffset() {
+    if (server.master_repl_offset > server.master_repl_meaningful_offset) {
+        long long delta = server.master_repl_offset -
+                          server.master_repl_meaningful_offset;
+        serverLog(LL_NOTICE,
+            "Using the meaningful offset %lld instead of %lld to exclude "
+            "the final PINGs (%lld bytes difference)",
+                server.master_repl_meaningful_offset,
+                server.master_repl_offset,
+                delta);
+        server.master_repl_offset = server.master_repl_meaningful_offset;
+        if (server.repl_backlog_histlen <= delta) {
+            server.repl_backlog_histlen = 0;
+            server.repl_backlog_idx = 0;
+        } else {
+            server.repl_backlog_histlen -= delta;
+            server.repl_backlog_idx =
+                (server.repl_backlog_idx + (server.repl_backlog_size - delta)) %
+                server.repl_backlog_size;
+        }
+    }
+    return server.master_repl_offset;
+}
+
 /* This function is called when a master is turend into a slave, in order to
  * create from scratch a cached master for the new client, that will allow
  * to PSYNC with the slave that was promoted as the new master after a
@@ -2725,9 +2775,19 @@ void replicationCacheMaster(client *c) {
  * current offset if no data was lost during the failover. So we use our
  * current replication ID and offset in order to synthesize a cached master. */
 void replicationCacheMasterUsingMyself(void) {
+    serverLog(LL_NOTICE,
+        "Before turning into a replica, using my own master parameters "
+        "to synthesize a cached master: I may be able to synchronize with "
+        "the new master with just a partial transfer.");
+
+    /* This will be used to populate the field server.master->reploff
+     * by replicationCreateMasterClient(). We'll later set the created
+     * master as server.cached_master, so the replica will use such
+     * offset for PSYNC. */
+    server.master_initial_offset = adjustMeaningfulReplOffset();
+
     /* The master client we create can be set to any DBID, because
      * the new master will start its replication stream with SELECT. */
-    server.master_initial_offset = server.master_repl_offset;
     replicationCreateMasterClient(NULL,-1);
 
     /* Use our own ID / offset. */
@@ -2737,7 +2797,6 @@ void replicationCacheMasterUsingMyself(void) {
     unlinkClient(server.master);
     server.cached_master = server.master;
     server.master = NULL;
-    serverLog(LL_NOTICE,"Before turning into a replica, using my master parameters to synthesize a cached master: I may be able to synchronize with the new master with just a partial transfer.");
 }
 
 /* Free a cached master, called when there are no longer the conditions for
@@ -3117,10 +3176,18 @@ void replicationCron(void) {
             clientsArePaused();
 
         if (!manual_failover_in_progress) {
+            long long before_ping = server.master_repl_meaningful_offset;
             ping_argv[0] = createStringObject("PING",4);
             replicationFeedSlaves(server.slaves, server.slaveseldb,
                 ping_argv, 1);
             decrRefCount(ping_argv[0]);
+            /* The server.master_repl_meaningful_offset variable represents
+             * the offset of the replication stream without the pending PINGs.
+             * This is useful to set the right replication offset for PSYNC
+             * when the master is turned into a replica. Otherwise pending
+             * PINGs may not allow it to perform an incremental sync with the
+             * new master. */
+            server.master_repl_meaningful_offset = before_ping;
         }
     }
 

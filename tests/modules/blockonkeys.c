@@ -109,41 +109,33 @@ int fsl_push(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return RedisModule_ReplyWithError(ctx,"ERR new element has to be greater than the head element");
 
     fsl->list[fsl->length++] = ele;
-
-    if (fsl->length >= 2)
-        RedisModule_SignalKeyAsReady(ctx, argv[1]);
+    RedisModule_SignalKeyAsReady(ctx, argv[1]);
 
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
-int bpop2_reply_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int bpop_reply_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
     RedisModuleString *keyname = RedisModule_GetBlockedClientReadyKey(ctx);
 
     fsl_t *fsl;
-    if (!get_fsl(ctx, keyname, REDISMODULE_READ, 0, &fsl, 0))
+    if (!get_fsl(ctx, keyname, REDISMODULE_READ, 0, &fsl, 0) || !fsl)
         return REDISMODULE_ERR;
 
-    if (!fsl || fsl->length < 2)
-        return REDISMODULE_ERR;
-
-    RedisModule_ReplyWithArray(ctx, 2);
-    RedisModule_ReplyWithLongLong(ctx, fsl->list[--fsl->length]);
     RedisModule_ReplyWithLongLong(ctx, fsl->list[--fsl->length]);
     return REDISMODULE_OK;
 }
 
-int bpop2_timeout_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int bpop_timeout_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
     return RedisModule_ReplyWithSimpleString(ctx, "Request timedout");
 }
 
-
-/* FSL.BPOP2 <key> <timeout> - Block clients until list has two or more elements.
+/* FSL.BPOP <key> <timeout> - Block clients until list has two or more elements.
  * When that happens, unblock client and pop the last two elements (from the right). */
-int fsl_bpop2(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int fsl_bpop(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 3)
         return RedisModule_WrongArity(ctx);
 
@@ -155,13 +147,10 @@ int fsl_bpop2(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (!get_fsl(ctx, argv[1], REDISMODULE_READ, 0, &fsl, 1))
         return REDISMODULE_OK;
 
-    if (!fsl || fsl->length < 2) {
-        /* Key is empty or has <2 elements, we must block */
-        RedisModule_BlockClientOnKeys(ctx, bpop2_reply_callback, bpop2_timeout_callback,
+    if (!fsl) {
+        RedisModule_BlockClientOnKeys(ctx, bpop_reply_callback, bpop_timeout_callback,
                                       NULL, timeout, &argv[1], 1, NULL);
     } else {
-        RedisModule_ReplyWithArray(ctx, 2);
-        RedisModule_ReplyWithLongLong(ctx, fsl->list[--fsl->length]);
         RedisModule_ReplyWithLongLong(ctx, fsl->list[--fsl->length]);
     }
 
@@ -175,10 +164,10 @@ int bpopgt_reply_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     long long *pgt = RedisModule_GetBlockedClientPrivateData(ctx);
 
     fsl_t *fsl;
-    if (!get_fsl(ctx, keyname, REDISMODULE_READ, 0, &fsl, 0))
+    if (!get_fsl(ctx, keyname, REDISMODULE_READ, 0, &fsl, 0) || !fsl)
         return REDISMODULE_ERR;
 
-    if (!fsl || fsl->list[fsl->length-1] <= *pgt)
+    if (fsl->list[fsl->length-1] <= *pgt)
         return REDISMODULE_ERR;
 
     RedisModule_ReplyWithLongLong(ctx, fsl->list[--fsl->length]);
@@ -218,13 +207,94 @@ int fsl_bpopgt(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         /* We use malloc so the tests in blockedonkeys.tcl can check for memory leaks */
         long long *pgt = RedisModule_Alloc(sizeof(long long));
         *pgt = gt;
-        /* Key is empty or has <2 elements, we must block */
         RedisModule_BlockClientOnKeys(ctx, bpopgt_reply_callback, bpopgt_timeout_callback,
                                       bpopgt_free_privdata, timeout, &argv[1], 1, pgt);
     } else {
         RedisModule_ReplyWithLongLong(ctx, fsl->list[--fsl->length]);
     }
 
+    return REDISMODULE_OK;
+}
+
+int bpoppush_reply_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    RedisModuleString *src_keyname = RedisModule_GetBlockedClientReadyKey(ctx);
+    RedisModuleString *dst_keyname = RedisModule_GetBlockedClientPrivateData(ctx);
+
+    fsl_t *src;
+    if (!get_fsl(ctx, src_keyname, REDISMODULE_READ, 0, &src, 0) || !src)
+        return REDISMODULE_ERR;
+
+    fsl_t *dst;
+    if (!get_fsl(ctx, dst_keyname, REDISMODULE_WRITE, 1, &dst, 0) || !dst)
+        return REDISMODULE_ERR;
+
+    long long ele = src->list[--src->length];
+    dst->list[dst->length++] = ele;
+    RedisModule_SignalKeyAsReady(ctx, dst_keyname);
+    return RedisModule_ReplyWithLongLong(ctx, ele);
+}
+
+int bpoppush_timeout_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    return RedisModule_ReplyWithSimpleString(ctx, "Request timedout");
+}
+
+void bpoppush_free_privdata(RedisModuleCtx *ctx, void *privdata) {
+    RedisModule_FreeString(ctx, privdata);
+}
+
+/* FSL.BPOPPUSH <src> <dst> <timeout> - Block clients until <src> has an element.
+ * When that happens, unblock client, pop the last element from <src> and push it to <dst>
+ * (from the right). */
+int fsl_bpoppush(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 4)
+        return RedisModule_WrongArity(ctx);
+
+    long long timeout;
+    if (RedisModule_StringToLongLong(argv[3],&timeout) != REDISMODULE_OK || timeout < 0)
+        return RedisModule_ReplyWithError(ctx,"ERR invalid timeout");
+
+    fsl_t *src;
+    if (!get_fsl(ctx, argv[1], REDISMODULE_READ, 0, &src, 1))
+        return REDISMODULE_OK;
+
+    if (!src) {
+        /* Retain string for reply callback */
+        RedisModule_RetainString(ctx, argv[2]);
+        /* Key is empty, we must block */
+        RedisModule_BlockClientOnKeys(ctx, bpoppush_reply_callback, bpoppush_timeout_callback,
+                                      bpoppush_free_privdata, timeout, &argv[1], 1, argv[2]);
+    } else {
+        fsl_t *dst;
+        if (!get_fsl(ctx, argv[2], REDISMODULE_WRITE, 1, &dst, 1))
+            return REDISMODULE_OK;
+        long long ele = src->list[--src->length];
+        dst->list[dst->length++] = ele;
+        RedisModule_SignalKeyAsReady(ctx, argv[2]);
+        RedisModule_ReplyWithLongLong(ctx, ele);
+    }
+
+    return REDISMODULE_OK;
+}
+
+/* FSL.GETALL <key> - Reply with an array containing all elements. */
+int fsl_getall(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2)
+        return RedisModule_WrongArity(ctx);
+
+    fsl_t *fsl;
+    if (!get_fsl(ctx, argv[1], REDISMODULE_READ, 0, &fsl, 1))
+        return REDISMODULE_OK;
+
+    if (!fsl)
+        return RedisModule_ReplyWithArray(ctx, 0);
+
+    RedisModule_ReplyWithArray(ctx, fsl->length);
+    for (int i = 0; i < fsl->length; i++)
+        RedisModule_ReplyWithLongLong(ctx, fsl->list[i]);
     return REDISMODULE_OK;
 }
 
@@ -252,10 +322,16 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"fsl.push",fsl_push,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"fsl.bpop2",fsl_bpop2,"",0,0,0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx,"fsl.bpop",fsl_bpop,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"fsl.bpopgt",fsl_bpopgt,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"fsl.bpoppush",fsl_bpoppush,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"fsl.getall",fsl_getall,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

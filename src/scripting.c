@@ -657,12 +657,11 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         !server.loading &&              /* Don't care about mem if loading. */
         !server.masterhost &&           /* Slave must execute the script. */
         server.lua_write_dirty == 0 &&  /* Script had no side effects so far. */
+        server.lua_oom &&               /* Detected OOM when script start. */
         (cmd->flags & CMD_DENYOOM))
     {
-        if (getMaxmemoryState(NULL,NULL,NULL,NULL) != C_OK) {
-            luaPushError(lua, shared.oomerr->ptr);
-            goto cleanup;
-        }
+        luaPushError(lua, shared.oomerr->ptr);
+        goto cleanup;
     }
 
     if (cmd->flags & CMD_RANDOM) server.lua_random_dirty = 1;
@@ -960,6 +959,7 @@ int luaLogCommand(lua_State *lua) {
         lua_pushstring(lua, "Invalid debug level.");
         return lua_error(lua);
     }
+    if (level < server.verbosity) return 0;
 
     /* Glue together all the arguments */
     log = sdsempty();

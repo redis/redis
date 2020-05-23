@@ -186,7 +186,8 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
     return x;
 }
 
-/* Internal function used by zslDelete, zslDeleteByScore and zslDeleteByRank */
+/* Internal function used by zslDelete, zslDeleteRangeByScore and
+ * zslDeleteRangeByRank. */
 void zslDeleteNode(zskiplist *zsl, zskiplistNode *x, zskiplistNode **update) {
     int i;
     for (i = 0; i < zsl->level; i++) {
@@ -1300,14 +1301,14 @@ int zsetScore(robj *zobj, sds member, double *score) {
  * none could be set if we re-added an element using the same score it used
  * to have, or in the case a zero increment is used).
  *
- * The function returns 0 on erorr, currently only when the increment
+ * The function returns 0 on error, currently only when the increment
  * produces a NAN condition, or when the 'score' value is NAN since the
  * start.
  *
- * The commad as a side effect of adding a new element may convert the sorted
+ * The command as a side effect of adding a new element may convert the sorted
  * set internal encoding from ziplist to hashtable+skiplist.
  *
- * Memory managemnet of 'ele':
+ * Memory management of 'ele':
  *
  * The function does not take ownership of the 'ele' SDS string, but copies
  * it if needed. */
@@ -1645,7 +1646,7 @@ reply_to_client:
 cleanup:
     zfree(scores);
     if (added || updated) {
-        signalModifiedKey(c->db,key);
+        signalModifiedKey(c,c->db,key);
         notifyKeyspaceEvent(NOTIFY_ZSET,
             incr ? "zincr" : "zadd", key, c->db->id);
     }
@@ -1680,7 +1681,7 @@ void zremCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_ZSET,"zrem",key,c->db->id);
         if (keyremoved)
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
-        signalModifiedKey(c->db,key);
+        signalModifiedKey(c,c->db,key);
         server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);
@@ -1778,7 +1779,7 @@ void zremrangeGenericCommand(client *c, int rangetype) {
     /* Step 4: Notifications and reply. */
     if (deleted) {
         char *event[3] = {"zremrangebyrank","zremrangebyscore","zremrangebylex"};
-        signalModifiedKey(c->db,key);
+        signalModifiedKey(c,c->db,key);
         notifyKeyspaceEvent(NOTIFY_ZSET,event[rangetype],key,c->db->id);
         if (keyremoved)
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
@@ -2382,7 +2383,7 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
         zsetConvertToZiplistIfNeeded(dstobj,maxelelen);
         dbAdd(c->db,dstkey,dstobj);
         addReplyLongLong(c,zsetLength(dstobj));
-        signalModifiedKey(c->db,dstkey);
+        signalModifiedKey(c,c->db,dstkey);
         notifyKeyspaceEvent(NOTIFY_ZSET,
             (op == SET_OP_UNION) ? "zunionstore" : "zinterstore",
             dstkey,c->db->id);
@@ -2391,7 +2392,7 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
         decrRefCount(dstobj);
         addReply(c,shared.czero);
         if (touched) {
-            signalModifiedKey(c->db,dstkey);
+            signalModifiedKey(c,c->db,dstkey);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",dstkey,c->db->id);
             server.dirty++;
         }
@@ -3215,7 +3216,7 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         if (arraylen == 0) { /* Do this only for the first iteration. */
             char *events[2] = {"zpopmin","zpopmax"};
             notifyKeyspaceEvent(NOTIFY_ZSET,events[where],key,c->db->id);
-            signalModifiedKey(c->db,key);
+            signalModifiedKey(c,c->db,key);
         }
 
         addReplyBulkCBuffer(c,ele,sdslen(ele));

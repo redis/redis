@@ -831,7 +831,7 @@ int loadAppendOnlyFile(char *filename) {
         if (cmd == server.multiCommand) valid_before_multi = valid_up_to;
 
         /* Run the command in the context of a fake client */
-        fakeClient->cmd = cmd;
+        fakeClient->cmd = fakeClient->lastcmd = cmd;
         if (fakeClient->flags & CLIENT_MULTI &&
             fakeClient->cmd->proc != execCommand)
         {
@@ -1212,12 +1212,13 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
         /* Use the XADD MAXLEN 0 trick to generate an empty stream if
          * the key we are serializing is an empty string, which is possible
          * for the Stream type. */
+        id.ms = 0; id.seq = 1; 
         if (rioWriteBulkCount(r,'*',7) == 0) return 0;
         if (rioWriteBulkString(r,"XADD",4) == 0) return 0;
         if (rioWriteBulkObject(r,key) == 0) return 0;
         if (rioWriteBulkString(r,"MAXLEN",6) == 0) return 0;
         if (rioWriteBulkString(r,"0",1) == 0) return 0;
-        if (rioWriteBulkStreamID(r,&s->last_id) == 0) return 0;
+        if (rioWriteBulkStreamID(r,&id) == 0) return 0;
         if (rioWriteBulkString(r,"x",1) == 0) return 0;
         if (rioWriteBulkString(r,"y",1) == 0) return 0;
     }
@@ -1595,6 +1596,7 @@ int rewriteAppendOnlyFileBackground(void) {
 
         /* Child */
         redisSetProcTitle("redis-aof-rewrite");
+        redisSetCpuAffinity(server.aof_rewrite_cpulist);
         snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
         if (rewriteAppendOnlyFile(tmpfile) == C_OK) {
             sendChildCOWInfo(CHILD_INFO_TYPE_AOF, "AOF rewrite");
