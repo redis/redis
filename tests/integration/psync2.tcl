@@ -1,3 +1,75 @@
+
+proc show_cluster_status {} {
+    uplevel 1 {
+        # The following is the regexp we use to match the log line
+        # time info. Logs are in the following form:
+        #
+        # 11296:M 25 May 2020 17:37:14.652 # Server initialized
+        set log_regexp {^[0-9]+:[A-Z] [0-9]+ [A-z]+ [0-9]+ ([0-9:.]+) .*}
+        set repl_regexp {(master|repl|sync|backlog|meaningful|offset)}
+
+        puts "Master ID is $master_id"
+        for {set j 0} {$j < 5} {incr j} {
+            puts "$j: sync_full: [status $R($j) sync_full]"
+            puts "$j: id1      : [status $R($j) master_replid]:[status $R($j) master_repl_offset]"
+            puts "$j: id2      : [status $R($j) master_replid2]:[status $R($j) second_repl_offset]"
+            puts "$j: backlog  : firstbyte=[status $R($j) repl_backlog_first_byte_offset] len=[status $R($j) repl_backlog_histlen]"
+            puts "$j: x var is : [$R($j) GET x]"
+            puts "---"
+        }
+
+        # Show the replication logs of every instance, interleaving
+        # them by the log date.
+        #
+        # First: load the lines as lists for each instance.
+        array set log {}
+        for {set j 0} {$j < 5} {incr j} {
+            set fd [open $R_log($j)]
+            while {[gets $fd l] >= 0} {
+                if {[regexp $log_regexp $l] &&
+                    [regexp -nocase $repl_regexp $l]} {
+                    lappend log($j) $l
+                }
+            }
+            close $fd
+        }
+
+        # To interleave the lines, at every step consume the element of
+        # the list with the lowest time and remove it. Do it until
+        # all the lists are empty.
+        #
+        # regexp {^[0-9]+:[A-Z] [0-9]+ [A-z]+ [0-9]+ ([0-9:.]+) .*} $l - logdate
+        while 1 {
+            # Find the log with smallest time.
+            set empty 0
+            set best 0
+            set bestdate {}
+            for {set j 0} {$j < 5} {incr j} {
+                if {[llength $log($j)] == 0} {
+                    incr empty
+                    continue
+                }
+                regexp $log_regexp [lindex $log($j) 0] - date
+                if {$bestdate eq {}} {
+                    set best $j
+                    set bestdate $date
+                } else {
+                    if {[string compare $bestdate $date] > 0} {
+                        set best $j
+                        set bestdate $date
+                    }
+                }
+            }
+            if {$empty == 5} break ; # Our exit condition: no more logs
+
+            # Emit the one with the smallest time (that is the first
+            # event in the time line).
+            puts "\[$best port $R_port($best)\] [lindex $log($best) 0]"
+            set log($best) [lrange $log($best) 1 end]
+        }
+    }
+}
+
 start_server {tags {"psync2"}} {
 start_server {} {
 start_server {} {
@@ -28,6 +100,7 @@ start_server {} {
         set R($j) [srv [expr 0-$j] client]
         set R_host($j) [srv [expr 0-$j] host]
         set R_port($j) [srv [expr 0-$j] port]
+        set R_log($j) [srv [expr 0-$j] stdout]
         if {$debug_msg} {puts "Log file: [srv [expr 0-$j] stdout]"}
     }
 
@@ -74,6 +147,7 @@ start_server {} {
             [status $R([expr {($master_id+3)%5}]) master_link_status] == "up" &&
             [status $R([expr {($master_id+4)%5}]) master_link_status] == "up"
         } else {
+            show_cluster_status
             fail "Replica not reconnecting"
         }
 
@@ -85,6 +159,7 @@ start_server {} {
                 wait_for_condition 50 1000 {
                     [$R($j) get x] == $counter_value
                 } else {
+                    show_cluster_status
                     fail "Instance #$j x variable is inconsistent"
                 }
             }
@@ -120,6 +195,7 @@ start_server {} {
                 wait_for_condition 50 1000 {
                     [$R($j) get x] == $counter_value
                 } else {
+                    show_cluster_status
                     fail "Instance #$j x variable is inconsistent"
                 }
             }
@@ -134,26 +210,12 @@ start_server {} {
             [status $R(3) master_repl_offset] >= $masteroff &&
             [status $R(4) master_repl_offset] >= $masteroff
         } else {
-            puts "Master ID is $master_id"
-            for {set j 0} {$j < 5} {incr j} {
-                puts "$j: sync_full: [status $R($j) sync_full]"
-                puts "$j: id1      : [status $R($j) master_replid]:[status $R($j) master_repl_offset]"
-                puts "$j: id2      : [status $R($j) master_replid2]:[status $R($j) second_repl_offset]"
-                puts "$j: backlog  : firstbyte=[status $R($j) repl_backlog_first_byte_offset] len=[status $R($j) repl_backlog_histlen]"
-                puts "---"
-            }
+            show_cluster_status
             fail "Replicas offsets didn't catch up with the master after too long time."
         }
 
         if {$debug_msg} {
-            puts "Master ID is $master_id"
-            for {set j 0} {$j < 5} {incr j} {
-                puts "$j: sync_full: [status $R($j) sync_full]"
-                puts "$j: id1      : [status $R($j) master_replid]:[status $R($j) master_repl_offset]"
-                puts "$j: id2      : [status $R($j) master_replid2]:[status $R($j) second_repl_offset]"
-                puts "$j: backlog  : firstbyte=[status $R($j) repl_backlog_first_byte_offset] len=[status $R($j) repl_backlog_histlen]"
-                puts "---"
-            }
+            show_cluster_status
         }
 
         test "PSYNC2: total sum of full synchronizations is exactly 4" {
@@ -161,7 +223,10 @@ start_server {} {
             for {set j 0} {$j < 5} {incr j} {
                 incr sum [status $R($j) sync_full]
             }
-            assert {$sum == 4}
+            if {$sum != 4} {
+                show_cluster_status
+                assert {$sum == 4}
+            }
         }
 
         # In absence of pings, are the instances really able to have
@@ -174,14 +239,7 @@ start_server {} {
             [status $R($master_id) master_repl_offset] == [status $R(3) master_repl_offset] &&
             [status $R($master_id) master_repl_offset] == [status $R(4) master_repl_offset]
         } else {
-            puts "Master ID is $master_id"
-            for {set j 0} {$j < 5} {incr j} {
-                puts "$j: sync_full: [status $R($j) sync_full]"
-                puts "$j: id1      : [status $R($j) master_replid]:[status $R($j) master_repl_offset]"
-                puts "$j: id2      : [status $R($j) master_replid2]:[status $R($j) second_repl_offset]"
-                puts "$j: backlog  : firstbyte=[status $R($j) repl_backlog_first_byte_offset] len=[status $R($j) repl_backlog_histlen]"
-                puts "---"
-            }
+            show_cluster_status
             fail "Replicas and master offsets were unable to match *exactly*."
         }
         $R($master_id) config set repl-ping-replica-period 10
@@ -210,6 +268,7 @@ start_server {} {
             [status $R([expr {($master_id+3)%5}]) master_link_status] == "up" &&
             [status $R([expr {($master_id+4)%5}]) master_link_status] == "up"
         } else {
+            show_cluster_status
             fail "Replica not reconnecting"
         }
     }
@@ -233,6 +292,7 @@ start_server {} {
             puts "prev sync_partial_ok: $sync_partial"
             puts "prev sync_partial_err: $sync_partial_err"
             puts [$R($master_id) info stats]
+            show_cluster_status
             fail "Replica didn't partial sync"
         }
         set new_sync_count [status $R($master_id) sync_full]
@@ -254,6 +314,7 @@ start_server {} {
         wait_for_condition 50 1000 {
             [$R($master_id) debug digest] == [$R($slave_id) debug digest]
         } else {
+            show_cluster_status
             fail "Replica not reconnecting"
         }
 
@@ -288,6 +349,7 @@ start_server {} {
         wait_for_condition 50 1000 {
             [status $R($master_id) connected_slaves] == 4
         } else {
+            show_cluster_status
             fail "Replica not reconnecting"
         }
         set new_sync_count [status $R($master_id) sync_full]
@@ -298,6 +360,7 @@ start_server {} {
         wait_for_condition 50 1000 {
             [$R($master_id) debug digest] == [$R($slave_id) debug digest]
         } else {
+            show_cluster_status
             fail "Debug digest mismatch between master and replica in post-restart handshake"
         }
     }
