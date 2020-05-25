@@ -2531,14 +2531,14 @@ void replicationUnsetMaster(void) {
 
     sdsfree(server.masterhost);
     server.masterhost = NULL;
+    if (server.master) freeClient(server.master);
+    replicationDiscardCachedMaster();
+    cancelReplicationHandshake();
     /* When a slave is turned into a master, the current replication ID
      * (that was inherited from the master at synchronization time) is
      * used as secondary ID up to the current offset, and a new replication
      * ID is created to continue with a new replication history. */
     shiftReplicationId();
-    if (server.master) freeClient(server.master);
-    replicationDiscardCachedMaster();
-    cancelReplicationHandshake();
     /* Disconnecting all the slaves is required: we need to inform slaves
      * of the replication ID change (see shiftReplicationId() call). However
      * the slaves will be able to partially resync with us, so it will be
