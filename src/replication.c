@@ -748,6 +748,9 @@ void syncCommand(client *c) {
         changeReplicationId();
         clearReplicationId2();
         createReplicationBacklog();
+        serverLog(LL_NOTICE,"Replication backlog created, my new "
+                            "replication IDs are '%s' and '%s'",
+                            server.replid, server.replid2);
     }
 
     /* CASE 1: BGSAVE is in progress, with disk target. */
