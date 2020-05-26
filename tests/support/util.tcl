@@ -344,8 +344,8 @@ proc roundFloat f {
     format "%.10g" $f
 }
 
-proc find_available_port start {
-    for {set j $start} {$j < $start+1024} {incr j} {
+proc find_available_port {start count} {
+    for {set j $start} {$j < $start+$count} {incr j} {
         if {[catch {set fd1 [socket 127.0.0.1 $j]}] &&
             [catch {set fd2 [socket 127.0.0.1 [expr $j+10000]]}]} {
             return $j
@@ -356,8 +356,8 @@ proc find_available_port start {
             }
         }
     }
-    if {$j == $start+1024} {
-        error "Can't find a non busy port in the $start-[expr {$start+1023}] range."
+    if {$j == $start+$count} {
+        error "Can't find a non busy port in the $start-[expr {$start+$count-1}] range."
     }
 }
 
