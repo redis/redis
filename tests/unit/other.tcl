@@ -167,9 +167,9 @@ start_server {tags {"other"}} {
     tags {protocol} {
         test {PIPELINING stresser (also a regression for the old epoll bug)} {
             if {$::tls} {
-                set fd2 [::tls::socket $::host $::port]
+                set fd2 [::tls::socket [srv host] [srv port]]
             } else {
-                set fd2 [socket $::host $::port]
+                set fd2 [socket [srv host] [srv port]]
             }
             fconfigure $fd2 -encoding binary -translation binary
             puts -nonewline $fd2 "SELECT 9\r\n"
