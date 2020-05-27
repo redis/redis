@@ -1749,55 +1749,12 @@ int processMultibulkBuffer(client *c) {
     return C_ERR;
 }
 
-/* Perform necessary tasks after a command was executed:
- *
- * 1. The client is reset unless there are reasons to avoid doing it.
- * 2. In the case of master clients, the replication offset is updated.
- * 3. Propagate commands we got from our master to replicas down the line. */
-void commandProcessed(client *c) {
-    int cmd_is_ping = c->cmd && c->cmd->proc == pingCommand;
-    long long prev_offset = c->reploff;
-    if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
-        /* Update the applied replication offset of our master. */
-        c->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
-    }
-
-    /* Don't reset the client structure for clients blocked in a
-     * module blocking command, so that the reply callback will
-     * still be able to access the client argv and argc field.
-     * The client will be reset in unblockClientFromModule(). */
-    if (!(c->flags & CLIENT_BLOCKED) ||
-        c->btype != BLOCKED_MODULE)
-    {
-        resetClient(c);
-    }
-
-    /* If the client is a master we need to compute the difference
-     * between the applied offset before and after processing the buffer,
-     * to understand how much of the replication stream was actually
-     * applied to the master state: this quantity, and its corresponding
-     * part of the replication stream, will be propagated to the
-     * sub-replicas and to the replication backlog. */
-    if (c->flags & CLIENT_MASTER) {
-        long long applied = c->reploff - prev_offset;
-        long long prev_master_repl_meaningful_offset = server.master_repl_meaningful_offset;
-        if (applied) {
-            replicationFeedSlavesFromMasterStream(server.slaves,
-                    c->pending_querybuf, applied);
-            sdsrange(c->pending_querybuf,applied,-1);
-        }
-        /* The server.master_repl_meaningful_offset variable represents
-         * the offset of the replication stream without the pending PINGs. */
-        if (cmd_is_ping)
-            server.master_repl_meaningful_offset = prev_master_repl_meaningful_offset;
-    }
-}
-
 /* This function calls processCommand(), but also performs a few sub tasks
- * for the client that are useful in that context:
+ * that are useful in that context:
  *
  * 1. It sets the current client to the client 'c'.
- * 2. calls commandProcessed() if the command was handled.
+ * 2. In the case of master clients, the replication offset is updated.
+ * 3. The client is reset unless there are reasons to avoid doing it.
  *
  * The function returns C_ERR in case the client was freed as a side effect
  * of processing the command, otherwise C_OK is returned. */
@@ -1805,7 +1762,20 @@ int processCommandAndResetClient(client *c) {
     int deadclient = 0;
     server.current_client = c;
     if (processCommand(c) == C_OK) {
-        commandProcessed(c);
+        if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
+            /* Update the applied replication offset of our master. */
+            c->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
+        }
+
+        /* Don't reset the client structure for clients blocked in a
+         * module blocking command, so that the reply callback will
+         * still be able to access the client argv and argc field.
+         * The client will be reset in unblockClientFromModule(). */
+        if (!(c->flags & CLIENT_BLOCKED) ||
+            c->btype != BLOCKED_MODULE)
+        {
+            resetClient(c);
+        }
     }
     if (server.current_client == NULL) deadclient = 1;
     server.current_client = NULL;
@@ -1902,6 +1872,31 @@ void processInputBuffer(client *c) {
     }
 }
 
+/* This is a wrapper for processInputBuffer that also cares about handling
+ * the replication forwarding to the sub-replicas, in case the client 'c'
+ * is flagged as master. Usually you want to call this instead of the
+ * raw processInputBuffer(). */
+void processInputBufferAndReplicate(client *c) {
+    if (!(c->flags & CLIENT_MASTER)) {
+        processInputBuffer(c);
+    } else {
+        /* If the client is a master we need to compute the difference
+         * between the applied offset before and after processing the buffer,
+         * to understand how much of the replication stream was actually
+         * applied to the master state: this quantity, and its corresponding
+         * part of the replication stream, will be propagated to the
+         * sub-replicas and to the replication backlog. */
+        size_t prev_offset = c->reploff;
+        processInputBuffer(c);
+        size_t applied = c->reploff - prev_offset;
+        if (applied) {
+            replicationFeedSlavesFromMasterStream(server.slaves,
+                    c->pending_querybuf, applied);
+            sdsrange(c->pending_querybuf,applied,-1);
+        }
+    }
+}
+
 void readQueryFromClient(connection *conn) {
     client *c = connGetPrivateData(conn);
     int nread, readlen;
@@ -1969,7 +1964,7 @@ void readQueryFromClient(connection *conn) {
 
     /* There is more data in the client input buffer, continue parsing it
      * in case to check if there is a full command to execute. */
-     processInputBuffer(c);
+     processInputBufferAndReplicate(c);
 }
 
 void getClientsMaxBuffers(unsigned long *longest_output_list,
@@ -3198,7 +3193,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
                 continue;
             }
         }
-        processInputBuffer(c);
+        processInputBufferAndReplicate(c);
     }
     return processed;
 }
