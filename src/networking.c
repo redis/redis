@@ -1553,6 +1553,19 @@ int processInlineBuffer(client *c) {
     if (querylen == 0 && getClientType(c) == CLIENT_TYPE_SLAVE)
         c->repl_ack_time = server.unixtime;
 
+    /* Masters should never send us inline protocol to run actual
+     * commands. If this happens, it is likely due to a bug in Redis where
+     * we got some desynchronization in the protocol, for example
+     * beause of a PSYNC gone bad.
+     *
+     * However the is an exception: masters may send us just a newline
+     * to keep the connection active. */
+    if (querylen != 0 && c->flags & CLIENT_MASTER) {
+        serverLog(LL_WARNING,"WARNING: Receiving inline protocol from master, master stream corruption? Closing the master connection and discarding the cached master.");
+        setProtocolError("Master using the inline protocol. Desync?",c);
+        return C_ERR;
+    }
+
     /* Move querybuffer position to the next query in the buffer. */
     c->qb_pos += querylen+linefeed_chars;
 
@@ -1576,7 +1589,7 @@ int processInlineBuffer(client *c) {
  * CLIENT_PROTOCOL_ERROR. */
 #define PROTO_DUMP_LEN 128
 static void setProtocolError(const char *errstr, client *c) {
-    if (server.verbosity <= LL_VERBOSE) {
+    if (server.verbosity <= LL_VERBOSE || c->flags & CLIENT_MASTER) {
         sds client = catClientInfoString(sdsempty(),c);
 
         /* Sample some protocol to given an idea about what was inside. */
@@ -1595,7 +1608,9 @@ static void setProtocolError(const char *errstr, client *c) {
         }
 
         /* Log all the client and protocol info. */
-        serverLog(LL_VERBOSE,
+        int loglevel = (c->flags & CLIENT_MASTER) ? LL_WARNING :
+                                                    LL_VERBOSE;
+        serverLog(loglevel,
             "Protocol error (%s) from client: %s. %s", errstr, client, buf);
         sdsfree(client);
     }
