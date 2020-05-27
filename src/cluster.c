@@ -1434,7 +1434,10 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
             }
         } else {
             /* If it's not in NOADDR state and we don't have it, we
-             * start a handshake process against this IP/PORT pairs.
+             * add it to our trusted dict with exact nodeid and flag.
+             * Note that we cannot simply start a handshake against
+             * this IP/PORT pairs, since IP/PORT can be reused already,
+             * otherwise we risk joining another cluster.
              *
              * Note that we require that the sender of this gossip message
              * is a well known node in our cluster, otherwise we risk
@@ -1443,7 +1446,12 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 !(flags & CLUSTER_NODE_NOADDR) &&
                 !clusterBlacklistExists(g->nodename))
             {
-                clusterStartHandshake(g->ip,ntohs(g->port),ntohs(g->cport));
+                clusterNode *node;
+                node = createClusterNode(g->nodename, flags);
+                memcpy(node->ip,g->ip,NET_IP_STR_LEN);
+                node->port = ntohs(g->port);
+                node->cport = ntohs(g->cport);
+                clusterAddNode(node);
             }
         }
 
