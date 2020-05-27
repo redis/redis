@@ -1037,25 +1037,14 @@ static void freeClientArgv(client *c) {
 
 /* Close all the slaves connections. This is useful in chained replication
  * when we resync with our own master and want to force all our slaves to
- * resync with us as well.
- *
- * If 'async' is non-zero we free the clients asynchronously. This is needed
- * when we call this function from a context where in the chain of the
- * callers somebody is iterating the list of clients. For instance when
- * CLIENT KILL TYPE master is called, caching the master client may
- * adjust the meaningful offset of replication, and in turn call
- * discionectSlaves(). Since CLIENT KILL iterates the clients this is
- * not safe. */
-void disconnectSlaves(int async) {
+ * resync with us as well. */
+void disconnectSlaves(void) {
     listIter li;
     listNode *ln;
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
         listNode *ln = listFirst(server.slaves);
-        if (async)
-            freeClientAsync((client*)ln->value);
-        else
-            freeClient((client*)ln->value);
+        freeClient((client*)ln->value);
     }
 }
 
@@ -1769,7 +1758,6 @@ int processMultibulkBuffer(client *c) {
  * 2. In the case of master clients, the replication offset is updated.
  * 3. Propagate commands we got from our master to replicas down the line. */
 void commandProcessed(client *c) {
-    int cmd_is_ping = c->cmd && c->cmd->proc == pingCommand;
     long long prev_offset = c->reploff;
     if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
         /* Update the applied replication offset of our master. */
@@ -1794,16 +1782,11 @@ void commandProcessed(client *c) {
      * sub-replicas and to the replication backlog. */
     if (c->flags & CLIENT_MASTER) {
         long long applied = c->reploff - prev_offset;
-        long long prev_master_repl_meaningful_offset = server.master_repl_meaningful_offset;
         if (applied) {
             replicationFeedSlavesFromMasterStream(server.slaves,
                     c->pending_querybuf, applied);
             sdsrange(c->pending_querybuf,applied,-1);
         }
-        /* The server.master_repl_meaningful_offset variable represents
-         * the offset of the replication stream without the pending PINGs. */
-        if (cmd_is_ping)
-            server.master_repl_meaningful_offset = prev_master_repl_meaningful_offset;
     }
 }
 
