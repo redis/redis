@@ -217,7 +217,7 @@ int tlsConfigure(redisTLSContextConfig *ctx_config) {
     SSL_CTX_set_ecdh_auto(ctx, 1);
 #endif
 
-    if (SSL_CTX_use_certificate_file(ctx, ctx_config->cert_file, SSL_FILETYPE_PEM) <= 0) {
+    if (SSL_CTX_use_certificate_chain_file(ctx, ctx_config->cert_file) <= 0) {
         ERR_error_string_n(ERR_get_error(), errbuf, sizeof(errbuf));
         serverLog(LL_WARNING, "Failed to load certificate: %s: %s", ctx_config->cert_file, errbuf);
         goto error;
