@@ -2756,8 +2756,6 @@ void replicationCacheMaster(client *c) {
      * pending outputs to the master. */
     sdsclear(server.master->querybuf);
     sdsclear(server.master->pending_querybuf);
-
-    server.master->reploff = server.master_repl_offset;
     server.master->read_reploff = server.master->reploff;
     if (c->flags & CLIENT_MULTI) discardTransaction(c);
     listEmpty(c->reply);
