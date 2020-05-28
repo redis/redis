@@ -12,6 +12,283 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 6.0.4     Released Thu May 28 11:36:45 CEST 2020
+================================================================================
+
+Upgrade urgency CRITICAL: this release fixes a severe replication bug.
+
+Redis 6.0.4 fixes a critical replication bug caused by a new feature introduced
+in Redis 6. The feature, called "meaningful offset" and strongly wanted by
+myself (antirez) was an improvement that avoided that masters were no longer
+able, during a failover where they were demoted to replicas, to partially
+synchronize with the new master. In short the feature was able to avoid full
+synchronizations with RDB. How did it work? By trimming the replication backlog
+of the final "PING" commands the master was sending in the replication channel:
+this way the replication offset would no longer go "after" the one of the
+promoted replica, allowing the master to just continue in the same replication
+history, receiving only a small data difference.
+
+However after the introduction of the feature we (the Redis core team) quickly
+understood there was something wrong: the apparently harmless feature had
+many bugs, and the last bug we discovered, after a joined effort of multiple
+people, we were not even able to fully understand after fixing it. Enough was
+enough, we decided that the complexity cost of this feature was too high.
+So Redis 6.0.4 removes the feature entirely, and fixes the data corruption that
+it was able to cause.
+
+However there are two facts to take in mind.
+
+Fact 1: Setups using chained replication, that means that certain replicas
+are replicating from other replicas, up to Redis 6.0.3 can experience data
+corruption. For chained replication we mean that:
+
+    +--------+          +---------+         +-------------+
+    | master |--------->| replica |-------->| sub-replica |
+    +--------+          +---------+         +-------------+
+
+
+People using chained replication SHOULD UPGRADE ASAP away from Redis 6.0.0,
+6.0.1, 6.0.2 or 6.0.3 to Redis 6.0.4.
+
+To be clear, people NOT using this setup, but having just replicas attached
+directly to the master, SHOUDL NOT BE in danger of any problem. But we
+are no longer confident on 6.0.x replication implementation complexities
+so we suggest to upgrade to 6.0.4 to everybody using an older 6.0.3 release.
+We just so far didn't find any bug that affects Redis 6.0.3 that does not
+involve chained replication.
+
+People starting with Redis 6.0.4 are fine. People with Redis 5 are fine.
+People upgrading from Redis 5 to Redis 6.0.4 are fine.
+TLDR: The problem is with users of 6.0.0, 6.0.1, 6.0.2, 6.0.3.
+
+Fact 2: Upgrading from Redis 6.0.x to Redis 6.0.4, IF AND ONLY IF you
+use chained replication, requires some extra care:
+
+1. Once you attach your new Redis 6.0.4 instance as a replica of the current
+   Redis 6.0.x master, you should wait for the first full synchronization,
+   then you should promote it right away, if your setup involves chained
+   replication. Don't give it the time to do a new partial synchronization
+   in the case the link between the master and the replica  will break in
+   the mean time.
+
+2. As an additional care, you may want to set the replication ping period
+   to a very large value (for instance 1000000) using the following command:
+
+       CONFIG SET repl-ping-replica-period 1000000
+
+   Note that if you do "1" with care, "2" is not needed.
+   However if you do it, make sure to later restore it to its default:
+
+       CONFIG SET repl-ping-replica-period 10
+
+So this is the main change in Redis 6. Later we'll find a different way in
+order to achieve what we wanted to achieve with the Meaningful Offset feature,
+but without the same complexity.
+
+Other changes in this release:
+
+* PSYNC2 tests improved.
+* Fix a rare active defrag edge case bug leading to stagnation
+* Fix Redis 6 asserting at startup in 32 bit systems.
+* Redis 6 32 bit is now added back to our testing environments.
+* Fix server crash for STRALGO command,
+* Implement sendfile for RDB transfer.
+* TLS fixes.
+* Make replication more resistant by disconnecting the master if we
+  detect a protocol error. Basically we no longer accept inline protocol
+  from the master.
+* Other improvements in the tests.
+
+Regards,
+antirez
+
+This is the full list of commits:
+
+antirez in commit 59cd4c9f6:
+ Test: take PSYNC2 test master timeout high during switch.
+ 1 file changed, 1 deletion(-)
+
+antirez in commit 6c1bb7b19:
+ Test: add the tracking unit as default.
+ 1 file changed, 1 insertion(+)
+
+Oran Agra in commit 1aee695e5:
+ tests: find_available_port start search from next port
+ 1 file changed, 12 insertions(+), 7 deletions(-)
+
+Oran Agra in commit a2ae46352:
+ tests: each test client work on a distinct port range
+ 5 files changed, 39 insertions(+), 27 deletions(-)
+
+Oran Agra in commit 86e562d69:
+ 32bit CI needs to build modules correctly
+ 2 files changed, 7 insertions(+), 2 deletions(-)
+
+Oran Agra in commit ab2984b1e:
+ adjust revived meaningful offset tests
+ 1 file changed, 39 insertions(+), 20 deletions(-)
+
+Oran Agra in commit 1ff5a222d:
+ revive meaningful offset tests
+ 2 files changed, 213 insertions(+)
+
+antirez in commit cc549b46a:
+ Replication: showLatestBacklog() refactored out.
+ 3 files changed, 36 insertions(+), 25 deletions(-)
+
+antirez in commit 377dd0515:
+ Drop useless line from replicationCacheMaster().
+ 1 file changed, 2 deletions(-)
+
+antirez in commit 3f8d113f1:
+ Another meaningful offset test removed.
+ 1 file changed, 100 deletions(-)
+
+antirez in commit d4541349d:
+ Remove the PSYNC2 meaningful offset test.
+ 2 files changed, 113 deletions(-)
+
+antirez in commit 2112a5702:
+ Remove the meaningful offset feature.
+ 4 files changed, 10 insertions(+), 93 deletions(-)
+
+antirez in commit d2eb6e0b4:
+ Set a protocol error if master use the inline protocol.
+ 1 file changed, 17 insertions(+), 2 deletions(-)
+
+Oran Agra in commit 9c1df3b76:
+ daily CI test with tls
+ 1 file changed, 15 insertions(+)
+
+Oran Agra in commit 115ed1911:
+ avoid using sendfile if tls-replication is enabled
+ 1 file changed, 34 insertions(+), 27 deletions(-)
+
+antirez in commit 11c748aac:
+ Replication: log backlog creation event.
+ 1 file changed, 3 insertions(+)
+
+antirez in commit 8f1013722:
+ Test: PSYNC2 test can now show server logs.
+ 1 file changed, 88 insertions(+), 25 deletions(-)
+
+antirez in commit 2e591fc4a:
+ Clarify what is happening in PR #7320.
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+zhaozhao.zz in commit cbb51fb8f:
+ PSYNC2: second_replid_offset should be real meaningful offset
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+Oran Agra in commit e0fc88b4d:
+ add CI for 32bit build
+ 2 files changed, 34 insertions(+)
+
+antirez in commit e3f864b5f:
+ Make disconnectSlaves() synchronous in the base case.
+ 3 files changed, 20 insertions(+), 9 deletions(-)
+
+ShooterIT in commit 8af1e513f:
+ Implements sendfile for redis.
+ 2 files changed, 55 insertions(+), 2 deletions(-)
+
+antirez in commit 3c21418cd:
+ Fix #7306 less aggressively.
+ 2 files changed, 29 insertions(+), 17 deletions(-)
+
+Madelyn Olson in commit e201f83ce:
+ EAGAIN for tls during diskless load
+ 1 file changed, 4 insertions(+)
+
+Qu Chen in commit 58fc456cb:
+ Disconnect chained replicas when the replica performs PSYNC with the master always to avoid replication offset mismatch between master and chained replicas.
+ 2 files changed, 60 insertions(+), 3 deletions(-)
+
+hwware in commit 3febc5c29:
+ using moreargs variable
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+hwware in commit 8d6738559:
+ fix server crash for STRALGO command
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+ShooterIT in commit 7a35eec54:
+ Replace addDeferredMultiBulkLength with addReplyDeferredLen in comment
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Yossi Gottlieb in commit f93e1417b:
+ TLS: Improve tls-protocols clarity in redis.conf.
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+ShooterIT in commit d0c9e4454:
+ Fix reply bytes calculation error
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+zhaozhao.zz in commit 1cde6a060:
+ Tracking: flag CLIENT_TRACKING_BROKEN_REDIR when redir broken
+ 1 file changed, 1 insertion(+)
+
+Oran Agra in commit 436be3498:
+ fix a rare active defrag edge case bug leading to stagnation
+ 4 files changed, 146 insertions(+), 23 deletions(-)
+
+Oran Agra in commit f9d2ffdc5:
+ improve DEBUG MALLCTL to be able to write to write only fields.
+ 1 file changed, 27 insertions(+), 7 deletions(-)
+
+hujie in commit d7968ee92:
+ fix clear USER_FLAG_ALLCOMMANDS flag in acl
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+ShooterIT in commit a902e6b25:
+ Redis Benchmark: generate random test data
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+hwware in commit 9564ed7c3:
+ Redis-Benchmark: avoid potentical memmory leaking
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+WuYunlong in commit 2e4182743:
+ Handle keys with hash tag when computing hash slot using tcl cluster client.
+ 1 file changed, 23 insertions(+), 2 deletions(-)
+
+WuYunlong in commit eb2c8b2c6:
+ Add a test to prove current tcl cluster client can not handle keys with hash tag.
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+ShooterIT in commit 928e6976b:
+ Use dictSize to get the size of dict in dict.c
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Madelyn Olson in commit cdcf5af5a:
+ Converge hash validation for adding and removing
+ 1 file changed, 21 insertions(+), 14 deletions(-)
+
+Benjamin Sergeant in commit e8b09d220:
+ do not handle --cluster-yes for cluster fix mode
+ 1 file changed, 16 insertions(+), 7 deletions(-)
+
+Benjamin Sergeant in commit 57b4fb0d8:
+ fix typo ...
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Benjamin Sergeant in commit 29f25e411:
+ Redis-cli 6.0.1 `--cluster-yes` doesn't work (fix #7246)
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+Oran Agra in commit 00d8b92b8:
+ fix valgrind test failure in replication test
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Oran Agra in commit 5e17e6276:
+ add regression test for the race in #7205
+ 1 file changed, 52 insertions(+)
+
+antirez in commit 96e7c011e:
+ Improve the PSYNC2 test reliability.
+ 1 file changed, 33 insertions(+), 15 deletions(-)
+
+================================================================================
 Redis 6.0.3     Released Sat May 16 18:10:21 CEST 2020
 ================================================================================
 
