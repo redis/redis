@@ -242,7 +242,6 @@ start_server {} {
             show_cluster_status
             fail "Replicas and master offsets were unable to match *exactly*."
         }
-        $R($master_id) config set repl-ping-replica-period 10
 
         # Limit anyway the maximum number of cycles. This is useful when the
         # test is skipped via --only option of the test suite. In that case
