@@ -54,6 +54,7 @@ typedef struct clusterLink {
 #define CLUSTER_NODE_MIGRATE_TO 256 /* Master elegible for replica migration. */
 #define CLUSTER_NODE_NOFAILOVER 512 /* Slave will not try to failver. */
 #define CLUSTER_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
+#define CLUSTER_NODE_TMP_NAME_PRE "9527"
 
 #define nodeIsMaster(n) ((n)->flags & CLUSTER_NODE_MASTER)
 #define nodeIsSlave(n) ((n)->flags & CLUSTER_NODE_SLAVE)

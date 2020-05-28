@@ -1321,7 +1321,7 @@ int clusterHandshakeInProgress(char *ip, int port, int cport) {
  *
  * EAGAIN - There is already an handshake in progress for this address.
  * EINVAL - IP or port are not valid. */
-int clusterStartHandshake(char *ip, int port, int cport) {
+int clusterStartHandshake(char *ip, int port, int cport, char* name) {
     clusterNode *n;
     char norm_ip[NET_IP_STR_LEN];
     struct sockaddr_storage sa;
@@ -1366,7 +1366,13 @@ int clusterStartHandshake(char *ip, int port, int cport) {
     /* Add the node with a random address (NULL as first argument to
      * createClusterNode()). Everything will be fixed during the
      * handshake. */
-    n = createClusterNode(NULL,CLUSTER_NODE_HANDSHAKE|CLUSTER_NODE_MEET);
+    if(name) {
+        n = createClusterNode(name,CLUSTER_NODE_HANDSHAKE|CLUSTER_NODE_MEET);
+    } else {
+        char nm[CLUSTER_NAMELEN] = CLUSTER_NODE_TMP_NAME_PRE;
+        getRandomHexChars(nm+strlen(nm), CLUSTER_NAMELEN-strlen(nm));
+        n = createClusterNode(nm,CLUSTER_NODE_HANDSHAKE|CLUSTER_NODE_MEET);
+    }
     memcpy(n->ip,norm_ip,sizeof(n->ip));
     n->port = port;
     n->cport = cport;
@@ -1472,7 +1478,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 !(flags & CLUSTER_NODE_NOADDR) &&
                 !clusterBlacklistExists(g->nodename))
             {
-                clusterStartHandshake(g->ip,ntohs(g->port),ntohs(g->cport));
+                clusterStartHandshake(g->ip,ntohs(g->port),ntohs(g->cport), g->nodename);
             }
         }
 
@@ -1819,8 +1825,9 @@ int clusterProcessPacket(clusterLink *link) {
          * resolved when we'll receive PONGs from the node. */
         if (!sender && type == CLUSTERMSG_TYPE_MEET) {
             clusterNode *node;
-
-            node = createClusterNode(NULL,CLUSTER_NODE_HANDSHAKE);
+            char nm[CLUSTER_NAMELEN] = CLUSTER_NODE_TMP_NAME_PRE;
+            getRandomHexChars(nm+strlen(nm), CLUSTER_NAMELEN-strlen(nm));
+            node = createClusterNode(nm,CLUSTER_NODE_HANDSHAKE);
             nodeIp2String(node->ip,link,hdr->myip);
             node->port = ntohs(hdr->port);
             node->cport = ntohs(hdr->cport);
@@ -1846,10 +1853,13 @@ int clusterProcessPacket(clusterLink *link) {
             type == CLUSTERMSG_TYPE_PING ? "ping" : "pong",
             (void*)link->node);
         if (link->node) {
-            if (nodeInHandshake(link->node)) {
+            if (nodeInHandshake(link->node) &&
+                    (memcmp(link->node->name,hdr->sender, CLUSTER_NAMELEN)==0 ||
+                     memcmp(link->node->name, CLUSTER_NODE_TMP_NAME_PRE,
+                             strlen(CLUSTER_NODE_TMP_NAME_PRE))==0)) {
                 /* If we already have this node, try to change the
                  * IP/port of the node with the new one. */
-                if (sender) {
+                if (sender && sender != link->node) {
                     serverLog(LL_VERBOSE,
                         "Handshake: we already know node %.40s, "
                         "updating the address if needed.", sender->name);
@@ -1866,7 +1876,9 @@ int clusterProcessPacket(clusterLink *link) {
 
                 /* First thing to do is replacing the random name with the
                  * right node name if this was a handshake stage. */
-                clusterRenameNode(link->node, hdr->sender);
+                if(memcmp(link->node->name,hdr->sender, CLUSTER_NAMELEN)!=0) {
+                    clusterRenameNode(link->node, hdr->sender);
+                }
                 serverLog(LL_DEBUG,"Handshake with node %.40s completed.",
                     link->node->name);
                 link->node->flags &= ~CLUSTER_NODE_HANDSHAKE;
@@ -4322,7 +4334,7 @@ NULL
             cport = port + CLUSTER_PORT_INCR;
         }
 
-        if (clusterStartHandshake(c->argv[2]->ptr,port,cport) == 0 &&
+        if (clusterStartHandshake(c->argv[2]->ptr,port,cport, NULL) == 0 &&
             errno == EINVAL)
         {
             addReplyErrorFormat(c,"Invalid node address specified: %s:%s",
