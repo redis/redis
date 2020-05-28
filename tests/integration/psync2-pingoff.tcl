@@ -1,6 +1,9 @@
-# Test the meaningful offset implementation to make sure masters
-# are able to PSYNC with replicas even if the replication stream
-# has pending PINGs at the end.
+# These tests were added together with the meaningful offset implementation
+# in redis 6.0.0, which was later abandoned in 6.0.4, they used to test that
+# servers are able to PSYNC with replicas even if the replication stream has
+# PINGs at the end which present in one sever and missing on another.
+# We keep these tests just because they reproduce edge cases in the replication
+# logic in hope they'll be able to spot some problem in the future.
 
 start_server {tags {"psync2"}} {
 start_server {} {
@@ -16,7 +19,7 @@ start_server {} {
     }
 
     # Setup replication
-    test "PSYNC2 meaningful offset: setup" {
+    test "PSYNC2 pingoff: setup" {
         $R(1) replicaof $R_host(0) $R_port(0)
         $R(0) set foo bar
         wait_for_condition 50 1000 {
@@ -27,7 +30,7 @@ start_server {} {
         }
     }
 
-    test "PSYNC2 meaningful offset: write and wait replication" {
+    test "PSYNC2 pingoff: write and wait replication" {
         $R(0) INCR counter
         $R(0) INCR counter
         $R(0) INCR counter
@@ -41,7 +44,7 @@ start_server {} {
     # In this test we'll make sure the replica will get stuck, but with
     # an active connection: this way the master will continue to send PINGs
     # every second (we modified the PING period earlier)
-    test "PSYNC2 meaningful offset: pause replica and promote it" {
+    test "PSYNC2 pingoff: pause replica and promote it" {
         $R(1) MULTI
         $R(1) DEBUG SLEEP 5
         $R(1) SLAVEOF NO ONE
@@ -50,14 +53,22 @@ start_server {} {
     }
 
     test "Make the old master a replica of the new one and check conditions" {
-        set sync_partial [status $R(1) sync_partial_ok]
-        assert {$sync_partial == 0}
+        assert_equal [status $R(1) sync_full] 0
         $R(0) REPLICAOF $R_host(1) $R_port(1)
         wait_for_condition 50 1000 {
-            [status $R(1) sync_partial_ok] == 1
+            [status $R(1) sync_full] == 1
         } else {
-            fail "The new master was not able to partial sync"
+            fail "The new master was not able to sync"
         }
+
+        # make sure replication is still alive and kicking
+        $R(1) incr x
+        wait_for_condition 50 1000 {
+            [$R(0) get x] == 1
+        } else {
+            fail "replica didn't get incr"
+        }
+        assert_equal [status $R(0) master_repl_offset] [status $R(1) master_repl_offset]
     }
 }}
 
@@ -67,7 +78,7 @@ start_server {} {
 start_server {} {
 start_server {} {
 start_server {} {
-    test {pings at the end of replication stream are ignored for psync} {
+    test {test various edge cases of repl topology changes with missing pings at the end} {
         set master [srv -4 client]
         set master_host [srv -4 host]
         set master_port [srv -4 port]
@@ -129,9 +140,9 @@ start_server {} {
             fail "replicas didn't get incr"
         }
 
-        # make sure there are full syncs other than the initial ones
-        assert_equal [status $master sync_full] 4
-        assert_equal [status $replica1 sync_full] 0
+        # make sure we have the right amount of full syncs
+        assert_equal [status $master sync_full] 6
+        assert_equal [status $replica1 sync_full] 2
         assert_equal [status $replica2 sync_full] 0
         assert_equal [status $replica3 sync_full] 0
         assert_equal [status $replica4 sync_full] 0
@@ -153,9 +164,9 @@ start_server {} {
             fail "replicas didn't get incr"
         }
 
-        # make sure there are full syncs other than the initial ones
-        assert_equal [status $master sync_full] 4
-        assert_equal [status $replica1 sync_full] 0
+        # make sure we have the right amount of full syncs
+        assert_equal [status $master sync_full] 6
+        assert_equal [status $replica1 sync_full] 2
         assert_equal [status $replica2 sync_full] 0
         assert_equal [status $replica3 sync_full] 0
         assert_equal [status $replica4 sync_full] 0
@@ -197,7 +208,7 @@ start_server {} {
             [status $R(1) master_link_status] == "up" && 
             [status $R(2) master_link_status] == "up" &&
             [status $R(0) sync_partial_ok] == $sync_partial_master + 1 &&
-            [status $R(1) sync_partial_ok] == $sync_partial_replica + 1
+            [status $R(1) sync_partial_ok] == $sync_partial_replica
         } else {
             fail "Disconnected replica failed to PSYNC with master"
         }
@@ -206,7 +217,15 @@ start_server {} {
         # offsets match with the master
         assert_equal [status $R(0) master_repl_offset] [status $R(1) master_repl_offset]
         assert_equal [status $R(0) master_repl_offset] [status $R(2) master_repl_offset]
-        assert_equal [status $R(0) master_repl_meaningful_offset] [status $R(1) master_repl_meaningful_offset]
-        assert_equal [status $R(0) master_repl_meaningful_offset] [status $R(2) master_repl_meaningful_offset]
+
+        # make sure replication is still alive and kicking
+        $R(0) incr counter2
+        wait_for_condition 50 1000 {
+            [$R(1) get counter2] == 2 && [$R(2) get counter2] == 2
+        } else {
+            fail "replicas didn't get incr"
+        }
+        assert_equal [status $R(0) master_repl_offset] [status $R(1) master_repl_offset]
+        assert_equal [status $R(0) master_repl_offset] [status $R(2) master_repl_offset]
     }
 }}}
