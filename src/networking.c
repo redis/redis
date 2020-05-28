@@ -396,31 +396,7 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
         if (ctype == CLIENT_TYPE_MASTER && server.repl_backlog &&
             server.repl_backlog_histlen > 0)
         {
-            long long dumplen = 256;
-            if (server.repl_backlog_histlen < dumplen)
-                dumplen = server.repl_backlog_histlen;
-
-            /* Identify the first byte to dump. */
-            long long idx =
-              (server.repl_backlog_idx + (server.repl_backlog_size - dumplen)) %
-               server.repl_backlog_size;
-
-            /* Scan the circular buffer to collect 'dumplen' bytes. */
-            sds dump = sdsempty();
-            while(dumplen) {
-                long long thislen =
-                    ((server.repl_backlog_size - idx) < dumplen) ?
-                    (server.repl_backlog_size - idx) : dumplen;
-
-                dump = sdscatrepr(dump,server.repl_backlog+idx,thislen);
-                dumplen -= thislen;
-                idx = 0;
-            }
-
-            /* Finally log such bytes: this is vital debugging info to
-             * understand what happened. */
-            serverLog(LL_WARNING,"Latest backlog is: '%s'", dump);
-            sdsfree(dump);
+            showLatestBacklog();
         }
         server.stat_unexpected_error_replies++;
     }
