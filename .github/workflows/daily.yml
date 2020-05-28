@@ -47,7 +47,9 @@ jobs:
         sudo apt-get install tcl8.5
         ./runtest --accurate --verbose
     - name: module api test
-      run: ./runtest-moduleapi --verbose
+      run: |
+        make -C tests/modules 32bit # the script below doesn't have an argument, we must build manually ahead of time
+        ./runtest-moduleapi --verbose
 
   test-tls:
     runs-on: ubuntu-latest
