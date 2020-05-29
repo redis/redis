@@ -353,7 +353,7 @@ void freeTrackingRadixTree(void *rt) {
     raxFree(rt);
 }
 
-void trackingInvalidateKeysOnFlush(int dbid) {
+void trackingInvalidateKeysOnFlush() {
     if (server.tracking_clients) {
         listNode *ln;
         listIter li;
@@ -366,8 +366,8 @@ void trackingInvalidateKeysOnFlush(int dbid) {
         }
     }
 
-    /* In case of FLUSHALL, reclaim all the memory used by tracking. */
-    if (dbid == -1 && TrackingTable) {
+    /* reclaim all the memory used by tracking. */
+    if (TrackingTable) {
         raxFreeWithCallback(TrackingTable,freeTrackingRadixTree);
         TrackingTable = raxNew();
         TrackingTableTotalItems = 0;

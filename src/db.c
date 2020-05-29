@@ -478,7 +478,7 @@ void signalModifiedKey(client *c, redisDb *db, robj *key) {
 
 void signalFlushedDb(int dbid) {
     touchWatchedKeysOnFlush(dbid);
-    trackingInvalidateKeysOnFlush(dbid);
+    trackingInvalidateKeysOnFlush();
 }
 
 /*-----------------------------------------------------------------------------

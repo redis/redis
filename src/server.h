@@ -1692,7 +1692,7 @@ void enableTracking(client *c, uint64_t redirect_to, uint64_t options, robj **pr
 void disableTracking(client *c);
 void trackingRememberKeys(client *c);
 void trackingInvalidateKey(client *c, robj *keyobj);
-void trackingInvalidateKeysOnFlush(int dbid);
+void trackingInvalidateKeysOnFlush();
 void trackingLimitUsedSlots(void);
 uint64_t trackingGetTotalItems(void);
 uint64_t trackingGetTotalKeys(void);
