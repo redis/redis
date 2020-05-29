@@ -373,6 +373,7 @@ typedef struct RedisModuleUser {
  * for things like blocking clients for threaded execution of slow commands. */
 RedisModule *coremodule;
 _Atomic unsigned long CoreModuleBlockedClients = 0;
+unsigned long CoreModuleThreadsMax = 50;
 
 /* --------------------------------------------------------------------------
  * Prototypes
@@ -7245,7 +7246,7 @@ void *threadedCoreCommandEnty(void *argptr) {
      * the client is unblocked, the reply will be concatenated to the
      * real client. */
     tcpd->callback(tcpd->bc->reply_client,tcpd->objv,tcpd->objc);
-    RM_UnblockClient(tcpd->bc,NULL);
+    moduleUnblockClientByHandle(tcpd->bc,tcpd);
     return NULL;
 }
 
@@ -7297,13 +7298,19 @@ void executeThreadedCommand(client *c, coreThreadedCommandCallback callback, rob
 
     /* Try to spawn the thread that will actually execute the command. */
     pthread_t tid;
-    if (pthread_create(&tid,NULL,threadedCoreCommandEnty,tcpd) != 0) {
+    if (CoreModuleBlockedClients >= CoreModuleThreadsMax ||
+        pthread_create(&tid,NULL,threadedCoreCommandEnty,tcpd) != 0)
+    {
         RM_AbortBlock(bc);
         /* Execute the command synchronously if we can't spawn a thread.. */
         callback(c,tcpd->objv,tcpd->objc);
         threadedCoreCommandFreePrivdata(&ctx,tcpd);
     }
     moduleFreeContext(&ctx);
+}
+
+unsigned long runningThreadedCommandsCount(void) {
+    return CoreModuleBlockedClients;
 }
 
 /* --------------------------------------------------------------------------

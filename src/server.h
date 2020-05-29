@@ -1584,6 +1584,7 @@ void moduleNotifyUserChanged(client *c);
 /* Modules functionalities exported to core commands. */
 typedef void (*coreThreadedCommandCallback)(client *c, robj **objv, int objc);
 void executeThreadedCommand(client *c, coreThreadedCommandCallback callback, robj **objv, int objc, int freecount);
+unsigned long runningThreadedCommandsCount(void);
 
 /* Utils */
 long long ustime(void);

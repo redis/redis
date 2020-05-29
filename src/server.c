@@ -4068,11 +4068,13 @@ sds genRedisInfoString(const char *section) {
             "client_recent_max_output_buffer:%zu\r\n"
             "blocked_clients:%d\r\n"
             "tracking_clients:%d\r\n"
+            "blocked_for_core_thread:%lu\r\n"
             "clients_in_timeout_table:%llu\r\n",
             listLength(server.clients)-listLength(server.slaves),
             maxin, maxout,
             server.blocked_clients,
             server.tracking_clients,
+            runningThreadedCommandsCount(),
             (unsigned long long) raxSize(server.clients_timeout_table));
     }
 
