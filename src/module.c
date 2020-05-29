@@ -372,6 +372,7 @@ typedef struct RedisModuleUser {
 /* The Redis core itself registeres a module in order to use module services
  * for things like blocking clients for threaded execution of slow commands. */
 RedisModule *coremodule;
+_Atomic unsigned long CoreModuleBlockedClients = 0;
 
 /* --------------------------------------------------------------------------
  * Prototypes
@@ -4610,6 +4611,7 @@ void RM_SetDisconnectCallback(RedisModuleBlockedClient *bc, RedisModuleDisconnec
  * When this happens the RedisModuleBlockedClient structure in the queue
  * will have the 'client' field set to NULL. */
 void moduleHandleBlockedClients(void) {
+    if (moduleCount() == 0 && CoreModuleBlockedClients == 0) return;
     listNode *ln;
     RedisModuleBlockedClient *bc;
 
@@ -7227,7 +7229,9 @@ void threadedCoreCommandFreePrivdata(RedisModuleCtx *ctx, void *privdata) {
     tcprivdata *tcpd = privdata;
     for (int j = 0; j < tcpd->freecount; j++)
         decrRefCount(tcpd->objv[j]);
+    zfree(tcpd->objv);
     zfree(tcpd);
+    CoreModuleBlockedClients--;
 }
 
 /* The entry point of the threaded execution. */
@@ -7272,10 +7276,12 @@ void executeThreadedCommand(client *c, coreThreadedCommandCallback callback, rob
     tcprivdata *tcpd = zmalloc(sizeof(*tcpd));
 
     /* Block the client. */
+    CoreModuleBlockedClients++;
     RedisModuleBlockedClient *bc = RM_BlockClient(&ctx,NULL,NULL,threadedCoreCommandFreePrivdata,0);
     tcpd->bc = bc;
     tcpd->callback = callback;
-    tcpd->objv = objv;
+    tcpd->objv = zmalloc(sizeof(robj*)*objc);
+    memcpy(tcpd->objv,objv,sizeof(robj*)*objc);
     tcpd->objc = objc;
     tcpd->freecount = freecount;
     bc->privdata = tcpd;
@@ -7285,7 +7291,7 @@ void executeThreadedCommand(client *c, coreThreadedCommandCallback callback, rob
     client *copy = bc->reply_client;
     copy->argc = c->argc;
     copy->argv = zmalloc(sizeof(robj*) * c->argc);
-    for (int j = 0; j < c->argc; c++)
+    for (int j = 0; j < c->argc; j++)
         copy->argv[j] = createStringObject(c->argv[j]->ptr,
                                            sdslen(c->argv[j]->ptr));
 

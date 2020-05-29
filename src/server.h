@@ -1581,6 +1581,10 @@ void moduleUnblockClient(client *c);
 int moduleClientIsBlockedOnKeys(client *c);
 void moduleNotifyUserChanged(client *c);
 
+/* Modules functionalities exported to core commands. */
+typedef void (*coreThreadedCommandCallback)(client *c, robj **objv, int objc);
+void executeThreadedCommand(client *c, coreThreadedCommandCallback callback, robj **objv, int objc, int freecount);
+
 /* Utils */
 long long ustime(void);
 long long mstime(void);
