@@ -732,10 +732,11 @@ void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub) {
  * EEXIST: You are adding a key pattern after "*" was already added. This is
  *         almost surely an error on the user side.
  * ENODEV: The password you are trying to remove from the user does not exist.
- * EBADMSG: The hash you are trying to add is not a valid hash. 
+ * EBADMSG: The hash you are trying to add is not a valid hash.
  */
 int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     if (oplen == -1) oplen = strlen(op);
+    if (oplen == 0) return C_OK; /* Empty string is a no-operation. */
     if (!strcasecmp(op,"on")) {
         u->flags |= USER_FLAG_ENABLED;
         u->flags &= ~USER_FLAG_DISABLED;
@@ -1297,7 +1298,7 @@ sds ACLLoadFromFile(const char *filename) {
         if (lines[i][0] == '\0') continue;
 
         /* Split into arguments */
-        argv = sdssplitargs(lines[i],&argc);
+        argv = sdssplitlen(lines[i],sdslen(lines[i])," ",1,&argc);
         if (argv == NULL) {
             errors = sdscatprintf(errors,
                      "%s:%d: unbalanced quotes in acl line. ",
@@ -1329,11 +1330,14 @@ sds ACLLoadFromFile(const char *filename) {
             continue;
         }
 
-        /* Try to process the line using the fake user to validate iif
-         * the rules are able to apply cleanly. */
+        /* Try to process the line using the fake user to validate if
+         * the rules are able to apply cleanly. At this stage we also
+         * trim trailing spaces, so that we don't have to handle that
+         * in ACLSetUser(). */
         ACLSetUser(fakeuser,"reset",-1);
         int j;
         for (j = 2; j < argc; j++) {
+            argv[j] = sdstrim(argv[j],"\t\r\n");
             if (ACLSetUser(fakeuser,argv[j],sdslen(argv[j])) != C_OK) {
                 char *errmsg = ACLSetUserStringError();
                 errors = sdscatprintf(errors,
