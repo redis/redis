@@ -494,9 +494,18 @@ void stralgoCommand(client *c) {
     }
 }
 
+/* Options passed by the main-thread half of STRALGO LCS command, to the
+ * threaded half. */
+struct LCSOptions {
+    long long minmatchlen;
+    int getlen;
+    int getidx;
+    int withmatchlen;
+};
+
 /* This implements the threaded part of STRALGO LCS. It's the callback
  * we provide to the background execution engine. */
-void stralgoLCSThreadedPart(client *c, robj **objv, int objc) {
+void stralgoLCSThreadedPart(client *c, robj **objv, int objc, void *options) {
     uint32_t i, j;
     UNUSED(objc);
 
@@ -505,11 +514,7 @@ void stralgoLCSThreadedPart(client *c, robj **objv, int objc) {
     sds a = objv[0]->ptr, b = objv[1]->ptr;
     uint32_t alen = sdslen(a);
     uint32_t blen = sdslen(b);
-
-    /* FIXME: really populate these values with data in
-     * objv. */
-    long long minmatchlen = 0;
-    int getlen = 0, getidx = 0, withmatchlen = 0;
+    struct LCSOptions *opt = options;
 
     /* Setup an uint32_t array to store at LCS[i,j] the length of the
      * LCS A0..i-1, B0..j-1. Note that we have a linear array here, so
@@ -552,12 +557,12 @@ void stralgoLCSThreadedPart(client *c, robj **objv, int objc) {
              brange_end = 0;
 
     /* Do we need to compute the actual LCS string? Allocate it in that case. */
-    int computelcs = getidx || !getlen;
+    int computelcs = opt->getidx || !opt->getlen;
     if (computelcs) result = sdsnewlen(SDS_NOINIT,idx);
 
     /* Start with a deferred array if we have to emit the ranges. */
     uint32_t arraylen = 0;  /* Number of ranges emitted in the array. */
-    if (getidx) {
+    if (opt->getidx) {
         addReplyMapLen(c,2);
         addReplyBulkCString(c,"matches");
         arraylenptr = addReplyDeferredLen(c);
@@ -606,16 +611,16 @@ void stralgoLCSThreadedPart(client *c, robj **objv, int objc) {
         /* Emit the current range if needed. */
         uint32_t match_len = arange_end - arange_start + 1;
         if (emit_range) {
-            if (minmatchlen == 0 || match_len >= minmatchlen) {
+            if (opt->minmatchlen == 0 || match_len >= opt->minmatchlen) {
                 if (arraylenptr) {
-                    addReplyArrayLen(c,2+withmatchlen);
+                    addReplyArrayLen(c,2+opt->withmatchlen);
                     addReplyArrayLen(c,2);
                     addReplyLongLong(c,arange_start);
                     addReplyLongLong(c,arange_end);
                     addReplyArrayLen(c,2);
                     addReplyLongLong(c,brange_start);
                     addReplyLongLong(c,brange_end);
-                    if (withmatchlen) addReplyLongLong(c,match_len);
+                    if (opt->withmatchlen) addReplyLongLong(c,match_len);
                     arraylen++;
                 }
             }
@@ -628,7 +633,7 @@ void stralgoLCSThreadedPart(client *c, robj **objv, int objc) {
         addReplyBulkCString(c,"len");
         addReplyLongLong(c,LCS(alen,blen));
         setDeferredArrayLen(c,arraylenptr,arraylen);
-    } else if (getlen) {
+    } else if (opt->getlen) {
         addReplyLongLong(c,LCS(alen,blen));
     } else {
         addReplyBulkSds(c,result);
@@ -644,25 +649,29 @@ void stralgoLCSThreadedPart(client *c, robj **objv, int objc) {
 /* STRALGO LCS [IDX] [MINMATCHLEN <len>] [WITHMATCHLEN]
  *     STRINGS <string> <string> | KEYS <keya> <keyb> */
 void stralgoLCS(client *c) {
-    long long minmatchlen = 0;
-    int getlen = 0, getidx = 0, withmatchlen = 0;
+    struct LCSOptions *opt = zmalloc(sizeof(*opt));
+    opt->minmatchlen = 0;
+    opt->getlen = 0;
+    opt->getidx = 0;
+    opt->withmatchlen = 0;
+
     int data_from_key = 0;
     robj *obja = NULL, *objb = NULL;
 
     for (int j = 2; j < c->argc; j++) {
-        char *opt = c->argv[j]->ptr;
+        char *optname = c->argv[j]->ptr;
         int moreargs = (c->argc-1) - j;
 
-        if (!strcasecmp(opt,"IDX")) {
-            getidx = 1;
-        } else if (!strcasecmp(opt,"LEN")) {
-            getlen = 1;
-        } else if (!strcasecmp(opt,"WITHMATCHLEN")) {
-            withmatchlen = 1;
-        } else if (!strcasecmp(opt,"MINMATCHLEN") && moreargs) {
-            if (getLongLongFromObjectOrReply(c,c->argv[j+1],&minmatchlen,NULL)
-                != C_OK) return;
-            if (minmatchlen < 0) minmatchlen = 0;
+        if (!strcasecmp(optname,"IDX")) {
+            opt->getidx = 1;
+        } else if (!strcasecmp(optname,"LEN")) {
+            opt->getlen = 1;
+        } else if (!strcasecmp(optname,"WITHMATCHLEN")) {
+            opt->withmatchlen = 1;
+        } else if (!strcasecmp(optname,"MINMATCHLEN") && moreargs) {
+            if (getLongLongFromObjectOrReply(c,c->argv[j+1],
+                &opt->minmatchlen,NULL) != C_OK) return;
+            if (opt->minmatchlen < 0) opt->minmatchlen = 0;
             j++;
         } else if (!strcasecmp(opt,"STRINGS") && moreargs > 1) {
             if (obja != NULL) {
@@ -698,7 +707,7 @@ void stralgoLCS(client *c) {
         addReplyError(c,"Please specify two strings: "
                         "STRINGS or KEYS options are mandatory");
         return;
-    } else if (getlen && getidx) {
+    } else if (opt->getlen && opt->getidx) {
         addReplyError(c,
             "If you want both the length and indexes, please "
             "just use IDX.");
@@ -713,6 +722,6 @@ void stralgoLCS(client *c) {
     decrRefCount(objb);
     robj *objv[2] = {a,b};
     executeThreadedCommand(c, stralgoLCSThreadedPart,objv,2,
-        data_from_key?2:0);
+        data_from_key?2:0, opt);
 }
 

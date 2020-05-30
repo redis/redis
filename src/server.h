@@ -1582,8 +1582,8 @@ int moduleClientIsBlockedOnKeys(client *c);
 void moduleNotifyUserChanged(client *c);
 
 /* Modules functionalities exported to core commands. */
-typedef void (*coreThreadedCommandCallback)(client *c, robj **objv, int objc);
-void executeThreadedCommand(client *c, coreThreadedCommandCallback callback, robj **objv, int objc, int freecount);
+typedef void (*coreThreadedCommandCallback)(client *c, robj **objv, int objc, void *options);
+void executeThreadedCommand(client *c, coreThreadedCommandCallback callback, robj **objv, int objc, int freecount, void *options);
 unsigned long runningThreadedCommandsCount(void);
 
 /* Utils */
