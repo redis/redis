@@ -703,6 +703,27 @@ void hmgetCommand(client *c) {
     }
 }
 
+void mhgetCommand(client *c) {
+    robj *o;
+    int i;
+
+    if ((c->argc % 2) == 0) {
+        addReplyError(c,"wrong number of arguments for MHGET");
+        return;
+    }
+
+    addReplyArrayLen(c,(c->argc-1) / 2);
+
+    for (i = 1; i < c->argc; i += 2) {
+        o = lookupKeyRead(c->db, c->argv[i]);
+        if (o == NULL || o->type != OBJ_HASH) {
+            addReplyNull(c);
+        } else {
+            addHashFieldToReply(c, o, c->argv[i+1]->ptr);
+        }
+    }
+}
+
 void hdelCommand(client *c) {
     robj *o;
     int j, deleted = 0, keyremoved = 0;

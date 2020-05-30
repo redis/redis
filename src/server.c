@@ -514,6 +514,10 @@ struct redisCommand redisCommandTable[] = {
      "read-only fast @hash",
      0,NULL,1,1,1,0,0,0},
 
+    {"mhget",mhgetCommand,-2,
+     "read-only fast @hash",
+     0,NULL,1,-1,1,0,0,0},
+
     {"hincrby",hincrbyCommand,4,
      "write use-memory fast @hash",
      0,NULL,1,1,1,0,0,0},

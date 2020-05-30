@@ -177,6 +177,46 @@ start_server {tags {"hash"}} {
         set _ $err
     } {}
 
+    test {MHGET against non existing key and fields} {
+        set rv {}
+        lappend rv [r mhget doesntexist __123123123__ notthiseither __456456456__]
+        lappend rv [r mhget smallhash __123123123__]
+        lappend rv [r mhget bighash __123123123__ bighash __456456456__]
+        set _ $rv
+    } {{{} {}} {{}} {{} {}}}
+
+    test {MHGET against wrong type returns nil} {
+        r set wrongtype somevalue
+        r mhget wrongtype __123123123__
+    } {{}}
+
+    test {MHGET wrong argument count} {
+        assert_error "*wrong*" {r mhget key}
+        assert_error "*wrong*" {r mhget key val key}
+    }
+
+    test {MHGET - small and big hash} {
+        set keys {}
+        set vals {}
+        foreach {k v} [array get smallhash] {
+            lappend keys "smallhash"
+            lappend keys $k
+            lappend vals $v
+        }
+        foreach {k v} [array get bighash] {
+            lappend keys "bighash"
+            lappend keys $k
+            lappend vals $v
+        }
+        set err {}
+        set result [r mhget {*}$keys]
+        if {$vals ne $result} {
+            set err "$vals != $result"
+            break
+        }
+        set _ $err
+    } {}
+
     test {HKEYS - small hash} {
         lsort [r hkeys smallhash]
     } [lsort [array names smallhash *]]

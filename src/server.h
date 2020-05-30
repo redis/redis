@@ -2321,6 +2321,7 @@ void hsetnxCommand(client *c);
 void hgetCommand(client *c);
 void hmsetCommand(client *c);
 void hmgetCommand(client *c);
+void mhgetCommand(client *c);
 void hdelCommand(client *c);
 void hlenCommand(client *c);
 void hstrlenCommand(client *c);
