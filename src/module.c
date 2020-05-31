@@ -7210,7 +7210,7 @@ void processModuleLoadingProgressEvent(int is_aof) {
  * using abstractions implemented by the modules interface, like the
  * ability to run threaded operations.
  * -------------------------------------------------------------------------- */
-typedef void (*coreThreadedCommandCallback)(client *c, robj **objv, int objc, void *options);
+typedef void (*coreThreadedCommandCallback)(client *c, void *options);
 
 /* This sturcture is used in order to pass state from the main thread to
  * the thread that will execute the command, and then to the function
@@ -7218,9 +7218,6 @@ typedef void (*coreThreadedCommandCallback)(client *c, robj **objv, int objc, vo
 typedef struct {
     RedisModuleBlockedClient *bc;           /* Blocked client handle. */
     coreThreadedCommandCallback callback;   /* Threaded command callback. */
-    robj **objv;                            /* Vector of Redis objects. */
-    int objc;                               /* Number of objects. */
-    int freecount;                          /* How many we need to free. */
     void *options;                          /* A pointer with details about
                                                the command to execute. Passed
                                                to the callback. */
@@ -7230,12 +7227,7 @@ typedef struct {
  * threaded Redis core command execution. */
 void threadedCoreCommandFreePrivdata(RedisModuleCtx *ctx, void *privdata) {
     UNUSED(ctx);
-    tcprivdata *tcpd = privdata;
-    for (int j = 0; j < tcpd->freecount; j++)
-        decrRefCount(tcpd->objv[j]);
-    zfree(tcpd->objv);
-    zfree(tcpd->options);
-    zfree(tcpd);
+    zfree(privdata);
     CoreModuleBlockedClients--;
 }
 
@@ -7249,7 +7241,7 @@ void *threadedCoreCommandEnty(void *argptr) {
      * use Redis low level API to accumulate the reply there, and later when
      * the client is unblocked, the reply will be concatenated to the
      * real client. */
-    tcpd->callback(tcpd->bc->reply_client,tcpd->objv,tcpd->objc,tcpd->options);
+    tcpd->callback(tcpd->bc->reply_client,tcpd->options);
     moduleUnblockClientByHandle(tcpd->bc,tcpd);
     return NULL;
 }
@@ -7265,21 +7257,16 @@ void *threadedCoreCommandEnty(void *argptr) {
  * the threaded part of a command can also operate on key values without
  * any race condition.
  *
- * The objv and objc parameters are used in order to pass objects to the
- * thread that will execute the command. They must be either copies of
- * objects so that the thread is the only owner, or Redis should have
- * some other machanism in order to make sure that there are no race
- * conditions. At the end of the execution of the command, the first
- * 'freecount' objects of the objv array will be freed.
- *
  * 'options' is some private information passed to the callback that
  * may contain parameters that the "main thread half" if the command
  * parsed from the command line of the command. Normally it will pass
- * things like the options in order to execute the command, like modifiers
- * of the return value or alike. The pointer pointed by 'options' must
- * be allocated in the stack with zmalloc() and will be free automatically
- * at the end of the execution. It can be NULL. */
-void executeThreadedCommand(client *c, coreThreadedCommandCallback callback, robj **objv, int objc, int freecount, void *options) {
+ * things like the options in order to execute the command, the objects
+ * the command should work with (that may be copies or made inaccessible
+ * by the main thread via other means), and so forth.
+ *
+ * The info pointed by 'options' must be allocated by the callback implementing
+ * the threaded half of the command once it's done. */
+void executeThreadedCommand(client *c, coreThreadedCommandCallback callback, void *options) {
     RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
     ctx.module = coremodule;
     ctx.client = c;
@@ -7293,10 +7280,6 @@ void executeThreadedCommand(client *c, coreThreadedCommandCallback callback, rob
     RedisModuleBlockedClient *bc = RM_BlockClient(&ctx,NULL,NULL,threadedCoreCommandFreePrivdata,0);
     tcpd->bc = bc;
     tcpd->callback = callback;
-    tcpd->objv = zmalloc(sizeof(robj*)*objc);
-    memcpy(tcpd->objv,objv,sizeof(robj*)*objc);
-    tcpd->objc = objc;
-    tcpd->freecount = freecount;
     tcpd->options = options;
     bc->privdata = tcpd;
 
@@ -7316,7 +7299,7 @@ void executeThreadedCommand(client *c, coreThreadedCommandCallback callback, rob
     {
         RM_AbortBlock(bc);
         /* Execute the command synchronously if we can't spawn a thread.. */
-        callback(c,tcpd->objv,tcpd->objc,tcpd->options);
+        callback(c,tcpd->options);
         threadedCoreCommandFreePrivdata(&ctx,tcpd);
     }
     moduleFreeContext(&ctx);

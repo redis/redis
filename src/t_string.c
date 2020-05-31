@@ -497,6 +497,7 @@ void stralgoCommand(client *c) {
 /* Options passed by the main-thread half of STRALGO LCS command, to the
  * threaded half. */
 struct LCSOptions {
+    robj *obja, *objb;
     long long minmatchlen;
     int getlen;
     int getidx;
@@ -505,16 +506,15 @@ struct LCSOptions {
 
 /* This implements the threaded part of STRALGO LCS. It's the callback
  * we provide to the background execution engine. */
-void stralgoLCSThreadedPart(client *c, robj **objv, int objc, void *options) {
+void stralgoLCSThreadedPart(client *c, void *options) {
     uint32_t i, j;
-    UNUSED(objc);
 
     /* Compute the LCS using the vanilla dynamic programming technique of
      * building a table of LCS(x,y) substrings. */
-    sds a = objv[0]->ptr, b = objv[1]->ptr;
+    struct LCSOptions *opt = options;
+    sds a = opt->obja->ptr, b = opt->objb->ptr;
     uint32_t alen = sdslen(a);
     uint32_t blen = sdslen(b);
-    struct LCSOptions *opt = options;
 
     /* Setup an uint32_t array to store at LCS[i,j] the length of the
      * LCS A0..i-1, B0..j-1. Note that we have a linear array here, so
@@ -643,6 +643,9 @@ void stralgoLCSThreadedPart(client *c, robj **objv, int objc, void *options) {
     /* Cleanup. */
     sdsfree(result);
     zfree(lcs);
+    decrRefCount(opt->obja);
+    decrRefCount(opt->objb);
+    zfree(opt);
     return;
 }
 
@@ -720,8 +723,8 @@ void stralgoLCS(client *c) {
     robj *b = dupStringObject(objb);
     decrRefCount(obja);
     decrRefCount(objb);
-    robj *objv[2] = {a,b};
-    executeThreadedCommand(c, stralgoLCSThreadedPart,objv,2,
-        data_from_key?2:0, opt);
+    opt->obja = a;
+    opt->objb = b;
+    executeThreadedCommand(c, stralgoLCSThreadedPart, opt);
 }
 
