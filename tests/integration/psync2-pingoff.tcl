@@ -64,6 +64,7 @@ start_server {} {
         # make sure replication is still alive and kicking
         $R(1) incr x
         wait_for_condition 50 1000 {
+            [status $R(0) loading] == 0 &&
             [$R(0) get x] == 1
         } else {
             fail "replica didn't get incr"
