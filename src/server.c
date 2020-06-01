@@ -3500,6 +3500,11 @@ int processCommand(client *c) {
         }
     }
 
+    /* We want to block this client if the keys it is going to access
+     * are locked. */
+    if (dictSize(c->db->locked_keys)) {
+    }
+
     /* Handle the maxmemory directive.
      *
      * Note that we do not want to reclaim memory if we are here re-entering

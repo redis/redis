@@ -144,13 +144,15 @@ void queueClientForReprocessing(client *c) {
 /* Unblock a client calling the right function depending on the kind
  * of operation the client is blocking for. */
 void unblockClient(client *c) {
-    if (c->btype == BLOCKED_LIST ||
-        c->btype == BLOCKED_ZSET ||
-        c->btype == BLOCKED_STREAM) {
+    int btype = c->btype;
+
+    if (btype == BLOCKED_LIST ||
+        btype == BLOCKED_ZSET ||
+        btype == BLOCKED_STREAM) {
         unblockClientWaitingData(c);
-    } else if (c->btype == BLOCKED_WAIT) {
+    } else if (btype == BLOCKED_WAIT) {
         unblockClientWaitingReplicas(c);
-    } else if (c->btype == BLOCKED_MODULE) {
+    } else if (btype == BLOCKED_MODULE) {
         if (moduleClientIsBlockedOnKeys(c)) unblockClientWaitingData(c);
         unblockClientFromModule(c);
     } else {
@@ -159,11 +161,15 @@ void unblockClient(client *c) {
     /* Clear the flags, and put the client in the unblocked list so that
      * we'll process new commands in its query buffer ASAP. */
     server.blocked_clients--;
-    server.blocked_clients_by_type[c->btype]--;
+    server.blocked_clients_by_type[btype]--;
     c->flags &= ~CLIENT_BLOCKED;
     c->btype = BLOCKED_NONE;
     removeClientFromTimeoutTable(c);
     queueClientForReprocessing(c);
+
+    /* Re-execute the command if it was not executed at all since the
+     * client was blocked because of key locks. */
+    if (btype == BLOCKED_LOCK) processCommand(c);
 }
 
 /* This function gets called when a blocked client timed out in order to
@@ -172,7 +178,8 @@ void unblockClient(client *c) {
 void replyToBlockedClientTimedOut(client *c) {
     if (c->btype == BLOCKED_LIST ||
         c->btype == BLOCKED_ZSET ||
-        c->btype == BLOCKED_STREAM) {
+        c->btype == BLOCKED_STREAM ||
+        c->btype == BLOCKED_LOCK) {
         addReplyNullArray(c);
     } else if (c->btype == BLOCKED_WAIT) {
         addReplyLongLong(c,replicationCountAcksByOffset(c->bpop.reploffset));
