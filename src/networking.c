@@ -153,6 +153,7 @@ client *createClient(connection *conn) {
     c->watched_keys = listCreate();
     c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType,NULL);
     c->pubsub_patterns = listCreate();
+    c->locked = NULL;
     c->peerid = NULL;
     c->client_list_node = NULL;
     c->client_tracking_redirection = 0;

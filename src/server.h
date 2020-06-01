@@ -645,13 +645,54 @@ typedef struct redisDb {
     dict *dict;                 /* The keyspace for this DB */
     dict *expires;              /* Timeout of keys with a timeout set */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
-    dict *ready_keys;           /* Blocked keys that received a PUSH */
+    dict *ready_keys;           /* Blocked keys that received a write */
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
+    dict *locked_keys;          /* Keys locked for threaded operations */
     int id;                     /* Database ID */
     long long avg_ttl;          /* Average TTL, just for stats */
     unsigned long expires_cursor; /* Cursor of the active expire cycle. */
     list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
 } redisDb;
+
+#define LOCKEDKEY_READ  0       /* Key is locked in read mode. The list of
+                                   current_owners may contain multiple
+                                   clients. */
+#define LOCKEDKEY_WRITE  1      /* Key is locked in write mode. There is only
+                                   one client in the list of owners. */
+#define LOCKEDKEY_WAIT   2      /* Key is not locked, but we need to fork or
+                                   to perform a full scan operation such as
+                                   DEBUG DIGEST, so we are not allowing keys
+                                   to be locked. The owner list is empty while
+                                   the wait queue is populated by clients that
+                                   want to lock the key. */
+
+/* This structure is stored at db->locked_keys for each key that has some
+ * lock or waiting list active. */
+typedef struct lockedKey {
+    int lock_type;              /* LOCKEDKEY_* defines above. */
+    int deleted;                /* True if the key was deleted in the
+                                   main thread while locked: in this case
+                                   it is up to us to free the object once
+                                   all the owners will return. Moreover when
+                                   this happens, clients in the wait queue can
+                                   be rescheduled ASAP. */
+    robj *obj;                  /* The locked object itself. May be NULL
+                                   if the key was empty at the time we
+                                   locked the key. */
+    list *owners;               /* List of clients that locked this key
+                                   and are doing threaded operations. See
+                                   the LOCKEDKEY defines comments for more
+                                   information. */
+    list *waiting;              /* Clients that are waiting for the key
+                                   to return available in order to be
+                                   rescheduled. */
+} lockedKey;
+
+/* This is the structure we put in the onwers and wait lists of the
+ * locked keys. */
+typedef struct lockedKeyClient {
+    uint64_t id;
+} lockedKeyClient;
 
 /* Client MULTI/EXEC state */
 typedef struct multiCmd {
@@ -820,6 +861,7 @@ typedef struct client {
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
+    dict *locked;           /* Dictionary of keys locked by the client. */
     sds peerid;             /* Cached peer ID. */
     listNode *client_list_node; /* list node in client list */
     RedisModuleUserChangedFunc auth_callback; /* Module callback to execute

@@ -7227,6 +7227,9 @@ typedef struct {
  * threaded Redis core command execution. */
 void threadedCoreCommandFreePrivdata(RedisModuleCtx *ctx, void *privdata) {
     UNUSED(ctx);
+    /* TODO: unlock the key here. This can be as simple as putting the
+     * locked key in an unlock queue or alike if we don't want to do
+     * it synchronously here. */
     zfree(privdata);
     CoreModuleBlockedClients--;
 }

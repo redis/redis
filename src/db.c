@@ -1749,3 +1749,78 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
 unsigned int countKeysInSlot(unsigned int hashslot) {
     return server.cluster->slots_keys_count[hashslot];
 }
+
+/*-----------------------------------------------------------------------------
+ * Locked keys API
+ *----------------------------------------------------------------------------*/
+
+int lockedClientListMatch(void *a, void *b) {
+    lockedKeyClient *ca = a, *cb = b;
+    return ca->id == cb->id;
+}
+
+/* Lock the specified key, in the specified DB and in the context of the
+ * specified client, and return the locked object by reference.
+ * The type of the lock can be KEYLOCK_READ or KEYLOCK_WRITE (XXX: not supported
+ * right now).
+ *
+ * Locking the key may fail because the key is already locked or because
+ * Redis is not able to lock keys in a given moment (because it is waiting
+ * to fork or for other reasons). When this happens, the command should
+ * signal to the caller that it requires to be rescheduled, or alternatively
+ * may implement the operation synchronously without locking any key.
+ *
+ * When locking fails C_ERR is returned, otherwise C_OK is returned.
+ * Note that 'optr' may be populated with NULL if the key that is going
+ * to be locked is empty.
+ *
+ * Signaling of the need to lock keys is performed using the
+ * wouldLockKey() API (XXX: yet to be implemented). Check the function
+ * documentation for more information. */
+int lockKey(client *c, redisDb *db, robj *key, int locktype, robj **optr) {
+    dictEntry *de;
+
+    de = dictFind(db->locked_keys,key);
+    lockedKey *lk = de ? dictGetVal(de) : NULL;
+
+    if (lk == NULL) {
+        lk = zmalloc(sizeof(*lk));
+        lk->lock_type = locktype;
+        lk->waiting = listCreate();
+        lk->owners = listCreate();
+        listSetMatchMethod(lk->waiting,lockedClientListMatch);
+        listSetMatchMethod(lk->owners,lockedClientListMatch);
+        listSetFreeMethod(lk->waiting,zfree);
+        listSetFreeMethod(lk->owners,zfree);
+        lk->obj = lookupKeyReadWithFlags(db,key,LOOKUP_NOTOUCH);
+    } else {
+        /* If there is already a lock, it is incompatible with a new lock
+         * both in the case the lock is of write type, or we want to lock
+         * for write. */
+        if (lk->lock_type == LOCKEDKEY_WRITE || locktype == LOCKEDKEY_WRITE)
+            return C_ERR;
+    }
+
+    /* Lock allowed: put the client in the list of owners. */
+    lockedKeyClient *lkc = zmalloc(sizeof(*lkc));
+    lkc->id = c->id;
+    listAddNodeTail(lk->owners,lkc);
+
+    /* We also need to remember that this client locked this key: for
+     * now we set this information in the real client locking the key,
+     * however later this information is moved into the blocked client
+     * handle that we use for threaded execution. The reason is that we
+     * want to unlock the keys back when the thread has finished, not just
+     * when this client disconnects. */
+    if (c->locked == NULL)
+        c->locked = dictCreate(&objectKeyPointerValueDictType,NULL);
+
+    de = dictAddRaw(c->locked,key,NULL);
+    /* Remember the client ID of the lock, so if we move this in the
+     * blocked handle, we can still track the original ID even if the
+     * client is gone. */
+    dictSetUnsignedIntegerVal(de,c->id);
+    incrRefCount(key);
+    *optr = lk->obj;
+    return C_OK;
+}
