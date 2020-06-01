@@ -679,7 +679,7 @@ void stralgoLCS(client *c) {
         } else if (!strcasecmp(opt,"STRINGS") && moreargs > 1) {
             if (obja != NULL) {
                 addReplyError(c,"Either use STRINGS or KEYS");
-                return;
+                goto syntaxerr;
             }
             obja = c->argv[j+1];
             objb = c->argv[j+2];
@@ -691,7 +691,7 @@ void stralgoLCS(client *c) {
         } else if (!strcasecmp(opt,"KEYS") && moreargs > 1) {
             if (obja != NULL) {
                 addReplyError(c,"Either use STRINGS or KEYS");
-                return;
+                goto syntaxerr;
             }
             obja = lookupKeyRead(c->db,c->argv[j+1]);
             objb = lookupKeyRead(c->db,c->argv[j+2]);
@@ -701,7 +701,7 @@ void stralgoLCS(client *c) {
             data_from_key = 1;
         } else {
             addReply(c,shared.syntaxerr);
-            return;
+            goto syntaxerr;
         }
     }
 
@@ -726,5 +726,11 @@ void stralgoLCS(client *c) {
     opt->obja = a;
     opt->objb = b;
     executeThreadedCommand(c, stralgoLCSThreadedPart, opt);
+    return;
+
+syntaxerr:
+    if (obja) decrRefCount(obja);
+    if (objb) decrRefCount(obja);
+    zfree(opt);
 }
 
