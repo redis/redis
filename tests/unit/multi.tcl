@@ -392,4 +392,27 @@ start_server {tags {"multi"}} {
         set pong [$rd2 read]
         assert_equal $pong "asdf"
     }
+
+    test {just EXEC and script timeout} {
+        # check that if EXEC arrives during timeout, we don't end up executing
+        # actual commands during busy script, and also that we exit the multi state
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        r config set lua-time-limit 10
+        r set xx 1
+        catch { $rd2 multi; $rd2 read } e
+        catch { $rd2 incr xx; $rd2 read } e
+        $rd1 eval {while true do end} 0
+        after 200
+        catch { $rd2 exec; $rd2 read } e
+        r script kill
+        after 200 ; # Give some time to Lua to call the hook again...
+        set xx [r get xx]
+        # make we didn't execute the transaction
+        assert { $xx == 1}
+        # check that the connection is no longer in multi state
+        $rd2 ping asdf
+        set pong [$rd2 read]
+        assert_equal $pong "asdf"
+    }
 }
