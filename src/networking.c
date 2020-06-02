@@ -1239,14 +1239,20 @@ void freeClientAsync(client *c) {
 /* Free the clietns marked as CLOSE_ASAP, return the number of clients
  * freed. */
 int freeClientsInAsyncFreeQueue(void) {
-    int freed = listLength(server.clients_to_close);
-    while (listLength(server.clients_to_close)) {
-        listNode *ln = listFirst(server.clients_to_close);
+    int freed = 0;
+    listIter li;
+    listNode *ln;
+
+    listRewind(server.clients_to_close,&li);
+    while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
+
+        if (c->flags & CLIENT_PROTECTED) continue;
 
         c->flags &= ~CLIENT_CLOSE_ASAP;
         freeClient(c);
         listDelNode(server.clients_to_close,ln);
+        freed++;
     }
     return freed;
 }
