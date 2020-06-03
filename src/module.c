@@ -4378,7 +4378,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->unblocked = 0;
     c->bpop.timeout = timeout;
 
-    if (islua || ismulti) {
+    if (ctx->module != coremodule && (islua || ismulti)) {
         c->bpop.module_blocked_handle = NULL;
         addReplyError(c, islua ?
             "Blocking module command called from Lua script" :
@@ -7303,8 +7303,11 @@ void executeThreadedCommand(client *c, coreThreadedCommandCallback callback, voi
                                            sdslen(c->argv[j]->ptr));
 
     /* Try to spawn the thread that will actually execute the command. */
+    int islua = c->flags & CLIENT_LUA;
+    int ismulti = c->flags & CLIENT_MULTI;
     pthread_t tid;
-    if (CoreModuleBlockedClients >= CoreModuleThreadsMax ||
+    if (islua || ismulti ||
+        CoreModuleBlockedClients >= CoreModuleThreadsMax ||
         pthread_create(&tid,NULL,threadedCoreCommandEnty,tcpd) != 0)
     {
         RM_AbortBlock(bc);
