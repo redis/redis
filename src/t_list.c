@@ -460,6 +460,7 @@ void lrangeCommand(client *c) {
     {
         /* In the case of LRANGE, we execute the command synchronously
          * if we are unable to get a lock. */
+        opt->o = o;
         lrangeThreadedHalf(c,opt);
     } else {
         executeThreadedCommand(c, lrangeThreadedHalf, opt);
