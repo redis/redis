@@ -1628,8 +1628,9 @@ void moduleNotifyUserChanged(client *c);
 typedef void (*coreThreadedCommandCallback)(client *c, void *options);
 void executeThreadedCommand(client *c, coreThreadedCommandCallback callback, void *options);
 unsigned long runningThreadedCommandsCount(void);
-int lockKey(client *c, redisDb *db, robj *key, int locktype, robj **optr);
+int lockKey(client *c, robj *key, int locktype, robj **optr);
 int queueClientIfKeyIsLocked(client *c, robj *key);
+void unlockAllKeys(client *c);
 
 /* Utils */
 long long ustime(void);

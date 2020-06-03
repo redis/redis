@@ -155,6 +155,8 @@ void unblockClient(client *c) {
     } else if (btype == BLOCKED_MODULE) {
         if (moduleClientIsBlockedOnKeys(c)) unblockClientWaitingData(c);
         unblockClientFromModule(c);
+    } else if (btype == BLOCKED_LOCK) {
+        /* We'll handle it at the end of the function. */
     } else {
         serverPanic("Unknown btype in unblockClient().");
     }

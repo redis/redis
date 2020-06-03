@@ -1777,10 +1777,10 @@ int lockedClientListMatch(void *a, void *b) {
  * Signaling of the need to lock keys is performed using the
  * wouldLockKey() API (XXX: yet to be implemented). Check the function
  * documentation for more information. */
-int lockKey(client *c, redisDb *db, robj *key, int locktype, robj **optr) {
+int lockKey(client *c, robj *key, int locktype, robj **optr) {
     dictEntry *de;
 
-    de = dictFind(db->locked_keys,key);
+    de = dictFind(c->db->locked_keys,key);
     lockedKey *lk = de ? dictGetVal(de) : NULL;
 
     if (lk == NULL) {
@@ -1792,7 +1792,9 @@ int lockKey(client *c, redisDb *db, robj *key, int locktype, robj **optr) {
         listSetMatchMethod(lk->owners,lockedClientListMatch);
         listSetFreeMethod(lk->waiting,zfree);
         listSetFreeMethod(lk->owners,zfree);
-        lk->obj = lookupKeyReadWithFlags(db,key,LOOKUP_NOTOUCH);
+        lk->obj = lookupKeyReadWithFlags(c->db,key,LOOKUP_NOTOUCH);
+        dictAdd(c->db->locked_keys,key,lk);
+        incrRefCount(key);
     } else {
         /* If there is already a lock, it is incompatible with a new lock
          * both in the case the lock is of write type, or we want to lock
@@ -1801,12 +1803,7 @@ int lockKey(client *c, redisDb *db, robj *key, int locktype, robj **optr) {
             return C_ERR;
     }
 
-    /* Lock allowed: put the client in the list of owners. */
-    lockedKeyClient *lkc = zmalloc(sizeof(*lkc));
-    lkc->id = c->id;
-    listAddNodeTail(lk->owners,lkc);
-
-    /* We also need to remember that this client locked this key: for
+    /* We need to remember that this client locked this key: for
      * now we set this information in the real client locking the key,
      * however later this information is moved into the blocked client
      * handle that we use for threaded execution. The reason is that we
@@ -1816,11 +1813,25 @@ int lockKey(client *c, redisDb *db, robj *key, int locktype, robj **optr) {
         c->locked = dictCreate(&objectKeyPointerValueDictType,NULL);
 
     de = dictAddRaw(c->locked,key,NULL);
-    /* Remember the client ID of the lock, so if we move this in the
+    if (de == NULL) {
+        /* The key is already locked for this client? Odd but let's allow
+         * that without crashing. So that command implementations don't
+         * have to do complex checks in the command line in case of repeating
+         * keys. */
+        *optr = lk->obj;
+        return C_OK;
+    }
+    incrRefCount(key);
+
+    /* Lock allowed: put the client in the list of owners. */
+    lockedKeyClient *lkc = zmalloc(sizeof(*lkc));
+    lkc->id = c->id;
+    listAddNodeTail(lk->owners,lkc);
+
+   /* Remember the client ID of the lock, so if we move this in the
      * blocked handle, we can still track the original ID even if the
      * client is gone. */
     dictSetUnsignedIntegerVal(de,c->id);
-    incrRefCount(key);
     *optr = lk->obj;
     return C_OK;
 }
@@ -1837,3 +1848,66 @@ int queueClientIfKeyIsLocked(client *c, robj *key) {
     return C_OK;
 }
 
+/* Unlock the specified key in the context of the specified client.
+ * This API should not be called by the command implementation itself,
+ * instead unlockAllKeys() should be used. */
+void unlockKey(client *c, robj *key, uint64_t owner_id) {
+    lockedKey *lk = dictFetchValue(c->db->locked_keys,key);
+    if (lk == NULL) return;
+    struct lockedKeyClient lkc = {owner_id};
+    listNode *ln = listSearchKey(lk->owners,&lkc);
+    if (ln == NULL) return;
+
+    /* Unlock the key, and if this key dropped to a locked count of
+     * zero, we need to resume the clients in the waiting list. */
+    listDelNode(lk->owners,ln);
+    if (listLength(lk->owners) != 0) return;
+
+    listIter li;
+    listRewind(lk->waiting,&li);
+    while((ln = listNext(&li))) {
+        lockedKeyClient *lkc = listNodeValue(ln);
+        client *blocked = lookupClientByID(lkc->id);
+        if (blocked != NULL &&
+            blocked->flags & CLIENT_BLOCKED &&
+            blocked->btype == BLOCKED_LOCK)
+        {
+            printf("UNBLOCK %llu\n", blocked->id);
+            /* XXX: Check if the client is yet locked in some other key
+             * before unblocking it? Right now we just unblock it, and
+             * it will get blocked again if there are yet keys that are
+             * locked for it. */
+            unblockClient(blocked);
+        }
+        listDelNode(lk->waiting,ln);
+    }
+
+    /* At this point the key is no longer locked by any owner, nor
+     * it has any client in the waiting list. Remove it from the
+     * dictionary. */
+    dictDelete(c->db->locked_keys,key);
+    listRelease(lk->owners);
+    listRelease(lk->waiting);
+    zfree(lk);
+}
+
+/* Unlock all the keys locked in the specified client. We need to pass
+ * the client ID of the original client that locked the key, since the
+ * list of locked keys may be transfered to the blocked client handle.
+ * As a side effect the function also will release the dictionary of
+ * locked keys. */
+void unlockAllKeys(client *c) {
+    if (c->locked == NULL) return;
+
+    dictIterator *di;
+    dictEntry *de;
+    di = dictGetSafeIterator(c->locked);
+    while((de = dictNext(di)) != NULL) {
+        uint64_t owner_id = dictGetUnsignedIntegerVal(de);
+        robj *key = dictGetKey(de);
+        unlockKey(c,key,owner_id);
+    }
+    dictReleaseIterator(di);
+    dictRelease(c->locked);
+    c->locked = NULL;
+}

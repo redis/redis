@@ -7227,9 +7227,9 @@ typedef struct {
  * threaded Redis core command execution. */
 void threadedCoreCommandFreePrivdata(RedisModuleCtx *ctx, void *privdata) {
     UNUSED(ctx);
-    /* TODO: unlock the key here. This can be as simple as putting the
-     * locked key in an unlock queue or alike if we don't want to do
-     * it synchronously here. */
+    tcprivdata *tcpd = privdata;
+
+    unlockAllKeys(tcpd->bc->reply_client);
     zfree(privdata);
     CoreModuleBlockedClients--;
 }
@@ -7285,6 +7285,13 @@ void executeThreadedCommand(client *c, coreThreadedCommandCallback callback, voi
     tcpd->callback = callback;
     tcpd->options = options;
     bc->privdata = tcpd;
+
+    /* Move the list of locked keys in the reply client of the
+     * blocked handle: this way if the real client is freed because of
+     * disconnection, we still unlock the keys in the right moment, that
+     * is once the thread returns. */
+    bc->reply_client->locked = c->locked;
+    c->locked = NULL;
 
     /* We need the thread to work on a copy of the client argument
      * vector. */

@@ -496,7 +496,7 @@ void stralgoCommand(client *c) {
 
 /* Options passed by the main-thread half of STRALGO LCS command, to the
  * threaded half. */
-struct LCSOptions {
+struct LCSThreadOptions {
     robj *obja, *objb;
     long long minmatchlen;
     int getlen;
@@ -506,12 +506,12 @@ struct LCSOptions {
 
 /* This implements the threaded part of STRALGO LCS. It's the callback
  * we provide to the background execution engine. */
-void stralgoLCSThreadedPart(client *c, void *options) {
+void stralgoLCSThreadedHalf(client *c, void *options) {
     uint32_t i, j;
 
     /* Compute the LCS using the vanilla dynamic programming technique of
      * building a table of LCS(x,y) substrings. */
-    struct LCSOptions *opt = options;
+    struct LCSThreadOptions *opt = options;
     sds a = opt->obja->ptr, b = opt->objb->ptr;
     uint32_t alen = sdslen(a);
     uint32_t blen = sdslen(b);
@@ -652,7 +652,7 @@ void stralgoLCSThreadedPart(client *c, void *options) {
 /* STRALGO LCS [IDX] [MINMATCHLEN <len>] [WITHMATCHLEN]
  *     STRINGS <string> <string> | KEYS <keya> <keyb> */
 void stralgoLCS(client *c) {
-    struct LCSOptions *opt = zmalloc(sizeof(*opt));
+    struct LCSThreadOptions *opt = zmalloc(sizeof(*opt));
     opt->minmatchlen = 0;
     opt->getlen = 0;
     opt->getidx = 0;
@@ -676,7 +676,7 @@ void stralgoLCS(client *c) {
                 &opt->minmatchlen,NULL) != C_OK) return;
             if (opt->minmatchlen < 0) opt->minmatchlen = 0;
             j++;
-        } else if (!strcasecmp(opt,"STRINGS") && moreargs > 1) {
+        } else if (!strcasecmp(optname,"STRINGS") && moreargs > 1) {
             if (obja != NULL) {
                 addReplyError(c,"Either use STRINGS or KEYS");
                 goto syntaxerr;
@@ -688,7 +688,7 @@ void stralgoLCS(client *c) {
             incrRefCount(obja);
             incrRefCount(objb);
             j += 2;
-        } else if (!strcasecmp(opt,"KEYS") && moreargs > 1) {
+        } else if (!strcasecmp(optname,"KEYS") && moreargs > 1) {
             if (obja != NULL) {
                 addReplyError(c,"Either use STRINGS or KEYS");
                 goto syntaxerr;
@@ -725,7 +725,7 @@ void stralgoLCS(client *c) {
     decrRefCount(objb);
     opt->obja = a;
     opt->objb = b;
-    executeThreadedCommand(c, stralgoLCSThreadedPart, opt);
+    executeThreadedCommand(c, stralgoLCSThreadedHalf, opt);
     return;
 
 syntaxerr:

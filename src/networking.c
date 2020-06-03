@@ -1156,6 +1156,17 @@ void freeClient(client *c) {
     unwatchAllKeys(c);
     listRelease(c->watched_keys);
 
+    /* Unlock the keys and free the dictionary of locked keys.
+     * Note that if the client disconnects while there is a thread executing
+     * a threaded command for it, actually the locked keys were passed to
+     * the blocked client handle, so c->locked will be NULL, and the keys
+     * will really be unlocked when the thread returns instead.
+     *
+     * However we may get here with locked keys in case for some reason
+     * the client didn't call executeThreadedCommand() after locking the
+     * key. */
+    unlockAllKeys(c);
+
     /* Unsubscribe from all the pubsub channels */
     pubsubUnsubscribeAllChannels(c,0);
     pubsubUnsubscribeAllPatterns(c,0);

@@ -395,6 +395,37 @@ void rpopCommand(client *c) {
     popGenericCommand(c,LIST_TAIL);
 }
 
+struct lrangeThreadOptions {
+    long start, rangelen;
+    robj *o;
+};
+
+void lrangeThreadedHalf(client *c, void *options) {
+    struct lrangeThreadOptions *opt = options;
+
+    /* Return the result in form of a multi-bulk reply */
+    addReplyArrayLen(c,opt->rangelen);
+    if (opt->o->encoding == OBJ_ENCODING_QUICKLIST) {
+        listTypeIterator *iter = listTypeInitIterator(opt->o, opt->start,
+                                                      LIST_TAIL);
+
+        while(opt->rangelen--) {
+            listTypeEntry entry;
+            listTypeNext(iter, &entry);
+            quicklistEntry *qe = &entry.entry;
+            if (qe->value) {
+                addReplyBulkCBuffer(c,qe->value,qe->sz);
+            } else {
+                addReplyBulkLongLong(c,qe->longval);
+            }
+        }
+        listTypeReleaseIterator(iter);
+    } else {
+        serverPanic("List encoding is not QUICKLIST!");
+    }
+    zfree(options);
+}
+
 void lrangeCommand(client *c) {
     robj *o;
     long start, end, llen, rangelen;
@@ -420,24 +451,15 @@ void lrangeCommand(client *c) {
     if (end >= llen) end = llen-1;
     rangelen = (end-start)+1;
 
-    /* Return the result in form of a multi-bulk reply */
-    addReplyArrayLen(c,rangelen);
-    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-        listTypeIterator *iter = listTypeInitIterator(o, start, LIST_TAIL);
-
-        while(rangelen--) {
-            listTypeEntry entry;
-            listTypeNext(iter, &entry);
-            quicklistEntry *qe = &entry.entry;
-            if (qe->value) {
-                addReplyBulkCBuffer(c,qe->value,qe->sz);
-            } else {
-                addReplyBulkLongLong(c,qe->longval);
-            }
-        }
-        listTypeReleaseIterator(iter);
+    struct lrangeThreadOptions *opt = zmalloc(sizeof(*opt));
+    opt->start = start;
+    opt->rangelen = rangelen;
+    if (lockKey(c,c->argv[1],LOCKEDKEY_READ,&opt->o) == C_ERR) {
+        /* In the case of LRANGE, we execute the command synchronously
+         * if we are unable to get a lock. */
+        lrangeThreadedHalf(c,opt);
     } else {
-        serverPanic("List encoding is not QUICKLIST!");
+        executeThreadedCommand(c, lrangeThreadedHalf, opt);
     }
 }
 
