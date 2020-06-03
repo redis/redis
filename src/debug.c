@@ -367,6 +367,14 @@ void mallctl_string(client *c, robj **argv, int argc) {
 }
 #endif
 
+/* Threaded half of the DEBUG LOCK command. */
+void debugLockThreadedHalf(client *c, void *opt) {
+    mstime_t sleeptime = (unsigned long)opt;
+    usleep(sleeptime*1000);
+    addReplyStatusFormat(c,"Slept for %lu milliseconds",
+        (unsigned long)sleeptime);
+}
+
 void debugCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
@@ -396,6 +404,7 @@ void debugCommand(client *c) {
 "STRUCTSIZE -- Return the size of different Redis core C structures.",
 "ZIPLIST <key> -- Show low level info about the ziplist encoding.",
 "STRINGMATCH-TEST -- Run a fuzz tester against the stringmatchlen() function.",
+"LOCK <milliseconds> <type> <key1> ... <keyN>  -- Lock the specified keys for the specified amount of milliseconds. Lock type should be read or write.",
 #ifdef USE_JEMALLOC
 "MALLCTL <key> [<val>] -- Get or set a malloc tunning integer.",
 "MALLCTL-STR <key> [<val>] -- Get or set a malloc tunning string.",
@@ -791,11 +800,33 @@ NULL
     {
         stringmatchlen_fuzz_test();
         addReplyStatus(c,"Apparently Redis did not crash: test passed");
+    } else if (!strcasecmp(c->argv[1]->ptr,"lock") && c->argc >= 5) {
+        /* DEBUG LOCK <ms> <type> ... keys ... */
+        long ms;
+        if (getLongFromObjectOrReply(c,c->argv[2],&ms,NULL) != C_OK) return;
+        if (!strcasecmp(c->argv[3]->ptr,"read")) {
+            /* The only one supported so far... */
+        } else {
+            addReplyError(c,"DEBUG LOCK only supports read locks so far.");
+        }
+        /* Try locking all the keys. */
+        for (int j = 4; j < c->argc; j++) {
+            robj *myobj;
+            if (lockKey(c,c->argv[j],LOCKEDKEY_READ,&myobj) == C_ERR) {
+                unlockAllKeys(c);
+                addReplyErrorFormat(c,"Unable to lock %s. Already locked?",
+                                    c->argv[j]->ptr);
+                return;
+            }
+        }
+        /* Pass control to the threaded part. */
+        executeThreadedCommand(c,debugLockThreadedHalf,
+                               (void*)(unsigned long)ms);
 #ifdef USE_JEMALLOC
-    } else if(!strcasecmp(c->argv[1]->ptr,"mallctl") && c->argc >= 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"mallctl") && c->argc >= 3) {
         mallctl_int(c, c->argv+2, c->argc-2);
         return;
-    } else if(!strcasecmp(c->argv[1]->ptr,"mallctl-str") && c->argc >= 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"mallctl-str") && c->argc >= 3) {
         mallctl_string(c, c->argv+2, c->argc-2);
         return;
 #endif
