@@ -171,7 +171,7 @@ void unblockClient(client *c) {
 
     /* Re-execute the command if it was not executed at all since the
      * client was blocked because of key locks. */
-    if (btype == BLOCKED_LOCK) processCommand(c);
+    if (btype == BLOCKED_LOCK) processCommandAndResetClient(c);
 }
 
 /* This function gets called when a blocked client timed out in order to

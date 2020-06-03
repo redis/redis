@@ -1858,10 +1858,14 @@ void unlockKey(client *c, robj *key, uint64_t owner_id) {
     listNode *ln = listSearchKey(lk->owners,&lkc);
     if (ln == NULL) return;
 
-    /* Unlock the key, and if this key dropped to a locked count of
-     * zero, we need to resume the clients in the waiting list. */
+    /* Remove the lock for thsi owner, and if this key dropped to a locked
+     * count of zero, we need to resume the clients in the waiting list. */
     listDelNode(lk->owners,ln);
     if (listLength(lk->owners) != 0) return;
+
+    /* There are no longer owners for this lock: unlock the key
+     * before resuming the clients. */
+    dictDelete(c->db->locked_keys,key);
 
     listIter li;
     listRewind(lk->waiting,&li);
@@ -1872,7 +1876,6 @@ void unlockKey(client *c, robj *key, uint64_t owner_id) {
             blocked->flags & CLIENT_BLOCKED &&
             blocked->btype == BLOCKED_LOCK)
         {
-            printf("UNBLOCK %llu\n", blocked->id);
             /* XXX: Check if the client is yet locked in some other key
              * before unblocking it? Right now we just unblock it, and
              * it will get blocked again if there are yet keys that are
@@ -1882,10 +1885,7 @@ void unlockKey(client *c, robj *key, uint64_t owner_id) {
         listDelNode(lk->waiting,ln);
     }
 
-    /* At this point the key is no longer locked by any owner, nor
-     * it has any client in the waiting list. Remove it from the
-     * dictionary. */
-    dictDelete(c->db->locked_keys,key);
+    /* Frre the lock state. */
     listRelease(lk->owners);
     listRelease(lk->waiting);
     zfree(lk);
