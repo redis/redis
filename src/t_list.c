@@ -426,6 +426,7 @@ void lrangeThreadedHalf(client *c, void *options) {
     zfree(options);
 }
 
+#define LRANGE_THREADED_THRESHOLD 1000
 void lrangeCommand(client *c) {
     robj *o;
     long start, end, llen, rangelen;
@@ -454,7 +455,9 @@ void lrangeCommand(client *c) {
     struct lrangeThreadOptions *opt = zmalloc(sizeof(*opt));
     opt->start = start;
     opt->rangelen = rangelen;
-    if (lockKey(c,c->argv[1],LOCKEDKEY_READ,&opt->o) == C_ERR) {
+    if (llen <= LRANGE_THREADED_THRESHOLD ||
+        lockKey(c,c->argv[1],LOCKEDKEY_READ,&opt->o) == C_ERR)
+    {
         /* In the case of LRANGE, we execute the command synchronously
          * if we are unable to get a lock. */
         lrangeThreadedHalf(c,opt);
