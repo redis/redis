@@ -3501,8 +3501,27 @@ int processCommand(client *c) {
     }
 
     /* We want to block this client if the keys it is going to access
-     * are locked. */
-    if (dictSize(c->db->locked_keys)) {
+     * are locked, and the operation the client is going to perform
+     * is not read-only. For now we only block clients in the case of
+     * write operations since we are just supporting read locks so far.
+     * When keys will be also locked in write mode, read only operations
+     * will be queued as well. */
+    if (c->cmd->flags & CMD_WRITE && dictSize(c->db->locked_keys)) {
+        int locked = 0;
+        int numkeys;
+        int *keyidx = getKeysFromCommand(c->cmd,c->argv,c->argc,&numkeys);
+        for (int j = 0; j < numkeys; j++) {
+            if (queueClientIfKeyIsLocked(c,c->argv[keyidx[j]]) == C_OK)
+                locked++;
+        }
+        getKeysFreeResult(keyidx);
+
+        /* Lock the client and return if we are waiting for at least one
+         * key. */
+        if (locked) {
+            blockClient(c,BLOCKED_LOCK);
+            return C_OK;
+        }
     }
 
     /* Handle the maxmemory directive.

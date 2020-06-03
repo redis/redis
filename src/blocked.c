@@ -179,7 +179,7 @@ void replyToBlockedClientTimedOut(client *c) {
     if (c->btype == BLOCKED_LIST ||
         c->btype == BLOCKED_ZSET ||
         c->btype == BLOCKED_STREAM ||
-        c->btype == BLOCKED_LOCK) {
+        c->btype == BLOCKED_LOCK) { /* type LOCK never timeouts actually. */
         addReplyNullArray(c);
     } else if (c->btype == BLOCKED_WAIT) {
         addReplyLongLong(c,replicationCountAcksByOffset(c->bpop.reploffset));

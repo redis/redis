@@ -1824,3 +1824,16 @@ int lockKey(client *c, redisDb *db, robj *key, int locktype, robj **optr) {
     *optr = lk->obj;
     return C_OK;
 }
+
+/* If the key this client is trying to access is locked, put it into
+ * its waiting list and return C_OK, otherwise return C_ERR. */
+int queueClientIfKeyIsLocked(client *c, robj *key) {
+    lockedKey *lk = dictFetchValue(c->db->locked_keys,key);
+    if (lk == NULL) return C_ERR;
+
+    lockedKeyClient *lkc = zmalloc(sizeof(*lkc));
+    lkc->id = c->id;
+    listAddNodeTail(lk->waiting,lkc);
+    return C_OK;
+}
+

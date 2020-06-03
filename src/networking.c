@@ -1749,9 +1749,12 @@ void commandProcessed(client *c) {
     /* Don't reset the client structure for clients blocked in a
      * module blocking command, so that the reply callback will
      * still be able to access the client argv and argc field.
-     * The client will be reset in unblockClientFromModule(). */
+     * The client will be reset in unblockClientFromModule().
+     * Don't reset the client for clients waiting to be re-executed
+     * with the current command line because they are waiting for
+     * locked keys. */
     if (!(c->flags & CLIENT_BLOCKED) ||
-        c->btype != BLOCKED_MODULE)
+        (c->btype != BLOCKED_MODULE && c->btype != BLOCKED_LOCK))
     {
         resetClient(c);
     }
