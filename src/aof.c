@@ -611,19 +611,24 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
     } else if (cmd->proc == setCommand && argc > 3) {
         int i;
         robj *exarg = NULL, *pxarg = NULL;
-        /* Translate SET [EX seconds][PX milliseconds] to SET and PEXPIREAT */
-        buf = catAppendOnlyGenericCommand(buf,3,argv);
         for (i = 3; i < argc; i ++) {
             if (!strcasecmp(argv[i]->ptr, "ex")) exarg = argv[i+1];
             if (!strcasecmp(argv[i]->ptr, "px")) pxarg = argv[i+1];
         }
         serverAssert(!(exarg && pxarg));
-        if (exarg)
-            buf = catAppendOnlyExpireAtCommand(buf,server.expireCommand,argv[1],
-                                               exarg);
-        if (pxarg)
-            buf = catAppendOnlyExpireAtCommand(buf,server.pexpireCommand,argv[1],
-                                               pxarg);
+
+        if (exarg || pxarg) {
+            /* Translate SET [EX seconds][PX milliseconds] to SET and PEXPIREAT */
+            buf = catAppendOnlyGenericCommand(buf,3,argv);
+            if (exarg)
+                buf = catAppendOnlyExpireAtCommand(buf,server.expireCommand,argv[1],
+                                                   exarg);
+            if (pxarg)
+                buf = catAppendOnlyExpireAtCommand(buf,server.pexpireCommand,argv[1],
+                                                   pxarg);
+        } else {
+            buf = catAppendOnlyGenericCommand(buf,argc,argv);
+        }
     } else {
         /* All the other commands don't need translation or need the
          * same translation already operated in the command vector
