@@ -7290,6 +7290,7 @@ void executeThreadedCommand(client *c, coreThreadedCommandCallback callback, voi
      * blocked handle: this way if the real client is freed because of
      * disconnection, we still unlock the keys in the right moment, that
      * is once the thread returns. */
+    selectDb(bc->reply_client,c->db->id);
     bc->reply_client->locked = c->locked;
     c->locked = NULL;
 
