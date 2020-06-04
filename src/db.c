@@ -1837,15 +1837,55 @@ int lockKey(client *c, robj *key, int locktype, robj **optr) {
 }
 
 /* If the key this client is trying to access is locked, put it into
- * its waiting list and return C_OK, otherwise return C_ERR. */
-int queueClientIfKeyIsLocked(client *c, robj *key) {
+ * its waiting list and return 1, otherwise return 0.
+ * If queue is zero, the lock is just tested without really putting the
+ * client it the waiting list of the locked key. */
+int queueClientIfKeyIsLocked(client *c, robj *key, int queue) {
     lockedKey *lk = dictFetchValue(c->db->locked_keys,key);
-    if (lk == NULL) return C_ERR;
+    if (lk == NULL) return 0;
 
-    lockedKeyClient *lkc = zmalloc(sizeof(*lkc));
-    lkc->id = c->id;
-    listAddNodeTail(lk->waiting,lkc);
-    return C_OK;
+    if (queue) {
+        lockedKeyClient *lkc = zmalloc(sizeof(*lkc));
+        lkc->id = c->id;
+        listAddNodeTail(lk->waiting,lkc);
+    }
+    return 1;
+}
+
+/* Test if the client is executing a command that should be blocked because
+ * the command access mode is incompatible with some lock of the keys it
+ * is going to access. If the client should be blocked the functionm returns
+ * 1, otherwise 0 is returned.
+ *
+ * If 'queue' is true, when the funciton returns 1 the client is put on the
+ * waiting list of the locked keys it is trying to access, otherwise
+ * the function will just test the condition. */
+int clientShouldWaitOnLockedKeys(client *c, int queue) {
+    /* Don't use any CPU time if we have no locked keys at all. */
+    if (dictSize(c->db->locked_keys) == 0) return 0;
+
+    /* For now we just have read locks, if the client wants to execute
+     * a command that does not write to the key, it should be allowed to do
+     * so: our threads are just reading from the locked objects. */
+    if (!(c->cmd->flags & CMD_WRITE) &&
+        c->cmd->proc != evalCommand &&
+        c->cmd->proc != evalShaCommand)
+    {
+        return 0;
+    }
+
+    int locked = 0;
+    int numkeys;
+    int *keyidx = getKeysFromCommand(c->cmd,c->argv,c->argc,&numkeys);
+    for (int j = 0; j < numkeys; j++) {
+        if (queueClientIfKeyIsLocked(c,c->argv[keyidx[j]],queue))
+            locked++;
+    }
+    getKeysFreeResult(keyidx);
+
+    /* Lock the client and return if we are waiting for at least one
+     * key. */
+    return locked;
 }
 
 /* Unlock the specified key in the context of the specified client.

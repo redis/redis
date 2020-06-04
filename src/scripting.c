@@ -622,7 +622,10 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
 
     /* Write commands are forbidden against read-only slaves, or if a
      * command marked as non-deterministic was already called in the context
-     * of this script. */
+     * of this script. Finally writing to keys that are locked is not correct:
+     * normally the script would be blocked before being executed if the
+     * keys are all declared by EVAL/EVALSHA, but scripts can easily escape
+     * this protocol: we need to return an error in such case. */
     if (cmd->flags & CMD_WRITE) {
         int deny_write_type = writeCommandsDeniedByDiskError();
         if (server.lua_random_dirty && !server.lua_replicate_commands) {
@@ -645,6 +648,11 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
                 luaPushError(lua, aof_write_err);
                 sdsfree(aof_write_err);
             }
+            goto cleanup;
+        } else if (clientShouldWaitOnLockedKeys(c,0)) {
+            luaPushError(lua,
+                "-LOCKED Lua script is trying to access locked keys "
+                "that were not specified in the EVAL keys list\r\n");
             goto cleanup;
         }
     }

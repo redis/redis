@@ -1629,7 +1629,7 @@ typedef void (*coreThreadedCommandCallback)(client *c, void *options);
 void executeThreadedCommand(client *c, coreThreadedCommandCallback callback, void *options);
 unsigned long runningThreadedCommandsCount(void);
 int lockKey(client *c, robj *key, int locktype, robj **optr);
-int queueClientIfKeyIsLocked(client *c, robj *key);
+int clientShouldWaitOnLockedKeys(client *c, int queue);
 void unlockAllKeys(client *c);
 
 /* Utils */
@@ -2006,6 +2006,7 @@ size_t freeMemoryGetNotCountedMemory();
 int freeMemoryIfNeeded(void);
 int freeMemoryIfNeededAndSafe(void);
 int processCommand(client *c);
+int processCommandAndResetClient(client *c);
 void setupSignalHandlers(void);
 struct redisCommand *lookupCommand(sds name);
 struct redisCommand *lookupCommandByCString(char *s);
