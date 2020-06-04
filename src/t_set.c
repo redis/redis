@@ -29,6 +29,10 @@
 
 #include "server.h"
 
+/* Use threaded execution, when available, if at least one of the sets
+ * involved is greater or equal to the threshold. */
+#define THREADED_SET_SIZE_THRESHOLD 5000
+
 /*-----------------------------------------------------------------------------
  * Set Commands
  *----------------------------------------------------------------------------*/
@@ -1093,7 +1097,8 @@ void sunionDiffThreadedHalf(client *c, void *options) {
 void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                               robj *dstkey, int op, int sync) {
     robj **sets = zmalloc(sizeof(robj*)*setnum);
-    int threaded = (dstkey == NULL && !sync);
+    int threaded_call_allowed = (dstkey == NULL && !sync);
+    int threaded = 0;
 
     for (int j = 0; j < setnum; j++) {
         robj *setobj = dstkey ?
@@ -1107,16 +1112,23 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             zfree(sets);
             return;
         }
+        sets[j] = setobj;
+        if (threaded_call_allowed &&
+            setTypeSize(setobj) >= THREADED_SET_SIZE_THRESHOLD)
+        {
+            threaded = 1;
+        }
+    }
 
-        /* Try to lock the key if this is a threaded execution. If we
-         * fail we just revert to non threaded execution. */
-        if (threaded) {
-            if (lockKey(c,setkeys[j],LOCKEDKEY_READ,&setobj) == C_ERR) {
+    /* Try to lock the keys only if this is a threaded execution. If we
+     * fail we just revert to non threaded execution. */
+    if (threaded) {
+        for (int j = 0; j < setnum; j++) {
+            if (lockKey(c,setkeys[j],LOCKEDKEY_READ,NULL) == C_ERR) {
                 unlockAllKeys(c);
                 threaded = 0;
             }
         }
-        sets[j] = setobj;
     }
 
     struct sunionDiffThreadOptions *opt = zmalloc(sizeof(*opt));
@@ -1126,8 +1138,6 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     opt->dstkey = dstkey;
     opt->threaded = threaded;
 
-    /* TODO: Execute in threaded mode only if we have at least a
-     * large set. */
     if (threaded) {
         executeThreadedCommand(c,sunionDiffThreadedHalf,opt);
     } else {

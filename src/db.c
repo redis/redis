@@ -1772,7 +1772,9 @@ int lockedClientListMatch(void *a, void *b) {
  *
  * When locking fails C_ERR is returned, otherwise C_OK is returned.
  * Note that 'optr' may be populated with NULL if the key that is going
- * to be locked is empty.
+ * to be locked is empty. If 'optr' is NULL, the object is not returned.
+ * This is often useful since we lookup the key and already have the object
+ * and later lock the key if needed (for instance if the value is large).
  *
  * Signaling of the need to lock keys is performed using the
  * wouldLockKey() API (XXX: yet to be implemented). Check the function
@@ -1818,7 +1820,7 @@ int lockKey(client *c, robj *key, int locktype, robj **optr) {
          * that without crashing. So that command implementations don't
          * have to do complex checks in the command line in case of repeating
          * keys. */
-        *optr = lk->obj;
+        if (optr) *optr = lk->obj;
         return C_OK;
     }
     incrRefCount(key);
@@ -1832,7 +1834,7 @@ int lockKey(client *c, robj *key, int locktype, robj **optr) {
      * blocked handle, we can still track the original ID even if the
      * client is gone. */
     dictSetUnsignedIntegerVal(de,c->id);
-    *optr = lk->obj;
+    if (optr) *optr = lk->obj;
     return C_OK;
 }
 
