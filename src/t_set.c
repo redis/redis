@@ -928,29 +928,27 @@ void sinterstoreCommand(client *c) {
 #define SET_OP_DIFF 1
 #define SET_OP_INTER 2
 
-void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
-                              robj *dstkey, int op) {
-    robj **sets = zmalloc(sizeof(robj*)*setnum);
+struct sunionDiffThreadOptions {
+    int op;
+    int setnum;
+    int threaded;
+    robj **sets;
+    robj *dstkey; /* Only used if threaded is false. */
+};
+
+void sunionDiffThreadedHalf(client *c, void *options) {
+    struct sunionDiffThreadOptions *opt = options;
+    robj **sets = opt->sets;
+    int setnum = opt->setnum;
+    int op = opt->op;
+    int threaded = opt->threaded;
+
+    robj *dstkey = opt->dstkey;
     setTypeIterator *si;
     robj *dstset = NULL;
     sds ele;
     int j, cardinality = 0;
     int diff_algo = 1;
-
-    for (j = 0; j < setnum; j++) {
-        robj *setobj = dstkey ?
-            lookupKeyWrite(c->db,setkeys[j]) :
-            lookupKeyRead(c->db,setkeys[j]);
-        if (!setobj) {
-            sets[j] = NULL;
-            continue;
-        }
-        if (checkType(c,setobj,OBJ_SET)) {
-            zfree(sets);
-            return;
-        }
-        sets[j] = setobj;
-    }
 
     /* Select what DIFF algorithm to use.
      *
@@ -1064,8 +1062,10 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             sdsfree(ele);
         }
         setTypeReleaseIterator(si);
-        server.lazyfree_lazy_server_del ? freeObjAsync(dstset) :
-                                          decrRefCount(dstset);
+        if (server.lazyfree_lazy_server_del && !threaded)
+            freeObjAsync(dstset);
+        else
+            decrRefCount(dstset);
     } else {
         /* If we have a target key where to store the resulting set
          * create this key with the result set inside */
@@ -1087,6 +1087,52 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         server.dirty++;
     }
     zfree(sets);
+    zfree(opt);
+}
+
+void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
+                              robj *dstkey, int op) {
+    robj **sets = zmalloc(sizeof(robj*)*setnum);
+    int threaded = (dstkey == NULL);
+
+    for (int j = 0; j < setnum; j++) {
+        robj *setobj = dstkey ?
+            lookupKeyWrite(c->db,setkeys[j]) :
+            lookupKeyRead(c->db,setkeys[j]);
+        if (!setobj) {
+            sets[j] = NULL;
+            continue;
+        }
+        if (checkType(c,setobj,OBJ_SET)) {
+            zfree(sets);
+            return;
+        }
+
+        /* Try to lock the key if this is a threaded execution. If we
+         * fail we just revert to non threaded execution. */
+        if (threaded) {
+            if (lockKey(c,setkeys[j],LOCKEDKEY_READ,&setobj) == C_ERR) {
+                unlockAllKeys(c);
+                threaded = 0;
+            }
+        }
+        sets[j] = setobj;
+    }
+
+    struct sunionDiffThreadOptions *opt = zmalloc(sizeof(*opt));
+    opt->op = op;
+    opt->setnum = setnum;
+    opt->sets = sets;
+    opt->dstkey = dstkey;
+    opt->threaded = threaded;
+
+    /* TODO: Execute in threaded mode only if we have at least a
+     * large set. */
+    if (threaded) {
+        executeThreadedCommand(c,sunionDiffThreadedHalf,opt);
+    } else {
+        sunionDiffThreadedHalf(c,opt);
+    }
 }
 
 void sunionCommand(client *c) {
