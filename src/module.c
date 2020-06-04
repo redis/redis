@@ -7302,11 +7302,15 @@ void executeThreadedCommand(client *c, coreThreadedCommandCallback callback, voi
         copy->argv[j] = createStringObject(c->argv[j]->ptr,
                                            sdslen(c->argv[j]->ptr));
 
-    /* Try to spawn the thread that will actually execute the command. */
+    /* Try to spawn the thread that will actually execute the command.
+     * There are many conditions where we perfer to perform a synchronous
+     * execution of the command. For instance in all the situations we
+     * can't block such as Lua script, MULTI/EXEC, or when loading the
+     * AOF file. */
     int islua = c->flags & CLIENT_LUA;
     int ismulti = c->flags & CLIENT_MULTI;
     pthread_t tid;
-    if (islua || ismulti ||
+    if (islua || ismulti || server.loading ||
         CoreModuleBlockedClients >= CoreModuleThreadsMax ||
         pthread_create(&tid,NULL,threadedCoreCommandEnty,tcpd) != 0)
     {
