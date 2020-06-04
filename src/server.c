@@ -748,7 +748,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"config",configCommand,-2,
-     "admin ok-loading ok-stale no-script",
+     "admin ok-loading ok-stale no-script no-slowlog",
      0,NULL,0,0,0,0,0,0},
 
     {"subscribe",subscribeCommand,-2,
