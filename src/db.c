@@ -1869,19 +1869,40 @@ int clientShouldWaitOnLockedKeys(client *c, int queue) {
      * so: our threads are just reading from the locked objects. */
     if (!(c->cmd->flags & CMD_WRITE) &&
         c->cmd->proc != evalCommand &&
-        c->cmd->proc != evalShaCommand)
+        c->cmd->proc != evalShaCommand &&
+        c->cmd->proc != execCommand)
     {
         return 0;
     }
 
-    int locked = 0;
-    int numkeys;
-    int *keyidx = getKeysFromCommand(c->cmd,c->argv,c->argc,&numkeys);
-    for (int j = 0; j < numkeys; j++) {
-        if (queueClientIfKeyIsLocked(c,c->argv[keyidx[j]],queue))
-            locked++;
+    int locked = 0, numkeys, *keyidx;
+    if (c->flags & CLIENT_MULTI) {
+        for (int j = 0; j < c->mstate.count; j++) {
+            struct redisCommand *cmd = c->mstate.commands[j].cmd;
+
+            /* Even in the case of transactions, read only commands
+             * do not require we to sleep for the locked keys. */
+            if (!(cmd->flags & CMD_WRITE) &&
+                cmd->proc != evalCommand &&
+                cmd->proc != evalShaCommand) continue;
+
+            keyidx = getKeysFromCommand(cmd,
+                c->mstate.commands[j].argv,
+                c->mstate.commands[j].argc,&numkeys);
+            for (int j = 0; j < numkeys; j++) {
+                if (queueClientIfKeyIsLocked(c,c->argv[keyidx[j]],queue))
+                    locked++;
+            }
+            getKeysFreeResult(keyidx);
+        }
+    } else {
+        keyidx = getKeysFromCommand(c->cmd,c->argv,c->argc,&numkeys);
+        for (int j = 0; j < numkeys; j++) {
+            if (queueClientIfKeyIsLocked(c,c->argv[keyidx[j]],queue))
+                locked++;
+        }
+        getKeysFreeResult(keyidx);
     }
-    getKeysFreeResult(keyidx);
 
     /* Lock the client and return if we are waiting for at least one
      * key. */
