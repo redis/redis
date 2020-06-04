@@ -4768,7 +4768,7 @@ void setupSignalHandlers(void) {
  * accepting writes because of a write error condition. */
 static void sigKillChildHandler(int sig) {
     UNUSED(sig);
-    serverLogFromHandler(LL_WARNING, "Received SIGUSR1 in child, exiting now.");
+    serverLogFromHandler(LL_VERBOSE, "Received SIGUSR1 in child, exiting now.");
     exitFromChild(SERVER_CHILD_NOERROR_RETVAL);
 }
 
