@@ -66,6 +66,7 @@ set ::all_tests {
     unit/pendingquerybuf
     unit/tls
     unit/tracking
+    unit/corethreads
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
