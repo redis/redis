@@ -1881,6 +1881,8 @@ int clientShouldWaitOnLockedKeys(client *c, int queue) {
     if (c->flags & CLIENT_MULTI) {
         for (int j = 0; j < c->mstate.count; j++) {
             struct redisCommand *cmd = c->mstate.commands[j].cmd;
+            robj **argv = c->mstate.commands[j].argv;
+            int argc = c->mstate.commands[j].argc;
 
             /* Even in the case of transactions, read only commands
              * do not require we to sleep for the locked keys. */
@@ -1888,11 +1890,9 @@ int clientShouldWaitOnLockedKeys(client *c, int queue) {
                 cmd->proc != evalCommand &&
                 cmd->proc != evalShaCommand) continue;
 
-            keyidx = getKeysFromCommand(cmd,
-                c->mstate.commands[j].argv,
-                c->mstate.commands[j].argc,&numkeys);
+            keyidx = getKeysFromCommand(cmd,argv,argc,&numkeys);
             for (int j = 0; j < numkeys; j++) {
-                if (queueClientIfKeyIsLocked(c,c->argv[keyidx[j]],queue))
+                if (queueClientIfKeyIsLocked(c,argv[keyidx[j]],queue))
                     locked++;
             }
             getKeysFreeResult(keyidx);
