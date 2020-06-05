@@ -44,15 +44,17 @@ start_server {tags {"corethreads"}} {
         $rd2 close
     } 0
 
-    test {Build two large sets for the next tests} {
+    test {Build large data structures for the next tests} {
         for {set j 0} {$j < 10000} {incr j} {
             lappend set1 $j
             lappend set2 [expr {$j*2}]
         }
         r sadd set1 {*}$set1
         r sadd set2 {*}$set2
+        r rpush list1 {*}$set1
         assert {[r scard set1] == $j}
         assert {[r scard set2] == $j}
+        assert {[r llen list1] == $j}
     }
 
     test {Lua can execute threaded commands synchronously} {
@@ -90,4 +92,29 @@ start_server {tags {"corethreads"}} {
         $rd read
         $rd close
     }
+
+    test {Threaded SUNION works} {
+        set res [r SUNION set1 set2]
+        llength $res
+    } {15000}
+
+    test {Threaded SDIFF works} {
+        set res [r SDIFF set1 set2]
+        llength $res
+    } {5000}
+
+    test {Threaded SINTER works} {
+        set res [r SINTER set1 set2]
+        llength $res
+    } {5000}
+
+    test {Threaded SMEMBERS works} {
+        set res [r SMEMBERS set1]
+        llength $res
+    } {10000}
+
+    test {Threaded LRANGE works} {
+        set res [r LRANGE list1 0 -1]
+        llength $res
+    } {10000}
 }
