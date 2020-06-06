@@ -1067,46 +1067,39 @@ void sendBulkToSlave(connection *conn) {
         }
     }
 
-    /* If the preamble was already transferred, send the RDB bulk data.
-     * try to use sendfile system call if supported, unless tls is enabled.
-     * fallback to normal read+write otherwise. */
-    nwritten = 0;
+    /* If the preamble was already transferred, send the RDB bulk data. */
 #if HAVE_SENDFILE
-    if (!server.tls_replication) {
-        if ((nwritten = redis_sendfile(conn->fd,slave->repldbfd,
-            slave->repldboff,PROTO_IOBUF_LEN)) == -1)
-        {
-            if (errno != EAGAIN) {
-                serverLog(LL_WARNING,"Sendfile error sending DB to replica: %s",
-                    strerror(errno));
-                freeClient(slave);
-            }
-            return;
+    if ((nwritten = redis_sendfile(conn->fd,slave->repldbfd,
+        slave->repldboff,PROTO_IOBUF_LEN)) == -1)
+    {
+        if (errno != EAGAIN) {
+            serverLog(LL_WARNING,"Sendfile error sending DB to replica: %s",
+                strerror(errno));
+            freeClient(slave);
         }
+        return;
+    }
+#else
+    ssize_t buflen;
+    char buf[PROTO_IOBUF_LEN];
+
+    lseek(slave->repldbfd,slave->repldboff,SEEK_SET);
+    buflen = read(slave->repldbfd,buf,PROTO_IOBUF_LEN);
+    if (buflen <= 0) {
+        serverLog(LL_WARNING,"Read error sending DB to replica: %s",
+            (buflen == 0) ? "premature EOF" : strerror(errno));
+        freeClient(slave);
+        return;
+    }
+    if ((nwritten = connWrite(conn,buf,buflen)) == -1) {
+        if (connGetState(conn) != CONN_STATE_CONNECTED) {
+            serverLog(LL_WARNING,"Write error sending DB to replica: %s",
+                connGetLastError(conn));
+            freeClient(slave);
+        }
+        return;
     }
 #endif
-    if (!nwritten) {
-        ssize_t buflen;
-        char buf[PROTO_IOBUF_LEN];
-
-        lseek(slave->repldbfd,slave->repldboff,SEEK_SET);
-        buflen = read(slave->repldbfd,buf,PROTO_IOBUF_LEN);
-        if (buflen <= 0) {
-            serverLog(LL_WARNING,"Read error sending DB to replica: %s",
-                (buflen == 0) ? "premature EOF" : strerror(errno));
-            freeClient(slave);
-            return;
-        }
-        if ((nwritten = connWrite(conn,buf,buflen)) == -1) {
-            if (connGetState(conn) != CONN_STATE_CONNECTED) {
-                serverLog(LL_WARNING,"Write error sending DB to replica: %s",
-                    connGetLastError(conn));
-                freeClient(slave);
-            }
-            return;
-        }
-    }
-
     slave->repldboff += nwritten;
     server.stat_net_output_bytes += nwritten;
     if (slave->repldboff == slave->repldbsize) {
