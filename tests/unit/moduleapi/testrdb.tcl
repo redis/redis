@@ -67,6 +67,7 @@ tags "modules" {
                     }
 
                     # Start the replication process...
+                    set loglines [count_log_lines -1]
                     $master config set repl-diskless-sync-delay 0
                     $replica replicaof $master_host $master_port
 
@@ -76,7 +77,7 @@ tags "modules" {
                     for {set i 0} {$i < $attempts} {incr i} {
                         # wait for the replica to start reading the rdb
                         # using the log file since the replica only responds to INFO once in 2mb
-                        wait_for_log_message -1 "*Loading DB in memory*" 5 2000 1
+                        wait_for_log_message -1 "*Loading DB in memory*" $loglines 2000 1
 
                         # add some additional random sleep so that we kill the master on a different place each time
                         after [expr {int(rand()*100)}]
@@ -85,7 +86,7 @@ tags "modules" {
                         set killed [$master client kill type replica]
 
                         if {[catch {
-                            set res [wait_for_log_message -1 "*Internal error in RDB*" 5 100 10]
+                            set res [wait_for_log_message -1 "*Internal error in RDB*" $loglines 100 10]
                             if {$::verbose} {
                                 puts $res
                             }
@@ -98,6 +99,7 @@ tags "modules" {
                             $master config set repl-backlog-size [expr {16384 + $i}]
                         }
                         # wait for loading to stop (fail)
+                        set loglines [count_log_lines -1]
                         wait_for_condition 100 10 {
                             [s -1 loading] eq 0
                         } else {
