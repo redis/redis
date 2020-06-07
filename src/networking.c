@@ -2522,7 +2522,7 @@ void helloCommand(client *c) {
     addReplyBulkCString(c,REDIS_VERSION);
 
     addReplyBulkCString(c,"proto");
-    addReplyLongLong(c,3);
+    addReplyLongLong(c,ver);
 
     addReplyBulkCString(c,"id");
     addReplyLongLong(c,c->id);
