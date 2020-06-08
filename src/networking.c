@@ -1019,7 +1019,6 @@ void disconnectSlaves(void) {
     listNode *ln;
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
-        listNode *ln = listFirst(server.slaves);
         freeClient((client*)ln->value);
     }
 }
