@@ -135,6 +135,15 @@ void execCommand(client *c) {
         return;
     }
 
+    /* If we are in -BUSY state, flag the transaction and return the
+     * -BUSY error, like Redis <= 5. This is a temporary fix, may be changed
+     *  ASAP, see issue #7353 on Github. */
+    if (server.lua_timedout) {
+        flagTransaction(c);
+        addReply(c, shared.slowscripterr);
+        return;
+    }
+
     /* Check if we need to abort the EXEC because:
      * 1) Some WATCHed key was touched.
      * 2) There was a previous error while queueing commands.
