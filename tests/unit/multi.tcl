@@ -363,6 +363,9 @@ start_server {tags {"multi"}} {
         set xx [r get xx]
         # make sure that either the whole transcation passed or none of it (we actually expect none)
         assert { $xx == 1 || $xx == 3}
+        # Discard the transaction since EXEC likely got -BUSY error
+        # so the client is still in MULTI state.
+        catch { $rd2 discard ;$rd2 read } e
         # check that the connection is no longer in multi state
         $rd2 ping asdf
         set pong [$rd2 read]
