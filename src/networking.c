@@ -2763,7 +2763,7 @@ void helloCommand(client *c) {
     long long ver;
 
     if (getLongLongFromObject(c->argv[1],&ver) != C_OK ||
-        ver < 2 || ver > 3)
+        (ver != 0 && ver < 2) || ver > 3)
     {
         addReplyError(c,"-NOPROTO unsupported protocol version");
         return;
@@ -2797,7 +2797,7 @@ void helloCommand(client *c) {
     }
 
     /* Let's switch to the specified RESP mode. */
-    c->resp = ver;
+    if (ver != 0) c->resp = ver;
     addReplyMapLen(c,6 + !server.sentinel_mode);
 
     addReplyBulkCString(c,"server");
@@ -2807,7 +2807,7 @@ void helloCommand(client *c) {
     addReplyBulkCString(c,REDIS_VERSION);
 
     addReplyBulkCString(c,"proto");
-    addReplyLongLong(c,ver);
+    addReplyLongLong(c,c->resp);
 
     addReplyBulkCString(c,"id");
     addReplyLongLong(c,c->id);
