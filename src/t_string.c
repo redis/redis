@@ -534,6 +534,13 @@ void stralgoLCS(client *c) {
             }
             obja = lookupKeyRead(c->db,c->argv[j+1]);
             objb = lookupKeyRead(c->db,c->argv[j+2]);
+
+            if ( !(obja->type == OBJ_STRING) || !(objb->type == OBJ_STRING) ) {
+                addReplyError(c,"Object associate with KEYS option should only be string type");
+                return;
+
+            }
+
             obja = obja ? getDecodedObject(obja) : createStringObject("",0);
             objb = objb ? getDecodedObject(objb) : createStringObject("",0);
             a = obja->ptr;
