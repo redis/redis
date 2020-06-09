@@ -487,6 +487,40 @@ void ltrimCommand(client *c) {
     addReply(c,shared.ok);
 }
 
+void lrankCommand(client *c) {
+    robj *subject, *obj;
+    obj = c->argv[3];
+    long direction = 0;
+    long index = 0;
+
+    if ((getLongFromObjectOrReply(c, c->argv[2], &direction, NULL) != C_OK))
+        return;
+
+    subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero);
+    if (subject == NULL || checkType(c,subject,OBJ_LIST)) return;
+
+    listTypeIterator *li;
+    if (direction < 0) {
+        direction = -1;
+        li = listTypeInitIterator(subject,-1,LIST_HEAD);
+    } else {
+        direction = 1;
+        li = listTypeInitIterator(subject,0,LIST_TAIL);
+    }
+
+    listTypeEntry entry;
+    while (listTypeNext(li,&entry)) {
+        if (listTypeEqual(&entry,obj)) {
+            break;
+        }
+        index++;
+    }
+
+    listTypeReleaseIterator(li);
+
+    addReplyLongLong(c,index * direction);
+}
+
 void lremCommand(client *c) {
     robj *subject, *obj;
     obj = c->argv[3];

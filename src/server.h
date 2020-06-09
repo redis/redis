@@ -2269,6 +2269,7 @@ void flushdbCommand(client *c);
 void flushallCommand(client *c);
 void sortCommand(client *c);
 void lremCommand(client *c);
+void lrankCommand(client *c);
 void rpoplpushCommand(client *c);
 void infoCommand(client *c);
 void mgetCommand(client *c);
