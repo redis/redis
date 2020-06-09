@@ -12,6 +12,76 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 6.0.5     Released Tue Jun 09 11:56:08 CEST 2020
+================================================================================
+
+Upgrade urgency MODERATE: several bugs with moderate impact are fixed here.
+
+The most important issues are listed here:
+
+* Fix handling of speical chars in ACL LOAD.
+* Make Redis Cluster more robust about operation errors that may lead
+  to two clusters to mix together.
+* Revert the sendfile() implementation of RDB transfer. It causes some delay.
+* Fix TLS certificate loading for chained certificates.
+* Fix AOF rewirting of KEEPTTL SET option.
+* Fix MULTI/EXEC behavior during -BUSY script errors.
+
+And this is the full list of commits:
+
+antirez in commit ee8dd01bb:
+ Temporary fix for #7353 issue about EVAL during -BUSY.
+ 1 file changed, 9 insertions(+)
+
+xhe in commit a4a856d53:
+ return the correct proto version HELLO should return the current proto version, while the code hardcoded 3
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Oran Agra in commit e2046b300:
+ Don't queue commands in an already aborted MULTI state
+ 1 file changed, 7 insertions(+)
+
+Oran Agra in commit b35fdf1de:
+ Avoid rejecting WATCH / UNWATCH, like MULTI/EXEC/DISCARD
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+zhaozhao.zz in commit 1d7bf208c:
+ AOF: append origin SET if no expire option
+ 2 files changed, 23 insertions(+), 8 deletions(-)
+
+Oran Agra in commit 676445ad9:
+ fix disconnectSlaves, to try to free each slave.
+ 1 file changed, 1 deletion(-)
+
+zhaozhao.zz in commit 4846c0c8a:
+ donot free protected client in freeClientsInAsyncFreeQueue
+ 1 file changed, 9 insertions(+), 3 deletions(-)
+
+Oran Agra in commit f33de403e:
+ fix pingoff  test race
+ 1 file changed, 1 insertion(+)
+
+Kevin Fwu in commit 49af4d07e:
+ Fix TLS certificate loading for chained certificates.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 329fddbda:
+ Revert "Implements sendfile for redis."
+ 2 files changed, 2 insertions(+), 55 deletions(-)
+
+antirez in commit 925a2cd5a:
+ Revert "avoid using sendfile if tls-replication is enabled"
+ 1 file changed, 27 insertions(+), 34 deletions(-)
+
+Liu Zhen in commit 84a7a9058:
+ fix clusters mixing accidentally by gossip
+ 1 file changed, 10 insertions(+), 2 deletions(-)
+
+antirez in commit cd63359a1:
+ Fix handling of special chars in ACL LOAD.
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+
+================================================================================
 Redis 6.0.4     Released Thu May 28 11:36:45 CEST 2020
 ================================================================================
 
