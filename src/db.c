@@ -1797,6 +1797,17 @@ int lockKey(client *c, robj *key, int locktype, robj **optr) {
         lk->obj = lookupKeyReadWithFlags(c->db,key,LOOKUP_NOTOUCH);
         dictAdd(c->db->locked_keys,key,lk);
         incrRefCount(key);
+
+        /* Make the object immutable. In the trivial case of hash tables
+         * we just increment the iterators count, to prevent rehashing
+         * when the object is accessed in read-only. */
+        if (lk->obj) {
+            if (lk->obj->encoding == OBJ_ENCODING_HT) {
+                ((dict*)lk->obj->ptr)->iterators++;
+            } else if (lk->obj->encoding == OBJ_ENCODING_SKIPLIST) {
+                ((zset*)lk->obj->ptr)->dict->iterators++;
+            }
+        }
     } else {
         /* If there is already a lock, it is incompatible with a new lock
          * both in the case the lock is of write type, or we want to lock
@@ -1948,7 +1959,17 @@ void unlockKey(client *c, robj *key, uint64_t owner_id) {
         listDelNode(lk->waiting,ln);
     }
 
-    /* Frre the lock state. */
+    /* If we modified the object in order to make it immutable during
+     * read operations, restore it in its normal state. */
+    if (lk->obj) {
+        if (lk->obj->encoding == OBJ_ENCODING_HT) {
+            ((dict*)lk->obj->ptr)->iterators--;
+        } else if (lk->obj->encoding == OBJ_ENCODING_SKIPLIST) {
+            ((zset*)lk->obj->ptr)->dict->iterators--;
+        }
+    }
+
+    /* Free the lock state. */
     listRelease(lk->owners);
     listRelease(lk->waiting);
     zfree(lk);
