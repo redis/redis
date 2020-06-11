@@ -378,6 +378,7 @@ void debugCommand(client *c) {
 "DEBUG PROTOCOL [string|integer|double|bignum|null|array|set|map|attrib|push|verbatim|true|false]",
 "ERROR <string> -- Return a Redis protocol error with <string> as message. Useful for clients unit tests to simulate Redis errors.",
 "LOG <message> -- write message to the server log.",
+"LEAK <string> -- Create a memory leak of the input string.",
 "HTSTATS <dbid> -- Return hash table statistics of the specified Redis database.",
 "HTSTATS-KEY <key> -- Like htstats but for the hash table stored as key's value.",
 "LOADAOF -- Flush the AOF buffers on disk and reload the AOF in memory.",
@@ -429,6 +430,9 @@ NULL
         serverAssertWithInfo(c,c->argv[0],1 == 2);
     } else if (!strcasecmp(c->argv[1]->ptr,"log") && c->argc == 3) {
         serverLog(LL_WARNING, "DEBUG LOG: %s", (char*)c->argv[2]->ptr);
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"leak") && c->argc == 3) {
+        sdsdup(c->argv[2]->ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"reload")) {
         int flush = 1, save = 1;
