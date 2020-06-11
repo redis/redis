@@ -554,7 +554,7 @@ void lposCommand(client *c) {
 
     /* We return NULL or an empty array if there is no such key (or
      * if we find no matches, depending on the presence of the COUNT option. */
-    if ((o = lookupKeyWriteOrReply(c,c->argv[1],NULL)) == NULL) {
+    if ((o = lookupKeyRead(c->db,c->argv[1])) == NULL) {
         if (count != -1)
             addReply(c,shared.emptyarray);
         else
