@@ -196,6 +196,21 @@ proc redis_deferring_client {args} {
     return $client
 }
 
+proc redis_client {args} {
+    set level 0
+    if {[llength $args] > 0 && [string is integer [lindex $args 0]]} {
+        set level [lindex $args 0]
+        set args [lrange $args 1 end]
+    }
+
+    # create client that defers reading reply
+    set client [redis [srv $level "host"] [srv $level "port"] 0 $::tls]
+
+    # select the right db and read the response (OK)
+    $client select 9
+    return $client
+}
+
 # Provide easy access to INFO properties. Same semantic as "proc r".
 proc s {args} {
     set level 0
