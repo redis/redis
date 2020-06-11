@@ -1284,7 +1284,7 @@ void clearNodeFailureIfNeeded(clusterNode *node) {
      * Apparently no one is going to fix these slots, clear the FAIL flag. */
     if (nodeIsMaster(node) && node->numslots > 0 &&
         (now - node->fail_time) >
-        (server.cluster_node_timeout * CLUSTER_FAIL_UNDO_TIME_MULT))
+        (server.cluster_node_timeout * CLUSTER_FAIL_UNDO_TIME_MULT+CLUSTER_FAIL_UNDO_TIME_ADD))
     {
         serverLog(LL_NOTICE,
             "Clear FAIL state for node %.40s: is reachable again and nobody is serving its slots after some time.",
