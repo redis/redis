@@ -487,63 +487,75 @@ void ltrimCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-/* LPOS key element [matchpos] [ALL] [RELATIVE]
+/* LPOS key element [FIRST rank] [COUNT num-matches] [MAXLEN len]
  *
- * matchnum is the position of the match, so if it is 1, the first match
+ * FIRST "rank" is the position of the match, so if it is 1, the first match
  * is returned, if it is 2 the second match is returned and so forth.
  * It is 1 by default. If negative has the same meaning but the search is
  * performed starting from the end of the list.
  *
- * A matchnum of 0 is accepted only if ALL is given, and means to return
- * all the elements.
+ * If COUNT is given, instead of returning the single element, a list of
+ * all the matching elements up to "num-matches" are returned. COUNT can
+ * be combiled with FIRST in order to returning only the element starting
+ * from the Nth. If COUNT is zero, all the matching elements are returned.
  *
- * If ALL is given, instead of returning the single elmenet, a list of
- * all the matching elements up to "matchnum" are returned.
+ * MAXLEN tells the command to scan a max of len elements. If zero (the
+ * default), all the elements in the list are scanned if needed.
  *
  * The returned elements indexes are always referring to what LINDEX
- * would return. So first element from head is 0, and so forth.
- * However if RELATIVE is given and a negative matchpos is given, the
- * indexes are returned as if the last element of the list is the element 0,
- * the penultimante is 1, and so forth. */
+ * would return. So first element from head is 0, and so forth. */
 void lposCommand(client *c) {
     robj *o, *ele;
     ele = c->argv[2];
-    int all = 0, direction = LIST_TAIL;
-    long matchpos = 1;
+    int direction = LIST_TAIL;
+    long rank = 1, count = -1, maxlen = 0; /* Count -1: option not given. */
 
-    /* Parse the optional "matchpos" argument, and the ALL option. */
-    if (c->argc >= 4 &&
-        getLongFromObjectOrReply(c, c->argv[3], &matchpos, NULL) != C_OK)
-    {
-        return;
-    }
+    /* Parse the optional arguments. */
+    for (int j = 3; j < c->argc; j++) {
+        char *opt = c->argv[j]->ptr;
+        int moreargs = (c->argc-1)-j;
 
-    if (c->argc == 5) {
-        if (!strcasecmp(c->argv[4]->ptr,"all")) {
-            all = 1;
+        if (!strcasecmp(opt,"FIRST") && moreargs) {
+            j++;
+            if (getLongFromObjectOrReply(c, c->argv[j], &rank, NULL) != C_OK)
+                return;
+            if (rank == 0) {
+                addReplyError(c,"FIRST can't be zero: use 1 to start from "
+                                "the first match, 2 from the second, ...");
+                return;
+            }
+        } else if (!strcasecmp(opt,"COUNT") && moreargs) {
+            j++;
+            if (getLongFromObjectOrReply(c, c->argv[j], &count, NULL) != C_OK)
+                return;
+            if (count < 0) {
+                addReplyError(c,"COUNT can't be negative");
+                return;
+            }
+        } else if (!strcasecmp(opt,"MAXLEN") && moreargs) {
+            j++;
+            if (getLongFromObjectOrReply(c, c->argv[j], &maxlen, NULL) != C_OK)
+                return;
+            if (maxlen < 0) {
+                addReplyError(c,"MAXLEN can't be negative");
+                return;
+            }
         } else {
             addReply(c,shared.syntaxerr);
             return;
         }
     }
 
-    /* Raise an error on incompatible options. */
-    if (!all && matchpos == 0) {
-        addReplyError(c,"A match position of zero is valid only "
-                        "when using the ALL option");
-        return;
-    }
-
-    /* A negative matchpos means start from the tail. */
-    if (matchpos < 0) {
-        matchpos = -matchpos;
+    /* A negative rank means start from the tail. */
+    if (rank < 0) {
+        rank = -rank;
         direction = LIST_HEAD;
     }
 
     /* We return NULL or an empty array if there is no such key (or
-     * if we find no matches, depending on the presence of the ALL option. */
+     * if we find no matches, depending on the presence of the COUNT option. */
     if ((o = lookupKeyWriteOrReply(c,c->argv[1],NULL)) == NULL) {
-        if (all)
+        if (count != -1)
             addReply(c,shared.emptyarray);
         else
             addReply(c,shared.null[c->resp]);
@@ -551,9 +563,9 @@ void lposCommand(client *c) {
     }
     if (checkType(c,o,OBJ_LIST)) return;
 
-    /* If we got the ALL option, prepare to emit an array. */
+    /* If we got the COUNT option, prepare to emit an array. */
     void *arraylenptr = NULL;
-    if (all) arraylenptr = addReplyDeferredLen(c);
+    if (count != -1) arraylenptr = addReplyDeferredLen(c);
 
     /* Seek the element. */
     listTypeIterator *li;
@@ -561,21 +573,28 @@ void lposCommand(client *c) {
     listTypeEntry entry;
     long llen = listTypeLength(o);
     long index = 0, matches = 0, matchindex = -1;
-    while (listTypeNext(li,&entry)) {
+    while (listTypeNext(li,&entry) && (maxlen == 0 || index < maxlen)) {
         if (listTypeEqual(&entry,ele)) {
             matches++;
             matchindex = (direction == LIST_TAIL) ? index : llen - index - 1;
-            if (all) addReplyLongLong(c,matchindex);
-            if (matches == matchpos) break;
+            if (matches >= rank) {
+                if (arraylenptr) {
+                    addReplyLongLong(c,matchindex);
+                    if (count && matches-rank+1 >= count) break;
+                } else {
+                    break;
+                }
+            }
         }
         index++;
+        matchindex = -1; /* Remember if we exit the loop without a match. */
     }
     listTypeReleaseIterator(li);
 
     /* Reply to the client. Note that arraylenptr is not NULL only if
-     * the ALL option was selected. */
+     * the COUNT option was selected. */
     if (arraylenptr != NULL) {
-        setDeferredArrayLen(c,arraylenptr,matches);
+        setDeferredArrayLen(c,arraylenptr,matches-rank+1);
     } else {
         if (matchindex != -1)
             addReplyLongLong(c,matchindex);
