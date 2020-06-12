@@ -46,6 +46,7 @@
 
 typedef struct dictEntry {
     void *key;
+    uint64_t hash;
     union {
         void *val;
         uint64_t u64;
