@@ -2345,22 +2345,28 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
         (ri->slave_master_port != ri->master->addr->port ||
          strcasecmp(ri->slave_master_host,ri->master->addr->ip)))
     {
-        mstime_t wait_time = ri->master->failover_timeout;
-
-        /* Make sure the master is sane before reconfiguring this instance
-         * into a slave. */
-        if (sentinelMasterLooksSane(ri->master) &&
-            sentinelRedisInstanceNoDownFor(ri,wait_time) &&
-            mstime() - ri->slave_conf_change_time > wait_time)
+        /* if the config of master host of a slave is master`s hostname (ie, master_host: redis-0-svc),
+         * it should convert hostname to ip  */
+        sentinelAddr *slave_master_addr = createSentinelAddr(ri->slave_master_host, ri->slave_master_port);
+        if (strcasecmp(slave_master_addr->ip, ri->master->addr->ip))
         {
-            int retval = sentinelSendSlaveOf(ri,
-                    ri->master->addr->ip,
-                    ri->master->addr->port);
-            if (retval == C_OK)
-                sentinelEvent(LL_NOTICE,"+fix-slave-config",ri,"%@");
-        }
-    }
+            mstime_t wait_time = ri->master->failover_timeout;
 
+            /* Make sure the master is sane before reconfiguring this instance
+             * into a slave. */
+            if (sentinelMasterLooksSane(ri->master) &&
+                sentinelRedisInstanceNoDownFor(ri,wait_time) &&
+                mstime() - ri->slave_conf_change_time > wait_time)
+            {
+                int retval = sentinelSendSlaveOf(ri,
+                                                 ri->master->addr->ip,
+                                                 ri->master->addr->port);
+                if (retval == C_OK)
+                    sentinelEvent(LL_NOTICE,"+fix-slave-config",ri,"%@");
+            }
+        }
+        releaseSentinelAddr(slave_master_addr);
+    }
     /* Detect if the slave that is in the process of being reconfigured
      * changed state. */
     if ((ri->flags & SRI_SLAVE) && role == SRI_SLAVE &&
@@ -2491,8 +2497,17 @@ void sentinelProcessHelloMessage(char *hello, int hello_len) {
         /* First, try to see if we already have this sentinel. */
         port = atoi(token[1]);
         master_port = atoi(token[6]);
-        si = getSentinelRedisInstanceByAddrAndRunID(
+        /* if token[0] is hostname or dns address (ie, sentinel announce-ip sentinel-0-svc), 
+         *  we should get its ip to search the instance. */ 
+        sentinelAddr *sAddr=createSentinelAddr(token[0], port);
+        if (!sAddr){
+            si = getSentinelRedisInstanceByAddrAndRunID(
                         master->sentinels,token[0],port,token[2]);
+        }else{
+            si = getSentinelRedisInstanceByAddrAndRunID(
+                        master->sentinels,sAddr->ip,port,token[2]);
+        }
+        releaseSentinelAddr(sAddr);
         current_epoch = strtoull(token[3],NULL,10);
         master_config_epoch = strtoull(token[7],NULL,10);
 
