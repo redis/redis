@@ -2348,7 +2348,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
         /* if the config of master host of a slave is master`s hostname (ie, master_host: redis-0-svc),
          * it should convert hostname to ip  */
         sentinelAddr *slave_master_addr = createSentinelAddr(ri->slave_master_host, ri->slave_master_port);
-        if (strcasecmp(slave_master_addr->ip, ri->master->addr->ip))
+        if (!slave_master_addr || strcasecmp(slave_master_addr->ip, ri->master->addr->ip))
         {
             mstime_t wait_time = ri->master->failover_timeout;
 
