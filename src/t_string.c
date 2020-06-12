@@ -516,13 +516,13 @@ void stralgoLCS(client *c) {
             withmatchlen = 1;
         } else if (!strcasecmp(opt,"MINMATCHLEN") && moreargs) {
             if (getLongLongFromObjectOrReply(c,c->argv[j+1],&minmatchlen,NULL)
-                != C_OK) goto clean_up_obj;
+                != C_OK) goto cleanup;
             if (minmatchlen < 0) minmatchlen = 0;
             j++;
         } else if (!strcasecmp(opt,"STRINGS") && moreargs > 1) {
             if (a != NULL) {
                 addReplyError(c,"Either use STRINGS or KEYS");
-                goto clean_up_obj;
+                goto cleanup;
             }
             a = c->argv[j+1]->ptr;
             b = c->argv[j+2]->ptr;
@@ -530,13 +530,20 @@ void stralgoLCS(client *c) {
         } else if (!strcasecmp(opt,"KEYS") && moreargs > 1) {
             if (a != NULL) {
                 addReplyError(c,"Either use STRINGS or KEYS");
-                goto clean_up_obj;
+                goto cleanup;
             }
             obja = lookupKeyRead(c->db,c->argv[j+1]);
             objb = lookupKeyRead(c->db,c->argv[j+2]);
-            if ( !(obja->type == OBJ_STRING) || !(objb->type == OBJ_STRING) ) {
-                addReplyError(c,"Object associate with KEYS option should only be string type");
-                goto clean_up_obj;
+            if ((obja && obja->type != OBJ_STRING) ||
+                (objb && objb->type != OBJ_STRING))
+            {
+                addReplyError(c,
+                    "The specified keys must contain string values");
+                /* Don't cleanup the objects, we need to do that
+                 * only after callign getDecodedObject(). */
+                obja = NULL;
+                objb = NULL;
+                goto cleanup;
             }
             obja = obja ? getDecodedObject(obja) : createStringObject("",0);
             objb = objb ? getDecodedObject(objb) : createStringObject("",0);
@@ -545,7 +552,7 @@ void stralgoLCS(client *c) {
             j += 2;
         } else {
             addReply(c,shared.syntaxerr);
-            goto clean_up_obj;
+            goto cleanup;
         }
     }
 
@@ -553,12 +560,12 @@ void stralgoLCS(client *c) {
     if (a == NULL) {
         addReplyError(c,"Please specify two strings: "
                         "STRINGS or KEYS options are mandatory");
-        goto clean_up_obj;
+        goto cleanup;
     } else if (getlen && getidx) {
         addReplyError(c,
             "If you want both the length and indexes, please "
             "just use IDX.");
-        goto clean_up_obj;
+        goto cleanup;
     }
 
     /* Compute the LCS using the vanilla dynamic programming technique of
@@ -696,7 +703,7 @@ void stralgoLCS(client *c) {
     sdsfree(result);
     zfree(lcs);
 
-clean_up_obj:
+cleanup:
     if (obja) decrRefCount(obja);
     if (objb) decrRefCount(objb);
     return;
