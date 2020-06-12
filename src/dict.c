@@ -1174,10 +1174,23 @@ dictType BenchmarkDictType = {
     NULL
 };
 
+void shuffle(sds keys[], size_t n)
+{
+    assert(n>1);
+    
+    for (size_t i = 0; i < n - 1; ++i) 
+    {
+        size_t j = i + rand() / (RAND_MAX / (n - i) + 1);
+        sds t = keys[j];
+        keys[j] = keys[i];
+        keys[i] = t;
+    }
+}
+
 #define start_benchmark() start = timeInMilliseconds()
 #define end_benchmark(msg) do { \
     elapsed = timeInMilliseconds()-start; \
-    printf(msg ": %ld items in %lld ms\n", count, elapsed); \
+    printf(msg ": %ld : items in : %lld : ms\n", count, elapsed); \
 } while(0);
 
 /* dict-benchmark [count] */
@@ -1185,73 +1198,102 @@ int main(int argc, char **argv) {
     long j;
     long long start, elapsed;
     dict *dict = dictCreate(&BenchmarkDictType,NULL);
-    long count = 0;
+    long count = 5000000;
+    int statistics = 0;
 
-    if (argc == 2) {
-        count = strtol(argv[1],NULL,10);
-    } else {
-        count = 5000000;
+    switch(argc){
+    case 1:
+        break;
+    case 2:
+        if(argv[1][0] == 's') statistics = 1;
+        else count = strtol(argv[1],NULL,10);
+        break;
+    case 3:
+        count = strtol(argv[2],NULL,10);
+        statistics = 1;
+        break;
+    default: 
+        printf("Usage:\n\t%s\trun with 5000,000 items\n\t%s n\trun with n items\n\t%s s\trun with 5000,000 and print stats\n\t%s s n\trun with n and print stats", argv[0], argv[0],argv[0], argv[0]);
+        return 1;        
     }
+
+    sds *keys = zmalloc(sizeof *keys * count);
+    sds *altkeys = zmalloc(sizeof *keys * count);
+    start_benchmark();
+    for (j = 0; j < count; j++) {
+        long k = j + count;
+        keys[j] = sdsfromlonglong(k*k);
+        altkeys[j] = sdsfromlonglong(count + k*k*k);
+        altkeys[j][0] += 17;
+        altkeys[j][1] += 17;
+    }
+    end_benchmark("Generate keys");
 
     start_benchmark();
     for (j = 0; j < count; j++) {
-        int retval = dictAdd(dict,sdsfromlonglong(j),(void*)j);
+        int retval = dictAdd(dict,keys[j], (void*)j);
         assert(retval == DICT_OK);
     }
     end_benchmark("Inserting");
     assert((long)dictSize(dict) == count);
-
+      
     /* Wait for rehashing. */
     while (dictIsRehashing(dict)) {
         dictRehashMilliseconds(dict,100);
     }
 
+    char stats[1024];
+    if(statistics) dictGetStats(stats, 1024, dict);
+        
     start_benchmark();
-    for (j = 0; j < count; j++) {
-        sds key = sdsfromlonglong(j);
-        dictEntry *de = dictFind(dict,key);
-        assert(de != NULL);
-        sdsfree(key);
+    for (j = 0; j < count; j++) {        
+        dictEntry *de = dictFind(dict,keys[j]);
+        assert(de != NULL);        
     }
     end_benchmark("Linear access of existing elements");
 
     start_benchmark();
-    for (j = 0; j < count; j++) {
-        sds key = sdsfromlonglong(j);
-        dictEntry *de = dictFind(dict,key);
-        assert(de != NULL);
-        sdsfree(key);
+    for (j = 0; j < count; j++) {        
+        dictEntry *de = dictFind(dict,keys[j]);
+        assert(de != NULL);        
     }
     end_benchmark("Linear access of existing elements (2nd round)");
 
     start_benchmark();
-    for (j = 0; j < count; j++) {
-        sds key = sdsfromlonglong(rand() % count);
-        dictEntry *de = dictFind(dict,key);
-        assert(de != NULL);
-        sdsfree(key);
+    shuffle(keys, count);
+    shuffle(altkeys, count);
+    end_benchmark("Shuffle keys:");
+
+    start_benchmark();
+    for (j = 0; j < count; j++) {        
+        dictEntry *de = dictFind(dict,keys[j]);
+        assert(de != NULL);        
     }
     end_benchmark("Random access of existing elements");
 
-    start_benchmark();
-    for (j = 0; j < count; j++) {
-        sds key = sdsfromlonglong(rand() % count);
-        key[0] = 'X';
-        dictEntry *de = dictFind(dict,key);
-        assert(de == NULL);
-        sdsfree(key);
+
+    for (j = 0; j < count; j++) {        
+        dictEntry *de = dictFind(dict, altkeys[j]);        
+        assert(de == NULL);        
     }
     end_benchmark("Accessing missing");
 
     start_benchmark();
     for (j = 0; j < count; j++) {
-        sds key = sdsfromlonglong(j);
-        int retval = dictDelete(dict,key);
+        int retval = dictDelete(dict, keys[j]);
         assert(retval == DICT_OK);
-        key[0] += 17; /* Change first number to letter. */
-        retval = dictAdd(dict,key,(void*)j);
+                
+        retval = dictAdd(dict, altkeys[j],(void*)j);
         assert(retval == DICT_OK);
     }
     end_benchmark("Removing and adding");
+    
+    if(statistics){        
+        puts(stats);
+        dictGetStats(stats, 1024, dict);    
+        puts(stats);
+    }
+    dictRelease(dict);
 }
+
 #endif
