@@ -33,16 +33,15 @@
 #include "adlist.h"
 #include "zmalloc.h"
 
-/* Create a new list. The created list can be freed with
- * AlFreeList(), but private value of every node need to be freed
- * by the user before to call AlFreeList().
- *
- * On error, NULL is returned. Otherwise the pointer to the new list. */
-list *listCreate(void)
+#define LIST_GENERAL_VARIANT  0
+#define LIST_DRAM_VARIANT     1
+
+static list *_listCreate(int on_dram)
 {
     struct list *list;
 
-    if ((list = zmalloc(sizeof(*list))) == NULL)
+    list = (on_dram == LIST_DRAM_VARIANT) ? zmalloc_dram(sizeof(*list)) : zmalloc(sizeof(*list));
+    if (list == NULL)
         return NULL;
     list->head = list->tail = NULL;
     list->len = 0;
@@ -52,10 +51,26 @@ list *listCreate(void)
     return list;
 }
 
-/* Free the whole list.
+/* Create a new list. The created list can be freed with
+ * AlFreeList(), but private value of every node need to be freed
+ * by the user before to call AlFreeList().
  *
- * This function can't fail. */
-void listRelease(list *list)
+ * On error, NULL is returned. Otherwise the pointer to the new list. */
+list *listCreate(void) {
+    return _listCreate(LIST_GENERAL_VARIANT);
+}
+
+/* Create a new list on DRAM. The created list can be freed with
+ * AlFreeList(), but private value of every node need to be freed
+ * by the user before to call AlFreeList().
+ *
+ * On error, NULL is returned. Otherwise the pointer to the new list. */
+list *listCreateDRAM(void) {
+    return _listCreate(LIST_DRAM_VARIANT);
+}
+
+/* Remove all the elements from the list without destroying the list itself. */
+static void _listEmpty(list *list, int on_dram)
 {
     unsigned long len;
     listNode *current, *next;
@@ -65,10 +80,37 @@ void listRelease(list *list)
     while(len--) {
         next = current->next;
         if (list->free) list->free(current->value);
-        zfree(current);
+        if (on_dram == LIST_DRAM_VARIANT) zfree_dram(current); else zfree(current);
         current = next;
     }
+}
+
+/* Remove all the elements from the list without destroying the list itself. */
+void listEmpty(list *list) {
+    _listEmpty(list, LIST_GENERAL_VARIANT);
+}
+
+/* Remove all the elements from the list on DRAM without destroying the list itself. */
+void listEmptyDRAM(list *list) {
+    _listEmpty(list, LIST_DRAM_VARIANT);
+}
+
+/* Free the whole list.
+ *
+ * This function can't fail. */
+void listRelease(list *list)
+{
+    listEmpty(list);
     zfree(list);
+}
+
+/* Free the whole list from DRAM.
+ *
+ * This function can't fail. */
+void listReleaseDRAM(list *list)
+{
+    listEmpty(list);
+    zfree_dram(list);
 }
 
 /* Add a new node to the list, to head, containing the specified 'value'
@@ -77,11 +119,11 @@ void listRelease(list *list)
  * On error, NULL is returned and no operation is performed (i.e. the
  * list remains unaltered).
  * On success the 'list' pointer you pass to the function is returned. */
-list *listAddNodeHead(list *list, void *value)
+static list *_listAddNodeHead(list *list, void *value, int on_dram)
 {
     listNode *node;
-
-    if ((node = zmalloc(sizeof(*node))) == NULL)
+    node = (on_dram == LIST_DRAM_VARIANT) ? zmalloc_dram(sizeof(*node)) : zmalloc(sizeof(*node));
+    if (node == NULL)
         return NULL;
     node->value = value;
     if (list->len == 0) {
@@ -95,6 +137,28 @@ list *listAddNodeHead(list *list, void *value)
     }
     list->len++;
     return list;
+}
+
+/* Add a new node to the list, to head, containing the specified 'value'
+ * pointer as value.
+ *
+ * On error, NULL is returned and no operation is performed (i.e. the
+ * list remains unaltered).
+ * On success the 'list' pointer you pass to the function is returned. */
+list *listAddNodeHead(list *list, void *value)
+{
+    return _listAddNodeHead(list, value, LIST_GENERAL_VARIANT);
+}
+
+/* Add a new node to the list on DRAM, to head, containing the specified 'value'
+ * pointer as value.
+ *
+ * On error, NULL is returned and no operation is performed (i.e. the
+ * list remains unaltered).
+ * On success the 'list' pointer you pass to the function is returned. */
+list *listAddNodeHeadDRAM(list *list, void *value)
+{
+    return _listAddNodeHead(list, value, LIST_DRAM_VARIANT);
 }
 
 /* Add a new node to the list, to tail, containing the specified 'value'
@@ -152,11 +216,7 @@ list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
     return list;
 }
 
-/* Remove the specified node from the specified list.
- * It's up to the caller to free the private value of the node.
- *
- * This function can't fail. */
-void listDelNode(list *list, listNode *node)
+static void _listDelNode(list *list, listNode *node, int on_dram)
 {
     if (node->prev)
         node->prev->next = node->next;
@@ -167,8 +227,26 @@ void listDelNode(list *list, listNode *node)
     else
         list->tail = node->prev;
     if (list->free) list->free(node->value);
-    zfree(node);
+    if (on_dram == LIST_DRAM_VARIANT) zfree_dram(node); else zfree(node);
     list->len--;
+}
+
+/* Remove the specified node from the specified list.
+ * It's up to the caller to free the private value of the node.
+ *
+ * This function can't fail. */
+void listDelNode(list *list, listNode *node)
+{
+    _listDelNode(list, node, LIST_GENERAL_VARIANT);
+}
+
+/* Remove the specified node from DRAM the specified list.
+ * It's up to the caller to free the private value of the node.
+ *
+ * This function can't fail. */
+void listDelNodeDRAM(list *list, listNode *node)
+{
+    _listDelNode(list, node, LIST_DRAM_VARIANT);
 }
 
 /* Returns a list iterator 'iter'. After the initialization every
