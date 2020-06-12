@@ -1032,6 +1032,9 @@ void databasesCron(void) {
     if (server.active_expire_enabled && server.masterhost == NULL)
         activeExpireCycle(ACTIVE_EXPIRE_CYCLE_SLOW);
 
+    /* Adjust PMEM threshold. */
+    adjustPmemThresholdCycle();
+
     /* Perform hash tables rehashing if needed, but only if there are no
      * other processes saving the DB on disk. Otherwise rehashing is bad
      * as will cause a lot of copy-on-write of memory pages. */
@@ -2011,6 +2014,7 @@ void initServer(void) {
     scriptingInit(1);
     slowlogInit();
     latencyMonitorInit();
+    pmemThresholdInit();
     bioInit();
 }
 
@@ -2951,13 +2955,16 @@ sds genRedisInfoString(char *section) {
     /* Memory */
     if (allsections || defsections || !strcasecmp(section,"memory")) {
         char hmem[64];
+        char hmem_pmem[64];
         char peak_hmem[64];
         char total_system_hmem[64];
         char used_memory_lua_hmem[64];
         char used_memory_rss_hmem[64];
         char maxmemory_hmem[64];
         size_t zmalloc_used = zmalloc_used_memory();
+        size_t zmalloc_pmem_used = zmalloc_used_pmem_memory();
         size_t total_system_mem = server.system_memory_size;
+        size_t pmem_threshold = zmalloc_get_threshold();
         const char *evict_policy = evictPolicyToString();
         long long memory_lua = (long long)lua_gc(server.lua,LUA_GCCOUNT,0)*1024;
 
@@ -2969,6 +2976,7 @@ sds genRedisInfoString(char *section) {
             server.stat_peak_memory = zmalloc_used;
 
         bytesToHuman(hmem,zmalloc_used);
+        bytesToHuman(hmem_pmem,zmalloc_pmem_used);
         bytesToHuman(peak_hmem,server.stat_peak_memory);
         bytesToHuman(total_system_hmem,total_system_mem);
         bytesToHuman(used_memory_lua_hmem,memory_lua);
@@ -2984,6 +2992,9 @@ sds genRedisInfoString(char *section) {
             "used_memory_rss_human:%s\r\n"
             "used_memory_peak:%zu\r\n"
             "used_memory_peak_human:%s\r\n"
+            "pmem_threshold:%zu\r\n"
+            "used_memory_pmem:%zu\r\n"
+            "used_memory_pmem_human:%s\r\n"
             "total_system_memory:%lu\r\n"
             "total_system_memory_human:%s\r\n"
             "used_memory_lua:%lld\r\n"
@@ -2999,6 +3010,9 @@ sds genRedisInfoString(char *section) {
             used_memory_rss_hmem,
             server.stat_peak_memory,
             peak_hmem,
+            pmem_threshold,
+            zmalloc_pmem_used,
+            hmem_pmem,
             (unsigned long)total_system_mem,
             total_system_hmem,
             memory_lua,
@@ -3983,6 +3997,8 @@ int main(int argc, char **argv) {
             return endianconvTest(argc, argv);
         } else if (!strcasecmp(argv[2], "crc64")) {
             return crc64Test(argc, argv);
+        } else if (!strcasecmp(argv[2], "pmem")) {
+            return zmalloc_pmem_test(argc, argv);
         }
 
         return -1; /* test not found */

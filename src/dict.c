@@ -217,7 +217,7 @@ int dictExpand(dict *d, unsigned long size)
     /* Allocate the new hash table and initialize all pointers to NULL */
     n.size = realsize;
     n.sizemask = realsize-1;
-    n.table = zcalloc(realsize*sizeof(dictEntry*));
+    n.table = zcalloc_dram(realsize*sizeof(dictEntry*));
     n.used = 0;
 
     /* Is this the first initialization? If so it's not really a rehashing
@@ -276,7 +276,7 @@ int dictRehash(dict *d, int n) {
 
     /* Check if we already rehashed the whole table... */
     if (d->ht[0].used == 0) {
-        zfree(d->ht[0].table);
+        zfree_dram(d->ht[0].table);
         d->ht[0] = d->ht[1];
         _dictReset(&d->ht[1]);
         d->rehashidx = -1;
@@ -475,7 +475,7 @@ int _dictClear(dict *d, dictht *ht, void(callback)(void *)) {
         }
     }
     /* Free the table and the allocated cache structure */
-    zfree(ht->table);
+    zfree_dram(ht->table);
     /* Re-initialize the table */
     _dictReset(ht);
     return DICT_OK; /* never fails */
@@ -557,7 +557,7 @@ long long dictFingerprint(dict *d) {
 
 dictIterator *dictGetIterator(dict *d)
 {
-    dictIterator *iter = zmalloc(sizeof(*iter));
+    dictIterator *iter = zmalloc_dram(sizeof(*iter));
 
     iter->d = d;
     iter->table = 0;
@@ -618,7 +618,7 @@ void dictReleaseIterator(dictIterator *iter)
         else
             assert(iter->fingerprint == dictFingerprint(iter->d));
     }
-    zfree(iter);
+    zfree_dram(iter);
 }
 
 /* Return a random entry from the hash table. Useful to

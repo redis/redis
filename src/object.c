@@ -36,8 +36,11 @@
 #define strtold(a,b) ((long double)strtod((a),(b)))
 #endif
 
+#define OBJ_MEMORY_GENERAL  0
+#define OBJ_MEMORY_DRAM     1
+
 robj *createObject(int type, void *ptr) {
-    robj *o = zmalloc(sizeof(*o));
+    robj *o = zmalloc_dram(sizeof(*o));
     o->type = type;
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
@@ -296,8 +299,7 @@ void incrRefCount(robj *o) {
     o->refcount++;
 }
 
-void decrRefCount(robj *o) {
-    if (o->refcount <= 0) serverPanic("decrRefCount against refcount <= 0");
+static void _decrRefCount(robj *o, int on_dram) {
     if (o->refcount == 1) {
         switch(o->type) {
         case OBJ_STRING: freeStringObject(o); break;
@@ -307,10 +309,23 @@ void decrRefCount(robj *o) {
         case OBJ_HASH: freeHashObject(o); break;
         default: serverPanic("Unknown object type"); break;
         }
-        zfree(o);
+        if (on_dram == OBJ_MEMORY_GENERAL || o->encoding == OBJ_ENCODING_EMBSTR) {
+            zfree(o);
+        } else {
+            zfree_dram(o);
+        }
     } else {
+        if (o->refcount <= 0) serverPanic("decrRefCount against refcount <= 0");
         o->refcount--;
     }
+}
+
+void decrRefCount(robj *o) {
+    _decrRefCount(o, OBJ_MEMORY_GENERAL);
+}
+
+void decrRefCountDRAM(robj *o) {
+    _decrRefCount(o, OBJ_MEMORY_DRAM);
 }
 
 /* This variant of decrRefCount() gets its argument as void, and is useful
