@@ -55,11 +55,23 @@ void scan_key_callback(RedisModuleKey *key, RedisModuleString* field, RedisModul
     REDISMODULE_NOT_USED(key);
     scan_key_pd* pd = privdata;
     RedisModule_ReplyWithArray(pd->ctx, 2);
-    RedisModule_ReplyWithString(pd->ctx, field);
-    if (value)
-        RedisModule_ReplyWithString(pd->ctx, value);
-    else
+    size_t fieldCStrLen;
+
+    // The implementation of RedisModuleString is robj with lots of encodings.
+    // We want to make sure the robj that passes to this callback in
+    // String encoded, this is why we use RedisModule_StringPtrLen and
+    // RedisModule_ReplyWithStringBuffer instead of directly use
+    // RedisModule_ReplyWithString.
+    const char* fieldCStr = RedisModule_StringPtrLen(field, &fieldCStrLen);
+    RedisModule_ReplyWithStringBuffer(pd->ctx, fieldCStr, fieldCStrLen);
+    if(value){
+        size_t valueCStrLen;
+        const char* valueCStr = RedisModule_StringPtrLen(value, &valueCStrLen);
+        RedisModule_ReplyWithStringBuffer(pd->ctx, valueCStr, valueCStrLen);
+    } else {
         RedisModule_ReplyWithNull(pd->ctx);
+    }
+
     pd->nreplies++;
 }
 
