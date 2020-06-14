@@ -6708,7 +6708,7 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
         int pos = 0;
         int64_t ll;
         while(intsetGet(o->ptr,pos++,&ll)) {
-            robj *field = createStringObjectFromLongLong(ll);
+            robj *field = createObject(OBJ_STRING,sdsfromlonglong(ll));
             fn(key, field, NULL, privdata);
             decrRefCount(field);
         }
@@ -6724,12 +6724,12 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
             ziplistGet(p,&vstr,&vlen,&vll);
             robj *field = (vstr != NULL) ?
                 createStringObject((char*)vstr,vlen) :
-                createStringObjectFromLongLong(vll);
+                createObject(OBJ_STRING,sdsfromlonglong(vll));
             p = ziplistNext(o->ptr,p);
             ziplistGet(p,&vstr,&vlen,&vll);
             robj *value = (vstr != NULL) ?
                 createStringObject((char*)vstr,vlen) :
-                createStringObjectFromLongLong(vll);
+                createObject(OBJ_STRING,sdsfromlonglong(vll));
             fn(key, field, value, privdata);
             p = ziplistNext(o->ptr,p);
             decrRefCount(field);
