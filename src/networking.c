@@ -2038,7 +2038,7 @@ sds catClientInfoString(sds s, client *client) {
     }
     *p = '\0';
     return sdscatfmt(s,
-        "id=%U addr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U obl=%U oll=%U omem=%U events=%s cmd=%s user=%s",
+        "id=%U addr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U obl=%U oll=%U omem=%U events=%s cmd=%s user=%s resp=%i",
         (unsigned long long) client->id,
         getClientPeerId(client),
         connGetInfo(client->conn, conninfo, sizeof(conninfo)),
@@ -2057,7 +2057,8 @@ sds catClientInfoString(sds s, client *client) {
         (unsigned long long) getClientOutputBufferMemoryUsage(client),
         events,
         client->lastcmd ? client->lastcmd->name : "NULL",
-        client->user ? client->user->name : "(superuser)");
+        client->user ? client->user->name : "(superuser)",
+        client->resp);
 }
 
 sds getAllClientsInfoString(int type) {
