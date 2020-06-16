@@ -28,10 +28,10 @@ typedef struct stream {
  * commands. */
 typedef struct streamIterator {
     stream *stream;         /* The stream we are iterating. */
-    streamID master_id;     /* ID of the master entry at listpack head. */
-    uint64_t master_fields_count;       /* Master entries # of fields. */
-    unsigned char *master_fields_start; /* Master entries start in listpack. */
-    unsigned char *master_fields_ptr;   /* Master field to emit next. */
+    streamID primary_id;     /* ID of the primary entry at listpack head. */
+    uint64_t primary_fields_count;       /* Primary entries # of fields. */
+    unsigned char *primary_fields_start; /* Primary entries start in listpack. */
+    unsigned char *primary_fields_ptr;   /* Primary field to emit next. */
     int entry_flags;                    /* Flags of entry we are emitting. */
     int rev;                /* True if iterating end to start (reverse). */
     uint64_t start_key[2];  /* Start key as 128 bit big endian. */

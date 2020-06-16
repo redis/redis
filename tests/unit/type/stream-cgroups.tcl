@@ -329,44 +329,44 @@ start_server {
     }
 
     start_server {} {
-        set master [srv -1 client]
-        set master_host [srv -1 host]
-        set master_port [srv -1 port]
+        set primary [srv -1 client]
+        set primary_host [srv -1 host]
+        set primary_port [srv -1 port]
         set slave [srv 0 client]
 
         foreach noack {0 1} {
             test "Consumer group last ID propagation to slave (NOACK=$noack)" {
-                $slave slaveof $master_host $master_port
+                $slave slaveof $primary_host $primary_port
                 wait_for_condition 50 100 {
-                    [s 0 master_link_status] eq {up}
+                    [s 0 primary_link_status] eq {up}
                 } else {
                     fail "Replication not started."
                 }
 
-                $master del stream
-                $master xadd stream * a 1
-                $master xadd stream * a 2
-                $master xadd stream * a 3
-                $master xgroup create stream mygroup 0
+                $primary del stream
+                $primary xadd stream * a 1
+                $primary xadd stream * a 2
+                $primary xadd stream * a 3
+                $primary xgroup create stream mygroup 0
 
-                # Consume the first two items on the master
+                # Consume the first two items on the primary
                 for {set j 0} {$j < 2} {incr j} {
                     if {$noack} {
-                        set item [$master xreadgroup group mygroup \
+                        set item [$primary xreadgroup group mygroup \
                                   myconsumer COUNT 1 NOACK STREAMS stream >]
                     } else {
-                        set item [$master xreadgroup group mygroup \
+                        set item [$primary xreadgroup group mygroup \
                                   myconsumer COUNT 1 STREAMS stream >]
                     }
                     set id [lindex $item 0 1 0 0]
                     if {$noack == 0} {
-                        assert {[$master xack stream mygroup $id] eq "1"}
+                        assert {[$primary xack stream mygroup $id] eq "1"}
                     }
                 }
 
-                wait_for_ofs_sync $master $slave
+                wait_for_ofs_sync $primary $slave
 
-                # Turn slave into master
+                # Turn slave into primary
                 $slave slaveof no one
 
                 set item [$slave xreadgroup group mygroup myconsumer \

@@ -1055,7 +1055,7 @@ void serverLogRaw(int level, const char *msg) {
         } else if (pid != server.pid) {
             role_char = 'C'; /* RDB / AOF writing child. */
         } else {
-            role_char = (server.masterhost ? 'S':'M'); /* Slave or Master. */
+            role_char = (server.primaryhost ? 'S':'M'); /* Slave or Primary. */
         }
         fprintf(fp,"%d:%c %s %c %s\n",
             (int)getpid(),role_char, buf,c[level],msg);
@@ -1539,7 +1539,7 @@ int clientsCronResizeQueryBuffer(client *c) {
      * cycle. */
     c->querybuf_peak = 0;
 
-    /* Clients representing masters also use a "pending query buffer" that
+    /* Clients representing primaries also use a "pending query buffer" that
      * is the yet not applied part of the stream we are reading. Such buffer
      * also needs resizing from time to time, otherwise after a very large
      * transfer (a huge value or a big MIGRATE operation) it will keep using
@@ -1692,9 +1692,9 @@ void clientsCron(void) {
  * rehashing. */
 void databasesCron(void) {
     /* Expire keys by random sampling. Not required for slaves
-     * as master will synthesize DELs for us. */
+     * as primary will synthesize DELs for us. */
     if (server.active_expire_enabled) {
-        if (iAmMaster()) {
+        if (iAmPrimary()) {
             activeExpireCycle(ACTIVE_EXPIRE_CYCLE_SLOW);
         } else {
             expireSlaveKeys();
@@ -2037,7 +2037,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Clear the paused clients flag if needed. */
     clientsArePaused(); /* Don't check return value, just use the side effect.*/
 
-    /* Replication cron function -- used to reconnect to master,
+    /* Replication cron function -- used to reconnect to primary,
      * detect transfer failures, start background RDB transfers and so forth. */
     run_with_period(1000) replicationCron();
 
@@ -2145,7 +2145,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 
     /* Run a fast expire cycle (the called function will return
      * ASAP if a fast cycle is not needed). */
-    if (server.active_expire_enabled && server.masterhost == NULL)
+    if (server.active_expire_enabled && server.primaryhost == NULL)
         activeExpireCycle(ACTIVE_EXPIRE_CYCLE_FAST);
 
     /* Unblock all the clients blocked for synchronous replication
@@ -2240,7 +2240,7 @@ void createSharedObjects(void) {
         "-LOADING Redis is loading the dataset in memory\r\n"));
     shared.slowscripterr = createObject(OBJ_STRING,sdsnew(
         "-BUSY Redis is busy running a script. You can only call SCRIPT KILL or SHUTDOWN NOSAVE.\r\n"));
-    shared.masterdownerr = createObject(OBJ_STRING,sdsnew(
+    shared.primarydownerr = createObject(OBJ_STRING,sdsnew(
         "-MASTERDOWN Link with MASTER is down and replica-serve-stale-data is set to 'no'.\r\n"));
     shared.bgsaveerr = createObject(OBJ_STRING,sdsnew(
         "-MISCONF Redis is configured to save RDB snapshots, but it is currently not able to persist on disk. Commands that may modify the data set are disabled, because this instance is configured to report errors during writes if RDB snapshotting fails (stop-writes-on-bgsave-error option). Please check the Redis logs for details about the RDB error.\r\n"));
@@ -2385,19 +2385,19 @@ void initServerConfig(void) {
     appendServerSaveParams(60,10000); /* save after 1 minute and 10000 changes */
 
     /* Replication related */
-    server.masterauth = NULL;
-    server.masterhost = NULL;
-    server.masterport = 6379;
-    server.master = NULL;
-    server.cached_master = NULL;
-    server.master_initial_offset = -1;
+    server.primaryauth = NULL;
+    server.primaryhost = NULL;
+    server.primaryport = 6379;
+    server.primary = NULL;
+    server.cached_primary = NULL;
+    server.primary_initial_offset = -1;
     server.repl_state = REPL_STATE_NONE;
     server.repl_transfer_tmpfile = NULL;
     server.repl_transfer_fd = -1;
     server.repl_transfer_s = NULL;
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
-    server.master_repl_offset = 0;
+    server.primary_repl_offset = 0;
 
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
@@ -3479,7 +3479,7 @@ int processCommand(client *c) {
 
     /* If cluster is enabled perform the cluster redirection here.
      * However we don't perform the redirection if:
-     * 1) The sender of this command is our master.
+     * 1) The sender of this command is our primary.
      * 2) The command has no key arguments. */
     if (server.cluster_enabled &&
         !(c->flags & CLIENT_MASTER) &&
@@ -3542,10 +3542,10 @@ int processCommand(client *c) {
     if (server.tracking_clients) trackingLimitUsedSlots();
 
     /* Don't accept write commands if there are problems persisting on disk
-     * and if this is a master instance. */
+     * and if this is a primary instance. */
     int deny_write_type = writeCommandsDeniedByDiskError();
     if (deny_write_type != DISK_ERROR_TYPE_NONE &&
-        server.masterhost == NULL &&
+        server.primaryhost == NULL &&
         (c->cmd->flags & CMD_WRITE ||
          c->cmd->proc == pingCommand))
     {
@@ -3562,7 +3562,7 @@ int processCommand(client *c) {
 
     /* Don't accept write commands if there are not enough good slaves and
      * user configured the min-slaves-to-write option. */
-    if (server.masterhost == NULL &&
+    if (server.primaryhost == NULL &&
         server.repl_min_slaves_to_write &&
         server.repl_min_slaves_max_lag &&
         c->cmd->flags & CMD_WRITE &&
@@ -3574,8 +3574,8 @@ int processCommand(client *c) {
     }
 
     /* Don't accept write commands if this is a read only slave. But
-     * accept write commands if this is our master. */
-    if (server.masterhost && server.repl_slave_ro &&
+     * accept write commands if this is our primary. */
+    if (server.primaryhost && server.repl_slave_ro &&
         !(c->flags & CLIENT_MASTER) &&
         c->cmd->flags & CMD_WRITE)
     {
@@ -3601,13 +3601,13 @@ int processCommand(client *c) {
 
     /* Only allow commands with flag "t", such as INFO, SLAVEOF and so on,
      * when slave-serve-stale-data is no and we are a slave with a broken
-     * link with master. */
-    if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED &&
+     * link with primary. */
+    if (server.primaryhost && server.repl_state != REPL_STATE_CONNECTED &&
         server.repl_serve_stale_data == 0 &&
         !(c->cmd->flags & CMD_STALE))
     {
         flagTransaction(c);
-        addReply(c, shared.masterdownerr);
+        addReply(c, shared.primarydownerr);
         return C_OK;
     }
 
@@ -3654,7 +3654,7 @@ int processCommand(client *c) {
         addReply(c,shared.queued);
     } else {
         call(c,CMD_CALL_FULL);
-        c->woff = server.master_repl_offset;
+        c->woff = server.primary_repl_offset;
         if (listLength(server.ready_keys))
             handleClientsBlockedOnKeys();
     }
@@ -4369,36 +4369,36 @@ sds genRedisInfoString(const char *section) {
         info = sdscatprintf(info,
             "# Replication\r\n"
             "role:%s\r\n",
-            server.masterhost == NULL ? "master" : "slave");
-        if (server.masterhost) {
+            server.primaryhost == NULL ? "primary" : "slave");
+        if (server.primaryhost) {
             long long slave_repl_offset = 1;
 
-            if (server.master)
-                slave_repl_offset = server.master->reploff;
-            else if (server.cached_master)
-                slave_repl_offset = server.cached_master->reploff;
+            if (server.primary)
+                slave_repl_offset = server.primary->reploff;
+            else if (server.cached_primary)
+                slave_repl_offset = server.cached_primary->reploff;
 
             info = sdscatprintf(info,
-                "master_host:%s\r\n"
-                "master_port:%d\r\n"
-                "master_link_status:%s\r\n"
-                "master_last_io_seconds_ago:%d\r\n"
-                "master_sync_in_progress:%d\r\n"
+                "primary_host:%s\r\n"
+                "primary_port:%d\r\n"
+                "primary_link_status:%s\r\n"
+                "primary_last_io_seconds_ago:%d\r\n"
+                "primary_sync_in_progress:%d\r\n"
                 "slave_repl_offset:%lld\r\n"
-                ,server.masterhost,
-                server.masterport,
+                ,server.primaryhost,
+                server.primaryport,
                 (server.repl_state == REPL_STATE_CONNECTED) ?
                     "up" : "down",
-                server.master ?
-                ((int)(server.unixtime-server.master->lastinteraction)) : -1,
+                server.primary ?
+                ((int)(server.unixtime-server.primary->lastinteraction)) : -1,
                 server.repl_state == REPL_STATE_TRANSFER,
                 slave_repl_offset
             );
 
             if (server.repl_state == REPL_STATE_TRANSFER) {
                 info = sdscatprintf(info,
-                    "master_sync_left_bytes:%lld\r\n"
-                    "master_sync_last_io_seconds_ago:%d\r\n"
+                    "primary_sync_left_bytes:%lld\r\n"
+                    "primary_sync_last_io_seconds_ago:%d\r\n"
                     , (long long)
                         (server.repl_transfer_size - server.repl_transfer_read),
                     (int)(server.unixtime-server.repl_transfer_lastio)
@@ -4407,7 +4407,7 @@ sds genRedisInfoString(const char *section) {
 
             if (server.repl_state != REPL_STATE_CONNECTED) {
                 info = sdscatprintf(info,
-                    "master_link_down_since_seconds:%jd\r\n",
+                    "primary_link_down_since_seconds:%jd\r\n",
                     (intmax_t)(server.unixtime-server.repl_down_since));
             }
             info = sdscatprintf(info,
@@ -4473,9 +4473,9 @@ sds genRedisInfoString(const char *section) {
             }
         }
         info = sdscatprintf(info,
-            "master_replid:%s\r\n"
-            "master_replid2:%s\r\n"
-            "master_repl_offset:%lld\r\n"
+            "primary_replid:%s\r\n"
+            "primary_replid2:%s\r\n"
+            "primary_repl_offset:%lld\r\n"
             "second_repl_offset:%lld\r\n"
             "repl_backlog_active:%d\r\n"
             "repl_backlog_size:%lld\r\n"
@@ -4483,7 +4483,7 @@ sds genRedisInfoString(const char *section) {
             "repl_backlog_histlen:%lld\r\n",
             server.replid,
             server.replid2,
-            server.master_repl_offset,
+            server.primary_repl_offset,
             server.second_replid_offset,
             server.repl_backlog != NULL,
             server.repl_backlog_size,
@@ -4849,7 +4849,7 @@ void loadDataFromDisk(void) {
                 (float)(ustime()-start)/1000000);
 
             /* Restore the replication ID / offset from the RDB file. */
-            if ((server.masterhost ||
+            if ((server.primaryhost ||
                 (server.cluster_enabled &&
                 nodeIsSlave(server.cluster->myself))) &&
                 rsi.repl_id_is_set &&
@@ -4860,12 +4860,12 @@ void loadDataFromDisk(void) {
                 rsi.repl_stream_db != -1)
             {
                 memcpy(server.replid,rsi.repl_id,sizeof(server.replid));
-                server.master_repl_offset = rsi.repl_offset;
-                /* If we are a slave, create a cached master from this
+                server.primary_repl_offset = rsi.repl_offset;
+                /* If we are a slave, create a cached primary from this
                  * information, in order to allow partial resynchronizations
-                 * with masters. */
-                replicationCacheMasterUsingMyself();
-                selectDb(server.cached_master,rsi.repl_stream_db);
+                 * with primaries. */
+                replicationCachePrimaryUsingMyself();
+                selectDb(server.cached_primary,rsi.repl_stream_db);
             }
         } else if (errno != ENOENT) {
             serverLog(LL_WARNING,"Fatal error loading the DB: %s. Exiting.",strerror(errno));
@@ -4962,9 +4962,9 @@ int redisIsSupervised(int mode) {
     return 0;
 }
 
-int iAmMaster(void) {
-    return ((!server.cluster_enabled && server.masterhost == NULL) ||
-            (server.cluster_enabled && nodeIsMaster(server.cluster->myself)));
+int iAmPrimary(void) {
+    return ((!server.cluster_enabled && server.primaryhost == NULL) ||
+            (server.cluster_enabled && nodeIsPrimary(server.cluster->myself)));
 }
 
 
@@ -5028,7 +5028,7 @@ int main(int argc, char **argv) {
 
     /* We need to init sentinel right now as parsing the configuration file
      * in sentinel mode will have the effect of populating the sentinel
-     * data structures with master nodes to monitor. */
+     * data structures with primary nodes to monitor. */
     if (server.sentinel_mode) {
         initSentinelConfig();
         initSentinel();
@@ -5156,7 +5156,7 @@ int main(int argc, char **argv) {
         if (server.sofd > 0)
             serverLog(LL_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);
         if (server.supervised_mode == SUPERVISED_SYSTEMD) {
-            if (!server.masterhost) {
+            if (!server.primaryhost) {
                 redisCommunicateSystemd("STATUS=Ready to accept connections\n");
                 redisCommunicateSystemd("READY=1\n");
             } else {

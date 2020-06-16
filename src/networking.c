@@ -203,7 +203,7 @@ void clientInstallWriteHandler(client *c) {
  * loop so that when the socket is writable new data gets written.
  *
  * If the client should not receive new data, because it is a fake client
- * (used to load AOF in memory), a master or because the setup of the write
+ * (used to load AOF in memory), a primary or because the setup of the write
  * handler failed, the function returns C_ERR.
  *
  * The function may return C_OK without actually installing the write
@@ -225,7 +225,7 @@ int prepareClientToWrite(client *c) {
     /* CLIENT REPLY OFF / SKIP handling: don't send replies. */
     if (c->flags & (CLIENT_REPLY_OFF|CLIENT_REPLY_SKIP)) return C_ERR;
 
-    /* Masters don't receive replies, unless CLIENT_MASTER_FORCE_REPLY flag
+    /* Primaries don't receive replies, unless CLIENT_MASTER_FORCE_REPLY flag
      * is set. */
     if ((c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_MASTER_FORCE_REPLY)) return C_ERR;
@@ -364,14 +364,14 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
     addReplyProto(c,s,len);
     addReplyProto(c,"\r\n",2);
 
-    /* Sometimes it could be normal that a slave replies to a master with
+    /* Sometimes it could be normal that a slave replies to a primary with
      * an error and this function gets called. Actually the error will never
-     * be sent because addReply*() against master clients has no effect...
+     * be sent because addReply*() against primary clients has no effect...
      * A notable example is:
      *
      *    EVAL 'redis.call("incr",KEYS[1]); redis.call("nonexisting")' 1 x
      *
-     * Where the master must propagate the first change even if the second
+     * Where the primary must propagate the first change even if the second
      * will produce an error. However it is useful to log such events since
      * they are rare and may hint at errors in a script or a bug in Redis. */
     int ctype = getClientType(c);
@@ -382,11 +382,11 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
             to = "AOF-loading-client";
             from = "server";
         } else if (ctype == CLIENT_TYPE_MASTER) {
-            to = "master";
+            to = "primary";
             from = "replica";
         } else {
             to = "replica";
-            from = "master";
+            from = "primary";
         }
 
         char *cmdname = c->lastcmd ? c->lastcmd->name : "<unknown>";
@@ -1019,7 +1019,7 @@ static void freeClientArgv(client *c) {
 }
 
 /* Close all the slaves connections. This is useful in chained replication
- * when we resync with our own master and want to force all our slaves to
+ * when we resync with our own primary and want to force all our slaves to
  * resync with us as well. */
 void disconnectSlaves(void) {
     listIter li;
@@ -1032,7 +1032,7 @@ void disconnectSlaves(void) {
 
 /* Remove the specified client from global lists where the client could
  * be referenced, not including the Pub/Sub channels.
- * This is used by freeClient() and replicationCacheMaster(). */
+ * This is used by freeClient() and replicationCachePrimary(). */
 void unlinkClient(client *c) {
     listNode *ln;
 
@@ -1121,7 +1121,7 @@ void freeClient(client *c) {
 
     /* If this client was scheduled for async freeing we need to remove it
      * from the queue. Note that we need to do this here, because later
-     * we may call replicationCacheMaster() and the client should already
+     * we may call replicationCachePrimary() and the client should already
      * be removed from the list of clients to free. */
     if (c->flags & CLIENT_CLOSE_ASAP) {
         ln = listSearchKey(server.clients_to_close,c);
@@ -1129,16 +1129,16 @@ void freeClient(client *c) {
         listDelNode(server.clients_to_close,ln);
     }
 
-    /* If it is our master that's beging disconnected we should make sure
+    /* If it is our primary that's beging disconnected we should make sure
      * to cache the state to try a partial resynchronization later.
      *
      * Note that before doing this we make sure that the client is not in
      * some unexpected state, by checking its flags. */
-    if (server.master && c->flags & CLIENT_MASTER) {
-        serverLog(LL_WARNING,"Connection with master lost.");
+    if (server.primary && c->flags & CLIENT_MASTER) {
+        serverLog(LL_WARNING,"Connection with primary lost.");
         if (!(c->flags & (CLIENT_PROTOCOL_ERROR|CLIENT_BLOCKED))) {
             c->flags &= ~(CLIENT_CLOSE_ASAP|CLIENT_CLOSE_AFTER_REPLY);
-            replicationCacheMaster(c);
+            replicationCachePrimary(c);
             return;
         }
     }
@@ -1177,7 +1177,7 @@ void freeClient(client *c) {
      * places where active clients may be referenced. */
     unlinkClient(c);
 
-    /* Master/slave cleanup Case 1:
+    /* Primary/slave cleanup Case 1:
      * we lost the connection with a slave. */
     if (c->flags & CLIENT_SLAVE) {
         if (c->replstate == SLAVE_STATE_SEND_BULK) {
@@ -1201,9 +1201,9 @@ void freeClient(client *c) {
                                   NULL);
     }
 
-    /* Master/slave cleanup Case 2:
-     * we lost the connection with the master. */
-    if (c->flags & CLIENT_MASTER) replicationHandleMasterDisconnection();
+    /* Primary/slave cleanup Case 2:
+     * we lost the connection with the primary. */
+    if (c->flags & CLIENT_MASTER) replicationHandlePrimaryDisconnection();
 
    /* Remove the contribution that this client gave to our
      * incrementally computed memory usage. */
@@ -1353,7 +1353,7 @@ int writeToClient(client *c, int handler_installed) {
         }
     }
     if (totwritten > 0) {
-        /* For clients representing masters we don't count sending data
+        /* For clients representing primaries we don't count sending data
          * as an interaction, since we always send REPLCONF ACK commands
          * that take some time to just fill the socket output buffer.
          * We just rely on data / pings received for timeout detection. */
@@ -1530,16 +1530,16 @@ int processInlineBuffer(client *c) {
     if (querylen == 0 && getClientType(c) == CLIENT_TYPE_SLAVE)
         c->repl_ack_time = server.unixtime;
 
-    /* Masters should never send us inline protocol to run actual
+    /* Primaries should never send us inline protocol to run actual
      * commands. If this happens, it is likely due to a bug in Redis where
      * we got some desynchronization in the protocol, for example
      * beause of a PSYNC gone bad.
      *
-     * However the is an exception: masters may send us just a newline
+     * However the is an exception: primaries may send us just a newline
      * to keep the connection active. */
     if (querylen != 0 && c->flags & CLIENT_MASTER) {
-        serverLog(LL_WARNING,"WARNING: Receiving inline protocol from master, master stream corruption? Closing the master connection and discarding the cached master.");
-        setProtocolError("Master using the inline protocol. Desync?",c);
+        serverLog(LL_WARNING,"WARNING: Receiving inline protocol from primary, primary stream corruption? Closing the primary connection and discarding the cached primary.");
+        setProtocolError("Primary using the inline protocol. Desync?",c);
         return C_ERR;
     }
 
@@ -1743,12 +1743,12 @@ int processMultibulkBuffer(client *c) {
 /* Perform necessary tasks after a command was executed:
  *
  * 1. The client is reset unless there are reasons to avoid doing it.
- * 2. In the case of master clients, the replication offset is updated.
- * 3. Propagate commands we got from our master to replicas down the line. */
+ * 2. In the case of primary clients, the replication offset is updated.
+ * 3. Propagate commands we got from our primary to replicas down the line. */
 void commandProcessed(client *c) {
     long long prev_offset = c->reploff;
     if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
-        /* Update the applied replication offset of our master. */
+        /* Update the applied replication offset of our primary. */
         c->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
     }
 
@@ -1762,16 +1762,16 @@ void commandProcessed(client *c) {
         resetClient(c);
     }
 
-    /* If the client is a master we need to compute the difference
+    /* If the client is a primary we need to compute the difference
      * between the applied offset before and after processing the buffer,
      * to understand how much of the replication stream was actually
-     * applied to the master state: this quantity, and its corresponding
+     * applied to the primary state: this quantity, and its corresponding
      * part of the replication stream, will be propagated to the
      * sub-replicas and to the replication backlog. */
     if (c->flags & CLIENT_MASTER) {
         long long applied = c->reploff - prev_offset;
         if (applied) {
-            replicationFeedSlavesFromMasterStream(server.slaves,
+            replicationFeedSlavesFromPrimaryStream(server.slaves,
                     c->pending_querybuf, applied);
             sdsrange(c->pending_querybuf,applied,-1);
         }
@@ -1817,7 +1817,7 @@ void processInputBuffer(client *c) {
          * commands to execute in c->argv. */
         if (c->flags & CLIENT_PENDING_COMMAND) break;
 
-        /* Don't process input from the master while there is a busy script
+        /* Don't process input from the primary while there is a busy script
          * condition on the slave. We want just to accumulate the replication
          * stream (instead of replying -BUSY like we do with other clients) and
          * later resume the processing. */
@@ -1931,7 +1931,7 @@ void readQueryFromClient(connection *conn) {
         return;
     } else if (c->flags & CLIENT_MASTER) {
         /* Append the query buffer to the pending (not applied) buffer
-         * of the master. We'll use this buffer later in order to have a
+         * of the primary. We'll use this buffer later in order to have a
          * copy of the string applied by the last command executed. */
         c->pending_querybuf = sdscatlen(c->pending_querybuf,
                                         c->querybuf+qblen,nread);
@@ -2132,11 +2132,11 @@ void clientCommand(client *c) {
 "KILL <ip:port>         -- Kill connection made from <ip:port>.",
 "KILL <option> <value> [option value ...] -- Kill connections. Options are:",
 "     ADDR <ip:port>                      -- Kill connection made from <ip:port>",
-"     TYPE (normal|master|replica|pubsub) -- Kill connections by type.",
+"     TYPE (normal|primary|replica|pubsub) -- Kill connections by type.",
 "     USER <username>   -- Kill connections authenticated with such user.",
 "     SKIPME (yes|no)   -- Skip killing current connection (default: yes).",
 "LIST [options ...]     -- Return information about client connections. Options:",
-"     TYPE (normal|master|replica|pubsub) -- Return clients of specified type.",
+"     TYPE (normal|primary|replica|pubsub) -- Return clients of specified type.",
 "PAUSE <timeout>        -- Suspend all Redis clients for <timout> milliseconds.",
 "REPLY (on|off|skip)    -- Control the replies sent to the current connection.",
 "SETNAME <name>         -- Assign the name <name> to the current connection.",
@@ -2546,7 +2546,7 @@ void helloCommand(client *c) {
 
     if (!server.sentinel_mode) {
         addReplyBulkCString(c,"role");
-        addReplyBulkCString(c,server.masterhost ? "replica" : "master");
+        addReplyBulkCString(c,server.primaryhost ? "replica" : "primary");
     }
 
     addReplyBulkCString(c,"modules");
@@ -2662,7 +2662,7 @@ unsigned long getClientOutputBufferMemoryUsage(client *c) {
  * CLIENT_TYPE_NORMAL -> Normal client
  * CLIENT_TYPE_SLAVE  -> Slave
  * CLIENT_TYPE_PUBSUB -> Client subscribed to Pub/Sub channels
- * CLIENT_TYPE_MASTER -> The client representing our replication master.
+ * CLIENT_TYPE_MASTER -> The client representing our replication primary.
  */
 int getClientType(client *c) {
     if (c->flags & CLIENT_MASTER) return CLIENT_TYPE_MASTER;
@@ -2679,7 +2679,7 @@ int getClientTypeByName(char *name) {
     else if (!strcasecmp(name,"slave")) return CLIENT_TYPE_SLAVE;
     else if (!strcasecmp(name,"replica")) return CLIENT_TYPE_SLAVE;
     else if (!strcasecmp(name,"pubsub")) return CLIENT_TYPE_PUBSUB;
-    else if (!strcasecmp(name,"master")) return CLIENT_TYPE_MASTER;
+    else if (!strcasecmp(name,"primary")) return CLIENT_TYPE_MASTER;
     else return -1;
 }
 
@@ -2688,7 +2688,7 @@ char *getClientTypeName(int class) {
     case CLIENT_TYPE_NORMAL: return "normal";
     case CLIENT_TYPE_SLAVE:  return "slave";
     case CLIENT_TYPE_PUBSUB: return "pubsub";
-    case CLIENT_TYPE_MASTER: return "master";
+    case CLIENT_TYPE_MASTER: return "primary";
     default:                       return NULL;
     }
 }
@@ -2704,7 +2704,7 @@ int checkClientOutputBufferLimits(client *c) {
     unsigned long used_mem = getClientOutputBufferMemoryUsage(c);
 
     class = getClientType(c);
-    /* For the purpose of output buffer limiting, masters are handled
+    /* For the purpose of output buffer limiting, primaries are handled
      * like normal clients. */
     if (class == CLIENT_TYPE_MASTER) class = CLIENT_TYPE_NORMAL;
 
@@ -2802,7 +2802,7 @@ void flushSlavesOutputBuffers(void) {
  * However while this function pauses normal and Pub/Sub clients, slaves are
  * still served, so this function can be used on server upgrades where it is
  * required that slaves process the latest bytes from the replication stream
- * before being turned to masters.
+ * before being turned to primaries.
  *
  * This function is also internally used by Redis Cluster for the manual
  * failover procedure implemented by CLUSTER FAILOVER.
@@ -2848,7 +2848,7 @@ int clientsArePaused(void) {
 /* This function is called by Redis in order to process a few events from
  * time to time while blocked into some not interruptible operation.
  * This allows to reply to clients with the -LOADING error while loading the
- * data set at startup or after a full resynchronization with the master
+ * data set at startup or after a full resynchronization with the primary
  * and so forth.
  *
  * It calls the event loop in order to process a few events. Specifically we

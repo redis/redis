@@ -19,7 +19,7 @@ test "Cluster should be still up" {
     assert_cluster_state ok
 }
 
-test "Killing one master node" {
+test "Killing one primary node" {
     kill_instance redis 0
 }
 
@@ -29,7 +29,7 @@ test "Cluster should be down now" {
     assert_cluster_state fail
 }
 
-test "Restarting master node" {
+test "Restarting primary node" {
     restart_instance redis 0
 }
 

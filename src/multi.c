@@ -128,7 +128,7 @@ void execCommand(client *c) {
     int orig_argc;
     struct redisCommand *orig_cmd;
     int must_propagate = 0; /* Need to propagate MULTI/EXEC to AOF / slaves? */
-    int was_master = server.masterhost == NULL;
+    int was_primary = server.primaryhost == NULL;
 
     if (!(c->flags & CLIENT_MULTI)) {
         addReplyError(c,"EXEC without MULTI");
@@ -159,10 +159,10 @@ void execCommand(client *c) {
 
     /* If there are write commands inside the transaction, and this is a read
      * only slave, we want to send an error. This happens when the transaction
-     * was initiated when the instance was a master or a writable replica and
+     * was initiated when the instance was a primary or a writable replica and
      * then the configuration changed (for example instance was turned into
      * a replica). */
-    if (!server.loading && server.masterhost && server.repl_slave_ro &&
+    if (!server.loading && server.primaryhost && server.repl_slave_ro &&
         !(c->flags & CLIENT_MASTER) && c->mstate.cmd_flags & CMD_WRITE)
     {
         addReplyError(c,
@@ -225,14 +225,14 @@ void execCommand(client *c) {
     /* Make sure the EXEC command will be propagated as well if MULTI
      * was already propagated. */
     if (must_propagate) {
-        int is_master = server.masterhost == NULL;
+        int is_primary = server.primaryhost == NULL;
         server.dirty++;
         /* If inside the MULTI/EXEC block this instance was suddenly
-         * switched from master to slave (using the SLAVEOF command), the
+         * switched from primary to slave (using the SLAVEOF command), the
          * initial MULTI was propagated into the replication backlog, but the
          * rest was not. We need to make sure to at least terminate the
          * backlog with the final EXEC. */
-        if (server.repl_backlog && was_master && !is_master) {
+        if (server.repl_backlog && was_primary && !is_primary) {
             char *execcmd = "*1\r\n$4\r\nEXEC\r\n";
             feedReplicationBacklog(execcmd,strlen(execcmd));
         }

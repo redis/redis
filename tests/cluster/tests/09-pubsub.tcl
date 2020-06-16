@@ -31,7 +31,7 @@ proc test_cluster_publish {instance instances} {
     }
 }
 
-test "Test publishing to master" {
+test "Test publishing to primary" {
     test_cluster_publish 0 10
 }
 

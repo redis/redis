@@ -330,10 +330,10 @@ void activeExpireCycle(int type) {
 /*-----------------------------------------------------------------------------
  * Expires of keys created in writable slaves
  *
- * Normally slaves do not process expires: they wait the masters to synthesize
+ * Normally slaves do not process expires: they wait the primaries to synthesize
  * DEL operations in order to retain consistency. However writable slaves are
  * an exception: if a key is created in the slave and an expire is assigned
- * to it, we need a way to expire such a key, since the master does not know
+ * to it, we need a way to expire such a key, since the primary does not know
  * anything about such a key.
  *
  * In order to do so, we track keys created in the slave side with an expire
@@ -364,7 +364,7 @@ void activeExpireCycle(int type) {
  * ID greater than 63, and check all the configured DBs in such a case. */
 dict *slaveKeysWithExpire = NULL;
 
-/* Check the set of keys created by the master with an expire set in order to
+/* Check the set of keys created by the primary with an expire set in order to
  * check if they should be evicted. */
 void expireSlaveKeys(void) {
     if (slaveKeysWithExpire == NULL ||
@@ -461,12 +461,12 @@ size_t getSlaveKeyWithExpireCount(void) {
 }
 
 /* Remove the keys in the hash table. We need to do that when data is
- * flushed from the server. We may receive new keys from the master with
+ * flushed from the server. We may receive new keys from the primary with
  * the same name/db and it is no longer a good idea to expire them.
  *
  * Note: technically we should handle the case of a single DB being flushed
  * but it is not worth it since anyway race conditions using the same set
- * of key names in a wriatable slave and in its master will lead to
+ * of key names in a wriatable slave and in its primary will lead to
  * inconsistencies. This is just a best-effort thing we do. */
 void flushSlaveKeysWithExpireList(void) {
     if (slaveKeysWithExpire) {
@@ -507,8 +507,8 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
      * of a slave instance.
      *
      * Instead we take the other branch of the IF statement setting an expire
-     * (possibly in the past) and wait for an explicit DEL from the master. */
-    if (when <= mstime() && !server.loading && !server.masterhost) {
+     * (possibly in the past) and wait for an explicit DEL from the primary. */
+    if (when <= mstime() && !server.loading && !server.primaryhost) {
         robj *aux;
 
         int deleted = server.lazyfree_lazy_expire ? dbAsyncDelete(c->db,key) :

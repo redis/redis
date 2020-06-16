@@ -12,10 +12,10 @@ proc cluster_allocate_mixedSlots {n} {
     }
 }
 
-proc create_cluster_with_mixedSlot {masters slaves} {
-    cluster_allocate_mixedSlots $masters
+proc create_cluster_with_mixedSlot {primaries slaves} {
+    cluster_allocate_mixedSlots $primaries
     if {$slaves} {
-        cluster_allocate_slaves $masters $slaves
+        cluster_allocate_slaves $primaries $slaves
     }
     assert_cluster_state ok
 }

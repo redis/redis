@@ -54,21 +54,21 @@ tags "modules" {
                 set replica_host [srv 0 host]
                 set replica_port [srv 0 port]
                 start_server [list overrides [list loadmodule "$testmodule"]] {
-                    set master [srv 0 client]
-                    set master_host [srv 0 host]
-                    set master_port [srv 0 port]
+                    set primary [srv 0 client]
+                    set primary_host [srv 0 host]
+                    set primary_port [srv 0 port]
 
-                    # Set master and replica to use diskless replication
-                    $master config set repl-diskless-sync yes
-                    $master config set rdbcompression no
+                    # Set primary and replica to use diskless replication
+                    $primary config set repl-diskless-sync yes
+                    $primary config set rdbcompression no
                     $replica config set repl-diskless-load swapdb
                     for {set k 0} {$k < 30} {incr k} {
                         r testrdb.set.key key$k [string repeat A [expr {int(rand()*1000000)}]]
                     }
 
                     # Start the replication process...
-                    $master config set repl-diskless-sync-delay 0
-                    $replica replicaof $master_host $master_port
+                    $primary config set repl-diskless-sync-delay 0
+                    $replica replicaof $primary_host $primary_port
 
                     # kill the replication at various points
                     set attempts 3
@@ -78,11 +78,11 @@ tags "modules" {
                         # using the log file since the replica only responds to INFO once in 2mb
                         wait_for_log_message -1 "*Loading DB in memory*" 5 2000 1
 
-                        # add some additional random sleep so that we kill the master on a different place each time
+                        # add some additional random sleep so that we kill the primary on a different place each time
                         after [expr {int(rand()*100)}]
 
-                        # kill the replica connection on the master
-                        set killed [$master client kill type replica]
+                        # kill the replica connection on the primary
+                        set killed [$primary client kill type replica]
 
                         if {[catch {
                             set res [wait_for_log_message -1 "*Internal error in RDB*" 5 100 10]
@@ -92,10 +92,10 @@ tags "modules" {
                         }]} {
                             puts "failed triggering short read"
                             # force the replica to try another full sync
-                            $master client kill type replica
-                            $master set asdf asdf
+                            $primary client kill type replica
+                            $primary set asdf asdf
                             # the side effect of resizing the backlog is that it is flushed (16k is the min size)
-                            $master config set repl-backlog-size [expr {16384 + $i}]
+                            $primary config set repl-backlog-size [expr {16384 + $i}]
                         }
                         # wait for loading to stop (fail)
                         wait_for_condition 100 10 {
@@ -105,7 +105,7 @@ tags "modules" {
                         }
                     }
                     # enable fast shutdown
-                    $master config set rdb-key-save-delay 0
+                    $primary config set rdb-key-save-delay 0
                 }
             }
         }

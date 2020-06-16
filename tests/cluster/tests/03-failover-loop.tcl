@@ -22,7 +22,7 @@ while {[incr iterations -1]} {
     set key [randstring 20 20 alpha]
     set val [randstring 20 20 alpha]
     set role [RI $tokill role]
-    if {$role eq {master}} {
+    if {$role eq {primary}} {
         set slave {}
         set myid [dict get [get_myself $tokill] id]
         foreach_redis_id id {
@@ -32,13 +32,13 @@ while {[incr iterations -1]} {
             }
         }
         if {$slave eq {}} {
-            fail "Unable to retrieve slave's ID for master #$tokill"
+            fail "Unable to retrieve slave's ID for primary #$tokill"
         }
     }
 
     puts "--- Iteration $iterations ---"
 
-    if {$role eq {master}} {
+    if {$role eq {primary}} {
         test "Wait for slave of #$tokill to sync" {
             wait_for_condition 1000 50 {
                 [string match {*state=online*} [RI $tokill slave0]]
@@ -55,8 +55,8 @@ while {[incr iterations -1]} {
             assert {$err eq {OK}}
         }
         # Wait for the write to propagate to the slave if we
-        # are going to kill a master.
-        if {$role eq {master}} {
+        # are going to kill a primary.
+        if {$role eq {primary}} {
             R $tokill wait 1 20000
         }
     }
@@ -65,7 +65,7 @@ while {[incr iterations -1]} {
         kill_instance redis $tokill
     }
 
-    if {$role eq {master}} {
+    if {$role eq {primary}} {
         test "Wait failover by #$slave with old epoch $slave_config_epoch" {
             wait_for_condition 1000 50 {
                 [CI $slave cluster_my_epoch] > $slave_config_epoch

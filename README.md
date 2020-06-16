@@ -265,7 +265,7 @@ A few important fields in this structure are:
 * `server.db` is an array of Redis databases, where data is stored.
 * `server.commands` is the command table.
 * `server.clients` is a linked list of clients connected to the server.
-* `server.master` is a special client, the master, if the instance is a replica.
+* `server.primary` is a special client, the primary, if the instance is a replica.
 
 There are tons of other fields. Most fields are commented directly inside
 the structure definition.
@@ -343,7 +343,7 @@ Inside server.c you can find code that handles other vital things of the Redis s
 networking.c
 ---
 
-This file defines all the I/O functions with clients, masters and replicas
+This file defines all the I/O functions with clients, primarys and replicas
 (which in Redis are just special clients):
 
 * `createClient()` allocates and initializes a new client.
@@ -410,15 +410,15 @@ replication.c
 
 This is one of the most complex files inside Redis, it is recommended to
 approach it only after getting a bit familiar with the rest of the code base.
-In this file there is the implementation of both the master and replica role
+In this file there is the implementation of both the primary and replica role
 of Redis.
 
 One of the most important functions inside this file is `replicationFeedSlaves()` that writes commands to the clients representing replica instances connected
-to our master, so that the replicas can get the writes performed by the clients:
-this way their data set will remain synchronized with the one in the master.
+to our primary, so that the replicas can get the writes performed by the clients:
+this way their data set will remain synchronized with the one in the primary.
 
 This file also implements both the `SYNC` and `PSYNC` commands that are
-used in order to perform the first synchronization between masters and
+used in order to perform the first synchronization between primarys and
 replicas, or to continue the replication after a disconnection.
 
 Other C files

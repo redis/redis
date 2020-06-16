@@ -156,8 +156,8 @@ void roleChangeCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, v
 
     RedisModuleReplicationInfo *ri = data;
     char *keyname = (sub == REDISMODULE_EVENT_REPLROLECHANGED_NOW_MASTER) ?
-        "role-master" : "role-replica";
-    LogStringEvent(ctx, keyname, ri->masterhost);
+        "role-primary" : "role-replica";
+    LogStringEvent(ctx, keyname, ri->primaryhost);
 }
 
 void replicationChangeCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void *data)
@@ -176,7 +176,7 @@ void rasterLinkChangeCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t 
     REDISMODULE_NOT_USED(data);
 
     char *keyname = (sub == REDISMODULE_SUBEVENT_MASTER_LINK_UP) ?
-        "masterlink-up" : "masterlink-down";
+        "primarylink-up" : "primarylink-down";
     LogNumericEvent(ctx, keyname, 0);
 }
 
@@ -268,7 +268,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     RedisModule_SubscribeToServerEvent(ctx,
         RedisModuleEvent_ReplicaChange, replicationChangeCallback);
     RedisModule_SubscribeToServerEvent(ctx,
-        RedisModuleEvent_MasterLinkChange, rasterLinkChangeCallback);
+        RedisModuleEvent_PrimaryLinkChange, rasterLinkChangeCallback);
 
     /* persistence related hooks */
     RedisModule_SubscribeToServerEvent(ctx,

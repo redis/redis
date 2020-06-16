@@ -42,7 +42,7 @@ To connect to this Redis server with `redis-cli`:
 This will disable TCP and enable TLS on port 6379. It's also possible to have
 both TCP and TLS available, but you'll need to assign different ports.
 
-To make a Replica connect to the master using TLS, use `--tls-replication yes`,
+To make a Replica connect to the primary using TLS, use `--tls-replication yes`,
 and to make Redis Cluster use TLS across nodes use `--tls-cluster yes`.
 
 Connections

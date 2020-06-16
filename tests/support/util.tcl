@@ -83,7 +83,7 @@ proc waitForBgrewriteaof r {
 
 proc wait_for_sync r {
     while 1 {
-        if {[status $r master_link_status] eq "down"} {
+        if {[status $r primary_link_status] eq "down"} {
             after 10
         } else {
             break
@@ -93,7 +93,7 @@ proc wait_for_sync r {
 
 proc wait_for_ofs_sync {r1 r2} {
     wait_for_condition 50 100 {
-        [status $r1 master_repl_offset] eq [status $r2 master_repl_offset]
+        [status $r1 primary_repl_offset] eq [status $r2 primary_repl_offset]
     } else {
         fail "replica didn't sync in time"
     }

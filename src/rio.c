@@ -273,7 +273,7 @@ void rioFreeConn(rio *r, sds *remaining) {
 }
 
 /* ------------------- File descriptor implementation ------------------
- * This target is used to write the RDB file to pipe, when the master just
+ * This target is used to write the RDB file to pipe, when the primary just
  * streams the data to the replicas without creating an RDB on-disk image
  * (diskless replication option).
  * It only implements writes. */

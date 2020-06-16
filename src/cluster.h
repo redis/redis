@@ -14,11 +14,11 @@
 /* The following defines are amount of time, sometimes expressed as
  * multiplicators of the node timeout value (when ending with MULT). */
 #define CLUSTER_FAIL_REPORT_VALIDITY_MULT 2 /* Fail report validity. */
-#define CLUSTER_FAIL_UNDO_TIME_MULT 2 /* Undo fail if master is back. */
+#define CLUSTER_FAIL_UNDO_TIME_MULT 2 /* Undo fail if primary is back. */
 #define CLUSTER_FAIL_UNDO_TIME_ADD 10 /* Some additional time. */
 #define CLUSTER_FAILOVER_DELAY 5 /* Seconds */
 #define CLUSTER_MF_TIMEOUT 5000 /* Milliseconds to do a manual failover. */
-#define CLUSTER_MF_PAUSE_MULT 2 /* Master pause manual failover mult. */
+#define CLUSTER_MF_PAUSE_MULT 2 /* Primary pause manual failover mult. */
 #define CLUSTER_SLAVE_MIGRATION_DELAY 5000 /* Delay for slave migration. */
 
 /* Redirection errors returned by getNodeByQuery(). */
@@ -43,7 +43,7 @@ typedef struct clusterLink {
 } clusterLink;
 
 /* Cluster node flags and macros. */
-#define CLUSTER_NODE_MASTER 1     /* The node is a master */
+#define CLUSTER_NODE_MASTER 1     /* The node is a primary */
 #define CLUSTER_NODE_SLAVE 2      /* The node is a slave */
 #define CLUSTER_NODE_PFAIL 4      /* Failure? Need acknowledge */
 #define CLUSTER_NODE_FAIL 8       /* The node is believed to be malfunctioning */
@@ -51,11 +51,11 @@ typedef struct clusterLink {
 #define CLUSTER_NODE_HANDSHAKE 32 /* We have still to exchange the first ping */
 #define CLUSTER_NODE_NOADDR   64  /* We don't know the address of this node */
 #define CLUSTER_NODE_MEET 128     /* Send a MEET message to this node */
-#define CLUSTER_NODE_MIGRATE_TO 256 /* Master elegible for replica migration. */
+#define CLUSTER_NODE_MIGRATE_TO 256 /* Primary elegible for replica migration. */
 #define CLUSTER_NODE_NOFAILOVER 512 /* Slave will not try to failver. */
 #define CLUSTER_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
 
-#define nodeIsMaster(n) ((n)->flags & CLUSTER_NODE_MASTER)
+#define nodeIsPrimary(n) ((n)->flags & CLUSTER_NODE_MASTER)
 #define nodeIsSlave(n) ((n)->flags & CLUSTER_NODE_SLAVE)
 #define nodeInHandshake(n) ((n)->flags & CLUSTER_NODE_HANDSHAKE)
 #define nodeHasAddr(n) (!((n)->flags & CLUSTER_NODE_NOADDR))
@@ -116,19 +116,19 @@ typedef struct clusterNode {
     uint64_t configEpoch; /* Last configEpoch observed for this node */
     unsigned char slots[CLUSTER_SLOTS/8]; /* slots handled by this node */
     int numslots;   /* Number of slots handled by this node */
-    int numslaves;  /* Number of slave nodes, if this is a master */
+    int numslaves;  /* Number of slave nodes, if this is a primary */
     struct clusterNode **slaves; /* pointers to slave nodes */
-    struct clusterNode *slaveof; /* pointer to the master node. Note that it
+    struct clusterNode *slaveof; /* pointer to the primary node. Note that it
                                     may be NULL even if the node is a slave
-                                    if we don't have the master node in our
+                                    if we don't have the primary node in our
                                     tables. */
     mstime_t ping_sent;      /* Unix time we sent latest ping */
     mstime_t pong_received;  /* Unix time we received the pong */
     mstime_t data_received;  /* Unix time we received any data */
     mstime_t fail_time;      /* Unix time when FAIL flag was set */
-    mstime_t voted_time;     /* Last time we voted for a slave of this master */
+    mstime_t voted_time;     /* Last time we voted for a slave of this primary */
     mstime_t repl_offset_time;  /* Unix time we received offset for this node */
-    mstime_t orphaned_time;     /* Starting time of orphaned master condition */
+    mstime_t orphaned_time;     /* Starting time of orphaned primary condition */
     long long repl_offset;      /* Last known repl offset for this node. */
     char ip[NET_IP_STR_LEN];  /* Latest known IP address of this node */
     int port;                   /* Latest known clients port of this node */
@@ -141,7 +141,7 @@ typedef struct clusterState {
     clusterNode *myself;  /* This node */
     uint64_t currentEpoch;
     int state;            /* CLUSTER_OK, CLUSTER_FAIL, ... */
-    int size;             /* Num of master nodes with at least one slot */
+    int size;             /* Num of primary nodes with at least one slot */
     dict *nodes;          /* Hash table of name -> clusterNode structures */
     dict *nodes_black_list; /* Nodes we don't re-add for a few seconds. */
     clusterNode *migrating_slots_to[CLUSTER_SLOTS];
@@ -160,14 +160,14 @@ typedef struct clusterState {
     /* Manual failover state in common. */
     mstime_t mf_end;            /* Manual failover time limit (ms unixtime).
                                    It is zero if there is no MF in progress. */
-    /* Manual failover state of master. */
+    /* Manual failover state of primary. */
     clusterNode *mf_slave;      /* Slave performing the manual failover. */
     /* Manual failover state of slave. */
-    long long mf_master_offset; /* Master offset the slave needs to start MF
+    long long mf_primary_offset; /* Primary offset the slave needs to start MF
                                    or zero if stil not received. */
     int mf_can_start;           /* If non-zero signal that the manual failover
-                                   can start requesting masters vote. */
-    /* The followign fields are used by masters to take state on elections. */
+                                   can start requesting primaries vote. */
+    /* The followign fields are used by primaries to take state on elections. */
     uint64_t lastVoteEpoch;     /* Epoch of the last vote granted. */
     int todo_before_sleep; /* Things to do in clusterBeforeSleep(). */
     /* Messages received and sent by type. */
@@ -254,10 +254,10 @@ typedef struct {
     uint16_t type;      /* Message type */
     uint16_t count;     /* Only used for some kind of messages. */
     uint64_t currentEpoch;  /* The epoch accordingly to the sending node. */
-    uint64_t configEpoch;   /* The config epoch if it's a master, or the last
-                               epoch advertised by its master if it is a
+    uint64_t configEpoch;   /* The config epoch if it's a primary, or the last
+                               epoch advertised by its primary if it is a
                                slave. */
-    uint64_t offset;    /* Master replication offset if node is a master or
+    uint64_t offset;    /* Primary replication offset if node is a primary or
                            processed replication offset if node is a slave. */
     char sender[CLUSTER_NAMELEN]; /* Name of the sender node */
     unsigned char myslots[CLUSTER_SLOTS/8];
@@ -275,9 +275,9 @@ typedef struct {
 
 /* Message flags better specify the packet content or are used to
  * provide some information about the node state. */
-#define CLUSTERMSG_FLAG0_PAUSED (1<<0) /* Master paused for manual failover. */
+#define CLUSTERMSG_FLAG0_PAUSED (1<<0) /* Primary paused for manual failover. */
 #define CLUSTERMSG_FLAG0_FORCEACK (1<<1) /* Give ACK to AUTH_REQUEST even if
-                                            master is up. */
+                                            primary is up. */
 
 /* ---------------------- API exported outside cluster.c -------------------- */
 clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);

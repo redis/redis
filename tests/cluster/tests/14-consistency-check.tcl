@@ -12,14 +12,14 @@ test "Cluster is writable" {
     cluster_write_test 0
 }
 
-proc find_non_empty_master {} {
-    set master_id_no {}
+proc find_non_empty_primary {} {
+    set primary_id_no {}
     foreach_redis_id id {
-        if {[RI $id role] eq {master} && [R $id dbsize] > 0} {
-            set master_id_no $id
+        if {[RI $id role] eq {primary} && [R $id dbsize] > 0} {
+            set primary_id_no $id
         }
     }
-    return $master_id_no
+    return $primary_id_no
 }
 
 proc get_one_of_my_replica {id} {
@@ -40,15 +40,15 @@ proc cluster_write_keys_with_expire {id ttl} {
 
 proc test_slave_load_expired_keys {aof} {
     test "Slave expired keys is loaded when restarted: appendonly=$aof" {
-        set master_id [find_non_empty_master]
-        set replica_id [get_one_of_my_replica $master_id]
+        set primary_id [find_non_empty_primary]
+        set replica_id [get_one_of_my_replica $primary_id]
 
-        set master_dbsize [R $master_id dbsize]
+        set primary_dbsize [R $primary_id dbsize]
         set slave_dbsize [R $replica_id dbsize]
-        assert_equal $master_dbsize $slave_dbsize
+        assert_equal $primary_dbsize $slave_dbsize
 
         set data_ttl 5
-        cluster_write_keys_with_expire $master_id $data_ttl
+        cluster_write_keys_with_expire $primary_id $data_ttl
         after 100
         set replica_dbsize_1 [R $replica_id dbsize]
         assert {$replica_dbsize_1  > $slave_dbsize}
@@ -63,8 +63,8 @@ proc test_slave_load_expired_keys {aof} {
         assert {$replica_dbsize_2  > $slave_dbsize}
         kill_instance redis $replica_id
 
-        set master_port [get_instance_attrib redis $master_id port]
-        exec ../../../src/redis-cli -h 127.0.0.1 -p $master_port debug sleep [expr $data_ttl+3] > /dev/null &
+        set primary_port [get_instance_attrib redis $primary_id port]
+        exec ../../../src/redis-cli -h 127.0.0.1 -p $primary_port debug sleep [expr $data_ttl+3] > /dev/null &
 
         while {[clock seconds] <= $end_time} {
             #wait for $data_ttl seconds

@@ -402,8 +402,8 @@ void loadServerConfigFromString(char *config) {
         } else if ((!strcasecmp(argv[0],"slaveof") ||
                     !strcasecmp(argv[0],"replicaof")) && argc == 3) {
             slaveof_linenum = linenum;
-            server.masterhost = sdsnew(argv[1]);
-            server.masterport = atoi(argv[2]);
+            server.primaryhost = sdsnew(argv[1]);
+            server.primaryport = atoi(argv[2]);
             server.repl_state = REPL_STATE_CONNECT;
         } else if (!strcasecmp(argv[0],"requirepass") && argc == 2) {
             if (strlen(argv[1]) > CONFIG_AUTHPASS_MAX_LEN) {
@@ -460,7 +460,7 @@ void loadServerConfigFromString(char *config) {
 
             if (class == -1 || class == CLIENT_TYPE_MASTER) {
                 err = "Unrecognized client limit class: the user specified "
-                "an invalid one, or 'master' which has no buffer limits.";
+                "an invalid one, or 'primary' which has no buffer limits.";
                 goto loaderr;
             }
             hard = memtoll(argv[2],NULL);
@@ -511,7 +511,7 @@ void loadServerConfigFromString(char *config) {
     }
 
     /* Sanity checks. */
-    if (server.cluster_enabled && server.masterhost) {
+    if (server.cluster_enabled && server.primaryhost) {
         linenum = slaveof_linenum;
         i = linenum-1;
         err = "replicaof directive not allowed in cluster mode";
@@ -882,9 +882,9 @@ void configGetCommand(client *c) {
         char buf[256];
 
         addReplyBulkCString(c,optname);
-        if (server.masterhost)
+        if (server.primaryhost)
             snprintf(buf,sizeof(buf),"%s %d",
-                server.masterhost, server.masterport);
+                server.primaryhost, server.primaryport);
         else
             buf[0] = '\0';
         addReplyBulkCString(c,buf);
@@ -1268,15 +1268,15 @@ void rewriteConfigDirOption(struct rewriteConfigState *state) {
 void rewriteConfigSlaveofOption(struct rewriteConfigState *state, char *option) {
     sds line;
 
-    /* If this is a master, we want all the slaveof config options
+    /* If this is a primary, we want all the slaveof config options
      * in the file to be removed. Note that if this is a cluster instance
      * we don't want a slaveof directive inside redis.conf. */
-    if (server.cluster_enabled || server.masterhost == NULL) {
+    if (server.cluster_enabled || server.primaryhost == NULL) {
         rewriteConfigMarkAsProcessed(state,option);
         return;
     }
     line = sdscatprintf(sdsempty(),"%s %s %d", option,
-        server.masterhost, server.masterport);
+        server.primaryhost, server.primaryport);
     rewriteConfigRewriteLine(state,option,line,1);
 }
 
@@ -2127,8 +2127,8 @@ standardConfig configs[] = {
     createStringConfig("unixsocket", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.unixsocket, NULL, NULL, NULL),
     createStringConfig("pidfile", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.pidfile, NULL, NULL, NULL),
     createStringConfig("replica-announce-ip", "slave-announce-ip", MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.slave_announce_ip, NULL, NULL, NULL),
-    createStringConfig("masteruser", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.masteruser, NULL, NULL, NULL),
-    createStringConfig("masterauth", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.masterauth, NULL, NULL, NULL),
+    createStringConfig("primaryuser", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.primaryuser, NULL, NULL, NULL),
+    createStringConfig("primaryauth", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.primaryauth, NULL, NULL, NULL),
     createStringConfig("cluster-announce-ip", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_ip, NULL, NULL, NULL),
     createStringConfig("syslog-ident", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.syslog_ident, "redis", NULL, NULL),
     createStringConfig("dbfilename", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.rdb_filename, "dump.rdb", isValidDBfilename, NULL),

@@ -1,24 +1,24 @@
 # Check that slaves are reconfigured at a latter time if they are partitioned.
 #
 # Here we should test:
-# 1) That slaves point to the new master after failover.
-# 2) That partitioned slaves point to new master when they are partitioned
+# 1) That slaves point to the new primary after failover.
+# 2) That partitioned slaves point to new primary when they are partitioned
 #    away during failover and return at a latter time.
 
 source "../tests/includes/init-tests.tcl"
 
 proc 02_test_slaves_replication {} {
     uplevel 1 {
-        test "Check that slaves replicate from current master" {
-            set master_port [RI $master_id tcp_port]
+        test "Check that slaves replicate from current primary" {
+            set primary_port [RI $primary_id tcp_port]
             foreach_redis_id id {
-                if {$id == $master_id} continue
+                if {$id == $primary_id} continue
                 if {[instance_is_killed redis $id]} continue
                 wait_for_condition 1000 50 {
-                    ([RI $id master_port] == $master_port) &&
-                    ([RI $id master_link_status] eq {up})
+                    ([RI $id primary_port] == $primary_port) &&
+                    ([RI $id primary_link_status] eq {up})
                 } else {
-                    fail "Redis slave $id is replicating from wrong master"
+                    fail "Redis slave $id is replicating from wrong primary"
                 }
             }
         }
@@ -27,21 +27,21 @@ proc 02_test_slaves_replication {} {
 
 proc 02_crash_and_failover {} {
     uplevel 1 {
-        test "Crash the master and force a failover" {
-            set old_port [RI $master_id tcp_port]
-            set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
+        test "Crash the primary and force a failover" {
+            set old_port [RI $primary_id tcp_port]
+            set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME myprimary]
             assert {[lindex $addr 1] == $old_port}
-            kill_instance redis $master_id
+            kill_instance redis $primary_id
             foreach_sentinel_id id {
                 wait_for_condition 1000 50 {
-                    [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] != $old_port
+                    [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME myprimary] 1] != $old_port
                 } else {
                     fail "At least one Sentinel did not receive failover info"
                 }
             }
-            restart_instance redis $master_id
-            set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
-            set master_id [get_instance_id_by_port redis [lindex $addr 1]]
+            restart_instance redis $primary_id
+            set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME myprimary]
+            set primary_id [get_instance_id_by_port redis [lindex $addr 1]]
         }
     }
 }
@@ -52,7 +52,7 @@ proc 02_crash_and_failover {} {
 
 test "Kill a slave instance" {
     foreach_redis_id id {
-        if {$id == $master_id} continue
+        if {$id == $primary_id} continue
         set killed_slave_id $id
         kill_instance redis $id
         break
@@ -67,7 +67,7 @@ test "Wait for failover to end" {
     while {$inprogress} {
         set inprogress 0
         foreach_sentinel_id id {
-            if {[dict exists [S $id SENTINEL MASTER mymaster] failover-state]} {
+            if {[dict exists [S $id SENTINEL MASTER myprimary] failover-state]} {
                 incr inprogress
             }
         }

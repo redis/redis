@@ -151,24 +151,24 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             set slave [srv 0 client]
             set slave_host [srv 0 host]
             set slave_port [srv 0 port]
-            set master [srv -1 client]
-            set master_host [srv -1 host]
-            set master_port [srv -1 port]
+            set primary [srv -1 client]
+            set primary_host [srv -1 host]
+            set primary_port [srv -1 port]
 
             # add 100 keys of 100k (10MB total)
             for {set j 0} {$j < 100} {incr j} {
-                $master setrange "key:$j" 100000 asdf
+                $primary setrange "key:$j" 100000 asdf
             }
 
-            # make sure master doesn't disconnect slave because of timeout
-            $master config set repl-timeout 1200 ;# 20 minutes (for valgrind and slow machines)
-            $master config set maxmemory-policy allkeys-random
-            $master config set client-output-buffer-limit "replica 100000000 100000000 300"
-            $master config set repl-backlog-size [expr {10*1024}]
+            # make sure primary doesn't disconnect slave because of timeout
+            $primary config set repl-timeout 1200 ;# 20 minutes (for valgrind and slow machines)
+            $primary config set maxmemory-policy allkeys-random
+            $primary config set client-output-buffer-limit "replica 100000000 100000000 300"
+            $primary config set repl-backlog-size [expr {10*1024}]
 
-            $slave slaveof $master_host $master_port
+            $slave slaveof $primary_host $primary_port
             wait_for_condition 50 100 {
-                [s 0 master_link_status] eq {up}
+                [s 0 primary_link_status] eq {up}
             } else {
                 fail "Replication not started."
             }
@@ -181,7 +181,7 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             set limit [expr {$orig_used - $orig_mem_not_counted_for_evict + 20*1024}]
 
             if {$limit_memory==1} {
-                $master config set maxmemory $limit
+                $primary config set maxmemory $limit
             }
 
             # put the slave to sleep
@@ -190,16 +190,16 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
 
             # send some 10mb worth of commands that don't increase the memory usage
             if {$pipeline == 1} {
-                set rd_master [redis_deferring_client -1]
+                set rd_primary [redis_deferring_client -1]
                 for {set k 0} {$k < $cmd_count} {incr k} {
-                    $rd_master setrange key:0 0 [string repeat A $payload_len]
+                    $rd_primary setrange key:0 0 [string repeat A $payload_len]
                 }
                 for {set k 0} {$k < $cmd_count} {incr k} {
-                    #$rd_master read
+                    #$rd_primary read
                 }
             } else {
                 for {set k 0} {$k < $cmd_count} {incr k} {
-                    $master setrange key:0 0 [string repeat A $payload_len]
+                    $primary setrange key:0 0 [string repeat A $payload_len]
                 }
             }
 
@@ -210,12 +210,12 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             set used_no_repl [expr {$new_used - $mem_not_counted_for_evict}]
             set delta [expr {($used_no_repl - $client_buf) - ($orig_used_no_repl - $orig_client_buf)}]
 
-            assert {[$master dbsize] == 100}
+            assert {[$primary dbsize] == 100}
             assert {$slave_buf > 2*1024*1024} ;# some of the data may have been pushed to the OS buffers
             set delta_max [expr {$cmd_count / 2}] ;# 1 byte unaccounted for, with 1M commands will consume some 1MB
             assert {$delta < $delta_max && $delta > -$delta_max}
 
-            $master client kill type slave
+            $primary client kill type slave
             set killed_used [s -1 used_memory]
             set killed_slave_buf [s -1 mem_clients_slaves]
             set killed_mem_not_counted_for_evict [s -1 mem_not_counted_for_evict]

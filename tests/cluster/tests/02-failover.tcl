@@ -18,17 +18,17 @@ test "Instance #5 is a slave" {
     assert {[RI 5 role] eq {slave}}
 }
 
-test "Instance #5 synced with the master" {
+test "Instance #5 synced with the primary" {
     wait_for_condition 1000 50 {
-        [RI 5 master_link_status] eq {up}
+        [RI 5 primary_link_status] eq {up}
     } else {
-        fail "Instance #5 master link status is not up"
+        fail "Instance #5 primary link status is not up"
     }
 }
 
 set current_epoch [CI 1 cluster_current_epoch]
 
-test "Killing one master node" {
+test "Killing one primary node" {
     kill_instance redis 0
 }
 
@@ -48,11 +48,11 @@ test "Cluster is writable" {
     cluster_write_test 1
 }
 
-test "Instance #5 is now a master" {
-    assert {[RI 5 role] eq {master}}
+test "Instance #5 is now a primary" {
+    assert {[RI 5 role] eq {primary}}
 }
 
-test "Restarting the previously killed master node" {
+test "Restarting the previously killed primary node" {
     restart_instance redis 0
 }
 
@@ -60,6 +60,6 @@ test "Instance #0 gets converted into a slave" {
     wait_for_condition 1000 50 {
         [RI 0 role] eq {slave}
     } else {
-        fail "Old master was not converted into slave"
+        fail "Old primary was not converted into slave"
     }
 }

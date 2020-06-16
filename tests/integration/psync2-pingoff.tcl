@@ -23,10 +23,10 @@ start_server {} {
         $R(1) replicaof $R_host(0) $R_port(0)
         $R(0) set foo bar
         wait_for_condition 50 1000 {
-            [status $R(1) master_link_status] == "up" &&
+            [status $R(1) primary_link_status] == "up" &&
             [$R(0) dbsize] == 1 && [$R(1) dbsize] == 1
         } else {
-            fail "Replicas not replicating from master"
+            fail "Replicas not replicating from primary"
         }
     }
 
@@ -37,12 +37,12 @@ start_server {} {
         wait_for_condition 50 1000 {
             [$R(0) GET counter] eq [$R(1) GET counter]
         } else {
-            fail "Master and replica don't agree about counter"
+            fail "Primary and replica don't agree about counter"
         }
     }
 
     # In this test we'll make sure the replica will get stuck, but with
-    # an active connection: this way the master will continue to send PINGs
+    # an active connection: this way the primary will continue to send PINGs
     # every second (we modified the PING period earlier)
     test "PSYNC2 pingoff: pause replica and promote it" {
         $R(1) MULTI
@@ -52,13 +52,13 @@ start_server {} {
         $R(1) ping ; # Wait for it to return back available
     }
 
-    test "Make the old master a replica of the new one and check conditions" {
+    test "Make the old primary a replica of the new one and check conditions" {
         assert_equal [status $R(1) sync_full] 0
         $R(0) REPLICAOF $R_host(1) $R_port(1)
         wait_for_condition 50 1000 {
             [status $R(1) sync_full] == 1
         } else {
-            fail "The new master was not able to sync"
+            fail "The new primary was not able to sync"
         }
 
         # make sure replication is still alive and kicking
@@ -69,7 +69,7 @@ start_server {} {
         } else {
             fail "replica didn't get incr"
         }
-        assert_equal [status $R(0) master_repl_offset] [status $R(1) master_repl_offset]
+        assert_equal [status $R(0) primary_repl_offset] [status $R(1) primary_repl_offset]
     }
 }}
 
@@ -80,25 +80,25 @@ start_server {} {
 start_server {} {
 start_server {} {
     test {test various edge cases of repl topology changes with missing pings at the end} {
-        set master [srv -4 client]
-        set master_host [srv -4 host]
-        set master_port [srv -4 port]
+        set primary [srv -4 client]
+        set primary_host [srv -4 host]
+        set primary_port [srv -4 port]
         set replica1 [srv -3 client]
         set replica2 [srv -2 client]
         set replica3 [srv -1 client]
         set replica4 [srv -0 client]
 
-        $replica1 replicaof $master_host $master_port
-        $replica2 replicaof $master_host $master_port
-        $replica3 replicaof $master_host $master_port
-        $replica4 replicaof $master_host $master_port
+        $replica1 replicaof $primary_host $primary_port
+        $replica2 replicaof $primary_host $primary_port
+        $replica3 replicaof $primary_host $primary_port
+        $replica4 replicaof $primary_host $primary_port
         wait_for_condition 50 1000 {
-            [status $master connected_slaves] == 4
+            [status $primary connected_slaves] == 4
         } else {
             fail "replicas didn't connect"
         }
 
-        $master incr x
+        $primary incr x
         wait_for_condition 50 1000 {
             [$replica1 get x] == 1 && [$replica2 get x] == 1 &&
             [$replica3 get x] == 1 && [$replica4 get x] == 1
@@ -107,25 +107,25 @@ start_server {} {
         }
 
         # disconnect replica1 and replica2
-        # and wait for the master to send a ping to replica3 and replica4
+        # and wait for the primary to send a ping to replica3 and replica4
         $replica1 replicaof no one
-        $replica2 replicaof 127.0.0.1 1 ;# we can't promote it to master since that will cycle the replication id
-        $master config set repl-ping-replica-period 1
+        $replica2 replicaof 127.0.0.1 1 ;# we can't promote it to primary since that will cycle the replication id
+        $primary config set repl-ping-replica-period 1
         after 1500
 
-        # make everyone sync from the replica1 that didn't get the last ping from the old master
-        # replica4 will keep syncing from the old master which now syncs from replica1
-        # and replica2 will re-connect to the old master (which went back in time)
-        set new_master_host [srv -3 host]
-        set new_master_port [srv -3 port]
-        $replica3 replicaof $new_master_host $new_master_port
-        $master replicaof $new_master_host $new_master_port
-        $replica2 replicaof $master_host $master_port
+        # make everyone sync from the replica1 that didn't get the last ping from the old primary
+        # replica4 will keep syncing from the old primary which now syncs from replica1
+        # and replica2 will re-connect to the old primary (which went back in time)
+        set new_primary_host [srv -3 host]
+        set new_primary_port [srv -3 port]
+        $replica3 replicaof $new_primary_host $new_primary_port
+        $primary replicaof $new_primary_host $new_primary_port
+        $replica2 replicaof $primary_host $primary_port
         wait_for_condition 50 1000 {
-            [status $replica2 master_link_status] == "up" &&
-            [status $replica3 master_link_status] == "up" &&
-            [status $replica4 master_link_status] == "up" &&
-            [status $master master_link_status] == "up"
+            [status $replica2 primary_link_status] == "up" &&
+            [status $replica3 primary_link_status] == "up" &&
+            [status $replica4 primary_link_status] == "up" &&
+            [status $primary primary_link_status] == "up"
         } else {
             fail "replicas didn't connect"
         }
@@ -136,23 +136,23 @@ start_server {} {
             [$replica2 get x] == 2 &&
             [$replica3 get x] == 2 &&
             [$replica4 get x] == 2 &&
-            [$master get x] == 2
+            [$primary get x] == 2
         } else {
             fail "replicas didn't get incr"
         }
 
         # make sure we have the right amount of full syncs
-        assert_equal [status $master sync_full] 6
+        assert_equal [status $primary sync_full] 6
         assert_equal [status $replica1 sync_full] 2
         assert_equal [status $replica2 sync_full] 0
         assert_equal [status $replica3 sync_full] 0
         assert_equal [status $replica4 sync_full] 0
 
         # force psync
-        $master client kill type master
-        $replica2 client kill type master
-        $replica3 client kill type master
-        $replica4 client kill type master
+        $primary client kill type primary
+        $replica2 client kill type primary
+        $replica3 client kill type primary
+        $replica4 client kill type primary
 
         # make sure replication is still alive and kicking
         $replica1 incr x
@@ -160,13 +160,13 @@ start_server {} {
             [$replica2 get x] == 3 &&
             [$replica3 get x] == 3 &&
             [$replica4 get x] == 3 &&
-            [$master get x] == 3
+            [$primary get x] == 3
         } else {
             fail "replicas didn't get incr"
         }
 
         # make sure we have the right amount of full syncs
-        assert_equal [status $master sync_full] 6
+        assert_equal [status $primary sync_full] 6
         assert_equal [status $replica1 sync_full] 2
         assert_equal [status $replica2 sync_full] 0
         assert_equal [status $replica3 sync_full] 0
@@ -185,39 +185,39 @@ start_server {} {
         $R($j) CONFIG SET repl-ping-replica-period 1
     }
 
-    test "Chained replicas disconnect when replica re-connect with the same master" {
+    test "Chained replicas disconnect when replica re-connect with the same primary" {
         # Add a second replica as a chained replica of the current replica
         $R(1) replicaof $R_host(0) $R_port(0)
         $R(2) replicaof $R_host(1) $R_port(1)
         wait_for_condition 50 1000 {
-            [status $R(2) master_link_status] == "up"
+            [status $R(2) primary_link_status] == "up"
         } else {
-            fail "Chained replica not replicating from its master"
+            fail "Chained replica not replicating from its primary"
         }
 
-        # Do a write on the master, and wait for 3 seconds for the master to
+        # Do a write on the primary, and wait for 3 seconds for the primary to
         # send some PINGs to its replica
         $R(0) INCR counter2
         after 2000
-        set sync_partial_master [status $R(0) sync_partial_ok]
+        set sync_partial_primary [status $R(0) sync_partial_ok]
         set sync_partial_replica [status $R(1) sync_partial_ok]
         $R(0) CONFIG SET repl-ping-replica-period 100
 
-        # Disconnect the master's direct replica
+        # Disconnect the primary's direct replica
         $R(0) client kill type replica
         wait_for_condition 50 1000 {
-            [status $R(1) master_link_status] == "up" && 
-            [status $R(2) master_link_status] == "up" &&
-            [status $R(0) sync_partial_ok] == $sync_partial_master + 1 &&
+            [status $R(1) primary_link_status] == "up" && 
+            [status $R(2) primary_link_status] == "up" &&
+            [status $R(0) sync_partial_ok] == $sync_partial_primary + 1 &&
             [status $R(1) sync_partial_ok] == $sync_partial_replica
         } else {
-            fail "Disconnected replica failed to PSYNC with master"
+            fail "Disconnected replica failed to PSYNC with primary"
         }
 
         # Verify that the replica and its replica's meaningful and real
-        # offsets match with the master
-        assert_equal [status $R(0) master_repl_offset] [status $R(1) master_repl_offset]
-        assert_equal [status $R(0) master_repl_offset] [status $R(2) master_repl_offset]
+        # offsets match with the primary
+        assert_equal [status $R(0) primary_repl_offset] [status $R(1) primary_repl_offset]
+        assert_equal [status $R(0) primary_repl_offset] [status $R(2) primary_repl_offset]
 
         # make sure replication is still alive and kicking
         $R(0) incr counter2
@@ -226,7 +226,7 @@ start_server {} {
         } else {
             fail "replicas didn't get incr"
         }
-        assert_equal [status $R(0) master_repl_offset] [status $R(1) master_repl_offset]
-        assert_equal [status $R(0) master_repl_offset] [status $R(2) master_repl_offset]
+        assert_equal [status $R(0) primary_repl_offset] [status $R(1) primary_repl_offset]
+        assert_equal [status $R(0) primary_repl_offset] [status $R(2) primary_repl_offset]
     }
 }}}

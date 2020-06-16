@@ -1,6 +1,6 @@
 [![Build Status](https://travis-ci.org/redis/hiredis.png)](https://travis-ci.org/redis/hiredis)
 
-**This Readme reflects the latest changed in the master branch. See [v0.13.3](https://github.com/redis/hiredis/tree/v0.13.3) for the Readme and documentation for the latest release.**
+**This Readme reflects the latest changed in the primary branch. See [v0.13.3](https://github.com/redis/hiredis/tree/v0.13.3) for the Readme and documentation for the latest release.**
 
 # HIREDIS
 
@@ -378,7 +378,7 @@ responsible for creating instances of the `redisReply` can be customized by
 setting the `fn` field on the `redisReader` struct. This should be done
 immediately after creating the `redisReader`.
 
-For example, [hiredis-rb](https://github.com/pietern/hiredis-rb/blob/master/ext/hiredis_ext/reader.c)
+For example, [hiredis-rb](https://github.com/pietern/hiredis-rb/blob/primary/ext/hiredis_ext/reader.c)
 uses customized reply object functions to create Ruby objects.
 
 ### Reader max buffer

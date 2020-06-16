@@ -7,16 +7,16 @@ tags "modules" {
             set replica_host [srv 0 host]
             set replica_port [srv 0 port]
             start_server [list overrides [list loadmodule "$testmodule"]] {
-                set master [srv 0 client]
-                set master_host [srv 0 host]
-                set master_port [srv 0 port]
+                set primary [srv 0 client]
+                set primary_host [srv 0 host]
+                set primary_port [srv 0 port]
 
                 # Start the replication process...
-                $replica replicaof $master_host $master_port
+                $replica replicaof $primary_host $primary_port
                 wait_for_sync $replica
 
                 after 1000
-                $master propagate-test
+                $primary propagate-test
 
                 wait_for_condition 5000 10 {
                     ([$replica get timer] eq "10") && \
@@ -25,13 +25,13 @@ tags "modules" {
                     fail "The two counters don't match the expected value."
                 }
 
-                $master propagate-test-2
-                $master propagate-test-3
-                $master multi
-                $master propagate-test-2
-                $master propagate-test-3
-                $master exec
-                wait_for_ofs_sync $master $replica
+                $primary propagate-test-2
+                $primary propagate-test-3
+                $primary multi
+                $primary propagate-test-2
+                $primary propagate-test-3
+                $primary exec
+                wait_for_ofs_sync $primary $replica
 
                 assert_equal [s -1 unexpected_error_replies] 0
             }

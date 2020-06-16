@@ -3,7 +3,7 @@ start_server {tags {"repl"}} {
         test {First server should have role slave after SLAVEOF} {
             r -1 slaveof [srv 0 host] [srv 0 port]
             wait_for_condition 50 100 {
-                [s -1 master_link_status] eq {up}
+                [s -1 primary_link_status] eq {up}
             } else {
                 fail "Replication not started."
             }
@@ -81,7 +81,7 @@ start_server {tags {"repl"}} {
                 set fd [open /tmp/repldump2.txt w]
                 puts -nonewline $fd $csv2
                 close $fd
-                puts "Master - Replica inconsistency"
+                puts "Primary - Replica inconsistency"
                 puts "Run diff -u against /tmp/repldump*.txt for more info"
             }
             assert_equal [r debug digest] [r -1 debug digest]

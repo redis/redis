@@ -17,15 +17,15 @@ test "Cluster is writable" {
 test "Instance #5 is a slave" {
     assert {[RI 5 role] eq {slave}}
 
-    # Configure it to never failover the master
+    # Configure it to never failover the primary
     R 5 CONFIG SET cluster-slave-no-failover yes
 }
 
-test "Instance #5 synced with the master" {
+test "Instance #5 synced with the primary" {
     wait_for_condition 1000 50 {
-        [RI 5 master_link_status] eq {up}
+        [RI 5 primary_link_status] eq {up}
     } else {
-        fail "Instance #5 master link status is not up"
+        fail "Instance #5 primary link status is not up"
     }
 }
 
@@ -43,7 +43,7 @@ test "The nofailover flag is propagated" {
 
 set current_epoch [CI 1 cluster_current_epoch]
 
-test "Killing one master node" {
+test "Killing one primary node" {
     kill_instance redis 0
 }
 
@@ -56,6 +56,6 @@ test "Instance #5 is still a slave" {
     assert {[RI 5 role] eq {slave}}
 }
 
-test "Restarting the previously killed master node" {
+test "Restarting the previously killed primary node" {
     restart_instance redis 0
 }

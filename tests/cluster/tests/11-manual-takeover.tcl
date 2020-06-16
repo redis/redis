@@ -14,7 +14,7 @@ test "Cluster is writable" {
     cluster_write_test 0
 }
 
-test "Killing majority of master nodes" {
+test "Killing majority of primary nodes" {
     kill_instance redis 0
     kill_instance redis 1
     kill_instance redis 2
@@ -38,13 +38,13 @@ test "Cluster is writable" {
     cluster_write_test 4
 }
 
-test "Instance #5, #6, #7 are now masters" {
-    assert {[RI 5 role] eq {master}}
-    assert {[RI 6 role] eq {master}}
-    assert {[RI 7 role] eq {master}}
+test "Instance #5, #6, #7 are now primaries" {
+    assert {[RI 5 role] eq {primary}}
+    assert {[RI 6 role] eq {primary}}
+    assert {[RI 7 role] eq {primary}}
 }
 
-test "Restarting the previously killed master nodes" {
+test "Restarting the previously killed primary nodes" {
     restart_instance redis 0
     restart_instance redis 1
     restart_instance redis 2
@@ -54,6 +54,6 @@ test "Instance #0, #1, #2 gets converted into a slaves" {
     wait_for_condition 1000 50 {
         [RI 0 role] eq {slave} && [RI 1 role] eq {slave} && [RI 2 role] eq {slave}
     } else {
-        fail "Old masters not converted into slaves"
+        fail "Old primaries not converted into slaves"
     }
 }

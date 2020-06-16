@@ -79,31 +79,31 @@ tags "modules" {
         }
 
         # replication related tests
-        set master [srv 0 client]
-        set master_host [srv 0 host]
-        set master_port [srv 0 port]
+        set primary [srv 0 client]
+        set primary_host [srv 0 host]
+        set primary_port [srv 0 port]
         start_server {} {
             r module load $testmodule
             set replica [srv 0 client]
             set replica_host [srv 0 host]
             set replica_port [srv 0 port]
-            $replica replicaof $master_host $master_port
+            $replica replicaof $primary_host $primary_port
 
             wait_for_condition 50 100 {
-                [string match {*master_link_status:up*} [r info replication]]
+                [string match {*primary_link_status:up*} [r info replication]]
             } else {
                 fail "Can't turn the instance into a replica"
             }
 
-            test {Test master link up hook} {
-                assert_equal [r hooks.event_count masterlink-up] 1
-                assert_equal [r hooks.event_count masterlink-down] 0
+            test {Test primary link up hook} {
+                assert_equal [r hooks.event_count primarylink-up] 1
+                assert_equal [r hooks.event_count primarylink-down] 0
             }
 
             test {Test role-replica hook} {
                 assert_equal [r hooks.event_count role-replica] 1
-                assert_equal [r hooks.event_count role-master] 0
-                assert_equal [r hooks.event_last role-replica] [s 0 master_host]
+                assert_equal [r hooks.event_count role-primary] 0
+                assert_equal [r hooks.event_last role-replica] [s 0 primary_host]
             }
 
             test {Test replica-online hook} {
@@ -111,17 +111,17 @@ tags "modules" {
                 assert_equal [r -1 hooks.event_count replica-offline] 0
             }
 
-            test {Test master link down hook} {
-                r client kill type master
-                assert_equal [r hooks.event_count masterlink-down] 1
+            test {Test primary link down hook} {
+                r client kill type primary
+                assert_equal [r hooks.event_count primarylink-down] 1
             }
 
             $replica replicaof no one
 
-            test {Test role-master hook} {
+            test {Test role-primary hook} {
                 assert_equal [r hooks.event_count role-replica] 1
-                assert_equal [r hooks.event_count role-master] 1
-                assert_equal [r hooks.event_last role-master] {}
+                assert_equal [r hooks.event_count role-primary] 1
+                assert_equal [r hooks.event_last role-primary] {}
             }
 
             test {Test replica-offline hook} {

@@ -224,7 +224,7 @@ proc pause_on_error {} {
                     append str "@[RI $id tcp_port]: "
                     append str "[RI $id role] "
                     if {[RI $id role] eq {slave}} {
-                        append str "[RI $id master_host]:[RI $id master_port]"
+                        append str "[RI $id primary_host]:[RI $id primary_port]"
                     }
                     set str
                 } retval]
@@ -239,7 +239,7 @@ proc pause_on_error {} {
                 set errcode [catch {
                     set str {}
                     append str "@[SI $id tcp_port]: "
-                    append str "[join [S $id sentinel get-master-addr-by-name mymaster]]"
+                    append str "[join [S $id sentinel get-primary-addr-by-name myprimary]]"
                     set str
                 } retval]
                 if {$errcode} {
@@ -420,13 +420,13 @@ proc set_instance_attrib {type id attrib newval} {
     lset ::${type}_instances $id $d
 }
 
-# Create a master-slave cluster of the given number of total instances.
-# The first instance "0" is the master, all others are configured as
+# Create a primary-slave cluster of the given number of total instances.
+# The first instance "0" is the primary, all others are configured as
 # slaves.
-proc create_redis_master_slave_cluster n {
+proc create_redis_primary_slave_cluster n {
     foreach_redis_id id {
         if {$id == 0} {
-            # Our master.
+            # Our primary.
             R $id slaveof no one
             R $id flushall
         } elseif {$id < $n} {
@@ -441,7 +441,7 @@ proc create_redis_master_slave_cluster n {
     wait_for_condition 1000 50 {
         [RI 0 connected_slaves] == ($n-1)
     } else {
-        fail "Unable to create a master-slaves cluster."
+        fail "Unable to create a primary-slaves cluster."
     }
 }
 

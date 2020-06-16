@@ -1714,12 +1714,12 @@ int modulePopulateReplicationInfoStructure(void *ri, int structver) {
     RedisModuleReplicationInfoV1 *ri1 = ri;
     memset(ri1,0,sizeof(*ri1));
     ri1->version = structver;
-    ri1->master = server.masterhost==NULL;
-    ri1->masterhost = server.masterhost? server.masterhost: "";
-    ri1->masterport = server.masterport;
+    ri1->primary = server.primaryhost==NULL;
+    ri1->primaryhost = server.primaryhost? server.primaryhost: "";
+    ri1->primaryport = server.primaryport;
     ri1->replid1 = server.replid;
     ri1->replid2 = server.replid2;
-    ri1->repl1_offset = server.master_repl_offset;
+    ri1->repl1_offset = server.primary_repl_offset;
     ri1->repl2_offset = server.second_replid_offset;
     return REDISMODULE_OK;
 }
@@ -1809,7 +1809,7 @@ int RM_GetSelectedDb(RedisModuleCtx *ctx) {
  *  * REDISMODULE_CTX_FLAGS_REPLICATED: The command was sent over the replication
  *    link by the MASTER
  *
- *  * REDISMODULE_CTX_FLAGS_MASTER: The Redis instance is a master
+ *  * REDISMODULE_CTX_FLAGS_MASTER: The Redis instance is a primary
  *
  *  * REDISMODULE_CTX_FLAGS_SLAVE: The Redis instance is a slave
  *
@@ -1834,16 +1834,16 @@ int RM_GetSelectedDb(RedisModuleCtx *ctx) {
  *
  *  * REDISMODULE_CTX_FLAGS_LOADING: Server is loading RDB/AOF
  *
- *  * REDISMODULE_CTX_FLAGS_REPLICA_IS_STALE: No active link with the master.
+ *  * REDISMODULE_CTX_FLAGS_REPLICA_IS_STALE: No active link with the primary.
  *
  *  * REDISMODULE_CTX_FLAGS_REPLICA_IS_CONNECTING: The replica is trying to
- *                                                 connect with the master.
+ *                                                 connect with the primary.
  *
- *  * REDISMODULE_CTX_FLAGS_REPLICA_IS_TRANSFERRING: Master -> Replica RDB
+ *  * REDISMODULE_CTX_FLAGS_REPLICA_IS_TRANSFERRING: Primary -> Replica RDB
  *                                                   transfer is in progress.
  *
  *  * REDISMODULE_CTX_FLAGS_REPLICA_IS_ONLINE: The replica has an active link
- *                                             with its master. This is the
+ *                                             with its primary. This is the
  *                                             contrary of STALE state.
  *
  *  * REDISMODULE_CTX_FLAGS_ACTIVE_CHILD: There is currently some background
@@ -1892,7 +1892,7 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
         flags |= REDISMODULE_CTX_FLAGS_RDB;
 
     /* Replication flags */
-    if (server.masterhost == NULL) {
+    if (server.primaryhost == NULL) {
         flags |= REDISMODULE_CTX_FLAGS_MASTER;
     } else {
         flags |= REDISMODULE_CTX_FLAGS_SLAVE;
@@ -1928,16 +1928,16 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
 
 /* Returns true if some client sent the CLIENT PAUSE command to the server or
  * if Redis Cluster is doing a manual failover, and paused tue clients.
- * This is needed when we have a master with replicas, and want to write,
+ * This is needed when we have a primary with replicas, and want to write,
  * without adding further data to the replication channel, that the replicas
- * replication offset, match the one of the master. When this happens, it is
- * safe to failover the master without data loss.
+ * replication offset, match the one of the primary. When this happens, it is
+ * safe to failover the primary without data loss.
  *
  * However modules may generate traffic by calling RedisModule_Call() with
  * the "!" flag, or by calling RedisModule_Replicate(), in a context outside
  * commands execution, for instance in timeout callbacks, threads safe
  * contexts, and so forth. When modules will generate too much traffic, it
- * will be hard for the master and replicas offset to match, because there
+ * will be hard for the primary and replicas offset to match, because there
  * is more data to send in the replication channel.
  *
  * So modules may want to try to avoid very heavy background work that has
@@ -3301,7 +3301,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 
     /* If this is a Redis Cluster node, we need to make sure the module is not
      * trying to access non-local keys, with the exception of commands
-     * received from our master. */
+     * received from our primary. */
     if (server.cluster_enabled && !(ctx->client->flags & CLIENT_MASTER)) {
         int error_code;
         /* Duplicate relevant flags in the module client. */
@@ -4969,7 +4969,7 @@ typedef struct moduleClusterNodeInfo {
     int flags;
     char ip[NET_IP_STR_LEN];
     int port;
-    char master_id[40]; /* Only if flags & REDISMODULE_NODE_MASTER is true. */
+    char primary_id[40]; /* Only if flags & REDISMODULE_NODE_MASTER is true. */
 } mdouleClusterNodeInfo;
 
 /* We have an array of message types: each bucket is a linked list of
@@ -5123,16 +5123,16 @@ size_t RM_GetClusterSize(void) {
  * then returns REDISMODULE_OK. Otherwise if the node ID does not exist from
  * the POV of this local node, REDISMODULE_ERR is returned.
  *
- * The arguments ip, master_id, port and flags can be NULL in case we don't
- * need to populate back certain info. If an ip and master_id (only populated
+ * The arguments ip, primary_id, port and flags can be NULL in case we don't
+ * need to populate back certain info. If an ip and primary_id (only populated
  * if the instance is a slave) are specified, they point to buffers holding
  * at least REDISMODULE_NODE_ID_LEN bytes. The strings written back as ip
- * and master_id are not null terminated.
+ * and primary_id are not null terminated.
  *
  * The list of flags reported is the following:
  *
  * * REDISMODULE_NODE_MYSELF        This node
- * * REDISMODULE_NODE_MASTER        The node is a master
+ * * REDISMODULE_NODE_MASTER        The node is a primary
  * * REDISMODULE_NODE_SLAVE         The node is a replica
  * * REDISMODULE_NODE_PFAIL         We see the node as failing
  * * REDISMODULE_NODE_FAIL          The cluster agrees the node is failing
@@ -5141,7 +5141,7 @@ size_t RM_GetClusterSize(void) {
 
 clusterNode *clusterLookupNode(const char *name); /* We need access to internals */
 
-int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *master_id, int *port, int *flags) {
+int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *primary_id, int *port, int *flags) {
     UNUSED(ctx);
 
     clusterNode *node = clusterLookupNode(id);
@@ -5153,14 +5153,14 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
 
     if (ip) strncpy(ip,node->ip,NET_IP_STR_LEN);
 
-    if (master_id) {
+    if (primary_id) {
         /* If the information is not available, the function will set the
          * field to zero bytes, so that when the field can't be populated the
          * function kinda remains predictable. */
         if (node->flags & CLUSTER_NODE_MASTER && node->slaveof)
-            memcpy(master_id,node->slaveof->name,REDISMODULE_NODE_ID_LEN);
+            memcpy(primary_id,node->slaveof->name,REDISMODULE_NODE_ID_LEN);
         else
-            memset(master_id,0,REDISMODULE_NODE_ID_LEN);
+            memset(primary_id,0,REDISMODULE_NODE_ID_LEN);
     }
     if (port) *port = node->port;
 
@@ -5189,7 +5189,7 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
  *
  * With the following effects:
  *
- *  NO_FAILOVER: prevent Redis Cluster slaves to failover a failing master.
+ *  NO_FAILOVER: prevent Redis Cluster slaves to failover a failing primary.
  *               Also disables the replica migration feature.
  *
  *  NO_REDIRECTION: Every node will accept any key, without trying to perform
@@ -6282,7 +6282,7 @@ int moduleUnregisterFilters(RedisModule *module) {
  * 1. Invocation by a client.
  * 2. Invocation through `RedisModule_Call()` by any module.
  * 3. Invocation through Lua 'redis.call()`.
- * 4. Replication of a command from a master.
+ * 4. Replication of a command from a primary.
  *
  * The filter executes in a special filter context, which is different and more
  * limited than a RedisModuleCtx.  Because the filter affects any command, it
@@ -6873,10 +6873,10 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *
  *      RedisModuleEvent_ReplicationRoleChanged
  *
- *          This event is called when the instance switches from master
+ *          This event is called when the instance switches from primary
  *          to replica or the other way around, however the event is
  *          also called when the replica remains a replica but starts to
- *          replicate with a different master.
+ *          replicate with a different primary.
  *
  *          The following sub events are available:
  *
@@ -6886,9 +6886,9 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *          The 'data' field can be casted by the callback to a
  *          RedisModuleReplicationInfo structure with the following fields:
  *
- *              int master; // true if master, false if replica
- *              char *masterhost; // master instance hostname for NOW_REPLICA
- *              int masterport; // master instance port for NOW_REPLICA
+ *              int primary; // true if primary, false if replica
+ *              char *primaryhost; // primary instance hostname for NOW_REPLICA
+ *              int primaryport; // primary instance port for NOW_REPLICA
  *              char *replid1; // Main replication ID
  *              char *replid2; // Secondary replication ID
  *              uint64_t repl1_offset; // Main replication offset
@@ -6944,7 +6944,7 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *
  *          Called on loading operations: at startup when the server is
  *          started, but also after a first synchronization when the
- *          replica is loading the RDB file from the master.
+ *          replica is loading the RDB file from the primary.
  *          The following sub events are available:
  *
  *              REDISMODULE_SUBEVENT_LOADING_RDB_START
@@ -6974,7 +6974,7 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *  RedisModuleEvent_ReplicaChange
  *
  *          This event is called when the instance (that can be both a
- *          master or a replica) get a new online replica, or lose a
+ *          primary or a replica) get a new online replica, or lose a
  *          replica since it gets disconnected.
  *          The following sub events are availble:
  *
@@ -6999,12 +6999,12 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *
  *              int32_t hz;  // Approximate number of events per second.
  *
- *  RedisModuleEvent_MasterLinkChange
+ *  RedisModuleEvent_PrimaryLinkChange
  *
  *          This is called for replicas in order to notify when the
- *          replication link becomes functional (up) with our master,
+ *          replication link becomes functional (up) with our primary,
  *          or when it goes down. Note that the link is not considered
- *          up when we just connected to the master, but only if the
+ *          up when we just connected to the primary, but only if the
  *          replication is happening correctly.
  *          The following sub events are available:
  *
@@ -7277,7 +7277,7 @@ void moduleInitModulesSystem(void) {
  * The function aborts the server on errors, since to start with missing
  * modules is not considered sane: clients may rely on the existence of
  * given commands, loading AOF also may need some modules to exist, and
- * if this instance is a slave, it must understand commands from master. */
+ * if this instance is a slave, it must understand commands from primary. */
 void moduleLoadFromQueue(void) {
     listIter li;
     listNode *ln;

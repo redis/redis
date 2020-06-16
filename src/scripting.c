@@ -629,7 +629,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
             luaPushError(lua,
                 "Write commands not allowed after non deterministic commands. Call redis.replicate_commands() at the start of your script in order to switch to single commands replication mode.");
             goto cleanup;
-        } else if (server.masterhost && server.repl_slave_ro &&
+        } else if (server.primaryhost && server.repl_slave_ro &&
                    !server.loading &&
                    !(server.lua_caller->flags & CLIENT_MASTER))
         {
@@ -655,7 +655,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
      * in the middle. */
     if (server.maxmemory &&             /* Maxmemory is actually enabled. */
         !server.loading &&              /* Don't care about mem if loading. */
-        !server.masterhost &&           /* Slave must execute the script. */
+        !server.primaryhost &&           /* Slave must execute the script. */
         server.lua_write_dirty == 0 &&  /* Script had no side effects so far. */
         server.lua_oom &&               /* Detected OOM when script start. */
         (cmd->flags & CMD_DENYOOM))
@@ -669,7 +669,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
 
     /* If this is a Redis Cluster node, we need to make sure Lua is not
      * trying to access non-local keys, with the exception of commands
-     * received from our master or when loading the AOF back in memory. */
+     * received from our primary or when loading the AOF back in memory. */
     if (server.cluster_enabled && !server.loading &&
         !(server.lua_caller->flags & CLIENT_MASTER))
     {
@@ -1578,8 +1578,8 @@ void evalGenericCommand(client *c, int evalsha) {
         /* Restore the client that was protected when the script timeout
          * was detected. */
         unprotectClient(c);
-        if (server.masterhost && server.master)
-            queueClientForReprocessing(server.master);
+        if (server.primaryhost && server.primary)
+            queueClientForReprocessing(server.primary);
     }
     server.lua_caller = NULL;
     server.lua_cur_script = NULL;
@@ -1628,7 +1628,7 @@ void evalGenericCommand(client *c, int evalsha) {
      * To do so we use a cache of SHA1s of scripts that we already propagated
      * as full EVAL, that's called the Replication Script Cache.
      *
-     * For repliation, everytime a new slave attaches to the master, we need to
+     * For repliation, everytime a new slave attaches to the primary, we need to
      * flush our cache of scripts that can be replicated as EVALSHA, while
      * for AOF we need to do so every time we rewrite the AOF file. */
     if (evalsha && !server.lua_replicate_commands) {
@@ -1719,7 +1719,7 @@ NULL
         if (server.lua_caller == NULL) {
             addReplySds(c,sdsnew("-NOTBUSY No scripts in execution right now.\r\n"));
         } else if (server.lua_caller->flags & CLIENT_MASTER) {
-            addReplySds(c,sdsnew("-UNKILLABLE The busy script was sent by a master instance in the context of replication and cannot be killed.\r\n"));
+            addReplySds(c,sdsnew("-UNKILLABLE The busy script was sent by a primary instance in the context of replication and cannot be killed.\r\n"));
         } else if (server.lua_write_dirty) {
             addReplySds(c,sdsnew("-UNKILLABLE Sorry the script already executed write commands against the dataset. You can either wait the script termination or kill the server in a hard way using the SHUTDOWN NOSAVE command.\r\n"));
         } else {

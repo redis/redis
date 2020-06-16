@@ -12,8 +12,8 @@ start_server {tags {"modules"}} {
 
     test {module reading info} {
         # check string, integer and float fields
-        assert_equal [r info.gets replication role] "master"
-        assert_equal [r info.getc replication role] "master"
+        assert_equal [r info.gets replication role] "primary"
+        assert_equal [r info.getc replication role] "primary"
         assert_equal [r info.geti stats expired_keys] 0
         assert_equal [r info.getd stats expired_stale_perc] 0
 

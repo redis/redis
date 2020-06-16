@@ -3,7 +3,7 @@ start_server {tags {"repl"}} {
         test {First server should have role slave after SLAVEOF} {
             r -1 slaveof [srv 0 host] [srv 0 port]
             wait_for_condition 50 100 {
-                [s -1 master_link_status] eq {up}
+                [s -1 primary_link_status] eq {up}
             } else {
                 fail "Replication not started."
             }
@@ -25,7 +25,7 @@ start_server {tags {"repl"}} {
                 set fd [open /tmp/repldump2.txt w]
                 puts -nonewline $fd $csv2
                 close $fd
-                puts "Master - Replica inconsistency"
+                puts "Primary - Replica inconsistency"
                 puts "Run diff -u against /tmp/repldump*.txt for more info"
             }
             assert_equal [r debug digest] [r -1 debug digest]
@@ -50,7 +50,7 @@ start_server {tags {"repl"}} {
         test {First server should have role slave after SLAVEOF} {
             r -1 slaveof [srv 0 host] [srv 0 port]
             wait_for_condition 50 100 {
-                [s -1 master_link_status] eq {up}
+                [s -1 primary_link_status] eq {up}
             } else {
                 fail "Replication not started."
             }
@@ -98,7 +98,7 @@ start_server {tags {"repl"}} {
                 set fd [open /tmp/repldump2.txt w]
                 puts -nonewline $fd $csv2
                 close $fd
-                puts "Master - Replica inconsistency"
+                puts "Primary - Replica inconsistency"
                 puts "Run diff -u against /tmp/repldump*.txt for more info"
             }
 
@@ -112,14 +112,14 @@ start_server {tags {"repl"}} {
         test {SLAVE can reload "lua" AUX RDB fields of duplicated scripts} {
             # Force a Slave full resynchronization
             r debug change-repl-id
-            r -1 client kill type master
+            r -1 client kill type primary
 
             # Check that after a full resync the slave can still load
             # correctly the RDB file: such file will contain "lua" AUX
-            # sections with scripts already in the memory of the master.
+            # sections with scripts already in the memory of the primary.
 
             wait_for_condition 500 100 {
-                [s -1 master_link_status] eq {up}
+                [s -1 primary_link_status] eq {up}
             } else {
                 fail "Replication not started."
             }

@@ -89,7 +89,7 @@ static atomic_u_t	cum_gctxs; /* Atomic counter. */
 static malloc_mutex_t	*tdata_locks;
 
 /*
- * Global hash of (prof_bt_t *)-->(prof_gctx_t *).  This is the master data
+ * Global hash of (prof_bt_t *)-->(prof_gctx_t *).  This is the primary data
  * structure that knows about all backtraces currently captured.
  */
 static ckh_t		bt2gctx;

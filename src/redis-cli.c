@@ -178,7 +178,7 @@ typedef struct clusterManagerCommand {
     char *to;
     char **weight;
     int weight_argc;
-    char *master_id;
+    char *primary_id;
     int slots;
     int timeout;
     int pipeline;
@@ -1355,7 +1355,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             slaveMode();
             config.slave_mode = 0;
             zfree(argvlen);
-            return REDIS_ERR;  /* Error = slaveMode lost connection to master */
+            return REDIS_ERR;  /* Error = slaveMode lost connection to primary */
         }
 
         if (cliReadReply(output_raw) != REDIS_OK) {
@@ -1544,8 +1544,8 @@ static int parseOptions(int argc, char **argv) {
             usage();
         } else if (!strcmp(argv[i],"--cluster-replicas") && !lastarg) {
             config.cluster_manager_command.replicas = atoi(argv[++i]);
-        } else if (!strcmp(argv[i],"--cluster-master-id") && !lastarg) {
-            config.cluster_manager_command.master_id = argv[++i];
+        } else if (!strcmp(argv[i],"--cluster-primary-id") && !lastarg) {
+            config.cluster_manager_command.primary_id = argv[++i];
         } else if (!strcmp(argv[i],"--cluster-from") && !lastarg) {
             config.cluster_manager_command.from = argv[++i];
         } else if (!strcmp(argv[i],"--cluster-to") && !lastarg) {
@@ -1595,13 +1595,13 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--cluster-slave")) {
             config.cluster_manager_command.flags |=
                 CLUSTER_MANAGER_CMD_FLAG_SLAVE;
-        } else if (!strcmp(argv[i],"--cluster-use-empty-masters")) {
+        } else if (!strcmp(argv[i],"--cluster-use-empty-primaries")) {
             config.cluster_manager_command.flags |=
                 CLUSTER_MANAGER_CMD_FLAG_EMPTYMASTER;
         } else if (!strcmp(argv[i],"--cluster-search-multiple-owners")) {
             config.cluster_manager_command.flags |=
                 CLUSTER_MANAGER_CMD_FLAG_CHECK_OWNERS;
-        } else if (!strcmp(argv[i],"--cluster-fix-with-unreachable-masters")) {
+        } else if (!strcmp(argv[i],"--cluster-fix-with-unreachable-primaries")) {
             config.cluster_manager_command.flags |=
                 CLUSTER_MANAGER_CMD_FLAG_FIX_WITH_UNREACHABLE_MASTERS;
 #ifdef USE_OPENSSL
@@ -1743,7 +1743,7 @@ static void usage(void) {
 "  --latency-dist     Shows latency as a spectrum, requires xterm 256 colors.\n"
 "                     Default time interval is 1 sec. Change it using -i.\n"
 "  --lru-test <keys>  Simulate a cache workload with an 80-20 distribution.\n"
-"  --replica          Simulate a replica showing commands received from the master.\n"
+"  --replica          Simulate a replica showing commands received from the primary.\n"
 "  --rdb <filename>   Transfer an RDB dump from remote server to local file.\n"
 "  --pipe             Transfer raw Redis protocol from stdin to server.\n"
 "  --pipe-timeout <n> In --pipe mode, abort with error if after sending all data.\n"
@@ -2158,7 +2158,7 @@ static int evalMode(int argc, char **argv) {
 static struct clusterManager {
     list *nodes;    /* List of nodes in the configuration. */
     list *errors;
-    int unreachable_masters;    /* Masters we are not able to reach. */
+    int unreachable_primaries;    /* Primaries we are not able to reach. */
 } cluster_manager;
 
 /* Used by clusterManagerFixSlotsCoverage */
@@ -2174,7 +2174,7 @@ typedef struct clusterManagerNode {
     time_t ping_recv;
     int flags;
     list *flags_str; /* Flags string representations */
-    sds replicate;  /* Master ID if node is a slave */
+    sds replicate;  /* Primary ID if node is a slave */
     int dirty;      /* Node has changes that can be flushed */
     uint8_t slots[CLUSTER_MANAGER_SLOTS];
     int slots_count;
@@ -2301,15 +2301,15 @@ clusterManagerCommandDef clusterManagerCommands[] = {
      "search-multiple-owners"},
     {"info", clusterManagerCommandInfo, -1, "host:port", NULL},
     {"fix", clusterManagerCommandFix, -1, "host:port",
-     "search-multiple-owners,fix-with-unreachable-masters"},
+     "search-multiple-owners,fix-with-unreachable-primaries"},
     {"reshard", clusterManagerCommandReshard, -1, "host:port",
      "from <arg>,to <arg>,slots <arg>,yes,timeout <arg>,pipeline <arg>,"
      "replace"},
     {"rebalance", clusterManagerCommandRebalance, -1, "host:port",
-     "weight <node1=w1...nodeN=wN>,use-empty-masters,"
+     "weight <node1=w1...nodeN=wN>,use-empty-primaries,"
      "timeout <arg>,simulate,pipeline <arg>,threshold <arg>,replace"},
     {"add-node", clusterManagerCommandAddNode, 2,
-     "new_host:new_port existing_host:existing_port", "slave,master-id <arg>"},
+     "new_host:new_port existing_host:existing_port", "slave,primary-id <arg>"},
     {"del-node", clusterManagerCommandDeleteNode, 2, "host:port node_id",NULL},
     {"call", clusterManagerCommandCall, -2,
         "host:port command arg arg .. arg", NULL},
@@ -2716,15 +2716,15 @@ result:
 
 /* Return the anti-affinity score, which is a measure of the amount of
  * violations of anti-affinity in the current cluster layout, that is, how
- * badly the masters and slaves are distributed in the different IP
- * addresses so that slaves of the same master are not in the master
+ * badly the primaries and slaves are distributed in the different IP
+ * addresses so that slaves of the same primary are not in the primary
  * host and are also in different hosts.
  *
  * The score is calculated as follows:
  *
- * SAME_AS_MASTER = 10000 * each slave in the same IP of its master.
+ * SAME_AS_MASTER = 10000 * each slave in the same IP of its primary.
  * SAME_AS_SLAVE  = 1 * each slave having the same IP as another slave
-                      of the same master.
+                      of the same primary.
  * FINAL_SCORE = SAME_AS_MASTER + SAME_AS_SLAVE
  *
  * So a greater score means a worse anti-affinity level, while zero
@@ -2732,7 +2732,7 @@ result:
  *
  * The anti affinity optimizator will try to get a score as low as
  * possible. Since we do not want to sacrifice the fact that slaves should
- * not be in the same host as the master, we assign 10000 times the score
+ * not be in the same host as the primary, we assign 10000 times the score
  * to this violation, so that we'll optimize for the second factor only
  * if it does not impact the first one.
  *
@@ -2754,7 +2754,7 @@ static int clusterManagerGetAntiAffinityScore(clusterManagerNodeArray *ipnodes,
         offending_p = *offending;
     }
     /* For each set of nodes in the same host, split by
-     * related nodes (masters and slaves which are involved in
+     * related nodes (primaries and slaves which are involved in
      * replication of each other) */
     for (i = 0; i < ip_count; i++) {
         clusterManagerNodeArray *node_array = &(ipnodes[i]);
@@ -2765,13 +2765,13 @@ static int clusterManagerGetAntiAffinityScore(clusterManagerNodeArray *ipnodes,
             if (node == NULL) continue;
             if (!ip) ip = node->ip;
             sds types;
-            /* We always use the Master ID as key. */
+            /* We always use the Primary ID as key. */
             sds key = (!node->replicate ? node->name : node->replicate);
             assert(key != NULL);
             dictEntry *entry = dictFind(related, key);
             if (entry) types = sdsdup((sds) dictGetVal(entry));
             else types = sdsempty();
-            /* Master type 'm' is always set as the first character of the
+            /* Primary type 'm' is always set as the first character of the
              * types string. */
             if (!node->replicate) types = sdscatprintf(types, "m%s", types);
             else types = sdscat(types, "s");
@@ -2833,7 +2833,7 @@ static void clusterManagerOptimizeAntiAffinity(clusterManagerNodeArray *ipnodes,
                                                    &offenders,
                                                    &offending_len);
         if (score == 0) break; // Optimal anti affinity reached
-        /* We'll try to randomly swap a slave's assigned master causing
+        /* We'll try to randomly swap a slave's assigned primary causing
          * an affinity problem with another random slave, to see if we
          * can improve the affinity. */
         int rand_idx = rand() % offending_len;
@@ -2856,10 +2856,10 @@ static void clusterManagerOptimizeAntiAffinity(clusterManagerNodeArray *ipnodes,
         }
         rand_idx = rand() % other_replicas_count;
         second = other_replicas[rand_idx];
-        char *first_master = first->replicate,
-             *second_master = second->replicate;
-        first->replicate = second_master, first->dirty = 1;
-        second->replicate = first_master, second->dirty = 1;
+        char *first_primary = first->replicate,
+             *second_primary = second->replicate;
+        first->replicate = second_primary, first->dirty = 1;
+        second->replicate = first_primary, second->dirty = 1;
         int new_score = clusterManagerGetAntiAffinityScore(ipnodes,
                                                            ip_count,
                                                            NULL, NULL);
@@ -2867,8 +2867,8 @@ static void clusterManagerOptimizeAntiAffinity(clusterManagerNodeArray *ipnodes,
          * leave as it is because the best solution may need a few
          * combined swaps. */
         if (new_score > score) {
-            first->replicate = first_master;
-            second->replicate = second_master;
+            first->replicate = first_primary;
+            second->replicate = second_primary;
         }
         zfree(other_replicas);
         maxiter--;
@@ -2880,9 +2880,9 @@ static void clusterManagerOptimizeAntiAffinity(clusterManagerNodeArray *ipnodes,
                                CLUSTER_MANAGER_LOG_LVL_WARN);
     if (perfect) msg = "[OK] Perfect anti-affinity obtained!";
     else if (score >= 10000)
-        msg = ("[WARNING] Some slaves are in the same host as their master");
+        msg = ("[WARNING] Some slaves are in the same host as their primary");
     else
-        msg=("[WARNING] Some slaves of the same master are in the same host");
+        msg=("[WARNING] Some slaves of the same primary are in the same host");
     clusterManagerLog(log_level, "%s\n", msg);
 cleanup:
     zfree(offenders);
@@ -3049,8 +3049,8 @@ static sds clusterManagerNodeInfo(clusterManagerNode *node, int indent) {
     int i;
     for (i = 0; i < indent; i++) spaces = sdscat(spaces, " ");
     if (indent) info = sdscat(info, spaces);
-    int is_master = !(node->flags & CLUSTER_MANAGER_FLAG_SLAVE);
-    char *role = (is_master ? "M" : "S");
+    int is_primary = !(node->flags & CLUSTER_MANAGER_FLAG_SLAVE);
+    char *role = (is_primary ? "M" : "S");
     sds slots = NULL;
     if (node->dirty && node->replicate != NULL)
         info = sdscatfmt(info, "S: %S %s:%u", node->name, node->ip, node->port);
@@ -3087,7 +3087,7 @@ static void clusterManagerShowNodes(void) {
 }
 
 static void clusterManagerShowClusterInfo(void) {
-    int masters = 0;
+    int primaries = 0;
     int keys = 0;
     listIter li;
     listNode *ln;
@@ -3126,11 +3126,11 @@ static void clusterManagerShowClusterInfo(void) {
             printf("%s:%d (%s...) -> %d keys | %d slots | %d slaves.\n",
                    node->ip, node->port, name, dbsize,
                    node->slots_count, replicas);
-            masters++;
+            primaries++;
             keys += dbsize;
         }
     }
-    clusterManagerLogOk("[OK] %d keys in %d masters.\n", keys, masters);
+    clusterManagerLogOk("[OK] %d keys in %d primaries.\n", keys, primaries);
     float keys_per_slot = keys / (float) CLUSTER_MANAGER_SLOTS;
     printf("%.2f keys per slot on average.\n", keys_per_slot);
 }
@@ -3723,7 +3723,7 @@ static int clusterManagerMoveSlot(clusterManagerNode *source,
 }
 
 /* Flush the dirty node configuration by calling replicate for slaves or
- * adding the slots defined in the masters. */
+ * adding the slots defined in the primaries. */
 static int clusterManagerFlushNodeConfig(clusterManagerNode *node, char **err) {
     if (!node->dirty) return 0;
     redisReply *reply = NULL;
@@ -3739,7 +3739,7 @@ static int clusterManagerFlushNodeConfig(clusterManagerNode *node, char **err) {
             }
             success = 0;
             /* If the cluster did not already joined it is possible that
-             * the slave does not know the master node yet. So on errors
+             * the slave does not know the primary node yet. So on errors
              * we return ASAP leaving the dirty flag set, to flush the
              * config later. */
             goto cleanup;
@@ -3831,7 +3831,7 @@ static int clusterManagerNodeLoadInfo(clusterManagerNode *node, int opts,
         *p = '\0';
         line = lines;
         lines = p + 1;
-        char *name = NULL, *addr = NULL, *flags = NULL, *master_id = NULL,
+        char *name = NULL, *addr = NULL, *flags = NULL, *primary_id = NULL,
              *ping_sent = NULL, *ping_recv = NULL, *config_epoch = NULL,
              *link_status = NULL;
         UNUSED(link_status);
@@ -3844,7 +3844,7 @@ static int clusterManagerNodeLoadInfo(clusterManagerNode *node, int opts,
             case 0: name = token; break;
             case 1: addr = token; break;
             case 2: flags = token; break;
-            case 3: master_id = token; break;
+            case 3: primary_id = token; break;
             case 4: ping_sent = token; break;
             case 5: ping_recv = token; break;
             case 6: config_epoch = token; break;
@@ -3973,9 +3973,9 @@ static int clusterManagerNodeLoadInfo(clusterManagerNode *node, int opts,
                 currentNode->flags |= CLUSTER_MANAGER_FLAG_FAIL;
             else if (strcmp(flag, "slave") == 0) {
                 currentNode->flags |= CLUSTER_MANAGER_FLAG_SLAVE;
-                if (master_id != NULL) {
+                if (primary_id != NULL) {
                     if (currentNode->replicate) sdsfree(currentNode->replicate);
-                    currentNode->replicate = sdsnew(master_id);
+                    currentNode->replicate = sdsnew(primary_id);
                 }
             }
             listAddNodeTail(currentNode->flags_str, flag);
@@ -4052,7 +4052,7 @@ static int clusterManagerLoadInfoFromNode(clusterManagerNode *node, int opts) {
             continue;
 invalid_friend:
             if (!(friend->flags & CLUSTER_MANAGER_FLAG_SLAVE))
-                cluster_manager.unreachable_masters++;
+                cluster_manager.unreachable_primaries++;
             freeClusterManagerNode(friend);
         }
         listRelease(node->friends);
@@ -4063,12 +4063,12 @@ invalid_friend:
     while ((ln = listNext(&li)) != NULL) {
         clusterManagerNode *n = ln->value;
         if (n->replicate != NULL) {
-            clusterManagerNode *master = clusterManagerNodeByName(n->replicate);
-            if (master == NULL) {
+            clusterManagerNode *primary = clusterManagerNodeByName(n->replicate);
+            if (primary == NULL) {
                 clusterManagerLogWarn("*** WARNING: %s:%d claims to be "
                                       "slave of unknown node ID %s.\n",
                                       n->ip, n->port, n->replicate);
-            } else master->replicas_count++;
+            } else primary->replicas_count++;
         }
     }
     return 1;
@@ -4376,8 +4376,8 @@ static clusterManagerNode * clusterManagerGetNodeWithMostKeysInSlot(list *nodes,
     return node;
 }
 
-/* This function returns the master that has the least number of replicas
- * in the cluster. If there are multiple masters with the same smaller
+/* This function returns the primary that has the least number of replicas
+ * in the cluster. If there are multiple primaries with the same smaller
  * number of replicas, one at random is returned. */
 
 static clusterManagerNode *clusterManagerNodeWithLeastReplicas() {
@@ -4397,10 +4397,10 @@ static clusterManagerNode *clusterManagerNodeWithLeastReplicas() {
     return node;
 }
 
-/* This function returns a random master node, return NULL if none */
+/* This function returns a random primary node, return NULL if none */
 
-static clusterManagerNode *clusterManagerNodeMasterRandom() {
-    int master_count = 0;
+static clusterManagerNode *clusterManagerNodePrimaryRandom() {
+    int primary_count = 0;
     int idx;
     listIter li;
     listNode *ln;
@@ -4408,11 +4408,11 @@ static clusterManagerNode *clusterManagerNodeMasterRandom() {
     while ((ln = listNext(&li)) != NULL) {
         clusterManagerNode *n = ln->value;
         if (n->flags & CLUSTER_MANAGER_FLAG_SLAVE) continue;
-        master_count++;
+        primary_count++;
     }
 
     srand(time(NULL));
-    idx = rand() % master_count;
+    idx = rand() % primary_count;
     listRewind(cluster_manager.nodes, &li);
     while ((ln = listNext(&li)) != NULL) {
         clusterManagerNode *n = ln->value;
@@ -4429,8 +4429,8 @@ static int clusterManagerFixSlotsCoverage(char *all_slots) {
     int force_fix = config.cluster_manager_command.flags &
                     CLUSTER_MANAGER_CMD_FLAG_FIX_WITH_UNREACHABLE_MASTERS;
 
-    if (cluster_manager.unreachable_masters > 0 && !force_fix) {
-        clusterManagerLogWarn("*** Fixing slots coverage with %d unreachable masters is dangerous: redis-cli will assume that slots about masters that are not reachable are not covered, and will try to reassign them to the reachable nodes. This can cause data loss and is rarely what you want to do. If you really want to proceed use the --cluster-fix-with-unreachable-masters option.\n", cluster_manager.unreachable_masters);
+    if (cluster_manager.unreachable_primaries > 0 && !force_fix) {
+        clusterManagerLogWarn("*** Fixing slots coverage with %d unreachable primaries is dangerous: redis-cli will assume that slots about primaries that are not reachable are not covered, and will try to reassign them to the reachable nodes. This can cause data loss and is rarely what you want to do. If you really want to proceed use the --cluster-fix-with-unreachable-primaries option.\n", cluster_manager.unreachable_primaries);
         exit(1);
     }
 
@@ -4508,7 +4508,7 @@ static int clusterManagerFixSlotsCoverage(char *all_slots) {
             while ((ln = listNext(&li)) != NULL) {
                 sds slot = ln->value;
                 int s = atoi(slot);
-                clusterManagerNode *n = clusterManagerNodeMasterRandom();
+                clusterManagerNode *n = clusterManagerNodePrimaryRandom();
                 clusterManagerLogInfo(">>> Covering slot %s with %s:%d\n",
                                       slot, n->ip, n->port);
                 if (!clusterManagerSetSlotOwner(n, s, 0)) {
@@ -4631,8 +4631,8 @@ static int clusterManagerFixOpenSlot(int slot) {
     int force_fix = config.cluster_manager_command.flags &
                     CLUSTER_MANAGER_CMD_FLAG_FIX_WITH_UNREACHABLE_MASTERS;
 
-    if (cluster_manager.unreachable_masters > 0 && !force_fix) {
-        clusterManagerLogWarn("*** Fixing open slots with %d unreachable masters is dangerous: redis-cli will assume that slots about masters that are not reachable are not covered, and will try to reassign them to the reachable nodes. This can cause data loss and is rarely what you want to do. If you really want to proceed use the --cluster-fix-with-unreachable-masters option.\n", cluster_manager.unreachable_masters);
+    if (cluster_manager.unreachable_primaries > 0 && !force_fix) {
+        clusterManagerLogWarn("*** Fixing open slots with %d unreachable primaries is dangerous: redis-cli will assume that slots about primaries that are not reachable are not covered, and will try to reassign them to the reachable nodes. This can cause data loss and is rarely what you want to do. If you really want to proceed use the --cluster-fix-with-unreachable-primaries option.\n", cluster_manager.unreachable_primaries);
         exit(1);
     }
 
@@ -4979,7 +4979,7 @@ static int clusterManagerFixMultipleSlotOwners(int slot, list *owners) {
     listIter li;
     listNode *ln;
     listRewind(cluster_manager.nodes, &li);
-    /* Update configuration in all the other master nodes by assigning the slot
+    /* Update configuration in all the other primary nodes by assigning the slot
      * itself to the new owner, and by eventually migrating keys if the node
      * has keys for the slot. */
     while ((ln = listNext(&li)) != NULL) {
@@ -5171,7 +5171,7 @@ static clusterManagerNode *clusterNodeForResharding(char *id,
 {
     clusterManagerNode *node = NULL;
     const char *invalid_node_msg = "*** The specified node (%s) is not known "
-                                   "or not a master, please retry.\n";
+                                   "or not a primary, please retry.\n";
     node = clusterManagerNodeByName(id);
     *raise_err = 0;
     if (!node || node->flags & CLUSTER_MANAGER_FLAG_SLAVE) {
@@ -5398,11 +5398,11 @@ static int clusterManagerCommandCreate(int argc, char **argv) {
     }
     int node_len = cluster_manager.nodes->len;
     int replicas = config.cluster_manager_command.replicas;
-    int masters_count = CLUSTER_MANAGER_MASTERS_COUNT(node_len, replicas);
-    if (masters_count < 3) {
+    int primaries_count = CLUSTER_MANAGER_MASTERS_COUNT(node_len, replicas);
+    if (primaries_count < 3) {
         clusterManagerLogErr(
             "*** ERROR: Invalid configuration for cluster creation.\n"
-            "*** Redis Cluster requires at least 3 master nodes.\n"
+            "*** Redis Cluster requires at least 3 primary nodes.\n"
             "*** This is not possible with %d nodes and %d replicas per node.",
             node_len, replicas);
         clusterManagerLogErr("\n*** At least %d nodes are required.\n",
@@ -5446,25 +5446,25 @@ static int clusterManagerCommandCreate(int argc, char **argv) {
             }
         }
     }
-    clusterManagerNode **masters = interleaved;
-    interleaved += masters_count;
-    interleaved_len -= masters_count;
-    float slots_per_node = CLUSTER_MANAGER_SLOTS / (float) masters_count;
+    clusterManagerNode **primaries = interleaved;
+    interleaved += primaries_count;
+    interleaved_len -= primaries_count;
+    float slots_per_node = CLUSTER_MANAGER_SLOTS / (float) primaries_count;
     long first = 0;
     float cursor = 0.0f;
-    for (i = 0; i < masters_count; i++) {
-        clusterManagerNode *master = masters[i];
+    for (i = 0; i < primaries_count; i++) {
+        clusterManagerNode *primary = primaries[i];
         long last = lround(cursor + slots_per_node - 1);
-        if (last > CLUSTER_MANAGER_SLOTS || i == (masters_count - 1))
+        if (last > CLUSTER_MANAGER_SLOTS || i == (primaries_count - 1))
             last = CLUSTER_MANAGER_SLOTS - 1;
         if (last < first) last = first;
-        printf("Master[%d] -> Slots %lu - %lu\n", i, first, last);
-        master->slots_count = 0;
+        printf("Primary[%d] -> Slots %lu - %lu\n", i, first, last);
+        primary->slots_count = 0;
         for (j = first; j <= last; j++) {
-            master->slots[j] = 1;
-            master->slots_count++;
+            primary->slots[j] = 1;
+            primary->slots_count++;
         }
-        master->dirty = 1;
+        primary->dirty = 1;
         first = last + 1;
         cursor += slots_per_node;
     }
@@ -5477,8 +5477,8 @@ static int clusterManagerCommandCreate(int argc, char **argv) {
     interleaved[interleaved_len - 1] = first_node;
     int assign_unused = 0, available_count = interleaved_len;
 assign_replicas:
-    for (i = 0; i < masters_count; i++) {
-        clusterManagerNode *master = masters[i];
+    for (i = 0; i < primaries_count; i++) {
+        clusterManagerNode *primary = primaries[i];
         int assigned_replicas = 0;
         while (assigned_replicas < replicas) {
             if (available_count == 0) break;
@@ -5487,7 +5487,7 @@ assign_replicas:
             for (j = 0; j < interleaved_len; j++) {
                 clusterManagerNode *n = interleaved[j];
                 if (n == NULL) continue;
-                if (strcmp(n->ip, master->ip)) {
+                if (strcmp(n->ip, primary->ip)) {
                     found = n;
                     interleaved[j] = NULL;
                     break;
@@ -5504,11 +5504,11 @@ assign_replicas:
                 assigned_replicas++;
                 available_count--;
                 if (slave->replicate) sdsfree(slave->replicate);
-                slave->replicate = sdsnew(master->name);
+                slave->replicate = sdsnew(primary->name);
                 slave->dirty = 1;
             } else break;
             printf("Adding replica %s:%d to %s:%d\n", slave->ip, slave->port,
-                   master->ip, master->port);
+                   primary->ip, primary->port);
             if (assign_unused) break;
         }
     }
@@ -5617,7 +5617,7 @@ assign_replicas:
     }
 cleanup:
     /* Free everything */
-    zfree(masters);
+    zfree(primaries);
     zfree(ips);
     for (i = 0; i < node_len; i++) {
         clusterManagerNodeArray *node_array = ip_nodes + i;
@@ -5643,22 +5643,22 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
     if (!clusterManagerLoadInfoFromNode(refnode, 0)) return 0;
     if (!clusterManagerCheckCluster(0)) return 0;
 
-    /* If --cluster-master-id was specified, try to resolve it now so that we
+    /* If --cluster-primary-id was specified, try to resolve it now so that we
      * abort before starting with the node configuration. */
-    clusterManagerNode *master_node = NULL;
+    clusterManagerNode *primary_node = NULL;
     if (config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_SLAVE) {
-        char *master_id = config.cluster_manager_command.master_id;
-        if (master_id != NULL) {
-            master_node = clusterManagerNodeByName(master_id);
-            if (master_node == NULL) {
-                clusterManagerLogErr("[ERR] No such master ID %s\n", master_id);
+        char *primary_id = config.cluster_manager_command.primary_id;
+        if (primary_id != NULL) {
+            primary_node = clusterManagerNodeByName(primary_id);
+            if (primary_node == NULL) {
+                clusterManagerLogErr("[ERR] No such primary ID %s\n", primary_id);
                 return 0;
             }
         } else {
-            master_node = clusterManagerNodeWithLeastReplicas();
-            assert(master_node != NULL);
-            printf("Automatically selected master %s:%d\n", master_node->ip,
-                   master_node->port);
+            primary_node = clusterManagerNodeWithLeastReplicas();
+            assert(primary_node != NULL);
+            printf("Automatically selected primary %s:%d\n", primary_node->ip,
+                   primary_node->port);
         }
     }
 
@@ -5703,14 +5703,14 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
         goto cleanup;
 
     /* Additional configuration is needed if the node is added as a slave. */
-    if (master_node) {
+    if (primary_node) {
         sleep(1);
         clusterManagerWaitForClusterJoin();
         clusterManagerLogInfo(">>> Configure node as replica of %s:%d.\n",
-                              master_node->ip, master_node->port);
+                              primary_node->ip, primary_node->port);
         freeReplyObject(reply);
         reply = CLUSTER_MANAGER_COMMAND(new_node, "CLUSTER REPLICATE %s",
-                                        master_node->name);
+                                        primary_node->name);
         if (!(success = clusterManagerCheckRedisReply(new_node, reply, NULL)))
             goto cleanup;
     }
@@ -5762,12 +5762,12 @@ static int clusterManagerCommandDeleteNode(int argc, char **argv) {
         if (n == node) continue;
         if (n->replicate && !strcasecmp(n->replicate, node_id)) {
             // Reconfigure the slave to replicate with some other node
-            clusterManagerNode *master = clusterManagerNodeWithLeastReplicas();
-            assert(master != NULL);
+            clusterManagerNode *primary = clusterManagerNodeWithLeastReplicas();
+            assert(primary != NULL);
             clusterManagerLogInfo(">>> %s:%d as replica of %s:%d\n",
-                                  n->ip, n->port, master->ip, master->port);
+                                  n->ip, n->port, primary->ip, primary->port);
             redisReply *r = CLUSTER_MANAGER_COMMAND(n, "CLUSTER REPLICATE %s",
-                                                    master->name);
+                                                    primary->name);
             success = clusterManagerCheckRedisReply(n, r, NULL);
             if (r) freeReplyObject(r);
             if (!success) return 0;
@@ -6030,7 +6030,7 @@ static int clusterManagerCommandRebalance(int argc, char **argv) {
             float w = atof(++p);
             clusterManagerNode *n = clusterManagerNodeByAbbreviatedName(name);
             if (n == NULL) {
-                clusterManagerLogErr("*** No such master node %s\n", name);
+                clusterManagerLogErr("*** No such primary node %s\n", name);
                 result = 0;
                 goto cleanup;
             }
@@ -6797,7 +6797,7 @@ unsigned long long sendSync(int fd, char *out_eof) {
 
     /* Send the SYNC command. */
     if (write(fd,"SYNC\r\n",6) != 6) {
-        fprintf(stderr,"Error writing to master\n");
+        fprintf(stderr,"Error writing to primary\n");
         exit(1);
     }
 
@@ -6814,7 +6814,7 @@ unsigned long long sendSync(int fd, char *out_eof) {
     }
     *p = '\0';
     if (buf[0] == '-') {
-        printf("SYNC with master failed: %s\n", buf);
+        printf("SYNC with primary failed: %s\n", buf);
         exit(1);
     }
     if (strncmp(buf+1,"EOF:",4) == 0 && strlen(buf+5) >= RDB_EOF_MARK_SIZE) {
@@ -6837,10 +6837,10 @@ static void slaveMode(void) {
         payload = ULLONG_MAX;
         memset(lastbytes,0,RDB_EOF_MARK_SIZE);
         usemark = 1;
-        fprintf(stderr,"SYNC with master, discarding "
+        fprintf(stderr,"SYNC with primary, discarding "
                        "bytes of bulk transfer until EOF marker...\n");
     } else {
-        fprintf(stderr,"SYNC with master, discarding %llu "
+        fprintf(stderr,"SYNC with primary, discarding %llu "
                        "bytes of bulk transfer...\n", payload);
     }
 
@@ -6872,12 +6872,12 @@ static void slaveMode(void) {
 
     if (usemark) {
         unsigned long long offset = ULLONG_MAX - payload;
-        fprintf(stderr,"SYNC done after %llu bytes. Logging commands from master.\n", offset);
+        fprintf(stderr,"SYNC done after %llu bytes. Logging commands from primary.\n", offset);
         /* put the slave online */
         sleep(1);
         sendReplconf("ACK", "0");
     } else
-        fprintf(stderr,"SYNC done. Logging commands from master.\n");
+        fprintf(stderr,"SYNC done. Logging commands from primary.\n");
 
     /* Now we can use hiredis to read the incoming protocol. */
     config.output = OUTPUT_CSV;
@@ -6912,10 +6912,10 @@ static void getRDB(clusterManagerNode *node) {
         payload = ULLONG_MAX;
         memset(lastbytes,0,RDB_EOF_MARK_SIZE);
         usemark = 1;
-        fprintf(stderr,"SYNC sent to master, writing bytes of bulk transfer "
+        fprintf(stderr,"SYNC sent to primary, writing bytes of bulk transfer "
                 "until EOF marker to '%s'\n", filename);
     } else {
-        fprintf(stderr,"SYNC sent to master, writing %llu bytes to '%s'\n",
+        fprintf(stderr,"SYNC sent to primary, writing %llu bytes to '%s'\n",
             payload, filename);
     }
 

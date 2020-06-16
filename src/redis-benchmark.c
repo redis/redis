@@ -152,7 +152,7 @@ typedef struct clusterNode {
     int port;
     sds name;
     int flags;
-    sds replicate;  /* Master ID if node is a slave */
+    sds replicate;  /* Primary ID if node is a slave */
     int *slots;
     int slots_count;
     int current_slot_index;
@@ -795,7 +795,7 @@ static void showLatencyReport(void) {
         printf("  %d bytes payload\n", config.datasize);
         printf("  keep alive: %d\n", config.keepalive);
         if (config.cluster_mode) {
-            printf("  cluster mode: yes (%d masters)\n",
+            printf("  cluster mode: yes (%d primaries)\n",
                    config.cluster_node_count);
             int m ;
             for (m = 0; m < config.cluster_node_count; m++) {
@@ -1028,7 +1028,7 @@ static int fetchClusterConfiguration() {
         *p = '\0';
         line = lines;
         lines = p + 1;
-        char *name = NULL, *addr = NULL, *flags = NULL, *master_id = NULL;
+        char *name = NULL, *addr = NULL, *flags = NULL, *primary_id = NULL;
         int i = 0;
         while ((p = strchr(line, ' ')) != NULL) {
             *p = '\0';
@@ -1038,7 +1038,7 @@ static int fetchClusterConfiguration() {
             case 0: name = token; break;
             case 1: addr = token; break;
             case 2: flags = token; break;
-            case 3: master_id = token; break;
+            case 3: primary_id = token; break;
             }
             if (i == 8) break; // Slots
         }
@@ -1049,7 +1049,7 @@ static int fetchClusterConfiguration() {
         }
         int myself = (strstr(flags, "myself") != NULL);
         int is_replica = (strstr(flags, "slave") != NULL ||
-                         (master_id != NULL && master_id[0] != '-'));
+                         (primary_id != NULL && primary_id[0] != '-'));
         if (is_replica) continue;
         if (addr == NULL) {
             fprintf(stderr, "Invalid CLUSTER NODES reply: missing addr.\n");
@@ -1145,7 +1145,7 @@ static int fetchClusterConfiguration() {
             }
         }
         if (node->slots_count == 0) {
-            printf("WARNING: master node %s:%d has no slots, skipping...\n",
+            printf("WARNING: primary node %s:%d has no slots, skipping...\n",
                    node->ip, node->port);
             continue;
         }
@@ -1190,7 +1190,7 @@ static int fetchClusterSlotsConfiguration(client c) {
         NULL                       /* val destructor */
     };
     /* printf("[%d] fetchClusterSlotsConfiguration\n", c->thread_id); */
-    dict *masters = dictCreate(&dtype, NULL);
+    dict *primaries = dictCreate(&dtype, NULL);
     redisContext *ctx = NULL;
     for (i = 0; i < (size_t) config.cluster_node_count; i++) {
         clusterNode *node = config.cluster_nodes[i];
@@ -1211,7 +1211,7 @@ static int fetchClusterSlotsConfiguration(client c) {
             zfree(node->updated_slots);
         node->updated_slots = NULL;
         node->updated_slots_count = 0;
-        dictReplace(masters, node->name, node) ;
+        dictReplace(primaries, node->name, node) ;
     }
     reply = redisCommand(ctx, "CLUSTER SLOTS");
     if (reply == NULL || reply->type == REDIS_REPLY_ERROR) {
@@ -1232,7 +1232,7 @@ static int fetchClusterSlotsConfiguration(client c) {
         assert(nr->type == REDIS_REPLY_ARRAY && nr->elements >= 3);
         assert(nr->element[2]->str != NULL);
         sds name =  sdsnew(nr->element[2]->str);
-        dictEntry *entry = dictFind(masters, name);
+        dictEntry *entry = dictFind(primaries, name);
         if (entry == NULL) {
             success = 0;
             fprintf(stderr, "%s: could not find node with ID %s in current "
@@ -1251,7 +1251,7 @@ static int fetchClusterSlotsConfiguration(client c) {
 cleanup:
     freeReplyObject(reply);
     redisFree(ctx);
-    dictRelease(masters);
+    dictRelease(primaries);
     atomicSet(config.is_fetching_slots, 0);
     return success;
 }
@@ -1565,7 +1565,7 @@ int main(int argc, const char **argv) {
                     config.cluster_node_count);
             exit(1);
         }
-        printf("Cluster has %d master nodes:\n\n", config.cluster_node_count);
+        printf("Cluster has %d primary nodes:\n\n", config.cluster_node_count);
         int i = 0;
         for (; i < config.cluster_node_count; i++) {
             clusterNode *node = config.cluster_nodes[i];
@@ -1573,7 +1573,7 @@ int main(int argc, const char **argv) {
                 fprintf(stderr, "Invalid cluster node #%d\n", i);
                 exit(1);
             }
-            printf("Master %d: ", i);
+            printf("Primary %d: ", i);
             if (node->name) printf("%s ", node->name);
             printf("%s:%d\n", node->ip, node->port);
             node->redis_config = getRedisConfig(node->ip, node->port, NULL);

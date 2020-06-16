@@ -92,17 +92,17 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
  *
  * Note: this function also returns NULL if the key is logically expired
  * but still existing, in case this is a slave, since this API is called only
- * for read operations. Even if the key expiry is master-driven, we can
- * correctly report a key is expired on slaves even if the master is lagging
+ * for read operations. Even if the key expiry is primary-driven, we can
+ * correctly report a key is expired on slaves even if the primary is lagging
  * expiring our key via DELs in the replication link. */
 robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
     robj *val;
 
     if (expireIfNeeded(db,key) == 1) {
-        /* Key expired. If we are in the context of a master, expireIfNeeded()
+        /* Key expired. If we are in the context of a primary, expireIfNeeded()
          * returns 0 only when the key does not exist at all, so it's safe
          * to return NULL ASAP. */
-        if (server.masterhost == NULL) {
+        if (server.primaryhost == NULL) {
             server.stat_keyspace_misses++;
             notifyKeyspaceEvent(NOTIFY_KEY_MISS, "keymiss", key, db->id);
             return NULL;
@@ -111,9 +111,9 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
         /* However if we are in the context of a slave, expireIfNeeded() will
          * not really try to expire the key, it only returns information
          * about the "logical" status of the key: key expiring is up to the
-         * master in order to have a consistent view of master's data set.
+         * primary in order to have a consistent view of primary's data set.
          *
-         * However, if the command caller is not the master, and as additional
+         * However, if the command caller is not the primary, and as additional
          * safety measure, the command invoked is a read-only command, we can
          * safely return NULL here, and provide a more consistent behavior
          * to clients accessign expired values in a read-only fashion, that
@@ -121,7 +121,7 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
          *
          * Notably this covers GETs when slaves are used to scale reads. */
         if (server.current_client &&
-            server.current_client != server.master &&
+            server.current_client != server.primary &&
             server.current_client->cmd &&
             server.current_client->cmd->flags & CMD_READONLY)
         {
@@ -282,7 +282,7 @@ robj *dbRandomKey(redisDb *db) {
         key = dictGetKey(de);
         keyobj = createStringObject(key,sdslen(key));
         if (dictFind(db->expires,key)) {
-            if (allvolatile && server.masterhost && --maxtries == 0) {
+            if (allvolatile && server.primaryhost && --maxtries == 0) {
                 /* If the DB is composed only of keys with an expire set,
                  * it could happen that all the keys are already logically
                  * expired in the slave, so the function cannot stop because
@@ -1200,7 +1200,7 @@ void setExpire(client *c, redisDb *db, robj *key, long long when) {
     de = dictAddOrFind(db->expires,dictGetKey(kde));
     dictSetSignedIntegerVal(de,when);
 
-    int writable_slave = server.masterhost && server.repl_slave_ro == 0;
+    int writable_slave = server.primaryhost && server.repl_slave_ro == 0;
     if (c && writable_slave && !(c->flags & CLIENT_MASTER))
         rememberSlaveKeyWithExpire(db,key);
 }
@@ -1221,11 +1221,11 @@ long long getExpire(redisDb *db, robj *key) {
 }
 
 /* Propagate expires into slaves and the AOF file.
- * When a key expires in the master, a DEL operation for this key is sent
+ * When a key expires in the primary, a DEL operation for this key is sent
  * to all the slaves and the AOF file if enabled.
  *
  * This way the key expiry is centralized in one place, and since both
- * AOF and the master->slave link guarantee operation ordering, everything
+ * AOF and the primary->slave link guarantee operation ordering, everything
  * will be consistent even if we allow write operations against expiring
  * keys. */
 void propagateExpire(redisDb *db, robj *key, int lazy) {
@@ -1289,13 +1289,13 @@ int keyIsExpired(redisDb *db, robj *key) {
  *
  * The behavior of the function depends on the replication role of the
  * instance, because slave instances do not expire keys, they wait
- * for DELs from the master for consistency matters. However even
+ * for DELs from the primary for consistency matters. However even
  * slaves will try to have a coherent return value for the function,
  * so that read commands executed in the slave side will be able to
  * behave like if the key is expired even if still present (because the
- * master has yet to propagate the DEL).
+ * primary has yet to propagate the DEL).
  *
- * In masters as a side effect of finding a key which is expired, such
+ * In primaries as a side effect of finding a key which is expired, such
  * key will be evicted from the database. Also this may trigger the
  * propagation of a DEL/UNLINK command in AOF / replication stream.
  *
@@ -1306,13 +1306,13 @@ int expireIfNeeded(redisDb *db, robj *key) {
 
     /* If we are running in the context of a slave, instead of
      * evicting the expired key from the database, we return ASAP:
-     * the slave key expiration is controlled by the master that will
+     * the slave key expiration is controlled by the primary that will
      * send us synthesized DEL operations for expired keys.
      *
      * Still we try to return the right information to the caller,
      * that is, 0 if we think the key should be still valid, 1 if
      * we think the key is expired at this time. */
-    if (server.masterhost != NULL) return 1;
+    if (server.primaryhost != NULL) return 1;
 
     /* Delete the key */
     server.stat_expiredkeys++;

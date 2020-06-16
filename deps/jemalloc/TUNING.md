@@ -116,7 +116,7 @@ improve application performance with jemalloc.
 
     Extent hooks allow customization for managing underlying memory.  One use
     case for performance purpose is to utilize huge pages -- for example,
-    [HHVM](https://github.com/facebook/hhvm/blob/master/hphp/util/alloc.cpp)
+    [HHVM](https://github.com/facebook/hhvm/blob/primary/hphp/util/alloc.cpp)
     uses explicit arenas with customized extent hooks to manage 1GB huge pages
     for frequently accessed data, which reduces TLB misses significantly.
 

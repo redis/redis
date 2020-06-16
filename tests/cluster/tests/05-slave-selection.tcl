@@ -3,8 +3,8 @@
 
 source "../tests/includes/init-tests.tcl"
 
-# Create a cluster with 5 master and 10 slaves, so that we have 2
-# slaves for each master.
+# Create a cluster with 5 primary and 10 slaves, so that we have 2
+# slaves for each primary.
 test "Create a 5 nodes cluster" {
     create_cluster 5 10
 }
@@ -13,7 +13,7 @@ test "Cluster is up" {
     assert_cluster_state ok
 }
 
-test "The first master has actually two slaves" {
+test "The first primary has actually two slaves" {
     assert {[llength [lindex [R 0 role] 2]] == 2}
 }
 
@@ -23,12 +23,12 @@ test {Slaves of #0 are instance #5 and #10 as expected} {
     assert {[lindex [R 10 role] 2] == $port0}
 }
 
-test "Instance #5 and #10 synced with the master" {
+test "Instance #5 and #10 synced with the primary" {
     wait_for_condition 1000 50 {
-        [RI 5 master_link_status] eq {up} &&
-        [RI 10 master_link_status] eq {up}
+        [RI 5 primary_link_status] eq {up} &&
+        [RI 10 primary_link_status] eq {up}
     } else {
-        fail "Instance #5 or #10 master link status is not up"
+        fail "Instance #5 or #10 primary link status is not up"
     }
 }
 
@@ -42,7 +42,7 @@ test "Slaves are both able to receive and acknowledge writes" {
 }
 
 test "Write data while slave #10 is paused and can't receive it" {
-    # Stop the slave with a multi/exec transaction so that the master will
+    # Stop the slave with a multi/exec transaction so that the primary will
     # be killed as soon as it can accept writes again.
     R 10 multi
     R 10 debug sleep 10
@@ -55,7 +55,7 @@ test "Write data while slave #10 is paused and can't receive it" {
         $cluster set $j $j
     }
 
-    # Prevent the master from accepting new slaves.
+    # Prevent the primary from accepting new slaves.
     # Use a large pause value since we'll kill it anyway.
     R 0 CLIENT PAUSE 60000
 
@@ -63,13 +63,13 @@ test "Write data while slave #10 is paused and can't receive it" {
     R 10 deferred 0
     assert {[R 10 read] eq {OK OK}}
 
-    # Kill the master so that a reconnection will not be possible.
+    # Kill the primary so that a reconnection will not be possible.
     kill_instance redis 0
 }
 
-test "Wait for instance #5 (and not #10) to turn into a master" {
+test "Wait for instance #5 (and not #10) to turn into a primary" {
     wait_for_condition 1000 50 {
-        [RI 5 role] eq {master}
+        [RI 5 role] eq {primary}
     } else {
         fail "No failover detected"
     }
@@ -95,8 +95,8 @@ test "Node #10 should eventually replicate node #5" {
 
 source "../tests/includes/init-tests.tcl"
 
-# Create a cluster with 3 master and 15 slaves, so that we have 5
-# slaves for eatch master.
+# Create a cluster with 3 primary and 15 slaves, so that we have 5
+# slaves for eatch primary.
 test "Create a 3 nodes cluster" {
     create_cluster 3 15
 }
@@ -105,7 +105,7 @@ test "Cluster is up" {
     assert_cluster_state ok
 }
 
-test "The first master has actually 5 slaves" {
+test "The first primary has actually 5 slaves" {
     assert {[llength [lindex [R 0 role] 2]] == 5}
 }
 
@@ -118,21 +118,21 @@ test {Slaves of #0 are instance #3, #6, #9, #12 and #15 as expected} {
     assert {[lindex [R 15 role] 2] == $port0}
 }
 
-test {Instance #3, #6, #9, #12 and #15 synced with the master} {
+test {Instance #3, #6, #9, #12 and #15 synced with the primary} {
     wait_for_condition 1000 50 {
-        [RI 3 master_link_status] eq {up} &&
-        [RI 6 master_link_status] eq {up} &&
-        [RI 9 master_link_status] eq {up} &&
-        [RI 12 master_link_status] eq {up} &&
-        [RI 15 master_link_status] eq {up}
+        [RI 3 primary_link_status] eq {up} &&
+        [RI 6 primary_link_status] eq {up} &&
+        [RI 9 primary_link_status] eq {up} &&
+        [RI 12 primary_link_status] eq {up} &&
+        [RI 15 primary_link_status] eq {up}
     } else {
-        fail "Instance #3 or #6 or #9 or #12 or #15 master link status is not up"
+        fail "Instance #3 or #6 or #9 or #12 or #15 primary link status is not up"
     }
 }
 
-proc master_detected {instances} {
+proc primary_detected {instances} {
     foreach instance [dict keys $instances] {
-        if {[RI $instance role] eq {master}} {
+        if {[RI $instance role] eq {primary}} {
             return true
         }
     }
@@ -140,30 +140,30 @@ proc master_detected {instances} {
     return false
 }
 
-test "New Master down consecutively" {
+test "New Primary down consecutively" {
     set instances [dict create 0 1 3 1 6 1 9 1 12 1 15 1]
 
     set loops [expr {[dict size $instances]-1}]
     for {set i 0} {$i < $loops} {incr i} {
-        set master_id -1
+        set primary_id -1
         foreach instance [dict keys $instances] {
-            if {[RI $instance role] eq {master}} {
-                set master_id $instance
+            if {[RI $instance role] eq {primary}} {
+                set primary_id $instance
                 break;
             }
         }
 
-        if {$master_id eq -1} {
-            fail "no master detected, #loop $i"
+        if {$primary_id eq -1} {
+            fail "no primary detected, #loop $i"
         }
 
-        set instances [dict remove $instances $master_id]
+        set instances [dict remove $instances $primary_id]
 
-        kill_instance redis $master_id
+        kill_instance redis $primary_id
         wait_for_condition 1000 50 {
-            [master_detected $instances]
+            [primary_detected $instances]
         } else {
-            failover "No failover detected when master $master_id fails"
+            failover "No failover detected when primary $primary_id fails"
         }
 
         assert_cluster_state ok

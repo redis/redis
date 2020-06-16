@@ -1,10 +1,10 @@
 # Slave stop condition test
 # Check that if there is a disconnection time limit, the slave will not try
-# to failover its master.
+# to failover its primary.
 
 source "../tests/includes/init-tests.tcl"
 
-# Create a cluster with 5 master and 5 slaves.
+# Create a cluster with 5 primary and 5 slaves.
 test "Create a 5 nodes cluster" {
     create_cluster 5 5
 }
@@ -13,7 +13,7 @@ test "Cluster is up" {
     assert_cluster_state ok
 }
 
-test "The first master has actually one slave" {
+test "The first primary has actually one slave" {
     assert {[llength [lindex [R 0 role] 2]] == 1}
 }
 
@@ -22,11 +22,11 @@ test {Slaves of #0 is instance #5 as expected} {
     assert {[lindex [R 5 role] 2] == $port0}
 }
 
-test "Instance #5 synced with the master" {
+test "Instance #5 synced with the primary" {
     wait_for_condition 1000 50 {
-        [RI 5 master_link_status] eq {up}
+        [RI 5 primary_link_status] eq {up}
     } else {
-        fail "Instance #5 master link status is not up"
+        fail "Instance #5 primary link status is not up"
     }
 }
 
@@ -34,8 +34,8 @@ test "Lower the slave validity factor of #5 to the value of 2" {
     assert {[R 5 config set cluster-slave-validity-factor 2] eq {OK}}
 }
 
-test "Break master-slave link and prevent further reconnections" {
-    # Stop the slave with a multi/exec transaction so that the master will
+test "Break primary-slave link and prevent further reconnections" {
+    # Stop the slave with a multi/exec transaction so that the primary will
     # be killed as soon as it can accept writes again.
     R 5 multi
     R 5 client kill 127.0.0.1:$port0
@@ -47,7 +47,7 @@ test "Break master-slave link and prevent further reconnections" {
     R 5 deferred 1
     R 5 exec
 
-    # Prevent the master from accepting new slaves.
+    # Prevent the primary from accepting new slaves.
     # Use a large pause value since we'll kill it anyway.
     R 0 CLIENT PAUSE 60000
 
@@ -55,7 +55,7 @@ test "Break master-slave link and prevent further reconnections" {
     R 5 deferred 0
     assert {[R 5 read] eq {OK OK}}
 
-    # Kill the master so that a reconnection will not be possible.
+    # Kill the primary so that a reconnection will not be possible.
     kill_instance redis 0
 }
 

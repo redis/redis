@@ -96,23 +96,23 @@ proc cluster_find_available_slave {first} {
     fail "No available slaves"
 }
 
-# Add 'slaves' slaves to a cluster composed of 'masters' masters.
-# It assumes that masters are allocated sequentially from instance ID 0
+# Add 'slaves' slaves to a cluster composed of 'primaries' primaries.
+# It assumes that primaries are allocated sequentially from instance ID 0
 # to N-1.
-proc cluster_allocate_slaves {masters slaves} {
+proc cluster_allocate_slaves {primaries slaves} {
     for {set j 0} {$j < $slaves} {incr j} {
-        set master_id [expr {$j % $masters}]
-        set slave_id [cluster_find_available_slave $masters]
-        set master_myself [get_myself $master_id]
-        R $slave_id cluster replicate [dict get $master_myself id]
+        set primary_id [expr {$j % $primaries}]
+        set slave_id [cluster_find_available_slave $primaries]
+        set primary_myself [get_myself $primary_id]
+        R $slave_id cluster replicate [dict get $primary_myself id]
     }
 }
 
-# Create a cluster composed of the specified number of masters and slaves.
-proc create_cluster {masters slaves} {
-    cluster_allocate_slots $masters
+# Create a cluster composed of the specified number of primaries and slaves.
+proc create_cluster {primaries slaves} {
+    cluster_allocate_slots $primaries
     if {$slaves} {
-        cluster_allocate_slaves $masters $slaves
+        cluster_allocate_slaves $primaries $slaves
     }
     assert_cluster_state ok
 }

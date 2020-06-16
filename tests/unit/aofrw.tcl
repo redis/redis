@@ -8,14 +8,14 @@ start_server {tags {"aofrw"}} {
         r config set aof-use-rdb-preamble $rdbpre
         test "AOF rewrite during write load: RDB preamble=$rdbpre" {
             # Start a write load for 10 seconds
-            set master [srv 0 client]
-            set master_host [srv 0 host]
-            set master_port [srv 0 port]
-            set load_handle0 [start_write_load $master_host $master_port 10]
-            set load_handle1 [start_write_load $master_host $master_port 10]
-            set load_handle2 [start_write_load $master_host $master_port 10]
-            set load_handle3 [start_write_load $master_host $master_port 10]
-            set load_handle4 [start_write_load $master_host $master_port 10]
+            set primary [srv 0 client]
+            set primary_host [srv 0 host]
+            set primary_port [srv 0 port]
+            set load_handle0 [start_write_load $primary_host $primary_port 10]
+            set load_handle1 [start_write_load $primary_host $primary_port 10]
+            set load_handle2 [start_write_load $primary_host $primary_port 10]
+            set load_handle3 [start_write_load $primary_host $primary_port 10]
+            set load_handle4 [start_write_load $primary_host $primary_port 10]
 
             # Make sure the instance is really receiving data
             wait_for_condition 50 100 {

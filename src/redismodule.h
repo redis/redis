@@ -70,7 +70,7 @@
 #define REDISMODULE_CTX_FLAGS_LUA (1<<0)
 /* The command is running inside a Redis transaction */
 #define REDISMODULE_CTX_FLAGS_MULTI (1<<1)
-/* The instance is a master */
+/* The instance is a primary */
 #define REDISMODULE_CTX_FLAGS_MASTER (1<<2)
 /* The instance is a slave */
 #define REDISMODULE_CTX_FLAGS_SLAVE (1<<3)
@@ -94,19 +94,19 @@
 #define REDISMODULE_CTX_FLAGS_REPLICATED (1<<12)
 /* Redis is currently loading either from AOF or RDB. */
 #define REDISMODULE_CTX_FLAGS_LOADING (1<<13)
-/* The replica has no link with its master, note that
+/* The replica has no link with its primary, note that
  * there is the inverse flag as well:
  *
  *  REDISMODULE_CTX_FLAGS_REPLICA_IS_ONLINE
  *
  * The two flags are exclusive, one or the other can be set. */
 #define REDISMODULE_CTX_FLAGS_REPLICA_IS_STALE (1<<14)
-/* The replica is trying to connect with the master.
+/* The replica is trying to connect with the primary.
  * (REPL_STATE_CONNECT and REPL_STATE_CONNECTING states) */
 #define REDISMODULE_CTX_FLAGS_REPLICA_IS_CONNECTING (1<<15)
-/* THe replica is receiving an RDB file from its master. */
+/* THe replica is receiving an RDB file from its primary. */
 #define REDISMODULE_CTX_FLAGS_REPLICA_IS_TRANSFERRING (1<<16)
-/* The replica is online, receiving updates from its master. */
+/* The replica is online, receiving updates from its primary. */
 #define REDISMODULE_CTX_FLAGS_REPLICA_IS_ONLINE (1<<17)
 /* There is currently some background process active. */
 #define REDISMODULE_CTX_FLAGS_ACTIVE_CHILD (1<<18)
@@ -232,7 +232,7 @@ static const RedisModuleEvent
         REDISMODULE_EVENT_CRON_LOOP,
         1
     },
-    RedisModuleEvent_MasterLinkChange = {
+    RedisModuleEvent_PrimaryLinkChange = {
         REDISMODULE_EVENT_MASTER_LINK_CHANGE,
         1
     },
@@ -319,9 +319,9 @@ typedef struct RedisModuleReplicationInfo {
     uint64_t version;       /* Not used since this structure is never passed
                                from the module to the core right now. Here
                                for future compatibility. */
-    int master;             /* true if master, false if replica */
-    char *masterhost;       /* master instance hostname for NOW_REPLICA */
-    int masterport;         /* master instance port for NOW_REPLICA */
+    int primary;             /* true if primary, false if replica */
+    char *primaryhost;       /* primary instance hostname for NOW_REPLICA */
+    int primaryport;         /* primary instance port for NOW_REPLICA */
     char *replid1;          /* Main replication ID */
     char *replid2;          /* Secondary replication ID */
     uint64_t repl1_offset;  /* Main replication offset */
@@ -648,7 +648,7 @@ int REDISMODULE_API_FUNC(RedisModule_GetNotifyKeyspaceEvents)();
 int REDISMODULE_API_FUNC(RedisModule_BlockedClientDisconnected)(RedisModuleCtx *ctx);
 void REDISMODULE_API_FUNC(RedisModule_RegisterClusterMessageReceiver)(RedisModuleCtx *ctx, uint8_t type, RedisModuleClusterMessageReceiver callback);
 int REDISMODULE_API_FUNC(RedisModule_SendClusterMessage)(RedisModuleCtx *ctx, char *target_id, uint8_t type, unsigned char *msg, uint32_t len);
-int REDISMODULE_API_FUNC(RedisModule_GetClusterNodeInfo)(RedisModuleCtx *ctx, const char *id, char *ip, char *master_id, int *port, int *flags);
+int REDISMODULE_API_FUNC(RedisModule_GetClusterNodeInfo)(RedisModuleCtx *ctx, const char *id, char *ip, char *primary_id, int *port, int *flags);
 char **REDISMODULE_API_FUNC(RedisModule_GetClusterNodesList)(RedisModuleCtx *ctx, size_t *numnodes);
 void REDISMODULE_API_FUNC(RedisModule_FreeClusterNodesList)(char **ids);
 RedisModuleTimerID REDISMODULE_API_FUNC(RedisModule_CreateTimer)(RedisModuleCtx *ctx, mstime_t period, RedisModuleTimerProc callback, void *data);

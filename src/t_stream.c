@@ -34,11 +34,11 @@
 #define STREAM_BYTES_PER_LISTPACK 2048
 
 /* Every stream item inside the listpack, has a flags field that is used to
- * mark the entry as deleted, or having the same field as the "master"
+ * mark the entry as deleted, or having the same field as the "primary"
  * entry at the start of the listpack> */
 #define STREAM_ITEM_FLAG_NONE 0             /* No special flags. */
 #define STREAM_ITEM_FLAG_DELETED (1<<0)     /* Entry is deleted. Skip it. */
-#define STREAM_ITEM_FLAG_SAMEFIELDS (1<<1)  /* Same fields as master entry. */
+#define STREAM_ITEM_FLAG_SAMEFIELDS (1<<1)  /* Same fields as primary entry. */
 
 void streamFreeCG(streamCG *cg);
 void streamFreeNACK(streamNACK *na);
@@ -227,19 +227,19 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
      * to do so we consider the ID as a single 128 bit number written in
      * big endian, so that the most significant bytes are the first ones. */
     uint64_t rax_key[2];    /* Key in the radix tree containing the listpack.*/
-    streamID master_id;     /* ID of the master entry in the listpack. */
+    streamID primary_id;     /* ID of the primary entry in the listpack. */
 
     /* Create a new listpack and radix tree node if needed. Note that when
-     * a new listpack is created, we populate it with a "master entry". This
+     * a new listpack is created, we populate it with a "primary entry". This
      * is just a set of fields that is taken as references in order to compress
      * the stream entries that we'll add inside the listpack.
      *
      * Note that while we use the first added entry fields to create
-     * the master entry, the first added entry is NOT represented in the master
+     * the primary entry, the first added entry is NOT represented in the primary
      * entry, which is a stand alone object. But of course, the first entry
      * will compress well because it's used as reference.
      *
-     * The master entry is composed like in the following example:
+     * The primary entry is composed like in the following example:
      *
      * +-------+---------+------------+---------+--/--+---------+---------+-+
      * | count | deleted | num-fields | field_1 | field_2 | ... | field_N |0|
@@ -253,7 +253,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
      * The real entries will be encoded with an ID that is just the
      * millisecond and sequence difference compared to the key stored at
      * the radix tree node containing the listpack (delta encoding), and
-     * if the fields of the entry are the same as the master entry fields, the
+     * if the fields of the entry are the same as the primary entry fields, the
      * entry flags will specify this fact and the entry fields and number
      * of fields will be omitted (see later in the code of this function).
      *
@@ -277,9 +277,9 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
 
     int flags = STREAM_ITEM_FLAG_NONE;
     if (lp == NULL || lp_bytes >= server.stream_node_max_bytes) {
-        master_id = id;
+        primary_id = id;
         streamEncodeID(rax_key,&id);
-        /* Create the listpack having the master entry ID and fields. */
+        /* Create the listpack having the primary entry ID and fields. */
         lp = lpNew();
         lp = lpAppendInteger(lp,1); /* One item, the one we are adding. */
         lp = lpAppendInteger(lp,0); /* Zero deleted so far. */
@@ -288,32 +288,32 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
             sds field = argv[i*2]->ptr;
             lp = lpAppend(lp,(unsigned char*)field,sdslen(field));
         }
-        lp = lpAppendInteger(lp,0); /* Master entry zero terminator. */
+        lp = lpAppendInteger(lp,0); /* Primary entry zero terminator. */
         raxInsert(s->rax,(unsigned char*)&rax_key,sizeof(rax_key),lp,NULL);
         /* The first entry we insert, has obviously the same fields of the
-         * master entry. */
+         * primary entry. */
         flags |= STREAM_ITEM_FLAG_SAMEFIELDS;
     } else {
         serverAssert(ri.key_len == sizeof(rax_key));
         memcpy(rax_key,ri.key,sizeof(rax_key));
 
-        /* Read the master ID from the radix tree key. */
-        streamDecodeID(rax_key,&master_id);
+        /* Read the primary ID from the radix tree key. */
+        streamDecodeID(rax_key,&primary_id);
         unsigned char *lp_ele = lpFirst(lp);
 
         /* Update count and skip the deleted fields. */
         int64_t count = lpGetInteger(lp_ele);
         lp = lpReplaceInteger(lp,&lp_ele,count+1);
         lp_ele = lpNext(lp,lp_ele); /* seek deleted. */
-        lp_ele = lpNext(lp,lp_ele); /* seek master entry num fields. */
+        lp_ele = lpNext(lp,lp_ele); /* seek primary entry num fields. */
 
         /* Check if the entry we are adding, have the same fields
-         * as the master entry. */
-        int64_t master_fields_count = lpGetInteger(lp_ele);
+         * as the primary entry. */
+        int64_t primary_fields_count = lpGetInteger(lp_ele);
         lp_ele = lpNext(lp,lp_ele);
-        if (numfields == master_fields_count) {
+        if (numfields == primary_fields_count) {
             int64_t i;
-            for (i = 0; i < master_fields_count; i++) {
+            for (i = 0; i < primary_fields_count; i++) {
                 sds field = argv[i*2]->ptr;
                 int64_t e_len;
                 unsigned char buf[LP_INTBUF_SIZE];
@@ -325,7 +325,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
             }
             /* All fields are the same! We can compress the field names
              * setting a single bit in the flags. */
-            if (i == master_fields_count) flags |= STREAM_ITEM_FLAG_SAMEFIELDS;
+            if (i == primary_fields_count) flags |= STREAM_ITEM_FLAG_SAMEFIELDS;
         }
     }
 
@@ -344,7 +344,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
      * +-----+--------+-------+-/-+-------+--------+
      *
      * The entry-id field is actually two separated fields: the ms
-     * and seq difference compared to the master entry.
+     * and seq difference compared to the primary entry.
      *
      * The lp-count field is a number that states the number of listpack pieces
      * that compose the entry, so that it's possible to travel the entry
@@ -352,8 +352,8 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
      * the entry, and jump back N times to seek the "flags" field to read
      * the stream full entry. */
     lp = lpAppendInteger(lp,flags);
-    lp = lpAppendInteger(lp,id.ms - master_id.ms);
-    lp = lpAppendInteger(lp,id.seq - master_id.seq);
+    lp = lpAppendInteger(lp,id.ms - primary_id.ms);
+    lp = lpAppendInteger(lp,id.seq - primary_id.seq);
     if (!(flags & STREAM_ITEM_FLAG_SAMEFIELDS))
         lp = lpAppendInteger(lp,numfields);
     for (int64_t i = 0; i < numfields; i++) {
@@ -430,14 +430,14 @@ int64_t streamTrimByLength(stream *s, size_t maxlen, int approx) {
         p = lpNext(lp,p); /* Seek deleted field. */
         int64_t marked_deleted = lpGetInteger(p);
         lp = lpReplaceInteger(lp,&p,marked_deleted+to_delete);
-        p = lpNext(lp,p); /* Seek num-of-fields in the master entry. */
+        p = lpNext(lp,p); /* Seek num-of-fields in the primary entry. */
 
-        /* Skip all the master fields. */
-        int64_t master_fields_count = lpGetInteger(p);
+        /* Skip all the primary fields. */
+        int64_t primary_fields_count = lpGetInteger(p);
         p = lpNext(lp,p); /* Seek the first field. */
-        for (int64_t j = 0; j < master_fields_count; j++)
-            p = lpNext(lp,p); /* Skip all master fields. */
-        p = lpNext(lp,p); /* Skip the zero master entry terminator. */
+        for (int64_t j = 0; j < primary_fields_count; j++)
+            p = lpNext(lp,p); /* Skip all primary fields. */
+        p = lpNext(lp,p); /* Skip the zero primary entry terminator. */
 
         /* 'p' is now pointing to the first entry inside the listpack.
          * We have to run entry after entry, marking entries as deleted
@@ -459,7 +459,7 @@ int64_t streamTrimByLength(stream *s, size_t maxlen, int approx) {
             p = lpNext(lp,p); /* Skip ID seq delta. */
             p = lpNext(lp,p); /* Seek num-fields or values (if compressed). */
             if (flags & STREAM_ITEM_FLAG_SAMEFIELDS) {
-                to_skip = master_fields_count;
+                to_skip = primary_fields_count;
             } else {
                 to_skip = lpGetInteger(p);
                 to_skip = 1+(to_skip*2);
@@ -563,23 +563,23 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
             if (!si->rev && !raxNext(&si->ri)) return 0;
             else if (si->rev && !raxPrev(&si->ri)) return 0;
             serverAssert(si->ri.key_len == sizeof(streamID));
-            /* Get the master ID. */
-            streamDecodeID(si->ri.key,&si->master_id);
-            /* Get the master fields count. */
+            /* Get the primary ID. */
+            streamDecodeID(si->ri.key,&si->primary_id);
+            /* Get the primary fields count. */
             si->lp = si->ri.data;
             si->lp_ele = lpFirst(si->lp);           /* Seek items count */
             si->lp_ele = lpNext(si->lp,si->lp_ele); /* Seek deleted count. */
             si->lp_ele = lpNext(si->lp,si->lp_ele); /* Seek num fields. */
-            si->master_fields_count = lpGetInteger(si->lp_ele);
+            si->primary_fields_count = lpGetInteger(si->lp_ele);
             si->lp_ele = lpNext(si->lp,si->lp_ele); /* Seek first field. */
-            si->master_fields_start = si->lp_ele;
-            /* We are now pointing to the first field of the master entry.
+            si->primary_fields_start = si->lp_ele;
+            /* We are now pointing to the first field of the primary entry.
              * We need to seek either the first or the last entry depending
              * on the direction of the iteration. */
             if (!si->rev) {
-                /* If we are iterating in normal order, skip the master fields
+                /* If we are iterating in normal order, skip the primary fields
                  * to seek the first actual entry. */
-                for (uint64_t i = 0; i < si->master_fields_count; i++)
+                for (uint64_t i = 0; i < si->primary_fields_count; i++)
                     si->lp_ele = lpNext(si->lp,si->lp_ele);
             } else {
                 /* If we are iterating in reverse direction, just seek the
@@ -603,7 +603,7 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
         while(1) {
             if (!si->rev) {
                 /* If we are going forward, skip the previous entry
-                 * lp-count field (or in case of the master entry, the zero
+                 * lp-count field (or in case of the primary entry, the zero
                  * term field) */
                 si->lp_ele = lpNext(si->lp,si->lp_ele);
                 if (si->lp_ele == NULL) break;
@@ -612,7 +612,7 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
                  * entry is composed of, and jump backward N times to seek
                  * its start. */
                 int64_t lp_count = lpGetInteger(si->lp_ele);
-                if (lp_count == 0) { /* We reached the master entry. */
+                if (lp_count == 0) { /* We reached the primary entry. */
                     si->lp = NULL;
                     si->lp_ele = NULL;
                     break;
@@ -625,9 +625,9 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
             int flags = lpGetInteger(si->lp_ele);
             si->lp_ele = lpNext(si->lp,si->lp_ele); /* Seek ID. */
 
-            /* Get the ID: it is encoded as difference between the master
+            /* Get the ID: it is encoded as difference between the primary
              * ID and this entry ID. */
-            *id = si->master_id;
+            *id = si->primary_id;
             id->ms += lpGetInteger(si->lp_ele);
             si->lp_ele = lpNext(si->lp,si->lp_ele);
             id->seq += lpGetInteger(si->lp_ele);
@@ -638,7 +638,7 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
             /* The number of entries is here or not depending on the
              * flags. */
             if (flags & STREAM_ITEM_FLAG_SAMEFIELDS) {
-                *numfields = si->master_fields_count;
+                *numfields = si->primary_fields_count;
             } else {
                 *numfields = lpGetInteger(si->lp_ele);
                 si->lp_ele = lpNext(si->lp,si->lp_ele);
@@ -654,7 +654,7 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
                         return 0; /* We are already out of range. */
                     si->entry_flags = flags;
                     if (flags & STREAM_ITEM_FLAG_SAMEFIELDS)
-                        si->master_fields_ptr = si->master_fields_start;
+                        si->primary_fields_ptr = si->primary_fields_start;
                     return 1; /* Valid item returned. */
                 }
             } else {
@@ -665,7 +665,7 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
                         return 0; /* We are already out of range. */
                     si->entry_flags = flags;
                     if (flags & STREAM_ITEM_FLAG_SAMEFIELDS)
-                        si->master_fields_ptr = si->master_fields_start;
+                        si->primary_fields_ptr = si->primary_fields_start;
                     return 1; /* Valid item returned. */
                 }
             }
@@ -701,8 +701,8 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
  * no one touches the stream meanwhile. */
 void streamIteratorGetField(streamIterator *si, unsigned char **fieldptr, unsigned char **valueptr, int64_t *fieldlen, int64_t *valuelen) {
     if (si->entry_flags & STREAM_ITEM_FLAG_SAMEFIELDS) {
-        *fieldptr = lpGet(si->master_fields_ptr,fieldlen,si->field_buf);
-        si->master_fields_ptr = lpNext(si->lp,si->master_fields_ptr);
+        *fieldptr = lpGet(si->primary_fields_ptr,fieldlen,si->field_buf);
+        si->primary_fields_ptr = lpNext(si->lp,si->primary_fields_ptr);
     } else {
         *fieldptr = lpGet(si->lp_ele,fieldlen,si->field_buf);
         si->lp_ele = lpNext(si->lp,si->lp_ele);
@@ -734,7 +734,7 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
     flags |= STREAM_ITEM_FLAG_DELETED;
     lp = lpReplaceInteger(lp,&si->lp_flags,flags);
 
-    /* Change the valid/deleted entries count in the master entry. */
+    /* Change the valid/deleted entries count in the primary entry. */
     unsigned char *p = lpFirst(lp);
     aux = lpGetInteger(p);
 

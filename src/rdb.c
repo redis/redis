@@ -1096,7 +1096,7 @@ int rdbSaveInfoAuxFields(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             == -1) return -1;
         if (rdbSaveAuxFieldStrStr(rdb,"repl-id",server.replid)
             == -1) return -1;
-        if (rdbSaveAuxFieldStrInt(rdb,"repl-offset",server.master_repl_offset)
+        if (rdbSaveAuxFieldStrInt(rdb,"repl-offset",server.primary_repl_offset)
             == -1) return -1;
     }
     if (rdbSaveAuxFieldStrInt(rdb,"aof-preamble",aof_preamble) == -1) return -1;
@@ -1210,7 +1210,7 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     /* If we are storing the replication information on disk, persist
      * the script cache as well: on successful PSYNC after a restart, we need
      * to be able to process any EVALSHA inside the replication backlog the
-     * master will send us. */
+     * primary will send us. */
     if (rsi && dictSize(server.lua_scripts)) {
         di = dictGetIterator(server.lua_scripts);
         while((de = dictNext(di)) != NULL) {
@@ -1718,12 +1718,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
         }
 
         while(listpacks--) {
-            /* Get the master ID, the one we'll use as key of the radix tree
+            /* Get the primary ID, the one we'll use as key of the radix tree
              * node: the entries inside the listpack itself are delta-encoded
              * relatively to this ID. */
             sds nodekey = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL);
             if (nodekey == NULL) {
-                rdbReportReadError("Stream master ID loading failed: invalid encoding or I/O error.");
+                rdbReportReadError("Stream primary ID loading failed: invalid encoding or I/O error.");
                 decrRefCount(o);
                 return NULL;
             }
@@ -2038,8 +2038,8 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
          * our cached time since it is used to create and update the last
          * interaction time with clients and for other important things. */
         updateCachedTime(0);
-        if (server.masterhost && server.repl_state == REPL_STATE_TRANSFER)
-            replicationSendNewlineToMaster();
+        if (server.primaryhost && server.repl_state == REPL_STATE_TRANSFER)
+            replicationSendNewlineToPrimary();
         loadingProgress(r->processed_bytes);
         processEventsWhileBlocked();
         processModuleLoadingProgressEvent(0);
@@ -2258,13 +2258,13 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
 
         /* Check if the key already expired. This function is used when loading
          * an RDB file from disk, either at startup, or when an RDB was
-         * received from the master. In the latter case, the master is
+         * received from the primary. In the latter case, the primary is
          * responsible for key expiry. If we would expire keys here, the
-         * snapshot taken by the master may not be reflected on the slave.
+         * snapshot taken by the primary may not be reflected on the slave.
          * Similarly if the RDB is the preamble of an AOF file, we want to
          * load all the keys as they are, since the log of operations later
          * assume to work in an exact keyspace state. */
-        if (iAmMaster() &&
+        if (iAmPrimary() &&
             !(rdbflags&RDBFLAGS_AOF_PREAMBLE) &&
             expiretime != -1 && expiretime < now)
         {
@@ -2594,26 +2594,26 @@ void bgsaveCommand(client *c) {
 
 /* Populate the rdbSaveInfo structure used to persist the replication
  * information inside the RDB file. Currently the structure explicitly
- * contains just the currently selected DB from the master stream, however
+ * contains just the currently selected DB from the primary stream, however
  * if the rdbSave*() family functions receive a NULL rsi structure also
  * the Replication ID/offset is not saved. The function popultes 'rsi'
  * that is normally stack-allocated in the caller, returns the populated
- * pointer if the instance has a valid master client, otherwise NULL
+ * pointer if the instance has a valid primary client, otherwise NULL
  * is returned, and the RDB saving will not persist any replication related
  * information. */
 rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi) {
     rdbSaveInfo rsi_init = RDB_SAVE_INFO_INIT;
     *rsi = rsi_init;
 
-    /* If the instance is a master, we can populate the replication info
+    /* If the instance is a primary, we can populate the replication info
      * only when repl_backlog is not NULL. If the repl_backlog is NULL,
      * it means that the instance isn't in any replication chains. In this
      * scenario the replication info is useless, because when a slave
      * connects to us, the NULL repl_backlog will trigger a full
      * synchronization, at the same time we will use a new replid and clear
      * replid2. */
-    if (!server.masterhost && server.repl_backlog) {
-        /* Note that when server.slaveseldb is -1, it means that this master
+    if (!server.primaryhost && server.repl_backlog) {
+        /* Note that when server.slaveseldb is -1, it means that this primary
          * didn't apply any write commands after a full synchronization.
          * So we can let repl_stream_db be 0, this allows a restarted slave
          * to reload replication ID/offset, it's safe because the next write
@@ -2622,20 +2622,20 @@ rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi) {
         return rsi;
     }
 
-    /* If the instance is a slave we need a connected master
+    /* If the instance is a slave we need a connected primary
      * in order to fetch the currently selected DB. */
-    if (server.master) {
-        rsi->repl_stream_db = server.master->db->id;
+    if (server.primary) {
+        rsi->repl_stream_db = server.primary->db->id;
         return rsi;
     }
 
-    /* If we have a cached master we can use it in order to populate the
+    /* If we have a cached primary we can use it in order to populate the
      * replication selected DB info inside the RDB file: the slave can
-     * increment the master_repl_offset only from data arriving from the
-     * master, so if we are disconnected the offset in the cached master
+     * increment the primary_repl_offset only from data arriving from the
+     * primary, so if we are disconnected the offset in the cached primary
      * is valid. */
-    if (server.cached_master) {
-        rsi->repl_stream_db = server.cached_master->db->id;
+    if (server.cached_primary) {
+        rsi->repl_stream_db = server.cached_primary->db->id;
         return rsi;
     }
     return NULL;

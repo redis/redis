@@ -57,12 +57,12 @@ void clusterUpdateState(void);
 int clusterNodeGetSlotBit(clusterNode *n, int slot);
 sds clusterGenNodesDescription(int filter);
 clusterNode *clusterLookupNode(const char *name);
-int clusterNodeAddSlave(clusterNode *master, clusterNode *slave);
+int clusterNodeAddSlave(clusterNode *primary, clusterNode *slave);
 int clusterAddSlot(clusterNode *n, int slot);
 int clusterDelSlot(int slot);
 int clusterDelNodeSlots(clusterNode *node);
 int clusterNodeSetSlotBit(clusterNode *n, int slot);
-void clusterSetMaster(clusterNode *n);
+void clusterSetPrimary(clusterNode *n);
 void clusterHandleSlaveFailover(void);
 void clusterHandleSlaveMigration(int max_slaves);
 int bitmapTestBit(unsigned char *bitmap, int pos);
@@ -70,7 +70,7 @@ void clusterDoBeforeSleep(int flags);
 void clusterSendUpdate(clusterLink *link, clusterNode *node);
 void resetManualFailover(void);
 void clusterCloseAllSlots(void);
-void clusterSetNodeAsMaster(clusterNode *n);
+void clusterSetNodeAsPrimary(clusterNode *n);
 void clusterDelNode(clusterNode *delnode);
 sds representClusterNodeFlags(sds ci, uint16_t flags);
 uint64_t clusterGetMaxEpoch(void);
@@ -123,7 +123,7 @@ int clusterLoadConfig(char *filename) {
     while(fgets(line,maxline,fp) != NULL) {
         int argc;
         sds *argv;
-        clusterNode *n, *master;
+        clusterNode *n, *primary;
         char *p, *s;
 
         /* Skip blank lines, they can be created either by users manually
@@ -196,7 +196,7 @@ int clusterLoadConfig(char *filename) {
                 serverAssert(server.cluster->myself == NULL);
                 myself = server.cluster->myself = n;
                 n->flags |= CLUSTER_NODE_MYSELF;
-            } else if (!strcasecmp(s,"master")) {
+            } else if (!strcasecmp(s,"primary")) {
                 n->flags |= CLUSTER_NODE_MASTER;
             } else if (!strcasecmp(s,"slave")) {
                 n->flags |= CLUSTER_NODE_SLAVE;
@@ -219,16 +219,16 @@ int clusterLoadConfig(char *filename) {
             if (p) s = p+1;
         }
 
-        /* Get master if any. Set the master and populate master's
+        /* Get primary if any. Set the primary and populate primary's
          * slave list. */
         if (argv[3][0] != '-') {
-            master = clusterLookupNode(argv[3]);
-            if (!master) {
-                master = createClusterNode(argv[3],0);
-                clusterAddNode(master);
+            primary = clusterLookupNode(argv[3]);
+            if (!primary) {
+                primary = createClusterNode(argv[3],0);
+                clusterAddNode(primary);
             }
-            n->slaveof = master;
-            clusterNodeAddSlave(master,n);
+            n->slaveof = primary;
+            clusterNodeAddSlave(primary,n);
         }
 
         /* Set ping sent / pong received timestamps */
@@ -537,7 +537,7 @@ void clusterInit(void) {
  *
  * 1) All other nodes are forget.
  * 2) All the assigned / open slots are released.
- * 3) If the node is a slave, it turns into a master.
+ * 3) If the node is a slave, it turns into a primary.
  * 5) Only for hard reset: a new Node ID is generated.
  * 6) Only for hard reset: currentEpoch and configEpoch are set to 0.
  * 7) The new configuration is saved and the cluster state updated.
@@ -547,10 +547,10 @@ void clusterReset(int hard) {
     dictEntry *de;
     int j;
 
-    /* Turn into master. */
+    /* Turn into primary. */
     if (nodeIsSlave(myself)) {
-        clusterSetNodeAsMaster(myself);
-        replicationUnsetMaster();
+        clusterSetNodeAsPrimary(myself);
+        replicationUnsetPrimary();
         emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
     }
 
@@ -659,7 +659,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     /* If the server is starting up, don't accept cluster connections:
      * UPDATE messages may interact with the database content. */
-    if (server.masterhost == NULL && server.loading) return;
+    if (server.primaryhost == NULL && server.loading) return;
 
     while(max--) {
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
@@ -866,36 +866,36 @@ int clusterNodeFailureReportsCount(clusterNode *node) {
     return listLength(node->fail_reports);
 }
 
-int clusterNodeRemoveSlave(clusterNode *master, clusterNode *slave) {
+int clusterNodeRemoveSlave(clusterNode *primary, clusterNode *slave) {
     int j;
 
-    for (j = 0; j < master->numslaves; j++) {
-        if (master->slaves[j] == slave) {
-            if ((j+1) < master->numslaves) {
-                int remaining_slaves = (master->numslaves - j) - 1;
-                memmove(master->slaves+j,master->slaves+(j+1),
-                        (sizeof(*master->slaves) * remaining_slaves));
+    for (j = 0; j < primary->numslaves; j++) {
+        if (primary->slaves[j] == slave) {
+            if ((j+1) < primary->numslaves) {
+                int remaining_slaves = (primary->numslaves - j) - 1;
+                memmove(primary->slaves+j,primary->slaves+(j+1),
+                        (sizeof(*primary->slaves) * remaining_slaves));
             }
-            master->numslaves--;
-            if (master->numslaves == 0)
-                master->flags &= ~CLUSTER_NODE_MIGRATE_TO;
+            primary->numslaves--;
+            if (primary->numslaves == 0)
+                primary->flags &= ~CLUSTER_NODE_MIGRATE_TO;
             return C_OK;
         }
     }
     return C_ERR;
 }
 
-int clusterNodeAddSlave(clusterNode *master, clusterNode *slave) {
+int clusterNodeAddSlave(clusterNode *primary, clusterNode *slave) {
     int j;
 
     /* If it's already a slave, don't add it again. */
-    for (j = 0; j < master->numslaves; j++)
-        if (master->slaves[j] == slave) return C_ERR;
-    master->slaves = zrealloc(master->slaves,
-        sizeof(clusterNode*)*(master->numslaves+1));
-    master->slaves[master->numslaves] = slave;
-    master->numslaves++;
-    master->flags |= CLUSTER_NODE_MIGRATE_TO;
+    for (j = 0; j < primary->numslaves; j++)
+        if (primary->slaves[j] == slave) return C_ERR;
+    primary->slaves = zrealloc(primary->slaves,
+        sizeof(clusterNode*)*(primary->numslaves+1));
+    primary->slaves[primary->numslaves] = slave;
+    primary->numslaves++;
+    primary->flags |= CLUSTER_NODE_MIGRATE_TO;
     return C_OK;
 }
 
@@ -917,7 +917,7 @@ void freeClusterNode(clusterNode *n) {
     for (j = 0; j < n->numslaves; j++)
         n->slaves[j]->slaveof = NULL;
 
-    /* Remove this node from the list of slaves of its master. */
+    /* Remove this node from the list of slaves of its primary. */
     if (nodeIsSlave(n) && n->slaveof) clusterNodeRemoveSlave(n->slaveof,n);
 
     /* Unlink from the set of nodes. */
@@ -949,7 +949,7 @@ int clusterAddNode(clusterNode *node) {
  * 2) Remove all the failure reports sent by this node and referenced by
  *    other nodes.
  * 3) Free the node with freeClusterNode() that will in turn remove it
- *    from the hash table and from the list of slaves of its master, if
+ *    from the hash table and from the list of slaves of its primary, if
  *    it is a slave node.
  */
 void clusterDelNode(clusterNode *delnode) {
@@ -1050,7 +1050,7 @@ uint64_t clusterGetMaxEpoch(void) {
  * 1) When slots are closed after importing. Otherwise resharding would be
  *    too expensive.
  * 2) When CLUSTER FAILOVER is called with options that force a slave to
- *    failover its master even if there is not master majority able to
+ *    failover its primary even if there is not primary majority able to
  *    create a new configuration epoch.
  *
  * Redis Cluster will not explode using this function, even in the case of
@@ -1078,8 +1078,8 @@ int clusterBumpConfigEpochWithoutConsensus(void) {
     }
 }
 
-/* This function is called when this node is a master, and we receive from
- * another master a configuration epoch that is equal to our configuration
+/* This function is called when this node is a primary, and we receive from
+ * another primary a configuration epoch that is equal to our configuration
  * epoch.
  *
  * BACKGROUND
@@ -1104,13 +1104,13 @@ int clusterBumpConfigEpochWithoutConsensus(void) {
  * end with a different configEpoch at startup automatically.
  *
  * In all the cases, we want a mechanism that resolves this issue automatically
- * as a safeguard. The same configuration epoch for masters serving different
+ * as a safeguard. The same configuration epoch for primaries serving different
  * set of slots is not harmful, but it is if the nodes end serving the same
  * slots for some reason (manual errors or software bugs) without a proper
  * failover procedure.
  *
  * In general we want a system that eventually always ends with different
- * masters having different configuration epochs whatever happened, since
+ * primaries having different configuration epochs whatever happened, since
  * nothign is worse than a split-brain condition in a distributed system.
  *
  * BEHAVIOR
@@ -1125,9 +1125,9 @@ int clusterBumpConfigEpochWithoutConsensus(void) {
  * end with a different configuration epoch.
  */
 void clusterHandleConfigEpochCollision(clusterNode *sender) {
-    /* Prerequisites: nodes have the same configEpoch and are both masters. */
+    /* Prerequisites: nodes have the same configEpoch and are both primaries. */
     if (sender->configEpoch != myself->configEpoch ||
-        !nodeIsMaster(sender) || !nodeIsMaster(myself)) return;
+        !nodeIsPrimary(sender) || !nodeIsPrimary(myself)) return;
     /* Don't act if the colliding node has a smaller Node ID. */
     if (memcmp(sender->name,myself->name,CLUSTER_NAMELEN) <= 0) return;
     /* Get the next ID available at the best of this node knowledge. */
@@ -1222,8 +1222,8 @@ int clusterBlacklistExists(char *nodeid) {
 /* This function checks if a given node should be marked as FAIL.
  * It happens if the following conditions are met:
  *
- * 1) We received enough failure reports from other master nodes via gossip.
- *    Enough means that the majority of the masters signaled the node is
+ * 1) We received enough failure reports from other primary nodes via gossip.
+ *    Enough means that the majority of the primaries signaled the node is
  *    down recently.
  * 2) We believe this node is in PFAIL state.
  *
@@ -1231,7 +1231,7 @@ int clusterBlacklistExists(char *nodeid) {
  * event trying to force every other node to set the FAIL flag for the node.
  *
  * Note that the form of agreement used here is weak, as we collect the majority
- * of masters state during some time, and even if we force agreement by
+ * of primaries state during some time, and even if we force agreement by
  * propagating the FAIL message, because of partitions we may not reach every
  * node. However:
  *
@@ -1248,9 +1248,9 @@ void markNodeAsFailingIfNeeded(clusterNode *node) {
     if (nodeFailed(node)) return; /* Already FAILing. */
 
     failures = clusterNodeFailureReportsCount(node);
-    /* Also count myself as a voter if I'm a master. */
-    if (nodeIsMaster(myself)) failures++;
-    if (failures < needed_quorum) return; /* No weak agreement from masters. */
+    /* Also count myself as a voter if I'm a primary. */
+    if (nodeIsPrimary(myself)) failures++;
+    if (failures < needed_quorum) return; /* No weak agreement from primaries. */
 
     serverLog(LL_NOTICE,
         "Marking node %.40s as failing (quorum reached).", node->name);
@@ -1262,7 +1262,7 @@ void markNodeAsFailingIfNeeded(clusterNode *node) {
 
     /* Broadcast the failing node name to everybody, forcing all the other
      * reachable nodes to flag the node as FAIL. */
-    if (nodeIsMaster(myself)) clusterSendFail(node->name);
+    if (nodeIsPrimary(myself)) clusterSendFail(node->name);
     clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
 }
 
@@ -1280,16 +1280,16 @@ void clearNodeFailureIfNeeded(clusterNode *node) {
         serverLog(LL_NOTICE,
             "Clear FAIL state for node %.40s: %s is reachable again.",
                 node->name,
-                nodeIsSlave(node) ? "replica" : "master without slots");
+                nodeIsSlave(node) ? "replica" : "primary without slots");
         node->flags &= ~CLUSTER_NODE_FAIL;
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
     }
 
-    /* If it is a master and...
+    /* If it is a primary and...
      * 1) The FAIL state is old enough.
      * 2) It is yet serving slots from our point of view (not failed over).
      * Apparently no one is going to fix these slots, clear the FAIL flag. */
-    if (nodeIsMaster(node) && node->numslots > 0 &&
+    if (nodeIsPrimary(node) && node->numslots > 0 &&
         (now - node->fail_time) >
         (server.cluster_node_timeout * CLUSTER_FAIL_UNDO_TIME_MULT))
     {
@@ -1410,8 +1410,8 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
         node = clusterLookupNode(g->nodename);
         if (node) {
             /* We already know this node.
-               Handle failure reports, only when the sender is a master. */
-            if (sender && nodeIsMaster(sender) && node != myself) {
+               Handle failure reports, only when the sender is a primary. */
+            if (sender && nodeIsPrimary(sender) && node != myself) {
                 if (flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL)) {
                     if (clusterNodeAddFailureReport(node,sender)) {
                         serverLog(LL_VERBOSE,
@@ -1548,18 +1548,18 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link,
     serverLog(LL_WARNING,"Address updated for node %.40s, now %s:%d",
         node->name, node->ip, node->port);
 
-    /* Check if this is our master and we have to change the
+    /* Check if this is our primary and we have to change the
      * replication target as well. */
     if (nodeIsSlave(myself) && myself->slaveof == node)
-        replicationSetMaster(node->ip, node->port);
+        replicationSetPrimary(node->ip, node->port);
     return 1;
 }
 
-/* Reconfigure the specified node 'n' as a master. This function is called when
- * a node that we believed to be a slave is now acting as master in order to
+/* Reconfigure the specified node 'n' as a primary. This function is called when
+ * a node that we believed to be a slave is now acting as primary in order to
  * update the state of the node. */
-void clusterSetNodeAsMaster(clusterNode *n) {
-    if (nodeIsMaster(n)) return;
+void clusterSetNodeAsPrimary(clusterNode *n) {
+    if (nodeIsPrimary(n)) return;
 
     if (n->slaveof) {
         clusterNodeRemoveSlave(n->slaveof,n);
@@ -1574,7 +1574,7 @@ void clusterSetNodeAsMaster(clusterNode *n) {
                          CLUSTER_TODO_UPDATE_STATE);
 }
 
-/* This function is called when we receive a master configuration via a
+/* This function is called when we receive a primary configuration via a
  * PING, PONG or UPDATE packet. What we receive is a node, a configEpoch of the
  * node, and the set of slots claimed under this configEpoch.
  *
@@ -1587,21 +1587,21 @@ void clusterSetNodeAsMaster(clusterNode *n) {
  * case we receive the info via an UPDATE packet. */
 void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoch, unsigned char *slots) {
     int j;
-    clusterNode *curmaster, *newmaster = NULL;
+    clusterNode *curprimary, *newprimary = NULL;
     /* The dirty slots list is a list of slots for which we lose the ownership
      * while having still keys inside. This usually happens after a failover
      * or after a manual cluster reconfiguration operated by the admin.
      *
-     * If the update message is not able to demote a master to slave (in this
-     * case we'll resync with the master updating the whole key space), we
+     * If the update message is not able to demote a primary to slave (in this
+     * case we'll resync with the primary updating the whole key space), we
      * need to delete all the keys in the slots we lost ownership. */
     uint16_t dirty_slots[CLUSTER_SLOTS];
     int dirty_slots_count = 0;
 
-    /* Here we set curmaster to this node or the node this node
+    /* Here we set curprimary to this node or the node this node
      * replicates to if it's a slave. In the for loop we are
-     * interested to check if slots are taken away from curmaster. */
-    curmaster = nodeIsMaster(myself) ? myself : myself->slaveof;
+     * interested to check if slots are taken away from curprimary. */
+    curprimary = nodeIsPrimary(myself) ? myself : myself->slaveof;
 
     if (sender == myself) {
         serverLog(LL_WARNING,"Discarding UPDATE message about myself.");
@@ -1636,8 +1636,8 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                     dirty_slots_count++;
                 }
 
-                if (server.cluster->slots[j] == curmaster)
-                    newmaster = sender;
+                if (server.cluster->slots[j] == curprimary)
+                    newprimary = sender;
                 clusterDelSlot(j);
                 clusterAddSlot(sender,j);
                 clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
@@ -1655,23 +1655,23 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
 
     /* If at least one slot was reassigned from a node to another node
      * with a greater configEpoch, it is possible that:
-     * 1) We are a master left without slots. This means that we were
+     * 1) We are a primary left without slots. This means that we were
      *    failed over and we should turn into a replica of the new
-     *    master.
-     * 2) We are a slave and our master is left without slots. We need
+     *    primary.
+     * 2) We are a slave and our primary is left without slots. We need
      *    to replicate to the new slots owner. */
-    if (newmaster && curmaster->numslots == 0) {
+    if (newprimary && curprimary->numslots == 0) {
         serverLog(LL_WARNING,
             "Configuration change detected. Reconfiguring myself "
             "as a replica of %.40s", sender->name);
-        clusterSetMaster(sender);
+        clusterSetPrimary(sender);
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                              CLUSTER_TODO_UPDATE_STATE|
                              CLUSTER_TODO_FSYNC_CONFIG);
     } else if (dirty_slots_count) {
         /* If we are here, we received an update message which removed
          * ownership for certain slots we still have keys about, but still
-         * we are serving some slots, so this master node was not demoted to
+         * we are serving some slots, so this primary node was not demoted to
          * a slave.
          *
          * In order to maintain a consistent state between keys and slots
@@ -1782,19 +1782,19 @@ int clusterProcessPacket(clusterLink *link) {
         /* Update the replication offset info for this node. */
         sender->repl_offset = ntohu64(hdr->offset);
         sender->repl_offset_time = now;
-        /* If we are a slave performing a manual failover and our master
+        /* If we are a slave performing a manual failover and our primary
          * sent its offset while already paused, populate the MF state. */
         if (server.cluster->mf_end &&
             nodeIsSlave(myself) &&
             myself->slaveof == sender &&
             hdr->mflags[0] & CLUSTERMSG_FLAG0_PAUSED &&
-            server.cluster->mf_master_offset == 0)
+            server.cluster->mf_primary_offset == 0)
         {
-            server.cluster->mf_master_offset = sender->repl_offset;
+            server.cluster->mf_primary_offset = sender->repl_offset;
             serverLog(LL_WARNING,
                 "Received replication offset for paused "
-                "master manual failover: %lld",
-                server.cluster->mf_master_offset);
+                "primary manual failover: %lld",
+                server.cluster->mf_primary_offset);
         }
     }
 
@@ -1948,19 +1948,19 @@ int clusterProcessPacket(clusterLink *link) {
             }
         }
 
-        /* Check for role switch: slave -> master or master -> slave. */
+        /* Check for role switch: slave -> primary or primary -> slave. */
         if (sender) {
             if (!memcmp(hdr->slaveof,CLUSTER_NODE_NULL_NAME,
                 sizeof(hdr->slaveof)))
             {
-                /* Node is a master. */
-                clusterSetNodeAsMaster(sender);
+                /* Node is a primary. */
+                clusterSetNodeAsPrimary(sender);
             } else {
                 /* Node is a slave. */
-                clusterNode *master = clusterLookupNode(hdr->slaveof);
+                clusterNode *primary = clusterLookupNode(hdr->slaveof);
 
-                if (nodeIsMaster(sender)) {
-                    /* Master turned into a slave! Reconfigure the node. */
+                if (nodeIsPrimary(sender)) {
+                    /* Primary turned into a slave! Reconfigure the node. */
                     clusterDelNodeSlots(sender);
                     sender->flags &= ~(CLUSTER_NODE_MASTER|
                                        CLUSTER_NODE_MIGRATE_TO);
@@ -1971,12 +1971,12 @@ int clusterProcessPacket(clusterLink *link) {
                                          CLUSTER_TODO_UPDATE_STATE);
                 }
 
-                /* Master node changed for this slave? */
-                if (master && sender->slaveof != master) {
+                /* Primary node changed for this slave? */
+                if (primary && sender->slaveof != primary) {
                     if (sender->slaveof)
                         clusterNodeRemoveSlave(sender->slaveof,sender);
-                    clusterNodeAddSlave(master,sender);
-                    sender->slaveof = master;
+                    clusterNodeAddSlave(primary,sender);
+                    sender->slaveof = primary;
 
                     /* Update config. */
                     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
@@ -1986,47 +1986,47 @@ int clusterProcessPacket(clusterLink *link) {
 
         /* Update our info about served slots.
          *
-         * Note: this MUST happen after we update the master/slave state
+         * Note: this MUST happen after we update the primary/slave state
          * so that CLUSTER_NODE_MASTER flag will be set. */
 
         /* Many checks are only needed if the set of served slots this
          * instance claims is different compared to the set of slots we have
          * for it. Check this ASAP to avoid other computational expansive
          * checks later. */
-        clusterNode *sender_master = NULL; /* Sender or its master if slave. */
+        clusterNode *sender_primary = NULL; /* Sender or its primary if slave. */
         int dirty_slots = 0; /* Sender claimed slots don't match my view? */
 
         if (sender) {
-            sender_master = nodeIsMaster(sender) ? sender : sender->slaveof;
-            if (sender_master) {
-                dirty_slots = memcmp(sender_master->slots,
+            sender_primary = nodeIsPrimary(sender) ? sender : sender->slaveof;
+            if (sender_primary) {
+                dirty_slots = memcmp(sender_primary->slots,
                         hdr->myslots,sizeof(hdr->myslots)) != 0;
             }
         }
 
-        /* 1) If the sender of the message is a master, and we detected that
+        /* 1) If the sender of the message is a primary, and we detected that
          *    the set of slots it claims changed, scan the slots to see if we
          *    need to update our configuration. */
-        if (sender && nodeIsMaster(sender) && dirty_slots)
+        if (sender && nodeIsPrimary(sender) && dirty_slots)
             clusterUpdateSlotsConfigWith(sender,senderConfigEpoch,hdr->myslots);
 
         /* 2) We also check for the reverse condition, that is, the sender
-         *    claims to serve slots we know are served by a master with a
+         *    claims to serve slots we know are served by a primary with a
          *    greater configEpoch. If this happens we inform the sender.
          *
          * This is useful because sometimes after a partition heals, a
-         * reappearing master may be the last one to claim a given set of
+         * reappearing primary may be the last one to claim a given set of
          * hash slots, but with a configuration that other instances know to
          * be deprecated. Example:
          *
-         * A and B are master and slave for slots 1,2,3.
+         * A and B are primary and slave for slots 1,2,3.
          * A is partitioned away, B gets promoted.
          * B is partitioned away, and A returns available.
          *
          * Usually B would PING A publishing its set of served slots and its
          * configEpoch, but because of the partition B can't inform A of the
          * new configuration, so other nodes that have an updated table must
-         * do it. In this way A will stop to act as a master (or can try to
+         * do it. In this way A will stop to act as a primary (or can try to
          * failover if there are the conditions to win the election). */
         if (sender && dirty_slots) {
             int j;
@@ -2057,7 +2057,7 @@ int clusterProcessPacket(clusterLink *link) {
         /* If our config epoch collides with the sender's try to fix
          * the problem. */
         if (sender &&
-            nodeIsMaster(myself) && nodeIsMaster(sender) &&
+            nodeIsPrimary(myself) && nodeIsPrimary(sender) &&
             senderConfigEpoch == myself->configEpoch)
         {
             clusterHandleConfigEpochCollision(sender);
@@ -2112,10 +2112,10 @@ int clusterProcessPacket(clusterLink *link) {
         clusterSendFailoverAuthIfNeeded(sender,hdr);
     } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK) {
         if (!sender) return 1;  /* We don't know that node. */
-        /* We consider this vote only if the sender is a master serving
+        /* We consider this vote only if the sender is a primary serving
          * a non zero number of slots, and its currentEpoch is greater or
          * equal to epoch where this node started the election. */
-        if (nodeIsMaster(sender) && sender->numslots > 0 &&
+        if (nodeIsPrimary(sender) && sender->numslots > 0 &&
             senderCurrentEpoch >= server.cluster->failover_auth_epoch)
         {
             server.cluster->failover_auth_count++;
@@ -2124,7 +2124,7 @@ int clusterProcessPacket(clusterLink *link) {
             clusterDoBeforeSleep(CLUSTER_TODO_HANDLE_FAILOVER);
         }
     } else if (type == CLUSTERMSG_TYPE_MFSTART) {
-        /* This message is acceptable only if I'm a master and the sender
+        /* This message is acceptable only if I'm a primary and the sender
          * is one of my slaves. */
         if (!sender || sender->slaveof != myself) return 1;
         /* Manual failover requested from slaves. Initialize the state
@@ -2145,8 +2145,8 @@ int clusterProcessPacket(clusterLink *link) {
         if (!n) return 1;   /* We don't know the reported node. */
         if (n->configEpoch >= reportedConfigEpoch) return 1; /* Nothing new. */
 
-        /* If in our current config the node is a slave, set it as a master. */
-        if (nodeIsSlave(n)) clusterSetNodeAsMaster(n);
+        /* If in our current config the node is a slave, set it as a primary. */
+        if (nodeIsSlave(n)) clusterSetNodeAsPrimary(n);
 
         /* Update the node's configEpoch. */
         n->configEpoch = reportedConfigEpoch;
@@ -2355,13 +2355,13 @@ void clusterBroadcastMessage(void *buf, size_t len) {
 void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
     int totlen = 0;
     uint64_t offset;
-    clusterNode *master;
+    clusterNode *primary;
 
-    /* If this node is a master, we send its slots bitmap and configEpoch.
-     * If this node is a slave we send the master's information instead (the
+    /* If this node is a primary, we send its slots bitmap and configEpoch.
+     * If this node is a slave we send the primary's information instead (the
      * node is flagged as slave so the receiver knows that it is NOT really
      * in charge for this slots. */
-    master = (nodeIsSlave(myself) && myself->slaveof) ?
+    primary = (nodeIsSlave(myself) && myself->slaveof) ?
               myself->slaveof : myself;
 
     memset(hdr,0,sizeof(*hdr));
@@ -2390,7 +2390,7 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
                           server.cluster_announce_bus_port :
                           (port + CLUSTER_PORT_INCR);
 
-    memcpy(hdr->myslots,master->slots,sizeof(hdr->myslots));
+    memcpy(hdr->myslots,primary->slots,sizeof(hdr->myslots));
     memset(hdr->slaveof,0,CLUSTER_NAMELEN);
     if (myself->slaveof != NULL)
         memcpy(hdr->slaveof,myself->slaveof->name, CLUSTER_NAMELEN);
@@ -2401,17 +2401,17 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
 
     /* Set the currentEpoch and configEpochs. */
     hdr->currentEpoch = htonu64(server.cluster->currentEpoch);
-    hdr->configEpoch = htonu64(master->configEpoch);
+    hdr->configEpoch = htonu64(primary->configEpoch);
 
     /* Set the replication offset. */
     if (nodeIsSlave(myself))
         offset = replicationGetSlaveOffset();
     else
-        offset = server.master_repl_offset;
+        offset = server.primary_repl_offset;
     hdr->offset = htonu64(offset);
 
     /* Set the message flags. */
-    if (nodeIsMaster(myself) && server.cluster->mf_end)
+    if (nodeIsPrimary(myself) && server.cluster->mf_end)
         hdr->mflags[0] |= CLUSTERMSG_FLAG0_PAUSED;
 
     /* Compute the message length for certain messages. For other messages
@@ -2471,7 +2471,7 @@ void clusterSendPing(clusterLink *link, int type) {
     /* How many gossip sections we want to add? 1/10 of the number of nodes
      * and anyway at least 3. Why 1/10?
      *
-     * If we have N masters, with N/10 entries, and we consider that in
+     * If we have N primaries, with N/10 entries, and we consider that in
      * node_timeout we exchange with each other node at least 4 packets
      * (we ping in the worst case in node_timeout/2 time, and we also
      * receive two pings from the host), we have a total of 8 packets
@@ -2486,9 +2486,9 @@ void clusterSendPing(clusterLink *link, int type) {
      * ENTRIES = 10.
      * TOTAL_PACKETS = 2 * 4 * NUM_OF_MASTERS.
      *
-     * If we assume we have just masters (so num of nodes and num of masters
+     * If we assume we have just primaries (so num of nodes and num of primaries
      * is the same), with 1/10 we always get over the majority, and specifically
-     * 80% of the number of nodes, to account for many masters failing at the
+     * 80% of the number of nodes, to account for many primaries failing at the
      * same time.
      *
      * Since we have non-voting slaves that lower the probability of an entry
@@ -2596,7 +2596,7 @@ void clusterSendPing(clusterLink *link, int type) {
  * defines below:
  *
  * CLUSTER_BROADCAST_ALL -> All known instances.
- * CLUSTER_BROADCAST_LOCAL_SLAVES -> All slaves in my master-slaves ring.
+ * CLUSTER_BROADCAST_LOCAL_SLAVES -> All slaves in my primary-slaves ring.
  */
 #define CLUSTER_BROADCAST_ALL 0
 #define CLUSTER_BROADCAST_LOCAL_SLAVES 1
@@ -2768,10 +2768,10 @@ void clusterPropagatePublish(robj *channel, robj *message) {
 
 /* This function sends a FAILOVE_AUTH_REQUEST message to every node in order to
  * see if there is the quorum for this slave instance to failover its failing
- * master.
+ * primary.
  *
- * Note that we send the failover request to everybody, master and slave nodes,
- * but only the masters are supposed to reply to our query. */
+ * Note that we send the failover request to everybody, primary and slave nodes,
+ * but only the primaries are supposed to reply to our query. */
 void clusterRequestFailoverAuth(void) {
     clusterMsg buf[1];
     clusterMsg *hdr = (clusterMsg*) buf;
@@ -2780,7 +2780,7 @@ void clusterRequestFailoverAuth(void) {
     clusterBuildMessageHdr(hdr,CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST);
     /* If this is a manual failover, set the CLUSTERMSG_FLAG0_FORCEACK bit
      * in the header to communicate the nodes receiving the message that
-     * they should authorized the failover even if the master is working. */
+     * they should authorized the failover even if the primary is working. */
     if (server.cluster->mf_end) hdr->mflags[0] |= CLUSTERMSG_FLAG0_FORCEACK;
     totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
     hdr->totlen = htonl(totlen);
@@ -2815,16 +2815,16 @@ void clusterSendMFStart(clusterNode *node) {
 
 /* Vote for the node asking for our vote if there are the conditions. */
 void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
-    clusterNode *master = node->slaveof;
+    clusterNode *primary = node->slaveof;
     uint64_t requestCurrentEpoch = ntohu64(request->currentEpoch);
     uint64_t requestConfigEpoch = ntohu64(request->configEpoch);
     unsigned char *claimed_slots = request->myslots;
     int force_ack = request->mflags[0] & CLUSTERMSG_FLAG0_FORCEACK;
     int j;
 
-    /* IF we are not a master serving at least 1 slot, we don't have the
+    /* IF we are not a primary serving at least 1 slot, we don't have the
      * right to vote, as the cluster size in Redis Cluster is the number
-     * of masters serving at least one slot, and quorum is the cluster
+     * of primaries serving at least one slot, and quorum is the cluster
      * size + 1 */
     if (nodeIsSlave(myself) || myself->numslots == 0) return;
 
@@ -2850,36 +2850,36 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
         return;
     }
 
-    /* Node must be a slave and its master down.
-     * The master can be non failing if the request is flagged
+    /* Node must be a slave and its primary down.
+     * The primary can be non failing if the request is flagged
      * with CLUSTERMSG_FLAG0_FORCEACK (manual failover). */
-    if (nodeIsMaster(node) || master == NULL ||
-        (!nodeFailed(master) && !force_ack))
+    if (nodeIsPrimary(node) || primary == NULL ||
+        (!nodeFailed(primary) && !force_ack))
     {
-        if (nodeIsMaster(node)) {
+        if (nodeIsPrimary(node)) {
             serverLog(LL_WARNING,
-                    "Failover auth denied to %.40s: it is a master node",
+                    "Failover auth denied to %.40s: it is a primary node",
                     node->name);
-        } else if (master == NULL) {
+        } else if (primary == NULL) {
             serverLog(LL_WARNING,
-                    "Failover auth denied to %.40s: I don't know its master",
+                    "Failover auth denied to %.40s: I don't know its primary",
                     node->name);
-        } else if (!nodeFailed(master)) {
+        } else if (!nodeFailed(primary)) {
             serverLog(LL_WARNING,
-                    "Failover auth denied to %.40s: its master is up",
+                    "Failover auth denied to %.40s: its primary is up",
                     node->name);
         }
         return;
     }
 
-    /* We did not voted for a slave about this master for two
+    /* We did not voted for a slave about this primary for two
      * times the node timeout. This is not strictly needed for correctness
      * of the algorithm but makes the base case more linear. */
     if (mstime() - node->slaveof->voted_time < server.cluster_node_timeout * 2)
     {
         serverLog(LL_WARNING,
                 "Failover auth denied to %.40s: "
-                "can't vote about this master before %lld milliseconds",
+                "can't vote about this primary before %lld milliseconds",
                 node->name,
                 (long long) ((server.cluster_node_timeout*2)-
                              (mstime() - node->slaveof->voted_time)));
@@ -2887,7 +2887,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
     }
 
     /* The slave requesting the vote must have a configEpoch for the claimed
-     * slots that is >= the one of the masters currently serving the same
+     * slots that is >= the one of the primaries currently serving the same
      * slots in the current configuration. */
     for (j = 0; j < CLUSTER_SLOTS; j++) {
         if (bitmapTestBit(claimed_slots, j) == 0) continue;
@@ -2897,7 +2897,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
             continue;
         }
         /* If we reached this point we found a slot that in our current slots
-         * is served by a master with a greater configEpoch than the one claimed
+         * is served by a primary with a greater configEpoch than the one claimed
          * by the slave requesting our vote. Refuse to vote for this slave. */
         serverLog(LL_WARNING,
                 "Failover auth denied to %.40s: "
@@ -2918,8 +2918,8 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
 }
 
 /* This function returns the "rank" of this instance, a slave, in the context
- * of its master-slaves ring. The rank of the slave is given by the number of
- * other slaves for the same master that have a better replication offset
+ * of its primary-slaves ring. The rank of the slave is given by the number of
+ * other slaves for the same primary that have a better replication offset
  * compared to the local one (better means, greater, so they claim more data).
  *
  * A slave with rank 0 is the one with the greatest (most up to date)
@@ -2927,22 +2927,22 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
  * multiple slaves may have the same rank, in case they have the same offset.
  *
  * The slave rank is used to add a delay to start an election in order to
- * get voted and replace a failing master. Slaves with better replication
+ * get voted and replace a failing primary. Slaves with better replication
  * offsets are more likely to win. */
 int clusterGetSlaveRank(void) {
     long long myoffset;
     int j, rank = 0;
-    clusterNode *master;
+    clusterNode *primary;
 
     serverAssert(nodeIsSlave(myself));
-    master = myself->slaveof;
-    if (master == NULL) return 0; /* Never called by slaves without master. */
+    primary = myself->slaveof;
+    if (primary == NULL) return 0; /* Never called by slaves without primary. */
 
     myoffset = replicationGetSlaveOffset();
-    for (j = 0; j < master->numslaves; j++)
-        if (master->slaves[j] != myself &&
-            !nodeCantFailover(master->slaves[j]) &&
-            master->slaves[j]->repl_offset > myoffset) rank++;
+    for (j = 0; j < primary->numslaves; j++)
+        if (primary->slaves[j] != myself &&
+            !nodeCantFailover(primary->slaves[j]) &&
+            primary->slaves[j]->repl_offset > myoffset) rank++;
     return rank;
 }
 
@@ -2956,8 +2956,8 @@ int clusterGetSlaveRank(void) {
  *
  * 1) The reason for which the failover can't be initiated changed.
  *    The reasons also include a NONE reason we reset the state to
- *    when the slave finds that its master is fine (no FAIL flag).
- * 2) Also, the log is emitted again if the master is still down and
+ *    when the slave finds that its primary is fine (no FAIL flag).
+ * 2) Also, the log is emitted again if the primary is still down and
  *    the reason for not failing over is still the same, but more than
  *    CLUSTER_CANT_FAILOVER_RELOG_PERIOD seconds elapsed.
  * 3) Finally, the function only logs if the slave is down for more than
@@ -2980,7 +2980,7 @@ void clusterLogCantFailover(int reason) {
 
     server.cluster->cant_failover_reason = reason;
 
-    /* We also don't emit any log if the master failed no long ago, the
+    /* We also don't emit any log if the primary failed no long ago, the
      * goal of this function is to log slaves in a stalled condition for
      * a long time. */
     if (myself->slaveof &&
@@ -2989,7 +2989,7 @@ void clusterLogCantFailover(int reason) {
 
     switch(reason) {
     case CLUSTER_CANT_FAILOVER_DATA_AGE:
-        msg = "Disconnected from master for longer than allowed. "
+        msg = "Disconnected from primary for longer than allowed. "
               "Please check the 'cluster-replica-validity-factor' configuration "
               "option.";
         break;
@@ -3011,24 +3011,24 @@ void clusterLogCantFailover(int reason) {
 }
 
 /* This function implements the final part of automatic and manual failovers,
- * where the slave grabs its master's hash slots, and propagates the new
+ * where the slave grabs its primary's hash slots, and propagates the new
  * configuration.
  *
  * Note that it's up to the caller to be sure that the node got a new
  * configuration epoch already. */
-void clusterFailoverReplaceYourMaster(void) {
+void clusterFailoverReplaceYourPrimary(void) {
     int j;
-    clusterNode *oldmaster = myself->slaveof;
+    clusterNode *oldprimary = myself->slaveof;
 
-    if (nodeIsMaster(myself) || oldmaster == NULL) return;
+    if (nodeIsPrimary(myself) || oldprimary == NULL) return;
 
-    /* 1) Turn this node into a master. */
-    clusterSetNodeAsMaster(myself);
-    replicationUnsetMaster();
+    /* 1) Turn this node into a primary. */
+    clusterSetNodeAsPrimary(myself);
+    replicationUnsetPrimary();
 
-    /* 2) Claim all the slots assigned to our master. */
+    /* 2) Claim all the slots assigned to our primary. */
     for (j = 0; j < CLUSTER_SLOTS; j++) {
-        if (clusterNodeGetSlotBit(oldmaster,j)) {
+        if (clusterNodeGetSlotBit(oldprimary,j)) {
             clusterDelSlot(j);
             clusterAddSlot(myself,j);
         }
@@ -3039,19 +3039,19 @@ void clusterFailoverReplaceYourMaster(void) {
     clusterSaveConfigOrDie(1);
 
     /* 4) Pong all the other nodes so that they can update the state
-     *    accordingly and detect that we switched to master role. */
+     *    accordingly and detect that we switched to primary role. */
     clusterBroadcastPong(CLUSTER_BROADCAST_ALL);
 
     /* 5) If there was a manual failover in progress, clear the state. */
     resetManualFailover();
 }
 
-/* This function is called if we are a slave node and our master serving
+/* This function is called if we are a slave node and our primary serving
  * a non-zero amount of hash slots is in FAIL state.
  *
  * The gaol of this function is:
  * 1) To check if we are able to perform a failover, is our data updated?
- * 2) Try to get elected by masters.
+ * 2) Try to get elected by primaries.
  * 3) Perform the failover informing all the other nodes.
  */
 void clusterHandleSlaveFailover(void) {
@@ -3078,11 +3078,11 @@ void clusterHandleSlaveFailover(void) {
     /* Pre conditions to run the function, that must be met both in case
      * of an automatic or manual failover:
      * 1) We are a slave.
-     * 2) Our master is flagged as FAIL, or this is a manual failover.
+     * 2) Our primary is flagged as FAIL, or this is a manual failover.
      * 3) We don't have the no failover configuration set, and this is
      *    not a manual failover.
      * 4) It is serving slots. */
-    if (nodeIsMaster(myself) ||
+    if (nodeIsPrimary(myself) ||
         myself->slaveof == NULL ||
         (!nodeFailed(myself->slaveof) && !manual_failover) ||
         (server.cluster_slave_no_failover && !manual_failover) ||
@@ -3095,16 +3095,16 @@ void clusterHandleSlaveFailover(void) {
     }
 
     /* Set data_age to the number of seconds we are disconnected from
-     * the master. */
+     * the primary. */
     if (server.repl_state == REPL_STATE_CONNECTED) {
-        data_age = (mstime_t)(server.unixtime - server.master->lastinteraction)
+        data_age = (mstime_t)(server.unixtime - server.primary->lastinteraction)
                    * 1000;
     } else {
         data_age = (mstime_t)(server.unixtime - server.repl_down_since) * 1000;
     }
 
     /* Remove the node timeout from the data age as it is fine that we are
-     * disconnected from our master at least for the time it was down to be
+     * disconnected from our primary at least for the time it was down to be
      * flagged as FAIL, that's the baseline. */
     if (data_age > server.cluster_node_timeout)
         data_age -= server.cluster_node_timeout;
@@ -3158,7 +3158,7 @@ void clusterHandleSlaveFailover(void) {
     }
 
     /* It is possible that we received more updated offsets from other
-     * slaves for the same master since we computed our election delay.
+     * slaves for the same primary since we computed our election delay.
      * Update the delay if our rank changed.
      *
      * Not performed if this is a manual failover. */
@@ -3205,10 +3205,10 @@ void clusterHandleSlaveFailover(void) {
 
     /* Check if we reached the quorum. */
     if (server.cluster->failover_auth_count >= needed_quorum) {
-        /* We have the quorum, we can finally failover the master. */
+        /* We have the quorum, we can finally failover the primary. */
 
         serverLog(LL_WARNING,
-            "Failover election won: I'm the new master.");
+            "Failover election won: I'm the new primary.");
 
         /* Update my configEpoch to the epoch of the election. */
         if (myself->configEpoch < server.cluster->failover_auth_epoch) {
@@ -3219,7 +3219,7 @@ void clusterHandleSlaveFailover(void) {
         }
 
         /* Take responsibility for the cluster slots. */
-        clusterFailoverReplaceYourMaster();
+        clusterFailoverReplaceYourPrimary();
     } else {
         clusterLogCantFailover(CLUSTER_CANT_FAILOVER_WAITING_VOTES);
     }
@@ -3228,19 +3228,19 @@ void clusterHandleSlaveFailover(void) {
 /* -----------------------------------------------------------------------------
  * CLUSTER slave migration
  *
- * Slave migration is the process that allows a slave of a master that is
- * already covered by at least another slave, to "migrate" to a master that
+ * Slave migration is the process that allows a slave of a primary that is
+ * already covered by at least another slave, to "migrate" to a primary that
  * is orpaned, that is, left with no working slaves.
  * ------------------------------------------------------------------------- */
 
 /* This function is responsible to decide if this replica should be migrated
- * to a different (orphaned) master. It is called by the clusterCron() function
+ * to a different (orphaned) primary. It is called by the clusterCron() function
  * only if:
  *
  * 1) We are a slave node.
- * 2) It was detected that there is at least one orphaned master in
+ * 2) It was detected that there is at least one orphaned primary in
  *    the cluster.
- * 3) We are a slave of one of the masters with the greatest number of
+ * 3) We are a slave of one of the primaries with the greatest number of
  *    slaves.
  *
  * This checks are performed by the caller since it requires to iterate
@@ -3248,29 +3248,29 @@ void clusterHandleSlaveFailover(void) {
  * if definitely needed.
  *
  * The fuction is called with a pre-computed max_slaves, that is the max
- * number of working (not in FAIL state) slaves for a single master.
+ * number of working (not in FAIL state) slaves for a single primary.
  *
  * Additional conditions for migration are examined inside the function.
  */
 void clusterHandleSlaveMigration(int max_slaves) {
     int j, okslaves = 0;
-    clusterNode *mymaster = myself->slaveof, *target = NULL, *candidate = NULL;
+    clusterNode *myprimary = myself->slaveof, *target = NULL, *candidate = NULL;
     dictIterator *di;
     dictEntry *de;
 
     /* Step 1: Don't migrate if the cluster state is not ok. */
     if (server.cluster->state != CLUSTER_OK) return;
 
-    /* Step 2: Don't migrate if my master will not be left with at least
+    /* Step 2: Don't migrate if my primary will not be left with at least
      *         'migration-barrier' slaves after my migration. */
-    if (mymaster == NULL) return;
-    for (j = 0; j < mymaster->numslaves; j++)
-        if (!nodeFailed(mymaster->slaves[j]) &&
-            !nodeTimedOut(mymaster->slaves[j])) okslaves++;
+    if (myprimary == NULL) return;
+    for (j = 0; j < myprimary->numslaves; j++)
+        if (!nodeFailed(myprimary->slaves[j]) &&
+            !nodeTimedOut(myprimary->slaves[j])) okslaves++;
     if (okslaves <= server.cluster_migration_barrier) return;
 
     /* Step 3: Identify a candidate for migration, and check if among the
-     * masters with the greatest number of ok slaves, I'm the one with the
+     * primaries with the greatest number of ok slaves, I'm the one with the
      * smallest node ID (the "candidate slave").
      *
      * Note: this means that eventually a replica migration will occur
@@ -3285,29 +3285,29 @@ void clusterHandleSlaveMigration(int max_slaves) {
         clusterNode *node = dictGetVal(de);
         int okslaves = 0, is_orphaned = 1;
 
-        /* We want to migrate only if this master is working, orphaned, and
-         * used to have slaves or if failed over a master that had slaves
+        /* We want to migrate only if this primary is working, orphaned, and
+         * used to have slaves or if failed over a primary that had slaves
          * (MIGRATE_TO flag). This way we only migrate to instances that were
          * supposed to have replicas. */
         if (nodeIsSlave(node) || nodeFailed(node)) is_orphaned = 0;
         if (!(node->flags & CLUSTER_NODE_MIGRATE_TO)) is_orphaned = 0;
 
         /* Check number of working slaves. */
-        if (nodeIsMaster(node)) okslaves = clusterCountNonFailingSlaves(node);
+        if (nodeIsPrimary(node)) okslaves = clusterCountNonFailingSlaves(node);
         if (okslaves > 0) is_orphaned = 0;
 
         if (is_orphaned) {
             if (!target && node->numslots > 0) target = node;
 
             /* Track the starting time of the orphaned condition for this
-             * master. */
+             * primary. */
             if (!node->orphaned_time) node->orphaned_time = mstime();
         } else {
             node->orphaned_time = 0;
         }
 
         /* Check if I'm the slave candidate for the migration: attached
-         * to a master with the maximum number of slaves and with the smallest
+         * to a primary with the maximum number of slaves and with the smallest
          * node ID. */
         if (okslaves == max_slaves) {
             for (j = 0; j < node->numslaves; j++) {
@@ -3323,17 +3323,17 @@ void clusterHandleSlaveMigration(int max_slaves) {
     dictReleaseIterator(di);
 
     /* Step 4: perform the migration if there is a target, and if I'm the
-     * candidate, but only if the master is continuously orphaned for a
+     * candidate, but only if the primary is continuously orphaned for a
      * couple of seconds, so that during failovers, we give some time to
      * the natural slaves of this instance to advertise their switch from
-     * the old master to the new one. */
+     * the old primary to the new one. */
     if (target && candidate == myself &&
         (mstime()-target->orphaned_time) > CLUSTER_SLAVE_MIGRATION_DELAY &&
        !(server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_FAILOVER))
     {
-        serverLog(LL_WARNING,"Migrating to orphaned master %.40s",
+        serverLog(LL_WARNING,"Migrating to orphaned primary %.40s",
             target->name);
-        clusterSetMaster(target);
+        clusterSetPrimary(target);
     }
 }
 
@@ -3344,29 +3344,29 @@ void clusterHandleSlaveMigration(int max_slaves) {
  * 1) User send CLUSTER FAILOVER command. The failover state is initialized
  *    setting mf_end to the millisecond unix time at which we'll abort the
  *    attempt.
- * 2) Slave sends a MFSTART message to the master requesting to pause clients
+ * 2) Slave sends a MFSTART message to the primary requesting to pause clients
  *    for two times the manual failover timeout CLUSTER_MF_TIMEOUT.
- *    When master is paused for manual failover, it also starts to flag
+ *    When primary is paused for manual failover, it also starts to flag
  *    packets with CLUSTERMSG_FLAG0_PAUSED.
- * 3) Slave waits for master to send its replication offset flagged as PAUSED.
- * 4) If slave received the offset from the master, and its offset matches,
+ * 3) Slave waits for primary to send its replication offset flagged as PAUSED.
+ * 4) If slave received the offset from the primary, and its offset matches,
  *    mf_can_start is set to 1, and clusterHandleSlaveFailover() will perform
  *    the failover as usually, with the difference that the vote request
- *    will be modified to force masters to vote for a slave that has a
- *    working master.
+ *    will be modified to force primaries to vote for a slave that has a
+ *    working primary.
  *
- * From the point of view of the master things are simpler: when a
- * PAUSE_CLIENTS packet is received the master sets mf_end as well and
+ * From the point of view of the primary things are simpler: when a
+ * PAUSE_CLIENTS packet is received the primary sets mf_end as well and
  * the sender in mf_slave. During the time limit for the manual failover
- * the master will just send PINGs more often to this slave, flagged with
- * the PAUSED flag, so that the slave will set mf_master_offset when receiving
- * a packet from the master with this flag set.
+ * the primary will just send PINGs more often to this slave, flagged with
+ * the PAUSED flag, so that the slave will set mf_primary_offset when receiving
+ * a packet from the primary with this flag set.
  *
  * The gaol of the manual failover is to perform a fast failover without
- * data loss due to the asynchronous master-slave replication.
+ * data loss due to the asynchronous primary-slave replication.
  * -------------------------------------------------------------------------- */
 
-/* Reset the manual failover state. This works for both masters and slavesa
+/* Reset the manual failover state. This works for both primaries and slavesa
  * as all the state about manual failover is cleared.
  *
  * The function can be used both to initialize the manual failover state at
@@ -3379,7 +3379,7 @@ void resetManualFailover(void) {
     server.cluster->mf_end = 0; /* No manual failover in progress. */
     server.cluster->mf_can_start = 0;
     server.cluster->mf_slave = NULL;
-    server.cluster->mf_master_offset = 0;
+    server.cluster->mf_primary_offset = 0;
 }
 
 /* If a manual failover timed out, abort it. */
@@ -3400,14 +3400,14 @@ void clusterHandleManualFailover(void) {
      * next steps are performed by clusterHandleSlaveFailover(). */
     if (server.cluster->mf_can_start) return;
 
-    if (server.cluster->mf_master_offset == 0) return; /* Wait for offset... */
+    if (server.cluster->mf_primary_offset == 0) return; /* Wait for offset... */
 
-    if (server.cluster->mf_master_offset == replicationGetSlaveOffset()) {
-        /* Our replication offset matches the master replication offset
+    if (server.cluster->mf_primary_offset == replicationGetSlaveOffset()) {
+        /* Our replication offset matches the primary replication offset
          * announced after clients were paused. We can start the failover. */
         server.cluster->mf_can_start = 1;
         serverLog(LL_WARNING,
-            "All master replication stream processed, "
+            "All primary replication stream processed, "
             "manual failover can start.");
     }
 }
@@ -3421,9 +3421,9 @@ void clusterCron(void) {
     dictIterator *di;
     dictEntry *de;
     int update_state = 0;
-    int orphaned_masters; /* How many masters there are without ok slaves. */
-    int max_slaves; /* Max number of ok slaves for a single master. */
-    int this_slaves; /* Number of ok slaves for our master (if we are slave). */
+    int orphaned_primaries; /* How many primaries there are without ok slaves. */
+    int max_slaves; /* Max number of ok slaves for a single primary. */
+    int this_slaves; /* Number of ok slaves for our primary (if we are slave). */
     mstime_t min_pong = 0, now = mstime();
     clusterNode *min_pong_node = NULL;
     static unsigned long long iteration = 0;
@@ -3544,11 +3544,11 @@ void clusterCron(void) {
 
     /* Iterate nodes to check if we need to flag something as failing.
      * This loop is also responsible to:
-     * 1) Check if there are orphaned masters (masters without non failing
+     * 1) Check if there are orphaned primaries (primaries without non failing
      *    slaves).
-     * 2) Count the max number of non failing slaves for a single master.
-     * 3) Count the number of slaves for our master, if we are a slave. */
-    orphaned_masters = 0;
+     * 2) Count the max number of non failing slaves for a single primary.
+     * 3) Count the number of slaves for our primary, if we are a slave. */
+    orphaned_primaries = 0;
     max_slaves = 0;
     this_slaves = 0;
     di = dictGetSafeIterator(server.cluster->nodes);
@@ -3560,18 +3560,18 @@ void clusterCron(void) {
             (CLUSTER_NODE_MYSELF|CLUSTER_NODE_NOADDR|CLUSTER_NODE_HANDSHAKE))
                 continue;
 
-        /* Orphaned master check, useful only if the current instance
-         * is a slave that may migrate to another master. */
-        if (nodeIsSlave(myself) && nodeIsMaster(node) && !nodeFailed(node)) {
+        /* Orphaned primary check, useful only if the current instance
+         * is a slave that may migrate to another primary. */
+        if (nodeIsSlave(myself) && nodeIsPrimary(node) && !nodeFailed(node)) {
             int okslaves = clusterCountNonFailingSlaves(node);
 
-            /* A master is orphaned if it is serving a non-zero number of
+            /* A primary is orphaned if it is serving a non-zero number of
              * slots, have no working slaves, but used to have at least one
-             * slave, or failed over a master that used to have slaves. */
+             * slave, or failed over a primary that used to have slaves. */
             if (okslaves == 0 && node->numslots > 0 &&
                 node->flags & CLUSTER_NODE_MIGRATE_TO)
             {
-                orphaned_masters++;
+                orphaned_primaries++;
             }
             if (okslaves > max_slaves) max_slaves = okslaves;
             if (nodeIsSlave(myself) && myself->slaveof == node)
@@ -3609,10 +3609,10 @@ void clusterCron(void) {
             continue;
         }
 
-        /* If we are a master and one of the slaves requested a manual
+        /* If we are a primary and one of the slaves requested a manual
          * failover, ping it continuously. */
         if (server.cluster->mf_end &&
-            nodeIsMaster(myself) &&
+            nodeIsPrimary(myself) &&
             server.cluster->mf_slave == node &&
             node->link)
         {
@@ -3648,14 +3648,14 @@ void clusterCron(void) {
     dictReleaseIterator(di);
 
     /* If we are a slave node but the replication is still turned off,
-     * enable it if we know the address of our master and it appears to
+     * enable it if we know the address of our primary and it appears to
      * be up. */
     if (nodeIsSlave(myself) &&
-        server.masterhost == NULL &&
+        server.primaryhost == NULL &&
         myself->slaveof &&
         nodeHasAddr(myself->slaveof))
     {
-        replicationSetMaster(myself->slaveof->ip, myself->slaveof->port);
+        replicationSetPrimary(myself->slaveof->ip, myself->slaveof->port);
     }
 
     /* Abourt a manual failover if the timeout is reached. */
@@ -3665,12 +3665,12 @@ void clusterCron(void) {
         clusterHandleManualFailover();
         if (!(server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_FAILOVER))
             clusterHandleSlaveFailover();
-        /* If there are orphaned slaves, and we are a slave among the masters
+        /* If there are orphaned slaves, and we are a slave among the primaries
          * with the max number of non-failing slaves, consider migrating to
-         * the orphaned masters. Note that it does not make sense to try
-         * a migration if there is no master with at least *two* working
+         * the orphaned primaries. Note that it does not make sense to try
+         * a migration if there is no primary with at least *two* working
          * slaves. */
-        if (orphaned_masters && max_slaves >= 2 && this_slaves == max_slaves)
+        if (orphaned_primaries && max_slaves >= 2 && this_slaves == max_slaves)
             clusterHandleSlaveMigration(max_slaves);
     }
 
@@ -3685,7 +3685,7 @@ void clusterCron(void) {
  * a single time before replying to clients. */
 void clusterBeforeSleep(void) {
     /* Handle failover, this is needed when it is likely that there is already
-     * the quorum from masters in order to react fast. */
+     * the quorum from primaries in order to react fast. */
     if (server.cluster->todo_before_sleep & CLUSTER_TODO_HANDLE_FAILOVER)
         clusterHandleSlaveFailover();
 
@@ -3735,10 +3735,10 @@ void bitmapClearBit(unsigned char *bitmap, int pos) {
     bitmap[byte] &= ~(1<<bit);
 }
 
-/* Return non-zero if there is at least one master with slaves in the cluster.
+/* Return non-zero if there is at least one primary with slaves in the cluster.
  * Otherwise zero is returned. Used by clusterNodeSetSlotBit() to set the
- * MIGRATE_TO flag the when a master gets the first slot. */
-int clusterMastersHaveSlaves(void) {
+ * MIGRATE_TO flag the when a primary gets the first slot. */
+int clusterPrimariesHaveSlaves(void) {
     dictIterator *di = dictGetSafeIterator(server.cluster->nodes);
     dictEntry *de;
     int slaves = 0;
@@ -3758,20 +3758,20 @@ int clusterNodeSetSlotBit(clusterNode *n, int slot) {
     bitmapSetBit(n->slots,slot);
     if (!old) {
         n->numslots++;
-        /* When a master gets its first slot, even if it has no slaves,
-         * it gets flagged with MIGRATE_TO, that is, the master is a valid
+        /* When a primary gets its first slot, even if it has no slaves,
+         * it gets flagged with MIGRATE_TO, that is, the primary is a valid
          * target for replicas migration, if and only if at least one of
-         * the other masters has slaves right now.
+         * the other primaries has slaves right now.
          *
-         * Normally masters are valid targerts of replica migration if:
+         * Normally primaries are valid targerts of replica migration if:
          * 1. The used to have slaves (but no longer have).
-         * 2. They are slaves failing over a master that used to have slaves.
+         * 2. They are slaves failing over a primary that used to have slaves.
          *
-         * However new masters with slots assigned are considered valid
+         * However new primaries with slots assigned are considered valid
          * migration tagets if the rest of the cluster is not a slave-less.
          *
          * See https://github.com/antirez/redis/issues/3043 for more info. */
-        if (n->numslots == 1 && clusterMastersHaveSlaves())
+        if (n->numslots == 1 && clusterPrimariesHaveSlaves())
             n->flags |= CLUSTER_NODE_MIGRATE_TO;
     }
     return old;
@@ -3828,7 +3828,7 @@ int clusterDelNodeSlots(clusterNode *node) {
 }
 
 /* Clear the migrating / importing state for all the slots.
- * This is useful at initialization and when turning a master into slave. */
+ * This is useful at initialization and when turning a primary into slave. */
 void clusterCloseAllSlots(void) {
     memset(server.cluster->migrating_slots_to,0,
         sizeof(server.cluster->migrating_slots_to));
@@ -3850,20 +3850,20 @@ void clusterCloseAllSlots(void) {
 
 void clusterUpdateState(void) {
     int j, new_state;
-    int reachable_masters = 0;
+    int reachable_primaries = 0;
     static mstime_t among_minority_time;
     static mstime_t first_call_time = 0;
 
     server.cluster->todo_before_sleep &= ~CLUSTER_TODO_UPDATE_STATE;
 
-    /* If this is a master node, wait some time before turning the state
+    /* If this is a primary node, wait some time before turning the state
      * into OK, since it is not a good idea to rejoin the cluster as a writable
-     * master, after a reboot, without giving the cluster a chance to
+     * primary, after a reboot, without giving the cluster a chance to
      * reconfigure this node. Note that the delay is calculated starting from
      * the first call to this function and not since the server start, in order
      * to don't count the DB loading time. */
     if (first_call_time == 0) first_call_time = mstime();
-    if (nodeIsMaster(myself) &&
+    if (nodeIsPrimary(myself) &&
         server.cluster->state == CLUSTER_FAIL &&
         mstime() - first_call_time < CLUSTER_WRITABLE_DELAY) return;
 
@@ -3883,10 +3883,10 @@ void clusterUpdateState(void) {
         }
     }
 
-    /* Compute the cluster size, that is the number of master nodes
+    /* Compute the cluster size, that is the number of primary nodes
      * serving at least a single slot.
      *
-     * At the same time count the number of reachable masters having
+     * At the same time count the number of reachable primaries having
      * at least one slot. */
     {
         dictIterator *di;
@@ -3897,10 +3897,10 @@ void clusterUpdateState(void) {
         while((de = dictNext(di)) != NULL) {
             clusterNode *node = dictGetVal(de);
 
-            if (nodeIsMaster(node) && node->numslots) {
+            if (nodeIsPrimary(node) && node->numslots) {
                 server.cluster->size++;
                 if ((node->flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL)) == 0)
-                    reachable_masters++;
+                    reachable_primaries++;
             }
         }
         dictReleaseIterator(di);
@@ -3911,7 +3911,7 @@ void clusterUpdateState(void) {
     {
         int needed_quorum = (server.cluster->size / 2) + 1;
 
-        if (reachable_masters < needed_quorum) {
+        if (reachable_primaries < needed_quorum) {
             new_state = CLUSTER_FAIL;
             among_minority_time = mstime();
         }
@@ -3921,7 +3921,7 @@ void clusterUpdateState(void) {
     if (new_state != server.cluster->state) {
         mstime_t rejoin_delay = server.cluster_node_timeout;
 
-        /* If the instance is a master and was partitioned away with the
+        /* If the instance is a primary and was partitioned away with the
          * minority, don't let it accept queries for some time after the
          * partition heals, to make sure there is enough time to receive
          * a configuration update. */
@@ -3931,7 +3931,7 @@ void clusterUpdateState(void) {
             rejoin_delay = CLUSTER_MIN_REJOIN_DELAY;
 
         if (new_state == CLUSTER_OK &&
-            nodeIsMaster(myself) &&
+            nodeIsPrimary(myself) &&
             mstime() - among_minority_time < rejoin_delay)
         {
             return;
@@ -3971,7 +3971,7 @@ int verifyClusterConfigWithData(void) {
     int update_config = 0;
 
     /* Return ASAP if a module disabled cluster redirections. In that case
-     * every master can store keys about every possible hash slot. */
+     * every primary can store keys about every possible hash slot. */
     if (server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_REDIRECTION)
         return C_OK;
 
@@ -4019,13 +4019,13 @@ int verifyClusterConfigWithData(void) {
  * SLAVE nodes handling
  * -------------------------------------------------------------------------- */
 
-/* Set the specified node 'n' as master for this node.
- * If this node is currently a master, it is turned into a slave. */
-void clusterSetMaster(clusterNode *n) {
+/* Set the specified node 'n' as primary for this node.
+ * If this node is currently a primary, it is turned into a slave. */
+void clusterSetPrimary(clusterNode *n) {
     serverAssert(n != myself);
     serverAssert(myself->numslots == 0);
 
-    if (nodeIsMaster(myself)) {
+    if (nodeIsPrimary(myself)) {
         myself->flags &= ~(CLUSTER_NODE_MASTER|CLUSTER_NODE_MIGRATE_TO);
         myself->flags |= CLUSTER_NODE_SLAVE;
         clusterCloseAllSlots();
@@ -4035,7 +4035,7 @@ void clusterSetMaster(clusterNode *n) {
     }
     myself->slaveof = n;
     clusterNodeAddSlave(n,myself);
-    replicationSetMaster(n->ip, n->port);
+    replicationSetPrimary(n->ip, n->port);
     resetManualFailover();
 }
 
@@ -4050,7 +4050,7 @@ struct redisNodeFlags {
 
 static struct redisNodeFlags redisNodeFlagsTable[] = {
     {CLUSTER_NODE_MYSELF,       "myself,"},
-    {CLUSTER_NODE_MASTER,       "master,"},
+    {CLUSTER_NODE_MASTER,       "primary,"},
     {CLUSTER_NODE_SLAVE,        "slave,"},
     {CLUSTER_NODE_PFAIL,        "fail?,"},
     {CLUSTER_NODE_FAIL,         "fail,"},
@@ -4209,8 +4209,8 @@ int getSlotOrReply(client *c, robj *o) {
 void clusterReplyMultiBulkSlots(client *c) {
     /* Format: 1) 1) start slot
      *            2) end slot
-     *            3) 1) master IP
-     *               2) master port
+     *            3) 1) primary IP
+     *               2) primary port
      *               3) node ID
      *            4) 1) replica IP
      *               2) replica port
@@ -4218,7 +4218,7 @@ void clusterReplyMultiBulkSlots(client *c) {
      *           ... continued until done
      */
 
-    int num_masters = 0;
+    int num_primaries = 0;
     void *slot_replylen = addReplyDeferredLen(c);
 
     dictEntry *de;
@@ -4229,8 +4229,8 @@ void clusterReplyMultiBulkSlots(client *c) {
         int i, nested_elements = 0;
 
         /* Skip slaves (that are iterated when producing the output of their
-         * master) and  masters not serving any slot. */
-        if (!nodeIsMaster(node) || node->numslots == 0) continue;
+         * primary) and  primaries not serving any slot. */
+        if (!nodeIsPrimary(node) || node->numslots == 0) continue;
 
         for(i = 0; i < node->numslaves; i++) {
             if (nodeFailed(node->slaves[i])) continue;
@@ -4244,7 +4244,7 @@ void clusterReplyMultiBulkSlots(client *c) {
                 if (start == -1) start = j;
             }
             if (start != -1 && (!bit || j == CLUSTER_SLOTS-1)) {
-                addReplyArrayLen(c, nested_elements + 3); /* slots (2) + master addr (1). */
+                addReplyArrayLen(c, nested_elements + 3); /* slots (2) + primary addr (1). */
 
                 if (bit && j == CLUSTER_SLOTS-1) j++;
 
@@ -4259,7 +4259,7 @@ void clusterReplyMultiBulkSlots(client *c) {
                 }
                 start = -1;
 
-                /* First node reply position is always the master */
+                /* First node reply position is always the primary */
                 addReplyArrayLen(c, 3);
                 addReplyBulkCString(c, node->ip);
                 addReplyLongLong(c, node->port);
@@ -4275,12 +4275,12 @@ void clusterReplyMultiBulkSlots(client *c) {
                     addReplyLongLong(c, node->slaves[i]->port);
                     addReplyBulkCBuffer(c, node->slaves[i]->name, CLUSTER_NAMELEN);
                 }
-                num_masters++;
+                num_primaries++;
             }
         }
     }
     dictReleaseIterator(di);
-    setDeferredArrayLen(c, slot_replylen, num_masters);
+    setDeferredArrayLen(c, slot_replylen, num_primaries);
 }
 
 void clusterCommand(client *c) {
@@ -4296,7 +4296,7 @@ void clusterCommand(client *c) {
 "COUNT-failure-reports <node-id> -- Return number of failure reports for <node-id>.",
 "COUNTKEYSINSLOT <slot> - Return the number of keys in <slot>.",
 "DELSLOTS <slot> [slot ...] -- Delete slots information from current node.",
-"FAILOVER [force|takeover] -- Promote current replica node to being a master.",
+"FAILOVER [force|takeover] -- Promote current replica node to being a primary.",
 "FORGET <node-id> -- Remove a node from the cluster.",
 "GETKEYSINSLOT <slot> <count> -- Return key names stored by current node in a slot.",
 "FLUSHSLOTS -- Delete current node own slots information.",
@@ -4305,7 +4305,7 @@ void clusterCommand(client *c) {
 "MEET <ip> <port> [bus-port] -- Connect nodes into a working cluster.",
 "MYID -- Return the node id.",
 "NODES -- Return cluster configuration seen by node. Output format:",
-"    <id> <ip:port> <flags> <master> <pings> <pongs> <epoch> <link> <slot> ... <slot>",
+"    <id> <ip:port> <flags> <primary> <pings> <pongs> <epoch> <link> <slot> ... <slot>",
 "REPLICATE <node-id> -- Configure current node as replica to <node-id>.",
 "RESET [hard|soft] -- Reset current node (default: soft).",
 "SET-config-epoch <epoch> - Set config epoch of current node.",
@@ -4313,7 +4313,7 @@ void clusterCommand(client *c) {
 "REPLICAS <node-id> -- Return <node-id> replicas.",
 "SAVECONFIG - Force saving cluster configuration on disk.",
 "SLOTS -- Return information about slots range mappings. Each range is made of:",
-"    start, end, master and replicas IP addresses, ports and ids",
+"    start, end, primary and replicas IP addresses, ports and ids",
 NULL
         };
         addReplyHelp(c, help);
@@ -4424,7 +4424,7 @@ NULL
         clusterNode *n;
 
         if (nodeIsSlave(myself)) {
-            addReplyError(c,"Please use SETSLOT only with masters.");
+            addReplyError(c,"Please use SETSLOT only with primaries.");
             return;
         }
 
@@ -4657,7 +4657,7 @@ NULL
             addReplyError(c,"I tried hard but I can't forget myself...");
             return;
         } else if (nodeIsSlave(myself) && myself->slaveof == n) {
-            addReplyError(c,"Can't forget my master!");
+            addReplyError(c,"Can't forget my primary!");
             return;
         }
         clusterBlacklistAddNode(n);
@@ -4683,23 +4683,23 @@ NULL
 
         /* Can't replicate a slave. */
         if (nodeIsSlave(n)) {
-            addReplyError(c,"I can only replicate a master, not a replica.");
+            addReplyError(c,"I can only replicate a primary, not a replica.");
             return;
         }
 
-        /* If the instance is currently a master, it should have no assigned
+        /* If the instance is currently a primary, it should have no assigned
          * slots nor keys to accept to replicate some other node.
-         * Slaves can switch to another master without issues. */
-        if (nodeIsMaster(myself) &&
+         * Slaves can switch to another primary without issues. */
+        if (nodeIsPrimary(myself) &&
             (myself->numslots != 0 || dictSize(server.db[0].dict) != 0)) {
             addReplyError(c,
-                "To set a master the node must be empty and "
+                "To set a primary the node must be empty and "
                 "without assigned slots.");
             return;
         }
 
-        /* Set the master. */
-        clusterSetMaster(n);
+        /* Set the primary. */
+        clusterSetPrimary(n);
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
         addReply(c,shared.ok);
     } else if ((!strcasecmp(c->argv[1]->ptr,"slaves") ||
@@ -4715,7 +4715,7 @@ NULL
         }
 
         if (nodeIsSlave(n)) {
-            addReplyError(c,"The specified node is not a master");
+            addReplyError(c,"The specified node is not a primary");
             return;
         }
 
@@ -4756,17 +4756,17 @@ NULL
         }
 
         /* Check preconditions. */
-        if (nodeIsMaster(myself)) {
+        if (nodeIsPrimary(myself)) {
             addReplyError(c,"You should send CLUSTER FAILOVER to a replica");
             return;
         } else if (myself->slaveof == NULL) {
-            addReplyError(c,"I'm a replica but my master is unknown to me");
+            addReplyError(c,"I'm a replica but my primary is unknown to me");
             return;
         } else if (!force &&
                    (nodeFailed(myself->slaveof) ||
                     myself->slaveof->link == NULL))
         {
-            addReplyError(c,"Master is down or failed, "
+            addReplyError(c,"Primary is down or failed, "
                             "please use CLUSTER FAILOVER FORCE");
             return;
         }
@@ -4776,14 +4776,14 @@ NULL
         if (takeover) {
             /* A takeover does not perform any initial check. It just
              * generates a new configuration epoch for this node without
-             * consensus, claims the master's slots, and broadcast the new
+             * consensus, claims the primary's slots, and broadcast the new
              * configuration. */
-            serverLog(LL_WARNING,"Taking over the master (user request).");
+            serverLog(LL_WARNING,"Taking over the primary (user request).");
             clusterBumpConfigEpochWithoutConsensus();
-            clusterFailoverReplaceYourMaster();
+            clusterFailoverReplaceYourPrimary();
         } else if (force) {
             /* If this is a forced failover, we don't need to talk with our
-             * master to agree about the offset. We just failover taking over
+             * primary to agree about the offset. We just failover taking over
              * it without coordination. */
             serverLog(LL_WARNING,"Forced failover user request accepted.");
             server.cluster->mf_can_start = 1;
@@ -4846,11 +4846,11 @@ NULL
             }
         }
 
-        /* Slaves can be reset while containing data, but not master nodes
+        /* Slaves can be reset while containing data, but not primary nodes
          * that must be empty. */
-        if (nodeIsMaster(myself) && dictSize(c->db->dict) != 0) {
+        if (nodeIsPrimary(myself) && dictSize(c->db->dict) != 0) {
             addReplyError(c,"CLUSTER RESET can't be called with "
-                            "master nodes containing keys");
+                            "primary nodes containing keys");
             return;
         }
         clusterReset(hard);
@@ -5499,7 +5499,7 @@ void askingCommand(client *c) {
 
 /* The READONLY command is used by clients to enter the read-only mode.
  * In this mode slaves will not redirect clients as long as clients access
- * with read-only commands to keys that are served by the slave's master. */
+ * with read-only commands to keys that are served by the slave's primary. */
 void readonlyCommand(client *c) {
     if (server.cluster_enabled == 0) {
         addReplyError(c,"This instance has cluster support disabled");
@@ -5719,7 +5719,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     }
 
     /* Handle the read-only client case reading from a slave: if this
-     * node is a slave and the request is about an hash slot our master
+     * node is a slave and the request is about an hash slot our primary
      * is serving, we can reply without redirection. */
     if (c->flags & CLIENT_READONLY &&
         (cmd->flags & CMD_READONLY || cmd->proc == evalCommand ||
@@ -5773,7 +5773,7 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
  * to detect timeouts, in order to handle the following case:
  *
  * 1) A client blocks with BLPOP or similar blocking operation.
- * 2) The master migrates the hash slot elsewhere or turns into a slave.
+ * 2) The primary migrates the hash slot elsewhere or turns into a slave.
  * 3) The client may remain blocked forever (or up to the max timeout time)
  *    waiting for a key change that will never happen.
  *

@@ -285,7 +285,7 @@ int TestCtxFlags(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     flags = RedisModule_GetContextFlags(ctx);
     if (!(flags & REDISMODULE_CTX_FLAGS_RDB)) FAIL("RDB Flag was not set after config set");
 
-    if (!(flags & REDISMODULE_CTX_FLAGS_MASTER)) FAIL("Master flag was not set");
+    if (!(flags & REDISMODULE_CTX_FLAGS_MASTER)) FAIL("Primary flag was not set");
     if (flags & REDISMODULE_CTX_FLAGS_SLAVE) FAIL("Slave flag was set");
     if (flags & REDISMODULE_CTX_FLAGS_READONLY) FAIL("Read-only flag was set");
     if (flags & REDISMODULE_CTX_FLAGS_CLUSTER) FAIL("Cluster flag was set");

@@ -109,7 +109,7 @@ start_server {tags {"acl"}} {
         r ACL setuser newuser +client|id +client|setname
         r CLIENT ID; # Should not fail
         r CLIENT SETNAME foo ; # Should not fail
-        catch {r CLIENT KILL type master} e
+        catch {r CLIENT KILL type primary} e
         set e
     } {*NOPERM*}
 
