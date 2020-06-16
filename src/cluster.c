@@ -691,6 +691,13 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 }
 
+/* Return the approximated number of sockets we are using in order to
+ * take the cluster bus connections. */
+unsigned long getClusterConnectionsCount(void) {
+    return server.cluster_enabled ?
+           (dictSize(server.cluster->nodes)*2) : 0;
+}
+
 /* -----------------------------------------------------------------------------
  * Key space handling
  * -------------------------------------------------------------------------- */
