@@ -487,8 +487,8 @@ static inline size_t raxLowWalk(rax *rax, unsigned char *s, size_t len, raxNode 
         if (h->iscompr) j = 0; /* Compressed node only child is at index 0. */
         memcpy(&h,children+j,sizeof(h));
         parentlink = children+j;
-        j = 0; /* If the new node is compressed and we do not
-                  iterate again (since i == l) set the split
+        j = 0; /* If the new node is non compressed and we do not
+                  iterate again (since i == len) set the split
                   position to 0 to signal this node represents
                   the searched key. */
     }
