@@ -403,9 +403,19 @@ void spopWithCountCommand(client *c) {
     long l;
     unsigned long count, size;
     robj *set;
+    int popone = 0;
 
     /* Get the count argument */
-    if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != C_OK) return;
+    if (c->argc == 2) {
+        l = 1;
+        popone = 1;
+    } else if (c->argc == 3){
+        if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != C_OK) return;
+    } else {
+        addReply(c,shared.syntaxerr);
+        return;
+    }
+
     if (l >= 0) {
         count = (unsigned long) l;
     } else {
@@ -415,8 +425,13 @@ void spopWithCountCommand(client *c) {
 
     /* Make sure a key with the name inputted exists, and that it's type is
      * indeed a set. Otherwise, return nil */
-    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.emptyset[c->resp]))
-        == NULL || checkType(c,set,OBJ_SET)) return;
+    if (popone) {
+        if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.null[c->resp]))
+            == NULL || checkType(c,set,OBJ_SET)) return;
+    } else {
+        if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.emptyset[c->resp]))
+            == NULL || checkType(c,set,OBJ_SET)) return;
+    }
 
     /* If count is zero, serve an empty set ASAP to avoid special
      * cases later. */
@@ -426,6 +441,12 @@ void spopWithCountCommand(client *c) {
     }
 
     size = setTypeSize(set);
+    /* Common iteration vars. */
+    sds sdsele;
+    robj *objele;
+    int encoding;
+    int64_t llele;
+    unsigned long remaining = size-count; /* Elements left after SPOP. */
 
     /* Generate an SPOP keyspace notification */
     notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
@@ -435,8 +456,17 @@ void spopWithCountCommand(client *c) {
      * The number of requested elements is greater than or equal to
      * the number of elements inside the set: simply return the whole set. */
     if (count >= size) {
-        /* We just return the entire set */
-        sunionDiffGenericCommand(c,c->argv+1,1,NULL,SET_OP_UNION);
+        if (popone) {
+            encoding = setTypeRandomElement(set,&sdsele,&llele);
+            if (encoding == OBJ_ENCODING_INTSET) {
+                addReplyBulkLongLong(c,llele);
+            } else {
+                addReplyBulkCBuffer(c,sdsele,sdslen(sdsele));
+            }
+        } else {
+            /* We just return the entire set */
+            sunionDiffGenericCommand(c,c->argv+1,1,NULL,SET_OP_UNION);
+        }
 
         /* Delete the set as it is now empty */
         dbDelete(c->db,c->argv[1]);
@@ -455,14 +485,9 @@ void spopWithCountCommand(client *c) {
     robj *propargv[3];
     propargv[0] = createStringObject("SREM",4);
     propargv[1] = c->argv[1];
-    addReplySetLen(c,count);
-
-    /* Common iteration vars. */
-    sds sdsele;
-    robj *objele;
-    int encoding;
-    int64_t llele;
-    unsigned long remaining = size-count; /* Elements left after SPOP. */
+    if (!popone) {
+        addReplySetLen(c,count);
+    }
 
     /* If we are here, the number of requested elements is less than the
      * number of elements inside the set. Also we are sure that count < size.
@@ -551,56 +576,7 @@ void spopWithCountCommand(client *c) {
 }
 
 void spopCommand(client *c) {
-    robj *set, *ele, *aux;
-    sds sdsele;
-    int64_t llele;
-    int encoding;
-
-    if (c->argc == 3) {
-        spopWithCountCommand(c);
-        return;
-    } else if (c->argc > 3) {
-        addReply(c,shared.syntaxerr);
-        return;
-    }
-
-    /* Make sure a key with the name inputted exists, and that it's type is
-     * indeed a set */
-    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.null[c->resp]))
-         == NULL || checkType(c,set,OBJ_SET)) return;
-
-    /* Get a random element from the set */
-    encoding = setTypeRandomElement(set,&sdsele,&llele);
-
-    /* Remove the element from the set */
-    if (encoding == OBJ_ENCODING_INTSET) {
-        ele = createStringObjectFromLongLong(llele);
-        set->ptr = intsetRemove(set->ptr,llele,NULL);
-    } else {
-        ele = createStringObject(sdsele,sdslen(sdsele));
-        setTypeRemove(set,ele->ptr);
-    }
-
-    notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
-
-    /* Replicate/AOF this command as an SREM operation */
-    aux = createStringObject("SREM",4);
-    rewriteClientCommandVector(c,3,aux,c->argv[1],ele);
-    decrRefCount(aux);
-
-    /* Add the element to the reply */
-    addReplyBulk(c,ele);
-    decrRefCount(ele);
-
-    /* Delete the set if it's empty */
-    if (setTypeSize(set) == 0) {
-        dbDelete(c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
-    }
-
-    /* Set has been modified */
-    signalModifiedKey(c,c->db,c->argv[1]);
-    server.dirty++;
+    spopWithCountCommand(c);
 }
 
 /* handle the "SRANDMEMBER key <count>" variant. The normal version of the
