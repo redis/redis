@@ -310,6 +310,35 @@ void loadServerConfigFromString(char *config) {
             if (server.maxclients < 1) {
                 err = "Invalid max clients limit"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"initial-dynamic-threshold") && argc == 2) {
+            server.initial_dynamic_threshold = atoi(argv[1]);
+            if (server.initial_dynamic_threshold < 1) {
+                err = "Invalid initial dynamic threshold"; goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"dynamic-threshold-min") && argc == 2) {
+            server.dynamic_threshold_min = atoi(argv[1]);
+            if (server.dynamic_threshold_min < 1) {
+                err = "Invalid initial dynamic threshold min"; goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"dynamic-threshold-max") && argc == 2) {
+            server.dynamic_threshold_max = atoi(argv[1]);
+            if (server.dynamic_threshold_max < 1) {
+                err = "Invalid initial dynamic threshold max"; goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"static-threshold") && argc == 2) {
+            server.static_threshold = atoi(argv[1]);
+            if (server.static_threshold < 1) {
+                err = "Invalid initial static threshold"; goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"memory-ratio-check-period") && argc == 2) {
+            server.ratio_check_period = atoi(argv[1]);
+            if (server.ratio_check_period < 1) {
+                err = "Invalid number of memory ratio check period"; goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"hashtable-on-dram") && argc == 2) {
+            if ((server.hashtable_on_dram = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"maxmemory") && argc == 2) {
             server.maxmemory = memtoll(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"maxmemory-policy") && argc == 2) {
@@ -1155,6 +1184,11 @@ void configGetCommand(client *c) {
     config_get_numerical_field("cluster-slave-validity-factor",server.cluster_slave_validity_factor);
     config_get_numerical_field("repl-diskless-sync-delay",server.repl_diskless_sync_delay);
     config_get_numerical_field("tcp-keepalive",server.tcpkeepalive);
+    config_get_numerical_field("memory-ratio-check-period",server.ratio_check_period);
+    config_get_numerical_field("initial-dynamic-threshold",server.initial_dynamic_threshold);
+    config_get_numerical_field("dynamic-threshold-min",server.dynamic_threshold_min);
+    config_get_numerical_field("dynamic-threshold-max",server.dynamic_threshold_max);
+    config_get_numerical_field("static-threshold",server.static_threshold);
 
     /* Bool (yes/no) values */
     config_get_bool_field("cluster-require-full-coverage",
@@ -1180,6 +1214,8 @@ void configGetCommand(client *c) {
             server.aof_rewrite_incremental_fsync);
     config_get_bool_field("aof-load-truncated",
             server.aof_load_truncated);
+    config_get_bool_field("hashtable-on-dram",
+            server.hashtable_on_dram);
 
     /* Enum values */
     config_get_enum_field("maxmemory-policy",
@@ -1192,6 +1228,8 @@ void configGetCommand(client *c) {
             server.aof_fsync,aof_fsync_enum);
     config_get_enum_field("syslog-facility",
             server.syslog_facility,syslog_facility_enum);
+    config_get_enum_field("memory-alloc-policy",
+            server.memory_alloc_policy,memory_alloc_policy_enum);
 
     /* Everything we can't handle with macros follows. */
 
@@ -1244,7 +1282,8 @@ void configGetCommand(client *c) {
         sdsfree(buf);
         matches++;
     }
-    if  (stringmatch(pattern,"dram-pmem-ratio",1)) {
+
+    if (stringmatch(pattern,"dram-pmem-ratio",1)) {
         char buf[32];
         snprintf(buf,sizeof(buf),"%d %d", server.dram_pmem_ratio.dram_val, server.dram_pmem_ratio.pmem_val);
         addReplyBulkCString(c,"dram-pmem-ratio");

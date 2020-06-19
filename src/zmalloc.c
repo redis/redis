@@ -289,6 +289,7 @@ static void *zrealloc_pmem(void *ptr, size_t size) {
         zfree_pmem(ptr);
         return NULL;
     }
+
     if (ptr == NULL) return zmalloc(size);
 #ifdef HAVE_MALLOC_SIZE
     oldsize = zmalloc_size(ptr);

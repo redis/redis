@@ -83,8 +83,6 @@ static void _listEmpty(list *list, int on_dram)
         if (on_dram == LIST_DRAM_VARIANT) zfree_dram(current); else zfree(current);
         current = next;
     }
-    list->head = list->tail = NULL;
-    list->len = 0;
 }
 
 /* Remove all the elements from the list without destroying the list itself. */
