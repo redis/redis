@@ -89,6 +89,14 @@ configEnum aof_fsync_enum[] = {
     {NULL, 0}
 };
 
+configEnum memory_alloc_policy_enum[] = {
+    {"only-dram", MEM_POLICY_ONLY_DRAM},
+    {"only-pmem", MEM_POLICY_ONLY_PMEM},
+    {"threshold", MEM_POLICY_THRESHOLD},
+    {"ratio", MEM_POLICY_RATIO},
+    {NULL, 0}
+};
+
 /* Output buffer limits presets. */
 clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUNT] = {
     {0, 0, 0}, /* normal */
@@ -238,6 +246,15 @@ void loadServerConfigFromString(char *config) {
             } else if (argc == 2 && !strcasecmp(argv[1],"")) {
                 resetServerSaveParams();
             }
+        } else if (!strcasecmp(argv[0],"dram-pmem-ratio") && argc == 3) {
+                int dram = atoi(argv[1]);
+                int pmem = atoi(argv[2]);
+                if (dram == 0 || pmem == 0) {
+                  err = "Invalid dram-pmem-ratio parameters"; goto loaderr;
+                }
+                server.dram_pmem_ratio.dram_val = dram;
+                server.dram_pmem_ratio.pmem_val = pmem;
+                server.target_pmem_dram_ratio = (double)pmem/dram;
         } else if (!strcasecmp(argv[0],"dir") && argc == 2) {
             if (chdir(argv[1]) == -1) {
                 serverLog(LL_WARNING,"Can't chdir to '%s': %s",
@@ -306,6 +323,13 @@ void loadServerConfigFromString(char *config) {
             server.maxmemory_samples = atoi(argv[1]);
             if (server.maxmemory_samples <= 0) {
                 err = "maxmemory-samples must be 1 or greater";
+                goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"memory-alloc-policy") && argc == 2) {
+            server.memory_alloc_policy =
+                configEnumGetValue(memory_alloc_policy_enum,argv[1]);
+            if (server.memory_alloc_policy == INT_MIN) {
+                err = "Invalid memory allocate policy";
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"slaveof") && argc == 3) {
@@ -633,6 +657,20 @@ void loadServerConfigFromString(char *config) {
         goto loaderr;
     }
 
+    if (server.memory_alloc_policy == MEM_POLICY_RATIO) {
+        if (server.dynamic_threshold_min > server.initial_dynamic_threshold) {
+            err = "dynamic threshold: initial value must be greater than or equal to minimum value for ratio memory allocation policy";
+            goto loaderr;
+        }
+        if (server.dynamic_threshold_max < server.initial_dynamic_threshold) {
+            err = "dynamic threshold: initial value must be less than or equal to maximum value for ratio memory allocation policy";
+            goto loaderr;
+        }
+        if (server.dram_pmem_ratio.pmem_val == 0 && server.dram_pmem_ratio.dram_val == 0) {
+            err = "dram-pmem-ratio must be defined for ratio memory allocation policy";
+            goto loaderr;
+        }
+    }
     sdsfreesplitres(lines,totlines);
     return;
 
@@ -1204,6 +1242,13 @@ void configGetCommand(client *c) {
         addReplyBulkCString(c,"client-output-buffer-limit");
         addReplyBulkCString(c,buf);
         sdsfree(buf);
+        matches++;
+    }
+    if  (stringmatch(pattern,"dram-pmem-ratio",1)) {
+        char buf[32];
+        snprintf(buf,sizeof(buf),"%d %d", server.dram_pmem_ratio.dram_val, server.dram_pmem_ratio.pmem_val);
+        addReplyBulkCString(c,"dram-pmem-ratio");
+        addReplyBulkCString(c,buf);
         matches++;
     }
     if (stringmatch(pattern,"unixsocketperm",1)) {
@@ -1820,6 +1865,12 @@ int rewriteConfig(char *path) {
     rewriteConfigBytesOption(state,"maxmemory",server.maxmemory,CONFIG_DEFAULT_MAXMEMORY);
     rewriteConfigEnumOption(state,"maxmemory-policy",server.maxmemory_policy,maxmemory_policy_enum,CONFIG_DEFAULT_MAXMEMORY_POLICY);
     rewriteConfigNumericalOption(state,"maxmemory-samples",server.maxmemory_samples,CONFIG_DEFAULT_MAXMEMORY_SAMPLES);
+    rewriteConfigEnumOption(state,"memory-alloc-policy",server.memory_alloc_policy,memory_alloc_policy_enum,MEM_POLICY_ONLY_DRAM);
+    rewriteConfigNumericalOption(state,"memory-ratio-check-period",server.ratio_check_period,100);
+    rewriteConfigNumericalOption(state,"initial-dynamic-threshold",server.initial_dynamic_threshold,64);
+    rewriteConfigNumericalOption(state,"dynamic-threshold-min",server.dynamic_threshold_min,24);
+    rewriteConfigNumericalOption(state,"dynamic-threshold-max",server.dynamic_threshold_max,10000);
+    rewriteConfigNumericalOption(state,"static-threshold",server.static_threshold,64);
     rewriteConfigYesNoOption(state,"appendonly",server.aof_state != AOF_OFF,0);
     rewriteConfigStringOption(state,"appendfilename",server.aof_filename,CONFIG_DEFAULT_AOF_FILENAME);
     rewriteConfigEnumOption(state,"appendfsync",server.aof_fsync,aof_fsync_enum,CONFIG_DEFAULT_AOF_FSYNC);
