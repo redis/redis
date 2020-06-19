@@ -106,7 +106,7 @@ void lwFreeCanvas(lwCanvas *canvas) {
 }
 
 /* Set a pixel to the specified color. Color is 0 or 1, where zero means no
- * dot will be displyed, and 1 means dot will be displayed.
+ * dot will be displayed, and 1 means dot will be displayed.
  * Coordinates are arranged so that left-top corner is 0,0. You can write
  * out of the size of the canvas without issues. */
 void lwDrawPixel(lwCanvas *canvas, int x, int y, int color) {

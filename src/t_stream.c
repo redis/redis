@@ -1890,7 +1890,7 @@ NULL
     }
 }
 
-/* XSETID <stream> <groupname> <id>
+/* XSETID <stream> <id>
  *
  * Set the internal "last ID" of a stream. */
 void xsetidCommand(client *c) {

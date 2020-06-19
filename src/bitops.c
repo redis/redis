@@ -496,7 +496,7 @@ robj *lookupStringForBitCommand(client *c, size_t maxbit) {
  * in 'len'. The user is required to pass (likely stack allocated) buffer
  * 'llbuf' of at least LONG_STR_SIZE bytes. Such a buffer is used in the case
  * the object is integer encoded in order to provide the representation
- * without usign heap allocation.
+ * without using heap allocation.
  *
  * The function returns the pointer to the object array of bytes representing
  * the string it contains, that may be a pointer to 'llbuf' or to the

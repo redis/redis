@@ -2108,7 +2108,7 @@ static int updateJemallocBgThread(int val, int prev, char **err) {
 
 static int updateReplBacklogSize(long long val, long long prev, char **err) {
     /* resizeReplicationBacklog sets server.repl_backlog_size, and relies on
-     * being able to tell when the size changes, so restore prev becore calling it. */
+     * being able to tell when the size changes, so restore prev before calling it. */
     UNUSED(err);
     server.repl_backlog_size = prev;
     resizeReplicationBacklog(val);

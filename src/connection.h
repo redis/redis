@@ -106,7 +106,7 @@ static inline int connAccept(connection *conn, ConnectionCallbackFunc accept_han
 }
 
 /* Establish a connection.  The connect_handler will be called when the connection
- * is established, or if an error has occured.
+ * is established, or if an error has occurred.
  *
  * The connection handler will be responsible to set up any read/write handlers
  * as needed.
@@ -168,7 +168,7 @@ static inline int connSetReadHandler(connection *conn, ConnectionCallbackFunc fu
 
 /* Set a write handler, and possibly enable a write barrier, this flag is
  * cleared when write handler is changed or removed.
- * With barroer enabled, we never fire the event if the read handler already
+ * With barrier enabled, we never fire the event if the read handler already
  * fired in the same event loop iteration. Useful when you want to persist
  * things to disk before sending replies, and want to do that in a group fashion. */
 static inline int connSetWriteHandlerWithBarrier(connection *conn, ConnectionCallbackFunc func, int barrier) {
