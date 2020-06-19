@@ -933,6 +933,7 @@ struct redisServer {
     ratioDramPmemConfig dram_pmem_ratio;      /* DRAM/Persistent Memory ratio */
     double target_pmem_dram_ratio;            /* Target PMEM/DRAM ratio */
     int ratio_check_period;                   /* Period of checking ratio in Cron*/
+    int hashtable_on_dram;                    /* Keep hashtable always on DRAM */
     /* Blocked clients */
     unsigned int bpop_blocked_clients; /* Number of clients blocked by lists */
     list *unblocked_clients; /* list of clients to unblock before next loop */
