@@ -1282,6 +1282,7 @@ void configGetCommand(client *c) {
         sdsfree(buf);
         matches++;
     }
+
     if (stringmatch(pattern,"dram-pmem-ratio",1)) {
         char buf[32];
         snprintf(buf,sizeof(buf),"%d %d", server.dram_pmem_ratio.dram_val, server.dram_pmem_ratio.pmem_val);

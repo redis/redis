@@ -2016,6 +2016,7 @@ void initServer(void) {
     slowlogInit();
     latencyMonitorInit();
     pmemThresholdInit();
+
     dictSetAllocPolicy(server.hashtable_on_dram);
     bioInit();
 }
@@ -3999,6 +4000,8 @@ int main(int argc, char **argv) {
             return endianconvTest(argc, argv);
         } else if (!strcasecmp(argv[2], "crc64")) {
             return crc64Test(argc, argv);
+        } else if (!strcasecmp(argv[2], "pmem")) {
+            return zmalloc_pmem_test(argc, argv);
         }
 
         return -1; /* test not found */

@@ -300,7 +300,6 @@ void incrRefCount(robj *o) {
 }
 
 static void _decrRefCount(robj *o, int on_dram) {
-    if (o->refcount <= 0) serverPanic("decrRefCount against refcount <= 0");
     if (o->refcount == 1) {
         switch(o->type) {
         case OBJ_STRING: freeStringObject(o); break;
@@ -316,6 +315,7 @@ static void _decrRefCount(robj *o, int on_dram) {
             zfree_dram(o);
         }
     } else {
+        if (o->refcount <= 0) serverPanic("decrRefCount against refcount <= 0");
         o->refcount--;
     }
 }
