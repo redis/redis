@@ -1,0 +1,31 @@
+language: c
+dist: bionic
+compiler:
+  - gcc
+  - clang
+
+addons:
+  apt:
+    packages:
+        - libjson-c-dev
+        - libkeyutils-dev
+        - libkmod-dev
+        - libnuma-dev
+        - libudev-dev
+        - tcl8.5
+
+before script:
+  - export CC=`which $CC`
+  - wget https://github.com/pmem/ndctl/archive/v68.tar.gz
+  - tar -xzvf v68.tar.gz
+  - pushd ndctl-68 && ./autogen.sh && ./configure --disable-docs --prefix=/usr && make && sudo make install && popd
+  - wget https://github.com/memkind/memkind/archive/v1.10.1-rc2.tar.gz
+  - tar -xzvf v1.10.1-rc2.tar.gz
+  - pushd memkind-1.10.1-rc2 && ./autogen.sh && ARENA_LIMIT=1 MIN_LG_ALIGN=3 ./configure --disable-heap-manager --prefix=/usr && make && sudo make install && popd
+
+script:
+  - make gcov
+  - ./runtest --clients 2
+
+after_success:
+  - bash <(curl -s https://codecov.io/bash) -p src
