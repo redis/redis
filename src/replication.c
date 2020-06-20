@@ -3063,8 +3063,8 @@ void processClientsWaitingReplicas(void) {
          * offset and number of replicas, we remember it so the next client
          * may be unblocked without calling replicationCountAcksByOffset()
          * if the requested offset / replicas were equal or less. */
-        if (last_offset && last_offset > c->bpop.reploffset &&
-                           last_numreplicas > c->bpop.numreplicas)
+        if (last_offset && last_offset >= c->bpop.reploffset &&
+                           last_numreplicas >= c->bpop.numreplicas)
         {
             unblockClient(c);
             addReplyLongLong(c,last_numreplicas);
