@@ -151,6 +151,9 @@ void tlsInit(void) {
 
     /* Server configuration */
     server.tls_auth_clients = 1;    /* Secure by default */
+    server.tls_ctx_config.session_caching = 1;
+    server.tls_ctx_config.session_cache_size = 20*1024;
+    server.tls_ctx_config.session_cache_timeout = 300;
 }
 
 /* Attempt to configure/reconfigure TLS. This operation is atomic and will
@@ -183,6 +186,15 @@ int tlsConfigure(redisTLSContextConfig *ctx_config) {
 #ifdef SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS
     SSL_CTX_set_options(ctx, SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS);
 #endif
+
+    if (ctx_config->session_caching) {
+        SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_SERVER);
+        SSL_CTX_sess_set_cache_size(ctx, ctx_config->session_cache_size);
+        SSL_CTX_set_timeout(ctx, ctx_config->session_cache_timeout);
+        SSL_CTX_set_session_id_context(ctx, (void *) "redis", 5);
+    } else {
+        SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_OFF);
+    }
 
     int protocols = parseProtocolsConfig(ctx_config->protocols);
     if (protocols == -1) goto error;
