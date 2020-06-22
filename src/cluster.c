@@ -694,8 +694,11 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 /* Return the approximated number of sockets we are using in order to
  * take the cluster bus connections. */
 unsigned long getClusterConnectionsCount(void) {
+    /* We decrement the number of nodes by one, since there is the
+     * "myself" node too in the list. Each node uses two file descriptors,
+     * one incoming and one outgoing, thus the multiplication by 2. */
     return server.cluster_enabled ?
-           (dictSize(server.cluster->nodes)*2) : 0;
+           ((dictSize(server.cluster->nodes)-1)*2) : 0;
 }
 
 /* -----------------------------------------------------------------------------
