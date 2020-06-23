@@ -4469,6 +4469,10 @@ NULL
                     (char*)c->argv[4]->ptr);
                 return;
             }
+            if (nodeIsSlave(n)) {
+                addReplyError(c, "CLUSTER SETSLOT <SLOT> NODE <NODE ID> not allowed to set slot to replica");
+                return;
+            }
             /* If this hash slot was served by 'myself' before to switch
              * make sure there are no longer local keys for this hash slot. */
             if (server.cluster->slots[slot] == myself && n != myself) {
