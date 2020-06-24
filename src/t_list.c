@@ -487,16 +487,16 @@ void ltrimCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-/* LPOS key element [FIRST rank] [COUNT num-matches] [MAXLEN len]
+/* LPOS key element [RANK rank] [COUNT num-matches] [MAXLEN len]
  *
- * FIRST "rank" is the position of the match, so if it is 1, the first match
+ * The "rank" is the position of the match, so if it is 1, the first match
  * is returned, if it is 2 the second match is returned and so forth.
  * It is 1 by default. If negative has the same meaning but the search is
  * performed starting from the end of the list.
  *
  * If COUNT is given, instead of returning the single element, a list of
  * all the matching elements up to "num-matches" are returned. COUNT can
- * be combiled with FIRST in order to returning only the element starting
+ * be combiled with RANK in order to returning only the element starting
  * from the Nth. If COUNT is zero, all the matching elements are returned.
  *
  * MAXLEN tells the command to scan a max of len elements. If zero (the
@@ -515,12 +515,12 @@ void lposCommand(client *c) {
         char *opt = c->argv[j]->ptr;
         int moreargs = (c->argc-1)-j;
 
-        if (!strcasecmp(opt,"FIRST") && moreargs) {
+        if (!strcasecmp(opt,"RANK") && moreargs) {
             j++;
             if (getLongFromObjectOrReply(c, c->argv[j], &rank, NULL) != C_OK)
                 return;
             if (rank == 0) {
-                addReplyError(c,"FIRST can't be zero: use 1 to start from "
+                addReplyError(c,"RANK can't be zero: use 1 to start from "
                                 "the first match, 2 from the second, ...");
                 return;
             }
