@@ -1264,7 +1264,10 @@ void markNodeAsFailingIfNeeded(clusterNode *node) {
     node->fail_time = mstime();
 
     /* Broadcast the failing node name to everybody, forcing all the other
-     * reachable nodes to flag the node as FAIL. */
+     * reachable nodes to flag the node as FAIL.
+     * We do that even if this node is a replica and not a master: anyway
+     * the failing state is triggered collecting failure reports from masters,
+     * so here the replica is only helping propagating this status. */
     clusterSendFail(node->name);
     clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
 }
