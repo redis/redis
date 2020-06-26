@@ -35,6 +35,11 @@ It is as simple as:
 
     % make
 
+To build with TLS support, you'll need OpenSSL development libraries (e.g.
+libssl-dev on Debian/Ubuntu) and run:
+
+    % make BUILD_TLS=yes
+
 You can run a 32 bit Redis binary using:
 
     % make 32bit
@@ -42,6 +47,13 @@ You can run a 32 bit Redis binary using:
 After building Redis, it is a good idea to test it using:
 
     % make test
+
+If TLS is built, running the tests with TLS enabled (you will need `tcl-tls`
+installed):
+
+    % ./utils/gen-test-certs.sh
+    % ./runtest --tls
+
 
 Fixing build problems with dependencies or cached build options
 ---------
@@ -124,6 +136,12 @@ as options using the command line. Examples:
 
 All the options in redis.conf are also supported as options using the command
 line, with exactly the same name.
+
+Running Redis with TLS:
+------------------
+
+Please consult the [TLS.md](TLS.md) file for more information on
+how to use Redis with TLS.
 
 Playing with Redis
 ------------------

@@ -147,3 +147,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     return REDISMODULE_OK;
 }
+
+int RedisModule_OnUnload(RedisModuleCtx *ctx) {
+    RedisModule_FreeString(ctx, log_key_name);
+    return REDISMODULE_OK;
+}

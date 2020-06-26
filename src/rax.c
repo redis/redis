@@ -1,6 +1,8 @@
 /* Rax -- A radix tree implementation.
  *
- * Copyright (c) 2017-2018, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Version 1.2 -- 7 February 2019
+ *
+ * Copyright (c) 2017-2019, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -485,8 +487,8 @@ static inline size_t raxLowWalk(rax *rax, unsigned char *s, size_t len, raxNode 
         if (h->iscompr) j = 0; /* Compressed node only child is at index 0. */
         memcpy(&h,children+j,sizeof(h));
         parentlink = children+j;
-        j = 0; /* If the new node is compressed and we do not
-                  iterate again (since i == l) set the split
+        j = 0; /* If the new node is non compressed and we do not
+                  iterate again (since i == len) set the split
                   position to 0 to signal this node represents
                   the searched key. */
     }
@@ -1673,6 +1675,7 @@ int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len) {
                  * node, but will be our match, representing the key "f".
                  *
                  * So in that case, we don't seek backward. */
+                it->data = raxGetData(it->node);
             } else {
                 if (gt && !raxIteratorNextStep(it,0)) return 0;
                 if (lt && !raxIteratorPrevStep(it,0)) return 0;
@@ -1736,7 +1739,7 @@ int raxRandomWalk(raxIterator *it, size_t steps) {
     }
 
     if (steps == 0) {
-        size_t fle = floor(log(it->rt->numele));
+        size_t fle = 1+floor(log(it->rt->numele));
         fle *= 2;
         steps = 1 + rand() % fle;
     }
@@ -1765,6 +1768,7 @@ int raxRandomWalk(raxIterator *it, size_t steps) {
         if (n->iskey) steps--;
     }
     it->node = n;
+    it->data = raxGetData(it->node);
     return 1;
 }
 
@@ -1791,7 +1795,8 @@ int raxCompare(raxIterator *iter, const char *op, unsigned char *key, size_t key
         if (eq && key_len == iter->key_len) return 1;
         else if (lt) return iter->key_len < key_len;
         else if (gt) return iter->key_len > key_len;
-    } if (cmp > 0) {
+        else return 0; /* Avoid warning, just 'eq' is handled before. */
+    } else if (cmp > 0) {
         return gt ? 1 : 0;
     } else /* (cmp < 0) */ {
         return lt ? 1 : 0;

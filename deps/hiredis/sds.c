@@ -1035,7 +1035,7 @@ sds *sdssplitargs(const char *line, int *argc) {
                     s_free(vector);
                     return NULL;
                 }
-                
+
                 vector = new_vector;
                 vector[*argc] = current;
                 (*argc)++;

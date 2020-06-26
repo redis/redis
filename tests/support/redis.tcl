@@ -39,8 +39,18 @@ array set ::redis::callback {}
 array set ::redis::state {} ;# State in non-blocking reply reading
 array set ::redis::statestack {} ;# Stack of states, for nested mbulks
 
-proc redis {{server 127.0.0.1} {port 6379} {defer 0}} {
-    set fd [socket $server $port]
+proc redis {{server 127.0.0.1} {port 6379} {defer 0} {tls 0} {tlsoptions {}}} {
+    if {$tls} {
+        package require tls
+        ::tls::init \
+            -cafile "$::tlsdir/ca.crt" \
+            -certfile "$::tlsdir/redis.crt" \
+            -keyfile "$::tlsdir/redis.key" \
+            {*}$tlsoptions
+        set fd [::tls::socket $server $port]
+    } else {
+        set fd [socket $server $port]
+    }
     fconfigure $fd -translation binary
     set id [incr ::redis::id]
     set ::redis::fd($id) $fd
@@ -48,6 +58,7 @@ proc redis {{server 127.0.0.1} {port 6379} {defer 0}} {
     set ::redis::blocking($id) 1
     set ::redis::deferred($id) $defer
     set ::redis::reconnect($id) 0
+    set ::redis::tls $tls
     ::redis::redis_reset_state $id
     interp alias {} ::redis::redisHandle$id {} ::redis::__dispatch__ $id
 }
@@ -72,7 +83,11 @@ proc ::redis::__dispatch__raw__ {id method argv} {
     # Reconnect the link if needed.
     if {$fd eq {}} {
         lassign $::redis::addr($id) host port
-        set ::redis::fd($id) [socket $host $port]
+        if {$::redis::tls} {
+            set ::redis::fd($id) [::tls::socket $host $port]
+        } else {
+            set ::redis::fd($id) [socket $host $port]
+        }
         fconfigure $::redis::fd($id) -translation binary
         set fd $::redis::fd($id)
     }

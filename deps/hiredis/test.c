@@ -13,12 +13,16 @@
 #include <limits.h>
 
 #include "hiredis.h"
+#ifdef HIREDIS_TEST_SSL
+#include "hiredis_ssl.h"
+#endif
 #include "net.h"
 
 enum connection_type {
     CONN_TCP,
     CONN_UNIX,
-    CONN_FD
+    CONN_FD,
+    CONN_SSL
 };
 
 struct config {
@@ -33,6 +37,14 @@ struct config {
     struct {
         const char *path;
     } unix_sock;
+
+    struct {
+        const char *host;
+        int port;
+        const char *ca_cert;
+        const char *cert;
+        const char *key;
+    } ssl;
 };
 
 /* The following lines make up our testing "framework" :) */
@@ -93,11 +105,27 @@ static int disconnect(redisContext *c, int keep_fd) {
     return -1;
 }
 
+static void do_ssl_handshake(redisContext *c, struct config config) {
+#ifdef HIREDIS_TEST_SSL
+    redisSecureConnection(c, config.ssl.ca_cert, config.ssl.cert, config.ssl.key, NULL);
+    if (c->err) {
+        printf("SSL error: %s\n", c->errstr);
+        redisFree(c);
+        exit(1);
+    }
+#else
+    (void) c;
+    (void) config;
+#endif
+}
+
 static redisContext *do_connect(struct config config) {
     redisContext *c = NULL;
 
     if (config.type == CONN_TCP) {
         c = redisConnect(config.tcp.host, config.tcp.port);
+    } else if (config.type == CONN_SSL) {
+        c = redisConnect(config.ssl.host, config.ssl.port);
     } else if (config.type == CONN_UNIX) {
         c = redisConnectUnix(config.unix_sock.path);
     } else if (config.type == CONN_FD) {
@@ -121,7 +149,19 @@ static redisContext *do_connect(struct config config) {
         exit(1);
     }
 
+    if (config.type == CONN_SSL) {
+        do_ssl_handshake(c, config);
+    }
+
     return select_database(c);
+}
+
+static void do_reconnect(redisContext *c, struct config config) {
+    redisReconnect(c);
+
+    if (config.type == CONN_SSL) {
+        do_ssl_handshake(c, config);
+    }
 }
 
 static void test_format_commands(void) {
@@ -360,7 +400,8 @@ static void test_reply_reader(void) {
     freeReplyObject(reply);
     redisReaderFree(reader);
 
-    test("Set error when array > INT_MAX: ");
+#if LLONG_MAX > SIZE_MAX
+    test("Set error when array > SIZE_MAX: ");
     reader = redisReaderCreate();
     redisReaderFeed(reader, "*9223372036854775807\r\n+asdf\r\n",29);
     ret = redisReaderGetReply(reader,&reply);
@@ -369,7 +410,6 @@ static void test_reply_reader(void) {
     freeReplyObject(reply);
     redisReaderFree(reader);
 
-#if LLONG_MAX > SIZE_MAX
     test("Set error when bulk > SIZE_MAX: ");
     reader = redisReaderCreate();
     redisReaderFeed(reader, "$9223372036854775807\r\nasdf\r\n",28);
@@ -434,22 +474,23 @@ static void test_free_null(void) {
     test_cond(reply == NULL);
 }
 
+#define HIREDIS_BAD_DOMAIN "idontexist-noreally.com"
 static void test_blocking_connection_errors(void) {
     redisContext *c;
     struct addrinfo hints = {.ai_family = AF_INET};
     struct addrinfo *ai_tmp = NULL;
-    const char *bad_domain = "idontexist.com";
 
-    int rv = getaddrinfo(bad_domain, "6379", &hints, &ai_tmp);
+    int rv = getaddrinfo(HIREDIS_BAD_DOMAIN, "6379", &hints, &ai_tmp);
     if (rv != 0) {
         // Address does *not* exist
         test("Returns error when host cannot be resolved: ");
         // First see if this domain name *actually* resolves to NXDOMAIN
-        c = redisConnect("dontexist.com", 6379);
+        c = redisConnect(HIREDIS_BAD_DOMAIN, 6379);
         test_cond(
             c->err == REDIS_ERR_OTHER &&
             (strcmp(c->errstr, "Name or service not known") == 0 ||
-             strcmp(c->errstr, "Can't resolve: sadkfjaskfjsa.com") == 0 ||
+             strcmp(c->errstr, "Can't resolve: " HIREDIS_BAD_DOMAIN) == 0 ||
+             strcmp(c->errstr, "Name does not resolve") == 0 ||
              strcmp(c->errstr,
                     "nodename nor servname provided, or not known") == 0 ||
              strcmp(c->errstr, "No address associated with hostname") == 0 ||
@@ -574,7 +615,8 @@ static void test_blocking_connection_timeouts(struct config config) {
 
     c = do_connect(config);
     test("Does not return a reply when the command times out: ");
-    s = write(c->fd, cmd, strlen(cmd));
+    redisAppendFormattedCommand(c, cmd, strlen(cmd));
+    s = c->funcs->write(c);
     tv.tv_sec = 0;
     tv.tv_usec = 10000;
     redisSetTimeout(c, tv);
@@ -583,7 +625,7 @@ static void test_blocking_connection_timeouts(struct config config) {
     freeReplyObject(reply);
 
     test("Reconnect properly reconnects after a timeout: ");
-    redisReconnect(c);
+    do_reconnect(c, config);
     reply = redisCommand(c, "PING");
     test_cond(reply != NULL && reply->type == REDIS_REPLY_STATUS && strcmp(reply->str, "PONG") == 0);
     freeReplyObject(reply);
@@ -591,7 +633,7 @@ static void test_blocking_connection_timeouts(struct config config) {
     test("Reconnect properly uses owned parameters: ");
     config.tcp.host = "foo";
     config.unix_sock.path = "foo";
-    redisReconnect(c);
+    do_reconnect(c, config);
     reply = redisCommand(c, "PING");
     test_cond(reply != NULL && reply->type == REDIS_REPLY_STATUS && strcmp(reply->str, "PONG") == 0);
     freeReplyObject(reply);
@@ -894,6 +936,23 @@ int main(int argc, char **argv) {
             throughput = 0;
         } else if (argc >= 1 && !strcmp(argv[0],"--skip-inherit-fd")) {
             test_inherit_fd = 0;
+#ifdef HIREDIS_TEST_SSL
+        } else if (argc >= 2 && !strcmp(argv[0],"--ssl-port")) {
+            argv++; argc--;
+            cfg.ssl.port = atoi(argv[0]);
+        } else if (argc >= 2 && !strcmp(argv[0],"--ssl-host")) {
+            argv++; argc--;
+            cfg.ssl.host = argv[0];
+        } else if (argc >= 2 && !strcmp(argv[0],"--ssl-ca-cert")) {
+            argv++; argc--;
+            cfg.ssl.ca_cert  = argv[0];
+        } else if (argc >= 2 && !strcmp(argv[0],"--ssl-cert")) {
+            argv++; argc--;
+            cfg.ssl.cert = argv[0];
+        } else if (argc >= 2 && !strcmp(argv[0],"--ssl-key")) {
+            argv++; argc--;
+            cfg.ssl.key = argv[0];
+#endif
         } else {
             fprintf(stderr, "Invalid argument: %s\n", argv[0]);
             exit(1);
@@ -921,6 +980,20 @@ int main(int argc, char **argv) {
     test_blocking_connection_timeouts(cfg);
     test_blocking_io_errors(cfg);
     if (throughput) test_throughput(cfg);
+
+#ifdef HIREDIS_TEST_SSL
+    if (cfg.ssl.port && cfg.ssl.host) {
+        printf("\nTesting against SSL connection (%s:%d):\n", cfg.ssl.host, cfg.ssl.port);
+        cfg.type = CONN_SSL;
+
+        test_blocking_connection(cfg);
+        test_blocking_connection_timeouts(cfg);
+        test_blocking_io_errors(cfg);
+        test_invalid_timeout_errors(cfg);
+        test_append_formatted_commands(cfg);
+        if (throughput) test_throughput(cfg);
+    }
+#endif
 
     if (test_inherit_fd) {
         printf("\nTesting against inherited fd (%s):\n", cfg.unix_sock.path);

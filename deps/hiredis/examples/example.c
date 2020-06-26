@@ -5,14 +5,27 @@
 #include <hiredis.h>
 
 int main(int argc, char **argv) {
-    unsigned int j;
+    unsigned int j, isunix = 0;
     redisContext *c;
     redisReply *reply;
     const char *hostname = (argc > 1) ? argv[1] : "127.0.0.1";
+
+    if (argc > 2) {
+        if (*argv[2] == 'u' || *argv[2] == 'U') {
+            isunix = 1;
+            /* in this case, host is the path to the unix socket */
+            printf("Will connect to unix socket @%s\n", hostname);
+        }
+    }
+
     int port = (argc > 2) ? atoi(argv[2]) : 6379;
 
     struct timeval timeout = { 1, 500000 }; // 1.5 seconds
-    c = redisConnectWithTimeout(hostname, port, timeout);
+    if (isunix) {
+        c = redisConnectUnixWithTimeout(hostname, timeout);
+    } else {
+        c = redisConnectWithTimeout(hostname, port, timeout);
+    }
     if (c == NULL || c->err) {
         if (c) {
             printf("Connection error: %s\n", c->errstr);

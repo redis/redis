@@ -32,7 +32,9 @@
 #include "fmacros.h"
 #include <stdlib.h>
 #include <string.h>
+#ifndef _MSC_VER
 #include <strings.h>
+#endif
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
@@ -40,22 +42,9 @@
 #include "net.h"
 #include "dict.c"
 #include "sds.h"
+#include "win32.h"
 
-#define _EL_ADD_READ(ctx) do { \
-        if ((ctx)->ev.addRead) (ctx)->ev.addRead((ctx)->ev.data); \
-    } while(0)
-#define _EL_DEL_READ(ctx) do { \
-        if ((ctx)->ev.delRead) (ctx)->ev.delRead((ctx)->ev.data); \
-    } while(0)
-#define _EL_ADD_WRITE(ctx) do { \
-        if ((ctx)->ev.addWrite) (ctx)->ev.addWrite((ctx)->ev.data); \
-    } while(0)
-#define _EL_DEL_WRITE(ctx) do { \
-        if ((ctx)->ev.delWrite) (ctx)->ev.delWrite((ctx)->ev.data); \
-    } while(0)
-#define _EL_CLEANUP(ctx) do { \
-        if ((ctx)->ev.cleanup) (ctx)->ev.cleanup((ctx)->ev.data); \
-    } while(0);
+#include "async_private.h"
 
 /* Forward declaration of function in hiredis.c */
 int __redisAppendCommand(redisContext *c, const char *cmd, size_t len);
@@ -126,6 +115,7 @@ static redisAsyncContext *redisAsyncInitialize(redisContext *c) {
     ac->ev.addWrite = NULL;
     ac->ev.delWrite = NULL;
     ac->ev.cleanup = NULL;
+    ac->ev.scheduleTimer = NULL;
 
     ac->onConnect = NULL;
     ac->onDisconnect = NULL;
@@ -150,56 +140,52 @@ static void __redisAsyncCopyError(redisAsyncContext *ac) {
     ac->errstr = c->errstr;
 }
 
-redisAsyncContext *redisAsyncConnect(const char *ip, int port) {
+redisAsyncContext *redisAsyncConnectWithOptions(const redisOptions *options) {
+    redisOptions myOptions = *options;
     redisContext *c;
     redisAsyncContext *ac;
 
-    c = redisConnectNonBlock(ip,port);
-    if (c == NULL)
+    myOptions.options |= REDIS_OPT_NONBLOCK;
+    c = redisConnectWithOptions(&myOptions);
+    if (c == NULL) {
         return NULL;
-
+    }
     ac = redisAsyncInitialize(c);
     if (ac == NULL) {
         redisFree(c);
         return NULL;
     }
-
     __redisAsyncCopyError(ac);
     return ac;
+}
+
+redisAsyncContext *redisAsyncConnect(const char *ip, int port) {
+    redisOptions options = {0};
+    REDIS_OPTIONS_SET_TCP(&options, ip, port);
+    return redisAsyncConnectWithOptions(&options);
 }
 
 redisAsyncContext *redisAsyncConnectBind(const char *ip, int port,
                                          const char *source_addr) {
-    redisContext *c = redisConnectBindNonBlock(ip,port,source_addr);
-    redisAsyncContext *ac = redisAsyncInitialize(c);
-    __redisAsyncCopyError(ac);
-    return ac;
+    redisOptions options = {0};
+    REDIS_OPTIONS_SET_TCP(&options, ip, port);
+    options.endpoint.tcp.source_addr = source_addr;
+    return redisAsyncConnectWithOptions(&options);
 }
 
 redisAsyncContext *redisAsyncConnectBindWithReuse(const char *ip, int port,
                                                   const char *source_addr) {
-    redisContext *c = redisConnectBindNonBlockWithReuse(ip,port,source_addr);
-    redisAsyncContext *ac = redisAsyncInitialize(c);
-    __redisAsyncCopyError(ac);
-    return ac;
+    redisOptions options = {0};
+    REDIS_OPTIONS_SET_TCP(&options, ip, port);
+    options.options |= REDIS_OPT_REUSEADDR;
+    options.endpoint.tcp.source_addr = source_addr;
+    return redisAsyncConnectWithOptions(&options);
 }
 
 redisAsyncContext *redisAsyncConnectUnix(const char *path) {
-    redisContext *c;
-    redisAsyncContext *ac;
-
-    c = redisConnectUnixNonBlock(path);
-    if (c == NULL)
-        return NULL;
-
-    ac = redisAsyncInitialize(c);
-    if (ac == NULL) {
-        redisFree(c);
-        return NULL;
-    }
-
-    __redisAsyncCopyError(ac);
-    return ac;
+    redisOptions options = {0};
+    REDIS_OPTIONS_SET_UNIX(&options, path);
+    return redisAsyncConnectWithOptions(&options);
 }
 
 int redisAsyncSetConnectCallback(redisAsyncContext *ac, redisConnectCallback *fn) {
@@ -328,7 +314,7 @@ void redisAsyncFree(redisAsyncContext *ac) {
 }
 
 /* Helper function to make the disconnect happen and clean up. */
-static void __redisAsyncDisconnect(redisAsyncContext *ac) {
+void __redisAsyncDisconnect(redisAsyncContext *ac) {
     redisContext *c = &(ac->c);
 
     /* Make sure error is accessible if there is any */
@@ -344,9 +330,15 @@ static void __redisAsyncDisconnect(redisAsyncContext *ac) {
         c->flags |= REDIS_DISCONNECTING;
     }
 
+    /* cleanup event library on disconnect.
+     * this is safe to call multiple times */
+    _EL_CLEANUP(ac);
+
     /* For non-clean disconnects, __redisAsyncFree() will execute pending
      * callbacks with a NULL-reply. */
-    __redisAsyncFree(ac);
+    if (!(c->flags & REDIS_NO_AUTO_FREE)) {
+      __redisAsyncFree(ac);
+    }
 }
 
 /* Tries to do a clean disconnect from Redis, meaning it stops new commands
@@ -358,6 +350,9 @@ static void __redisAsyncDisconnect(redisAsyncContext *ac) {
 void redisAsyncDisconnect(redisAsyncContext *ac) {
     redisContext *c = &(ac->c);
     c->flags |= REDIS_DISCONNECTING;
+
+    /** unset the auto-free flag here, because disconnect undoes this */
+    c->flags &= ~REDIS_NO_AUTO_FREE;
     if (!(c->flags & REDIS_IN_CALLBACK) && ac->replies.head == NULL)
         __redisAsyncDisconnect(ac);
 }
@@ -408,7 +403,7 @@ static int __redisGetSubscribeCallback(redisAsyncContext *ac, redisReply *reply,
                 assert(reply->element[2]->type == REDIS_REPLY_INTEGER);
 
                 /* Unset subscribed flag only when no pipelined pending subscribe. */
-                if (reply->element[2]->integer == 0 
+                if (reply->element[2]->integer == 0
                     && dictSize(ac->sub.channels) == 0
                     && dictSize(ac->sub.patterns) == 0)
                     c->flags &= ~REDIS_SUBSCRIBED;
@@ -524,6 +519,18 @@ static int __redisAsyncHandleConnect(redisAsyncContext *ac) {
     }
 }
 
+void redisAsyncRead(redisAsyncContext *ac) {
+    redisContext *c = &(ac->c);
+
+    if (redisBufferRead(c) == REDIS_ERR) {
+        __redisAsyncDisconnect(ac);
+    } else {
+        /* Always re-schedule reads */
+        _EL_ADD_READ(ac);
+        redisProcessCallbacks(ac);
+    }
+}
+
 /* This function should be called when the socket is readable.
  * It processes all replies that can be read and executes their callbacks.
  */
@@ -539,27 +546,12 @@ void redisAsyncHandleRead(redisAsyncContext *ac) {
             return;
     }
 
-    if (redisBufferRead(c) == REDIS_ERR) {
-        __redisAsyncDisconnect(ac);
-    } else {
-        /* Always re-schedule reads */
-        _EL_ADD_READ(ac);
-        redisProcessCallbacks(ac);
-    }
+    c->funcs->async_read(ac);
 }
 
-void redisAsyncHandleWrite(redisAsyncContext *ac) {
+void redisAsyncWrite(redisAsyncContext *ac) {
     redisContext *c = &(ac->c);
     int done = 0;
-
-    if (!(c->flags & REDIS_CONNECTED)) {
-        /* Abort connect was not successful. */
-        if (__redisAsyncHandleConnect(ac) != REDIS_OK)
-            return;
-        /* Try again later when the context is still not connected. */
-        if (!(c->flags & REDIS_CONNECTED))
-            return;
-    }
 
     if (redisBufferWrite(c,&done) == REDIS_ERR) {
         __redisAsyncDisconnect(ac);
@@ -573,6 +565,51 @@ void redisAsyncHandleWrite(redisAsyncContext *ac) {
         /* Always schedule reads after writes */
         _EL_ADD_READ(ac);
     }
+}
+
+void redisAsyncHandleWrite(redisAsyncContext *ac) {
+    redisContext *c = &(ac->c);
+
+    if (!(c->flags & REDIS_CONNECTED)) {
+        /* Abort connect was not successful. */
+        if (__redisAsyncHandleConnect(ac) != REDIS_OK)
+            return;
+        /* Try again later when the context is still not connected. */
+        if (!(c->flags & REDIS_CONNECTED))
+            return;
+    }
+
+    c->funcs->async_write(ac);
+}
+
+void __redisSetError(redisContext *c, int type, const char *str);
+
+void redisAsyncHandleTimeout(redisAsyncContext *ac) {
+    redisContext *c = &(ac->c);
+    redisCallback cb;
+
+    if ((c->flags & REDIS_CONNECTED) && ac->replies.head == NULL) {
+        /* Nothing to do - just an idle timeout */
+        return;
+    }
+
+    if (!c->err) {
+        __redisSetError(c, REDIS_ERR_TIMEOUT, "Timeout");
+    }
+
+    if (!(c->flags & REDIS_CONNECTED) && ac->onConnect) {
+        ac->onConnect(ac, REDIS_ERR);
+    }
+
+    while (__redisShiftCallback(&ac->replies, &cb) == REDIS_OK) {
+        __redisRunCallback(ac, &cb, NULL);
+    }
+
+    /**
+     * TODO: Don't automatically sever the connection,
+     * rather, allow to ignore <x> responses before the queue is clear
+     */
+    __redisAsyncDisconnect(ac);
 }
 
 /* Sets a pointer to the first argument and its length starting at p. Returns
@@ -713,4 +750,17 @@ int redisAsyncCommandArgv(redisAsyncContext *ac, redisCallbackFn *fn, void *priv
 int redisAsyncFormattedCommand(redisAsyncContext *ac, redisCallbackFn *fn, void *privdata, const char *cmd, size_t len) {
     int status = __redisAsyncCommand(ac,fn,privdata,cmd,len);
     return status;
+}
+
+void redisAsyncSetTimeout(redisAsyncContext *ac, struct timeval tv) {
+    if (!ac->c.timeout) {
+        ac->c.timeout = calloc(1, sizeof(tv));
+    }
+
+    if (tv.tv_sec == ac->c.timeout->tv_sec &&
+        tv.tv_usec == ac->c.timeout->tv_usec) {
+        return;
+    }
+
+    *ac->c.timeout = tv;
 }

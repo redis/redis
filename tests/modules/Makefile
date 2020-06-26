@@ -11,18 +11,33 @@ else
 	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup
 endif
 
-.SUFFIXES: .c .so .xo .o
+TEST_MODULES = \
+    commandfilter.so \
+    testrdb.so \
+    fork.so \
+    infotest.so \
+    propagate.so \
+    misc.so \
+    hooks.so \
+    blockonkeys.so \
+    scan.so \
+    datatype.so \
+    auth.so
 
-all: commandfilter.so testrdb.so
+.PHONY: all
 
-.c.xo:
+all: $(TEST_MODULES)
+
+32bit:
+	$(MAKE) CFLAGS="-m32" LDFLAGS="-melf_i386"
+
+%.xo: %.c ../../src/redismodule.h
 	$(CC) -I../../src $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
 
-commandfilter.xo: ../../src/redismodule.h
-testrdb.xo: ../../src/redismodule.h
+%.so: %.xo
+	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LDFLAGS) $(LIBS) -lc
 
-commandfilter.so: commandfilter.xo
-	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lc
+.PHONY: clean
 
-testrdb.so: testrdb.xo
-	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lc
+clean:
+	rm -f $(TEST_MODULES) $(TEST_MODULES:.so=.xo)

@@ -390,6 +390,13 @@ start_server {tags {"hash"}} {
         lappend rv [string match "ERR*not*float*" $bigerr]
     } {1 1}
 
+    test {HINCRBYFLOAT fails against hash value that contains a null-terminator in the middle} {
+        r hset h f "1\x002"
+        catch {r hincrbyfloat h f 1} err
+        set rv {}
+        lappend rv [string match "ERR*not*float*" $err]
+    } {1}
+
     test {HSTRLEN against the small hash} {
         set err {}
         foreach k [array names smallhash *] {
