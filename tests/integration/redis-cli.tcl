@@ -1,9 +1,9 @@
 source tests/support/cli.tcl
 
 start_server {tags {"cli"}} {
-    proc open_cli {} {
+    proc open_cli {{opts "-n 9"}} {
         set ::env(TERM) dumb
-        set cmdline [rediscli [srv port] "-n 9"]
+        set cmdline [rediscli [srv port] $opts]
         set fd [open "|$cmdline" "r+"]
         fconfigure $fd -buffering none
         fconfigure $fd -blocking false
@@ -209,5 +209,80 @@ start_server {tags {"cli"}} {
         set tmpfile [write_tmpfile "from file"]
         assert_equal "OK" [run_cli_with_input_file $tmpfile set key]
         assert_equal "from file" [r get key]
+    }
+
+    proc test_redis_cli_rdb_dump {} {
+        r flushdb
+
+        set dir [lindex [r config get dir] 1]
+
+        assert_equal "OK" [r debug populate 100000 key 1000]
+        catch {run_cli --rdb "$dir/cli.rdb"} output
+        assert_match {*Transfer finished with success*} $output
+
+        file delete "$dir/dump.rdb"
+        file rename "$dir/cli.rdb" "$dir/dump.rdb"
+
+        assert_equal "OK" [r set should-not-exist 1]
+        assert_equal "OK" [r debug reload nosave]
+        assert_equal {} [r get should-not-exist]
+    }
+
+    test_nontty_cli "Dumping an RDB" {
+        # Disk-based master
+        assert_match "OK" [r config set repl-diskless-sync no]
+        test_redis_cli_rdb_dump
+
+        # Disk-less master
+        assert_match "OK" [r config set repl-diskless-sync yes]
+        assert_match "OK" [r config set repl-diskless-sync-delay 0]
+        test_redis_cli_rdb_dump
+    }
+
+    test_nontty_cli "Connecting as a replica" {
+        set fd [open_cli "--replica"]
+        wait_for_condition 50 500 {
+            [string match {*slave0:*state=online*} [r info]]
+        } else {
+            fail "redis-cli --replica did not connect"
+        }
+
+        for {set i 0} {$i < 100} {incr i} {
+           r set test-key test-value-$i
+        }
+        r client kill type slave
+        catch {
+            assert_match {*SET*key-a*} [read_cli $fd]
+        }
+
+        close_cli $fd
+    }
+
+    test_nontty_cli "Piping raw protocol" {
+        set fd [open_cli "--pipe"]
+        fconfigure $fd -blocking true
+
+        # Create a new deferring client and overwrite its fd
+        set client [redis [srv 0 "host"] [srv 0 "port"] 1 0]
+        set ::redis::fd($::redis::id) $fd
+        $client select 9
+
+        r del test-counter
+        for {set i 0} {$i < 10000} {incr i} {
+            $client incr test-counter
+            $client set large-key [string repeat "x" 20000]
+        }
+
+        for {set i 0} {$i < 1000} {incr i} {
+            $client set very-large-key [string repeat "x" 512000]
+        }
+
+        close $fd write
+        set output [read_cli $fd]
+
+        assert_equal {10000} [r get test-counter]
+        assert_match {*All data transferred*errors: 0*replies: 21001*} $output
+
+        close_cli $fd
     }
 }
