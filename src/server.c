@@ -2726,6 +2726,10 @@ void resetServerStats(void) {
     server.stat_sync_full = 0;
     server.stat_sync_partial_ok = 0;
     server.stat_sync_partial_err = 0;
+    server.stat_io_reads_processed = 0;
+    server.stat_total_reads_processed = 0;
+    server.stat_io_writes_processed = 0;
+    server.stat_total_writes_processed = 0;
     for (j = 0; j < STATS_METRIC_COUNT; j++) {
         server.inst_metric[j].idx = 0;
         server.inst_metric[j].last_sample_time = mstime();
@@ -4065,7 +4069,8 @@ sds genRedisInfoString(const char *section) {
             "configured_hz:%i\r\n"
             "lru_clock:%u\r\n"
             "executable:%s\r\n"
-            "config_file:%s\r\n",
+            "config_file:%s\r\n"
+            "io_threads_active:%d\r\n",
             REDIS_VERSION,
             redisGitSHA1(),
             strtol(redisGitDirty(),NULL,10) > 0,
@@ -4089,7 +4094,8 @@ sds genRedisInfoString(const char *section) {
             server.config_hz,
             server.lruclock,
             server.executable ? server.executable : "",
-            server.configfile ? server.configfile : "");
+            server.configfile ? server.configfile : "",
+            server.io_threads_active);
     }
 
     /* Clients */
@@ -4361,7 +4367,11 @@ sds genRedisInfoString(const char *section) {
             "tracking_total_keys:%lld\r\n"
             "tracking_total_items:%lld\r\n"
             "tracking_total_prefixes:%lld\r\n"
-            "unexpected_error_replies:%lld\r\n",
+            "unexpected_error_replies:%lld\r\n"
+            "total_reads_processed:%lld\r\n"
+            "total_writes_processed:%lld\r\n"
+            "io_threaded_reads_processed:%lld\r\n"
+            "io_threaded_writes_processed:%lld\r\n",
             server.stat_numconnections,
             server.stat_numcommands,
             getInstantaneousMetric(STATS_METRIC_COMMAND),
@@ -4392,7 +4402,11 @@ sds genRedisInfoString(const char *section) {
             (unsigned long long) trackingGetTotalKeys(),
             (unsigned long long) trackingGetTotalItems(),
             (unsigned long long) trackingGetTotalPrefixes(),
-            server.stat_unexpected_error_replies);
+            server.stat_unexpected_error_replies,
+            server.stat_total_reads_processed,
+            server.stat_total_writes_processed,
+            server.stat_io_reads_processed,
+            server.stat_io_writes_processed);
     }
 
     /* Replication */
