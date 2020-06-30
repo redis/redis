@@ -261,6 +261,40 @@ void rpushxCommand(client *c) {
     pushxGenericCommand(c,LIST_TAIL);
 }
 
+void pushnxGenericCommand(client *c, int where) {
+    int j, pushed = 0;
+    robj *subject;
+
+    if ((subject = lookupKeyWrite(c->db, c->argv[1])) == NULL) {
+        subject = createQuicklistObject();
+        quicklistSetOptions(subject->ptr, server.list_max_ziplist_size,
+                            server.list_compress_depth);
+        dbAdd(c->db,c->argv[1],subject);
+
+        for (j = 2; j < c->argc; j++) {
+            listTypePush(subject,c->argv[j],where);
+            pushed++;
+        }
+    }
+
+    addReplyLongLong(c,listTypeLength(subject));
+
+    if (pushed) {
+        char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
+        signalModifiedKey(c,c->db,c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
+    }
+    server.dirty += pushed;
+}
+
+void lpushnxCommand(client *c) {
+    pushnxGenericCommand(c,LIST_HEAD);
+}
+
+void rpushnxCommand(client *c) {
+    pushnxGenericCommand(c,LIST_TAIL);
+}
+
 void linsertCommand(client *c) {
     int where;
     robj *subject;
