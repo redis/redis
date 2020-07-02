@@ -337,9 +337,7 @@ connection *connCreateAcceptedTLS(int fd, int require_auth) {
     conn->c.state = CONN_STATE_ACCEPTING;
 
     if (!require_auth) {
-        /* We still verify certificates if provided, but don't require them.
-         */
-        SSL_set_verify(conn->ssl, SSL_VERIFY_PEER, NULL);
+        SSL_set_verify(conn->ssl, SSL_VERIFY_NONE, NULL);
     }
 
     SSL_set_fd(conn->ssl, conn->c.fd);
