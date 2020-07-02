@@ -6805,7 +6805,7 @@ static ssize_t writeConn(redisContext *c, const char *buf, size_t buf_len)
 
     c->obuf = sdscatlen(c->obuf, buf, buf_len);
     if (redisBufferWrite(c, &done) == REDIS_ERR) {
-        sdsclear(c->obuf);
+        sdsrange(c->obuf, 0, -(buf_len+1));
         if (!(c->flags & REDIS_BLOCK))
             errno = EAGAIN;
         return -1;
