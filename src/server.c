@@ -424,11 +424,11 @@ struct redisCommand redisCommandTable[] = {
 
     {"zunionstore",zunionstoreCommand,-4,
      "write use-memory @sortedset",
-     0,zunionInterGetKeys,0,0,0,0,0,0},
+     0,zunionInterGetKeys,1,-1,0,0,0,0},
 
     {"zinterstore",zinterstoreCommand,-4,
      "write use-memory @sortedset",
-     0,zunionInterGetKeys,0,0,0,0,0,0},
+     0,zunionInterGetKeys,1,-1,0,0,0,0},
 
     {"zrange",zrangeCommand,-4,
      "read-only @sortedset",
@@ -825,7 +825,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"memory",memoryCommand,-2,
      "random read-only",
-     0,memoryGetKeys,0,0,0,0,0,0},
+     0,memoryGetKeys,2,2,0,0,0,0},
 
     {"client",clientCommand,-2,
      "admin no-script random ok-loading ok-stale @connection",
