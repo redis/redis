@@ -53,6 +53,7 @@ proc kill_server config {
     }
 
     # kill server and wait for the process to be totally exited
+    send_data_packet $::test_server_fd server-killing $pid
     catch {exec kill $pid}
     if {$::valgrind} {
         set max_wait 60000
@@ -140,6 +141,18 @@ proc tags {tags code} {
     uplevel 1 $code
     set ::tags [lrange $::tags 0 end-[llength $tags]]
 }
+
+# Write the configuration in the dictionary 'config' in the specified
+# file name.
+proc create_server_config_file {filename config} {
+    set fp [open $filename w+]
+    foreach directive [dict keys $config] {
+        puts -nonewline $fp "$directive "
+        puts $fp [dict get $config $directive]
+    }
+    close $fp
+}
+
 proc start_server {options {code undefined}} {
     # If we are running against an external server, we just push the
     # host/port pair in the stack the first time
@@ -201,14 +214,14 @@ proc start_server {options {code undefined}} {
     dict set config dir [tmpdir server]
 
     # start every server on a different port
-    set ::port [find_available_port [expr {$::port+1}]]
+    set port [find_available_port $::baseport $::portcount]
     if {$::tls} {
         dict set config "port" 0
-        dict set config "tls-port" $::port
+        dict set config "tls-port" $port
         dict set config "tls-cluster" "yes"
         dict set config "tls-replication" "yes"
     } else {
-        dict set config port $::port
+        dict set config port $port
     }
 
     set unixsocket [file normalize [format "%s/%s" [dict get $config "dir"] "socket"]]
@@ -221,62 +234,96 @@ proc start_server {options {code undefined}} {
 
     # write new configuration to temporary file
     set config_file [tmpfile redis.conf]
-    set fp [open $config_file w+]
-    foreach directive [dict keys $config] {
-        puts -nonewline $fp "$directive "
-        puts $fp [dict get $config $directive]
-    }
-    close $fp
+    create_server_config_file $config_file $config
 
     set stdout [format "%s/%s" [dict get $config "dir"] "stdout"]
     set stderr [format "%s/%s" [dict get $config "dir"] "stderr"]
 
-    if {$::valgrind} {
-        set pid [exec valgrind --track-origins=yes --suppressions=src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full src/redis-server $config_file > $stdout 2> $stderr &]
-    } elseif ($::stack_logging) {
-        set pid [exec /usr/bin/env MallocStackLogging=1 MallocLogFile=/tmp/malloc_log.txt src/redis-server $config_file > $stdout 2> $stderr &]
-    } else {
-        set pid [exec src/redis-server $config_file > $stdout 2> $stderr &]
-    }
+    # We need a loop here to retry with different ports.
+    set server_started 0
+    while {$server_started == 0} {
+        if {$::verbose} {
+            puts -nonewline "=== ($tags) Starting server ${::host}:${port} "
+        }
 
-    # Tell the test server about this new instance.
-    send_data_packet $::test_server_fd server-spawned $pid
+        send_data_packet $::test_server_fd "server-spawning" "port $port"
 
-    # check that the server actually started
-    # ugly but tries to be as fast as possible...
-    if {$::valgrind} {set retrynum 1000} else {set retrynum 100}
+        if {$::valgrind} {
+            set pid [exec valgrind --track-origins=yes --suppressions=src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full src/redis-server $config_file > $stdout 2> $stderr &]
+        } elseif ($::stack_logging) {
+            set pid [exec /usr/bin/env MallocStackLogging=1 MallocLogFile=/tmp/malloc_log.txt src/redis-server $config_file > $stdout 2> $stderr &]
+        } else {
+            set pid [exec src/redis-server $config_file > $stdout 2> $stderr &]
+        }
 
-    if {$::verbose} {
-        puts -nonewline "=== ($tags) Starting server ${::host}:${::port} "
-    }
+        # Tell the test server about this new instance.
+        send_data_packet $::test_server_fd server-spawned $pid
 
-    if {$code ne "undefined"} {
-        set serverisup [server_is_up $::host $::port $retrynum]
-    } else {
-        set serverisup 1
-    }
+        # check that the server actually started
+        # ugly but tries to be as fast as possible...
+        if {$::valgrind} {set retrynum 1000} else {set retrynum 100}
 
-    if {$::verbose} {
-        puts ""
-    }
+        # Wait for actual startup
+        set checkperiod 100; # Milliseconds
+        set maxiter [expr {120*1000/100}] ; # Wait up to 2 minutes.
+        set port_busy 0
+        while {![info exists _pid]} {
+            regexp {PID:\s(\d+)} [exec cat $stdout] _ _pid
+            after $checkperiod
+            incr maxiter -1
+            if {$maxiter == 0} {
+                start_server_error $config_file "No PID detected in log $stdout"
+                puts "--- LOG CONTENT ---"
+                puts [exec cat $stdout]
+                puts "-------------------"
+                break
+            }
 
-    if {!$serverisup} {
-        set err {}
-        append err [exec cat $stdout] "\n" [exec cat $stderr]
-        start_server_error $config_file $err
-        return
-    }
+            # Check if the port is actually busy and the server failed
+            # for this reason.
+            if {[regexp {Could not create server TCP} [exec cat $stdout]]} {
+                set port_busy 1
+                break
+            }
+        }
 
-    # Wait for actual startup
-    while {![info exists _pid]} {
-        regexp {PID:\s(\d+)} [exec cat $stdout] _ _pid
-        after 100
+        # Sometimes we have to try a different port, even if we checked
+        # for availability. Other test clients may grab the port before we
+        # are able to do it for example.
+        if {$port_busy} {
+            puts "Port $port was already busy, trying another port..."
+            set port [find_available_port $::baseport $::portcount]
+            if {$::tls} {
+                dict set config "tls-port" $port
+            } else {
+                dict set config port $port
+            }
+            create_server_config_file $config_file $config
+            continue; # Try again
+        }
+
+        if {$code ne "undefined"} {
+            set serverisup [server_is_up $::host $port $retrynum]
+        } else {
+            set serverisup 1
+        }
+
+        if {$::verbose} {
+            puts ""
+        }
+
+        if {!$serverisup} {
+            set err {}
+            append err [exec cat $stdout] "\n" [exec cat $stderr]
+            start_server_error $config_file $err
+            return
+        }
+        set server_started 1
     }
 
     # setup properties to be able to initialize a client object
     set port_param [expr $::tls ? {"tls-port"} : {"port"}]
     set host $::host
-    set port $::port
     if {[dict exists $config bind]} { set host [dict get $config bind] }
     if {[dict exists $config $port_param]} { set port [dict get $config $port_param] }
 

@@ -344,21 +344,26 @@ proc roundFloat f {
     format "%.10g" $f
 }
 
-proc find_available_port start {
-    for {set j $start} {$j < $start+1024} {incr j} {
-        if {[catch {set fd1 [socket 127.0.0.1 $j]}] &&
-            [catch {set fd2 [socket 127.0.0.1 [expr $j+10000]]}]} {
-            return $j
+set ::last_port_attempted 0
+proc find_available_port {start count} {
+    set port [expr $::last_port_attempted + 1]
+    for {set attempts 0} {$attempts < $count} {incr attempts} {
+        if {$port < $start || $port >= $start+$count} {
+            set port $start
+        }
+        if {[catch {set fd1 [socket 127.0.0.1 $port]}] &&
+            [catch {set fd2 [socket 127.0.0.1 [expr $port+10000]]}]} {
+            set ::last_port_attempted $port
+            return $port
         } else {
             catch {
                 close $fd1
                 close $fd2
             }
         }
+        incr port
     }
-    if {$j == $start+1024} {
-        error "Can't find a non busy port in the $start-[expr {$start+1023}] range."
-    }
+    error "Can't find a non busy port in the $start-[expr {$start+$count-1}] range."
 }
 
 # Test if TERM looks like to support colors

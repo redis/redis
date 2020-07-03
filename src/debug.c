@@ -311,6 +311,13 @@ void mallctl_int(client *c, robj **argv, int argc) {
     size_t sz = sizeof(old);
     while (sz > 0) {
         if ((ret=je_mallctl(argv[0]->ptr, &old, &sz, argc > 1? &val: NULL, argc > 1?sz: 0))) {
+            if (ret == EPERM && argc > 1) {
+                /* if this option is write only, try just writing to it. */
+                if (!(ret=je_mallctl(argv[0]->ptr, NULL, 0, &val, sz))) {
+                    addReply(c, shared.ok);
+                    return;
+                }
+            }
             if (ret==EINVAL) {
                 /* size might be wrong, try a smaller one */
                 sz /= 2;
@@ -333,17 +340,30 @@ void mallctl_int(client *c, robj **argv, int argc) {
 }
 
 void mallctl_string(client *c, robj **argv, int argc) {
-    int ret;
+    int rret, wret;
     char *old;
     size_t sz = sizeof(old);
     /* for strings, it seems we need to first get the old value, before overriding it. */
-    if ((ret=je_mallctl(argv[0]->ptr, &old, &sz, NULL, 0))) {
-        addReplyErrorFormat(c,"%s", strerror(ret));
-        return;
+    if ((rret=je_mallctl(argv[0]->ptr, &old, &sz, NULL, 0))) {
+        /* return error unless this option is write only. */
+        if (!(rret == EPERM && argc > 1)) {
+            addReplyErrorFormat(c,"%s", strerror(rret));
+            return;
+        }
     }
-    addReplyBulkCString(c, old);
-    if(argc > 1)
-        je_mallctl(argv[0]->ptr, NULL, 0, &argv[1]->ptr, sizeof(char*));
+    if(argc > 1) {
+        char *val = argv[1]->ptr;
+        char **valref = &val;
+        if ((!strcmp(val,"VOID")))
+            valref = NULL, sz = 0;
+        wret = je_mallctl(argv[0]->ptr, NULL, 0, valref, sz);
+    }
+    if (!rret)
+        addReplyBulkCString(c, old);
+    else if (wret)
+        addReplyErrorFormat(c,"%s", strerror(wret));
+    else
+        addReply(c, shared.ok);
 }
 #endif
 
@@ -363,9 +383,10 @@ void debugCommand(client *c) {
 "LOADAOF -- Flush the AOF buffers on disk and reload the AOF in memory.",
 "LUA-ALWAYS-REPLICATE-COMMANDS <0|1> -- Setting it to 1 makes Lua replication defaulting to replicating single commands, without the script having to enable effects replication.",
 "OBJECT <key> -- Show low level info about key and associated value.",
+"OOM -- Crash the server simulating an out-of-memory error.",
 "PANIC -- Crash the server simulating a panic.",
 "POPULATE <count> [prefix] [size] -- Create <count> string keys named key:<num>. If a prefix is specified is used instead of the 'key' prefix.",
-"RELOAD -- Save the RDB on disk and reload it back in memory.",
+"RELOAD [MERGE] [NOFLUSH] [NOSAVE] -- Save the RDB on disk and reload it back in memory. By default it will save the RDB file and load it back. With the NOFLUSH option the current database is not removed before loading the new one, but conficts in keys will kill the server with an exception. When MERGE is used, conflicting keys will be loaded (the key in the loaded RDB file will win). When NOSAVE is used, the server will not save the current dataset in the RDB file before loading. Use DEBUG RELOAD NOSAVE when you want just to load the RDB file you placed in the Redis working directory in order to replace the current dataset in memory. Use DEBUG RELOAD NOSAVE NOFLUSH MERGE when you want to add what is in the current RDB file placed in the Redis current directory, with the current memory content. Use DEBUG RELOAD when you want to verify Redis is able to persist the current dataset in the RDB file, flush the memory content, and load it back.",
 "RESTART -- Graceful restart: save config, db, restart.",
 "SDSLEN <key> -- Show low level SDS string info representing key and value.",
 "SEGFAULT -- Crash the server with sigsegv.",
@@ -410,15 +431,44 @@ NULL
         serverLog(LL_WARNING, "DEBUG LOG: %s", (char*)c->argv[2]->ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"reload")) {
-        rdbSaveInfo rsi, *rsiptr;
-        rsiptr = rdbPopulateSaveInfo(&rsi);
-        if (rdbSave(server.rdb_filename,rsiptr) != C_OK) {
-            addReply(c,shared.err);
-            return;
+        int flush = 1, save = 1;
+        int flags = RDBFLAGS_NONE;
+
+        /* Parse the additional options that modify the RELOAD
+         * behavior. */
+        for (int j = 2; j < c->argc; j++) {
+            char *opt = c->argv[j]->ptr;
+            if (!strcasecmp(opt,"MERGE")) {
+                flags |= RDBFLAGS_ALLOW_DUP;
+            } else if (!strcasecmp(opt,"NOFLUSH")) {
+                flush = 0;
+            } else if (!strcasecmp(opt,"NOSAVE")) {
+                save = 0;
+            } else {
+                addReplyError(c,"DEBUG RELOAD only supports the "
+                                "MERGE, NOFLUSH and NOSAVE options.");
+                return;
+            }
         }
-        emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
+
+        /* The default beahvior is to save the RDB file before loading
+         * it back. */
+        if (save) {
+            rdbSaveInfo rsi, *rsiptr;
+            rsiptr = rdbPopulateSaveInfo(&rsi);
+            if (rdbSave(server.rdb_filename,rsiptr) != C_OK) {
+                addReply(c,shared.err);
+                return;
+            }
+        }
+
+        /* The default behavior is to remove the current dataset from
+         * memory before loading the RDB file, however when MERGE is
+         * used together with NOFLUSH, we are able to merge two datasets. */
+        if (flush) emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
+
         protectClient(c);
-        int ret = rdbLoad(server.rdb_filename,NULL,RDBFLAGS_NONE);
+        int ret = rdbLoad(server.rdb_filename,NULL,flags);
         unprotectClient(c);
         if (ret != C_OK) {
             addReplyError(c,"Error trying to load the RDB dump");
@@ -489,7 +539,7 @@ NULL
             "encoding:%s serializedlength:%zu "
             "lru:%d lru_seconds_idle:%llu%s",
             (void*)val, val->refcount,
-            strenc, rdbSavedObjectLen(val),
+            strenc, rdbSavedObjectLen(val, c->argv[2]),
             val->lru, estimateObjectIdleTime(val)/1000, extra);
     } else if (!strcasecmp(c->argv[1]->ptr,"sdslen") && c->argc == 3) {
         dictEntry *de;
@@ -558,7 +608,7 @@ NULL
                 memcpy(val->ptr, buf, valsize<=buflen? valsize: buflen);
             }
             dbAdd(c->db,key,val);
-            signalModifiedKey(c->db,key);
+            signalModifiedKey(c,c->db,key);
             decrRefCount(key);
         }
         addReply(c,shared.ok);
@@ -684,9 +734,12 @@ NULL
         sds stats = sdsempty();
         char buf[4096];
 
-        if (getLongFromObjectOrReply(c, c->argv[2], &dbid, NULL) != C_OK)
+        if (getLongFromObjectOrReply(c, c->argv[2], &dbid, NULL) != C_OK) {
+            sdsfree(stats);
             return;
+        }
         if (dbid < 0 || dbid >= server.dbnum) {
+            sdsfree(stats);
             addReplyError(c,"Out of range database");
             return;
         }
@@ -813,6 +866,8 @@ void serverLogObjectDebugInfo(const robj *o) {
         serverLog(LL_WARNING,"Sorted set size: %d", (int) zsetLength(o));
         if (o->encoding == OBJ_ENCODING_SKIPLIST)
             serverLog(LL_WARNING,"Skiplist level: %d", (int) ((const zset*)o->ptr)->zsl->level);
+    } else if (o->type == OBJ_STREAM) {
+        serverLog(LL_WARNING,"Stream size: %d", (int) streamLength(o));
     }
 }
 
@@ -1041,6 +1096,61 @@ void logRegisters(ucontext_t *uc) {
         (unsigned long) uc->uc_mcontext.gregs[18]
     );
     logStackContent((void**)uc->uc_mcontext.gregs[15]);
+    #elif defined(__aarch64__) /* Linux AArch64 */
+    serverLog(LL_WARNING,
+	      "\n"
+	      "X18:%016lx X19:%016lx\nX20:%016lx X21:%016lx\n"
+	      "X22:%016lx X23:%016lx\nX24:%016lx X25:%016lx\n"
+	      "X26:%016lx X27:%016lx\nX28:%016lx X29:%016lx\n"
+	      "X30:%016lx\n"
+	      "pc:%016lx sp:%016lx\npstate:%016lx fault_address:%016lx\n",
+	      (unsigned long) uc->uc_mcontext.regs[18],
+	      (unsigned long) uc->uc_mcontext.regs[19],
+	      (unsigned long) uc->uc_mcontext.regs[20],
+	      (unsigned long) uc->uc_mcontext.regs[21],
+	      (unsigned long) uc->uc_mcontext.regs[22],
+	      (unsigned long) uc->uc_mcontext.regs[23],
+	      (unsigned long) uc->uc_mcontext.regs[24],
+	      (unsigned long) uc->uc_mcontext.regs[25],
+	      (unsigned long) uc->uc_mcontext.regs[26],
+	      (unsigned long) uc->uc_mcontext.regs[27],
+	      (unsigned long) uc->uc_mcontext.regs[28],
+	      (unsigned long) uc->uc_mcontext.regs[29],
+	      (unsigned long) uc->uc_mcontext.regs[30],
+	      (unsigned long) uc->uc_mcontext.pc,
+	      (unsigned long) uc->uc_mcontext.sp,
+	      (unsigned long) uc->uc_mcontext.pstate,
+	      (unsigned long) uc->uc_mcontext.fault_address
+		      );
+	      logStackContent((void**)uc->uc_mcontext.sp);
+    #elif defined(__arm__) /* Linux ARM */
+    serverLog(LL_WARNING,
+	      "\n"
+	      "R10:%016lx R9 :%016lx\nR8 :%016lx R7 :%016lx\n"
+	      "R6 :%016lx R5 :%016lx\nR4 :%016lx R3 :%016lx\n"
+	      "R2 :%016lx R1 :%016lx\nR0 :%016lx EC :%016lx\n"
+	      "fp: %016lx ip:%016lx\n",
+	      "pc:%016lx sp:%016lx\ncpsr:%016lx fault_address:%016lx\n",
+	      (unsigned long) uc->uc_mcontext.arm_r10,
+	      (unsigned long) uc->uc_mcontext.arm_r9,
+	      (unsigned long) uc->uc_mcontext.arm_r8,
+	      (unsigned long) uc->uc_mcontext.arm_r7,
+	      (unsigned long) uc->uc_mcontext.arm_r6,
+	      (unsigned long) uc->uc_mcontext.arm_r5,
+	      (unsigned long) uc->uc_mcontext.arm_r4,
+	      (unsigned long) uc->uc_mcontext.arm_r3,
+	      (unsigned long) uc->uc_mcontext.arm_r2,
+	      (unsigned long) uc->uc_mcontext.arm_r1,
+	      (unsigned long) uc->uc_mcontext.arm_r0,
+	      (unsigned long) uc->uc_mcontext.error_code,
+	      (unsigned long) uc->uc_mcontext.arm_fp,
+	      (unsigned long) uc->uc_mcontext.arm_ip,
+	      (unsigned long) uc->uc_mcontext.arm_pc,
+	      (unsigned long) uc->uc_mcontext.arm_sp,
+	      (unsigned long) uc->uc_mcontext.arm_cpsr,
+	      (unsigned long) uc->uc_mcontext.fault_address
+		      );
+	      logStackContent((void**)uc->uc_mcontext.arm_sp);
     #endif
 #elif defined(__FreeBSD__)
     #if defined(__x86_64__)
@@ -1181,33 +1291,6 @@ void logRegisters(ucontext_t *uc) {
         (unsigned long) uc->uc_mcontext.mc_cs
     );
     logStackContent((void**)uc->uc_mcontext.mc_rsp);
-#elif defined(__aarch64__) /* Linux AArch64 */
-    serverLog(LL_WARNING,
-	      "\n"
-	      "X18:%016lx X19:%016lx\nX20:%016lx X21:%016lx\n"
-	      "X22:%016lx X23:%016lx\nX24:%016lx X25:%016lx\n"
-	      "X26:%016lx X27:%016lx\nX28:%016lx X29:%016lx\n"
-	      "X30:%016lx\n"
-	      "pc:%016lx sp:%016lx\npstate:%016lx fault_address:%016lx\n",
-	      (unsigned long) uc->uc_mcontext.regs[18],
-	      (unsigned long) uc->uc_mcontext.regs[19],
-	      (unsigned long) uc->uc_mcontext.regs[20],
-	      (unsigned long) uc->uc_mcontext.regs[21],
-	      (unsigned long) uc->uc_mcontext.regs[22],
-	      (unsigned long) uc->uc_mcontext.regs[23],
-	      (unsigned long) uc->uc_mcontext.regs[24],
-	      (unsigned long) uc->uc_mcontext.regs[25],
-	      (unsigned long) uc->uc_mcontext.regs[26],
-	      (unsigned long) uc->uc_mcontext.regs[27],
-	      (unsigned long) uc->uc_mcontext.regs[28],
-	      (unsigned long) uc->uc_mcontext.regs[29],
-	      (unsigned long) uc->uc_mcontext.regs[30],
-	      (unsigned long) uc->uc_mcontext.pc,
-	      (unsigned long) uc->uc_mcontext.sp,
-	      (unsigned long) uc->uc_mcontext.pstate,
-	      (unsigned long) uc->uc_mcontext.fault_address
-		      );
-	      logStackContent((void**)uc->uc_mcontext.sp);
 #else
     serverLog(LL_WARNING,
         "  Dumping of registers not supported for this OS/arch");
@@ -1573,7 +1656,7 @@ void enableWatchdog(int period) {
         /* Watchdog was actually disabled, so we have to setup the signal
          * handler. */
         sigemptyset(&act.sa_mask);
-        act.sa_flags = SA_ONSTACK | SA_SIGINFO;
+        act.sa_flags = SA_SIGINFO;
         act.sa_sigaction = watchdogSignalHandler;
         sigaction(SIGALRM, &act, NULL);
     }

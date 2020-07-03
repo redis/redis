@@ -450,9 +450,10 @@ int freeMemoryIfNeeded(void) {
     if (server.masterhost && server.repl_slave_ignore_maxmemory) return C_OK;
 
     size_t mem_reported, mem_tofree, mem_freed;
-    mstime_t latency, eviction_latency;
+    mstime_t latency, eviction_latency, lazyfree_latency;
     long long delta;
     int slaves = listLength(server.slaves);
+    int result = C_ERR;
 
     /* When clients are paused the dataset should be static not just from the
      * POV of clients not being able to write, but also from the POV of
@@ -463,10 +464,10 @@ int freeMemoryIfNeeded(void) {
 
     mem_freed = 0;
 
+    latencyStartMonitor(latency);
     if (server.maxmemory_policy == MAXMEMORY_NO_EVICTION)
         goto cant_free; /* We need to free memory, but policy forbids. */
 
-    latencyStartMonitor(latency);
     while (mem_freed < mem_tofree) {
         int j, k, i;
         static unsigned int next_db = 0;
@@ -569,9 +570,9 @@ int freeMemoryIfNeeded(void) {
                 dbAsyncDelete(db,keyobj);
             else
                 dbSyncDelete(db,keyobj);
+            signalModifiedKey(NULL,db,keyobj);
             latencyEndMonitor(eviction_latency);
             latencyAddSampleIfNeeded("eviction-del",eviction_latency);
-            latencyRemoveNestedEvent(latency,eviction_latency);
             delta -= (long long) zmalloc_used_memory();
             mem_freed += delta;
             server.stat_evictedkeys++;
@@ -600,25 +601,30 @@ int freeMemoryIfNeeded(void) {
                 }
             }
         } else {
-            latencyEndMonitor(latency);
-            latencyAddSampleIfNeeded("eviction-cycle",latency);
             goto cant_free; /* nothing to free... */
         }
     }
-    latencyEndMonitor(latency);
-    latencyAddSampleIfNeeded("eviction-cycle",latency);
-    return C_OK;
+    result = C_OK;
 
 cant_free:
     /* We are here if we are not able to reclaim memory. There is only one
      * last thing we can try: check if the lazyfree thread has jobs in queue
      * and wait... */
-    while(bioPendingJobsOfType(BIO_LAZY_FREE)) {
-        if (((mem_reported - zmalloc_used_memory()) + mem_freed) >= mem_tofree)
-            break;
-        usleep(1000);
+    if (result != C_OK) {
+        latencyStartMonitor(lazyfree_latency);
+        while(bioPendingJobsOfType(BIO_LAZY_FREE)) {
+            if (getMaxmemoryState(NULL,NULL,NULL,NULL) == C_OK) {
+                result = C_OK;
+                break;
+            }
+            usleep(1000);
+        }
+        latencyEndMonitor(lazyfree_latency);
+        latencyAddSampleIfNeeded("eviction-lazyfree",lazyfree_latency);
     }
-    return C_ERR;
+    latencyEndMonitor(latency);
+    latencyAddSampleIfNeeded("eviction-cycle",latency);
+    return result;
 }
 
 /* This is a wrapper for freeMemoryIfNeeded() that only really calls the

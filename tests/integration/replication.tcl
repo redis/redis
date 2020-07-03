@@ -513,9 +513,9 @@ start_server {tags {"repl"}} {
     set master_port [srv 0 port]
     set master_pid [srv 0 pid]
     # put enough data in the db that the rdb file will be bigger than the socket buffers
-    # and since we'll have key-load-delay of 100, 10000 keys will take at least 1 second
+    # and since we'll have key-load-delay of 100, 20000 keys will take at least 2 seconds
     # we also need the replica to process requests during transfer (which it does only once in 2mb)
-    $master debug populate 10000 test 10000
+    $master debug populate 20000 test 10000
     $master config set rdbcompression no
     # If running on Linux, we also measure utime/stime to detect possible I/O handling issues
     set os [catch {exec unamee}]
@@ -612,7 +612,7 @@ start_server {tags {"repl"}} {
                         # Wait that replicas acknowledge they are online so
                         # we are sure that DBSIZE and DEBUG DIGEST will not
                         # fail because of timing issues.
-                        wait_for_condition 50 100 {
+                        wait_for_condition 150 100 {
                             [lindex [$replica role] 3] eq {connected}
                         } else {
                             fail "replicas still not connected after some time"
@@ -633,6 +633,58 @@ start_server {tags {"repl"}} {
                         assert {$digest eq $digest0}
                     }
                 }
+            }
+        }
+    }
+}
+
+test {replicaof right after disconnection} {
+    # this is a rare race condition that was reproduced sporadically by the psync2 unit.
+    # see details in #7205
+    start_server {tags {"repl"}} {
+        set replica1 [srv 0 client]
+        set replica1_host [srv 0 host]
+        set replica1_port [srv 0 port]
+        set replica1_log [srv 0 stdout]
+        start_server {} {
+            set replica2 [srv 0 client]
+            set replica2_host [srv 0 host]
+            set replica2_port [srv 0 port]
+            set replica2_log [srv 0 stdout]
+            start_server {} {
+                set master [srv 0 client]
+                set master_host [srv 0 host]
+                set master_port [srv 0 port]
+                $replica1 replicaof $master_host $master_port
+                $replica2 replicaof $master_host $master_port
+
+                wait_for_condition 50 100 {
+                    [string match {*master_link_status:up*} [$replica1 info replication]] &&
+                    [string match {*master_link_status:up*} [$replica2 info replication]]
+                } else {
+                    fail "Can't turn the instance into a replica"
+                }
+
+                set rd [redis_deferring_client -1]
+                $rd debug sleep 1
+                after 100
+
+                # when replica2 will wake up from the sleep it will find both disconnection
+                # from it's master and also a replicaof command at the same event loop
+                $master client kill type replica
+                $replica2 replicaof $replica1_host $replica1_port
+                $rd read
+
+                wait_for_condition 50 100 {
+                    [string match {*master_link_status:up*} [$replica2 info replication]]
+                } else {
+                    fail "role change failed."
+                }
+
+                # make sure psync succeeded, and there were no unexpected full syncs.
+                assert_equal [status $master sync_full] 2
+                assert_equal [status $replica1 sync_full] 0
+                assert_equal [status $replica2 sync_full] 0
             }
         }
     }

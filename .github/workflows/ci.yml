@@ -3,11 +3,9 @@ name: CI
 on: [push, pull_request]
 
 jobs:
-  build-ubuntu:
-    strategy:
-      matrix:
-        platform: [ubuntu-latest, ubuntu-16.04]
-    runs-on: ${{ matrix.platform }}
+
+  test-ubuntu-latest:
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v1
     - name: make
@@ -15,14 +13,37 @@ jobs:
     - name: test
       run: |
         sudo apt-get install tcl8.5
-        make test
+        ./runtest --verbose
+    - name: module api test
+      run: ./runtest-moduleapi --verbose
 
-  build-macos-latest:
-    strategy:
-      matrix:
-        platform: [macos-latest, macOS-10.14]
-    runs-on: ${{ matrix.platform }}
+  build-ubuntu-old:
+    runs-on: ubuntu-16.04
     steps:
     - uses: actions/checkout@v1
     - name: make
       run: make
+
+  build-macos-latest:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v1
+    - name: make
+      run: make
+
+  biuld-32bit:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v1
+    - name: make
+      run: |
+        sudo apt-get update && sudo apt-get install libc6-dev-i386
+        make 32bit
+
+  build-libc-malloc:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v1
+    - name: make
+      run: make MALLOC=libc
+

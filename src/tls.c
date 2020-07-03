@@ -93,10 +93,55 @@ static int parseProtocolsConfig(const char *str) {
  * served to the reader yet. */
 static list *pending_list = NULL;
 
+/**
+ * OpenSSL global initialization and locking handling callbacks.
+ * Note that this is only required for OpenSSL < 1.1.0.
+ */
+
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#define USE_CRYPTO_LOCKS
+#endif
+
+#ifdef USE_CRYPTO_LOCKS
+
+static pthread_mutex_t *openssl_locks;
+
+static void sslLockingCallback(int mode, int lock_id, const char *f, int line) {
+    pthread_mutex_t *mt = openssl_locks + lock_id;
+
+    if (mode & CRYPTO_LOCK) {
+        pthread_mutex_lock(mt);
+    } else {
+        pthread_mutex_unlock(mt);
+    }
+
+    (void)f;
+    (void)line;
+}
+
+static void initCryptoLocks(void) {
+    unsigned i, nlocks;
+    if (CRYPTO_get_locking_callback() != NULL) {
+        /* Someone already set the callback before us. Don't destroy it! */
+        return;
+    }
+    nlocks = CRYPTO_num_locks();
+    openssl_locks = zmalloc(sizeof(*openssl_locks) * nlocks);
+    for (i = 0; i < nlocks; i++) {
+        pthread_mutex_init(openssl_locks + i, NULL);
+    }
+    CRYPTO_set_locking_callback(sslLockingCallback);
+}
+#endif /* USE_CRYPTO_LOCKS */
+
 void tlsInit(void) {
     ERR_load_crypto_strings();
     SSL_load_error_strings();
     SSL_library_init();
+
+#ifdef USE_CRYPTO_LOCKS
+    initCryptoLocks();
+#endif
 
     if (!RAND_poll()) {
         serverLog(LL_WARNING, "OpenSSL: Failed to seed random number generator.");
@@ -160,7 +205,7 @@ int tlsConfigure(redisTLSContextConfig *ctx_config) {
 #endif
 
 #ifdef SSL_OP_NO_CLIENT_RENEGOTIATION
-    SSL_CTX_set_options(ssl->ctx, SSL_OP_NO_CLIENT_RENEGOTIATION);
+    SSL_CTX_set_options(ctx, SSL_OP_NO_CLIENT_RENEGOTIATION);
 #endif
 
     if (ctx_config->prefer_server_ciphers)
@@ -168,9 +213,11 @@ int tlsConfigure(redisTLSContextConfig *ctx_config) {
 
     SSL_CTX_set_mode(ctx, SSL_MODE_ENABLE_PARTIAL_WRITE|SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
     SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER|SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
+#if defined(SSL_CTX_set_ecdh_auto)
     SSL_CTX_set_ecdh_auto(ctx, 1);
+#endif
 
-    if (SSL_CTX_use_certificate_file(ctx, ctx_config->cert_file, SSL_FILETYPE_PEM) <= 0) {
+    if (SSL_CTX_use_certificate_chain_file(ctx, ctx_config->cert_file) <= 0) {
         ERR_error_string_n(ERR_get_error(), errbuf, sizeof(errbuf));
         serverLog(LL_WARNING, "Failed to load certificate: %s: %s", ctx_config->cert_file, errbuf);
         goto error;
@@ -766,15 +813,17 @@ int tlsHasPendingData() {
     return listLength(pending_list) > 0;
 }
 
-void tlsProcessPendingData() {
+int tlsProcessPendingData() {
     listIter li;
     listNode *ln;
 
+    int processed = listLength(pending_list);
     listRewind(pending_list,&li);
     while((ln = listNext(&li))) {
         tls_connection *conn = listNodeValue(ln);
         tlsHandleEvent(conn, AE_READABLE);
     }
+    return processed;
 }
 
 #else   /* USE_OPENSSL */
@@ -802,7 +851,8 @@ int tlsHasPendingData() {
     return 0;
 }
 
-void tlsProcessPendingData() {
+int tlsProcessPendingData() {
+    return 0;
 }
 
 #endif

@@ -47,6 +47,7 @@ set ::all_tests {
     integration/logging
     integration/psync2
     integration/psync2-reg
+    integration/psync2-pingoff
     unit/pubsub
     unit/slowlog
     unit/scripting
@@ -64,12 +65,15 @@ set ::all_tests {
     unit/wait
     unit/pendingquerybuf
     unit/tls
+    unit/tracking
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
 
 set ::host 127.0.0.1
-set ::port 21111
+set ::port 6379; # port for external server
+set ::baseport 21111; # initial port for spawned redis servers
+set ::portcount 8000; # we don't wanna use more than 10000 to avoid collision with cluster bus ports
 set ::traceleaks 0
 set ::valgrind 0
 set ::tls 0
@@ -81,13 +85,14 @@ set ::skiptests {}
 set ::allowtags {}
 set ::only_tests {}
 set ::single_tests {}
+set ::run_solo_tests {}
 set ::skip_till ""
 set ::external 0; # If "1" this means, we are running against external instance
 set ::file ""; # If set, runs only the tests in this comma separated list
 set ::curfile ""; # Hold the filename of the current suite
 set ::accurate 0; # If true runs fuzz tests with more iterations
 set ::force_failure 0
-set ::timeout 600; # 10 minutes without progresses will quit the test.
+set ::timeout 1200; # 20 minutes without progresses will quit the test.
 set ::last_progress [clock seconds]
 set ::active_servers {} ; # Pids of active Redis instances.
 set ::dont_clean 0
@@ -104,10 +109,24 @@ set ::tlsdir "tests/tls"
 set ::client 0
 set ::numclients 16
 
-proc execute_tests name {
+# This function is called by one of the test clients when it receives
+# a "run" command from the server, with a filename as data.
+# It will run the specified test source file and signal it to the
+# test server when finished.
+proc execute_test_file name {
     set path "tests/$name.tcl"
     set ::curfile $path
     source $path
+    send_data_packet $::test_server_fd done "$name"
+}
+
+# This function is called by one of the test clients when it receives
+# a "run_code" command from the server, with a verbatim test source code
+# as argument, and an associated name.
+# It will run the specified code and signal it to the test server when
+# finished.
+proc execute_test_code {name code} {
+    eval $code
     send_data_packet $::test_server_fd done "$name"
 }
 
@@ -177,6 +196,21 @@ proc redis_deferring_client {args} {
     return $client
 }
 
+proc redis_client {args} {
+    set level 0
+    if {[llength $args] > 0 && [string is integer [lindex $args 0]]} {
+        set level [lindex $args 0]
+        set args [lrange $args 1 end]
+    }
+
+    # create client that defers reading reply
+    set client [redis [srv $level "host"] [srv $level "port"] 0 $::tls]
+
+    # select the right db and read the response (OK)
+    $client select 9
+    return $client
+}
+
 # Provide easy access to INFO properties. Same semantic as "proc r".
 proc s {args} {
     set level 0
@@ -187,10 +221,19 @@ proc s {args} {
     status [srv $level "client"] [lindex $args 0]
 }
 
-proc cleanup {} {
-    if {$::dont_clean} {
+# Test wrapped into run_solo are sent back from the client to the
+# test server, so that the test server will send them again to
+# clients once the clients are idle.
+proc run_solo {name code} {
+    if {$::numclients == 1 || $::loop || $::external} {
+        # run_solo is not supported in these scenarios, just run the code.
+        eval $code
         return
     }
+    send_data_packet $::test_server_fd run_solo [list $name $code]
+}
+
+proc cleanup {} {
     if {!$::quiet} {puts -nonewline "Cleanup: may take some time... "}
     flush stdout
     catch {exec rm -rf {*}[glob tests/tmp/redis.conf.*]}
@@ -203,21 +246,27 @@ proc test_server_main {} {
     set tclsh [info nameofexecutable]
     # Open a listening socket, trying different ports in order to find a
     # non busy one.
-    set port [find_available_port 11111]
+    set clientport [find_available_port 11111 32]
     if {!$::quiet} {
-        puts "Starting test server at port $port"
+        puts "Starting test server at port $clientport"
     }
-    socket -server accept_test_clients  -myaddr 127.0.0.1 $port
+    socket -server accept_test_clients  -myaddr 127.0.0.1 $clientport
 
     # Start the client instances
     set ::clients_pids {}
-    set start_port [expr {$::port+100}]
-    for {set j 0} {$j < $::numclients} {incr j} {
-        set start_port [find_available_port $start_port]
+    if {$::external} {
         set p [exec $tclsh [info script] {*}$::argv \
-            --client $port --port $start_port &]
+            --client $clientport &]
         lappend ::clients_pids $p
-        incr start_port 10
+    } else {
+        set start_port $::baseport
+        set port_count [expr {$::portcount / $::numclients}]
+        for {set j 0} {$j < $::numclients} {incr j} {
+            set p [exec $tclsh [info script] {*}$::argv \
+                --client $clientport --baseport $start_port --portcount $port_count &]
+            lappend ::clients_pids $p
+            incr start_port $port_count
+        }
     }
 
     # Setup global state for the test server
@@ -289,7 +338,7 @@ proc read_from_test_client fd {
         puts "\[$completed_tests_count/$all_tests_count [colorstr yellow $status]\]: $data ($elapsed seconds)"
         lappend ::clients_time_history $elapsed $data
         signal_idle_client $fd
-        set ::active_clients_task($fd) DONE
+        set ::active_clients_task($fd) "(DONE) $data"
     } elseif {$status eq {ok}} {
         if {!$::quiet} {
             puts "\[[colorstr green $status]\]: $data"
@@ -320,10 +369,18 @@ proc read_from_test_client fd {
         exit 1
     } elseif {$status eq {testing}} {
         set ::active_clients_task($fd) "(IN PROGRESS) $data"
+    } elseif {$status eq {server-spawning}} {
+        set ::active_clients_task($fd) "(SPAWNING SERVER) $data"
     } elseif {$status eq {server-spawned}} {
         lappend ::active_servers $data
+        set ::active_clients_task($fd) "(SPAWNED SERVER) pid:$data"
+    } elseif {$status eq {server-killing}} {
+        set ::active_clients_task($fd) "(KILLING SERVER) pid:$data"
     } elseif {$status eq {server-killed}} {
         set ::active_servers [lsearch -all -inline -not -exact $::active_servers $data]
+        set ::active_clients_task($fd) "(KILLED SERVER) pid:$data"
+    } elseif {$status eq {run_solo}} {
+        lappend ::run_solo_tests $data
     } else {
         if {!$::quiet} {
             puts "\[$status\]: $data"
@@ -333,7 +390,7 @@ proc read_from_test_client fd {
 
 proc show_clients_state {} {
     # The following loop is only useful for debugging tests that may
-    # enter an infinite loop. Commented out normally.
+    # enter an infinite loop.
     foreach x $::active_clients {
         if {[info exist ::active_clients_task($x)]} {
             puts "$x => $::active_clients_task($x)"
@@ -356,14 +413,19 @@ proc force_kill_all_servers {} {
     }
 }
 
+proc lpop {listVar {count 1}} {
+    upvar 1 $listVar l
+    set ele [lindex $l 0]
+    set l [lrange $l 1 end]
+    set ele
+}
+
 # A new client is idle. Remove it from the list of active clients and
 # if there are still test units to run, launch them.
 proc signal_idle_client fd {
     # Remove this fd from the list of active clients.
     set ::active_clients \
         [lsearch -all -inline -not -exact $::active_clients $fd]
-
-    if 0 {show_clients_state}
 
     # New unit to process?
     if {$::next_test != [llength $::all_tests]} {
@@ -378,8 +440,17 @@ proc signal_idle_client fd {
         if {$::loop && $::next_test == [llength $::all_tests]} {
             set ::next_test 0
         }
+    } elseif {[llength $::run_solo_tests] != 0 && [llength $::active_clients] == 0} {
+        if {!$::quiet} {
+            puts [colorstr bold-white "Testing solo test"]
+            set ::active_clients_task($fd) "ASSIGNED: $fd solo test"
+        }
+        set ::clients_start_time($fd) [clock seconds]
+        send_data_packet $fd run_code [lpop ::run_solo_tests]
+        lappend ::active_clients $fd
     } else {
         lappend ::idle_clients $fd
+        set ::active_clients_task($fd) "SLEEPING, no more units to assign"
         if {[llength $::active_clients] == 0} {
             the_end
         }
@@ -400,11 +471,11 @@ proc the_end {} {
         foreach failed $::failed_tests {
             puts "*** $failed"
         }
-        cleanup
+        if {!$::dont_clean} cleanup
         exit 1
     } else {
         puts "\n[colorstr bold-white {\o/}] [colorstr bold-green {All tests passed without errors!}]\n"
-        cleanup
+        if {!$::dont_clean} cleanup
         exit 0
     }
 }
@@ -420,7 +491,10 @@ proc test_client_main server_port {
         set payload [read $::test_server_fd $bytes]
         foreach {cmd data} $payload break
         if {$cmd eq {run}} {
-            execute_tests $data
+            execute_test_file $data
+        } elseif {$cmd eq {run_code}} {
+            foreach {name code} $data break
+            execute_test_code $name $code
         } else {
             error "Unknown test client command: $cmd"
         }
@@ -454,6 +528,10 @@ proc print_help_screen {} {
         "--loop             Execute the specified set of tests forever."
         "--wait-server      Wait after server is started (so that you can attach a debugger)."
         "--tls              Run tests in TLS mode."
+        "--host <addr>      Run tests against an external host."
+        "--port <port>      TCP port to use against external host."
+        "--baseport <port>  Initial port number for spawned redis servers."
+        "--portcount <num>  Port range for spawned redis servers."
         "--help             Print this help screen."
     } "\n"]
 }
@@ -503,6 +581,12 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         incr j
     } elseif {$opt eq {--port}} {
         set ::port $arg
+        incr j
+    } elseif {$opt eq {--baseport}} {
+        set ::baseport $arg
+        incr j
+    } elseif {$opt eq {--portcount}} {
+        set ::portcount $arg
         incr j
     } elseif {$opt eq {--accurate}} {
         set ::accurate 1

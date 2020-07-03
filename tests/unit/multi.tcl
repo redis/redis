@@ -320,4 +320,150 @@ start_server {tags {"multi"}} {
         $rd close
         r ping
     } {PONG}
+
+    test {MULTI and script timeout} {
+        # check that if MULTI arrives during timeout, it is either refused, or
+        # allowed to pass, and we don't end up executing half of the transaction
+        set rd1 [redis_deferring_client]
+        set r2 [redis_client]
+        r config set lua-time-limit 10
+        r set xx 1
+        $rd1 eval {while true do end} 0
+        after 200
+        catch { $r2 multi; } e
+        catch { $r2 incr xx; } e
+        r script kill
+        after 200 ; # Give some time to Lua to call the hook again...
+        catch { $r2 incr xx; } e
+        catch { $r2 exec; } e
+        assert_match {EXECABORT*previous errors*} $e
+        set xx [r get xx]
+        # make sure that either the whole transcation passed or none of it (we actually expect none)
+        assert { $xx == 1 || $xx == 3}
+        # check that the connection is no longer in multi state
+        set pong [$r2 ping asdf]
+        assert_equal $pong "asdf"
+        $rd1 close; $r2 close
+    }
+
+    test {EXEC and script timeout} {
+        # check that if EXEC arrives during timeout, we don't end up executing
+        # half of the transaction, and also that we exit the multi state
+        set rd1 [redis_deferring_client]
+        set r2 [redis_client]
+        r config set lua-time-limit 10
+        r set xx 1
+        catch { $r2 multi; } e
+        catch { $r2 incr xx; } e
+        $rd1 eval {while true do end} 0
+        after 200
+        catch { $r2 incr xx; } e
+        catch { $r2 exec; } e
+        assert_match {EXECABORT*BUSY*} $e
+        r script kill
+        after 200 ; # Give some time to Lua to call the hook again...
+        set xx [r get xx]
+        # make sure that either the whole transcation passed or none of it (we actually expect none)
+        assert { $xx == 1 || $xx == 3}
+        # check that the connection is no longer in multi state
+        set pong [$r2 ping asdf]
+        assert_equal $pong "asdf"
+        $rd1 close; $r2 close
+    }
+
+    test {MULTI-EXEC body and script timeout} {
+        # check that we don't run an imcomplete transaction due to some commands
+        # arriving during busy script
+        set rd1 [redis_deferring_client]
+        set r2 [redis_client]
+        r config set lua-time-limit 10
+        r set xx 1
+        catch { $r2 multi; } e
+        catch { $r2 incr xx; } e
+        $rd1 eval {while true do end} 0
+        after 200
+        catch { $r2 incr xx; } e
+        r script kill
+        after 200 ; # Give some time to Lua to call the hook again...
+        catch { $r2 exec; } e
+        assert_match {EXECABORT*previous errors*} $e
+        set xx [r get xx]
+        # make sure that either the whole transcation passed or none of it (we actually expect none)
+        assert { $xx == 1 || $xx == 3}
+        # check that the connection is no longer in multi state
+        set pong [$r2 ping asdf]
+        assert_equal $pong "asdf"
+        $rd1 close; $r2 close
+    }
+
+    test {just EXEC and script timeout} {
+        # check that if EXEC arrives during timeout, we don't end up executing
+        # actual commands during busy script, and also that we exit the multi state
+        set rd1 [redis_deferring_client]
+        set r2 [redis_client]
+        r config set lua-time-limit 10
+        r set xx 1
+        catch { $r2 multi; } e
+        catch { $r2 incr xx; } e
+        $rd1 eval {while true do end} 0
+        after 200
+        catch { $r2 exec; } e
+        assert_match {EXECABORT*BUSY*} $e
+        r script kill
+        after 200 ; # Give some time to Lua to call the hook again...
+        set xx [r get xx]
+        # make we didn't execute the transaction
+        assert { $xx == 1}
+        # check that the connection is no longer in multi state
+        set pong [$r2 ping asdf]
+        assert_equal $pong "asdf"
+        $rd1 close; $r2 close
+    }
+
+    test {exec with write commands and state change} {
+        # check that exec that contains write commands fails if server state changed since they were queued
+        set r1 [redis_client]
+        r set xx 1
+        r multi
+        r incr xx
+        $r1 config set min-replicas-to-write 2
+        catch {r exec} e
+        assert_match {*EXECABORT*NOREPLICAS*} $e
+        set xx [r get xx]
+        # make sure that the INCR wasn't executed
+        assert { $xx == 1}
+        $r1 config set min-replicas-to-write 0
+        $r1 close;
+    }
+
+    test {exec with read commands and stale replica state change} {
+        # check that exec that contains read commands fails if server state changed since they were queued
+        r config set replica-serve-stale-data no
+        set r1 [redis_client]
+        r set xx 1
+
+        # check that GET is disallowed on stale replica, even if the replica becomes stale only after queuing.
+        r multi
+        r get xx
+        $r1 replicaof localhsot 0
+        catch {r exec} e
+        assert_match {*EXECABORT*MASTERDOWN*} $e
+
+        # check that PING is allowed
+        r multi
+        r ping
+        $r1 replicaof localhsot 0
+        set pong [r exec]
+        assert {$pong == "PONG"}
+
+        # check that when replica is not stale, GET is allowed
+        # while we're at it, let's check that multi is allowed on stale replica too
+        r multi
+        $r1 replicaof no one
+        r get xx
+        set xx [r exec]
+        # make sure that the INCR was executed
+        assert { $xx == 1 }
+        $r1 close;
+    }
 }
