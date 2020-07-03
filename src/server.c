@@ -3271,6 +3271,7 @@ void call(client *c, int flags) {
     start = server.ustime;
     c->cmd->proc(c);
     duration = ustime()-start;
+    c->duration = duration;
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
 
@@ -3288,20 +3289,22 @@ void call(client *c, int flags) {
         if (c->flags & CLIENT_FORCE_AOF)
             server.lua_caller->flags |= CLIENT_FORCE_AOF;
     }
-
-    /* Log the command into the Slow log if needed, and populate the
-     * per-command statistics that we show in INFO commandstats. */
-    if (flags & CMD_CALL_SLOWLOG && !(c->cmd->flags & CMD_SKIP_SLOWLOG)) {
-        char *latency_event = (c->cmd->flags & CMD_FAST) ?
-                              "fast-command" : "command";
-        latencyAddSampleIfNeeded(latency_event,duration/1000);
-        slowlogPushEntryIfNeeded(c,c->argv,c->argc,duration);
+    /* If the client is blocked we will handle slowlog when it is unblocked . */
+    if (!(c->flags & CLIENT_BLOCKED))
+    {
+        /* Log the command into the Slow log if needed. */
+        if (flags & CMD_CALL_SLOWLOG && !(c->cmd->flags & CMD_SKIP_SLOWLOG)) {
+            char *latency_event = (c->cmd->flags & CMD_FAST) ?
+                                "fast-command" : "command";
+            latencyAddSampleIfNeeded(latency_event,duration/1000);
+            slowlogPushEntryIfNeeded(c,c->argv,c->argc,duration);
+        }
     }
-
+    /* Populate the per-command statistics that we show in INFO commandstats. */
     if (flags & CMD_CALL_STATS) {
         /* use the real command that was executed (cmd and lastamc) may be
-         * different, in case of MULTI-EXEC or re-written commands such as
-         * EXPIRE, GEOADD, etc. */
+        * different, in case of MULTI-EXEC or re-written commands such as
+        * EXPIRE, GEOADD, etc. */
         real_cmd->microseconds += duration;
         real_cmd->calls++;
     }

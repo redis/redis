@@ -29,6 +29,7 @@
 
 #include "server.h"
 #include "cluster.h"
+#include "slowlog.h"
 #include "rdb.h"
 #include <dlfcn.h>
 #include <sys/stat.h>
@@ -4438,6 +4439,7 @@ int moduleTryServeClientBlockedOnKey(client *c, robj *key) {
  *       will result in memory leaks.
  */
 RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms) {
+    if (ctx->client) ctx->client->background_start_time = server.ustime;
     return moduleBlockClient(ctx,reply_callback,timeout_callback,free_privdata,timeout_ms, NULL,0,NULL);
 }
 
@@ -4566,6 +4568,9 @@ int RM_UnblockClient(RedisModuleBlockedClient *bc, void *privdata) {
         if (bc->unblocked) return REDISMODULE_OK;
         if (bc->client) moduleBlockedClientTimedOut(bc->client);
     }
+    else {
+        if (bc->client) bc->client->background_duration = ustime()-bc->client->background_start_time;
+    }
     moduleUnblockClientByHandle(bc,privdata);
     return REDISMODULE_OK;
 }
@@ -4638,7 +4643,21 @@ void moduleHandleBlockedClients(void) {
             ctx.module = bc->module;
             ctx.client = bc->client;
             ctx.blocked_client = bc;
+            const ustime_t start = server.ustime;
             bc->reply_callback(&ctx,(void**)c->argv,c->argc);
+            const ustime_t reply_duration = ustime()-start;
+            c->duration += reply_duration;
+            /* Log the command into the Slow log if needed. */
+            if (!(c->cmd->flags & CMD_SKIP_SLOWLOG)) {
+                char *latency_event = (c->cmd->flags & CMD_FAST) ?
+                                    "fast-command" : "command";
+                const ustime_t total_cmd_duration = c->duration + c->background_duration;
+                latencyAddSampleIfNeeded(latency_event,total_cmd_duration/1000);
+                slowlogPushEntryIfNeeded(c,c->argv,c->argc,total_cmd_duration);
+            }
+
+            /* Populate the per-command statistics that we show in INFO commandstats. */
+            c->cmd->microseconds += (reply_duration + c->background_duration);
             moduleFreeContext(&ctx);
         }
 

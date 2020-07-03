@@ -61,6 +61,8 @@
  */
 
 #include "server.h"
+#include "slowlog.h"
+#include "latency.h"
 
 int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb *db, robj *value, int where);
 
