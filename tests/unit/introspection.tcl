@@ -1,7 +1,7 @@
 start_server {tags {"introspection"}} {
     test {CLIENT LIST} {
         r client list
-    } {*addr=*:* fd=* age=* idle=* flags=N db=9 sub=0 psub=0 multi=-1 qbuf=0 qbuf-free=* obl=0 oll=0 omem=0 events=r cmd=client*}
+    } {*addr=*:* fd=* age=* idle=* flags=N db=9 sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* obl=0 oll=0 omem=0 events=r cmd=client*}
 
     test {MONITOR can log executed commands} {
         set rd [redis_deferring_client]
@@ -55,6 +55,75 @@ start_server {tags {"introspection"}} {
             [string match {*foobar*} [r client list]] == 0
         } else {
             fail "Client still listed in CLIENT LIST after SETNAME."
+        }
+    }
+
+    test {CONFIG sanity} {
+        # Do CONFIG GET, CONFIG SET and then CONFIG GET again
+        # Skip immutable configs, one with no get, and other complicated configs
+        set skip_configs {
+            rdbchecksum
+            daemonize
+            io-threads-do-reads
+            tcp-backlog
+            always-show-logo
+            syslog-enabled
+            cluster-enabled
+            aclfile
+            unixsocket
+            pidfile
+            syslog-ident
+            appendfilename
+            supervised
+            syslog-facility
+            databases
+            port
+            io-threads
+            tls-port
+            tls-prefer-server-ciphers
+            tls-cert-file
+            tls-key-file
+            tls-dh-params-file
+            tls-ca-cert-file
+            tls-ca-cert-dir
+            tls-protocols
+            tls-ciphers
+            tls-ciphersuites
+            logfile
+            unixsocketperm
+            slaveof
+            bind
+            requirepass
+            server_cpulist
+            bio_cpulist
+            aof_rewrite_cpulist
+            bgsave_cpulist
+        }
+
+        set configs {}
+        foreach {k v} [r config get *] {
+            if {[lsearch $skip_configs $k] != -1} {
+                continue
+            }
+            dict set configs $k $v
+            # try to set the config to the same value it already has
+            r config set $k $v
+        }
+
+        set newconfigs {}
+        foreach {k v} [r config get *] {
+            if {[lsearch $skip_configs $k] != -1} {
+                continue
+            }
+            dict set newconfigs $k $v
+        }
+
+        dict for {k v} $configs {
+            set vv [dict get $newconfigs $k]
+            if {$v != $vv} {
+                fail "config $k mismatch, expecting $v but got $vv"
+            }
+
         }
     }
 }

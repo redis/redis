@@ -1,3 +1,33 @@
+/* Rax -- A radix tree implementation.
+ *
+ * Copyright (c) 2017-2018, Salvatore Sanfilippo <antirez at gmail dot com>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of Redis nor the names of its contributors may be used
+ *     to endorse or promote products derived from this software without
+ *     specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
+
 #ifndef RAX_H
 #define RAX_H
 
@@ -77,16 +107,16 @@ typedef struct raxNode {
      * Note how the character is not stored in the children but in the
      * edge of the parents:
      *
-     * [header strlen=0][abc][a-ptr][b-ptr][c-ptr](value-ptr?)
+     * [header iscompr=0][abc][a-ptr][b-ptr][c-ptr](value-ptr?)
      *
-     * if node is compressed (strlen != 0) the node has 1 children.
+     * if node is compressed (iscompr bit is 1) the node has 1 children.
      * In that case the 'size' bytes of the string stored immediately at
      * the start of the data section, represent a sequence of successive
      * nodes linked one after the other, for which only the last one in
      * the sequence is actually represented as a node, and pointed to by
      * the current compressed node.
      *
-     * [header strlen=3][xyz][z-ptr](value-ptr?)
+     * [header iscompr=1][xyz][z-ptr](value-ptr?)
      *
      * Both compressed and not compressed nodes can represent a key
      * with associated data in the radix tree at any level (not just terminal
@@ -94,7 +124,7 @@ typedef struct raxNode {
      *
      * If the node has an associated key (iskey=1) and is not NULL
      * (isnull=0), then after the raxNode pointers poiting to the
-     * childen, an additional value pointer is present (as you can see
+     * children, an additional value pointer is present (as you can see
      * in the representation above as "value-ptr" field).
      */
     unsigned char data[];
@@ -119,6 +149,21 @@ typedef struct raxStack {
     int oom; /* True if pushing into this stack failed for OOM at some point. */
 } raxStack;
 
+/* Optional callback used for iterators and be notified on each rax node,
+ * including nodes not representing keys. If the callback returns true
+ * the callback changed the node pointer in the iterator structure, and the
+ * iterator implementation will have to replace the pointer in the radix tree
+ * internals. This allows the callback to reallocate the node to perform
+ * very special operations, normally not needed by normal applications.
+ *
+ * This callback is used to perform very low level analysis of the radix tree
+ * structure, scanning each possible node (but the root node), or in order to
+ * reallocate the nodes to reduce the allocation fragmentation (this is the
+ * Redis application for this callback).
+ *
+ * This is currently only supported in forward iterations (raxNext) */
+typedef int (*raxNodeCallback)(raxNode **noderef);
+
 /* Radix tree iterator state is encapsulated into this data structure. */
 #define RAX_ITER_STATIC_LEN 128
 #define RAX_ITER_JUST_SEEKED (1<<0) /* Iterator was just seeked. Return current
@@ -137,6 +182,7 @@ typedef struct raxIterator {
     unsigned char key_static_string[RAX_ITER_STATIC_LEN];
     raxNode *node;          /* Current node. Only for unsafe iteration. */
     raxStack stack;         /* Stack used for unsafe iteration. */
+    raxNodeCallback node_cb; /* Optional node callback. Normally set to NULL. */
 } raxIterator;
 
 /* A special pointer returned for not found items. */
@@ -145,9 +191,11 @@ extern void *raxNotFound;
 /* Exported API. */
 rax *raxNew(void);
 int raxInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old);
+int raxTryInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old);
 int raxRemove(rax *rax, unsigned char *s, size_t len, void **old);
 void *raxFind(rax *rax, unsigned char *s, size_t len);
 void raxFree(rax *rax);
+void raxFreeWithCallback(rax *rax, void (*free_callback)(void*));
 void raxStart(raxIterator *it, rax *rt);
 int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len);
 int raxNext(raxIterator *it);
@@ -155,6 +203,14 @@ int raxPrev(raxIterator *it);
 int raxRandomWalk(raxIterator *it, size_t steps);
 int raxCompare(raxIterator *iter, const char *op, unsigned char *key, size_t key_len);
 void raxStop(raxIterator *it);
+int raxEOF(raxIterator *it);
 void raxShow(rax *rax);
+uint64_t raxSize(rax *rax);
+unsigned long raxTouch(raxNode *n);
+void raxSetDebugMsg(int onoff);
+
+/* Internal API. May be used by the node callback in order to access rax nodes
+ * in a low level way, so this function is exported as well. */
+void raxSetData(raxNode *n, void *data);
 
 #endif

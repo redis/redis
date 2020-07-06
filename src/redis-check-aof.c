@@ -33,11 +33,11 @@
 
 #define ERROR(...) { \
     char __buf[1024]; \
-    sprintf(__buf, __VA_ARGS__); \
-    sprintf(error, "0x%16llx: %s", (long long)epos, __buf); \
+    snprintf(__buf, sizeof(__buf), __VA_ARGS__); \
+    snprintf(error, sizeof(error), "0x%16llx: %s", (long long)epos, __buf); \
 }
 
-static char error[1024];
+static char error[1044];
 static off_t epos;
 
 int consumeNewline(char *buf) {
@@ -194,7 +194,7 @@ int redis_check_aof_main(int argc, char **argv) {
                 printf("RDB preamble of AOF file is not sane, aborting.\n");
                 exit(1);
             } else {
-                printf("RDB preamble is OK, proceding with AOF tail...\n");
+                printf("RDB preamble is OK, proceeding with AOF tail...\n");
             }
         }
     }

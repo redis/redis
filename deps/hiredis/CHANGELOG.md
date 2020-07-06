@@ -1,18 +1,68 @@
 ### 1.0.0 (unreleased)
 
-**Fixes**:
+**BREAKING CHANGES**:
 
-* Catch a buffer overflow when formatting the error message
-* Import latest upstream sds. This breaks applications that are linked against the old hiredis v0.13
-* Fix warnings, when compiled with -Wshadow
-* Make hiredis compile in Cygwin on Windows, now CI-tested
+* Bulk and multi-bulk lengths less than -1 or greater than `LLONG_MAX` are now
+  protocol errors. This is consistent with the RESP specification. On 32-bit
+  platforms, the upper bound is lowered to `SIZE_MAX`.
 
+* Change `redisReply.len` to `size_t`, as it denotes the the size of a string
+
+  User code should compare this to `size_t` values as well.  If it was used to
+  compare to other values, casting might be necessary or can be removed, if
+  casting was applied before.
+
+### 0.x.x (unreleased)
 **BREAKING CHANGES**:
 
 * Change `redisReply.len` to `size_t`, as it denotes the the size of a string
 
 User code should compare this to `size_t` values as well.
 If it was used to compare to other values, casting might be necessary or can be removed, if casting was applied before.
+
+* `redisReplyObjectFunctions.createArray` now takes `size_t` for its length parameter.
+
+### 0.14.0 (2018-09-25)
+
+* Make string2ll static to fix conflict with Redis (Tom Lee [c3188b])
+* Use -dynamiclib instead of -shared for OSX (Ryan Schmidt [a65537])
+* Use string2ll from Redis w/added tests (Michael Grunder [7bef04, 60f622])
+* Makefile - OSX compilation fixes (Ryan Schmidt [881fcb, 0e9af8])
+* Remove redundant NULL checks (Justin Brewer [54acc8, 58e6b8])
+* Fix bulk and multi-bulk length truncation (Justin Brewer [109197])
+* Fix SIGSEGV in OpenBSD by checking for NULL before calling freeaddrinfo (Justin Brewer [546d94])
+* Several POSIX compatibility fixes (Justin Brewer [bbeab8, 49bbaa, d1c1b6])
+* Makefile - Compatibility fixes (Dimitri Vorobiev [3238cf, 12a9d1])
+* Makefile - Fix make install on FreeBSD (Zach Shipko [a2ef2b])
+* Makefile - don't assume $(INSTALL) is cp (Igor Gnatenko [725a96])
+* Separate side-effect causing function from assert and small cleanup (amallia [b46413, 3c3234])
+* Don't send negative values to `__redisAsyncCommand` (Frederik Deweerdt [706129])
+* Fix leak if setsockopt fails (Frederik Deweerdt [e21c9c])
+* Fix libevent leak (zfz [515228])
+* Clean up GCC warning (Ichito Nagata [2ec774])
+* Keep track of errno in `__redisSetErrorFromErrno()` as snprintf may use it (Jin Qing [25cd88])
+* Solaris compilation fix (Donald Whyte [41b07d])
+* Reorder linker arguments when building examples (Tustfarm-heart [06eedd])
+* Keep track of subscriptions in case of rapid subscribe/unsubscribe (Hyungjin Kim [073dc8, be76c5, d46999])
+* libuv use after free fix (Paul Scott [cbb956])
+* Properly close socket fd on reconnect attempt (WSL [64d1ec])
+* Skip valgrind in OSX tests (Jan-Erik Rediger [9deb78])
+* Various updates for Travis testing OSX (Ted Nyman [fa3774, 16a459, bc0ea5])
+* Update libevent (Chris Xin [386802])
+* Change sds.h for building in C++ projects (Ali Volkan ATLI [f5b32e])
+* Use proper format specifier in redisFormatSdsCommandArgv (Paulino Huerta, Jan-Erik Rediger [360a06, 8655a6])
+* Better handling of NULL reply in example code (Jan-Erik Rediger [1b8ed3])
+* Prevent overflow when formatting an error (Jan-Erik Rediger [0335cb])
+* Compatibility fix for strerror_r (Tom Lee [bb1747])
+* Properly detect integer parse/overflow errors (Justin Brewer [93421f])
+* Adds CI for Windows and cygwin fixes (owent, [6c53d6, 6c3e40])
+* Catch a buffer overflow when formatting the error message
+* Import latest upstream sds. This breaks applications that are linked against the old hiredis v0.13
+* Fix warnings, when compiled with -Wshadow
+* Make hiredis compile in Cygwin on Windows, now CI-tested
+* Bulk and multi-bulk lengths less than -1 or greater than `LLONG_MAX` are now
+  protocol errors. This is consistent with the RESP specification. On 32-bit
+  platforms, the upper bound is lowered to `SIZE_MAX`.
 
 * Remove backwards compatibility macro's
 
@@ -94,7 +144,7 @@ The parser, standalone since v0.12.0, can now be compiled on Windows
 
 * Add IPv6 support
 
-* Remove possiblity of multiple close on same fd
+* Remove possibility of multiple close on same fd
 
 * Add ability to bind source address on connect
 
