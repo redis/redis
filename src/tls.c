@@ -148,12 +148,6 @@ void tlsInit(void) {
     }
 
     pending_list = listCreate();
-
-    /* Server configuration */
-    server.tls_auth_clients = 1;    /* Secure by default */
-    server.tls_ctx_config.session_caching = 1;
-    server.tls_ctx_config.session_cache_size = 20*1024;
-    server.tls_ctx_config.session_cache_timeout = 300;
 }
 
 /* Attempt to configure/reconfigure TLS. This operation is atomic and will
