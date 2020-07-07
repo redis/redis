@@ -659,7 +659,7 @@ struct commandHelp {
     2,
     "1.0.0" },
     { "LPOS",
-    "key element [FIRST rank] [COUNT num-matches] [MAXLEN len]",
+    "key element [RANK rank] [COUNT num-matches] [MAXLEN len]",
     "Return the index of matching elements on a list",
     2,
     "6.0.6" },
