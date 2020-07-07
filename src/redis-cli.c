@@ -7481,21 +7481,27 @@ static void getKeyFreqs(redisReply *keys, unsigned long long *freqs) {
 
     /* Pipeline OBJECT freq commands */
     for(i=0;i<keys->elements;i++) {
-        redisAppendCommand(context, "OBJECT freq %s", keys->element[i]->str);
+        const char* argv[] = {"OBJECT", "FREQ", keys->element[i]->str};
+        size_t lens[] = {6, 4, keys->element[i]->len};
+        redisAppendCommandArgv(context, 3, argv, lens);
     }
 
     /* Retrieve freqs */
     for(i=0;i<keys->elements;i++) {
         if(redisGetReply(context, (void**)&reply)!=REDIS_OK) {
+            sds keyname = sdscatrepr(sdsempty(), keys->element[i]->str, keys->element[i]->len);
             fprintf(stderr, "Error getting freq for key '%s' (%d: %s)\n",
-                keys->element[i]->str, context->err, context->errstr);
+                keyname, context->err, context->errstr);
+            sdsfree(keyname);
             exit(1);
         } else if(reply->type != REDIS_REPLY_INTEGER) {
             if(reply->type == REDIS_REPLY_ERROR) {
                 fprintf(stderr, "Error: %s\n", reply->str);
                 exit(1);
             } else {
-                fprintf(stderr, "Warning: OBJECT freq on '%s' failed (may have been deleted)\n", keys->element[i]->str);
+                sds keyname = sdscatrepr(sdsempty(), keys->element[i]->str, keys->element[i]->len);
+                fprintf(stderr, "Warning: OBJECT freq on '%s' failed (may have been deleted)\n", keyname);
+                sdsfree(keyname);
                 freqs[i] = 0;
             }
         } else {
@@ -7566,10 +7572,10 @@ static void findHotKeys(void) {
                 memmove(hotkeys,hotkeys+1,sizeof(hotkeys[0])*k);
             }
             counters[k] = freqs[i];
-            hotkeys[k] = sdsnew(keys->element[i]->str);
+            hotkeys[k] = sdscatrepr(sdsempty(), keys->element[i]->str, keys->element[i]->len);
             printf(
                "[%05.2f%%] Hot key '%s' found so far with counter %llu\n",
-               pct, keys->element[i]->str, freqs[i]);
+               pct, hotkeys[k], freqs[i]);
         }
 
         /* Sleep if we've been directed to do so */
