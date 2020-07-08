@@ -898,6 +898,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
          * are many consumers and many groups, let's count at least the
          * overhead of the pending entries in the groups and consumers
          * PELs. */
+        asize += streamRadixTreeMemoryUsage(s->cgroups);
         if (s->cgroups) {
             raxStart(&ri,s->cgroups);
             raxSeek(&ri,"^",NULL,0);
