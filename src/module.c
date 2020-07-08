@@ -4649,11 +4649,14 @@ void moduleHandleBlockedClients(void) {
             c->duration += reply_duration;
             /* Log the command into the Slow log if needed. */
             if (!(c->cmd->flags & CMD_SKIP_SLOWLOG)) {
-                char *latency_event = (c->cmd->flags & CMD_FAST) ?
+                const char *latency_event = (c->cmd->flags & CMD_FAST) ?
                                     "fast-command" : "command";
                 const ustime_t total_cmd_duration = c->duration + c->background_duration;
-                latencyAddSampleIfNeeded(latency_event,total_cmd_duration/1000);
                 slowlogPushEntryIfNeeded(c,c->argv,c->argc,total_cmd_duration);
+                /* Log the reply duration either as fast-command or as command event. */
+                latencyAddSampleIfNeeded(latency_event,reply_duration/1000);
+                /* Log the background duration as background-command events. */
+                latencyAddSampleIfNeeded("background-command",c->background_duration/1000);
             }
 
             /* Populate the per-command statistics that we show in INFO commandstats. */

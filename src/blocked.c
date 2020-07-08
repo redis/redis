@@ -244,7 +244,7 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
                  * call. */
                 if (dstkey) incrRefCount(dstkey);
                 unblockClient(receiver);
-
+                const ustime_t start = server.ustime;            
                 if (serveClientBlockedOnList(receiver,
                     rl->key,dstkey,rl->db,value,
                     where) == C_ERR)
@@ -252,6 +252,17 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
                     /* If we failed serving the client we need
                      * to also undo the POP operation. */
                     listTypePush(o,value,where);
+                }
+                const ustime_t reply_duration = ustime()-start;
+                receiver->lastcmd->microseconds += reply_duration;
+                const ustime_t total_cmd_duration = receiver->duration + reply_duration;
+                /* Log the command into the Slow log if needed. */
+                if (!(receiver->lastcmd->flags & CMD_SKIP_SLOWLOG)) {
+                    const char *latency_event = (receiver->lastcmd->flags & CMD_FAST) ?
+                                        "fast-command" : "command";
+                    slowlogPushEntryIfNeeded(receiver->lastcmd,receiver->argv,receiver->argc,total_cmd_duration);
+                    /* Log the reply duration either as fast-command or as command event. */
+                    latencyAddSampleIfNeeded(latency_event,reply_duration/1000);
                 }
 
                 if (dstkey) decrRefCount(dstkey);
@@ -297,7 +308,20 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
                          receiver->lastcmd->proc == bzpopminCommand)
                          ? ZSET_MIN : ZSET_MAX;
             unblockClient(receiver);
+            const ustime_t start = server.ustime;
             genericZpopCommand(receiver,&rl->key,1,where,1,NULL);
+            const ustime_t reply_duration = ustime()-start;
+            receiver->lastcmd->microseconds += reply_duration;
+            const ustime_t total_cmd_duration = receiver->duration + reply_duration;
+            /* Log the command into the Slow log if needed. */
+            if (!(receiver->lastcmd->flags & CMD_SKIP_SLOWLOG)) {
+                const char *latency_event = (receiver->lastcmd->flags & CMD_FAST) ?
+                                    "fast-command" : "command";
+                slowlogPushEntryIfNeeded(receiver->lastcmd,receiver->argv,receiver->argc,total_cmd_duration);
+                /* Log the reply duration either as fast-command or as command event. */
+                latencyAddSampleIfNeeded(latency_event,reply_duration/1000);
+            }
+
             zcard--;
 
             /* Replicate the command. */
@@ -379,7 +403,7 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
                                              SLC_NONE);
                     noack = receiver->bpop.xread_group_noack;
                 }
-
+                const ustime_t start_us = server.ustime;
                 /* Emit the two elements sub-array consisting of
                  * the name of the stream and the data we
                  * extracted from it. Wrapped in a single-item
@@ -399,6 +423,17 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
                 streamReplyWithRange(receiver,s,&start,NULL,
                                      receiver->bpop.xread_count,
                                      0, group, consumer, noack, &pi);
+                const ustime_t reply_duration = ustime()-start_us;
+                receiver->lastcmd->microseconds += reply_duration;
+                const ustime_t total_cmd_duration = receiver->duration + reply_duration;
+                /* Log the command into the Slow log if needed. */
+                if (!(receiver->lastcmd->flags & CMD_SKIP_SLOWLOG)) {
+                    const char *latency_event = (receiver->lastcmd->flags & CMD_FAST) ?
+                                        "fast-command" : "command";
+                    slowlogPushEntryIfNeeded(receiver->lastcmd,receiver->argv,receiver->argc,total_cmd_duration);
+                    /* Log the reply duration either as fast-command or as command event. */
+                    latencyAddSampleIfNeeded(latency_event,reply_duration/1000);
+                }
 
                 /* Note that after we unblock the client, 'gt'
                  * and other receiver->bpop stuff are no longer

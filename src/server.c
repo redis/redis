@@ -3289,14 +3289,14 @@ void call(client *c, int flags) {
         if (c->flags & CLIENT_FORCE_AOF)
             server.lua_caller->flags |= CLIENT_FORCE_AOF;
     }
-    /* If the client is blocked we will handle slowlog when it is unblocked . */
-    if (!(c->flags & CLIENT_BLOCKED))
-    {
-        /* Log the command into the Slow log if needed. */
-        if (flags & CMD_CALL_SLOWLOG && !(c->cmd->flags & CMD_SKIP_SLOWLOG)) {
-            char *latency_event = (c->cmd->flags & CMD_FAST) ?
-                                "fast-command" : "command";
-            latencyAddSampleIfNeeded(latency_event,duration/1000);
+    /* Log the command into the Slow log if needed, and populate the
+     * per-command statistics that we show in INFO commandstats. */
+    if (flags & CMD_CALL_SLOWLOG && !(c->cmd->flags & CMD_SKIP_SLOWLOG)) {
+        char *latency_event = (c->cmd->flags & CMD_FAST) ?
+                            "fast-command" : "command";
+        latencyAddSampleIfNeeded(latency_event,duration/1000);
+        /* If the client is blocked we will handle slowlog when it is unblocked . */
+        if (!(c->flags & CLIENT_BLOCKED)) {
             slowlogPushEntryIfNeeded(c,c->argv,c->argc,duration);
         }
     }
