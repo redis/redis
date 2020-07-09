@@ -187,9 +187,9 @@ proc spawn_server {config_file stdout stderr} {
 }
 
 # Wait for actual startup, return 1 if port is busy, 0 otherwise
-proc wait_server_started {config_file stdout pid retrynum} {
+proc wait_server_started {config_file stdout pid} {
     set checkperiod 100; # Milliseconds
-    set maxiter [expr {120*1000/100}] ; # Wait up to 2 minutes.
+    set maxiter [expr {120*1000/$checkperiod}] ; # Wait up to 2 minutes.
     set port_busy 0
     while 1 {
         if {[regexp -- " PID: $pid" [exec cat $stdout]]} {
@@ -313,10 +313,7 @@ proc start_server {options {code undefined}} {
         set pid [spawn_server $config_file $stdout $stderr]
 
         # check that the server actually started
-        # ugly but tries to be as fast as possible...
-        if {$::valgrind} {set retrynum 1000} else {set retrynum 100}
-
-        set port_busy [wait_server_started $config_file $stdout $pid $retrynum]
+        set port_busy [wait_server_started $config_file $stdout $pid]
 
         # Sometimes we have to try a different port, even if we checked
         # for availability. Other test clients may grab the port before we
@@ -333,6 +330,7 @@ proc start_server {options {code undefined}} {
             continue; # Try again
         }
 
+        if {$::valgrind} {set retrynum 1000} else {set retrynum 100}
         if {$code ne "undefined"} {
             set serverisup [server_is_up $::host $port $retrynum]
         } else {
@@ -447,9 +445,7 @@ proc restart_server {level wait_ready} {
     set pid [spawn_server $config_file $stdout $stderr]
 
     # check that the server actually started
-    # ugly but tries to be as fast as possible...
-    if {$::valgrind} {set retrynum 1000} else {set retrynum 100}
-    wait_server_started $config_file $stdout $pid $retrynum
+    wait_server_started $config_file $stdout $pid
 
     # update the pid in the servers list
     dict set srv "pid" $pid
