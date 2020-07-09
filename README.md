@@ -8,7 +8,7 @@ Redis is often referred as a *data structures* server. What this means is that R
 Data structures implemented into Redis have a few special properties:
 
 * Redis cares to store them on disk, even if they are always served and modified into the server memory. This means that Redis is fast, but that is also non-volatile.
-* Implementation of data structures stress on memory efficiency, so data structures inside Redis will likely use less memory compared to the same data structure modeled using an high level programming language.
+* Implementation of data structures stress on memory efficiency, so data structures inside Redis will likely use less memory compared to the same data structure modeled using a high-level programming language.
 * Redis offers a number of features that are natural to find in a database, like replication, tunable levels of durability, cluster, high availability.
 
 Another good example is to think of Redis as a more complex version of memcached, where the operations are not just SETs and GETs, but operations to work with complex data types like Lists, Sets, ordered data structures, and so forth.
@@ -75,10 +75,10 @@ optimizations (for debugging purposes), and other similar build time options,
 those options are cached indefinitely until you issue a `make distclean`
 command.
 
-Fixing problems building 32 bit binaries
+Fixing problems building 32-bit binaries
 ---------
 
-If after building Redis with a 32 bit target you need to rebuild it
+If after building Redis with a 32-bit target you need to rebuild it
 with a 64 bit target, or the other way around, you need to perform a
 `make distclean` in the root directory of the Redis distribution.
 
@@ -193,7 +193,7 @@ system reboots.
 You'll be able to stop and start Redis using the script named
 `/etc/init.d/redis_<portnumber>`, for instance `/etc/init.d/redis_6379`.
 
-Code contributions
+Code contributions and conduct
 -----------------
 
 Note: by contributing code to the Redis project in any form, including sending
@@ -202,17 +202,18 @@ public discussion groups, you agree to release your code under the terms
 of the BSD license that you can find in the [COPYING][1] file included in the Redis
 source distribution.
 
-Please see the [CONTRIBUTING][2] file in this source distribution for more
-information.
+Please see the [CONTRIBUTING][2] and [CONDUCT][3] files in this source
+distribution for more information.
 
-[1]: https://github.com/antirez/redis/blob/unstable/COPYING
-[2]: https://github.com/antirez/redis/blob/unstable/CONTRIBUTING
+[1]: https://github.com/redis/redis/blob/unstable/COPYING
+[2]: https://github.com/redis/redis/blob/unstable/CONTRIBUTING
+[3]: https://github.com/redis/redis/blob/unstable/CONDUCT
 
 Redis internals
 ===
 
 If you are reading this README you are likely in front of a Github page
-or you just untarred the Redis distribution tar ball. In both the cases
+or you just untarred the Redis distribution tar ball. In both cases
 you are basically one step away from the source code, so here we explain
 the Redis source code layout, what is in each file as a general idea, the
 most important functions and structures inside the Redis server and so forth.
@@ -236,7 +237,7 @@ Inside the root are the following important directories:
 
 * `src`: contains the Redis implementation, written in C.
 * `tests`: contains the unit tests, implemented in Tcl.
-* `deps`: contains libraries Redis uses. Everything needed to compile Redis is inside this directory; your system just needs to provide `libc`, a POSIX compatible interface and a C compiler. Notably `deps` contains a copy of `jemalloc`, which is the default allocator of Redis under Linux. Note that under `deps` there are also things which started with the Redis project, but for which the main repository is not `antirez/redis`.
+* `deps`: contains libraries Redis uses. Everything needed to compile Redis is inside this directory; your system just needs to provide `libc`, a POSIX compatible interface and a C compiler. Notably `deps` contains a copy of `jemalloc`, which is the default allocator of Redis under Linux. Note that under `deps` there are also things which started with the Redis project, but for which the main repository is not `redis/redis`.
 
 There are a few more directories but they are not very important for our goals
 here. We'll focus mostly on `src`, where the Redis implementation is contained,
@@ -336,7 +337,7 @@ There are two special functions called periodically by the event loop:
 Inside server.c you can find code that handles other vital things of the Redis server:
 
 * `call()` is used in order to call a given command in the context of a given client.
-* `activeExpireCycle()` handles eviciton of keys with a time to live set via the `EXPIRE` command.
+* `activeExpireCycle()` handles eviction of keys with a time to live set via the `EXPIRE` command.
 * `freeMemoryIfNeeded()` is called when a new write command should be performed but Redis is out of memory according to the `maxmemory` directive.
 * The global variable `redisCommandTable` defines all the Redis commands, specifying the name of the command, the function implementing the command, the number of arguments required, and other properties of each command.
 
@@ -401,7 +402,7 @@ a basic level, like functions to allocate new objects, handle the reference
 counting and so forth. Notable functions inside this file:
 
 * `incrRefcount()` and `decrRefCount()` are used in order to increment or decrement an object reference count. When it drops to 0 the object is finally freed.
-* `createObject()` allocates a new object. There are also specialized functions to allocate string objects having a specific content, like `createStringObjectFromLongLong()` and similar functions.
+* `createObject()` allocates a new object. There are also specialized functions to allocate string objects having specific contents, like `createStringObjectFromLongLong()` and similar functions.
 
 This file also implements the `OBJECT` command.
 
