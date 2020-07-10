@@ -252,28 +252,34 @@ static redisContext *getRedisContext(const char *ip, int port,
     if (ctx == NULL || ctx->err) {
         fprintf(stderr,"Could not connect to Redis at ");
         char *err = (ctx != NULL ? ctx->errstr : "");
-        if (hostsocket == NULL) fprintf(stderr,"%s:%d: %s\n",ip,port,err);
-        else fprintf(stderr,"%s: %s\n",hostsocket,err);
+        if (hostsocket == NULL)
+            fprintf(stderr,"%s:%d: %s\n",ip,port,err);
+        else
+            fprintf(stderr,"%s: %s\n",hostsocket,err);
         goto cleanup;
     }
-    if (config.auth == NULL) return ctx;
+    if (config.auth == NULL)
+        return ctx;
     if (config.user == NULL)
         reply = redisCommand(ctx,"AUTH %s", config.auth);
     else
         reply = redisCommand(ctx,"AUTH %s %s", config.user, config.auth);
     if (reply != NULL) {
-        if (reply->type == REDIS_REPLY_ERROR){
-            if (hostsocket == NULL) fprintf(stderr, "Node %s:%d replied with error:\n%s\n",
-                                            ip, port, reply->str);
-            else fprintf(stderr, "Node %s replied with error:\n%s\n", hostsocket, reply->str);
+        if (reply->type == REDIS_REPLY_ERROR) {
+            if (hostsocket == NULL)
+                fprintf(stderr, "Node %s:%d replied with error:\n%s\n", ip, port, reply->str);
+            else
+                fprintf(stderr, "Node %s replied with error:\n%s\n", hostsocket, reply->str);
             goto cleanup;
         }
         freeReplyObject(reply);
         return ctx;
     }
     fprintf(stderr, "ERROR: failed to fetch reply from ");
-    if (hostsocket == NULL) fprintf(stderr, "%s:%d\n", ip, port);
-    else fprintf(stderr, "%s\n", hostsocket);
+    if (hostsocket == NULL)
+        fprintf(stderr, "%s:%d\n", ip, port);
+    else
+        fprintf(stderr, "%s\n", hostsocket);
 cleanup:
     freeReplyObject(reply);
     redisFree(ctx);
