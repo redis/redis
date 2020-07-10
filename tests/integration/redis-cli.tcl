@@ -1,14 +1,13 @@
 source tests/support/cli.tcl
 
 start_server {tags {"cli"}} {
-    proc open_cli {} {
+    proc open_cli {{opts "-n 9"}} {
         set ::env(TERM) dumb
-        set cmdline [rediscli [srv port] "-n 9"]
+        set cmdline [rediscli [srv port] $opts]
         set fd [open "|$cmdline" "r+"]
         fconfigure $fd -buffering none
         fconfigure $fd -blocking false
         fconfigure $fd -translation binary
-        assert_equal "redis> " [read_cli $fd]
         set _ $fd
     }
 
@@ -32,11 +31,14 @@ start_server {tags {"cli"}} {
     }
 
     # Helpers to run tests in interactive mode
+
+    proc format_output {output} {
+        set _ [string trimright [regsub -all "\r" $output ""] "\n"]
+    }
+
     proc run_command {fd cmd} {
         write_cli $fd $cmd
-        set lines [split [read_cli $fd] "\n"]
-        assert_equal "redis> " [lindex $lines end]
-        join [lrange $lines 0 end-1] "\n"
+        set _ [format_output [read_cli $fd]]
     }
 
     proc test_interactive_cli {name code} {
@@ -58,7 +60,7 @@ start_server {tags {"cli"}} {
 
     proc _run_cli {opts args} {
         set cmd [rediscli [srv port] [list -n 9 {*}$args]]
-        foreach {key value} $args {
+        foreach {key value} $opts {
             if {$key eq "pipe"} {
                 set cmd "sh -c \"$value | $cmd\""
             }
@@ -72,7 +74,7 @@ start_server {tags {"cli"}} {
         fconfigure $fd -translation binary
         set resp [read $fd 1048576]
         close $fd
-        set _ $resp
+        set _ [format_output $resp]
     }
 
     proc run_cli {args} {
@@ -80,11 +82,11 @@ start_server {tags {"cli"}} {
     }
 
     proc run_cli_with_input_pipe {cmd args} {
-        _run_cli [list pipe $cmd] {*}$args
+        _run_cli [list pipe $cmd] -x {*}$args
     }
 
     proc run_cli_with_input_file {path args} {
-        _run_cli [list path $path] {*}$args
+        _run_cli [list path $path] -x {*}$args
     }
 
     proc test_nontty_cli {name code} {
@@ -101,7 +103,7 @@ start_server {tags {"cli"}} {
     test_interactive_cli "INFO response should be printed raw" {
         set lines [split [run_command $fd info] "\n"]
         foreach line $lines {
-            assert [regexp {^[a-z0-9_]+:[a-z0-9_]+} $line]
+            assert [regexp {^$|^#|^[a-z0-9_]+:.+} $line]
         }
     }
 
@@ -121,7 +123,7 @@ start_server {tags {"cli"}} {
     test_interactive_cli "Multi-bulk reply" {
         r rpush list foo
         r rpush list bar
-        assert_equal "1. \"foo\"\n2. \"bar\"" [run_command $fd "lrange list 0 -1"]
+        assert_equal "1) \"foo\"\n2) \"bar\"" [run_command $fd "lrange list 0 -1"]
     }
 
     test_interactive_cli "Parsing quotes" {
@@ -144,35 +146,35 @@ start_server {tags {"cli"}} {
     }
 
     test_tty_cli "Status reply" {
-        assert_equal "OK\n" [run_cli set key bar]
+        assert_equal "OK" [run_cli set key bar]
         assert_equal "bar" [r get key]
     }
 
     test_tty_cli "Integer reply" {
         r del counter
-        assert_equal "(integer) 1\n" [run_cli incr counter]
+        assert_equal "(integer) 1" [run_cli incr counter]
     }
 
     test_tty_cli "Bulk reply" {
         r set key "tab\tnewline\n"
-        assert_equal "\"tab\\tnewline\\n\"\n" [run_cli get key]
+        assert_equal "\"tab\\tnewline\\n\"" [run_cli get key]
     }
 
     test_tty_cli "Multi-bulk reply" {
         r del list
         r rpush list foo
         r rpush list bar
-        assert_equal "1. \"foo\"\n2. \"bar\"\n" [run_cli lrange list 0 -1]
+        assert_equal "1) \"foo\"\n2) \"bar\"" [run_cli lrange list 0 -1]
     }
 
     test_tty_cli "Read last argument from pipe" {
-        assert_equal "OK\n" [run_cli_with_input_pipe "echo foo" set key]
+        assert_equal "OK" [run_cli_with_input_pipe "echo foo" set key]
         assert_equal "foo\n" [r get key]
     }
 
     test_tty_cli "Read last argument from file" {
         set tmpfile [write_tmpfile "from file"]
-        assert_equal "OK\n" [run_cli_with_input_file $tmpfile set key]
+        assert_equal "OK" [run_cli_with_input_file $tmpfile set key]
         assert_equal "from file" [r get key]
     }
 
@@ -188,7 +190,7 @@ start_server {tags {"cli"}} {
 
     test_nontty_cli "Bulk reply" {
         r set key "tab\tnewline\n"
-        assert_equal "tab\tnewline\n" [run_cli get key]
+        assert_equal "tab\tnewline" [run_cli get key]
     }
 
     test_nontty_cli "Multi-bulk reply" {
@@ -207,5 +209,80 @@ start_server {tags {"cli"}} {
         set tmpfile [write_tmpfile "from file"]
         assert_equal "OK" [run_cli_with_input_file $tmpfile set key]
         assert_equal "from file" [r get key]
+    }
+
+    proc test_redis_cli_rdb_dump {} {
+        r flushdb
+
+        set dir [lindex [r config get dir] 1]
+
+        assert_equal "OK" [r debug populate 100000 key 1000]
+        catch {run_cli --rdb "$dir/cli.rdb"} output
+        assert_match {*Transfer finished with success*} $output
+
+        file delete "$dir/dump.rdb"
+        file rename "$dir/cli.rdb" "$dir/dump.rdb"
+
+        assert_equal "OK" [r set should-not-exist 1]
+        assert_equal "OK" [r debug reload nosave]
+        assert_equal {} [r get should-not-exist]
+    }
+
+    test_nontty_cli "Dumping an RDB" {
+        # Disk-based master
+        assert_match "OK" [r config set repl-diskless-sync no]
+        test_redis_cli_rdb_dump
+
+        # Disk-less master
+        assert_match "OK" [r config set repl-diskless-sync yes]
+        assert_match "OK" [r config set repl-diskless-sync-delay 0]
+        test_redis_cli_rdb_dump
+    }
+
+    test_nontty_cli "Connecting as a replica" {
+        set fd [open_cli "--replica"]
+        wait_for_condition 50 500 {
+            [string match {*slave0:*state=online*} [r info]]
+        } else {
+            fail "redis-cli --replica did not connect"
+        }
+
+        for {set i 0} {$i < 100} {incr i} {
+           r set test-key test-value-$i
+        }
+        r client kill type slave
+        catch {
+            assert_match {*SET*key-a*} [read_cli $fd]
+        }
+
+        close_cli $fd
+    }
+
+    test_nontty_cli "Piping raw protocol" {
+        set fd [open_cli "--pipe"]
+        fconfigure $fd -blocking true
+
+        # Create a new deferring client and overwrite its fd
+        set client [redis [srv 0 "host"] [srv 0 "port"] 1 0]
+        set ::redis::fd($::redis::id) $fd
+        $client select 9
+
+        r del test-counter
+        for {set i 0} {$i < 10000} {incr i} {
+            $client incr test-counter
+            $client set large-key [string repeat "x" 20000]
+        }
+
+        for {set i 0} {$i < 1000} {incr i} {
+            $client set very-large-key [string repeat "x" 512000]
+        }
+
+        close $fd write
+        set output [read_cli $fd]
+
+        assert_equal {10000} [r get test-counter]
+        assert_match {*All data transferred*errors: 0*replies: 21001*} $output
+
+        close_cli $fd
     }
 }

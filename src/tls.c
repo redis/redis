@@ -148,9 +148,6 @@ void tlsInit(void) {
     }
 
     pending_list = listCreate();
-
-    /* Server configuration */
-    server.tls_auth_clients = 1;    /* Secure by default */
 }
 
 /* Attempt to configure/reconfigure TLS. This operation is atomic and will
@@ -183,6 +180,15 @@ int tlsConfigure(redisTLSContextConfig *ctx_config) {
 #ifdef SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS
     SSL_CTX_set_options(ctx, SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS);
 #endif
+
+    if (ctx_config->session_caching) {
+        SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_SERVER);
+        SSL_CTX_sess_set_cache_size(ctx, ctx_config->session_cache_size);
+        SSL_CTX_set_timeout(ctx, ctx_config->session_cache_timeout);
+        SSL_CTX_set_session_id_context(ctx, (void *) "redis", 5);
+    } else {
+        SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_OFF);
+    }
 
     int protocols = parseProtocolsConfig(ctx_config->protocols);
     if (protocols == -1) goto error;
@@ -337,9 +343,7 @@ connection *connCreateAcceptedTLS(int fd, int require_auth) {
     conn->c.state = CONN_STATE_ACCEPTING;
 
     if (!require_auth) {
-        /* We still verify certificates if provided, but don't require them.
-         */
-        SSL_set_verify(conn->ssl, SSL_VERIFY_PEER, NULL);
+        SSL_set_verify(conn->ssl, SSL_VERIFY_NONE, NULL);
     }
 
     SSL_set_fd(conn->ssl, conn->c.fd);

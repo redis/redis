@@ -137,18 +137,8 @@ test {client freed during loading} {
         # 100mb of rdb, 100k keys will load in more than 1 second
         r debug populate 100000 key 1000
 
-        catch {
-            r debug restart
-        }
+        restart_server 0 false
 
-        set stdout [srv 0 stdout]
-        while 1 {
-            # check that the new server actually started and is ready for connections
-            if {[exec grep -i "Server initialized" | wc -l < $stdout] > 1} {
-                break
-            }
-            after 10
-        }
         # make sure it's still loading
         assert_equal [s loading] 1
 

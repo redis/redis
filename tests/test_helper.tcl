@@ -35,6 +35,7 @@ set ::all_tests {
     unit/quit
     unit/aofrw
     unit/acl
+    unit/latency-monitor
     integration/block-repl
     integration/replication
     integration/replication-2
@@ -48,6 +49,7 @@ set ::all_tests {
     integration/psync2
     integration/psync2-reg
     integration/psync2-pingoff
+    integration/redis-cli
     unit/pubsub
     unit/slowlog
     unit/scripting
