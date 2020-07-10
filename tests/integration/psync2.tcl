@@ -280,7 +280,8 @@ start_server {} {
         set sync_partial_err [status $R($master_id) sync_partial_err]
         catch {
             $R($slave_id) config rewrite
-            $R($slave_id) debug restart
+            restart_server [expr {0-$slave_id}] true
+            set R($slave_id) [srv [expr {0-$slave_id}] client]
         }
         # note: just waiting for connected_slaves==4 has a race condition since
         # we might do the check before the master realized that the slave disconnected
@@ -328,7 +329,8 @@ start_server {} {
 
         catch {
             $R($slave_id) config rewrite
-            $R($slave_id) debug restart
+            restart_server [expr {0-$slave_id}] true
+            set R($slave_id) [srv [expr {0-$slave_id}] client]
         }
 
         # Reconfigure the slave correctly again, when it's back online.
