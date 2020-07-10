@@ -205,8 +205,8 @@ source distribution.
 Please see the [CONTRIBUTING][2] file in this source distribution for more
 information.
 
-[1]: https://github.com/antirez/redis/blob/unstable/COPYING
-[2]: https://github.com/antirez/redis/blob/unstable/CONTRIBUTING
+[1]: https://github.com/redis/redis/blob/unstable/COPYING
+[2]: https://github.com/redis/redis/blob/unstable/CONTRIBUTING
 
 Redis internals
 ===
@@ -236,7 +236,7 @@ Inside the root are the following important directories:
 
 * `src`: contains the Redis implementation, written in C.
 * `tests`: contains the unit tests, implemented in Tcl.
-* `deps`: contains libraries Redis uses. Everything needed to compile Redis is inside this directory; your system just needs to provide `libc`, a POSIX compatible interface and a C compiler. Notably `deps` contains a copy of `jemalloc`, which is the default allocator of Redis under Linux. Note that under `deps` there are also things which started with the Redis project, but for which the main repository is not `antirez/redis`.
+* `deps`: contains libraries Redis uses. Everything needed to compile Redis is inside this directory; your system just needs to provide `libc`, a POSIX compatible interface and a C compiler. Notably `deps` contains a copy of `jemalloc`, which is the default allocator of Redis under Linux. Note that under `deps` there are also things which started with the Redis project, but for which the main repository is not `redis/redis`.
 
 There are a few more directories but they are not very important for our goals
 here. We'll focus mostly on `src`, where the Redis implementation is contained,
