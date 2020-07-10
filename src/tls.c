@@ -336,8 +336,11 @@ connection *connCreateAcceptedTLS(int fd, int require_auth) {
     conn->c.fd = fd;
     conn->c.state = CONN_STATE_ACCEPTING;
 
-    if (!require_auth) {
-        SSL_set_verify(conn->ssl, SSL_VERIFY_NONE, NULL);
+    switch(require_auth){
+    case 0:  SSL_set_verify(conn->ssl, SSL_VERIFY_NONE, NULL);break;
+    case 1:  SSL_set_verify(conn->ssl, SSL_VERIFY_PEER|SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);break;
+    case 2:  SSL_set_verify(conn->ssl, SSL_VERIFY_PEER, NULL);break;
+    default: serverPanic("unknow require_auth type");
     }
 
     SSL_set_fd(conn->ssl, conn->c.fd);
