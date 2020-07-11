@@ -7,18 +7,18 @@ each source file that you contribute.
 
 # IMPORTANT: HOW TO USE REDIS GITHUB ISSUES
 
-* Github issues SHOULD ONLY BE USED to report bugs, and for DETAILED feature
-  requests. Everything else belongs to the Redis Google Group:
+Github issues SHOULD ONLY BE USED to report bugs, and for DETAILED feature
+requests. Everything else belongs to the Redis Google Group:
       
-      https://groups.google.com/forum/m/#!forum/Redis-db
+    https://groups.google.com/forum/m/#!forum/Redis-db
 
-  PLEASE DO NOT POST GENERAL QUESTIONS that are not about bugs or suspected
-  bugs in the Github issues system. We'll be very happy to help you and provide
-  all the support in the mailing list.
+PLEASE DO NOT POST GENERAL QUESTIONS that are not about bugs or suspected
+bugs in the Github issues system. We'll be very happy to help you and provide
+all the support in the mailing list.
 
-  There is also an active community of Redis users at Stack Overflow:
+There is also an active community of Redis users at Stack Overflow:
 
-      http://stackoverflow.com/questions/tagged/redis
+    http://stackoverflow.com/questions/tagged/redis
 
 # How to provide a patch for a new feature
 
