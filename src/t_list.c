@@ -647,7 +647,7 @@ void lremCommand(client *c) {
     addReplyLongLong(c,removed);
 }
 
-robj* getPopPushShared(int wherefrom, int whereto) {
+robj* getPopPushCmdName(int wherefrom, int whereto) {
     if (wherefrom == LIST_TAIL && whereto == LIST_HEAD) {
         return shared.rpoplpush;
     } else if (wherefrom == LIST_TAIL && whereto == LIST_TAIL) {
@@ -659,7 +659,7 @@ robj* getPopPushShared(int wherefrom, int whereto) {
     }
 }
 
-struct redisCommand* getPopPushCommand(int wherefrom, int whereto) {
+struct redisCommand* getPopPushCmdProc(int wherefrom, int whereto) {
     if (wherefrom == LIST_TAIL && whereto == LIST_HEAD) {
         return server.rpoplpushCommand;
     } else if (wherefrom == LIST_TAIL && whereto == LIST_TAIL) {
@@ -735,13 +735,11 @@ void poppushGenericCommand(client *c, int wherefrom, int whereto) {
         decrRefCount(touchedkey);
         server.dirty++;
         if (isPopPushCommand(c->cmd->proc)) {
-            rewriteClientCommandVector(c,3,getPopPushShared(wherefrom,whereto),
+            rewriteClientCommandVector(c,3,getPopPushCmdName(wherefrom,whereto),
                                        c->argv[1],c->argv[2]);
         }
     }
 }
-
-
 
 /* This is the semantic of this command:
  *  RPOPLPUSH srclist dstlist:
@@ -758,19 +756,21 @@ void poppushGenericCommand(client *c, int wherefrom, int whereto) {
  * since the element is not just returned but pushed against another list
  * as well. This command was originally proposed by Ezra Zygmuntowicz.
  */
-
 void rpoplpushCommand(client *c) {
     poppushGenericCommand(c, LIST_TAIL, LIST_HEAD);
 }
 
+// Symmetric to RPOPLPUSH
 void lpoprpushCommand(client *c) {
     poppushGenericCommand(c, LIST_HEAD, LIST_TAIL);
 }
 
+// Symmetric to RPOPLPUSH
 void rpoprpushCommand(client *c) {
     poppushGenericCommand(c, LIST_TAIL, LIST_TAIL);
 }
 
+// Symmetric to RPOPLPUSH
 void lpoplpushCommand(client *c) {
     poppushGenericCommand(c, LIST_HEAD, LIST_HEAD);
 }
@@ -833,10 +833,10 @@ int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb 
             poppushHandlePush(receiver,dstkey,dstobj,
                 value,whereto);
             /* Propagate the xPOPxPUSH operation. */
-            argv[0] = getPopPushShared(wherefrom,whereto);
+            argv[0] = getPopPushCmdName(wherefrom,whereto);
             argv[1] = key;
             argv[2] = dstkey;
-            propagate(getPopPushCommand(wherefrom, whereto),
+            propagate(getPopPushCmdProc(wherefrom, whereto),
                 db->id,argv,3,
                 PROPAGATE_AOF|
                 PROPAGATE_REPL);
