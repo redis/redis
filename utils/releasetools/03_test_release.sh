@@ -2,7 +2,7 @@
 set -e
 if [ $# != "1" ]
 then
-    echo "Usage: utils/releasetools/03_test_release.sh <version_tag>"
+    echo "Usage: ./utils/releasetools/03_test_release.sh <version_tag>"
     exit 1
 fi
 
@@ -25,4 +25,3 @@ make
 ./runtest-sentinel
 ./runtest-cluster
 ./runtest-moduleapi
-
