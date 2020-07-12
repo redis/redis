@@ -1,14 +1,16 @@
 name: Daily
 
 on:
+  release:
+    types: [created]
   schedule:
-    - cron: '0 7 * * *'
+    - cron: '0 0 * * *'
 
 jobs:
 
   test-jemalloc:
     runs-on: ubuntu-latest
-    timeout-minutes: 1200
+    timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v1
     - name: make
@@ -19,10 +21,14 @@ jobs:
         ./runtest --accurate --verbose
     - name: module api test
       run: ./runtest-moduleapi --verbose
+    - name: sentinel tests
+      run: ./runtest-sentinel
+    - name: cluster tests
+      run: ./runtest-cluster
 
   test-libc-malloc:
     runs-on: ubuntu-latest
-    timeout-minutes: 1200
+    timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v1
     - name: make
@@ -33,9 +39,14 @@ jobs:
         ./runtest --accurate --verbose
     - name: module api test
       run: ./runtest-moduleapi --verbose
+    - name: sentinel tests
+      run: ./runtest-sentinel
+    - name: cluster tests
+      run: ./runtest-cluster
 
   test-32bit:
     runs-on: ubuntu-latest
+    timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v1
     - name: make
@@ -50,9 +61,14 @@ jobs:
       run: |
         make -C tests/modules 32bit # the script below doesn't have an argument, we must build manually ahead of time
         ./runtest-moduleapi --verbose
+    - name: sentinel tests
+      run: ./runtest-sentinel
+    - name: cluster tests
+      run: ./runtest-cluster
 
   test-tls:
     runs-on: ubuntu-latest
+    timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v1
     - name: make
@@ -65,6 +81,10 @@ jobs:
         ./runtest --accurate --verbose --tls
     - name: module api test
       run: ./runtest-moduleapi --verbose --tls
+    - name: sentinel tests
+      run: ./runtest-sentinel
+    - name: cluster tests
+      run: ./runtest-cluster
 
   test-valgrind:
     runs-on: ubuntu-latest
