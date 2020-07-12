@@ -180,6 +180,7 @@ start_server {
 
         test "BRPOPLPUSH - $type" {
             r del target
+            r rpush target bar
 
             set rd [redis_deferring_client]
             create_list blist "a b $large c d"
@@ -187,12 +188,13 @@ start_server {
             $rd brpoplpush blist target 1
             assert_equal d [$rd read]
 
-            assert_equal d [r rpop target]
+            assert_equal d [r lpop target]
             assert_equal "a b $large c" [r lrange blist 0 -1]
         }
 
         test "BRPOPRPUSH - $type" {
             r del target
+            r rpush target bar
 
             set rd [redis_deferring_client]
             create_list blist "a b $large c d"
@@ -206,6 +208,7 @@ start_server {
 
         test "BLPOPLPUSH - $type" {
             r del target
+            r rpush target bar
 
             set rd [redis_deferring_client]
             create_list blist "a b $large c d"
@@ -213,12 +216,13 @@ start_server {
             $rd blpoplpush blist target 1
             assert_equal a [$rd read]
 
-            assert_equal a [r rpop target]
+            assert_equal a [r lpop target]
             assert_equal "b $large c d" [r lrange blist 0 -1]
         }
 
         test "BLPOPRPUSH - $type" {
             r del target
+            r rpush target bar
 
             set rd [redis_deferring_client]
             create_list blist "a b $large c d"
@@ -308,41 +312,61 @@ start_server {
     test "BRPOPLPUSH with zero timeout should block indefinitely" {
         set rd [redis_deferring_client]
         r del blist target
+        r rpush target bar
         $rd brpoplpush blist target 0
-        after 1000
+        wait_for_condition 100 10 {
+            [s blocked_clients] == 1
+        } else {
+            fail "Timeout waiting for blocked clients"
+        }
         r rpush blist foo
         assert_equal foo [$rd read]
-        assert_equal {foo} [r lrange target 0 -1]
+        assert_equal {foo bar} [r lrange target 0 -1]
     }
 
     test "BRPOPRPUSH with zero timeout should block indefinitely" {
         set rd [redis_deferring_client]
         r del blist target
+        r rpush target bar
         $rd brpoprpush blist target 0
-        after 1000
+        wait_for_condition 100 10 {
+            [s blocked_clients] == 1
+        } else {
+            fail "Timeout waiting for blocked clients"
+        }
         r rpush blist foo
         assert_equal foo [$rd read]
-        assert_equal {foo} [r lrange target 0 -1]
+        assert_equal {bar foo} [r lrange target 0 -1]
     }
 
     test "BLPOPLPUSH with zero timeout should block indefinitely" {
         set rd [redis_deferring_client]
         r del blist target
+        r rpush target bar
         $rd blpoplpush blist target 0
-        after 1000
+        wait_for_condition 100 10 {
+            [s blocked_clients] == 1
+        } else {
+            fail "Timeout waiting for blocked clients"
+        }
         r rpush blist foo
         assert_equal foo [$rd read]
-        assert_equal {foo} [r lrange target 0 -1]
+        assert_equal {foo bar} [r lrange target 0 -1]
     }
 
     test "BLPOPRPUSH with zero timeout should block indefinitely" {
         set rd [redis_deferring_client]
         r del blist target
+        r rpush target bar
         $rd blpoprpush blist target 0
-        after 1000
+        wait_for_condition 100 10 {
+            [s blocked_clients] == 1
+        } else {
+            fail "Timeout waiting for blocked clients"
+        }
         r rpush blist foo
         assert_equal foo [$rd read]
-        assert_equal {foo} [r lrange target 0 -1]
+        assert_equal {bar foo} [r lrange target 0 -1]
     }
 
     test "BRPOPLPUSH with a client BLPOPing the target list" {
@@ -351,7 +375,11 @@ start_server {
         r del blist target
         $rd2 blpop target 0
         $rd brpoplpush blist target 0
-        after 1000
+        wait_for_condition 100 10 {
+            [s blocked_clients] == 2
+        } else {
+            fail "Timeout waiting for blocked clients"
+        }
         r rpush blist foo
         assert_equal foo [$rd read]
         assert_equal {target foo} [$rd2 read]
@@ -364,7 +392,11 @@ start_server {
         r del blist target
         $rd2 blpop target 0
         $rd brpoprpush blist target 0
-        after 1000
+        wait_for_condition 100 10 {
+            [s blocked_clients] == 2
+        } else {
+            fail "Timeout waiting for blocked clients"
+        }
         r rpush blist foo
         assert_equal foo [$rd read]
         assert_equal {target foo} [$rd2 read]
@@ -377,7 +409,11 @@ start_server {
         r del blist target
         $rd2 blpop target 0
         $rd blpoplpush blist target 0
-        after 1000
+        wait_for_condition 100 10 {
+            [s blocked_clients] == 2
+        } else {
+            fail "Timeout waiting for blocked clients"
+        }
         r rpush blist foo
         assert_equal foo [$rd read]
         assert_equal {target foo} [$rd2 read]
@@ -390,7 +426,11 @@ start_server {
         r del blist target
         $rd2 blpop target 0
         $rd blpoprpush blist target 0
-        after 1000
+        wait_for_condition 100 10 {
+            [s blocked_clients] == 2
+        } else {
+            fail "Timeout waiting for blocked clients"
+        }
         r rpush blist foo
         assert_equal foo [$rd read]
         assert_equal {target foo} [$rd2 read]
@@ -417,7 +457,11 @@ start_server {
         r del blist target
         r set target nolist
         $rd brpoplpush blist target 0
-        after 1000
+        wait_for_condition 100 10 {
+            [s blocked_clients] == 1
+        } else {
+            fail "Timeout waiting for blocked clients"
+        }
         r rpush blist foo
         assert_error "WRONGTYPE*" {$rd read}
         assert_equal {foo} [r lrange blist 0 -1]
@@ -447,14 +491,14 @@ start_server {
         assert_equal {foo} [r lrange target2 0 -1]
     }
 
-    test "Linked BRPOPLPUSH" {
+    test "Linked BRPOPLPUSH and BLPOPRPUSH" {
       set rd1 [redis_deferring_client]
       set rd2 [redis_deferring_client]
 
       r del list1 list2 list3
 
       $rd1 brpoplpush list1 list2 0
-      $rd2 brpoplpush list2 list3 0
+      $rd2 blpoprpush list2 list3 0
 
       r rpush list1 foo
 
@@ -543,7 +587,16 @@ start_server {
       set rd [redis_deferring_client]
 
       $rd brpoplpush foo_list bar_list 1
-      after 2000
+      wait_for_condition 100 10 {
+          [s blocked_clients] == 1
+      } else {
+          fail "Timeout waiting for blocked client"
+      }
+      wait_for_condition 500 10 {
+          [s blocked_clients] == 0
+      } else {
+          fail "Timeout waiting for client to unblock"
+      }
       $rd read
     } {}
 
