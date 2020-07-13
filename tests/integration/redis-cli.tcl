@@ -241,7 +241,7 @@ start_server {tags {"cli"}} {
 
     test_nontty_cli "Connecting as a replica" {
         set fd [open_cli "--replica"]
-        wait_for_condition 50 500 {
+        wait_for_condition 200 500 {
             [string match {*slave0:*state=online*} [r info]]
         } else {
             fail "redis-cli --replica did not connect"
