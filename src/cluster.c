@@ -5030,6 +5030,7 @@ void restoreCommand(client *c) {
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
             server.dirty++;
         }
+        decrRefCount(obj);
         addReply(c, shared.ok);
         return;
     }
