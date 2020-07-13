@@ -136,13 +136,14 @@ int time_independent_strcmp(char *a, char *b) {
     memcpy(bufa,a,alen);
     memcpy(bufb,b,blen);
 
-    /* Always compare all the chars in the two buffers without
-     * conditional expressions. */
-    for (j = 0; j < sizeof(bufa); j++) {
-        diff |= (bufa[j] ^ bufb[j]);
-    }
     /* Length must be equal as well. */
     diff |= alen ^ blen;
+
+    /* Always compare all the chars in the two buffers without
+     * conditional expressions. */
+    for (j = 0; !diff && j < sizeof(bufa); j++) {
+        diff |= (bufa[j] ^ bufb[j]);
+    }
     return diff; /* If zero strings are the same. */
 }
 
