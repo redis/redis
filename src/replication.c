@@ -1240,6 +1240,12 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
         } else if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
             struct redis_stat buf;
 
+            if (bgsaveerr != C_OK) {
+                freeClient(slave);
+                serverLog(LL_WARNING,"SYNC failed. BGSAVE child returned an error");
+                continue;
+            }
+
             /* If this was an RDB on disk save, we have to prepare to send
              * the RDB from disk to the slave socket. Otherwise if this was
              * already an RDB -> Slaves socket transfer, used in the case of
@@ -1278,11 +1284,6 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                 slave->repl_put_online_on_ack = 1;
                 slave->repl_ack_time = server.unixtime; /* Timeout otherwise. */
             } else {
-                if (bgsaveerr != C_OK) {
-                    freeClient(slave);
-                    serverLog(LL_WARNING,"SYNC failed. BGSAVE child returned an error");
-                    continue;
-                }
                 if ((slave->repldbfd = open(server.rdb_filename,O_RDONLY)) == -1 ||
                     redis_fstat(slave->repldbfd,&buf) == -1) {
                     freeClient(slave);
