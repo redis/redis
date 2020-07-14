@@ -170,8 +170,6 @@ proc parse_options {} {
                 -keyfile "$::tlsdir/redis.key"
             set ::tls 1
         } elseif {$opt eq "--help"} {
-            puts "Hello, I'm sentinel.tcl and I run Sentinel unit tests."
-            puts "\nOptions:"
             puts "--single <pattern>      Only runs tests specified by pattern."
             puts "--pause-on-error        Pause for manual inspection on error."
             puts "--fail                  Simulate a test failure."
