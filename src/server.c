@@ -5198,6 +5198,10 @@ int main(int argc, char **argv) {
     } else {
         InitServerLast();
         sentinelIsRunning();
+        if (server.supervised_mode == SUPERVISED_SYSTEMD) {
+            redisCommunicateSystemd("STATUS=Ready to accept connections\n");
+            redisCommunicateSystemd("READY=1\n");
+        }
     }
 
     /* Warning the user about suspicious maxmemory setting. */
