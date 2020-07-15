@@ -67,4 +67,9 @@ start_server {tags {"latency-monitor"}} {
         }
         assert_match {*expire-cycle*} [r latency latest]
     }
+
+    test {LATENCY HELP should not have unexpected options} {
+        catch {r LATENCY help xxx} e
+        assert_match "*Unknown subcommand or wrong number of arguments*" $e
+    }
 }
