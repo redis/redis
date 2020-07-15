@@ -907,10 +907,10 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
     {
         char *err;
         if (server.cluster_enabled)
-            err = "-ERR max number of clients reached\r\n";
-        else
             err = "-ERR max number of clients + cluster "
                   "connections reached\r\n";
+        else
+            err = "-ERR max number of clients reached\r\n";
 
         /* That's a best effort error message, don't check write errors.
          * Note that for TLS connections, no handshake was done yet so nothing
