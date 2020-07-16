@@ -17,7 +17,7 @@ A description of what you want to happen.
 
 **Alternatives you've considered**
 
-Any alternative solutions or features you've considered, including searching this repository for existing open and closed feature requests.
+Any alternative solutions or features you've considered, including references to existing open and closed feature requests in this repository.
 
 **Additional information**
 

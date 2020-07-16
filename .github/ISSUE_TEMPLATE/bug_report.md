@@ -9,7 +9,7 @@ assignees: ''
 
 **Describe the bug**
 
-A short description of what the bug is.
+A short description of the bug.
 
 **To reproduce**
 
