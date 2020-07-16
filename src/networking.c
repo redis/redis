@@ -1637,9 +1637,14 @@ int processMultibulkBuffer(client *c) {
          * so go ahead and find out the multi bulk length. */
         serverAssertWithInfo(c,NULL,c->querybuf[c->qb_pos] == '*');
         ok = string2ll(c->querybuf+1+c->qb_pos,newline-(c->querybuf+1+c->qb_pos),&ll);
-        if (!ok || ll > 1024*1024) {
+        if (!ok) {
             addReplyError(c,"Protocol error: invalid multibulk length");
             setProtocolError("invalid mbulk count",c);
+            return C_ERR;
+        }
+        else if (ll > 1024*1024) {
+            addReplyError(c,"Protocol error: multibulk length too large");
+            setProtocolError("mbulk count too large",c);
             return C_ERR;
         }
 
