@@ -3189,8 +3189,11 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
             argv[argc++] = createStringObject(cstr,strlen(cstr));
         } else if (*p == 's') {
             robj *obj = va_arg(ap,void*);
+            if (obj->refcount == OBJ_STATIC_REFCOUNT)
+                obj = createStringObject(obj->ptr,sdslen(obj->ptr));
+            else
+                incrRefCount(obj);
             argv[argc++] = obj;
-            incrRefCount(obj);
         } else if (*p == 'b') {
             char *buf = va_arg(ap,char*);
             size_t len = va_arg(ap,size_t);
