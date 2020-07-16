@@ -19,4 +19,5 @@ ssh ubuntu@host.redis.io "cd /var/www/download;
                           mv redis-${1} redis-stable;
                           tar cvzf redis-stable.tar.gz redis-stable;
                           rm -rf redis-${1}.tar.gz;
+                          shasum -a 256 redis-stable.tar.gz > redis-stable.tar.gz.SHA256SUM;
                           "
