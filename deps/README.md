@@ -47,7 +47,7 @@ Hiredis
 Hiredis uses the SDS string library, that must be the same version used inside Redis itself. Hiredis is also very critical for Sentinel. Historically Redis often used forked versions of hiredis in a way or the other. In order to upgrade it is advised to take a lot of care:
 
 1. Check with diff if hiredis API changed and what impact it could have in Redis.
-2. Make sure thet the SDS library inside Hiredis and inside Redis are compatible.
+2. Make sure that the SDS library inside Hiredis and inside Redis are compatible.
 3. After the upgrade, run the Redis Sentinel test.
 4. Check manually that redis-cli and redis-benchmark behave as expecteed, since we have no tests for CLI utilities currently.
 

@@ -31,7 +31,7 @@ jobs:
     - name: make
       run: make
 
-  biuld-32bit:
+  build-32bit:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v1

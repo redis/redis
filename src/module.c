@@ -2044,7 +2044,7 @@ int RM_KeyType(RedisModuleKey *key) {
     case OBJ_HASH: return REDISMODULE_KEYTYPE_HASH;
     case OBJ_MODULE: return REDISMODULE_KEYTYPE_MODULE;
     case OBJ_STREAM: return REDISMODULE_KEYTYPE_STREAM;
-    default: return 0;
+    default: return REDISMODULE_KEYTYPE_EMPTY;
     }
 }
 
@@ -3189,8 +3189,11 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
             argv[argc++] = createStringObject(cstr,strlen(cstr));
         } else if (*p == 's') {
             robj *obj = va_arg(ap,void*);
+            if (obj->refcount == OBJ_STATIC_REFCOUNT)
+                obj = createStringObject(obj->ptr,sdslen(obj->ptr));
+            else
+                incrRefCount(obj);
             argv[argc++] = obj;
-            incrRefCount(obj);
         } else if (*p == 'b') {
             char *buf = va_arg(ap,char*);
             size_t len = va_arg(ap,size_t);

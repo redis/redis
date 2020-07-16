@@ -153,6 +153,12 @@ proc test {name code {okpattern undefined}} {
 
             incr ::num_failed
             send_data_packet $::test_server_fd err [join $details "\n"]
+
+            if {$::stop_on_failure} {
+                puts "Test error (last server port:[srv port], log:[srv stdout]), press enter to teardown the test."
+                flush stdout
+                gets stdin
+            }
         } else {
             # Re-raise, let handler up the stack take care of this.
             error $error $::errorInfo

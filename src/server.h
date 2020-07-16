@@ -1011,6 +1011,9 @@ typedef struct redisTLSContextConfig {
     char *ciphers;
     char *ciphersuites;
     int prefer_server_ciphers;
+    int session_caching;
+    int session_cache_size;
+    int session_cache_timeout;
 } redisTLSContextConfig;
 
 /*-----------------------------------------------------------------------------
@@ -2070,6 +2073,7 @@ void propagateExpire(redisDb *db, robj *key, int lazy);
 int expireIfNeeded(redisDb *db, robj *key);
 long long getExpire(redisDb *db, robj *key);
 void setExpire(client *c, redisDb *db, robj *key, long long when);
+int checkAlreadyExpired(long long when);
 robj *lookupKey(redisDb *db, robj *key, int flags);
 robj *lookupKeyRead(redisDb *db, robj *key);
 robj *lookupKeyWrite(redisDb *db, robj *key);

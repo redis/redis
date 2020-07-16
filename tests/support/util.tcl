@@ -99,11 +99,27 @@ proc wait_for_ofs_sync {r1 r2} {
     }
 }
 
-proc wait_for_log_message {srv_idx pattern last_lines maxtries delay} {
+# count current log lines in server's stdout
+proc count_log_lines {srv_idx} {
+    set _ [exec wc -l < [srv $srv_idx stdout]]
+}
+
+# verify pattern exists in server's sdtout after a certain line number
+proc verify_log_message {srv_idx pattern from_line} {
+    set lines_after [count_log_lines]
+    set lines [expr $lines_after - $from_line]
+    set result [exec tail -$lines < [srv $srv_idx stdout]]
+    if {![string match $pattern $result]} {
+        error "assertion:expected message not found in log file: $pattern"
+    }
+}
+
+# wait for pattern to be found in server's stdout after certain line number
+proc wait_for_log_message {srv_idx pattern from_line maxtries delay} {
     set retry $maxtries
     set stdout [srv $srv_idx stdout]
     while {$retry} {
-        set result [exec tail -$last_lines < $stdout]
+        set result [exec tail +$from_line < $stdout]
         set result [split $result "\n"]
         foreach line $result {
             if {[string match $pattern $line]} {
@@ -114,7 +130,7 @@ proc wait_for_log_message {srv_idx pattern last_lines maxtries delay} {
         after $delay
     }
     if {$retry == 0} {
-        fail "log message of '$pattern' not found"
+        fail "log message of '$pattern' not found in $stdout after line: $from_line"
     }
 }
 
