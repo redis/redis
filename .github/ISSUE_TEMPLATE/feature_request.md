@@ -1,7 +1,7 @@
 ---
 name: Feature request
 about: Suggest a feature for Redis
-title: ''
+title: '[NEW]'
 labels: ''
 assignees: ''
 
@@ -17,7 +17,7 @@ A description of what you want to happen.
 
 **Alternatives you've considered**
 
-Any alternative solutions or features you've considered.
+Any alternative solutions or features you've considered, including searching this repository for existing open and closed feature requests.
 
 **Additional information**
 

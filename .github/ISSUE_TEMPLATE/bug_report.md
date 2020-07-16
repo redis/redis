@@ -1,7 +1,7 @@
 ---
 name: Bug report
 about: Help us improve Redis by reporting a bug
-title: ''
+title: '[BUG]'
 labels: ''
 assignees: ''
 
