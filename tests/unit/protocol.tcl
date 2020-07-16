@@ -17,7 +17,7 @@ start_server {tags {"protocol"}} {
         reconnect
         r write "*20000000\r\n"
         r flush
-        assert_error "*invalid multibulk length*" {r read}
+        assert_error "*multibulk length too large*" {r read}
     }
 
     test "Wrong multibulk payload header" {
