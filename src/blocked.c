@@ -258,11 +258,9 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
                 const ustime_t total_cmd_duration = receiver->duration + reply_duration;
                 /* Log the command into the Slow log if needed. */
                 if (!(receiver->lastcmd->flags & CMD_SKIP_SLOWLOG)) {
-                    const char *latency_event = (receiver->lastcmd->flags & CMD_FAST) ?
-                                        "fast-command" : "command";
                     slowlogPushEntryIfNeeded(receiver->lastcmd,receiver->argv,receiver->argc,total_cmd_duration);
-                    /* Log the reply duration either as fast-command or as command event. */
-                    latencyAddSampleIfNeeded(latency_event,reply_duration/1000);
+                    /* Log the reply duration as a blocked-reply event. */
+                    latencyAddSampleIfNeeded("blocked-reply",reply_duration/1000);
                 }
 
                 if (dstkey) decrRefCount(dstkey);

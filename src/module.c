@@ -4567,8 +4567,7 @@ int RM_UnblockClient(RedisModuleBlockedClient *bc, void *privdata) {
         if (bc->timeout_callback == NULL) return REDISMODULE_ERR;
         if (bc->unblocked) return REDISMODULE_OK;
         if (bc->client) moduleBlockedClientTimedOut(bc->client);
-    }
-    else {
+    } else {
         if (bc->client) bc->client->background_duration = ustime()-bc->client->background_start_time;
     }
     moduleUnblockClientByHandle(bc,privdata);
@@ -4655,8 +4654,6 @@ void moduleHandleBlockedClients(void) {
                 slowlogPushEntryIfNeeded(c,c->argv,c->argc,total_cmd_duration);
                 /* Log the reply duration either as fast-command or as command event. */
                 latencyAddSampleIfNeeded(latency_event,reply_duration/1000);
-                /* Log the background duration as background-command events. */
-                latencyAddSampleIfNeeded("background-command",c->background_duration/1000);
             }
 
             /* Populate the per-command statistics that we show in INFO commandstats. */
