@@ -7,7 +7,7 @@ jobs:
   test-ubuntu-latest:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - name: make
       run: make
     - name: test
@@ -20,21 +20,21 @@ jobs:
   build-ubuntu-old:
     runs-on: ubuntu-16.04
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - name: make
       run: make
 
   build-macos-latest:
     runs-on: macos-latest
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - name: make
       run: make
 
   build-32bit:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - name: make
       run: |
         sudo apt-get update && sudo apt-get install libc6-dev-i386
@@ -43,7 +43,7 @@ jobs:
   build-libc-malloc:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - name: make
       run: make MALLOC=libc
 
