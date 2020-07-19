@@ -12,6 +12,251 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 6.0.6     Released Mon Jul 20 09:31:30 IDT 2020
+================================================================================
+
+Upgrade urgency MODERATE: several bugs with moderate impact are fixed here.
+
+The most important issues are listed here:
+
+* Fix crash when enabling CLIENT TRACKING with prefix
+* EXEC always fails with EXECABORT and multi-state is cleared
+* RESTORE ABSTTL won't store expired keys into the db
+* redis-cli better handling of non-pritable key names
+* TLS: Ignore client cert when tls-auth-clients off
+* Tracking: fix invalidation message on flush
+* Notify systemd on Sentinel startup
+* Fix crash on a misuse of STRALGO
+* Few fixes in module API
+* Fix a few rare leaks (STRALGO error misuse, Sentinel)
+* Fix a possible invalid access in defrag of scripts (unlikely to cause real harm)
+
+New features:
+
+* LPOS command to search in a list
+* Use user+pass for MIGRATE in redis-cli and redis-benchmark in cluster mode
+* redis-cli support TLS for --pipe, --rdb and --replica options
+* TLS: Session caching configuration support
+
+And this is the full list of commits:
+
+Itamar Haber in commit 50548cafc:
+ Adds SHA256SUM to redis-stable tarball upload
+ 1 file changed, 1 insertion(+)
+
+yoav-steinberg in commit 3a4c6684f:
+ Support passing stack allocated module strings to moduleCreateArgvFromUserFormat (#7528)
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+Luke Palmer in commit 2fd0b2bd6:
+ Send null for invalidate on flush (#7469)
+ 1 file changed, 14 insertions(+), 10 deletions(-)
+
+dmurnane in commit c3c81e1a8:
+ Notify systemd on sentinel startup (#7168)
+ 1 file changed, 4 insertions(+)
+
+Developer-Ecosystem-Engineering in commit e2770f29b:
+ Add registers dump support for Apple silicon (#7453)
+ 1 file changed, 54 insertions(+), 2 deletions(-)
+
+Wen Hui in commit b068eae97:
+ correct error msg for num connections reaching maxclients in cluster mode (#7444)
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+WuYunlong in commit e6169ae5c:
+ Fix command help for unexpected options (#7476)
+ 6 files changed, 20 insertions(+), 3 deletions(-)
+
+WuYunlong in commit abf08fc02:
+ Refactor RM_KeyType() by using macro. (#7486)
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Oran Agra in commit 11b83076a:
+ diskless master disconnect replicas when rdb child failed (#7518)
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+Oran Agra in commit 8f27f2f7d:
+ redis-cli tests, fix valgrind timing issue (#7519)
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+WuYunlong in commit 180b588e8:
+ Fix out of update help info in tcl tests. (#7516)
+ 1 file changed, 2 deletions(-)
+
+Qu Chen in commit 417c60bdc:
+ Replica always reports master's config epoch in CLUSTER NODES output. (#7235)
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+Oran Agra in commit 72a242419:
+ RESTORE ABSTTL skip expired keys - leak (#7511)
+ 1 file changed, 1 insertion(+)
+
+Oran Agra in commit 2ca45239f:
+ fix recently added time sensitive tests failing with valgrind (#7512)
+ 2 files changed, 12 insertions(+), 6 deletions(-)
+
+Oran Agra in commit 123dc8b21:
+ runtest --stop pause stops before terminating the redis server (#7513)
+ 2 files changed, 8 insertions(+), 2 deletions(-)
+
+Oran Agra in commit a6added45:
+ update release scripts for new hosts, and CI to run more tests (#7480)
+ 5 files changed, 68 insertions(+), 26 deletions(-)
+
+jimgreen2013 in commit cf4869f9e:
+ fix description about ziplist, the code is ok (#6318)
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+马永泽 in commit d548f219b:
+ fix benchmark in cluster mode fails to authenticate (#7488)
+ 1 file changed, 56 insertions(+), 40 deletions(-)
+
+Abhishek Soni in commit e58eb7b89:
+ fix: typo in CI job name (#7466)
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Jiayuan Chen in commit 6def10a2b:
+ Fix typo in deps README (#7500)
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+WuYunlong in commit 8af61afef:
+ Add missing latency-monitor tcl test to test_helper.tcl. (#6782)
+ 1 file changed, 1 insertion(+)
+
+Yossi Gottlieb in commit a419f400e:
+ TLS: Session caching configuration support. (#7420)
+ 6 files changed, 56 insertions(+), 16 deletions(-)
+
+Yossi Gottlieb in commit 2e4bb2667:
+ TLS: Ignore client cert when tls-auth-clients off. (#7457)
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+James Hilliard in commit f0b1aee9e:
+ Use pkg-config to properly detect libssl and libcrypto libraries (#7452)
+ 1 file changed, 15 insertions(+), 3 deletions(-)
+
+Yossi Gottlieb in commit e92b99564:
+ TLS: Add missing redis-cli options. (#7456)
+ 3 files changed, 166 insertions(+), 52 deletions(-)
+
+Oran Agra in commit 1f3db5bf5:
+ redis-cli --hotkeys fixed to handle non-printable key names
+ 1 file changed, 11 insertions(+), 5 deletions(-)
+
+Oran Agra in commit c3044f369:
+ redis-cli --bigkeys fixed to handle non-printable key names
+ 1 file changed, 24 insertions(+), 16 deletions(-)
+
+Oran Agra in commit b3f75527b:
+ RESTORE ABSTTL won't store expired keys into the db (#7472)
+ 4 files changed, 46 insertions(+), 16 deletions(-)
+
+huangzhw in commit 6f87fc92f:
+ defrag.c activeDefragSdsListAndDict when defrag sdsele, We can't use (#7492)
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Oran Agra in commit d8e6a3e5b:
+ skip a test that uses +inf on valgrind (#7440)
+ 1 file changed, 12 insertions(+), 9 deletions(-)
+
+Oran Agra in commit 28fd1a110:
+ stabilize tests that look for log lines (#7367)
+ 3 files changed, 33 insertions(+), 11 deletions(-)
+
+Oran Agra in commit a513b4ed9:
+ tests/valgrind: don't use debug restart (#7404)
+ 4 files changed, 114 insertions(+), 57 deletions(-)
+
+Oran Agra in commit 70e72fc1b:
+ change references to the github repo location (#7479)
+ 5 files changed, 7 insertions(+), 7 deletions(-)
+
+zhaozhao.zz in commit c63e533cc:
+ BITOP: propagate only when it really SET or DEL targetkey (#5783)
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+antirez in commit 31040ff54:
+ Update comment to clarify change in #7398.
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+antirez in commit b605fe827:
+ LPOS: option FIRST renamed RANK.
+ 2 files changed, 19 insertions(+), 19 deletions(-)
+
+Dave Nielsen in commit 8deb24954:
+ updated copyright year
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Oran Agra in commit a61c2930c:
+ EXEC always fails with EXECABORT and multi-state is cleared
+ 6 files changed, 204 insertions(+), 91 deletions(-)
+
+antirez in commit 3c8041637:
+ Include cluster.h for getClusterConnectionsCount().
+ 1 file changed, 1 insertion(+)
+
+antirez in commit 5be673ee8:
+ Fix BITFIELD i64 type handling, see #7417.
+ 1 file changed, 8 insertions(+), 6 deletions(-)
+
+antirez in commit 5f289df9b:
+ Clarify maxclients and cluster in conf. Remove myself too.
+ 2 files changed, 9 insertions(+), 1 deletion(-)
+
+hwware in commit 000f928d6:
+ fix memory leak in sentinel connection sharing
+ 1 file changed, 1 insertion(+)
+
+chenhui0212 in commit d9a3c0171:
+ Fix comments in function raxLowWalk of listpack.c
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Tomasz Poradowski in commit 7526e4506:
+ ensure SHUTDOWN_NOSAVE in Sentinel mode
+ 2 files changed, 9 insertions(+), 8 deletions(-)
+
+chenhui0212 in commit 6487cbc33:
+ fix comments in listpack.c
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit 69b66bfca:
+ Use cluster connections too, to limit maxclients.
+ 3 files changed, 23 insertions(+), 8 deletions(-)
+
+antirez in commit 5a960a033:
+ Tracking: fix enableBcastTrackingForPrefix() invalid sdslen() call.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+root in commit 1c2e50de3:
+ cluster.c remove if of clusterSendFail in markNodeAsFailingIfNeeded
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+meir@redislabs.com in commit 040efb697:
+ Fix RM_ScanKey module api not to return int encoded strings
+ 3 files changed, 24 insertions(+), 7 deletions(-)
+
+antirez in commit 1b8b7941d:
+ Fix LCS object type checking. Related to #7379.
+ 1 file changed, 17 insertions(+), 10 deletions(-)
+
+hwware in commit 6b571b45a:
+ fix memory leak
+ 1 file changed, 11 insertions(+), 12 deletions(-)
+
+hwware in commit 674759062:
+ fix server crash in STRALGO command
+ 1 file changed, 7 insertions(+)
+
+Benjamin Sergeant in commit a05ffefdc:
+ Update redis-cli.c
+ 1 file changed, 19 insertions(+), 6 deletions(-)
+
+Jamie Scott in commit 870b63733:
+ minor fix
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+================================================================================
 Redis 6.0.5     Released Tue Jun 09 11:56:08 CEST 2020
 ================================================================================
 
