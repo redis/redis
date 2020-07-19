@@ -1,8 +1,10 @@
 name: Daily
 
 on:
-  release:
-    types: [created]
+  pull_request:
+    branches:
+      # any PR to a release branch.
+      - '[0-9].[0-9]'
   schedule:
     - cron: '0 0 * * *'
 
