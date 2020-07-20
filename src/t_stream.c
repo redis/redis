@@ -281,7 +281,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
     }
 
     int flags = STREAM_ITEM_FLAG_NONE;
-    if (lp == NULL || lp_bytes >= server.stream_node_max_bytes) {
+    if (lp == NULL) {
         master_id = id;
         streamEncodeID(rax_key,&id);
         /* Create the listpack having the master entry ID and fields. */
