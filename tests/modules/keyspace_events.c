@@ -2,7 +2,7 @@
  *
  * -----------------------------------------------------------------------------
  *
- * Copyright (c) 2019, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2020, Meir Shpilraien <meir at redislabs dot com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,6 +30,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#define REDISMODULE_EXPERIMENTAL_API
+
 #include "redismodule.h"
 #include <stdio.h>
 #include <string.h>
@@ -53,12 +55,17 @@ static int KeySpace_Notification(RedisModuleCtx *ctx, int type, const char *even
     return REDISMODULE_OK;
 }
 
-static int cmdLoadedEvents(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
-    REDISMODULE_NOT_USED(argv);
-    REDISMODULE_NOT_USED(argc);
+static int cmdIsKeyLoaded(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
+    if(argc != 2){
+        return RedisModule_WrongArity(ctx);
+    }
 
-    long long size = RedisModule_DictSize(loaded_event_log);
-    RedisModule_ReplyWithLongLong(ctx, size);
+    const char* key  = RedisModule_StringPtrLen(argv[1], NULL);
+
+    int nokey;
+    RedisModule_DictGetC(loaded_event_log, (void*)key, strlen(key), &nokey);
+
+    RedisModule_ReplyWithLongLong(ctx, !nokey);
     return REDISMODULE_OK;
 }
 
@@ -68,15 +75,17 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
-    if (RedisModule_Init(ctx,"testkeyspace",1,REDISMODULE_APIVER_1) == REDISMODULE_ERR) return REDISMODULE_ERR;
-
-    loaded_event_log = RedisModule_CreateDict(ctx);
-
-    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_ALL, KeySpace_Notification) != REDISMODULE_OK){
+    if (RedisModule_Init(ctx,"testkeyspace",1,REDISMODULE_APIVER_1) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
 
-    if (RedisModule_CreateCommand(ctx,"keyspace.loaded_events", cmdLoadedEvents,"",0,0,0) == REDISMODULE_ERR){
+    loaded_event_log = RedisModule_CreateDict(ctx);
+
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_LOADED, KeySpace_Notification) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx,"keyspace.is_key_loaded", cmdIsKeyLoaded,"",0,0,0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
 

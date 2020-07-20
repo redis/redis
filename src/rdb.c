@@ -2271,7 +2271,8 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             sdsfree(key);
             decrRefCount(val);
         } else {
-            robj* keyobj = createRawStringObject(sdsdup(key), sdslen(key));
+            robj keyobj;
+            initStaticStringObject(keyobj,key);
 
             /* Add the new object in the hash table */
             int added = dbAddRDBLoad(db,key,val);
@@ -2280,7 +2281,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                     /* This flag is useful for DEBUG RELOAD special modes.
                      * When it's set we allow new keys to replace the current
                      * keys with the same name. */
-                    dbSyncDelete(db,keyobj);
+                    dbSyncDelete(db,&keyobj);
                     dbAddRDBLoad(db,key,val);
                 } else {
                     serverLog(LL_WARNING,
@@ -2291,16 +2292,14 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
 
             /* Set the expire time if needed */
             if (expiretime != -1) {
-                setExpire(NULL,db,keyobj,expiretime);
+                setExpire(NULL,db,&keyobj,expiretime);
             }
 
             /* Set usage information (for eviction). */
             objectSetLRUOrLFU(val,lfu_freq,lru_idle,lru_clock,1000);
 
             // call key space notification on key loaded for modules only
-            moduleNotifyKeyspaceEvent(NOTIFY_GENERIC, "loaded", keyobj, db->id);
-
-            decrRefCount(keyobj);
+            moduleNotifyKeyspaceEvent(NOTIFY_LOADED, "loaded", &keyobj, db->id);
         }
 
         /* Loading the database more slowly is useful in order to test
