@@ -4850,7 +4850,7 @@ void moduleReleaseGIL(void) {
  *  - REDISMODULE_NOTIFY_STREAM: Stream events
  *  - REDISMODULE_NOTIFY_KEYMISS: Key-miss events
  *  - REDISMODULE_NOTIFY_ALL: All events (Excluding REDISMODULE_NOTIFY_KEYMISS)
- *  - REDISMODULE_NOTIFY_LOADED: special notification available only for modules,
+ *  - REDISMODULE_NOTIFY_LOADED: A special notification available only for modules,
  *                               indicate that the key was loaded from rdb.
  *                               Notice, when this event fires, the given key
  *                               can not be retained, use RM_CreateStringFromString
