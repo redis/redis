@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 14400
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - name: make
       run: make
     - name: test
@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 14400
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - name: make
       run: make MALLOC=libc
     - name: test
@@ -48,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 14400
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - name: make
       run: |
         sudo apt-get update && sudo apt-get install libc6-dev-i386
@@ -70,7 +70,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 14400
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - name: make
       run: |
         make BUILD_TLS=yes
@@ -90,7 +90,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 14400
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - name: make
       run: make valgrind
     - name: test
