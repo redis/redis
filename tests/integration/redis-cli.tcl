@@ -1,10 +1,16 @@
 source tests/support/cli.tcl
 
 start_server {tags {"cli"}} {
-    proc open_cli {{opts "-n 9"}} {
+    proc open_cli {{opts "-n 9"} {infile ""}} {
         set ::env(TERM) dumb
         set cmdline [rediscli [srv port] $opts]
-        set fd [open "|$cmdline" "r+"]
+        if {$infile ne ""} {
+            set cmdline "$cmdline < $infile"
+            set mode "r"
+        } else {
+            set mode "r+"
+        }
+        set fd [open "|$cmdline" $mode]
         fconfigure $fd -buffering none
         fconfigure $fd -blocking false
         fconfigure $fd -translation binary
@@ -228,7 +234,7 @@ start_server {tags {"cli"}} {
         assert_equal {} [r get should-not-exist]
     }
 
-    test_nontty_cli "Dumping an RDB" {
+    test "Dumping an RDB" {
         # Disk-based master
         assert_match "OK" [r config set repl-diskless-sync no]
         test_redis_cli_rdb_dump
@@ -239,7 +245,7 @@ start_server {tags {"cli"}} {
         test_redis_cli_rdb_dump
     }
 
-    test_nontty_cli "Connecting as a replica" {
+    test "Connecting as a replica" {
         set fd [open_cli "--replica"]
         wait_for_condition 500 500 {
             [string match {*slave0:*state=online*} [r info]]
@@ -258,31 +264,30 @@ start_server {tags {"cli"}} {
         close_cli $fd
     }
 
-    test_nontty_cli "Piping raw protocol" {
-        set fd [open_cli "--pipe"]
-        fconfigure $fd -blocking true
+    test "Piping raw protocol" {
+        set cmds [tmpfile "cli_cmds"]
+        set cmds_fd [open $cmds "w"]
 
-        # Create a new deferring client and overwrite its fd
-        set client [redis [srv 0 "host"] [srv 0 "port"] 1 0]
-        set ::redis::fd($::redis::id) $fd
-        $client select 9
-
-        r del test-counter
-        for {set i 0} {$i < 10000} {incr i} {
-            $client incr test-counter
-            $client set large-key [string repeat "x" 20000]
-        }
+        puts $cmds_fd [formatCommand select 9]
+        puts $cmds_fd [formatCommand del test-counter]
 
         for {set i 0} {$i < 1000} {incr i} {
-            $client set very-large-key [string repeat "x" 512000]
+            puts $cmds_fd [formatCommand incr test-counter]
+            puts $cmds_fd [formatCommand set large-key [string repeat "x" 20000]]
         }
 
-        close $fd write
-        set output [read_cli $fd]
+        for {set i 0} {$i < 100} {incr i} {
+            puts $cmds_fd [formatCommand set very-large-key [string repeat "x" 512000]]
+        }
+        close $cmds_fd
 
-        assert_equal {10000} [r get test-counter]
-        assert_match {*All data transferred*errors: 0*replies: 21001*} $output
+        set cli_fd [open_cli "--pipe" $cmds]
+        fconfigure $cli_fd -blocking true
+        set output [read_cli $cli_fd]
 
-        close_cli $fd
+        assert_equal {1000} [r get test-counter]
+        assert_match {*All data transferred*errors: 0*replies: 2102*} $output
+
+        file delete $cmds
     }
 }
