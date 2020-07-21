@@ -396,6 +396,9 @@ proc start_server {options {code undefined}} {
             # fetch srv back from the server list, in case it was restarted by restart_server (new PID)
             set srv [lindex $::servers end]
 
+            # pop the server object
+            set ::servers [lrange $::servers 0 end-1]
+
             # Kill the server without checking for leaks
             dict set srv "skipleaks" 1
             kill_server $srv
