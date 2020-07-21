@@ -119,7 +119,7 @@ proc wait_for_log_message {srv_idx pattern from_line maxtries delay} {
     set retry $maxtries
     set stdout [srv $srv_idx stdout]
     while {$retry} {
-        set result [exec tail +$from_line < $stdout]
+        set result [exec tail -n +$from_line < $stdout]
         set result [split $result "\n"]
         foreach line $result {
             if {[string match $pattern $line]} {
