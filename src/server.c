@@ -3430,13 +3430,8 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
     sdsfree(s);
 }
 
-/* A command that uses keys but has no pre-determined key position arguments.
- *
- * This function was introduced in PR #7539. Before that PR, processCommand()
- * did not notice that cmd could be a module command which is designed to use
- * 0 number of keys, just like some non-module command, e.g. `flushall`, `info`
- * and so on, and handled it for the purpose of cluster redirect it as if it
- * does use any keys. */
+/* Returns 1 for commands that may have key names in their arguments, but have
+ * no pre-determined key positions. */
 static int cmdHasMovableKeys(struct redisCommand *cmd) {
     return (cmd->getkeys_proc && !(cmd->flags & CMD_MODULE)) ||
             cmd->flags & CMD_MODULE_GETKEYS;
