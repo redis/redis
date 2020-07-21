@@ -14,6 +14,7 @@ echo "Doing sanity test on the actual tarball"
 
 cd /tmp
 rm -rf test_release_tmp_dir
+mkdir test_release_tmp_dir
 cd test_release_tmp_dir
 rm -f $TARNAME
 rm -rf redis-${TAG}
