@@ -3430,7 +3430,8 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
     sdsfree(s);
 }
 
-/* A command that uses keys but has no pre-determined key position arguments. */
+/* Returns 1 for commands that may have key names in their arguments, but have
+ * no pre-determined key positions. */
 static int cmdHasMovableKeys(struct redisCommand *cmd) {
     return (cmd->getkeys_proc && !(cmd->flags & CMD_MODULE)) ||
             cmd->flags & CMD_MODULE_GETKEYS;
