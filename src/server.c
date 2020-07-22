@@ -4876,6 +4876,7 @@ void loadDataFromDisk(void) {
             serverLog(LL_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
     } else {
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
+        errno = 0; /* Prevent a stale value from affecting error checking */
         if (rdbLoad(server.rdb_filename,&rsi,RDBFLAGS_NONE) == C_OK) {
             serverLog(LL_NOTICE,"DB loaded from disk: %.3f seconds",
                 (float)(ustime()-start)/1000000);
