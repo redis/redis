@@ -17,7 +17,7 @@ active defragmentation logic. However this feature of Redis is not mandatory
 and Redis is able to understand if the Jemalloc version it is compiled
 against supports such Redis-specific modifications. So in theory, if you
 are not interested in the active defragmentation, you can replace Jemalloc
-just following tose steps:
+just following these steps:
 
 1. Remove the jemalloc directory.
 2. Substitute it with the new jemalloc source tree.
