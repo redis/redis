@@ -159,6 +159,27 @@ int spectrum_palette_mono[] = {0,233,234,235,237,239,241,243,245,247,249,251,253
 int *spectrum_palette;
 int spectrum_palette_size;
 
+/* The pager to use to display results. */
+int opt_nopager=1;
+sds pager;
+FILE *PAGER;
+
+static void init_pager() {
+    if(!opt_nopager) {
+        if(!(PAGER = popen(pager, "w"))) {
+            printf("popen() failed! defaulting PAGER to stdout!\n");
+            PAGER = stdout;
+        }
+    }else{
+        PAGER = stdout;
+    }
+}
+
+static void end_pager() {
+  if (!opt_nopager)
+    pclose(PAGER);
+}
+
 /* Dict Helpers */
 
 static uint64_t dictSdsHash(const void *key);
@@ -1256,7 +1277,9 @@ static int cliReadReply(int output_raw_strings) {
                 out = sdscat(out,"\n");
             }
         }
-        fwrite(out,sdslen(out),1,stdout);
+        init_pager();
+        fwrite(out,sdslen(out),1,PAGER);
+        end_pager();
         sdsfree(out);
     }
     freeReplyObject(reply);
@@ -2020,6 +2043,23 @@ static void repl(void) {
                     cliConnect(CC_FORCE);
                 } else if (argc == 1 && !strcasecmp(argv[0],"clear")) {
                     linenoiseClearScreen();
+                } else if (!strcasecmp(argv[0], "pager") && argc != 1) {
+                    sdsfree(pager);
+                    pager = sdsempty();
+                    for (int i=1; i < argc; i++) {
+                        pager = sdscatlen(pager, argv[i], strlen(argv[i]));
+                        if (i != argc-1) {
+                            pager = sdscatlen(pager, " ", 1);
+                        }
+                    }
+                    opt_nopager=0;
+                    printf("PAGER set to '%s'\n", pager);
+                } else if ((argc == 1) && ((!strcasecmp(argv[0], "nopager")) || (!strcasecmp(argv[0], "pager")))) {
+                    sdsfree(pager);
+                    pager = sdsnew("stdout");
+                    opt_nopager=1;
+                    PAGER=stdout;
+                    printf("PAGER set to stdout\n");
                 } else {
                     long long start_time = mstime(), elapsed;
 
