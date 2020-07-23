@@ -56,6 +56,10 @@ void freeClientMultiState(client *c) {
 
 /* Add a new command into the MULTI commands queue */
 void queueMultiCommand(client *c) {
+    /* If the client is already dirty, it's unnecessary to queue the command. */
+    if (c->flags & CLIENT_DIRTY_EXEC)
+        return;
+
     multiCmd *mc;
     int j;
 
@@ -88,10 +92,14 @@ void discardTransaction(client *c) {
 }
 
 /* Flag the transacation as DIRTY_EXEC so that EXEC will fail.
+ * And free the client's multi state to save memory.
  * Should be called every time there is an error while queueing a command. */
 void flagTransaction(client *c) {
-    if (c->flags & CLIENT_MULTI)
+    if (c->flags & CLIENT_MULTI) {
         c->flags |= CLIENT_DIRTY_EXEC;
+        freeClientMultiState(c);
+        initClientMultiState(c);
+    }
 }
 
 void multiCommand(client *c) {
