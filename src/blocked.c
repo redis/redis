@@ -465,8 +465,8 @@ void serveClientsBlockedOnKeyByModule(readyList *rl) {
  * one new element via some write operation are accumulated into
  * the server.ready_keys list. This function will run the list and will
  * serve clients accordingly. Note that the function will iterate again and
- * again as a result of serving BRPOPLPUSH we can have new blocking clients
- * to serve because of the PUSH side of BRPOPLPUSH.
+ * again as a result of serving BxPOPxPUSH we can have new blocking clients
+ * to serve because of the PUSH side of BxPOPxPUSH.
  *
  * This function is normally "fair", that is, it will server clients
  * using a FIFO behavior. However this fairness is violated in certain
@@ -484,7 +484,7 @@ void handleClientsBlockedOnKeys(void) {
         /* Point server.ready_keys to a fresh list and save the current one
          * locally. This way as we run the old list we are free to call
          * signalKeyAsReady() that may push new elements in server.ready_keys
-         * when handling clients blocked into BRPOPLPUSH. */
+         * when handling clients blocked into BxPOPxPUSH. */
         l = server.ready_keys;
         server.ready_keys = listCreate();
 
@@ -499,7 +499,7 @@ void handleClientsBlockedOnKeys(void) {
             /* Even if we are not inside call(), increment the call depth
              * in order to make sure that keys are expired against a fixed
              * reference time, and not against the wallclock time. This
-             * way we can lookup an object multiple times (BRPOPLPUSH does
+             * way we can lookup an object multiple times (BxPOPxPUSH does
              * that) without the risk of it being freed in the second
              * lookup, invalidating the first one.
              * See https://github.com/antirez/redis/pull/6554. */
