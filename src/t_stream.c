@@ -1845,6 +1845,7 @@ NULL
             o = createStreamObject();
             dbAdd(c->db,c->argv[2],o);
             s = o->ptr;
+            signalModifiedKey(c,c->db,c->argv[2]);
         }
 
         streamCG *cg = streamCreateCG(s,grpname,sdslen(grpname),&id);
