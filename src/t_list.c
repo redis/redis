@@ -671,7 +671,7 @@ struct redisCommand* getPopPushCmdProc(int wherefrom, int whereto) {
     }
 }
 
-int isPopPushCommand(redisCommandProc *proc) {
+int isBlockPopPushCommand(redisCommandProc *proc) {
     return (proc == brpoplpushCommand ||
             proc == brpoprpushCommand ||
             proc == blpoplpushCommand ||
@@ -734,7 +734,7 @@ void poppushGenericCommand(client *c, int wherefrom, int whereto) {
         signalModifiedKey(c,c->db,touchedkey);
         decrRefCount(touchedkey);
         server.dirty++;
-        if (isPopPushCommand(c->cmd->proc)) {
+        if (isBlockPopPushCommand(c->cmd->proc)) {
             rewriteClientCommandVector(c,3,getPopPushCmdName(wherefrom,whereto),
                                        c->argv[1],c->argv[2]);
         }
