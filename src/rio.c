@@ -201,7 +201,7 @@ static size_t rioConnRead(rio *r, void *buf, size_t len) {
             /* Make sure the caller didn't request to read past the limit.
              * If they didn't we'll buffer till the limit, if they did, we'll
              * return an error. */
-            if (r->io.conn.read_limit >= r->io.conn.read_so_far + needs)
+            if (r->io.conn.read_limit >= r->io.conn.read_so_far + len)
                 toread = r->io.conn.read_limit - r->io.conn.read_so_far - buffered;
             else {
                 errno = EOVERFLOW;
