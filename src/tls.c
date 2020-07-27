@@ -61,7 +61,7 @@ static int parseProtocolsConfig(const char *str) {
     if (!str) return REDIS_TLS_PROTO_DEFAULT;
     sds *tokens = sdssplitlen(str, strlen(str), " ", 1, &count);
 
-    if (!tokens) { 
+    if (!tokens) {
         serverLog(LL_WARNING, "Invalid tls-protocols configuration string");
         return -1;
     }
@@ -222,13 +222,13 @@ int tlsConfigure(redisTLSContextConfig *ctx_config) {
         serverLog(LL_WARNING, "Failed to load certificate: %s: %s", ctx_config->cert_file, errbuf);
         goto error;
     }
-        
+
     if (SSL_CTX_use_PrivateKey_file(ctx, ctx_config->key_file, SSL_FILETYPE_PEM) <= 0) {
         ERR_error_string_n(ERR_get_error(), errbuf, sizeof(errbuf));
         serverLog(LL_WARNING, "Failed to load private key: %s: %s", ctx_config->key_file, errbuf);
         goto error;
     }
-    
+
     if (SSL_CTX_load_verify_locations(ctx, ctx_config->ca_cert_file, ctx_config->ca_cert_dir) <= 0) {
         ERR_error_string_n(ERR_get_error(), errbuf, sizeof(errbuf));
         serverLog(LL_WARNING, "Failed to configure CA certificate(s) file/directory: %s", errbuf);
@@ -331,10 +331,25 @@ connection *connCreateTLS(void) {
     return (connection *) conn;
 }
 
+static void tlsConnClose(tls_connection *conn) {
+    connClose(&conn->c);
+}
+
 connection *connCreateAcceptedTLS(int fd, int require_auth) {
+    char errbuf[256];
     tls_connection *conn = (tls_connection *) connCreateTLS();
     conn->c.fd = fd;
     conn->c.state = CONN_STATE_ACCEPTING;
+
+    /* Ugly but necessary.
+     * We have to attach fd into connection so that connClose works well
+     */
+    if (!conn->ssl) {
+        ERR_error_string_n(ERR_get_error(), errbuf, 256);
+        serverLog(LL_WARNING, "Error inner accepting cluster node: %s", errbuf);
+        tlsConnClose(conn);
+        return NULL;
+    }
 
     if (!require_auth) {
         SSL_set_verify(conn->ssl, SSL_VERIFY_NONE, NULL);
@@ -834,7 +849,7 @@ int tlsConfigure(redisTLSContextConfig *ctx_config) {
     return C_OK;
 }
 
-connection *connCreateTLS(void) { 
+connection *connCreateTLS(void) {
     return NULL;
 }
 

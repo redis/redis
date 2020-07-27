@@ -671,6 +671,15 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         }
 
         connection *conn = server.tls_cluster ? connCreateAcceptedTLS(cfd,1) : connCreateAcceptedSocket(cfd);
+
+        /* Only connCreateAcceptedTLS will fail up to now.
+         * We close connection inside creation API.
+         */
+        if (!conn) {
+            serverLog(LL_VERBOSE,
+                "Error inner accepting cluster node: %s", server.neterr);
+            return;
+        }
         connNonBlock(conn);
         connEnableTcpNoDelay(conn);
 
