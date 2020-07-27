@@ -4105,11 +4105,15 @@ sds clusterGenNodeDescription(clusterNode *node) {
     else
         ci = sdscatlen(ci," - ",3);
 
+    unsigned long long nodeEpoch = node->configEpoch;
+    if (nodeIsSlave(node) && node->slaveof) {
+        nodeEpoch = node->slaveof->configEpoch;
+    }
     /* Latency from the POV of this node, config epoch, link status */
     ci = sdscatprintf(ci,"%lld %lld %llu %s",
         (long long) node->ping_sent,
         (long long) node->pong_received,
-        (unsigned long long) node->configEpoch,
+        nodeEpoch,
         (node->link || node->flags & CLUSTER_NODE_MYSELF) ?
                     "connected" : "disconnected");
 
@@ -5031,6 +5035,7 @@ void restoreCommand(client *c) {
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
             server.dirty++;
         }
+        decrRefCount(obj);
         addReply(c, shared.ok);
         return;
     }

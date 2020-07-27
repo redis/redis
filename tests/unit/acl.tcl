@@ -255,4 +255,9 @@ start_server {tags {"acl"}} {
         r ACL setuser default on
         set e
     } {*NOAUTH*}
+
+    test {ACL HELP should not have unexpected options} {
+        catch {r ACL help xxx} e
+        assert_match "*Unknown subcommand or wrong number of arguments*" $e
+    }
 }

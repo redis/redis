@@ -203,7 +203,7 @@ of the BSD license that you can find in the [COPYING][1] file included in the Re
 source distribution.
 
 Please see the [CONTRIBUTING][2] file in this source distribution for more
-information.
+information, including details on our process for security bugs/vulnerabilities.
 
 [1]: https://github.com/redis/redis/blob/unstable/COPYING
 [2]: https://github.com/redis/redis/blob/unstable/CONTRIBUTING

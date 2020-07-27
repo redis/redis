@@ -662,6 +662,7 @@ int scanLaterStraemListpacks(robj *ob, unsigned long *cursor, long long endtime,
         /* if cursor is non-zero, we seek to the static 'last' */
         if (!raxSeek(&ri,">", last, sizeof(last))) {
             *cursor = 0;
+            raxStop(&ri);
             return 0;
         }
         /* assign the iterator node callback after the seek, so that the

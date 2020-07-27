@@ -2774,7 +2774,8 @@ void initServer(void) {
     server.events_processed_while_blocked = 0;
     server.system_memory_size = zmalloc_get_memory_size();
 
-    if (server.tls_port && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
+    if ((server.tls_port || server.tls_replication || server.tls_cluster)
+                && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
         serverLog(LL_WARNING, "Failed to configure TLS. Check logs for more info.");
         exit(1);
     }
@@ -3430,6 +3431,13 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
     sdsfree(s);
 }
 
+/* Returns 1 for commands that may have key names in their arguments, but have
+ * no pre-determined key positions. */
+static int cmdHasMovableKeys(struct redisCommand *cmd) {
+    return (cmd->getkeys_proc && !(cmd->flags & CMD_MODULE)) ||
+            cmd->flags & CMD_MODULE_GETKEYS;
+}
+
 /* If this function gets called we already read a whole
  * command, arguments are in the client argv/argc fields.
  * processCommand() execute the command or prepare the
@@ -3518,7 +3526,7 @@ int processCommand(client *c) {
         !(c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_LUA &&
           server.lua_caller->flags & CLIENT_MASTER) &&
-        !(c->cmd->getkeys_proc == NULL && c->cmd->firstkey == 0 &&
+        !(!cmdHasMovableKeys(c->cmd) && c->cmd->firstkey == 0 &&
           c->cmd->proc != execCommand))
     {
         int hashslot;
@@ -3901,9 +3909,7 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
         flagcount += addReplyCommandFlag(c,cmd,CMD_ASKING, "asking");
         flagcount += addReplyCommandFlag(c,cmd,CMD_FAST, "fast");
         flagcount += addReplyCommandFlag(c,cmd,CMD_NO_AUTH, "no_auth");
-        if ((cmd->getkeys_proc && !(cmd->flags & CMD_MODULE)) ||
-            cmd->flags & CMD_MODULE_GETKEYS)
-        {
+        if (cmdHasMovableKeys(cmd)) {
             addReplyStatus(c, "movablekeys");
             flagcount += 1;
         }
@@ -4876,6 +4882,7 @@ void loadDataFromDisk(void) {
             serverLog(LL_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
     } else {
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
+        errno = 0; /* Prevent a stale value from affecting error checking */
         if (rdbLoad(server.rdb_filename,&rsi,RDBFLAGS_NONE) == C_OK) {
             serverLog(LL_NOTICE,"DB loaded from disk: %.3f seconds",
                 (float)(ustime()-start)/1000000);
@@ -5198,6 +5205,10 @@ int main(int argc, char **argv) {
     } else {
         InitServerLast();
         sentinelIsRunning();
+        if (server.supervised_mode == SUPERVISED_SYSTEMD) {
+            redisCommunicateSystemd("STATUS=Ready to accept connections\n");
+            redisCommunicateSystemd("READY=1\n");
+        }
     }
 
     /* Warning the user about suspicious maxmemory setting. */
