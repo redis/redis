@@ -359,9 +359,6 @@ connection *connCreateAcceptedTLS(int fd, int require_auth) {
     conn->c.fd = fd;
     conn->c.state = CONN_STATE_ACCEPTING;
 
-    /* Ugly but necessary.
-     * We have to attach fd into connection so that connClose works well
-     */
     if (!conn->ssl) {
         updateTLSError(conn);
         conn->c.state = CONN_STATE_ERROR;
