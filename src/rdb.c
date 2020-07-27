@@ -2063,7 +2063,7 @@ void stopSaving(int success) {
 
 /* Track loading progress in order to serve client's from time to time
    and if needed calculate rdb checksum  */
-void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
+int rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
     if (server.rdb_checksum)
         rioGenericUpdateChecksum(r, buf, len);
     if (server.loading_process_events_interval_bytes &&
@@ -2073,12 +2073,24 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
          * our cached time since it is used to create and update the last
          * interaction time with clients and for other important things. */
         updateCachedTime(0);
-        if (server.masterhost && server.repl_state == REPL_STATE_TRANSFER)
+
+        int curr_repl_state = server.repl_state;
+        if (server.masterhost && curr_repl_state == REPL_STATE_TRANSFER)
             replicationSendNewlineToMaster();
+
         loadingProgress(r->processed_bytes);
         processEventsWhileBlocked();
         processModuleLoadingProgressEvent(0);
+
+        // If the server was in transfer replication state prior to processing events and currently is not in
+        // transfer replications state, it means that the master from which the RDB was being read has been
+        // disconnected. Returning 0 to stop loading the RDB.
+        if (curr_repl_state == REPL_STATE_TRANSFER && server.repl_state != REPL_STATE_TRANSFER) {
+            return 0;
+        }
     }
+
+    return 1;
 }
 
 /* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned,

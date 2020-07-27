@@ -53,7 +53,7 @@ struct _rio {
      * designed so that can be called with the current checksum, and the buf
      * and len fields pointing to the new block of data to add to the checksum
      * computation. */
-    void (*update_cksum)(struct _rio *, const void *buf, size_t len);
+    int (*update_cksum)(struct _rio *, const void *buf, size_t len);
 
     /* The current checksum and flags (see RIO_FLAG_*) */
     uint64_t cksum, flags;
@@ -104,7 +104,12 @@ static inline size_t rioWrite(rio *r, const void *buf, size_t len) {
     if (r->flags & RIO_FLAG_WRITE_ERROR) return 0;
     while (len) {
         size_t bytes_to_write = (r->max_processing_chunk && r->max_processing_chunk < len) ? r->max_processing_chunk : len;
-        if (r->update_cksum) r->update_cksum(r,buf,bytes_to_write);
+
+        if (r->update_cksum && (!r->update_cksum(r,buf,bytes_to_write))) {
+            r->flags |= RIO_FLAG_WRITE_ERROR;
+            return 0;
+        }
+
         if (r->write(r,buf,bytes_to_write) == 0) {
             r->flags |= RIO_FLAG_WRITE_ERROR;
             return 0;
@@ -124,7 +129,12 @@ static inline size_t rioRead(rio *r, void *buf, size_t len) {
             r->flags |= RIO_FLAG_READ_ERROR;
             return 0;
         }
-        if (r->update_cksum) r->update_cksum(r,buf,bytes_to_read);
+
+        if (r->update_cksum && (!r->update_cksum(r,buf,bytes_to_read))) {
+            r->flags |= RIO_FLAG_READ_ERROR;
+            return 0;
+        }
+
         buf = (char*)buf + bytes_to_read;
         len -= bytes_to_read;
         r->processed_bytes += bytes_to_read;
@@ -172,7 +182,7 @@ size_t rioWriteBulkDouble(rio *r, double d);
 struct redisObject;
 int rioWriteBulkObject(rio *r, struct redisObject *obj);
 
-void rioGenericUpdateChecksum(rio *r, const void *buf, size_t len);
+int rioGenericUpdateChecksum(rio *r, const void *buf, size_t len);
 void rioSetAutoSync(rio *r, off_t bytes);
 
 #endif

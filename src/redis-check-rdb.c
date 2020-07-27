@@ -33,7 +33,7 @@
 #include <stdarg.h>
 
 void createSharedObjects(void);
-void rdbLoadProgressCallback(rio *r, const void *buf, size_t len);
+int rdbLoadProgressCallback(rio *r, const void *buf, size_t len);
 int rdbCheckMode = 0;
 
 struct {
