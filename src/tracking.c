@@ -134,7 +134,7 @@ void enableTracking(client *c, uint64_t redirect_to, uint64_t options, robj **pr
                   CLIENT_TRACKING_NOLOOP);
     c->client_tracking_redirection = redirect_to;
 
-    /* This may be the first client we ever enable. Crete the tracking
+    /* This may be the first client we ever enable. Create the tracking
      * table if it does not exist. */
     if (TrackingTable == NULL) {
         TrackingTable = raxNew();
