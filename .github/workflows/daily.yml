@@ -84,9 +84,9 @@ jobs:
     - name: module api test
       run: ./runtest-moduleapi --verbose --tls
     - name: sentinel tests
-      run: ./runtest-sentinel
+      run: ./runtest-sentinel --tls
     - name: cluster tests
-      run: ./runtest-cluster
+      run: ./runtest-cluster --tls
 
   test-valgrind:
     runs-on: ubuntu-latest
