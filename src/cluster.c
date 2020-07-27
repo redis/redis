@@ -670,7 +670,17 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
 
-        connection *conn = server.tls_cluster ? connCreateAcceptedTLS(cfd,1) : connCreateAcceptedSocket(cfd);
+        connection *conn = server.tls_cluster ?
+            connCreateAcceptedTLS(cfd,1) : connCreateAcceptedSocket(cfd);
+
+        /* Make sure connection is not in an error state */
+        if (connGetState(conn) != CONN_STATE_ACCEPTING) {
+            serverLog(LL_VERBOSE,
+                "Error creating an accepting connection for cluster node: %s",
+                    connGetLastError(conn));
+            connClose(conn);
+            return;
+        }
         connNonBlock(conn);
         connEnableTcpNoDelay(conn);
 
