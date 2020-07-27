@@ -2774,7 +2774,8 @@ void initServer(void) {
     server.events_processed_while_blocked = 0;
     server.system_memory_size = zmalloc_get_memory_size();
 
-    if (server.tls_port && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
+    if ((server.tls_port || server.tls_replication || server.tls_cluster)
+                && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
         serverLog(LL_WARNING, "Failed to configure TLS. Check logs for more info.");
         exit(1);
     }
