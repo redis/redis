@@ -192,6 +192,7 @@ void sdsupdatelen(sds s) {
  * number of bytes previously available. */
 void sdsclear(sds s) {
     sdssetlen(s, 0);
+    // 惰性空间释放，不释放内存空间
     s[0] = '\0';
 }
 
