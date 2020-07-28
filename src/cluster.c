@@ -671,7 +671,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         }
 
         connection *conn = server.tls_cluster ?
-            connCreateAcceptedTLS(cfd,1) : connCreateAcceptedSocket(cfd);
+            connCreateAcceptedTLS(cfd, TLS_CLIENT_AUTH_YES) : connCreateAcceptedSocket(cfd);
 
         /* Make sure connection is not in an error state */
         if (connGetState(conn) != CONN_STATE_ACCEPTING) {

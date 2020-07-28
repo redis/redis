@@ -365,8 +365,16 @@ connection *connCreateAcceptedTLS(int fd, int require_auth) {
         return (connection *) conn;
     }
 
-    if (!require_auth) {
-        SSL_set_verify(conn->ssl, SSL_VERIFY_NONE, NULL);
+    switch (require_auth) {
+        case TLS_CLIENT_AUTH_NO:
+            SSL_set_verify(conn->ssl, SSL_VERIFY_NONE, NULL);
+            break;
+        case TLS_CLIENT_AUTH_OPTIONAL:
+            SSL_set_verify(conn->ssl, SSL_VERIFY_PEER, NULL);
+            break;
+        default: /* TLS_CLIENT_AUTH_YES, also fall-secure */
+            SSL_set_verify(conn->ssl, SSL_VERIFY_PEER|SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
+            break;
     }
 
     SSL_set_fd(conn->ssl, conn->c.fd);
