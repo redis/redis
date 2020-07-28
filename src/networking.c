@@ -895,7 +895,17 @@ void clientAcceptHandler(connection *conn) {
 #define MAX_ACCEPTS_PER_CALL 1000
 static void acceptCommonHandler(connection *conn, int flags, char *ip) {
     client *c;
+    char conninfo[100];
     UNUSED(ip);
+
+    if (connGetState(conn) != CONN_STATE_ACCEPTING) {
+        serverLog(LL_VERBOSE,
+            "Accepted client connection in error state: %s (conn: %s)",
+            connGetLastError(conn),
+            connGetInfo(conn, conninfo, sizeof(conninfo)));
+        connClose(conn);
+        return;
+    }
 
     /* Limit the number of connections we take at the same time.
      *
@@ -925,7 +935,6 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
 
     /* Create connection and client */
     if ((c = createClient(conn)) == NULL) {
-        char conninfo[100];
         serverLog(LL_WARNING,
             "Error registering fd event for the new client: %s (conn: %s)",
             connGetLastError(conn),

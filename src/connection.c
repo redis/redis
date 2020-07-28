@@ -85,8 +85,12 @@ connection *connCreateSocket() {
 /* Create a new socket-type connection that is already associated with
  * an accepted connection.
  *
- * The socket is not read for I/O until connAccept() was called and
+ * The socket is not ready for I/O until connAccept() was called and
  * invoked the connection-level accept handler.
+ *
+ * Callers should use connGetState() and verify the created connection
+ * is not in an error state (which is not possible for a socket connection,
+ * but could but possible with other protocols).
  */
 connection *connCreateAcceptedSocket(int fd) {
     connection *conn = connCreateSocket();
