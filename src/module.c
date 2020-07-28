@@ -1138,6 +1138,53 @@ void RM_RetainString(RedisModuleCtx *ctx, RedisModuleString *str) {
     }
 }
 
+/* Return either a shallow copy of the given String (by increasing
+ * the String ref count) or a new deep copy of String in case its not possible
+ * to get a shallow copy. If the ctx auto memory is enabled, the new copy (shallow
+ * or deep) will be added to the auto memory management of the ctx and will be
+ * freed when the ctx will be freed.
+ *
+ * It is possible to call this function with a NULL context.
+ */
+RedisModuleString* RM_HoldString(RedisModuleCtx *ctx, RedisModuleString *str) {
+    if (str->refcount == OBJ_STATIC_REFCOUNT){
+        return RM_CreateStringFromString(ctx, str);
+    }
+
+    incrRefCount(str);
+    if (ctx != NULL){
+        /*
+         * Put the str in the auto memory management of the ctx.
+         * It might already be there, in this case, the ref count will
+         * be 2 and we will decrease the ref count twice and free the
+         * object in the auto memory free function.
+         *
+         * Why we can not do the same trick of just remove the object
+         * from the auto memory (like in RM_RetainString)?
+         * This code shows the issue:
+         *
+         * RM_AutoMemory(ctx);
+         * str1 = RM_CreateString(ctx, "test", 4);
+         * str2 = RM_HoldString(ctx, str1);
+         * RM_FreeString(str1);
+         * RM_FreeString(str2);
+         *
+         * If after the RM_HoldString we would just remove the string from
+         * the auto memory, this example will cause access to a freed memory
+         * on 'RM_FreeString(str2);' because the String will be free
+         * on 'RM_FreeString(str1);'.
+         *
+         * So it's safer to just increase the ref count
+         * and add the String to auto memory again.
+         *
+         * The limitation is that it is not possible to use RedisModule_StringAppendBuffer
+         * on the String.
+         */
+        autoMemoryAdd(ctx,REDISMODULE_AM_STRING,str);
+    }
+    return str;
+}
+
 /* Given a string module object, this function returns the string pointer
  * and length of the string. The returned pointer and length should only
  * be used for read only accesses and never modified. */
@@ -7816,6 +7863,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(LatencyAddSample);
     REGISTER_API(StringAppendBuffer);
     REGISTER_API(RetainString);
+    REGISTER_API(HoldString);
     REGISTER_API(StringCompare);
     REGISTER_API(GetContextFromIO);
     REGISTER_API(GetKeyNameFromIO);
