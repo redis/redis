@@ -440,30 +440,30 @@ test {diskless loading short read} {
             for {set i 0} {$i < $attempts} {incr i} {
                 # wait for the replica to start reading the rdb
                 # using the log file since the replica only responds to INFO once in 2mb
-                wait_for_log_message -1 "*Loading DB in memory*" $loglines 2000 1
+                set res [wait_for_log_messages -1 {"*Loading DB in memory*"} $loglines 2000 1]
+                set loglines [lindex $res 1]
 
                 # add some additional random sleep so that we kill the master on a different place each time
-                after [expr {int(rand()*100)}]
+                after [expr {int(rand()*50)}]
 
                 # kill the replica connection on the master
                 set killed [$master client kill type replica]
 
-                if {[catch {
-                    set res [wait_for_log_message -1 "*Internal error in RDB*" $loglines 100 10]
-                    if {$::verbose} {
-                        puts $res
-                    }
-                }]} {
-                    puts "failed triggering short read"
+                set res [wait_for_log_messages -1 {"*Internal error in RDB*" "*Finished with success*" "*Successful partial resynchronization*"} $loglines 1000 1]
+                if {$::verbose} { puts $res }
+                set log_text [lindex $res 0]
+                set loglines [lindex $res 1]
+                if {![string match "*Internal error in RDB*" $log_text]} {
                     # force the replica to try another full sync
+                    $master multi
                     $master client kill type replica
                     $master set asdf asdf
                     # the side effect of resizing the backlog is that it is flushed (16k is the min size)
                     $master config set repl-backlog-size [expr {16384 + $i}]
+                    $master exec
                 }
                 # wait for loading to stop (fail)
-                set loglines [count_log_lines -1]
-                wait_for_condition 100 10 {
+                wait_for_condition 1000 1 {
                     [s -1 loading] eq 0
                 } else {
                     fail "Replica didn't disconnect"
@@ -545,7 +545,7 @@ start_server {tags {"repl"}} {
 
                     # wait for the replicas to start reading the rdb
                     # using the log file since the replica only responds to INFO once in 2mb
-                    wait_for_log_message -1 "*Loading DB in memory*" $loglines 800 10
+                    wait_for_log_messages -1 {"*Loading DB in memory*"} $loglines 800 10
 
                     if {$measure_time} {
                         set master_statfile "/proc/$master_pid/stat"
@@ -580,13 +580,13 @@ start_server {tags {"repl"}} {
 
                     # make sure we got what we were aiming for, by looking for the message in the log file
                     if {$all_drop == "all"} {
-                        wait_for_log_message -2 "*Diskless rdb transfer, last replica dropped, killing fork child*" $loglines 1 1
+                        wait_for_log_messages -2 {"*Diskless rdb transfer, last replica dropped, killing fork child*"} $loglines 1 1
                     }
                     if {$all_drop == "no"} {
-                        wait_for_log_message -2 "*Diskless rdb transfer, done reading from pipe, 2 replicas still up*" $loglines 1 1
+                        wait_for_log_messages -2 {"*Diskless rdb transfer, done reading from pipe, 2 replicas still up*"} $loglines 1 1
                     }
                     if {$all_drop == "slow" || $all_drop == "fast"} {
-                        wait_for_log_message -2 "*Diskless rdb transfer, done reading from pipe, 1 replicas still up*" $loglines 1 1
+                        wait_for_log_messages -2 {"*Diskless rdb transfer, done reading from pipe, 1 replicas still up*"} $loglines 1 1
                     }
 
                     # make sure we don't have a busy loop going thought epoll_wait
