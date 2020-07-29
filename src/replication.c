@@ -2485,12 +2485,17 @@ void replicationSetMaster(char *ip, int port) {
     int was_master = server.masterhost == NULL;
 
     sdsfree(server.masterhost);
-    server.masterhost = sdsnew(ip);
-    server.masterport = port;
+    server.masterhost = NULL;
     if (server.master) {
         freeClient(server.master);
     }
     disconnectAllBlockedClients(); /* Clients blocked in master, now slave. */
+
+    /* Setting masterhost only after the call to freeClient since it calls
+     * replicationHandleMasterDisconnection which can trigger a re-connect
+     * directly from within that call. */
+    server.masterhost = sdsnew(ip);
+    server.masterport = port;
 
     /* Force our slaves to resync with us as well. They may hopefully be able
      * to partially resync with us, but we can notify the replid change. */
@@ -2530,6 +2535,8 @@ void replicationUnsetMaster(void) {
                               REDISMODULE_SUBEVENT_MASTER_LINK_DOWN,
                               NULL);
 
+    /* Clear masterhost first, since the freeClient calls
+     * replicationHandleMasterDisconnection which can attempt to re-connect. */
     sdsfree(server.masterhost);
     server.masterhost = NULL;
     if (server.master) freeClient(server.master);
@@ -2591,9 +2598,11 @@ void replicationHandleMasterDisconnection(void) {
 
     /* Try to re-connect immediately rather than wait for replicationCron
      * waiting 1 second may risk backlog being recycled. */
-    serverLog(LL_NOTICE,"Reconnecting to MASTER %s:%d",
-        server.masterhost, server.masterport);
-    connectWithMaster();
+    if (server.masterhost) {
+        serverLog(LL_NOTICE,"Reconnecting to MASTER %s:%d",
+            server.masterhost, server.masterport);
+        connectWithMaster();
+    }
 }
 
 void replicaofCommand(client *c) {
