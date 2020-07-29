@@ -1286,7 +1286,7 @@ client *lookupClientByID(uint64_t id) {
  * set to 0. So when handler_installed is set to 0 the function must be
  * thread safe. */
 int writeToClient(client *c, int handler_installed) {
-    // Update total number of writes on server
+    /* Update total number of writes on server */
     server.stat_total_writes_processed++;
 
     ssize_t nwritten = 0, totwritten = 0;
@@ -1431,7 +1431,6 @@ int handleClientsWithPendingWrites(void) {
             }
         }
     }
-
     return processed;
 }
 
@@ -1897,9 +1896,6 @@ void processInputBuffer(client *c) {
 }
 
 void readQueryFromClient(connection *conn) {
-    // Update total number of reads on server
-    server.stat_total_reads_processed++;
-
     client *c = connGetPrivateData(conn);
     int nread, readlen;
     size_t qblen;
@@ -1907,6 +1903,9 @@ void readQueryFromClient(connection *conn) {
     /* Check if we want to read from the client later when exiting from
      * the event loop. This is the case if threaded I/O is enabled. */
     if (postponeClientRead(c)) return;
+
+    /* Update total number of reads on server */
+    server.stat_total_reads_processed++;
 
     readlen = PROTO_IOBUF_LEN;
     /* If this is a multi bulk request, and we are processing a bulk reply
