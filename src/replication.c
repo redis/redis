@@ -2824,6 +2824,11 @@ void replicationResurrectCachedMaster(connection *conn) {
     server.repl_state = REPL_STATE_CONNECTED;
     server.repl_down_since = 0;
 
+    /* Fire the master link modules event. */
+    moduleFireServerEvent(REDISMODULE_EVENT_MASTER_LINK_CHANGE,
+                          REDISMODULE_SUBEVENT_MASTER_LINK_UP,
+                          NULL);
+
     /* Re-add to the list of clients. */
     linkClient(server.master);
     if (connSetReadHandler(server.master->conn, readQueryFromClient)) {
