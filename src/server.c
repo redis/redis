@@ -2442,10 +2442,6 @@ void initServerConfig(void) {
     server.rpoplpushCommand = lookupCommandByCString("rpoplpush");
 
     /* Debugging */
-    server.assert_failed = "<no assertion failed>";
-    server.assert_file = "<no file>";
-    server.assert_line = 0;
-    server.bug_report_start = 0;
     server.watchdog_period = 0;
 
     /* By default we want scripts to be always replicated by effects
@@ -4812,16 +4808,27 @@ void setupSignalHandlers(void) {
     sigaction(SIGTERM, &act, NULL);
     sigaction(SIGINT, &act, NULL);
 
-#ifdef HAVE_BACKTRACE
     sigemptyset(&act.sa_mask);
     act.sa_flags = SA_NODEFER | SA_RESETHAND | SA_SIGINFO;
     act.sa_sigaction = sigsegvHandler;
+    if(server.crashlog_enabled) {
+        sigaction(SIGSEGV, &act, NULL);
+        sigaction(SIGBUS, &act, NULL);
+        sigaction(SIGFPE, &act, NULL);
+        sigaction(SIGILL, &act, NULL);
+    }
+    return;
+}
+
+void removeSignalHandlers(void) {
+    struct sigaction act;
+    sigemptyset(&act.sa_mask);
+    act.sa_flags = SA_NODEFER | SA_RESETHAND;
+    act.sa_handler = SIG_DFL;
     sigaction(SIGSEGV, &act, NULL);
     sigaction(SIGBUS, &act, NULL);
     sigaction(SIGFPE, &act, NULL);
     sigaction(SIGILL, &act, NULL);
-#endif
-    return;
 }
 
 /* This is the signal handler for children process. It is currently useful
