@@ -36,6 +36,7 @@ void initClientMultiState(client *c) {
     c->mstate.commands = NULL;
     c->mstate.count = 0;
     c->mstate.cmd_flags = 0;
+    c->mstate.cmd_inv_flags = 0;
 }
 
 /* Release all the resources associated with MULTI/EXEC state */
@@ -58,6 +59,13 @@ void queueMultiCommand(client *c) {
     multiCmd *mc;
     int j;
 
+    /* No sense to waste memory if the transaction is already aborted.
+     * this is useful in case client sends these in a pipeline, or doesn't
+     * bother to read previous responses and didn't notice the multi was already
+     * aborted. */
+    if (c->flags & CLIENT_DIRTY_EXEC)
+        return;
+
     c->mstate.commands = zrealloc(c->mstate.commands,
             sizeof(multiCmd)*(c->mstate.count+1));
     mc = c->mstate.commands+c->mstate.count;
@@ -69,6 +77,7 @@ void queueMultiCommand(client *c) {
         incrRefCount(mc->argv[j]);
     c->mstate.count++;
     c->mstate.cmd_flags |= c->cmd->flags;
+    c->mstate.cmd_inv_flags |= ~c->cmd->flags;
 }
 
 void discardTransaction(client *c) {
@@ -106,11 +115,30 @@ void discardCommand(client *c) {
 /* Send a MULTI command to all the slaves and AOF file. Check the execCommand
  * implementation for more information. */
 void execCommandPropagateMulti(client *c) {
-    robj *multistring = createStringObject("MULTI",5);
-
-    propagate(server.multiCommand,c->db->id,&multistring,1,
+    propagate(server.multiCommand,c->db->id,&shared.multi,1,
               PROPAGATE_AOF|PROPAGATE_REPL);
-    decrRefCount(multistring);
+}
+
+void execCommandPropagateExec(client *c) {
+    propagate(server.execCommand,c->db->id,&shared.exec,1,
+              PROPAGATE_AOF|PROPAGATE_REPL);
+}
+
+/* Aborts a transaction, with a specific error message.
+ * The transaction is always aboarted with -EXECABORT so that the client knows
+ * the server exited the multi state, but the actual reason for the abort is
+ * included too. */
+void execCommandAbort(client *c, sds error) {
+    discardTransaction(c);
+
+    if (error[0] == '-') error++;
+    addReplyErrorFormat(c, "-EXECABORT Transaction discarded because of: %s", error);
+
+    /* Send EXEC to clients waiting data from MONITOR. We did send a MULTI
+     * already, and didn't send any of the queued commands, now we'll just send
+     * EXEC so it is clear that the transaction is over. */
+    if (listLength(server.monitors) && !server.loading)
+        replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
 }
 
 void execCommand(client *c) {
@@ -139,21 +167,6 @@ void execCommand(client *c) {
         goto handle_monitor;
     }
 
-    /* If there are write commands inside the transaction, and this is a read
-     * only slave, we want to send an error. This happens when the transaction
-     * was initiated when the instance was a master or a writable replica and
-     * then the configuration changed (for example instance was turned into
-     * a replica). */
-    if (!server.loading && server.masterhost && server.repl_slave_ro &&
-        !(c->flags & CLIENT_MASTER) && c->mstate.cmd_flags & CMD_WRITE)
-    {
-        addReplyError(c,
-            "Transaction contains write commands but instance "
-            "is now a read-only replica. EXEC aborted.");
-        discardTransaction(c);
-        goto handle_monitor;
-    }
-
     /* Exec all the queued commands */
     unwatchAllKeys(c); /* Unwatch ASAP otherwise we'll waste CPU cycles */
     orig_argv = c->argv;
@@ -170,13 +183,18 @@ void execCommand(client *c) {
          * This way we'll deliver the MULTI/..../EXEC block as a whole and
          * both the AOF and the replication link will have the same consistency
          * and atomicity guarantees. */
-        if (!must_propagate && !(c->cmd->flags & (CMD_READONLY|CMD_ADMIN))) {
+        if (!must_propagate &&
+            !server.loading &&
+            !(c->cmd->flags & (CMD_READONLY|CMD_ADMIN)))
+        {
             execCommandPropagateMulti(c);
             must_propagate = 1;
         }
 
-        int acl_retval = ACLCheckCommandPerm(c);
+        int acl_keypos;
+        int acl_retval = ACLCheckCommandPerm(c,&acl_keypos);
         if (acl_retval != ACL_OK) {
+            addACLLogEntry(c,acl_retval,acl_keypos,NULL);
             addReplyErrorFormat(c,
                 "-NOPERM ACLs rules changed between the moment the "
                 "transaction was accumulated and the EXEC call. "

@@ -6,6 +6,50 @@ start_server {
 } {
     source "tests/unit/type/list-common.tcl"
 
+    test {LPOS basic usage} {
+        r DEL mylist
+        r RPUSH mylist a b c 1 2 3 c c
+        assert {[r LPOS mylist a] == 0}
+        assert {[r LPOS mylist c] == 2}
+    }
+
+    test {LPOS RANK (positive and negative rank) option} {
+        assert {[r LPOS mylist c RANK 1] == 2}
+        assert {[r LPOS mylist c RANK 2] == 6}
+        assert {[r LPOS mylist c RANK 4] eq ""}
+        assert {[r LPOS mylist c RANK -1] == 7}
+        assert {[r LPOS mylist c RANK -2] == 6}
+    }
+
+    test {LPOS COUNT option} {
+        assert {[r LPOS mylist c COUNT 0] == {2 6 7}}
+        assert {[r LPOS mylist c COUNT 1] == {2}}
+        assert {[r LPOS mylist c COUNT 2] == {2 6}}
+        assert {[r LPOS mylist c COUNT 100] == {2 6 7}}
+    }
+
+    test {LPOS COUNT + RANK option} {
+        assert {[r LPOS mylist c COUNT 0 RANK 2] == {6 7}}
+        assert {[r LPOS mylist c COUNT 2 RANK -1] == {7 6}}
+    }
+
+    test {LPOS non existing key} {
+        assert {[r LPOS mylistxxx c COUNT 0 RANK 2] eq {}}
+    }
+
+    test {LPOS no match} {
+        assert {[r LPOS mylist x COUNT 2 RANK -1] eq {}}
+        assert {[r LPOS mylist x RANK -1] eq {}}
+    }
+
+    test {LPOS MAXLEN} {
+        assert {[r LPOS mylist a COUNT 0 MAXLEN 1] == {0}}
+        assert {[r LPOS mylist c COUNT 0 MAXLEN 1] == {}}
+        assert {[r LPOS mylist c COUNT 0 MAXLEN 3] == {2}}
+        assert {[r LPOS mylist c COUNT 0 MAXLEN 3 RANK -1] == {7 6}}
+        assert {[r LPOS mylist c COUNT 0 MAXLEN 7 RANK 2] == {6}}
+    }
+
     test {LPUSH, RPUSH, LLENGTH, LINDEX, LPOP - ziplist} {
         # first lpush then rpush
         assert_equal 1 [r lpush myziplist1 aa]

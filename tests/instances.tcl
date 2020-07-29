@@ -25,6 +25,7 @@ set ::sentinel_instances {}
 set ::redis_instances {}
 set ::sentinel_base_port 20000
 set ::redis_base_port 30000
+set ::redis_port_count 1024
 set ::pids {} ; # We kill everything at exit
 set ::dirs {} ; # We remove all the temp dirs at exit
 set ::run_matching {} ; # If non empty, only tests matching pattern are run.
@@ -57,7 +58,7 @@ proc exec_instance {type cfgfile} {
 # Spawn a redis or sentinel instance, depending on 'type'.
 proc spawn_instance {type base_port count {conf {}}} {
     for {set j 0} {$j < $count} {incr j} {
-        set port [find_available_port $base_port]
+        set port [find_available_port $base_port $::redis_port_count]
         incr base_port
         puts "Starting $type #$j at port $port"
 
@@ -169,8 +170,6 @@ proc parse_options {} {
                 -keyfile "$::tlsdir/redis.key"
             set ::tls 1
         } elseif {$opt eq "--help"} {
-            puts "Hello, I'm sentinel.tcl and I run Sentinel unit tests."
-            puts "\nOptions:"
             puts "--single <pattern>      Only runs tests specified by pattern."
             puts "--pause-on-error        Pause for manual inspection on error."
             puts "--fail                  Simulate a test failure."

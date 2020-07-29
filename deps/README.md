@@ -17,7 +17,7 @@ active defragmentation logic. However this feature of Redis is not mandatory
 and Redis is able to understand if the Jemalloc version it is compiled
 against supports such Redis-specific modifications. So in theory, if you
 are not interested in the active defragmentation, you can replace Jemalloc
-just following tose steps:
+just following these steps:
 
 1. Remove the jemalloc directory.
 2. Substitute it with the new jemalloc source tree.
@@ -47,7 +47,7 @@ Hiredis
 Hiredis uses the SDS string library, that must be the same version used inside Redis itself. Hiredis is also very critical for Sentinel. Historically Redis often used forked versions of hiredis in a way or the other. In order to upgrade it is advised to take a lot of care:
 
 1. Check with diff if hiredis API changed and what impact it could have in Redis.
-2. Make sure thet the SDS library inside Hiredis and inside Redis are compatible.
+2. Make sure that the SDS library inside Hiredis and inside Redis are compatible.
 3. After the upgrade, run the Redis Sentinel test.
 4. Check manually that redis-cli and redis-benchmark behave as expecteed, since we have no tests for CLI utilities currently.
 

@@ -28,6 +28,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <stdint.h> // for UINTPTR_MAX
+
 #ifndef __QUICKLIST_H__
 #define __QUICKLIST_H__
 
@@ -64,19 +66,51 @@ typedef struct quicklistLZF {
     char compressed[];
 } quicklistLZF;
 
+/* Bookmarks are padded with realloc at the end of of the quicklist struct.
+ * They should only be used for very big lists if thousands of nodes were the
+ * excess memory usage is negligible, and there's a real need to iterate on them
+ * in portions.
+ * When not used, they don't add any memory overhead, but when used and then
+ * deleted, some overhead remains (to avoid resonance).
+ * The number of bookmarks used should be kept to minimum since it also adds
+ * overhead on node deletion (searching for a bookmark to update). */
+typedef struct quicklistBookmark {
+    quicklistNode *node;
+    char *name;
+} quicklistBookmark;
+
+#if UINTPTR_MAX == 0xffffffff
+/* 32-bit */
+#   define QL_FILL_BITS 14
+#   define QL_COMP_BITS 14
+#   define QL_BM_BITS 4
+#elif UINTPTR_MAX == 0xffffffffffffffff
+/* 64-bit */
+#   define QL_FILL_BITS 16
+#   define QL_COMP_BITS 16
+#   define QL_BM_BITS 4 /* we can encode more, but we rather limit the user
+                           since they cause performance degradation. */
+#else
+#   error unknown arch bits count
+#endif
+
 /* quicklist is a 40 byte struct (on 64-bit systems) describing a quicklist.
  * 'count' is the number of total entries.
  * 'len' is the number of quicklist nodes.
  * 'compress' is: -1 if compression disabled, otherwise it's the number
  *                of quicklistNodes to leave uncompressed at ends of quicklist.
- * 'fill' is the user-requested (or default) fill factor. */
+ * 'fill' is the user-requested (or default) fill factor.
+ * 'bookmakrs are an optional feature that is used by realloc this struct,
+ *      so that they don't consume memory when not used. */
 typedef struct quicklist {
     quicklistNode *head;
     quicklistNode *tail;
     unsigned long count;        /* total count of all entries in all ziplists */
     unsigned long len;          /* number of quicklistNodes */
-    int fill : 16;              /* fill factor for individual nodes */
-    unsigned int compress : 16; /* depth of end nodes not to compress;0=off */
+    int fill : QL_FILL_BITS;              /* fill factor for individual nodes */
+    unsigned int compress : QL_COMP_BITS; /* depth of end nodes not to compress;0=off */
+    unsigned int bookmark_count: QL_BM_BITS;
+    quicklistBookmark bookmarks[];
 } quicklist;
 
 typedef struct quicklistIter {
@@ -157,6 +191,12 @@ int quicklistPop(quicklist *quicklist, int where, unsigned char **data,
 unsigned long quicklistCount(const quicklist *ql);
 int quicklistCompare(unsigned char *p1, unsigned char *p2, int p2_len);
 size_t quicklistGetLzf(const quicklistNode *node, void **data);
+
+/* bookmarks */
+int quicklistBookmarkCreate(quicklist **ql_ref, const char *name, quicklistNode *node);
+int quicklistBookmarkDelete(quicklist *ql, const char *name);
+quicklistNode *quicklistBookmarkFind(quicklist *ql, const char *name);
+void quicklistBookmarksClear(quicklist *ql);
 
 #ifdef REDIS_TEST
 int quicklistTest(int argc, char *argv[]);

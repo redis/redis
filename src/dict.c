@@ -134,7 +134,7 @@ int _dictInit(dict *d, dictType *type,
  * but with the invariant of a USED/BUCKETS ratio near to <= 1 */
 int dictResize(dict *d)
 {
-    int minimal;
+    unsigned long minimal;
 
     if (!dict_can_resize || dictIsRehashing(d)) return DICT_ERR;
     minimal = d->ht[0].used;
@@ -478,7 +478,7 @@ dictEntry *dictFind(dict *d, const void *key)
     dictEntry *he;
     uint64_t h, idx, table;
 
-    if (d->ht[0].used + d->ht[1].used == 0) return NULL; /* dict is empty */
+    if (dictSize(d) == 0) return NULL; /* dict is empty */
     if (dictIsRehashing(d)) _dictRehashStep(d);
     h = dictHashKey(d, key);
     for (table = 0; table <= 1; table++) {
@@ -766,8 +766,8 @@ dictEntry *dictGetFairRandomKey(dict *d) {
 /* Function to reverse bits. Algorithm from:
  * http://graphics.stanford.edu/~seander/bithacks.html#ReverseParallel */
 static unsigned long rev(unsigned long v) {
-    unsigned long s = 8 * sizeof(v); // bit size; must be power of 2
-    unsigned long mask = ~0;
+    unsigned long s = CHAR_BIT * sizeof(v); // bit size; must be power of 2
+    unsigned long mask = ~0UL;
     while ((s >>= 1) > 0) {
         mask ^= (mask << s);
         v = ((v >> s) & mask) | ((v << s) & ~mask);
@@ -871,6 +871,10 @@ unsigned long dictScan(dict *d,
 
     if (dictSize(d) == 0) return 0;
 
+    /* Having a safe iterator means no rehashing can happen, see _dictRehashStep.
+     * This is needed in case the scan callback tries to do dictFind or alike. */
+    d->iterators++;
+
     if (!dictIsRehashing(d)) {
         t0 = &(d->ht[0]);
         m0 = t0->sizemask;
@@ -936,6 +940,9 @@ unsigned long dictScan(dict *d,
             /* Continue while bits covered by mask difference is non-zero */
         } while (v & (m0 ^ m1));
     }
+
+    /* undo the ++ at the top */
+    d->iterators--;
 
     return v;
 }
@@ -1037,7 +1044,7 @@ dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t h
     dictEntry *he, **heref;
     unsigned long idx, table;
 
-    if (d->ht[0].used + d->ht[1].used == 0) return NULL; /* dict is empty */
+    if (dictSize(d) == 0) return NULL; /* dict is empty */
     for (table = 0; table <= 1; table++) {
         idx = hash & d->ht[table].sizemask;
         heref = &d->ht[table].table[idx];

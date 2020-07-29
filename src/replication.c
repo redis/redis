@@ -31,6 +31,7 @@
 
 #include "server.h"
 #include "cluster.h"
+#include "bio.h"
 
 #include <sys/time.h>
 #include <unistd.h>
@@ -43,6 +44,11 @@ void replicationResurrectCachedMaster(connection *conn);
 void replicationSendAck(void);
 void putSlaveOnline(client *slave);
 int cancelReplicationHandshake(void);
+
+/* We take a global flag to remember if this instance generated an RDB
+ * because of replication, so that we can remove the RDB file in case
+ * the instance is configured to have no persistence. */
+int RDBGeneratedByReplication = 0;
 
 /* --------------------------- Utility functions ---------------------------- */
 
@@ -71,6 +77,34 @@ char *replicationGetSlaveName(client *c) {
             (unsigned long long) c->id);
     }
     return buf;
+}
+
+/* Plain unlink() can block for quite some time in order to actually apply
+ * the file deletion to the filesystem. This call removes the file in a
+ * background thread instead. We actually just do close() in the thread,
+ * by using the fact that if there is another instance of the same file open,
+ * the foreground unlink() will not really do anything, and deleting the
+ * file will only happen once the last reference is lost. */
+int bg_unlink(const char *filename) {
+    int fd = open(filename,O_RDONLY|O_NONBLOCK);
+    if (fd == -1) {
+        /* Can't open the file? Fall back to unlinking in the main thread. */
+        return unlink(filename);
+    } else {
+        /* The following unlink() will not do anything since file
+         * is still open. */
+        int retval = unlink(filename);
+        if (retval == -1) {
+            /* If we got an unlink error, we just return it, closing the
+             * new reference we have to the file. */
+            int old_errno = errno;
+            close(fd);  /* This would overwrite our errno. So we saved it. */
+            errno = old_errno;
+            return -1;
+        }
+        bioCreateBackgroundJob(BIO_CLOSE_FILE,(void*)(long)fd,NULL,NULL);
+        return 0; /* Success. */
+    }
 }
 
 /* ---------------------------------- MASTER -------------------------------- */
@@ -271,6 +305,40 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         for (j = 0; j < argc; j++)
             addReplyBulk(slave,argv[j]);
     }
+}
+
+/* This is a debugging function that gets called when we detect something
+ * wrong with the replication protocol: the goal is to peek into the
+ * replication backlog and show a few final bytes to make simpler to
+ * guess what kind of bug it could be. */
+void showLatestBacklog(void) {
+    if (server.repl_backlog == NULL) return;
+
+    long long dumplen = 256;
+    if (server.repl_backlog_histlen < dumplen)
+        dumplen = server.repl_backlog_histlen;
+
+    /* Identify the first byte to dump. */
+    long long idx =
+      (server.repl_backlog_idx + (server.repl_backlog_size - dumplen)) %
+       server.repl_backlog_size;
+
+    /* Scan the circular buffer to collect 'dumplen' bytes. */
+    sds dump = sdsempty();
+    while(dumplen) {
+        long long thislen =
+            ((server.repl_backlog_size - idx) < dumplen) ?
+            (server.repl_backlog_size - idx) : dumplen;
+
+        dump = sdscatrepr(dump,server.repl_backlog+idx,thislen);
+        dumplen -= thislen;
+        idx = 0;
+    }
+
+    /* Finally log such bytes: this is vital debugging info to
+     * understand what happened. */
+    serverLog(LL_WARNING,"Latest backlog is: '%s'", dump);
+    sdsfree(dump);
 }
 
 /* This function is used in order to proxy what we receive from our master
@@ -533,6 +601,12 @@ int masterTryPartialResynchronization(client *c) {
      * has this state from the previous connection with the master. */
 
     refreshGoodSlavesCount();
+
+    /* Fire the replica change modules event. */
+    moduleFireServerEvent(REDISMODULE_EVENT_REPLICA_CHANGE,
+                          REDISMODULE_SUBEVENT_REPLICA_CHANGE_ONLINE,
+                          NULL);
+
     return C_OK; /* The caller can return, no full resync needed. */
 
 need_full_resync:
@@ -583,6 +657,14 @@ int startBgsaveForReplication(int mincapa) {
         serverLog(LL_WARNING,"BGSAVE for replication: replication information not available, can't generate the RDB file right now. Try later.");
         retval = C_ERR;
     }
+
+    /* If we succeeded to start a BGSAVE with disk target, let's remember
+     * this fact, so that we can later delete the file if needed. Note
+     * that we don't set the flag to 1 if the feature is disabled, otherwise
+     * it would never be cleared: the file is not deleted. This way if
+     * the user enables it later with CONFIG SET, we are fine. */
+    if (retval == C_OK && !socket_target && server.rdb_del_sync_files)
+        RDBGeneratedByReplication = 1;
 
     /* If we failed to BGSAVE, remove the slaves waiting for a full
      * resynchronization from the list of slaves, inform them with
@@ -698,6 +780,9 @@ void syncCommand(client *c) {
         changeReplicationId();
         clearReplicationId2();
         createReplicationBacklog();
+        serverLog(LL_NOTICE,"Replication backlog created, my new "
+                            "replication IDs are '%s' and '%s'",
+                            server.replid, server.replid2);
     }
 
     /* CASE 1: BGSAVE is in progress, with disk target. */
@@ -868,8 +953,59 @@ void putSlaveOnline(client *slave) {
         return;
     }
     refreshGoodSlavesCount();
+    /* Fire the replica change modules event. */
+    moduleFireServerEvent(REDISMODULE_EVENT_REPLICA_CHANGE,
+                          REDISMODULE_SUBEVENT_REPLICA_CHANGE_ONLINE,
+                          NULL);
     serverLog(LL_NOTICE,"Synchronization with replica %s succeeded",
         replicationGetSlaveName(slave));
+}
+
+/* We call this function periodically to remove an RDB file that was
+ * generated because of replication, in an instance that is otherwise
+ * without any persistence. We don't want instances without persistence
+ * to take RDB files around, this violates certain policies in certain
+ * environments. */
+void removeRDBUsedToSyncReplicas(void) {
+    /* If the feature is disabled, return ASAP but also clear the
+     * RDBGeneratedByReplication flag in case it was set. Otherwise if the
+     * feature was enabled, but gets disabled later with CONFIG SET, the
+     * flag may remain set to one: then next time the feature is re-enabled
+     * via CONFIG SET we have have it set even if no RDB was generated
+     * because of replication recently. */
+    if (!server.rdb_del_sync_files) {
+        RDBGeneratedByReplication = 0;
+        return;
+    }
+
+    if (allPersistenceDisabled() && RDBGeneratedByReplication) {
+        client *slave;
+        listNode *ln;
+        listIter li;
+
+        int delrdb = 1;
+        listRewind(server.slaves,&li);
+        while((ln = listNext(&li))) {
+            slave = ln->value;
+            if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START ||
+                slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END ||
+                slave->replstate == SLAVE_STATE_SEND_BULK)
+            {
+                delrdb = 0;
+                break; /* No need to check the other replicas. */
+            }
+        }
+        if (delrdb) {
+            struct stat sb;
+            if (lstat(server.rdb_filename,&sb) != -1) {
+                RDBGeneratedByReplication = 0;
+                serverLog(LL_NOTICE,
+                    "Removing the RDB file used to feed replicas "
+                    "in a persistence-less instance");
+                bg_unlink(server.rdb_filename);
+            }
+        }
+    }
 }
 
 void sendBulkToSlave(connection *conn) {
@@ -883,7 +1019,8 @@ void sendBulkToSlave(connection *conn) {
     if (slave->replpreamble) {
         nwritten = connWrite(conn,slave->replpreamble,sdslen(slave->replpreamble));
         if (nwritten == -1) {
-            serverLog(LL_VERBOSE,"Write error sending RDB preamble to replica: %s",
+            serverLog(LL_VERBOSE,
+                "Write error sending RDB preamble to replica: %s",
                 connGetLastError(conn));
             freeClient(slave);
             return;
@@ -1103,6 +1240,12 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
         } else if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
             struct redis_stat buf;
 
+            if (bgsaveerr != C_OK) {
+                freeClient(slave);
+                serverLog(LL_WARNING,"SYNC failed. BGSAVE child returned an error");
+                continue;
+            }
+
             /* If this was an RDB on disk save, we have to prepare to send
              * the RDB from disk to the slave socket. Otherwise if this was
              * already an RDB -> Slaves socket transfer, used in the case of
@@ -1141,11 +1284,6 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                 slave->repl_put_online_on_ack = 1;
                 slave->repl_ack_time = server.unixtime; /* Timeout otherwise. */
             } else {
-                if (bgsaveerr != C_OK) {
-                    freeClient(slave);
-                    serverLog(LL_WARNING,"SYNC failed. BGSAVE child returned an error");
-                    continue;
-                }
                 if ((slave->repldbfd = open(server.rdb_filename,O_RDONLY)) == -1 ||
                     redis_fstat(slave->repldbfd,&buf) == -1) {
                     freeClient(slave);
@@ -1328,8 +1466,8 @@ void disklessLoadRestoreBackups(redisDb *backup, int restore, int empty_db_flags
             server.db[i] = backup[i];
         }
     } else {
-        /* Delete. */
-        emptyDbGeneric(backup,-1,empty_db_flags,replicationEmptyDbCallback);
+        /* Delete (Pass EMPTYDB_BACKUP in order to avoid firing module events) . */
+        emptyDbGeneric(backup,-1,empty_db_flags|EMPTYDB_BACKUP,replicationEmptyDbCallback);
         for (int i=0; i<server.dbnum; i++) {
             dictRelease(backup[i].dict);
             dictRelease(backup[i].expires);
@@ -1341,9 +1479,9 @@ void disklessLoadRestoreBackups(redisDb *backup, int restore, int empty_db_flags
 /* Asynchronously read the SYNC payload we receive from a master */
 #define REPL_MAX_WRITTEN_BEFORE_FSYNC (1024*1024*8) /* 8 MB */
 void readSyncBulkPayload(connection *conn) {
-    char buf[4096];
+    char buf[PROTO_IOBUF_LEN];
     ssize_t nread, readlen, nwritten;
-    int use_diskless_load;
+    int use_diskless_load = useDisklessLoad();
     redisDb *diskless_load_backup = NULL;
     int empty_db_flags = server.repl_slave_lazy_flush ? EMPTYDB_ASYNC :
                                                         EMPTYDB_NO_FLAGS;
@@ -1400,19 +1538,18 @@ void readSyncBulkPayload(connection *conn) {
             server.repl_transfer_size = 0;
             serverLog(LL_NOTICE,
                 "MASTER <-> REPLICA sync: receiving streamed RDB from master with EOF %s",
-                useDisklessLoad()? "to parser":"to disk");
+                use_diskless_load? "to parser":"to disk");
         } else {
             usemark = 0;
             server.repl_transfer_size = strtol(buf+1,NULL,10);
             serverLog(LL_NOTICE,
                 "MASTER <-> REPLICA sync: receiving %lld bytes from master %s",
                 (long long) server.repl_transfer_size,
-                useDisklessLoad()? "to parser":"to disk");
+                use_diskless_load? "to parser":"to disk");
         }
         return;
     }
 
-    use_diskless_load = useDisklessLoad();
     if (!use_diskless_load) {
         /* Read the data from the socket, store it to a file and search
          * for the EOF. */
@@ -1425,6 +1562,10 @@ void readSyncBulkPayload(connection *conn) {
 
         nread = connRead(conn,buf,readlen);
         if (nread <= 0) {
+            if (connGetState(conn) == CONN_STATE_CONNECTED) {
+                /* equivalent to EAGAIN */
+                return;
+            }
             serverLog(LL_WARNING,"I/O error trying to sync with MASTER: %s",
                 (nread == -1) ? strerror(errno) : "connection lost");
             cancelReplicationHandshake();
@@ -1514,7 +1655,6 @@ void readSyncBulkPayload(connection *conn) {
     /* We need to stop any AOF rewriting child before flusing and parsing
      * the RDB, otherwise we'll create a copy-on-write disaster. */
     if (server.aof_state != AOF_OFF) stopAppendOnly();
-    signalFlushedDb(-1);
 
     /* When diskless RDB loading is used by replicas, it may be configured
      * in order to save the current DB instead of throwing it away,
@@ -1522,10 +1662,15 @@ void readSyncBulkPayload(connection *conn) {
     if (use_diskless_load &&
         server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB)
     {
+        /* Create a backup of server.db[] and initialize to empty
+         * dictionaries */
         diskless_load_backup = disklessLoadMakeBackups();
-    } else {
-        emptyDb(-1,empty_db_flags,replicationEmptyDbCallback);
     }
+    /* We call to emptyDb even in case of REPL_DISKLESS_LOAD_SWAPDB
+     * (Where disklessLoadMakeBackups left server.db empty) because we
+     * want to execute all the auxiliary logic of emptyDb (Namely,
+     * fire module events) */
+    emptyDb(-1,empty_db_flags,replicationEmptyDbCallback);
 
     /* Before loading the DB into memory we need to delete the readable
      * handler, otherwise it will get called recursively since
@@ -1542,11 +1687,11 @@ void readSyncBulkPayload(connection *conn) {
          * We'll restore it when the RDB is received. */
         connBlock(conn);
         connRecvTimeout(conn, server.repl_timeout*1000);
-        startLoading(server.repl_transfer_size);
+        startLoading(server.repl_transfer_size, RDBFLAGS_REPLICATION);
 
-        if (rdbLoadRio(&rdb,&rsi,0) != C_OK) {
+        if (rdbLoadRio(&rdb,RDBFLAGS_REPLICATION,&rsi) != C_OK) {
             /* RDB loading failed. */
-            stopLoading();
+            stopLoading(0);
             serverLog(LL_WARNING,
                 "Failed trying to load the MASTER synchronization DB "
                 "from socket");
@@ -1567,7 +1712,7 @@ void readSyncBulkPayload(connection *conn) {
              * gets promoted. */
             return;
         }
-        stopLoading();
+        stopLoading(1);
 
         /* RDB loading succeeded if we reach this point. */
         if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
@@ -1606,25 +1751,44 @@ void readSyncBulkPayload(connection *conn) {
             killRDBChild();
         }
 
+        /* Rename rdb like renaming rewrite aof asynchronously. */
+        int old_rdb_fd = open(server.rdb_filename,O_RDONLY|O_NONBLOCK);
         if (rename(server.repl_transfer_tmpfile,server.rdb_filename) == -1) {
             serverLog(LL_WARNING,
                 "Failed trying to rename the temp DB into %s in "
                 "MASTER <-> REPLICA synchronization: %s",
                 server.rdb_filename, strerror(errno));
             cancelReplicationHandshake();
+            if (old_rdb_fd != -1) close(old_rdb_fd);
             return;
         }
-        if (rdbLoad(server.rdb_filename,&rsi) != C_OK) {
+        /* Close old rdb asynchronously. */
+        if (old_rdb_fd != -1) bioCreateBackgroundJob(BIO_CLOSE_FILE,(void*)(long)old_rdb_fd,NULL,NULL);
+
+        if (rdbLoad(server.rdb_filename,&rsi,RDBFLAGS_REPLICATION) != C_OK) {
             serverLog(LL_WARNING,
                 "Failed trying to load the MASTER synchronization "
                 "DB from disk");
             cancelReplicationHandshake();
+            if (server.rdb_del_sync_files && allPersistenceDisabled()) {
+                serverLog(LL_NOTICE,"Removing the RDB file obtained from "
+                                    "the master. This replica has persistence "
+                                    "disabled");
+                bg_unlink(server.rdb_filename);
+            }
             /* Note that there's no point in restarting the AOF on sync failure,
                it'll be restarted when sync succeeds or replica promoted. */
             return;
         }
 
         /* Cleanup. */
+        if (server.rdb_del_sync_files && allPersistenceDisabled()) {
+            serverLog(LL_NOTICE,"Removing the RDB file obtained from "
+                                "the master. This replica has persistence "
+                                "disabled");
+            bg_unlink(server.rdb_filename);
+        }
+
         zfree(server.repl_transfer_tmpfile);
         close(server.repl_transfer_fd);
         server.repl_transfer_fd = -1;
@@ -1635,6 +1799,11 @@ void readSyncBulkPayload(connection *conn) {
     replicationCreateMasterClient(server.repl_transfer_s,rsi.repl_stream_db);
     server.repl_state = REPL_STATE_CONNECTED;
     server.repl_down_since = 0;
+
+    /* Fire the master link modules event. */
+    moduleFireServerEvent(REDISMODULE_EVENT_MASTER_LINK_CHANGE,
+                          REDISMODULE_SUBEVENT_MASTER_LINK_UP,
+                          NULL);
 
     /* After a full resynchroniziation we use the replication ID and
      * offset of the master. The secondary ID / offset are cleared since
@@ -1649,6 +1818,11 @@ void readSyncBulkPayload(connection *conn) {
      * masters after a failover. */
     if (server.repl_backlog == NULL) createReplicationBacklog();
     serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Finished with success");
+
+    if (server.supervised_mode == SUPERVISED_SYSTEMD) {
+        redisCommunicateSystemd("STATUS=MASTER <-> REPLICA sync: Finished with success. Ready to accept connections.\n");
+        redisCommunicateSystemd("READY=1\n");
+    }
 
     /* Restart the AOF subsystem now that we finished the sync. This
      * will trigger an AOF rewrite, and when done will start appending
@@ -1984,6 +2158,7 @@ void syncWithMaster(connection *conn) {
          * both. */
         if (err[0] != '+' &&
             strncmp(err,"-NOAUTH",7) != 0 &&
+            strncmp(err,"-NOPERM",7) != 0 &&
             strncmp(err,"-ERR operation not permitted",28) != 0)
         {
             serverLog(LL_WARNING,"Error reply to PING from master: '%s'",err);
@@ -2152,6 +2327,10 @@ void syncWithMaster(connection *conn) {
 
     if (psync_result == PSYNC_CONTINUE) {
         serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Master accepted a Partial Resynchronization.");
+        if (server.supervised_mode == SUPERVISED_SYSTEMD) {
+            redisCommunicateSystemd("STATUS=MASTER <-> REPLICA sync: Partial Resynchronization accepted. Ready to accept connections.\n");
+            redisCommunicateSystemd("READY=1\n");
+        }
         return;
     }
 
@@ -2314,22 +2493,45 @@ void replicationSetMaster(char *ip, int port) {
         replicationDiscardCachedMaster();
         replicationCacheMasterUsingMyself();
     }
+
+    /* Fire the role change modules event. */
+    moduleFireServerEvent(REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED,
+                          REDISMODULE_EVENT_REPLROLECHANGED_NOW_REPLICA,
+                          NULL);
+
+    /* Fire the master link modules event. */
+    if (server.repl_state == REPL_STATE_CONNECTED)
+        moduleFireServerEvent(REDISMODULE_EVENT_MASTER_LINK_CHANGE,
+                              REDISMODULE_SUBEVENT_MASTER_LINK_DOWN,
+                              NULL);
+
     server.repl_state = REPL_STATE_CONNECT;
 }
 
 /* Cancel replication, setting the instance as a master itself. */
 void replicationUnsetMaster(void) {
     if (server.masterhost == NULL) return; /* Nothing to do. */
+
+    /* Fire the master link modules event. */
+    if (server.repl_state == REPL_STATE_CONNECTED)
+        moduleFireServerEvent(REDISMODULE_EVENT_MASTER_LINK_CHANGE,
+                              REDISMODULE_SUBEVENT_MASTER_LINK_DOWN,
+                              NULL);
+
     sdsfree(server.masterhost);
     server.masterhost = NULL;
-    /* When a slave is turned into a master, the current replication ID
-     * (that was inherited from the master at synchronization time) is
-     * used as secondary ID up to the current offset, and a new replication
-     * ID is created to continue with a new replication history. */
-    shiftReplicationId();
     if (server.master) freeClient(server.master);
     replicationDiscardCachedMaster();
     cancelReplicationHandshake();
+    /* When a slave is turned into a master, the current replication ID
+     * (that was inherited from the master at synchronization time) is
+     * used as secondary ID up to the current offset, and a new replication
+     * ID is created to continue with a new replication history.
+     *
+     * NOTE: this function MUST be called after we call
+     * freeClient(server.master), since there we adjust the replication
+     * offset trimming the final PINGs. See Github issue #7320. */
+    shiftReplicationId();
     /* Disconnecting all the slaves is required: we need to inform slaves
      * of the replication ID change (see shiftReplicationId() call). However
      * the slaves will be able to partially resync with us, so it will be
@@ -2348,11 +2550,26 @@ void replicationUnsetMaster(void) {
      * starting from now. Otherwise the backlog will be freed after a
      * failover if slaves do not connect immediately. */
     server.repl_no_slaves_since = server.unixtime;
+
+    /* Fire the role change modules event. */
+    moduleFireServerEvent(REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED,
+                          REDISMODULE_EVENT_REPLROLECHANGED_NOW_MASTER,
+                          NULL);
+
+    /* Restart the AOF subsystem in case we shut it down during a sync when
+     * we were still a slave. */
+    if (server.aof_enabled && server.aof_state == AOF_OFF) restartAOFAfterSYNC();
 }
 
 /* This function is called when the slave lose the connection with the
  * master into an unexpected way. */
 void replicationHandleMasterDisconnection(void) {
+    /* Fire the master link modules event. */
+    if (server.repl_state == REPL_STATE_CONNECTED)
+        moduleFireServerEvent(REDISMODULE_EVENT_MASTER_LINK_CHANGE,
+                              REDISMODULE_SUBEVENT_MASTER_LINK_DOWN,
+                              NULL);
+
     server.master = NULL;
     server.repl_state = REPL_STATE_CONNECT;
     server.repl_down_since = server.unixtime;
@@ -2379,9 +2596,6 @@ void replicaofCommand(client *c) {
             serverLog(LL_NOTICE,"MASTER MODE enabled (user request from '%s')",
                 client);
             sdsfree(client);
-            /* Restart the AOF subsystem in case we shut it down during a sync when
-             * we were still a slave. */
-            if (server.aof_enabled && server.aof_state == AOF_OFF) restartAOFAfterSYNC();
         }
     } else {
         long port;
@@ -2558,9 +2772,19 @@ void replicationCacheMaster(client *c) {
  * current offset if no data was lost during the failover. So we use our
  * current replication ID and offset in order to synthesize a cached master. */
 void replicationCacheMasterUsingMyself(void) {
+    serverLog(LL_NOTICE,
+        "Before turning into a replica, using my own master parameters "
+        "to synthesize a cached master: I may be able to synchronize with "
+        "the new master with just a partial transfer.");
+
+    /* This will be used to populate the field server.master->reploff
+     * by replicationCreateMasterClient(). We'll later set the created
+     * master as server.cached_master, so the replica will use such
+     * offset for PSYNC. */
+    server.master_initial_offset = server.master_repl_offset;
+
     /* The master client we create can be set to any DBID, because
      * the new master will start its replication stream with SELECT. */
-    server.master_initial_offset = server.master_repl_offset;
     replicationCreateMasterClient(NULL,-1);
 
     /* Use our own ID / offset. */
@@ -2570,7 +2794,6 @@ void replicationCacheMasterUsingMyself(void) {
     unlinkClient(server.master);
     server.cached_master = server.master;
     server.master = NULL;
-    serverLog(LL_NOTICE,"Before turning into a replica, using my master parameters to synthesize a cached master: I may be able to synchronize with the new master with just a partial transfer.");
 }
 
 /* Free a cached master, called when there are no longer the conditions for
@@ -3087,6 +3310,10 @@ void replicationCron(void) {
             startBgsaveForReplication(mincapa);
         }
     }
+
+    /* Remove the RDB file used for replication if Redis is not running
+     * with any persistence. */
+    removeRDBUsedToSyncReplicas();
 
     /* Refresh the number of slaves with lag <= min-slaves-max-lag. */
     refreshGoodSlavesCount();

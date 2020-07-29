@@ -1,12 +1,14 @@
 #!/bin/bash
 
 # Settings
+BIN_PATH="../../src/"
 CLUSTER_HOST=127.0.0.1
 PORT=30000
 TIMEOUT=2000
 NODES=6
 REPLICAS=1
 PROTECTED_MODE=yes
+ADDITIONAL_OPTIONS=""
 
 # You may want to put the above config parameters into config.sh in order to
 # override the defaults without modifying this script.
@@ -24,7 +26,7 @@ then
     while [ $((PORT < ENDPORT)) != "0" ]; do
         PORT=$((PORT+1))
         echo "Starting $PORT"
-        ../../src/redis-server --port $PORT  --protected-mode $PROTECTED_MODE --cluster-enabled yes --cluster-config-file nodes-${PORT}.conf --cluster-node-timeout $TIMEOUT --appendonly yes --appendfilename appendonly-${PORT}.aof --dbfilename dump-${PORT}.rdb --logfile ${PORT}.log --daemonize yes
+        $BIN_PATH/redis-server --port $PORT  --protected-mode $PROTECTED_MODE --cluster-enabled yes --cluster-config-file nodes-${PORT}.conf --cluster-node-timeout $TIMEOUT --appendonly yes --appendfilename appendonly-${PORT}.aof --dbfilename dump-${PORT}.rdb --logfile ${PORT}.log --daemonize yes ${ADDITIONAL_OPTIONS}
     done
     exit 0
 fi
@@ -36,7 +38,7 @@ then
         PORT=$((PORT+1))
         HOSTS="$HOSTS $CLUSTER_HOST:$PORT"
     done
-    ../../src/redis-cli --cluster create $HOSTS --cluster-replicas $REPLICAS
+    $BIN_PATH/redis-cli --cluster create $HOSTS --cluster-replicas $REPLICAS
     exit 0
 fi
 
@@ -45,7 +47,7 @@ then
     while [ $((PORT < ENDPORT)) != "0" ]; do
         PORT=$((PORT+1))
         echo "Stopping $PORT"
-        ../../src/redis-cli -p $PORT shutdown nosave
+        $BIN_PATH/redis-cli -p $PORT shutdown nosave
     done
     exit 0
 fi
@@ -56,7 +58,7 @@ then
     while [ 1 ]; do
         clear
         date
-        ../../src/redis-cli -p $PORT cluster nodes | head -30
+        $BIN_PATH/redis-cli -p $PORT cluster nodes | head -30
         sleep 1
     done
     exit 0
@@ -70,11 +72,17 @@ then
     exit 0
 fi
 
+if [ "$1" == "tailall" ]
+then
+    tail -f *.log
+    exit 0
+fi
+
 if [ "$1" == "call" ]
 then
     while [ $((PORT < ENDPORT)) != "0" ]; do
         PORT=$((PORT+1))
-        ../../src/redis-cli -p $PORT $2 $3 $4 $5 $6 $7 $8 $9
+        $BIN_PATH/redis-cli -p $PORT $2 $3 $4 $5 $6 $7 $8 $9
     done
     exit 0
 fi
@@ -94,11 +102,13 @@ then
     exit 0
 fi
 
-echo "Usage: $0 [start|create|stop|watch|tail|clean]"
+echo "Usage: $0 [start|create|stop|watch|tail|clean|call]"
 echo "start       -- Launch Redis Cluster instances."
 echo "create      -- Create a cluster using redis-cli --cluster create."
 echo "stop        -- Stop Redis Cluster instances."
 echo "watch       -- Show CLUSTER NODES output (first 30 lines) of first node."
 echo "tail <id>   -- Run tail -f of instance at base port + ID."
+echo "tailall     -- Run tail -f for all the log files at once."
 echo "clean       -- Remove all instances data, logs, configs."
 echo "clean-logs  -- Remove just instances logs."
+echo "call <cmd>  -- Call a command (up to 7 arguments) on all nodes."

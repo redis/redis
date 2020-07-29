@@ -286,8 +286,29 @@ proc ::redis_cluster::crc16 {s} {
 # Hash a single key returning the slot it belongs to, Implemented hash
 # tags as described in the Redis Cluster specification.
 proc ::redis_cluster::hash {key} {
-    # TODO: Handle hash slots.
-    expr {[::redis_cluster::crc16 $key] & 16383}
+    set keylen [string length $key]
+    set s {}
+    set e {}
+    for {set s 0} {$s < $keylen} {incr s} {
+        if {[string index $key $s] eq "\{"} break
+    }
+
+    if {[expr {$s == $keylen}]} {
+        set res [expr {[crc16 $key] & 16383}]
+        return $res
+    }
+
+    for {set e [expr {$s+1}]} {$e < $keylen} {incr e} {
+        if {[string index $key $e] == "\}"} break
+    }
+
+    if {$e == $keylen || $e == [expr {$s+1}]} {
+        set res [expr {[crc16 $key] & 16383}]
+        return $res
+    }
+
+    set key_sub [string range $key [expr {$s+1}] [expr {$e-1}]]
+    return [expr {[crc16 $key_sub] & 16383}]
 }
 
 # Return the slot the specified keys hash to.

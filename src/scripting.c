@@ -485,13 +485,6 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     static size_t cached_objects_len[LUA_CMD_OBJCACHE_SIZE];
     static int inuse = 0;   /* Recursive calls detection. */
 
-    /* Reflect MULTI state */
-    if (server.lua_multi_emitted || (server.lua_caller->flags & CLIENT_MULTI)) {
-        c->flags |= CLIENT_MULTI;
-    } else {
-        c->flags &= ~CLIENT_MULTI;
-    }
-
     /* By using Lua debug hooks it is possible to trigger a recursive call
      * to luaRedisGenericCommand(), which normally should never happen.
      * To make this function reentrant is futile and makes it slower, but
@@ -613,8 +606,10 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     }
 
     /* Check the ACLs. */
-    int acl_retval = ACLCheckCommandPerm(c);
+    int acl_keypos;
+    int acl_retval = ACLCheckCommandPerm(c,&acl_keypos);
     if (acl_retval != ACL_OK) {
+        addACLLogEntry(c,acl_retval,acl_keypos,NULL);
         if (acl_retval == ACL_DENIED_CMD)
             luaPushError(lua, "The user executing the script can't run this "
                               "command or subcommand");
@@ -662,12 +657,11 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         !server.loading &&              /* Don't care about mem if loading. */
         !server.masterhost &&           /* Slave must execute the script. */
         server.lua_write_dirty == 0 &&  /* Script had no side effects so far. */
+        server.lua_oom &&               /* Detected OOM when script start. */
         (cmd->flags & CMD_DENYOOM))
     {
-        if (getMaxmemoryState(NULL,NULL,NULL,NULL) != C_OK) {
-            luaPushError(lua, shared.oomerr->ptr);
-            goto cleanup;
-        }
+        luaPushError(lua, shared.oomerr->ptr);
+        goto cleanup;
     }
 
     if (cmd->flags & CMD_RANDOM) server.lua_random_dirty = 1;
@@ -679,15 +673,27 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     if (server.cluster_enabled && !server.loading &&
         !(server.lua_caller->flags & CLIENT_MASTER))
     {
+        int error_code;
         /* Duplicate relevant flags in the lua client. */
         c->flags &= ~(CLIENT_READONLY|CLIENT_ASKING);
         c->flags |= server.lua_caller->flags & (CLIENT_READONLY|CLIENT_ASKING);
-        if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,NULL) !=
+        if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,&error_code) !=
                            server.cluster->myself)
         {
-            luaPushError(lua,
-                "Lua script attempted to access a non local key in a "
-                "cluster node");
+            if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) { 
+                luaPushError(lua,
+                    "Lua script attempted to execute a write command while the "
+                    "cluster is down and readonly");
+            } else if (error_code == CLUSTER_REDIR_DOWN_STATE) { 
+                luaPushError(lua,
+                    "Lua script attempted to execute a command while the "
+                    "cluster is down");
+            } else {
+                luaPushError(lua,
+                    "Lua script attempted to access a non local key in a "
+                    "cluster node");
+            }
+
             goto cleanup;
         }
     }
@@ -703,6 +709,9 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     {
         execCommandPropagateMulti(server.lua_caller);
         server.lua_multi_emitted = 1;
+        /* Now we are in the MULTI context, the lua_client should be
+         * flag as CLIENT_MULTI. */
+        c->flags |= CLIENT_MULTI;
     }
 
     /* Run the command */
@@ -950,6 +959,7 @@ int luaLogCommand(lua_State *lua) {
         lua_pushstring(lua, "Invalid debug level.");
         return lua_error(lua);
     }
+    if (level < server.verbosity) return 0;
 
     /* Glue together all the arguments */
     log = sdsempty();
@@ -1429,6 +1439,22 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
     }
 }
 
+void prepareLuaClient(void) {
+    /* Select the right DB in the context of the Lua client */
+    selectDb(server.lua_client,server.lua_caller->db->id);
+    server.lua_client->resp = 2; /* Default is RESP2, scripts can change it. */
+
+    /* If we are in MULTI context, flag Lua client as CLIENT_MULTI. */
+    if (server.lua_caller->flags & CLIENT_MULTI) {
+        server.lua_client->flags |= CLIENT_MULTI;
+    }
+}
+
+void resetLuaClient(void) {
+    /* After the script done, remove the MULTI state. */
+    server.lua_client->flags &= ~CLIENT_MULTI;
+}
+
 void evalGenericCommand(client *c, int evalsha) {
     lua_State *lua = server.lua;
     char funcname[43];
@@ -1517,10 +1543,6 @@ void evalGenericCommand(client *c, int evalsha) {
     luaSetGlobalArray(lua,"KEYS",c->argv+3,numkeys);
     luaSetGlobalArray(lua,"ARGV",c->argv+3+numkeys,c->argc-3-numkeys);
 
-    /* Set the Lua client database and protocol. */
-    selectDb(server.lua_client,c->db->id);
-    server.lua_client->resp = 2; /* Default is RESP2, scripts can change it. */
-
     /* Set a hook in order to be able to stop the script execution if it
      * is running for too much time.
      * We set the hook only if the time limit is enabled as the hook will
@@ -1540,10 +1562,14 @@ void evalGenericCommand(client *c, int evalsha) {
         delhook = 1;
     }
 
+    prepareLuaClient();
+
     /* At this point whether this script was never seen before or if it was
      * already defined, we can call it. We have zero arguments and expect
      * a single return value. */
     err = lua_pcall(lua,0,1,-2);
+
+    resetLuaClient();
 
     /* Perform some cleanup that we need to do both on error and success. */
     if (delhook) lua_sethook(lua,NULL,0,0); /* Disable hook */
@@ -1591,11 +1617,7 @@ void evalGenericCommand(client *c, int evalsha) {
     if (server.lua_replicate_commands) {
         preventCommandPropagation(c);
         if (server.lua_multi_emitted) {
-            robj *propargv[1];
-            propargv[0] = createStringObject("EXEC",4);
-            alsoPropagate(server.execCommand,c->db->id,propargv,1,
-                PROPAGATE_AOF|PROPAGATE_REPL);
-            decrRefCount(propargv[0]);
+            execCommandPropagateExec(c);
         }
     }
 
@@ -2453,6 +2475,7 @@ void ldbEval(lua_State *lua, sds *argv, int argc) {
             ldbLog(sdscatfmt(sdsempty(),"<error> %s",lua_tostring(lua,-1)));
             lua_pop(lua,1);
             sdsfree(code);
+            sdsfree(expr);
             return;
         }
     }

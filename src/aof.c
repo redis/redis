@@ -242,6 +242,7 @@ void stopAppendOnly(void) {
     server.aof_fd = -1;
     server.aof_selected_db = -1;
     server.aof_state = AOF_OFF;
+    server.aof_rewrite_scheduled = 0;
     killAppendOnlyChild();
 }
 
@@ -610,19 +611,24 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
     } else if (cmd->proc == setCommand && argc > 3) {
         int i;
         robj *exarg = NULL, *pxarg = NULL;
-        /* Translate SET [EX seconds][PX milliseconds] to SET and PEXPIREAT */
-        buf = catAppendOnlyGenericCommand(buf,3,argv);
         for (i = 3; i < argc; i ++) {
             if (!strcasecmp(argv[i]->ptr, "ex")) exarg = argv[i+1];
             if (!strcasecmp(argv[i]->ptr, "px")) pxarg = argv[i+1];
         }
         serverAssert(!(exarg && pxarg));
-        if (exarg)
-            buf = catAppendOnlyExpireAtCommand(buf,server.expireCommand,argv[1],
-                                               exarg);
-        if (pxarg)
-            buf = catAppendOnlyExpireAtCommand(buf,server.pexpireCommand,argv[1],
-                                               pxarg);
+
+        if (exarg || pxarg) {
+            /* Translate SET [EX seconds][PX milliseconds] to SET and PEXPIREAT */
+            buf = catAppendOnlyGenericCommand(buf,3,argv);
+            if (exarg)
+                buf = catAppendOnlyExpireAtCommand(buf,server.expireCommand,argv[1],
+                                                   exarg);
+            if (pxarg)
+                buf = catAppendOnlyExpireAtCommand(buf,server.pexpireCommand,argv[1],
+                                                   pxarg);
+        } else {
+            buf = catAppendOnlyGenericCommand(buf,argc,argv);
+        }
     } else {
         /* All the other commands don't need translation or need the
          * same translation already operated in the command vector
@@ -731,7 +737,7 @@ int loadAppendOnlyFile(char *filename) {
     server.aof_state = AOF_OFF;
 
     fakeClient = createAOFClient();
-    startLoadingFile(fp, filename);
+    startLoadingFile(fp, filename, RDBFLAGS_AOF_PREAMBLE);
 
     /* Check if this AOF file has an RDB preamble. In that case we need to
      * load the RDB file and later continue loading the AOF tail. */
@@ -746,7 +752,7 @@ int loadAppendOnlyFile(char *filename) {
         serverLog(LL_NOTICE,"Reading RDB preamble from AOF file...");
         if (fseek(fp,0,SEEK_SET) == -1) goto readerr;
         rioInitWithFile(&rdb,fp);
-        if (rdbLoadRio(&rdb,NULL,1) != C_OK) {
+        if (rdbLoadRio(&rdb,RDBFLAGS_AOF_PREAMBLE,NULL) != C_OK) {
             serverLog(LL_WARNING,"Error reading the RDB preamble of the AOF file, AOF loading aborted");
             goto readerr;
         } else {
@@ -767,6 +773,7 @@ int loadAppendOnlyFile(char *filename) {
         if (!(loops++ % 1000)) {
             loadingProgress(ftello(fp));
             processEventsWhileBlocked();
+            processModuleLoadingProgressEvent(1);
         }
 
         if (fgets(buf,sizeof(buf),fp) == NULL) {
@@ -780,18 +787,26 @@ int loadAppendOnlyFile(char *filename) {
         argc = atoi(buf+1);
         if (argc < 1) goto fmterr;
 
+        /* Load the next command in the AOF as our fake client
+         * argv. */
         argv = zmalloc(sizeof(robj*)*argc);
         fakeClient->argc = argc;
         fakeClient->argv = argv;
 
         for (j = 0; j < argc; j++) {
-            if (fgets(buf,sizeof(buf),fp) == NULL) {
+            /* Parse the argument len. */
+            char *readres = fgets(buf,sizeof(buf),fp);
+            if (readres == NULL || buf[0] != '$') {
                 fakeClient->argc = j; /* Free up to j-1. */
                 freeFakeClientArgv(fakeClient);
-                goto readerr;
+                if (readres == NULL)
+                    goto readerr;
+                else
+                    goto fmterr;
             }
-            if (buf[0] != '$') goto fmterr;
             len = strtol(buf+1,NULL,10);
+
+            /* Read it into a string object. */
             argsds = sdsnewlen(SDS_NOINIT,len);
             if (len && fread(argsds,len,1,fp) == 0) {
                 sdsfree(argsds);
@@ -800,10 +815,12 @@ int loadAppendOnlyFile(char *filename) {
                 goto readerr;
             }
             argv[j] = createObject(OBJ_STRING,argsds);
+
+            /* Discard CRLF. */
             if (fread(buf,2,1,fp) == 0) {
                 fakeClient->argc = j+1; /* Free up to j. */
                 freeFakeClientArgv(fakeClient);
-                goto readerr; /* discard CRLF */
+                goto readerr;
             }
         }
 
@@ -819,7 +836,7 @@ int loadAppendOnlyFile(char *filename) {
         if (cmd == server.multiCommand) valid_before_multi = valid_up_to;
 
         /* Run the command in the context of a fake client */
-        fakeClient->cmd = cmd;
+        fakeClient->cmd = fakeClient->lastcmd = cmd;
         if (fakeClient->flags & CLIENT_MULTI &&
             fakeClient->cmd->proc != execCommand)
         {
@@ -859,7 +876,7 @@ loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
     fclose(fp);
     freeFakeClient(fakeClient);
     server.aof_state = old_aof_state;
-    stopLoading();
+    stopLoading(1);
     aofUpdateCurrentSize();
     server.aof_rewrite_base_size = server.aof_current_size;
     server.aof_fsync_offset = server.aof_current_size;
@@ -1138,7 +1155,7 @@ int rioWriteBulkStreamID(rio *r,streamID *id) {
     int retval;
 
     sds replyid = sdscatfmt(sdsempty(),"%U-%U",id->ms,id->seq);
-    if ((retval = rioWriteBulkString(r,replyid,sdslen(replyid))) == 0) return 0;
+    retval = rioWriteBulkString(r,replyid,sdslen(replyid));
     sdsfree(replyid);
     return retval;
 }
@@ -1200,12 +1217,13 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
         /* Use the XADD MAXLEN 0 trick to generate an empty stream if
          * the key we are serializing is an empty string, which is possible
          * for the Stream type. */
+        id.ms = 0; id.seq = 1; 
         if (rioWriteBulkCount(r,'*',7) == 0) return 0;
         if (rioWriteBulkString(r,"XADD",4) == 0) return 0;
         if (rioWriteBulkObject(r,key) == 0) return 0;
         if (rioWriteBulkString(r,"MAXLEN",6) == 0) return 0;
         if (rioWriteBulkString(r,"0",1) == 0) return 0;
-        if (rioWriteBulkStreamID(r,&s->last_id) == 0) return 0;
+        if (rioWriteBulkStreamID(r,&id) == 0) return 0;
         if (rioWriteBulkString(r,"x",1) == 0) return 0;
         if (rioWriteBulkString(r,"y",1) == 0) return 0;
     }
@@ -1226,12 +1244,16 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
         while(raxNext(&ri)) {
             streamCG *group = ri.data;
             /* Emit the XGROUP CREATE in order to create the group. */
-            if (rioWriteBulkCount(r,'*',5) == 0) return 0;
-            if (rioWriteBulkString(r,"XGROUP",6) == 0) return 0;
-            if (rioWriteBulkString(r,"CREATE",6) == 0) return 0;
-            if (rioWriteBulkObject(r,key) == 0) return 0;
-            if (rioWriteBulkString(r,(char*)ri.key,ri.key_len) == 0) return 0;
-            if (rioWriteBulkStreamID(r,&group->last_id) == 0) return 0;
+            if (!rioWriteBulkCount(r,'*',5) ||
+                !rioWriteBulkString(r,"XGROUP",6) ||
+                !rioWriteBulkString(r,"CREATE",6) ||
+                !rioWriteBulkObject(r,key) ||
+                !rioWriteBulkString(r,(char*)ri.key,ri.key_len) ||
+                !rioWriteBulkStreamID(r,&group->last_id)) 
+            {
+                raxStop(&ri);
+                return 0;
+            }
 
             /* Generate XCLAIMs for each consumer that happens to
              * have pending entries. Empty consumers have no semantical
@@ -1252,6 +1274,9 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                                                    ri.key_len,consumer,
                                                    ri_pel.key,nack) == 0)
                     {
+                        raxStop(&ri_pel);
+                        raxStop(&ri_cons);
+                        raxStop(&ri);
                         return 0;
                     }
                 }
@@ -1400,9 +1425,11 @@ int rewriteAppendOnlyFile(char *filename) {
     if (server.aof_rewrite_incremental_fsync)
         rioSetAutoSync(&aof,REDIS_AUTOSYNC_BYTES);
 
+    startSaving(RDBFLAGS_AOF_PREAMBLE);
+
     if (server.aof_use_rdb_preamble) {
         int error;
-        if (rdbSaveRio(&aof,&error,RDB_SAVE_AOF_PREAMBLE,NULL) == C_ERR) {
+        if (rdbSaveRio(&aof,&error,RDBFLAGS_AOF_PREAMBLE,NULL) == C_ERR) {
             errno = error;
             goto werr;
         }
@@ -1465,15 +1492,18 @@ int rewriteAppendOnlyFile(char *filename) {
     if (rename(tmpfile,filename) == -1) {
         serverLog(LL_WARNING,"Error moving temp append only file on the final destination: %s", strerror(errno));
         unlink(tmpfile);
+        stopSaving(0);
         return C_ERR;
     }
     serverLog(LL_NOTICE,"SYNC append only file rewrite performed");
+    stopSaving(1);
     return C_OK;
 
 werr:
     serverLog(LL_WARNING,"Write error writing append only file on disk: %s", strerror(errno));
     fclose(fp);
     unlink(tmpfile);
+    stopSaving(0);
     return C_ERR;
 }
 
@@ -1578,6 +1608,7 @@ int rewriteAppendOnlyFileBackground(void) {
 
         /* Child */
         redisSetProcTitle("redis-aof-rewrite");
+        redisSetCpuAffinity(server.aof_rewrite_cpulist);
         snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
         if (rewriteAppendOnlyFile(tmpfile) == C_OK) {
             sendChildCOWInfo(CHILD_INFO_TYPE_AOF, "AOF rewrite");
@@ -1760,7 +1791,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             server.aof_selected_db = -1; /* Make sure SELECT is re-issued */
             aofUpdateCurrentSize();
             server.aof_rewrite_base_size = server.aof_current_size;
-            server.aof_current_size = server.aof_current_size;
+            server.aof_fsync_offset = server.aof_current_size;
 
             /* Clear regular AOF buffer since its contents was just written to
              * the new AOF from the background rewrite buffer. */
@@ -1781,14 +1812,15 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         serverLog(LL_VERBOSE,
             "Background AOF rewrite signal handler took %lldus", ustime()-now);
     } else if (!bysignal && exitcode != 0) {
+        server.aof_lastbgrewrite_status = C_ERR;
+
+        serverLog(LL_WARNING,
+            "Background AOF rewrite terminated with error");
+    } else {
         /* SIGUSR1 is whitelisted, so we have a way to kill a child without
          * tirggering an error condition. */
         if (bysignal != SIGUSR1)
             server.aof_lastbgrewrite_status = C_ERR;
-        serverLog(LL_WARNING,
-            "Background AOF rewrite terminated with error");
-    } else {
-        server.aof_lastbgrewrite_status = C_ERR;
 
         serverLog(LL_WARNING,
             "Background AOF rewrite terminated by signal %d", bysignal);

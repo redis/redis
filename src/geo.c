@@ -657,13 +657,13 @@ void georadiusGeneric(client *c, int flags) {
 
         if (returned_items) {
             zsetConvertToZiplistIfNeeded(zobj,maxelelen);
-            setKey(c->db,storekey,zobj);
+            setKey(c,c->db,storekey,zobj);
             decrRefCount(zobj);
             notifyKeyspaceEvent(NOTIFY_ZSET,"georadiusstore",storekey,
                                 c->db->id);
             server.dirty += returned_items;
         } else if (dbDelete(c->db,storekey)) {
-            signalModifiedKey(c->db,storekey);
+            signalModifiedKey(c,c->db,storekey);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",storekey,c->db->id);
             server.dirty++;
         }
@@ -734,14 +734,22 @@ void geohashCommand(client *c) {
             r[1].max = 90;
             geohashEncode(&r[0],&r[1],xy[0],xy[1],26,&hash);
 
-            char buf[11];
+            char buf[12];
             int i;
-            for (i = 0; i < 10; i++) {
-                int idx = (hash.bits >> (52-((i+1)*5))) & 0x1f;
+            for (i = 0; i < 11; i++) {
+                int idx;
+                if (i == 10) {
+                    /* We have just 52 bits, but the API used to output
+                     * an 11 bytes geohash. For compatibility we assume
+                     * zero. */
+                    idx = 0;
+                } else {
+                    idx = (hash.bits >> (52-((i+1)*5))) & 0x1f;
+                }
                 buf[i] = geoalphabet[idx];
             }
-            buf[10] = '\0';
-            addReplyBulkCBuffer(c,buf,10);
+            buf[11] = '\0';
+            addReplyBulkCBuffer(c,buf,11);
         }
     }
 }
