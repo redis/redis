@@ -2043,6 +2043,16 @@ static int updateAppendonly(int val, int prev, char **err) {
     return 1;
 }
 
+static int updateSighandlerEnabled(int val, int prev, char **err) {
+    UNUSED(err);
+    UNUSED(prev);
+    if (val)
+        setupSignalHandlers();
+    else
+        removeSignalHandlers();
+    return 1;
+}
+
 static int updateMaxclients(long long val, long long prev, char **err) {
     /* Try to check if the OS is capable of supporting so many FDs. */
     if (val > prev) {
@@ -2132,7 +2142,9 @@ standardConfig configs[] = {
     createBoolConfig("cluster-enabled", NULL, IMMUTABLE_CONFIG, server.cluster_enabled, 0, NULL, NULL),
     createBoolConfig("appendonly", NULL, MODIFIABLE_CONFIG, server.aof_enabled, 0, NULL, updateAppendonly),
     createBoolConfig("cluster-allow-reads-when-down", NULL, MODIFIABLE_CONFIG, server.cluster_allow_reads_when_down, 0, NULL, NULL),
-
+    createBoolConfig("crash-log-enabled", NULL, MODIFIABLE_CONFIG, server.crashlog_enabled, 1, NULL, updateSighandlerEnabled),
+    createBoolConfig("crash-memcheck-enabled", NULL, MODIFIABLE_CONFIG, server.memcheck_enabled, 1, NULL, NULL),
+    createBoolConfig("use-exit-on-panic", NULL, MODIFIABLE_CONFIG, server.use_exit_on_panic, 0, NULL, NULL),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
