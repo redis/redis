@@ -1227,19 +1227,13 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
  * (if it had a disk or socket target). */
 void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
     listNode *ln;
-    int startbgsave = 0;
-    int mincapa = -1;
     listIter li;
 
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
         client *slave = ln->value;
 
-        if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
-            startbgsave = 1;
-            mincapa = (mincapa == -1) ? slave->slave_capa :
-                                        (mincapa & slave->slave_capa);
-        } else if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
+        if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
             struct redis_stat buf;
 
             if (bgsaveerr != C_OK) {
@@ -1306,7 +1300,6 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
             }
         }
     }
-    if (startbgsave) startBgsaveForReplication(mincapa);
 }
 
 /* Change the current instance replication ID with a new, random one.
@@ -3342,7 +3335,7 @@ void replicationStartPendingFork(void) {
 
         if (slaves_waiting &&
             (!server.repl_diskless_sync ||
-             max_idle > server.repl_diskless_sync_delay))
+             max_idle >= server.repl_diskless_sync_delay))
         {
             /* Start the BGSAVE. The called function may start a
              * BGSAVE with socket target or disk target depending on the
