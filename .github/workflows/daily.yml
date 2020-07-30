@@ -10,7 +10,7 @@ on:
 
 jobs:
 
-  test-jemalloc:
+  test-ubuntu-jemalloc:
     runs-on: ubuntu-latest
     timeout-minutes: 14400
     steps:
@@ -28,7 +28,7 @@ jobs:
     - name: cluster tests
       run: ./runtest-cluster
 
-  test-libc-malloc:
+  test-ubuntu-libc-malloc:
     runs-on: ubuntu-latest
     timeout-minutes: 14400
     steps:
@@ -46,7 +46,7 @@ jobs:
     - name: cluster tests
       run: ./runtest-cluster
 
-  test-32bit:
+  test-ubuntu-32bit:
     runs-on: ubuntu-latest
     timeout-minutes: 14400
     steps:
@@ -68,7 +68,7 @@ jobs:
     - name: cluster tests
       run: ./runtest-cluster
 
-  test-tls:
+  test-ubuntu-tls:
     runs-on: ubuntu-latest
     timeout-minutes: 14400
     steps:
@@ -101,3 +101,49 @@ jobs:
         ./runtest --valgrind --verbose --clients 1
     - name: module api test
       run: ./runtest-moduleapi --valgrind --verbose --clients 1
+
+  test-centos7-jemalloc:
+    runs-on: ubuntu-latest
+    container: centos:7
+    timeout-minutes: 14400
+    steps:
+    - uses: actions/checkout@v2
+    - name: make
+      run: |
+        yum -y install centos-release-scl
+        yum -y install devtoolset-7
+        scl enable devtoolset-7 make
+    - name: test
+      run: |
+        yum -y install tcl
+        ./runtest --accurate --verbose
+    - name: module api test
+      run: ./runtest-moduleapi --verbose
+    - name: sentinel tests
+      run: ./runtest-sentinel
+    - name: cluster tests
+      run: ./runtest-cluster
+
+  test-centos7-tls:
+    runs-on: ubuntu-latest
+    container: centos:7
+    timeout-minutes: 14400
+    steps:
+    - uses: actions/checkout@v2
+    - name: make
+      run: |
+        yum -y install centos-release-scl epel-release
+        yum -y install devtoolset-7 openssl-devel openssl
+        scl enable devtoolset-7 make BUILD_TLS=yes
+    - name: test
+      run: |
+        yum -y install tcl tcltls
+        ./utils/gen-test-certs.sh
+        ./runtest --accurate --verbose --tls
+    - name: module api test
+      run: ./runtest-moduleapi --verbose --tls
+    - name: sentinel tests
+      run: ./runtest-sentinel --tls
+    - name: cluster tests
+      run: ./runtest-cluster --tls
+
