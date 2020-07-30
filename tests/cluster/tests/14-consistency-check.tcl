@@ -1,4 +1,5 @@
 source "../tests/includes/init-tests.tcl"
+source "../../../tests/support/cli.tcl"
 
 test "Create a 5 nodes cluster" {
     create_cluster 5 5
