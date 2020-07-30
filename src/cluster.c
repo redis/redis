@@ -4522,6 +4522,9 @@ NULL
                         "configEpoch updated after importing slot %d", slot);
                 }
                 server.cluster->importing_slots_from[slot] = NULL;
+                /* After importing this slot, let the other nodes know as
+                 * soon as possible. */
+                clusterBroadcastPong(CLUSTER_BROADCAST_ALL);
             }
             clusterDelSlot(slot);
             clusterAddSlot(n,slot);
