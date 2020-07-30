@@ -4503,6 +4503,9 @@ NULL
                 server.cluster->migrating_slots_to[slot])
                 server.cluster->migrating_slots_to[slot] = NULL;
 
+            clusterDelSlot(slot);
+            clusterAddSlot(n,slot);
+
             /* If this node was importing this slot, assigning the slot to
              * itself also clears the importing status. */
             if (n == myself &&
@@ -4526,8 +4529,6 @@ NULL
                  * soon as possible. */
                 clusterBroadcastPong(CLUSTER_BROADCAST_ALL);
             }
-            clusterDelSlot(slot);
-            clusterAddSlot(n,slot);
         } else {
             addReplyError(c,
                 "Invalid CLUSTER SETSLOT action or number of arguments. Try CLUSTER HELP");
