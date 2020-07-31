@@ -788,6 +788,12 @@ start_server {tags {"zset"}} {
         
         r zmscore zmscoretest x y
     } {10 20}
+
+    test {ZMSCORE retrieve from empty set} {
+        r del zmscoretest
+        
+        r zmscore zmscoretest x y
+    } {{} {}}
     
     test {ZMSCORE retrieve with missing member} {
         r del zmscoretest
