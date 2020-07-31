@@ -112,7 +112,7 @@ jobs:
       run: |
         yum -y install centos-release-scl
         yum -y install devtoolset-7
-        scl enable devtoolset-7 make
+        scl enable devtoolset-7 "make"
     - name: test
       run: |
         yum -y install tcl
@@ -134,7 +134,7 @@ jobs:
       run: |
         yum -y install centos-release-scl epel-release
         yum -y install devtoolset-7 openssl-devel openssl
-        scl enable devtoolset-7 make BUILD_TLS=yes
+        scl enable devtoolset-7 "make BUILD_TLS=yes"
     - name: test
       run: |
         yum -y install tcl tcltls
