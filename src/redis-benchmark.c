@@ -50,12 +50,17 @@
 #include "zmalloc.h"
 #include "atomicvar.h"
 #include "crc16_slottable.h"
+#include "hdr_histogram.h"
 
 #define UNUSED(V) ((void) V)
 #define RANDPTR_INITIAL_SIZE 8
-#define MAX_LATENCY_PRECISION 3
+#define DEFAULT_LATENCY_PRECISION 3
+#define MAX_LATENCY_PRECISION 4
 #define MAX_THREADS 500
 #define CLUSTER_SLOTS 16384
+#define CONFIG_LATENCY_HISTOGRAM_MIN_VALUE 10L          /* >= 10 usecs */
+#define CONFIG_LATENCY_HISTOGRAM_MAX_VALUE 3000000L          /* <= 30 secs(us precision) */
+#define CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE 3000000L   /* <= 3 secs(us precision) */
 
 #define CLIENT_GET_EVENTLOOP(c) \
     (c->thread_id >= 0 ? config.threads[c->thread_id]->el : config.el)
@@ -74,6 +79,9 @@ static struct config {
     int requests;
     int requests_issued;
     int requests_finished;
+    int previous_requests_finished;
+    int last_printed_bytes;
+    long long previous_tick;
     int keysize;
     int datasize;
     int randomkeys;
@@ -102,6 +110,8 @@ static struct config {
     int cluster_node_count;
     struct clusterNode **cluster_nodes;
     struct redisConfig *redis_config;
+    struct hdr_histogram* latency_histogram;
+    struct hdr_histogram* current_sec_latency_histogram;
     int is_fetching_slots;
     int is_updating_slots;
     int slots_last_update;
@@ -533,8 +543,23 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                 }
                 int requests_finished = 0;
                 atomicGetIncr(config.requests_finished, requests_finished, 1);
-                if (requests_finished < config.requests)
-                    config.latency[requests_finished] = c->latency;
+                if (requests_finished < config.requests){
+                        if (config.num_threads == 0) {
+                            hdr_record_value(
+                            config.latency_histogram,  // Histogram to record to
+                            (long)c->latency<=CONFIG_LATENCY_HISTOGRAM_MAX_VALUE ? (long)c->latency : CONFIG_LATENCY_HISTOGRAM_MAX_VALUE);  // Value to record
+                            hdr_record_value(
+                            config.current_sec_latency_histogram,  // Histogram to record to
+                            (long)c->latency<=CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE ? (long)c->latency : CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE);  // Value to record
+                        } else {
+                            hdr_record_value_atomic(
+                            config.latency_histogram,  // Histogram to record to
+                            (long)c->latency<=CONFIG_LATENCY_HISTOGRAM_MAX_VALUE ? (long)c->latency : CONFIG_LATENCY_HISTOGRAM_MAX_VALUE);  // Value to record
+                            hdr_record_value_atomic(
+                            config.current_sec_latency_histogram,  // Histogram to record to
+                            (long)c->latency<=CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE ? (long)c->latency : CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE);  // Value to record
+                        }
+                }
                 c->pending--;
                 if (c->pending == 0) {
                     clientDone(c);
@@ -793,27 +818,18 @@ static void createMissingClients(client c) {
     }
 }
 
-static int compareLatency(const void *a, const void *b) {
-    return (*(long long*)a)-(*(long long*)b);
-}
-
-static int ipow(int base, int exp) {
-    int result = 1;
-    while (exp) {
-        if (exp & 1) result *= base;
-        exp /= 2;
-        base *= base;
-    }
-    return result;
-}
-
 static void showLatencyReport(void) {
-    int i, curlat = 0;
-    int usbetweenlat = ipow(10, MAX_LATENCY_PRECISION-config.precision);
-    float perc, reqpersec;
 
-    reqpersec = (float)config.requests_finished/((float)config.totlatency/1000);
+    const float reqpersec = (float)config.requests_finished/((float)config.totlatency/1000.0f);
+    const float q0 = ((float) hdr_min(config.latency_histogram))/1000.0f;
+    const float q50 = hdr_value_at_percentile(config.latency_histogram, 50.0 )/1000.0f;
+    const float q95 = hdr_value_at_percentile(config.latency_histogram, 95.0 )/1000.0f;
+    const float q99 = hdr_value_at_percentile(config.latency_histogram, 99.0 )/1000.0f;
+    const float q100 = ((float) hdr_max(config.latency_histogram))/1000.0f;
+    const float avg = hdr_mean(config.latency_histogram)/1000.0f;
+
     if (!config.quiet && !config.csv) {
+        printf("%*s\r", config.last_printed_bytes, " "); // ensure there is a clean line
         printf("====== %s ======\n", config.title);
         printf("  %d requests completed in %.2f seconds\n", config.requests_finished,
             (float)config.totlatency/1000);
@@ -846,31 +862,26 @@ static void showLatencyReport(void) {
             printf("  threads: %d\n", config.num_threads);
 
         printf("\n");
-
-        qsort(config.latency,config.requests,sizeof(long long),compareLatency);
-        for (i = 0; i < config.requests; i++) {
-            if (config.latency[i]/usbetweenlat != curlat ||
-                i == (config.requests-1))
-            {
-                /* After the 2 milliseconds latency to have percentages split
-                 * by decimals will just add a lot of noise to the output. */
-                if (config.latency[i] >= 2000) {
-                    config.precision = 0;
-                    usbetweenlat = ipow(10,
-                        MAX_LATENCY_PRECISION-config.precision);
-                }
-
-                curlat = config.latency[i]/usbetweenlat;
-                perc = ((float)(i+1)*100)/config.requests;
-                printf("%.2f%% <= %.*f milliseconds\n", perc, config.precision,
-                    curlat/pow(10.0, config.precision));
-            }
+        
+        struct hdr_iter iter;
+        struct hdr_iter_percentiles * percentiles;
+        hdr_iter_percentile_init(&iter, config.latency_histogram, 1);
+        percentiles = &iter.specifics.percentiles;
+        while (hdr_iter_next(&iter))
+        {
+            const double value = iter.highest_equivalent_value / 1000.0f;
+            const double percentile = percentiles->percentile;
+            const long long total_count = iter.cumulative_count;
+            printf("%3.3f%% <= %.3f milliseconds (cumulative count %lld)\n", percentile, value, total_count);
         }
-        printf("%.2f requests per second\n\n", reqpersec);
+        printf("\n");
+        printf("throughput summary: %.2f requests per second\n", reqpersec);
+        printf("latency summary: min=%.3f msec, q50=%.3f msec, q95=%.3f msec, q99=%.3f msec, max=%.3f msec, avg=%.3f msec\n\n", q0, q50, q95, q99, q100, avg);
     } else if (config.csv) {
-        printf("\"%s\",\"%.2f\"\n", config.title, reqpersec);
+        printf("\"%s\",\"%.2f\",\"%.3f\",\"%.3f\",\"%.3f\",\"%.3f\",\"%.3f\",\"%.3f\"\n", config.title, reqpersec, q0, q50, q95, q99, q100, avg);
     } else {
-        printf("%s: %.2f requests per second\n", config.title, reqpersec);
+        printf("%*s\r", config.last_printed_bytes, " "); // ensure there is a clean line
+        printf("%s: %.2f requests per second, q50=%.3f msec\n", config.title, reqpersec, q50);    
     }
 }
 
@@ -903,6 +914,18 @@ static void benchmark(char *title, char *cmd, int len) {
     config.title = title;
     config.requests_issued = 0;
     config.requests_finished = 0;
+    config.previous_requests_finished = 0;
+    config.last_printed_bytes = 0;
+    hdr_init(
+        CONFIG_LATENCY_HISTOGRAM_MIN_VALUE,  // Minimum value
+        CONFIG_LATENCY_HISTOGRAM_MAX_VALUE,  // Maximum value
+        config.precision,  // Number of significant figures
+        &config.latency_histogram);  // Pointer to initialise
+    hdr_init(
+        CONFIG_LATENCY_HISTOGRAM_MIN_VALUE,  // Minimum value
+        CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE,  // Maximum value
+        config.precision,  // Number of significant figures
+        &config.current_sec_latency_histogram);  // Pointer to initialise
 
     if (config.num_threads) initBenchmarkThreads();
 
@@ -918,6 +941,9 @@ static void benchmark(char *title, char *cmd, int len) {
     showLatencyReport();
     freeAllClients();
     if (config.threads) freeBenchmarkThreads();
+    if (config.current_sec_latency_histogram) hdr_close(config.current_sec_latency_histogram);
+    if (config.latency_histogram) hdr_close(config.latency_histogram);
+
 }
 
 /* Thread functions. */
@@ -1386,7 +1412,7 @@ int parseOptions(int argc, const char **argv) {
         } else if (!strcmp(argv[i],"--precision")) {
             if (lastarg) goto invalid;
             config.precision = atoi(argv[++i]);
-            if (config.precision < 0) config.precision = 0;
+            if (config.precision < 0) config.precision = DEFAULT_LATENCY_PRECISION;
             if (config.precision > MAX_LATENCY_PRECISION) config.precision = MAX_LATENCY_PRECISION;
         } else if (!strcmp(argv[i],"--threads")) {
              if (lastarg) goto invalid;
@@ -1474,9 +1500,12 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
     UNUSED(clientData);
     int liveclients = 0;
     int requests_finished = 0;
+    int previous_requests_finished = 0;
+    long long current_tick = mstime();
     atomicGet(config.liveclients, liveclients);
     atomicGet(config.requests_finished, requests_finished);
-
+    atomicGet(config.previous_requests_finished, previous_requests_finished);
+    
     if (liveclients == 0 && requests_finished != config.requests) {
         fprintf(stderr,"All clients disconnected... aborting.\n");
         exit(1);
@@ -1491,9 +1520,14 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
         fflush(stdout);
 	return 250;
     }
-    float dt = (float)(mstime()-config.start)/1000.0;
-    float rps = (float)requests_finished/dt;
-    printf("%s: %.2f\r", config.title, rps);
+    const float dt = (float)(current_tick-config.start)/1000.0;
+    const float rps = (float)requests_finished/dt;
+    const float instantaneous_dt = (float)(current_tick-config.previous_tick)/1000.0;
+    const float instantaneous_rps = (float)(requests_finished-previous_requests_finished)/instantaneous_dt;
+    config.previous_tick = current_tick;
+    atomicSet(config.previous_requests_finished,requests_finished);
+    config.last_printed_bytes = printf("%s: rps=%.1f (overall: %.1f) q50_msec=%.3f (overall: %.3f)\r", config.title, instantaneous_rps, rps, hdr_value_at_percentile(config.current_sec_latency_histogram, 50.0 )/1000.0f, hdr_value_at_percentile(config.latency_histogram, 50.0 )/1000.0f);
+    hdr_reset(config.current_sec_latency_histogram);
     fflush(stdout);
     return 250; /* every 250ms */
 }
@@ -1538,7 +1572,6 @@ int main(int argc, const char **argv) {
     config.csv = 0;
     config.loop = 0;
     config.idlemode = 0;
-    config.latency = NULL;
     config.clients = listCreate();
     config.hostip = "127.0.0.1";
     config.hostport = 6379;
@@ -1546,7 +1579,7 @@ int main(int argc, const char **argv) {
     config.tests = NULL;
     config.dbnum = 0;
     config.auth = NULL;
-    config.precision = 1;
+    config.precision = DEFAULT_LATENCY_PRECISION;
     config.num_threads = 0;
     config.threads = NULL;
     config.cluster_mode = 0;
@@ -1561,8 +1594,6 @@ int main(int argc, const char **argv) {
     i = parseOptions(argc,argv);
     argc -= i;
     argv += i;
-
-    config.latency = zmalloc(sizeof(long long)*config.requests);
 
     if (config.cluster_mode) {
         /* Fetch cluster configuration. */
@@ -1609,7 +1640,6 @@ int main(int argc, const char **argv) {
         if (config.redis_config == NULL)
             fprintf(stderr, "WARN: could not fetch server CONFIG\n");
     }
-
     if (config.num_threads > 0) {
         pthread_mutex_init(&(config.requests_issued_mutex), NULL);
         pthread_mutex_init(&(config.requests_finished_mutex), NULL);
@@ -1637,7 +1667,9 @@ int main(int argc, const char **argv) {
         else aeMain(config.el);
         /* and will wait for every */
     }
-
+    if(config.csv){
+        printf("\"test\",\"rps\",\"min_latency_ms\",\"q50_latency_ms\",\"q95_latency_ms\",\"q99_latency_ms\",\"max_latency_ms\",\"avg_latency_ms\"\n");
+    }
     /* Run benchmark with command in the remainder of the arguments. */
     if (argc) {
         sds title = sdsnew(argv[0]);
@@ -1648,6 +1680,8 @@ int main(int argc, const char **argv) {
 
         do {
             len = redisFormatCommandArgv(&cmd,argc,argv,NULL);
+            // adjust the datasize to the parsed command
+            config.datasize = len;
             benchmark(title,cmd,len);
             free(cmd);
         } while(config.loop);
