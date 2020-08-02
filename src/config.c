@@ -1058,7 +1058,7 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
         char *p = strstr(argv[0],"slave");
         if (p) {
             sds alt = sdsempty();
-            alt = sdscatlen(alt,argv[0],p-argv[0]);;
+            alt = sdscatlen(alt,argv[0],p-argv[0]);
             alt = sdscatlen(alt,"replica",7);
             alt = sdscatlen(alt,p+5,strlen(p+5));
             sdsfree(argv[0]);
