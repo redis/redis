@@ -27,7 +27,7 @@ set ::redis_cluster::plain_commands {
     sadd srem sismember scard spop srandmember smembers sscan zadd
     zincrby zrem zremrangebyscore zremrangebyrank zremrangebylex zrange
     zrangebyscore zrevrangebyscore zrangebylex zrevrangebylex zcount
-    zlexcount zrevrange zcard zscore zrank zrevrank zscan hset hsetnx
+    zlexcount zrevrange zcard zscore zmscore zrank zrevrank zscan hset hsetnx
     hget hmset hmget hincrby hincrbyfloat hdel hlen hkeys hvals
     hgetall hexists hscan incrby decrby incrbyfloat getset move
     expire expireat pexpire pexpireat type ttl pttl persist restore
