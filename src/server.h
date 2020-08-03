@@ -1442,7 +1442,7 @@ struct redisServer {
     const char *assert_failed;
     const char *assert_file;
     int assert_line;
-    int bug_report_start; /* True if bug report header was already logged. */
+    _Atomic int bug_report_start; /* True if bug report header was already logged. */
     int watchdog_period;  /* Software watchdog period in ms. 0 = off */
     /* System hardware info */
     size_t system_memory_size;  /* Total memory in system as reported by OS */
