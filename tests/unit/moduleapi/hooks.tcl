@@ -114,6 +114,21 @@ tags "modules" {
             test {Test master link down hook} {
                 r client kill type master
                 assert_equal [r hooks.event_count masterlink-down] 1
+
+                wait_for_condition 50 100 {
+                    [string match {*master_link_status:up*} [r info replication]]
+                } else {
+                    fail "Replica didn't reconnect"
+                }
+
+                assert_equal [r hooks.event_count masterlink-down] 1
+                assert_equal [r hooks.event_count masterlink-up] 2
+            }
+
+            wait_for_condition 50 10 {
+                [string match {*master_link_status:up*} [r info replication]]
+            } else {
+                fail "Can't turn the instance into a replica"
             }
 
             $replica replicaof no one
@@ -125,8 +140,8 @@ tags "modules" {
             }
 
             test {Test replica-offline hook} {
-                assert_equal [r -1 hooks.event_count replica-online] 1
-                assert_equal [r -1 hooks.event_count replica-offline] 1
+                assert_equal [r -1 hooks.event_count replica-online] 2
+                assert_equal [r -1 hooks.event_count replica-offline] 2
             }
             # get the replica stdout, to be used by the next test
             set replica_stdout [srv 0 stdout]
