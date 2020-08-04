@@ -139,10 +139,10 @@ start_server {} {
     test {bgsave resets the change counter} {
         r config set rdb-key-save-delay 0
         r bgsave
-        wait_for_condition 5 100 {
+        wait_for_condition 50 100 {
             [s rdb_bgsave_in_progress] == 0
         } else {
-            fail "bgsave not aborted"
+            fail "bgsave not done"
         }
         assert_equal [s rdb_changes_since_last_save] 0
     }
