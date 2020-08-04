@@ -55,7 +55,7 @@ typedef ucontext_t sigcontext_t;
 #endif
 
 /* Globals */
-static int bug_report_start = 0; /* True if bug report header was already logged. */
+static _Atomic int bug_report_start = 0; /* True if bug report header was already logged. */
 
 /* Forward declarations */
 void bugReportStart(void);
