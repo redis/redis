@@ -1138,21 +1138,31 @@ void RM_RetainString(RedisModuleCtx *ctx, RedisModuleString *str) {
     }
 }
 
-/* Return either a shallow copy of the given String (by increasing
- * the String ref count) or a new deep copy of String in case its not possible
- * to get a shallow copy. If the ctx auto memory is enabled, the new copy (shallow
- * or deep) will be added to the auto memory management of the ctx and will be
- * freed when the ctx will be freed.
+/**
+ * This function should be used as a replacement for RedisModule_RetainString.
+ * The main difference is that this function will always succeed while
+ * RedisModule_RetainString might fail with assert.
+ *
+ * The function returns a pointer to RedisModuleString which owned by the caller.
+ * The caller needs to call RedisModule_FreeString on the returned
+ * pointer (unless auto memory is set on the given ctx, in this case
+ * it is possible to either free the RedisModuleString or let the auto
+ * memory free it automatically).
+ *
+ * This function is more efficient than RM_CreateStringFromString because,
+ * if possible, it does not copy the underline RedisModuleString.
+ * The disadvantage is that it might not be possible to use
+ * RedisModule_StringAppendBuffer on the returned RedisModuleString.
  *
  * It is possible to call this function with a NULL context.
- */
+ */
 RedisModuleString* RM_HoldString(RedisModuleCtx *ctx, RedisModuleString *str) {
-    if (str->refcount == OBJ_STATIC_REFCOUNT){
+    if (str->refcount == OBJ_STATIC_REFCOUNT) {
         return RM_CreateStringFromString(ctx, str);
     }
 
     incrRefCount(str);
-    if (ctx != NULL){
+    if (ctx != NULL) {
         /*
          * Put the str in the auto memory management of the ctx.
          * It might already be there, in this case, the ref count will
