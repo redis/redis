@@ -5160,7 +5160,6 @@ int main(int argc, char **argv) {
                 "Sentinel needs config file on disk to save state.  Exiting...");
             exit(1);
         }
-        resetServerSaveParams();
         loadServerConfig(configfile,options);
         sdsfree(options);
     }
