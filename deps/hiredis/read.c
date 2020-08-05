@@ -34,6 +34,7 @@
 #include <stdlib.h>
 #ifndef _MSC_VER
 #include <unistd.h>
+#include <strings.h>
 #endif
 #include <assert.h>
 #include <errno.h>
@@ -43,6 +44,7 @@
 
 #include "read.h"
 #include "sds.h"
+#include "win32.h"
 
 static void __redisReaderSetError(redisReader *r, int type, const char *str) {
     size_t len;
@@ -293,9 +295,9 @@ static int processLineItem(redisReader *r) {
                 buf[len] = '\0';
 
                 if (strcasecmp(buf,",inf") == 0) {
-                    d = 1.0/0.0; /* Positive infinite. */
+                    d = INFINITY; /* Positive infinite. */
                 } else if (strcasecmp(buf,",-inf") == 0) {
-                    d = -1.0/0.0; /* Nevative infinite. */
+                    d = -INFINITY; /* Nevative infinite. */
                 } else {
                     d = strtod((char*)buf,&eptr);
                     if (buf[0] == '\0' || eptr[0] != '\0' || isnan(d)) {
@@ -378,10 +380,18 @@ static int processBulkItem(redisReader *r) {
             /* Only continue when the buffer contains the entire bulk item. */
             bytelen += len+2; /* include \r\n */
             if (r->pos+bytelen <= r->len) {
+                if ((cur->type == REDIS_REPLY_VERB && len < 4) ||
+                    (cur->type == REDIS_REPLY_VERB && s[5] != ':'))
+                {
+                    __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
+                            "Verbatim string 4 bytes of content type are "
+                            "missing or incorrectly encoded.");
+                    return REDIS_ERR;
+                }
                 if (r->fn && r->fn->createString)
                     obj = r->fn->createString(cur,s+2,len);
                 else
-                    obj = (void*)REDIS_REPLY_STRING;
+                    obj = (void*)(long)cur->type;
                 success = 1;
             }
         }
@@ -429,7 +439,7 @@ static int processAggregateItem(redisReader *r) {
 
         root = (r->ridx == 0);
 
-        if (elements < -1 || elements > INT_MAX) {
+        if (elements < -1 || (LLONG_MAX > SIZE_MAX && elements > SIZE_MAX)) {
             __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
                     "Multi-bulk length out of range");
             return REDIS_ERR;
@@ -522,6 +532,9 @@ static int processItem(redisReader *r) {
             case '#':
                 cur->type = REDIS_REPLY_BOOL;
                 break;
+            case '=':
+                cur->type = REDIS_REPLY_VERB;
+                break;
             default:
                 __redisReaderSetErrorProtocolByte(r,*p);
                 return REDIS_ERR;
@@ -542,6 +555,7 @@ static int processItem(redisReader *r) {
     case REDIS_REPLY_BOOL:
         return processLineItem(r);
     case REDIS_REPLY_STRING:
+    case REDIS_REPLY_VERB:
         return processBulkItem(r);
     case REDIS_REPLY_ARRAY:
     case REDIS_REPLY_MAP:
@@ -656,8 +670,11 @@ int redisReaderGetReply(redisReader *r, void **reply) {
 
     /* Emit a reply when there is one. */
     if (r->ridx == -1) {
-        if (reply != NULL)
+        if (reply != NULL) {
             *reply = r->reply;
+        } else if (r->reply != NULL && r->fn && r->fn->freeObject) {
+            r->fn->freeObject(r->reply);
+        }
         r->reply = NULL;
     }
     return REDIS_OK;

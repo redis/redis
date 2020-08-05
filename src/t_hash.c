@@ -521,7 +521,7 @@ void hsetnxCommand(client *c) {
     } else {
         hashTypeSet(o,c->argv[2]->ptr,c->argv[3]->ptr,HASH_SET_COPY);
         addReply(c, shared.cone);
-        signalModifiedKey(c->db,c->argv[1]);
+        signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
         server.dirty++;
     }
@@ -551,7 +551,7 @@ void hsetCommand(client *c) {
         /* HMSET */
         addReply(c, shared.ok);
     }
-    signalModifiedKey(c->db,c->argv[1]);
+    signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
     server.dirty++;
 }
@@ -586,7 +586,7 @@ void hincrbyCommand(client *c) {
     new = sdsfromlonglong(value);
     hashTypeSet(o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE);
     addReplyLongLong(c,value);
-    signalModifiedKey(c->db,c->argv[1]);
+    signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrby",c->argv[1],c->db->id);
     server.dirty++;
 }
@@ -615,13 +615,17 @@ void hincrbyfloatCommand(client *c) {
     }
 
     value += incr;
+    if (isnan(value) || isinf(value)) {
+        addReplyError(c,"increment would produce NaN or Infinity");
+        return;
+    }
 
     char buf[MAX_LONG_DOUBLE_CHARS];
-    int len = ld2string(buf,sizeof(buf),value,1);
+    int len = ld2string(buf,sizeof(buf),value,LD_STR_HUMAN);
     new = sdsnewlen(buf,len);
     hashTypeSet(o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE);
     addReplyBulkCBuffer(c,buf,len);
-    signalModifiedKey(c->db,c->argv[1]);
+    signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrbyfloat",c->argv[1],c->db->id);
     server.dirty++;
 
@@ -717,7 +721,7 @@ void hdelCommand(client *c) {
         }
     }
     if (deleted) {
-        signalModifiedKey(c->db,c->argv[1]);
+        signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_HASH,"hdel",c->argv[1],c->db->id);
         if (keyremoved)
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],
@@ -768,8 +772,8 @@ void genericHgetallCommand(client *c, int flags) {
     hashTypeIterator *hi;
     int length, count = 0;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL
-        || checkType(c,o,OBJ_HASH)) return;
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymap[c->resp]))
+        == NULL || checkType(c,o,OBJ_HASH)) return;
 
     /* We return a map if the user requested keys and values, like in the
      * HGETALL case. Otherwise to use a flat array makes more sense. */

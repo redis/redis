@@ -30,6 +30,10 @@
 
 #include "server.h"
 #include "hiredis.h"
+#ifdef USE_OPENSSL
+#include "openssl/ssl.h"
+#include "hiredis_ssl.h"
+#endif
 #include "async.h"
 
 #include <ctype.h>
@@ -39,6 +43,10 @@
 #include <fcntl.h>
 
 extern char **environ;
+
+#ifdef USE_OPENSSL
+extern SSL_CTX *redis_tls_ctx;
+#endif
 
 #define REDIS_SENTINEL_PORT 26379
 
@@ -197,7 +205,8 @@ typedef struct sentinelRedisInstance {
     dict *slaves;       /* Slaves for this master instance. */
     unsigned int quorum;/* Number of sentinels that need to agree on failure. */
     int parallel_syncs; /* How many slaves to reconfigure at same time. */
-    char *auth_pass;    /* Password to use for AUTH against master & slaves. */
+    char *auth_pass;    /* Password to use for AUTH against master & replica. */
+    char *auth_user;    /* Username for ACLs AUTH against master & replica. */
 
     /* Slave specific. */
     mstime_t master_link_down_time; /* Slave replication link down time. */
@@ -453,8 +462,8 @@ struct redisCommand sentinelcmds[] = {
     {"role",sentinelRoleCommand,1,"ok-loading",0,NULL,0,0,0,0,0},
     {"client",clientCommand,-2,"read-only no-script",0,NULL,0,0,0,0,0},
     {"shutdown",shutdownCommand,-1,"",0,NULL,0,0,0,0,0},
-    {"auth",authCommand,2,"no-script ok-loading ok-stale fast",0,NULL,0,0,0,0,0},
-    {"hello",helloCommand,-2,"no-script fast",0,NULL,0,0,0,0,0}
+    {"auth",authCommand,2,"no-auth no-script ok-loading ok-stale fast",0,NULL,0,0,0,0,0},
+    {"hello",helloCommand,-2,"no-auth no-script fast",0,NULL,0,0,0,0,0}
 };
 
 /* This function overwrites a few normal Redis config default with Sentinel
@@ -860,8 +869,8 @@ void sentinelCollectTerminatedScripts(void) {
             }
             listDelNode(sentinel.scripts_queue,ln);
             sentinelReleaseScriptJob(sj);
-            sentinel.running_scripts--;
         }
+        sentinel.running_scripts--;
     }
 }
 
@@ -1067,6 +1076,7 @@ int sentinelTryConnectionSharing(sentinelRedisInstance *ri) {
         releaseInstanceLink(ri->link,NULL);
         ri->link = match->link;
         match->link->refcount++;
+        dictReleaseIterator(di);
         return C_OK;
     }
     dictReleaseIterator(di);
@@ -1223,6 +1233,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
                             SENTINEL_DEFAULT_DOWN_AFTER;
     ri->master_link_down_time = 0;
     ri->auth_pass = NULL;
+    ri->auth_user = NULL;
     ri->slave_priority = SENTINEL_DEFAULT_SLAVE_PRIORITY;
     ri->slave_reconf_sent_time = 0;
     ri->slave_master_host = NULL;
@@ -1281,6 +1292,7 @@ void releaseSentinelRedisInstance(sentinelRedisInstance *ri) {
     sdsfree(ri->slave_master_host);
     sdsfree(ri->leader);
     sdsfree(ri->auth_pass);
+    sdsfree(ri->auth_user);
     sdsfree(ri->info);
     releaseSentinelAddr(ri->addr);
     dictRelease(ri->renamed_commands);
@@ -1646,19 +1658,19 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
         ri->failover_timeout = atoi(argv[2]);
         if (ri->failover_timeout <= 0)
             return "negative or zero time parameter.";
-   } else if (!strcasecmp(argv[0],"parallel-syncs") && argc == 3) {
+    } else if (!strcasecmp(argv[0],"parallel-syncs") && argc == 3) {
         /* parallel-syncs <name> <milliseconds> */
         ri = sentinelGetMasterByName(argv[1]);
         if (!ri) return "No such master with specified name.";
         ri->parallel_syncs = atoi(argv[2]);
-   } else if (!strcasecmp(argv[0],"notification-script") && argc == 3) {
+    } else if (!strcasecmp(argv[0],"notification-script") && argc == 3) {
         /* notification-script <name> <path> */
         ri = sentinelGetMasterByName(argv[1]);
         if (!ri) return "No such master with specified name.";
         if (access(argv[2],X_OK) == -1)
             return "Notification script seems non existing or non executable.";
         ri->notification_script = sdsnew(argv[2]);
-   } else if (!strcasecmp(argv[0],"client-reconfig-script") && argc == 3) {
+    } else if (!strcasecmp(argv[0],"client-reconfig-script") && argc == 3) {
         /* client-reconfig-script <name> <path> */
         ri = sentinelGetMasterByName(argv[1]);
         if (!ri) return "No such master with specified name.";
@@ -1666,11 +1678,16 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
             return "Client reconfiguration script seems non existing or "
                    "non executable.";
         ri->client_reconfig_script = sdsnew(argv[2]);
-   } else if (!strcasecmp(argv[0],"auth-pass") && argc == 3) {
+    } else if (!strcasecmp(argv[0],"auth-pass") && argc == 3) {
         /* auth-pass <name> <password> */
         ri = sentinelGetMasterByName(argv[1]);
         if (!ri) return "No such master with specified name.";
         ri->auth_pass = sdsnew(argv[2]);
+    } else if (!strcasecmp(argv[0],"auth-user") && argc == 3) {
+        /* auth-user <name> <username> */
+        ri = sentinelGetMasterByName(argv[1]);
+        if (!ri) return "No such master with specified name.";
+        ri->auth_user = sdsnew(argv[2]);
     } else if (!strcasecmp(argv[0],"current-epoch") && argc == 2) {
         /* current-epoch <epoch> */
         unsigned long long current_epoch = strtoull(argv[1],NULL,10);
@@ -1828,11 +1845,18 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
             rewriteConfigRewriteLine(state,"sentinel",line,1);
         }
 
-        /* sentinel auth-pass */
+        /* sentinel auth-pass & auth-user */
         if (master->auth_pass) {
             line = sdscatprintf(sdsempty(),
                 "sentinel auth-pass %s %s",
                 master->name, master->auth_pass);
+            rewriteConfigRewriteLine(state,"sentinel",line,1);
+        }
+
+        if (master->auth_user) {
+            line = sdscatprintf(sdsempty(),
+                "sentinel auth-user %s %s",
+                master->name, master->auth_user);
             rewriteConfigRewriteLine(state,"sentinel",line,1);
         }
 
@@ -1960,19 +1984,29 @@ werr:
  * will disconnect and reconnect the link and so forth. */
 void sentinelSendAuthIfNeeded(sentinelRedisInstance *ri, redisAsyncContext *c) {
     char *auth_pass = NULL;
+    char *auth_user = NULL;
 
     if (ri->flags & SRI_MASTER) {
         auth_pass = ri->auth_pass;
+        auth_user = ri->auth_user;
     } else if (ri->flags & SRI_SLAVE) {
         auth_pass = ri->master->auth_pass;
+        auth_user = ri->master->auth_user;
     } else if (ri->flags & SRI_SENTINEL) {
-        auth_pass = ACLDefaultUserFirstPassword();
+        auth_pass = server.requirepass;
+        auth_user = NULL;
     }
 
-    if (auth_pass) {
+    if (auth_pass && auth_user == NULL) {
         if (redisAsyncCommand(c, sentinelDiscardReplyCallback, ri, "%s %s",
             sentinelInstanceMapCommand(ri,"AUTH"),
             auth_pass) == C_OK) ri->link->pending_commands++;
+    } else if (auth_pass && auth_user) {
+        /* If we also have an username, use the ACL-style AUTH command
+         * with two arguments, username and password. */
+        if (redisAsyncCommand(c, sentinelDiscardReplyCallback, ri, "%s %s %s",
+            sentinelInstanceMapCommand(ri,"AUTH"),
+            auth_user, auth_pass) == C_OK) ri->link->pending_commands++;
     }
 }
 
@@ -1995,6 +2029,19 @@ void sentinelSetClientName(sentinelRedisInstance *ri, redisAsyncContext *c, char
     }
 }
 
+static int instanceLinkNegotiateTLS(redisAsyncContext *context) {
+#ifndef USE_OPENSSL
+    (void) context;
+#else
+    if (!redis_tls_ctx) return C_ERR;
+    SSL *ssl = SSL_new(redis_tls_ctx);
+    if (!ssl) return C_ERR;
+
+    if (redisInitiateSSL(&context->c, ssl) == REDIS_ERR) return C_ERR;
+#endif
+    return C_OK;
+}
+
 /* Create the async connections for the instance link if the link
  * is disconnected. Note that link->disconnected is true even if just
  * one of the two links (commands and pub/sub) is missing. */
@@ -2010,7 +2057,11 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
     /* Commands connection. */
     if (link->cc == NULL) {
         link->cc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,NET_FIRST_BIND_ADDR);
-        if (link->cc->err) {
+        if (!link->cc->err && server.tls_replication &&
+                (instanceLinkNegotiateTLS(link->cc) == C_ERR)) {
+            sentinelEvent(LL_DEBUG,"-cmd-link-reconnection",ri,"%@ #Failed to initialize TLS");
+            instanceLinkCloseConnection(link,link->cc);
+        } else if (link->cc->err) {
             sentinelEvent(LL_DEBUG,"-cmd-link-reconnection",ri,"%@ #%s",
                 link->cc->errstr);
             instanceLinkCloseConnection(link,link->cc);
@@ -2033,7 +2084,10 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
     /* Pub / Sub */
     if ((ri->flags & (SRI_MASTER|SRI_SLAVE)) && link->pc == NULL) {
         link->pc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,NET_FIRST_BIND_ADDR);
-        if (link->pc->err) {
+        if (!link->pc->err && server.tls_replication &&
+                (instanceLinkNegotiateTLS(link->pc) == C_ERR)) {
+            sentinelEvent(LL_DEBUG,"-pubsub-link-reconnection",ri,"%@ #Failed to initialize TLS");
+        } else if (link->pc->err) {
             sentinelEvent(LL_DEBUG,"-pubsub-link-reconnection",ri,"%@ #%s",
                 link->pc->errstr);
             instanceLinkCloseConnection(link,link->pc);
@@ -2164,8 +2218,8 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
         }
 
         /* role:<role> */
-        if (!memcmp(l,"role:master",11)) role = SRI_MASTER;
-        else if (!memcmp(l,"role:slave",10)) role = SRI_SLAVE;
+        if (sdslen(l) >= 11 && !memcmp(l,"role:master",11)) role = SRI_MASTER;
+        else if (sdslen(l) >= 10 && !memcmp(l,"role:slave",10)) role = SRI_SLAVE;
 
         if (role == SRI_SLAVE) {
             /* master_host:<host> */
@@ -2584,8 +2638,9 @@ int sentinelSendHello(sentinelRedisInstance *ri) {
             return C_ERR;
         announce_ip = ip;
     }
-    announce_port = sentinel.announce_port ?
-                    sentinel.announce_port : server.port;
+    if (sentinel.announce_port) announce_port = sentinel.announce_port;
+    else if (server.tls_replication && server.tls_port) announce_port = server.tls_port;
+    else announce_port = server.port;
 
     /* Format and send the Hello message. */
     snprintf(payload,sizeof(payload),
@@ -3493,6 +3548,12 @@ void sentinelSetCommand(client *c) {
             sdsfree(ri->auth_pass);
             ri->auth_pass = strlen(value) ? sdsnew(value) : NULL;
             changes++;
+        } else if (!strcasecmp(option,"auth-user") && moreargs > 0) {
+            /* auth-user <username> */
+            char *value = c->argv[++j]->ptr;
+            sdsfree(ri->auth_user);
+            ri->auth_user = strlen(value) ? sdsnew(value) : NULL;
+            changes++;
         } else if (!strcasecmp(option,"quorum") && moreargs > 0) {
             /* quorum <count> */
             robj *o = c->argv[++j];
@@ -3964,11 +4025,14 @@ int sentinelSendSlaveOf(sentinelRedisInstance *ri, char *host, int port) {
      * an issue because CLIENT is variadic command, so Redis will not
      * recognized as a syntax error, and the transaction will not fail (but
      * only the unsupported command will fail). */
-    retval = redisAsyncCommand(ri->link->cc,
-        sentinelDiscardReplyCallback, ri, "%s KILL TYPE normal",
-        sentinelInstanceMapCommand(ri,"CLIENT"));
-    if (retval == C_ERR) return retval;
-    ri->link->pending_commands++;
+    for (int type = 0; type < 2; type++) {
+        retval = redisAsyncCommand(ri->link->cc,
+            sentinelDiscardReplyCallback, ri, "%s KILL TYPE %s",
+            sentinelInstanceMapCommand(ri,"CLIENT"),
+            type == 0 ? "normal" : "pubsub");
+        if (retval == C_ERR) return retval;
+        ri->link->pending_commands++;
+    }
 
     retval = redisAsyncCommand(ri->link->cc,
         sentinelDiscardReplyCallback, ri, "%s",
@@ -4276,7 +4340,7 @@ void sentinelFailoverDetectEnd(sentinelRedisInstance *master) {
             sentinelRedisInstance *slave = dictGetVal(de);
             int retval;
 
-            if (slave->flags & (SRI_RECONF_DONE|SRI_RECONF_SENT)) continue;
+            if (slave->flags & (SRI_PROMOTED|SRI_RECONF_DONE|SRI_RECONF_SENT)) continue;
             if (slave->link->disconnected) continue;
 
             retval = sentinelSendSlaveOf(slave,

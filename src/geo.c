@@ -466,7 +466,7 @@ void georadiusGeneric(client *c, int flags) {
 
     /* Look up the requested zset */
     robj *zobj = NULL;
-    if ((zobj = lookupKeyReadOrReply(c, key, shared.null[c->resp])) == NULL ||
+    if ((zobj = lookupKeyReadOrReply(c, key, shared.emptyarray)) == NULL ||
         checkType(c, zobj, OBJ_ZSET)) {
         return;
     }
@@ -566,7 +566,7 @@ void georadiusGeneric(client *c, int flags) {
 
     /* If no matching results, the user gets an empty reply. */
     if (ga->used == 0 && storekey == NULL) {
-        addReplyNull(c);
+        addReply(c,shared.emptyarray);
         geoArrayFree(ga);
         return;
     }
@@ -657,13 +657,13 @@ void georadiusGeneric(client *c, int flags) {
 
         if (returned_items) {
             zsetConvertToZiplistIfNeeded(zobj,maxelelen);
-            setKey(c->db,storekey,zobj);
+            setKey(c,c->db,storekey,zobj);
             decrRefCount(zobj);
-            notifyKeyspaceEvent(NOTIFY_LIST,"georadiusstore",storekey,
+            notifyKeyspaceEvent(NOTIFY_ZSET,"georadiusstore",storekey,
                                 c->db->id);
             server.dirty += returned_items;
         } else if (dbDelete(c->db,storekey)) {
-            signalModifiedKey(c->db,storekey);
+            signalModifiedKey(c,c->db,storekey);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",storekey,c->db->id);
             server.dirty++;
         }
@@ -737,7 +737,15 @@ void geohashCommand(client *c) {
             char buf[12];
             int i;
             for (i = 0; i < 11; i++) {
-                int idx = (hash.bits >> (52-((i+1)*5))) & 0x1f;
+                int idx;
+                if (i == 10) {
+                    /* We have just 52 bits, but the API used to output
+                     * an 11 bytes geohash. For compatibility we assume
+                     * zero. */
+                    idx = 0;
+                } else {
+                    idx = (hash.bits >> (52-((i+1)*5))) & 0x1f;
+                }
                 buf[i] = geoalphabet[idx];
             }
             buf[11] = '\0';

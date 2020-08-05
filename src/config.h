@@ -226,4 +226,31 @@ void setproctitle(const char *fmt, ...);
 #define USE_ALIGNED_ACCESS
 #endif
 
+/* Define for redis_set_thread_title */
+#ifdef __linux__
+#define redis_set_thread_title(name) pthread_setname_np(pthread_self(), name)
+#else
+#if (defined __FreeBSD__ || defined __OpenBSD__)
+#include <pthread_np.h>
+#define redis_set_thread_title(name) pthread_set_name_np(pthread_self(), name)
+#elif defined __NetBSD__
+#include <pthread.h>
+#define redis_set_thread_title(name) pthread_setname_np(pthread_self(), name, NULL)
+#else
+#if (defined __APPLE__ && defined(MAC_OS_X_VERSION_10_7))
+int pthread_setname_np(const char *name);
+#include <pthread.h>
+#define redis_set_thread_title(name) pthread_setname_np(name)
+#else
+#define redis_set_thread_title(name)
+#endif
+#endif
+#endif
+
+/* Check if we can use setcpuaffinity(). */
+#if (defined __linux || defined __NetBSD__ || defined __FreeBSD__)
+#define USE_SETCPUAFFINITY
+void setcpuaffinity(const char *cpulist);
+#endif
+
 #endif

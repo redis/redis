@@ -80,9 +80,11 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
     }
 
     test {SLOWLOG - can be disabled} {
+        r config set slowlog-max-len 1
         r config set slowlog-log-slower-than 1
         r slowlog reset
-        assert_equal [r slowlog len] 1 
+        r debug sleep 0.2
+        assert_equal [r slowlog len] 1
         r config set slowlog-log-slower-than -1
         r slowlog reset
         r debug sleep 0.2

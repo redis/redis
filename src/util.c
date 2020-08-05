@@ -42,7 +42,7 @@
 #include <time.h>
 
 #include "util.h"
-#include "sha1.h"
+#include "sha256.h"
 
 /* Glob-style pattern matching. */
 int stringmatchlen(const char *pattern, int patternLen,
@@ -51,7 +51,7 @@ int stringmatchlen(const char *pattern, int patternLen,
     while(patternLen && stringLen) {
         switch(pattern[0]) {
         case '*':
-            while (pattern[1] == '*') {
+            while (patternLen && pattern[1] == '*') {
                 pattern++;
                 patternLen--;
             }
@@ -67,8 +67,6 @@ int stringmatchlen(const char *pattern, int patternLen,
             return 0; /* no match */
             break;
         case '?':
-            if (stringLen == 0)
-                return 0; /* no match */
             string++;
             stringLen--;
             break;
@@ -96,7 +94,7 @@ int stringmatchlen(const char *pattern, int patternLen,
                     pattern--;
                     patternLen++;
                     break;
-                } else if (pattern[1] == '-' && patternLen >= 3) {
+                } else if (patternLen >= 3 && pattern[1] == '-') {
                     int start = pattern[0];
                     int end = pattern[2];
                     int c = string[0];
@@ -423,6 +421,26 @@ int string2ll(const char *s, size_t slen, long long *value) {
     return 1;
 }
 
+/* Helper function to convert a string to an unsigned long long value.
+ * The function attempts to use the faster string2ll() function inside
+ * Redis: if it fails, strtoull() is used instead. The function returns
+ * 1 if the conversion happened successfully or 0 if the number is
+ * invalid or out of range. */
+int string2ull(const char *s, unsigned long long *value) {
+    long long ll;
+    if (string2ll(s,strlen(s),&ll)) {
+        if (ll < 0) return 0; /* Negative values are out of range. */
+        *value = ll;
+        return 1;
+    }
+    errno = 0;
+    char *endptr = NULL;
+    *value = strtoull(s,&endptr,10);
+    if (errno == EINVAL || errno == ERANGE || !(*s != '\0' && *endptr == '\0'))
+        return 0; /* strtoull() failed. */
+    return 1; /* Conversion done! */
+}
+
 /* Convert a string into a long. Returns 1 if the string could be parsed into a
  * (non-overflowing) long, 0 otherwise. The value will be set to the parsed
  * value when appropriate. */
@@ -447,17 +465,18 @@ int string2l(const char *s, size_t slen, long *lval) {
  * a double: no spaces or other characters before or after the string
  * representing the number are accepted. */
 int string2ld(const char *s, size_t slen, long double *dp) {
-    char buf[256];
+    char buf[MAX_LONG_DOUBLE_CHARS];
     long double value;
     char *eptr;
 
-    if (slen >= sizeof(buf)) return 0;
+    if (slen == 0 || slen >= sizeof(buf)) return 0;
     memcpy(buf,s,slen);
     buf[slen] = '\0';
 
     errno = 0;
     value = strtold(buf, &eptr);
     if (isspace(buf[0]) || eptr[0] != '\0' ||
+        (size_t)(eptr-buf) != slen ||
         (errno == ERANGE &&
             (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
         errno == EINVAL ||
@@ -465,6 +484,27 @@ int string2ld(const char *s, size_t slen, long double *dp) {
         return 0;
 
     if (dp) *dp = value;
+    return 1;
+}
+
+/* Convert a string into a double. Returns 1 if the string could be parsed
+ * into a (non-overflowing) double, 0 otherwise. The value will be set to
+ * the parsed value when appropriate.
+ *
+ * Note that this function demands that the string strictly represents
+ * a double: no spaces or other characters before or after the string
+ * representing the number are accepted. */
+int string2d(const char *s, size_t slen, double *dp) {
+    errno = 0;
+    char *eptr;
+    *dp = strtod(s, &eptr);
+    if (slen == 0 ||
+        isspace(((const char*)s)[0]) ||
+        (size_t)(eptr-(char*)s) != slen ||
+        (errno == ERANGE &&
+            (*dp == HUGE_VAL || *dp == -HUGE_VAL || *dp == 0)) ||
+        isnan(*dp))
+        return 0;
     return 1;
 }
 
@@ -510,15 +550,17 @@ int d2string(char *buf, size_t len, double value) {
     return len;
 }
 
-/* Convert a long double into a string. If humanfriendly is non-zero
- * it does not use exponential format and trims trailing zeroes at the end,
- * however this results in loss of precision. Otherwise exp format is used
- * and the output of snprintf() is not modified.
+/* Create a string object from a long double.
+ * If mode is humanfriendly it does not use exponential format and trims trailing
+ * zeroes at the end (may result in loss of precision).
+ * If mode is default exp format is used and the output of snprintf()
+ * is not modified (may result in loss of precision).
+ * If mode is hex hexadecimal format is used (no loss of precision)
  *
  * The function returns the length of the string or zero if there was not
  * enough buffer room to store it. */
-int ld2string(char *buf, size_t len, long double value, int humanfriendly) {
-    size_t l;
+int ld2string(char *buf, size_t len, long double value, ld2string_mode mode) {
+    size_t l = 0;
 
     if (isinf(value)) {
         /* Libc in odd systems (Hi Solaris!) will format infinite in a
@@ -531,26 +573,40 @@ int ld2string(char *buf, size_t len, long double value, int humanfriendly) {
             memcpy(buf,"-inf",4);
             l = 4;
         }
-    } else if (humanfriendly) {
-        /* We use 17 digits precision since with 128 bit floats that precision
-         * after rounding is able to represent most small decimal numbers in a
-         * way that is "non surprising" for the user (that is, most small
-         * decimal numbers will be represented in a way that when converted
-         * back into a string are exactly the same as what the user typed.) */
-        l = snprintf(buf,len,"%.17Lf", value);
-        if (l+1 > len) return 0; /* No room. */
-        /* Now remove trailing zeroes after the '.' */
-        if (strchr(buf,'.') != NULL) {
-            char *p = buf+l-1;
-            while(*p == '0') {
-                p--;
-                l--;
-            }
-            if (*p == '.') l--;
-        }
     } else {
-        l = snprintf(buf,len,"%.17Lg", value);
-        if (l+1 > len) return 0; /* No room. */
+        switch (mode) {
+        case LD_STR_AUTO:
+            l = snprintf(buf,len,"%.17Lg",value);
+            if (l+1 > len) return 0; /* No room. */
+            break;
+        case LD_STR_HEX:
+            l = snprintf(buf,len,"%La",value);
+            if (l+1 > len) return 0; /* No room. */
+            break;
+        case LD_STR_HUMAN:
+            /* We use 17 digits precision since with 128 bit floats that precision
+             * after rounding is able to represent most small decimal numbers in a
+             * way that is "non surprising" for the user (that is, most small
+             * decimal numbers will be represented in a way that when converted
+             * back into a string are exactly the same as what the user typed.) */
+            l = snprintf(buf,len,"%.17Lf",value);
+            if (l+1 > len) return 0; /* No room. */
+            /* Now remove trailing zeroes after the '.' */
+            if (strchr(buf,'.') != NULL) {
+                char *p = buf+l-1;
+                while(*p == '0') {
+                    p--;
+                    l--;
+                }
+                if (*p == '.') l--;
+            }
+            if (l == 2 && buf[0] == '-' && buf[1] == '0') {
+                buf[0] = '0';
+                l = 1;
+            }
+            break;
+        default: return 0; /* Invalid mode. */
+        }
     }
     buf[l] = '\0';
     return l;
@@ -564,7 +620,7 @@ int ld2string(char *buf, size_t len, long double value, int humanfriendly) {
 void getRandomBytes(unsigned char *p, size_t len) {
     /* Global state. */
     static int seed_initialized = 0;
-    static unsigned char seed[20]; /* The SHA1 seed, from /dev/urandom. */
+    static unsigned char seed[64]; /* 512 bit internal block size. */
     static uint64_t counter = 0; /* The counter we hash with the seed. */
 
     if (!seed_initialized) {
@@ -589,14 +645,34 @@ void getRandomBytes(unsigned char *p, size_t len) {
     }
 
     while(len) {
-        unsigned char digest[20];
-        SHA1_CTX ctx;
-        unsigned int copylen = len > 20 ? 20 : len;
+        /* This implements SHA256-HMAC. */
+        unsigned char digest[SHA256_BLOCK_SIZE];
+        unsigned char kxor[64];
+        unsigned int copylen =
+            len > SHA256_BLOCK_SIZE ? SHA256_BLOCK_SIZE : len;
 
-        SHA1Init(&ctx);
-        SHA1Update(&ctx, seed, sizeof(seed));
-        SHA1Update(&ctx, (unsigned char*)&counter,sizeof(counter));
-        SHA1Final(digest, &ctx);
+        /* IKEY: key xored with 0x36. */
+        memcpy(kxor,seed,sizeof(kxor));
+        for (unsigned int i = 0; i < sizeof(kxor); i++) kxor[i] ^= 0x36;
+
+        /* Obtain HASH(IKEY||MESSAGE). */
+        SHA256_CTX ctx;
+        sha256_init(&ctx);
+        sha256_update(&ctx,kxor,sizeof(kxor));
+        sha256_update(&ctx,(unsigned char*)&counter,sizeof(counter));
+        sha256_final(&ctx,digest);
+
+        /* OKEY: key xored with 0x5c. */
+        memcpy(kxor,seed,sizeof(kxor));
+        for (unsigned int i = 0; i < sizeof(kxor); i++) kxor[i] ^= 0x5C;
+
+        /* Obtain HASH(OKEY || HASH(IKEY||MESSAGE)). */
+        sha256_init(&ctx);
+        sha256_update(&ctx,kxor,sizeof(kxor));
+        sha256_update(&ctx,digest,SHA256_BLOCK_SIZE);
+        sha256_final(&ctx,digest);
+
+        /* Increment the counter for the next iteration. */
         counter++;
 
         memcpy(p,digest,copylen);

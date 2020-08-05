@@ -35,6 +35,11 @@ It is as simple as:
 
     % make
 
+To build with TLS support, you'll need OpenSSL development libraries (e.g.
+libssl-dev on Debian/Ubuntu) and run:
+
+    % make BUILD_TLS=yes
+
 You can run a 32 bit Redis binary using:
 
     % make 32bit
@@ -42,6 +47,13 @@ You can run a 32 bit Redis binary using:
 After building Redis, it is a good idea to test it using:
 
     % make test
+
+If TLS is built, running the tests with TLS enabled (you will need `tcl-tls`
+installed):
+
+    % ./utils/gen-test-certs.sh
+    % ./runtest --tls
+
 
 Fixing build problems with dependencies or cached build options
 ---------
@@ -125,6 +137,12 @@ as options using the command line. Examples:
 All the options in redis.conf are also supported as options using the command
 line, with exactly the same name.
 
+Running Redis with TLS:
+------------------
+
+Please consult the [TLS.md](TLS.md) file for more information on
+how to use Redis with TLS.
+
 Playing with Redis
 ------------------
 
@@ -166,6 +184,8 @@ for Ubuntu and Debian systems:
     % cd utils
     % ./install_server.sh
 
+_Note_: `install_server.sh` will not work on Mac OSX; it is built for Linux only.
+
 The script will ask you a few questions and will setup everything you need
 to run Redis properly as a background daemon that will start again on
 system reboots.
@@ -183,10 +203,10 @@ of the BSD license that you can find in the [COPYING][1] file included in the Re
 source distribution.
 
 Please see the [CONTRIBUTING][2] file in this source distribution for more
-information.
+information, including details on our process for security bugs/vulnerabilities.
 
-[1]: https://github.com/antirez/redis/blob/unstable/COPYING
-[2]: https://github.com/antirez/redis/blob/unstable/CONTRIBUTING
+[1]: https://github.com/redis/redis/blob/unstable/COPYING
+[2]: https://github.com/redis/redis/blob/unstable/CONTRIBUTING
 
 Redis internals
 ===
@@ -216,7 +236,7 @@ Inside the root are the following important directories:
 
 * `src`: contains the Redis implementation, written in C.
 * `tests`: contains the unit tests, implemented in Tcl.
-* `deps`: contains libraries Redis uses. Everything needed to compile Redis is inside this directory; your system just needs to provide `libc`, a POSIX compatible interface and a C compiler. Notably `deps` contains a copy of `jemalloc`, which is the default allocator of Redis under Linux. Note that under `deps` there are also things which started with the Redis project, but for which the main repository is not `antirez/redis`.
+* `deps`: contains libraries Redis uses. Everything needed to compile Redis is inside this directory; your system just needs to provide `libc`, a POSIX compatible interface and a C compiler. Notably `deps` contains a copy of `jemalloc`, which is the default allocator of Redis under Linux. Note that under `deps` there are also things which started with the Redis project, but for which the main repository is not `redis/redis`.
 
 There are a few more directories but they are not very important for our goals
 here. We'll focus mostly on `src`, where the Redis implementation is contained,
@@ -404,7 +424,7 @@ replicas, or to continue the replication after a disconnection.
 Other C files
 ---
 
-* `t_hash.c`, `t_list.c`, `t_set.c`, `t_string.c` and `t_zset.c` contains the implementation of the Redis data types. They implement both an API to access a given data type, and the client commands implementations for these data types.
+* `t_hash.c`, `t_list.c`, `t_set.c`, `t_string.c`, `t_zset.c` and `t_stream.c` contains the implementation of the Redis data types. They implement both an API to access a given data type, and the client commands implementations for these data types.
 * `ae.c` implements the Redis event loop, it's a self contained library which is simple to read and understand.
 * `sds.c` is the Redis string library, check http://github.com/antirez/sds for more information.
 * `anet.c` is a library to use POSIX networking in a simpler way compared to the raw interface exposed by the kernel.

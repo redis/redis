@@ -12,6 +12,16 @@
   compare to other values, casting might be necessary or can be removed, if
   casting was applied before.
 
+### 0.x.x (unreleased)
+**BREAKING CHANGES**:
+
+* Change `redisReply.len` to `size_t`, as it denotes the the size of a string
+
+User code should compare this to `size_t` values as well.
+If it was used to compare to other values, casting might be necessary or can be removed, if casting was applied before.
+
+* `redisReplyObjectFunctions.createArray` now takes `size_t` for its length parameter.
+
 ### 0.14.0 (2018-09-25)
 
 * Make string2ll static to fix conflict with Redis (Tom Lee [c3188b])
@@ -50,8 +60,9 @@
 * Import latest upstream sds. This breaks applications that are linked against the old hiredis v0.13
 * Fix warnings, when compiled with -Wshadow
 * Make hiredis compile in Cygwin on Windows, now CI-tested
-
-**BREAKING CHANGES**:
+* Bulk and multi-bulk lengths less than -1 or greater than `LLONG_MAX` are now
+  protocol errors. This is consistent with the RESP specification. On 32-bit
+  platforms, the upper bound is lowered to `SIZE_MAX`.
 
 * Remove backwards compatibility macro's
 

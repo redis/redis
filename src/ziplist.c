@@ -86,7 +86,7 @@
  * |10000000|qqqqqqqq|rrrrrrrr|ssssssss|tttttttt| - 5 bytes
  *      String value with length greater than or equal to 16384 bytes.
  *      Only the 4 bytes following the first byte represents the length
- *      up to 32^2-1. The 6 lower bits of the first byte are not used and
+ *      up to 2^32-1. The 6 lower bits of the first byte are not used and
  *      are set to zero.
  *      IMPORTANT: The 32 bit number is stored in big endian.
  * |11000000| - 3 bytes
@@ -194,7 +194,7 @@
 #define ZIP_BIG_PREVLEN 254 /* Max number of bytes of the previous entry, for
                                the "prevlen" field prefixing each entry, to be
                                represented with just a single byte. Otherwise
-                               it is represented as FF AA BB CC DD, where
+                               it is represented as FE AA BB CC DD, where
                                AA BB CC DD are a 4 bytes unsigned integer
                                representing the previous entry len. */
 
@@ -440,7 +440,7 @@ unsigned int zipStorePrevEntryLength(unsigned char *p, unsigned int len) {
     if ((prevlensize) == 1) {                                                  \
         (prevlen) = (ptr)[0];                                                  \
     } else if ((prevlensize) == 5) {                                           \
-        assert(sizeof((prevlen)) == 4);                                    \
+        assert(sizeof((prevlen)) == 4);                                        \
         memcpy(&(prevlen), ((char*)(ptr)) + 1, 4);                             \
         memrev32ifbe(&prevlen);                                                \
     }                                                                          \
@@ -576,7 +576,7 @@ void zipEntry(unsigned char *p, zlentry *e) {
 
 /* Create a new empty ziplist. */
 unsigned char *ziplistNew(void) {
-    unsigned int bytes = ZIPLIST_HEADER_SIZE+1;
+    unsigned int bytes = ZIPLIST_HEADER_SIZE+ZIPLIST_END_SIZE;
     unsigned char *zl = zmalloc(bytes);
     ZIPLIST_BYTES(zl) = intrev32ifbe(bytes);
     ZIPLIST_TAIL_OFFSET(zl) = intrev32ifbe(ZIPLIST_HEADER_SIZE);
