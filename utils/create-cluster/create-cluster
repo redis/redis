@@ -38,7 +38,11 @@ then
         PORT=$((PORT+1))
         HOSTS="$HOSTS $CLUSTER_HOST:$PORT"
     done
-    $BIN_PATH/redis-cli --cluster create $HOSTS --cluster-replicas $REPLICAS
+    OPT_ARG=""
+    if [ "$2" == "-f" ]; then
+        OPT_ARG="--cluster-yes"
+    fi
+    $BIN_PATH/redis-cli --cluster create $HOSTS --cluster-replicas $REPLICAS $OPT_ARG
     exit 0
 fi
 
@@ -104,7 +108,7 @@ fi
 
 echo "Usage: $0 [start|create|stop|watch|tail|clean|call]"
 echo "start       -- Launch Redis Cluster instances."
-echo "create      -- Create a cluster using redis-cli --cluster create."
+echo "create [-f] -- Create a cluster using redis-cli --cluster create."
 echo "stop        -- Stop Redis Cluster instances."
 echo "watch       -- Show CLUSTER NODES output (first 30 lines) of first node."
 echo "tail <id>   -- Run tail -f of instance at base port + ID."
