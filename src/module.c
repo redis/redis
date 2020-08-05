@@ -1139,22 +1139,24 @@ void RM_RetainString(RedisModuleCtx *ctx, RedisModuleString *str) {
 }
 
 /**
- * This function should be used as a replacement for RedisModule_RetainString.
- * The main difference is that this function will always succeed while
- * RedisModule_RetainString might fail with assert.
- *
- * The function returns a pointer to RedisModuleString which owned by the caller.
- * The caller needs to call RedisModule_FreeString on the returned
- * pointer (unless auto memory is set on the given ctx, in this case
- * it is possible to either free the RedisModuleString or let the auto
- * memory free it automatically).
- *
- * This function is more efficient than RM_CreateStringFromString because,
- * if possible, it does not copy the underline RedisModuleString.
- * The disadvantage is that it might not be possible to use
- * RedisModule_StringAppendBuffer on the returned RedisModuleString.
- *
- * It is possible to call this function with a NULL context.
+* This function can be used instead of RedisModule_RetainString().
+* The main difference between the two is that this function will always
+* succeed, whereas RedisModule_RetainString() may fail because of an
+* assertion.
+* 
+* The function returns a pointer to RedisModuleString, which is owned
+* by the caller. It requires a call to RedisModule_FreeString() to free
+* the string when automatic memory management is disabled for the context.
+* When automatic memory management is enabled, you can either call
+* RedisModule_FreeString() or let the automation free it.
+* 
+* This function is more efficient than RedisModule_CreateStringFromString()
+* because whenever possible, it avoids copying the underlying
+* RedisModuleString. The disadvantage of using this function is that it
+* might not be possible to use RedisModule_StringAppendBuffer() on the
+* returned RedisModuleString.
+* 
+* It is possible to call this function with a NULL context.
  */
 RedisModuleString* RM_HoldString(RedisModuleCtx *ctx, RedisModuleString *str) {
     if (str->refcount == OBJ_STATIC_REFCOUNT) {
