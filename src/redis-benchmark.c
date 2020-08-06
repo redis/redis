@@ -1733,6 +1733,22 @@ int main(int argc, const char **argv) {
             free(cmd);
         }
 
+        if (test_is_selected("zadd")) {
+            char *score = "0";
+            if (config.randomkeys) score = "__rand_int__";
+            len = redisFormatCommand(&cmd,
+                "ZADD myzset:{tag} %s element:__rand_int__",score);
+            benchmark("ZADD",cmd,len);
+            free(cmd);
+        }
+
+        if (test_is_selected("zrem")) {
+            len = redisFormatCommand(&cmd,
+                "ZREM myzset:{tag} element:__rand_int__");
+            benchmark("ZREM",cmd,len);
+            free(cmd);
+        }
+
         if (test_is_selected("lrange") ||
             test_is_selected("lrange_100") ||
             test_is_selected("lrange_300") ||
