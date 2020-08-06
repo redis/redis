@@ -1,0 +1,131 @@
+language: c
+compiler:
+  - gcc
+  - clang
+
+os:
+  - linux
+  - osx
+
+dist: bionic
+
+branches:
+  only:
+    - staging
+    - trying
+    - master
+    - /^release\/.*$/
+
+install:
+    - if [ "$BITS" == "64" ]; then
+        wget https://github.com/redis/redis/archive/6.0.6.tar.gz;
+        tar -xzvf 6.0.6.tar.gz;
+        pushd redis-6.0.6 && BUILD_TLS=yes make && export PATH=$PWD/src:$PATH && popd;
+      fi
+
+before_script:
+    - if [ "$TRAVIS_OS_NAME" == "osx" ]; then
+        curl -O https://distfiles.macports.org/MacPorts/MacPorts-2.6.2-10.13-HighSierra.pkg;
+        sudo installer -pkg MacPorts-2.6.2-10.13-HighSierra.pkg -target /;
+        export PATH=$PATH:/opt/local/bin && sudo port -v selfupdate;
+        sudo port -N install openssl redis;
+      fi;
+
+addons:
+  apt:
+    sources:
+    - sourceline: 'ppa:chris-lea/redis-server'
+    packages:
+    - libc6-dbg
+    - libc6-dev
+    - libc6:i386
+    - libc6-dev-i386
+    - libc6-dbg:i386
+    - gcc-multilib
+    - g++-multilib
+    - libssl-dev
+    - libssl-dev:i386
+    - valgrind
+    - redis
+
+env:
+  - BITS="32"
+  - BITS="64"
+
+script:
+  - EXTRA_CMAKE_OPTS="-DENABLE_EXAMPLES:BOOL=ON -DENABLE_SSL:BOOL=ON";
+    if [ "$BITS" == "64" ]; then
+      EXTRA_CMAKE_OPTS="$EXTRA_CMAKE_OPTS -DENABLE_SSL_TESTS:BOOL=ON";
+    fi;
+    if [ "$TRAVIS_OS_NAME" == "osx" ]; then
+      if [ "$BITS" == "32" ]; then
+        CFLAGS="-m32 -Werror";
+        CXXFLAGS="-m32 -Werror";
+        LDFLAGS="-m32";
+        EXTRA_CMAKE_OPTS=;
+      else
+        CFLAGS="-Werror";
+        CXXFLAGS="-Werror";
+      fi;
+    else
+      TEST_PREFIX="valgrind --track-origins=yes --leak-check=full";
+      if [ "$BITS" == "32" ]; then
+        CFLAGS="-m32 -Werror";
+        CXXFLAGS="-m32 -Werror";
+        LDFLAGS="-m32";
+        EXTRA_CMAKE_OPTS=;
+      else
+        CFLAGS="-Werror";
+        CXXFLAGS="-Werror";
+      fi;
+    fi;
+    export CFLAGS CXXFLAGS LDFLAGS TEST_PREFIX EXTRA_CMAKE_OPTS
+  - make && make clean;
+    if [ "$TRAVIS_OS_NAME" == "osx" ]; then
+      if [ "$BITS" == "64" ]; then
+        OPENSSL_PREFIX="$(ls -d /usr/local/Cellar/openssl@1.1/*)" USE_SSL=1 make;
+      fi;
+    else
+      USE_SSL=1 make;
+    fi;
+  - mkdir build/ && cd build/
+  - cmake .. ${EXTRA_CMAKE_OPTS}
+  - make VERBOSE=1
+  - if [ "$BITS" == "64" ]; then
+      TEST_SSL=1 SKIPS_AS_FAILS=1 ctest -V;
+    else
+      SKIPS_AS_FAILS=1 ctest -V;
+    fi;
+
+jobs:
+  include:
+    # Windows MinGW cross compile on Linux
+    - os: linux
+      dist: xenial
+      compiler: mingw
+      addons:
+        apt:
+          packages:
+            - ninja-build
+            - gcc-mingw-w64-x86-64
+            - g++-mingw-w64-x86-64
+      script:
+        - mkdir build && cd build
+        - CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_BUILD_WITH_INSTALL_RPATH=on
+        - ninja -v
+
+    # Windows MSVC 2017
+    - os: windows
+      compiler: msvc
+      env:
+        - MATRIX_EVAL="CC=cl.exe && CXX=cl.exe"
+      before_install:
+        - eval "${MATRIX_EVAL}"
+      install:
+        - choco install ninja
+        - choco install -y memurai-developer
+      script:
+        - mkdir build && cd build
+        - cmd.exe //C 'C:\Program Files (x86)\Microsoft Visual Studio\2017\BuildTools\VC\Auxiliary\Build\vcvarsall.bat' amd64 '&&'
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_EXAMPLES=ON '&&' ninja -v
+        - ./hiredis-test.exe
