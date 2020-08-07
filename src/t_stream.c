@@ -1301,8 +1301,7 @@ void xaddCommand(client *c) {
 
     /* We need to signal to blocked clients that there is new data on this
      * stream. */
-    if (server.blocked_clients_by_type[BLOCKED_STREAM])
-        signalKeyAsReady(c->db, c->argv[1]);
+    signalKeyAsReady(c->db, c->argv[1], OBJ_STREAM);
 }
 
 /* XRANGE/XREVRANGE actual implementation. */
@@ -1878,7 +1877,7 @@ NULL
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-destroy",
                                 c->argv[2],c->db->id);
             /* We want to unblock any XREADGROUP consumers with -NOGROUP. */
-            signalKeyAsReady(c->db,c->argv[2]);
+            signalKeyAsReady(c->db,c->argv[2],OBJ_STREAM);
         } else {
             addReply(c,shared.czero);
         }

@@ -634,6 +634,16 @@ void unblockClientWaitingData(client *c) {
     }
 }
 
+static int getBlockedTypeByType(int type) {
+    switch (type) {
+        case OBJ_LIST: return BLOCKED_LIST;
+        case OBJ_ZSET: return BLOCKED_ZSET;
+        case OBJ_MODULE: return BLOCKED_MODULE;
+        case OBJ_STREAM: return BLOCKED_STREAM;
+        default: return BLOCKED_NONE;
+    }
+}
+
 /* If the specified key has clients blocked waiting for list pushes, this
  * function will put the key reference into the server.ready_keys list.
  * Note that db->ready_keys is a hash table that allows us to avoid putting
@@ -641,8 +651,12 @@ void unblockClientWaitingData(client *c) {
  * made by a script or in the context of MULTI/EXEC.
  *
  * The list will be finally processed by handleClientsBlockedOnKeys() */
-void signalKeyAsReady(redisDb *db, robj *key) {
+void signalKeyAsReady(redisDb *db, robj *key, int type) {
     readyList *rl;
+
+    /* If this type is not blocked, just return */
+    int btype = getBlockedTypeByType(type);
+    if (!server.blocked_clients_by_type[btype]) return;
 
     /* No clients blocking for this key? No need to queue it. */
     if (dictFind(db->blocking_keys,key) == NULL) return;
