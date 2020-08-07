@@ -41,6 +41,7 @@ typedef struct slowlogEntry {
     long long duration; /* Time spent by the query, in microseconds. */
     time_t time;        /* Unix time at which the query was executed. */
     sds cname;          /* Client name. */
+    sds username;       /* User name. */
     sds peerid;         /* Client network address. */
 } slowlogEntry;
 

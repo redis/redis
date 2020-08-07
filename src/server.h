@@ -282,6 +282,9 @@ typedef long long ustime_t; /* microsecond time type. */
                                     buffer configuration. Just the first
                                     three: normal, slave, pubsub. */
 
+/* Monitor flags */
+#define MONITOR_CLIENT_INFO (1<<0)   /* Display client name and ACL username */
+
 /* Slave replication state. Used in server.repl_state for slaves to remember
  * what to do next. */
 #define REPL_STATE_NONE 0 /* No active replication */
@@ -803,6 +806,7 @@ typedef struct client {
     time_t ctime;           /* Client creation time. */
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
     time_t obuf_soft_limit_reached_time;
+    int monitor_flags;      /* Monitor flags: MONITOR_* macros. */
     uint64_t flags;         /* Client flags: CLIENT_* macros. */
     int authenticated;      /* Needed when the default user requires auth. */
     int replstate;          /* Replication state if this is a slave. */
@@ -1804,7 +1808,7 @@ ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout);
 /* Replication */
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc);
 void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t buflen);
-void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc);
+void replicationFeedMonitors(client *caller, list *monitors, int dictid, robj **argv, int argc);
 void updateSlavesWaitingBgsave(int bgsaveerr, int type);
 void replicationCron(void);
 void replicationStartPendingFork(void);

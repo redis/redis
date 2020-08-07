@@ -122,6 +122,7 @@ client *createClient(connection *conn) {
     c->bulklen = -1;
     c->sentlen = 0;
     c->flags = 0;
+    c->monitor_flags = 0;
     c->ctime = c->lastinteraction = server.unixtime;
     /* If the default user does not require authentication, the user is
      * directly authenticated. */

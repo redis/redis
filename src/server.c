@@ -719,7 +719,7 @@ struct redisCommand redisCommandTable[] = {
      "ok-loading ok-stale random @dangerous",
      0,NULL,0,0,0,0,0,0},
 
-    {"monitor",monitorCommand,1,
+    {"monitor",monitorCommand,-1,
      "admin no-script ok-loading ok-stale",
      0,NULL,0,0,0,0,0,0},
 
@@ -4642,6 +4642,17 @@ void infoCommand(client *c) {
 void monitorCommand(client *c) {
     /* ignore MONITOR if already slave or in monitor mode */
     if (c->flags & CLIENT_SLAVE) return;
+
+    /* Parse arguments. */
+    for (int i = 1; i < c->argc; i++) {
+        char *o = c->argv[i]->ptr;
+        if (!strcasecmp(o,"CLIENTINFO")) {
+            c->monitor_flags |= MONITOR_CLIENT_INFO;
+        } else {
+            addReply(c,shared.syntaxerr);
+            return;
+        }
+    }
 
     c->flags |= (CLIENT_SLAVE|CLIENT_MONITOR);
     listAddNodeTail(server.monitors,c);

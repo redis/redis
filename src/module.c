@@ -3238,6 +3238,19 @@ fmterr:
     return NULL;
 }
 
+/* Create a connection-less client for various module
+ * operations (RM_Call, blocked client, etc.) */
+client *moduleCreateClient(client *caller) {
+    client *c = createClient(NULL);
+    c->user = NULL; /* Root user. */
+    c->flags |= CLIENT_MODULE;
+    if (caller && caller->name) {
+        c->name = caller->name;
+        incrRefCount(caller->name);
+    }
+    return c;
+}
+
 /* Exported API to call any Redis command from modules.
  * On success a RedisModuleCallReply object is returned, otherwise
  * NULL is returned and errno is set to the following values:
@@ -3263,14 +3276,12 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 
     /* Create the client and dispatch the command. */
     va_start(ap, fmt);
-    c = createClient(NULL);
-    c->user = NULL; /* Root user. */
+    c = moduleCreateClient(ctx->client);
     argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&flags,ap);
     replicate = flags & REDISMODULE_ARGV_REPLICATE;
     va_end(ap);
 
     /* Setup our fake client for command execution. */
-    c->flags |= CLIENT_MODULE;
     c->db = ctx->client->db;
     c->argv = argv;
     c->argc = argc;
@@ -4370,8 +4381,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->disconnect_callback = NULL; /* Set by RM_SetDisconnectCallback() */
     bc->free_privdata = free_privdata;
     bc->privdata = privdata;
-    bc->reply_client = createClient(NULL);
-    bc->reply_client->flags |= CLIENT_MODULE;
+    bc->reply_client = moduleCreateClient(c);
     bc->dbid = c->db->id;
     bc->blocked_on_keys = keys != NULL;
     bc->unblocked = 0;
@@ -7122,9 +7132,7 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
             if (ModulesInHooks == 0) {
                 ctx.client = moduleFreeContextReusedClient;
             } else {
-                ctx.client = createClient(NULL);
-                ctx.client->flags |= CLIENT_MODULE;
-                ctx.client->user = NULL; /* Root user. */
+                ctx.client = moduleCreateClient(NULL);
             }
 
             void *moduledata = NULL;
@@ -7256,9 +7264,7 @@ void moduleInitModulesSystem(void) {
 
     /* Set up the keyspace notification susbscriber list and static client */
     moduleKeyspaceSubscribers = listCreate();
-    moduleFreeContextReusedClient = createClient(NULL);
-    moduleFreeContextReusedClient->flags |= CLIENT_MODULE;
-    moduleFreeContextReusedClient->user = NULL; /* root user. */
+    moduleFreeContextReusedClient = moduleCreateClient(NULL);
 
     /* Set up filter list */
     moduleCommandFilters = listCreate();
