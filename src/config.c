@@ -556,7 +556,8 @@ void loadServerConfig(char *filename, char *options) {
         } else {
             if ((fp = fopen(filename,"r")) == NULL) {
                 serverLog(LL_WARNING,
-                    "Fatal error, can't open config file '%s'", filename);
+                    "Fatal error, can't open config file '%s': %s",
+                    filename, strerror(errno));
                 exit(1);
             }
         }
