@@ -1572,6 +1572,7 @@ extern dictType modulesDictType;
 
 /* Modules */
 void moduleInitModulesSystem(void);
+void moduleInitModulesSystemLast(void);
 int moduleLoad(const char *path, void **argv, int argc);
 void moduleLoadFromQueue(void);
 int *moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);

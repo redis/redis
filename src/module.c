@@ -283,7 +283,7 @@ typedef struct RedisModuleKeyspaceSubscriber {
 static list *moduleKeyspaceSubscribers;
 
 /* Static client recycled for when we need to provide a context with a client
- * in a situation where there is no client to provide. This avoidsallocating
+ * in a situation where there is no client to provide. This avoids allocating
  * a new client per round. For instance this is used in the keyspace
  * notifications, timers and cluster messages callbacks. */
 static client *moduleFreeContextReusedClient;
@@ -7249,6 +7249,16 @@ int moduleRegisterApi(const char *funcname, void *funcptr) {
 /* Global initialization at Redis startup. */
 void moduleRegisterCoreAPI(void);
 
+/* Some steps in module initialization need to be done last after server
+ * initialization.
+ * For example, selectDb() in createClient() requires that server.db has
+ * been initialized, see #7323. */
+void moduleInitModulesSystemLast(void) {
+    moduleFreeContextReusedClient = createClient(NULL);
+    moduleFreeContextReusedClient->flags |= CLIENT_MODULE;
+    moduleFreeContextReusedClient->user = NULL; /* root user. */
+}
+
 void moduleInitModulesSystem(void) {
     moduleUnblockedClients = listCreate();
     server.loadmodule_queue = listCreate();
@@ -7256,9 +7266,6 @@ void moduleInitModulesSystem(void) {
 
     /* Set up the keyspace notification susbscriber list and static client */
     moduleKeyspaceSubscribers = listCreate();
-    moduleFreeContextReusedClient = createClient(NULL);
-    moduleFreeContextReusedClient->flags |= CLIENT_MODULE;
-    moduleFreeContextReusedClient->user = NULL; /* root user. */
 
     /* Set up filter list */
     moduleCommandFilters = listCreate();
