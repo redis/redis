@@ -59,8 +59,6 @@ proc exec_instance {type cfgfile} {
 proc spawn_instance {type base_port count {conf {}}} {
     for {set j 0} {$j < $count} {incr j} {
         set port [find_available_port $base_port $::redis_port_count]
-        incr base_port
-        puts "Starting $type #$j at port $port"
 
         # Create a directory for this instance.
         set dirname "${type}_${j}"
@@ -93,10 +91,30 @@ proc spawn_instance {type base_port count {conf {}}} {
         close $cfg
 
         # Finally exec it and remember the pid for later cleanup.
-        set pid [exec_instance $type $cfgfile]
-        lappend ::pids $pid
+        set retry 100
+        while {$retry} {
+            set pid [exec_instance $type $cfgfile]
 
-        # Check availability
+            # Check availability
+            if {[server_is_up 127.0.0.1 $port 100] == 0} {
+                puts "Starting $type #$j at port $port failed, try another"
+                incr retry -1
+                set port [find_available_port $base_port $::redis_port_count]
+                set cfg [open $cfgfile a+]
+                if {$::tls} {
+                    puts $cfg "tls-port $port"
+                } else {
+                    puts $cfg "port $port"
+                }
+                close $cfg
+            } else {
+                puts "Starting $type #$j at port $port"
+                lappend ::pids $pid
+                break
+            }
+        }
+
+        # Check availability finally
         if {[server_is_up 127.0.0.1 $port 100] == 0} {
             abort_sentinel_test "Problems starting $type #$j: ping timeout"
         }
