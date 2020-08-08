@@ -1433,7 +1433,8 @@ usage:
 " --cluster          Enable cluster mode.\n"
 " --enable-tracking  Send CLIENT TRACKING on before starting benchmark.\n"
 " -k <boolean>       1=keep alive 0=reconnect (default 1)\n"
-" -r <keyspacelen>   Use random keys for SET/GET/INCR, random values for SADD\n"
+" -r <keyspacelen>   Use random keys for SET/GET/INCR, random values for SADD,\n"
+"                    random members and scores for ZADD.\n"
 "  Using this option the benchmark will expand the string __rand_int__\n"
 "  inside an argument with a 12 digits number in the specified range\n"
 "  from 0 to keyspacelen-1. The substitution changes every time a command\n"
@@ -1742,10 +1743,9 @@ int main(int argc, const char **argv) {
             free(cmd);
         }
 
-        if (test_is_selected("zrem")) {
-            len = redisFormatCommand(&cmd,
-                "ZREM myzset:{tag} element:__rand_int__");
-            benchmark("ZREM",cmd,len);
+        if (test_is_selected("zpopmin")) {
+            len = redisFormatCommand(&cmd,"ZPOPMIN myzset:{tag}");
+            benchmark("ZPOPMIN",cmd,len);
             free(cmd);
         }
 
