@@ -48,7 +48,7 @@ static int KeySpace_Notification(RedisModuleCtx *ctx, int type, const char *even
         int nokey;
         RedisModule_DictGetC(loaded_event_log, (void*)keyName, strlen(keyName), &nokey);
         if(nokey){
-            RedisModule_DictSetC(loaded_event_log, (void*)keyName, strlen(keyName), NULL);
+            RedisModule_DictSetC(loaded_event_log, (void*)keyName, strlen(keyName), RedisModule_HoldString(ctx, key));
         }
     }
 
@@ -63,9 +63,15 @@ static int cmdIsKeyLoaded(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     const char* key  = RedisModule_StringPtrLen(argv[1], NULL);
 
     int nokey;
-    RedisModule_DictGetC(loaded_event_log, (void*)key, strlen(key), &nokey);
+    RedisModuleString* keyStr = RedisModule_DictGetC(loaded_event_log, (void*)key, strlen(key), &nokey);
 
+    RedisModule_ReplyWithArray(ctx, 2);
     RedisModule_ReplyWithLongLong(ctx, !nokey);
+    if(nokey){
+        RedisModule_ReplyWithNull(ctx);
+    }else{
+        RedisModule_ReplyWithString(ctx, keyStr);
+    }
     return REDISMODULE_OK;
 }
 
@@ -93,6 +99,13 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 }
 
 int RedisModule_OnUnload(RedisModuleCtx *ctx) {
+    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(loaded_event_log, "^", NULL, 0);
+    char* key;
+    size_t keyLen;
+    RedisModuleString* val;
+    while((key = RedisModule_DictNextC(iter, &keyLen, (void**)&val))){
+        RedisModule_FreeString(ctx, val);
+    }
     RedisModule_FreeDict(ctx, loaded_event_log);
     loaded_event_log = NULL;
     return REDISMODULE_OK;

@@ -11,12 +11,12 @@ tags "modules" {
             r zadd t 1 f1 2 f2
             r xadd s * f v
             r debug reload
-            assert_equal 1 [r keyspace.is_key_loaded x]
-            assert_equal 1 [r keyspace.is_key_loaded y]
-            assert_equal 1 [r keyspace.is_key_loaded z]
-            assert_equal 1 [r keyspace.is_key_loaded p]
-            assert_equal 1 [r keyspace.is_key_loaded t]
-            assert_equal 1 [r keyspace.is_key_loaded s]
+            assert_equal {1 x} [r keyspace.is_key_loaded x]
+            assert_equal {1 y} [r keyspace.is_key_loaded y]
+            assert_equal {1 z} [r keyspace.is_key_loaded z]
+            assert_equal {1 p} [r keyspace.is_key_loaded p]
+            assert_equal {1 t} [r keyspace.is_key_loaded t]
+            assert_equal {1 s} [r keyspace.is_key_loaded s]
         }
 	}
 }
