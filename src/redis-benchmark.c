@@ -862,21 +862,45 @@ static void showLatencyReport(void) {
             printf("  threads: %d\n", config.num_threads);
 
         printf("\n");
-        
+        printf("Latency by percentile distribution:\n");
         struct hdr_iter iter;
-        struct hdr_iter_percentiles * percentiles;
+        long long previous_cumulative_count = -1;
+        const long long total_count = config.latency_histogram->total_count;
         hdr_iter_percentile_init(&iter, config.latency_histogram, 1);
-        percentiles = &iter.specifics.percentiles;
+        struct hdr_iter_percentiles *percentiles = &iter.specifics.percentiles;
         while (hdr_iter_next(&iter))
         {
             const double value = iter.highest_equivalent_value / 1000.0f;
             const double percentile = percentiles->percentile;
-            const long long total_count = iter.cumulative_count;
-            printf("%3.3f%% <= %.3f milliseconds (cumulative count %lld)\n", percentile, value, total_count);
+            const long long cumulative_count = iter.cumulative_count;
+            if( previous_cumulative_count != cumulative_count || cumulative_count == total_count ){
+                printf("%3.3f%% <= %.3f milliseconds (cumulative count %lld)\n", percentile, value, cumulative_count);
+            }
+            previous_cumulative_count = cumulative_count;
         }
         printf("\n");
-        printf("throughput summary: %.2f requests per second\n", reqpersec);
-        printf("latency summary: min=%.3f msec, q50=%.3f msec, q95=%.3f msec, q99=%.3f msec, max=%.3f msec, avg=%.3f msec\n\n", q0, q50, q95, q99, q100, avg);
+        printf("Cumulative distribution of latencies:\n");
+        previous_cumulative_count = -1;
+        hdr_iter_linear_init(&iter, config.latency_histogram, 100);
+        while (hdr_iter_next(&iter))
+        {
+            const double value = iter.highest_equivalent_value / 1000.0f;
+            const long long cumulative_count = iter.cumulative_count;
+            const double percentile = ((double)cumulative_count/(double)total_count)*100.0;
+            if( previous_cumulative_count != cumulative_count || cumulative_count == total_count ){
+                printf("%3.3f%% <= %.3f milliseconds (cumulative count %lld)\n", percentile, value, cumulative_count);
+            }
+            /* After the 2 milliseconds latency to have percentages split
+             * by decimals will just add a lot of noise to the output. */
+            if(iter.highest_equivalent_value > 2000){
+                hdr_iter_linear_set_value_units_per_bucket(&iter,1000);
+            }
+            previous_cumulative_count = cumulative_count;
+        }
+        printf("\n");
+        printf("Summary:\n");
+        printf("  throughput summary: %.2f requests per second\n", reqpersec);
+        printf("  latency summary: min=%.3f msec, q50=%.3f msec, q95=%.3f msec, q99=%.3f msec, max=%.3f msec, avg=%.3f msec\n\n", q0, q50, q95, q99, q100, avg);
     } else if (config.csv) {
         printf("\"%s\",\"%.2f\",\"%.3f\",\"%.3f\",\"%.3f\",\"%.3f\",\"%.3f\",\"%.3f\"\n", config.title, reqpersec, q0, q50, q95, q99, q100, avg);
     } else {

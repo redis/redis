@@ -421,6 +421,11 @@ void hdr_iter_linear_init(
     int64_t value_units_per_bucket);
 
 /**
+ * Update the iterator value units per bucket
+ */
+void hdr_iter_linear_set_value_units_per_bucket(struct hdr_iter* iter, int64_t value_units_per_bucket);
+
+/**
  * Initialise the iterator for use with logarithmic values
  */
 void hdr_iter_log_init(
