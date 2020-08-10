@@ -31,8 +31,6 @@
 #include "endianconv.h"
 #include "stream.h"
 
-#define STREAM_BYTES_PER_LISTPACK 2048
-
 /* Every stream item inside the listpack, has a flags field that is used to
  * mark the entry as deleted, or having the same field as the "master"
  * entry at the start of the listpack> */
@@ -199,7 +197,7 @@ int streamCompareID(streamID *a, streamID *b) {
  * C_ERR if an ID was given via 'use_id', but adding it failed since the
  * current top ID is greater or equal. */
 int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_id, streamID *use_id) {
-    
+
     /* Generate the new entry ID. */
     streamID id;
     if (use_id)
@@ -209,7 +207,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
 
     /* Check that the new ID is greater than the last entry ID
      * or return an error. Automatically generated IDs might
-     * overflow (and wrap-around) when incrementing the sequence 
+     * overflow (and wrap-around) when incrementing the sequence
        part. */
     if (streamCompareID(&id,&s->last_id) <= 0) return C_ERR;
 
