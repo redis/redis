@@ -756,8 +756,6 @@ void sdsrange(sds s, ssize_t start, ssize_t end) {
             end = len-1;
             newlen = (start > end) ? 0 : (end-start)+1;
         }
-    } else {
-        start = 0;
     }
     if (start && newlen) memmove(s, s+start, newlen);
     s[newlen] = 0;

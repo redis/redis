@@ -1274,6 +1274,11 @@ struct redisServer {
     int syslog_enabled;             /* Is syslog enabled? */
     char *syslog_ident;             /* Syslog ident */
     int syslog_facility;            /* Syslog facility */
+    int crashlog_enabled;           /* Enable signal handler for crashlog.
+                                     * disable for clean core dumps. */
+    int memcheck_enabled;           /* Enable memory check on crash. */
+    int use_exit_on_panic;          /* Use exit() on panic and assert rather than
+                                     * abort(). useful for Valgrind. */
     /* Replication (master) */
     char replid[CONFIG_RUN_ID_SIZE+1];  /* My current replication ID. */
     char replid2[CONFIG_RUN_ID_SIZE+1]; /* replid inherited from master*/
@@ -1439,10 +1444,6 @@ struct redisServer {
                                old "requirepass" directive for backward
                                compatibility with Redis <= 5. */
     /* Assert & bug reporting */
-    const char *assert_failed;
-    const char *assert_file;
-    int assert_line;
-    int bug_report_start; /* True if bug report header was already logged. */
     int watchdog_period;  /* Software watchdog period in ms. 0 = off */
     /* System hardware info */
     size_t system_memory_size;  /* Total memory in system as reported by OS */
@@ -1571,6 +1572,7 @@ extern dictType modulesDictType;
 
 /* Modules */
 void moduleInitModulesSystem(void);
+void moduleInitModulesSystemLast(void);
 int moduleLoad(const char *path, void **argv, int argc);
 void moduleLoadFromQueue(void);
 int *moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
@@ -1806,6 +1808,7 @@ void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t bufle
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc);
 void updateSlavesWaitingBgsave(int bgsaveerr, int type);
 void replicationCron(void);
+void replicationStartPendingFork(void);
 void replicationHandleMasterDisconnection(void);
 void replicationCacheMaster(client *c);
 void resizeReplicationBacklog(long long newsize);
@@ -1975,6 +1978,7 @@ int freeMemoryIfNeeded(void);
 int freeMemoryIfNeededAndSafe(void);
 int processCommand(client *c);
 void setupSignalHandlers(void);
+void removeSignalHandlers(void);
 struct redisCommand *lookupCommand(sds name);
 struct redisCommand *lookupCommandByCString(char *s);
 struct redisCommand *lookupCommandOrOriginal(sds name);
@@ -2321,6 +2325,7 @@ void zrevrangeCommand(client *c);
 void zcardCommand(client *c);
 void zremCommand(client *c);
 void zscoreCommand(client *c);
+void zmscoreCommand(client *c);
 void zremrangebyscoreCommand(client *c);
 void zremrangebylexCommand(client *c);
 void zpopminCommand(client *c);
@@ -2431,7 +2436,6 @@ void *realloc(void *ptr, size_t size) __attribute__ ((deprecated));
 void _serverAssertWithInfo(const client *c, const robj *o, const char *estr, const char *file, int line);
 void _serverAssert(const char *estr, const char *file, int line);
 void _serverPanic(const char *file, int line, const char *msg, ...);
-void bugReportStart(void);
 void serverLogObjectDebugInfo(const robj *o);
 void sigsegvHandler(int sig, siginfo_t *info, void *secret);
 sds genRedisInfoString(const char *section);

@@ -73,6 +73,7 @@
 #define REDIS_CLI_RCFILE_ENV "REDISCLI_RCFILE"
 #define REDIS_CLI_RCFILE_DEFAULT ".redisclirc"
 #define REDIS_CLI_AUTH_ENV "REDISCLI_AUTH"
+#define REDIS_CLI_CLUSTER_YES_ENV "REDISCLI_CLUSTER_YES"
 
 #define CLUSTER_MANAGER_SLOTS               16384
 #define CLUSTER_MANAGER_MIGRATE_TIMEOUT     60000
@@ -233,6 +234,7 @@ static struct config {
     int askpass;
     char *user;
     int output; /* output mode, see OUTPUT_* defines */
+    int push_output; /* Should we display spontaneous PUSH replies */
     sds mb_delim;
     char prompt[128];
     char *eval;
@@ -265,6 +267,8 @@ static long getLongInfoField(char *info, char *field);
 /*------------------------------------------------------------------------------
  * Utility functions
  *--------------------------------------------------------------------------- */
+
+static void cliPushHandler(void *, void *);
 
 uint16_t crc16(const char *buf, int len);
 
@@ -872,8 +876,8 @@ static int cliConnect(int flags) {
             const char *err = NULL;
             if (cliSecureConnection(context, &err) == REDIS_ERR && err) {
                 fprintf(stderr, "Could not negotiate a TLS connection: %s\n", err);
-                context = NULL;
                 redisFree(context);
+                context = NULL;
                 return REDIS_ERR;
             }
         }
@@ -908,12 +912,43 @@ static int cliConnect(int flags) {
         if (cliSwitchProto() != REDIS_OK)
             return REDIS_ERR;
     }
+
+    /* Set a PUSH handler if configured to do so. */
+    if (config.push_output) {
+        redisSetPushCallback(context, cliPushHandler);
+    }
+
     return REDIS_OK;
 }
 
 static void cliPrintContextError(void) {
     if (context == NULL) return;
     fprintf(stderr,"Error: %s\n",context->errstr);
+}
+
+static int isInvalidateReply(redisReply *reply) {
+    return reply->type == REDIS_REPLY_PUSH && reply->elements == 2 &&
+        reply->element[0]->type == REDIS_REPLY_STRING &&
+        !strncmp(reply->element[0]->str, "invalidate", 10) &&
+        reply->element[1]->type == REDIS_REPLY_ARRAY;
+}
+
+/* Special display handler for RESP3 'invalidate' messages.
+ * This function does not validate the reply, so it should
+ * already be confirmed correct */
+static sds cliFormatInvalidateTTY(redisReply *r) {
+    sds out = sdsnew("-> invalidate: ");
+
+    for (size_t i = 0; i < r->element[1]->elements; i++) {
+        redisReply *key = r->element[1]->element[i];
+        assert(key->type == REDIS_REPLY_STRING);
+
+        out = sdscatfmt(out, "'%s'", key->str, key->len);
+        if (i < r->element[1]->elements - 1)
+            out = sdscatlen(out, ", ", 2);
+    }
+
+    return sdscatlen(out, "\n", 1);
 }
 
 static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
@@ -954,6 +989,7 @@ static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
     case REDIS_REPLY_ARRAY:
     case REDIS_REPLY_MAP:
     case REDIS_REPLY_SET:
+    case REDIS_REPLY_PUSH:
         if (r->elements == 0) {
             if (r->type == REDIS_REPLY_ARRAY)
                 out = sdscat(out,"(empty array)\n");
@@ -961,6 +997,8 @@ static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
                 out = sdscat(out,"(empty hash)\n");
             else if (r->type == REDIS_REPLY_SET)
                 out = sdscat(out,"(empty set)\n");
+            else if (r->type == REDIS_REPLY_PUSH)
+                out = sdscat(out,"(empty push)\n");
             else
                 out = sdscat(out,"(empty aggregate type)\n");
         } else {
@@ -1112,6 +1150,7 @@ static sds cliFormatReplyRaw(redisReply *r) {
         out = sdscatprintf(out,"%s",r->str);
         break;
     case REDIS_REPLY_ARRAY:
+    case REDIS_REPLY_PUSH:
         for (i = 0; i < r->elements; i++) {
             if (i > 0) out = sdscat(out,config.mb_delim);
             tmp = cliFormatReplyRaw(r->element[i]);
@@ -1168,6 +1207,7 @@ static sds cliFormatReplyCSV(redisReply *r) {
         out = sdscat(out,r->integer ? "true" : "false");
     break;
     case REDIS_REPLY_ARRAY:
+    case REDIS_REPLY_PUSH:
     case REDIS_REPLY_MAP: /* CSV has no map type, just output flat list. */
         for (i = 0; i < r->elements; i++) {
             sds tmp = cliFormatReplyCSV(r->element[i]);
@@ -1181,6 +1221,45 @@ static sds cliFormatReplyCSV(redisReply *r) {
         exit(1);
     }
     return out;
+}
+
+/* Generate reply strings in various output modes */
+static sds cliFormatReply(redisReply *reply, int mode, int verbatim) {
+    sds out;
+
+    if (verbatim) {
+        out = cliFormatReplyRaw(reply);
+    }  else if (mode == OUTPUT_STANDARD) {
+        out = cliFormatReplyTTY(reply, "");
+    } else if (mode == OUTPUT_RAW) {
+        out = cliFormatReplyRaw(reply);
+        out = sdscatlen(out, "\n", 1);
+    } else if (mode == OUTPUT_CSV) {
+        out = cliFormatReplyCSV(reply);
+        out = sdscatlen(out, "\n", 1);
+    } else {
+        fprintf(stderr, "Error:  Unknown output encoding %d\n", mode);
+        exit(1);
+    }
+
+    return out;
+}
+
+/* Output any spontaneous PUSH reply we receive */
+static void cliPushHandler(void *privdata, void *reply) {
+    UNUSED(privdata);
+    sds out;
+
+    if (config.output == OUTPUT_STANDARD && isInvalidateReply(reply)) {
+        out = cliFormatInvalidateTTY(reply);
+    } else {
+        out = cliFormatReply(reply, config.output, 0);
+    }
+
+    fwrite(out, sdslen(out), 1, stdout);
+
+    freeReplyObject(reply);
+    sdsfree(out);
 }
 
 static int cliReadReply(int output_raw_strings) {
@@ -1243,19 +1322,7 @@ static int cliReadReply(int output_raw_strings) {
     }
 
     if (output) {
-        if (output_raw_strings) {
-            out = cliFormatReplyRaw(reply);
-        } else {
-            if (config.output == OUTPUT_RAW) {
-                out = cliFormatReplyRaw(reply);
-                out = sdscat(out,"\n");
-            } else if (config.output == OUTPUT_STANDARD) {
-                out = cliFormatReplyTTY(reply,"");
-            } else if (config.output == OUTPUT_CSV) {
-                out = cliFormatReplyCSV(reply);
-                out = sdscat(out,"\n");
-            }
-        }
+        out = cliFormatReply(reply, config.output, output_raw_strings);
         fwrite(out,sdslen(out),1,stdout);
         sdsfree(out);
     }
@@ -1345,6 +1412,10 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
         if (config.pubsub_mode) {
             if (config.output != OUTPUT_RAW)
                 printf("Reading messages... (press Ctrl-C to quit)\n");
+
+            /* Unset our default PUSH handler so this works in RESP2/RESP3 */
+            redisSetPushCallback(context, NULL);
+
             while (1) {
                 if (cliReadReply(output_raw) != REDIS_OK) exit(1);
             }
@@ -1625,6 +1696,16 @@ static int parseOptions(int argc, char **argv) {
             exit(0);
         } else if (!strcmp(argv[i],"-3")) {
             config.resp3 = 1;
+        } else if (!strcmp(argv[i],"--show-pushes") && !lastarg) {
+            char *argval = argv[++i];
+            if (!strncasecmp(argval, "n", 1)) {
+                config.push_output = 0;
+            } else if (!strncasecmp(argval, "y", 1)) {
+                config.push_output = 1;
+            } else {
+                fprintf(stderr, "Unknown --show-pushes value '%s' "
+                        "(valid: '[y]es', '[n]o')\n", argval);
+            }
         } else if (CLUSTER_MANAGER_MODE() && argv[i][0] != '-') {
             if (config.cluster_manager_command.argc == 0) {
                 int j = i + 1;
@@ -1667,6 +1748,11 @@ static void parseEnv() {
     char *auth = getenv(REDIS_CLI_AUTH_ENV);
     if (auth != NULL && config.auth == NULL) {
         config.auth = auth;
+    }
+
+    char *cluster_yes = getenv(REDIS_CLI_CLUSTER_YES_ENV);
+    if (cluster_yes != NULL && !strcmp(cluster_yes, "1")) {
+        config.cluster_manager_command.flags |= CLUSTER_MANAGER_CMD_FLAG_YES;
     }
 }
 
@@ -1728,6 +1814,8 @@ static void usage(void) {
 "                     not a tty).\n"
 "  --no-raw           Force formatted output even when STDOUT is not a tty.\n"
 "  --csv              Output in CSV format.\n"
+"  --show-pushes <yn> Whether to print RESP3 PUSH messages.  Enabled by default when\n"
+"                     STDOUT is a tty but can be overriden with --show-pushes no.\n"
 "  --stat             Print rolling stats about server: mem, clients, ...\n"
 "  --latency          Enter a special mode continuously sampling latency.\n"
 "                     If you use this mode in an interactive session it runs\n"
@@ -1797,10 +1885,10 @@ static void usage(void) {
     exit(1);
 }
 
-static int confirmWithYes(char *msg, int force) {
-    /* if force is true and --cluster-yes option is on,
+static int confirmWithYes(char *msg, int ignore_force) {
+    /* if --cluster-yes option is set and ignore_force is false,
      * do not prompt for an answer */
-    if (force &&
+    if (!ignore_force &&
         (config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_YES)) {
         return 1;
     }
@@ -4494,7 +4582,7 @@ static int clusterManagerFixSlotsCoverage(char *all_slots) {
     dictReleaseIterator(iter);
 
     /* we want explicit manual confirmation from users for all the fix cases */
-    int force = 0;
+    int ignore_force = 1;
 
     /*  Handle case "1": keys in no node. */
     if (listLength(none) > 0) {
@@ -4502,7 +4590,7 @@ static int clusterManagerFixSlotsCoverage(char *all_slots) {
                "across the cluster:\n");
         clusterManagerPrintSlotsList(none);
         if (confirmWithYes("Fix these slots by covering with a random node?",
-                           force)) {
+                           ignore_force)) {
             listIter li;
             listNode *ln;
             listRewind(none, &li);
@@ -4529,7 +4617,7 @@ static int clusterManagerFixSlotsCoverage(char *all_slots) {
         printf("The following uncovered slots have keys in just one node:\n");
         clusterManagerPrintSlotsList(single);
         if (confirmWithYes("Fix these slots by covering with those nodes?",
-                           force)) {
+                           ignore_force)) {
             listIter li;
             listNode *ln;
             listRewind(single, &li);
@@ -4561,7 +4649,7 @@ static int clusterManagerFixSlotsCoverage(char *all_slots) {
         printf("The following uncovered slots have keys in multiple nodes:\n");
         clusterManagerPrintSlotsList(multi);
         if (confirmWithYes("Fix these slots by moving keys "
-                           "into a single node?", force)) {
+                           "into a single node?", ignore_force)) {
             listIter li;
             listNode *ln;
             listRewind(multi, &li);
@@ -5524,8 +5612,8 @@ assign_replicas:
     }
     clusterManagerOptimizeAntiAffinity(ip_nodes, ip_count);
     clusterManagerShowNodes();
-    int force = 1;
-    if (confirmWithYes("Can I set the above configuration?", force)) {
+    int ignore_force = 0;
+    if (confirmWithYes("Can I set the above configuration?", ignore_force)) {
         listRewind(cluster_manager.nodes, &li);
         while ((ln = listNext(&li)) != NULL) {
             clusterManagerNode *node = ln->value;
@@ -8057,10 +8145,13 @@ int main(int argc, char **argv) {
     spectrum_palette = spectrum_palette_color;
     spectrum_palette_size = spectrum_palette_color_size;
 
-    if (!isatty(fileno(stdout)) && (getenv("FAKETTY") == NULL))
+    if (!isatty(fileno(stdout)) && (getenv("FAKETTY") == NULL)) {
         config.output = OUTPUT_RAW;
-    else
+        config.push_output = 0;
+    } else {
         config.output = OUTPUT_STANDARD;
+        config.push_output = 1;
+    }
     config.mb_delim = sdsnew("\n");
 
     firstarg = parseOptions(argc,argv);

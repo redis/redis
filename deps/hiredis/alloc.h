@@ -1,8 +1,6 @@
-/* SDSLib 2.0 -- A C dynamic strings library
+/*
+ * Copyright (c) 2020, Michael Grunder <michael dot grunder at gmail dot com>
  *
- * Copyright (c) 2006-2015, Salvatore Sanfilippo <antirez at gmail dot com>
- * Copyright (c) 2015, Oran Agra
- * Copyright (c) 2015, Redis Labs, Inc
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,15 +28,64 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-/* SDS allocator selection.
- *
- * This file is used in order to change the SDS allocator at compile time.
- * Just define the following defines to what you want to use. Also add
- * the include of your alternate allocator if needed (not needed in order
- * to use the default libc allocator). */
+#ifndef HIREDIS_ALLOC_H
+#define HIREDIS_ALLOC_H
 
-#include "alloc.h"
+#include <stddef.h> /* for size_t */
 
-#define s_malloc hi_malloc
-#define s_realloc hi_realloc
-#define s_free hi_free
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Structure pointing to our actually configured allocators */
+typedef struct hiredisAllocFuncs {
+    void *(*mallocFn)(size_t);
+    void *(*callocFn)(size_t,size_t);
+    void *(*reallocFn)(void*,size_t);
+    char *(*strdupFn)(const char*);
+    void (*freeFn)(void*);
+} hiredisAllocFuncs;
+
+hiredisAllocFuncs hiredisSetAllocators(hiredisAllocFuncs *ha);
+void hiredisResetAllocators(void);
+
+#ifndef _WIN32
+
+/* Hiredis' configured allocator function pointer struct */
+extern hiredisAllocFuncs hiredisAllocFns;
+
+static inline void *hi_malloc(size_t size) {
+    return hiredisAllocFns.mallocFn(size);
+}
+
+static inline void *hi_calloc(size_t nmemb, size_t size) {
+    return hiredisAllocFns.callocFn(nmemb, size);
+}
+
+static inline void *hi_realloc(void *ptr, size_t size) {
+    return hiredisAllocFns.reallocFn(ptr, size);
+}
+
+static inline char *hi_strdup(const char *str) {
+    return hiredisAllocFns.strdupFn(str);
+}
+
+static inline void hi_free(void *ptr) {
+    hiredisAllocFns.freeFn(ptr);
+}
+
+#else
+
+void *hi_malloc(size_t size);
+void *hi_calloc(size_t nmemb, size_t size);
+void *hi_realloc(void *ptr, size_t size);
+char *hi_strdup(const char *str);
+void hi_free(void *ptr);
+
+#endif
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* HIREDIS_ALLOC_H */

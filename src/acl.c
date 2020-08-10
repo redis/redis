@@ -1327,6 +1327,7 @@ sds ACLLoadFromFile(const char *filename) {
             errors = sdscatprintf(errors,
                      "'%s:%d: username '%s' contains invalid characters. ",
                      server.acl_filename, linenum, argv[1]);
+            sdsfreesplitres(argv,argc);
             continue;
         }
 

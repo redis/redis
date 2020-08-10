@@ -62,8 +62,20 @@ tags "modules" {
                     $master config set repl-diskless-sync yes
                     $master config set rdbcompression no
                     $replica config set repl-diskless-load swapdb
+                    $master config set hz 500
+                    $replica config set hz 500
+                    $master config set dynamic-hz no
+                    $replica config set dynamic-hz no
+                    set start [clock clicks -milliseconds]
                     for {set k 0} {$k < 30} {incr k} {
                         r testrdb.set.key key$k [string repeat A [expr {int(rand()*1000000)}]]
+                    }
+
+                    if {$::verbose} {
+                        set end [clock clicks -milliseconds]
+                        set duration [expr $end - $start]
+                        puts "filling took $duration ms (TODO: use pipeline)"
+                        set start [clock clicks -milliseconds]
                     }
 
                     # Start the replication process...
@@ -72,8 +84,8 @@ tags "modules" {
                     $replica replicaof $master_host $master_port
 
                     # kill the replication at various points
-                    set attempts 3
-                    if {$::accurate} { set attempts 10 }
+                    set attempts 100
+                    if {$::accurate} { set attempts 500 }
                     for {set i 0} {$i < $attempts} {incr i} {
                         # wait for the replica to start reading the rdb
                         # using the log file since the replica only responds to INFO once in 2mb
@@ -105,6 +117,11 @@ tags "modules" {
                         } else {
                             fail "Replica didn't disconnect"
                         }
+                    }
+                    if {$::verbose} {
+                        set end [clock clicks -milliseconds]
+                        set duration [expr $end - $start]
+                        puts "test took $duration ms"
                     }
                     # enable fast shutdown
                     $master config set rdb-key-save-delay 0

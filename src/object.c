@@ -1298,7 +1298,7 @@ NULL
                     addReply(c,shared.syntaxerr);
                     return;
                 }
-                if (samples == 0) samples = LLONG_MAX;;
+                if (samples == 0) samples = LLONG_MAX;
                 j++; /* skip option argument. */
             } else {
                 addReply(c,shared.syntaxerr);

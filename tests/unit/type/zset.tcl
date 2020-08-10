@@ -780,6 +780,44 @@ start_server {tags {"zset"}} {
             set oldscore $score
         }
     }
+    
+    test {ZMSCORE retrieve} {
+        r del zmscoretest
+        r zadd zmscoretest 10 x
+        r zadd zmscoretest 20 y
+        
+        r zmscore zmscoretest x y
+    } {10 20}
+
+    test {ZMSCORE retrieve from empty set} {
+        r del zmscoretest
+        
+        r zmscore zmscoretest x y
+    } {{} {}}
+    
+    test {ZMSCORE retrieve with missing member} {
+        r del zmscoretest
+        r zadd zmscoretest 10 x
+        
+        r zmscore zmscoretest x y
+    } {10 {}}
+
+    test {ZMSCORE retrieve single member} {
+        r del zmscoretest
+        r zadd zmscoretest 10 x
+        r zadd zmscoretest 20 y
+        
+        r zmscore zmscoretest x
+    } {10}
+
+    test {ZMSCORE retrieve requires one or more members} {
+        r del zmscoretest
+        r zadd zmscoretest 10 x
+        r zadd zmscoretest 20 y
+        
+        catch {r zmscore zmscoretest} e
+        assert_match {*ERR*wrong*number*arg*} $e
+    }
 
     test "ZSET commands don't accept the empty strings as valid score" {
         assert_error "*not*float*" {r zadd myzset "" abc}
@@ -812,6 +850,21 @@ start_server {tags {"zset"}} {
             assert_encoding $encoding zscoretest
             for {set i 0} {$i < $elements} {incr i} {
                 assert_equal [lindex $aux $i] [r zscore zscoretest $i]
+            }
+        }
+
+        test "ZMSCORE - $encoding" {
+            r del zscoretest
+            set aux {}
+            for {set i 0} {$i < $elements} {incr i} {
+                set score [expr rand()]
+                lappend aux $score
+                r zadd zscoretest $score $i
+            }
+
+            assert_encoding $encoding zscoretest
+            for {set i 0} {$i < $elements} {incr i} {
+                assert_equal [lindex $aux $i] [r zmscore zscoretest $i]
             }
         }
 

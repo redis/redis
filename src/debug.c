@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-2020, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2020, Redis Labs, Inc
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,10 +31,13 @@
 #include "server.h"
 #include "sha1.h"   /* SHA1 is used for DEBUG DIGEST */
 #include "crc64.h"
+#include "bio.h"
 
 #include <arpa/inet.h>
 #include <signal.h>
 #include <dlfcn.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #ifdef HAVE_BACKTRACE
 #include <execinfo.h>
@@ -42,9 +46,6 @@
 #else
 typedef ucontext_t sigcontext_t;
 #endif
-#include <fcntl.h>
-#include "bio.h"
-#include <unistd.h>
 #endif /* HAVE_BACKTRACE */
 
 #ifdef __CYGWIN__
@@ -52,6 +53,15 @@ typedef ucontext_t sigcontext_t;
 #define SA_ONSTACK 0x08000000
 #endif
 #endif
+
+/* Globals */
+static _Atomic int bug_report_start = 0; /* True if bug report header was already logged. */
+
+/* Forward declarations */
+void bugReportStart(void);
+void printCrashReport(void);
+void bugReportEnd(int killViaSignal, int sig);
+void logStackTrace(void *eip, int uplevel);
 
 /* ================================= Debugging ============================== */
 
@@ -814,13 +824,14 @@ void _serverAssert(const char *estr, const char *file, int line) {
     bugReportStart();
     serverLog(LL_WARNING,"=== ASSERTION FAILED ===");
     serverLog(LL_WARNING,"==> %s:%d '%s' is not true",file,line,estr);
+
+    if (server.crashlog_enabled) {
 #ifdef HAVE_BACKTRACE
-    server.assert_failed = estr;
-    server.assert_file = file;
-    server.assert_line = line;
-    serverLog(LL_WARNING,"(forcing SIGSEGV to print the bug report.)");
+        logStackTrace(NULL, 1);
 #endif
-    *((char*)-1) = 'x';
+        printCrashReport();
+    }
+    bugReportEnd(0, 0);
 }
 
 void _serverAssertPrintClientInfo(const client *c) {
@@ -897,18 +908,21 @@ void _serverPanic(const char *file, int line, const char *msg, ...) {
     serverLog(LL_WARNING,"------------------------------------------------");
     serverLog(LL_WARNING,"!!! Software Failure. Press left mouse button to continue");
     serverLog(LL_WARNING,"Guru Meditation: %s #%s:%d",fmtmsg,file,line);
+
+    if (server.crashlog_enabled) {
 #ifdef HAVE_BACKTRACE
-    serverLog(LL_WARNING,"(forcing SIGSEGV in order to print the stack trace)");
+        logStackTrace(NULL, 1);
 #endif
-    serverLog(LL_WARNING,"------------------------------------------------");
-    *((char*)-1) = 'x';
+        printCrashReport();
+    }
+    bugReportEnd(0, 0);
 }
 
 void bugReportStart(void) {
-    if (server.bug_report_start == 0) {
+    if (bug_report_start == 0) {
         serverLogRaw(LL_WARNING|LL_RAW,
         "\n\n=== REDIS BUG REPORT START: Cut & paste starting from here ===\n");
-        server.bug_report_start = 1;
+        bug_report_start = 1;
     }
 }
 
@@ -980,6 +994,7 @@ void logStackContent(void **sp) {
     }
 }
 
+/* Log dump of processor registers */
 void logRegisters(ucontext_t *uc) {
     serverLog(LL_WARNING|LL_RAW, "\n------ REGISTERS ------\n");
 
@@ -1352,6 +1367,8 @@ void logRegisters(ucontext_t *uc) {
 #endif
 }
 
+#endif /* HAVE_BACKTRACE */
+
 /* Return a file descriptor to write directly to the Redis log with the
  * write(2) syscall, that can be used in critical sections of the code
  * where the rest of Redis can't be trusted (for example during the memory
@@ -1372,31 +1389,64 @@ void closeDirectLogFiledes(int fd) {
     if (!log_to_stdout) close(fd);
 }
 
+#ifdef HAVE_BACKTRACE
+
 /* Logs the stack trace using the backtrace() call. This function is designed
- * to be called from signal handlers safely. */
-void logStackTrace(ucontext_t *uc) {
-    void *trace[101];
+ * to be called from signal handlers safely.
+ * The eip argument is optional (can take NULL).
+ * The uplevel argument indicates how many of the calling functions to skip.
+ */
+void logStackTrace(void *eip, int uplevel) {
+    void *trace[100];
     int trace_size = 0, fd = openDirectLogFiledes();
+    char *msg;
+    uplevel++; /* skip this function */
 
     if (fd == -1) return; /* If we can't log there is anything to do. */
 
-    /* Generate the stack trace */
-    trace_size = backtrace(trace+1, 100);
+    /* Get the stack trace first! */
+    trace_size = backtrace(trace, 100);
 
-    if (getMcontextEip(uc) != NULL) {
-        char *msg1 = "EIP:\n";
-        char *msg2 = "\nBacktrace:\n";
-        if (write(fd,msg1,strlen(msg1)) == -1) {/* Avoid warning. */};
-        trace[0] = getMcontextEip(uc);
-        backtrace_symbols_fd(trace, 1, fd);
-        if (write(fd,msg2,strlen(msg2)) == -1) {/* Avoid warning. */};
+    msg = "\n------ STACK TRACE ------\n";
+    if (write(fd,msg,strlen(msg)) == -1) {/* Avoid warning. */};
+
+    if (eip) {
+        /* Write EIP to the log file*/
+        msg = "EIP:\n";
+        if (write(fd,msg,strlen(msg)) == -1) {/* Avoid warning. */};
+        backtrace_symbols_fd(&eip, 1, fd);
     }
 
     /* Write symbols to log file */
-    backtrace_symbols_fd(trace+1, trace_size, fd);
+    msg = "\nBacktrace:\n";
+    if (write(fd,msg,strlen(msg)) == -1) {/* Avoid warning. */};
+    backtrace_symbols_fd(trace+uplevel, trace_size-uplevel, fd);
 
     /* Cleanup */
     closeDirectLogFiledes(fd);
+}
+
+#endif /* HAVE_BACKTRACE */
+
+/* Log global server info */
+void logServerInfo(void) {
+    sds infostring, clients;
+    serverLogRaw(LL_WARNING|LL_RAW, "\n------ INFO OUTPUT ------\n");
+    infostring = genRedisInfoString("all");
+    serverLogRaw(LL_WARNING|LL_RAW, infostring);
+    serverLogRaw(LL_WARNING|LL_RAW, "\n------ CLIENT LIST OUTPUT ------\n");
+    clients = getAllClientsInfoString(-1);
+    serverLogRaw(LL_WARNING|LL_RAW, clients);
+    sdsfree(infostring);
+    sdsfree(clients);
+}
+
+/* Log modules info. Something we wanna do last since we fear it may crash. */
+void logModulesInfo(void) {
+    serverLogRaw(LL_WARNING|LL_RAW, "\n------ MODULES INFO OUTPUT ------\n");
+    sds infostring = modulesCollectInfo(sdsempty(), NULL, 1, 0);
+    serverLogRaw(LL_WARNING|LL_RAW, infostring);
+    sdsfree(infostring);
 }
 
 /* Log information about the "current" client, that is, the client that is
@@ -1505,6 +1555,23 @@ int memtest_test_linux_anonymous_maps(void) {
 }
 #endif
 
+void doFastMemoryTest(void) {
+#if defined(HAVE_PROC_MAPS)
+    if (server.memcheck_enabled) {
+        /* Test memory */
+        serverLogRaw(LL_WARNING|LL_RAW, "\n------ FAST MEMORY TEST ------\n");
+        bioKillThreads();
+        if (memtest_test_linux_anonymous_maps()) {
+            serverLogRaw(LL_WARNING|LL_RAW,
+                "!!! MEMORY ERROR DETECTED! Check your memory ASAP !!!\n");
+        } else {
+            serverLogRaw(LL_WARNING|LL_RAW,
+                "Fast memory test PASSED, however your memory can still be broken. Please run a memory test for several hours if possible.\n");
+        }
+    }
+#endif
+}
+
 /* Scans the (assumed) x86 code starting at addr, for a max of `len`
  * bytes, searching for E8 (callq) opcodes, and dumping the symbols
  * and the call offset if they appear to be valid. */
@@ -1531,95 +1598,86 @@ void dumpX86Calls(void *addr, size_t len) {
     }
 }
 
+void dumpCodeAroundEIP(void *eip) {
+    Dl_info info;
+    if (dladdr(eip, &info) != 0) {
+        serverLog(LL_WARNING|LL_RAW,
+            "\n------ DUMPING CODE AROUND EIP ------\n"
+            "Symbol: %s (base: %p)\n"
+            "Module: %s (base %p)\n"
+            "$ xxd -r -p /tmp/dump.hex /tmp/dump.bin\n"
+            "$ objdump --adjust-vma=%p -D -b binary -m i386:x86-64 /tmp/dump.bin\n"
+            "------\n",
+            info.dli_sname, info.dli_saddr, info.dli_fname, info.dli_fbase,
+            info.dli_saddr);
+        size_t len = (long)eip - (long)info.dli_saddr;
+        unsigned long sz = sysconf(_SC_PAGESIZE);
+        if (len < 1<<13) { /* we don't have functions over 8k (verified) */
+            /* Find the address of the next page, which is our "safety"
+             * limit when dumping. Then try to dump just 128 bytes more
+             * than EIP if there is room, or stop sooner. */
+            unsigned long next = ((unsigned long)eip + sz) & ~(sz-1);
+            unsigned long end = (unsigned long)eip + 128;
+            if (end > next) end = next;
+            len = end - (unsigned long)info.dli_saddr;
+            serverLogHexDump(LL_WARNING, "dump of function",
+                info.dli_saddr ,len);
+            dumpX86Calls(info.dli_saddr,len);
+        }
+    }
+}
+
 void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
-    ucontext_t *uc = (ucontext_t*) secret;
-    void *eip = getMcontextEip(uc);
-    sds infostring, clients;
-    struct sigaction act;
+    UNUSED(secret);
     UNUSED(info);
 
     bugReportStart();
     serverLog(LL_WARNING,
         "Redis %s crashed by signal: %d", REDIS_VERSION, sig);
-    if (eip != NULL) {
-        serverLog(LL_WARNING,
-        "Crashed running the instruction at: %p", eip);
-    }
     if (sig == SIGSEGV || sig == SIGBUS) {
         serverLog(LL_WARNING,
         "Accessing address: %p", (void*)info->si_addr);
     }
-    serverLog(LL_WARNING,
-        "Failed assertion: %s (%s:%d)", server.assert_failed,
-                        server.assert_file, server.assert_line);
 
-    /* Log the stack trace */
-    serverLogRaw(LL_WARNING|LL_RAW, "\n------ STACK TRACE ------\n");
-    logStackTrace(uc);
+#ifdef HAVE_BACKTRACE
+    ucontext_t *uc = (ucontext_t*) secret;
+    void *eip = getMcontextEip(uc);
+    if (eip != NULL) {
+        serverLog(LL_WARNING,
+        "Crashed running the instruction at: %p", eip);
+    }
 
+    logStackTrace(getMcontextEip(uc), 1);
+
+    logRegisters(uc);
+#endif
+
+    printCrashReport();
+
+#ifdef HAVE_BACKTRACE
+    if (eip != NULL)
+        dumpCodeAroundEIP(eip);
+#endif
+
+    bugReportEnd(1, sig);
+}
+
+void printCrashReport(void) {
     /* Log INFO and CLIENT LIST */
-    serverLogRaw(LL_WARNING|LL_RAW, "\n------ INFO OUTPUT ------\n");
-    infostring = genRedisInfoString("all");
-    serverLogRaw(LL_WARNING|LL_RAW, infostring);
-    serverLogRaw(LL_WARNING|LL_RAW, "\n------ CLIENT LIST OUTPUT ------\n");
-    clients = getAllClientsInfoString(-1);
-    serverLogRaw(LL_WARNING|LL_RAW, clients);
-    sdsfree(infostring);
-    sdsfree(clients);
+    logServerInfo();
 
     /* Log the current client */
     logCurrentClient();
 
-    /* Log dump of processor registers */
-    logRegisters(uc);
+    /* Log modules info. Something we wanna do last since we fear it may crash. */
+    logModulesInfo();
 
-    /* Log Modules INFO */
-    serverLogRaw(LL_WARNING|LL_RAW, "\n------ MODULES INFO OUTPUT ------\n");
-    infostring = modulesCollectInfo(sdsempty(), NULL, 1, 0);
-    serverLogRaw(LL_WARNING|LL_RAW, infostring);
-    sdsfree(infostring);
+    /* Run memory test in case the crash was triggered by memory corruption. */
+    doFastMemoryTest();
+}
 
-#if defined(HAVE_PROC_MAPS)
-    /* Test memory */
-    serverLogRaw(LL_WARNING|LL_RAW, "\n------ FAST MEMORY TEST ------\n");
-    bioKillThreads();
-    if (memtest_test_linux_anonymous_maps()) {
-        serverLogRaw(LL_WARNING|LL_RAW,
-            "!!! MEMORY ERROR DETECTED! Check your memory ASAP !!!\n");
-    } else {
-        serverLogRaw(LL_WARNING|LL_RAW,
-            "Fast memory test PASSED, however your memory can still be broken. Please run a memory test for several hours if possible.\n");
-    }
-#endif
-
-    if (eip != NULL) {
-        Dl_info info;
-        if (dladdr(eip, &info) != 0) {
-            serverLog(LL_WARNING|LL_RAW,
-                "\n------ DUMPING CODE AROUND EIP ------\n"
-                "Symbol: %s (base: %p)\n"
-                "Module: %s (base %p)\n"
-                "$ xxd -r -p /tmp/dump.hex /tmp/dump.bin\n"
-                "$ objdump --adjust-vma=%p -D -b binary -m i386:x86-64 /tmp/dump.bin\n"
-                "------\n",
-                info.dli_sname, info.dli_saddr, info.dli_fname, info.dli_fbase,
-                info.dli_saddr);
-            size_t len = (long)eip - (long)info.dli_saddr;
-            unsigned long sz = sysconf(_SC_PAGESIZE);
-            if (len < 1<<13) { /* we don't have functions over 8k (verified) */
-                /* Find the address of the next page, which is our "safety"
-                 * limit when dumping. Then try to dump just 128 bytes more
-                 * than EIP if there is room, or stop sooner. */
-                unsigned long next = ((unsigned long)eip + sz) & ~(sz-1);
-                unsigned long end = (unsigned long)eip + 128;
-                if (end > next) end = next;
-                len = end - (unsigned long)info.dli_saddr;
-                serverLogHexDump(LL_WARNING, "dump of function",
-                    info.dli_saddr ,len);
-                dumpX86Calls(info.dli_saddr,len);
-            }
-        }
-    }
+void bugReportEnd(int killViaSignal, int sig) {
+    struct sigaction act;
 
     serverLogRaw(LL_WARNING|LL_RAW,
 "\n=== REDIS BUG REPORT END. Make sure to include from START to END. ===\n\n"
@@ -1631,6 +1689,12 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     /* free(messages); Don't call free() with possibly corrupted memory. */
     if (server.daemonize && server.supervised == 0) unlink(server.pidfile);
 
+    if (!killViaSignal) {
+        if (server.use_exit_on_panic)
+            exit(1);
+        abort();
+    }
+
     /* Make sure we exit with the right signal at the end. So for instance
      * the core will be dumped if enabled. */
     sigemptyset (&act.sa_mask);
@@ -1639,7 +1703,6 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     sigaction (sig, &act, NULL);
     kill(getpid(),sig);
 }
-#endif /* HAVE_BACKTRACE */
 
 /* ==================== Logging functions for debugging ===================== */
 
@@ -1679,7 +1742,7 @@ void watchdogSignalHandler(int sig, siginfo_t *info, void *secret) {
 
     serverLogFromHandler(LL_WARNING,"\n--- WATCHDOG TIMER EXPIRED ---");
 #ifdef HAVE_BACKTRACE
-    logStackTrace(uc);
+    logStackTrace(getMcontextEip(uc), 1);
 #else
     serverLogFromHandler(LL_WARNING,"Sorry: no support for backtrace().");
 #endif
