@@ -327,7 +327,7 @@ void smoveCommand(client *c) {
     /* If the source key has the wrong type, or the destination key
      * is set and has the wrong type, return with an error. */
     if (checkType(c,srcset,OBJ_SET) ||
-        (checkType(c,dstset,OBJ_SET))) return;
+        checkType(c,dstset,OBJ_SET)) return;
 
     /* If srcset and dstset are equal, SMOVE is a no-op */
     if (srcset == dstset) {
