@@ -1764,7 +1764,8 @@ static void usage(void) {
 "  --hotkeys          Sample Redis keys looking for hot keys.\n"
 "                     only works when maxmemory-policy is *lfu.\n"
 "  --scan             List all keys using the SCAN command.\n"
-"  --pattern <pat>    Useful with --scan to specify a SCAN pattern.\n"
+"  --pattern <pat>    Keys pattern when using the --scan, --bigkeys or --hotkeys\n"
+"                     options (default: *).\n"
 "  --intrinsic-latency <sec> Run a test to measure intrinsic system latency.\n"
 "                     The test will run for the specified amount of seconds.\n"
 "  --eval <file>      Send an EVAL command using the Lua script at <file>.\n"
@@ -7193,7 +7194,13 @@ static void pipeMode(void) {
  *--------------------------------------------------------------------------- */
 
 static redisReply *sendScan(unsigned long long *it) {
-    redisReply *reply = redisCommand(context, "SCAN %llu", *it);
+    redisReply *reply;
+
+    if (config.pattern)
+        reply = redisCommand(context,"SCAN %llu MATCH %s",
+            *it,config.pattern);
+    else
+        reply = redisCommand(context,"SCAN %llu",*it);
 
     /* Handle any error conditions */
     if(reply == NULL) {
