@@ -24,7 +24,7 @@ set ::redis_cluster::plain_commands {
     get set setnx setex psetex append strlen exists setbit getbit
     setrange getrange substr incr decr rpush lpush rpushx lpushx
     linsert rpop lpop brpop llen lindex lset lrange ltrim lrem
-    sadd srem sismember scard spop srandmember smembers sscan zadd
+    sadd srem sismember smismember scard spop srandmember smembers sscan zadd
     zincrby zrem zremrangebyscore zremrangebyrank zremrangebylex zrange
     zrangebyscore zrevrangebyscore zrangebylex zrevrangebylex zcount
     zlexcount zrevrange zcard zscore zmscore zrank zrevrank zscan hset hsetnx

@@ -354,6 +354,10 @@ struct redisCommand redisCommandTable[] = {
      "read-only fast @set",
      0,NULL,1,1,1,0,0,0},
 
+    {"smismember",smismemberCommand,-3,
+     "read-only fast @set",
+     0,NULL,1,1,1,0,0,0},
+
     {"scard",scardCommand,2,
      "read-only fast @set",
      0,NULL,1,1,1,0,0,0},
