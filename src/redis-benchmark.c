@@ -1723,7 +1723,7 @@ int main(int argc, const char **argv) {
 
         if (test_is_selected("hset")) {
             len = redisFormatCommand(&cmd,
-                "HSET myhash:{tag}:__rand_int__ element:__rand_int__ %s",data);
+                "HSET myhash:{tag} element:__rand_int__ %s",data);
             benchmark("HSET",cmd,len);
             free(cmd);
         }
