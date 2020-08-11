@@ -8,7 +8,7 @@ done
 
 if [ -z $TCLSH ]
 then
-    echo "You need tcl 8.5 or newer in order to run the Redis test"
+    echo "You need tcl 8.5 or newer in order to run the Redis ModuleApi test"
     exit 1
 fi
 
