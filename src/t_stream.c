@@ -1108,14 +1108,10 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
  * The function creates a key setting it to an empty stream if needed. */
 robj *streamTypeLookupWriteOrCreate(client *c, robj *key) {
     robj *o = lookupKeyWrite(c->db,key);
+    if (checkType(c,o,OBJ_STREAM)) return NULL;
     if (o == NULL) {
         o = createStreamObject();
         dbAdd(c->db,key,o);
-    } else {
-        if (o->type != OBJ_STREAM) {
-            addReply(c,shared.wrongtypeerr);
-            return NULL;
-        }
     }
     return o;
 }
@@ -1460,7 +1456,7 @@ void xreadCommand(client *c) {
         int id_idx = i - streams_arg - streams_count;
         robj *key = c->argv[i-streams_count];
         robj *o = lookupKeyRead(c->db,key);
-        if (o && checkType(c,o,OBJ_STREAM)) goto cleanup;
+        if (checkType(c,o,OBJ_STREAM)) goto cleanup;
         streamCG *group = NULL;
 
         /* If a group was specified, than we need to be sure that the
@@ -2022,7 +2018,7 @@ void xpendingCommand(client *c) {
     robj *o = lookupKeyRead(c->db,c->argv[1]);
     streamCG *group;
 
-    if (o && checkType(c,o,OBJ_STREAM)) return;
+    if (checkType(c,o,OBJ_STREAM)) return;
     if (o == NULL ||
         (group = streamLookupCG(o->ptr,groupname->ptr)) == NULL)
     {
