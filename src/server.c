@@ -1479,7 +1479,7 @@ void updateDictResizePolicy(void) {
         dictDisableResize();
 }
 
-/* Return true if there are no active children processes doing RDB saving,
+/* Return true if there are active children processes doing RDB saving,
  * AOF rewriting, or some side process spawned by a loaded module. */
 int hasActiveChildProcess() {
     return server.rdb_child_pid != -1 ||
