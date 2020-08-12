@@ -458,7 +458,6 @@ typedef struct RedisModuleTypeMethods {
 #endif
 
 REDISMODULE_API void * (*RedisModule_Alloc)(size_t bytes) REDISMODULE_ATTR;
-REDISMODULE_API void * (*RedisModule_Alloc)(size_t bytes) REDISMODULE_ATTR;
 REDISMODULE_API void * (*RedisModule_Realloc)(void *ptr, size_t bytes) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_Free)(void *ptr) REDISMODULE_ATTR;
 REDISMODULE_API void * (*RedisModule_Calloc)(size_t nmemb, size_t size) REDISMODULE_ATTR;
