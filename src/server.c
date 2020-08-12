@@ -2528,6 +2528,7 @@ int restartServer(int flags, mstime_t delay) {
 }
 
 static void readOOMScoreAdj(void) {
+#ifdef HAVE_PROC_OOM_SCORE_ADJ
     char buf[64];
     int fd = open("/proc/self/oom_score_adj", O_RDONLY);
 
@@ -2535,6 +2536,7 @@ static void readOOMScoreAdj(void) {
     if (read(fd, buf, sizeof(buf)) > 0)
         server.oom_score_adj_base = atoi(buf);
     close(fd);
+#endif
 }
 
 /* This function will configure the current process's oom_score_adj according
@@ -2555,7 +2557,7 @@ int setOOMScoreAdj(int process_class) {
 
     serverAssert(process_class >= 0 && process_class < CONFIG_OOM_COUNT);
 
-#ifdef __linux__
+#ifdef HAVE_PROC_OOM_SCORE_ADJ
     val = server.oom_score_adj_base + server.oom_score_adj_values[process_class];
     if (val > 1000) val = 1000;
     if (val < -1000) val = -1000;
@@ -4916,6 +4918,7 @@ int redisFork() {
     long long start = ustime();
     if ((childpid = fork()) == 0) {
         /* Child */
+        setOOMScoreAdj(CONFIG_OOM_BGCHILD);
         closeListeningSockets(0);
         setupChildSignalHandlers();
     } else {
