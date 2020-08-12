@@ -4579,7 +4579,7 @@ RedisModuleBlockedClient *RM_BlockClientOnKeys(RedisModuleCtx *ctx, RedisModuleC
  * all the clients blocked for this key will get their reply callback called,
  * and if the callback returns REDISMODULE_OK the client will be unblocked. */
 void RM_SignalKeyAsReady(RedisModuleCtx *ctx, RedisModuleString *key) {
-    signalKeyAsReady(ctx->client->db, key);
+    signalKeyAsReady(ctx->client->db, key, OBJ_MODULE);
 }
 
 /* Implements RM_UnblockClient() and moduleUnblockClient(). */

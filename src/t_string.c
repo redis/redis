@@ -35,8 +35,8 @@
  *----------------------------------------------------------------------------*/
 
 static int checkStringLength(client *c, long long size) {
-    if (size > 512*1024*1024) {
-        addReplyError(c,"string exceeds maximum allowed size (512MB)");
+    if (!(c->flags & CLIENT_MASTER) && size > server.proto_max_bulk_len) {
+        addReplyError(c,"string exceeds maximum allowed size (proto-max-bulk-len)");
         return C_ERR;
     }
     return C_OK;
@@ -167,13 +167,12 @@ int getGenericCommand(client *c) {
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL)
         return C_OK;
 
-    if (o->type != OBJ_STRING) {
-        addReply(c,shared.wrongtypeerr);
+    if (checkType(c,o,OBJ_STRING)) {
         return C_ERR;
-    } else {
-        addReplyBulk(c,o);
-        return C_OK;
     }
+
+    addReplyBulk(c,o);
+    return C_OK;
 }
 
 void getCommand(client *c) {
@@ -348,7 +347,7 @@ void incrDecrCommand(client *c, long long incr) {
     robj *o, *new;
 
     o = lookupKeyWrite(c->db,c->argv[1]);
-    if (o != NULL && checkType(c,o,OBJ_STRING)) return;
+    if (checkType(c,o,OBJ_STRING)) return;
     if (getLongLongFromObjectOrReply(c,o,&value,NULL) != C_OK) return;
 
     oldvalue = value;
@@ -408,7 +407,7 @@ void incrbyfloatCommand(client *c) {
     robj *o, *new, *aux1, *aux2;
 
     o = lookupKeyWrite(c->db,c->argv[1]);
-    if (o != NULL && checkType(c,o,OBJ_STRING)) return;
+    if (checkType(c,o,OBJ_STRING)) return;
     if (getLongDoubleFromObjectOrReply(c,o,&value,NULL) != C_OK ||
         getLongDoubleFromObjectOrReply(c,c->argv[2],&incr,NULL) != C_OK)
         return;

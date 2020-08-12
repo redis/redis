@@ -1884,7 +1884,7 @@ void sendChildCOWInfo(int ptype, char *pname);
 extern rax *Users;
 extern user *DefaultUser;
 void ACLInit(void);
-/* Return values for ACLCheckUserCredentials(). */
+/* Return values for ACLCheckCommandPerm(). */
 #define ACL_OK 0
 #define ACL_DENIED_CMD 1
 #define ACL_DENIED_KEY 2
@@ -2189,7 +2189,7 @@ void replyToBlockedClientTimedOut(client *c);
 int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int unit);
 void disconnectAllBlockedClients(void);
 void handleClientsBlockedOnKeys(void);
-void signalKeyAsReady(redisDb *db, robj *key);
+void signalKeyAsReady(redisDb *db, robj *key, int type);
 void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, robj *target, streamID *ids);
 
 /* timeout.c -- Blocked clients timeout and connections timeout. */
@@ -2278,6 +2278,7 @@ void saddCommand(client *c);
 void sremCommand(client *c);
 void smoveCommand(client *c);
 void sismemberCommand(client *c);
+void smismemberCommand(client *c);
 void scardCommand(client *c);
 void spopCommand(client *c);
 void srandmemberCommand(client *c);
