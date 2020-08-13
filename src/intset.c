@@ -281,6 +281,33 @@ size_t intsetBlobLen(intset *is) {
     return sizeof(intset)+intrev32ifbe(is->length)*intrev32ifbe(is->encoding);
 }
 
+int intsetValidateIntegrity(const unsigned char *p, size_t size) {
+    const intset *is = (const intset *)p;
+    /* check that we can actually read the header. */
+    if (size < sizeof(*is))
+        return 0;
+
+    uint32_t encoding = intrev32ifbe(is->encoding);
+
+    size_t record_size;
+    if (encoding == INTSET_ENC_INT64) {
+        record_size = INTSET_ENC_INT64;
+    } else if (encoding == INTSET_ENC_INT32) {
+        record_size = INTSET_ENC_INT32;
+    } else if (encoding == INTSET_ENC_INT16){
+        record_size = INTSET_ENC_INT16;
+    } else {
+        return 0;
+    }
+
+    /* check that the size matchies (all records are inside the buffer). */
+    uint32_t count = intrev32ifbe(is->length);
+    if (sizeof(*is) + count*record_size != size)
+        return 0;
+
+    return 1;
+}
+
 #ifdef REDIS_TEST
 #include <sys/time.h>
 #include <time.h>
