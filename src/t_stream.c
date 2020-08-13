@@ -255,20 +255,32 @@ unsigned char *lpReplaceInteger(unsigned char *lp, unsigned char **pos, int64_t 
 
 /* This is a wrapper function for lpGet() to directly get an integer value
  * from the listpack (that may store numbers as a string), converting
- * the string if needed. */
-int64_t lpGetInteger(unsigned char *ele) {
+ * the string if needed.
+ * The 'valid" argument is an optional output parameter to get an indication
+ * if the record was valid, when this parameter is NULL, the function will
+ * fail with an assertion. */
+static inline int64_t lpGetIntegerIfValid(unsigned char *ele, int *valid) {
     int64_t v;
     unsigned char *e = lpGet(ele,&v,NULL);
-    if (e == NULL) return v;
+    if (e == NULL) {
+        if (valid)
+            *valid = 1;
+        return v;
+    }
     /* The following code path should never be used for how listpacks work:
      * they should always be able to store an int64_t value in integer
      * encoded form. However the implementation may change. */
     long long ll;
-    int retval = string2ll((char*)e,v,&ll);
-    serverAssert(retval != 0);
+    int ret = string2ll((char*)e,v,&ll);
+    if (valid)
+        *valid = ret;
+    else
+        serverAssert(ret != 0);
     v = ll;
     return v;
 }
+
+#define lpGetInteger(ele) lpGetIntegerIfValid(ele, NULL)
 
 /* Debugging function to log the full content of a listpack. Useful
  * for development and debugging. */
@@ -3036,4 +3048,91 @@ NULL
     } else {
         addReplySubcommandSyntaxError(c);
     }
+}
+
+/* Validate the integrity stream listpack entries stracture. Both in term of a
+ * valid listpack, but also that the stracture of the entires matches a valid
+ * stream. return 1 if valid 0 if not valid. */
+int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
+    int valid_record;
+    unsigned char *p, *next;
+
+    /* Since we don't want to run validation of all records twice, we'll
+     * run the listpack validation of just the header and do the rest here. */
+    if (!lpValidateIntegrity(lp, size, 0))
+        return 0;
+
+    /* In non-deep mode we just validated the listpack header (encoded size) */
+    if (!deep) return 1;
+
+    next = p = lpFirst(lp);
+    if (!lpValidateNext(lp, &next, size)) return 0;
+    if (!p) return 0;
+
+    /* entry count */
+    int64_t entry_count = lpGetIntegerIfValid(p, &valid_record);
+    if (!valid_record) return 0;
+    p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+
+    /* deleted */
+    lpGetIntegerIfValid(p, &valid_record);
+    if (!valid_record) return 0;
+    p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+
+    /* num-of-fields */
+    int64_t master_fields = lpGetIntegerIfValid(p, &valid_record);
+    if (!valid_record) return 0;
+    p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+
+    /* the field names */
+    for (int64_t j = 0; j < master_fields; j++) {
+        p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+    }
+
+    /* the zero master entry terminator. */
+    int64_t zero = lpGetIntegerIfValid(p, &valid_record);
+    if (!valid_record || zero != 0) return 0;
+    p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+
+    while (entry_count--) {
+        if (!p) return 0;
+        int64_t fields = master_fields, extra_fields = 3;
+        int64_t flags = lpGetIntegerIfValid(p, &valid_record);
+        if (!valid_record) return 0;
+        p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+
+        /* entry id */
+        p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+        p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+
+        if (!(flags & STREAM_ITEM_FLAG_SAMEFIELDS)) {
+            /* num-of-fields */
+            fields = lpGetIntegerIfValid(p, &valid_record);
+            if (!valid_record) return 0;
+            p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+
+            /* the field names */
+            for (int64_t j = 0; j < fields; j++) {
+                p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+            }
+
+            extra_fields += fields + 1;
+        }
+
+        /* the values */
+        for (int64_t j = 0; j < fields; j++) {
+            p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+        }
+
+        /* lp-count */
+        int64_t lp_count = lpGetIntegerIfValid(p, &valid_record);
+        if (!valid_record) return 0;
+        if (lp_count != fields + extra_fields) return 0;
+        p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+    }
+
+    if (next)
+        return 0;
+
+    return 1;
 }

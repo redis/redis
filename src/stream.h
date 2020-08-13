@@ -120,5 +120,6 @@ int streamIncrID(streamID *id);
 int streamDecrID(streamID *id);
 void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds consumername);
 robj *streamDup(robj *o);
+int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep);
 
 #endif

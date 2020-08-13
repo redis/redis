@@ -89,12 +89,15 @@ struct ACLUserFlag {
     const char *name;
     uint64_t flag;
 } ACLUserFlags[] = {
+    /* Note: the order here dictates the emitted order at ACLDescribeUser */
     {"on", USER_FLAG_ENABLED},
     {"off", USER_FLAG_DISABLED},
     {"allkeys", USER_FLAG_ALLKEYS},
     {"allchannels", USER_FLAG_ALLCHANNELS},
     {"allcommands", USER_FLAG_ALLCOMMANDS},
     {"nopass", USER_FLAG_NOPASS},
+    {"skip-sanitize-payload", USER_FLAG_SANITIZE_PAYLOAD_SKIP},
+    {"sanitize-payload", USER_FLAG_SANITIZE_PAYLOAD},
     {NULL,0} /* Terminator. */
 };
 
@@ -829,6 +832,12 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     } else if (!strcasecmp(op,"off")) {
         u->flags |= USER_FLAG_DISABLED;
         u->flags &= ~USER_FLAG_ENABLED;
+    } else if (!strcasecmp(op,"skip-sanitize-payload")) {
+        u->flags |= USER_FLAG_SANITIZE_PAYLOAD_SKIP;
+        u->flags &= ~USER_FLAG_SANITIZE_PAYLOAD;
+    } else if (!strcasecmp(op,"sanitize-payload")) {
+        u->flags &= ~USER_FLAG_SANITIZE_PAYLOAD_SKIP;
+        u->flags |= USER_FLAG_SANITIZE_PAYLOAD;
     } else if (!strcasecmp(op,"allkeys") ||
                !strcasecmp(op,"~*"))
     {
@@ -1004,6 +1013,7 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         serverAssert(ACLSetUser(u,"resetkeys",-1) == C_OK);
         serverAssert(ACLSetUser(u,"resetchannels",-1) == C_OK);
         serverAssert(ACLSetUser(u,"off",-1) == C_OK);
+        serverAssert(ACLSetUser(u,"sanitize-payload",-1) == C_OK);
         serverAssert(ACLSetUser(u,"-@all",-1) == C_OK);
     } else {
         errno = EINVAL;

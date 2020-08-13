@@ -68,17 +68,27 @@ void rdbReportError(int corruption_error, int linenum, char *reason, ...) {
     vsnprintf(msg+len,sizeof(msg)-len,reason,ap);
     va_end(ap);
 
-    if (!rdbCheckMode) {
-        if (rdbFileBeingLoaded || corruption_error) {
-            serverLog(LL_WARNING, "%s", msg);
-            char *argv[2] = {"",rdbFileBeingLoaded};
-            redis_check_rdb_main(2,argv,NULL);
-        } else {
-            serverLog(LL_WARNING, "%s. Failure loading rdb format from socket, assuming connection error, resuming operation.", msg);
-            return;
-        }
-    } else {
+    if (!server.loading) {
+        /* If we're in the context of a RESTORE command, just propagate the error. */
+        /* log in VERBOSE, and return (don't exit). */
+        serverLog(LL_VERBOSE, "%s", msg);
+        return;
+    } else if (rdbCheckMode) {
+        /* If we're inside the rdb checker, let it handle the error. */
         rdbCheckError("%s",msg);
+    } else if (rdbFileBeingLoaded) {
+        /* If we're loading an rdb file form disk, run rdb check (and exit) */
+        serverLog(LL_WARNING, "%s", msg);
+        char *argv[2] = {"",rdbFileBeingLoaded};
+        redis_check_rdb_main(2,argv,NULL);
+    } else if (corruption_error) {
+        /* In diskless loading, in case of corrupt file, log and exit. */
+        serverLog(LL_WARNING, "%s. Failure loading rdb format", msg);
+    } else {
+        /* In diskless loading, in case of a short read (not a corrupt
+         * file), log and proceed (don't exit). */
+        serverLog(LL_WARNING, "%s. Failure loading rdb format from socket, assuming connection error, resuming operation.", msg);
+        return;
     }
     serverLog(LL_WARNING, "Terminating server after rdb file reading failure.");
     exit(1);
@@ -1489,6 +1499,17 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
     uint64_t len;
     unsigned int i;
 
+    int deep_integrity_validation = server.sanitize_dump_payload == SANITIZE_DUMP_YES;
+    if (server.sanitize_dump_payload == SANITIZE_DUMP_CLIENTS) {
+        /* Skip sanitization when loading (an RDB), or getting a RESTORE command
+         * from either the master or a client using an ACL user with the skip-sanitize-payload flag. */
+        int skip = server.loading ||
+            (server.current_client && (server.current_client->flags & CLIENT_MASTER));
+        if (!skip && server.current_client && server.current_client->user)
+            skip = !!(server.current_client->user->flags & USER_FLAG_SANITIZE_PAYLOAD_SKIP);
+        deep_integrity_validation = !skip;
+    }
+
     if (rdbtype == RDB_TYPE_STRING) {
         /* Read string value */
         if ((o = rdbLoadEncodedStringObject(rdb)) == NULL) return NULL;
@@ -1685,10 +1706,18 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                             server.list_compress_depth);
 
         while (len--) {
+            size_t encoded_len;
             unsigned char *zl =
-                rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,NULL);
+                rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,&encoded_len);
             if (zl == NULL) {
                 decrRefCount(o);
+                return NULL;
+            }
+            if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
+            if (!ziplistValidateIntegrity(zl, encoded_len, deep_integrity_validation)) {
+                rdbExitReportCorruptRDB("Ziplist integrity check failed.");
+                decrRefCount(o);
+                zfree(zl);
                 return NULL;
             }
             quicklistAppendZiplist(o->ptr, zl);
@@ -1699,9 +1728,32 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                rdbtype == RDB_TYPE_ZSET_ZIPLIST ||
                rdbtype == RDB_TYPE_HASH_ZIPLIST)
     {
+        size_t encoded_len;
         unsigned char *encoded =
-            rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,NULL);
+            rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,&encoded_len);
         if (encoded == NULL) return NULL;
+        if (rdbtype == RDB_TYPE_HASH_ZIPMAP) {
+            /* Since we don't keep zipmaps anymore, the rdb loading for these
+             * is O(n) anyway, use `deep` validation. */
+            if (!zipmapValidateIntegrity(encoded, encoded_len, 1)) {
+                rdbExitReportCorruptRDB("Zipmap integrity check failed.");
+                zfree(encoded);
+                return NULL;
+            }
+        } else if (rdbtype == RDB_TYPE_SET_INTSET) {
+            if (!intsetValidateIntegrity(encoded, encoded_len)) {
+                rdbExitReportCorruptRDB("Intset integrity check failed.");
+                zfree(encoded);
+                return NULL;
+            }
+        } else { /* ziplist */
+            if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
+            if (!ziplistValidateIntegrity(encoded, encoded_len, deep_integrity_validation)) {
+                rdbExitReportCorruptRDB("Ziplist integrity check failed.");
+                zfree(encoded);
+                return NULL;
+            }
+        }
         o = createObject(OBJ_STRING,encoded); /* Obj type fixed below. */
 
         /* Fix the object encoding, and make sure to convert the encoded
@@ -1794,14 +1846,24 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
             }
 
             /* Load the listpack. */
+            size_t lp_size;
             unsigned char *lp =
-                rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,NULL);
+                rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,&lp_size);
             if (lp == NULL) {
                 rdbReportReadError("Stream listpacks loading failed.");
                 sdsfree(nodekey);
                 decrRefCount(o);
                 return NULL;
             }
+            if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
+            if (!streamValidateListpackIntegrity(lp, lp_size, deep_integrity_validation)) {
+                rdbExitReportCorruptRDB("Stream listpack integrity check failed.");
+                sdsfree(nodekey);
+                decrRefCount(o);
+                zfree(lp);
+                return NULL;
+            }
+
             unsigned char *first = lpFirst(lp);
             if (first == NULL) {
                 /* Serialized listpacks should never be empty, since on
@@ -2389,6 +2451,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                         (unsigned long long)expected,
                         (unsigned long long)cksum);
                 rdbExitReportCorruptRDB("RDB CRC error");
+                return C_ERR;
             }
         }
     }
