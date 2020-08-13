@@ -402,7 +402,8 @@ robj *resetRefCount(robj *obj) {
 }
 
 int checkType(client *c, robj *o, int type) {
-    if (o->type != type) {
+    /* A NULL is considered an empty key */
+    if (o && o->type != type) {
         addReply(c,shared.wrongtypeerr);
         return 1;
     }

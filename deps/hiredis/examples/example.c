@@ -1,8 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
 #include <hiredis.h>
+#include <win32.h>
 
 int main(int argc, char **argv) {
     unsigned int j, isunix = 0;

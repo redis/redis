@@ -702,7 +702,7 @@ void geohashCommand(client *c) {
 
     /* Look up the requested zset */
     robj *zobj = lookupKeyRead(c->db, c->argv[1]);
-    if (zobj && checkType(c, zobj, OBJ_ZSET)) return;
+    if (checkType(c, zobj, OBJ_ZSET)) return;
 
     /* Geohash elements one after the other, using a null bulk reply for
      * missing elements. */
@@ -763,7 +763,7 @@ void geoposCommand(client *c) {
 
     /* Look up the requested zset */
     robj *zobj = lookupKeyRead(c->db, c->argv[1]);
-    if (zobj && checkType(c, zobj, OBJ_ZSET)) return;
+    if (checkType(c, zobj, OBJ_ZSET)) return;
 
     /* Report elements one after the other, using a null bulk reply for
      * missing elements. */

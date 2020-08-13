@@ -41,6 +41,7 @@ typedef struct redisLibevEvents {
     struct ev_loop *loop;
     int reading, writing;
     ev_io rev, wev;
+    ev_timer timer;
 } redisLibevEvents;
 
 static void redisLibevReadEvent(EV_P_ ev_io *watcher, int revents) {
@@ -103,11 +104,39 @@ static void redisLibevDelWrite(void *privdata) {
     }
 }
 
+static void redisLibevStopTimer(void *privdata) {
+    redisLibevEvents *e = (redisLibevEvents*)privdata;
+    struct ev_loop *loop = e->loop;
+    ((void)loop);
+    ev_timer_stop(EV_A_ &e->timer);
+}
+
 static void redisLibevCleanup(void *privdata) {
     redisLibevEvents *e = (redisLibevEvents*)privdata;
     redisLibevDelRead(privdata);
     redisLibevDelWrite(privdata);
-    free(e);
+    redisLibevStopTimer(privdata);
+    hi_free(e);
+}
+
+static void redisLibevTimeout(EV_P_ ev_timer *timer, int revents) {
+    ((void)revents);
+    redisLibevEvents *e = (redisLibevEvents*)timer->data;
+    redisAsyncHandleTimeout(e->context);
+}
+
+static void redisLibevSetTimeout(void *privdata, struct timeval tv) {
+    redisLibevEvents *e = (redisLibevEvents*)privdata;
+    struct ev_loop *loop = e->loop;
+    ((void)loop);
+
+    if (!ev_is_active(&e->timer)) {
+        ev_init(&e->timer, redisLibevTimeout);
+        e->timer.data = e;
+    }
+
+    e->timer.repeat = tv.tv_sec + tv.tv_usec / 1000000.00;
+    ev_timer_again(EV_A_ &e->timer);
 }
 
 static int redisLibevAttach(EV_P_ redisAsyncContext *ac) {
@@ -119,14 +148,16 @@ static int redisLibevAttach(EV_P_ redisAsyncContext *ac) {
         return REDIS_ERR;
 
     /* Create container for context and r/w events */
-    e = (redisLibevEvents*)malloc(sizeof(*e));
+    e = (redisLibevEvents*)hi_calloc(1, sizeof(*e));
+    if (e == NULL)
+        return REDIS_ERR;
+
     e->context = ac;
 #if EV_MULTIPLICITY
     e->loop = loop;
 #else
     e->loop = NULL;
 #endif
-    e->reading = e->writing = 0;
     e->rev.data = e;
     e->wev.data = e;
 
@@ -136,6 +167,7 @@ static int redisLibevAttach(EV_P_ redisAsyncContext *ac) {
     ac->ev.addWrite = redisLibevAddWrite;
     ac->ev.delWrite = redisLibevDelWrite;
     ac->ev.cleanup = redisLibevCleanup;
+    ac->ev.scheduleTimer = redisLibevSetTimeout;
     ac->ev.data = e;
 
     /* Initialize read/write events */

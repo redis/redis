@@ -33,7 +33,10 @@ void disconnectCallback(const redisAsyncContext *c, int status) {
 }
 
 int main (int argc, char **argv) {
+#ifndef _WIN32
     signal(SIGPIPE, SIG_IGN);
+#endif
+
     uv_loop_t* loop = uv_default_loop();
 
     redisAsyncContext *c = redisAsyncConnect("127.0.0.1", 6379);
