@@ -383,12 +383,16 @@ typedef long long mstime_t;
 /* Macro definitions specific to individual compilers */
 #ifdef __GNUC__
 #define REDISMODULE_ATTR_UNUSED __attribute__((unused))
-#define REDISMODULE_ATTR_COMMON __attribute__((__common__))
 #define REDISMODULE_ATTR_PRINTF(idx,cnt) __attribute__((format(printf,idx,cnt)))
 #else
 #define REDISMODULE_ATTR_UNUSED
-#define REDISMODULE_ATTR_COMMON
 #define REDISMODULE_ATTR_PRINTF(idx,cnt)
+#endif
+
+#if defined(__GNUC__) && !defined(__clang__)
+#define REDISMODULE_ATTR_COMMON __attribute__((__common__))
+#else
+#define REDISMODULE_ATTR_COMMON
 #endif
 
 /* Incomplete structures for compiler checks but opaque access. */
