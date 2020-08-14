@@ -403,6 +403,7 @@ void debugCommand(client *c) {
 "SDSLEN <key> -- Show low level SDS string info representing key and value.",
 "SEGFAULT -- Crash the server with sigsegv.",
 "SET-ACTIVE-EXPIRE <0|1> -- Setting it to 0 disables expiring keys in background when they are not accessed (otherwise the Redis behavior). Setting it to 1 reenables back the default.",
+"SET-SKIP-CHECKSUM-VALIDATION <0|1> -- Enables or disables checksum checks for rdb or RESTORE payload.",
 "AOF-FLUSH-SLEEP <microsec> -- Server will sleep before flushing the AOF, this is used for testing",
 "SLEEP <seconds> -- Stop the server for <seconds>. Decimals allowed.",
 "STRUCTSIZE -- Return the size of different Redis core C structures.",
@@ -722,6 +723,11 @@ NULL
     {
         server.active_expire_enabled = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"set-skip-checksum-validation") &&
+               c->argc == 3)
+    {
+        server.skip_checksum_validation = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"aof-flush-sleep") &&
                c->argc == 3)
     {
@@ -880,6 +886,14 @@ void serverLogObjectDebugInfo(const robj *o) {
     serverLog(LL_WARNING,"Object type: %d", o->type);
     serverLog(LL_WARNING,"Object encoding: %d", o->encoding);
     serverLog(LL_WARNING,"Object refcount: %d", o->refcount);
+#if UNSAFE_CRASH_REPORT
+    /* This code is now disabled. o->ptr may be unreliable to print. in some
+     * cases a ziplist could have already been freed by realloc, but not yet
+     * updated to o->ptr. in other cases the call to ziplistLen may need to
+     * iterate on all the items in the list (and possibly crash again).
+     * For some cases it may be ok to crash here again, but these could cause
+     * invalid memory access which will bother valgrind and also possibly cause
+     * random memory portion to be "leaked" into the logfile. */
     if (o->type == OBJ_STRING && sdsEncodedObject(o)) {
         serverLog(LL_WARNING,"Object raw string len: %zu", sdslen(o->ptr));
         if (sdslen(o->ptr) < 4096) {
@@ -900,6 +914,7 @@ void serverLogObjectDebugInfo(const robj *o) {
     } else if (o->type == OBJ_STREAM) {
         serverLog(LL_WARNING,"Stream size: %d", (int) streamLength(o));
     }
+#endif
 }
 
 void _serverAssertPrintObject(const robj *o) {

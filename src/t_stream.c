@@ -787,6 +787,7 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
                 *numfields = lpGetInteger(si->lp_ele);
                 si->lp_ele = lpNext(si->lp,si->lp_ele);
             }
+            serverAssert(*numfields>=0);
 
             /* If current >= start, and the entry is not marked as
              * deleted, emit it. */
@@ -2879,6 +2880,7 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
                     addReplyStreamID(c,&id);
 
                     /* Consumer name. */
+                    serverAssert(nack->consumer); /* assertion for valgrind (avoid NPD) */
                     addReplyBulkCBuffer(c,nack->consumer->name,
                                         sdslen(nack->consumer->name));
 

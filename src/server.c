@@ -2506,6 +2506,7 @@ void initServerConfig(void) {
     server.tlsfd_count = 0;
     server.sofd = -1;
     server.active_expire_enabled = 1;
+    server.skip_checksum_validation = 0;
     server.client_max_querybuf_len = PROTO_MAX_QUERYBUF_LEN;
     server.saveparams = NULL;
     server.loading = 0;

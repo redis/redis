@@ -164,7 +164,7 @@ test {client freed during loading} {
         # 100mb of rdb, 100k keys will load in more than 1 second
         r debug populate 100000 key 1000
 
-        restart_server 0 false
+        restart_server 0 false false
 
         # make sure it's still loading
         assert_equal [s loading] 1

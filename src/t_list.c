@@ -728,6 +728,7 @@ void lmoveGenericCommand(client *c, int wherefrom, int whereto) {
 
         if (checkType(c,dobj,OBJ_LIST)) return;
         value = listTypePop(sobj,wherefrom);
+        serverAssert(value); /* assertion for valgrind (avoid NPD) */
         /* We saved touched key, and protect it, since lmoveHandlePush
          * may change the client command argument vector (it does not
          * currently). */

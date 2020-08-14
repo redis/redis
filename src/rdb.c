@@ -399,8 +399,9 @@ void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr) {
 
     /* Load the compressed representation and uncompress it to target. */
     if (rioRead(rdb,c,clen) == 0) goto err;
-    if (lzf_decompress(c,clen,val,len) == 0) {
+    if (lzf_decompress(c,clen,val,len) != len) {
         rdbExitReportCorruptRDB("Invalid LZF compressed string");
+        goto err;
     }
     zfree(c);
 
@@ -504,6 +505,8 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
     unsigned long long len;
 
     len = rdbLoadLen(rdb,&isencoded);
+    if (len == RDB_LENERR) return NULL;
+
     if (isencoded) {
         switch(len) {
         case RDB_ENC_INT8:
@@ -518,7 +521,6 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
         }
     }
 
-    if (len == RDB_LENERR) return NULL;
     if (plain || sds) {
         void *buf = plain ? zmalloc(len) : sdsnewlen(SDS_NOINIT,len);
         if (lenptr) *lenptr = len;
@@ -604,7 +606,7 @@ int rdbLoadDoubleValue(rio *rdb, double *val) {
     default:
         if (rioRead(rdb,buf,len) == 0) return -1;
         buf[len] = '\0';
-        sscanf(buf, "%lg", val);
+        if (sscanf(buf, "%lg", val)!=1) return -1;
         return 0;
     }
 }
@@ -1572,7 +1574,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
             /* This will also be called when the set was just converted
              * to a regular hash table encoded set. */
             if (o->encoding == OBJ_ENCODING_HT) {
-                dictAdd((dict*)o->ptr,sdsele,NULL);
+                if (dictAdd((dict*)o->ptr,sdsele,NULL) != DICT_OK) {
+                    rdbExitReportCorruptRDB("Duplicate set members detected");
+                    decrRefCount(o);
+                    sdsfree(sdsele);
+                    return NULL;
+                }
             } else {
                 sdsfree(sdsele);
             }
@@ -1693,7 +1700,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
             /* Add pair to hash table */
             ret = dictAdd((dict*)o->ptr, field, value);
             if (ret == DICT_ERR) {
-                rdbExitReportCorruptRDB("Duplicate keys detected");
+                rdbExitReportCorruptRDB("Duplicate hash fields detected");
+                sdsfree(value);
+                sdsfree(field);
+                decrRefCount(o);
+                return NULL;
             }
         }
 
@@ -1843,6 +1854,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
             if (sdslen(nodekey) != sizeof(streamID)) {
                 rdbExitReportCorruptRDB("Stream node key entry is not the "
                                         "size of a stream ID");
+                sdsfree(nodekey);
+                decrRefCount(o);
+                return NULL;
             }
 
             /* Load the listpack. */
@@ -1870,14 +1884,22 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                  * deletion we should remove the radix tree key if the
                  * resulting listpack is empty. */
                 rdbExitReportCorruptRDB("Empty listpack inside stream");
+                sdsfree(nodekey);
+                decrRefCount(o);
+                zfree(lp);
+                return NULL;
             }
 
             /* Insert the key in the radix tree. */
             int retval = raxInsert(s->rax,
                 (unsigned char*)nodekey,sizeof(streamID),lp,NULL);
             sdsfree(nodekey);
-            if (!retval)
+            if (!retval) {
                 rdbExitReportCorruptRDB("Listpack re-added with existing key");
+                decrRefCount(o);
+                zfree(lp);
+                return NULL;
+            }
         }
         /* Load total number of items inside the stream. */
         s->length = rdbLoadLen(rdb,NULL);
@@ -1922,9 +1944,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
             }
 
             streamCG *cgroup = streamCreateCG(s,cgname,sdslen(cgname),&cg_id);
-            if (cgroup == NULL)
+            if (cgroup == NULL) {
                 rdbExitReportCorruptRDB("Duplicated consumer group name %s",
                                          cgname);
+                decrRefCount(o);
+                sdsfree(cgname);
+                return NULL;
+            }
             sdsfree(cgname);
 
             /* Load the global PEL for this consumer group, however we'll
@@ -1954,9 +1980,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                     streamFreeNACK(nack);
                     return NULL;
                 }
-                if (!raxInsert(cgroup->pel,rawid,sizeof(rawid),nack,NULL))
+                if (!raxInsert(cgroup->pel,rawid,sizeof(rawid),nack,NULL)) {
                     rdbExitReportCorruptRDB("Duplicated global PEL entry "
                                             "loading stream consumer group");
+                    decrRefCount(o);
+                    streamFreeNACK(nack);
+                    return NULL;
+                }
             }
 
             /* Now that we loaded our global PEL, we need to load the
@@ -2003,18 +2033,24 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                         return NULL;
                     }
                     streamNACK *nack = raxFind(cgroup->pel,rawid,sizeof(rawid));
-                    if (nack == raxNotFound)
+                    if (nack == raxNotFound) {
                         rdbExitReportCorruptRDB("Consumer entry not found in "
                                                 "group global PEL");
+                        decrRefCount(o);
+                        return NULL;
+                    }
 
                     /* Set the NACK consumer, that was left to NULL when
                      * loading the global PEL. Then set the same shared
                      * NACK structure also in the consumer-specific PEL. */
                     nack->consumer = consumer;
-                    if (!raxInsert(consumer->pel,rawid,sizeof(rawid),nack,NULL))
+                    if (!raxInsert(consumer->pel,rawid,sizeof(rawid),nack,NULL)) {
                         rdbExitReportCorruptRDB("Duplicated consumer PEL entry "
                                                 " loading a stream consumer "
                                                 "group");
+                        decrRefCount(o);
+                        return NULL;
+                    }
                 }
             }
         }
@@ -2034,8 +2070,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
 
         if (mt == NULL) {
             moduleTypeNameByID(name,moduleid);
-            serverLog(LL_WARNING,"The RDB file contains module data I can't load: no matching module '%s'", name);
-            exit(1);
+            rdbExitReportCorruptRDB("The RDB file contains module data I can't load: no matching module '%s'", name);
+            return NULL;
         }
         RedisModuleIO io;
         robj keyobj;
@@ -2054,20 +2090,26 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
         if (io.ver == 2) {
             uint64_t eof = rdbLoadLen(rdb,NULL);
             if (eof == RDB_LENERR) {
-                o = createModuleObject(mt,ptr); /* creating just in order to easily destroy */
-                decrRefCount(o);
+                if (ptr) {
+                    o = createModuleObject(mt,ptr); /* creating just in order to easily destroy */
+                    decrRefCount(o);
+                }
                 return NULL;
             }
             if (eof != RDB_MODULE_OPCODE_EOF) {
-                serverLog(LL_WARNING,"The RDB file contains module data for the module '%s' that is not terminated by the proper module value EOF marker", name);
-                exit(1);
+                rdbExitReportCorruptRDB("The RDB file contains module data for the module '%s' that is not terminated by the proper module value EOF marker", name);
+                if (ptr) {
+                    o = createModuleObject(mt,ptr); /* creating just in order to easily destroy */
+                    decrRefCount(o);
+                }
+                return NULL;
             }
         }
 
         if (ptr == NULL) {
             moduleTypeNameByID(name,moduleid);
-            serverLog(LL_WARNING,"The RDB file contains module data for the module type '%s', that the responsible module is not able to load. Check for modules log above for additional clues.", name);
-            exit(1);
+            rdbExitReportCorruptRDB("The RDB file contains module data for the module type '%s', that the responsible module is not able to load. Check for modules log above for additional clues.", name);
+            return NULL;
         }
         o = createModuleObject(mt,ptr);
     } else {
@@ -2441,7 +2483,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
         uint64_t cksum, expected = rdb->cksum;
 
         if (rioRead(rdb,&cksum,8) == 0) goto eoferr;
-        if (server.rdb_checksum) {
+        if (server.rdb_checksum && !server.skip_checksum_validation) {
             memrev64ifbe(&cksum);
             if (cksum == 0) {
                 serverLog(LL_WARNING,"RDB file was saved with checksum disabled: no check performed.");

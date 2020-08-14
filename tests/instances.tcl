@@ -155,7 +155,7 @@ proc log_crashes {} {
 
     set logs [glob */err.txt]
     foreach log $logs {
-        set res [find_valgrind_errors $log]
+        set res [find_valgrind_errors $log true]
         if {$res != ""} {
             puts $res
             incr ::failed
