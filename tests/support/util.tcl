@@ -454,22 +454,31 @@ proc colorstr {color str} {
     }
 }
 
-proc find_valgrind_errors {stderr} {
+proc find_valgrind_errors {stderr on_termination} {
     set fd [open $stderr]
     set buf [read $fd]
     close $fd
 
     # Look for stack trace (" at 0x") and other errors (Invalid, Mismatched, etc).
     # Look for "Warnings", but not the "set address range perms". These don't indicate any real concern.
-    # Look for the absense of a leak free summary (happens when redis isn't terminated properly).
+    # corrupt-dump unit, not sure why but it seems they don't indicate any real concern.
     if {[regexp -- { at 0x} $buf] ||
         [regexp -- {^(?=.*Warning)(?:(?!set address range perms).)*$} $buf] ||
         [regexp -- {Invalid} $buf] ||
         [regexp -- {Mismatched} $buf] ||
         [regexp -- {uninitialized} $buf] ||
         [regexp -- {has a fishy} $buf] ||
-        [regexp -- {overlap} $buf] ||
-        (![regexp -- {definitely lost: 0 bytes} $buf] &&
+        [regexp -- {overlap} $buf]} {
+        return $buf
+    }
+
+    # If the process didn't terminate yet, we can't look for the summary report
+    if {!$on_termination} {
+        return ""
+    }
+
+    # Look for the absense of a leak free summary (happens when redis isn't terminated properly).
+    if {(![regexp -- {definitely lost: 0 bytes} $buf] &&
          ![regexp -- {no leaks are possible} $buf])} {
         return $buf
     }
@@ -546,4 +555,117 @@ proc cmdrstat {cmd r} {
     if {[regexp "\r\ncmdstat_$cmd:(.*?)\r\n" [$r info commandstats] _ value]} {
         set _ $value
     }
+}
+
+proc generate_fuzzy_traffic_on_key {key duration} {
+    # Commands per type, blocking commands removed
+    # TODO: extract these from help.h or elsewhere, and improve to include other types
+    set string_commands {APPEND BITCOUNT BITFIELD BITOP BITPOS DECR DECRBY GET GETBIT GETRANGE GETSET INCR INCRBY INCRBYFLOAT MGET MSET MSETNX PSETEX SET SETBIT SETEX SETNX SETRANGE STRALGO STRLEN}
+    set hash_commands {HDEL HEXISTS HGET HGETALL HINCRBY HINCRBYFLOAT HKEYS HLEN HMGET HMSET HSCAN HSET HSETNX HSTRLEN HVALS}
+    set zset_commands {ZADD ZCARD ZCOUNT ZINCRBY ZINTERSTORE ZLEXCOUNT ZPOPMAX ZPOPMIN ZRANGE ZRANGEBYLEX ZRANGEBYSCORE ZRANK ZREM ZREMRANGEBYLEX ZREMRANGEBYRANK ZREMRANGEBYSCORE ZREVRANGE ZREVRANGEBYLEX ZREVRANGEBYSCORE ZREVRANK ZSCAN ZSCORE ZUNIONSTORE}
+    set list_commands {LINDEX LINSERT LLEN LPOP LPOS LPUSH LPUSHX LRANGE LREM LSET LTRIM RPOP RPOPLPUSH RPUSH RPUSHX}
+    set set_commands {SADD SCARD SDIFF SDIFFSTORE SINTER SINTERSTORE SISMEMBER SMEMBERS SMOVE SPOP SRANDMEMBER SREM SSCAN SUNION SUNIONSTORE}
+    set stream_commands {XACK XADD XCLAIM XDEL XGROUP XINFO XLEN XPENDING XRANGE XREAD XREADGROUP XREVRANGE XTRIM}
+    set commands [dict create string $string_commands hash $hash_commands zset $zset_commands list $list_commands set $set_commands stream $stream_commands]
+
+    set type [r type $key]
+    set cmds [dict get $commands $type]
+    set start_time [clock seconds]
+    set sent {}
+    set succeeded 0
+    while {([clock seconds]-$start_time) < $duration} {
+        # find a random command for our key type
+        set cmd_idx [expr {int(rand()*[llength $cmds])}]
+        set cmd [lindex $cmds $cmd_idx]
+        # get the command details from redis
+        if { [ catch {
+            set cmd_info [lindex [r command info $cmd] 0]
+        } err ] } {
+            # if we failed, it means redis crashed after the previous command
+            return $sent
+        }
+        # try to build a valid command argument
+        set arity [lindex $cmd_info 1]
+        set arity [expr $arity < 0 ? - $arity: $arity]
+        set firstkey [lindex $cmd_info 3]
+        set i 1
+        if {$cmd == "XINFO"} {
+            lappend cmd "STREAM"
+            lappend cmd $key
+            lappend cmd "FULL"
+            incr i 3
+        }
+        if {$cmd == "XREAD"} {
+            lappend cmd "STREAMS"
+            lappend cmd $key
+            randpath {
+                lappend cmd \$
+            } {
+                lappend cmd [randomValue]
+            }
+            incr i 3
+        }
+        if {$cmd == "XADD"} {
+            lappend cmd $key
+            randpath {
+                lappend cmd "*"
+            } {
+                lappend cmd [randomValue]
+            }
+            lappend cmd [randomValue]
+            lappend cmd [randomValue]
+            incr i 4
+        }
+        for {} {$i < $arity} {incr i} {
+            if {$i == $firstkey} {
+                lappend cmd $key
+            } else {
+                lappend cmd [randomValue]
+            }
+        }
+        # execute the command, we expect commands to fail on syntax errors
+        lappend sent $cmd
+        if { ! [ catch {
+            r {*}$cmd
+        } err ] } {
+            incr succeeded
+        }
+    }
+
+    # print stats so that we know if we managed to generate commands that actually made senes
+    #if {$::verbose} {
+    #    set count [llength $sent]
+    #    puts "Fuzzy traffic sent: $count, succeeded: $succeeded"
+    #}
+
+    # return the list of commands we sent
+    return $sent
+}
+
+# write line to server log file
+proc write_log_line {srv_idx msg} {
+    set logfile [srv $srv_idx stdout]
+    set fd [open $logfile "a+"]
+    puts $fd "### $msg"
+    close $fd
+}
+
+proc string2printable s {
+    set res {}
+    set has_special_chars false
+    foreach i [split $s {}] {
+        scan $i %c int
+        # non printable characters, including space and excluding: " \ $ { }
+        if {$int < 32 || $int > 122 || $int == 34 || $int == 36 || $int == 92} {
+            set has_special_chars true
+        }
+        # TCL8.5 has issues mixing \x notation and normal chars in the same
+        # source code string, so we'll convert the entire string.
+        append res \\x[format %02X $int]
+    }
+    if {!$has_special_chars} {
+        return $s
+    }
+    set res "\"$res\""
+    return $res
 }

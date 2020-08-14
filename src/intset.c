@@ -34,6 +34,7 @@
 #include "intset.h"
 #include "zmalloc.h"
 #include "endianconv.h"
+#include "redisassert.h"
 
 /* Note that these encodings are ordered, so:
  * INTSET_ENC_INT16 < INTSET_ENC_INT32 < INTSET_ENC_INT64. */
@@ -258,7 +259,9 @@ uint8_t intsetFind(intset *is, int64_t value) {
 
 /* Return random member */
 int64_t intsetRandom(intset *is) {
-    return _intsetGet(is,rand()%intrev32ifbe(is->length));
+    uint32_t len = intrev32ifbe(is->length);
+    assert(len); /* avoid division by zero on corrupt intset payload. */
+    return _intsetGet(is,rand()%len);
 }
 
 /* Get the value at the given position. When this position is

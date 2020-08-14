@@ -160,7 +160,7 @@ start_server {tags {"introspection"}} {
         # Rewrite entire configuration, restart and confirm the
         # server is able to parse it and start.
         assert_equal [r debug config-rewrite-force-all] "OK"
-        restart_server 0 0
+        restart_server 0 false false
         assert_equal [r ping] "PONG"
 
         # Verify no changes were introduced

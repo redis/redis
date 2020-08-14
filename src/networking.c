@@ -674,6 +674,7 @@ void addReplyLongLong(client *c, long long ll) {
 }
 
 void addReplyAggregateLen(client *c, long length, int prefix) {
+    serverAssert(length >= 0);
     if (prefix == '*' && length < OBJ_SHARED_BULKHDR_LEN)
         addReply(c,shared.mbulkhdr[length]);
     else

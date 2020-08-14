@@ -536,6 +536,7 @@ unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf) {
     int64_t val;
     uint64_t uval, negstart, negmax;
 
+    assert(p); /* assertion for valgrind (avoid NPD) */
     if (LP_ENCODING_IS_7BIT_UINT(p[0])) {
         negstart = UINT64_MAX; /* 7 bit ints are always positive. */
         negmax = 0;

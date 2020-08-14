@@ -4981,6 +4981,9 @@ int verifyDumpPayload(unsigned char *p, size_t len) {
     rdbver = (footer[1] << 8) | footer[0];
     if (rdbver > RDB_VERSION) return C_ERR;
 
+    if (server.skip_checksum_validation)
+        return C_OK;
+
     /* Verify CRC64 */
     crc = crc64(0,p,len-8);
     memrev64ifbe(&crc);
