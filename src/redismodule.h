@@ -381,18 +381,28 @@ typedef struct RedisModuleLoadingProgressInfo {
 typedef long long mstime_t;
 
 /* Macro definitions specific to individual compilers */
-#ifdef __GNUC__
-#define REDISMODULE_ATTR_UNUSED __attribute__((unused))
-#define REDISMODULE_ATTR_PRINTF(idx,cnt) __attribute__((format(printf,idx,cnt)))
-#else
-#define REDISMODULE_ATTR_UNUSED
-#define REDISMODULE_ATTR_PRINTF(idx,cnt)
+#ifndef REDISMODULE_ATTR_UNUSED
+#    ifdef __GNUC__
+#        define REDISMODULE_ATTR_UNUSED __attribute__((unused))
+#    else
+#        define REDISMODULE_ATTR_UNUSED
+#    endif
 #endif
 
-#if defined(__GNUC__) && !defined(__clang__)
-#define REDISMODULE_ATTR_COMMON __attribute__((__common__))
-#else
-#define REDISMODULE_ATTR_COMMON
+#ifndef REDISMODULE_ATTR_PRINTF
+#    ifdef __GNUC__
+#        define REDISMODULE_ATTR_PRINTF(idx,cnt) __attribute__((format(printf,idx,cnt)))
+#    else
+#        define REDISMODULE_ATTR_PRINTF(idx,cnt)
+#    endif
+#endif
+
+#ifndef REDISMODULE_ATTR_COMMON
+#    if defined(__GNUC__) && !defined(__clang__)
+#        define REDISMODULE_ATTR_COMMON __attribute__((__common__))
+#    else
+#        define REDISMODULE_ATTR_COMMON
+#    endif
 #endif
 
 /* Incomplete structures for compiler checks but opaque access. */
