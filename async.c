@@ -54,7 +54,7 @@ void __redisSetError(redisContext *c, int type, const char *str);
 /* Functions managing dictionary of callbacks for pub/sub. */
 static unsigned int callbackHash(const void *key) {
     return dictGenHashFunction((const unsigned char *)key,
-                               sdslen((const sds)key));
+                               hi_sdslen((const hisds)key));
 }
 
 static void *callbackValDup(void *privdata, const void *src) {
@@ -73,15 +73,15 @@ static int callbackKeyCompare(void *privdata, const void *key1, const void *key2
     int l1, l2;
     ((void) privdata);
 
-    l1 = sdslen((const sds)key1);
-    l2 = sdslen((const sds)key2);
+    l1 = hi_sdslen((const hisds)key1);
+    l2 = hi_sdslen((const hisds)key2);
     if (l1 != l2) return 0;
     return memcmp(key1,key2,l1) == 0;
 }
 
 static void callbackKeyDestructor(void *privdata, void *key) {
     ((void) privdata);
-    sdsfree((sds)key);
+    hi_sdsfree((hisds)key);
 }
 
 static void callbackValDestructor(void *privdata, void *val) {
@@ -418,7 +418,7 @@ static int __redisGetSubscribeCallback(redisAsyncContext *ac, redisReply *reply,
     dictEntry *de;
     int pvariant;
     char *stype;
-    sds sname;
+    hisds sname;
 
     /* Custom reply functions are not supported for pub/sub. This will fail
      * very hard when they are used... */
@@ -435,7 +435,7 @@ static int __redisGetSubscribeCallback(redisAsyncContext *ac, redisReply *reply,
 
         /* Locate the right callback */
         assert(reply->element[1]->type == REDIS_REPLY_STRING);
-        sname = sdsnewlen(reply->element[1]->str,reply->element[1]->len);
+        sname = hi_sdsnewlen(reply->element[1]->str,reply->element[1]->len);
         if (sname == NULL)
             goto oom;
 
@@ -466,7 +466,7 @@ static int __redisGetSubscribeCallback(redisAsyncContext *ac, redisReply *reply,
                     c->flags &= ~REDIS_SUBSCRIBED;
             }
         }
-        sdsfree(sname);
+        hi_sdsfree(sname);
     } else {
         /* Shift callback for invalid commands. */
         __redisShiftCallback(&ac->sub.invalid,dstcb);
@@ -511,7 +511,7 @@ void redisProcessCallbacks(redisAsyncContext *ac) {
         if (reply == NULL) {
             /* When the connection is being disconnected and there are
              * no more replies, this is the cue to really disconnect. */
-            if (c->flags & REDIS_DISCONNECTING && sdslen(c->obuf) == 0
+            if (c->flags & REDIS_DISCONNECTING && hi_sdslen(c->obuf) == 0
                 && ac->replies.head == NULL) {
                 __redisAsyncDisconnect(ac);
                 return;
@@ -744,7 +744,7 @@ static int __redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void 
     const char *cstr, *astr;
     size_t clen, alen;
     const char *p;
-    sds sname;
+    hisds sname;
     int ret;
 
     /* Don't accept new commands when the connection is about to be closed. */
@@ -768,7 +768,7 @@ static int __redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void 
 
         /* Add every channel/pattern to the list of subscription callbacks. */
         while ((p = nextArgument(p,&astr,&alen)) != NULL) {
-            sname = sdsnewlen(astr,alen);
+            sname = hi_sdsnewlen(astr,alen);
             if (sname == NULL)
                 goto oom;
 
@@ -786,7 +786,7 @@ static int __redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void 
 
             ret = dictReplace(cbdict,sname,&cb);
 
-            if (ret == 0) sdsfree(sname);
+            if (ret == 0) hi_sdsfree(sname);
         }
     } else if (strncasecmp(cstr,"unsubscribe\r\n",13) == 0) {
         /* It is only useful to call (P)UNSUBSCRIBE when the context is
@@ -845,14 +845,14 @@ int redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void *privdata
 }
 
 int redisAsyncCommandArgv(redisAsyncContext *ac, redisCallbackFn *fn, void *privdata, int argc, const char **argv, const size_t *argvlen) {
-    sds cmd;
+    hisds cmd;
     int len;
     int status;
     len = redisFormatSdsCommandArgv(&cmd,argc,argv,argvlen);
     if (len < 0)
         return REDIS_ERR;
     status = __redisAsyncCommand(ac,fn,privdata,cmd,len);
-    sdsfree(cmd);
+    hi_sdsfree(cmd);
     return status;
 }
 

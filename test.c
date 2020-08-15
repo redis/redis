@@ -340,21 +340,21 @@ static void test_format_commands(void) {
         len == 4+4+(3+2)+4+(7+2)+4+(3+2));
     hi_free(cmd);
 
-    sds sds_cmd;
+    hisds sds_cmd;
 
     sds_cmd = NULL;
-    test("Format command into sds by passing argc/argv without lengths: ");
+    test("Format command into hisds by passing argc/argv without lengths: ");
     len = redisFormatSdsCommandArgv(&sds_cmd,argc,argv,NULL);
     test_cond(strncmp(sds_cmd,"*3\r\n$3\r\nSET\r\n$3\r\nfoo\r\n$3\r\nbar\r\n",len) == 0 &&
         len == 4+4+(3+2)+4+(3+2)+4+(3+2));
-    sdsfree(sds_cmd);
+    hi_sdsfree(sds_cmd);
 
     sds_cmd = NULL;
-    test("Format command into sds by passing argc/argv with lengths: ");
+    test("Format command into hisds by passing argc/argv with lengths: ");
     len = redisFormatSdsCommandArgv(&sds_cmd,argc,argv,lens);
     test_cond(strncmp(sds_cmd,"*3\r\n$3\r\nSET\r\n$7\r\nfoo\0xxx\r\n$3\r\nbar\r\n",len) == 0 &&
         len == 4+4+(3+2)+4+(7+2)+4+(3+2));
-    sdsfree(sds_cmd);
+    hi_sdsfree(sds_cmd);
 }
 
 static void test_append_formatted_commands(struct config config) {
