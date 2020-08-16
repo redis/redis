@@ -42,7 +42,7 @@ struct timeval; /* forward declaration */
 typedef long long ssize_t;
 #endif
 #include <stdint.h> /* uintXX_t, etc */
-#include "sds.h" /* for sds */
+#include "sds.h" /* for hisds */
 #include "alloc.h" /* for allocation wrappers */
 
 #define HIREDIS_MAJOR 1
@@ -128,9 +128,9 @@ void freeReplyObject(void *reply);
 int redisvFormatCommand(char **target, const char *format, va_list ap);
 int redisFormatCommand(char **target, const char *format, ...);
 int redisFormatCommandArgv(char **target, int argc, const char **argv, const size_t *argvlen);
-int redisFormatSdsCommandArgv(sds *target, int argc, const char ** argv, const size_t *argvlen);
+int redisFormatSdsCommandArgv(hisds *target, int argc, const char ** argv, const size_t *argvlen);
 void redisFreeCommand(char *cmd);
-void redisFreeSdsCommand(sds cmd);
+void redisFreeSdsCommand(hisds cmd);
 
 enum redisConnectionType {
     REDIS_CONN_TCP,

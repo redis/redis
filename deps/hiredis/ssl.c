@@ -437,7 +437,7 @@ static ssize_t redisSSLRead(redisContext *c, char *buf, size_t bufcap) {
 static ssize_t redisSSLWrite(redisContext *c) {
     redisSSL *rssl = c->privctx;
 
-    size_t len = rssl->lastLen ? rssl->lastLen : sdslen(c->obuf);
+    size_t len = rssl->lastLen ? rssl->lastLen : hi_sdslen(c->obuf);
     int rv = SSL_write(rssl->ssl, c->obuf, len);
 
     if (rv > 0) {
