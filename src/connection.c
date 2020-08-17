@@ -329,6 +329,11 @@ static ssize_t connSocketSyncReadLine(connection *conn, char *ptr, ssize_t size,
     return syncReadLine(conn->fd, ptr, size, timeout);
 }
 
+static int connSocketGetType(connection *conn) {
+    (void) conn;
+
+    return CONN_TYPE_SOCKET;
+}
 
 ConnectionType CT_Socket = {
     .ae_handler = connSocketEventHandler,
@@ -343,7 +348,8 @@ ConnectionType CT_Socket = {
     .blocking_connect = connSocketBlockingConnect,
     .sync_write = connSocketSyncWrite,
     .sync_read = connSocketSyncRead,
-    .sync_readline = connSocketSyncReadLine
+    .sync_readline = connSocketSyncReadLine,
+    .get_type = connSocketGetType
 };
 
 
