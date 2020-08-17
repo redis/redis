@@ -2218,8 +2218,8 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
         }
 
         /* role:<role> */
-        if (!memcmp(l,"role:master",11)) role = SRI_MASTER;
-        else if (!memcmp(l,"role:slave",10)) role = SRI_SLAVE;
+        if (sdslen(l) >= 11 && !memcmp(l,"role:master",11)) role = SRI_MASTER;
+        else if (sdslen(l) >= 10 && !memcmp(l,"role:slave",10)) role = SRI_SLAVE;
 
         if (role == SRI_SLAVE) {
             /* master_host:<host> */
@@ -3044,7 +3044,30 @@ int sentinelIsQuorumReachable(sentinelRedisInstance *master, int *usableptr) {
 }
 
 void sentinelCommand(client *c) {
-    if (!strcasecmp(c->argv[1]->ptr,"masters")) {
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+        const char *help[] = {
+"MASTERS -- Show a list of monitored masters and their state.",
+"MASTER <master-name> -- Show the state and info of the specified master.",
+"REPLICAS <master-name> -- Show a list of replicas for this master and their state.",
+"SENTINELS <master-name> -- Show a list of Sentinel instances for this master and their state.",
+"IS-MASTER-DOWN-BY-ADDR <ip> <port> <current-epoch> <runid> -- Check if the master specified by ip:port is down from current Sentinel's point of view.",
+"GET-MASTER-ADDR-BY-NAME <master-name> -- Return the ip and port number of the master with that name.",
+"RESET <pattern> -- Reset masters for specific master name matching this pattern.",
+"FAILOVER <master-name> -- Manually failover a master node without asking for agreement from other Sentinels",
+"PENDING-SCRIPTS -- Get pending scripts information.", 
+"MONITOR <name> <ip> <port> <quorum> -- Start monitoring a new master with the specified name, ip, port and quorum.",
+"FLUSHCONFIG -- Force Sentinel to rewrite its configuration on disk, including the current Sentinel state.",
+"REMOVE <master-name> -- Remove master from Sentinel's monitor list.",
+"CKQUORUM <master-name> -- Check if the current Sentinel configuration is able to reach the quorum needed to failover a master "
+"and the majority needed to authorize the failover.",
+"SET <master-name> <option> <value> -- Set configuration paramters for certain masters.",
+"INFO-CACHE <master-name> -- Return last cached INFO output from masters and all its replicas.",
+"SIMULATE-FAILURE (crash-after-election|crash-after-promotion|help) -- Simulate a Sentinel crash.",
+"HELP -- Prints this help.",
+NULL
+        };
+        addReplyHelp(c, help);
+    } else if (!strcasecmp(c->argv[1]->ptr,"masters")) {
         /* SENTINEL MASTERS */
         if (c->argc != 2) goto numargserr;
         addReplyDictOfRedisInstances(c,sentinel.masters);
@@ -3353,8 +3376,7 @@ void sentinelCommand(client *c) {
         }
         addReply(c,shared.ok);
     } else {
-        addReplyErrorFormat(c,"Unknown sentinel subcommand '%s'",
-                               (char*)c->argv[1]->ptr);
+        addReplySubcommandSyntaxError(c);
     }
     return;
 

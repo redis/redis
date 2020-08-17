@@ -402,7 +402,8 @@ robj *resetRefCount(robj *obj) {
 }
 
 int checkType(client *c, robj *o, int type) {
-    if (o->type != type) {
+    /* A NULL is considered an empty key */
+    if (o && o->type != type) {
         addReply(c,shared.wrongtypeerr);
         return 1;
     }
@@ -1298,7 +1299,7 @@ NULL
                     addReply(c,shared.syntaxerr);
                     return;
                 }
-                if (samples == 0) samples = LLONG_MAX;;
+                if (samples == 0) samples = LLONG_MAX;
                 j++; /* skip option argument. */
             } else {
                 addReply(c,shared.syntaxerr);

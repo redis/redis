@@ -378,6 +378,10 @@ struct redisCommand redisCommandTable[] = {
      "read-only fast @set",
      0,NULL,1,1,1,0,0,0},
 
+    {"smismember",smismemberCommand,-3,
+     "read-only fast @set",
+     0,NULL,1,1,1,0,0,0},
+
     {"scard",scardCommand,2,
      "read-only fast @set",
      0,NULL,1,1,1,0,0,0},
@@ -491,6 +495,10 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,1,1,1,0,0,0},
 
     {"zscore",zscoreCommand,3,
+     "read-only fast @sortedset",
+     0,NULL,1,1,1,0,0,0},
+
+    {"zmscore",zmscoreCommand,-3,
      "read-only fast @sortedset",
      0,NULL,1,1,1,0,0,0},
 
@@ -1495,7 +1503,7 @@ void updateDictResizePolicy(void) {
         dictDisableResize();
 }
 
-/* Return true if there are no active children processes doing RDB saving,
+/* Return true if there are active children processes doing RDB saving,
  * AOF rewriting, or some side process spawned by a loaded module. */
 int hasActiveChildProcess() {
     return server.rdb_child_pid != -1 ||
@@ -1513,7 +1521,8 @@ int allPersistenceDisabled(void) {
 
 /* Add a sample to the operations per second array of samples. */
 void trackInstantaneousMetric(int metric, long long current_reading) {
-    long long t = mstime() - server.inst_metric[metric].last_sample_time;
+    long long now = mstime();
+    long long t = now - server.inst_metric[metric].last_sample_time;
     long long ops = current_reading -
                     server.inst_metric[metric].last_sample_count;
     long long ops_sec;
@@ -1524,7 +1533,7 @@ void trackInstantaneousMetric(int metric, long long current_reading) {
         ops_sec;
     server.inst_metric[metric].idx++;
     server.inst_metric[metric].idx %= STATS_METRIC_SAMPLES;
-    server.inst_metric[metric].last_sample_time = mstime();
+    server.inst_metric[metric].last_sample_time = now;
     server.inst_metric[metric].last_sample_count = current_reading;
 }
 
@@ -1848,6 +1857,9 @@ void checkChildrenDone(void) {
         }
         updateDictResizePolicy();
         closeChildInfoPipe();
+
+        /* start any pending forks immediately. */
+        replicationStartPendingFork();
     }
 }
 
@@ -2437,6 +2449,10 @@ void initServerConfig(void) {
     for (j = 0; j < CLIENT_TYPE_OBUF_COUNT; j++)
         server.client_obuf_limits[j] = clientBufferLimitsDefaults[j];
 
+    /* Linux OOM Score config */
+    for (j = 0; j < CONFIG_OOM_COUNT; j++)
+        server.oom_score_adj_values[j] = configOOMScoreAdjValuesDefaults[j];
+
     /* Double constants initialization */
     R_Zero = 0.0;
     R_PosInf = 1.0/R_Zero;
@@ -2468,10 +2484,6 @@ void initServerConfig(void) {
     server.lpoprpushCommand = lookupCommandByCString("lpoprpush");
 
     /* Debugging */
-    server.assert_failed = "<no assertion failed>";
-    server.assert_file = "<no file>";
-    server.assert_line = 0;
-    server.bug_report_start = 0;
     server.watchdog_period = 0;
 
     /* By default we want scripts to be always replicated by effects
@@ -2547,6 +2559,58 @@ int restartServer(int flags, mstime_t delay) {
     _exit(1);
 
     return C_ERR; /* Never reached. */
+}
+
+static void readOOMScoreAdj(void) {
+#ifdef HAVE_PROC_OOM_SCORE_ADJ
+    char buf[64];
+    int fd = open("/proc/self/oom_score_adj", O_RDONLY);
+
+    if (fd < 0) return;
+    if (read(fd, buf, sizeof(buf)) > 0)
+        server.oom_score_adj_base = atoi(buf);
+    close(fd);
+#endif
+}
+
+/* This function will configure the current process's oom_score_adj according
+ * to user specified configuration. This is currently implemented on Linux
+ * only.
+ *
+ * A process_class value of -1 implies OOM_CONFIG_MASTER or OOM_CONFIG_REPLICA,
+ * depending on current role.
+ */
+int setOOMScoreAdj(int process_class) {
+    int fd;
+    int val;
+    char buf[64];
+
+    if (!server.oom_score_adj) return C_OK;
+    if (process_class == -1)
+        process_class = (server.masterhost ? CONFIG_OOM_REPLICA : CONFIG_OOM_MASTER);
+
+    serverAssert(process_class >= 0 && process_class < CONFIG_OOM_COUNT);
+
+#ifdef HAVE_PROC_OOM_SCORE_ADJ
+    val = server.oom_score_adj_base + server.oom_score_adj_values[process_class];
+    if (val > 1000) val = 1000;
+    if (val < -1000) val = -1000;
+
+    snprintf(buf, sizeof(buf) - 1, "%d\n", val);
+
+    fd = open("/proc/self/oom_score_adj", O_WRONLY);
+    if (fd < 0 || write(fd, buf, strlen(buf)) < 0) {
+        serverLog(LOG_WARNING, "Unable to write oom_score_adj: %s", strerror(errno));
+        if (fd != -1) close(fd);
+        return C_ERR;
+    }
+
+    close(fd);
+    return C_OK;
+#else
+    /* Unsupported */
+    return C_ERR;
+#endif
 }
 
 /* This function will try to raise the max number of open files accordingly to
@@ -2756,6 +2820,10 @@ void resetServerStats(void) {
     server.stat_sync_full = 0;
     server.stat_sync_partial_ok = 0;
     server.stat_sync_partial_err = 0;
+    server.stat_io_reads_processed = 0;
+    server.stat_total_reads_processed = 0;
+    server.stat_io_writes_processed = 0;
+    server.stat_total_writes_processed = 0;
     for (j = 0; j < STATS_METRIC_COUNT; j++) {
         server.inst_metric[j].idx = 0;
         server.inst_metric[j].last_sample_time = mstime();
@@ -2804,7 +2872,8 @@ void initServer(void) {
     server.events_processed_while_blocked = 0;
     server.system_memory_size = zmalloc_get_memory_size();
 
-    if (server.tls_port && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
+    if ((server.tls_port || server.tls_replication || server.tls_cluster)
+                && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
         serverLog(LL_WARNING, "Failed to configure TLS. Check logs for more info.");
         exit(1);
     }
@@ -3460,6 +3529,13 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
     sdsfree(s);
 }
 
+/* Returns 1 for commands that may have key names in their arguments, but have
+ * no pre-determined key positions. */
+static int cmdHasMovableKeys(struct redisCommand *cmd) {
+    return (cmd->getkeys_proc && !(cmd->flags & CMD_MODULE)) ||
+            cmd->flags & CMD_MODULE_GETKEYS;
+}
+
 /* If this function gets called we already read a whole
  * command, arguments are in the client argv/argc fields.
  * processCommand() execute the command or prepare the
@@ -3548,7 +3624,7 @@ int processCommand(client *c) {
         !(c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_LUA &&
           server.lua_caller->flags & CLIENT_MASTER) &&
-        !(c->cmd->getkeys_proc == NULL && c->cmd->firstkey == 0 &&
+        !(!cmdHasMovableKeys(c->cmd) && c->cmd->firstkey == 0 &&
           c->cmd->proc != execCommand))
     {
         int hashslot;
@@ -3931,9 +4007,7 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
         flagcount += addReplyCommandFlag(c,cmd,CMD_ASKING, "asking");
         flagcount += addReplyCommandFlag(c,cmd,CMD_FAST, "fast");
         flagcount += addReplyCommandFlag(c,cmd,CMD_NO_AUTH, "no_auth");
-        if ((cmd->getkeys_proc && !(cmd->flags & CMD_MODULE)) ||
-            cmd->flags & CMD_MODULE_GETKEYS)
-        {
+        if (cmdHasMovableKeys(cmd)) {
             addReplyStatus(c, "movablekeys");
             flagcount += 1;
         }
@@ -4095,7 +4169,8 @@ sds genRedisInfoString(const char *section) {
             "configured_hz:%i\r\n"
             "lru_clock:%u\r\n"
             "executable:%s\r\n"
-            "config_file:%s\r\n",
+            "config_file:%s\r\n"
+            "io_threads_active:%d\r\n",
             REDIS_VERSION,
             redisGitSHA1(),
             strtol(redisGitDirty(),NULL,10) > 0,
@@ -4119,7 +4194,8 @@ sds genRedisInfoString(const char *section) {
             server.config_hz,
             server.lruclock,
             server.executable ? server.executable : "",
-            server.configfile ? server.configfile : "");
+            server.configfile ? server.configfile : "",
+            server.io_threads_active);
     }
 
     /* Clients */
@@ -4391,7 +4467,11 @@ sds genRedisInfoString(const char *section) {
             "tracking_total_keys:%lld\r\n"
             "tracking_total_items:%lld\r\n"
             "tracking_total_prefixes:%lld\r\n"
-            "unexpected_error_replies:%lld\r\n",
+            "unexpected_error_replies:%lld\r\n"
+            "total_reads_processed:%lld\r\n"
+            "total_writes_processed:%lld\r\n"
+            "io_threaded_reads_processed:%lld\r\n"
+            "io_threaded_writes_processed:%lld\r\n",
             server.stat_numconnections,
             server.stat_numcommands,
             getInstantaneousMetric(STATS_METRIC_COMMAND),
@@ -4422,7 +4502,11 @@ sds genRedisInfoString(const char *section) {
             (unsigned long long) trackingGetTotalKeys(),
             (unsigned long long) trackingGetTotalItems(),
             (unsigned long long) trackingGetTotalPrefixes(),
-            server.stat_unexpected_error_replies);
+            server.stat_unexpected_error_replies,
+            server.stat_total_reads_processed,
+            server.stat_total_writes_processed,
+            server.stat_io_reads_processed,
+            server.stat_io_writes_processed);
     }
 
     /* Replication */
@@ -4818,16 +4902,27 @@ void setupSignalHandlers(void) {
     sigaction(SIGTERM, &act, NULL);
     sigaction(SIGINT, &act, NULL);
 
-#ifdef HAVE_BACKTRACE
     sigemptyset(&act.sa_mask);
     act.sa_flags = SA_NODEFER | SA_RESETHAND | SA_SIGINFO;
     act.sa_sigaction = sigsegvHandler;
+    if(server.crashlog_enabled) {
+        sigaction(SIGSEGV, &act, NULL);
+        sigaction(SIGBUS, &act, NULL);
+        sigaction(SIGFPE, &act, NULL);
+        sigaction(SIGILL, &act, NULL);
+    }
+    return;
+}
+
+void removeSignalHandlers(void) {
+    struct sigaction act;
+    sigemptyset(&act.sa_mask);
+    act.sa_flags = SA_NODEFER | SA_RESETHAND;
+    act.sa_handler = SIG_DFL;
     sigaction(SIGSEGV, &act, NULL);
     sigaction(SIGBUS, &act, NULL);
     sigaction(SIGFPE, &act, NULL);
     sigaction(SIGILL, &act, NULL);
-#endif
-    return;
 }
 
 /* This is the signal handler for children process. It is currently useful
@@ -4857,6 +4952,7 @@ int redisFork() {
     long long start = ustime();
     if ((childpid = fork()) == 0) {
         /* Child */
+        setOOMScoreAdj(CONFIG_OOM_BGCHILD);
         closeListeningSockets(0);
         setupChildSignalHandlers();
     } else {
@@ -4906,6 +5002,7 @@ void loadDataFromDisk(void) {
             serverLog(LL_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
     } else {
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
+        errno = 0; /* Prevent a stale value from affecting error checking */
         if (rdbLoad(server.rdb_filename,&rsi,RDBFLAGS_NONE) == C_OK) {
             serverLog(LL_NOTICE,"DB loaded from disk: %.3f seconds",
                 (float)(ustime()-start)/1000000);
@@ -5068,6 +5165,7 @@ int main(int argc, char **argv) {
     tzset(); /* Populates 'timezone' global. */
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
     srand(time(NULL)^getpid());
+    srandom(time(NULL)^getpid());
     gettimeofday(&tv,NULL);
     crc64_init();
 
@@ -5165,7 +5263,6 @@ int main(int argc, char **argv) {
                 "Sentinel needs config file on disk to save state.  Exiting...");
             exit(1);
         }
-        resetServerSaveParams();
         loadServerConfig(configfile,options);
         sdsfree(options);
     }
@@ -5188,6 +5285,7 @@ int main(int argc, char **argv) {
     server.supervised = redisIsSupervised(server.supervised_mode);
     int background = server.daemonize && !server.supervised;
     if (background) daemonize();
+    readOOMScoreAdj();
 
     initServer();
     if (background || server.pidfile) createPidFile();
@@ -5201,6 +5299,7 @@ int main(int argc, char **argv) {
     #ifdef __linux__
         linuxMemoryWarnings();
     #endif
+        moduleInitModulesSystemLast();
         moduleLoadFromQueue();
         ACLLoadUsersAtStartup();
         InitServerLast();
@@ -5228,6 +5327,10 @@ int main(int argc, char **argv) {
     } else {
         InitServerLast();
         sentinelIsRunning();
+        if (server.supervised_mode == SUPERVISED_SYSTEMD) {
+            redisCommunicateSystemd("STATUS=Ready to accept connections\n");
+            redisCommunicateSystemd("READY=1\n");
+        }
     }
 
     /* Warning the user about suspicious maxmemory setting. */
@@ -5236,6 +5339,8 @@ int main(int argc, char **argv) {
     }
 
     redisSetCpuAffinity(server.server_cpulist);
+    setOOMScoreAdj(-1);
+
     aeMain(server.el);
     aeDeleteEventLoop(server.el);
     return 0;

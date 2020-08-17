@@ -9,7 +9,7 @@ start_server {
         foreach entry $entries { r sadd $key $entry }
     }
 
-    test {SADD, SCARD, SISMEMBER, SMEMBERS basics - regular set} {
+    test {SADD, SCARD, SISMEMBER, SMISMEMBER, SMEMBERS basics - regular set} {
         create_set myset {foo}
         assert_encoding hashtable myset
         assert_equal 1 [r sadd myset bar]
@@ -18,10 +18,15 @@ start_server {
         assert_equal 1 [r sismember myset foo]
         assert_equal 1 [r sismember myset bar]
         assert_equal 0 [r sismember myset bla]
+        assert_equal {1} [r smismember myset foo]
+        assert_equal {1 1} [r smismember myset foo bar]
+        assert_equal {1 0} [r smismember myset foo bla]
+        assert_equal {0 1} [r smismember myset bla foo]
+        assert_equal {0} [r smismember myset bla]
         assert_equal {bar foo} [lsort [r smembers myset]]
     }
 
-    test {SADD, SCARD, SISMEMBER, SMEMBERS basics - intset} {
+    test {SADD, SCARD, SISMEMBER, SMISMEMBER, SMEMBERS basics - intset} {
         create_set myset {17}
         assert_encoding intset myset
         assert_equal 1 [r sadd myset 16]
@@ -30,7 +35,31 @@ start_server {
         assert_equal 1 [r sismember myset 16]
         assert_equal 1 [r sismember myset 17]
         assert_equal 0 [r sismember myset 18]
+        assert_equal {1} [r smismember myset 16]
+        assert_equal {1 1} [r smismember myset 16 17]
+        assert_equal {1 0} [r smismember myset 16 18]
+        assert_equal {0 1} [r smismember myset 18 16]
+        assert_equal {0} [r smismember myset 18]
         assert_equal {16 17} [lsort [r smembers myset]]
+    }
+
+    test {SMISMEMBER against non set} {
+        r lpush mylist foo
+        assert_error WRONGTYPE* {r smismember mylist bar}
+    }
+
+    test {SMISMEMBER non existing key} {
+        assert_equal {0} [r smismember myset1 foo]
+        assert_equal {0 0} [r smismember myset1 foo bar]
+    }
+
+    test {SMISMEMBER requires one or more members} {
+        r del zmscoretest
+        r zadd zmscoretest 10 x
+        r zadd zmscoretest 20 y
+        
+        catch {r smismember zmscoretest} e
+        assert_match {*ERR*wrong*number*arg*} $e
     }
 
     test {SADD against non set} {
@@ -49,6 +78,7 @@ start_server {
         create_set myset {213244124402402314402033402}
         assert_encoding hashtable myset
         assert_equal 1 [r sismember myset 213244124402402314402033402]
+        assert_equal {1} [r smismember myset 213244124402402314402033402]
     }
 
     test "SADD overflows the maximum allowed integers in an intset" {

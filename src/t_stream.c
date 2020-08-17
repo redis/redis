@@ -31,14 +31,17 @@
 #include "endianconv.h"
 #include "stream.h"
 
-#define STREAM_BYTES_PER_LISTPACK 2048
-
 /* Every stream item inside the listpack, has a flags field that is used to
  * mark the entry as deleted, or having the same field as the "master"
  * entry at the start of the listpack> */
 #define STREAM_ITEM_FLAG_NONE 0             /* No special flags. */
 #define STREAM_ITEM_FLAG_DELETED (1<<0)     /* Entry is deleted. Skip it. */
 #define STREAM_ITEM_FLAG_SAMEFIELDS (1<<1)  /* Same fields as master entry. */
+
+/* For stream commands that require multiple IDs
+ * when the number of IDs is less than 'STREAMID_STATIC_VECTOR_LEN',
+ * avoid malloc allocation.*/
+#define STREAMID_STATIC_VECTOR_LEN 8
 
 void streamFreeCG(streamCG *cg);
 void streamFreeNACK(streamNACK *na);
@@ -194,7 +197,7 @@ int streamCompareID(streamID *a, streamID *b) {
  * C_ERR if an ID was given via 'use_id', but adding it failed since the
  * current top ID is greater or equal. */
 int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_id, streamID *use_id) {
-    
+
     /* Generate the new entry ID. */
     streamID id;
     if (use_id)
@@ -204,7 +207,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
 
     /* Check that the new ID is greater than the last entry ID
      * or return an error. Automatically generated IDs might
-     * overflow (and wrap-around) when incrementing the sequence 
+     * overflow (and wrap-around) when incrementing the sequence
        part. */
     if (streamCompareID(&id,&s->last_id) <= 0) return C_ERR;
 
@@ -276,7 +279,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
     }
 
     int flags = STREAM_ITEM_FLAG_NONE;
-    if (lp == NULL || lp_bytes >= server.stream_node_max_bytes) {
+    if (lp == NULL) {
         master_id = id;
         streamEncodeID(rax_key,&id);
         /* Create the listpack having the master entry ID and fields. */
@@ -1105,14 +1108,10 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
  * The function creates a key setting it to an empty stream if needed. */
 robj *streamTypeLookupWriteOrCreate(client *c, robj *key) {
     robj *o = lookupKeyWrite(c->db,key);
+    if (checkType(c,o,OBJ_STREAM)) return NULL;
     if (o == NULL) {
         o = createStreamObject();
         dbAdd(c->db,key,o);
-    } else {
-        if (o->type != OBJ_STREAM) {
-            addReply(c,shared.wrongtypeerr);
-            return NULL;
-        }
     }
     return o;
 }
@@ -1296,8 +1295,7 @@ void xaddCommand(client *c) {
 
     /* We need to signal to blocked clients that there is new data on this
      * stream. */
-    if (server.blocked_clients_by_type[BLOCKED_STREAM])
-        signalKeyAsReady(c->db, c->argv[1]);
+    signalKeyAsReady(c->db, c->argv[1], OBJ_STREAM);
 }
 
 /* XRANGE/XREVRANGE actual implementation. */
@@ -1375,7 +1373,6 @@ void xreadCommand(client *c) {
     int streams_count = 0;
     int streams_arg = 0;
     int noack = 0;          /* True if NOACK option was specified. */
-    #define STREAMID_STATIC_VECTOR_LEN 8
     streamID static_ids[STREAMID_STATIC_VECTOR_LEN];
     streamID *ids = static_ids;
     streamCG **groups = NULL;
@@ -1459,7 +1456,7 @@ void xreadCommand(client *c) {
         int id_idx = i - streams_arg - streams_count;
         robj *key = c->argv[i-streams_count];
         robj *o = lookupKeyRead(c->db,key);
-        if (o && checkType(c,o,OBJ_STREAM)) goto cleanup;
+        if (checkType(c,o,OBJ_STREAM)) goto cleanup;
         streamCG *group = NULL;
 
         /* If a group was specified, than we need to be sure that the
@@ -1841,6 +1838,7 @@ NULL
             o = createStreamObject();
             dbAdd(c->db,c->argv[2],o);
             s = o->ptr;
+            signalModifiedKey(c,c->db,c->argv[2]);
         }
 
         streamCG *cg = streamCreateCG(s,grpname,sdslen(grpname),&id);
@@ -1873,7 +1871,7 @@ NULL
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-destroy",
                                 c->argv[2],c->db->id);
             /* We want to unblock any XREADGROUP consumers with -NOGROUP. */
-            signalKeyAsReady(c->db,c->argv[2]);
+            signalKeyAsReady(c->db,c->argv[2],OBJ_STREAM);
         } else {
             addReply(c,shared.czero);
         }
@@ -1885,7 +1883,7 @@ NULL
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-delconsumer",
                             c->argv[2],c->db->id);
-    } else if (!strcasecmp(opt,"HELP")) {
+    } else if (c->argc == 2 && !strcasecmp(opt,"HELP")) {
         addReplyHelp(c, help);
     } else {
         addReplySubcommandSyntaxError(c);
@@ -1949,18 +1947,19 @@ void xackCommand(client *c) {
      * error: the return value of this command cannot be an error in case
      * the client successfully acknowledged some messages, so it should be
      * executed in a "all or nothing" fashion. */
+    streamID static_ids[STREAMID_STATIC_VECTOR_LEN];
+    streamID *ids = static_ids;
+    int id_count = c->argc-3;
+    if (id_count > STREAMID_STATIC_VECTOR_LEN)
+        ids = zmalloc(sizeof(streamID)*id_count);
     for (int j = 3; j < c->argc; j++) {
-        streamID id;
-        if (streamParseStrictIDOrReply(c,c->argv[j],&id,0) != C_OK) return;
+        if (streamParseStrictIDOrReply(c,c->argv[j],&ids[j-3],0) != C_OK) goto cleanup;
     }
 
     int acknowledged = 0;
     for (int j = 3; j < c->argc; j++) {
-        streamID id;
         unsigned char buf[sizeof(streamID)];
-        if (streamParseStrictIDOrReply(c,c->argv[j],&id,0) != C_OK)
-            serverPanic("StreamID invalid after check. Should not be possible.");
-        streamEncodeID(buf,&id);
+        streamEncodeID(buf,&ids[j-3]);
 
         /* Lookup the ID in the group PEL: it will have a reference to the
          * NACK structure that will have a reference to the consumer, so that
@@ -1975,6 +1974,8 @@ void xackCommand(client *c) {
         }
     }
     addReplyLongLong(c,acknowledged);
+cleanup:
+    if (ids != static_ids) zfree(ids);
 }
 
 /* XPENDING <key> <group> [<start> <stop> <count> [<consumer>]]
@@ -2017,7 +2018,7 @@ void xpendingCommand(client *c) {
     robj *o = lookupKeyRead(c->db,c->argv[1]);
     streamCG *group;
 
-    if (o && checkType(c,o,OBJ_STREAM)) return;
+    if (checkType(c,o,OBJ_STREAM)) return;
     if (o == NULL ||
         (group = streamLookupCG(o->ptr,groupname->ptr)) == NULL)
     {
@@ -2227,9 +2228,13 @@ void xclaimCommand(client *c) {
      * the client successfully claimed some message, so it should be
      * executed in a "all or nothing" fashion. */
     int j;
+    streamID static_ids[STREAMID_STATIC_VECTOR_LEN];
+    streamID *ids = static_ids;
+    int id_count = c->argc-5;
+    if (id_count > STREAMID_STATIC_VECTOR_LEN)
+        ids = zmalloc(sizeof(streamID)*id_count);
     for (j = 5; j < c->argc; j++) {
-        streamID id;
-        if (streamParseStrictIDOrReply(NULL,c->argv[j],&id,0) != C_OK) break;
+        if (streamParseStrictIDOrReply(NULL,c->argv[j],&ids[j-5],0) != C_OK) break;
     }
     int last_id_arg = j-1; /* Next time we iterate the IDs we now the range. */
 
@@ -2249,24 +2254,24 @@ void xclaimCommand(client *c) {
             j++;
             if (getLongLongFromObjectOrReply(c,c->argv[j],&deliverytime,
                 "Invalid IDLE option argument for XCLAIM")
-                != C_OK) return;
+                != C_OK) goto cleanup;
             deliverytime = now - deliverytime;
         } else if (!strcasecmp(opt,"TIME") && moreargs) {
             j++;
             if (getLongLongFromObjectOrReply(c,c->argv[j],&deliverytime,
                 "Invalid TIME option argument for XCLAIM")
-                != C_OK) return;
+                != C_OK) goto cleanup;
         } else if (!strcasecmp(opt,"RETRYCOUNT") && moreargs) {
             j++;
             if (getLongLongFromObjectOrReply(c,c->argv[j],&retrycount,
                 "Invalid RETRYCOUNT option argument for XCLAIM")
-                != C_OK) return;
+                != C_OK) goto cleanup;
         } else if (!strcasecmp(opt,"LASTID") && moreargs) {
             j++;
-            if (streamParseStrictIDOrReply(c,c->argv[j],&last_id,0) != C_OK) return;
+            if (streamParseStrictIDOrReply(c,c->argv[j],&last_id,0) != C_OK) goto cleanup;
         } else {
             addReplyErrorFormat(c,"Unrecognized XCLAIM option '%s'",opt);
-            return;
+            goto cleanup;
         }
     }
 
@@ -2296,10 +2301,8 @@ void xclaimCommand(client *c) {
     void *arraylenptr = addReplyDeferredLen(c);
     size_t arraylen = 0;
     for (int j = 5; j <= last_id_arg; j++) {
-        streamID id;
+        streamID id = ids[j-5];
         unsigned char buf[sizeof(streamID)];
-        if (streamParseStrictIDOrReply(c,c->argv[j],&id,0) != C_OK)
-            serverPanic("StreamID invalid after check. Should not be possible.");
         streamEncodeID(buf,&id);
 
         /* Lookup the ID in the group PEL. */
@@ -2379,6 +2382,8 @@ void xclaimCommand(client *c) {
     }
     setDeferredArrayLen(c,arraylenptr,arraylen);
     preventCommandPropagation(c);
+cleanup:
+    if (ids != static_ids) zfree(ids);
 }
 
 
@@ -2397,16 +2402,19 @@ void xdelCommand(client *c) {
     /* We need to sanity check the IDs passed to start. Even if not
      * a big issue, it is not great that the command is only partially
      * executed because at some point an invalid ID is parsed. */
-    streamID id;
+    streamID static_ids[STREAMID_STATIC_VECTOR_LEN];
+    streamID *ids = static_ids;
+    int id_count = c->argc-2;
+    if (id_count > STREAMID_STATIC_VECTOR_LEN)
+        ids = zmalloc(sizeof(streamID)*id_count);
     for (int j = 2; j < c->argc; j++) {
-        if (streamParseStrictIDOrReply(c,c->argv[j],&id,0) != C_OK) return;
+        if (streamParseStrictIDOrReply(c,c->argv[j],&ids[j-2],0) != C_OK) goto cleanup;
     }
 
     /* Actually apply the command. */
     int deleted = 0;
     for (int j = 2; j < c->argc; j++) {
-        streamParseStrictIDOrReply(c,c->argv[j],&id,0); /* Retval already checked. */
-        deleted += streamDeleteItem(s,&id);
+        deleted += streamDeleteItem(s,&ids[j-2]);
     }
 
     /* Propagate the write if needed. */
@@ -2416,6 +2424,8 @@ void xdelCommand(client *c) {
         server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);
+cleanup:
+    if (ids != static_ids) zfree(ids);
 }
 
 /* General form: XTRIM <key> [... options ...]

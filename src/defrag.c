@@ -348,7 +348,7 @@ long activeDefragSdsListAndDict(list *l, dict *d, int dict_val_type) {
         sdsele = ln->value;
         if ((newsds = activeDefragSds(sdsele))) {
             /* When defragging an sds value, we need to update the dict key */
-            uint64_t hash = dictGetHash(d, sdsele);
+            uint64_t hash = dictGetHash(d, newsds);
             replaceSateliteDictKeyPtrAndOrDefragDictEntry(d, sdsele, newsds, hash, &defragged);
             ln->value = newsds;
             defragged++;
@@ -662,6 +662,7 @@ int scanLaterStraemListpacks(robj *ob, unsigned long *cursor, long long endtime,
         /* if cursor is non-zero, we seek to the static 'last' */
         if (!raxSeek(&ri,">", last, sizeof(last))) {
             *cursor = 0;
+            raxStop(&ri);
             return 0;
         }
         /* assign the iterator node callback after the seek, so that the

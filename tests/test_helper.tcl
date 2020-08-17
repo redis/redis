@@ -35,6 +35,7 @@ set ::all_tests {
     unit/quit
     unit/aofrw
     unit/acl
+    unit/latency-monitor
     integration/block-repl
     integration/replication
     integration/replication-2
@@ -48,6 +49,7 @@ set ::all_tests {
     integration/psync2
     integration/psync2-reg
     integration/psync2-pingoff
+    integration/redis-cli
     unit/pubsub
     unit/slowlog
     unit/scripting
@@ -66,6 +68,7 @@ set ::all_tests {
     unit/pendingquerybuf
     unit/tls
     unit/tracking
+    unit/oom-score-adj
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
@@ -357,8 +360,8 @@ proc read_from_test_client fd {
         puts $err
         lappend ::failed_tests $err
         set ::active_clients_task($fd) "(ERR) $data"
-            if {$::stop_on_failure} {
-            puts -nonewline "(Test stopped, press enter to continue)"
+        if {$::stop_on_failure} {
+            puts -nonewline "(Test stopped, press enter to resume the tests)"
             flush stdout
             gets stdin
         }

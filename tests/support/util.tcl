@@ -99,22 +99,42 @@ proc wait_for_ofs_sync {r1 r2} {
     }
 }
 
-proc wait_for_log_message {srv_idx pattern last_lines maxtries delay} {
+# count current log lines in server's stdout
+proc count_log_lines {srv_idx} {
+    set _ [exec wc -l < [srv $srv_idx stdout]]
+}
+
+# verify pattern exists in server's sdtout after a certain line number
+proc verify_log_message {srv_idx pattern from_line} {
+    incr from_line
+    set result [exec tail -n +$from_line < [srv $srv_idx stdout]]
+    if {![string match $pattern $result]} {
+        error "assertion:expected message not found in log file: $pattern"
+    }
+}
+
+# wait for pattern to be found in server's stdout after certain line number
+# return value is a list containing the line that matched the pattern and the line number
+proc wait_for_log_messages {srv_idx patterns from_line maxtries delay} {
     set retry $maxtries
+    set next_line [expr $from_line + 1] ;# searching form the line after
     set stdout [srv $srv_idx stdout]
     while {$retry} {
-        set result [exec tail -$last_lines < $stdout]
+        set result [exec tail -n +$next_line < $stdout]
         set result [split $result "\n"]
         foreach line $result {
-            if {[string match $pattern $line]} {
-                return $line
+            foreach pattern $patterns {
+                if {[string match $pattern $line]} {
+                    return [list $line $next_line]
+                }
             }
+            incr next_line
         }
         incr retry -1
         after $delay
     }
     if {$retry == 0} {
-        fail "log message of '$pattern' not found"
+        fail "log message of '$patterns' not found in $stdout after line: $from_line till line: [expr $next_line -1]"
     }
 }
 

@@ -181,10 +181,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     int retval = dictAdd(db->dict, copy, val);
 
     serverAssertWithInfo(NULL,key,retval == DICT_OK);
-    if (val->type == OBJ_LIST ||
-        val->type == OBJ_ZSET ||
-        val->type == OBJ_STREAM)
-        signalKeyAsReady(db, key);
+    signalKeyAsReady(db, key, val->type);
     if (server.cluster_enabled) slotToKeyAdd(key->ptr);
 }
 
@@ -1089,10 +1086,7 @@ void scanDatabaseForReadyLists(redisDb *db) {
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
         robj *value = lookupKey(db,key,LOOKUP_NOTOUCH);
-        if (value && (value->type == OBJ_LIST ||
-                      value->type == OBJ_STREAM ||
-                      value->type == OBJ_ZSET))
-            signalKeyAsReady(db, key);
+        if (value) signalKeyAsReady(db, key, value->type);
     }
     dictReleaseIterator(di);
 }
@@ -1228,9 +1222,7 @@ void propagateExpire(redisDb *db, robj *key, int lazy) {
     incrRefCount(argv[0]);
     incrRefCount(argv[1]);
 
-    if (server.aof_state != AOF_OFF)
-        feedAppendOnlyFile(server.delCommand,db->id,argv,2);
-    replicationFeedSlaves(server.slaves,db->id,argv,2);
+    propagate(server.delCommand,db->id,argv,2,PROPAGATE_AOF|PROPAGATE_REPL);
 
     decrRefCount(argv[0]);
     decrRefCount(argv[1]);

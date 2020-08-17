@@ -68,8 +68,6 @@ but there are probably other good reasons to improve that part anyway.
 To-Do List
 ----------
 
-- [ ] Add session caching support. Check if/how it's handled by clients to
-  assess how useful/important it is.
 - [ ] redis-benchmark support. The current implementation is a mix of using
   hiredis for parsing and basic networking (establishing connections), but
   directly manipulating sockets for most actions. This will need to be cleaned

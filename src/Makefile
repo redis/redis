@@ -192,9 +192,21 @@ ifeq ($(MALLOC),jemalloc)
 endif
 
 ifeq ($(BUILD_TLS),yes)
-    FINAL_CFLAGS+=-DUSE_OPENSSL $(OPENSSL_CFLAGS)
-    FINAL_LDFLAGS+=$(OPENSSL_LDFLAGS)
-    FINAL_LIBS += ../deps/hiredis/libhiredis_ssl.a -lssl -lcrypto
+	FINAL_CFLAGS+=-DUSE_OPENSSL $(OPENSSL_CFLAGS)
+	FINAL_LDFLAGS+=$(OPENSSL_LDFLAGS)
+	LIBSSL_PKGCONFIG := $(shell $(PKG_CONFIG) --exists libssl && echo $$?)
+ifeq ($(LIBSSL_PKGCONFIG),0)
+	LIBSSL_LIBS=$(shell $(PKG_CONFIG) --libs libssl)
+else
+	LIBSSL_LIBS=-lssl
+endif
+	LIBCRYPTO_PKGCONFIG := $(shell $(PKG_CONFIG) --exists libcrypto && echo $$?)
+ifeq ($(LIBCRYPTO_PKGCONFIG),0)
+	LIBCRYPTO_LIBS=$(shell $(PKG_CONFIG) --libs libcrypto)
+else
+	LIBCRYPTO_LIBS=-lcrypto
+endif
+	FINAL_LIBS += ../deps/hiredis/libhiredis_ssl.a $(LIBSSL_LIBS) $(LIBCRYPTO_LIBS)
 endif
 
 REDIS_CC=$(QUIET_CC)$(CC) $(FINAL_CFLAGS)
@@ -314,10 +326,10 @@ distclean: clean
 
 .PHONY: distclean
 
-test: $(REDIS_SERVER_NAME) $(REDIS_CHECK_AOF_NAME)
+test: $(REDIS_SERVER_NAME) $(REDIS_CHECK_AOF_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME)
 	@(cd ..; ./runtest)
 
-test-sentinel: $(REDIS_SENTINEL_NAME)
+test-sentinel: $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME)
 	@(cd ..; ./runtest-sentinel)
 
 check: test

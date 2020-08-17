@@ -190,15 +190,18 @@ static size_t rioConnRead(rio *r, void *buf, size_t len) {
     /* If we don't already have all the data in the sds, read more */
     while (len > sdslen(r->io.conn.buf) - r->io.conn.pos) {
         size_t buffered = sdslen(r->io.conn.buf) - r->io.conn.pos;
-        size_t toread = len - buffered;
+        size_t needs = len - buffered;
         /* Read either what's missing, or PROTO_IOBUF_LEN, the bigger of
          * the two. */
-        if (toread < PROTO_IOBUF_LEN) toread = PROTO_IOBUF_LEN;
+        size_t toread = needs < PROTO_IOBUF_LEN ? PROTO_IOBUF_LEN: needs;
         if (toread > sdsavail(r->io.conn.buf)) toread = sdsavail(r->io.conn.buf);
         if (r->io.conn.read_limit != 0 &&
             r->io.conn.read_so_far + buffered + toread > r->io.conn.read_limit)
         {
-            if (r->io.conn.read_limit >= r->io.conn.read_so_far - buffered)
+            /* Make sure the caller didn't request to read past the limit.
+             * If they didn't we'll buffer till the limit, if they did, we'll
+             * return an error. */
+            if (r->io.conn.read_limit >= r->io.conn.read_so_far + len)
                 toread = r->io.conn.read_limit - r->io.conn.read_so_far - buffered;
             else {
                 errno = EOVERFLOW;
