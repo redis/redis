@@ -823,6 +823,12 @@ exit:
     return nread;
 }
 
+static int connTLSGetType(connection *conn_) {
+    (void) conn_;
+
+    return CONN_TYPE_TLS;
+}
+
 ConnectionType CT_TLS = {
     .ae_handler = tlsEventHandler,
     .accept = connTLSAccept,
@@ -837,6 +843,7 @@ ConnectionType CT_TLS = {
     .sync_write = connTLSSyncWrite,
     .sync_read = connTLSSyncRead,
     .sync_readline = connTLSSyncReadLine,
+    .get_type = connTLSGetType
 };
 
 int tlsHasPendingData() {
