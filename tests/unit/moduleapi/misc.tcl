@@ -86,4 +86,14 @@ start_server {tags {"modules"}} {
         set info [r test.clientinfo]
         assert { [dict get $info flags] == "${ssl_flag}::tracking::" }
     }
+
+    test {test module getclientcert api} {
+        set cert [r test.getclientcert]
+
+        if {$::tls} {
+            assert {$cert != ""}
+        } else {
+            assert {$cert == ""}
+        }
+    }
 }
