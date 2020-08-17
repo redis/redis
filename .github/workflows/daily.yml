@@ -85,12 +85,19 @@ jobs:
         sudo apt-get install tcl8.5 tcl-tls
         ./utils/gen-test-certs.sh
         ./runtest --accurate --verbose --tls
+        ./runtest --accurate --verbose
     - name: module api test
-      run: ./runtest-moduleapi --verbose --tls
+      run: |
+        ./runtest-moduleapi --verbose --tls
+        ./runtest-moduleapi --verbose
     - name: sentinel tests
-      run: ./runtest-sentinel --tls
+      run: |
+        ./runtest-sentinel --tls
+        ./runtest-sentinel
     - name: cluster tests
-      run: ./runtest-cluster --tls
+      run: |
+        ./runtest-cluster --tls
+        ./runtest-cluster
 
   test-valgrind:
     runs-on: ubuntu-latest
@@ -147,10 +154,17 @@ jobs:
         yum -y install tcl tcltls
         ./utils/gen-test-certs.sh
         ./runtest --accurate --verbose --tls
+        ./runtest --accurate --verbose
     - name: module api test
-      run: ./runtest-moduleapi --verbose --tls
+      run: |
+        ./runtest-moduleapi --verbose --tls
+        ./runtest-moduleapi --verbose
     - name: sentinel tests
-      run: ./runtest-sentinel --tls
+      run: |
+        ./runtest-sentinel --tls
+        ./runtest-sentinel
     - name: cluster tests
-      run: ./runtest-cluster --tls
+      run: |
+        ./runtest-cluster --tls
+        ./runtest-cluster
 

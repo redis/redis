@@ -2205,7 +2205,10 @@ static int updateTlsCfg(char *val, char *prev, char **err) {
     UNUSED(val);
     UNUSED(prev);
     UNUSED(err);
-    if (tlsConfigure(&server.tls_ctx_config) == C_ERR) {
+
+    /* If TLS is enabled, try to configure OpenSSL. */
+    if ((server.tls_port || server.tls_replication || server.tls_cluster)
+            && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
         *err = "Unable to update TLS configuration. Check server logs.";
         return 0;
     }
