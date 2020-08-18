@@ -1419,6 +1419,7 @@ struct redisServer {
                                       REDISMODULE_CLUSTER_FLAG_*. */
     int cluster_allow_reads_when_down; /* Are reads allowed when the cluster
                                         is down? */
+    int cluster_config_file_lock_fd;   /* cluster config fd, will be flock */
     /* Scripting */
     lua_State *lua; /* The Lua interpreter. We use just one for all clients */
     client *lua_client;   /* The "fake client" to query Redis from Lua */
