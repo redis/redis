@@ -936,7 +936,7 @@ void blockingPopPushGenericCommand(client *c, int wherefrom, int whereto) {
         }
     } else {
         /* The list exists and has elements, so
-             * the regular poppushGenericCommand is executed. */
+         * the regular poppushGenericCommand is executed. */
         serverAssertWithInfo(c, key, listTypeLength(key) > 0);
         poppushGenericCommand(c, wherefrom, whereto);
     }
