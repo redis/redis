@@ -653,12 +653,6 @@ unsigned char *__ziplistCascadeUpdate(unsigned char *zl, unsigned char *p) {
         /* cur.prevrawlen means cur is the former head entry. */
         assert(cur.prevrawlen == 0 || cur.prevrawlen + delta == prevlen);
 
-        /* Update tail offset when next element is not the tail element. */
-        if (tail != p) {
-            ZIPLIST_TAIL_OFFSET(zl) =
-                intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+delta);
-        }
-
         /* Update prev entry's info and advance the cursor. */
         rawlen = cur.headersize + cur.len;
         prevlen = rawlen + delta; 
@@ -672,7 +666,12 @@ unsigned char *__ziplistCascadeUpdate(unsigned char *zl, unsigned char *p) {
     /* Extra bytes is zero all update has been done(or no need to update). */
     if (extra == 0) return zl;
 
-    assert(cnt != 0);
+    /* Update tail offset when there is more than one entry to update
+     * or the only one entry is not the tail. */
+    if (cnt != 1 || tail != zl + prevoffset) {
+        ZIPLIST_TAIL_OFFSET(zl) =
+            intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+delta);
+    }
 
     /* Now "p" points at the first unchanged byte in original ziplist,
      * move data after that to new ziplist. */
