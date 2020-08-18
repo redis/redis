@@ -594,13 +594,6 @@ unsigned char *ziplistResize(unsigned char *zl, unsigned int len) {
     return zl;
 }
 
-typedef struct UpdateEntry {
-    size_t offset;
-    size_t prevlen;
-    size_t prevlensize;
-    zlentry entry;
-} UpdateEntry;
-
 /* When an entry is inserted, we need to set the prevlen field of the next
  * entry to equal the length of the inserted entry. It can occur that this
  * length cannot be encoded in 1 byte and the next entry needs to be grow
@@ -622,84 +615,94 @@ typedef struct UpdateEntry {
  * The pointer "p" points to the first entry that does NOT need to be
  * updated, i.e. consecutive fields MAY need an update. */
 unsigned char *__ziplistCascadeUpdate(unsigned char *zl, unsigned char *p) {
-
-    if (p[0] == ZIP_END) return zl;
-
     zlentry cur;
-    size_t prevlen, prevlensize, rawlen, curlen = intrev32ifbe(ZIPLIST_BYTES(zl));
-    size_t extra, totdiff = 0;
+    size_t prevlen, prevlensize, prevoffset; /* Informat of the last changed entry. */
+    size_t firstentrylen; /* Used to handle insert at head. */
+    size_t rawlen, curlen = intrev32ifbe(ZIPLIST_BYTES(zl));
+    size_t extra = 0, cnt = 0, offset;
+    size_t delta = 4; /* Extra bytes needed to update a entry's prevlen (5-1). */
     unsigned char *tail = zl + intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl));
 
+    /* Empty ziplist */
+    if (p[0] == ZIP_END) return zl;
+
     zipEntry(p, &cur);
-    prevlen = cur.headersize + cur.len;
+    firstentrylen = prevlen = cur.headersize + cur.len;
     prevlensize = zipStorePrevEntryLength(NULL, prevlen);
+    prevoffset = p - zl;
     p += prevlen;
 
-    list *entries = listCreate();
+    /* Iterate ziplist to find out how many extra bytes do we need to update it. */
     while (p[0] != ZIP_END) {
         zipEntry(p, &cur);
 
+        /* Abort when "prevlen" has not changed. */
         if (cur.prevrawlen == prevlen) break;
 
-        rawlen = cur.headersize + cur.len;
+        /* Abort when entry's "prevlensize" is big enough. */
+        if (cur.prevrawlensize >= prevlensize) {
+            if (cur.prevrawlensize == prevlensize) {
+                zipStorePrevEntryLength(p, prevlen);
+            } else {
+                /* This would result in shrinking, which we want to avoid.
+                 * So, set "prevlen" in the available bytes. */
+                zipStorePrevEntryLengthLarge(p, prevlen);
+            }
+            break;
+        }
 
-        UpdateEntry *e = zmalloc(sizeof(*e));
-        e->offset = p - zl;
-        e->prevlen = prevlen;
-        e->prevlensize = prevlensize;
-        e->entry = cur;
-        listAddNodeTail(entries, e);
+        /* cur.prevrawlen means cur is the former head entry. */
+        assert(cur.prevrawlen == 0 || cur.prevrawlen + delta == prevlen);
 
-        if (cur.prevrawlensize >= prevlensize) break;
-
-        extra = prevlensize - cur.prevrawlensize;
+        /* Update tail offset when next element is not the tail element. */
         if (tail != p) {
             ZIPLIST_TAIL_OFFSET(zl) =
-                intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+extra);
+                intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+delta);
         }
 
-        prevlen = rawlen + extra;
+        /* Update prev entry's info and advance the cursor. */
+        rawlen = cur.headersize + cur.len;
+        prevlen = rawlen + delta; 
         prevlensize = zipStorePrevEntryLength(NULL, prevlen);
-
+        prevoffset = p - zl;
         p += rawlen;
-        totdiff += extra;
+        extra += delta;
+        cnt++;
     }
 
-    if (totdiff != 0) {
-        zl = ziplistResize(zl, curlen + totdiff);
-        UpdateEntry *e = listLast(entries)->value;
-        p = zl + e->offset + e->entry.headersize + e->entry.len;
-        memmove(p + totdiff, p, curlen - (p - zl) - 1);
-        p += totdiff;
-    }
+    /* Extra bytes is zero all update has been done(or no need to update). */
+    if (extra == 0) return zl;
 
-    listIter it;
-    listNode *node;
-    listRewindTail(entries, &it);
-    while ((node = listNext(&it)) != NULL) {
-        UpdateEntry *e = node->value;
-        if (e->prevlensize <= e->entry.prevrawlensize) {
-            if (totdiff != 0) {
-                size_t len = e->entry.headersize + e->entry.len;
-                memmove(p - len, zl + e->offset, len);
-                p -= len;
-            }
+    assert(cnt != 0);
 
-            if (e->prevlensize < e->entry.prevrawlensize) {
-                zipStorePrevEntryLengthLarge(p, e->prevlen);
-            } else {
-                zipStorePrevEntryLength(p, e->prevlen);
-            }
+    /* Now "p" points at the first unchanged byte in original ziplist,
+     * move data after that to new ziplist. */
+    offset = p - zl;
+    zl = ziplistResize(zl, curlen + extra);
+    p = zl + offset;
+    memmove(p + extra, p, curlen - offset - 1);
+    p += extra;
+
+    /* Iterate all entries that need to be updated tail to head. */
+    while (cnt) {
+        zipEntry(zl + prevoffset, &cur);
+        rawlen = cur.headersize + cur.len;
+        /* Move entry to tail and reset prevlen. */
+        memmove(p - (rawlen - cur.prevrawlensize), 
+                zl + prevoffset + cur.prevrawlensize, 
+                rawlen - cur.prevrawlensize);
+        p -= (rawlen + delta);
+        if (cur.prevrawlen == 0) {
+            /* Update cur's prevlen with firstentrylen. */
+            zipStorePrevEntryLength(p, firstentrylen);
         } else {
-            size_t len = e->entry.headersize + e->entry.len - e->entry.prevrawlensize;
-            memmove(p-len, zl+e->offset+e->entry.prevrawlensize, len);
-            p -= (len + e->prevlensize);
-            zipStorePrevEntryLength(p, e->prevlen);
+            /* An entry's prevlen can only increment 4 bytes. */
+            zipStorePrevEntryLength(p, cur.prevrawlen+delta);
         }
+        /* Foward to previous entry. */
+        prevoffset -= cur.prevrawlen;
+        cnt--;
     }
-
-    listSetFreeMethod(entries, zfree);
-    listRelease(entries);
     return zl;
 }
 
