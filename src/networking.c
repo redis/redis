@@ -412,10 +412,14 @@ void addReplyError(client *c, const char *err) {
  * is emitted. */
 void addReplyErrorSafe(client *c, char *s, size_t len) {
     size_t j;
+    /* Trim any newlines at the end (ones will be added by addReplyErrorLength) */
+    while (s[len-1] == '\r' || s[len-1] == '\n')
+        len--;
+    /* Replace any newlines in the rest of the string with spaces. */
     for (j = 0; j < len; j++) {
         if (s[j] == '\r' || s[j] == '\n') s[j] = ' ';
     }
-    addReplyErrorLength(c,s,sdslen(s));
+    addReplyErrorLength(c,s,len);
 }
 
 void addReplyErrorFormat(client *c, const char *fmt, ...) {
