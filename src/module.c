@@ -5638,6 +5638,11 @@ static int authenticateClientWithUser(RedisModuleCtx *ctx, user *user, RedisModu
         return REDISMODULE_ERR;
     }
 
+    /* Avoid settings which are meaningless and will be lost */
+    if (!ctx->client || (ctx->client->flags & CLIENT_MODULE)) {
+        return REDISMODULE_ERR;
+    }
+
     moduleNotifyUserChanged(ctx->client);
 
     ctx->client->user = user;
