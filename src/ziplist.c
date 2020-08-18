@@ -1450,7 +1450,7 @@ int ziplistTest(int argc, char **argv) {
             zl = ziplistPush(zl, (unsigned char*)data, ZIP_BIG_PREVLEN-4, ZIPLIST_TAIL);
         }
         zl = ziplistPush(zl, (unsigned char*)data, ZIP_BIG_PREVLEN-3, ZIPLIST_HEAD);
-        printf("benchmark __ziplistCascadeUpdat elapsed %zd\n", time(NULL)-start);
+        printf("benchmark __ziplistCascadeUpdate elapsed %zd\n", time(NULL)-start);
         zfree(zl);
     }
 
