@@ -867,10 +867,11 @@ static int cliConnect(int flags) {
             redisFree(context);
         }
 
+        struct timeval timeout = { 1, 500000 }; // 1.5 seconds
         if (config.hostsocket == NULL) {
-            context = redisConnect(config.hostip,config.hostport);
+            context = redisConnectWithTimeout(config.hostip,config.hostport,timeout);
         } else {
-            context = redisConnectUnix(config.hostsocket);
+            context = redisConnectUnixWithTimeout(config.hostsocket,timeout);
         }
 
         if (!context->err && config.tls) {
