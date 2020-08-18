@@ -1981,7 +1981,7 @@ void authCommand(client *c) {
     if (ACLAuthenticateUser(c,username,password) == C_OK) {
         addReply(c,shared.ok);
     } else {
-        addReplyError(c,"-WRONGPASS invalid username-password pair");
+        addReplyError(c,"-WRONGPASS invalid username-password pair or user is disabled.");
     }
 
     /* Free the "default" string object we created for the two

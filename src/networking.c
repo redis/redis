@@ -2527,7 +2527,7 @@ void helloCommand(client *c) {
         const char *opt = c->argv[j]->ptr;
         if (!strcasecmp(opt,"AUTH") && moreargs >= 2) {
             if (ACLAuthenticateUser(c, c->argv[j+1], c->argv[j+2]) == C_ERR) {
-                addReplyError(c,"-WRONGPASS invalid username-password pair");
+                addReplyError(c,"-WRONGPASS invalid username-password pair or user is disabled.");
                 return;
             }
             j += 2;
