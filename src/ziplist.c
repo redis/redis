@@ -184,7 +184,6 @@
 #include <string.h>
 #include <stdint.h>
 #include <limits.h>
-#include "adlist.h"
 #include "zmalloc.h"
 #include "util.h"
 #include "ziplist.h"
