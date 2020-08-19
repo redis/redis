@@ -666,11 +666,14 @@ unsigned char *__ziplistCascadeUpdate(unsigned char *zl, unsigned char *p) {
     /* Extra bytes is zero all update has been done(or no need to update). */
     if (extra == 0) return zl;
 
-    /* Update tail offset when there is more than one entry to update
-     * or the only one entry is not the tail. */
-    if (cnt != 1 || tail != zl + prevoffset) {
+    /* Update tail offset after loop. */
+    if (tail == zl + prevoffset) {
+        /* Tail entry is included so increment tail by extra-delta. */
         ZIPLIST_TAIL_OFFSET(zl) =
-            intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+delta);
+            intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+extra-delta);
+    } else {
+        ZIPLIST_TAIL_OFFSET(zl) =
+            intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+extra);
     }
 
     /* Now "p" points at the first unchanged byte in original ziplist,
