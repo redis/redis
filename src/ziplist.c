@@ -668,13 +668,14 @@ unsigned char *__ziplistCascadeUpdate(unsigned char *zl, unsigned char *p) {
 
     /* Update tail offset after loop. */
     if (tail == zl + prevoffset) {
-        /* No need to update tail offset if there is only the
-         * tail entry to update. */
+        /* When the the last entry we need to update is also the tail, update tail offset
+         * unless this is the only entry that was updated (so the tail offset didn't change). */
         if (extra - delta != 0) {
             ZIPLIST_TAIL_OFFSET(zl) =
                 intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+extra-delta);
         }
     } else {
+        /* Update the tail offset in cases where the last entry we updated is not the tail. */
         ZIPLIST_TAIL_OFFSET(zl) =
             intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+extra);
     }
@@ -697,7 +698,7 @@ unsigned char *__ziplistCascadeUpdate(unsigned char *zl, unsigned char *p) {
                 rawlen - cur.prevrawlensize);
         p -= (rawlen + delta);
         if (cur.prevrawlen == 0) {
-            /* Update cur's prevlen with firstentrylen. */
+            /* "cur" is the previous head entry, update its prevlen with firstentrylen. */
             zipStorePrevEntryLength(p, firstentrylen);
         } else {
             /* An entry's prevlen can only increment 4 bytes. */
