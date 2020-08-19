@@ -1186,6 +1186,8 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
                 /* An error and still in connected state, is equivalent to EAGAIN */
                 slave->repldboff = 0;
             } else {
+                /* Note: when use diskless replication, 'repldboff' is the offset
+                 * of 'rdb_pipe_buff' sent rather than the offset of entire RDB. */
                 slave->repldboff = nwritten;
                 server.stat_net_output_bytes += nwritten;
             }
