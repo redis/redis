@@ -4919,7 +4919,8 @@ void setupChildSignalHandlers(void) {
 
 /* After fork, the child process will inherit the resources
  * of the parent process, e.g. fd(socket or flock) etc.
- * should close the resources not used by the child process, especially lock*/
+ * should close the resources not used by the child process, so that if the
+ * parent restarts it can bind/lock despite the child possibly still running. */
 void closeClildUnusedResourceAfterFork() {
     closeListeningSockets(0);
     if (server.cluster_enabled && server.cluster_config_file_lock_fd != -1)
