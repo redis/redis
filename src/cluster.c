@@ -1767,7 +1767,7 @@ int clusterProcessPacket(clusterLink *link) {
     } else if (type == CLUSTERMSG_TYPE_MODULE) {
         uint32_t explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
 
-        explen += sizeof(clusterMsgDataPublish) -
+        explen += sizeof(clusterMsgModule) -
                 3 + ntohl(hdr->data.module.msg.len);
         if (totlen != explen) return 1;
     }
