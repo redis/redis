@@ -1340,7 +1340,7 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
         int retval;
 
         /* Child */
-        closeListeningSockets(0);
+        closeClildUnusedResourceAfterFork();
         redisSetProcTitle("redis-rdb-bgsave");
         retval = rdbSave(filename,rsi);
         if (retval == C_OK) {
@@ -2350,7 +2350,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
         rioInitWithFdset(&slave_sockets,fds,numfds);
         zfree(fds);
 
-        closeListeningSockets(0);
+        closeClildUnusedResourceAfterFork();
         redisSetProcTitle("redis-rdb-to-slaves");
 
         retval = rdbSaveRioWithEOFMark(&slave_sockets,NULL,rsi);
