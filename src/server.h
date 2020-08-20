@@ -1696,6 +1696,7 @@ int listenToPort(int port, int *fds, int *count);
 void pauseClients(mstime_t duration);
 int clientsArePaused(void);
 void processEventsWhileBlocked(void);
+void loadingCron(void);
 int handleClientsWithPendingWrites(void);
 int handleClientsWithPendingWritesUsingThreads(void);
 int handleClientsWithPendingReadsUsingThreads(void);

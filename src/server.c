@@ -1839,6 +1839,41 @@ void checkChildrenDone(void) {
     }
 }
 
+/* Called from serverCron and loadingCron to update cached memory metrics. */
+void cronUpdateMemoryStats() {
+    /* Record the max memory used since the server was started. */
+    if (zmalloc_used_memory() > server.stat_peak_memory)
+        server.stat_peak_memory = zmalloc_used_memory();
+
+    run_with_period(100) {
+        /* Sample the RSS and other metrics here since this is a relatively slow call.
+         * We must sample the zmalloc_used at the same time we take the rss, otherwise
+         * the frag ratio calculate may be off (ratio of two samples at different times) */
+        server.cron_malloc_stats.process_rss = zmalloc_get_rss();
+        server.cron_malloc_stats.zmalloc_used = zmalloc_used_memory();
+        /* Sampling the allcator info can be slow too.
+         * The fragmentation ratio it'll show is potentically more accurate
+         * it excludes other RSS pages such as: shared libraries, LUA and other non-zmalloc
+         * allocations, and allocator reserved pages that can be pursed (all not actual frag) */
+        zmalloc_get_allocator_info(&server.cron_malloc_stats.allocator_allocated,
+                                   &server.cron_malloc_stats.allocator_active,
+                                   &server.cron_malloc_stats.allocator_resident);
+        /* in case the allocator isn't providing these stats, fake them so that
+         * fragmention info still shows some (inaccurate metrics) */
+        if (!server.cron_malloc_stats.allocator_resident) {
+            /* LUA memory isn't part of zmalloc_used, but it is part of the process RSS,
+             * so we must desuct it in order to be able to calculate correct
+             * "allocator fragmentation" ratio */
+            size_t lua_memory = lua_gc(server.lua,LUA_GCCOUNT,0)*1024LL;
+            server.cron_malloc_stats.allocator_resident = server.cron_malloc_stats.process_rss - lua_memory;
+        }
+        if (!server.cron_malloc_stats.allocator_active)
+            server.cron_malloc_stats.allocator_active = server.cron_malloc_stats.allocator_resident;
+        if (!server.cron_malloc_stats.allocator_allocated)
+            server.cron_malloc_stats.allocator_allocated = server.cron_malloc_stats.zmalloc_used;
+    }
+}
+
 /* This is our timer interrupt, called server.hz times per second.
  * Here is where we do a number of things that need to be done asynchronously.
  * For instance:
@@ -1907,37 +1942,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * LRU_CLOCK_RESOLUTION define. */
     server.lruclock = getLRUClock();
 
-    /* Record the max memory used since the server was started. */
-    if (zmalloc_used_memory() > server.stat_peak_memory)
-        server.stat_peak_memory = zmalloc_used_memory();
-
-    run_with_period(100) {
-        /* Sample the RSS and other metrics here since this is a relatively slow call.
-         * We must sample the zmalloc_used at the same time we take the rss, otherwise
-         * the frag ratio calculate may be off (ratio of two samples at different times) */
-        server.cron_malloc_stats.process_rss = zmalloc_get_rss();
-        server.cron_malloc_stats.zmalloc_used = zmalloc_used_memory();
-        /* Sampling the allcator info can be slow too.
-         * The fragmentation ratio it'll show is potentically more accurate
-         * it excludes other RSS pages such as: shared libraries, LUA and other non-zmalloc
-         * allocations, and allocator reserved pages that can be pursed (all not actual frag) */
-        zmalloc_get_allocator_info(&server.cron_malloc_stats.allocator_allocated,
-                                   &server.cron_malloc_stats.allocator_active,
-                                   &server.cron_malloc_stats.allocator_resident);
-        /* in case the allocator isn't providing these stats, fake them so that
-         * fragmention info still shows some (inaccurate metrics) */
-        if (!server.cron_malloc_stats.allocator_resident) {
-            /* LUA memory isn't part of zmalloc_used, but it is part of the process RSS,
-             * so we must desuct it in order to be able to calculate correct
-             * "allocator fragmentation" ratio */
-            size_t lua_memory = lua_gc(server.lua,LUA_GCCOUNT,0)*1024LL;
-            server.cron_malloc_stats.allocator_resident = server.cron_malloc_stats.process_rss - lua_memory;
-        }
-        if (!server.cron_malloc_stats.allocator_active)
-            server.cron_malloc_stats.allocator_active = server.cron_malloc_stats.allocator_resident;
-        if (!server.cron_malloc_stats.allocator_allocated)
-            server.cron_malloc_stats.allocator_allocated = server.cron_malloc_stats.zmalloc_used;
-    }
+    cronUpdateMemoryStats();
 
     /* We received a SIGTERM, shutting down here in a safe way, as it is
      * not ok doing so inside the signal handler. */
@@ -2101,6 +2106,24 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     server.cronloops++;
     return 1000/server.hz;
+}
+
+/* This function fill in the role of serverCron during RDB or AOF loading.
+ * It attempts to do its duties at a similar rate as the configured server.hz,
+ * and updates cronloops variable so that similarly to serverCron, the
+ * run_with_period can be used. */
+void loadingCron() {
+    long long now = server.ustime;
+    static long long next_event = 0;
+    if (now >= next_event) {
+        cronUpdateMemoryStats();
+        
+        /* Increment cronloop so that run_with_period works. */
+        server.cronloops++;
+
+        /* Decide when the next event should fire. */
+        next_event = now + 1000000 / server.hz;
+    }
 }
 
 extern int ProcessingEventsWhileBlocked;
