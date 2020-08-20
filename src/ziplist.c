@@ -1447,17 +1447,6 @@ int ziplistTest(int argc, char **argv) {
     ziplistRepr(zl);
 
     zfree(zl);
-    {
-        char data[ZIP_BIG_PREVLEN];
-        zl = ziplistNew();
-        time_t start = time(NULL);
-        for (int i = 0; i < 100000; i++) {
-            zl = ziplistPush(zl, (unsigned char*)data, ZIP_BIG_PREVLEN-4, ZIPLIST_TAIL);
-        }
-        zl = ziplistPush(zl, (unsigned char*)data, ZIP_BIG_PREVLEN-3, ZIPLIST_HEAD);
-        printf("benchmark __ziplistCascadeUpdate elapsed %zd\n", time(NULL)-start);
-        zfree(zl);
-    }
 
     printf("Get element at index 3:\n");
     {
@@ -1973,6 +1962,19 @@ int ziplistTest(int argc, char **argv) {
     {
         stress(ZIPLIST_HEAD,100000,16384,256);
         stress(ZIPLIST_TAIL,100000,16384,256);
+    }
+
+    printf("Stress __ziplistCascadeUpdate:\n");
+    {
+        char data[ZIP_BIG_PREVLEN];
+        zl = ziplistNew();
+        for (int i = 0; i < 100000; i++) {
+            zl = ziplistPush(zl, (unsigned char*)data, ZIP_BIG_PREVLEN-4, ZIPLIST_TAIL);
+        }
+        unsigned long long start = usec();
+        zl = ziplistPush(zl, (unsigned char*)data, ZIP_BIG_PREVLEN-3, ZIPLIST_HEAD);
+        printf("Done. usec=%lld\n\n", usec()-start);
+        zfree(zl);
     }
 
     return 0;
