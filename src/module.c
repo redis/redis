@@ -7263,7 +7263,7 @@ void processModuleLoadingProgressEvent(int is_aof) {
         int progress = -1;
         if (server.loading_total_bytes)
             progress = (server.loading_total_bytes<<10) / server.loading_total_bytes;
-        RedisModuleFlushInfoV1 fi = {REDISMODULE_LOADING_PROGRESS_VERSION,
+        RedisModuleLoadingProgressV1 fi = {REDISMODULE_LOADING_PROGRESS_VERSION,
                                      server.hz,
                                      progress};
         moduleFireServerEvent(REDISMODULE_EVENT_LOADING_PROGRESS,
