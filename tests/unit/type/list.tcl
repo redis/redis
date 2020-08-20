@@ -50,6 +50,12 @@ start_server {
         assert {[r LPOS mylist c COUNT 0 MAXLEN 7 RANK 2] == {6}}
     }
 
+    test {LPOS when RANK is greater than matches} {
+        r DEL mylist
+        r LPUSH l a
+        assert {[r LPOS mylist b COUNT 10 RANK 5] eq {}}
+    }
+
     test {LPUSH, RPUSH, LLENGTH, LINDEX, LPOP - ziplist} {
         # first lpush then rpush
         assert_equal 1 [r lpush myziplist1 aa]

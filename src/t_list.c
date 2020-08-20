@@ -571,13 +571,14 @@ void lposCommand(client *c) {
     li = listTypeInitIterator(o,direction == LIST_HEAD ? -1 : 0,direction);
     listTypeEntry entry;
     long llen = listTypeLength(o);
-    long index = 0, matches = 0, matchindex = -1;
+    long index = 0, matches = 0, matchindex = -1, arraylen = 0;
     while (listTypeNext(li,&entry) && (maxlen == 0 || index < maxlen)) {
         if (listTypeEqual(&entry,ele)) {
             matches++;
             matchindex = (direction == LIST_TAIL) ? index : llen - index - 1;
             if (matches >= rank) {
                 if (arraylenptr) {
+                    arraylen++;
                     addReplyLongLong(c,matchindex);
                     if (count && matches-rank+1 >= count) break;
                 } else {
@@ -593,7 +594,7 @@ void lposCommand(client *c) {
     /* Reply to the client. Note that arraylenptr is not NULL only if
      * the COUNT option was selected. */
     if (arraylenptr != NULL) {
-        setDeferredArrayLen(c,arraylenptr,matches-rank+1);
+        setDeferredArrayLen(c,arraylenptr,arraylen);
     } else {
         if (matchindex != -1)
             addReplyLongLong(c,matchindex);
