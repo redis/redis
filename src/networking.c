@@ -1418,9 +1418,9 @@ int handleClientsWithPendingWrites(void) {
         c->flags &= ~CLIENT_PENDING_WRITE;
         listDelNode(server.clients_pending_write,ln);
 
-        /* If a client is protected, don't do anything,
+        /* If a client is protected or at risk of closing, don't do anything
          * that may trigger write error or recreate handler. */
-        if (c->flags & CLIENT_PROTECTED) continue;
+        if (c->flags & (CLIENT_PROTECTED|CLIENT_CLOSE_ASAP)) continue;
 
         /* Try to write buffers to the client socket. */
         if (writeToClient(c,0) == C_ERR) continue;
