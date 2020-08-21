@@ -2543,9 +2543,6 @@ static void readOOMScoreAdj(void) {
  * depending on current role.
  */
 int setOOMScoreAdj(int process_class) {
-    int fd;
-    int val;
-    char buf[64];
 
     if (!server.oom_score_adj) return C_OK;
     if (process_class == -1)
@@ -2554,6 +2551,10 @@ int setOOMScoreAdj(int process_class) {
     serverAssert(process_class >= 0 && process_class < CONFIG_OOM_COUNT);
 
 #ifdef HAVE_PROC_OOM_SCORE_ADJ
+    int fd;
+    int val;
+    char buf[64];
+
     val = server.oom_score_adj_base + server.oom_score_adj_values[process_class];
     if (val > 1000) val = 1000;
     if (val < -1000) val = -1000;
