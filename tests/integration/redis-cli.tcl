@@ -3,7 +3,7 @@ source tests/support/cli.tcl
 start_server {tags {"cli"}} {
     proc open_cli {{opts "-n 9"} {infile ""}} {
         set ::env(TERM) dumb
-        set cmdline [rediscli [srv port] $opts]
+        set cmdline [rediscli [srv host] [srv port] $opts]
         if {$infile ne ""} {
             set cmdline "$cmdline < $infile"
             set mode "r"
@@ -65,7 +65,7 @@ start_server {tags {"cli"}} {
     }
 
     proc _run_cli {opts args} {
-        set cmd [rediscli [srv port] [list -n 9 {*}$args]]
+        set cmd [rediscli [srv host] [srv port] [list -n 9 {*}$args]]
         foreach {key value} $opts {
             if {$key eq "pipe"} {
                 set cmd "sh -c \"$value | $cmd\""
