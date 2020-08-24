@@ -2127,6 +2127,54 @@ void loadingCron() {
     }
 }
 
+void blockingOperationStarts() {
+    updateCachedTime(0);
+    server.blocked_last_cron = server.mstime;
+}
+
+void blockingOperationEnds() {
+    server.blocked_last_cron = 0;
+}
+
+/* Do some of the tasks of the serverCron that are needed while we're blocked. */
+void whileBlockedCron() {
+    /* Here we may want to perform some cron jobs (normally done server.hz times
+     * per second). */
+
+    /* Since this function depends on a call to blockingOperationStarts, let's
+     * make sure it was done. */
+    serverAssert(server.blocked_last_cron);
+
+    /* Current only active defrag is performed here, and since it's not enabled
+     * by default. For now, just exit immediately to reduce any minor overheads
+     * of the code below. */
+    if (!server.active_defrag_enabled)
+        return;
+
+    mstime_t latency;
+    latencyStartMonitor(latency);
+
+    /* In some cases we may be called with big intervals, so we may need to do
+     * extra work here. This is because some of the functions in serverCron rely
+     * on the fact that it is performed every 10 ms or so. For instance, if
+     * activeDefragCycle needs to utilize 25% cpu, it will utilize 2.5ms, so we
+     * need to call it multiple times. */
+    long hz_ms = 1000/server.hz;
+    while (server.blocked_last_cron < server.mstime) {
+
+        /* Defrag keys gradually. */
+        if (server.active_defrag_enabled)
+            activeDefragCycle();
+
+        server.blocked_last_cron += hz_ms;
+        /* Increment cronloop so that run_with_period works. */
+        server.cronloops++;
+    }
+
+    latencyEndMonitor(latency);
+    latencyAddSampleIfNeeded("loading-cron",latency);
+}
+
 extern int ProcessingEventsWhileBlocked;
 
 /* This function gets called every time Redis is entering the
@@ -2830,6 +2878,7 @@ void resetServerStats(void) {
     server.stat_net_output_bytes = 0;
     server.stat_unexpected_error_replies = 0;
     server.aof_delayed_fsync = 0;
+    server.blocked_last_cron = 0;
 }
 
 void initServer(void) {
