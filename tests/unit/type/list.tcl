@@ -369,72 +369,23 @@ start_server {
         assert_equal {bar foo} [r lrange target 0 -1]
     }
 
-    test "BRPOPLPUSH with a client BLPOPing the target list" {
-        set rd [redis_deferring_client]
-        set rd2 [redis_deferring_client]
-        r del blist target
-        $rd2 blpop target 0
-        $rd brpoplpush blist target 0
-        wait_for_condition 100 10 {
-            [s blocked_clients] == 2
-        } else {
-            fail "Timeout waiting for blocked clients"
+    foreach cmd {brpoplpush brpoprpush blpoplpush blpoprpush} {
+        test "[string toupper $cmd] with a client BLPOPing the target list" {
+            set rd [redis_deferring_client]
+            set rd2 [redis_deferring_client]
+            r del blist target
+            $rd2 blpop target 0
+            $rd $cmd blist target 0
+            wait_for_condition 100 10 {
+                [s blocked_clients] == 2
+            } else {
+                fail "Timeout waiting for blocked clients"
+            }
+            r rpush blist foo
+            assert_equal foo [$rd read]
+            assert_equal {target foo} [$rd2 read]
+            assert_equal 0 [r exists target]
         }
-        r rpush blist foo
-        assert_equal foo [$rd read]
-        assert_equal {target foo} [$rd2 read]
-        assert_equal 0 [r exists target]
-    }
-
-    test "BRPOPRPUSH with a client BLPOPing the target list" {
-        set rd [redis_deferring_client]
-        set rd2 [redis_deferring_client]
-        r del blist target
-        $rd2 blpop target 0
-        $rd brpoprpush blist target 0
-        wait_for_condition 100 10 {
-            [s blocked_clients] == 2
-        } else {
-            fail "Timeout waiting for blocked clients"
-        }
-        r rpush blist foo
-        assert_equal foo [$rd read]
-        assert_equal {target foo} [$rd2 read]
-        assert_equal 0 [r exists target]
-    }
-
-    test "BLPOPLPUSH with a client BLPOPing the target list" {
-        set rd [redis_deferring_client]
-        set rd2 [redis_deferring_client]
-        r del blist target
-        $rd2 blpop target 0
-        $rd blpoplpush blist target 0
-        wait_for_condition 100 10 {
-            [s blocked_clients] == 2
-        } else {
-            fail "Timeout waiting for blocked clients"
-        }
-        r rpush blist foo
-        assert_equal foo [$rd read]
-        assert_equal {target foo} [$rd2 read]
-        assert_equal 0 [r exists target]
-    }
-
-    test "BLPOPRPUSH with a client BLPOPing the target list" {
-        set rd [redis_deferring_client]
-        set rd2 [redis_deferring_client]
-        r del blist target
-        $rd2 blpop target 0
-        $rd blpoprpush blist target 0
-        wait_for_condition 100 10 {
-            [s blocked_clients] == 2
-        } else {
-            fail "Timeout waiting for blocked clients"
-        }
-        r rpush blist foo
-        assert_equal foo [$rd read]
-        assert_equal {target foo} [$rd2 read]
-        assert_equal 0 [r exists target]
     }
 
     test "BRPOPLPUSH with wrong source type" {
