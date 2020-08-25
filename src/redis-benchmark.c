@@ -821,11 +821,11 @@ static void createMissingClients(client c) {
 static void showLatencyReport(void) {
 
     const float reqpersec = (float)config.requests_finished/((float)config.totlatency/1000.0f);
-    const float q0 = ((float) hdr_min(config.latency_histogram))/1000.0f;
-    const float q50 = hdr_value_at_percentile(config.latency_histogram, 50.0 )/1000.0f;
-    const float q95 = hdr_value_at_percentile(config.latency_histogram, 95.0 )/1000.0f;
-    const float q99 = hdr_value_at_percentile(config.latency_histogram, 99.0 )/1000.0f;
-    const float q100 = ((float) hdr_max(config.latency_histogram))/1000.0f;
+    const float p0 = ((float) hdr_min(config.latency_histogram))/1000.0f;
+    const float p50 = hdr_value_at_percentile(config.latency_histogram, 50.0 )/1000.0f;
+    const float p95 = hdr_value_at_percentile(config.latency_histogram, 95.0 )/1000.0f;
+    const float p99 = hdr_value_at_percentile(config.latency_histogram, 99.0 )/1000.0f;
+    const float p100 = ((float) hdr_max(config.latency_histogram))/1000.0f;
     const float avg = hdr_mean(config.latency_histogram)/1000.0f;
 
     if (!config.quiet && !config.csv) {
@@ -900,12 +900,14 @@ static void showLatencyReport(void) {
         printf("\n");
         printf("Summary:\n");
         printf("  throughput summary: %.2f requests per second\n", reqpersec);
-        printf("  latency summary: min=%.3f msec, q50=%.3f msec, q95=%.3f msec, q99=%.3f msec, max=%.3f msec, avg=%.3f msec\n\n", q0, q50, q95, q99, q100, avg);
+        printf("  latency summary (msec):\n");
+        printf("    %9s %9s %9s %9s %9s %9s\n", "avg", "min", "p50", "p95", "p99", "max");
+        printf("    %9.3f %9.3f %9.3f %9.3f %9.3f %9.3f\n", avg, p0, p50, p95, p99, p100);
     } else if (config.csv) {
-        printf("\"%s\",\"%.2f\",\"%.3f\",\"%.3f\",\"%.3f\",\"%.3f\",\"%.3f\",\"%.3f\"\n", config.title, reqpersec, q0, q50, q95, q99, q100, avg);
+        printf("\"%s\",\"%.2f\",\"%.3f\",\"%.3f\",\"%.3f\",\"%.3f\",\"%.3f\",\"%.3f\"\n", config.title, reqpersec, avg, p0, p50, p95, p99, p100);
     } else {
         printf("%*s\r", config.last_printed_bytes, " "); // ensure there is a clean line
-        printf("%s: %.2f requests per second, q50=%.3f msec\n", config.title, reqpersec, q50);    
+        printf("%s: %.2f requests per second, p50=%.3f msec\n", config.title, reqpersec, p50);
     }
 }
 
@@ -1692,7 +1694,7 @@ int main(int argc, const char **argv) {
         /* and will wait for every */
     }
     if(config.csv){
-        printf("\"test\",\"rps\",\"min_latency_ms\",\"q50_latency_ms\",\"q95_latency_ms\",\"q99_latency_ms\",\"max_latency_ms\",\"avg_latency_ms\"\n");
+        printf("\"test\",\"rps\",\"avg_latency_ms\",\"min_latency_ms\",\"p50_latency_ms\",\"p95_latency_ms\",\"p99_latency_ms\",\"max_latency_ms\"\n");
     }
     /* Run benchmark with command in the remainder of the arguments. */
     if (argc) {
