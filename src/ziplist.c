@@ -1416,6 +1416,30 @@ static void verify(unsigned char *zl, zlentry *e) {
     }
 }
 
+static unsigned char *insertHelper(unsigned char *zl, char ch, size_t len, unsigned char *pos) {
+    assert(len <= ZIP_BIG_PREVLEN);
+    unsigned char data[ZIP_BIG_PREVLEN] = {0};
+    memset(data, ch, len);
+    return ziplistInsert(zl, pos, data, len);
+}
+
+static int compareHelper(unsigned char *zl, char ch, size_t len, int index) {
+    assert(len <= ZIP_BIG_PREVLEN);
+    unsigned char data[ZIP_BIG_PREVLEN] = {0};
+    memset(data, ch, len);
+    unsigned char *p = ziplistIndex(zl, index);
+    assert(p != NULL);
+    return ziplistCompare(p, data, len);
+}
+
+static size_t strEntryBytesSmall(size_t slen) {
+    return slen + zipStorePrevEntryLength(NULL, 0) + zipStoreEntryEncoding(NULL, 0, slen);
+}
+
+static size_t strEntryBytesLarge(size_t slen) {
+    return slen + zipStorePrevEntryLength(NULL, ZIP_BIG_PREVLEN) + zipStoreEntryEncoding(NULL, 0, slen);
+}
+
 int ziplistTest(int argc, char **argv) {
     unsigned char *zl, *p;
     unsigned char *entry;
@@ -1974,6 +1998,87 @@ int ziplistTest(int argc, char **argv) {
         unsigned long long start = usec();
         zl = ziplistPush(zl, (unsigned char*)data, ZIP_BIG_PREVLEN-3, ZIPLIST_HEAD);
         printf("Done. usec=%lld\n\n", usec()-start);
+        zfree(zl);
+    }
+
+    printf("Edge cases of __ziplistCascadeUpdate:\n");
+    {
+        /* Inserting a entry with data length greater than ZIP_BIG_PREVLEN-4 
+         * will leads to cascade update. */
+        size_t s1 = ZIP_BIG_PREVLEN-4, s2 = ZIP_BIG_PREVLEN-3;
+        zl = ziplistNew();
+
+        zlentry e[4] = {{.prevrawlensize = 0, .prevrawlen = 0, .lensize = 0,
+                         .len = 0, .headersize = 0, .encoding = 0, .p = NULL}};
+
+        zl = insertHelper(zl, 'a', s1, ZIPLIST_ENTRY_HEAD(zl));
+        verify(zl, e);
+
+        assert(e[0].prevrawlensize == 1 && e[0].prevrawlen == 0);
+        compareHelper(zl, 'a', s1, 0);
+        ziplistRepr(zl);
+
+        /* No expand. */
+        zl = insertHelper(zl, 'b', s1, ZIPLIST_ENTRY_HEAD(zl));
+        verify(zl, e);
+
+        assert(e[0].prevrawlensize == 1 && e[0].prevrawlen == 0);
+        compareHelper(zl, 'b', s1, 0);
+
+        assert(e[1].prevrawlensize == 1 && e[1].prevrawlen == strEntryBytesSmall(s1));
+        compareHelper(zl, 'a', s1, 1);
+
+        ziplistRepr(zl);
+
+        /* Expand(tail included). */
+        zl = insertHelper(zl, 'c', s2, ZIPLIST_ENTRY_HEAD(zl));
+        verify(zl, e);
+
+        assert(e[0].prevrawlensize == 1 && e[0].prevrawlen == 0);
+        compareHelper(zl, 'c', s2, 0);
+
+        assert(e[1].prevrawlensize == 5 && e[1].prevrawlen == strEntryBytesSmall(s2));
+        compareHelper(zl, 'b', s1, 1);
+
+        assert(e[2].prevrawlensize == 5 && e[2].prevrawlen == strEntryBytesLarge(s1));
+        compareHelper(zl, 'a', s1, 2);
+
+        ziplistRepr(zl);
+
+        /* Expand(only previous head entry). */
+        zl = insertHelper(zl, 'd', s2, ZIPLIST_ENTRY_HEAD(zl));
+        verify(zl, e);
+
+        assert(e[0].prevrawlensize == 1 && e[0].prevrawlen == 0);
+        compareHelper(zl, 'd', s2, 0);
+
+        assert(e[1].prevrawlensize == 5 && e[1].prevrawlen == strEntryBytesSmall(s2));
+        compareHelper(zl, 'c', s2, 1);
+
+        assert(e[2].prevrawlensize == 5 && e[2].prevrawlen == strEntryBytesLarge(s2));
+        compareHelper(zl, 'b', s1, 2);
+
+        assert(e[3].prevrawlensize == 5 && e[3].prevrawlen == strEntryBytesLarge(s1));
+        compareHelper(zl, 'a', s1, 3);
+
+        ziplistRepr(zl);
+
+        /* Delete from mid. */
+        unsigned char *p = ziplistIndex(zl, 2);
+        zl = ziplistDelete(zl, &p);
+        verify(zl, e);
+
+        assert(e[0].prevrawlensize == 1 && e[0].prevrawlen == 0);
+        compareHelper(zl, 'd', s2, 0);
+
+        assert(e[1].prevrawlensize == 5 && e[1].prevrawlen == strEntryBytesSmall(s2));
+        compareHelper(zl, 'c', s2, 1);
+
+        assert(e[2].prevrawlensize == 5 && e[2].prevrawlen == strEntryBytesLarge(s2));
+        compareHelper(zl, 'a', s1, 2);
+
+        ziplistRepr(zl);
+
         zfree(zl);
     }
 
