@@ -27,6 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifndef __SLOWLOG_H__
+#define __SLOWLOG_H__
+
 #define SLOWLOG_ENTRY_MAX_ARGC 32
 #define SLOWLOG_ENTRY_MAX_STRING 128
 
@@ -47,3 +50,5 @@ void slowlogPushEntryIfNeeded(client *c, robj **argv, int argc, long long durati
 
 /* Exported commands */
 void slowlogCommand(client *c);
+
+#endif /* __SLOWLOG_H__ */

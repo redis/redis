@@ -39,6 +39,8 @@
 #include "sds.h"
 #include "sdsalloc.h"
 
+const char *SDS_NOINIT = "SDS_NOINIT";
+
 static inline int sdsHdrSize(char type) {
     switch(type&SDS_TYPE_MASK) {
         case SDS_TYPE_5:
@@ -65,13 +67,16 @@ static inline char sdsReqType(size_t string_size) {
 #if (LONG_MAX == LLONG_MAX)
     if (string_size < 1ll<<32)
         return SDS_TYPE_32;
-#endif
     return SDS_TYPE_64;
+#else
+    return SDS_TYPE_32;
+#endif
 }
 
 /* Create a new sds string with the content specified by the 'init' pointer
  * and 'initlen'.
  * If NULL is used for 'init' the string is initialized with zero bytes.
+ * If SDS_NOINIT is used, the buffer is left uninitialized;
  *
  * The string is always null-termined (all the sds strings are, always) so
  * even if you create an sds string with:
@@ -92,9 +97,11 @@ sds sdsnewlen(const void *init, size_t initlen) {
     unsigned char *fp; /* flags pointer. */
 
     sh = s_malloc(hdrlen+initlen+1);
-    if (!init)
-        memset(sh, 0, hdrlen+initlen+1);
     if (sh == NULL) return NULL;
+    if (init==SDS_NOINIT)
+        init = NULL;
+    else if (!init)
+        memset(sh, 0, hdrlen+initlen+1);
     s = (char*)sh+hdrlen;
     fp = ((unsigned char*)s)-1;
     switch(type) {
@@ -250,7 +257,11 @@ sds sdsRemoveFreeSpace(sds s) {
     char type, oldtype = s[-1] & SDS_TYPE_MASK;
     int hdrlen, oldhdrlen = sdsHdrSize(oldtype);
     size_t len = sdslen(s);
+    size_t avail = sdsavail(s);
     sh = (char*)s-oldhdrlen;
+
+    /* Return ASAP if there is no space left. */
+    if (avail == 0) return s;
 
     /* Check what would be the minimum SDS header that is just good enough to
      * fit this string. */
@@ -278,7 +289,7 @@ sds sdsRemoveFreeSpace(sds s) {
     return s;
 }
 
-/* Return the total size of the allocation of the specifed sds string,
+/* Return the total size of the allocation of the specified sds string,
  * including:
  * 1) The sds header before the pointer.
  * 2) The string.
@@ -592,6 +603,10 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
     long i;
     va_list ap;
 
+    /* To avoid continuous reallocations, let's start with a buffer that
+     * can hold at least two times the format string itself. It's not the
+     * best heuristic but seems to work in practice. */
+    s = sdsMakeRoomFor(s, initlen + strlen(fmt)*2);
     va_start(ap,fmt);
     f = fmt;    /* Next format specifier byte to process. */
     i = initlen; /* Position of the next byte to write to dest str. */
@@ -688,7 +703,7 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
  * s = sdstrim(s,"Aa. :");
  * printf("%s\n", s);
  *
- * Output will be just "Hello World".
+ * Output will be just "HelloWorld".
  */
 sds sdstrim(sds s, const char *cset) {
     char *start, *end, *sp, *ep;

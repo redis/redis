@@ -50,15 +50,26 @@ start_server {tags {"latency-monitor"}} {
 
     test {LATENCY of expire events are correctly collected} {
         r config set latency-monitor-threshold 20
+        r flushdb
+        if {$::valgrind} {set count 100000} else {set count 1000000}
         r eval {
             local i = 0
-            while (i < 1000000) do
-                redis.call('sadd','mybigkey',i)
+            while (i < tonumber(ARGV[1])) do
+                redis.call('sadd',KEYS[1],i)
                 i = i+1
              end
-        } 0
-        r pexpire mybigkey 1
-        after 500
+        } 1 mybigkey $count
+        r pexpire mybigkey 50
+        wait_for_condition 5 100 {
+            [r dbsize] == 0
+        } else {
+            fail "key wasn't expired"
+        }
         assert_match {*expire-cycle*} [r latency latest]
+    }
+
+    test {LATENCY HELP should not have unexpected options} {
+        catch {r LATENCY help xxx} e
+        assert_match "*Unknown subcommand or wrong number of arguments*" $e
     }
 }

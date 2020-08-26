@@ -134,7 +134,7 @@ int _dictInit(dict *d, dictType *type,
  * but with the invariant of a USED/BUCKETS ratio near to <= 1 */
 int dictResize(dict *d)
 {
-    int minimal;
+    unsigned long minimal;
 
     if (!dict_can_resize || dictIsRehashing(d)) return DICT_ERR;
     minimal = d->ht[0].used;
@@ -146,13 +146,13 @@ int dictResize(dict *d)
 /* Expand or create the hash table */
 int dictExpand(dict *d, unsigned long size)
 {
-    dictht n; /* the new hash table */
-    unsigned long realsize = _dictNextPower(size);
-
     /* the size is invalid if it is smaller than the number of
      * elements already inside the hash table */
     if (dictIsRehashing(d) || d->ht[0].used > size)
         return DICT_ERR;
+
+    dictht n; /* the new hash table */
+    unsigned long realsize = _dictNextPower(size);
 
     /* Rehashing to the same table size is not useful. */
     if (realsize == d->ht[0].size) return DICT_ERR;
@@ -327,7 +327,7 @@ int dictReplace(dict *d, void *key, void *val)
     dictEntry *entry, *existing, auxentry;
 
     /* Try to add the element. If the key
-     * does not exists dictAdd will suceed. */
+     * does not exists dictAdd will succeed. */
     entry = dictAddRaw(d,key,&existing);
     if (entry) {
         dictSetVal(d, entry, val);
@@ -478,7 +478,7 @@ dictEntry *dictFind(dict *d, const void *key)
     dictEntry *he;
     uint64_t h, idx, table;
 
-    if (d->ht[0].used + d->ht[1].used == 0) return NULL; /* dict is empty */
+    if (dictSize(d) == 0) return NULL; /* dict is empty */
     if (dictIsRehashing(d)) _dictRehashStep(d);
     h = dictHashKey(d, key);
     for (table = 0; table <= 1; table++) {
@@ -705,8 +705,10 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
                  * table, there will be no elements in both tables up to
                  * the current rehashing index, so we jump if possible.
                  * (this happens when going from big to small table). */
-                if (i >= d->ht[1].size) i = d->rehashidx;
-                continue;
+                if (i >= d->ht[1].size)
+                    i = d->rehashidx;
+                else
+                    continue;
             }
             if (i >= d->ht[j].size) continue; /* Out of range for this table. */
             dictEntry *he = d->ht[j].table[i];
@@ -737,11 +739,35 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
     return stored;
 }
 
+/* This is like dictGetRandomKey() from the POV of the API, but will do more
+ * work to ensure a better distribution of the returned element.
+ *
+ * This function improves the distribution because the dictGetRandomKey()
+ * problem is that it selects a random bucket, then it selects a random
+ * element from the chain in the bucket. However elements being in different
+ * chain lengths will have different probabilities of being reported. With
+ * this function instead what we do is to consider a "linear" range of the table
+ * that may be constituted of N buckets with chains of different lengths
+ * appearing one after the other. Then we report a random element in the range.
+ * In this way we smooth away the problem of different chain lenghts. */
+#define GETFAIR_NUM_ENTRIES 15
+dictEntry *dictGetFairRandomKey(dict *d) {
+    dictEntry *entries[GETFAIR_NUM_ENTRIES];
+    unsigned int count = dictGetSomeKeys(d,entries,GETFAIR_NUM_ENTRIES);
+    /* Note that dictGetSomeKeys() may return zero elements in an unlucky
+     * run() even if there are actually elements inside the hash table. So
+     * when we get zero, we call the true dictGetRandomKey() that will always
+     * yeld the element if the hash table has at least one. */
+    if (count == 0) return dictGetRandomKey(d);
+    unsigned int idx = rand() % count;
+    return entries[idx];
+}
+
 /* Function to reverse bits. Algorithm from:
  * http://graphics.stanford.edu/~seander/bithacks.html#ReverseParallel */
 static unsigned long rev(unsigned long v) {
-    unsigned long s = 8 * sizeof(v); // bit size; must be power of 2
-    unsigned long mask = ~0;
+    unsigned long s = CHAR_BIT * sizeof(v); // bit size; must be power of 2
+    unsigned long mask = ~0UL;
     while ((s >>= 1) > 0) {
         mask ^= (mask << s);
         v = ((v >> s) & mask) | ((v << s) & ~mask);
@@ -845,6 +871,10 @@ unsigned long dictScan(dict *d,
 
     if (dictSize(d) == 0) return 0;
 
+    /* Having a safe iterator means no rehashing can happen, see _dictRehashStep.
+     * This is needed in case the scan callback tries to do dictFind or alike. */
+    d->iterators++;
+
     if (!dictIsRehashing(d)) {
         t0 = &(d->ht[0]);
         m0 = t0->sizemask;
@@ -910,6 +940,9 @@ unsigned long dictScan(dict *d,
             /* Continue while bits covered by mask difference is non-zero */
         } while (v & (m0 ^ m1));
     }
+
+    /* undo the ++ at the top */
+    d->iterators--;
 
     return v;
 }
@@ -1011,7 +1044,7 @@ dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t h
     dictEntry *he, **heref;
     unsigned long idx, table;
 
-    if (d->ht[0].used + d->ht[1].used == 0) return NULL; /* dict is empty */
+    if (dictSize(d) == 0) return NULL; /* dict is empty */
     for (table = 0; table <= 1; table++) {
         idx = hash & d->ht[table].sizemask;
         heref = &d->ht[table].table[idx];

@@ -62,7 +62,9 @@
 #endif
 
 /* Test for backtrace() */
-#if defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__))
+#if defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__)) || \
+    defined(__FreeBSD__) || (defined(__OpenBSD__) && defined(USE_BACKTRACE))\
+ || defined(__DragonFly__)
 #define HAVE_BACKTRACE 1
 #endif
 
@@ -87,11 +89,11 @@
 #endif
 #endif
 
-/* Define aof_fsync to fdatasync() in Linux and fsync() for all the rest */
+/* Define redis_fsync to fdatasync() in Linux and fsync() for all the rest */
 #ifdef __linux__
-#define aof_fsync fdatasync
+#define redis_fsync fdatasync
 #else
-#define aof_fsync fsync
+#define redis_fsync fsync
 #endif
 
 /* Define rdb_fsync_range to sync_file_range() on Linux, otherwise we use
@@ -222,6 +224,33 @@ void setproctitle(const char *fmt, ...);
 
 #if defined(__sparc__) || defined(__arm__)
 #define USE_ALIGNED_ACCESS
+#endif
+
+/* Define for redis_set_thread_title */
+#ifdef __linux__
+#define redis_set_thread_title(name) pthread_setname_np(pthread_self(), name)
+#else
+#if (defined __FreeBSD__ || defined __OpenBSD__)
+#include <pthread_np.h>
+#define redis_set_thread_title(name) pthread_set_name_np(pthread_self(), name)
+#elif defined __NetBSD__
+#include <pthread.h>
+#define redis_set_thread_title(name) pthread_setname_np(pthread_self(), name, NULL)
+#else
+#if (defined __APPLE__ && defined(MAC_OS_X_VERSION_10_7))
+int pthread_setname_np(const char *name);
+#include <pthread.h>
+#define redis_set_thread_title(name) pthread_setname_np(name)
+#else
+#define redis_set_thread_title(name)
+#endif
+#endif
+#endif
+
+/* Check if we can use setcpuaffinity(). */
+#if (defined __linux || defined __NetBSD__ || defined __FreeBSD__)
+#define USE_SETCPUAFFINITY
+void setcpuaffinity(const char *cpulist);
 #endif
 
 #endif

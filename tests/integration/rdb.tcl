@@ -39,6 +39,25 @@ start_server [list overrides [list "dir" $server_path]] {
     } {0000000000000000000000000000000000000000}
 }
 
+start_server [list overrides [list "dir" $server_path]] {
+    test {Test RDB stream encoding} {
+        for {set j 0} {$j < 1000} {incr j} {
+            if {rand() < 0.9} {
+                r xadd stream * foo $j
+            } else {
+                r xadd stream * bar $j
+            }
+        }
+        r xgroup create stream mygroup 0
+        r xreadgroup GROUP mygroup Alice COUNT 1 STREAMS stream >
+        set digest [r debug digest]
+        r debug reload
+        set newdigest [r debug digest]
+        assert {$digest eq $newdigest}
+        r del stream
+    }
+}
+
 # Helper function to start a server and kill it, just to check the error
 # logged.
 set defaults {}
@@ -94,5 +113,61 @@ start_server_and_kill_it [list "dir" $server_path] {
         } else {
             fail "Server started even if RDB was corrupted!"
         }
+    }
+}
+
+start_server {} {
+    test {Test FLUSHALL aborts bgsave} {
+        r config set rdb-key-save-delay 1000
+        r debug populate 1000
+        r bgsave
+        assert_equal [s rdb_bgsave_in_progress] 1
+        r flushall
+        after 200
+        assert_equal [s rdb_bgsave_in_progress] 0
+        # make sure the server is still writable
+        r set x xx
+    }
+}
+
+test {client freed during loading} {
+    start_server [list overrides [list key-load-delay 10 rdbcompression no]] {
+        # create a big rdb that will take long to load. it is important
+        # for keys to be big since the server processes events only once in 2mb.
+        # 100mb of rdb, 100k keys will load in more than 1 second
+        r debug populate 100000 key 1000
+
+        restart_server 0 false
+
+        # make sure it's still loading
+        assert_equal [s loading] 1
+
+        # connect and disconnect 10 clients
+        set clients {}
+        for {set j 0} {$j < 10} {incr j} {
+            lappend clients [redis_deferring_client]
+        }
+        foreach rd $clients {
+            $rd debug log bla
+        }
+        foreach rd $clients {
+            $rd read
+        }
+        foreach rd $clients {
+            $rd close
+        }
+
+        # make sure the server freed the clients
+        wait_for_condition 100 100 {
+            [s connected_clients] < 3
+        } else {
+            fail "clients didn't disconnect"
+        }
+
+        # make sure it's still loading
+        assert_equal [s loading] 1
+
+        # no need to keep waiting for loading to complete
+        exec kill [srv 0 pid]
     }
 }

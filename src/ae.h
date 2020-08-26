@@ -47,11 +47,12 @@
                            things to disk before sending replies, and want
                            to do that in a group fashion. */
 
-#define AE_FILE_EVENTS 1
-#define AE_TIME_EVENTS 2
+#define AE_FILE_EVENTS (1<<0)
+#define AE_TIME_EVENTS (1<<1)
 #define AE_ALL_EVENTS (AE_FILE_EVENTS|AE_TIME_EVENTS)
-#define AE_DONT_WAIT 4
-#define AE_CALL_AFTER_SLEEP 8
+#define AE_DONT_WAIT (1<<2)
+#define AE_CALL_BEFORE_SLEEP (1<<3)
+#define AE_CALL_AFTER_SLEEP (1<<4)
 
 #define AE_NOMORE -1
 #define AE_DELETED_EVENT_ID -1
@@ -85,6 +86,8 @@ typedef struct aeTimeEvent {
     void *clientData;
     struct aeTimeEvent *prev;
     struct aeTimeEvent *next;
+    int refcount; /* refcount to prevent timer events from being
+  		   * freed in recursive time event calls. */
 } aeTimeEvent;
 
 /* A fired event */
@@ -106,6 +109,7 @@ typedef struct aeEventLoop {
     void *apidata; /* This is used for polling API specific data */
     aeBeforeSleepProc *beforesleep;
     aeBeforeSleepProc *aftersleep;
+    int flags;
 } aeEventLoop;
 
 /* Prototypes */
@@ -128,5 +132,6 @@ void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep
 void aeSetAfterSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *aftersleep);
 int aeGetSetSize(aeEventLoop *eventLoop);
 int aeResizeSetSize(aeEventLoop *eventLoop, int setsize);
+void aeSetDontWait(aeEventLoop *eventLoop, int noWait);
 
 #endif

@@ -4,6 +4,7 @@
 # are preseved across iterations.
 
 source "../tests/includes/init-tests.tcl"
+source "../../../tests/support/cli.tcl"
 
 test "Create a 5 nodes cluster" {
     create_cluster 5 5
@@ -73,12 +74,13 @@ test "Cluster consistency during live resharding" {
             flush stdout
             set target [dict get [get_myself [randomInt 5]] id]
             set tribpid [lindex [exec \
-                ../../../src/redis-trib.rb reshard \
-                --from all \
-                --to $target \
-                --slots 100 \
-                --yes \
+                ../../../src/redis-cli --cluster reshard \
                 127.0.0.1:[get_instance_attrib redis 0 port] \
+                --cluster-from all \
+                --cluster-to $target \
+                --cluster-slots 100 \
+                --cluster-yes \
+                {*}[rediscli_tls_config "../../../tests"] \
                 | [info nameofexecutable] \
                 ../tests/helpers/onlydots.tcl \
                 &] 0]

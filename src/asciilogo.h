@@ -27,7 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-char *ascii_logo =
+const char *ascii_logo =
 "                _._                                                  \n"
 "           _.-``__ ''-._                                             \n"
 "      _.-``    `.  `_.  ''-._           Redis %s (%s/%d) %s bit\n"

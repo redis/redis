@@ -199,3 +199,34 @@ start_server {tags {"bitops"}} {
         r del mystring
     }
 }
+
+start_server {tags {"repl"}} {
+    start_server {} {
+        set master [srv -1 client]
+        set master_host [srv -1 host]
+        set master_port [srv -1 port]
+        set slave [srv 0 client]
+
+        test {BITFIELD: setup slave} {
+            $slave slaveof $master_host $master_port
+            wait_for_condition 50 100 {
+                [s 0 master_link_status] eq {up}
+            } else {
+                fail "Replication not started."
+            }
+        }
+
+        test {BITFIELD: write on master, read on slave} {
+            $master del bits
+            assert_equal 0 [$master bitfield bits set u8 0 255]
+            assert_equal 255 [$master bitfield bits set u8 0 100]
+            wait_for_ofs_sync $master $slave
+            assert_equal 100 [$slave bitfield_ro bits get u8 0]
+        }
+
+        test {BITFIELD_RO fails when write option is used} {
+            catch {$slave bitfield_ro bits set u8 0 100 get u8 0} err
+            assert_match {*ERR BITFIELD_RO only supports the GET subcommand*} $err
+        }
+    }
+}
