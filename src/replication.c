@@ -1557,15 +1557,18 @@ void readSyncBulkPayload(connection *conn) {
      * sync command success free ReplicationBacklog
      * sync command fail, keep ReplicationBacklog
      */
-	freeReplicationBacklog();
+    freeReplicationBacklog();
+    
+    if (!use_diskless_load) {
 
-    /* Read bulk data */
-    if (usemark) {
-        readlen = sizeof(buf);
-    } else {
-        left = server.repl_transfer_size - server.repl_transfer_read;
-        readlen = (left < (signed)sizeof(buf)) ? left : (signed)sizeof(buf);
-    }
+        /* Read the data from the socket, store it to a file and search
+         * for the EOF. */
+        if (usemark) {
+            readlen = sizeof(buf);
+        } else {
+            left = server.repl_transfer_size - server.repl_transfer_read;
+            readlen = (left < (signed)sizeof(buf)) ? left : (signed)sizeof(buf);
+        }
 
         nread = connRead(conn,buf,readlen);
         if (nread <= 0) {
@@ -2567,13 +2570,6 @@ void replicationUnsetMaster(void) {
     /* Restart the AOF subsystem in case we shut it down during a sync when
      * we were still a slave. */
     if (server.aof_enabled && server.aof_state == AOF_OFF) restartAOFAfterSYNC();
-    server.repl_slave_repl_all = CONFIG_DEFAULT_SLAVE_REPLICATE_ALL;
-
-    /* Once we turn from slave to master, we consider the starting time without
-     * slaves (that is used to count the replication backlog time to live) as
-     * starting from now. Otherwise the backlog will be freed after a
-     * failover if slaves do not connect immediately. */
-    server.repl_no_slaves_since = server.unixtime;
 }
 
 /* This function is called when the slave lose the connection with the
