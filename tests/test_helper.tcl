@@ -37,7 +37,7 @@ set ::all_tests {
     unit/acl
     unit/latency-monitor
     integration/block-repl
-    integration/replication
+
     integration/replication-2
     integration/replication-3
     integration/replication-4
