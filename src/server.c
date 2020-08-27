@@ -3406,14 +3406,15 @@ void call(client *c, int flags) {
 /* Used when a command that is ready for execution needs to be rejected, due to
  * varios pre-execution checks. it returns the appropriate error to the client.
  * If there's a transaction is flags it as dirty, and if the command is EXEC,
- * it aborts the transaction. */
+ * it aborts the transaction.
+ * Note: 'reply' is expected to end with \r\n */
 void rejectCommand(client *c, robj *reply) {
     flagTransaction(c);
     if (c->cmd && c->cmd->proc == execCommand) {
         execCommandAbort(c, reply->ptr);
     } else {
         /* using addReplyError* rather than addReply so that the error can be logged. */
-        addReplyErrorSafe(c, reply->ptr, sdslen(reply->ptr));
+        addReplyErrorObject(c, reply);
     }
 }
 
@@ -3423,10 +3424,13 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
     va_start(ap,fmt);
     sds s = sdscatvprintf(sdsempty(),fmt,ap);
     va_end(ap);
+    /* Make sure there are no newlines in the string, otherwise invalid protocol
+     * is emitted (The args come from the user, they may contain any character). */
+    sdsmapchars(s, "\r\n", "  ",  2);
     if (c->cmd && c->cmd->proc == execCommand) {
         execCommandAbort(c, s);
     } else {
-        addReplyErrorSafe(c, s, sdslen(s));
+        addReplyErrorSds(c, s);
     }
     sdsfree(s);
 }
@@ -3589,7 +3593,7 @@ int processCommand(client *c) {
             rejectCommand(c, shared.bgsaveerr);
         else
             rejectCommandFormat(c,
-                "-MISCONF Errors writing to the AOF file: %s\r\n",
+                "-MISCONF Errors writing to the AOF file: %s",
                 strerror(server.aof_last_write_errno));
         return C_OK;
     }
