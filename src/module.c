@@ -7258,7 +7258,7 @@ void moduleUnsubscribeAllServerEvents(RedisModule *module) {
 }
 
 void processModuleLoadingProgressEvent(int is_aof) {
-    long long now = ustime();
+    long long now = server.ustime;
     static long long next_event = 0;
     if (now >= next_event) {
         /* Fire the loading progress modules end event. */

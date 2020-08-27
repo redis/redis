@@ -773,6 +773,7 @@ int loadAppendOnlyFile(char *filename) {
         if (!(loops++ % 1000)) {
             loadingProgress(ftello(fp));
             processEventsWhileBlocked();
+            loadingCron();
             processModuleLoadingProgressEvent(1);
         }
 
