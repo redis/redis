@@ -2186,7 +2186,7 @@ void syncWithMaster(connection *conn) {
             server.repl_state = REPL_STATE_RECEIVE_AUTH;
             return;
         } else {
-            server.repl_state = REPL_STATE_SEND_PORT;
+            server.repl_state = REPL_STATE_SEND_REPLCONF;
         }
     }
 
@@ -2199,93 +2199,53 @@ void syncWithMaster(connection *conn) {
             goto error;
         }
         sdsfree(err);
-        server.repl_state = REPL_STATE_SEND_PORT;
+        server.repl_state = REPL_STATE_SEND_REPLCONF;
     }
 
-    /* Set the slave port, so that Master's INFO command can list the
-     * slave listening port correctly. */
-    if (server.repl_state == REPL_STATE_SEND_PORT) {
+    if (server.repl_state == REPL_STATE_SEND_REPLCONF) {
+        /* Set the slave port, so that Master's INFO command can list the
+         * slave listening port correctly. */
         int port;
         if (server.slave_announce_port) port = server.slave_announce_port;
         else if (server.tls_replication && server.tls_port) port = server.tls_port;
         else port = server.port;
         sds portstr = sdsfromlonglong(port);
-        err = sendSynchronousCommand(SYNC_CMD_WRITE,conn,"REPLCONF",
-                "listening-port",portstr, NULL);
+
+        /* If there is slave-announce-ip option set, 
+         * set the slave ip, so that Master's INFO command can list the
+         * slave IP address port correctly in case of port forwarding or NAT.
+         *
+         * Inform the master of our (slave) capabilities.
+         *
+         * EOF: supports EOF-style RDB transfer for diskless replication.
+         * PSYNC2: supports PSYNC v2, so understands +CONTINUE <new repl ID>.
+         *
+         * The master will ignore capabilities it does not understand. */
+        if(server.slave_announce_ip != NULL) {
+            
+            err = sendSynchronousCommand(SYNC_CMD_WRITE,conn,"REPLCONF",
+                "listening-port",portstr,"ip-address",server.slave_announce_ip,
+                "capa","eof","capa","psync2", NULL);
+        }
+        else {
+            err = sendSynchronousCommand(SYNC_CMD_WRITE,conn,"REPLCONF",
+                "listening-port",portstr,"capa","eof","capa","psync2", NULL);
+        }
         sdsfree(portstr);
         if (err) goto write_error;
         sdsfree(err);
-        server.repl_state = REPL_STATE_RECEIVE_PORT;
+        server.repl_state = REPL_STATE_RECEIVE_REPLCONF;
         return;
     }
 
-    /* Receive REPLCONF listening-port reply. */
-    if (server.repl_state == REPL_STATE_RECEIVE_PORT) {
-        err = sendSynchronousCommand(SYNC_CMD_READ,conn,NULL);
-        /* Ignore the error if any, not all the Redis versions support
-         * REPLCONF listening-port. */
-        if (err[0] == '-') {
-            serverLog(LL_NOTICE,"(Non critical) Master does not understand "
-                                "REPLCONF listening-port: %s", err);
-        }
-        sdsfree(err);
-        server.repl_state = REPL_STATE_SEND_IP;
-    }
-
-    /* Skip REPLCONF ip-address if there is no slave-announce-ip option set. */
-    if (server.repl_state == REPL_STATE_SEND_IP &&
-        server.slave_announce_ip == NULL)
-    {
-            server.repl_state = REPL_STATE_SEND_CAPA;
-    }
-
-    /* Set the slave ip, so that Master's INFO command can list the
-     * slave IP address port correctly in case of port forwarding or NAT. */
-    if (server.repl_state == REPL_STATE_SEND_IP) {
-        err = sendSynchronousCommand(SYNC_CMD_WRITE,conn,"REPLCONF",
-                "ip-address",server.slave_announce_ip, NULL);
-        if (err) goto write_error;
-        sdsfree(err);
-        server.repl_state = REPL_STATE_RECEIVE_IP;
-        return;
-    }
-
-    /* Receive REPLCONF ip-address reply. */
-    if (server.repl_state == REPL_STATE_RECEIVE_IP) {
-        err = sendSynchronousCommand(SYNC_CMD_READ,conn,NULL);
-        /* Ignore the error if any, not all the Redis versions support
-         * REPLCONF listening-port. */
-        if (err[0] == '-') {
-            serverLog(LL_NOTICE,"(Non critical) Master does not understand "
-                                "REPLCONF ip-address: %s", err);
-        }
-        sdsfree(err);
-        server.repl_state = REPL_STATE_SEND_CAPA;
-    }
-
-    /* Inform the master of our (slave) capabilities.
-     *
-     * EOF: supports EOF-style RDB transfer for diskless replication.
-     * PSYNC2: supports PSYNC v2, so understands +CONTINUE <new repl ID>.
-     *
-     * The master will ignore capabilities it does not understand. */
-    if (server.repl_state == REPL_STATE_SEND_CAPA) {
-        err = sendSynchronousCommand(SYNC_CMD_WRITE,conn,"REPLCONF",
-                "capa","eof","capa","psync2",NULL);
-        if (err) goto write_error;
-        sdsfree(err);
-        server.repl_state = REPL_STATE_RECEIVE_CAPA;
-        return;
-    }
-
-    /* Receive CAPA reply. */
-    if (server.repl_state == REPL_STATE_RECEIVE_CAPA) {
+    /* Receive REPLCONF reply. */
+    if (server.repl_state == REPL_STATE_RECEIVE_REPLCONF) {
         err = sendSynchronousCommand(SYNC_CMD_READ,conn,NULL);
         /* Ignore the error if any, not all the Redis versions support
          * REPLCONF capa. */
         if (err[0] == '-') {
             serverLog(LL_NOTICE,"(Non critical) Master does not understand "
-                                  "REPLCONF capa: %s", err);
+                                  "REPLCONF: %s", err);
         }
         sdsfree(err);
         server.repl_state = REPL_STATE_SEND_PSYNC;

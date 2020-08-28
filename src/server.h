@@ -299,17 +299,13 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define REPL_STATE_RECEIVE_PONG 3 /* Wait for PING reply */
 #define REPL_STATE_SEND_AUTH 4 /* Send AUTH to master */
 #define REPL_STATE_RECEIVE_AUTH 5 /* Wait for AUTH reply */
-#define REPL_STATE_SEND_PORT 6 /* Send REPLCONF listening-port */
-#define REPL_STATE_RECEIVE_PORT 7 /* Wait for REPLCONF reply */
-#define REPL_STATE_SEND_IP 8 /* Send REPLCONF ip-address */
-#define REPL_STATE_RECEIVE_IP 9 /* Wait for REPLCONF reply */
-#define REPL_STATE_SEND_CAPA 10 /* Send REPLCONF capa */
-#define REPL_STATE_RECEIVE_CAPA 11 /* Wait for REPLCONF reply */
-#define REPL_STATE_SEND_PSYNC 12 /* Send PSYNC */
-#define REPL_STATE_RECEIVE_PSYNC 13 /* Wait for PSYNC reply */
+#define REPL_STATE_SEND_REPLCONF 6 /* Send REPLCONF */
+#define REPL_STATE_RECEIVE_REPLCONF 7 /* Wait for REPLCONF reply */
+#define REPL_STATE_SEND_PSYNC 8 /* Send PSYNC */
+#define REPL_STATE_RECEIVE_PSYNC 9 /* Wait for PSYNC reply */
 /* --- End of handshake states --- */
-#define REPL_STATE_TRANSFER 14 /* Receiving .rdb from master */
-#define REPL_STATE_CONNECTED 15 /* Connected to master */
+#define REPL_STATE_TRANSFER 10 /* Receiving .rdb from master */
+#define REPL_STATE_CONNECTED 11 /* Connected to master */
 
 /* State of slaves from the POV of the master. Used in client->replstate.
  * In SEND_BULK and ONLINE state the slave receives new updates
