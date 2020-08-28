@@ -43,7 +43,7 @@ static void redisIvykisCleanup(void *privdata) {
     redisIvykisEvents *e = (redisIvykisEvents*)privdata;
 
     iv_fd_unregister(&e->fd);
-    free(e);
+    hi_free(e);
 }
 
 static int redisIvykisAttach(redisAsyncContext *ac) {
@@ -55,7 +55,10 @@ static int redisIvykisAttach(redisAsyncContext *ac) {
         return REDIS_ERR;
 
     /* Create container for context and r/w events */
-    e = (redisIvykisEvents*)malloc(sizeof(*e));
+    e = (redisIvykisEvents*)hi_malloc(sizeof(*e));
+    if (e == NULL)
+        return REDIS_ERR;
+
     e->context = ac;
 
     /* Register functions to start/stop listening for events */

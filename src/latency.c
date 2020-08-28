@@ -85,7 +85,7 @@ int THPGetAnonHugePagesSize(void) {
 /* ---------------------------- Latency API --------------------------------- */
 
 /* Latency monitor initialization. We just need to create the dictionary
- * of time series, each time serie is craeted on demand in order to avoid
+ * of time series, each time serie is created on demand in order to avoid
  * having a fixed list to maintain. */
 void latencyMonitorInit(void) {
     server.latency_events = dictCreate(&latencyTimeSeriesDictType,NULL);
@@ -621,7 +621,7 @@ NULL
                 resets += latencyResetEvent(c->argv[j]->ptr);
             addReplyLongLong(c,resets);
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"help") && c->argc >= 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"help") && c->argc == 2) {
         addReplyHelp(c, help);
     } else {
         addReplySubcommandSyntaxError(c);

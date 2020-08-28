@@ -78,22 +78,34 @@ start_server {tags {"introspection"}} {
             syslog-facility
             databases
             port
-            io-threads
             tls-port
-            tls-prefer-server-ciphers
-            tls-cert-file
-            tls-key-file
-            tls-dh-params-file
-            tls-ca-cert-file
-            tls-ca-cert-dir
-            tls-protocols
-            tls-ciphers
-            tls-ciphersuites
+            io-threads
             logfile
             unixsocketperm
             slaveof
             bind
             requirepass
+            server_cpulist
+            bio_cpulist
+            aof_rewrite_cpulist
+            bgsave_cpulist
+        }
+
+        if {!$::tls} {
+            append skip_configs {
+                tls-prefer-server-ciphers
+                tls-session-cache-timeout
+                tls-session-cache-size
+                tls-session-caching
+                tls-cert-file
+                tls-key-file
+                tls-dh-params-file
+                tls-ca-cert-file
+                tls-ca-cert-dir
+                tls-protocols
+                tls-ciphers
+                tls-ciphersuites
+            }
         }
 
         set configs {}

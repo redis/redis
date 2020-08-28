@@ -347,7 +347,15 @@ void freeStreamObject(robj *o) {
 }
 
 void incrRefCount(robj *o) {
-    if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount++;
+    if (o->refcount < OBJ_FIRST_SPECIAL_REFCOUNT) {
+        o->refcount++;
+    } else {
+        if (o->refcount == OBJ_SHARED_REFCOUNT) {
+            /* Nothing to do: this refcount is immutable. */
+        } else if (o->refcount == OBJ_STATIC_REFCOUNT) {
+            serverPanic("You tried to retain an object allocated in the stack");
+        }
+    }
 }
 
 void decrRefCount(robj *o) {
@@ -394,7 +402,8 @@ robj *resetRefCount(robj *obj) {
 }
 
 int checkType(client *c, robj *o, int type) {
-    if (o->type != type) {
+    /* A NULL is considered an empty key */
+    if (o && o->type != type) {
         addReply(c,shared.wrongtypeerr);
         return 1;
     }
@@ -640,21 +649,13 @@ int getDoubleFromObjectOrReply(client *c, robj *o, double *target, const char *m
 
 int getLongDoubleFromObject(robj *o, long double *target) {
     long double value;
-    char *eptr;
 
     if (o == NULL) {
         value = 0;
     } else {
         serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
         if (sdsEncodedObject(o)) {
-            errno = 0;
-            value = strtold(o->ptr, &eptr);
-            if (sdslen(o->ptr) == 0 ||
-                isspace(((const char*)o->ptr)[0]) ||
-                (size_t)(eptr-(char*)o->ptr) != sdslen(o->ptr) ||
-                (errno == ERANGE &&
-                    (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
-                isnan(value))
+            if (!string2ld(o->ptr, sdslen(o->ptr), &value))
                 return C_ERR;
         } else if (o->encoding == OBJ_ENCODING_INT) {
             value = (long)o->ptr;
@@ -982,39 +983,15 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mh->repl_backlog = mem;
     mem_total += mem;
 
-    mem = 0;
-    if (listLength(server.slaves)) {
-        listIter li;
-        listNode *ln;
-
-        listRewind(server.slaves,&li);
-        while((ln = listNext(&li))) {
-            client *c = listNodeValue(ln);
-            mem += getClientOutputBufferMemoryUsage(c);
-            mem += sdsAllocSize(c->querybuf);
-            mem += sizeof(client);
-        }
-    }
-    mh->clients_slaves = mem;
-    mem_total+=mem;
-
-    mem = 0;
-    if (listLength(server.clients)) {
-        listIter li;
-        listNode *ln;
-
-        listRewind(server.clients,&li);
-        while((ln = listNext(&li))) {
-            client *c = listNodeValue(ln);
-            if (c->flags & CLIENT_SLAVE && !(c->flags & CLIENT_MONITOR))
-                continue;
-            mem += getClientOutputBufferMemoryUsage(c);
-            mem += sdsAllocSize(c->querybuf);
-            mem += sizeof(client);
-        }
-    }
-    mh->clients_normal = mem;
-    mem_total+=mem;
+    /* Computing the memory used by the clients would be O(N) if done
+     * here online. We use our values computed incrementally by
+     * clientsCronTrackClientsMemUsage(). */
+    mh->clients_slaves = server.stat_clients_type_memory[CLIENT_TYPE_SLAVE];
+    mh->clients_normal = server.stat_clients_type_memory[CLIENT_TYPE_MASTER]+
+                         server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB]+
+                         server.stat_clients_type_memory[CLIENT_TYPE_NORMAL];
+    mem_total += mh->clients_slaves;
+    mem_total += mh->clients_normal;
 
     mem = 0;
     if (server.aof_state != AOF_OFF) {
@@ -1119,13 +1096,13 @@ sds getMemoryDoctorReport(void) {
             num_reports++;
         }
 
-        /* Allocator fss is higher than 1.1 and 10MB ? */
+        /* Allocator rss is higher than 1.1 and 10MB ? */
         if (mh->allocator_rss > 1.1 && mh->allocator_rss_bytes > 10<<20) {
             high_alloc_rss = 1;
             num_reports++;
         }
 
-        /* Non-Allocator fss is higher than 1.1 and 10MB ? */
+        /* Non-Allocator rss is higher than 1.1 and 10MB ? */
         if (mh->rss_extra > 1.1 && mh->rss_extra_bytes > 10<<20) {
             high_proc_rss = 1;
             num_reports++;
@@ -1322,7 +1299,7 @@ NULL
                     addReply(c,shared.syntaxerr);
                     return;
                 }
-                if (samples == 0) samples = LLONG_MAX;;
+                if (samples == 0) samples = LLONG_MAX;
                 j++; /* skip option argument. */
             } else {
                 addReply(c,shared.syntaxerr);

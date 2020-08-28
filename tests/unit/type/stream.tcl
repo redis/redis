@@ -414,7 +414,7 @@ start_server {tags {"stream"} overrides {appendonly yes stream-node-max-entries 
     }
 }
 
-start_server {tags {"xsetid"}} {
+start_server {tags {"stream xsetid"}} {
     test {XADD can CREATE an empty stream} {
         r XADD mystream MAXLEN 0 * a b
         assert {[dict get [r xinfo stream mystream] length] == 0}
@@ -459,5 +459,12 @@ start_server {tags {"stream"} overrides {appendonly yes aof-use-rdb-preamble no}
         r debug loadaof
         assert {[dict get [r xinfo stream mystream] length] == 1}
         assert {[dict get [r xinfo stream mystream] last-generated-id] == "2-2"}
+    }
+}
+
+start_server {tags {"stream"}} {
+    test {XGROUP HELP should not have unexpected options} {
+        catch {r XGROUP help xxx} e
+        assert_match "*Unknown subcommand or wrong number of arguments*" $e
     }
 }

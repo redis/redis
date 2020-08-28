@@ -86,7 +86,7 @@ struct bio_job {
 void *bioProcessBackgroundJobs(void *arg);
 void lazyfreeFreeObjectFromBioThread(robj *o);
 void lazyfreeFreeDatabaseFromBioThread(dict *ht1, dict *ht2);
-void lazyfreeFreeSlotsMapFromBioThread(zskiplist *sl);
+void lazyfreeFreeSlotsMapFromBioThread(rax *rt);
 
 /* Make sure we have enough stack to perform all the things we do in the
  * main thread. */
@@ -153,6 +153,20 @@ void *bioProcessBackgroundJobs(void *arg) {
             "Warning: bio thread started with wrong type %lu",type);
         return NULL;
     }
+
+    switch (type) {
+    case BIO_CLOSE_FILE:
+        redis_set_thread_title("bio_close_file");
+        break;
+    case BIO_AOF_FSYNC:
+        redis_set_thread_title("bio_aof_fsync");
+        break;
+    case BIO_LAZY_FREE:
+        redis_set_thread_title("bio_lazy_free");
+        break;
+    }
+
+    redisSetCpuAffinity(server.bio_cpulist);
 
     /* Make the thread killable at any time, so that bioKillThreads()
      * can work reliably. */
@@ -254,7 +268,7 @@ void bioKillThreads(void) {
     int err, j;
 
     for (j = 0; j < BIO_NUM_OPS; j++) {
-        if (pthread_cancel(bio_threads[j]) == 0) {
+        if (bio_threads[j] && pthread_cancel(bio_threads[j]) == 0) {
             if ((err = pthread_join(bio_threads[j],NULL)) != 0) {
                 serverLog(LL_WARNING,
                     "Bio thread for job type #%d can be joined: %s",

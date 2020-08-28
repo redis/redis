@@ -93,19 +93,61 @@ static int parseProtocolsConfig(const char *str) {
  * served to the reader yet. */
 static list *pending_list = NULL;
 
+/**
+ * OpenSSL global initialization and locking handling callbacks.
+ * Note that this is only required for OpenSSL < 1.1.0.
+ */
+
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#define USE_CRYPTO_LOCKS
+#endif
+
+#ifdef USE_CRYPTO_LOCKS
+
+static pthread_mutex_t *openssl_locks;
+
+static void sslLockingCallback(int mode, int lock_id, const char *f, int line) {
+    pthread_mutex_t *mt = openssl_locks + lock_id;
+
+    if (mode & CRYPTO_LOCK) {
+        pthread_mutex_lock(mt);
+    } else {
+        pthread_mutex_unlock(mt);
+    }
+
+    (void)f;
+    (void)line;
+}
+
+static void initCryptoLocks(void) {
+    unsigned i, nlocks;
+    if (CRYPTO_get_locking_callback() != NULL) {
+        /* Someone already set the callback before us. Don't destroy it! */
+        return;
+    }
+    nlocks = CRYPTO_num_locks();
+    openssl_locks = zmalloc(sizeof(*openssl_locks) * nlocks);
+    for (i = 0; i < nlocks; i++) {
+        pthread_mutex_init(openssl_locks + i, NULL);
+    }
+    CRYPTO_set_locking_callback(sslLockingCallback);
+}
+#endif /* USE_CRYPTO_LOCKS */
+
 void tlsInit(void) {
     ERR_load_crypto_strings();
     SSL_load_error_strings();
     SSL_library_init();
+
+#ifdef USE_CRYPTO_LOCKS
+    initCryptoLocks();
+#endif
 
     if (!RAND_poll()) {
         serverLog(LL_WARNING, "OpenSSL: Failed to seed random number generator.");
     }
 
     pending_list = listCreate();
-
-    /* Server configuration */
-    server.tls_auth_clients = 1;    /* Secure by default */
 }
 
 /* Attempt to configure/reconfigure TLS. This operation is atomic and will
@@ -139,6 +181,15 @@ int tlsConfigure(redisTLSContextConfig *ctx_config) {
     SSL_CTX_set_options(ctx, SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS);
 #endif
 
+    if (ctx_config->session_caching) {
+        SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_SERVER);
+        SSL_CTX_sess_set_cache_size(ctx, ctx_config->session_cache_size);
+        SSL_CTX_set_timeout(ctx, ctx_config->session_cache_timeout);
+        SSL_CTX_set_session_id_context(ctx, (void *) "redis", 5);
+    } else {
+        SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_OFF);
+    }
+
     int protocols = parseProtocolsConfig(ctx_config->protocols);
     if (protocols == -1) goto error;
 
@@ -160,7 +211,7 @@ int tlsConfigure(redisTLSContextConfig *ctx_config) {
 #endif
 
 #ifdef SSL_OP_NO_CLIENT_RENEGOTIATION
-    SSL_CTX_set_options(ssl->ctx, SSL_OP_NO_CLIENT_RENEGOTIATION);
+    SSL_CTX_set_options(ctx, SSL_OP_NO_CLIENT_RENEGOTIATION);
 #endif
 
     if (ctx_config->prefer_server_ciphers)
@@ -168,9 +219,11 @@ int tlsConfigure(redisTLSContextConfig *ctx_config) {
 
     SSL_CTX_set_mode(ctx, SSL_MODE_ENABLE_PARTIAL_WRITE|SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
     SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER|SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
+#if defined(SSL_CTX_set_ecdh_auto)
     SSL_CTX_set_ecdh_auto(ctx, 1);
+#endif
 
-    if (SSL_CTX_use_certificate_file(ctx, ctx_config->cert_file, SSL_FILETYPE_PEM) <= 0) {
+    if (SSL_CTX_use_certificate_chain_file(ctx, ctx_config->cert_file) <= 0) {
         ERR_error_string_n(ERR_get_error(), errbuf, sizeof(errbuf));
         serverLog(LL_WARNING, "Failed to load certificate: %s: %s", ctx_config->cert_file, errbuf);
         goto error;
@@ -284,15 +337,44 @@ connection *connCreateTLS(void) {
     return (connection *) conn;
 }
 
+/* Fetch the latest OpenSSL error and store it in the connection */
+static void updateTLSError(tls_connection *conn) {
+    conn->c.last_errno = 0;
+    if (conn->ssl_error) zfree(conn->ssl_error);
+    conn->ssl_error = zmalloc(512);
+    ERR_error_string_n(ERR_get_error(), conn->ssl_error, 512);
+}
+
+/* Create a new TLS connection that is already associated with
+ * an accepted underlying file descriptor.
+ *
+ * The socket is not ready for I/O until connAccept() was called and
+ * invoked the connection-level accept handler.
+ *
+ * Callers should use connGetState() and verify the created connection
+ * is not in an error state.
+ */
 connection *connCreateAcceptedTLS(int fd, int require_auth) {
     tls_connection *conn = (tls_connection *) connCreateTLS();
     conn->c.fd = fd;
     conn->c.state = CONN_STATE_ACCEPTING;
 
-    if (!require_auth) {
-        /* We still verify certificates if provided, but don't require them.
-         */
-        SSL_set_verify(conn->ssl, SSL_VERIFY_PEER, NULL);
+    if (!conn->ssl) {
+        updateTLSError(conn);
+        conn->c.state = CONN_STATE_ERROR;
+        return (connection *) conn;
+    }
+
+    switch (require_auth) {
+        case TLS_CLIENT_AUTH_NO:
+            SSL_set_verify(conn->ssl, SSL_VERIFY_NONE, NULL);
+            break;
+        case TLS_CLIENT_AUTH_OPTIONAL:
+            SSL_set_verify(conn->ssl, SSL_VERIFY_PEER, NULL);
+            break;
+        default: /* TLS_CLIENT_AUTH_YES, also fall-secure */
+            SSL_set_verify(conn->ssl, SSL_VERIFY_PEER|SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
+            break;
     }
 
     SSL_set_fd(conn->ssl, conn->c.fd);
@@ -325,10 +407,7 @@ static int handleSSLReturnCode(tls_connection *conn, int ret_value, WantIOType *
                 break;
             default:
                 /* Error! */
-                conn->c.last_errno = 0;
-                if (conn->ssl_error) zfree(conn->ssl_error);
-                conn->ssl_error = zmalloc(512);
-                ERR_error_string_n(ERR_get_error(), conn->ssl_error, 512);
+                updateTLSError(conn);
                 break;
         }
 
@@ -744,6 +823,12 @@ exit:
     return nread;
 }
 
+static int connTLSGetType(connection *conn_) {
+    (void) conn_;
+
+    return CONN_TYPE_TLS;
+}
+
 ConnectionType CT_TLS = {
     .ae_handler = tlsEventHandler,
     .accept = connTLSAccept,
@@ -758,6 +843,7 @@ ConnectionType CT_TLS = {
     .sync_write = connTLSSyncWrite,
     .sync_read = connTLSSyncRead,
     .sync_readline = connTLSSyncReadLine,
+    .get_type = connTLSGetType
 };
 
 int tlsHasPendingData() {
@@ -766,15 +852,17 @@ int tlsHasPendingData() {
     return listLength(pending_list) > 0;
 }
 
-void tlsProcessPendingData() {
+int tlsProcessPendingData() {
     listIter li;
     listNode *ln;
 
+    int processed = listLength(pending_list);
     listRewind(pending_list,&li);
     while((ln = listNext(&li))) {
         tls_connection *conn = listNodeValue(ln);
         tlsHandleEvent(conn, AE_READABLE);
     }
+    return processed;
 }
 
 #else   /* USE_OPENSSL */
@@ -802,7 +890,8 @@ int tlsHasPendingData() {
     return 0;
 }
 
-void tlsProcessPendingData() {
+int tlsProcessPendingData() {
+    return 0;
 }
 
 #endif

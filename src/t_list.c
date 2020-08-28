@@ -198,8 +198,7 @@ void pushGenericCommand(client *c, int where) {
     int j, pushed = 0;
     robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
 
-    if (lobj && lobj->type != OBJ_LIST) {
-        addReply(c,shared.wrongtypeerr);
+    if (checkType(c,lobj,OBJ_LIST)) {
         return;
     }
 
@@ -217,7 +216,7 @@ void pushGenericCommand(client *c, int where) {
     if (pushed) {
         char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
 
-        signalModifiedKey(c->db,c->argv[1]);
+        signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
     }
     server.dirty += pushed;
@@ -247,7 +246,7 @@ void pushxGenericCommand(client *c, int where) {
 
     if (pushed) {
         char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
-        signalModifiedKey(c->db,c->argv[1]);
+        signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
     }
     server.dirty += pushed;
@@ -292,7 +291,7 @@ void linsertCommand(client *c) {
     listTypeReleaseIterator(iter);
 
     if (inserted) {
-        signalModifiedKey(c->db,c->argv[1]);
+        signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_LIST,"linsert",
                             c->argv[1],c->db->id);
         server.dirty++;
@@ -355,7 +354,7 @@ void lsetCommand(client *c) {
             addReply(c,shared.outofrangeerr);
         } else {
             addReply(c,shared.ok);
-            signalModifiedKey(c->db,c->argv[1]);
+            signalModifiedKey(c,c->db,c->argv[1]);
             notifyKeyspaceEvent(NOTIFY_LIST,"lset",c->argv[1],c->db->id);
             server.dirty++;
         }
@@ -382,7 +381,7 @@ void popGenericCommand(client *c, int where) {
                                 c->argv[1],c->db->id);
             dbDelete(c->db,c->argv[1]);
         }
-        signalModifiedKey(c->db,c->argv[1]);
+        signalModifiedKey(c,c->db,c->argv[1]);
         server.dirty++;
     }
 }
@@ -482,9 +481,126 @@ void ltrimCommand(client *c) {
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }
-    signalModifiedKey(c->db,c->argv[1]);
+    signalModifiedKey(c,c->db,c->argv[1]);
     server.dirty++;
     addReply(c,shared.ok);
+}
+
+/* LPOS key element [RANK rank] [COUNT num-matches] [MAXLEN len]
+ *
+ * The "rank" is the position of the match, so if it is 1, the first match
+ * is returned, if it is 2 the second match is returned and so forth.
+ * It is 1 by default. If negative has the same meaning but the search is
+ * performed starting from the end of the list.
+ *
+ * If COUNT is given, instead of returning the single element, a list of
+ * all the matching elements up to "num-matches" are returned. COUNT can
+ * be combiled with RANK in order to returning only the element starting
+ * from the Nth. If COUNT is zero, all the matching elements are returned.
+ *
+ * MAXLEN tells the command to scan a max of len elements. If zero (the
+ * default), all the elements in the list are scanned if needed.
+ *
+ * The returned elements indexes are always referring to what LINDEX
+ * would return. So first element from head is 0, and so forth. */
+void lposCommand(client *c) {
+    robj *o, *ele;
+    ele = c->argv[2];
+    int direction = LIST_TAIL;
+    long rank = 1, count = -1, maxlen = 0; /* Count -1: option not given. */
+
+    /* Parse the optional arguments. */
+    for (int j = 3; j < c->argc; j++) {
+        char *opt = c->argv[j]->ptr;
+        int moreargs = (c->argc-1)-j;
+
+        if (!strcasecmp(opt,"RANK") && moreargs) {
+            j++;
+            if (getLongFromObjectOrReply(c, c->argv[j], &rank, NULL) != C_OK)
+                return;
+            if (rank == 0) {
+                addReplyError(c,"RANK can't be zero: use 1 to start from "
+                                "the first match, 2 from the second, ...");
+                return;
+            }
+        } else if (!strcasecmp(opt,"COUNT") && moreargs) {
+            j++;
+            if (getLongFromObjectOrReply(c, c->argv[j], &count, NULL) != C_OK)
+                return;
+            if (count < 0) {
+                addReplyError(c,"COUNT can't be negative");
+                return;
+            }
+        } else if (!strcasecmp(opt,"MAXLEN") && moreargs) {
+            j++;
+            if (getLongFromObjectOrReply(c, c->argv[j], &maxlen, NULL) != C_OK)
+                return;
+            if (maxlen < 0) {
+                addReplyError(c,"MAXLEN can't be negative");
+                return;
+            }
+        } else {
+            addReply(c,shared.syntaxerr);
+            return;
+        }
+    }
+
+    /* A negative rank means start from the tail. */
+    if (rank < 0) {
+        rank = -rank;
+        direction = LIST_HEAD;
+    }
+
+    /* We return NULL or an empty array if there is no such key (or
+     * if we find no matches, depending on the presence of the COUNT option. */
+    if ((o = lookupKeyRead(c->db,c->argv[1])) == NULL) {
+        if (count != -1)
+            addReply(c,shared.emptyarray);
+        else
+            addReply(c,shared.null[c->resp]);
+        return;
+    }
+    if (checkType(c,o,OBJ_LIST)) return;
+
+    /* If we got the COUNT option, prepare to emit an array. */
+    void *arraylenptr = NULL;
+    if (count != -1) arraylenptr = addReplyDeferredLen(c);
+
+    /* Seek the element. */
+    listTypeIterator *li;
+    li = listTypeInitIterator(o,direction == LIST_HEAD ? -1 : 0,direction);
+    listTypeEntry entry;
+    long llen = listTypeLength(o);
+    long index = 0, matches = 0, matchindex = -1, arraylen = 0;
+    while (listTypeNext(li,&entry) && (maxlen == 0 || index < maxlen)) {
+        if (listTypeEqual(&entry,ele)) {
+            matches++;
+            matchindex = (direction == LIST_TAIL) ? index : llen - index - 1;
+            if (matches >= rank) {
+                if (arraylenptr) {
+                    arraylen++;
+                    addReplyLongLong(c,matchindex);
+                    if (count && matches-rank+1 >= count) break;
+                } else {
+                    break;
+                }
+            }
+        }
+        index++;
+        matchindex = -1; /* Remember if we exit the loop without a match. */
+    }
+    listTypeReleaseIterator(li);
+
+    /* Reply to the client. Note that arraylenptr is not NULL only if
+     * the COUNT option was selected. */
+    if (arraylenptr != NULL) {
+        setDeferredArrayLen(c,arraylenptr,arraylen);
+    } else {
+        if (matchindex != -1)
+            addReplyLongLong(c,matchindex);
+        else
+            addReply(c,shared.null[c->resp]);
+    }
 }
 
 void lremCommand(client *c) {
@@ -519,7 +635,7 @@ void lremCommand(client *c) {
     listTypeReleaseIterator(li);
 
     if (removed) {
-        signalModifiedKey(c->db,c->argv[1]);
+        signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_LIST,"lrem",c->argv[1],c->db->id);
     }
 
@@ -555,7 +671,7 @@ void rpoplpushHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value) {
                             server.list_compress_depth);
         dbAdd(c->db,dstkey,dstobj);
     }
-    signalModifiedKey(c->db,dstkey);
+    signalModifiedKey(c,c->db,dstkey);
     listTypePush(dstobj,value,LIST_HEAD);
     notifyKeyspaceEvent(NOTIFY_LIST,"lpush",dstkey,c->db->id);
     /* Always send the pushed value to the client. */
@@ -575,7 +691,7 @@ void rpoplpushCommand(client *c) {
         robj *dobj = lookupKeyWrite(c->db,c->argv[2]);
         robj *touchedkey = c->argv[1];
 
-        if (dobj && checkType(c,dobj,OBJ_LIST)) return;
+        if (checkType(c,dobj,OBJ_LIST)) return;
         value = listTypePop(sobj,LIST_TAIL);
         /* We saved touched key, and protect it, since rpoplpushHandlePush
          * may change the client command argument vector (it does not
@@ -593,7 +709,7 @@ void rpoplpushCommand(client *c) {
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",
                                 touchedkey,c->db->id);
         }
-        signalModifiedKey(c->db,touchedkey);
+        signalModifiedKey(c,c->db,touchedkey);
         decrRefCount(touchedkey);
         server.dirty++;
         if (c->cmd->proc == brpoplpushCommand) {
@@ -687,8 +803,7 @@ void blockingPopGenericCommand(client *c, int where) {
     for (j = 1; j < c->argc-1; j++) {
         o = lookupKeyWrite(c->db,c->argv[j]);
         if (o != NULL) {
-            if (o->type != OBJ_LIST) {
-                addReply(c,shared.wrongtypeerr);
+            if (checkType(c,o,OBJ_LIST)) {
                 return;
             } else {
                 if (listTypeLength(o) != 0) {
@@ -708,7 +823,7 @@ void blockingPopGenericCommand(client *c, int where) {
                         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",
                                             c->argv[j],c->db->id);
                     }
-                    signalModifiedKey(c->db,c->argv[j]);
+                    signalModifiedKey(c,c->db,c->argv[j]);
                     server.dirty++;
 
                     /* Replicate it as an [LR]POP instead of B[LR]POP. */
@@ -747,6 +862,7 @@ void brpoplpushCommand(client *c) {
         != C_OK) return;
 
     robj *key = lookupKeyWrite(c->db, c->argv[1]);
+    if (checkType(c,key,OBJ_LIST)) return;
 
     if (key == NULL) {
         if (c->flags & CLIENT_MULTI) {
@@ -758,13 +874,9 @@ void brpoplpushCommand(client *c) {
             blockForKeys(c,BLOCKED_LIST,c->argv + 1,1,timeout,c->argv[2],NULL);
         }
     } else {
-        if (key->type != OBJ_LIST) {
-            addReply(c, shared.wrongtypeerr);
-        } else {
-            /* The list exists and has elements, so
-             * the regular rpoplpushCommand is executed. */
-            serverAssertWithInfo(c,key,listTypeLength(key) > 0);
-            rpoplpushCommand(c);
-        }
+        /* The list exists and has elements, so
+         * the regular rpoplpushCommand is executed. */
+        serverAssertWithInfo(c,key,listTypeLength(key) > 0);
+        rpoplpushCommand(c);
     }
 }

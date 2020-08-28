@@ -85,8 +85,12 @@ connection *connCreateSocket() {
 /* Create a new socket-type connection that is already associated with
  * an accepted connection.
  *
- * The socket is not read for I/O until connAccept() was called and
+ * The socket is not ready for I/O until connAccept() was called and
  * invoked the connection-level accept handler.
+ *
+ * Callers should use connGetState() and verify the created connection
+ * is not in an error state (which is not possible for a socket connection,
+ * but could but possible with other protocols).
  */
 connection *connCreateAcceptedSocket(int fd) {
     connection *conn = connCreateSocket();
@@ -152,7 +156,7 @@ static void connSocketClose(connection *conn) {
     /* If called from within a handler, schedule the close but
      * keep the connection until the handler returns.
      */
-    if (conn->flags & CONN_FLAG_IN_HANDLER) {
+    if (connHasRefs(conn)) {
         conn->flags |= CONN_FLAG_CLOSE_SCHEDULED;
         return;
     }
@@ -183,10 +187,16 @@ static int connSocketRead(connection *conn, void *buf, size_t buf_len) {
 }
 
 static int connSocketAccept(connection *conn, ConnectionCallbackFunc accept_handler) {
+    int ret = C_OK;
+
     if (conn->state != CONN_STATE_ACCEPTING) return C_ERR;
     conn->state = CONN_STATE_CONNECTED;
-    if (!callHandler(conn, accept_handler)) return C_ERR;
-    return C_OK;
+
+    connIncrRefs(conn);
+    if (!callHandler(conn, accept_handler)) ret = C_ERR;
+    connDecrRefs(conn);
+
+    return ret;
 }
 
 /* Register a write handler, to be called when the connection is writable.
@@ -319,6 +329,11 @@ static ssize_t connSocketSyncReadLine(connection *conn, char *ptr, ssize_t size,
     return syncReadLine(conn->fd, ptr, size, timeout);
 }
 
+static int connSocketGetType(connection *conn) {
+    (void) conn;
+
+    return CONN_TYPE_SOCKET;
+}
 
 ConnectionType CT_Socket = {
     .ae_handler = connSocketEventHandler,
@@ -333,7 +348,8 @@ ConnectionType CT_Socket = {
     .blocking_connect = connSocketBlockingConnect,
     .sync_write = connSocketSyncWrite,
     .sync_read = connSocketSyncRead,
-    .sync_readline = connSocketSyncReadLine
+    .sync_readline = connSocketSyncReadLine,
+    .get_type = connSocketGetType
 };
 
 

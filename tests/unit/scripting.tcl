@@ -146,6 +146,17 @@ start_server {tags {"scripting"}} {
         set e
     } {*not allowed*}
 
+    test {EVAL - Scripts can't run XREAD and XREADGROUP with BLOCK option} {
+        r del s
+        r xgroup create s g $ MKSTREAM
+        set res [r eval {return redis.pcall('xread','STREAMS','s','$')} 1 s]
+        assert {$res eq {}}
+        assert_error "*xread command is not allowed with BLOCK option from scripts" {r eval {return redis.pcall('xread','BLOCK',0,'STREAMS','s','$')} 1 s}
+        set res [r eval {return redis.pcall('xreadgroup','group','g','c','STREAMS','s','>')} 1 s]
+        assert {$res eq {}}
+        assert_error "*xreadgroup command is not allowed with BLOCK option from scripts" {r eval {return redis.pcall('xreadgroup','group','g','c','BLOCK',0,'STREAMS','s','>')} 1 s}
+    }
+
     test {EVAL - Scripts can't run certain commands} {
         set e {}
         r debug lua-always-replicate-commands 0
@@ -741,3 +752,8 @@ start_server {tags {"scripting repl"}} {
     }
 }
 
+start_server {tags {"scripting"}} {
+    r script debug sync
+    r eval {return 'hello'} 0
+    r eval {return 'hello'} 0
+}

@@ -30,6 +30,7 @@
 #include "server.h"
 #include "sha256.h"
 #include <fcntl.h>
+#include <ctype.h>
 
 /* =============================================================================
  * Global state for ACLs
@@ -49,6 +50,8 @@ list *UsersToLoad;  /* This is a list of users found in the configuration file
                        array of SDS pointers: the first is the user name,
                        all the remaining pointers are ACL rules in the same
                        format as ACLSetUser(). */
+list *ACLLog;       /* Our security log, the user is able to inspect that
+                       using the ACL LOG command .*/
 
 struct ACLCategoryItem {
     const char *name;
@@ -93,6 +96,7 @@ struct ACLUserFlag {
 void ACLResetSubcommandsForCommand(user *u, unsigned long id);
 void ACLResetSubcommands(user *u);
 void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub);
+void ACLFreeLogEntry(void *le);
 
 /* The length of the string representation of a hashed password. */
 #define HASH_PASSWORD_LEN SHA256_BLOCK_SIZE*2
@@ -162,9 +166,40 @@ sds ACLHashPassword(unsigned char *cleartext, size_t len) {
     return sdsnewlen(hex,HASH_PASSWORD_LEN);
 }
 
+/* Given a hash and the hash length, returns C_OK if it is a valid password 
+ * hash, or C_ERR otherwise. */
+int ACLCheckPasswordHash(unsigned char *hash, int hashlen) {
+    if (hashlen != HASH_PASSWORD_LEN) {
+        return C_ERR;      
+    }
+ 
+    /* Password hashes can only be characters that represent
+     * hexadecimal values, which are numbers and lowercase 
+     * characters 'a' through 'f'. */
+    for(int i = 0; i < HASH_PASSWORD_LEN; i++) {
+        char c = hash[i];
+        if ((c < 'a' || c > 'f') && (c < '0' || c > '9')) {
+            return C_ERR;
+        }
+    }
+    return C_OK;
+}
+
 /* =============================================================================
  * Low level ACL API
  * ==========================================================================*/
+
+/* Return 1 if the specified string contains spaces or null characters.
+ * We do this for usernames and key patterns for simpler rewriting of
+ * ACL rules, presentation on ACL list, and to avoid subtle security bugs
+ * that may arise from parsing the rules in presence of escapes.
+ * The function returns 0 if the string has no spaces. */
+int ACLStringHasSpaces(const char *s, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+        if (isspace(s[i]) || s[i] == 0) return 1;
+    }
+    return 0;
+}
 
 /* Given the category name the command returns the corresponding flag, or
  * zero if there is no match. */
@@ -340,12 +375,13 @@ int ACLUserCanExecuteFutureCommands(user *u) {
  * to skip the command bit explicit test. */
 void ACLSetUserCommandBit(user *u, unsigned long id, int value) {
     uint64_t word, bit;
-    if (value == 0) u->flags &= ~USER_FLAG_ALLCOMMANDS;
     if (ACLGetCommandBitCoordinates(id,&word,&bit) == C_ERR) return;
-    if (value)
+    if (value) {
         u->allowed_commands[word] |= bit;
-    else
+    } else {
         u->allowed_commands[word] &= ~bit;
+        u->flags &= ~USER_FLAG_ALLCOMMANDS;
+    }
 }
 
 /* This is like ACLSetUserCommandBit(), but instead of setting the specified
@@ -687,7 +723,8 @@ void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub) {
  *
  * When an error is returned, errno is set to the following values:
  *
- * EINVAL: The specified opcode is not understood.
+ * EINVAL: The specified opcode is not understood or the key pattern is
+ *         invalid (contains non allowed characters).
  * ENOENT: The command name or command category provided with + or - is not
  *         known.
  * EBUSY:  The subcommand you want to add is about a command that is currently
@@ -695,10 +732,11 @@ void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub) {
  * EEXIST: You are adding a key pattern after "*" was already added. This is
  *         almost surely an error on the user side.
  * ENODEV: The password you are trying to remove from the user does not exist.
- * EBADMSG: The hash you are trying to add is not a valid hash. 
+ * EBADMSG: The hash you are trying to add is not a valid hash.
  */
 int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     if (oplen == -1) oplen = strlen(op);
+    if (oplen == 0) return C_OK; /* Empty string is a no-operation. */
     if (!strcasecmp(op,"on")) {
         u->flags |= USER_FLAG_ENABLED;
         u->flags &= ~USER_FLAG_DISABLED;
@@ -736,21 +774,9 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         if (op[0] == '>') {
             newpass = ACLHashPassword((unsigned char*)op+1,oplen-1);
         } else {
-            if (oplen != HASH_PASSWORD_LEN + 1) {
+            if (ACLCheckPasswordHash((unsigned char*)op+1,oplen-1) == C_ERR) {
                 errno = EBADMSG;
                 return C_ERR;
-            }
-
-            /* Password hashes can only be characters that represent
-             * hexadecimal values, which are numbers and lowercase
-             * characters 'a' through 'f'.
-             */
-            for(int i = 1; i < HASH_PASSWORD_LEN + 1; i++) {
-                char c = op[i];
-                if ((c < 'a' || c > 'f') && (c < '0' || c > '9')) {
-                    errno = EBADMSG;
-                    return C_ERR;
-                }
             }
             newpass = sdsnewlen(op+1,oplen-1);
         }
@@ -767,7 +793,7 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         if (op[0] == '<') {
             delpass = ACLHashPassword((unsigned char*)op+1,oplen-1);
         } else {
-            if (oplen != HASH_PASSWORD_LEN + 1) {
+            if (ACLCheckPasswordHash((unsigned char*)op+1,oplen-1) == C_ERR) {
                 errno = EBADMSG;
                 return C_ERR;
             }
@@ -784,6 +810,10 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     } else if (op[0] == '~') {
         if (u->flags & USER_FLAG_ALLKEYS) {
             errno = EEXIST;
+            return C_ERR;
+        }
+        if (ACLStringHasSpaces(op+1,oplen-1)) {
+            errno = EINVAL;
             return C_ERR;
         }
         sds newpat = sdsnewlen(op+1,oplen-1);
@@ -817,7 +847,6 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
                 errno = ENOENT;
                 return C_ERR;
             }
-            unsigned long id = ACLGetCommandID(copy);
 
             /* The subcommand cannot be empty, so things like DEBUG|
              * are syntax errors of course. */
@@ -830,6 +859,7 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
             /* The command should not be set right now in the command
              * bitmap, because adding a subcommand of a fully added
              * command is probably an error on the user side. */
+            unsigned long id = ACLGetCommandID(copy);
             if (ACLGetUserCommandBit(u,id) == 1) {
                 zfree(copy);
                 errno = EBUSY;
@@ -896,16 +926,6 @@ char *ACLSetUserStringError(void) {
     return errmsg;
 }
 
-/* Return the first password of the default user or NULL.
- * This function is needed for backward compatibility with the old
- * directive "requirepass" when Redis supported a single global
- * password. */
-sds ACLDefaultUserFirstPassword(void) {
-    if (listLength(DefaultUser->passwords) == 0) return NULL;
-    listNode *first = listFirst(DefaultUser->passwords);
-    return listNodeValue(first);
-}
-
 /* Initialize the default user, that will always exist for all the process
  * lifetime. */
 void ACLInitDefaultUser(void) {
@@ -920,7 +940,9 @@ void ACLInitDefaultUser(void) {
 void ACLInit(void) {
     Users = raxNew();
     UsersToLoad = listCreate();
+    ACLLog = listCreate();
     ACLInitDefaultUser();
+    server.requirepass = NULL; /* Only used for backward compatibility. */
 }
 
 /* Check the username and password pair and return C_OK if they are valid,
@@ -978,6 +1000,7 @@ int ACLAuthenticateUser(client *c, robj *username, robj *password) {
         moduleNotifyUserChanged(c);
         return C_OK;
     } else {
+        addACLLogEntry(c,ACL_DENIED_AUTH,0,username->ptr);
         return C_ERR;
     }
 }
@@ -1034,7 +1057,7 @@ user *ACLGetUserByName(const char *name, size_t namelen) {
  * command cannot be executed because the user is not allowed to run such
  * command, the second if the command is denied because the user is trying
  * to access keys that are not among the specified patterns. */
-int ACLCheckCommandPerm(client *c) {
+int ACLCheckCommandPerm(client *c, int *keyidxptr) {
     user *u = c->user;
     uint64_t id = c->cmd->id;
 
@@ -1094,6 +1117,7 @@ int ACLCheckCommandPerm(client *c) {
                 }
             }
             if (!match) {
+                if (keyidxptr) *keyidxptr = keyidx[j];
                 getKeysFreeResult(keyidx);
                 return ACL_DENIED_KEY;
             }
@@ -1167,6 +1191,12 @@ int ACLLoadConfiguredUsers(void) {
     while ((ln = listNext(&li)) != NULL) {
         sds *aclrules = listNodeValue(ln);
         sds username = aclrules[0];
+
+        if (ACLStringHasSpaces(aclrules[0],sdslen(aclrules[0]))) {
+            serverLog(LL_WARNING,"Spaces not allowed in ACL usernames");
+            return C_ERR;
+        }
+
         user *u = ACLCreateUser(username,sdslen(username));
         if (!u) {
             u = ACLGetUserByName(username,sdslen(username));
@@ -1268,7 +1298,7 @@ sds ACLLoadFromFile(const char *filename) {
         if (lines[i][0] == '\0') continue;
 
         /* Split into arguments */
-        argv = sdssplitargs(lines[i],&argc);
+        argv = sdssplitlen(lines[i],sdslen(lines[i])," ",1,&argc);
         if (argv == NULL) {
             errors = sdscatprintf(errors,
                      "%s:%d: unbalanced quotes in acl line. ",
@@ -1292,11 +1322,23 @@ sds ACLLoadFromFile(const char *filename) {
             continue;
         }
 
-        /* Try to process the line using the fake user to validate iif
-         * the rules are able to apply cleanly. */
+        /* Spaces are not allowed in usernames. */
+        if (ACLStringHasSpaces(argv[1],sdslen(argv[1]))) {
+            errors = sdscatprintf(errors,
+                     "'%s:%d: username '%s' contains invalid characters. ",
+                     server.acl_filename, linenum, argv[1]);
+            sdsfreesplitres(argv,argc);
+            continue;
+        }
+
+        /* Try to process the line using the fake user to validate if
+         * the rules are able to apply cleanly. At this stage we also
+         * trim trailing spaces, so that we don't have to handle that
+         * in ACLSetUser(). */
         ACLSetUser(fakeuser,"reset",-1);
         int j;
         for (j = 2; j < argc; j++) {
+            argv[j] = sdstrim(argv[j],"\t\r\n");
             if (ACLSetUser(fakeuser,argv[j],sdslen(argv[j])) != C_OK) {
                 char *errmsg = ACLSetUserStringError();
                 errors = sdscatprintf(errors,
@@ -1455,25 +1497,159 @@ void ACLLoadUsersAtStartup(void) {
 }
 
 /* =============================================================================
+ * ACL log
+ * ==========================================================================*/
+
+#define ACL_LOG_CTX_TOPLEVEL 0
+#define ACL_LOG_CTX_LUA 1
+#define ACL_LOG_CTX_MULTI 2
+#define ACL_LOG_GROUPING_MAX_TIME_DELTA 60000
+
+/* This structure defines an entry inside the ACL log. */
+typedef struct ACLLogEntry {
+    uint64_t count;     /* Number of times this happened recently. */
+    int reason;         /* Reason for denying the command. ACL_DENIED_*. */
+    int context;        /* Toplevel, Lua or MULTI/EXEC? ACL_LOG_CTX_*. */
+    sds object;         /* The key name or command name. */
+    sds username;       /* User the client is authenticated with. */
+    mstime_t ctime;     /* Milliseconds time of last update to this entry. */
+    sds cinfo;          /* Client info (last client if updated). */
+} ACLLogEntry;
+
+/* This function will check if ACL entries 'a' and 'b' are similar enough
+ * that we should actually update the existing entry in our ACL log instead
+ * of creating a new one. */
+int ACLLogMatchEntry(ACLLogEntry *a, ACLLogEntry *b) {
+    if (a->reason != b->reason) return 0;
+    if (a->context != b->context) return 0;
+    mstime_t delta = a->ctime - b->ctime;
+    if (delta < 0) delta = -delta;
+    if (delta > ACL_LOG_GROUPING_MAX_TIME_DELTA) return 0;
+    if (sdscmp(a->object,b->object) != 0) return 0;
+    if (sdscmp(a->username,b->username) != 0) return 0;
+    return 1;
+}
+
+/* Release an ACL log entry. */
+void ACLFreeLogEntry(void *leptr) {
+    ACLLogEntry *le = leptr;
+    sdsfree(le->object);
+    sdsfree(le->username);
+    sdsfree(le->cinfo);
+    zfree(le);
+}
+
+/* Adds a new entry in the ACL log, making sure to delete the old entry
+ * if we reach the maximum length allowed for the log. This function attempts
+ * to find similar entries in the current log in order to bump the counter of
+ * the log entry instead of creating many entries for very similar ACL
+ * rules issues.
+ *
+ * The keypos argument is only used when the reason is ACL_DENIED_KEY, since
+ * it allows the function to log the key name that caused the problem.
+ * Similarly the username is only passed when we failed to authenticate the
+ * user with AUTH or HELLO, for the ACL_DENIED_AUTH reason. Otherwise
+ * it will just be NULL.
+ */
+void addACLLogEntry(client *c, int reason, int keypos, sds username) {
+    /* Create a new entry. */
+    struct ACLLogEntry *le = zmalloc(sizeof(*le));
+    le->count = 1;
+    le->reason = reason;
+    le->username = sdsdup(reason == ACL_DENIED_AUTH ? username : c->user->name);
+    le->ctime = mstime();
+
+    switch(reason) {
+    case ACL_DENIED_CMD: le->object = sdsnew(c->cmd->name); break;
+    case ACL_DENIED_KEY: le->object = sdsnew(c->argv[keypos]->ptr); break;
+    case ACL_DENIED_AUTH: le->object = sdsnew(c->argv[0]->ptr); break;
+    default: le->object = sdsempty();
+    }
+
+    client *realclient = c;
+    if (realclient->flags & CLIENT_LUA) realclient = server.lua_caller;
+
+    le->cinfo = catClientInfoString(sdsempty(),realclient);
+    if (c->flags & CLIENT_MULTI) {
+        le->context = ACL_LOG_CTX_MULTI;
+    } else if (c->flags & CLIENT_LUA) {
+        le->context = ACL_LOG_CTX_LUA;
+    } else {
+        le->context = ACL_LOG_CTX_TOPLEVEL;
+    }
+
+    /* Try to match this entry with past ones, to see if we can just
+     * update an existing entry instead of creating a new one. */
+    long toscan = 10; /* Do a limited work trying to find duplicated. */
+    listIter li;
+    listNode *ln;
+    listRewind(ACLLog,&li);
+    ACLLogEntry *match = NULL;
+    while (toscan-- && (ln = listNext(&li)) != NULL) {
+        ACLLogEntry *current = listNodeValue(ln);
+        if (ACLLogMatchEntry(current,le)) {
+            match = current;
+            listDelNode(ACLLog,ln);
+            listAddNodeHead(ACLLog,current);
+            break;
+        }
+    }
+
+    /* If there is a match update the entry, otherwise add it as a
+     * new one. */
+    if (match) {
+        /* We update a few fields of the existing entry and bump the
+         * counter of events for this entry. */
+        sdsfree(match->cinfo);
+        match->cinfo = le->cinfo;
+        match->ctime = le->ctime;
+        match->count++;
+
+        /* Release the old entry. */
+        le->cinfo = NULL;
+        ACLFreeLogEntry(le);
+    } else {
+        /* Add it to our list of entires. We'll have to trim the list
+         * to its maximum size. */
+        listAddNodeHead(ACLLog, le);
+        while(listLength(ACLLog) > server.acllog_max_len) {
+            listNode *ln = listLast(ACLLog);
+            ACLLogEntry *le = listNodeValue(ln);
+            ACLFreeLogEntry(le);
+            listDelNode(ACLLog,ln);
+        }
+    }
+}
+
+/* =============================================================================
  * ACL related commands
  * ==========================================================================*/
 
 /* ACL -- show and modify the configuration of ACL users.
  * ACL HELP
  * ACL LOAD
+ * ACL SAVE
  * ACL LIST
  * ACL USERS
  * ACL CAT [<category>]
  * ACL SETUSER <username> ... acl rules ...
  * ACL DELUSER <username> [...]
  * ACL GETUSER <username>
- * ACL GENPASS
+ * ACL GENPASS [<bits>]
  * ACL WHOAMI
+ * ACL LOG [<count> | RESET]
  */
 void aclCommand(client *c) {
     char *sub = c->argv[1]->ptr;
     if (!strcasecmp(sub,"setuser") && c->argc >= 3) {
         sds username = c->argv[2]->ptr;
+        /* Check username validity. */
+        if (ACLStringHasSpaces(username,sdslen(username))) {
+            addReplyErrorFormat(c,
+                "Usernames can't contain spaces or null characters");
+            return;
+        }
+
         /* Create a temporary user to validate and stage all changes against
          * before applying to an existing user or creating a new user. If all
          * arguments are valid the user parameters will all be applied together.
@@ -1651,22 +1827,105 @@ void aclCommand(client *c) {
         }
         dictReleaseIterator(di);
         setDeferredArrayLen(c,dl,arraylen);
-    } else if (!strcasecmp(sub,"genpass") && c->argc == 2) {
-        char pass[32]; /* 128 bits of actual pseudo random data. */
-        getRandomHexChars(pass,sizeof(pass));
-        addReplyBulkCBuffer(c,pass,sizeof(pass));
-    } else if (!strcasecmp(sub,"help")) {
+    } else if (!strcasecmp(sub,"genpass") && (c->argc == 2 || c->argc == 3)) {
+        #define GENPASS_MAX_BITS 4096
+        char pass[GENPASS_MAX_BITS/8*2]; /* Hex representation. */
+        long bits = 256; /* By default generate 256 bits passwords. */
+
+        if (c->argc == 3 && getLongFromObjectOrReply(c,c->argv[2],&bits,NULL)
+            != C_OK) return;
+
+        if (bits <= 0 || bits > GENPASS_MAX_BITS) {
+            addReplyErrorFormat(c,
+                "ACL GENPASS argument must be the number of "
+                "bits for the output password, a positive number "
+                "up to %d",GENPASS_MAX_BITS);
+            return;
+        }
+
+        long chars = (bits+3)/4; /* Round to number of characters to emit. */
+        getRandomHexChars(pass,chars);
+        addReplyBulkCBuffer(c,pass,chars);
+    } else if (!strcasecmp(sub,"log") && (c->argc == 2 || c->argc ==3)) {
+        long count = 10; /* Number of entries to emit by default. */
+
+        /* Parse the only argument that LOG may have: it could be either
+         * the number of entries the user wants to display, or alternatively
+         * the "RESET" command in order to flush the old entries. */
+        if (c->argc == 3) {
+            if (!strcasecmp(c->argv[2]->ptr,"reset")) {
+                listSetFreeMethod(ACLLog,ACLFreeLogEntry);
+                listEmpty(ACLLog);
+                listSetFreeMethod(ACLLog,NULL);
+                addReply(c,shared.ok);
+                return;
+            } else if (getLongFromObjectOrReply(c,c->argv[2],&count,NULL)
+                       != C_OK)
+            {
+                return;
+            }
+            if (count < 0) count = 0;
+        }
+
+        /* Fix the count according to the number of entries we got. */
+        if ((size_t)count > listLength(ACLLog))
+            count = listLength(ACLLog);
+
+        addReplyArrayLen(c,count);
+        listIter li;
+        listNode *ln;
+        listRewind(ACLLog,&li);
+        mstime_t now = mstime();
+        while (count-- && (ln = listNext(&li)) != NULL) {
+            ACLLogEntry *le = listNodeValue(ln);
+            addReplyMapLen(c,7);
+            addReplyBulkCString(c,"count");
+            addReplyLongLong(c,le->count);
+
+            addReplyBulkCString(c,"reason");
+            char *reasonstr;
+            switch(le->reason) {
+            case ACL_DENIED_CMD: reasonstr="command"; break;
+            case ACL_DENIED_KEY: reasonstr="key"; break;
+            case ACL_DENIED_AUTH: reasonstr="auth"; break;
+            default: reasonstr="unknown";
+            }
+            addReplyBulkCString(c,reasonstr);
+
+            addReplyBulkCString(c,"context");
+            char *ctxstr;
+            switch(le->context) {
+            case ACL_LOG_CTX_TOPLEVEL: ctxstr="toplevel"; break;
+            case ACL_LOG_CTX_MULTI: ctxstr="multi"; break;
+            case ACL_LOG_CTX_LUA: ctxstr="lua"; break;
+            default: ctxstr="unknown";
+            }
+            addReplyBulkCString(c,ctxstr);
+
+            addReplyBulkCString(c,"object");
+            addReplyBulkCBuffer(c,le->object,sdslen(le->object));
+            addReplyBulkCString(c,"username");
+            addReplyBulkCBuffer(c,le->username,sdslen(le->username));
+            addReplyBulkCString(c,"age-seconds");
+            double age = (double)(now - le->ctime)/1000;
+            addReplyDouble(c,age);
+            addReplyBulkCString(c,"client-info");
+            addReplyBulkCBuffer(c,le->cinfo,sdslen(le->cinfo));
+        }
+    } else if (c->argc == 2 && !strcasecmp(sub,"help")) {
         const char *help[] = {
-"LOAD                              -- Reload users from the ACL file.",
-"LIST                              -- Show user details in config file format.",
-"USERS                             -- List all the registered usernames.",
-"SETUSER <username> [attribs ...]  -- Create or modify a user.",
-"GETUSER <username>                -- Get the user details.",
-"DELUSER <username> [...]          -- Delete a list of users.",
-"CAT                               -- List available categories.",
-"CAT <category>                    -- List commands inside category.",
-"GENPASS                           -- Generate a secure user password.",
-"WHOAMI                            -- Return the current connection username.",
+"LOAD                             -- Reload users from the ACL file.",
+"SAVE                             -- Save the current config to the ACL file.",
+"LIST                             -- Show user details in config file format.",
+"USERS                            -- List all the registered usernames.",
+"SETUSER <username> [attribs ...] -- Create or modify a user.",
+"GETUSER <username>               -- Get the user details.",
+"DELUSER <username> [...]         -- Delete a list of users.",
+"CAT                              -- List available categories.",
+"CAT <category>                   -- List commands inside category.",
+"GENPASS [<bits>]                 -- Generate a secure user password.",
+"WHOAMI                           -- Return the current connection username.",
+"LOG [<count> | RESET]            -- Show the ACL log entries.",
 NULL
         };
         addReplyHelp(c,help);
@@ -1722,7 +1981,7 @@ void authCommand(client *c) {
     if (ACLAuthenticateUser(c,username,password) == C_OK) {
         addReply(c,shared.ok);
     } else {
-        addReplyError(c,"-WRONGPASS invalid username-password pair");
+        addReplyError(c,"-WRONGPASS invalid username-password pair or user is disabled.");
     }
 
     /* Free the "default" string object we created for the two

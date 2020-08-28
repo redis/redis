@@ -82,10 +82,10 @@ sds keyspaceEventsFlagsToString(int flags) {
         if (flags & NOTIFY_EXPIRED) res = sdscatlen(res,"x",1);
         if (flags & NOTIFY_EVICTED) res = sdscatlen(res,"e",1);
         if (flags & NOTIFY_STREAM) res = sdscatlen(res,"t",1);
-        if (flags & NOTIFY_KEY_MISS) res = sdscatlen(res,"m",1);
     }
     if (flags & NOTIFY_KEYSPACE) res = sdscatlen(res,"K",1);
     if (flags & NOTIFY_KEYEVENT) res = sdscatlen(res,"E",1);
+    if (flags & NOTIFY_KEY_MISS) res = sdscatlen(res,"m",1);
     return res;
 }
 

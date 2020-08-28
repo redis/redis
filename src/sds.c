@@ -97,11 +97,11 @@ sds sdsnewlen(const void *init, size_t initlen) {
     unsigned char *fp; /* flags pointer. */
 
     sh = s_malloc(hdrlen+initlen+1);
+    if (sh == NULL) return NULL;
     if (init==SDS_NOINIT)
         init = NULL;
     else if (!init)
         memset(sh, 0, hdrlen+initlen+1);
-    if (sh == NULL) return NULL;
     s = (char*)sh+hdrlen;
     fp = ((unsigned char*)s)-1;
     switch(type) {
@@ -756,8 +756,6 @@ void sdsrange(sds s, ssize_t start, ssize_t end) {
             end = len-1;
             newlen = (start > end) ? 0 : (end-start)+1;
         }
-    } else {
-        start = 0;
     }
     if (start && newlen) memmove(s, s+start, newlen);
     s[newlen] = 0;

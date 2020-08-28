@@ -1,6 +1,8 @@
 /* Rax -- A radix tree implementation.
  *
- * Copyright (c) 2017-2018, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Version 1.2 -- 7 February 2019
+ *
+ * Copyright (c) 2017-2019, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -485,8 +487,8 @@ static inline size_t raxLowWalk(rax *rax, unsigned char *s, size_t len, raxNode 
         if (h->iscompr) j = 0; /* Compressed node only child is at index 0. */
         memcpy(&h,children+j,sizeof(h));
         parentlink = children+j;
-        j = 0; /* If the new node is compressed and we do not
-                  iterate again (since i == l) set the split
+        j = 0; /* If the new node is non compressed and we do not
+                  iterate again (since i == len) set the split
                   position to 0 to signal this node represents
                   the searched key. */
     }
@@ -552,7 +554,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
      *
      * Splitting a compressed node have a few possible cases.
      * Imagine that the node 'h' we are currently at is a compressed
-     * node contaning the string "ANNIBALE" (it means that it represents
+     * node containing the string "ANNIBALE" (it means that it represents
      * nodes A -> N -> N -> I -> B -> A -> L -> E with the only child
      * pointer of this node pointing at the 'E' node, because remember that
      * we have characters at the edges of the graph, not inside the nodes
@@ -1737,7 +1739,7 @@ int raxRandomWalk(raxIterator *it, size_t steps) {
     }
 
     if (steps == 0) {
-        size_t fle = floor(log(it->rt->numele));
+        size_t fle = 1+floor(log(it->rt->numele));
         fle *= 2;
         steps = 1 + rand() % fle;
     }
@@ -1766,6 +1768,7 @@ int raxRandomWalk(raxIterator *it, size_t steps) {
         if (n->iskey) steps--;
     }
     it->node = n;
+    it->data = raxGetData(it->node);
     return 1;
 }
 
