@@ -28,6 +28,7 @@
  */
 
 #include "server.h"
+#include "monotonic.h"
 #include "cluster.h"
 #include "slowlog.h"
 #include "bio.h"
@@ -2874,6 +2875,8 @@ void initServer(void) {
 
     createSharedObjects();
     adjustOpenFilesLimit();
+    const char *clk_msg = monotonicInit();
+    serverLog(LL_NOTICE, "monotonic clock: %s", clk_msg);
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
     if (server.el == NULL) {
         serverLog(LL_WARNING,
