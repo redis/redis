@@ -17,7 +17,14 @@ proc check_valgrind_errors stderr {
     set buf [read $fd]
     close $fd
 
+    # look for stack trace and other errors, or the absense of a leak free summary
     if {[regexp -- { at 0x} $buf] ||
+        [regexp -- {Warning} $buf] ||
+        [regexp -- {Invalid} $buf] ||
+        [regexp -- {Mismatched} $buf] ||
+        [regexp -- {uninitialized} $buf] ||
+        [regexp -- {has a fishy} $buf] ||
+        [regexp -- {overlap} $buf] ||
         (![regexp -- {definitely lost: 0 bytes} $buf] &&
          ![regexp -- {no leaks are possible} $buf])} {
         send_data_packet $::test_server_fd err "Valgrind error: $buf\n"
@@ -29,7 +36,13 @@ proc kill_server config {
     if {$::external} return
 
     # nevermind if its already dead
-    if {![is_alive $config]} { return }
+    if {![is_alive $config]} {
+        # Check valgrind errors if needed
+        if {$::valgrind} {
+            check_valgrind_errors [dict get $config stderr]
+        }
+        return
+    }
     set pid [dict get $config pid]
 
     # check for leaks
@@ -53,6 +66,7 @@ proc kill_server config {
     }
 
     # kill server and wait for the process to be totally exited
+    send_data_packet $::test_server_fd server-killing $pid
     catch {exec kill $pid}
     if {$::valgrind} {
         set max_wait 60000
@@ -92,7 +106,11 @@ proc is_alive config {
 proc ping_server {host port} {
     set retval 0
     if {[catch {
-        set fd [socket $host $port]
+        if {$::tls} {
+            set fd [::tls::socket $host $port] 
+        } else {
+            set fd [socket $host $port]
+        }
         fconfigure $fd -translation binary
         puts $fd "PING\r\n"
         flush $fd
@@ -137,6 +155,66 @@ proc tags {tags code} {
     set ::tags [lrange $::tags 0 end-[llength $tags]]
 }
 
+# Write the configuration in the dictionary 'config' in the specified
+# file name.
+proc create_server_config_file {filename config} {
+    set fp [open $filename w+]
+    foreach directive [dict keys $config] {
+        puts -nonewline $fp "$directive "
+        puts $fp [dict get $config $directive]
+    }
+    close $fp
+}
+
+proc spawn_server {config_file stdout stderr} {
+    if {$::valgrind} {
+        set pid [exec valgrind --track-origins=yes --trace-children=yes --suppressions=[pwd]/src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full src/redis-server $config_file >> $stdout 2>> $stderr &]
+    } elseif ($::stack_logging) {
+        set pid [exec /usr/bin/env MallocStackLogging=1 MallocLogFile=/tmp/malloc_log.txt src/redis-server $config_file >> $stdout 2>> $stderr &]
+    } else {
+        set pid [exec src/redis-server $config_file >> $stdout 2>> $stderr &]
+    }
+
+    if {$::wait_server} {
+        set msg "server started PID: $pid. press any key to continue..."
+        puts $msg
+        read stdin 1
+    }
+
+    # Tell the test server about this new instance.
+    send_data_packet $::test_server_fd server-spawned $pid
+    return $pid
+}
+
+# Wait for actual startup, return 1 if port is busy, 0 otherwise
+proc wait_server_started {config_file stdout pid} {
+    set checkperiod 100; # Milliseconds
+    set maxiter [expr {120*1000/$checkperiod}] ; # Wait up to 2 minutes.
+    set port_busy 0
+    while 1 {
+        if {[regexp -- " PID: $pid" [exec cat $stdout]]} {
+            break
+        }
+        after $checkperiod
+        incr maxiter -1
+        if {$maxiter == 0} {
+            start_server_error $config_file "No PID detected in log $stdout"
+            puts "--- LOG CONTENT ---"
+            puts [exec cat $stdout]
+            puts "-------------------"
+            break
+        }
+
+        # Check if the port is actually busy and the server failed
+        # for this reason.
+        if {[regexp {Could not create server TCP} [exec cat $stdout]]} {
+            set port_busy 1
+            break
+        }
+    }
+    return $port_busy
+}
+
 proc start_server {options {code undefined}} {
     # If we are running against an external server, we just push the
     # host/port pair in the stack the first time
@@ -145,7 +223,7 @@ proc start_server {options {code undefined}} {
             set srv {}
             dict set srv "host" $::host
             dict set srv "port" $::port
-            set client [redis $::host $::port]
+            set client [redis $::host $::port 0 $::tls]
             dict set srv "client" $client
             $client select 9
 
@@ -178,6 +256,13 @@ proc start_server {options {code undefined}} {
 
     set data [split [exec cat "tests/assets/$baseconfig"] "\n"]
     set config {}
+    if {$::tls} {
+        dict set config "tls-cert-file" [format "%s/tests/tls/redis.crt" [pwd]]
+        dict set config "tls-key-file" [format "%s/tests/tls/redis.key" [pwd]]
+        dict set config "tls-dh-params-file" [format "%s/tests/tls/redis.dh" [pwd]]
+        dict set config "tls-ca-cert-file" [format "%s/tests/tls/ca.crt" [pwd]]
+        dict set config "loglevel" "debug"
+    }
     foreach line $data {
         if {[string length $line] > 0 && [string index $line 0] ne "#"} {
             set elements [split $line " "]
@@ -191,8 +276,18 @@ proc start_server {options {code undefined}} {
     dict set config dir [tmpdir server]
 
     # start every server on a different port
-    set ::port [find_available_port [expr {$::port+1}]]
-    dict set config port $::port
+    set port [find_available_port $::baseport $::portcount]
+    if {$::tls} {
+        dict set config "port" 0
+        dict set config "tls-port" $port
+        dict set config "tls-cluster" "yes"
+        dict set config "tls-replication" "yes"
+    } else {
+        dict set config port $port
+    }
+
+    set unixsocket [file normalize [format "%s/%s" [dict get $config "dir"] "socket"]]
+    dict set config "unixsocket" $unixsocket
 
     # apply overrides from global space and arguments
     foreach {directive arguments} [concat $::global_overrides $overrides] {
@@ -201,63 +296,65 @@ proc start_server {options {code undefined}} {
 
     # write new configuration to temporary file
     set config_file [tmpfile redis.conf]
-    set fp [open $config_file w+]
-    foreach directive [dict keys $config] {
-        puts -nonewline $fp "$directive "
-        puts $fp [dict get $config $directive]
-    }
-    close $fp
+    create_server_config_file $config_file $config
 
     set stdout [format "%s/%s" [dict get $config "dir"] "stdout"]
     set stderr [format "%s/%s" [dict get $config "dir"] "stderr"]
 
-    if {$::valgrind} {
-        set pid [exec valgrind --track-origins=yes --suppressions=src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full src/redis-server $config_file > $stdout 2> $stderr &]
-    } elseif ($::stack_logging) {
-        set pid [exec /usr/bin/env MallocStackLogging=1 MallocLogFile=/tmp/malloc_log.txt src/redis-server $config_file > $stdout 2> $stderr &]
-    } else {
-        set pid [exec src/redis-server $config_file > $stdout 2> $stderr &]
-    }
+    # We need a loop here to retry with different ports.
+    set server_started 0
+    while {$server_started == 0} {
+        if {$::verbose} {
+            puts -nonewline "=== ($tags) Starting server ${::host}:${port} "
+        }
 
-    # Tell the test server about this new instance.
-    send_data_packet $::test_server_fd server-spawned $pid
+        send_data_packet $::test_server_fd "server-spawning" "port $port"
 
-    # check that the server actually started
-    # ugly but tries to be as fast as possible...
-    if {$::valgrind} {set retrynum 1000} else {set retrynum 100}
+        set pid [spawn_server $config_file $stdout $stderr]
 
-    if {$::verbose} {
-        puts -nonewline "=== ($tags) Starting server ${::host}:${::port} "
-    }
+        # check that the server actually started
+        set port_busy [wait_server_started $config_file $stdout $pid]
 
-    if {$code ne "undefined"} {
-        set serverisup [server_is_up $::host $::port $retrynum]
-    } else {
-        set serverisup 1
-    }
+        # Sometimes we have to try a different port, even if we checked
+        # for availability. Other test clients may grab the port before we
+        # are able to do it for example.
+        if {$port_busy} {
+            puts "Port $port was already busy, trying another port..."
+            set port [find_available_port $::baseport $::portcount]
+            if {$::tls} {
+                dict set config "tls-port" $port
+            } else {
+                dict set config port $port
+            }
+            create_server_config_file $config_file $config
+            continue; # Try again
+        }
 
-    if {$::verbose} {
-        puts ""
-    }
+        if {$::valgrind} {set retrynum 1000} else {set retrynum 100}
+        if {$code ne "undefined"} {
+            set serverisup [server_is_up $::host $port $retrynum]
+        } else {
+            set serverisup 1
+        }
 
-    if {!$serverisup} {
-        set err {}
-        append err [exec cat $stdout] "\n" [exec cat $stderr]
-        start_server_error $config_file $err
-        return
-    }
+        if {$::verbose} {
+            puts ""
+        }
 
-    # Wait for actual startup
-    while {![info exists _pid]} {
-        regexp {PID:\s(\d+)} [exec cat $stdout] _ _pid
-        after 100
+        if {!$serverisup} {
+            set err {}
+            append err [exec cat $stdout] "\n" [exec cat $stderr]
+            start_server_error $config_file $err
+            return
+        }
+        set server_started 1
     }
 
     # setup properties to be able to initialize a client object
+    set port_param [expr $::tls ? {"tls-port"} : {"port"}]
     set host $::host
-    set port $::port
     if {[dict exists $config bind]} { set host [dict get $config bind] }
-    if {[dict exists $config port]} { set port [dict get $config port] }
+    if {[dict exists $config $port_param]} { set port [dict get $config $port_param] }
 
     # setup config dict
     dict set srv "config_file" $config_file
@@ -267,6 +364,7 @@ proc start_server {options {code undefined}} {
     dict set srv "port" $port
     dict set srv "stdout" $stdout
     dict set srv "stderr" $stderr
+    dict set srv "unixsocket" $unixsocket
 
     # if a block of code is supplied, we wait for the server to become
     # available, create a client object and kill the server afterwards
@@ -274,12 +372,6 @@ proc start_server {options {code undefined}} {
         set line [exec head -n1 $stdout]
         if {[string match {*already in use*} $line]} {
             error_and_quit $config_file $line
-        }
-
-        if {$::wait_server} {
-            set msg "server started PID: [dict get $srv "pid"]. press any key to continue..."
-            puts $msg
-            read stdin 1
         }
 
         while 1 {
@@ -301,6 +393,12 @@ proc start_server {options {code undefined}} {
         if {[catch { uplevel 1 $code } error]} {
             set backtrace $::errorInfo
 
+            # fetch srv back from the server list, in case it was restarted by restart_server (new PID)
+            set srv [lindex $::servers end]
+
+            # pop the server object
+            set ::servers [lrange $::servers 0 end-1]
+
             # Kill the server without checking for leaks
             dict set srv "skipleaks" 1
             kill_server $srv
@@ -318,6 +416,9 @@ proc start_server {options {code undefined}} {
             error $error $backtrace
         }
 
+        # fetch srv back from the server list, in case it was restarted by restart_server (new PID)
+        set srv [lindex $::servers end]
+
         # Don't do the leak check when no tests were run
         if {$num_tests == $::num_tests} {
             dict set srv "skipleaks" 1
@@ -332,4 +433,36 @@ proc start_server {options {code undefined}} {
         set ::tags [lrange $::tags 0 end-[llength $tags]]
         set _ $srv
     }
+}
+
+proc restart_server {level wait_ready} {
+    set srv [lindex $::servers end+$level]
+    kill_server $srv
+
+    set stdout [dict get $srv "stdout"]
+    set stderr [dict get $srv "stderr"]
+    set config_file [dict get $srv "config_file"]
+
+    set prev_ready_count [exec grep -i "Ready to accept" | wc -l < $stdout]
+
+    set pid [spawn_server $config_file $stdout $stderr]
+
+    # check that the server actually started
+    wait_server_started $config_file $stdout $pid
+
+    # update the pid in the servers list
+    dict set srv "pid" $pid
+    # re-set $srv in the servers list
+    lset ::servers end+$level $srv
+
+    if {$wait_ready} {
+        while 1 {
+            # check that the server actually started and is ready for connections
+            if {[exec grep -i "Ready to accept" | wc -l < $stdout] > $prev_ready_count + 1} {
+                break
+            }
+            after 10
+        }
+    }
+    reconnect $level
 }

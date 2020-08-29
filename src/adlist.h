@@ -66,7 +66,7 @@ typedef struct list {
 #define listSetMatchMethod(l,m) ((l)->match = (m))
 
 #define listGetDupMethod(l) ((l)->dup)
-#define listGetFree(l) ((l)->free)
+#define listGetFreeMethod(l) ((l)->free)
 #define listGetMatchMethod(l) ((l)->match)
 
 /* Prototypes */
@@ -85,7 +85,8 @@ listNode *listSearchKey(list *list, void *key);
 listNode *listIndex(list *list, long index);
 void listRewind(list *list, listIter *li);
 void listRewindTail(list *list, listIter *li);
-void listRotate(list *list);
+void listRotateTailToHead(list *list);
+void listRotateHeadToTail(list *list);
 void listJoin(list *l, list *o);
 
 /* Directions for iterators */

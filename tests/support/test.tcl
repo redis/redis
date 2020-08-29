@@ -11,22 +11,55 @@ proc fail {msg} {
 
 proc assert {condition} {
     if {![uplevel 1 [list expr $condition]]} {
-        error "assertion:Expected condition '$condition' to be true ([uplevel 1 [list subst -nocommands $condition]])"
+        set context "(context: [info frame -1])"
+        error "assertion:Expected [uplevel 1 [list subst -nocommands $condition]] $context"
+    }
+}
+
+proc assert_no_match {pattern value} {
+    if {[string match $pattern $value]} {
+        set context "(context: [info frame -1])"
+        error "assertion:Expected '$value' to not match '$pattern' $context"
     }
 }
 
 proc assert_match {pattern value} {
     if {![string match $pattern $value]} {
-        error "assertion:Expected '$value' to match '$pattern'"
+        set context "(context: [info frame -1])"
+        error "assertion:Expected '$value' to match '$pattern' $context"
     }
 }
 
-proc assert_equal {expected value {detail ""}} {
+proc assert_equal {value expected {detail ""}} {
     if {$expected ne $value} {
         if {$detail ne ""} {
-            set detail " (detail: $detail)"
+            set detail "(detail: $detail)"
+        } else {
+            set detail "(context: [info frame -1])"
         }
-        error "assertion:Expected '$value' to be equal to '$expected'$detail"
+        error "assertion:Expected '$value' to be equal to '$expected' $detail"
+    }
+}
+
+proc assert_lessthan {value expected {detail ""}} {
+    if {!($value < $expected)} {
+        if {$detail ne ""} {
+            set detail "(detail: $detail)"
+        } else {
+            set detail "(context: [info frame -1])"
+        }
+        error "assertion:Expected '$value' to be lessthan to '$expected' $detail"
+    }
+}
+
+proc assert_range {value min max {detail ""}} {
+    if {!($value <= $max && $value >= $min)} {
+        if {$detail ne ""} {
+            set detail "(detail: $detail)"
+        } else {
+            set detail "(context: [info frame -1])"
+        }
+        error "assertion:Expected '$value' to be between to '$min' and '$max' $detail"
     }
 }
 
@@ -120,6 +153,12 @@ proc test {name code {okpattern undefined}} {
 
             incr ::num_failed
             send_data_packet $::test_server_fd err [join $details "\n"]
+
+            if {$::stop_on_failure} {
+                puts "Test error (last server port:[srv port], log:[srv stdout]), press enter to teardown the test."
+                flush stdout
+                gets stdin
+            }
         } else {
             # Re-raise, let handler up the stack take care of this.
             error $error $::errorInfo

@@ -140,7 +140,8 @@ void slowlogReset(void) {
 /* The SLOWLOG command. Implements all the subcommands needed to handle the
  * Redis slow log. */
 void slowlogCommand(client *c) {
-    const char *help[] = {
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+        const char *help[] = {
 "GET [count]",
 "    Return top `count` entries from the slowlog (default: 10). Entries are",
 "    made of:",
@@ -151,8 +152,7 @@ void slowlogCommand(client *c) {
 "RESET",
 "    Reset the slowlog.",
 NULL
-    };
-    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+        };
         addReplyHelp(c, help);
     } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"reset")) {
         slowlogReset();
@@ -173,23 +173,23 @@ NULL
             return;
 
         listRewind(server.slowlog,&li);
-        totentries = addDeferredMultiBulkLength(c);
+        totentries = addReplyDeferredLen(c);
         while(count-- && (ln = listNext(&li))) {
             int j;
 
             se = ln->value;
-            addReplyMultiBulkLen(c,6);
+            addReplyArrayLen(c,6);
             addReplyLongLong(c,se->id);
             addReplyLongLong(c,se->time);
             addReplyLongLong(c,se->duration);
-            addReplyMultiBulkLen(c,se->argc);
+            addReplyArrayLen(c,se->argc);
             for (j = 0; j < se->argc; j++)
                 addReplyBulk(c,se->argv[j]);
             addReplyBulkCBuffer(c,se->peerid,sdslen(se->peerid));
             addReplyBulkCBuffer(c,se->cname,sdslen(se->cname));
             sent++;
         }
-        setDeferredMultiBulkLength(c,totentries,sent);
+        setDeferredArrayLen(c,totentries,sent);
     } else {
         addReplySubcommandSyntaxError(c);
     }

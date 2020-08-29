@@ -134,6 +134,9 @@ redis_source_new (redisAsyncContext *ac)
     g_return_val_if_fail(ac != NULL, NULL);
 
     source = (RedisSource *)g_source_new(&source_funcs, sizeof *source);
+    if (source == NULL)
+        return NULL;
+
     source->ac = ac;
     source->poll_fd.fd = c->fd;
     source->poll_fd.events = 0;
