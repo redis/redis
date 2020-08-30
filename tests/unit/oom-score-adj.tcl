@@ -16,8 +16,8 @@ if {$system_name eq {linux}} {
 
         proc get_child_pid {} {
             set pid [srv 0 pid]
-            set fd [open "|ps --ppid $pid -o pid -h" "r"]
-            set child_pid [string trim [read $fd]]
+            set fd [open "|ps --ppid $pid -o pid" "r"]
+            set child_pid [string trim [lindex [split [read $fd] \n] 1]]
             close $fd
 
             return $child_pid
