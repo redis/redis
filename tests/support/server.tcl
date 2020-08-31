@@ -297,7 +297,20 @@ proc start_server {options {code undefined}} {
             lappend ::servers $srv
         }
         r flushall
-        uplevel 1 $code
+        if {[catch {set retval [uplevel 1 $code]} error]} {
+            if {$::durable} {
+                set msg [string range $error 10 end]
+                lappend details $msg
+                lappend details $::errorInfo
+                lappend ::tests_failed $details
+
+                incr ::num_failed
+                send_data_packet $::test_server_fd err [join $details "\n"]
+            } else {
+                # Re-raise, let handler up the stack take care of this.
+                error $error $::errorInfo
+            }
+        }
         set ::tags [lrange $::tags 0 end-[llength $tags]]
         return
     }
@@ -468,7 +481,18 @@ proc start_server {options {code undefined}} {
             }
             puts ""
 
-            error $error $backtrace
+            if {$::durable} {
+                set msg [string range $error 10 end]
+                lappend details $msg
+                lappend details $backtrace
+                lappend ::tests_failed $details
+
+                incr ::num_failed
+                send_data_packet $::test_server_fd err [join $details "\n"]
+            } else {
+                # Re-raise, let handler up the stack take care of this.
+                error $error $backtrace
+            }
         }
 
         # fetch srv back from the server list, in case it was restarted by restart_server (new PID)
