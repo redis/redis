@@ -79,6 +79,7 @@ set ::baseport 21111; # initial port for spawned redis servers
 set ::portcount 8000; # we don't wanna use more than 10000 to avoid collision with cluster bus ports
 set ::traceleaks 0
 set ::valgrind 0
+set ::durable 0
 set ::tls 0
 set ::stack_logging 0
 set ::verbose 0
@@ -521,6 +522,7 @@ proc send_data_packet {fd status data} {
 proc print_help_screen {} {
     puts [join {
         "--valgrind         Run the test over valgrind."
+        "--durable          suppress test crashes and keep running"
         "--stack-logging    Enable OSX leaks/malloc stack logging."
         "--accurate         Run slow randomized tests for more iterations."
         "--quiet            Don't show individual tests."
@@ -633,6 +635,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
     } elseif {$opt eq {--clients}} {
         set ::numclients $arg
         incr j
+    } elseif {$opt eq {--durable}} {
+        set ::durable 1
     } elseif {$opt eq {--dont-clean}} {
         set ::dont_clean 1
     } elseif {$opt eq {--wait-server}} {
