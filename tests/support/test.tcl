@@ -149,9 +149,13 @@ proc test {name code {okpattern undefined} {options undefined}} {
     send_data_packet $::test_server_fd testing $name
 
     if {[catch {set retval [uplevel 1 $code]} error]} {
-        if {[string match "assertion:*" $error]} {
+        set assertion [string match "assertion:*" $error]
+        if {$assertion || $::durable} {
             set msg [string range $error 10 end]
             lappend details $msg
+            if {!$assertion} {
+                lappend details $::errorInfo
+            }
             lappend ::tests_failed $details
 
             incr ::num_failed
