@@ -99,16 +99,7 @@ proc wait_for_condition {maxtries delay e _else_ elsescript} {
     }
 }
 
-proc test {name code {okpattern undefined}} {
-    # abort if tagged with a tag to deny
-    foreach tag $::denytags {
-        if {[lsearch $::tags $tag] >= 0} {
-            incr ::num_aborted
-            send_data_packet $::test_server_fd ignore $name
-            return
-        }
-    }
-
+proc test {name code {okpattern undefined} {options undefined}} {
     # abort if test name in skiptests
     if {[lsearch $::skiptests $name] >= 0} {
         incr ::num_skipped

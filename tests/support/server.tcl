@@ -160,7 +160,19 @@ proc server_is_up {host port retrynum} {
 
 # doesn't really belong here, but highly coupled to code in start_server
 proc tags {tags code} {
+    # If we 'tags' contain multiple tags, quoted and seperated by spaces,
+    # we want to get rid of the quotes in order to have a proper list
+    set tags [string map { \" "" } $tags]
     set ::tags [concat $::tags $tags]
+    # We skip unwanted tags
+    foreach tag $::denytags {
+        if {[lsearch $::tags $tag] >= 0} {
+            incr ::num_aborted
+            send_data_packet $::test_server_fd ignore "Tag: $tag"
+            set ::tags [lrange $::tags 0 end-[llength $tags]]
+            return
+        }
+    }
     uplevel 1 $code
     set ::tags [lrange $::tags 0 end-[llength $tags]]
 }
@@ -226,24 +238,6 @@ proc wait_server_started {config_file stdout pid} {
 }
 
 proc start_server {options {code undefined}} {
-    # If we are running against an external server, we just push the
-    # host/port pair in the stack the first time
-    if {$::external} {
-        if {[llength $::servers] == 0} {
-            set srv {}
-            dict set srv "host" $::host
-            dict set srv "port" $::port
-            set client [redis $::host $::port 0 $::tls]
-            dict set srv "client" $client
-            $client select 9
-
-            # append the server to the stack
-            lappend ::servers $srv
-        }
-        uplevel 1 $code
-        return
-    }
-
     # setup defaults
     set baseconfig "default.conf"
     set overrides {}
@@ -260,8 +254,10 @@ proc start_server {options {code undefined}} {
                 set overrides $value
             }
             "tags" {
-                set tags $value
-                set ::tags [concat $::tags $value]
+                # If we 'tags' contain multiple tags, quoted and seperated by spaces,
+                # we want to get rid of the quotes in order to have a proper list
+                set tags [string map { \" "" } $value]
+                set ::tags [concat $::tags $tags]
             }
             "keep_persistence" {
                 set keep_persistence $value
@@ -270,6 +266,39 @@ proc start_server {options {code undefined}} {
                 error "Unknown option $option"
             }
         }
+    }
+
+    # We skip unwanted tags
+    foreach tag $::denytags {
+        if {[lsearch $::tags $tag] >= 0} {
+            incr ::num_aborted
+            send_data_packet $::test_server_fd ignore "Tag: $tag"
+            set ::tags [lrange $::tags 0 end-[llength $tags]]
+            return
+        }
+    }
+
+    # If we are running against an external server, we just push the
+    # host/port pair in the stack the first time
+    if {$::external} {
+        if {[llength $::servers] == 0} {
+            set srv {}
+            dict set srv "host" $::host
+            dict set srv "port" $::port
+            set client [redis $::host $::port 0 $::tls]
+            dict set srv "client" $client
+            $client select 9
+
+            set config {}
+            dict set config "port" $::port
+            dict set srv "config" $config
+
+            # append the server to the stack
+            lappend ::servers $srv
+        }
+        uplevel 1 $code
+        set ::tags [lrange $::tags 0 end-[llength $tags]]
+        return
     }
 
     set data [split [exec cat "tests/assets/$baseconfig"] "\n"]
