@@ -25,7 +25,7 @@ start_server [list overrides [list "dir" $server_path "dbfilename" "encodings.rd
 
 set server_path [tmpdir "server.rdb-startup-test"]
 
-start_server [list overrides [list "dir" $server_path]] {
+start_server [list overrides [list "dir" $server_path] keep_persistence true] {
     test {Server started empty with non-existing RDB file} {
         r debug digest
     } {0000000000000000000000000000000000000000}
@@ -33,13 +33,13 @@ start_server [list overrides [list "dir" $server_path]] {
     r save
 }
 
-start_server [list overrides [list "dir" $server_path]] {
+start_server [list overrides [list "dir" $server_path] keep_persistence true] {
     test {Server started empty with empty RDB file} {
         r debug digest
     } {0000000000000000000000000000000000000000}
 }
 
-start_server [list overrides [list "dir" $server_path]] {
+start_server [list overrides [list "dir" $server_path] keep_persistence true] {
     test {Test RDB stream encoding} {
         for {set j 0} {$j < 1000} {incr j} {
             if {rand() < 0.9} {
@@ -64,7 +64,7 @@ set defaults {}
 proc start_server_and_kill_it {overrides code} {
     upvar defaults defaults srv srv server_path server_path
     set config [concat $defaults $overrides]
-    set srv [start_server [list overrides $config]]
+    set srv [start_server [list overrides $config keep_persistence true]]
     uplevel 1 $code
     kill_server $srv
 }
