@@ -296,6 +296,7 @@ proc start_server {options {code undefined}} {
             # append the server to the stack
             lappend ::servers $srv
         }
+        r flushall
         uplevel 1 $code
         set ::tags [lrange $::tags 0 end-[llength $tags]]
         return
