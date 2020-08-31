@@ -31,6 +31,16 @@ proc check_valgrind_errors stderr {
     }
 }
 
+proc clean_persistence config {
+    # we may wanna keep the logs for later, but let's clean the persistence
+    # files right away, since they can accumulate and take up a lot of space
+    set config [dict get $config "config"]
+    set rdb [format "%s/%s" [dict get $config "dir"] "dump.rdb"]
+    set aof [format "%s/%s" [dict get $config "dir"] "appendonly.aof"]
+    catch {exec rm -rf $rdb}
+    catch {exec rm -rf $aof}
+}
+
 proc kill_server config {
     # nothing to kill when running against external server
     if {$::external} return
@@ -238,19 +248,27 @@ proc start_server {options {code undefined}} {
     set baseconfig "default.conf"
     set overrides {}
     set tags {}
+    set keep_persistence false
 
     # parse options
     foreach {option value} $options {
         switch $option {
             "config" {
-                set baseconfig $value }
+                set baseconfig $value
+            }
             "overrides" {
-                set overrides $value }
+                set overrides $value
+            }
             "tags" {
                 set tags $value
-                set ::tags [concat $::tags $value] }
+                set ::tags [concat $::tags $value]
+            }
+            "keep_persistence" {
+                set keep_persistence $value
+            }
             default {
-                error "Unknown option $option" }
+                error "Unknown option $option"
+            }
         }
     }
 
@@ -436,6 +454,10 @@ proc start_server {options {code undefined}} {
 
         set ::tags [lrange $::tags 0 end-[llength $tags]]
         kill_server $srv
+        if {!$keep_persistence} {
+            clean_persistence $srv
+        }
+        set _ ""
     } else {
         set ::tags [lrange $::tags 0 end-[llength $tags]]
         set _ $srv
