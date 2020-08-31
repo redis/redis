@@ -143,6 +143,18 @@ proc test {name code {okpattern undefined}} {
     set details {}
     lappend details "$name in $::curfile"
 
+    # set a cur_test global to be logged into new servers that are spown
+    # and log the test name in all existing servers
+    set ::cur_test "$name in $::curfile"
+    if {!$::external} {
+        foreach srv $::servers {
+            set stdout [dict get $srv stdout]
+            set fd [open $stdout "a+"]
+            puts $fd "### Starting test $::cur_test"
+            close $fd
+        }
+    }
+
     send_data_packet $::test_server_fd testing $name
 
     if {[catch {set retval [uplevel 1 $code]} error]} {
@@ -183,4 +195,5 @@ proc test {name code {okpattern undefined}} {
             send_data_packet $::test_server_fd err "Detected a memory leak in test '$name': $output"
         }
     }
+    unset ::cur_test
 }
