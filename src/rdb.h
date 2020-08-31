@@ -35,6 +35,7 @@
 
 /* TBD: include only necessary headers. */
 #include "server.h"
+#include "compression_plugin_interface.h"
 
 /* The current RDB version. When the format changes in a way that is no longer
  * backward compatible this number gets incremented. */
@@ -68,6 +69,8 @@
 #define RDB_ENC_INT16 1       /* 16 bit signed integer */
 #define RDB_ENC_INT32 2       /* 32 bit signed integer */
 #define RDB_ENC_LZF 3         /* string compressed with FASTLZ */
+#define RDB_ENC_COMPRESSIONPLUGIN 4      /* string compressed with compression
+                                            plugin */
 
 /* Map object types to RDB object types. Macros starting with OBJ_ are for
  * memory storage and may change. Instead RDB types must be fixed because

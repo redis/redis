@@ -2486,6 +2486,9 @@ void initServerConfig(void) {
      * Redis 5. However it is possible to revert it via redis.conf. */
     server.lua_always_replicate_commands = 1;
 
+    /* Compression plugin */
+    server.compression_plugin_ctx = NULL;
+
     initConfigValues();
 }
 
@@ -5195,6 +5198,7 @@ int main(int argc, char **argv) {
                   basic networking code and client creation depends on it. */
     moduleInitModulesSystem();
     tlsInit();
+    compressionPluginInit(); /* compression plugin inititialization */
 
     /* Store the executable path and arguments in a safe place in order
      * to be able to restart the server later. */
@@ -5318,6 +5322,13 @@ int main(int argc, char **argv) {
     #endif
         moduleInitModulesSystemLast();
         moduleLoadFromQueue();
+        /* load custom compression plugins */
+        compressionPluginLoadFromQueue();
+        /* if custom compression plugin is used, set compression plugin for
+         * Quicklist */
+        if (server.compression_plugin_ctx && server.list_compress_depth > 0) {
+            quicklistCompressionPlugin(server.compression_plugin_ctx);
+        }
         ACLLoadUsersAtStartup();
         InitServerLast();
         loadDataFromDisk();

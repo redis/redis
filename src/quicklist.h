@@ -38,7 +38,7 @@
 /* quicklistNode is a 32 byte struct describing a ziplist for a quicklist.
  * We use bit fields keep the quicklistNode at 32 bytes.
  * count: 16 bits, max 65536 (max zl bytes is 65k, so max count actually < 32k).
- * encoding: 2 bits, RAW=1, LZF=2.
+ * encoding: 2 bits, RAW=1, LZF=2 COMPRESSIONPLUGIN=3.
  * container: 2 bits, NONE=1, ZIPLIST=2.
  * recompress: 1 bit, bool, true if node is temporarry decompressed for usage.
  * attempted_compress: 1 bit, boolean, used for verifying during testing.
@@ -49,22 +49,22 @@ typedef struct quicklistNode {
     unsigned char *zl;
     unsigned int sz;             /* ziplist size in bytes */
     unsigned int count : 16;     /* count of items in ziplist */
-    unsigned int encoding : 2;   /* RAW==1 or LZF==2 */
+    unsigned int encoding : 2;   /* RAW==1 or LZF==2 or COMPRESSIONPLUGIN==3 */
     unsigned int container : 2;  /* NONE==1 or ZIPLIST==2 */
     unsigned int recompress : 1; /* was this node previous compressed? */
     unsigned int attempted_compress : 1; /* node can't compress; too small */
     unsigned int extra : 10; /* more bits to steal for future usage */
 } quicklistNode;
 
-/* quicklistLZF is a 4+N byte struct holding 'sz' followed by 'compressed'.
+/* quicklistCompressed is a 4+N byte struct holding 'sz' followed by 'compressed'.
  * 'sz' is byte length of 'compressed' field.
- * 'compressed' is LZF data with total (compressed) length 'sz'
+ * 'compressed' is LZF/custom compressed data with total (compressed) length 'sz'
  * NOTE: uncompressed length is stored in quicklistNode->sz.
- * When quicklistNode->zl is compressed, node->zl points to a quicklistLZF */
-typedef struct quicklistLZF {
+ * When quicklistNode->zl is compressed, node->zl points to a quicklistCompressed */
+typedef struct quicklistCompressed {
     unsigned int sz; /* LZF size in bytes*/
     char compressed[];
-} quicklistLZF;
+} quicklistCompressed;
 
 /* Bookmarks are padded with realloc at the end of of the quicklist struct.
  * They should only be used for very big lists if thousands of nodes were the
@@ -137,6 +137,7 @@ typedef struct quicklistEntry {
 /* quicklist node encodings */
 #define QUICKLIST_NODE_ENCODING_RAW 1
 #define QUICKLIST_NODE_ENCODING_LZF 2
+#define QUICKLIST_NODE_ENCODING_COMPRESSIONPLUGIN 3
 
 /* quicklist compression disable */
 #define QUICKLIST_NOCOMPRESS 0
@@ -146,7 +147,8 @@ typedef struct quicklistEntry {
 #define QUICKLIST_NODE_CONTAINER_ZIPLIST 2
 
 #define quicklistNodeIsCompressed(node)                                        \
-    ((node)->encoding == QUICKLIST_NODE_ENCODING_LZF)
+    ((node)->encoding == QUICKLIST_NODE_ENCODING_LZF ||                        \
+     (node)->encoding == QUICKLIST_NODE_ENCODING_COMPRESSIONPLUGIN)
 
 /* Prototypes */
 quicklist *quicklistCreate(void);
@@ -190,13 +192,16 @@ int quicklistPop(quicklist *quicklist, int where, unsigned char **data,
                  unsigned int *sz, long long *slong);
 unsigned long quicklistCount(const quicklist *ql);
 int quicklistCompare(unsigned char *p1, unsigned char *p2, int p2_len);
-size_t quicklistGetLzf(const quicklistNode *node, void **data);
+size_t quicklistGetCompressedData(const quicklistNode *node, void **data);
 
 /* bookmarks */
 int quicklistBookmarkCreate(quicklist **ql_ref, const char *name, quicklistNode *node);
 int quicklistBookmarkDelete(quicklist *ql, const char *name);
 quicklistNode *quicklistBookmarkFind(quicklist *ql, const char *name);
 void quicklistBookmarksClear(quicklist *ql);
+
+/* set compression encoding type */
+void quicklistCompressionPlugin(void *ctx);
 
 #ifdef REDIS_TEST
 int quicklistTest(int argc, char *argv[]);
