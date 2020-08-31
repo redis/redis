@@ -138,6 +138,14 @@ proc wait_for_log_messages {srv_idx patterns from_line maxtries delay} {
     }
 }
 
+# write line to server log file
+proc write_log_line {srv_idx msg} {
+    set logfile [srv $srv_idx stdout]
+    set fd [open $logfile "a+"]
+    puts $fd "### $msg"
+    close $fd
+}
+
 # Random integer between 0 and max (excluded).
 proc randomInt {max} {
     expr {int(rand()*$max)}

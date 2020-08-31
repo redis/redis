@@ -301,6 +301,13 @@ proc start_server {options {code undefined}} {
     set stdout [format "%s/%s" [dict get $config "dir"] "stdout"]
     set stderr [format "%s/%s" [dict get $config "dir"] "stderr"]
 
+    # if we're inside a test, write the test name to the server log file
+    if {[info exists ::cur_test]} {
+        set fd [open $stdout "a+"]
+        puts $fd "### Starting server for test $::cur_test"
+        close $fd
+    }
+
     # We need a loop here to retry with different ports.
     set server_started 0
     while {$server_started == 0} {
@@ -442,6 +449,13 @@ proc restart_server {level wait_ready} {
     set stdout [dict get $srv "stdout"]
     set stderr [dict get $srv "stderr"]
     set config_file [dict get $srv "config_file"]
+
+    # if we're inside a test, write the test name to the server log file
+    if {[info exists ::cur_test]} {
+        set fd [open $stdout "a+"]
+        puts $fd "### Restarting server for test $::cur_test"
+        close $fd
+    }
 
     set prev_ready_count [exec grep -i "Ready to accept" | wc -l < $stdout]
 
