@@ -1045,7 +1045,7 @@ RedisModuleString *RM_CreateStringFromLongLong(RedisModuleCtx *ctx, long long ll
 }
 
 /* Like RedisModule_CreatString(), but creates a string starting from a double
- * integer instead of taking a buffer and its length.
+ * instead of taking a buffer and its length.
  *
  * The returned string must be released with RedisModule_FreeString() or by
  * enabling automatic memory management. */
@@ -3621,7 +3621,7 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
  * * **aux_load**: A callback function pointer that loads out of keyspace data from RDB files.
  *   Similar to aux_save, returns REDISMODULE_OK on success, and ERR otherwise.
  *
- * The **digest* and **mem_usage** methods should currently be omitted since
+ * The **digest** and **mem_usage** methods should currently be omitted since
  * they are not yet implemented inside the Redis modules core.
  *
  * Note: the module name "AAAAAAAAA" is reserved and produces an error, it
@@ -3713,7 +3713,7 @@ moduleType *RM_ModuleTypeGetType(RedisModuleKey *key) {
 
 /* Assuming RedisModule_KeyType() returned REDISMODULE_KEYTYPE_MODULE on
  * the key, returns the module type low-level value stored at key, as
- * it was set by the user via RedisModule_ModuleTypeSet().
+ * it was set by the user via RedisModule_ModuleTypeSetValue().
  *
  * If the key is NULL, is not associated with a module type, or is empty,
  * then NULL is returned instead. */
@@ -4492,14 +4492,14 @@ int moduleTryServeClientBlockedOnKey(client *c, robj *key) {
  *
  * The callbacks are called in the following contexts:
  *
- *     reply_callback:  called after a successful RedisModule_UnblockClient()
- *                      call in order to reply to the client and unblock it.
+ *     reply_callback:   called after a successful RedisModule_UnblockClient()
+ *                       call in order to reply to the client and unblock it.
  *
- *     reply_timeout:   called when the timeout is reached in order to send an
- *                      error to the client.
+ *     timeout_callback: called when the timeout is reached in order to send an
+ *                       error to the client.
  *
- *     free_privdata:   called in order to free the private data that is passed
- *                      by RedisModule_UnblockClient() call.
+ *     free_privdata:    called in order to free the private data that is passed
+ *                       by RedisModule_UnblockClient() call.
  *
  * Note: RedisModule_UnblockClient should be called for every blocked client,
  *       even if client was killed, timed-out or disconnected. Failing to do so
@@ -4522,13 +4522,13 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
  * once certain keys become "ready", that is, contain more data.
  *
  * Basically this is similar to what a typical Redis command usually does,
- * like BLPOP or ZPOPMAX: the client blocks if it cannot be served ASAP,
+ * like BLPOP or BZPOPMAX: the client blocks if it cannot be served ASAP,
  * and later when the key receives new data (a list push for instance), the
  * client is unblocked and served.
  *
  * However in the case of this module API, when the client is unblocked?
  *
- * 1. If you block ok a key of a type that has blocking operations associated,
+ * 1. If you block on a key of a type that has blocking operations associated,
  *    like a list, a sorted set, a stream, and so forth, the client may be
  *    unblocked once the relevant key is targeted by an operation that normally
  *    unblocks the native blocking operations for that type. So if we block
@@ -5733,7 +5733,7 @@ int RM_DictDel(RedisModuleDict *d, RedisModuleString *key, void *oldval) {
     return RM_DictDelC(d,key->ptr,sdslen(key->ptr),oldval);
 }
 
-/* Return an interator, setup in order to start iterating from the specified
+/* Return an iterator, setup in order to start iterating from the specified
  * key by applying the operator 'op', which is just a string specifying the
  * comparison operator to use in order to seek the first element. The
  * operators avalable are:
@@ -6634,7 +6634,7 @@ void RM_ScanCursorDestroy(RedisModuleScanCursor *cursor) {
  *      RedisModule_ScanCursorDestroy(c);
  *
  * It is also possible to use this API from another thread while the lock
- * is acquired durring the actuall call to RM_Scan:
+ * is acquired during the actuall call to RM_Scan:
  *
  *      RedisModuleCursor *c = RedisModule_ScanCursorCreate();
  *      RedisModule_ThreadSafeContextLock(ctx);
@@ -6648,7 +6648,7 @@ void RM_ScanCursorDestroy(RedisModuleScanCursor *cursor) {
  * The function will return 1 if there are more elements to scan and
  * 0 otherwise, possibly setting errno if the call failed.
  *
- * It is also possible to restart and existing cursor using RM_CursorRestart.
+ * It is also possible to restart an existing cursor using RM_ScanCursorRestart.
  *
  * IMPORTANT: This API is very similar to the Redis SCAN command from the
  * point of view of the guarantees it provides. This means that the API
@@ -6727,8 +6727,8 @@ static void moduleScanKeyCallback(void *privdata, const dictEntry *de) {
  *      RedisModule_CloseKey(key);
  *      RedisModule_ScanCursorDestroy(c);
  *
- * It is also possible to use this API from another thread while the lock is acquired durring
- * the actuall call to RM_Scan, and re-opening the key each time:
+ * It is also possible to use this API from another thread while the lock is acquired during
+ * the actuall call to RM_ScanKey, and re-opening the key each time:
  *      RedisModuleCursor *c = RedisModule_ScanCursorCreate();
  *      RedisModule_ThreadSafeContextLock(ctx);
  *      RedisModuleKey *key = RedisModule_OpenKey(...)
@@ -6744,7 +6744,7 @@ static void moduleScanKeyCallback(void *privdata, const dictEntry *de) {
  *
  * The function will return 1 if there are more elements to scan and 0 otherwise,
  * possibly setting errno if the call failed.
- * It is also possible to restart and existing cursor using RM_CursorRestart.
+ * It is also possible to restart an existing cursor using RM_ScanCursorRestart.
  *
  * NOTE: Certain operations are unsafe while iterating the object. For instance
  * while the API guarantees to return at least one time all the elements that
