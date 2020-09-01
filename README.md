@@ -43,7 +43,7 @@ libssl-dev on Debian/Ubuntu) and run:
 To build with systemd support, you'll need systemd development libraries (such 
 as libsystemd-dev on Debian/Ubuntu or systemd-devel on CentOS) and run:
 
-    % make BUILD_WITH_SYSTEMD=yes USE_SYSTEMD=yes
+    % make USE_SYSTEMD=yes
 
 You can run a 32 bit Redis binary using:
 
