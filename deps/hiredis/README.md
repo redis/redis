@@ -286,6 +286,7 @@ return `REDIS_ERR`. The function to set the disconnect callback has the followin
 ```c
 int redisAsyncSetDisconnectCallback(redisAsyncContext *ac, redisDisconnectCallback *fn);
 ```
+`ac->data` may be used to pass user data to this callback, the same can be done for redisConnectCallback.
 ### Sending commands and their callbacks
 
 In an asynchronous context, commands are automatically pipelined due to the nature of an event loop.
@@ -406,6 +407,6 @@ as soon as possible in order to prevent allocation of useless memory.
 ## AUTHORS
 
 Hiredis was written by Salvatore Sanfilippo (antirez at gmail) and
-Pieter Noordhuis (pcnoordhuis at gmail) and is released under the BSD license.  
+Pieter Noordhuis (pcnoordhuis at gmail) and is released under the BSD license.
 Hiredis is currently maintained by Matt Stancliff (matt at genges dot com) and
 Jan-Erik Rediger (janerik at fnordig dot com)

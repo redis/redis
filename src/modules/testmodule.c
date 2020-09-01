@@ -109,9 +109,9 @@ int TestStringPrintf(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc < 3) {
         return RedisModule_WrongArity(ctx);
     }
-    RedisModuleString *s = RedisModule_CreateStringPrintf(ctx, 
-        "Got %d args. argv[1]: %s, argv[2]: %s", 
-        argc, 
+    RedisModuleString *s = RedisModule_CreateStringPrintf(ctx,
+        "Got %d args. argv[1]: %s, argv[2]: %s",
+        argc,
         RedisModule_StringPtrLen(argv[1], NULL),
         RedisModule_StringPtrLen(argv[2], NULL)
     );
@@ -133,7 +133,7 @@ int TestUnlink(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     RedisModuleKey *k = RedisModule_OpenKey(ctx, RedisModule_CreateStringPrintf(ctx, "unlinked"), REDISMODULE_WRITE | REDISMODULE_READ);
     if (!k) return failTest(ctx, "Could not create key");
-    
+
     if (REDISMODULE_ERR == RedisModule_StringSet(k, RedisModule_CreateStringPrintf(ctx, "Foobar"))) {
         return failTest(ctx, "Could not set string value");
     }
@@ -152,7 +152,7 @@ int TestUnlink(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return failTest(ctx, "Could not verify key to be unlinked");
     }
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
-    
+
 }
 
 int NotifyCallback(RedisModuleCtx *ctx, int type, const char *event,
@@ -187,6 +187,10 @@ int TestNotifications(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     /* LPUSH should be ignored and not increment any counters */
     RedisModule_Call(ctx, "LPUSH", "cc", "l", "y");
     RedisModule_Call(ctx, "LPUSH", "cc", "l", "y");
+
+    /* Miss some keys intentionally so we will get a "keymiss" notification. */
+    RedisModule_Call(ctx, "GET", "c", "nosuchkey");
+    RedisModule_Call(ctx, "SMEMBERS", "c", "nosuchkey");
 
     size_t sz;
     const char *rep;
@@ -223,6 +227,16 @@ int TestNotifications(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     r = RedisModule_Call(ctx, "HGET", "cc", "notifications", "l");
     if (r == NULL || RedisModule_CallReplyType(r) != REDISMODULE_REPLY_NULL) {
         FAIL("Wrong reply for l");
+    }
+
+    r = RedisModule_Call(ctx, "HGET", "cc", "notifications", "nosuchkey");
+    if (r == NULL || RedisModule_CallReplyType(r) != REDISMODULE_REPLY_STRING) {
+        FAIL("Wrong or no reply for nosuchkey");
+    } else {
+        rep = RedisModule_CallReplyStringPtr(r, &sz);
+        if (sz != 1 || *rep != '2') {
+            FAIL("Got reply '%.*s'. expected '2'", sz, rep);
+        }
     }
 
     RedisModule_Call(ctx, "FLUSHDB", "");
@@ -423,7 +437,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"test.ctxflags",
         TestCtxFlags,"readonly",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    
+
     if (RedisModule_CreateCommand(ctx,"test.unlink",
         TestUnlink,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
@@ -435,7 +449,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     RedisModule_SubscribeToKeyspaceEvents(ctx,
                                             REDISMODULE_NOTIFY_HASH |
                                             REDISMODULE_NOTIFY_SET |
-                                            REDISMODULE_NOTIFY_STRING,
+                                            REDISMODULE_NOTIFY_STRING |
+                                            REDISMODULE_NOTIFY_KEY_MISS,
                                         NotifyCallback);
     if (RedisModule_CreateCommand(ctx,"test.notify",
         TestNotifications,"write deny-oom",1,1,1) == REDISMODULE_ERR)
