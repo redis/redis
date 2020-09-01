@@ -2075,7 +2075,6 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
             replicationSendNewlineToMaster();
         loadingProgress(r->processed_bytes);
         processEventsWhileBlocked();
-        loadingCron();
         processModuleLoadingProgressEvent(0);
     }
 }

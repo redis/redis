@@ -1810,6 +1810,6 @@ void disableWatchdog(void) {
 void debugDelay(int usec) {
     /* Since even the shortest sleep results in context switch and system call,
      * the way we achive short sleeps is by statistically sleeping less often. */
-    if (usec < 0) usec = (rand() % -usec) == 0? 1: 0;
+    if (usec < 0) usec = (rand() % -usec) == 0 ? 1: 0;
     if (usec) usleep(usec);
 }

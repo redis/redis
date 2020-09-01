@@ -37,7 +37,7 @@ start_server {tags {"memefficiency"}} {
 }
 
 run_solo {defrag} {
-start_server {tags {"stream"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
+start_server {tags {"defrag"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
     if {[string match {*jemalloc*} [s mem_allocator]]} {
         test "Active defrag" {
             r config set hz 100
