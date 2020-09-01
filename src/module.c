@@ -4881,6 +4881,21 @@ void RM_ThreadSafeContextLock(RedisModuleCtx *ctx) {
     moduleAcquireGIL();
 }
 
+/* Similar to RM_ThreadSafeContextLock but this function
+ * would not block if the server lock is already acquired
+ * if successful (lock acquired) REDISMODULE_OK is returned
+ * otherwise REDISMODULE_ERR is returned. */
+int RM_ThreadSafeContextTryLock(RedisModuleCtx *ctx) {
+    UNUSED(ctx);
+
+    int res = moduleTryAcquireGIL();
+    if(res != 0) {
+        errno = res;
+        return REDISMODULE_ERR;
+    }
+    return REDISMODULE_OK;
+}
+
 /* Release the server lock after a thread safe API call was executed. */
 void RM_ThreadSafeContextUnlock(RedisModuleCtx *ctx) {
     UNUSED(ctx);
@@ -4889,6 +4904,10 @@ void RM_ThreadSafeContextUnlock(RedisModuleCtx *ctx) {
 
 void moduleAcquireGIL(void) {
     pthread_mutex_lock(&moduleGIL);
+}
+
+int moduleTryAcquireGIL(void) {
+    return pthread_mutex_trylock(&moduleGIL);
 }
 
 void moduleReleaseGIL(void) {
@@ -7911,6 +7930,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetThreadSafeContext);
     REGISTER_API(FreeThreadSafeContext);
     REGISTER_API(ThreadSafeContextLock);
+    REGISTER_API(ThreadSafeContextTryLock);
     REGISTER_API(ThreadSafeContextUnlock);
     REGISTER_API(DigestAddStringBuffer);
     REGISTER_API(DigestAddLongLong);
