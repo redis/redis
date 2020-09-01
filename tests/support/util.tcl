@@ -116,6 +116,7 @@ proc verify_log_message {srv_idx pattern from_line} {
 
 # wait for pattern to be found in server's stdout after certain line number
 proc wait_for_log_message {srv_idx pattern from_line maxtries delay} {
+    set from_line [string trim $from_line]
     set retry $maxtries
     set stdout [srv $srv_idx stdout]
     while {$retry} {
