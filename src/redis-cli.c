@@ -2411,7 +2411,7 @@ clusterManagerCommandDef clusterManagerCommands[] = {
      "new_host:new_port existing_host:existing_port", "slave,master-id <arg>"},
     {"del-node", clusterManagerCommandDeleteNode, 2, "host:port node_id",NULL},
     {"call", clusterManagerCommandCall, -2,
-        "host:port command arg arg .. arg", "only-masters,only-slaves"},
+        "host:port command arg arg .. arg", "only-masters,only-replicas"},
     {"set-timeout", clusterManagerCommandSetTimeout, 2,
      "host:port milliseconds", NULL},
     {"import", clusterManagerCommandImport, 1, "host:port",
