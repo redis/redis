@@ -202,7 +202,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
     }
 
     expiretime = -1;
-    startLoadingFile(fp, rdbfilename);
+    startLoadingFile(fp, rdbfilename, RDBFLAGS_NONE);
     while(1) {
         robj *key, *val;
 
@@ -287,7 +287,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
         rdbstate.keys++;
         /* Read value */
         rdbstate.doing = RDB_CHECK_DOING_READ_OBJECT_VALUE;
-        if ((val = rdbLoadObject(type,&rdb,key)) == NULL) goto eoferr;
+        if ((val = rdbLoadObject(type,&rdb,key->ptr)) == NULL) goto eoferr;
         /* Check if the key already expired. */
         if (expiretime != -1 && expiretime < now)
             rdbstate.already_expired++;
@@ -316,7 +316,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
     }
 
     if (closefile) fclose(fp);
-    stopLoading();
+    stopLoading(1);
     return 0;
 
 eoferr: /* unexpected end of file is handled here with a fatal exit */
@@ -327,7 +327,7 @@ eoferr: /* unexpected end of file is handled here with a fatal exit */
     }
 err:
     if (closefile) fclose(fp);
-    stopLoading();
+    stopLoading(0);
     return 1;
 }
 

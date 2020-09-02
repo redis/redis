@@ -1,6 +1,10 @@
 #define REDISMODULE_EXPERIMENTAL_API
-#include "redismodule.h"
 
+/* define macros for having usleep */
+#define _BSD_SOURCE
+#define _DEFAULT_SOURCE
+
+#include "redismodule.h"
 #include <string.h>
 #include <assert.h>
 #include <unistd.h>
@@ -38,7 +42,7 @@ int fork_create(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     /* child */
     RedisModule_Log(ctx, "notice", "fork child started");
-    usleep(200000);
+    usleep(500000);
     RedisModule_Log(ctx, "notice", "fork child exiting");
     RedisModule_ExitFromChild(code_to_exit_with);
     /* unreachable */

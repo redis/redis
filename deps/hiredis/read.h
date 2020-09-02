@@ -63,7 +63,11 @@
 #define REDIS_REPLY_BIGNUM 13
 #define REDIS_REPLY_VERB 14
 
-#define REDIS_READER_MAX_BUF (1024*16)  /* Default max unused reader buffer. */
+/* Default max unused reader buffer. */
+#define REDIS_READER_MAX_BUF (1024*16)
+
+/* Default multi-bulk element limit */
+#define REDIS_READER_MAX_ARRAY_ELEMENTS ((1LL<<32) - 1)
 
 #ifdef __cplusplus
 extern "C" {
@@ -71,7 +75,7 @@ extern "C" {
 
 typedef struct redisReadTask {
     int type;
-    int elements; /* number of elements in multibulk container */
+    long long elements; /* number of elements in multibulk container */
     int idx; /* index in parent (array) object */
     void *obj; /* holds user-generated value for a read task */
     struct redisReadTask *parent; /* parent task */
@@ -96,8 +100,11 @@ typedef struct redisReader {
     size_t pos; /* Buffer cursor */
     size_t len; /* Buffer length */
     size_t maxbuf; /* Max length of unused buffer */
+    long long maxelements; /* Max multi-bulk elements */
 
-    redisReadTask rstack[9];
+    redisReadTask **task;
+    int tasks;
+
     int ridx; /* Index of current read task */
     void *reply; /* Temporary reply pointer */
 

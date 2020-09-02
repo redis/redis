@@ -10,6 +10,32 @@ proc field {info property} {
 start_server {tags {"modules"}} {
     r module load $testmodule log-key 0
 
+    test {module reading info} {
+        # check string, integer and float fields
+        assert_equal [r info.gets replication role] "master"
+        assert_equal [r info.getc replication role] "master"
+        assert_equal [r info.geti stats expired_keys] 0
+        assert_equal [r info.getd stats expired_stale_perc] 0
+
+        # check signed and unsigned
+        assert_equal [r info.geti infotest infotest_global] -2
+        assert_equal [r info.getu infotest infotest_uglobal] -2
+
+        # the above are always 0, try module info that is non-zero
+        assert_equal [r info.geti infotest_italian infotest_due] 2
+        set tre [r info.getd infotest_italian infotest_tre]
+        assert {$tre > 3.2 && $tre < 3.4 }
+
+        # search using the wrong section
+        catch { [r info.gets badname redis_version] } e
+        assert_match {*not found*} $e
+
+        # check that section filter works
+        assert { [string match "*usec_per_call*" [r info.gets all cmdstat_info.gets] ] }
+        catch { [r info.gets default cmdstat_info.gets] ] } e
+        assert_match {*not found*} $e
+    }
+
     test {module info all} {
         set info [r info all]
         # info all does not contain modules

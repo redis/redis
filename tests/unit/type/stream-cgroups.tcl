@@ -93,6 +93,18 @@ start_server {
         assert {[r XACK mystream mygroup $id1 $id2] eq 1}
     }
 
+    test {XACK should fail if got at least one invalid ID} {
+        r del mystream
+        r xgroup create s g $ MKSTREAM
+        r xadd s * f1 v1
+        set c [llength [lindex [r xreadgroup group g c streams s >] 0 1]]
+        assert {$c == 1}
+        set pending [r xpending s g - + 10 c]
+        set id1 [lindex $pending 0 0]
+        assert_error "*Invalid stream ID specified*" {r xack s g $id1 invalid-id}
+        assert {[r xack s g $id1] eq 1}
+    }
+
     test {PEL NACK reassignment after XGROUP SETID event} {
         r del events
         r xadd events * f1 v1
@@ -145,6 +157,50 @@ start_server {
         set res [r XREADGROUP GROUP mygroup myconsumer STREAMS mystream 0-1]
         assert {[lindex $res 0 1 0] == {1-0 {}}}
         assert {[lindex $res 0 1 1] == {2-0 {field1 B}}}
+    }
+
+    test {Blocking XREADGROUP will not reply with an empty array} {
+        r del mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        r XADD mystream 666 f v
+        set res [r XREADGROUP GROUP mygroup Alice BLOCK 10 STREAMS mystream ">"]
+        assert {[lindex $res 0 1 0] == {666-0 {f v}}}
+        r XADD mystream 667 f2 v2
+        r XDEL mystream 667
+        set rd [redis_deferring_client]
+        $rd XREADGROUP GROUP mygroup Alice BLOCK 10 STREAMS mystream ">"
+        after 20
+        assert {[$rd read] == {}} ;# before the fix, client didn't even block, but was served synchronously with {mystream {}}
+    }
+
+    test {XGROUP DESTROY should unblock XREADGROUP with -NOGROUP} {
+        r del mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        set rd [redis_deferring_client]
+        $rd XREADGROUP GROUP mygroup Alice BLOCK 100 STREAMS mystream ">"
+        r XGROUP DESTROY mystream mygroup
+        assert_error "*NOGROUP*" {$rd read}
+    }
+
+    test {RENAME can unblock XREADGROUP with data} {
+        r del mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        set rd [redis_deferring_client]
+        $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        r XGROUP CREATE mystream2 mygroup $ MKSTREAM
+        r XADD mystream2 100 f1 v1
+        r RENAME mystream2 mystream
+        assert_equal "{mystream {{100-0 {f1 v1}}}}" [$rd read] ;# mystream2 had mygroup before RENAME
+    }
+
+    test {RENAME can unblock XREADGROUP with -NOGROUP} {
+        r del mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        set rd [redis_deferring_client]
+        $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        r XADD mystream2 100 f1 v1
+        r RENAME mystream2 mystream
+        assert_error "*NOGROUP*" {$rd read} ;# mystream2 didn't have mygroup before RENAME
     }
 
     test {XCLAIM can claim PEL items from another consumer} {
@@ -238,6 +294,40 @@ start_server {
         assert {[lindex $reply 0 3] == 2}
     }
 
+    test {XINFO FULL output} {
+        r del x
+        r XADD x 100 a 1
+        r XADD x 101 b 1
+        r XADD x 102 c 1
+        r XADD x 103 e 1
+        r XADD x 104 f 1
+        r XGROUP CREATE x g1 0
+        r XGROUP CREATE x g2 0
+        r XREADGROUP GROUP g1 Alice COUNT 1 STREAMS x >
+        r XREADGROUP GROUP g1 Bob COUNT 1 STREAMS x >
+        r XREADGROUP GROUP g1 Bob NOACK COUNT 1 STREAMS x >
+        r XREADGROUP GROUP g2 Charlie COUNT 4 STREAMS x >
+        r XDEL x 103
+
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [llength $reply] 12
+        assert_equal [lindex $reply 1] 4 ;# stream length
+        assert_equal [lindex $reply 9] "{100-0 {a 1}} {101-0 {b 1}} {102-0 {c 1}} {104-0 {f 1}}" ;# entries
+        assert_equal [lindex $reply 11 0 1] "g1" ;# first group name
+        assert_equal [lindex $reply 11 0 7 0 0] "100-0" ;# first entry in group's PEL
+        assert_equal [lindex $reply 11 0 9 0 1] "Alice" ;# first consumer
+        assert_equal [lindex $reply 11 0 9 0 7 0 0] "100-0" ;# first entry in first consumer's PEL
+        assert_equal [lindex $reply 11 1 1] "g2" ;# second group name
+        assert_equal [lindex $reply 11 1 9 0 1] "Charlie" ;# first consumer
+        assert_equal [lindex $reply 11 1 9 0 7 0 0] "100-0" ;# first entry in first consumer's PEL
+        assert_equal [lindex $reply 11 1 9 0 7 1 0] "101-0" ;# second entry in first consumer's PEL
+
+        set reply [r XINFO STREAM x FULL COUNT 1]
+        assert_equal [llength $reply] 12
+        assert_equal [lindex $reply 1] 4
+        assert_equal [lindex $reply 9] "{100-0 {a 1}}"
+    }
+
     start_server {} {
         set master [srv -1 client]
         set master_host [srv -1 host]
@@ -286,6 +376,19 @@ start_server {
                 set myentry [lindex $item 0 1 0 1]
                 assert {$myentry eq {a 3}}
             }
+        }
+    }
+
+    start_server {tags {"stream"} overrides {appendonly yes aof-use-rdb-preamble no}} {
+        test {Empty stream with no lastid can be rewrite into AOF correctly} {
+            r XGROUP CREATE mystream group-name $ MKSTREAM
+            assert {[dict get [r xinfo stream mystream] length] == 0}
+            set grpinfo [r xinfo groups mystream]
+            r bgrewriteaof
+            waitForBgrewriteaof r
+            r debug loadaof
+            assert {[dict get [r xinfo stream mystream] length] == 0}
+            assert {[r xinfo groups mystream] == $grpinfo}
         }
     }
 }

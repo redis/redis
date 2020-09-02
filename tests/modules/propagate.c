@@ -64,7 +64,8 @@ void *threadMain(void *arg) {
     RedisModule_SelectDb(ctx,9); /* Tests ran in database number 9. */
     for (int i = 0; i < 10; i++) {
         RedisModule_ThreadSafeContextLock(ctx);
-        RedisModule_Replicate(ctx,"INCR","c","thread");
+        RedisModule_Replicate(ctx,"INCR","c","a-from-thread");
+        RedisModule_Replicate(ctx,"INCR","c","b-from-thread");
         RedisModule_ThreadSafeContextUnlock(ctx);
     }
     RedisModule_FreeThreadSafeContext(ctx);
@@ -89,6 +90,38 @@ int propagateTestCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return REDISMODULE_OK;
 }
 
+int propagateTest2Command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    /* Replicate two commands to test MULTI/EXEC wrapping. */
+    RedisModule_Replicate(ctx,"INCR","c","counter-1");
+    RedisModule_Replicate(ctx,"INCR","c","counter-2");
+    RedisModule_ReplyWithSimpleString(ctx,"OK");
+    return REDISMODULE_OK;
+}
+
+int propagateTest3Command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    RedisModuleCallReply *reply;
+
+    /* This test mixes multiple propagation systems. */
+    reply = RedisModule_Call(ctx, "INCR", "c!", "using-call");
+    RedisModule_FreeCallReply(reply);
+
+    RedisModule_Replicate(ctx,"INCR","c","counter-1");
+    RedisModule_Replicate(ctx,"INCR","c","counter-2");
+
+    reply = RedisModule_Call(ctx, "INCR", "c!", "after-call");
+    RedisModule_FreeCallReply(reply);
+
+    RedisModule_ReplyWithSimpleString(ctx,"OK");
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -100,5 +133,16 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                 propagateTestCommand,
                 "",1,1,1) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"propagate-test-2",
+                propagateTest2Command,
+                "",1,1,1) == REDISMODULE_ERR)
+            return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"propagate-test-3",
+                propagateTest3Command,
+                "",1,1,1) == REDISMODULE_ERR)
+            return REDISMODULE_ERR;
+
     return REDISMODULE_OK;
 }

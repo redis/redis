@@ -13,15 +13,10 @@
 
 /* The following defines are amount of time, sometimes expressed as
  * multiplicators of the node timeout value (when ending with MULT). */
-#define CLUSTER_DEFAULT_NODE_TIMEOUT 15000
-#define CLUSTER_DEFAULT_SLAVE_VALIDITY 10 /* Slave max data age factor. */
-#define CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE 1
-#define CLUSTER_DEFAULT_SLAVE_NO_FAILOVER 0 /* Failover by default. */
 #define CLUSTER_FAIL_REPORT_VALIDITY_MULT 2 /* Fail report validity. */
 #define CLUSTER_FAIL_UNDO_TIME_MULT 2 /* Undo fail if master is back. */
 #define CLUSTER_FAIL_UNDO_TIME_ADD 10 /* Some additional time. */
 #define CLUSTER_FAILOVER_DELAY 5 /* Seconds */
-#define CLUSTER_DEFAULT_MIGRATION_BARRIER 1
 #define CLUSTER_MF_TIMEOUT 5000 /* Milliseconds to do a manual failover. */
 #define CLUSTER_MF_PAUSE_MULT 2 /* Master pause manual failover mult. */
 #define CLUSTER_SLAVE_MIGRATION_DELAY 5000 /* Delay for slave migration. */
@@ -34,6 +29,7 @@
 #define CLUSTER_REDIR_MOVED 4         /* -MOVED redirection required. */
 #define CLUSTER_REDIR_DOWN_STATE 5    /* -CLUSTERDOWN, global state. */
 #define CLUSTER_REDIR_DOWN_UNBOUND 6  /* -CLUSTERDOWN, unbound slot. */
+#define CLUSTER_REDIR_DOWN_RO_STATE 7 /* -CLUSTERDOWN, allow reads. */
 
 struct clusterNode;
 
@@ -128,6 +124,7 @@ typedef struct clusterNode {
                                     tables. */
     mstime_t ping_sent;      /* Unix time we sent latest ping */
     mstime_t pong_received;  /* Unix time we received the pong */
+    mstime_t data_received;  /* Unix time we received any data */
     mstime_t fail_time;      /* Unix time when FAIL flag was set */
     mstime_t voted_time;     /* Last time we voted for a slave of this master */
     mstime_t repl_offset_time;  /* Unix time we received offset for this node */
@@ -286,5 +283,6 @@ typedef struct {
 clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
 int clusterRedirectBlockedClientIfNeeded(client *c);
 void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code);
+unsigned long getClusterConnectionsCount(void);
 
 #endif /* __CLUSTER_H */

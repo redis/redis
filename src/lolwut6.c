@@ -59,6 +59,7 @@ static sds renderCanvas(lwCanvas *canvas) {
             case 1: ce = "0;90;100m"; break;   /* Gray 1 */
             case 2: ce = "0;37;47m"; break;    /* Gray 2 */
             case 3: ce = "0;97;107m"; break;   /* White */
+            default: ce = "0;30;40m"; break;   /* Just for safety. */
             }
             text = sdscatprintf(text,"\033[%s \033[0m",ce);
         }

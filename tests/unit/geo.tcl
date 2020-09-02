@@ -129,7 +129,7 @@ start_server {tags {"geo"}} {
         r del points
         r geoadd points -5.6 42.6 test
         lindex [r geohash points test] 0
-    } {ezs42e44yx}
+    } {ezs42e44yx0}
 
     test {GEOPOS simple} {
         r del points
