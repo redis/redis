@@ -126,6 +126,8 @@
 #define CLUSTER_MANAGER_CMD_FLAG_COLOR          1 << 8
 #define CLUSTER_MANAGER_CMD_FLAG_CHECK_OWNERS   1 << 9
 #define CLUSTER_MANAGER_CMD_FLAG_FIX_WITH_UNREACHABLE_MASTERS 1 << 10
+#define CLUSTER_MANAGER_CMD_FLAG_MASTERS_ONLY   1 << 11
+#define CLUSTER_MANAGER_CMD_FLAG_SLAVES_ONLY    1 << 12
 
 #define CLUSTER_MANAGER_OPT_GETFRIENDS  1 << 0
 #define CLUSTER_MANAGER_OPT_COLD        1 << 1
@@ -1614,6 +1616,12 @@ static int parseOptions(int argc, char **argv) {
             i = j;
         } else if (!strcmp(argv[i],"--cluster") && lastarg) {
             usage();
+        } else if ((!strcmp(argv[i],"--cluster-only-masters"))) {
+            config.cluster_manager_command.flags |=
+                    CLUSTER_MANAGER_CMD_FLAG_MASTERS_ONLY;
+        } else if ((!strcmp(argv[i],"--cluster-only-replicas"))) {
+            config.cluster_manager_command.flags |=
+                    CLUSTER_MANAGER_CMD_FLAG_SLAVES_ONLY;
         } else if (!strcmp(argv[i],"--cluster-replicas") && !lastarg) {
             config.cluster_manager_command.replicas = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"--cluster-master-id") && !lastarg) {
@@ -2403,7 +2411,7 @@ clusterManagerCommandDef clusterManagerCommands[] = {
      "new_host:new_port existing_host:existing_port", "slave,master-id <arg>"},
     {"del-node", clusterManagerCommandDeleteNode, 2, "host:port node_id",NULL},
     {"call", clusterManagerCommandCall, -2,
-        "host:port command arg arg .. arg", NULL},
+        "host:port command arg arg .. arg", "only-masters,only-replicas"},
     {"set-timeout", clusterManagerCommandSetTimeout, 2,
      "host:port milliseconds", NULL},
     {"import", clusterManagerCommandImport, 1, "host:port",
@@ -6506,6 +6514,10 @@ static int clusterManagerCommandCall(int argc, char **argv) {
     listRewind(cluster_manager.nodes, &li);
     while ((ln = listNext(&li)) != NULL) {
         clusterManagerNode *n = ln->value;
+        if ((config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_MASTERS_ONLY)
+              && (n->replicate != NULL)) continue;  // continue if node is slave
+        if ((config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_SLAVES_ONLY)
+              && (n->replicate == NULL)) continue;   // continue if node is master
         if (!n->context && !clusterManagerNodeConnect(n)) continue;
         redisReply *reply = NULL;
         redisAppendCommandArgv(n->context, argc, (const char **) argv, argvlen);
@@ -8282,4 +8294,3 @@ int main(int argc, char **argv) {
         return noninteractive(argc,convertToSds(argc,argv));
     }
 }
-
