@@ -588,7 +588,7 @@ NULL
                 == NULL) return;
 
         if (o->encoding != OBJ_ENCODING_ZIPLIST) {
-            addReplyError(c,"Not an sds encoded string.");
+            addReplyError(c,"Not a ziplist encoded object.");
         } else {
             ziplistRepr(o->ptr);
             addReplyStatus(c,"Ziplist structure printed on stdout");
