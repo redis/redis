@@ -5234,6 +5234,10 @@ int main(int argc, char **argv) {
         sdsfree(options);
     }
 
+    server.supervised = redisIsSupervised(server.supervised_mode);
+    int background = server.daemonize && !server.supervised;
+    if (background) daemonize();
+
     serverLog(LL_WARNING, "oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo");
     serverLog(LL_WARNING,
         "Redis version=%s, bits=%d, commit=%s, modified=%d, pid=%d, just started",
@@ -5249,11 +5253,7 @@ int main(int argc, char **argv) {
         serverLog(LL_WARNING, "Configuration loaded");
     }
 
-    server.supervised = redisIsSupervised(server.supervised_mode);
-    int background = server.daemonize && !server.supervised;
-    if (background) daemonize();
     readOOMScoreAdj();
-
     initServer();
     if (background || server.pidfile) createPidFile();
     redisSetProcTitle(argv[0]);
