@@ -1785,14 +1785,6 @@ void checkChildrenDone(void) {
     int statloc;
     pid_t pid;
 
-    /* If we have a diskless rdb child (note that we support only one concurrent
-     * child), we want to avoid collecting it's exit status and acting on it
-     * as long as we didn't finish to drain the pipe, since then we're at risk
-     * of starting a new fork and a new pipe before we're done with the previous
-     * one. */
-    if (server.rdb_child_pid != -1 && server.rdb_pipe_conns)
-        return;
-
     if ((pid = wait3(&statloc,WNOHANG,NULL)) != 0) {
         int exitcode = WEXITSTATUS(statloc);
         int bysignal = 0;

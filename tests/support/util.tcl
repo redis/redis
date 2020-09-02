@@ -505,3 +505,12 @@ proc populate {num prefix size} {
     }
     $rd close
 }
+
+proc get_child_pid {idx} {
+    set pid [srv $idx pid]
+    set fd [open "|ps --ppid $pid -o pid" "r"]
+    set child_pid [string trim [lindex [split [read $fd] \n] 1]]
+    close $fd
+
+    return $child_pid
+}
