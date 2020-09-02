@@ -1619,7 +1619,7 @@ static int parseOptions(int argc, char **argv) {
         } else if ((!strcmp(argv[i],"--cluster-only-masters"))) {
             config.cluster_manager_command.flags |=
                     CLUSTER_MANAGER_CMD_FLAG_MASTERS_ONLY;
-        } else if ((!strcmp(argv[i],"--cluster-only-slaves"))) {
+        } else if ((!strcmp(argv[i],"--cluster-only-replicas"))) {
             config.cluster_manager_command.flags |=
                     CLUSTER_MANAGER_CMD_FLAG_SLAVES_ONLY;
         } else if (!strcmp(argv[i],"--cluster-replicas") && !lastarg) {
@@ -8294,4 +8294,3 @@ int main(int argc, char **argv) {
         return noninteractive(argc,convertToSds(argc,argv));
     }
 }
-
