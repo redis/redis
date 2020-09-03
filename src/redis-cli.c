@@ -6905,21 +6905,52 @@ static ssize_t writeConn(redisContext *c, const char *buf, size_t buf_len)
 {
     int done = 0;
 
+    /* Append data to buffer which is *usually* expected to be empty
+     * but we don't assume that, and write.
+     */
     c->obuf = sdscatlen(c->obuf, buf, buf_len);
     if (redisBufferWrite(c, &done) == REDIS_ERR) {
-        sdsrange(c->obuf, 0, -(buf_len+1));
         if (!(c->flags & REDIS_BLOCK))
             errno = EAGAIN;
+
+        /* On error, we assume nothing was written and we roll back the
+         * buffer to its original state.
+         */
+        if (sdslen(c->obuf) > buf_len)
+            sdsrange(c->obuf, 0, -(buf_len+1));
+        else
+            sdsclear(c->obuf);
+
         return -1;
     }
 
-    size_t left = sdslen(c->obuf);
-    sdsclear(c->obuf);
-    if (!done) {
-        return buf_len - left;
+    /* If we're done, free up everything. We may have written more than
+     * buf_len (if c->obuf was not initially empty) but we don't have to
+     * tell.
+     */
+    if (done) {
+        sdsclear(c->obuf);
+        return buf_len;
     }
 
-    return buf_len;
+    /* Write was successful but we have some leftovers which we should
+     * remove from the buffer.
+     *
+     * Do we still have data that was there prior to our buf? If so,
+     * restore buffer to it's original state and report no new data was
+     * writen.
+     */
+    if (sdslen(c->obuf) > buf_len) {
+        sdsrange(c->obuf, 0, -(buf_len+1));
+        return 0;
+    }
+
+    /* At this point we're sure no prior data is left. We flush the buffer
+     * and report how much we've written.
+     */
+    size_t left = sdslen(c->obuf);
+    sdsclear(c->obuf);
+    return buf_len - left;
 }
 
 /* Read raw bytes through a redisContext. The read operation is not greedy
