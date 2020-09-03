@@ -104,7 +104,7 @@ lzf_compress (const void *const in_data, unsigned int in_len,
               )
 {
 #if !LZF_STATE_ARG
-  LZF_STATE htab;
+  LZF_STATE htab = {0};
 #endif
   const u8 *ip = (const u8 *)in_data;
         u8 *op = (u8 *)out_data;
