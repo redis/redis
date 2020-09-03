@@ -2109,22 +2109,62 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     return 1000/server.hz;
 }
 
-/* This function fill in the role of serverCron during RDB or AOF loading.
+
+void blockingOperationStarts() {
+    updateCachedTime(0);
+    server.blocked_last_cron = server.mstime;
+}
+
+void blockingOperationEnds() {
+    server.blocked_last_cron = 0;
+}
+
+/* This function fill in the role of serverCron during RDB or AOF loading, and
+ * also during blocked scripts.
  * It attempts to do its duties at a similar rate as the configured server.hz,
  * and updates cronloops variable so that similarly to serverCron, the
  * run_with_period can be used. */
-void loadingCron() {
-    long long now = server.ustime;
-    static long long next_event = 0;
-    if (now >= next_event) {
-        cronUpdateMemoryStats();
-        
+void whileBlockedCron() {
+    /* Here we may want to perform some cron jobs (normally done server.hz times
+     * per second). */
+
+    /* Since this function depends on a call to blockingOperationStarts, let's
+     * make sure it was done. */
+    serverAssert(server.blocked_last_cron);
+
+    /* In case we where called too soon, leave right away. This way one time
+     * jobs after the loop below don't need an if. and we don't bother to start
+     * latency monitor if this function is called too often. */
+    if (server.blocked_last_cron >= server.mstime)
+        return;
+
+    mstime_t latency;
+    latencyStartMonitor(latency);
+
+    /* In some cases we may be called with big intervals, so we may need to do
+     * extra work here. This is because some of the functions in serverCron rely
+     * on the fact that it is performed every 10 ms or so. For instance, if
+     * activeDefragCycle needs to utilize 25% cpu, it will utilize 2.5ms, so we
+     * need to call it multiple times. */
+    long hz_ms = 1000/server.hz;
+    while (server.blocked_last_cron < server.mstime) {
+
+        /* Defrag keys gradually. */
+        activeDefragCycle();
+
+        server.blocked_last_cron += hz_ms;
         /* Increment cronloop so that run_with_period works. */
         server.cronloops++;
-
-        /* Decide when the next event should fire. */
-        next_event = now + 1000000 / server.hz;
     }
+
+    /* Other cron jobs do not need to be done in a loop. No need to check
+     * server.blocked_last_cron since we have an early exit at the top. */
+
+    /* Update memory stats during loading (excluding blocked scripts) */
+    if (server.loading) cronUpdateMemoryStats();
+
+    latencyEndMonitor(latency);
+    latencyAddSampleIfNeeded("while-blocked-cron",latency);
 }
 
 extern int ProcessingEventsWhileBlocked;
@@ -2830,6 +2870,7 @@ void resetServerStats(void) {
     server.stat_net_output_bytes = 0;
     server.stat_unexpected_error_replies = 0;
     server.aof_delayed_fsync = 0;
+    server.blocked_last_cron = 0;
 }
 
 void initServer(void) {

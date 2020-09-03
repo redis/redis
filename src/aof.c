@@ -773,7 +773,6 @@ int loadAppendOnlyFile(char *filename) {
         if (!(loops++ % 1000)) {
             loadingProgress(ftello(fp));
             processEventsWhileBlocked();
-            loadingCron();
             processModuleLoadingProgressEvent(1);
         }
 
@@ -859,7 +858,7 @@ int loadAppendOnlyFile(char *filename) {
         fakeClient->cmd = NULL;
         if (server.aof_load_truncated) valid_up_to = ftello(fp);
         if (server.key_load_delay)
-            usleep(server.key_load_delay);
+            debugDelay(server.key_load_delay);
     }
 
     /* This point can only be reached when EOF is reached without errors.

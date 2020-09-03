@@ -1804,3 +1804,12 @@ void disableWatchdog(void) {
     sigaction(SIGALRM, &act, NULL);
     server.watchdog_period = 0;
 }
+
+/* Positive input is sleep time in microseconds. Negative input is fractions
+ * of microseconds, i.e. -10 means 100 nanoseconds. */
+void debugDelay(int usec) {
+    /* Since even the shortest sleep results in context switch and system call,
+     * the way we achive short sleeps is by statistically sleeping less often. */
+    if (usec < 0) usec = (rand() % -usec) == 0 ? 1: 0;
+    if (usec) usleep(usec);
+}
