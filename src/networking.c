@@ -2942,6 +2942,9 @@ void processEventsWhileBlocked(void) {
         long long events = server.events_processed_while_blocked - startval;
         if (!events) break;
     }
+
+    whileBlockedCron();
+
     ProcessingEventsWhileBlocked = 0;
 }
 

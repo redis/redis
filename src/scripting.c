@@ -1424,6 +1424,7 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
             "Script SHA1 is: %s",
             elapsed, server.lua_cur_script);
         server.lua_timedout = 1;
+        blockingOperationStarts();
         /* Once the script timeouts we reenter the event loop to permit others
          * to call SCRIPT KILL or SHUTDOWN NOSAVE if needed. For this reason
          * we need to mask the client executing the script from the event loop.
@@ -1575,6 +1576,7 @@ void evalGenericCommand(client *c, int evalsha) {
     if (delhook) lua_sethook(lua,NULL,0,0); /* Disable hook */
     if (server.lua_timedout) {
         server.lua_timedout = 0;
+        blockingOperationEnds();
         /* Restore the client that was protected when the script timeout
          * was detected. */
         unprotectClient(c);

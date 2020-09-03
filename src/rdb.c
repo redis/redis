@@ -1084,7 +1084,7 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime) {
 
     /* Delay return if required (for testing) */
     if (server.rdb_key_save_delay)
-        usleep(server.rdb_key_save_delay);
+        debugDelay(server.rdb_key_save_delay);
 
     return 1;
 }
@@ -1997,6 +1997,7 @@ void startLoading(size_t size, int rdbflags) {
     server.loading_start_time = time(NULL);
     server.loading_loaded_bytes = 0;
     server.loading_total_bytes = size;
+    blockingOperationStarts();
 
     /* Fire the loading modules start event. */
     int subevent;
@@ -2030,6 +2031,7 @@ void loadingProgress(off_t pos) {
 /* Loading finished */
 void stopLoading(int success) {
     server.loading = 0;
+    blockingOperationEnds();
     rdbFileBeingLoaded = NULL;
 
     /* Fire the loading modules end event. */
@@ -2073,7 +2075,6 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
             replicationSendNewlineToMaster();
         loadingProgress(r->processed_bytes);
         processEventsWhileBlocked();
-        loadingCron();
         processModuleLoadingProgressEvent(0);
     }
 }
@@ -2336,7 +2337,8 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
 
         /* Loading the database more slowly is useful in order to test
          * certain edge cases. */
-        if (server.key_load_delay) usleep(server.key_load_delay);
+        if (server.key_load_delay)
+            debugDelay(server.key_load_delay);
 
         /* Reset the state that is key-specified and is populated by
          * opcodes before the key, so that we start from scratch again. */
