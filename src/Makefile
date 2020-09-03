@@ -191,6 +191,13 @@ ifeq ($(MALLOC),jemalloc)
 	FINAL_LIBS := ../deps/jemalloc/lib/libjemalloc.a $(FINAL_LIBS)
 endif
 
+DTRACE=/usr/bin/dtrace # FIXME autodetect or bail?
+TRACE_DEPENDENCIES=
+ifeq ($(BUILD_USDT),yes)
+    FINAL_CFLAGS+=-DUSE_USDT
+    TRACE_DEPENDENCIES+=redis_dtrace.o
+endif
+
 ifeq ($(BUILD_TLS),yes)
 	FINAL_CFLAGS+=-DUSE_OPENSSL $(OPENSSL_CFLAGS)
 	FINAL_LDFLAGS+=$(OPENSSL_LDFLAGS)
@@ -280,8 +287,17 @@ ifneq ($(strip $(PREV_FINAL_LDFLAGS)), $(strip $(FINAL_LDFLAGS)))
 .make-prerequisites: persist-settings
 endif
 
+redis_dtrace.h: redis_dtrace.d
+	${DTRACE} -h -s redis_dtrace.d
+	sed -e 's,void \*,const void \*,g' redis_dtrace.h | \
+            sed -e 's,char \*,const char \*,g' | tr '\t' ' ' > redis_dtrace.tmp
+	mv redis_dtrace.tmp redis_dtrace.h
+
+redis_dtrace.o: $(REDIS_SERVER_OBJ)
+	$(DTRACE) -G -o redis_dtrace.o -s redis_dtrace.d $(REDIS_SERVER_OBJ)
+
 # redis-server
-$(REDIS_SERVER_NAME): $(REDIS_SERVER_OBJ)
+$(REDIS_SERVER_NAME): $(REDIS_SERVER_OBJ) $(TRACE_DEPENDENCIES)
 	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a $(FINAL_LIBS)
 
 # redis-sentinel

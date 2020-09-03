@@ -24,6 +24,7 @@ src/configs
 redis.ds
 src/redis.conf
 src/nodes.conf
+src/redis_dtrace.h
 deps/lua/src/lua
 deps/lua/src/luac
 deps/lua/src/liblua.a

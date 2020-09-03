@@ -34,6 +34,7 @@
 #include "config.h"
 #include "solarisfixes.h"
 #include "rio.h"
+#include "trace.h"
 
 #include <stdio.h>
 #include <stdlib.h>
