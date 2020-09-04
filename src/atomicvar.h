@@ -83,11 +83,9 @@
  * install Valgrind in the default path configuration. */
 #ifdef __ATOMIC_VAR_FORCE_SYNC_MACROS
 #include <valgrind/helgrind.h>
-#define REDIS_ANNOTATE_HAPPENS_BEFORE(v) ANNOTATE_HAPPENS_BEFORE(v)
-#define REDIS_ANNOTATE_HAPPENS_AFTER(v)  ANNOTATE_HAPPENS_AFTER(v)
 #else
-#define REDIS_ANNOTATE_HAPPENS_BEFORE(v) ((void) v)
-#define REDIS_ANNOTATE_HAPPENS_AFTER(v)  ((void) v)
+#define ANNOTATE_HAPPENS_BEFORE(v) ((void) v)
+#define ANNOTATE_HAPPENS_AFTER(v)  ((void) v)
 #endif
 
 #if !defined(__ATOMIC_VAR_FORCE_SYNC_MACROS) && (__STDC_VERSION__ >= 201112L) && \
@@ -152,10 +150,10 @@
 /* Actually the builtin issues a full memory barrier by default. */
 #define atomicGetWithSync(var,dstvar) { \
     dstvar = __sync_sub_and_fetch(&var,0,__sync_synchronize); \
-    REDIS_ANNOTATE_HAPPENS_AFTER(&var); \
+    ANNOTATE_HAPPENS_AFTER(&var); \
 } while(0)
 #define atomicSetWithSync(var,value) do { \
-    REDIS_ANNOTATE_HAPPENS_BEFORE(&var);  \
+    ANNOTATE_HAPPENS_BEFORE(&var);  \
     while(!__sync_bool_compare_and_swap(&var,var,value,__sync_synchronize)); \
 } while(0)
 #define REDIS_ATOMIC_API "sync-builtin"
