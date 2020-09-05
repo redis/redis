@@ -2684,8 +2684,10 @@ fmterr:
  *   s    The argument is a RedisModuleString.
  *   v    The argument(s) is a vector of RedisModuleString.
  * 
- *   The format specifier can also include flags. The only valid flag is:
- *   !    Sends the Redis command and its arguments to replicas.
+ *   The format specifier can also include modifiers:
+ *   !    Sends the Redis command and its arguments to replicas and AOF.
+ *   A    Suppress AOF propagation, send only to replicas (requires `!`).
+ *   R    Suppress replicas propagation, send only to AOF (requires `!`).
  * * **...**: The actual arguments to the Redis command.
  * 
  * On success a RedisModuleCallReply object is returned, otherwise
