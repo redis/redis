@@ -2541,7 +2541,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
     openChildInfoPipe();
     if ((childpid = redisFork()) == 0) {
         /* Child */
-        int retval;
+        int retval, dummy;
         rio rdb;
 
         rioInitWithFd(&rdb,rdb_pipe_write);
@@ -2563,7 +2563,8 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
         close(server.rdb_child_exit_pipe); /* close write end so that we can detect the close on the parent. */
         /* hold exit until the parent tells us it's safe. we're not expecting
          * to read anything, just get the error when the pipe is closed. */
-        read(safe_to_exit_pipe, pipefds, 1);
+        dummy = read(safe_to_exit_pipe, pipefds, 1);
+        UNUSED(dummy);
         exitFromChild((retval == C_OK) ? 0 : 1);
     } else {
         /* Parent */

@@ -912,7 +912,12 @@ void replconfCommand(client *c) {
              * the slave online when the first ACK is received (which
              * confirms slave is online and ready to get more data). This
              * allows for simpler and less CPU intensive EOF detection
-             * when streaming RDB files. */
+             * when streaming RDB files.
+             * There's a chance the ACK got to us before we detected that the
+             * bgsave is done (since that depends on cron ticks), so run a
+             * quick check first (instead of waiting for the next ACK. */
+            if (server.rdb_child_pid != -1 && c->replstate == SLAVE_STATE_WAIT_BGSAVE_END)
+                checkChildrenDone();
             if (c->repl_put_online_on_ack && c->replstate == SLAVE_STATE_ONLINE)
                 putSlaveOnline(c);
             /* Note: this command does not reply anything! */
