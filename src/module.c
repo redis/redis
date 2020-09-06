@@ -906,10 +906,21 @@ int RM_SignalModifiedKey(RedisModuleCtx *ctx, RedisModuleString *keyname) {
  * Automatic memory management for modules
  * -------------------------------------------------------------------------- */
 
-/* Enable automatic memory management. See API.md for more information.
+/* Enable automatic memory management.
  *
  * The function must be called as the first function of a command implementation
- * that wants to use automatic memory. */
+ * that wants to use automatic memory.
+ *
+ * When enabled, automatic memory management tracks and automatically frees
+ * keys, call replies and Redis string objects once the command returns. In most
+ * cases this eliminates the need of calling the following functions:
+ *
+ * 1) RedisModule_CloseKey()
+ * 2) RedisModule_FreeCallReply()
+ * 3) RedisModule_FreeString()
+ *
+ * These functions can still be used with automatic memory management enabled,
+ * to optimize loops that make numerous allocations for example. */
 void RM_AutoMemory(RedisModuleCtx *ctx) {
     ctx->flags |= REDISMODULE_CTX_AUTO_MEMORY;
 }
@@ -3574,7 +3585,7 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
 
 /* Register a new data type exported by the module. The parameters are the
  * following. Please for in depth documentation check the modules API
- * documentation, especially the TYPES.md file.
+ * documentation, especially https://redis.io/topics/modules-native-types.
  *
  * * **name**: A 9 characters data type name that MUST be unique in the Redis
  *   Modules ecosystem. Be creative... and there will be no collisions. Use
