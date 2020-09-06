@@ -2683,18 +2683,27 @@ fmterr:
  *   l    The argument is long long integer.
  *   s    The argument is a RedisModuleString.
  *   v    The argument(s) is a vector of RedisModuleString.
- * 
+ *
  *   The format specifier can also include modifiers:
  *   !    Sends the Redis command and its arguments to replicas and AOF.
  *   A    Suppress AOF propagation, send only to replicas (requires `!`).
  *   R    Suppress replicas propagation, send only to AOF (requires `!`).
  * * **...**: The actual arguments to the Redis command.
- * 
+ *
  * On success a RedisModuleCallReply object is returned, otherwise
  * NULL is returned and errno is set to the following values:
  *
  * EINVAL: command non existing, wrong arity, wrong format specifier.
- * EPERM:  operation in Cluster instance with key in non local slot. */
+ * EPERM:  operation in Cluster instance with key in non local slot.
+ *
+ * Example code fragment:
+ * 
+ *      reply = RedisModule_Call(ctx,"INCRBY","sc",argv[1],"10");
+ *      if (RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_INTEGER) {
+ *        long long myval = RedisModule_CallReplyInteger(reply);
+ *        // Do something with myval.
+ *      }
+ */
 RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) {
     struct redisCommand *cmd;
     client *c = NULL;
