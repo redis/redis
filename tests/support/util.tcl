@@ -432,6 +432,29 @@ proc colorstr {color str} {
     }
 }
 
+proc find_valgrind_errors {stderr} {
+    set fd [open $stderr]
+    set buf [read $fd]
+    close $fd
+
+    # Look for stack trace (" at 0x") and other errors (Invalid, Mismatched, etc).
+    # Look for "Warnings", but not the "set address range perms". These don't indicate any real concern.
+    # Look for the absense of a leak free summary (happens when redis isn't terminated properly).
+    if {[regexp -- { at 0x} $buf] ||
+        [regexp -- {^(?=.*Warning)(?:(?!set address range perms).)*$} $buf] ||
+        [regexp -- {Invalid} $buf] ||
+        [regexp -- {Mismatched} $buf] ||
+        [regexp -- {uninitialized} $buf] ||
+        [regexp -- {has a fishy} $buf] ||
+        [regexp -- {overlap} $buf] ||
+        (![regexp -- {definitely lost: 0 bytes} $buf] &&
+         ![regexp -- {no leaks are possible} $buf])} {
+        return $buf
+    }
+
+    return ""
+}
+
 # Execute a background process writing random data for the specified number
 # of seconds to the specified Redis instance.
 proc start_write_load {host port seconds} {
