@@ -14,15 +14,6 @@ if {$system_name eq {linux}} {
             return $val
         }
 
-        proc get_child_pid {} {
-            set pid [srv 0 pid]
-            set fd [open "|ps --ppid $pid -o pid" "r"]
-            set child_pid [string trim [lindex [split [read $fd] \n] 1]]
-            close $fd
-
-            return $child_pid
-        }
-
         test {CONFIG SET oom-score-adj works as expected} {
             set base [get_oom_score_adj]
 
@@ -47,7 +38,7 @@ if {$system_name eq {linux}} {
             r config set rdb-key-save-delay 100000
             r bgsave
 
-            set child_pid [get_child_pid]
+            set child_pid [get_child_pid 0]
             assert {[get_oom_score_adj $child_pid] == [expr $base + 30]}
         }
 
