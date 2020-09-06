@@ -13,21 +13,9 @@ proc start_server_error {config_file error} {
 }
 
 proc check_valgrind_errors stderr {
-    set fd [open $stderr]
-    set buf [read $fd]
-    close $fd
-
-    # look for stack trace and other errors, or the absense of a leak free summary
-    if {[regexp -- { at 0x} $buf] ||
-        [regexp -- {Warning} $buf] ||
-        [regexp -- {Invalid} $buf] ||
-        [regexp -- {Mismatched} $buf] ||
-        [regexp -- {uninitialized} $buf] ||
-        [regexp -- {has a fishy} $buf] ||
-        [regexp -- {overlap} $buf] ||
-        (![regexp -- {definitely lost: 0 bytes} $buf] &&
-         ![regexp -- {no leaks are possible} $buf])} {
-        send_data_packet $::test_server_fd err "Valgrind error: $buf\n"
+    set res [find_valgrind_errors $stderr]
+    if {$res != ""} {
+        send_data_packet $::test_server_fd err "Valgrind error: $res\n"
     }
 }
 

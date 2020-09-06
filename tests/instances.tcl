@@ -19,6 +19,7 @@ set ::verbose 0
 set ::valgrind 0
 set ::tls 0
 set ::pause_on_error 0
+set ::dont_clean 0
 set ::simulate_error 0
 set ::failed 0
 set ::sentinel_instances {}
@@ -38,7 +39,7 @@ if {[catch {cd tmp}]} {
 
 # Execute the specified instance of the server specified by 'type', using
 # the provided configuration file. Returns the PID of the process.
-proc exec_instance {type cfgfile} {
+proc exec_instance {type dirname cfgfile} {
     if {$type eq "redis"} {
         set prgname redis-server
     } elseif {$type eq "sentinel"} {
@@ -47,8 +48,9 @@ proc exec_instance {type cfgfile} {
         error "Unknown instance type."
     }
 
+    set errfile [file join $dirname err.txt]
     if {$::valgrind} {
-        set pid [exec valgrind --track-origins=yes --suppressions=../../../src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full ../../../src/${prgname} $cfgfile &]
+        set pid [exec valgrind --track-origins=yes --suppressions=../../../src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full ../../../src/${prgname} $cfgfile 2>> $errfile &]
     } else {
         set pid [exec ../../../src/${prgname} $cfgfile &]
     }
@@ -93,7 +95,7 @@ proc spawn_instance {type base_port count {conf {}}} {
         # Finally exec it and remember the pid for later cleanup.
         set retry 100
         while {$retry} {
-            set pid [exec_instance $type $cfgfile]
+            set pid [exec_instance $type $dirname $cfgfile]
 
             # Check availability
             if {[server_is_up 127.0.0.1 $port 100] == 0} {
@@ -144,16 +146,60 @@ proc log_crashes {} {
                 puts "\n*** Crash report found in $log ***"
                 set found 1
             }
-            if {$found} {puts $line}
+            if {$found} {
+                puts $line
+                incr ::failed
+            }
         }
+    }
+
+    set logs [glob */err.txt]
+    foreach log $logs {
+        set res [find_valgrind_errors $log]
+        if {$res != ""} {
+            puts $res
+            incr ::failed
+        }
+    }
+}
+
+proc is_alive pid {
+    if {[catch {exec ps -p $pid} err]} {
+        return 0
+    } else {
+        return 1
+    }
+}
+
+proc stop_instance pid {
+    catch {exec kill $pid}
+    if {$::valgrind} {
+        set max_wait 60000
+    } else {
+        set max_wait 10000
+    }
+    while {[is_alive $pid]} {
+        incr wait 10
+
+        if {$wait >= $max_wait} {
+            puts "Forcing process $pid to exit..."
+            catch {exec kill -KILL $pid}
+        } elseif {$wait % 1000 == 0} {
+            puts "Waiting for process $pid to exit..."
+        }
+        after 10
     }
 }
 
 proc cleanup {} {
     puts "Cleaning up..."
-    log_crashes
     foreach pid $::pids {
-        catch {exec kill -9 $pid}
+        puts "killing stale instance $pid"
+        stop_instance $pid
+    }
+    log_crashes
+    if {$::dont_clean} {
+        return
     }
     foreach dir $::dirs {
         catch {exec rm -rf $dir}
@@ -178,6 +224,8 @@ proc parse_options {} {
             set ::run_matching "*${val}*"
         } elseif {$opt eq "--pause-on-error"} {
             set ::pause_on_error 1
+        } elseif {$opt eq {--dont-clean}} {
+            set ::dont_clean 1
         } elseif {$opt eq "--fail"} {
             set ::simulate_error 1
         } elseif {$opt eq {--valgrind}} {
@@ -191,6 +239,7 @@ proc parse_options {} {
             set ::tls 1
         } elseif {$opt eq "--help"} {
             puts "--single <pattern>      Only runs tests specified by pattern."
+            puts "--dont-clean            Keep log files on exit."
             puts "--pause-on-error        Pause for manual inspection on error."
             puts "--fail                  Simulate a test failure."
             puts "--valgrind              Run with valgrind."
@@ -486,7 +535,7 @@ proc kill_instance {type id} {
         error "You tried to kill $type $id twice."
     }
 
-    exec kill -9 $pid
+    stop_instance $pid
     set_instance_attrib $type $id pid -1
     set_instance_attrib $type $id link you_tried_to_talk_with_killed_instance
 
@@ -521,7 +570,7 @@ proc restart_instance {type id} {
 
     # Execute the instance with its old setup and append the new pid
     # file for cleanup.
-    set pid [exec_instance $type $cfgfile]
+    set pid [exec_instance $type $dirname $cfgfile]
     set_instance_attrib $type $id pid $pid
     lappend ::pids $pid
 
