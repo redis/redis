@@ -87,7 +87,7 @@ void discardTransaction(client *c) {
     unwatchAllKeys(c);
 }
 
-/* Flag the transacation as DIRTY_EXEC so that EXEC will fail.
+/* Flag the transaction as DIRTY_EXEC so that EXEC will fail.
  * Should be called every time there is an error while queueing a command. */
 void flagTransaction(client *c) {
     if (c->flags & CLIENT_MULTI)

@@ -62,7 +62,7 @@ int keyspaceEventsStringToFlags(char *classes) {
     return flags;
 }
 
-/* This function does exactly the revese of the function above: it gets
+/* This function does exactly the reverse of the function above: it gets
  * as input an integer with the xored flags and returns a string representing
  * the selected classes. The string returned is an sds string that needs to
  * be released with sdsfree(). */
