@@ -51,6 +51,13 @@ proc test_slave_load_expired_keys {aof} {
         set replica_dbsize_0 [R $replica_id dbsize]
         assert_equal $master_dbsize_0 $replica_dbsize_0
 
+        # config the replica persistency and rewrite the config file to survive restart
+        # note that this needs to be done before populating the volatile keys since
+        # that triggers and AOFRW, and we rather the AOF file to have SETEX commands
+        # rather than an RDB with volatile keys
+        R $replica_id config set appendonly $aof
+        R $replica_id config rewrite
+
         # fill with 100 keys with 3 second TTL
         set data_ttl 3
         cluster_write_keys_with_expire $master_id $data_ttl
@@ -65,9 +72,7 @@ proc test_slave_load_expired_keys {aof} {
         set replica_dbsize_1 [R $replica_id dbsize]
         assert {$replica_dbsize_1 > $replica_dbsize_0}
 
-        # make replica create persistence file and rewrite the config file to survive restart
-        R $replica_id config set appendonly $aof
-        R $replica_id config rewrite
+        # make replica create persistence file
         if {$aof == "yes"} {
             # we need to wait for the initial AOFRW to be done, otherwise
             # kill_instance (which now uses SIGTERM will fail ("Writing initial AOF, can't exit")
