@@ -383,6 +383,11 @@ proc start_server {options {code undefined}} {
                 dict set config port $port
             }
             create_server_config_file $config_file $config
+
+            # Truncate log so wait_server_started will not be looking at
+            # output of the failed server.
+            close [open $stdout "w"]
+
             continue; # Try again
         }
 
