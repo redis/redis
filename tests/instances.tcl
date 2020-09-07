@@ -52,7 +52,7 @@ proc exec_instance {type dirname cfgfile} {
     if {$::valgrind} {
         set pid [exec valgrind --track-origins=yes --suppressions=../../../src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full ../../../src/${prgname} $cfgfile 2>> $errfile &]
     } else {
-        set pid [exec ../../../src/${prgname} $cfgfile &]
+        set pid [exec ../../../src/${prgname} $cfgfile 2>> $errfile &]
     }
     return $pid
 }
