@@ -190,5 +190,4 @@ proc test {name code {okpattern undefined} {options undefined}} {
             send_data_packet $::test_server_fd err "Detected a memory leak in test '$name': $output"
         }
     }
-    unset ::cur_test
 }
