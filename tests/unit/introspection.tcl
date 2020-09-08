@@ -147,4 +147,15 @@ start_server {tags {"introspection"}} {
 
         }
     }
+
+    # Do a force-all config rewrite and make sure we're able to parse
+    # it.
+    test {CONFIG REWRITE sanity} {
+        assert_equal [r debug config-rewrite-force-all] "OK"
+        restart_server 0 0
+        r ping
+    } {PONG}
+
+    # Config file at this point is at a wierd state, and includes all
+    # known keywords. Might be a good idea to avoid adding tests here.
 }
