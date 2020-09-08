@@ -31,6 +31,7 @@
 #include <string.h> /* for memcpy */
 #include "quicklist.h"
 #include "zmalloc.h"
+#include "config.h"
 #include "ziplist.h"
 #include "util.h" /* for ll2string */
 #include "lzf.h"
@@ -87,14 +88,6 @@ void _quicklistBookmarkDelete(quicklist *ql, quicklistBookmark *bm);
         (e)->offset = 123456789;                                               \
         (e)->sz = 0;                                                           \
     } while (0)
-
-#if __GNUC__ >= 3
-#define likely(x) __builtin_expect(!!(x), 1)
-#define unlikely(x) __builtin_expect(!!(x), 0)
-#else
-#define likely(x) (x)
-#define unlikely(x) (x)
-#endif
 
 /* Create a new quicklist.
  * Free with quicklistRelease(). */
