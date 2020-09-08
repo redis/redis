@@ -168,3 +168,21 @@ jobs:
         ./runtest-cluster --tls
         ./runtest-cluster
 
+  test-macos-latest:
+    runs-on: macos-latest
+    if: github.repository == 'redis/redis'
+    timeout-minutes: 14400
+    steps:
+    - uses: actions/checkout@v2
+    - name: make
+      run: make
+    - name: test
+      run: |
+        ./runtest --accurate --verbose
+    - name: module api test
+      run: ./runtest-moduleapi --verbose
+    - name: sentinel tests
+      run: ./runtest-sentinel
+    - name: cluster tests
+      run: ./runtest-cluster
+
