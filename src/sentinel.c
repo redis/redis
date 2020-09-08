@@ -1195,7 +1195,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
 
     /* For slaves use ip:port as name. */
     if (flags & SRI_SLAVE) {
-        anetFormatAddr(slavename, sizeof(slavename), hostname, port);
+        anetFormatAddr(slavename, sizeof(slavename), addr->ip, port);
         name = slavename;
     }
 
@@ -1311,9 +1311,20 @@ sentinelRedisInstance *sentinelRedisInstanceLookupSlave(
     sds key;
     sentinelRedisInstance *slave;
     char buf[NET_PEER_ID_LEN];
+    sentinelAddr *slaveAddr;
 
     serverAssert(ri->flags & SRI_MASTER);
-    anetFormatAddr(buf,sizeof(buf),ip,port);
+    /* When the slave configuration "slave-announce-ip" uses the hostname (ie, slave-announce-ip REDIS-1-SVC), 
+     * the parameter "ip" will be a hostname (REDIS-1-SVC). It should convert hostname to ip address when searching 
+     * for the slave instance.*/
+    slaveAddr = createSentinelAddr(ip, port);
+    if (slaveAddr!=NULL){
+        anetFormatAddr(buf,sizeof(buf),slaveAddr->ip,slaveAddr->port);
+        releaseSentinelAddr(slaveAddr);
+    }else{
+        anetFormatAddr(buf,sizeof(buf),ip,port);
+    }
+    
     key = sdsnew(buf);
     slave = dictFetchValue(ri->slaves,key);
     sdsfree(key);
@@ -1369,22 +1380,31 @@ sentinelRedisInstance *getSentinelRedisInstanceByAddrAndRunID(dict *instances, c
     dictIterator *di;
     dictEntry *de;
     sentinelRedisInstance *instance = NULL;
+    sentinelAddr *instanceAddr = NULL;
 
     serverAssert(ip || runid);   /* User must pass at least one search param. */
     di = dictGetIterator(instances);
+    if (ip != NULL){
+        /* The parameter "ip" may be a hostname  (ie, sentinel announce-ip redis-0-svc), 
+         * it need to use ip address to search.*/
+        instanceAddr = createSentinelAddr(ip, port);
+    }
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
 
         if (runid && !ri->runid) continue;
         if ((runid == NULL || strcmp(ri->runid, runid) == 0) &&
-            (ip == NULL || (strcmp(ri->addr->ip, ip) == 0 &&
-                            ri->addr->port == port)))
+            (instanceAddr == NULL || (strcmp(ri->addr->ip, instanceAddr->ip) == 0 &&
+                            ri->addr->port == instanceAddr->port)))
         {
             instance = ri;
             break;
         }
     }
     dictReleaseIterator(di);
+    if (instanceAddr != NULL){
+        releaseSentinelAddr(instanceAddr);
+    }
     return instance;
 }
 
@@ -2346,20 +2366,27 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
         (ri->slave_master_port != ri->master->addr->port ||
          strcasecmp(ri->slave_master_host,ri->master->addr->ip)))
     {
-        mstime_t wait_time = ri->master->failover_timeout;
-
-        /* Make sure the master is sane before reconfiguring this instance
-         * into a slave. */
-        if (sentinelMasterLooksSane(ri->master) &&
-            sentinelRedisInstanceNoDownFor(ri,wait_time) &&
-            mstime() - ri->slave_conf_change_time > wait_time)
+        /* if the config of master host of a slave is master`s hostname (ie, master_host: redis-0-svc),
+         * it should convert hostname to ip  */
+        sentinelAddr *slave_master_addr = createSentinelAddr(ri->slave_master_host, ri->slave_master_port);
+        if (!slave_master_addr || strcasecmp(slave_master_addr->ip, ri->master->addr->ip))
         {
-            int retval = sentinelSendSlaveOf(ri,
-                    ri->master->addr->ip,
-                    ri->master->addr->port);
-            if (retval == C_OK)
-                sentinelEvent(LL_NOTICE,"+fix-slave-config",ri,"%@");
+            mstime_t wait_time = ri->master->failover_timeout;
+
+            /* Make sure the master is sane before reconfiguring this instance
+             * into a slave. */
+            if (sentinelMasterLooksSane(ri->master) &&
+                sentinelRedisInstanceNoDownFor(ri,wait_time) &&
+                mstime() - ri->slave_conf_change_time > wait_time)
+            {
+                int retval = sentinelSendSlaveOf(ri,
+                                                 ri->master->addr->ip,
+                                                 ri->master->addr->port);
+                if (retval == C_OK)
+                    sentinelEvent(LL_NOTICE,"+fix-slave-config",ri,"%@");
+            }
         }
+        releaseSentinelAddr(slave_master_addr);
     }
 
     /* Detect if the slave that is in the process of being reconfigured
