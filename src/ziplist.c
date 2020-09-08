@@ -188,6 +188,7 @@
 #include "zmalloc.h"
 #include "util.h"
 #include "ziplist.h"
+#include "config.h"
 #include "endianconv.h"
 #include "redisassert.h"
 
@@ -322,13 +323,12 @@ static inline unsigned int zipEncodingLenSize(unsigned char encoding) {
     return ZIP_ENCODING_SIZE_INVALID;
 }
 
-#define ZIP_ASSERT_ENCODING(encoding) do {                          \
-    if (zipEncodingLenSize(encoding) == ZIP_ENCODING_SIZE_INVALID)     \
-        panic("Invalid encoding 0x%02X", encoding);                 \
+#define ZIP_ASSERT_ENCODING(encoding) do {                                     \
+    assert(zipEncodingLenSize(encoding) != ZIP_ENCODING_SIZE_INVALID);         \
 } while (0)
 
-/* Return bytes needed to store integer encoded by 'encoding'. */
-unsigned int zipIntSize(unsigned char encoding) {
+/* Return bytes needed to store integer encoded by 'encoding' */
+static inline unsigned int zipIntSize(unsigned char encoding) {
     switch(encoding) {
     case ZIP_INT_8B:  return 1;
     case ZIP_INT_16B: return 2;
@@ -339,6 +339,7 @@ unsigned int zipIntSize(unsigned char encoding) {
     if (encoding >= ZIP_INT_IMM_MIN && encoding <= ZIP_INT_IMM_MAX)
         return 0; /* 4 bit immediate */
     /* bad encoding, covered by a previous call to ZIP_ASSERT_ENCODING */
+    redis_unreachable();
     return 0;
 }
 
@@ -392,7 +393,8 @@ unsigned int zipStoreEntryEncoding(unsigned char *p, unsigned char encoding, uns
  * number of bytes used for the integer for integer entries) encoded in 'ptr'.
  * The 'encoding' variable is input, extracted by the caller, the 'lensize'
  * variable will hold the number of bytes required to encode the entry
- * length, and the 'len' variable will hold the entry length. */
+ * length, and the 'len' variable will hold the entry length.
+ * On invalid encoding error, lensize is set to 0. */
 #define ZIP_DECODE_LENGTH(ptr, encoding, lensize, len) do {                    \
     if ((encoding) < ZIP_STR_MASK) {                                           \
         if ((encoding) == ZIP_STR_06B) {                                       \
@@ -408,12 +410,21 @@ unsigned int zipStoreEntryEncoding(unsigned char *p, unsigned char encoding, uns
                     ((ptr)[3] <<  8) |                                         \
                     ((ptr)[4]);                                                \
         } else {                                                               \
-            len = 0; /* bad encoding, dead code */                             \
-            /* covered by a previous call to ZIP_ASSERT_ENCODING */            \
+            (lensize) = 0; /* bad encoding, should be covered by a previous */ \
+            (len) = 0;     /* ZIP_ASSERT_ENCODING / zipEncodingLenSize, or  */ \
+                           /* match the lensize after this macro with 0.    */ \
         }                                                                      \
     } else {                                                                   \
         (lensize) = 1;                                                         \
-        (len) = zipIntSize(encoding);                                          \
+        if ((encoding) == ZIP_INT_8B)  (len) = 1;                              \
+        else if ((encoding) == ZIP_INT_16B) (len) = 2;                         \
+        else if ((encoding) == ZIP_INT_24B) (len) = 3;                         \
+        else if ((encoding) == ZIP_INT_32B) (len) = 4;                         \
+        else if ((encoding) == ZIP_INT_64B) (len) = 8;                         \
+        else if (encoding >= ZIP_INT_IMM_MIN && encoding <= ZIP_INT_IMM_MAX)   \
+            (len) = 0; /* 4 bit immediate */                                   \
+        else                                                                   \
+            (lensize) = (len) = 0; /* bad encoding */                          \
     }                                                                          \
 } while(0)
 
@@ -464,7 +475,7 @@ unsigned int zipStorePrevEntryLength(unsigned char *p, unsigned int len) {
     ZIP_DECODE_PREVLENSIZE(ptr, prevlensize);                                  \
     if ((prevlensize) == 1) {                                                  \
         (prevlen) = (ptr)[0];                                                  \
-    } else if ((prevlensize) == 5) {                                           \
+    } else { /* prevlensize == 5 */                                            \
         (prevlen) = ((ptr)[4] << 24) |                                         \
                     ((ptr)[3] << 16) |                                         \
                     ((ptr)[2] <<  8) |                                         \
@@ -589,11 +600,11 @@ int64_t zipLoadInteger(unsigned char *p, unsigned char encoding) {
  * will assert that this element is valid, so it can be freely used.
  * Generally functions such ziplistGet assume the input pointer is already
  * validated (since it's the return value of another function). */
-void zipEntry(unsigned char *p, zlentry *e) {
+static inline void zipEntry(unsigned char *p, zlentry *e) {
     ZIP_DECODE_PREVLEN(p, e->prevrawlensize, e->prevrawlen);
     ZIP_ENTRY_ENCODING(p + e->prevrawlensize, e->encoding);
-    ZIP_ASSERT_ENCODING(e->encoding);
     ZIP_DECODE_LENGTH(p + e->prevrawlensize, e->encoding, e->lensize, e->len);
+    assert(e->lensize != 0); /* check that encoding was valid. */
     e->headersize = e->prevrawlensize + e->lensize;
     e->p = p;
 }
@@ -603,9 +614,29 @@ void zipEntry(unsigned char *p, zlentry *e) {
  * try to access memory outside the ziplist payload.
  * Returns 1 if the entry is valid, and 0 otherwise. */
 static inline int zipEntrySafe(unsigned char* zl, size_t zlbytes, unsigned char *p, zlentry *e, int validate_prevlen) {
-#define OUT_OF_RANGE(p) ( \
-        (p) < zl + ZIPLIST_HEADER_SIZE || \
-        (p) > zl + zlbytes - ZIPLIST_END_SIZE)
+    unsigned char *zlfirst = zl + ZIPLIST_HEADER_SIZE;
+    unsigned char *zllast = zl + zlbytes - ZIPLIST_END_SIZE;
+#define OUT_OF_RANGE(p) (unlikely((p) < zlfirst || (p) > zllast))
+
+    /* If threre's no possibility for the header to reach outside the ziplist,
+     * take the fast path. (max lensize and prevrawlensize are both 5 bytes) */
+    if (p >= zlfirst && p + 10 < zllast) {
+        ZIP_DECODE_PREVLEN(p, e->prevrawlensize, e->prevrawlen);
+        ZIP_ENTRY_ENCODING(p + e->prevrawlensize, e->encoding);
+        ZIP_DECODE_LENGTH(p + e->prevrawlensize, e->encoding, e->lensize, e->len);
+        e->headersize = e->prevrawlensize + e->lensize;
+        e->p = p;
+        /* We didn't call ZIP_ASSERT_ENCODING, so we check lensize was set to 0. */
+        if (unlikely(e->lensize == 0))
+            return 0;
+        /* Make sure the entry doesn't rech outside the edge of the ziplist */
+        if (OUT_OF_RANGE(p + e->headersize + e->len))
+            return 0;
+        /* Make sure prevlen doesn't rech outside the edge of the ziplist */
+        if (validate_prevlen && OUT_OF_RANGE(p - e->prevrawlen))
+            return 0;
+        return 1;
+    }
 
     /* Make sure the pointer doesn't rech outside the edge of the ziplist */
     if (OUT_OF_RANGE(p))
@@ -619,7 +650,7 @@ static inline int zipEntrySafe(unsigned char* zl, size_t zlbytes, unsigned char 
     /* Make sure encoded entry header is valid. */
     ZIP_ENTRY_ENCODING(p + e->prevrawlensize, e->encoding);
     e->lensize = zipEncodingLenSize(e->encoding);
-    if (e->lensize == ZIP_ENCODING_SIZE_INVALID)
+    if (unlikely(e->lensize == ZIP_ENCODING_SIZE_INVALID))
         return 0;
 
     /* Make sure the encoded entry header doesn't reach outside the allocation */
@@ -2173,6 +2204,54 @@ int ziplistTest(int argc, char **argv) {
         stress(ZIPLIST_HEAD,100000,16384,256);
         stress(ZIPLIST_TAIL,100000,16384,256);
         printf("Done. usec=%lld\n\n", usec()-start);
+    }
+
+    /* Benchmarks */
+    {
+        zl = ziplistNew();
+        for (int i=0; i<100000; i++) {
+            char buf[4096] = "asdf";
+            zl = ziplistPush(zl, (unsigned char*)buf, 4, ZIPLIST_TAIL);
+            zl = ziplistPush(zl, (unsigned char*)buf, 40, ZIPLIST_TAIL);
+            zl = ziplistPush(zl, (unsigned char*)buf, 400, ZIPLIST_TAIL);
+            zl = ziplistPush(zl, (unsigned char*)buf, 4000, ZIPLIST_TAIL);
+            zl = ziplistPush(zl, (unsigned char*)"1", 1, ZIPLIST_TAIL);
+            zl = ziplistPush(zl, (unsigned char*)"10", 2, ZIPLIST_TAIL);
+            zl = ziplistPush(zl, (unsigned char*)"100", 3, ZIPLIST_TAIL);
+            zl = ziplistPush(zl, (unsigned char*)"1000", 4, ZIPLIST_TAIL);
+            zl = ziplistPush(zl, (unsigned char*)"10000", 5, ZIPLIST_TAIL);
+            zl = ziplistPush(zl, (unsigned char*)"100000", 6, ZIPLIST_TAIL);
+        }
+
+        printf("Benchmark ziplistFind:\n");
+        {
+            unsigned long long start = usec();
+            for (int i = 0; i < 2000; i++) {
+                unsigned char *fptr = ziplistIndex(zl, ZIPLIST_HEAD);
+                fptr = ziplistFind(zl, fptr, (unsigned char*)"nothing", 7, 1);
+            }
+            printf("%lld\n", usec()-start);
+        }
+
+        printf("Benchmark ziplistIndex:\n");
+        {
+            unsigned long long start = usec();
+            for (int i = 0; i < 2000; i++) {
+                ziplistIndex(zl, 99999);
+            }
+            printf("%lld\n", usec()-start);
+        }
+
+        printf("Benchmark ziplistValidateIntegrity:\n");
+        {
+            unsigned long long start = usec();
+            for (int i = 0; i < 2000; i++) {
+                ziplistValidateIntegrity(zl, ziplistBlobLen(zl), 1, NULL, NULL);
+            }
+            printf("%lld\n", usec()-start);
+        }
+
+        zfree(zl);
     }
 
     printf("Stress __ziplistCascadeUpdate:\n");
