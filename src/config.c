@@ -1422,7 +1422,8 @@ void rewriteConfigOOMScoreAdjValuesOption(struct rewriteConfigState *state) {
     char *option = "oom-score-adj-values";
     sds line;
 
-    line = sdsempty();
+    line = sdsnew(option);
+    line = sdscatlen(line, " ", 1);
     for (j = 0; j < CONFIG_OOM_COUNT; j++) {
         if (server.oom_score_adj_values[j] != configOOMScoreAdjValuesDefaults[j])
             force = 1;
