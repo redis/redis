@@ -508,8 +508,13 @@ proc populate {num prefix size} {
 
 proc get_child_pid {idx} {
     set pid [srv $idx pid]
-    set fd [open "|ps --ppid $pid -o pid" "r"]
-    set child_pid [string trim [lindex [split [read $fd] \n] 1]]
+    if {[string match {*Darwin*} [exec uname -a]]} {
+        set fd [open "|pgrep -P $pid" "r"]
+        set child_pid [string trim [lindex [split [read $fd] \n] 0]]
+    } else {
+        set fd [open "|ps --ppid $pid -o pid" "r"]
+        set child_pid [string trim [lindex [split [read $fd] \n] 1]]
+    }
     close $fd
 
     return $child_pid
