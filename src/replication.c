@@ -83,16 +83,16 @@ char *replicationGetSlaveName(client *c) {
  * the file deletion to the filesystem. This call removes the file in a
  * background thread instead. We actually just do close() in the thread,
  * by using the fact that if there is another instance of the same file open,
- * the foreground unlink() will not really do anything, and deleting the
- * file will only happen once the last reference is lost. */
+ * the foreground unlink() will only remove the fs name, and deleting the
+ * file's storage space will only happen once the last reference is lost. */
 int bg_unlink(const char *filename) {
     int fd = open(filename,O_RDONLY|O_NONBLOCK);
     if (fd == -1) {
         /* Can't open the file? Fall back to unlinking in the main thread. */
         return unlink(filename);
     } else {
-        /* The following unlink() will not do anything since file
-         * is still open. */
+        /* The following unlink() removes the name but doesn't free the
+         * file contents because a process still has it open. */
         int retval = unlink(filename);
         if (retval == -1) {
             /* If we got an unlink error, we just return it, closing the
