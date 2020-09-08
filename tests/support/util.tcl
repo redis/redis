@@ -494,3 +494,28 @@ proc start_bg_complex_data {host port db ops} {
 proc stop_bg_complex_data {handle} {
     catch {exec /bin/kill -9 $handle}
 }
+
+proc populate {num prefix size} {
+    set rd [redis_deferring_client]
+    for {set j 0} {$j < $num} {incr j} {
+        $rd set $prefix$j [string repeat A $size]
+    }
+    for {set j 0} {$j < $num} {incr j} {
+        $rd read
+    }
+    $rd close
+}
+
+proc get_child_pid {idx} {
+    set pid [srv $idx pid]
+    if {[string match {*Darwin*} [exec uname -a]]} {
+        set fd [open "|pgrep -P $pid" "r"]
+        set child_pid [string trim [lindex [split [read $fd] \n] 0]]
+    } else {
+        set fd [open "|ps --ppid $pid -o pid" "r"]
+        set child_pid [string trim [lindex [split [read $fd] \n] 1]]
+    }
+    close $fd
+
+    return $child_pid
+}
