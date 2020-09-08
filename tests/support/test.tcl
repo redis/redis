@@ -4,6 +4,7 @@ set ::num_failed 0
 set ::num_skipped 0
 set ::num_aborted 0
 set ::tests_failed {}
+set ::cur_test ""
 
 proc fail {msg} {
     error "assertion:$msg"
@@ -136,6 +137,7 @@ proc test {name code {okpattern undefined} {options undefined}} {
 
     # set a cur_test global to be logged into new servers that are spown
     # and log the test name in all existing servers
+    set prev_test $::cur_test
     set ::cur_test "$name in $::curfile"
     if {!$::external} {
         foreach srv $::servers {
@@ -190,5 +192,5 @@ proc test {name code {okpattern undefined} {options undefined}} {
             send_data_packet $::test_server_fd err "Detected a memory leak in test '$name': $output"
         }
     }
-    unset ::cur_test
+    set ::cur_test $prev_test
 }
