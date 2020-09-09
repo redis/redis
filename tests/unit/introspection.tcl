@@ -58,6 +58,19 @@ start_server {tags {"introspection"}} {
         }
     }
 
+    test {CONFIG save params special case handled properly} {
+        # No "save" keyword - defaults should apply
+        start_server {config "minimal.conf"} {
+            assert_match [r config get save] {save {3600 1 300 100 60 10000}}
+        }
+
+        # First "save" keyword overrides defaults
+        start_server {config "minimal.conf" overrides {save {100 100}}} {
+            # Defaults
+            assert_match [r config get save] {save {100 100}}
+        }
+    }
+
     test {CONFIG sanity} {
         # Do CONFIG GET, CONFIG SET and then CONFIG GET again
         # Skip immutable configs, one with no get, and other complicated configs
