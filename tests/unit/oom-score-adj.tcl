@@ -35,7 +35,7 @@ if {$system_name eq {linux}} {
 
             # Check child process
             r set key-a value-a
-            r config set rdb-key-save-delay 100000
+            r config set rdb-key-save-delay 1000000
             r bgsave
 
             set child_pid [get_child_pid 0]
