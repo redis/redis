@@ -45,29 +45,36 @@
 
 #include "redismodule.h"
 
+/* Attribute check definition */
 struct AttrCheck {
-    int nid;
-    const char *req_value;
-    struct AttrCheck *next;
+    int nid;                    /* Attribute, represented as an OpenSSL NID */
+    const char *req_value;      /* Required value, as specified by check */
+    struct AttrCheck *next;     /* Next element in AttrCheck singly-linked list */
 };
 
+/* Attribute to derive user identity from */
 static int configUserAttr = NID_commonName;
+
+/* Head of AttrCheck singly-linked list */
 static struct AttrCheck *configAttrChecks = NULL;
 
+/* Parse an attribute check specification string and return a newly allocated
+ * AttrCheck struct.
+ */
 static struct AttrCheck *parseAttrCheck(RedisModuleCtx *ctx, char *attr_check_str)
 {
     char *delim = strchr(attr_check_str, ':');
     if (!delim) {
-        RedisModule_Log(ctx, "warn",
-                "Invalid attr-check: expected 'attribute:value' format: %s", attr_check_str);
+        RedisModule_Log(ctx, "warning",
+            "Invalid attr-check: expected 'attribute:value' format: %s", attr_check_str);
         return NULL;
     }
 
     *delim = '\0';
     int nid = OBJ_txt2nid(attr_check_str);
     if (nid == NID_undef) {
-        RedisModule_Log(ctx, "warn",
-                "Invalid attr-check attribute: %s", attr_check_str);
+        RedisModule_Log(ctx, "warning",
+            "Invalid attr-check attribute: %s", attr_check_str);
         return NULL;
     }
 
@@ -79,6 +86,9 @@ static struct AttrCheck *parseAttrCheck(RedisModuleCtx *ctx, char *attr_check_st
     return check;
 }
 
+/* Parse configuration provided as module arguments and set up the module.
+ * Returns REDISMODULE_ERR on parse errors, or REDISMODULE_OK on success.
+ */
 static int parseConfigArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     const char kw_attr_user[] = "attr-user";
@@ -92,7 +102,7 @@ static int parseConfigArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
         const char *delim = memchr(str, '=', len);
         if (!delim) {
-            RedisModule_Log(ctx, "warn",
+            RedisModule_Log(ctx, "warning",
                     "Invalid argument: %.*s", (int) len, str);
             return REDISMODULE_ERR;
         }
@@ -108,7 +118,7 @@ static int parseConfigArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
         if (kw_len == strlen(kw_attr_user) && !memcmp(str, kw_attr_user, kw_len)) {
             int nid = OBJ_txt2nid(val);
             if (nid == NID_undef) {
-                RedisModule_Log(ctx, "warn",
+                RedisModule_Log(ctx, "warning",
                         "Invalid attribute name: %s", val);
                 error = 1;
             } else {
@@ -123,7 +133,7 @@ static int parseConfigArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
                 configAttrChecks = check;
             }
         } else {
-            RedisModule_Log(ctx, "warn",
+            RedisModule_Log(ctx, "warning",
                     "Unknown configuration argument: %.*s", (int) kw_len, str);
             error = 1;
         }
@@ -135,6 +145,9 @@ static int parseConfigArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     return 1;
 }
 
+/* Decode a RedisModuleString that contains a PEM-encoded X.509 certificate
+ * and returns a newly allocated OpenSSL X509 struct.
+ */
 static X509 *decodeCertificate(RedisModuleString *cert_str)
 {
     size_t len;
@@ -144,9 +157,14 @@ static X509 *decodeCertificate(RedisModuleString *cert_str)
     BIO_write(bio, str, len);
 
     X509 *cert = PEM_read_bio_X509(bio, NULL, NULL, NULL);
+    BIO_free(bio);
     return cert;
 }
 
+/* Apply all attribute checks to a X.509 certificate.
+ * Returns a non-zero value if all checks have succeeded, or zero if at least
+ * one check failed.
+ */
 static int checkCertificate(X509 *cert)
 {
     int loc;
@@ -173,6 +191,9 @@ static int checkCertificate(X509 *cert)
     return 1;
 }
 
+/* Fetch an attribute identified by its OpenSSL NID. Returns a null-terminated
+ * string.
+ */
 const char *getAttribute(X509 *cert, int nid)
 {
     X509_NAME_ENTRY *entry;
@@ -188,33 +209,48 @@ const char *getAttribute(X509 *cert, int nid)
     return (const char *) ASN1_STRING_get0_data(X509_NAME_ENTRY_get_data(entry));
 }
 
+/* Module's main entry point. This is where we fetch the certificate of new
+ * incoming connections, run checks, extract user identity and authenticate.
+ */
 static void handleClientConnection(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data)
 {
+    /* We only care about new connections */
     if (eid.id == REDISMODULE_EVENT_CLIENT_CHANGE &&
             subevent == REDISMODULE_SUBEVENT_CLIENT_CHANGE_CONNECTED) {
+
+        /* Try to fetch certificate */
         RedisModuleClientInfo *ci = (RedisModuleClientInfo *) data;
         RedisModuleString *cert_str = RedisModule_GetClientCertificate(ctx, ci->id);
+        X509 *cert = NULL;
+
+        /* Try to decode it */
         if (cert_str != NULL) {
-            X509 *cert = decodeCertificate(cert_str);
-            const char *user;
-
-            if (cert && checkCertificate(cert) &&
-                    (user = getAttribute(cert, configUserAttr)) != NULL) {
-
-                    if (RedisModule_AuthenticateClientWithACLUser(ctx, user, strlen(user),
-                                NULL, NULL, NULL) == REDISMODULE_ERR) {
-                        RedisModule_Log(ctx, "verbose",
-                                "Failed to authorize user %s", user);
-                    } else {
-                        RedisModule_Log(ctx, "debug", "Authorized user %s", user);
-                    }
-            }
-
+            cert = decodeCertificate(cert_str);
             RedisModule_FreeString(ctx, cert_str);
+        }
+
+        /* Nothing to do without a certificate */
+        if (!cert) return;
+
+        /* If certificate passes checks and we can extract user identity,
+         * authenticate the client now.
+         */
+        const char *user;
+        if (checkCertificate(cert) &&
+            (user = getAttribute(cert, configUserAttr)) != NULL) {
+
+            if (RedisModule_AuthenticateClientWithACLUser(ctx, user, strlen(user),
+                    NULL, NULL, NULL) == REDISMODULE_ERR) {
+                RedisModule_Log(ctx, "verbose",
+                    "Failed to authorize user %s", user);
+            } else {
+                RedisModule_Log(ctx, "debug", "Authorized user %s", user);
+            }
         }
     }
 }
 
+/* Module initialization */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (RedisModule_Init(ctx, "tlsauth", 1, REDISMODULE_APIVER_1)
             == REDISMODULE_ERR) return REDISMODULE_ERR;

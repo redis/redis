@@ -5689,7 +5689,6 @@ int RM_DeauthenticateAndCloseClient(RedisModuleCtx *ctx, uint64_t client_id) {
  * The returned string is a X.509 PEM (base64 encoded) string. If the connection
  * is not TLS, or if no client-side certificate was used, a NULL is returned.
  */
-
 RedisModuleString *RM_GetClientCertificate(RedisModuleCtx *ctx, uint64_t client_id) {
     client *c = lookupClientByID(client_id);
     if (c == NULL) return NULL;

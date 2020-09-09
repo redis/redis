@@ -825,7 +825,7 @@ exit:
 }
 
 static int connTLSGetType(connection *conn_) {
-    (void) conn_;
+    UNUSED(conn_);
 
     return CONN_TYPE_TLS;
 }
@@ -917,7 +917,7 @@ int tlsProcessPendingData() {
 }
 
 sds connTLSGetClientCert(connection *conn_) {
-    (void) conn_;
+    UNUSED(conn_);
     return NULL;
 }
 
