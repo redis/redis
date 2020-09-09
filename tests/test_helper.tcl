@@ -79,12 +79,14 @@ set ::baseport 21111; # initial port for spawned redis servers
 set ::portcount 8000; # we don't wanna use more than 10000 to avoid collision with cluster bus ports
 set ::traceleaks 0
 set ::valgrind 0
+set ::durable 0
 set ::tls 0
 set ::stack_logging 0
 set ::verbose 0
 set ::quiet 0
 set ::denytags {}
 set ::skiptests {}
+set ::skipunits {}
 set ::allowtags {}
 set ::only_tests {}
 set ::single_tests {}
@@ -423,6 +425,12 @@ proc lpop {listVar {count 1}} {
     set ele
 }
 
+proc lremove {listVar value} {
+    upvar 1 $listVar var
+    set idx [lsearch -exact $var $value]
+    set var [lreplace $var $idx $idx]
+}
+
 # A new client is idle. Remove it from the list of active clients and
 # if there are still test units to run, launch them.
 proc signal_idle_client fd {
@@ -514,6 +522,7 @@ proc send_data_packet {fd status data} {
 proc print_help_screen {} {
     puts [join {
         "--valgrind         Run the test over valgrind."
+        "--durable          suppress test crashes and keep running"
         "--stack-logging    Enable OSX leaks/malloc stack logging."
         "--accurate         Run slow randomized tests for more iterations."
         "--quiet            Don't show individual tests."
@@ -521,11 +530,13 @@ proc print_help_screen {} {
         "--list-tests       List all the available test units."
         "--only <test>      Just execute the specified test by test name. this option can be repeated."
         "--skip-till <unit> Skip all units until (and including) the specified one."
+        "--skipunit <unit>  Skip one unit."
         "--clients <num>    Number of test clients (default 16)."
         "--timeout <sec>    Test timeout in seconds (default 10 min)."
         "--force-failure    Force the execution of a test that always fails."
         "--config <k> <v>   Extra config file argument."
         "--skipfile <file>  Name of a file containing test names that should be skipped (one per line)."
+        "--skiptest <name>  Name of a file containing test names that should be skipped (one per line)."
         "--dont-clean       Don't delete redis log files after the run."
         "--stop             Blocks once the first test fails."
         "--loop             Execute the specified set of tests forever."
@@ -563,6 +574,9 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set file_data [read $fp]
         close $fp
         set ::skiptests [split $file_data "\n"]
+    } elseif {$opt eq {--skiptest}} {
+        lappend ::skiptests $arg
+        incr j
     } elseif {$opt eq {--valgrind}} {
         set ::valgrind 1
     } elseif {$opt eq {--stack-logging}} {
@@ -601,6 +615,9 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
     } elseif {$opt eq {--only}} {
         lappend ::only_tests $arg
         incr j
+    } elseif {$opt eq {--skipunit}} {
+        lappend ::skipunits $arg
+        incr j
     } elseif {$opt eq {--skip-till}} {
         set ::skip_till $arg
         incr j
@@ -618,6 +635,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
     } elseif {$opt eq {--clients}} {
         set ::numclients $arg
         incr j
+    } elseif {$opt eq {--durable}} {
+        set ::durable 1
     } elseif {$opt eq {--dont-clean}} {
         set ::dont_clean 1
     } elseif {$opt eq {--wait-server}} {
@@ -638,13 +657,23 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
     }
 }
 
-# If --skil-till option was given, we populate the list of single tests
+set filtered_tests {}
+
+# Set the filtered tests to be the short list (single_tests) if exists.
+# Otherwise, we start filtering all_tests
+if {[llength $::single_tests] > 0} {
+    set filtered_tests $::single_tests
+} else {
+    set filtered_tests $::all_tests
+}
+
+# If --skip-till option was given, we populate the list of single tests
 # to run with everything *after* the specified unit.
 if {$::skip_till != ""} {
     set skipping 1
     foreach t $::all_tests {
-        if {$skipping == 0} {
-            lappend ::single_tests $t
+        if {$skipping == 1} {
+            lremove filtered_tests $t
         }
         if {$t == $::skip_till} {
             set skipping 0
@@ -656,10 +685,20 @@ if {$::skip_till != ""} {
     }
 }
 
+# If --skipunits option was given, we populate the list of single tests
+# to run with everything *not* in the skipunits list.
+if {[llength $::skipunits] > 0} {
+    foreach t $::all_tests {
+        if {[lsearch $::skipunits $t] != -1} {
+            lremove filtered_tests $t
+        }
+    }
+}
+
 # Override the list of tests with the specific tests we want to run
-# in case there was some filter, that is --single or --skip-till options.
-if {[llength $::single_tests] > 0} {
-    set ::all_tests $::single_tests
+# in case there was some filter, that is --single, -skipunit or --skip-till options.
+if {[llength $filtered_tests] < [llength $::all_tests]} {
+    set ::all_tests $filtered_tests
 }
 
 proc attach_to_replication_stream {} {

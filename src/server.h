@@ -1257,8 +1257,9 @@ struct redisServer {
     int rdb_child_type;             /* Type of save by active child. */
     int lastbgsave_status;          /* C_OK or C_ERR */
     int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
-    int rdb_pipe_write;             /* RDB pipes used to transfer the rdb */
-    int rdb_pipe_read;              /* data to the parent process in diskless repl. */
+    int rdb_pipe_read;              /* RDB pipe used to transfer the rdb data */
+                                    /* to the parent process in diskless repl. */
+    int rdb_child_exit_pipe;        /* Used by the diskless parent allow child exit. */
     connection **rdb_pipe_conns;    /* Connections which are currently the */
     int rdb_pipe_numconns;          /* target of diskless rdb fork child. */
     int rdb_pipe_numconns_writing;  /* Number of rdb conns with pending writes. */
@@ -2100,7 +2101,7 @@ void appendServerSaveParams(time_t seconds, int changes);
 void resetServerSaveParams(void);
 struct rewriteConfigState; /* Forward declaration to export API. */
 void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *option, sds line, int force);
-int rewriteConfig(char *path);
+int rewriteConfig(char *path, int force_all);
 void initConfigValues();
 
 /* db.c -- Keyspace access API */

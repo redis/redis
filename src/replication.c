@@ -912,7 +912,12 @@ void replconfCommand(client *c) {
              * the slave online when the first ACK is received (which
              * confirms slave is online and ready to get more data). This
              * allows for simpler and less CPU intensive EOF detection
-             * when streaming RDB files. */
+             * when streaming RDB files.
+             * There's a chance the ACK got to us before we detected that the
+             * bgsave is done (since that depends on cron ticks), so run a
+             * quick check first (instead of waiting for the next ACK. */
+            if (server.rdb_child_pid != -1 && c->replstate == SLAVE_STATE_WAIT_BGSAVE_END)
+                checkChildrenDone();
             if (c->repl_put_online_on_ack && c->replstate == SLAVE_STATE_ONLINE)
                 putSlaveOnline(c);
             /* Note: this command does not reply anything! */
@@ -1104,24 +1109,6 @@ void rdbPipeWriteHandler(struct connection *conn) {
     rdbPipeWriteHandlerConnRemoved(conn);
 }
 
-/* When the the pipe serving diskless rdb transfer is drained (write end was
- * closed), we can clean up all the temporary variables, and cleanup after the
- * fork child. */
-void RdbPipeCleanup() {
-    close(server.rdb_pipe_read);
-    zfree(server.rdb_pipe_conns);
-    server.rdb_pipe_conns = NULL;
-    server.rdb_pipe_numconns = 0;
-    server.rdb_pipe_numconns_writing = 0;
-    zfree(server.rdb_pipe_buff);
-    server.rdb_pipe_buff = NULL;
-    server.rdb_pipe_bufflen = 0;
-
-    /* Since we're avoiding to detect the child exited as long as the pipe is
-     * not drained, so now is the time to check. */
-    checkChildrenDone();
-}
-
 /* Called in diskless master, when there's data to read from the child's rdb pipe */
 void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask) {
     UNUSED(mask);
@@ -1162,7 +1149,11 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
                 stillUp++;
             }
             serverLog(LL_WARNING,"Diskless rdb transfer, done reading from pipe, %d replicas still up.", stillUp);
-            RdbPipeCleanup();
+            /* Now that the replicas have finished reading, notify the child that it's safe to exit. 
+             * When the server detectes the child has exited, it can mark the replica as online, and
+             * start streaming the replication buffers. */
+            close(server.rdb_child_exit_pipe);
+            server.rdb_child_exit_pipe = -1;
             return;
         }
 
@@ -1203,7 +1194,6 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
         if (stillAlive == 0) {
             serverLog(LL_WARNING,"Diskless rdb transfer, last replica dropped, killing fork child.");
             killRDBChild();
-            RdbPipeCleanup();
         }
         /*  Remove the pipe read handler if at least one write handler was set. */
         if (server.rdb_pipe_numconns_writing || stillAlive == 0) {

@@ -388,6 +388,9 @@ void debugCommand(client *c) {
 "CHANGE-REPL-ID"
 "    Change the replication IDs of the instance.",
 "    Dangerous: should be used only for testing the replication subsystem.",
+"CONFIG-REWRITE-FORCE-ALL",
+"    Like CONFIG REWRITE but writes all configuration options, including",
+"    keywords not listed in original configuration file or default values.",
 "CRASH-AND-RECOVER <milliseconds>",
 "    Hard crash and restart after `milliseconds` delay.",
 "DIGEST",
@@ -839,6 +842,12 @@ NULL
     {
         stringmatchlen_fuzz_test();
         addReplyStatus(c,"Apparently Redis did not crash: test passed");
+    } else if (!strcasecmp(c->argv[1]->ptr,"config-rewrite-force-all") && c->argc == 2)
+    {
+        if (rewriteConfig(server.configfile, 1) == -1)
+            addReplyError(c, "CONFIG-REWRITE-FORCE-ALL failed");
+        else
+            addReply(c, shared.ok);
 #ifdef USE_JEMALLOC
     } else if(!strcasecmp(c->argv[1]->ptr,"mallctl") && c->argc >= 3) {
         mallctl_int(c, c->argv+2, c->argc-2);
