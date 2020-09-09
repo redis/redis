@@ -2089,7 +2089,7 @@ void appendServerSaveParams(time_t seconds, int changes);
 void resetServerSaveParams(void);
 struct rewriteConfigState; /* Forward declaration to export API. */
 void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *option, sds line, int force);
-int rewriteConfig(char *path);
+int rewriteConfig(char *path, int force_all);
 void initConfigValues();
 
 /* db.c -- Keyspace access API */

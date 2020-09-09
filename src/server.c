@@ -2488,7 +2488,7 @@ int restartServer(int flags, mstime_t delay) {
     /* Config rewriting. */
     if (flags & RESTART_SERVER_CONFIG_REWRITE &&
         server.configfile &&
-        rewriteConfig(server.configfile) == -1)
+        rewriteConfig(server.configfile, 0) == -1)
     {
         serverLog(LL_WARNING,"Can't restart: configuration rewrite process "
                              "failed");
