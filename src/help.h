@@ -974,7 +974,7 @@ struct commandHelp {
     8,
     "1.0.0" },
     { "SET",
-    "key value [EX seconds|PX milliseconds] [NX|XX] [KEEPTTL]",
+    "key value [EX seconds|PX milliseconds|KEEPTTL] [NX|XX]",
     "Set the string value of a key",
     1,
     "1.0.0" },
