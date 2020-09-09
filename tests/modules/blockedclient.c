@@ -14,7 +14,7 @@ void *sub_worker(void *arg) {
     int res = RedisModule_ThreadSafeContextTryLock(ctx);
 
     // GIL is already taken by the calling thread expecting to fail.
-    assert(res != 0);
+    assert(res != REDISMODULE_OK);
 
     return NULL;
 }

@@ -4882,9 +4882,11 @@ void RM_ThreadSafeContextLock(RedisModuleCtx *ctx) {
 }
 
 /* Similar to RM_ThreadSafeContextLock but this function
- * would not block if the server lock is already acquired
- * if successful (lock acquired) REDISMODULE_OK is returned
- * otherwise REDISMODULE_ERR is returned. */
+ * would not block if the server lock is already acquired.
+ *
+ * If successful (lock acquired) REDISMODULE_OK is returned,
+ * otherwise REDISMODULE_ERR is returned and errno is set
+ * accordingly. */
 int RM_ThreadSafeContextTryLock(RedisModuleCtx *ctx) {
     UNUSED(ctx);
 
