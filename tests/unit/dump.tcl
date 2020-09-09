@@ -170,7 +170,7 @@ start_server {tags {"dump"}} {
             $second set list somevalue
             catch {r -1 migrate $second_host $second_port list 9 5000 copy} e
             assert_match {ERR*} $e
-            set res [r -1 migrate $second_host $second_port list 9 5000 copy replace]
+            set ret [r -1 migrate $second_host $second_port list 9 5000 copy replace]
             assert {$ret eq {OK}}
             assert {[$first exists list] == 1}
             assert {[$second exists list] == 1}

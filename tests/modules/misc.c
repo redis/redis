@@ -195,6 +195,42 @@ int test_setlfu(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+int test_clientinfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    (void) argv;
+    (void) argc;
+
+    RedisModuleClientInfo ci = { .version = REDISMODULE_CLIENTINFO_VERSION };
+
+    if (RedisModule_GetClientInfoById(&ci, RedisModule_GetClientId(ctx)) == REDISMODULE_ERR) {
+            RedisModule_ReplyWithError(ctx, "failed to get client info");
+            return REDISMODULE_OK;
+    }
+
+    RedisModule_ReplyWithArray(ctx, 10);
+    char flags[512];
+    snprintf(flags, sizeof(flags) - 1, "%s:%s:%s:%s:%s:%s",
+        ci.flags & REDISMODULE_CLIENTINFO_FLAG_SSL ? "ssl" : "",
+        ci.flags & REDISMODULE_CLIENTINFO_FLAG_PUBSUB ? "pubsub" : "",
+        ci.flags & REDISMODULE_CLIENTINFO_FLAG_BLOCKED ? "blocked" : "",
+        ci.flags & REDISMODULE_CLIENTINFO_FLAG_TRACKING ? "tracking" : "",
+        ci.flags & REDISMODULE_CLIENTINFO_FLAG_UNIXSOCKET ? "unixsocket" : "",
+        ci.flags & REDISMODULE_CLIENTINFO_FLAG_MULTI ? "multi" : "");
+
+    RedisModule_ReplyWithCString(ctx, "flags");
+    RedisModule_ReplyWithCString(ctx, flags);
+    RedisModule_ReplyWithCString(ctx, "id");
+    RedisModule_ReplyWithLongLong(ctx, ci.id);
+    RedisModule_ReplyWithCString(ctx, "addr");
+    RedisModule_ReplyWithCString(ctx, ci.addr);
+    RedisModule_ReplyWithCString(ctx, "port");
+    RedisModule_ReplyWithLongLong(ctx, ci.port);
+    RedisModule_ReplyWithCString(ctx, "db");
+    RedisModule_ReplyWithLongLong(ctx, ci.db);
+
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -220,6 +256,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"test.setlfu", test_setlfu,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.getlfu", test_getlfu,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"test.clientinfo", test_clientinfo,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

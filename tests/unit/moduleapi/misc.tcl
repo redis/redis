@@ -67,4 +67,23 @@ start_server {tags {"modules"}} {
         assert { $was_set == 0 }
     }
 
+    test {test module clientinfo api} {
+        # Test basic sanity and SSL flag
+        set info [r test.clientinfo]
+        set ssl_flag [expr $::tls ? {"ssl:"} : {":"}]
+
+        assert { [dict get $info db] == 9 }
+        assert { [dict get $info flags] == "${ssl_flag}::::" }
+
+        # Test MULTI flag
+        r multi
+        r test.clientinfo
+        set info [lindex [r exec] 0]
+        assert { [dict get $info flags] == "${ssl_flag}::::multi" }
+
+        # Test TRACKING flag
+        r client tracking on
+        set info [r test.clientinfo]
+        assert { [dict get $info flags] == "${ssl_flag}::tracking::" }
+    }
 }

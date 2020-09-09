@@ -466,4 +466,42 @@ start_server {tags {"multi"}} {
         assert { $xx == 1 }
         $r1 close;
     }
+
+    test {EXEC with only read commands should not be rejected when OOM} {
+        set r2 [redis_client]
+
+        r set x value
+        r multi
+        r get x
+        r ping
+
+        # enforcing OOM
+        $r2 config set maxmemory 1
+
+        # finish the multi transaction with exec
+        assert { [r exec] == {value PONG} }
+
+        # releasing OOM
+        $r2 config set maxmemory 0
+        $r2 close
+    }
+
+    test {EXEC with at least one use-memory command should fail} {
+        set r2 [redis_client]
+
+        r multi
+        r set x 1
+        r get x
+
+        # enforcing OOM
+        $r2 config set maxmemory 1
+
+        # finish the multi transaction with exec
+        catch {r exec} e
+        assert_match {EXECABORT*OOM*} $e
+
+        # releasing OOM
+        $r2 config set maxmemory 0
+        $r2 close
+    }
 }

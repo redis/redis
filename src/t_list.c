@@ -198,8 +198,7 @@ void pushGenericCommand(client *c, int where) {
     int j, pushed = 0;
     robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
 
-    if (lobj && lobj->type != OBJ_LIST) {
-        addReply(c,shared.wrongtypeerr);
+    if (checkType(c,lobj,OBJ_LIST)) {
         return;
     }
 
@@ -572,13 +571,14 @@ void lposCommand(client *c) {
     li = listTypeInitIterator(o,direction == LIST_HEAD ? -1 : 0,direction);
     listTypeEntry entry;
     long llen = listTypeLength(o);
-    long index = 0, matches = 0, matchindex = -1;
+    long index = 0, matches = 0, matchindex = -1, arraylen = 0;
     while (listTypeNext(li,&entry) && (maxlen == 0 || index < maxlen)) {
         if (listTypeEqual(&entry,ele)) {
             matches++;
             matchindex = (direction == LIST_TAIL) ? index : llen - index - 1;
             if (matches >= rank) {
                 if (arraylenptr) {
+                    arraylen++;
                     addReplyLongLong(c,matchindex);
                     if (count && matches-rank+1 >= count) break;
                 } else {
@@ -594,7 +594,7 @@ void lposCommand(client *c) {
     /* Reply to the client. Note that arraylenptr is not NULL only if
      * the COUNT option was selected. */
     if (arraylenptr != NULL) {
-        setDeferredArrayLen(c,arraylenptr,matches-rank+1);
+        setDeferredArrayLen(c,arraylenptr,arraylen);
     } else {
         if (matchindex != -1)
             addReplyLongLong(c,matchindex);
@@ -691,7 +691,7 @@ void rpoplpushCommand(client *c) {
         robj *dobj = lookupKeyWrite(c->db,c->argv[2]);
         robj *touchedkey = c->argv[1];
 
-        if (dobj && checkType(c,dobj,OBJ_LIST)) return;
+        if (checkType(c,dobj,OBJ_LIST)) return;
         value = listTypePop(sobj,LIST_TAIL);
         /* We saved touched key, and protect it, since rpoplpushHandlePush
          * may change the client command argument vector (it does not
@@ -803,8 +803,7 @@ void blockingPopGenericCommand(client *c, int where) {
     for (j = 1; j < c->argc-1; j++) {
         o = lookupKeyWrite(c->db,c->argv[j]);
         if (o != NULL) {
-            if (o->type != OBJ_LIST) {
-                addReply(c,shared.wrongtypeerr);
+            if (checkType(c,o,OBJ_LIST)) {
                 return;
             } else {
                 if (listTypeLength(o) != 0) {
@@ -863,6 +862,7 @@ void brpoplpushCommand(client *c) {
         != C_OK) return;
 
     robj *key = lookupKeyWrite(c->db, c->argv[1]);
+    if (checkType(c,key,OBJ_LIST)) return;
 
     if (key == NULL) {
         if (c->flags & CLIENT_MULTI) {
@@ -874,13 +874,9 @@ void brpoplpushCommand(client *c) {
             blockForKeys(c,BLOCKED_LIST,c->argv + 1,1,timeout,c->argv[2],NULL);
         }
     } else {
-        if (key->type != OBJ_LIST) {
-            addReply(c, shared.wrongtypeerr);
-        } else {
-            /* The list exists and has elements, so
-             * the regular rpoplpushCommand is executed. */
-            serverAssertWithInfo(c,key,listTypeLength(key) > 0);
-            rpoplpushCommand(c);
-        }
+        /* The list exists and has elements, so
+         * the regular rpoplpushCommand is executed. */
+        serverAssertWithInfo(c,key,listTypeLength(key) > 0);
+        rpoplpushCommand(c);
     }
 }

@@ -266,14 +266,11 @@ void saddCommand(client *c) {
     int j, added = 0;
 
     set = lookupKeyWrite(c->db,c->argv[1]);
+    if (checkType(c,set,OBJ_SET)) return;
+    
     if (set == NULL) {
         set = setTypeCreate(c->argv[2]->ptr);
         dbAdd(c->db,c->argv[1],set);
-    } else {
-        if (set->type != OBJ_SET) {
-            addReply(c,shared.wrongtypeerr);
-            return;
-        }
     }
 
     for (j = 2; j < c->argc; j++) {
@@ -330,7 +327,7 @@ void smoveCommand(client *c) {
     /* If the source key has the wrong type, or the destination key
      * is set and has the wrong type, return with an error. */
     if (checkType(c,srcset,OBJ_SET) ||
-        (dstset && checkType(c,dstset,OBJ_SET))) return;
+        checkType(c,dstset,OBJ_SET)) return;
 
     /* If srcset and dstset are equal, SMOVE is a no-op */
     if (srcset == dstset) {
@@ -380,6 +377,25 @@ void sismemberCommand(client *c) {
         addReply(c,shared.cone);
     else
         addReply(c,shared.czero);
+}
+
+void smismemberCommand(client *c) {
+    robj *set;
+    int j;
+
+    /* Don't abort when the key cannot be found. Non-existing keys are empty
+     * sets, where SMISMEMBER should respond with a series of zeros. */
+    set = lookupKeyRead(c->db,c->argv[1]);
+    if (set && checkType(c,set,OBJ_SET)) return;
+
+    addReplyArrayLen(c,c->argc - 2);
+
+    for (j = 2; j < c->argc; j++) {
+        if (set && setTypeIsMember(set,c->argv[j]->ptr))
+            addReply(c,shared.cone);
+        else
+            addReply(c,shared.czero);
+    }
 }
 
 void scardCommand(client *c) {

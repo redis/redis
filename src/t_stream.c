@@ -31,8 +31,6 @@
 #include "endianconv.h"
 #include "stream.h"
 
-#define STREAM_BYTES_PER_LISTPACK 2048
-
 /* Every stream item inside the listpack, has a flags field that is used to
  * mark the entry as deleted, or having the same field as the "master"
  * entry at the start of the listpack> */
@@ -199,7 +197,7 @@ int streamCompareID(streamID *a, streamID *b) {
  * C_ERR if an ID was given via 'use_id', but adding it failed since the
  * current top ID is greater or equal. */
 int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_id, streamID *use_id) {
-    
+
     /* Generate the new entry ID. */
     streamID id;
     if (use_id)
@@ -209,7 +207,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
 
     /* Check that the new ID is greater than the last entry ID
      * or return an error. Automatically generated IDs might
-     * overflow (and wrap-around) when incrementing the sequence 
+     * overflow (and wrap-around) when incrementing the sequence
        part. */
     if (streamCompareID(&id,&s->last_id) <= 0) return C_ERR;
 
@@ -1110,14 +1108,10 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
  * The function creates a key setting it to an empty stream if needed. */
 robj *streamTypeLookupWriteOrCreate(client *c, robj *key) {
     robj *o = lookupKeyWrite(c->db,key);
+    if (checkType(c,o,OBJ_STREAM)) return NULL;
     if (o == NULL) {
         o = createStreamObject();
         dbAdd(c->db,key,o);
-    } else {
-        if (o->type != OBJ_STREAM) {
-            addReply(c,shared.wrongtypeerr);
-            return NULL;
-        }
     }
     return o;
 }
@@ -1301,8 +1295,7 @@ void xaddCommand(client *c) {
 
     /* We need to signal to blocked clients that there is new data on this
      * stream. */
-    if (server.blocked_clients_by_type[BLOCKED_STREAM])
-        signalKeyAsReady(c->db, c->argv[1]);
+    signalKeyAsReady(c->db, c->argv[1], OBJ_STREAM);
 }
 
 /* XRANGE/XREVRANGE actual implementation. */
@@ -1463,7 +1456,7 @@ void xreadCommand(client *c) {
         int id_idx = i - streams_arg - streams_count;
         robj *key = c->argv[i-streams_count];
         robj *o = lookupKeyRead(c->db,key);
-        if (o && checkType(c,o,OBJ_STREAM)) goto cleanup;
+        if (checkType(c,o,OBJ_STREAM)) goto cleanup;
         streamCG *group = NULL;
 
         /* If a group was specified, than we need to be sure that the
@@ -1878,7 +1871,7 @@ NULL
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-destroy",
                                 c->argv[2],c->db->id);
             /* We want to unblock any XREADGROUP consumers with -NOGROUP. */
-            signalKeyAsReady(c->db,c->argv[2]);
+            signalKeyAsReady(c->db,c->argv[2],OBJ_STREAM);
         } else {
             addReply(c,shared.czero);
         }
@@ -2025,7 +2018,7 @@ void xpendingCommand(client *c) {
     robj *o = lookupKeyRead(c->db,c->argv[1]);
     streamCG *group;
 
-    if (o && checkType(c,o,OBJ_STREAM)) return;
+    if (checkType(c,o,OBJ_STREAM)) return;
     if (o == NULL ||
         (group = streamLookupCG(o->ptr,groupname->ptr)) == NULL)
     {

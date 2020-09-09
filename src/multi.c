@@ -127,7 +127,8 @@ void execCommandPropagateExec(client *c) {
 /* Aborts a transaction, with a specific error message.
  * The transaction is always aboarted with -EXECABORT so that the client knows
  * the server exited the multi state, but the actual reason for the abort is
- * included too. */
+ * included too.
+ * Note: 'error' may or may not end with \r\n. see addReplyErrorFormat. */
 void execCommandAbort(client *c, sds error) {
     discardTransaction(c);
 

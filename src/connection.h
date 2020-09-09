@@ -48,6 +48,9 @@ typedef enum {
 #define CONN_FLAG_CLOSE_SCHEDULED   (1<<0)      /* Closed scheduled by a handler */
 #define CONN_FLAG_WRITE_BARRIER     (1<<1)      /* Write barrier requested */
 
+#define CONN_TYPE_SOCKET            1
+#define CONN_TYPE_TLS               2
+
 typedef void (*ConnectionCallbackFunc)(struct connection *conn);
 
 typedef struct ConnectionType {
@@ -64,6 +67,7 @@ typedef struct ConnectionType {
     ssize_t (*sync_write)(struct connection *conn, char *ptr, ssize_t size, long long timeout);
     ssize_t (*sync_read)(struct connection *conn, char *ptr, ssize_t size, long long timeout);
     ssize_t (*sync_readline)(struct connection *conn, char *ptr, ssize_t size, long long timeout);
+    int (*get_type)(struct connection *conn);
 } ConnectionType;
 
 struct connection {
@@ -192,6 +196,11 @@ static inline ssize_t connSyncRead(connection *conn, char *ptr, ssize_t size, lo
 
 static inline ssize_t connSyncReadLine(connection *conn, char *ptr, ssize_t size, long long timeout) {
     return conn->type->sync_readline(conn, ptr, size, timeout);
+}
+
+/* Return CONN_TYPE_* for the specified connection */
+static inline int connGetType(connection *conn) {
+    return conn->type->get_type(conn);
 }
 
 connection *connCreateSocket();

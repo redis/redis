@@ -12,6 +12,7 @@ jobs:
 
   test-ubuntu-jemalloc:
     runs-on: ubuntu-latest
+    if: github.repository == 'redis/redis'
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
@@ -30,6 +31,7 @@ jobs:
 
   test-ubuntu-libc-malloc:
     runs-on: ubuntu-latest
+    if: github.repository == 'redis/redis'
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
@@ -48,6 +50,7 @@ jobs:
 
   test-ubuntu-32bit:
     runs-on: ubuntu-latest
+    if: github.repository == 'redis/redis'
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
@@ -70,6 +73,7 @@ jobs:
 
   test-ubuntu-tls:
     runs-on: ubuntu-latest
+    if: github.repository == 'redis/redis'
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
@@ -81,15 +85,23 @@ jobs:
         sudo apt-get install tcl8.5 tcl-tls
         ./utils/gen-test-certs.sh
         ./runtest --accurate --verbose --tls
+        ./runtest --accurate --verbose
     - name: module api test
-      run: ./runtest-moduleapi --verbose --tls
+      run: |
+        ./runtest-moduleapi --verbose --tls
+        ./runtest-moduleapi --verbose
     - name: sentinel tests
-      run: ./runtest-sentinel --tls
+      run: |
+        ./runtest-sentinel --tls
+        ./runtest-sentinel
     - name: cluster tests
-      run: ./runtest-cluster --tls
+      run: |
+        ./runtest-cluster --tls
+        ./runtest-cluster
 
   test-valgrind:
     runs-on: ubuntu-latest
+    if: github.repository == 'redis/redis'
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
@@ -104,6 +116,7 @@ jobs:
 
   test-centos7-jemalloc:
     runs-on: ubuntu-latest
+    if: github.repository == 'redis/redis'
     container: centos:7
     timeout-minutes: 14400
     steps:
@@ -126,6 +139,7 @@ jobs:
 
   test-centos7-tls:
     runs-on: ubuntu-latest
+    if: github.repository == 'redis/redis'
     container: centos:7
     timeout-minutes: 14400
     steps:
@@ -140,10 +154,35 @@ jobs:
         yum -y install tcl tcltls
         ./utils/gen-test-certs.sh
         ./runtest --accurate --verbose --tls
+        ./runtest --accurate --verbose
     - name: module api test
-      run: ./runtest-moduleapi --verbose --tls
+      run: |
+        ./runtest-moduleapi --verbose --tls
+        ./runtest-moduleapi --verbose
     - name: sentinel tests
-      run: ./runtest-sentinel --tls
+      run: |
+        ./runtest-sentinel --tls
+        ./runtest-sentinel
     - name: cluster tests
-      run: ./runtest-cluster --tls
+      run: |
+        ./runtest-cluster --tls
+        ./runtest-cluster
+
+  test-macos-latest:
+    runs-on: macos-latest
+    if: github.repository == 'redis/redis'
+    timeout-minutes: 14400
+    steps:
+    - uses: actions/checkout@v2
+    - name: make
+      run: make
+    - name: test
+      run: |
+        ./runtest --accurate --verbose
+    - name: module api test
+      run: ./runtest-moduleapi --verbose
+    - name: sentinel tests
+      run: ./runtest-sentinel
+    - name: cluster tests
+      run: ./runtest-cluster
 

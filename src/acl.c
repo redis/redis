@@ -1327,6 +1327,7 @@ sds ACLLoadFromFile(const char *filename) {
             errors = sdscatprintf(errors,
                      "'%s:%d: username '%s' contains invalid characters. ",
                      server.acl_filename, linenum, argv[1]);
+            sdsfreesplitres(argv,argc);
             continue;
         }
 
@@ -1980,7 +1981,7 @@ void authCommand(client *c) {
     if (ACLAuthenticateUser(c,username,password) == C_OK) {
         addReply(c,shared.ok);
     } else {
-        addReplyError(c,"-WRONGPASS invalid username-password pair");
+        addReplyError(c,"-WRONGPASS invalid username-password pair or user is disabled.");
     }
 
     /* Free the "default" string object we created for the two
