@@ -680,8 +680,8 @@ dictType clusterNodesBlackListDictType = {
     NULL                        /* val destructor */
 };
 
-/* Modules system dictionary type. Keys are prefixed function
- * name, values are function pointer. */
+/* Modules system dictionary type. Keys are module name,
+ * values are pointer to RedisModule struct. */
 dictType modulesDictType = {
     dictSdsCaseHash,            /* hash function */
     NULL,                       /* key dup */
