@@ -12,6 +12,154 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 6.0.8     Released Wed Sep 09 23:34:17 IDT 2020
+================================================================================
+
+Upgrade urgency HIGH: Anyone who's using Redis 6.0.7 with Sentinel or
+CONFIG REWRITE command is affected and should upgrade ASAP, see #7760.
+
+Bug fixes:
+
+* CONFIG REWRITE after setting oom-score-adj-values either via CONFIG SET or
+  loading it from a config file, will generate a corrupt config file that will
+  cause Redis to fail to start
+* Fix issue with redis-cli --pipe on MacOS
+* Fix RESP3 response for HKEYS/HVALS on non-existing key
+* Various small bug fixes
+
+New features / Changes:
+
+* Remove THP warning when set to madvise
+* Allow EXEC with read commands on readonly replica in cluster
+* Add masters/replicas options to redis-cli --cluster call command
+
+Module API:
+
+* Add RedisModule_ThreadSafeContextTryLock
+
+Full list of commits:
+
+Oran Agra in commit cdabf696a:
+ Fix RESP3 response for HKEYS/HVALS on non-existing key
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+Oran Agra in commit ec633c716:
+ Fix leak in new blockedclient module API test
+ 1 file changed, 3 insertions(+)
+
+Yossi Gottlieb in commit 6bac07c5c:
+ Tests: fix oom-score-adj false positives. (#7772)
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+杨博东 in commit 6043dc614:
+ Tests: Add aclfile load and save tests (#7765)
+ 2 files changed, 41 insertions(+)
+
+Roi Lipman in commit c0b5f9bf0:
+ RM_ThreadSafeContextTryLock a non-blocking method for acquiring GIL (#7738)
+ 7 files changed, 122 insertions(+), 1 deletion(-)
+
+Yossi Gottlieb in commit 5780a1599:
+ Tests: validate CONFIG REWRITE for all params. (#7764)
+ 6 files changed, 43 insertions(+), 6 deletions(-)
+
+Oran Agra in commit e3c14b25d:
+ Change THP warning to use madvise rather than never (#7771)
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Itamar Haber in commit 28929917b:
+ Documents RM_Call's fmt (#5448)
+ 1 file changed, 25 insertions(+)
+
+Jan-Erik Rediger in commit 9146402c2:
+ Check that THP is not set to always (madvise is ok) (#4001)
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Yossi Gottlieb in commit d05089429:
+ Tests: clean up stale .cli files. (#7768)
+ 1 file changed, 2 insertions(+)
+
+Eran Liberty in commit 8861c1bae:
+ Allow exec with read commands on readonly replica in cluster (#7766)
+ 3 files changed, 59 insertions(+), 3 deletions(-)
+
+Yossi Gottlieb in commit 2cf2ff2f6:
+ Fix CONFIG REWRITE of oom-score-adj-values. (#7761)
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+Oran Agra in commit 1386c80f7:
+ handle cur_test for nested tests
+ 1 file changed, 3 insertions(+)
+
+Oran Agra in commit c7d4945f0:
+ Add daily CI for MacOS (#7759)
+ 1 file changed, 18 insertions(+)
+
+bodong.ybd in commit 32548264c:
+ Tests: Some fixes for macOS
+ 3 files changed, 26 insertions(+), 11 deletions(-)
+
+Oran Agra in commit 1e17f9812:
+ Fix cluster consistency-check test (#7754)
+ 1 file changed, 55 insertions(+), 29 deletions(-)
+
+Yossi Gottlieb in commit f4ecdf86a:
+ Tests: fix unmonitored servers. (#7756)
+ 1 file changed, 5 insertions(+)
+
+Oran Agra in commit 9f020050d:
+ fix broken cluster/sentinel tests by recent commit (#7752)
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Oran Agra in commit fdbabb496:
+ Improve valgrind support for cluster tests (#7725)
+ 3 files changed, 83 insertions(+), 23 deletions(-)
+
+Oran Agra in commit 35a6a0bbc:
+ test infra - add durable mode to work around test suite crashing
+ 3 files changed, 35 insertions(+), 3 deletions(-)
+
+Oran Agra in commit e3136b13f:
+ test infra - wait_done_loading
+ 2 files changed, 16 insertions(+), 36 deletions(-)
+
+Oran Agra in commit 83c75dbd9:
+ test infra - flushall between tests in external mode
+ 1 file changed, 1 insertion(+)
+
+Oran Agra in commit 265f5d3cf:
+ test infra - improve test skipping ability
+ 3 files changed, 91 insertions(+), 36 deletions(-)
+
+Oran Agra in commit fcd3a9908:
+ test infra - reduce disk space usage
+ 3 files changed, 33 insertions(+), 11 deletions(-)
+
+Oran Agra in commit b6ea4699f:
+ test infra - write test name to logfile
+ 3 files changed, 35 insertions(+)
+
+Yossi Gottlieb in commit 4a4b07fc6:
+ redis-cli: fix writeConn() buffer handling. (#7749)
+ 1 file changed, 37 insertions(+), 6 deletions(-)
+
+Oran Agra in commit f2d08de2e:
+ Print server startup messages after daemonization (#7743)
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+Thandayuthapani in commit 77541d555:
+ Add masters/replicas options to redis-cli --cluster call command (#6491)
+ 1 file changed, 13 insertions(+), 2 deletions(-)
+
+Oran Agra in commit 91d13a854:
+ fix README about BUILD_WITH_SYSTEMD usage (#7739)
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Yossi Gottlieb in commit 88d03d965:
+ Fix double-make issue with make && make install. (#7734)
+ 1 file changed, 2 insertions(+)
+
+================================================================================
 Redis 6.0.7     Released Fri Aug 28 11:05:09 IDT 2020
 ================================================================================
 
