@@ -784,11 +784,9 @@ REDIS_STATIC void _quicklistMergeNodes(quicklist *quicklist,
  *                input node keeps elements after 'offset', including 'offset'.
  *
  * Or in other words:
- *
  * If 'after'==1, returned node will have elements after 'offset'.
  *                The returned node will have elements [OFFSET+1, END].
  *                The input node keeps elements [0, OFFSET].
- *
  * If 'after'==0, returned node will keep elements up to but not including 'offset'.
  *                The returned node will have elements [0, OFFSET-1].
  *                The input node keeps elements [OFFSET, END].
