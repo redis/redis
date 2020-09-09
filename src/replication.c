@@ -1944,7 +1944,7 @@ void replicationSetMaster(char *ip, int port) {
     disconnectAllBlockedClients(); /* Clients blocked in master, now slave. */
 
     /* Force our slaves to resync with us as well. They may hopefully be able
-     * to partially resync with us, but we can notify the replied change. */
+     * to partially resync with us, but we can notify the replid change. */
     disconnectSlaves();
     cancelReplicationHandshake();
     /* Before destroying our master state, create a cached master using
