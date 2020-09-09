@@ -353,6 +353,7 @@ void loadServerConfigFromString(char *config) {
     int linenum = 0, totlines, i;
     int slaveof_linenum = 0;
     sds *lines;
+    int save_loaded = 0;
 
     lines = sdssplitlen(config,strlen(config),"\n",1,&totlines);
 
@@ -425,6 +426,14 @@ void loadServerConfigFromString(char *config) {
                 err = "Invalid socket file permissions"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"save")) {
+            /* We don't reset save params before loading, because if they're not part
+             * of the file the defaults should be used.
+             */
+            if (!save_loaded) {
+                save_loaded = 1;
+                resetServerSaveParams();
+            }
+
             if (argc == 3) {
                 int seconds = atoi(argv[1]);
                 int changes = atoi(argv[2]);
