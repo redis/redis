@@ -797,16 +797,16 @@ REDIS_STATIC void _quicklistMergeNodes(quicklist *quicklist,
  * The 'after' argument controls which quicklistNode gets returned.
  * If 'after'==1, returned node has elements after 'offset'.
  *                input node keeps elements up to 'offset', including 'offset'.
- * If 'after'==0, returned node has elements up to 'offset', including 'offset'.
- *                input node keeps elements after 'offset'.
+ * If 'after'==0, returned node has elements up to 'offset'.
+ *                input node keeps elements after 'offset', including 'offset'.
  *
- * If 'after'==1, returned node will have elements _after_ 'offset'.
+ * Or in other words:
+ * If 'after'==1, returned node will have elements after 'offset'.
  *                The returned node will have elements [OFFSET+1, END].
  *                The input node keeps elements [0, OFFSET].
- *
- * If 'after'==0, returned node will keep elements up to and including 'offset'.
- *                The returned node will have elements [0, OFFSET].
- *                The input node keeps elements [OFFSET+1, END].
+ * If 'after'==0, returned node will keep elements up to but not including 'offset'.
+ *                The returned node will have elements [0, OFFSET-1].
+ *                The input node keeps elements [OFFSET, END].
  *
  * The input node keeps all elements not taken by the returned node.
  *
@@ -821,7 +821,7 @@ REDIS_STATIC quicklistNode *_quicklistSplitNode(quicklistNode *node, int offset,
     /* Copy original ziplist so we can split it */
     memcpy(new_node->zl, node->zl, zl_sz);
 
-    /* -1 here means "continue deleting until the list ends" */
+    /* Ranges to be trimmed: -1 here means "continue deleting until the list ends" */
     int orig_start = after ? offset + 1 : 0;
     int orig_extent = after ? -1 : offset;
     int new_start = after ? 0 : offset;
