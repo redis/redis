@@ -1064,6 +1064,8 @@ struct rewriteConfigState {
     sds *lines;           /* Current lines as an array of sds strings */
     int has_tail;         /* True if we already added directives that were
                              not present in the original config file. */
+    int force_all;        /* True if we want all keywords to be force
+                             written. Currently only used for testing. */
 };
 
 /* Append the new line to the current configuration state. */
@@ -1110,6 +1112,7 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
     state->numlines = 0;
     state->lines = NULL;
     state->has_tail = 0;
+    state->force_all = 0;
     if (fp == NULL) return state;
 
     /* Read the old file line by line, populate the state. */
@@ -1188,7 +1191,7 @@ void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *opti
 
     rewriteConfigMarkAsProcessed(state,option);
 
-    if (!l && !force) {
+    if (!l && !force && !state->force_all) {
         /* Option not used previously, and we are not forced to use it. */
         sdsfree(line);
         sdsfree(o);
@@ -1612,15 +1615,18 @@ cleanup:
  *
  * Configuration parameters that are at their default value, unless already
  * explicitly included in the old configuration file, are not rewritten.
+ * The force_all flag overrides this behavior and forces everything to be
+ * written. This is currently only used for testing purposes.
  *
  * On error -1 is returned and errno is set accordingly, otherwise 0. */
-int rewriteConfig(char *path) {
+int rewriteConfig(char *path, int force_all) {
     struct rewriteConfigState *state;
     sds newcontent;
     int retval;
 
     /* Step 1: read the old config into our rewrite state. */
     if ((state = rewriteConfigReadOldFile(path)) == NULL) return -1;
+    if (force_all) state->force_all = 1;
 
     /* Step 2: rewrite every single option, replacing or appending it inside
      * the rewrite state. */
@@ -2427,7 +2433,7 @@ NULL
             addReplyError(c,"The server is running without a config file");
             return;
         }
-        if (rewriteConfig(server.configfile) == -1) {
+        if (rewriteConfig(server.configfile, 0) == -1) {
             serverLog(LL_WARNING,"CONFIG REWRITE failed: %s", strerror(errno));
             addReplyErrorFormat(c,"Rewriting config file: %s", strerror(errno));
         } else {

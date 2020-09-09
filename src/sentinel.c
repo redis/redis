@@ -1954,7 +1954,7 @@ void sentinelFlushConfig(void) {
     int rewrite_status;
 
     server.hz = CONFIG_DEFAULT_HZ;
-    rewrite_status = rewriteConfig(server.configfile);
+    rewrite_status = rewriteConfig(server.configfile, 0);
     server.hz = saved_hz;
 
     if (rewrite_status == -1) goto werr;
