@@ -397,6 +397,7 @@ void debugCommand(client *c) {
 "STRUCTSIZE -- Return the size of different Redis core C structures.",
 "ZIPLIST <key> -- Show low level info about the ziplist encoding.",
 "STRINGMATCH-TEST -- Run a fuzz tester against the stringmatchlen() function.",
+"CONFIG-REWRITE-FORCE-ALL -- Like CONFIG REWRITE but writes all configuration options, including keywords not listed in original configuration file or default values.",
 #ifdef USE_JEMALLOC
 "MALLCTL <key> [<val>] -- Get or set a malloc tunning integer.",
 "MALLCTL-STR <key> [<val>] -- Get or set a malloc tunning string.",
@@ -794,6 +795,12 @@ NULL
     {
         stringmatchlen_fuzz_test();
         addReplyStatus(c,"Apparently Redis did not crash: test passed");
+    } else if (!strcasecmp(c->argv[1]->ptr,"config-rewrite-force-all") && c->argc == 2)
+    {
+        if (rewriteConfig(server.configfile, 1) == -1)
+            addReplyError(c, "CONFIG-REWRITE-FORCE-ALL failed");
+        else
+            addReply(c, shared.ok);
 #ifdef USE_JEMALLOC
     } else if(!strcasecmp(c->argv[1]->ptr,"mallctl") && c->argc >= 3) {
         mallctl_int(c, c->argv+2, c->argc-2);
