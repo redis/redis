@@ -23,10 +23,10 @@ size_t lazyfreeGetPendingObjectsCount(void) {
  * the function just returns the number of elements the object is composed of.
  *
  * Objects composed of single allocations are always reported as having a
- * single item even if they are actaully logical composed of multiple
+ * single item even if they are actually logical composed of multiple
  * elements.
  *
- * For lists the funciton returns the number of elements in the quicklist
+ * For lists the function returns the number of elements in the quicklist
  * representing the list. */
 size_t lazyfreeGetFreeEffort(robj *obj) {
     if (obj->type == OBJ_LIST) {
@@ -41,6 +41,30 @@ size_t lazyfreeGetFreeEffort(robj *obj) {
     } else if (obj->type == OBJ_HASH && obj->encoding == OBJ_ENCODING_HT) {
         dict *ht = obj->ptr;
         return dictSize(ht);
+    } else if (obj->type == OBJ_STREAM) {
+        size_t effort = 0;
+        stream *s = obj->ptr;
+
+        /* Make a best effort estimate to maintain constant runtime. Every macro
+         * node in the Stream is one allocation. */
+        effort += s->rax->numnodes;
+
+        /* Every consumer group is an allocation and so are the entries in its
+         * PEL. We use size of the first group's PEL as an estimate for all
+         * others. */
+        if (s->cgroups) {
+            raxIterator ri;
+            streamCG *cg;
+            raxStart(&ri,s->cgroups);
+            raxSeek(&ri,"^",NULL,0);
+            /* There must be at least one group so the following should always
+             * work. */
+            serverAssert(raxNext(&ri));
+            cg = ri.data;
+            effort += raxSize(s->cgroups)*(1+raxSize(cg->pel));
+            raxStop(&ri);
+        }
+        return effort;
     } else {
         return 1; /* Everything else is a single allocation. */
     }
@@ -83,10 +107,21 @@ int dbAsyncDelete(redisDb *db, robj *key) {
      * field to NULL in order to lazy free it later. */
     if (de) {
         dictFreeUnlinkedEntry(db->dict,de);
-        if (server.cluster_enabled) slotToKeyDel(key);
+        if (server.cluster_enabled) slotToKeyDel(key->ptr);
         return 1;
     } else {
         return 0;
+    }
+}
+
+/* Free an object, if the object is huge enough, free it in async way. */
+void freeObjAsync(robj *o) {
+    size_t free_effort = lazyfreeGetFreeEffort(o);
+    if (free_effort > LAZYFREE_THRESHOLD && o->refcount == 1) {
+        atomicIncr(lazyfree_objects,1);
+        bioCreateBackgroundJob(BIO_LAZY_FREE,o,NULL,NULL);
+    } else {
+        decrRefCount(o);
     }
 }
 

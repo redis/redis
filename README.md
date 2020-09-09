@@ -35,6 +35,16 @@ It is as simple as:
 
     % make
 
+To build with TLS support, you'll need OpenSSL development libraries (e.g.
+libssl-dev on Debian/Ubuntu) and run:
+
+    % make BUILD_TLS=yes
+
+To build with systemd support, you'll need systemd development libraries (such 
+as libsystemd-dev on Debian/Ubuntu or systemd-devel on CentOS) and run:
+
+    % make USE_SYSTEMD=yes
+
 You can run a 32 bit Redis binary using:
 
     % make 32bit
@@ -42,6 +52,13 @@ You can run a 32 bit Redis binary using:
 After building Redis, it is a good idea to test it using:
 
     % make test
+
+If TLS is built, running the tests with TLS enabled (you will need `tcl-tls`
+installed):
+
+    % ./utils/gen-test-certs.sh
+    % ./runtest --tls
+
 
 Fixing build problems with dependencies or cached build options
 ---------
@@ -94,6 +111,18 @@ To compile against jemalloc on Mac OS X systems, use:
 
     % make MALLOC=jemalloc
 
+Monotonic clock
+---------------
+
+By default, Redis will build using the POSIX clock_gettime function as the
+monotonic clock source.  On most modern systems, the internal processor clock
+can be used to improve performance.  Cautions can be found here: 
+    http://oliveryang.net/2015/09/pitfalls-of-TSC-usage/
+
+To build with support for the processor's internal instruction clock, use:
+
+    % make CFLAGS="-DUSE_PROCESSOR_CLOCK"
+
 Verbose build
 -------------
 
@@ -119,11 +148,17 @@ parameter (the path of the configuration file):
 It is possible to alter the Redis configuration by passing parameters directly
 as options using the command line. Examples:
 
-    % ./redis-server --port 9999 --slaveof 127.0.0.1 6379
+    % ./redis-server --port 9999 --replicaof 127.0.0.1 6379
     % ./redis-server /etc/redis/6379.conf --loglevel debug
 
 All the options in redis.conf are also supported as options using the command
 line, with exactly the same name.
+
+Running Redis with TLS:
+------------------
+
+Please consult the [TLS.md](TLS.md) file for more information on
+how to use Redis with TLS.
 
 Playing with Redis
 ------------------
@@ -166,6 +201,8 @@ for Ubuntu and Debian systems:
     % cd utils
     % ./install_server.sh
 
+_Note_: `install_server.sh` will not work on Mac OSX; it is built for Linux only.
+
 The script will ask you a few questions and will setup everything you need
 to run Redis properly as a background daemon that will start again on
 system reboots.
@@ -183,10 +220,10 @@ of the BSD license that you can find in the [COPYING][1] file included in the Re
 source distribution.
 
 Please see the [CONTRIBUTING][2] file in this source distribution for more
-information.
+information, including details on our process for security bugs/vulnerabilities.
 
-[1]: https://github.com/antirez/redis/blob/unstable/COPYING
-[2]: https://github.com/antirez/redis/blob/unstable/CONTRIBUTING
+[1]: https://github.com/redis/redis/blob/unstable/COPYING
+[2]: https://github.com/redis/redis/blob/unstable/CONTRIBUTING
 
 Redis internals
 ===
@@ -216,7 +253,7 @@ Inside the root are the following important directories:
 
 * `src`: contains the Redis implementation, written in C.
 * `tests`: contains the unit tests, implemented in Tcl.
-* `deps`: contains libraries Redis uses. Everything needed to compile Redis is inside this directory; your system just needs to provide `libc`, a POSIX compatible interface and a C compiler. Notably `deps` contains a copy of `jemalloc`, which is the default allocator of Redis under Linux. Note that under `deps` there are also things which started with the Redis project, but for which the main repository is not `anitrez/redis`. An exception to this rule is `deps/geohash-int` which is the low level geocoding library used by Redis: it originated from a different project, but at this point it diverged so much that it is developed as a separated entity directly inside the Redis repository.
+* `deps`: contains libraries Redis uses. Everything needed to compile Redis is inside this directory; your system just needs to provide `libc`, a POSIX compatible interface and a C compiler. Notably `deps` contains a copy of `jemalloc`, which is the default allocator of Redis under Linux. Note that under `deps` there are also things which started with the Redis project, but for which the main repository is not `redis/redis`.
 
 There are a few more directories but they are not very important for our goals
 here. We'll focus mostly on `src`, where the Redis implementation is contained,
@@ -227,7 +264,7 @@ of complexity incrementally.
 Note: lately Redis was refactored quite a bit. Function names and file
 names have been changed, so you may find that this documentation reflects the
 `unstable` branch more closely. For instance in Redis 3.0 the `server.c`
-and `server.h` files were named to `redis.c` and `redis.h`. However the overall
+and `server.h` files were named `redis.c` and `redis.h`. However the overall
 structure is the same. Keep in mind that all the new developments and pull
 requests should be performed against the `unstable` branch.
 
@@ -245,7 +282,7 @@ A few important fields in this structure are:
 * `server.db` is an array of Redis databases, where data is stored.
 * `server.commands` is the command table.
 * `server.clients` is a linked list of clients connected to the server.
-* `server.master` is a special client, the master, if the instance is a slave.
+* `server.master` is a special client, the master, if the instance is a replica.
 
 There are tons of other fields. Most fields are commented directly inside
 the structure definition.
@@ -316,14 +353,14 @@ There are two special functions called periodically by the event loop:
 Inside server.c you can find code that handles other vital things of the Redis server:
 
 * `call()` is used in order to call a given command in the context of a given client.
-* `activeExpireCycle()` handles eviciton of keys with a time to live set via the `EXPIRE` command.
+* `activeExpireCycle()` handles eviction of keys with a time to live set via the `EXPIRE` command.
 * `freeMemoryIfNeeded()` is called when a new write command should be performed but Redis is out of memory according to the `maxmemory` directive.
 * The global variable `redisCommandTable` defines all the Redis commands, specifying the name of the command, the function implementing the command, the number of arguments required, and other properties of each command.
 
 networking.c
 ---
 
-This file defines all the I/O functions with clients, masters and slaves
+This file defines all the I/O functions with clients, masters and replicas
 (which in Redis are just special clients):
 
 * `createClient()` allocates and initializes a new client.
@@ -390,26 +427,26 @@ replication.c
 
 This is one of the most complex files inside Redis, it is recommended to
 approach it only after getting a bit familiar with the rest of the code base.
-In this file there is the implementation of both the master and slave role
+In this file there is the implementation of both the master and replica role
 of Redis.
 
-One of the most important functions inside this file is `replicationFeedSlaves()` that writes commands to the clients representing slave instances connected
-to our master, so that the slaves can get the writes performed by the clients:
+One of the most important functions inside this file is `replicationFeedSlaves()` that writes commands to the clients representing replica instances connected
+to our master, so that the replicas can get the writes performed by the clients:
 this way their data set will remain synchronized with the one in the master.
 
 This file also implements both the `SYNC` and `PSYNC` commands that are
 used in order to perform the first synchronization between masters and
-slaves, or to continue the replication after a disconnection.
+replicas, or to continue the replication after a disconnection.
 
 Other C files
 ---
 
-* `t_hash.c`, `t_list.c`, `t_set.c`, `t_string.c` and `t_zset.c` contains the implementation of the Redis data types. They implement both an API to access a given data type, and the client commands implementations for these data types.
+* `t_hash.c`, `t_list.c`, `t_set.c`, `t_string.c`, `t_zset.c` and `t_stream.c` contains the implementation of the Redis data types. They implement both an API to access a given data type, and the client commands implementations for these data types.
 * `ae.c` implements the Redis event loop, it's a self contained library which is simple to read and understand.
 * `sds.c` is the Redis string library, check http://github.com/antirez/sds for more information.
 * `anet.c` is a library to use POSIX networking in a simpler way compared to the raw interface exposed by the kernel.
 * `dict.c` is an implementation of a non-blocking hash table which rehashes incrementally.
-* `scripting.c` implements Lua scripting. It is completely self contained from the rest of the Redis implementation and is simple enough to understand if you are familar with the Lua API.
+* `scripting.c` implements Lua scripting. It is completely self contained from the rest of the Redis implementation and is simple enough to understand if you are familiar with the Lua API.
 * `cluster.c` implements the Redis Cluster. Probably a good read only after being very familiar with the rest of the Redis code base. If you want to read `cluster.c` make sure to read the [Redis Cluster specification][3].
 
 [3]: http://redis.io/topics/cluster-spec
@@ -435,7 +472,7 @@ top comment inside `server.c`.
 After the command operates in some way, it returns a reply to the client,
 usually using `addReply()` or a similar function defined inside `networking.c`.
 
-There are tons of commands implementations inside th Redis source code
+There are tons of commands implementations inside the Redis source code
 that can serve as examples of actual commands implementations. To write
 a few toy commands can be a good exercise to familiarize with the code base.
 

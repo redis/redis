@@ -142,11 +142,11 @@ void slowlogReset(void) {
 void slowlogCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-"get [count] -- Return top entries from the slowlog (default: 10)."
+"GET [count] -- Return top entries from the slowlog (default: 10)."
 "    Entries are made of:",
 "    id, timestamp, time in microseconds, arguments array, client IP and port, client name",
-"len -- Return the length of the slowlog.",
-"reset -- Reset the slowlog.",
+"LEN -- Return the length of the slowlog.",
+"RESET -- Reset the slowlog.",
 NULL
         };
         addReplyHelp(c, help);
@@ -169,24 +169,24 @@ NULL
             return;
 
         listRewind(server.slowlog,&li);
-        totentries = addDeferredMultiBulkLength(c);
+        totentries = addReplyDeferredLen(c);
         while(count-- && (ln = listNext(&li))) {
             int j;
 
             se = ln->value;
-            addReplyMultiBulkLen(c,6);
+            addReplyArrayLen(c,6);
             addReplyLongLong(c,se->id);
             addReplyLongLong(c,se->time);
             addReplyLongLong(c,se->duration);
-            addReplyMultiBulkLen(c,se->argc);
+            addReplyArrayLen(c,se->argc);
             for (j = 0; j < se->argc; j++)
                 addReplyBulk(c,se->argv[j]);
             addReplyBulkCBuffer(c,se->peerid,sdslen(se->peerid));
             addReplyBulkCBuffer(c,se->cname,sdslen(se->cname));
             sent++;
         }
-        setDeferredMultiBulkLength(c,totentries,sent);
+        setDeferredArrayLen(c,totentries,sent);
     } else {
-         addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try SLOWLOG HELP", (char*)c->argv[1]->ptr);
+        addReplySubcommandSyntaxError(c);
     }
 }

@@ -1,52 +1,42 @@
 #include "test/jemalloc_test.h"
 
-#ifdef JEMALLOC_PROF
-const char *malloc_conf =
-    "prof:true,prof_active:false,lg_prof_sample:0";
-#endif
-
 static int
-prof_dump_open_intercept(bool propagate_err, const char *filename)
-{
+prof_dump_open_intercept(bool propagate_err, const char *filename) {
 	int fd;
 
 	fd = open("/dev/null", O_WRONLY);
 	assert_d_ne(fd, -1, "Unexpected open() failure");
 
-	return (fd);
+	return fd;
 }
 
 static void
-set_prof_active(bool active)
-{
-
-	assert_d_eq(mallctl("prof.active", NULL, NULL, &active, sizeof(active)),
-	    0, "Unexpected mallctl failure");
+set_prof_active(bool active) {
+	assert_d_eq(mallctl("prof.active", NULL, NULL, (void *)&active,
+	    sizeof(active)), 0, "Unexpected mallctl failure");
 }
 
 static size_t
-get_lg_prof_sample(void)
-{
+get_lg_prof_sample(void) {
 	size_t lg_prof_sample;
 	size_t sz = sizeof(size_t);
 
-	assert_d_eq(mallctl("prof.lg_sample", &lg_prof_sample, &sz, NULL, 0), 0,
+	assert_d_eq(mallctl("prof.lg_sample", (void *)&lg_prof_sample, &sz,
+	    NULL, 0), 0,
 	    "Unexpected mallctl failure while reading profiling sample rate");
-	return (lg_prof_sample);
+	return lg_prof_sample;
 }
 
 static void
-do_prof_reset(size_t lg_prof_sample)
-{
+do_prof_reset(size_t lg_prof_sample) {
 	assert_d_eq(mallctl("prof.reset", NULL, NULL,
-	    &lg_prof_sample, sizeof(size_t)), 0,
+	    (void *)&lg_prof_sample, sizeof(size_t)), 0,
 	    "Unexpected mallctl failure while resetting profile data");
 	assert_zu_eq(lg_prof_sample, get_lg_prof_sample(),
 	    "Expected profile sample rate change");
 }
 
-TEST_BEGIN(test_prof_reset_basic)
-{
+TEST_BEGIN(test_prof_reset_basic) {
 	size_t lg_prof_sample_orig, lg_prof_sample, lg_prof_sample_next;
 	size_t sz;
 	unsigned i;
@@ -54,8 +44,8 @@ TEST_BEGIN(test_prof_reset_basic)
 	test_skip_if(!config_prof);
 
 	sz = sizeof(size_t);
-	assert_d_eq(mallctl("opt.lg_prof_sample", &lg_prof_sample_orig, &sz,
-	    NULL, 0), 0,
+	assert_d_eq(mallctl("opt.lg_prof_sample", (void *)&lg_prof_sample_orig,
+	    &sz, NULL, 0), 0,
 	    "Unexpected mallctl failure while reading profiling sample rate");
 	assert_zu_eq(lg_prof_sample_orig, 0,
 	    "Unexpected profiling sample rate");
@@ -94,17 +84,15 @@ TEST_END
 bool prof_dump_header_intercepted = false;
 prof_cnt_t cnt_all_copy = {0, 0, 0, 0};
 static bool
-prof_dump_header_intercept(bool propagate_err, const prof_cnt_t *cnt_all)
-{
-
+prof_dump_header_intercept(tsdn_t *tsdn, bool propagate_err,
+    const prof_cnt_t *cnt_all) {
 	prof_dump_header_intercepted = true;
 	memcpy(&cnt_all_copy, cnt_all, sizeof(prof_cnt_t));
 
-	return (false);
+	return false;
 }
 
-TEST_BEGIN(test_prof_reset_cleanup)
-{
+TEST_BEGIN(test_prof_reset_cleanup) {
 	void *p;
 	prof_dump_header_t *prof_dump_header_orig;
 
@@ -142,14 +130,13 @@ TEST_BEGIN(test_prof_reset_cleanup)
 }
 TEST_END
 
-#define	NTHREADS		4
-#define	NALLOCS_PER_THREAD	(1U << 13)
-#define	OBJ_RING_BUF_COUNT	1531
-#define	RESET_INTERVAL		(1U << 10)
-#define	DUMP_INTERVAL		3677
+#define NTHREADS		4
+#define NALLOCS_PER_THREAD	(1U << 13)
+#define OBJ_RING_BUF_COUNT	1531
+#define RESET_INTERVAL		(1U << 10)
+#define DUMP_INTERVAL		3677
 static void *
-thd_start(void *varg)
-{
+thd_start(void *varg) {
 	unsigned thd_ind = *(unsigned *)varg;
 	unsigned i;
 	void *objs[OBJ_RING_BUF_COUNT];
@@ -189,11 +176,10 @@ thd_start(void *varg)
 		}
 	}
 
-	return (NULL);
+	return NULL;
 }
 
-TEST_BEGIN(test_prof_reset)
-{
+TEST_BEGIN(test_prof_reset) {
 	size_t lg_prof_sample_orig;
 	thd_t thds[NTHREADS];
 	unsigned thd_args[NTHREADS];
@@ -216,8 +202,9 @@ TEST_BEGIN(test_prof_reset)
 		thd_args[i] = i;
 		thd_create(&thds[i], thd_start, (void *)&thd_args[i]);
 	}
-	for (i = 0; i < NTHREADS; i++)
+	for (i = 0; i < NTHREADS; i++) {
 		thd_join(thds[i], NULL);
+	}
 
 	assert_zu_eq(prof_bt_count(), bt_count,
 	    "Unexpected bactrace count change");
@@ -236,9 +223,8 @@ TEST_END
 #undef DUMP_INTERVAL
 
 /* Test sampling at the same allocation site across resets. */
-#define	NITER 10
-TEST_BEGIN(test_xallocx)
-{
+#define NITER 10
+TEST_BEGIN(test_xallocx) {
 	size_t lg_prof_sample_orig;
 	unsigned i;
 	void *ptrs[NITER];
@@ -288,15 +274,13 @@ TEST_END
 #undef NITER
 
 int
-main(void)
-{
-
+main(void) {
 	/* Intercept dumping prior to running any tests. */
 	prof_dump_open = prof_dump_open_intercept;
 
-	return (test(
+	return test_no_reentrancy(
 	    test_prof_reset_basic,
 	    test_prof_reset_cleanup,
 	    test_prof_reset,
-	    test_xallocx));
+	    test_xallocx);
 }

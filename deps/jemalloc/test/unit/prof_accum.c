@@ -1,36 +1,27 @@
 #include "test/jemalloc_test.h"
 
-#define	NTHREADS		4
-#define	NALLOCS_PER_THREAD	50
-#define	DUMP_INTERVAL		1
-#define	BT_COUNT_CHECK_INTERVAL	5
-
-#ifdef JEMALLOC_PROF
-const char *malloc_conf =
-    "prof:true,prof_accum:true,prof_active:false,lg_prof_sample:0";
-#endif
+#define NTHREADS		4
+#define NALLOCS_PER_THREAD	50
+#define DUMP_INTERVAL		1
+#define BT_COUNT_CHECK_INTERVAL	5
 
 static int
-prof_dump_open_intercept(bool propagate_err, const char *filename)
-{
+prof_dump_open_intercept(bool propagate_err, const char *filename) {
 	int fd;
 
 	fd = open("/dev/null", O_WRONLY);
 	assert_d_ne(fd, -1, "Unexpected open() failure");
 
-	return (fd);
+	return fd;
 }
 
 static void *
-alloc_from_permuted_backtrace(unsigned thd_ind, unsigned iteration)
-{
-
-	return (btalloc(1, thd_ind*NALLOCS_PER_THREAD + iteration));
+alloc_from_permuted_backtrace(unsigned thd_ind, unsigned iteration) {
+	return btalloc(1, thd_ind*NALLOCS_PER_THREAD + iteration);
 }
 
 static void *
-thd_start(void *varg)
-{
+thd_start(void *varg) {
 	unsigned thd_ind = *(unsigned *)varg;
 	size_t bt_count_prev, bt_count;
 	unsigned i_prev, i;
@@ -55,11 +46,10 @@ thd_start(void *varg)
 		}
 	}
 
-	return (NULL);
+	return NULL;
 }
 
-TEST_BEGIN(test_idump)
-{
+TEST_BEGIN(test_idump) {
 	bool active;
 	thd_t thds[NTHREADS];
 	unsigned thd_args[NTHREADS];
@@ -68,8 +58,9 @@ TEST_BEGIN(test_idump)
 	test_skip_if(!config_prof);
 
 	active = true;
-	assert_d_eq(mallctl("prof.active", NULL, NULL, &active, sizeof(active)),
-	    0, "Unexpected mallctl failure while activating profiling");
+	assert_d_eq(mallctl("prof.active", NULL, NULL, (void *)&active,
+	    sizeof(active)), 0,
+	    "Unexpected mallctl failure while activating profiling");
 
 	prof_dump_open = prof_dump_open_intercept;
 
@@ -77,15 +68,14 @@ TEST_BEGIN(test_idump)
 		thd_args[i] = i;
 		thd_create(&thds[i], thd_start, (void *)&thd_args[i]);
 	}
-	for (i = 0; i < NTHREADS; i++)
+	for (i = 0; i < NTHREADS; i++) {
 		thd_join(thds[i], NULL);
+	}
 }
 TEST_END
 
 int
-main(void)
-{
-
-	return (test(
-	    test_idump));
+main(void) {
+	return test_no_reentrancy(
+	    test_idump);
 }
