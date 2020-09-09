@@ -91,6 +91,69 @@ proc wait_for_sync r {
     }
 }
 
+proc wait_for_ofs_sync {r1 r2} {
+    wait_for_condition 50 100 {
+        [status $r1 master_repl_offset] eq [status $r2 master_repl_offset]
+    } else {
+        fail "replica didn't sync in time"
+    }
+}
+
+proc wait_done_loading r {
+    wait_for_condition 50 100 {
+        [catch {$r ping} e] == 0
+    } else {
+        fail "Loading DB is taking too much time."
+    }
+}
+
+# count current log lines in server's stdout
+proc count_log_lines {srv_idx} {
+    set _ [exec wc -l < [srv $srv_idx stdout]]
+}
+
+# verify pattern exists in server's sdtout after a certain line number
+proc verify_log_message {srv_idx pattern from_line} {
+    incr from_line
+    set result [exec tail -n +$from_line < [srv $srv_idx stdout]]
+    if {![string match $pattern $result]} {
+        error "assertion:expected message not found in log file: $pattern"
+    }
+}
+
+# wait for pattern to be found in server's stdout after certain line number
+# return value is a list containing the line that matched the pattern and the line number
+proc wait_for_log_messages {srv_idx patterns from_line maxtries delay} {
+    set retry $maxtries
+    set next_line [expr $from_line + 1] ;# searching form the line after
+    set stdout [srv $srv_idx stdout]
+    while {$retry} {
+        set result [exec tail -n +$next_line < $stdout]
+        set result [split $result "\n"]
+        foreach line $result {
+            foreach pattern $patterns {
+                if {[string match $pattern $line]} {
+                    return [list $line $next_line]
+                }
+            }
+            incr next_line
+        }
+        incr retry -1
+        after $delay
+    }
+    if {$retry == 0} {
+        fail "log message of '$patterns' not found in $stdout after line: $from_line till line: [expr $next_line -1]"
+    }
+}
+
+# write line to server log file
+proc write_log_line {srv_idx msg} {
+    set logfile [srv $srv_idx stdout]
+    set fd [open $logfile "a+"]
+    puts $fd "### $msg"
+    close $fd
+}
+
 # Random integer between 0 and max (excluded).
 proc randomInt {max} {
     expr {int(rand()*$max)}
@@ -317,21 +380,26 @@ proc roundFloat f {
     format "%.10g" $f
 }
 
-proc find_available_port start {
-    for {set j $start} {$j < $start+1024} {incr j} {
-        if {[catch {set fd1 [socket 127.0.0.1 $j]}] &&
-            [catch {set fd2 [socket 127.0.0.1 [expr $j+10000]]}]} {
-            return $j
+set ::last_port_attempted 0
+proc find_available_port {start count} {
+    set port [expr $::last_port_attempted + 1]
+    for {set attempts 0} {$attempts < $count} {incr attempts} {
+        if {$port < $start || $port >= $start+$count} {
+            set port $start
+        }
+        if {[catch {set fd1 [socket 127.0.0.1 $port]}] &&
+            [catch {set fd2 [socket 127.0.0.1 [expr $port+10000]]}]} {
+            set ::last_port_attempted $port
+            return $port
         } else {
             catch {
                 close $fd1
                 close $fd2
             }
         }
+        incr port
     }
-    if {$j == $start+1024} {
-        error "Can't find a non busy port in the $start-[expr {$start+1023}] range."
-    }
+    error "Can't find a non busy port in the $start-[expr {$start+$count-1}] range."
 }
 
 # Test if TERM looks like to support colors
@@ -364,11 +432,34 @@ proc colorstr {color str} {
     }
 }
 
+proc find_valgrind_errors {stderr} {
+    set fd [open $stderr]
+    set buf [read $fd]
+    close $fd
+
+    # Look for stack trace (" at 0x") and other errors (Invalid, Mismatched, etc).
+    # Look for "Warnings", but not the "set address range perms". These don't indicate any real concern.
+    # Look for the absense of a leak free summary (happens when redis isn't terminated properly).
+    if {[regexp -- { at 0x} $buf] ||
+        [regexp -- {^(?=.*Warning)(?:(?!set address range perms).)*$} $buf] ||
+        [regexp -- {Invalid} $buf] ||
+        [regexp -- {Mismatched} $buf] ||
+        [regexp -- {uninitialized} $buf] ||
+        [regexp -- {has a fishy} $buf] ||
+        [regexp -- {overlap} $buf] ||
+        (![regexp -- {definitely lost: 0 bytes} $buf] &&
+         ![regexp -- {no leaks are possible} $buf])} {
+        return $buf
+    }
+
+    return ""
+}
+
 # Execute a background process writing random data for the specified number
 # of seconds to the specified Redis instance.
 proc start_write_load {host port seconds} {
     set tclsh [info nameofexecutable]
-    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds &
+    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds $::tls &
 }
 
 # Stop a process generating write load executed with start_write_load.
@@ -390,4 +481,41 @@ proc lshuffle {list} {
         set list [lreplace [K $list [set list {}]] $j $j $temp]
     }
     return $slist
+}
+
+# Execute a background process writing complex data for the specified number
+# of ops to the specified Redis instance.
+proc start_bg_complex_data {host port db ops} {
+    set tclsh [info nameofexecutable]
+    exec $tclsh tests/helpers/bg_complex_data.tcl $host $port $db $ops $::tls &
+}
+
+# Stop a process generating write load executed with start_bg_complex_data.
+proc stop_bg_complex_data {handle} {
+    catch {exec /bin/kill -9 $handle}
+}
+
+proc populate {num prefix size} {
+    set rd [redis_deferring_client]
+    for {set j 0} {$j < $num} {incr j} {
+        $rd set $prefix$j [string repeat A $size]
+    }
+    for {set j 0} {$j < $num} {incr j} {
+        $rd read
+    }
+    $rd close
+}
+
+proc get_child_pid {idx} {
+    set pid [srv $idx pid]
+    if {[string match {*Darwin*} [exec uname -a]]} {
+        set fd [open "|pgrep -P $pid" "r"]
+        set child_pid [string trim [lindex [split [read $fd] \n] 0]]
+    } else {
+        set fd [open "|ps --ppid $pid -o pid" "r"]
+        set child_pid [string trim [lindex [split [read $fd] \n] 1]]
+    }
+    close $fd
+
+    return $child_pid
 }

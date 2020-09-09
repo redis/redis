@@ -193,6 +193,20 @@ int anetSendTimeout(char *err, int fd, long long ms) {
     return ANET_OK;
 }
 
+/* Set the socket receive timeout (SO_RCVTIMEO socket option) to the specified
+ * number of milliseconds, or disable it if the 'ms' argument is zero. */
+int anetRecvTimeout(char *err, int fd, long long ms) {
+    struct timeval tv;
+
+    tv.tv_sec = ms/1000;
+    tv.tv_usec = (ms%1000)*1000;
+    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) == -1) {
+        anetSetError(err, "setsockopt SO_RCVTIMEO: %s", strerror(errno));
+        return ANET_ERR;
+    }
+    return ANET_OK;
+}
+
 /* anetGenericResolve() is called by anetResolve() and anetResolveIP() to
  * do the actual work. It resolves the hostname "host" and set the string
  * representation of the IP address into the buffer pointed by "ipbuf".
@@ -265,8 +279,8 @@ static int anetCreateSocket(char *err, int domain) {
 #define ANET_CONNECT_NONE 0
 #define ANET_CONNECT_NONBLOCK 1
 #define ANET_CONNECT_BE_BINDING 2 /* Best effort binding. */
-static int anetTcpGenericConnect(char *err, char *addr, int port,
-                                 char *source_addr, int flags)
+static int anetTcpGenericConnect(char *err, const char *addr, int port,
+                                 const char *source_addr, int flags)
 {
     int s = ANET_ERR, rv;
     char portstr[6];  /* strlen("65535") + 1; */
@@ -345,31 +359,31 @@ end:
     }
 }
 
-int anetTcpConnect(char *err, char *addr, int port)
+int anetTcpConnect(char *err, const char *addr, int port)
 {
     return anetTcpGenericConnect(err,addr,port,NULL,ANET_CONNECT_NONE);
 }
 
-int anetTcpNonBlockConnect(char *err, char *addr, int port)
+int anetTcpNonBlockConnect(char *err, const char *addr, int port)
 {
     return anetTcpGenericConnect(err,addr,port,NULL,ANET_CONNECT_NONBLOCK);
 }
 
-int anetTcpNonBlockBindConnect(char *err, char *addr, int port,
-                               char *source_addr)
+int anetTcpNonBlockBindConnect(char *err, const char *addr, int port,
+                               const char *source_addr)
 {
     return anetTcpGenericConnect(err,addr,port,source_addr,
             ANET_CONNECT_NONBLOCK);
 }
 
-int anetTcpNonBlockBestEffortBindConnect(char *err, char *addr, int port,
-                                         char *source_addr)
+int anetTcpNonBlockBestEffortBindConnect(char *err, const char *addr, int port,
+                                         const char *source_addr)
 {
     return anetTcpGenericConnect(err,addr,port,source_addr,
             ANET_CONNECT_NONBLOCK|ANET_CONNECT_BE_BINDING);
 }
 
-int anetUnixGenericConnect(char *err, char *path, int flags)
+int anetUnixGenericConnect(char *err, const char *path, int flags)
 {
     int s;
     struct sockaddr_un sa;
@@ -397,12 +411,12 @@ int anetUnixGenericConnect(char *err, char *path, int flags)
     return s;
 }
 
-int anetUnixConnect(char *err, char *path)
+int anetUnixConnect(char *err, const char *path)
 {
     return anetUnixGenericConnect(err,path,ANET_CONNECT_NONE);
 }
 
-int anetUnixNonBlockConnect(char *err, char *path)
+int anetUnixNonBlockConnect(char *err, const char *path)
 {
     return anetUnixGenericConnect(err,path,ANET_CONNECT_NONBLOCK);
 }

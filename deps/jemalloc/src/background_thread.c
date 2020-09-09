@@ -787,7 +787,13 @@ background_thread_stats_read(tsdn_t *tsdn, background_thread_stats_t *stats) {
 	nstime_init(&stats->run_interval, 0);
 	for (unsigned i = 0; i < max_background_threads; i++) {
 		background_thread_info_t *info = &background_thread_info[i];
-		malloc_mutex_lock(tsdn, &info->mtx);
+		if (malloc_mutex_trylock(tsdn, &info->mtx)) {
+			/*
+			 * Each background thread run may take a long time;
+			 * avoid waiting on the stats if the thread is active.
+			 */
+			continue;
+		}
 		if (info->state != background_thread_stopped) {
 			num_runs += info->tot_n_runs;
 			nstime_add(&stats->run_interval, &info->tot_sleep_time);

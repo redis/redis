@@ -302,7 +302,7 @@ start_server {tags {"hash"}} {
         r hset smallhash str " 11"
         r hset bighash str " 11"
         catch {r hincrby smallhash str 1} smallerr
-        catch {r hincrby smallhash str 1} bigerr
+        catch {r hincrby bighash str 1} bigerr
         set rv {}
         lappend rv [string match "ERR*not an integer*" $smallerr]
         lappend rv [string match "ERR*not an integer*" $bigerr]
@@ -312,7 +312,7 @@ start_server {tags {"hash"}} {
         r hset smallhash str "11 "
         r hset bighash str "11 "
         catch {r hincrby smallhash str 1} smallerr
-        catch {r hincrby smallhash str 1} bigerr
+        catch {r hincrby bighash str 1} bigerr
         set rv {}
         lappend rv [string match "ERR*not an integer*" $smallerr]
         lappend rv [string match "ERR*not an integer*" $bigerr]
@@ -374,7 +374,7 @@ start_server {tags {"hash"}} {
         r hset smallhash str " 11"
         r hset bighash str " 11"
         catch {r hincrbyfloat smallhash str 1} smallerr
-        catch {r hincrbyfloat smallhash str 1} bigerr
+        catch {r hincrbyfloat bighash str 1} bigerr
         set rv {}
         lappend rv [string match "ERR*not*float*" $smallerr]
         lappend rv [string match "ERR*not*float*" $bigerr]
@@ -384,11 +384,18 @@ start_server {tags {"hash"}} {
         r hset smallhash str "11 "
         r hset bighash str "11 "
         catch {r hincrbyfloat smallhash str 1} smallerr
-        catch {r hincrbyfloat smallhash str 1} bigerr
+        catch {r hincrbyfloat bighash str 1} bigerr
         set rv {}
         lappend rv [string match "ERR*not*float*" $smallerr]
         lappend rv [string match "ERR*not*float*" $bigerr]
     } {1 1}
+
+    test {HINCRBYFLOAT fails against hash value that contains a null-terminator in the middle} {
+        r hset h f "1\x002"
+        catch {r hincrbyfloat h f 1} err
+        set rv {}
+        lappend rv [string match "ERR*not*float*" $err]
+    } {1}
 
     test {HSTRLEN against the small hash} {
         set err {}

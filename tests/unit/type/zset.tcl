@@ -388,7 +388,7 @@ start_server {tags {"zset"}} {
                               0 omega}
         }
 
-        test "ZRANGEBYLEX/ZREVRANGEBYLEX/ZCOUNT basics" {
+        test "ZRANGEBYLEX/ZREVRANGEBYLEX/ZLEXCOUNT basics" {
             create_default_lex_zset
 
             # inclusive range
@@ -415,6 +415,22 @@ start_server {tags {"zset"}} {
             assert_equal {} [r zrangebylex zset - \[aaaa]
             assert_equal {} [r zrevrangebylex zset \[elez \[elex]
             assert_equal {} [r zrevrangebylex zset (hill (omega]
+        }
+        
+        test "ZLEXCOUNT advanced" {
+            create_default_lex_zset
+    
+            assert_equal 9 [r zlexcount zset - +]
+            assert_equal 0 [r zlexcount zset + -]
+            assert_equal 0 [r zlexcount zset + \[c]
+            assert_equal 0 [r zlexcount zset \[c -]
+            assert_equal 8 [r zlexcount zset \[bar +]
+            assert_equal 5 [r zlexcount zset \[bar \[foo]
+            assert_equal 4 [r zlexcount zset \[bar (foo]
+            assert_equal 4 [r zlexcount zset (bar \[foo]
+            assert_equal 3 [r zlexcount zset (bar (foo]
+            assert_equal 5 [r zlexcount zset - (foo]
+            assert_equal 1 [r zlexcount zset (maxstring +]
         }
 
         test "ZRANGEBYSLEX with LIMIT" {
@@ -764,6 +780,44 @@ start_server {tags {"zset"}} {
             set oldscore $score
         }
     }
+    
+    test {ZMSCORE retrieve} {
+        r del zmscoretest
+        r zadd zmscoretest 10 x
+        r zadd zmscoretest 20 y
+        
+        r zmscore zmscoretest x y
+    } {10 20}
+
+    test {ZMSCORE retrieve from empty set} {
+        r del zmscoretest
+        
+        r zmscore zmscoretest x y
+    } {{} {}}
+    
+    test {ZMSCORE retrieve with missing member} {
+        r del zmscoretest
+        r zadd zmscoretest 10 x
+        
+        r zmscore zmscoretest x y
+    } {10 {}}
+
+    test {ZMSCORE retrieve single member} {
+        r del zmscoretest
+        r zadd zmscoretest 10 x
+        r zadd zmscoretest 20 y
+        
+        r zmscore zmscoretest x
+    } {10}
+
+    test {ZMSCORE retrieve requires one or more members} {
+        r del zmscoretest
+        r zadd zmscoretest 10 x
+        r zadd zmscoretest 20 y
+        
+        catch {r zmscore zmscoretest} e
+        assert_match {*ERR*wrong*number*arg*} $e
+    }
 
     test "ZSET commands don't accept the empty strings as valid score" {
         assert_error "*not*float*" {r zadd myzset "" abc}
@@ -796,6 +850,21 @@ start_server {tags {"zset"}} {
             assert_encoding $encoding zscoretest
             for {set i 0} {$i < $elements} {incr i} {
                 assert_equal [lindex $aux $i] [r zscore zscoretest $i]
+            }
+        }
+
+        test "ZMSCORE - $encoding" {
+            r del zscoretest
+            set aux {}
+            for {set i 0} {$i < $elements} {incr i} {
+                set score [expr rand()]
+                lappend aux $score
+                r zadd zscoretest $score $i
+            }
+
+            assert_encoding $encoding zscoretest
+            for {set i 0} {$i < $elements} {incr i} {
+                assert_equal [lindex $aux $i] [r zmscore zscoretest $i]
             }
         }
 

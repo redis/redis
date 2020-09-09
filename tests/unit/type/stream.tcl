@@ -79,6 +79,12 @@ start_server {
         assert {[streamCompareID $id2 $id3] == -1}
     }
 
+    test {XADD IDs correctly report an error when overflowing} {
+        r DEL mystream
+        r xadd mystream 18446744073709551615-18446744073709551615 a b
+        assert_error ERR* {r xadd mystream * c d}
+    }
+
     test {XADD with MAXLEN option} {
         r DEL mystream
         for {set j 0} {$j < 1000} {incr j} {
@@ -115,6 +121,12 @@ start_server {
             assert {[lrange [lindex $items $j 1] 0 1] eq [list item $j]}
         }
         assert {[r xlen mystream] == $j}
+    }
+
+    test {XADD with ID 0-0} {
+        r DEL otherstream
+        catch {r XADD otherstream 0-0 k v} err
+        assert {[r EXISTS otherstream] == 0}
     }
 
     test {XRANGE COUNT works as expected} {
@@ -177,6 +189,17 @@ start_server {
         set res [$rd read]
         assert {[lindex $res 0 0] eq {s2}}
         assert {[lindex $res 0 1 0 1] eq {old abcd1234}}
+    }
+
+    test {Blocking XREAD will not reply with an empty array} {
+        r del s1
+        r XADD s1 666 f v
+        r XADD s1 667 f2 v2
+        r XDEL s1 667
+        set rd [redis_deferring_client]
+        $rd XREAD BLOCK 10 STREAMS s1 666
+        after 20
+        assert {[$rd read] == {}} ;# before the fix, client didn't even block, but was served synchronously with {s1 {}}
     }
 
     test "XREAD: XADD + DEL should not awake client" {
@@ -316,6 +339,33 @@ start_server {
 
         assert_equal [r xrevrange teststream2 1234567891245 -] {{1234567891240-0 {key1 value2}} {1234567891230-0 {key1 value1}}}
     }
+
+    test {XREAD streamID edge (no-blocking)} {
+        r del x
+        r XADD x 1-1 f v
+        r XADD x 1-18446744073709551615 f v
+        r XADD x 2-1 f v
+        set res [r XREAD BLOCK 0 STREAMS x 1-18446744073709551615]
+        assert {[lindex $res 0 1 0] == {2-1 {f v}}}
+    }
+
+    test {XREAD streamID edge (blocking)} {
+        r del x
+        set rd [redis_deferring_client]
+        $rd XREAD BLOCK 0 STREAMS x 1-18446744073709551615
+        r XADD x 1-1 f v
+        r XADD x 1-18446744073709551615 f v
+        r XADD x 2-1 f v
+        set res [$rd read]
+        assert {[lindex $res 0 1 0] == {2-1 {f v}}}
+    }
+
+    test {XADD streamID edge} {
+        r del x
+        r XADD x 2577343934890-18446744073709551615 f v ;# we need the timestamp to be in the future
+        r XADD x * f2 v2
+        assert_equal [r XRANGE x - +] {{2577343934890-18446744073709551615 {f v}} {2577343934891-0 {f2 v2}}}
+    }
 }
 
 start_server {tags {"stream"} overrides {appendonly yes}} {
@@ -355,11 +405,66 @@ start_server {tags {"stream"} overrides {appendonly yes stream-node-max-entries 
             r XADD mystream * xitem v
         }
         r XTRIM mystream MAXLEN ~ 85
-        assert {[r xlen mystream] == 89}
+        assert {[r xlen mystream] == 90}
         r config set stream-node-max-entries 1
         r debug loadaof
         r XADD mystream * xitem v
         incr j
-        assert {[r xlen mystream] == 90}
+        assert {[r xlen mystream] == 91}
+    }
+}
+
+start_server {tags {"stream xsetid"}} {
+    test {XADD can CREATE an empty stream} {
+        r XADD mystream MAXLEN 0 * a b
+        assert {[dict get [r xinfo stream mystream] length] == 0}
+    }
+
+    test {XSETID can set a specific ID} {
+        r XSETID mystream "200-0"
+        assert {[dict get [r xinfo stream mystream] last-generated-id] == "200-0"}
+    }
+
+    test {XSETID cannot SETID with smaller ID} {
+        r XADD mystream * a b
+        catch {r XSETID mystream "1-1"} err
+        r XADD mystream MAXLEN 0 * a b
+        set err
+    } {ERR*smaller*}
+
+    test {XSETID cannot SETID on non-existent key} {
+        catch {r XSETID stream 1-1} err
+        set _ $err
+    } {ERR no such key}
+}
+
+start_server {tags {"stream"} overrides {appendonly yes aof-use-rdb-preamble no}} {
+    test {Empty stream can be rewrite into AOF correctly} {
+        r XADD mystream MAXLEN 0 * a b
+        assert {[dict get [r xinfo stream mystream] length] == 0}
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
+        assert {[dict get [r xinfo stream mystream] length] == 0}
+    }
+
+    test {Stream can be rewrite into AOF correctly after XDEL lastid} {
+        r XSETID mystream 0-0
+        r XADD mystream 1-1 a b
+        r XADD mystream 2-2 a b
+        assert {[dict get [r xinfo stream mystream] length] == 2}
+        r XDEL mystream 2-2
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
+        assert {[dict get [r xinfo stream mystream] length] == 1}
+        assert {[dict get [r xinfo stream mystream] last-generated-id] == "2-2"}
+    }
+}
+
+start_server {tags {"stream"}} {
+    test {XGROUP HELP should not have unexpected options} {
+        catch {r XGROUP help xxx} e
+        assert_match "*Unknown subcommand or wrong number of arguments*" $e
     }
 }
