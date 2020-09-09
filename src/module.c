@@ -3303,6 +3303,23 @@ fmterr:
 }
 
 /* Exported API to call any Redis command from modules.
+ *
+ * * **cmdname**: The Redis command to call.
+ * * **fmt**: A format specifier string for the command's arguments. Each
+ *   of the arguments should be specified by a valid type specification:
+ *   b    The argument is a buffer and is immediately followed by another
+ *        argument that is the buffer's length.
+ *   c    The argument is a pointer to a plain C string (null-terminated).
+ *   l    The argument is long long integer.
+ *   s    The argument is a RedisModuleString.
+ *   v    The argument(s) is a vector of RedisModuleString.
+ *
+ *   The format specifier can also include modifiers:
+ *   !    Sends the Redis command and its arguments to replicas and AOF.
+ *   A    Suppress AOF propagation, send only to replicas (requires `!`).
+ *   R    Suppress replicas propagation, send only to AOF (requires `!`).
+ * * **...**: The actual arguments to the Redis command.
+ *
  * On success a RedisModuleCallReply object is returned, otherwise
  * NULL is returned and errno is set to the following values:
  *
@@ -3313,6 +3330,14 @@ fmterr:
  * EROFS:  operation in Cluster instance when a write command is sent
  *         in a readonly state.
  * ENETDOWN: operation in Cluster instance when cluster is down.
+ *
+ * Example code fragment:
+ * 
+ *      reply = RedisModule_Call(ctx,"INCRBY","sc",argv[1],"10");
+ *      if (RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_INTEGER) {
+ *        long long myval = RedisModule_CallReplyInteger(reply);
+ *        // Do something with myval.
+ *      }
  *
  * This API is documented here: https://redis.io/topics/modules-intro
  */
