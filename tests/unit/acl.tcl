@@ -261,3 +261,42 @@ start_server {tags {"acl"}} {
         assert_match "*Unknown subcommand or wrong number of arguments*" $e
     }
 }
+
+set server_path [tmpdir "server.acl"]
+exec cp -f tests/assets/user.acl $server_path
+start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"]] {
+    # user alice on allcommands allkeys >alice
+    # user bob on -@all +@set +acl ~set* >bob
+
+    test "Alice: can excute all command" {
+        r AUTH alice alice
+        assert_equal "alice" [r acl whoami]
+        r SET key value
+    }
+
+    test "Bob: just excute @set and acl command" {
+        r AUTH bob bob
+        assert_equal "bob" [r acl whoami]
+        assert_equal "3" [r sadd set 1 2 3]
+        catch {r SET key value} e
+        set e
+    } {*NOPERM*}
+
+    test "ACL load and save" {
+        r ACL setuser eve +get allkeys >eve on
+        r ACL save
+
+        # ACL load will free user and kill clients
+        r ACL load
+        catch {r ACL LIST} e
+        assert_match {*I/O error*} $e
+
+        reconnect
+        r AUTH alice alice
+        r SET key value
+        r AUTH eve eve
+        r GET key
+        catch {r SET key value} e
+        set e
+    } {*NOPERM*}
+}
