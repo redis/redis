@@ -26,4 +26,5 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/datatype \
 --single unit/moduleapi/auth \
 --single unit/moduleapi/keyspace_events \
+--single unit/moduleapi/blockedclient \
 "${@}"
