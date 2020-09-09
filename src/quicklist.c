@@ -783,6 +783,8 @@ REDIS_STATIC void _quicklistMergeNodes(quicklist *quicklist,
  * If 'after'==0, returned node has elements up to 'offset'.
  *                input node keeps elements after 'offset', including 'offset'.
  *
+ * Or in other words:
+ *
  * If 'after'==1, returned node will have elements after 'offset'.
  *                The returned node will have elements [OFFSET+1, END].
  *                The input node keeps elements [0, OFFSET].
@@ -804,7 +806,7 @@ REDIS_STATIC quicklistNode *_quicklistSplitNode(quicklistNode *node, int offset,
     /* Copy original ziplist so we can split it */
     memcpy(new_node->zl, node->zl, zl_sz);
 
-    /* -1 here means "continue deleting until the list ends" */
+    /* Ranges to be trimmed: -1 here means "continue deleting until the list ends" */
     int orig_start = after ? offset + 1 : 0;
     int orig_extent = after ? -1 : offset;
     int new_start = after ? 0 : offset;
