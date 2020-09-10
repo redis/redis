@@ -117,14 +117,8 @@ static struct config {
     redisAtomic int is_updating_slots;
     redisAtomic int slots_last_update;
     int enable_tracking;
-    /* Thread mutexes to be used as fallbacks by atomicvar.h */
-    pthread_mutex_t requests_issued_mutex;
-    pthread_mutex_t requests_finished_mutex;
     pthread_mutex_t liveclients_mutex;
-    pthread_mutex_t is_fetching_slots_mutex;
     pthread_mutex_t is_updating_slots_mutex;
-    pthread_mutex_t updating_slots_mutex;
-    pthread_mutex_t slots_last_update_mutex;
 } config;
 
 typedef struct _client {
@@ -1669,13 +1663,8 @@ int main(int argc, const char **argv) {
             fprintf(stderr, "WARN: could not fetch server CONFIG\n");
     }
     if (config.num_threads > 0) {
-        pthread_mutex_init(&(config.requests_issued_mutex), NULL);
-        pthread_mutex_init(&(config.requests_finished_mutex), NULL);
         pthread_mutex_init(&(config.liveclients_mutex), NULL);
-        pthread_mutex_init(&(config.is_fetching_slots_mutex), NULL);
         pthread_mutex_init(&(config.is_updating_slots_mutex), NULL);
-        pthread_mutex_init(&(config.updating_slots_mutex), NULL);
-        pthread_mutex_init(&(config.slots_last_update_mutex), NULL);
     }
 
     if (config.keepalive == 0) {

@@ -2401,14 +2401,6 @@ void createSharedObjects(void) {
 void initServerConfig(void) {
     int j;
 
-    pthread_mutex_init(&server.unixtime_mutex, NULL);
-    pthread_mutex_init(&server.lruclock_mutex, NULL);
-    pthread_mutex_init(&server.next_client_id_mutex, NULL);
-    pthread_mutex_init(&server.stat_total_writes_processed_mutex, NULL);
-    pthread_mutex_init(&server.stat_total_reads_processed_mutex, NULL);
-    pthread_mutex_init(&server.stat_net_output_bytes_mutex, NULL);
-    pthread_mutex_init(&server.stat_net_input_bytes_mutex, NULL);
-
     updateCachedTime(1);
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';

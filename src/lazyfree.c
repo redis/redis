@@ -4,7 +4,6 @@
 #include "cluster.h"
 
 static redisAtomic size_t lazyfree_objects = 0;
-pthread_mutex_t lazyfree_objects_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /* Return the number of currently pending objects to free. */
 size_t lazyfreeGetPendingObjectsCount(void) {

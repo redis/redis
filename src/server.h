@@ -1474,15 +1474,6 @@ struct redisServer {
     char *bio_cpulist; /* cpu affinity list of bio thread. */
     char *aof_rewrite_cpulist; /* cpu affinity list of aof rewrite process. */
     char *bgsave_cpulist; /* cpu affinity list of bgsave process. */
-    /* Mutexes used to protect atomic variables when atomic builtins are
-     * not available. */
-    pthread_mutex_t unixtime_mutex;
-    pthread_mutex_t lruclock_mutex;
-    pthread_mutex_t next_client_id_mutex;
-    pthread_mutex_t stat_total_writes_processed_mutex;
-    pthread_mutex_t stat_total_reads_processed_mutex;
-    pthread_mutex_t stat_net_output_bytes_mutex;
-    pthread_mutex_t stat_net_input_bytes_mutex;
 };
 
 typedef struct pubsubPattern {

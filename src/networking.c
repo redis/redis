@@ -2937,32 +2937,25 @@ int tio_debug = 0;
 #define IO_THREADS_OP_READ 0
 #define IO_THREADS_OP_WRITE 1
 
-typedef struct IOPending_t {
-    redisAtomic unsigned long var;
-    /* Mutexes used to protect atomic variables when atomic builtins are
-     * not available. */
-    pthread_mutex_t var_mutex;
-} IOPending_t;
-
-static inline unsigned long getIOPendingCount(IOPending_t *pending) {
-    unsigned long count = 0;
-    atomicGetWithSync(pending->var, count);
-    return count;
-}
-
-static inline void setIOPendingCount(IOPending_t *pending, unsigned long count) {
-    atomicSetWithSync(pending->var, count);
-}
-
 pthread_t io_threads[IO_THREADS_MAX_NUM];
 pthread_mutex_t io_threads_mutex[IO_THREADS_MAX_NUM];
-IOPending_t io_threads_pending[IO_THREADS_MAX_NUM];
+redisAtomic unsigned long io_threads_pending[IO_THREADS_MAX_NUM];
 int io_threads_op;      /* IO_THREADS_OP_WRITE or IO_THREADS_OP_READ. */
 
 /* This is the list of clients each thread will serve when threaded I/O is
  * used. We spawn io_threads_num-1 threads, since one is the main thread
  * itself. */
 list *io_threads_list[IO_THREADS_MAX_NUM];
+
+static inline unsigned long getIOPendingCount(int i) {
+    unsigned long count = 0;
+    atomicGetWithSync(io_threads_pending[i], count);
+    return count;
+}
+
+static inline void setIOPendingCount(int i, unsigned long count) {
+    atomicSetWithSync(io_threads_pending[i], count);
+}
 
 void *IOThreadMain(void *myid) {
     /* The ID is the thread number (from 0 to server.iothreads_num-1), and is
@@ -2977,17 +2970,17 @@ void *IOThreadMain(void *myid) {
     while(1) {
         /* Wait for start */
         for (int j = 0; j < 1000000; j++) {
-            if (getIOPendingCount(&io_threads_pending[id]) != 0) break;
+            if (getIOPendingCount(id) != 0) break;
         }
 
         /* Give the main thread a chance to stop this thread. */
-        if (getIOPendingCount(&io_threads_pending[id]) == 0) {
+        if (getIOPendingCount(id) == 0) {
             pthread_mutex_lock(&io_threads_mutex[id]);
             pthread_mutex_unlock(&io_threads_mutex[id]);
             continue;
         }
 
-        serverAssert(getIOPendingCount(&io_threads_pending[id]) != 0);
+        serverAssert(getIOPendingCount(id) != 0);
 
         if (tio_debug) printf("[%ld] %d to handle\n", id, (int)listLength(io_threads_list[id]));
 
@@ -3007,7 +3000,7 @@ void *IOThreadMain(void *myid) {
             }
         }
         listEmpty(io_threads_list[id]);
-        setIOPendingCount(&io_threads_pending[id], 0);
+        setIOPendingCount(id, 0);
 
         if (tio_debug) printf("[%ld] Done\n", id);
     }
@@ -3036,8 +3029,7 @@ void initThreadedIO(void) {
         /* Things we do only for the additional threads. */
         pthread_t tid;
         pthread_mutex_init(&io_threads_mutex[i],NULL);
-        pthread_mutex_init(&io_threads_pending[i].var_mutex, NULL);
-        setIOPendingCount(&io_threads_pending[i], 0);
+        setIOPendingCount(i, 0);
         pthread_mutex_lock(&io_threads_mutex[i]); /* Thread will be stopped. */
         if (pthread_create(&tid,NULL,IOThreadMain,(void*)(long)i) != 0) {
             serverLog(LL_WARNING,"Fatal: Can't initialize IO thread.");
@@ -3126,7 +3118,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     io_threads_op = IO_THREADS_OP_WRITE;
     for (int j = 1; j < server.io_threads_num; j++) {
         int count = listLength(io_threads_list[j]);
-        setIOPendingCount(&io_threads_pending[j], count);
+        setIOPendingCount(j, count);
     }
 
     /* Also use the main thread to process a slice of clients. */
@@ -3141,7 +3133,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     while(1) {
         unsigned long pending = 0;
         for (int j = 1; j < server.io_threads_num; j++)
-            pending += getIOPendingCount(&io_threads_pending[j]);
+            pending += getIOPendingCount(j);
         if (pending == 0) break;
     }
     if (tio_debug) printf("I/O WRITE All threads finshed\n");
@@ -3216,7 +3208,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     io_threads_op = IO_THREADS_OP_READ;
     for (int j = 1; j < server.io_threads_num; j++) {
         int count = listLength(io_threads_list[j]);
-        setIOPendingCount(&io_threads_pending[j], count);
+        setIOPendingCount(j, count);
     }
 
     /* Also use the main thread to process a slice of clients. */
@@ -3231,7 +3223,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     while(1) {
         unsigned long pending = 0;
         for (int j = 1; j < server.io_threads_num; j++)
-            pending += getIOPendingCount(&io_threads_pending[j]);
+            pending += getIOPendingCount(j);
         if (pending == 0) break;
     }
     if (tio_debug) printf("I/O READ All threads finshed\n");
