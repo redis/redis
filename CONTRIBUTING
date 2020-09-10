@@ -42,7 +42,7 @@ Redis follows a responsible disclosure process:
 
   Issues and pull requests for documentation belong on the redis-doc repo:
 
-      https://github.com/antirez/redis-doc
+      https://github.com/redis/redis-doc
 
 # How to provide a patch for a new feature
 
