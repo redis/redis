@@ -46,7 +46,7 @@ typedef struct RedisModuleInfoCtx {
     sds info;           /* info string we collected so far */
     int sections;       /* number of sections we collected so far */
     int in_section;     /* indication if we're in an active section or not */
-    int in_dict_field;  /* indication that we're curreintly appending to a dict */
+    int in_dict_field;  /* indication that we're currently appending to a dict */
 } RedisModuleInfoCtx;
 
 typedef void (*RedisModuleInfoFunc)(RedisModuleInfoCtx *ctx, int for_crash_report);
@@ -906,10 +906,21 @@ int RM_SignalModifiedKey(RedisModuleCtx *ctx, RedisModuleString *keyname) {
  * Automatic memory management for modules
  * -------------------------------------------------------------------------- */
 
-/* Enable automatic memory management. See API.md for more information.
+/* Enable automatic memory management.
  *
  * The function must be called as the first function of a command implementation
- * that wants to use automatic memory. */
+ * that wants to use automatic memory.
+ *
+ * When enabled, automatic memory management tracks and automatically frees
+ * keys, call replies and Redis string objects once the command returns. In most
+ * cases this eliminates the need of calling the following functions:
+ *
+ * 1) RedisModule_CloseKey()
+ * 2) RedisModule_FreeCallReply()
+ * 3) RedisModule_FreeString()
+ *
+ * These functions can still be used with automatic memory management enabled,
+ * to optimize loops that make numerous allocations for example. */
 void RM_AutoMemory(RedisModuleCtx *ctx) {
     ctx->flags |= REDISMODULE_CTX_AUTO_MEMORY;
 }
@@ -1045,7 +1056,7 @@ RedisModuleString *RM_CreateStringFromLongLong(RedisModuleCtx *ctx, long long ll
 }
 
 /* Like RedisModule_CreatString(), but creates a string starting from a double
- * integer instead of taking a buffer and its length.
+ * instead of taking a buffer and its length.
  *
  * The returned string must be released with RedisModule_FreeString() or by
  * enabling automatic memory management. */
@@ -1922,7 +1933,7 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
              flags |= REDISMODULE_CTX_FLAGS_LUA;
             if (ctx->client->flags & CLIENT_MULTI)
              flags |= REDISMODULE_CTX_FLAGS_MULTI;
-            /* Module command recieved from MASTER, is replicated. */
+            /* Module command received from MASTER, is replicated. */
             if (ctx->client->flags & CLIENT_MASTER)
              flags |= REDISMODULE_CTX_FLAGS_REPLICATED;
         }
@@ -2921,7 +2932,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
 /* Get fields from an hash value. This function is called using a variable
  * number of arguments, alternating a field name (as a StringRedisModule
  * pointer) with a pointer to a StringRedisModule pointer, that is set to the
- * value of the field if the field exist, or NULL if the field did not exist.
+ * value of the field if the field exists, or NULL if the field does not exist.
  * At the end of the field/value-ptr pairs, NULL must be specified as last
  * argument to signal the end of the arguments in the variadic function.
  *
@@ -3040,7 +3051,7 @@ void moduleParseCallReply_SimpleString(RedisModuleCallReply *reply);
 void moduleParseCallReply_Array(RedisModuleCallReply *reply);
 
 /* Do nothing if REDISMODULE_REPLYFLAG_TOPARSE is false, otherwise
- * use the protcol of the reply in reply->proto in order to fill the
+ * use the protocol of the reply in reply->proto in order to fill the
  * reply with parsed data according to the reply type. */
 void moduleParseCallReply(RedisModuleCallReply *reply) {
     if (!(reply->flags & REDISMODULE_REPLYFLAG_TOPARSE)) return;
@@ -3599,7 +3610,7 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
 
 /* Register a new data type exported by the module. The parameters are the
  * following. Please for in depth documentation check the modules API
- * documentation, especially the TYPES.md file.
+ * documentation, especially https://redis.io/topics/modules-native-types.
  *
  * * **name**: A 9 characters data type name that MUST be unique in the Redis
  *   Modules ecosystem. Be creative... and there will be no collisions. Use
@@ -3646,7 +3657,7 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
  * * **aux_load**: A callback function pointer that loads out of keyspace data from RDB files.
  *   Similar to aux_save, returns REDISMODULE_OK on success, and ERR otherwise.
  *
- * The **digest* and **mem_usage** methods should currently be omitted since
+ * The **digest** and **mem_usage** methods should currently be omitted since
  * they are not yet implemented inside the Redis modules core.
  *
  * Note: the module name "AAAAAAAAA" is reserved and produces an error, it
@@ -3656,7 +3667,7 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
  * and if the module name or encver is invalid, NULL is returned.
  * Otherwise the new type is registered into Redis, and a reference of
  * type RedisModuleType is returned: the caller of the function should store
- * this reference into a gobal variable to make future use of it in the
+ * this reference into a global variable to make future use of it in the
  * modules type API, since a single module may register multiple types.
  * Example code fragment:
  *
@@ -3738,7 +3749,7 @@ moduleType *RM_ModuleTypeGetType(RedisModuleKey *key) {
 
 /* Assuming RedisModule_KeyType() returned REDISMODULE_KEYTYPE_MODULE on
  * the key, returns the module type low-level value stored at key, as
- * it was set by the user via RedisModule_ModuleTypeSet().
+ * it was set by the user via RedisModule_ModuleTypeSetValue().
  *
  * If the key is NULL, is not associated with a module type, or is empty,
  * then NULL is returned instead. */
@@ -3795,7 +3806,7 @@ int moduleAllDatatypesHandleErrors() {
 
 /* Returns true if any previous IO API failed.
  * for Load* APIs the REDISMODULE_OPTIONS_HANDLE_IO_ERRORS flag must be set with
- * RediModule_SetModuleOptions first. */
+ * RedisModule_SetModuleOptions first. */
 int RM_IsIOError(RedisModuleIO *io) {
     return io->error;
 }
@@ -3928,7 +3939,7 @@ RedisModuleString *RM_LoadString(RedisModuleIO *io) {
  *
  * The size of the string is stored at '*lenptr' if not NULL.
  * The returned string is not automatically NULL terminated, it is loaded
- * exactly as it was stored inisde the RDB file. */
+ * exactly as it was stored inside the RDB file. */
 char *RM_LoadStringBuffer(RedisModuleIO *io, size_t *lenptr) {
     return moduleLoadString(io,1,lenptr);
 }
@@ -4517,14 +4528,14 @@ int moduleTryServeClientBlockedOnKey(client *c, robj *key) {
  *
  * The callbacks are called in the following contexts:
  *
- *     reply_callback:  called after a successful RedisModule_UnblockClient()
- *                      call in order to reply to the client and unblock it.
+ *     reply_callback:   called after a successful RedisModule_UnblockClient()
+ *                       call in order to reply to the client and unblock it.
  *
- *     reply_timeout:   called when the timeout is reached in order to send an
- *                      error to the client.
+ *     timeout_callback: called when the timeout is reached in order to send an
+ *                       error to the client.
  *
- *     free_privdata:   called in order to free the private data that is passed
- *                      by RedisModule_UnblockClient() call.
+ *     free_privdata:    called in order to free the private data that is passed
+ *                       by RedisModule_UnblockClient() call.
  *
  * Note: RedisModule_UnblockClient should be called for every blocked client,
  *       even if client was killed, timed-out or disconnected. Failing to do so
@@ -4547,13 +4558,13 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
  * once certain keys become "ready", that is, contain more data.
  *
  * Basically this is similar to what a typical Redis command usually does,
- * like BLPOP or ZPOPMAX: the client blocks if it cannot be served ASAP,
+ * like BLPOP or BZPOPMAX: the client blocks if it cannot be served ASAP,
  * and later when the key receives new data (a list push for instance), the
  * client is unblocked and served.
  *
  * However in the case of this module API, when the client is unblocked?
  *
- * 1. If you block ok a key of a type that has blocking operations associated,
+ * 1. If you block on a key of a type that has blocking operations associated,
  *    like a list, a sorted set, a stream, and so forth, the client may be
  *    unblocked once the relevant key is targeted by an operation that normally
  *    unblocks the native blocking operations for that type. So if we block
@@ -4948,7 +4959,7 @@ void moduleReleaseGIL(void) {
 
 /* Subscribe to keyspace notifications. This is a low-level version of the
  * keyspace-notifications API. A module can register callbacks to be notified
- * when keyspce events occur.
+ * when keyspace events occur.
  *
  * Notification events are filtered by their type (string events, set events,
  * etc), and the subscriber callback receives only events that match a specific
@@ -5659,7 +5670,7 @@ int RM_AuthenticateClientWithACLUser(RedisModuleCtx *ctx, const char *name, size
 /* Deauthenticate and close the client. The client resources will not be
  * be immediately freed, but will be cleaned up in a background job. This is 
  * the recommended way to deauthenicate a client since most clients can't 
- * handle users becomming deauthenticated. Returns REDISMODULE_ERR when the 
+ * handle users becoming deauthenticated. Returns REDISMODULE_ERR when the
  * client doesn't exist and REDISMODULE_OK when the operation was successful. 
  * 
  * The client ID is returned from the RM_AuthenticateClientWithUser and
@@ -5779,14 +5790,14 @@ int RM_DictDel(RedisModuleDict *d, RedisModuleString *key, void *oldval) {
     return RM_DictDelC(d,key->ptr,sdslen(key->ptr),oldval);
 }
 
-/* Return an interator, setup in order to start iterating from the specified
+/* Return an iterator, setup in order to start iterating from the specified
  * key by applying the operator 'op', which is just a string specifying the
  * comparison operator to use in order to seek the first element. The
- * operators avalable are:
+ * operators available are:
  *
  * "^"   -- Seek the first (lexicographically smaller) key.
  * "$"   -- Seek the last  (lexicographically biffer) key.
- * ">"   -- Seek the first element greter than the specified key.
+ * ">"   -- Seek the first element greater than the specified key.
  * ">="  -- Seek the first element greater or equal than the specified key.
  * "<"   -- Seek the first element smaller than the specified key.
  * "<="  -- Seek the first element smaller or equal than the specified key.
@@ -5913,7 +5924,7 @@ RedisModuleString *RM_DictPrev(RedisModuleCtx *ctx, RedisModuleDictIter *di, voi
  * in the loop, as we iterate elements, we can also check if we are still
  * on range.
  *
- * The function returne REDISMODULE_ERR if the iterator reached the
+ * The function return REDISMODULE_ERR if the iterator reached the
  * end of elements condition as well. */
 int RM_DictCompareC(RedisModuleDictIter *di, const char *op, void *key, size_t keylen) {
     if (raxEOF(&di->ri)) return REDISMODULE_ERR;
@@ -6294,7 +6305,7 @@ int RM_ExportSharedAPI(RedisModuleCtx *ctx, const char *apiname, void *func) {
  * command that requires external APIs: if some API cannot be resolved, the
  * command should return an error.
  *
- * Here is an exmaple:
+ * Here is an example:
  *
  *     int ... myCommandImplementation() {
  *        if (getExternalAPIs() == 0) {
@@ -6680,7 +6691,7 @@ void RM_ScanCursorDestroy(RedisModuleScanCursor *cursor) {
  *      RedisModule_ScanCursorDestroy(c);
  *
  * It is also possible to use this API from another thread while the lock
- * is acquired durring the actuall call to RM_Scan:
+ * is acquired during the actuall call to RM_Scan:
  *
  *      RedisModuleCursor *c = RedisModule_ScanCursorCreate();
  *      RedisModule_ThreadSafeContextLock(ctx);
@@ -6694,7 +6705,7 @@ void RM_ScanCursorDestroy(RedisModuleScanCursor *cursor) {
  * The function will return 1 if there are more elements to scan and
  * 0 otherwise, possibly setting errno if the call failed.
  *
- * It is also possible to restart and existing cursor using RM_CursorRestart.
+ * It is also possible to restart an existing cursor using RM_ScanCursorRestart.
  *
  * IMPORTANT: This API is very similar to the Redis SCAN command from the
  * point of view of the guarantees it provides. This means that the API
@@ -6708,7 +6719,7 @@ void RM_ScanCursorDestroy(RedisModuleScanCursor *cursor) {
  * Moreover playing with the Redis keyspace while iterating may have the
  * effect of returning more duplicates. A safe pattern is to store the keys
  * names you want to modify elsewhere, and perform the actions on the keys
- * later when the iteration is complete. Howerver this can cost a lot of
+ * later when the iteration is complete. However this can cost a lot of
  * memory, so it may make sense to just operate on the current key when
  * possible during the iteration, given that this is safe. */
 int RM_Scan(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleScanCB fn, void *privdata) {
@@ -6773,8 +6784,8 @@ static void moduleScanKeyCallback(void *privdata, const dictEntry *de) {
  *      RedisModule_CloseKey(key);
  *      RedisModule_ScanCursorDestroy(c);
  *
- * It is also possible to use this API from another thread while the lock is acquired durring
- * the actuall call to RM_Scan, and re-opening the key each time:
+ * It is also possible to use this API from another thread while the lock is acquired during
+ * the actuall call to RM_ScanKey, and re-opening the key each time:
  *      RedisModuleCursor *c = RedisModule_ScanCursorCreate();
  *      RedisModule_ThreadSafeContextLock(ctx);
  *      RedisModuleKey *key = RedisModule_OpenKey(...)
@@ -6790,7 +6801,7 @@ static void moduleScanKeyCallback(void *privdata, const dictEntry *de) {
  *
  * The function will return 1 if there are more elements to scan and 0 otherwise,
  * possibly setting errno if the call failed.
- * It is also possible to restart and existing cursor using RM_CursorRestart.
+ * It is also possible to restart an existing cursor using RM_ScanCursorRestart.
  *
  * NOTE: Certain operations are unsafe while iterating the object. For instance
  * while the API guarantees to return at least one time all the elements that
@@ -6943,7 +6954,7 @@ int TerminateModuleForkChild(int child_pid, int wait) {
 }
 
 /* Can be used to kill the forked child process from the parent process.
- * child_pid whould be the return value of RedisModule_Fork. */
+ * child_pid would be the return value of RedisModule_Fork. */
 int RM_KillForkChild(int child_pid) {
     /* Kill module child, wait for child exit. */
     if (TerminateModuleForkChild(child_pid,1) == C_OK)
@@ -7081,7 +7092,7 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *              REDISMODULE_SUBEVENT_LOADING_FAILED
  *
  *          Note that AOF loading may start with an RDB data in case of
- *          rdb-preamble, in which case you'll only recieve an AOF_START event.
+ *          rdb-preamble, in which case you'll only receive an AOF_START event.
  *
  *
  *      RedisModuleEvent_ClientChange
@@ -7103,7 +7114,7 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *          This event is called when the instance (that can be both a
  *          master or a replica) get a new online replica, or lose a
  *          replica since it gets disconnected.
- *          The following sub events are availble:
+ *          The following sub events are available:
  *
  *              REDISMODULE_SUBEVENT_REPLICA_CHANGE_ONLINE
  *              REDISMODULE_SUBEVENT_REPLICA_CHANGE_OFFLINE
@@ -7141,7 +7152,7 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *  RedisModuleEvent_ModuleChange
  *
  *          This event is called when a new module is loaded or one is unloaded.
- *          The following sub events are availble:
+ *          The following sub events are available:
  *
  *              REDISMODULE_SUBEVENT_MODULE_LOADED
  *              REDISMODULE_SUBEVENT_MODULE_UNLOADED
@@ -7168,7 +7179,7 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *              int32_t progress;  // Approximate progress between 0 and 1024,
  *                                    or -1 if unknown.
  *
- * The function returns REDISMODULE_OK if the module was successfully subscrived
+ * The function returns REDISMODULE_OK if the module was successfully subscribed
  * for the specified event. If the API is called from a wrong context then
  * REDISMODULE_ERR is returned. */
 int RM_SubscribeToServerEvent(RedisModuleCtx *ctx, RedisModuleEvent event, RedisModuleEventCallback callback) {
@@ -7364,7 +7375,7 @@ void moduleInitModulesSystem(void) {
     server.loadmodule_queue = listCreate();
     modules = dictCreate(&modulesDictType,NULL);
 
-    /* Set up the keyspace notification susbscriber list and static client */
+    /* Set up the keyspace notification subscriber list and static client */
     moduleKeyspaceSubscribers = listCreate();
     moduleFreeContextReusedClient = createClient(NULL);
     moduleFreeContextReusedClient->flags |= CLIENT_MODULE;
@@ -7728,7 +7739,7 @@ size_t moduleCount(void) {
     return dictSize(modules);
 }
 
-/* Set the key last access time for LRU based eviction. not relevent if the
+/* Set the key last access time for LRU based eviction. not relevant if the
  * servers's maxmemory policy is LFU based. Value is idle time in milliseconds.
  * returns REDISMODULE_OK if the LRU was updated, REDISMODULE_ERR otherwise. */
 int RM_SetLRU(RedisModuleKey *key, mstime_t lru_idle) {

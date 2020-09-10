@@ -36,9 +36,9 @@
 
 /* The Redis HyperLogLog implementation is based on the following ideas:
  *
- * * The use of a 64 bit hash function as proposed in [1], in order to don't
- *   limited to cardinalities up to 10^9, at the cost of just 1 additional
- *   bit per register.
+ * * The use of a 64 bit hash function as proposed in [1], in order to estimate
+ *   cardinalities larger than 10^9, at the cost of just 1 additional bit per
+ *   register.
  * * The use of 16384 6-bit registers for a great level of accuracy, using
  *   a total of 12k per key.
  * * The use of the Redis string data type. No new type is introduced.
@@ -279,7 +279,7 @@ static char *invalid_hll_err = "-INVALIDOBJ Corrupted HLL object detected\r\n";
  *  So we right shift of 0 bits (no shift in practice) and
  *  left shift the next byte of 8 bits, even if we don't use it,
  *  but this has the effect of clearing the bits so the result
- *  will not be affacted after the OR.
+ *  will not be affected after the OR.
  *
  * -------------------------------------------------------------------------
  *
@@ -297,7 +297,7 @@ static char *invalid_hll_err = "-INVALIDOBJ Corrupted HLL object detected\r\n";
  *   |11000000|  <- Our byte at b0
  *   +--------+
  *
- * To create a AND-mask to clear the bits about this position, we just
+ * To create an AND-mask to clear the bits about this position, we just
  * initialize the mask with the value 63, left shift it of "fs" bits,
  * and finally invert the result.
  *
@@ -766,7 +766,7 @@ int hllSparseSet(robj *o, long index, uint8_t count) {
      * by a ZERO opcode with len > 1, or by an XZERO opcode.
      *
      * In those cases the original opcode must be split into multiple
-     * opcodes. The worst case is an XZERO split in the middle resuling into
+     * opcodes. The worst case is an XZERO split in the middle resulting into
      * XZERO - VAL - XZERO, so the resulting sequence max length is
      * 5 bytes.
      *
@@ -899,7 +899,7 @@ promote: /* Promote to dense representation. */
  * the element belongs to is incremented if needed.
  *
  * This function is actually a wrapper for hllSparseSet(), it only performs
- * the hashshing of the elmenet to obtain the index and zeros run length. */
+ * the hashshing of the element to obtain the index and zeros run length. */
 int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
     long index;
     uint8_t count = hllPatLen(ele,elesize,&index);
@@ -1014,7 +1014,7 @@ uint64_t hllCount(struct hllhdr *hdr, int *invalid) {
     double m = HLL_REGISTERS;
     double E;
     int j;
-    /* Note that reghisto size could be just HLL_Q+2, becuase HLL_Q+1 is
+    /* Note that reghisto size could be just HLL_Q+2, because HLL_Q+1 is
      * the maximum frequency of the "000...1" sequence the hash function is
      * able to return. However it is slow to check for sanity of the
      * input: instead we history array at a safe size: overflows will

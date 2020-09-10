@@ -471,7 +471,7 @@ proc signal_idle_client fd {
 # The the_end function gets called when all the test units were already
 # executed, so the test finished.
 proc the_end {} {
-    # TODO: print the status, exit with the rigth exit code.
+    # TODO: print the status, exit with the right exit code.
     puts "\n                   The End\n"
     puts "Execution time of different units:"
     foreach {time name} $::clients_time_history {
@@ -526,9 +526,10 @@ proc print_help_screen {} {
         "--stack-logging    Enable OSX leaks/malloc stack logging."
         "--accurate         Run slow randomized tests for more iterations."
         "--quiet            Don't show individual tests."
-        "--single <unit>    Just execute the specified unit (see next option). this option can be repeated."
+        "--single <unit>    Just execute the specified unit (see next option). This option can be repeated."
+        "--verbose          Increases verbosity."
         "--list-tests       List all the available test units."
-        "--only <test>      Just execute the specified test by test name. this option can be repeated."
+        "--only <test>      Just execute the specified test by test name. This option can be repeated."
         "--skip-till <unit> Skip all units until (and including) the specified one."
         "--skipunit <unit>  Skip one unit."
         "--clients <num>    Number of test clients (default 16)."

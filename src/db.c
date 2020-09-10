@@ -116,7 +116,7 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
          * However, if the command caller is not the master, and as additional
          * safety measure, the command invoked is a read-only command, we can
          * safely return NULL here, and provide a more consistent behavior
-         * to clients accessign expired values in a read-only fashion, that
+         * to clients accessing expired values in a read-only fashion, that
          * will say the key as non existing.
          *
          * Notably this covers GETs when slaves are used to scale reads. */
@@ -374,7 +374,7 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
  *    firing module events.
  * and the function to return ASAP.
  *
- * On success the fuction returns the number of keys removed from the
+ * On success the function returns the number of keys removed from the
  * database(s). Otherwise -1 is returned in the specific case the
  * DB number is out of range, and errno is set to EINVAL. */
 long long emptyDbGeneric(redisDb *dbarray, int dbnum, int flags, void(callback)(void*)) {
@@ -866,7 +866,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         /* Filter element if it is an expired key. */
         if (!filter && o == NULL && expireIfNeeded(c->db, kobj)) filter = 1;
 
-        /* Remove the element and its associted value if needed. */
+        /* Remove the element and its associated value if needed. */
         if (filter) {
             decrRefCount(kobj);
             listDelNode(keys, node);
@@ -1367,7 +1367,7 @@ int *getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, in
 /* Return all the arguments that are keys in the command passed via argc / argv.
  *
  * The command returns the positions of all the key arguments inside the array,
- * so the actual return value is an heap allocated array of integers. The
+ * so the actual return value is a heap allocated array of integers. The
  * length of the array is returned by reference into *numkeys.
  *
  * 'cmd' must be point to the corresponding entry into the redisCommand

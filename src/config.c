@@ -1279,7 +1279,7 @@ void rewriteConfigNumericalOption(struct rewriteConfigState *state, const char *
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
-/* Rewrite a octal option. */
+/* Rewrite an octal option. */
 void rewriteConfigOctalOption(struct rewriteConfigState *state, char *option, int value, int defvalue) {
     int force = value != defvalue;
     sds line = sdscatprintf(sdsempty(),"%s %o",option,value);
@@ -2097,7 +2097,7 @@ static int isValidAOFfilename(char *val, char **err) {
 static int updateHZ(long long val, long long prev, char **err) {
     UNUSED(prev);
     UNUSED(err);
-    /* Hz is more an hint from the user, so we accept values out of range
+    /* Hz is more a hint from the user, so we accept values out of range
      * but cap them to reasonable values. */
     server.config_hz = val;
     if (server.config_hz < CONFIG_MIN_HZ) server.config_hz = CONFIG_MIN_HZ;
@@ -2115,7 +2115,7 @@ static int updateJemallocBgThread(int val, int prev, char **err) {
 
 static int updateReplBacklogSize(long long val, long long prev, char **err) {
     /* resizeReplicationBacklog sets server.repl_backlog_size, and relies on
-     * being able to tell when the size changes, so restore prev becore calling it. */
+     * being able to tell when the size changes, so restore prev before calling it. */
     UNUSED(err);
     server.repl_backlog_size = prev;
     resizeReplicationBacklog(val);

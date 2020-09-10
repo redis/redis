@@ -68,7 +68,7 @@ uint8_t geohashEstimateStepsByRadius(double range_meters, double lat) {
     }
     step -= 2; /* Make sure range is included in most of the base cases. */
 
-    /* Wider range torwards the poles... Note: it is possible to do better
+    /* Wider range towards the poles... Note: it is possible to do better
      * than this approximation by computing the distance between meridians
      * at this latitude, but this does the trick for now. */
     if (lat > 66 || lat < -66) {
@@ -84,7 +84,7 @@ uint8_t geohashEstimateStepsByRadius(double range_meters, double lat) {
 
 /* Return the bounding box of the search area centered at latitude,longitude
  * having a radius of radius_meter. bounds[0] - bounds[2] is the minimum
- * and maxium longitude, while bounds[1] - bounds[3] is the minimum and
+ * and maximum longitude, while bounds[1] - bounds[3] is the minimum and
  * maximum latitude.
  *
  * This function does not behave correctly with very large radius values, for

@@ -170,7 +170,7 @@ client *createClient(connection *conn) {
     return c;
 }
 
-/* This funciton puts the client in the queue of clients that should write
+/* This function puts the client in the queue of clients that should write
  * their output buffers to the socket. Note that it does not *yet* install
  * the write handler, to start clients are put in a queue of clients that need
  * to write, so we try to do that before returning in the event loop (see the
@@ -268,7 +268,7 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
     listNode *ln = listLast(c->reply);
     clientReplyBlock *tail = ln? listNodeValue(ln): NULL;
 
-    /* Note that 'tail' may be NULL even if we have a tail node, becuase when
+    /* Note that 'tail' may be NULL even if we have a tail node, because when
      * addReplyDeferredLen() is used, it sets a dummy node to NULL just
      * fo fill it later, when the size of the bulk length is set. */
 
@@ -1161,7 +1161,7 @@ void freeClient(client *c) {
         listDelNode(server.clients_to_close,ln);
     }
 
-    /* If it is our master that's beging disconnected we should make sure
+    /* If it is our master that's being disconnected we should make sure
      * to cache the state to try a partial resynchronization later.
      *
      * Note that before doing this we make sure that the client is not in
@@ -1491,7 +1491,7 @@ void resetClient(client *c) {
     }
 }
 
-/* This funciton is used when we want to re-enter the event loop but there
+/* This function is used when we want to re-enter the event loop but there
  * is the risk that the client we are dealing with will be freed in some
  * way. This happens for instance in:
  *
@@ -2050,7 +2050,7 @@ char *getClientPeerId(client *c) {
     return c->peerid;
 }
 
-/* Concatenate a string representing the state of a client in an human
+/* Concatenate a string representing the state of a client in a human
  * readable format, into the sds string 's'. */
 sds catClientInfoString(sds s, client *client) {
     char flags[16], events[3], conninfo[CONN_INFO_LEN], *p;
@@ -3050,7 +3050,7 @@ void stopThreadedIO(void) {
  * we need to handle in parallel, however the I/O threading is disabled
  * globally for reads as well if we have too little pending clients.
  *
- * The function returns 0 if the I/O threading should be used becuase there
+ * The function returns 0 if the I/O threading should be used because there
  * are enough active threads, otherwise 1 is returned and the I/O threads
  * could be possibly stopped (if already active) as a side effect. */
 int stopThreadedIOIfNeeded(void) {

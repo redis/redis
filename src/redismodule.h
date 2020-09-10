@@ -963,4 +963,4 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
 #define RedisModuleString robj
 
 #endif /* REDISMODULE_CORE */
-#endif /* REDISMOUDLE_H */
+#endif /* REDISMODULE_H */

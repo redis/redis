@@ -143,8 +143,8 @@ double extractUnitOrReply(client *c, robj *unit) {
 }
 
 /* Input Argument Helper.
- * Extract the dinstance from the specified two arguments starting at 'argv'
- * that shouldbe in the form: <number> <unit> and return the dinstance in the
+ * Extract the distance from the specified two arguments starting at 'argv'
+ * that should be in the form: <number> <unit>, and return the distance in the
  * specified unit on success. *conversions is populated with the coefficient
  * to use in order to convert meters to the unit.
  *
@@ -788,7 +788,7 @@ void geoposCommand(client *c) {
 
 /* GEODIST key ele1 ele2 [unit]
  *
- * Return the distance, in meters by default, otherwise accordig to "unit",
+ * Return the distance, in meters by default, otherwise according to "unit",
  * between points ele1 and ele2. If one or more elements are missing NULL
  * is returned. */
 void geodistCommand(client *c) {

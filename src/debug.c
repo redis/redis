@@ -387,7 +387,7 @@ void debugCommand(client *c) {
 "OOM -- Crash the server simulating an out-of-memory error.",
 "PANIC -- Crash the server simulating a panic.",
 "POPULATE <count> [prefix] [size] -- Create <count> string keys named key:<num>. If a prefix is specified is used instead of the 'key' prefix.",
-"RELOAD [MERGE] [NOFLUSH] [NOSAVE] -- Save the RDB on disk and reload it back in memory. By default it will save the RDB file and load it back. With the NOFLUSH option the current database is not removed before loading the new one, but conficts in keys will kill the server with an exception. When MERGE is used, conflicting keys will be loaded (the key in the loaded RDB file will win). When NOSAVE is used, the server will not save the current dataset in the RDB file before loading. Use DEBUG RELOAD NOSAVE when you want just to load the RDB file you placed in the Redis working directory in order to replace the current dataset in memory. Use DEBUG RELOAD NOSAVE NOFLUSH MERGE when you want to add what is in the current RDB file placed in the Redis current directory, with the current memory content. Use DEBUG RELOAD when you want to verify Redis is able to persist the current dataset in the RDB file, flush the memory content, and load it back.",
+"RELOAD [MERGE] [NOFLUSH] [NOSAVE] -- Save the RDB on disk and reload it back in memory. By default it will save the RDB file and load it back. With the NOFLUSH option the current database is not removed before loading the new one, but conflicts in keys will kill the server with an exception. When MERGE is used, conflicting keys will be loaded (the key in the loaded RDB file will win). When NOSAVE is used, the server will not save the current dataset in the RDB file before loading. Use DEBUG RELOAD NOSAVE when you want just to load the RDB file you placed in the Redis working directory in order to replace the current dataset in memory. Use DEBUG RELOAD NOSAVE NOFLUSH MERGE when you want to add what is in the current RDB file placed in the Redis current directory, with the current memory content. Use DEBUG RELOAD when you want to verify Redis is able to persist the current dataset in the RDB file, flush the memory content, and load it back.",
 "RESTART -- Graceful restart: save config, db, restart.",
 "SDSLEN <key> -- Show low level SDS string info representing key and value.",
 "SEGFAULT -- Crash the server with sigsegv.",
@@ -456,7 +456,7 @@ NULL
             }
         }
 
-        /* The default beahvior is to save the RDB file before loading
+        /* The default behavior is to save the RDB file before loading
          * it back. */
         if (save) {
             rdbSaveInfo rsi, *rsiptr;
@@ -1449,7 +1449,7 @@ void logCurrentClient(void) {
 
 #define MEMTEST_MAX_REGIONS 128
 
-/* A non destructive memory test executed during segfauls. */
+/* A non destructive memory test executed during segfault. */
 int memtest_test_linux_anonymous_maps(void) {
     FILE *fp;
     char line[1024];
