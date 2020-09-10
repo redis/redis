@@ -46,6 +46,9 @@ void *worker(void *arg) {
     // Unblock client
     RedisModule_UnblockClient(bc, NULL);
 
+    // Free the Redis module context
+    RedisModule_FreeThreadSafeContext(ctx);
+
     return NULL;
 }
 
