@@ -630,7 +630,7 @@ void hincrbyfloatCommand(client *c) {
     server.dirty++;
 
     /* Always replicate HINCRBYFLOAT as an HSET command with the final value
-     * in order to make sure that differences in float pricision or formatting
+     * in order to make sure that differences in float precision or formatting
      * will not create differences in replicas or after an AOF restart. */
     robj *aux, *newobj;
     aux = createStringObject("HSET",4);

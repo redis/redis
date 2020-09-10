@@ -53,7 +53,7 @@
  * to 0, no timeout is processed).
  * It usually just needs to send a reply to the client.
  *
- * When implementing a new type of blocking opeation, the implementation
+ * When implementing a new type of blocking operation, the implementation
  * should modify unblockClient() and replyToBlockedClientTimedOut() in order
  * to handle the btype-specific behavior of this two functions.
  * If the blocking operation waits for certain keys to change state, the
@@ -118,7 +118,7 @@ void processUnblockedClients(void) {
 
 /* This function will schedule the client for reprocessing at a safe time.
  *
- * This is useful when a client was blocked for some reason (blocking opeation,
+ * This is useful when a client was blocked for some reason (blocking operation,
  * CLIENT PAUSE, or whatever), because it may end with some accumulated query
  * buffer that needs to be processed ASAP:
  *

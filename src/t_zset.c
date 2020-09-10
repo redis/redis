@@ -245,7 +245,7 @@ int zslDelete(zskiplist *zsl, double score, sds ele, zskiplistNode **node) {
     return 0; /* not found */
 }
 
-/* Update the score of an elmenent inside the sorted set skiplist.
+/* Update the score of an element inside the sorted set skiplist.
  * Note that the element must exist and must match 'score'.
  * This function does not update the score in the hash table side, the
  * caller should take care of it.

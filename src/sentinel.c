@@ -131,13 +131,13 @@ typedef struct sentinelAddr {
 /* The link to a sentinelRedisInstance. When we have the same set of Sentinels
  * monitoring many masters, we have different instances representing the
  * same Sentinels, one per master, and we need to share the hiredis connections
- * among them. Oherwise if 5 Sentinels are monitoring 100 masters we create
+ * among them. Otherwise if 5 Sentinels are monitoring 100 masters we create
  * 500 outgoing connections instead of 5.
  *
  * So this structure represents a reference counted link in terms of the two
  * hiredis connections for commands and Pub/Sub, and the fields needed for
  * failure detection, since the ping/pong time are now local to the link: if
- * the link is available, the instance is avaialbe. This way we don't just
+ * the link is available, the instance is available. This way we don't just
  * have 5 connections instead of 500, we also send 5 pings instead of 500.
  *
  * Links are shared only for Sentinels: master and slave instances have
@@ -986,7 +986,7 @@ instanceLink *createInstanceLink(void) {
     return link;
 }
 
-/* Disconnect an hiredis connection in the context of an instance link. */
+/* Disconnect a hiredis connection in the context of an instance link. */
 void instanceLinkCloseConnection(instanceLink *link, redisAsyncContext *c) {
     if (c == NULL) return;
 
@@ -1125,7 +1125,7 @@ int sentinelUpdateSentinelAddressInAllMasters(sentinelRedisInstance *ri) {
     return reconfigured;
 }
 
-/* This function is called when an hiredis connection reported an error.
+/* This function is called when a hiredis connection reported an error.
  * We set it to NULL and mark the link as disconnected so that it will be
  * reconnected again.
  *
@@ -2015,7 +2015,7 @@ void sentinelSendAuthIfNeeded(sentinelRedisInstance *ri, redisAsyncContext *c) {
  * The connection type is "cmd" or "pubsub" as specified by 'type'.
  *
  * This makes it possible to list all the sentinel instances connected
- * to a Redis servewr with CLIENT LIST, grepping for a specific name format. */
+ * to a Redis server with CLIENT LIST, grepping for a specific name format. */
 void sentinelSetClientName(sentinelRedisInstance *ri, redisAsyncContext *c, char *type) {
     char name[64];
 
@@ -2470,7 +2470,7 @@ void sentinelPublishReplyCallback(redisAsyncContext *c, void *reply, void *privd
         ri->last_pub_time = mstime();
 }
 
-/* Process an hello message received via Pub/Sub in master or slave instance,
+/* Process a hello message received via Pub/Sub in master or slave instance,
  * or sent directly to this sentinel via the (fake) PUBLISH command of Sentinel.
  *
  * If the master name specified in the message is not known, the message is
@@ -2607,7 +2607,7 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
     sentinelProcessHelloMessage(r->element[2]->str, r->element[2]->len);
 }
 
-/* Send an "Hello" message via Pub/Sub to the specified 'ri' Redis
+/* Send a "Hello" message via Pub/Sub to the specified 'ri' Redis
  * instance in order to broadcast the current configuration for this
  * master, and to advertise the existence of this Sentinel at the same time.
  *
@@ -2661,7 +2661,7 @@ int sentinelSendHello(sentinelRedisInstance *ri) {
 }
 
 /* Reset last_pub_time in all the instances in the specified dictionary
- * in order to force the delivery of an Hello update ASAP. */
+ * in order to force the delivery of a Hello update ASAP. */
 void sentinelForceHelloUpdateDictOfRedisInstances(dict *instances) {
     dictIterator *di;
     dictEntry *de;
@@ -2675,13 +2675,13 @@ void sentinelForceHelloUpdateDictOfRedisInstances(dict *instances) {
     dictReleaseIterator(di);
 }
 
-/* This function forces the delivery of an "Hello" message (see
+/* This function forces the delivery of a "Hello" message (see
  * sentinelSendHello() top comment for further information) to all the Redis
  * and Sentinel instances related to the specified 'master'.
  *
  * It is technically not needed since we send an update to every instance
  * with a period of SENTINEL_PUBLISH_PERIOD milliseconds, however when a
- * Sentinel upgrades a configuration it is a good idea to deliever an update
+ * Sentinel upgrades a configuration it is a good idea to deliver an update
  * to the other Sentinels ASAP. */
 int sentinelForceHelloUpdateForMaster(sentinelRedisInstance *master) {
     if (!(master->flags & SRI_MASTER)) return C_ERR;
@@ -3082,7 +3082,7 @@ void sentinelCommand(client *c) {
          * ip and port are the ip and port of the master we want to be
          * checked by Sentinel. Note that the command will not check by
          * name but just by master, in theory different Sentinels may monitor
-         * differnet masters with the same name.
+         * different masters with the same name.
          *
          * current-epoch is needed in order to understand if we are allowed
          * to vote for a failover leader or not. Each Sentinel can vote just
@@ -3995,7 +3995,7 @@ int sentinelSendSlaveOf(sentinelRedisInstance *ri, char *host, int port) {
      * the following tasks:
      * 1) Reconfigure the instance according to the specified host/port params.
      * 2) Rewrite the configuration.
-     * 3) Disconnect all clients (but this one sending the commnad) in order
+     * 3) Disconnect all clients (but this one sending the command) in order
      *    to trigger the ask-master-on-reconnection protocol for connected
      *    clients.
      *
@@ -4547,7 +4547,7 @@ void sentinelHandleDictOfRedisInstances(dict *instances) {
  * difference bigger than SENTINEL_TILT_TRIGGER milliseconds if one of the
  * following conditions happen:
  *
- * 1) The Sentiel process for some time is blocked, for every kind of
+ * 1) The Sentinel process for some time is blocked, for every kind of
  * random reason: the load is huge, the computer was frozen for some time
  * in I/O or alike, the process was stopped by a signal. Everything.
  * 2) The system clock was altered significantly.

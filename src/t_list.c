@@ -723,7 +723,7 @@ void rpoplpushCommand(client *c) {
  * Blocking POP operations
  *----------------------------------------------------------------------------*/
 
-/* This is a helper function for handleClientsBlockedOnKeys(). It's work
+/* This is a helper function for handleClientsBlockedOnKeys(). Its work
  * is to serve a specific client (receiver) that is blocked on 'key'
  * in the context of the specified 'db', doing the following:
  *
@@ -809,7 +809,7 @@ void blockingPopGenericCommand(client *c, int where) {
                 return;
             } else {
                 if (listTypeLength(o) != 0) {
-                    /* Non empty list, this is like a non normal [LR]POP. */
+                    /* Non empty list, this is like a normal [LR]POP. */
                     char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
                     robj *value = listTypePop(o,where);
                     serverAssert(value != NULL);
@@ -845,7 +845,7 @@ void blockingPopGenericCommand(client *c, int where) {
         return;
     }
 
-    /* If the list is empty or the key does not exists we must block */
+    /* If the keys do not exist we must block */
     blockForKeys(c,BLOCKED_LIST,c->argv + 1,c->argc - 2,timeout,NULL,NULL);
 }
 

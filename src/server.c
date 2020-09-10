@@ -115,7 +115,7 @@ volatile unsigned long lru_clock; /* Server global current LRU time. */
  * write:       Write command (may modify the key space).
  *
  * read-only:   All the non special commands just reading from keys without
- *              changing the content, or returning other informations like
+ *              changing the content, or returning other information like
  *              the TIME command. Special commands such administrative commands
  *              or transaction related commands (multi, exec, discard, ...)
  *              are not flagged as read-only commands, since they affect the
@@ -1280,7 +1280,7 @@ dictType objectKeyHeapPointerValueDictType = {
     dictVanillaFree            /* val destructor */
 };
 
-/* Set dictionary type. Keys are SDS strings, values are ot used. */
+/* Set dictionary type. Keys are SDS strings, values are not used. */
 dictType setDictType = {
     dictSdsHash,               /* hash function */
     NULL,                      /* key dup */
@@ -1385,9 +1385,8 @@ dictType clusterNodesBlackListDictType = {
     NULL                        /* val destructor */
 };
 
-/* Cluster re-addition blacklist. This maps node IDs to the time
- * we can re-add this node. The goal is to avoid readding a removed
- * node for some time. */
+/* Modules system dictionary type. Keys are module name,
+ * values are pointer to RedisModule struct. */
 dictType modulesDictType = {
     dictSdsCaseHash,            /* hash function */
     NULL,                       /* key dup */
@@ -1440,7 +1439,7 @@ void tryResizeHashTables(int dbid) {
 /* Our hash table implementation performs rehashing incrementally while
  * we write/read from the hash table. Still if the server is idle, the hash
  * table will use two tables for a long time. So we try to use 1 millisecond
- * of CPU time at every call of this function to perform some rehahsing.
+ * of CPU time at every call of this function to perform some rehashing.
  *
  * The function returns 1 if some rehashing was performed, otherwise 0
  * is returned. */
@@ -1462,8 +1461,8 @@ int incrementallyRehash(int dbid) {
  * as we want to avoid resizing the hash tables when there is a child in order
  * to play well with copy-on-write (otherwise when a resize happens lots of
  * memory pages are copied). The goal of this function is to update the ability
- * for dict.c to resize the hash tables accordingly to the fact we have o not
- * running childs. */
+ * for dict.c to resize the hash tables accordingly to the fact we have an
+ * active fork child running. */
 void updateDictResizePolicy(void) {
     if (!hasActiveChildProcess())
         dictEnableResize();
@@ -1613,7 +1612,7 @@ int clientsCronTrackClientsMemUsage(client *c) {
     mem += sdsAllocSize(c->querybuf);
     mem += sizeof(client);
     /* Now that we have the memory used by the client, remove the old
-     * value from the old categoty, and add it back. */
+     * value from the old category, and add it back. */
     server.stat_clients_type_memory[c->client_cron_last_memory_type] -=
         c->client_cron_last_memory_usage;
     server.stat_clients_type_memory[type] += mem;
@@ -2028,7 +2027,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* AOF write errors: in this case we have a buffer to flush as well and
      * clear the AOF error in case of success to make the DB writable again,
      * however to try every second is enough in case of 'hz' is set to
-     * an higher frequency. */
+     * a higher frequency. */
     run_with_period(1000) {
         if (server.aof_last_write_status == C_ERR)
             flushAppendOnlyFile(0);
@@ -2198,7 +2197,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     if (moduleCount()) moduleReleaseGIL();
 }
 
-/* This function is called immadiately after the event loop multiplexing
+/* This function is called immediately after the event loop multiplexing
  * API returned, and the control is going to soon return to Redis by invoking
  * the different events callbacks. */
 void afterSleep(struct aeEventLoop *eventLoop) {
@@ -2420,7 +2419,7 @@ void initServerConfig(void) {
     R_NegInf = -1.0/R_Zero;
     R_Nan = R_Zero/R_Zero;
 
-    /* Command table -- we initiialize it here as it is part of the
+    /* Command table -- we initialize it here as it is part of the
      * initial configuration, since command names may be changed via
      * redis.conf using the rename-command directive. */
     server.commands = dictCreate(&commandTableDictType,NULL);
@@ -3085,7 +3084,7 @@ int populateCommandTableParseFlags(struct redisCommand *c, char *strflags) {
 }
 
 /* Populates the Redis Command Table starting from the hard coded list
- * we have on top of redis.c file. */
+ * we have on top of server.c file. */
 void populateCommandTable(void) {
     int j;
     int numcommands = sizeof(redisCommandTable)/sizeof(struct redisCommand);
@@ -3219,12 +3218,12 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
  *
  * 'cmd' must be a pointer to the Redis command to replicate, dbid is the
  * database ID the command should be propagated into.
- * Arguments of the command to propagte are passed as an array of redis
+ * Arguments of the command to propagate are passed as an array of redis
  * objects pointers of len 'argc', using the 'argv' vector.
  *
  * The function does not take a reference to the passed 'argv' vector,
  * so it is up to the caller to release the passed argv (but it is usually
- * stack allocated).  The function autoamtically increments ref count of
+ * stack allocated).  The function automatically increments ref count of
  * passed objects, so the caller does not need to. */
 void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
                    int target)
@@ -3384,7 +3383,7 @@ void call(client *c, int flags) {
         if (c->flags & CLIENT_FORCE_AOF) propagate_flags |= PROPAGATE_AOF;
 
         /* However prevent AOF / replication propagation if the command
-         * implementations called preventCommandPropagation() or similar,
+         * implementation called preventCommandPropagation() or similar,
          * or if we don't have the call() flags to do so. */
         if (c->flags & CLIENT_PREVENT_REPL_PROP ||
             !(flags & CMD_CALL_PROPAGATE_REPL))
@@ -3632,7 +3631,7 @@ int processCommand(client *c) {
         }
 
         /* Save out_of_memory result at script start, otherwise if we check OOM
-         * untill first write within script, memory used by lua stack and
+         * until first write within script, memory used by lua stack and
          * arguments might interfere. */
         if (c->cmd->proc == evalCommand || c->cmd->proc == evalShaCommand) {
             server.lua_oom = out_of_memory;
@@ -3870,7 +3869,7 @@ int prepareForShutdown(int flags) {
 
 /*================================== Commands =============================== */
 
-/* Sometimes Redis cannot accept write commands because there is a perstence
+/* Sometimes Redis cannot accept write commands because there is a persistence
  * error with the RDB or AOF file, and Redis is configured in order to stop
  * accepting writes in such situation. This function returns if such a
  * condition is active, and the type of the condition.

@@ -99,7 +99,7 @@
  *      Integer encoded as 24 bit signed (3 bytes).
  * |11111110| - 2 bytes
  *      Integer encoded as 8 bit signed (1 byte).
- * |1111xxxx| - (with xxxx between 0000 and 1101) immediate 4 bit integer.
+ * |1111xxxx| - (with xxxx between 0001 and 1101) immediate 4 bit integer.
  *      Unsigned integer from 0 to 12. The encoded value is actually from
  *      1 to 13 because 0000 and 1111 can not be used, so 1 should be
  *      subtracted from the encoded 4 bit value to obtain the right value.
@@ -191,10 +191,10 @@
 #include "redisassert.h"
 
 #define ZIP_END 255         /* Special "end of ziplist" entry. */
-#define ZIP_BIG_PREVLEN 254 /* Max number of bytes of the previous entry, for
-                               the "prevlen" field prefixing each entry, to be
-                               represented with just a single byte. Otherwise
-                               it is represented as FE AA BB CC DD, where
+#define ZIP_BIG_PREVLEN 254 /* ZIP_BIG_PREVLEN - 1 is the max number of bytes of
+                               the previous entry, for the "prevlen" field prefixing
+                               each entry, to be represented with just a single byte.
+                               Otherwise it is represented as FE AA BB CC DD, where
                                AA BB CC DD are a 4 bytes unsigned integer
                                representing the previous entry len. */
 
@@ -317,7 +317,7 @@ unsigned int zipIntSize(unsigned char encoding) {
     return 0;
 }
 
-/* Write the encoidng header of the entry in 'p'. If p is NULL it just returns
+/* Write the encoding header of the entry in 'p'. If p is NULL it just returns
  * the amount of bytes required to encode such a length. Arguments:
  *
  * 'encoding' is the encoding we are using for the entry. It could be
@@ -325,7 +325,7 @@ unsigned int zipIntSize(unsigned char encoding) {
  * for single-byte small immediate integers.
  *
  * 'rawlen' is only used for ZIP_STR_* encodings and is the length of the
- * srting that this entry represents.
+ * string that this entry represents.
  *
  * The function returns the number of bytes used by the encoding/length
  * header stored in 'p'. */
@@ -914,7 +914,7 @@ unsigned char *ziplistMerge(unsigned char **first, unsigned char **second) {
     } else {
         /* !append == prepending to target */
         /* Move target *contents* exactly size of (source - [END]),
-         * then copy source into vacataed space (source - [END]):
+         * then copy source into vacated space (source - [END]):
          *   [SOURCE - END, TARGET - HEADER] */
         memmove(target + source_bytes - ZIPLIST_END_SIZE,
                 target + ZIPLIST_HEADER_SIZE,

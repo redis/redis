@@ -161,7 +161,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 /* Hash table parameters */
 #define HASHTABLE_MIN_FILL        10      /* Minimal hash table fill 10% */
 
-/* Command flags. Please check the command table defined in the redis.c file
+/* Command flags. Please check the command table defined in the server.c file
  * for more information about the meaning of every flag. */
 #define CMD_WRITE (1ULL<<0)            /* "write" flag */
 #define CMD_READONLY (1ULL<<1)         /* "read-only" flag */
@@ -827,7 +827,7 @@ typedef struct client {
                                        copying this slave output buffer
                                        should use. */
     char replid[CONFIG_RUN_ID_SIZE+1]; /* Master replication ID (if master). */
-    int slave_listening_port; /* As configured with: SLAVECONF listening-port */
+    int slave_listening_port; /* As configured with: REPLCONF listening-port */
     char slave_ip[NET_IP_STR_LEN]; /* Optionally given by REPLCONF ip-address */
     int slave_capa;         /* Slave capabilities: SLAVE_CAPA_* bitwise OR. */
     multiState mstate;      /* MULTI/EXEC state */
@@ -939,7 +939,7 @@ typedef struct redisOp {
 } redisOp;
 
 /* Defines an array of Redis operations. There is an API to add to this
- * structure in a easy way.
+ * structure in an easy way.
  *
  * redisOpArrayInit();
  * redisOpArrayAppend();
@@ -1349,7 +1349,7 @@ struct redisServer {
     unsigned int maxclients;            /* Max number of simultaneous clients */
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
     int maxmemory_policy;           /* Policy for key eviction */
-    int maxmemory_samples;          /* Pricision of random sampling */
+    int maxmemory_samples;          /* Precision of random sampling */
     int lfu_log_factor;             /* LFU logarithmic counter factor. */
     int lfu_decay_time;             /* LFU counter decay factor. */
     long long proto_max_bulk_len;   /* Protocol bulk length maximum size. */
@@ -1429,7 +1429,7 @@ struct redisServer {
     int lua_random_dirty; /* True if a random command was called during the
                              execution of the current script. */
     int lua_replicate_commands; /* True if we are doing single commands repl. */
-    int lua_multi_emitted;/* True if we already proagated MULTI. */
+    int lua_multi_emitted;/* True if we already propagated MULTI. */
     int lua_repl;         /* Script replication flags for redis.set_repl(). */
     int lua_timedout;     /* True if we reached the time limit for script
                              execution. */
@@ -1935,7 +1935,7 @@ void addACLLogEntry(client *c, int reason, int keypos, sds username);
 /* Flags only used by the ZADD command but not by zsetAdd() API: */
 #define ZADD_CH (1<<16)      /* Return num of elements added or updated. */
 
-/* Struct to hold a inclusive/exclusive range spec by score comparison. */
+/* Struct to hold an inclusive/exclusive range spec by score comparison. */
 typedef struct {
     double min, max;
     int minex, maxex; /* are min or max exclusive? */
