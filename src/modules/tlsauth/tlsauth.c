@@ -45,7 +45,7 @@
 /* Required attribute configuration */
 typedef struct RequiredAttr {
     int nid;                    /* Attribute, represented as an OpenSSL NID */
-    const char *value;          /* Required value */
+    char *value;                /* Required value */
     struct RequiredAttr *next;  /* Next element in RequiredAttr singly-linked list */
 } RequiredAttr;
 
@@ -59,6 +59,22 @@ static Config config = {
     .user_attr              = NID_commonName,
     .required_attr_head     = NULL
 };
+
+/* Free the specified list of RequiredAttr entries */
+static void freeRequiredAttrList(RequiredAttr *attr)
+{
+    while (attr) {
+        RequiredAttr *tmp = attr;
+        attr = attr->next;
+
+        if (tmp->value) {
+            RedisModule_Free(tmp->value);
+            tmp->value = NULL;
+        }
+        tmp->next = NULL;
+        RedisModule_Free(tmp);
+    }
+}
 
 /* Compare a RedisModuleString and a null-terminated C string.
  * Returns a negative, zero or positive value in strcmp() semantics.
@@ -271,5 +287,13 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
             return REDISMODULE_ERR;
     }
 
+    return REDISMODULE_OK;
+}
+
+/* Module unload */
+int RedisModule_OnUnload(RedisModuleCtx *ctx) {
+    REDISMODULE_NOT_USED(ctx);
+
+    freeRequiredAttrList(config.required_attr_head);
     return REDISMODULE_OK;
 }
