@@ -112,6 +112,8 @@
 #define REDISMODULE_CTX_FLAGS_ACTIVE_CHILD (1<<18)
 /* The next EXEC will fail due to dirty CAS (touched keys). */
 #define REDISMODULE_CTX_FLAGS_MULTI_DIRTY (1<<19)
+/* Redis is currently running inside background child process. */
+#define REDISMODULE_CTX_FLAGS_IS_CHILD (1<<20)
 
 /* Keyspace changes notification classes. Every class is associated with a
  * character for configuration purposes.
