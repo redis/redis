@@ -313,7 +313,7 @@ static void cliRefreshPrompt(void) {
 
 /* Return the name of the dotfile for the specified 'dotfilename'.
  * Normally it just concatenates user $HOME to the file specified
- * in 'dotfilename'. However if the environment varialbe 'envoverride'
+ * in 'dotfilename'. However if the environment variable 'envoverride'
  * is set, its value is taken as the path.
  *
  * The function returns NULL (if the file is /dev/null or cannot be
@@ -1794,7 +1794,7 @@ static void usage(void) {
 "  -a <password>      Password to use when connecting to the server.\n"
 "                     You can also use the " REDIS_CLI_AUTH_ENV " environment\n"
 "                     variable to pass this password more safely\n"
-"                     (if both are used, this argument takes predecence).\n"
+"                     (if both are used, this argument takes precedence).\n"
 "  --user <username>  Used to send ACL style 'AUTH username pass'. Needs -a.\n"
 "  --pass <password>  Alias of -a for consistency with the new --user option.\n"
 "  --askpass          Force user to input password with mask from STDIN.\n"
@@ -2225,7 +2225,7 @@ static int evalMode(int argc, char **argv) {
         argv2[2] = sdscatprintf(sdsempty(),"%d",keys);
 
         /* Call it */
-        int eval_ldb = config.eval_ldb; /* Save it, may be reverteed. */
+        int eval_ldb = config.eval_ldb; /* Save it, may be reverted. */
         retval = issueCommand(argc+3-got_comma, argv2);
         if (eval_ldb) {
             if (!config.eval_ldb) {
@@ -6741,13 +6741,13 @@ struct distsamples {
  * samples greater than the previous one, and is also the stop sentinel.
  *
  * "tot' is the total number of samples in the different buckets, so it
- * is the SUM(samples[i].conut) for i to 0 up to the max sample.
+ * is the SUM(samples[i].count) for i to 0 up to the max sample.
  *
  * As a side effect the function sets all the buckets count to 0. */
 void showLatencyDistSamples(struct distsamples *samples, long long tot) {
     int j;
 
-     /* We convert samples into a index inside the palette
+     /* We convert samples into an index inside the palette
      * proportional to the percentage a given bucket represents.
      * This way intensity of the different parts of the spectrum
      * don't change relative to the number of requests, which avoids to
@@ -8054,7 +8054,7 @@ static void LRUTestMode(void) {
  * Intrisic latency mode.
  *
  * Measure max latency of a running process that does not result from
- * syscalls. Basically this software should provide an hint about how much
+ * syscalls. Basically this software should provide a hint about how much
  * time the kernel leaves the process without a chance to run.
  *--------------------------------------------------------------------------- */
 

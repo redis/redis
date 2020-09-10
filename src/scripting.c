@@ -69,7 +69,7 @@ struct ldbState {
     list *children; /* All forked debugging sessions pids. */
     int bp[LDB_BREAKPOINTS_MAX]; /* An array of breakpoints line numbers. */
     int bpcount; /* Number of valid entries inside bp. */
-    int step;   /* Stop at next line ragardless of breakpoints. */
+    int step;   /* Stop at next line regardless of breakpoints. */
     int luabp;  /* Stop at next line because redis.breakpoint() was called. */
     sds *src;   /* Lua script source code split by line. */
     int lines;  /* Number of lines in 'src'. */
@@ -886,7 +886,7 @@ int luaRedisReplicateCommandsCommand(lua_State *lua) {
 
 /* redis.breakpoint()
  *
- * Allows to stop execution during a debuggign session from within
+ * Allows to stop execution during a debugging session from within
  * the Lua code implementation, like if a breakpoint was set in the code
  * immediately after the function. */
 int luaRedisBreakpointCommand(lua_State *lua) {
@@ -1500,7 +1500,7 @@ void evalGenericCommand(client *c, int evalsha) {
         /* Hash the code if this is an EVAL call */
         sha1hex(funcname+2,c->argv[1]->ptr,sdslen(c->argv[1]->ptr));
     } else {
-        /* We already have the SHA if it is a EVALSHA */
+        /* We already have the SHA if it is an EVALSHA */
         int j;
         char *sha = c->argv[1]->ptr;
 
@@ -1630,7 +1630,7 @@ void evalGenericCommand(client *c, int evalsha) {
      * To do so we use a cache of SHA1s of scripts that we already propagated
      * as full EVAL, that's called the Replication Script Cache.
      *
-     * For repliation, everytime a new slave attaches to the master, we need to
+     * For replication, everytime a new slave attaches to the master, we need to
      * flush our cache of scripts that can be replicated as EVALSHA, while
      * for AOF we need to do so every time we rewrite the AOF file. */
     if (evalsha && !server.lua_replicate_commands) {
@@ -1803,7 +1803,7 @@ void ldbLog(sds entry) {
 }
 
 /* A version of ldbLog() which prevents producing logs greater than
- * ldb.maxlen. The first time the limit is reached an hint is generated
+ * ldb.maxlen. The first time the limit is reached a hint is generated
  * to inform the user that reply trimming can be disabled using the
  * debugger "maxlen" command. */
 void ldbLogWithMaxLen(sds entry) {
@@ -1844,7 +1844,7 @@ void ldbSendLogs(void) {
 }
 
 /* Start a debugging session before calling EVAL implementation.
- * The techique we use is to capture the client socket file descriptor,
+ * The technique we use is to capture the client socket file descriptor,
  * in order to perform direct I/O with it from within Lua hooks. This
  * way we don't have to re-enter Redis in order to handle I/O.
  *
@@ -1927,7 +1927,7 @@ void ldbEndSession(client *c) {
     connNonBlock(ldb.conn);
     connSendTimeout(ldb.conn,0);
 
-    /* Close the client connectin after sending the final EVAL reply
+    /* Close the client connection after sending the final EVAL reply
      * in order to signal the end of the debugging session. */
     c->flags |= CLIENT_CLOSE_AFTER_REPLY;
 
@@ -2096,7 +2096,7 @@ void ldbLogSourceLine(int lnum) {
 /* Implement the "list" command of the Lua debugger. If around is 0
  * the whole file is listed, otherwise only a small portion of the file
  * around the specified line is shown. When a line number is specified
- * the amonut of context (lines before/after) is specified via the
+ * the amount of context (lines before/after) is specified via the
  * 'context' argument. */
 void ldbList(int around, int context) {
     int j;
@@ -2107,7 +2107,7 @@ void ldbList(int around, int context) {
     }
 }
 
-/* Append an human readable representation of the Lua value at position 'idx'
+/* Append a human readable representation of the Lua value at position 'idx'
  * on the stack of the 'lua' state, to the SDS string passed as argument.
  * The new SDS string with the represented value attached is returned.
  * Used in order to implement ldbLogStackValue().
@@ -2351,7 +2351,7 @@ char *ldbRedisProtocolToHuman_Double(sds *o, char *reply) {
     return p+2;
 }
 
-/* Log a Redis reply as debugger output, in an human readable format.
+/* Log a Redis reply as debugger output, in a human readable format.
  * If the resulting string is longer than 'len' plus a few more chars
  * used as prefix, it gets truncated. */
 void ldbLogRedisReply(char *reply) {
@@ -2535,7 +2535,7 @@ void ldbTrace(lua_State *lua) {
     }
 }
 
-/* Impleemnts the debugger "maxlen" command. It just queries or sets the
+/* Implements the debugger "maxlen" command. It just queries or sets the
  * ldb.maxlen variable. */
 void ldbMaxlen(sds *argv, int argc) {
     if (argc == 2) {
@@ -2608,8 +2608,8 @@ ldbLog(sdsnew("                     mode dataset changes will be retained."));
 ldbLog(sdsnew(""));
 ldbLog(sdsnew("Debugger functions you can call from Lua scripts:"));
 ldbLog(sdsnew("redis.debug()        Produce logs in the debugger console."));
-ldbLog(sdsnew("redis.breakpoint()   Stop execution like if there was a breakpoing."));
-ldbLog(sdsnew("                     in the next line of code."));
+ldbLog(sdsnew("redis.breakpoint()   Stop execution like if there was a breakpoint in the"));
+ldbLog(sdsnew("                     next line of code."));
             ldbSendLogs();
         } else if (!strcasecmp(argv[0],"s") || !strcasecmp(argv[0],"step") ||
                    !strcasecmp(argv[0],"n") || !strcasecmp(argv[0],"next")) {
