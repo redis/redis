@@ -31,12 +31,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-/* To see this module in action, follow these steps:
- *
- */
-
 #define REDISMODULE_EXPERIMENTAL_API
 #include <string.h>
+#include <strings.h>
 #include <sys/types.h>
 
 #include <openssl/x509.h>
@@ -45,104 +42,115 @@
 
 #include "redismodule.h"
 
-/* Attribute check definition */
-struct AttrCheck {
+/* Required attribute configuration */
+typedef struct RequiredAttr {
     int nid;                    /* Attribute, represented as an OpenSSL NID */
-    const char *req_value;      /* Required value, as specified by check */
-    struct AttrCheck *next;     /* Next element in AttrCheck singly-linked list */
+    const char *value;          /* Required value */
+    struct RequiredAttr *next;  /* Next element in RequiredAttr singly-linked list */
+} RequiredAttr;
+
+/* Module configuration */
+typedef struct Config {
+    int user_attr;                      /* Attribute to derive user identity from */
+    RequiredAttr *required_attr_head;   /* Head of AttrCheck singly-linked list */
+} Config;
+
+static Config config = {
+    .user_attr              = NID_commonName,
+    .required_attr_head     = NULL
 };
 
-/* Attribute to derive user identity from */
-static int configUserAttr = NID_commonName;
-
-/* Head of AttrCheck singly-linked list */
-static struct AttrCheck *configAttrChecks = NULL;
-
-/* Parse an attribute check specification string and return a newly allocated
- * AttrCheck struct.
+/* Compare a RedisModuleString and a null-terminated C string.
+ * Returns a negative, zero or positive value in strcmp() semantics.
  */
-static struct AttrCheck *parseAttrCheck(RedisModuleCtx *ctx, char *attr_check_str)
+static int moduleStrCaseCmp(RedisModuleString *rmstr, const char *str)
 {
-    char *delim = strchr(attr_check_str, ':');
-    if (!delim) {
-        RedisModule_Log(ctx, "warning",
-            "Invalid attr-check: expected 'attribute:value' format: %s", attr_check_str);
-        return NULL;
-    }
+    size_t len;
+    const char *s = RedisModule_StringPtrLen(rmstr, &len);
 
-    *delim = '\0';
-    int nid = OBJ_txt2nid(attr_check_str);
-    if (nid == NID_undef) {
-        RedisModule_Log(ctx, "warning",
-            "Invalid attr-check attribute: %s", attr_check_str);
-        return NULL;
-    }
+    if (len != strlen(str))
+        return len - strlen(str);
+    return strncasecmp(s, str, len);
+}
 
-    struct AttrCheck *check = RedisModule_Alloc(sizeof(struct AttrCheck));
-    check->nid = nid;
-    check->req_value = RedisModule_Strdup(delim + 1);
-    check->next = NULL;
+/* Duplicate a RedisModuleString into a newly allocated, null-terminated C
+ * string.
+ */
+static char *moduleStrDup(RedisModuleString *rmstr)
+{
+    size_t len;
+    const char *str = RedisModule_StringPtrLen(rmstr, &len);
+    char *ret = RedisModule_Alloc(len + 1);
+    memcpy(ret, str, len);
+    ret[len] = '\0';
 
-    return check;
+    return ret;
+}
+
+/* Parse a specified RedisModuleString as an OpenSSL attribute name and
+ * return the corresponding NID (or NID_undef).
+ */
+static int parseAttributeName(RedisModuleString *rmstr)
+{
+    char *str = moduleStrDup(rmstr);
+    int nid = OBJ_txt2nid(str);
+    RedisModule_Free(str);
+
+    return nid;
 }
 
 /* Parse configuration provided as module arguments and set up the module.
  * Returns REDISMODULE_ERR on parse errors, or REDISMODULE_OK on success.
  */
-static int parseConfigArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+static int parseConfigArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, Config *config)
 {
-    const char kw_attr_user[] = "attr-user";
-    const char kw_attr_check[] = "attr-check";
-    int error = 0;
+    const char kw_user_attr[] = "user-attribute";
+    const char kw_required_attr[] = "required-attribute";
+    const char *err = NULL;
+    int nid;
     int i;
 
     for (i = 0; i < argc; i++) {
-        size_t len;
-        const char *str = RedisModule_StringPtrLen(argv[i], &len);
-
-        const char *delim = memchr(str, '=', len);
-        if (!delim) {
-            RedisModule_Log(ctx, "warning",
-                    "Invalid argument: %.*s", (int) len, str);
-            return REDISMODULE_ERR;
-        }
-
-        /* Set up keyword, value lengths and a null-terminated value */
-        size_t kw_len = delim - str;
-        size_t val_len = len - (kw_len + 1);
-        char *val = RedisModule_Alloc(val_len + 1);
-        memcpy(val, delim + 1, val_len);
-        val[val_len] = '\0';
-
-
-        if (kw_len == strlen(kw_attr_user) && !memcmp(str, kw_attr_user, kw_len)) {
-            int nid = OBJ_txt2nid(val);
-            if (nid == NID_undef) {
-                RedisModule_Log(ctx, "warning",
-                        "Invalid attribute name: %s", val);
-                error = 1;
-            } else {
-                configUserAttr = nid;
+        if (!moduleStrCaseCmp(argv[i], kw_user_attr)) {
+            if (argc <= i + 1) {
+                err = "Use: USER-ATTRIBUTE <attribute name>";
+                break;
             }
-        } else if (kw_len == strlen(kw_attr_check) && !memcmp(str, kw_attr_check, kw_len)) {
-            struct AttrCheck *check = parseAttrCheck(ctx, val);
-            if (!check) {
-                error = 1;
-            } else {
-                check->next = configAttrChecks;
-                configAttrChecks = check;
+
+            if ((nid = parseAttributeName(argv[++i])) == NID_undef) {
+                err = "Unknown USER-ATTRIBUTE name";
+                break;
             }
+
+            config->user_attr = nid;
+        } else if (!moduleStrCaseCmp(argv[i], kw_required_attr)) {
+            if (argc <= i + 2) {
+                err = "Use: REQUIRED-ATTRIBUTE <attribute name> <value>";
+                break;
+            }
+
+            if ((nid = parseAttributeName(argv[++i])) == NID_undef) {
+                err = "Unknown REQUIRED-ATTRIBUTE attribute name";
+                break;
+            }
+
+            struct RequiredAttr *reqattr = RedisModule_Alloc(sizeof(RequiredAttr));
+            reqattr->nid = nid;
+            reqattr->value = moduleStrDup(argv[++i]);
+            reqattr->next = config->required_attr_head;
+            config->required_attr_head = reqattr;
         } else {
-            RedisModule_Log(ctx, "warning",
-                    "Unknown configuration argument: %.*s", (int) kw_len, str);
-            error = 1;
+            err = "Invalid argument specified";
+            break;
         }
-
-        RedisModule_Free(val);
-        if (error) return 0;
     }
 
-    return 1;
+    if (err) {
+        RedisModule_Log(ctx, "warning", "Failed to load tlsauth configuration: %s", err);
+        return REDISMODULE_ERR;
+    }
+
+    return REDISMODULE_OK;
 }
 
 /* Decode a RedisModuleString that contains a PEM-encoded X.509 certificate
@@ -161,20 +169,20 @@ static X509 *decodeCertificate(RedisModuleString *cert_str)
     return cert;
 }
 
-/* Apply all attribute checks to a X.509 certificate.
- * Returns a non-zero value if all checks have succeeded, or zero if at least
- * one check failed.
+/* Check that a given X.509 certificate conforms to a list of required attributes.
+ * Returns a non-zero value if valid, or zero if at least one attribute is missing
+ * or has the wrong value.
  */
-static int checkCertificate(X509 *cert)
+static int checkRequiredAttrs(X509 *cert, RequiredAttr *required_attr_list)
 {
     int loc;
     X509_NAME *subj = X509_get_subject_name(cert);
     X509_NAME_ENTRY *entry;
-    struct AttrCheck *check = configAttrChecks;
+    struct RequiredAttr *req_attr = required_attr_list;
 
-    while (check != NULL) {
+    while (req_attr != NULL) {
         /* Find entry */
-        if ((loc = X509_NAME_get_index_by_NID(subj, check->nid, -1)) < 0)
+        if ((loc = X509_NAME_get_index_by_NID(subj, req_attr->nid, -1)) < 0)
             return 0;
 
         /* Compare */
@@ -182,10 +190,10 @@ static int checkCertificate(X509 *cert)
             return 0;
 
         const char *val = (const char *) ASN1_STRING_get0_data(X509_NAME_ENTRY_get_data(entry));
-        if (strcmp(val, check->req_value)) return 0;
+        if (strcmp(val, req_attr->value)) return 0;
 
         /* Next */
-        check = check->next;
+        req_attr = req_attr->next;
     }
 
     return 1;
@@ -236,8 +244,8 @@ static void handleClientConnection(RedisModuleCtx *ctx, RedisModuleEvent eid, ui
          * authenticate the client now.
          */
         const char *user;
-        if (checkCertificate(cert) &&
-            (user = getAttribute(cert, configUserAttr)) != NULL) {
+        if (checkRequiredAttrs(cert, config.required_attr_head) &&
+            (user = getAttribute(cert, config.user_attr)) != NULL) {
 
             if (RedisModule_AuthenticateClientWithACLUser(ctx, user, strlen(user),
                     NULL, NULL, NULL) == REDISMODULE_ERR) {
@@ -255,7 +263,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_Init(ctx, "tlsauth", 1, REDISMODULE_APIVER_1)
             == REDISMODULE_ERR) return REDISMODULE_ERR;
 
-    if (!parseConfigArgs(ctx, argv, argc))
+    if (parseConfigArgs(ctx, argv, argc, &config) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClientChange,
