@@ -625,7 +625,7 @@ static void refreshMultiLine(struct linenoiseState *l) {
     rpos2 = (plen+l->pos+l->cols)/l->cols; /* current cursor relative row. */
     lndebug("rpos2 %d", rpos2);
 
-    /* Go up till we reach the expected positon. */
+    /* Go up till we reach the expected position. */
     if (rows-rpos2 > 0) {
         lndebug("go-up %d", rows-rpos2);
         snprintf(seq,64,"\x1b[%dA", rows-rpos2);
@@ -767,7 +767,7 @@ void linenoiseEditBackspace(struct linenoiseState *l) {
     }
 }
 
-/* Delete the previosu word, maintaining the cursor at the start of the
+/* Delete the previous word, maintaining the cursor at the start of the
  * current word. */
 void linenoiseEditDeletePrevWord(struct linenoiseState *l) {
     size_t old_pos = l->pos;

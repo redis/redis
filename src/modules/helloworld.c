@@ -91,7 +91,7 @@ int HelloPushCall_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
 }
 
 /* HELLO.PUSH.CALL2
- * This is exaxctly as HELLO.PUSH.CALL, but shows how we can reply to the
+ * This is exactly as HELLO.PUSH.CALL, but shows how we can reply to the
  * client using directly a reply object that Call() returned. */
 int HelloPushCall2_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
@@ -345,7 +345,7 @@ int HelloToggleCase_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, 
 
 /* HELLO.MORE.EXPIRE key milliseconds.
  *
- * If they key has already an associated TTL, extends it by "milliseconds"
+ * If the key has already an associated TTL, extends it by "milliseconds"
  * milliseconds. Otherwise no operation is performed. */
 int HelloMoreExpire_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx); /* Use automatic memory management. */

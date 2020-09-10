@@ -51,8 +51,8 @@ typedef struct clusterLink {
 #define CLUSTER_NODE_HANDSHAKE 32 /* We have still to exchange the first ping */
 #define CLUSTER_NODE_NOADDR   64  /* We don't know the address of this node */
 #define CLUSTER_NODE_MEET 128     /* Send a MEET message to this node */
-#define CLUSTER_NODE_MIGRATE_TO 256 /* Master elegible for replica migration. */
-#define CLUSTER_NODE_NOFAILOVER 512 /* Slave will not try to failver. */
+#define CLUSTER_NODE_MIGRATE_TO 256 /* Master eligible for replica migration. */
+#define CLUSTER_NODE_NOFAILOVER 512 /* Slave will not try to failover. */
 #define CLUSTER_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
 
 #define nodeIsMaster(n) ((n)->flags & CLUSTER_NODE_MASTER)
@@ -164,10 +164,10 @@ typedef struct clusterState {
     clusterNode *mf_slave;      /* Slave performing the manual failover. */
     /* Manual failover state of slave. */
     long long mf_master_offset; /* Master offset the slave needs to start MF
-                                   or zero if stil not received. */
+                                   or zero if still not received. */
     int mf_can_start;           /* If non-zero signal that the manual failover
                                    can start requesting masters vote. */
-    /* The followign fields are used by masters to take state on elections. */
+    /* The following fields are used by masters to take state on elections. */
     uint64_t lastVoteEpoch;     /* Epoch of the last vote granted. */
     int todo_before_sleep; /* Things to do in clusterBeforeSleep(). */
     /* Messages received and sent by type. */

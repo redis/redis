@@ -1196,7 +1196,7 @@ void xaddCommand(client *c) {
     int id_given = 0; /* Was an ID different than "*" specified? */
     long long maxlen = -1;  /* If left to -1 no trimming is performed. */
     int approx_maxlen = 0;  /* If 1 only delete whole radix tree nodes, so
-                               the maxium length is not applied verbatim. */
+                               the maximum length is not applied verbatim. */
     int maxlen_arg_idx = 0; /* Index of the count in MAXLEN, for rewriting. */
 
     /* Parse options. */
@@ -1890,7 +1890,7 @@ NULL
     }
 }
 
-/* XSETID <stream> <groupname> <id>
+/* XSETID <stream> <id>
  *
  * Set the internal "last ID" of a stream. */
 void xsetidCommand(client *c) {
@@ -1982,7 +1982,7 @@ cleanup:
  *
  * If start and stop are omitted, the command just outputs information about
  * the amount of pending messages for the key/group pair, together with
- * the minimum and maxium ID of pending messages.
+ * the minimum and maximum ID of pending messages.
  *
  * If start and stop are provided instead, the pending messages are returned
  * with informations about the current owner, number of deliveries and last

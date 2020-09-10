@@ -182,6 +182,7 @@ start_server {tags {"cli"}} {
         set tmpfile [write_tmpfile "from file"]
         assert_equal "OK" [run_cli_with_input_file $tmpfile set key]
         assert_equal "from file" [r get key]
+        file delete $tmpfile
     }
 
     test_nontty_cli "Status reply" {
@@ -215,6 +216,7 @@ start_server {tags {"cli"}} {
         set tmpfile [write_tmpfile "from file"]
         assert_equal "OK" [run_cli_with_input_file $tmpfile set key]
         assert_equal "from file" [r get key]
+        file delete $tmpfile
     }
 
     proc test_redis_cli_rdb_dump {} {

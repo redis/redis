@@ -58,6 +58,19 @@ start_server {tags {"introspection"}} {
         }
     }
 
+    test {CONFIG save params special case handled properly} {
+        # No "save" keyword - defaults should apply
+        start_server {config "minimal.conf"} {
+            assert_match [r config get save] {save {3600 1 300 100 60 10000}}
+        }
+
+        # First "save" keyword overrides defaults
+        start_server {config "minimal.conf" overrides {save {100 100}}} {
+            # Defaults
+            assert_match [r config get save] {save {100 100}}
+        }
+    }
+
     test {CONFIG sanity} {
         # Do CONFIG GET, CONFIG SET and then CONFIG GET again
         # Skip immutable configs, one with no get, and other complicated configs
@@ -134,4 +147,28 @@ start_server {tags {"introspection"}} {
 
         }
     }
+
+    # Do a force-all config rewrite and make sure we're able to parse
+    # it.
+    test {CONFIG REWRITE sanity} {
+        # Capture state of config before
+        set configs {}
+        foreach {k v} [r config get *] {
+            dict set configs $k $v
+        }
+
+        # Rewrite entire configuration, restart and confirm the
+        # server is able to parse it and start.
+        assert_equal [r debug config-rewrite-force-all] "OK"
+        restart_server 0 0
+        assert_equal [r ping] "PONG"
+
+        # Verify no changes were introduced
+        dict for {k v} $configs {
+            assert_equal $v [lindex [r config get $k] 1]
+        }
+    }
+
+    # Config file at this point is at a wierd state, and includes all
+    # known keywords. Might be a good idea to avoid adding tests here.
 }

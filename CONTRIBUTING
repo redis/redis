@@ -40,6 +40,10 @@ Redis follows a responsible disclosure process:
 4. We push a fix release and your bug can be posted publicly with credit in
    release notes and the version history (and our thanks!)
 
+  Issues and pull requests for documentation belong on the redis-doc repo:
+
+      https://github.com/redis/redis-doc
+
 # How to provide a patch for a new feature
 
 1. If it is a major feature or a semantical change, please don't start coding

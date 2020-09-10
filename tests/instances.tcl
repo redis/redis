@@ -322,7 +322,7 @@ proc pause_on_error {} {
             puts "S <id> cmd ... arg     Call command in Sentinel <id>."
             puts "R <id> cmd ... arg     Call command in Redis <id>."
             puts "SI <id> <field>        Show Sentinel <id> INFO <field>."
-            puts "RI <id> <field>        Show Sentinel <id> INFO <field>."
+            puts "RI <id> <field>        Show Redis <id> INFO <field>."
             puts "continue               Resume test."
         } else {
             set errcode [catch {eval $line} retval]
@@ -422,10 +422,16 @@ proc S {n args} {
     [dict get $s link] {*}$args
 }
 
+# Returns a Redis instance by index.
+# Example:
+#     [Rn 0] info
+proc Rn {n} {
+    return [dict get [lindex $::redis_instances $n] link]
+}
+
 # Like R but to chat with Redis instances.
 proc R {n args} {
-    set r [lindex $::redis_instances $n]
-    [dict get $r link] {*}$args
+    [Rn $n] {*}$args
 }
 
 proc get_info_field {info field} {

@@ -289,7 +289,7 @@ void ACLFreeUserAndKillClients(user *u) {
     while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
         if (c->user == u) {
-            /* We'll free the conenction asynchronously, so
+            /* We'll free the connection asynchronously, so
              * in theory to set a different user is not needed.
              * However if there are bugs in Redis, soon or later
              * this may result in some security hole: it's much
