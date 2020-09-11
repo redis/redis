@@ -493,7 +493,7 @@ static void f_parser (lua_State *L, void *ud) {
   Proto *tf;
   Closure *cl;
   struct SParser *p = cast(struct SParser *, ud);
-  int c = luaZ_lookahead(p->z);
+  luaZ_lookahead(p->z);
   luaC_checkGC(L);
   tf = (luaY_parser)(L, p->z,
                                                              &p->buff, p->name);
