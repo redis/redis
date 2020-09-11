@@ -428,10 +428,18 @@ struct redisCommand redisCommandTable[] = {
 
     {"zunionstore",zunionstoreCommand,-4,
      "write use-memory @sortedset",
-     0,zunionInterGetKeys,0,0,0,0,0,0},
+     0,zunionInterStoreGetKeys,0,0,0,0,0,0},
 
     {"zinterstore",zinterstoreCommand,-4,
      "write use-memory @sortedset",
+     0,zunionInterStoreGetKeys,0,0,0,0,0,0},
+
+    {"zunion",zunionCommand,-3,
+     "read-only @sortedset",
+     0,zunionInterGetKeys,0,0,0,0,0,0},
+
+    {"zinter",zinterCommand,-3,
+     "read-only @sortedset",
      0,zunionInterGetKeys,0,0,0,0,0,0},
 
     {"zrange",zrangeCommand,-4,

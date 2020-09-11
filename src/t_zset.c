@@ -2196,7 +2196,15 @@ dictType setAccumulatorDictType = {
     NULL                       /* val destructor */
 };
 
-void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
+/* The zunionInterGenericCommand() function is called in order to implement the
+ * following commands: ZUNION, ZINTER, ZUNIONSTORE, ZINTERSTORE.
+ *
+ * 'numkeysIndex' parameter position of key number. for ZUNION/ZINTER command, this
+ * value is 1, for ZUNIONSTORE/ZINTERSTORE command, this value is 2.
+ *
+ * 'op' SET_OP_INTER or SET_OP_UNION.
+ */
+void zunionInterGenericCommand(client *c, robj *dstkey, int numkeysIndex, int op) {
     int i, j;
     long setnum;
     int aggregate = REDIS_AGGR_SUM;
@@ -2207,9 +2215,10 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
     robj *dstobj;
     zset *dstzset;
     zskiplistNode *znode;
+    int withscores = 0;
 
     /* expect setnum input keys to be given */
-    if ((getLongFromObjectOrReply(c, c->argv[2], &setnum, NULL) != C_OK))
+    if ((getLongFromObjectOrReply(c, c->argv[numkeysIndex], &setnum, NULL) != C_OK))
         return;
 
     if (setnum < 1) {
@@ -2219,14 +2228,14 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
     }
 
     /* test if the expected number of keys would overflow */
-    if (setnum > c->argc-3) {
+    if (setnum > (c->argc-(numkeysIndex+1))) {
         addReply(c,shared.syntaxerr);
         return;
     }
 
     /* read keys to be used for input */
     src = zcalloc(sizeof(zsetopsrc) * setnum);
-    for (i = 0, j = 3; i < setnum; i++, j++) {
+    for (i = 0, j = numkeysIndex+1; i < setnum; i++, j++) {
         robj *obj = lookupKeyWrite(c->db,c->argv[j]);
         if (obj != NULL) {
             if (obj->type != OBJ_ZSET && obj->type != OBJ_SET) {
@@ -2279,6 +2288,11 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
                     return;
                 }
                 j++; remaining--;
+            } else if (remaining >= 1 &&
+                       !strcasecmp(c->argv[j]->ptr,"withscores"))
+            {
+                j++; remaining--;
+                withscores = 1;
             } else {
                 zfree(src);
                 addReply(c,shared.syntaxerr);
@@ -2399,20 +2413,37 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
         serverPanic("Unknown operator");
     }
 
-    if (dstzset->zsl->length) {
-        zsetConvertToZiplistIfNeeded(dstobj,maxelelen);
-        setKey(c,c->db,dstkey,dstobj);
-        addReplyLongLong(c,zsetLength(dstobj));
-        notifyKeyspaceEvent(NOTIFY_ZSET,
-            (op == SET_OP_UNION) ? "zunionstore" : "zinterstore",
-            dstkey,c->db->id);
-        server.dirty++;
-    } else {
-        addReply(c,shared.czero);
-        if (dbDelete(c->db,dstkey)) {
-            signalModifiedKey(c,c->db,dstkey);
-            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",dstkey,c->db->id);
+    if (dstkey) {
+        if (dstzset->zsl->length) {
+            zsetConvertToZiplistIfNeeded(dstobj, maxelelen);
+            setKey(c, c->db, dstkey, dstobj);
+            addReplyLongLong(c, zsetLength(dstobj));
+            notifyKeyspaceEvent(NOTIFY_ZSET,
+                                (op == SET_OP_UNION) ? "zunionstore" : "zinterstore",
+                                dstkey, c->db->id);
             server.dirty++;
+        } else {
+            addReply(c, shared.czero);
+            if (dbDelete(c->db, dstkey)) {
+                signalModifiedKey(c, c->db, dstkey);
+                notifyKeyspaceEvent(NOTIFY_GENERIC, "del", dstkey, c->db->id);
+                server.dirty++;
+            }
+        }
+    } else {
+        unsigned long length = dstzset->zsl->length;
+        zskiplist *zsl = dstzset->zsl;
+        zskiplistNode *zn = zsl->header->level[0].forward;
+        if (withscores && c->resp == 2)
+            addReplyArrayLen(c, length*2);
+        else
+            addReplyArrayLen(c, length);
+
+        while (zn != NULL) {
+            if (withscores && c->resp > 2) addReplyArrayLen(c,2);
+            addReplyBulkCBuffer(c,zn->ele,sdslen(zn->ele));
+            if (withscores) addReplyDouble(c,zn->score);
+            zn = zn->level[0].forward;
         }
     }
     decrRefCount(dstobj);
@@ -2420,11 +2451,19 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
 }
 
 void zunionstoreCommand(client *c) {
-    zunionInterGenericCommand(c,c->argv[1], SET_OP_UNION);
+    zunionInterGenericCommand(c, c->argv[1], 2, SET_OP_UNION);
 }
 
 void zinterstoreCommand(client *c) {
-    zunionInterGenericCommand(c,c->argv[1], SET_OP_INTER);
+    zunionInterGenericCommand(c, c->argv[1], 2, SET_OP_INTER);
+}
+
+void zunionCommand(client *c) {
+    zunionInterGenericCommand(c, NULL, 1, SET_OP_UNION);
+}
+
+void zinterCommand(client *c) {
+    zunionInterGenericCommand(c, NULL, 1, SET_OP_INTER);
 }
 
 void zrangeGenericCommand(client *c, int reverse) {

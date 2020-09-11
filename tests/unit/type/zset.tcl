@@ -612,6 +612,12 @@ start_server {tags {"zset"}} {
             assert_equal 0 [r exists dst_key]
         }
 
+        test "ZUNION/ZINTER against non-existing key - $encoding" {
+            r del zseta
+            assert_equal {} [r zunion 1 zseta]
+            assert_equal {} [r zinter 1 zseta]
+        }
+
         test "ZUNIONSTORE with empty set - $encoding" {
             r del zseta zsetb
             r zadd zseta 1 a
@@ -619,6 +625,14 @@ start_server {tags {"zset"}} {
             r zunionstore zsetc 2 zseta zsetb
             r zrange zsetc 0 -1 withscores
         } {a 1 b 2}
+
+        test "ZUNION/ZINTER with empty set - $encoding" {
+            r del zseta zsetb
+            r zadd zseta 1 a
+            r zadd zseta 2 b
+            assert_equal {a 1 b 2} [r zunion 2 zseta zsetb withscores]
+            assert_equal {} [r zinter 2 zseta zsetb withscores]
+        }
 
         test "ZUNIONSTORE basics - $encoding" {
             r del zseta zsetb zsetc
@@ -633,9 +647,27 @@ start_server {tags {"zset"}} {
             assert_equal {a 1 b 3 d 3 c 5} [r zrange zsetc 0 -1 withscores]
         }
 
+        test "ZUNION/ZINTER with integer members - $encoding" {
+            r del zsetd zsetf
+            r zadd zsetd 1 1
+            r zadd zsetd 2 2
+            r zadd zsetd 3 3
+            r zadd zsetf 1 1
+            r zadd zsetf 3 3
+            r zadd zsetf 4 4
+
+            assert_equal {1 2 2 2 4 4 3 6} [r zunion 2 zsetd zsetf withscores]
+            assert_equal {1 2 3 6} [r zinter 2 zsetd zsetf withscores]
+        }
+
         test "ZUNIONSTORE with weights - $encoding" {
             assert_equal 4 [r zunionstore zsetc 2 zseta zsetb weights 2 3]
             assert_equal {a 2 b 7 d 9 c 12} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZUNION with weights - $encoding" {
+            assert_equal {a 2 b 7 d 9 c 12} [r zunion 2 zseta zsetb weights 2 3 withscores]
+            assert_equal {b 7 c 12} [r zinter 2 zseta zsetb weights 2 3 withscores]
         }
 
         test "ZUNIONSTORE with a regular set and weights - $encoding" {
@@ -653,9 +685,19 @@ start_server {tags {"zset"}} {
             assert_equal {a 1 b 1 c 2 d 3} [r zrange zsetc 0 -1 withscores]
         }
 
+        test "ZUNION/ZINTER with AGGREGATE MIN - $encoding" {
+            assert_equal {a 1 b 1 c 2 d 3} [r zunion 2 zseta zsetb aggregate min withscores]
+            assert_equal {b 1 c 2} [r zinter 2 zseta zsetb aggregate min withscores]
+        }
+
         test "ZUNIONSTORE with AGGREGATE MAX - $encoding" {
             assert_equal 4 [r zunionstore zsetc 2 zseta zsetb aggregate max]
             assert_equal {a 1 b 2 c 3 d 3} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZUNION/ZINTER with AGGREGATE MAX - $encoding" {
+            assert_equal {a 1 b 2 c 3 d 3} [r zunion 2 zseta zsetb aggregate max withscores]
+            assert_equal {b 2 c 3} [r zinter 2 zseta zsetb aggregate max withscores]
         }
 
         test "ZINTERSTORE basics - $encoding" {
@@ -663,9 +705,17 @@ start_server {tags {"zset"}} {
             assert_equal {b 3 c 5} [r zrange zsetc 0 -1 withscores]
         }
 
+        test "ZINTER basics - $encoding" {
+            assert_equal {b 3 c 5} [r zinter 2 zseta zsetb withscores]
+        }
+
         test "ZINTERSTORE with weights - $encoding" {
             assert_equal 2 [r zinterstore zsetc 2 zseta zsetb weights 2 3]
             assert_equal {b 7 c 12} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZINTER with weights - $encoding" {
+            assert_equal {b 7 c 12} [r zinter 2 zseta zsetb weights 2 3 withscores]
         }
 
         test "ZINTERSTORE with a regular set and weights - $encoding" {

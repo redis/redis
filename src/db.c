@@ -1388,7 +1388,7 @@ void getKeysFreeResult(int *result) {
 /* Helper function to extract keys from following commands:
  * ZUNIONSTORE <destkey> <num-keys> <key> <key> ... <key> <options>
  * ZINTERSTORE <destkey> <num-keys> <key> <key> ... <key> <options> */
-int *zunionInterGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+int *zunionInterStoreGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
     int i, num, *keys;
     UNUSED(cmd);
 
@@ -1413,6 +1413,31 @@ int *zunionInterGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *nu
     /* Finally add the argv[1] key position (the storage key target). */
     keys[num] = 1;
     *numkeys = num+1;  /* Total keys = {union,inter} keys + storage key */
+    return keys;
+}
+
+/* Helper function to extract keys from following commands:
+ * ZUNION <num-keys> <key> <key> ... <key> <options>
+ * ZINTER <num-keys> <key> <key> ... <key> <options> */
+int *zunionInterGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+    int i, num, *keys;
+    UNUSED(cmd);
+
+    num = atoi(argv[1]->ptr);
+    /* Sanity check. Don't return any key if the command is going to
+     * reply with syntax error. */
+    if (num < 1 || num > (argc-2)) {
+        *numkeys = 0;
+        return NULL;
+    }
+
+    keys = getKeysTempBuffer;
+    if (num>MAX_KEYS_BUFFER)
+        keys = zmalloc(sizeof(int)*(num));
+
+    /* Add all key positions for argv[2...n] to keys[] */
+    for (i = 0; i < num; i++) keys[i] = 2+i;
+    *numkeys = num;
     return keys;
 }
 
