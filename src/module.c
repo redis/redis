@@ -357,11 +357,6 @@ unsigned long long ModulesInHooks = 0; /* Total number of modules in hooks
 
 /* Data structures related to the redis module users */
 
-/* This callback type is called by moduleNotifyUserChanged() every time
- * a user authenticated via the module API is associated with a different
- * user or gets disconnected. */
-typedef void (*RedisModuleUserChangedFunc) (uint64_t client_id, void *privdata);
-
 /* This is the object returned by RM_CreateModuleUser(). The module API is
  * able to create users, set ACLs to such users, and later authenticate
  * clients using such newly created users. */
