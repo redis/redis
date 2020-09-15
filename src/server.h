@@ -1050,6 +1050,7 @@ struct clusterState;
 struct redisServer {
     /* General */
     pid_t pid;                  /* Main process pid. */
+    pthread_t main_thread_id;         /* Main thread id */
     char *configfile;           /* Absolute config file path, or NULL */
     char *executable;           /* Absolute executable file path. */
     char **exec_argv;           /* Executable argv vector (copy). */
