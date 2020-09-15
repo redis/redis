@@ -243,6 +243,7 @@ proc parse_options {} {
             puts "--pause-on-error        Pause for manual inspection on error."
             puts "--fail                  Simulate a test failure."
             puts "--valgrind              Run with valgrind."
+            puts "--tls                   Run tests in TLS mode."
             puts "--help                  Shows this help."
             exit 0
         } else {
