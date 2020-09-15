@@ -1512,6 +1512,26 @@ int memtest_test_linux_anonymous_maps(void) {
 }
 #endif
 
+static void killMainThread(void) {
+    int err;
+    if (pthread_self() != server.main_thread_id && pthread_cancel(server.main_thread_id) == 0) {
+        if ((err = pthread_join(server.main_thread_id,NULL)) != 0) {
+            serverLog(LL_WARNING, "main thread can not be joined: %s", strerror(err));
+        } else {
+            serverLog(LL_WARNING, "main thread terminated");
+        }
+    }
+}
+
+/* Kill the running threads (other than current) in an unclean way. This function
+ * should be used only when it's critical to stop the threads for some reason.
+ * Currently Redis does this only on crash (for instance on SIGSEGV) in order
+ * to perform a fast memory check without other threads messing with memory. */
+static void killThreads(void) {
+    killMainThread();
+    bioKillThreads();
+}
+
 /* Scans the (assumed) x86 code starting at addr, for a max of `len`
  * bytes, searching for E8 (callq) opcodes, and dumping the symbols
  * and the call offset if they appear to be valid. */
@@ -1589,7 +1609,7 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
 #if defined(HAVE_PROC_MAPS)
     /* Test memory */
     serverLogRaw(LL_WARNING|LL_RAW, "\n------ FAST MEMORY TEST ------\n");
-    bioKillThreads();
+    killThreads();
     if (memtest_test_linux_anonymous_maps()) {
         serverLogRaw(LL_WARNING|LL_RAW,
             "!!! MEMORY ERROR DETECTED! Check your memory ASAP !!!\n");
