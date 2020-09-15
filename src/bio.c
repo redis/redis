@@ -268,10 +268,11 @@ void bioKillThreads(void) {
     int err, j;
 
     for (j = 0; j < BIO_NUM_OPS; j++) {
+        if (bio_threads[j] == pthread_self()) continue;
         if (bio_threads[j] && pthread_cancel(bio_threads[j]) == 0) {
             if ((err = pthread_join(bio_threads[j],NULL)) != 0) {
                 serverLog(LL_WARNING,
-                    "Bio thread for job type #%d can be joined: %s",
+                    "Bio thread for job type #%d can not be joined: %s",
                         j, strerror(err));
             } else {
                 serverLog(LL_WARNING,
