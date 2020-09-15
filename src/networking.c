@@ -819,7 +819,7 @@ void addReplySubcommandSyntaxError(client *c) {
     sdsfree(cmd);
 }
 
-/* Append 'src' client output buffers into 'dst' client output buffers. 
+/* Append 'src' client output buffers into 'dst' client output buffers.
  * This function clears the output buffers of 'src' */
 void AddReplyFromClient(client *dst, client *src) {
     if (prepareClientToWrite(dst) != C_OK)
@@ -2945,6 +2945,8 @@ int io_threads_op;      /* IO_THREADS_OP_WRITE or IO_THREADS_OP_READ. */
  * used. We spawn io_threads_num-1 threads, since one is the main thread
  * itself. */
 list *io_threads_list[IO_THREADS_MAX_NUM];
+pthread_mutex_t io_threads_final_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t io_threads_final_cond = PTHREAD_COND_INITIALIZER;
 
 void *IOThreadMain(void *myid) {
     /* The ID is the thread number (from 0 to server.iothreads_num-1), and is
@@ -2990,6 +2992,11 @@ void *IOThreadMain(void *myid) {
         }
         listEmpty(io_threads_list[id]);
         io_threads_pending[id] = 0;
+
+        /* Send signal to master thread */
+        pthread_mutex_lock(&io_threads_final_mutex);
+        pthread_cond_signal(&io_threads_final_cond);
+        pthread_mutex_unlock(&io_threads_final_mutex);
 
         if (tio_debug) printf("[%ld] Done\n", id);
     }
@@ -3167,6 +3174,14 @@ int postponeClientRead(client *c) {
     }
 }
 
+/* Get all IO threads processing pending clients */
+inline unsigned long getIOThreadsPendingClients() {
+    unsigned long pending = 0;
+    for (int j = 1; j < server.io_threads_num; j++)
+        pending += io_threads_pending[j];
+    return pending;
+}
+
 /* When threaded I/O is also enabled for the reading + parsing side, the
  * readable handler will just put normal clients into a queue of clients to
  * process (instead of serving them synchronously). This function runs
@@ -3209,11 +3224,14 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     listEmpty(io_threads_list[0]);
 
     /* Wait for all the other threads to end their work. */
-    while(1) {
-        unsigned long pending = 0;
-        for (int j = 1; j < server.io_threads_num; j++)
-            pending += io_threads_pending[j];
-        if (pending == 0) break;
+    while (1) {
+        if (getIOThreadsPendingClients() == 0) break; /* Fast try */
+
+        pthread_mutex_lock(&io_threads_final_mutex); /* Wait for IO threads signal */
+        while (getIOThreadsPendingClients() > 0) {
+            pthread_cond_wait(&io_threads_final_cond, &io_threads_final_mutex);
+        }
+        pthread_mutex_unlock(&io_threads_final_mutex);
     }
     if (tio_debug) printf("I/O READ All threads finshed\n");
 
