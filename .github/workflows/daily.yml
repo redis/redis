@@ -109,6 +109,7 @@ jobs:
       run: make valgrind
     - name: test
       run: |
+        sudo apt-get update
         sudo apt-get install tcl8.5 valgrind -y
         ./runtest --valgrind --verbose --clients 1
     - name: module api test

@@ -193,7 +193,7 @@ sds setTypeNextObject(setTypeIterator *si) {
 }
 
 /* Return random element from a non empty set.
- * The returned element can be a int64_t value if the set is encoded
+ * The returned element can be an int64_t value if the set is encoded
  * as an "intset" blob of integers, or an SDS string if the set
  * is a regular set.
  *
@@ -458,7 +458,7 @@ void spopWithCountCommand(client *c) {
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
 
-        /* Propagate this command as an DEL operation */
+        /* Propagate this command as a DEL operation */
         rewriteClientCommandVector(c,2,shared.del,c->argv[1]);
         signalModifiedKey(c,c->db,c->argv[1]);
         server.dirty++;
@@ -692,7 +692,7 @@ void srandmemberWithCountCommand(client *c) {
      * In this case we create a set from scratch with all the elements, and
      * subtract random elements to reach the requested number of elements.
      *
-     * This is done because if the number of requsted elements is just
+     * This is done because if the number of requested elements is just
      * a bit less than the number of elements in the set, the natural approach
      * used into CASE 3 is highly inefficient. */
     if (count*SRANDMEMBER_SUB_STRATEGY_MUL > size) {

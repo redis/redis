@@ -108,7 +108,7 @@ proc test {name code {okpattern undefined} {options undefined}} {
         return
     }
 
-    # abort if test name in skiptests
+    # abort if only_tests was set but test name is not included
     if {[llength $::only_tests] > 0 && [lsearch $::only_tests $name] < 0} {
         incr ::num_skipped
         send_data_packet $::test_server_fd skip $name
