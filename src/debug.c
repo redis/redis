@@ -1583,6 +1583,7 @@ static void killMainThread(void) {
 static void killThreads(void) {
     killMainThread();
     bioKillThreads();
+    killIOThreads();
 }
 
 void doFastMemoryTest(void) {

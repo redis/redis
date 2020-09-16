@@ -2478,6 +2478,7 @@ void mixDigest(unsigned char *digest, void *ptr, size_t len);
 void xorDigest(unsigned char *digest, void *ptr, size_t len);
 int populateCommandTableParseFlags(struct redisCommand *c, char *strflags);
 void debugDelay(int usec);
+void killIOThreads(void);
 
 /* TLS stuff */
 void tlsInit(void);
