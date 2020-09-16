@@ -1530,6 +1530,7 @@ static void killMainThread(void) {
 static void killThreads(void) {
     killMainThread();
     bioKillThreads();
+    killIOThreads();
 }
 
 /* Scans the (assumed) x86 code starting at addr, for a max of `len`
