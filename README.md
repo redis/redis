@@ -354,7 +354,7 @@ Inside server.c you can find code that handles other vital things of the Redis s
 
 * `call()` is used in order to call a given command in the context of a given client.
 * `activeExpireCycle()` handles eviction of keys with a time to live set via the `EXPIRE` command.
-* `freeMemoryIfNeeded()` is called when a new write command should be performed but Redis is out of memory according to the `maxmemory` directive.
+* `performEvictions()` is called when a new write command should be performed but Redis is out of memory according to the `maxmemory` directive.
 * The global variable `redisCommandTable` defines all the Redis commands, specifying the name of the command, the function implementing the command, the number of arguments required, and other properties of each command.
 
 networking.c

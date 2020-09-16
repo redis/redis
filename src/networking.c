@@ -1830,8 +1830,8 @@ int processCommandAndResetClient(client *c) {
     }
     if (server.current_client == NULL) deadclient = 1;
     server.current_client = NULL;
-    /* freeMemoryIfNeeded may flush slave output buffers. This may
-     * result into a slave, that may be the active client, to be
+    /* performEvictions may flush slave output buffers. This may
+     * result in a slave, that may be the active client, to be
      * freed. */
     return deadclient ? C_ERR : C_OK;
 }
@@ -2797,7 +2797,7 @@ void asyncCloseClientOnOutputBufferLimitReached(client *c) {
     }
 }
 
-/* Helper function used by freeMemoryIfNeeded() in order to flush slaves
+/* Helper function used by performEvictions() in order to flush slaves
  * output buffers without returning control to the event loop.
  * This is also called by SHUTDOWN for a best-effort attempt to send
  * slaves the latest writes. */
@@ -3025,6 +3025,23 @@ void initThreadedIO(void) {
             exit(1);
         }
         io_threads[i] = tid;
+    }
+}
+
+void killIOThreads(void) {
+    int err, j;
+    for (j = 0; j < server.io_threads_num; j++) {
+        if (io_threads[j] == pthread_self()) continue;
+        if (io_threads[j] && pthread_cancel(io_threads[j]) == 0) {
+            if ((err = pthread_join(io_threads[j],NULL)) != 0) {
+                serverLog(LL_WARNING,
+                    "IO thread(tid:%lu) can not be joined: %s",
+                        (unsigned long)io_threads[j], strerror(err));
+            } else {
+                serverLog(LL_WARNING,
+                    "IO thread(tid:%lu) terminated",(unsigned long)io_threads[j]);
+            }
+        }
     }
 }
 

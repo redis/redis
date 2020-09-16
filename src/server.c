@@ -71,7 +71,6 @@ double R_Zero, R_PosInf, R_NegInf, R_Nan;
 
 /* Global vars */
 struct redisServer server; /* Server global state */
-volatile unsigned long lru_clock; /* Server global current LRU time. */
 
 /* Our command table.
  *
@@ -2881,6 +2880,7 @@ void initServer(void) {
     server.hz = server.config_hz;
     server.pid = getpid();
     server.in_fork_child = CHILD_TYPE_NONE;
+    server.main_thread_id = pthread_self();
     server.current_client = NULL;
     server.fixed_time_expire = 0;
     server.clients = listCreate();
@@ -3683,9 +3683,9 @@ int processCommand(client *c) {
      * condition, to avoid mixing the propagation of scripts with the
      * propagation of DELs due to eviction. */
     if (server.maxmemory && !server.lua_timedout) {
-        int out_of_memory = freeMemoryIfNeededAndSafe() == C_ERR;
-        /* freeMemoryIfNeeded may flush slave output buffers. This may result
-         * into a slave, that may be the active client, to be freed. */
+        int out_of_memory = (performEvictions() == EVICT_FAIL);
+        /* performEvictions may flush slave output buffers. This may result
+         * in a slave, that may be the active client, to be freed. */
         if (server.current_client == NULL) return C_ERR;
 
         int reject_cmd_on_oom = is_denyoom_command;
@@ -5178,7 +5178,6 @@ int iAmMaster(void) {
     return ((!server.cluster_enabled && server.masterhost == NULL) ||
             (server.cluster_enabled && nodeIsMaster(server.cluster->myself)));
 }
-
 
 int main(int argc, char **argv) {
     struct timeval tv;
