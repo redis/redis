@@ -7179,6 +7179,20 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *              int32_t progress;  // Approximate progress between 0 and 1024,
  *                                    or -1 if unknown.
  *
+ *      RedisModuleEvent_SwapDB
+ *
+ *          This event is called when a swap db command has been successfully 
+ *          Executed. 
+ *          For this event call currently there is no subevents available.
+ *
+ *          The data pointer can be casted to a RedisModuleSwapDbInfo
+ *          structure with the following fields:
+ *
+ *             int32_t dbnum_first;    // Swap Db first dbnum 
+ *             int32_t dbnum_second;   // Swap Db second dbnum 
+ *
+ *
+ *
  * The function returns REDISMODULE_OK if the module was successfully subscribed
  * for the specified event. If the API is called from a wrong context then
  * REDISMODULE_ERR is returned. */
@@ -7282,6 +7296,8 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
             } else if (eid == REDISMODULE_EVENT_LOADING_PROGRESS) {
                 moduledata = data;
             } else if (eid == REDISMODULE_EVENT_CRON_LOOP) {
+                moduledata = data;
+            } else if (eid == REDISMODULE_EVENT_SWAPDB) {
                 moduledata = data;
             }
 
