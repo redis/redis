@@ -70,4 +70,36 @@ start_server {tags {"obuf-limits"}} {
         assert {$omem >= 100000 && $time_elapsed < 6}
         $rd1 close
     }
+
+    test {Won't write replies if client output buffer hard limit is enforced} {
+        r config set client-output-buffer-limit {normal 100000 0 0}
+        # One item is 1k
+        set item "HelloWord"
+        for {set i 0} {$i < 100} {incr i} {
+            append item "HelloWord"
+        }
+        # Total size of all items must be more than 100k
+        for {set i 0} {$i < 150} {incr i} {
+            r lpush mylist $item
+        }
+        set orig_mem [s used_memory]
+        # Set client name and get all items
+        set rd [redis_deferring_client]
+        $rd client setname mybiglist
+        assert {[$rd read] eq "OK"}
+        $rd lrange mylist 0 -1
+        $rd flush
+        after 100
+
+        # Before we read reply, redis will close this client.
+        set clients [r client list]
+        assert_no_match "*name=mybiglist*" $clients
+        set cur_mem [s used_memory]
+        # 10k just is a deviation threshold
+        assert {$cur_mem < 10000 + $orig_mem}
+
+        # Read nothing
+        set fd [$rd channel]
+        assert {[read $fd] eq {}}
+    }
 }
