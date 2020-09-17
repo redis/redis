@@ -20,7 +20,7 @@ DEPENDENCY_TARGETS=hiredis linenoise lua hdr_histogram
 NODEPS:=clean distclean
 
 # Default settings
-STD=-std=c11 -pedantic -DREDIS_STATIC=''
+STD=-pedantic -DREDIS_STATIC=''
 ifneq (,$(findstring clang,$(CC)))
 ifneq (,$(findstring FreeBSD,$(uname_S)))
   STD+=-Wno-c11-extensions
@@ -28,6 +28,16 @@ endif
 endif
 WARN=-Wall -W -Wno-missing-field-initializers
 OPT=$(OPTIMIZATION)
+
+# Detect if the compiler supports C11 _Atomic
+C11_ATOMIC := $(shell sh -c 'echo "\#include <stdatomic.h>" > foo.c; \
+	$(CC) -std=c11 -c foo.c -o foo.o &> /dev/null; \
+	if [ -f foo.o ]; then echo "yes"; rm foo.o; fi; rm foo.c')
+ifeq ($(C11_ATOMIC),yes)
+	STD+=-std=c11
+else
+	STD+=-std=c99
+endif
 
 PREFIX?=/usr/local
 INSTALL_BIN=$(PREFIX)/bin
@@ -367,7 +377,7 @@ valgrind:
 	$(MAKE) OPTIMIZATION="-O0" MALLOC="libc"
 
 helgrind:
-	$(MAKE) OPTIMIZATION="-O0" MALLOC="libc" CFLAGS="-D__ATOMIC_VAR_FORCE_SYNC_MACROS"
+	$(MAKE) OPTIMIZATION="-O0" MALLOC="libc" CFLAGS="-D__ATOMIC_VAR_FORCE_SYNC_MACROS" REDIS_CFLAGS="-I/usr/local/include" REDIS_LDFLAGS="-L/usr/local/lib"
 
 src/help.h:
 	@../utils/generate-command-help.rb > help.h

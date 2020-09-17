@@ -1764,7 +1764,8 @@ void databasesCron(void) {
 void updateCachedTime(int update_daylight_info) {
     server.ustime = ustime();
     server.mstime = server.ustime / 1000;
-    server.unixtime = server.mstime / 1000;
+    time_t unixtime = server.mstime / 1000;
+    atomicSet(server.unixtime, unixtime);
 
     /* To get information about daylight saving time, we need to call
      * localtime_r and cache the result. However calling localtime_r in this
@@ -1913,11 +1914,15 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     run_with_period(100) {
+        long long stat_net_input_bytes, stat_net_output_bytes;
+        atomicGet(server.stat_net_input_bytes, stat_net_input_bytes);
+        atomicGet(server.stat_net_output_bytes, stat_net_output_bytes);
+
         trackInstantaneousMetric(STATS_METRIC_COMMAND,server.stat_numcommands);
         trackInstantaneousMetric(STATS_METRIC_NET_INPUT,
-                server.stat_net_input_bytes);
+                stat_net_input_bytes);
         trackInstantaneousMetric(STATS_METRIC_NET_OUTPUT,
-                server.stat_net_output_bytes);
+                stat_net_output_bytes);
     }
 
     /* We have just LRU_BITS bits per object for LRU information.
@@ -1931,7 +1936,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      *
      * Note that you can change the resolution altering the
      * LRU_CLOCK_RESOLUTION define. */
-    server.lruclock = getLRUClock();
+    unsigned int lruclock = getLRUClock();
+    atomicSet(server.lruclock,lruclock);
 
     cronUpdateMemoryStats();
 
@@ -2443,7 +2449,8 @@ void initServerConfig(void) {
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.loading_process_events_interval_bytes = (1024*1024*2);
 
-    server.lruclock = getLRUClock();
+    unsigned int lruclock = getLRUClock();
+    atomicSet(server.lruclock,lruclock);
     resetServerSaveParams();
 
     appendServerSaveParams(60*60,1);  /* save after 1 hour and 1 change */
@@ -2846,9 +2853,9 @@ void resetServerStats(void) {
     server.stat_sync_partial_ok = 0;
     server.stat_sync_partial_err = 0;
     server.stat_io_reads_processed = 0;
-    server.stat_total_reads_processed = 0;
+    atomicSet(server.stat_total_reads_processed, 0);
     server.stat_io_writes_processed = 0;
-    server.stat_total_writes_processed = 0;
+    atomicSet(server.stat_total_writes_processed, 0);
     for (j = 0; j < STATS_METRIC_COUNT; j++) {
         server.inst_metric[j].idx = 0;
         server.inst_metric[j].last_sample_time = mstime();
@@ -2856,8 +2863,8 @@ void resetServerStats(void) {
         memset(server.inst_metric[j].samples,0,
             sizeof(server.inst_metric[j].samples));
     }
-    server.stat_net_input_bytes = 0;
-    server.stat_net_output_bytes = 0;
+    atomicSet(server.stat_net_input_bytes, 0);
+    atomicSet(server.stat_net_output_bytes, 0);
     server.stat_unexpected_error_replies = 0;
     server.aof_delayed_fsync = 0;
     server.blocked_last_cron = 0;
@@ -4186,6 +4193,8 @@ sds genRedisInfoString(const char *section) {
             call_uname = 0;
         }
 
+        unsigned int lruclock;
+        atomicGet(server.lruclock,lruclock);
         info = sdscatfmt(info,
             "# Server\r\n"
             "redis_version:%s\r\n"
@@ -4230,7 +4239,7 @@ sds genRedisInfoString(const char *section) {
             (int64_t)(uptime/(3600*24)),
             server.hz,
             server.config_hz,
-            server.lruclock,
+            lruclock,
             server.executable ? server.executable : "",
             server.configfile ? server.configfile : "",
             server.io_threads_active);
@@ -4472,6 +4481,13 @@ sds genRedisInfoString(const char *section) {
 
     /* Stats */
     if (allsections || defsections || !strcasecmp(section,"stats")) {
+        long long stat_total_reads_processed, stat_total_writes_processed;
+        long long stat_net_input_bytes, stat_net_output_bytes;
+        atomicGet(server.stat_total_reads_processed, stat_total_reads_processed);
+        atomicGet(server.stat_total_writes_processed, stat_total_writes_processed);
+        atomicGet(server.stat_net_input_bytes, stat_net_input_bytes);
+        atomicGet(server.stat_net_output_bytes, stat_net_output_bytes);
+
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Stats\r\n"
@@ -4513,8 +4529,8 @@ sds genRedisInfoString(const char *section) {
             server.stat_numconnections,
             server.stat_numcommands,
             getInstantaneousMetric(STATS_METRIC_COMMAND),
-            server.stat_net_input_bytes,
-            server.stat_net_output_bytes,
+            stat_net_input_bytes,
+            stat_net_output_bytes,
             (float)getInstantaneousMetric(STATS_METRIC_NET_INPUT)/1024,
             (float)getInstantaneousMetric(STATS_METRIC_NET_OUTPUT)/1024,
             server.stat_rejected_conn,
@@ -4541,8 +4557,8 @@ sds genRedisInfoString(const char *section) {
             (unsigned long long) trackingGetTotalItems(),
             (unsigned long long) trackingGetTotalPrefixes(),
             server.stat_unexpected_error_replies,
-            server.stat_total_reads_processed,
-            server.stat_total_writes_processed,
+            stat_total_reads_processed,
+            stat_total_writes_processed,
             server.stat_io_reads_processed,
             server.stat_io_writes_processed);
     }

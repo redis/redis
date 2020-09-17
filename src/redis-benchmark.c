@@ -76,11 +76,11 @@ static struct config {
     int hostport;
     const char *hostsocket;
     int numclients;
-    int liveclients;
+    redisAtomic int liveclients;
     int requests;
-    int requests_issued;
-    int requests_finished;
-    int previous_requests_finished;
+    redisAtomic int requests_issued;
+    redisAtomic int requests_finished;
+    redisAtomic int previous_requests_finished;
     int last_printed_bytes;
     long long previous_tick;
     int keysize;
@@ -113,18 +113,12 @@ static struct config {
     struct redisConfig *redis_config;
     struct hdr_histogram* latency_histogram;
     struct hdr_histogram* current_sec_latency_histogram;
-    int is_fetching_slots;
-    int is_updating_slots;
-    int slots_last_update;
+    redisAtomic int is_fetching_slots;
+    redisAtomic int is_updating_slots;
+    redisAtomic int slots_last_update;
     int enable_tracking;
-    /* Thread mutexes to be used as fallbacks by atomicvar.h */
-    pthread_mutex_t requests_issued_mutex;
-    pthread_mutex_t requests_finished_mutex;
     pthread_mutex_t liveclients_mutex;
-    pthread_mutex_t is_fetching_slots_mutex;
     pthread_mutex_t is_updating_slots_mutex;
-    pthread_mutex_t updating_slots_mutex;
-    pthread_mutex_t slots_last_update_mutex;
 } config;
 
 typedef struct _client {
@@ -1669,13 +1663,8 @@ int main(int argc, const char **argv) {
             fprintf(stderr, "WARN: could not fetch server CONFIG\n");
     }
     if (config.num_threads > 0) {
-        pthread_mutex_init(&(config.requests_issued_mutex), NULL);
-        pthread_mutex_init(&(config.requests_finished_mutex), NULL);
         pthread_mutex_init(&(config.liveclients_mutex), NULL);
-        pthread_mutex_init(&(config.is_fetching_slots_mutex), NULL);
         pthread_mutex_init(&(config.is_updating_slots_mutex), NULL);
-        pthread_mutex_init(&(config.updating_slots_mutex), NULL);
-        pthread_mutex_init(&(config.slots_last_update_mutex), NULL);
     }
 
     if (config.keepalive == 0) {

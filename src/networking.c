@@ -103,7 +103,8 @@ client *createClient(connection *conn) {
     }
 
     selectDb(c,0);
-    uint64_t client_id = ++server.next_client_id;
+    uint64_t client_id;
+    atomicGetIncr(server.next_client_id, client_id, 1);
     c->id = client_id;
     c->resp = 2;
     c->conn = conn;
@@ -1314,7 +1315,7 @@ client *lookupClientByID(uint64_t id) {
  * thread safe. */
 int writeToClient(client *c, int handler_installed) {
     /* Update total number of writes on server */
-    server.stat_total_writes_processed++;
+    atomicIncr(server.stat_total_writes_processed, 1);
 
     ssize_t nwritten = 0, totwritten = 0;
     size_t objlen;
@@ -1376,7 +1377,7 @@ int writeToClient(client *c, int handler_installed) {
              zmalloc_used_memory() < server.maxmemory) &&
             !(c->flags & CLIENT_SLAVE)) break;
     }
-    server.stat_net_output_bytes += totwritten;
+    atomicIncr(server.stat_net_output_bytes, totwritten);
     if (nwritten == -1) {
         if (connGetState(c->conn) == CONN_STATE_CONNECTED) {
             nwritten = 0;
@@ -1933,7 +1934,7 @@ void readQueryFromClient(connection *conn) {
     if (postponeClientRead(c)) return;
 
     /* Update total number of reads on server */
-    server.stat_total_reads_processed++;
+    atomicIncr(server.stat_total_reads_processed, 1);
 
     readlen = PROTO_IOBUF_LEN;
     /* If this is a multi bulk request, and we are processing a bulk reply
@@ -1979,7 +1980,7 @@ void readQueryFromClient(connection *conn) {
     sdsIncrLen(c->querybuf,nread);
     c->lastinteraction = server.unixtime;
     if (c->flags & CLIENT_MASTER) c->read_reploff += nread;
-    server.stat_net_input_bytes += nread;
+    atomicIncr(server.stat_net_input_bytes, nread);
     if (sdslen(c->querybuf) > server.client_max_querybuf_len) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
 
@@ -2938,13 +2939,23 @@ int tio_debug = 0;
 
 pthread_t io_threads[IO_THREADS_MAX_NUM];
 pthread_mutex_t io_threads_mutex[IO_THREADS_MAX_NUM];
-_Atomic unsigned long io_threads_pending[IO_THREADS_MAX_NUM];
+redisAtomic unsigned long io_threads_pending[IO_THREADS_MAX_NUM];
 int io_threads_op;      /* IO_THREADS_OP_WRITE or IO_THREADS_OP_READ. */
 
 /* This is the list of clients each thread will serve when threaded I/O is
  * used. We spawn io_threads_num-1 threads, since one is the main thread
  * itself. */
 list *io_threads_list[IO_THREADS_MAX_NUM];
+
+static inline unsigned long getIOPendingCount(int i) {
+    unsigned long count = 0;
+    atomicGetWithSync(io_threads_pending[i], count);
+    return count;
+}
+
+static inline void setIOPendingCount(int i, unsigned long count) {
+    atomicSetWithSync(io_threads_pending[i], count);
+}
 
 void *IOThreadMain(void *myid) {
     /* The ID is the thread number (from 0 to server.iothreads_num-1), and is
@@ -2959,17 +2970,17 @@ void *IOThreadMain(void *myid) {
     while(1) {
         /* Wait for start */
         for (int j = 0; j < 1000000; j++) {
-            if (io_threads_pending[id] != 0) break;
+            if (getIOPendingCount(id) != 0) break;
         }
 
         /* Give the main thread a chance to stop this thread. */
-        if (io_threads_pending[id] == 0) {
+        if (getIOPendingCount(id) == 0) {
             pthread_mutex_lock(&io_threads_mutex[id]);
             pthread_mutex_unlock(&io_threads_mutex[id]);
             continue;
         }
 
-        serverAssert(io_threads_pending[id] != 0);
+        serverAssert(getIOPendingCount(id) != 0);
 
         if (tio_debug) printf("[%ld] %d to handle\n", id, (int)listLength(io_threads_list[id]));
 
@@ -2989,7 +3000,7 @@ void *IOThreadMain(void *myid) {
             }
         }
         listEmpty(io_threads_list[id]);
-        io_threads_pending[id] = 0;
+        setIOPendingCount(id, 0);
 
         if (tio_debug) printf("[%ld] Done\n", id);
     }
@@ -3018,7 +3029,7 @@ void initThreadedIO(void) {
         /* Things we do only for the additional threads. */
         pthread_t tid;
         pthread_mutex_init(&io_threads_mutex[i],NULL);
-        io_threads_pending[i] = 0;
+        setIOPendingCount(i, 0);
         pthread_mutex_lock(&io_threads_mutex[i]); /* Thread will be stopped. */
         if (pthread_create(&tid,NULL,IOThreadMain,(void*)(long)i) != 0) {
             serverLog(LL_WARNING,"Fatal: Can't initialize IO thread.");
@@ -3124,7 +3135,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     io_threads_op = IO_THREADS_OP_WRITE;
     for (int j = 1; j < server.io_threads_num; j++) {
         int count = listLength(io_threads_list[j]);
-        io_threads_pending[j] = count;
+        setIOPendingCount(j, count);
     }
 
     /* Also use the main thread to process a slice of clients. */
@@ -3139,7 +3150,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     while(1) {
         unsigned long pending = 0;
         for (int j = 1; j < server.io_threads_num; j++)
-            pending += io_threads_pending[j];
+            pending += getIOPendingCount(j);
         if (pending == 0) break;
     }
     if (tio_debug) printf("I/O WRITE All threads finshed\n");
@@ -3214,7 +3225,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     io_threads_op = IO_THREADS_OP_READ;
     for (int j = 1; j < server.io_threads_num; j++) {
         int count = listLength(io_threads_list[j]);
-        io_threads_pending[j] = count;
+        setIOPendingCount(j, count);
     }
 
     /* Also use the main thread to process a slice of clients. */
@@ -3229,7 +3240,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     while(1) {
         unsigned long pending = 0;
         for (int j = 1; j < server.io_threads_num; j++)
-            pending += io_threads_pending[j];
+            pending += getIOPendingCount(j);
         if (pending == 0) break;
     }
     if (tio_debug) printf("I/O READ All threads finshed\n");
