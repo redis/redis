@@ -1077,6 +1077,17 @@ void scriptingEnableGlobalsProtection(lua_State *lua) {
     sdsfree(code);
 }
 
+static void *l_alloc (void *ud, void *ptr, size_t osize, size_t nsize) {
+  (void)ud;
+  (void)osize;
+  if (nsize == 0) {
+    zfree(ptr);
+    return NULL;
+  }
+  else
+    return zrealloc(ptr, nsize);
+}
+
 /* Initialize the scripting environment.
  *
  * This function is called the first time at server startup with
@@ -1088,7 +1099,7 @@ void scriptingEnableGlobalsProtection(lua_State *lua) {
  *
  * However it is simpler to just call scriptingReset() that does just that. */
 void scriptingInit(int setup) {
-    lua_State *lua = lua_open();
+    lua_State *lua = lua_open_with_alloc(l_alloc);
 
     if (setup) {
         server.lua_client = NULL;

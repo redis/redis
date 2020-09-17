@@ -1012,6 +1012,10 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
             sdsZmallocSize(listNodeValue(listFirst(server.repl_scriptcache_fifo))));
     }
     mh->lua_caches = mem;
+
+    /* LUA memory is currently part of zmalloc_used, so we must accumulate it to
+     * mem_total in order to be able to calculate correct "used memory dataset" */
+    mem += (size_t)lua_gc(server.lua,LUA_GCCOUNT,0)*1024;
     mem_total+=mem;
 
     for (j = 0; j < server.dbnum; j++) {

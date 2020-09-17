@@ -650,3 +650,9 @@ LUALIB_API lua_State *luaL_newstate (void) {
   return L;
 }
 
+LUALIB_API lua_State *luaL_newstate_with_alloc (lua_Alloc f) {
+  lua_State *L = lua_newstate(f, NULL);
+  if (L) lua_atpanic(L, &panic);
+  return L;
+}
+
