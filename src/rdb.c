@@ -1410,11 +1410,24 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
     return C_OK; /* unreached */
 }
 
-void rdbRemoveTempFile(pid_t childpid) {
+/* Note that we may call this function in signal handle 'sigShutdownHandler',
+ * so we need guarantee all functions we call are async-signal-safe.
+ * If 'force' is set to 1, we'll remote file directly, since 'bg_unlink' is
+ * not async-signal-safe, 'force' must be set to 1 in signal handle. */
+void rdbRemoveTempFile(pid_t childpid, int force) {
     char tmpfile[256];
+    char pid[32];
 
-    snprintf(tmpfile,sizeof(tmpfile),"temp-%d.rdb", (int) childpid);
-    unlink(tmpfile);
+    /* Generate temp rdb file name using aync-signal safe functions. */
+    int pid_len = ll2string(pid, sizeof(pid), childpid);
+    strcpy(tmpfile, "temp-");
+    strncpy(tmpfile+5, pid, pid_len);
+    strcpy(tmpfile+5+pid_len, ".rdb");
+
+    if (force)
+        unlink(tmpfile);
+    else
+        bg_unlink(tmpfile);
 }
 
 /* This function is called by rdbLoadObject() when the code is in RDB-check
@@ -2416,7 +2429,7 @@ void backgroundSaveDoneHandlerDisk(int exitcode, int bysignal) {
         serverLog(LL_WARNING,
             "Background saving terminated by signal %d", bysignal);
         latencyStartMonitor(latency);
-        rdbRemoveTempFile(server.rdb_child_pid);
+        rdbRemoveTempFile(server.rdb_child_pid, 0);
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("rdb-unlink-temp-file",latency);
         /* SIGUSR1 is whitelisted, so we have a way to kill a child without
@@ -2485,7 +2498,7 @@ void backgroundSaveDoneHandler(int exitcode, int bysignal) {
  * the cleanup needed. */
 void killRDBChild(void) {
     kill(server.rdb_child_pid,SIGUSR1);
-    rdbRemoveTempFile(server.rdb_child_pid);
+    rdbRemoveTempFile(server.rdb_child_pid, 0);
     closeChildInfoPipe();
     updateDictResizePolicy();
 }

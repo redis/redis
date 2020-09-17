@@ -4919,7 +4919,7 @@ static void sigShutdownHandler(int sig) {
      * on disk. */
     if (server.shutdown_asap && sig == SIGINT) {
         serverLogFromHandler(LL_WARNING, "You insist... exiting now.");
-        rdbRemoveTempFile(getpid());
+        rdbRemoveTempFile(getpid(), 1);
         exit(1); /* Exit with an error since this was not a clean shutdown. */
     } else if (server.loading) {
         serverLogFromHandler(LL_WARNING, "Received shutdown signal during loading, exiting now.");
