@@ -1386,86 +1386,54 @@ void getKeysFreeResult(int *result) {
 }
 
 /* Helper function to extract keys from following commands:
- * ZUNIONSTORE <destkey> <num-keys> <key> <key> ... <key> <options>
- * ZINTERSTORE <destkey> <num-keys> <key> <key> ... <key> <options> */
-int *zunionInterStoreGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
-    int i, num, *keys;
-    UNUSED(cmd);
-
-    num = atoi(argv[2]->ptr);
-    /* Sanity check. Don't return any key if the command is going to
-     * reply with syntax error. */
-    if (num < 1 || num > (argc-3)) {
-        *numkeys = 0;
-        return NULL;
-    }
-
-    /* Keys in z{union,inter}store come from two places:
-     * argv[1] = storage key,
-     * argv[3...n] = keys to intersect */
-    keys = getKeysTempBuffer;
-    if (num+1>MAX_KEYS_BUFFER)
-        keys = zmalloc(sizeof(int)*(num+1));
-
-    /* Add all key positions for argv[3...n] to keys[] */
-    for (i = 0; i < num; i++) keys[i] = 3+i;
-
-    /* Finally add the argv[1] key position (the storage key target). */
-    keys[num] = 1;
-    *numkeys = num+1;  /* Total keys = {union,inter} keys + storage key */
-    return keys;
-}
-
-/* Helper function to extract keys from following commands:
+ * COMMAND [destkey] <num-keys> <key> [...] <key> [...] ... <options>
+ *
+ * eg:
  * ZUNION <num-keys> <key> <key> ... <key> <options>
- * ZINTER <num-keys> <key> <key> ... <key> <options> */
-int *zunionInterGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+ * ZUNIONSTORE <destkey> <num-keys> <key> <key> ... <key> <options>
+ *
+ * 'storeKeyOfs': destkey index, 0 means destkey not exists.
+ * 'keyCountOfs': num-keys index.
+ * 'firstKeyOfs': firstkey index.
+ * 'keyStep': the interval of each key, usually this value is 1.
+ * */
+int *genericGetKeys(int storeKeyOfs, int keyCountOfs, int firstKeyOfs, int keyStep,
+                    robj **argv, int argc, int *numkeys) {
     int i, num, *keys;
-    UNUSED(cmd);
 
-    num = atoi(argv[1]->ptr);
+    num = atoi(argv[keyCountOfs]->ptr);
     /* Sanity check. Don't return any key if the command is going to
-     * reply with syntax error. */
-    if (num < 1 || num > (argc-2)) {
+     * reply with syntax error. (no input keys). */
+    if (num < 1 || num > (argc - firstKeyOfs)/keyStep) {
         *numkeys = 0;
         return NULL;
     }
 
     keys = getKeysTempBuffer;
-    if (num>MAX_KEYS_BUFFER)
-        keys = zmalloc(sizeof(int)*(num));
+    *numkeys = storeKeyOfs ? num + 1 : num;
+    if (*numkeys > MAX_KEYS_BUFFER)
+        keys = zmalloc(sizeof(int)*(*numkeys));
 
-    /* Add all key positions for argv[2...n] to keys[] */
-    for (i = 0; i < num; i++) keys[i] = 2+i;
-    *numkeys = num;
+    /* Add all key positions for argv[firstKeyOfs...n] to keys[] */
+    for (i = 0; i < num; i++) keys[i] = firstKeyOfs+(i*keyStep);
+
+    if (storeKeyOfs) keys[num] = storeKeyOfs;
     return keys;
 }
 
-/* Helper function to extract keys from the following commands:
- * EVAL <script> <num-keys> <key> <key> ... <key> [more stuff]
- * EVALSHA <script> <num-keys> <key> <key> ... <key> [more stuff] */
-int *evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
-    int i, num, *keys;
+int *zunionInterStoreGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
     UNUSED(cmd);
+    return genericGetKeys(1, 2, 3, 1, argv, argc, numkeys);
+}
 
-    num = atoi(argv[2]->ptr);
-    /* Sanity check. Don't return any key if the command is going to
-     * reply with syntax error. */
-    if (num <= 0 || num > (argc-3)) {
-        *numkeys = 0;
-        return NULL;
-    }
+int *zunionInterGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 1, 2, 1, argv, argc, numkeys);
+}
 
-    keys = getKeysTempBuffer;
-    if (num>MAX_KEYS_BUFFER)
-        keys = zmalloc(sizeof(int)*num);
-
-    *numkeys = num;
-
-    /* Add all key positions for argv[3...n] to keys[] */
-    for (i = 0; i < num; i++) keys[i] = 3+i;
-
-    return keys;
+int *evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 2, 3, 1, argv, argc, numkeys);
 }
 
 /* Helper function to extract keys from the SORT command.
