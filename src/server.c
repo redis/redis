@@ -3797,6 +3797,10 @@ int prepareForShutdown(int flags) {
        overwrite the synchronous saving did by SHUTDOWN. */
     if (server.rdb_child_pid != -1) {
         serverLog(LL_WARNING,"There is a child saving an .rdb. Killing it!");
+        /* Note that, in killRDBChild, we call rdbRemoveTempFile that will
+         * do close fd(in order to unlink file actully) in background thread.
+         * The temp rdb file fd may won't be closed when redis exits quickly,
+         * but OS will close this fd when process exits. */
         killRDBChild();
     }
 
@@ -4846,7 +4850,7 @@ static void sigShutdownHandler(int sig) {
      * on disk. */
     if (server.shutdown_asap && sig == SIGINT) {
         serverLogFromHandler(LL_WARNING, "You insist... exiting now.");
-        rdbRemoveTempFile(getpid());
+        rdbRemoveTempFile(getpid(), 1);
         exit(1); /* Exit with an error since this was not a clean shutdown. */
     } else if (server.loading) {
         serverLogFromHandler(LL_WARNING, "Received shutdown signal during loading, exiting now.");
