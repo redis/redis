@@ -2172,20 +2172,17 @@ void syncWithMaster(connection *conn) {
 
     /* AUTH with the master if required. */
     if (server.repl_state == REPL_STATE_SEND_AUTH) {
-        if (server.masteruser && server.masterauth) {
-            sds masteruser = sdsnew(server.masteruser);
+        if (server.masterauth) {
             sds auth = sdsnew("AUTH");
-            err = sendSynchronousCommand(SYNC_CMD_WRITE | SYNC_CMD_WRITE_SDS, conn, auth,
-                                         masteruser, server.masterauth, NULL);
-            sdsfree(masteruser);
-            sdsfree(auth);
-            if (err) goto write_error;
-            server.repl_state = REPL_STATE_RECEIVE_AUTH;
-            return;
-        } else if (server.masterauth) {
-            sds auth = sdsnew("AUTH");
-            err = sendSynchronousCommand(SYNC_CMD_WRITE | SYNC_CMD_WRITE_SDS, conn, auth,
-                    server.masterauth, NULL);
+            if (server.masteruser) {
+                sds masteruser = sdsnew(server.masteruser);
+                err = sendSynchronousCommand(SYNC_CMD_WRITE | SYNC_CMD_WRITE_SDS, conn, auth,
+                                             masteruser, server.masterauth, NULL);
+                sdsfree(masteruser);
+            } else {
+                err = sendSynchronousCommand(SYNC_CMD_WRITE | SYNC_CMD_WRITE_SDS, conn, auth,
+                                             server.masterauth, NULL);
+            }
             sdsfree(auth);
             if (err) goto write_error;
             server.repl_state = REPL_STATE_RECEIVE_AUTH;
