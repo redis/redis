@@ -34,6 +34,7 @@
 #include "stream.h"
 
 #include <math.h>
+#include <fcntl.h>
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/resource.h>
@@ -1412,9 +1413,9 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
 
 /* Note that we may call this function in signal handle 'sigShutdownHandler',
  * so we need guarantee all functions we call are async-signal-safe.
- * If 'force' is set to 1, we'll remote file directly, since 'bg_unlink' is
- * not async-signal-safe, 'force' must be set to 1 in signal handle. */
-void rdbRemoveTempFile(pid_t childpid, int force) {
+ * If  we call this function from signal handle, we won't call bg_unlik that
+ * is not async-signal-safe. */
+void rdbRemoveTempFile(pid_t childpid, int from_signal) {
     char tmpfile[256];
     char pid[32];
 
@@ -1424,10 +1425,15 @@ void rdbRemoveTempFile(pid_t childpid, int force) {
     strncpy(tmpfile+5, pid, pid_len);
     strcpy(tmpfile+5+pid_len, ".rdb");
 
-    if (force)
+    if (from_signal) {
+        /* bg_unlink is not async-signal-safe, but in this case we don't really
+         * need to close the fd, it'll be released when the process exists. */
+        int fd = open(tmpfile, O_RDONLY|O_NONBLOCK);
+        UNUSED(fd);
         unlink(tmpfile);
-    else
+    } else {
         bg_unlink(tmpfile);
+    }
 }
 
 /* This function is called by rdbLoadObject() when the code is in RDB-check
