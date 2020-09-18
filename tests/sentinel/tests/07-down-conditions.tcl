@@ -3,9 +3,10 @@
 source "../tests/includes/init-tests.tcl"
 source "../../../tests/support/cli.tcl"
 
+set ::alive_sentinel [expr {$::instances_count/2+2}]
 proc ensure_master_up {} {
     wait_for_condition 1000 50 {
-        [dict get [S 4 sentinel master mymaster] flags] eq "master"
+        [dict get [S $::alive_sentinel sentinel master mymaster] flags] eq "master"
     } else {
         fail "Master flags are not just 'master'"
     }
@@ -14,7 +15,7 @@ proc ensure_master_up {} {
 proc ensure_master_down {} {
     wait_for_condition 1000 50 {
         [string match *down* \
-            [dict get [S 4 sentinel master mymaster] flags]]
+            [dict get [S $::alive_sentinel sentinel master mymaster] flags]]
     } else {
         fail "Master is not flagged SDOWN"
     }
@@ -27,7 +28,7 @@ test "Crash the majority of Sentinels to prevent failovers for this unit" {
 }
 
 test "SDOWN is triggered by non-responding but not crashed instance" {
-    lassign [S 4 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] host port
+    lassign [S $::alive_sentinel SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] host port
     ensure_master_up
     exec ../../../src/redis-cli -h $host -p $port {*}[rediscli_tls_config "../../../tests"] debug sleep 10 > /dev/null &
     ensure_master_down
@@ -35,7 +36,7 @@ test "SDOWN is triggered by non-responding but not crashed instance" {
 }
 
 test "SDOWN is triggered by crashed instance" {
-    lassign [S 4 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] host port
+    lassign [S $::alive_sentinel SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] host port
     ensure_master_up
     kill_instance redis 0
     ensure_master_down
@@ -72,8 +73,8 @@ test "SDOWN is triggered by misconfigured instance repling with errors" {
 # effect of the master going down if we send PONG instead of PING
 test "SDOWN is triggered if we rename PING to PONG" {
     ensure_master_up
-    S 4 SENTINEL SET mymaster rename-command PING PONG
+    S $::alive_sentinel SENTINEL SET mymaster rename-command PING PONG
     ensure_master_down
-    S 4 SENTINEL SET mymaster rename-command PING PING
+    S $::alive_sentinel SENTINEL SET mymaster rename-command PING PING
     ensure_master_up
 }

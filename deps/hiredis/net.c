@@ -57,8 +57,8 @@ void redisNetClose(redisContext *c) {
     }
 }
 
-int redisNetRead(redisContext *c, char *buf, size_t bufcap) {
-    int nread = recv(c->fd, buf, bufcap, 0);
+ssize_t redisNetRead(redisContext *c, char *buf, size_t bufcap) {
+    ssize_t nread = recv(c->fd, buf, bufcap, 0);
     if (nread == -1) {
         if ((errno == EWOULDBLOCK && !(c->flags & REDIS_BLOCK)) || (errno == EINTR)) {
             /* Try again later */
@@ -79,8 +79,8 @@ int redisNetRead(redisContext *c, char *buf, size_t bufcap) {
     }
 }
 
-int redisNetWrite(redisContext *c) {
-    int nwritten = send(c->fd, c->obuf, sdslen(c->obuf), 0);
+ssize_t redisNetWrite(redisContext *c) {
+    ssize_t nwritten = send(c->fd, c->obuf, hi_sdslen(c->obuf), 0);
     if (nwritten < 0) {
         if ((errno == EWOULDBLOCK && !(c->flags & REDIS_BLOCK)) || (errno == EINTR)) {
             /* Try again later */
@@ -203,7 +203,7 @@ int redisKeepAlive(redisContext *c, int interval) {
     return REDIS_OK;
 }
 
-static int redisSetTcpNoDelay(redisContext *c) {
+int redisSetTcpNoDelay(redisContext *c) {
     int yes = 1;
     if (setsockopt(c->fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes)) == -1) {
         __redisSetErrorFromErrno(c,REDIS_ERR_IO,"setsockopt(TCP_NODELAY)");
@@ -217,7 +217,7 @@ static int redisSetTcpNoDelay(redisContext *c) {
 
 static int redisContextTimeoutMsec(redisContext *c, long *result)
 {
-    const struct timeval *timeout = c->timeout;
+    const struct timeval *timeout = c->connect_timeout;
     long msec = -1;
 
     /* Only use timeout when not NULL. */
@@ -316,11 +316,7 @@ int redisCheckSocketError(redisContext *c) {
 int redisContextSetTimeout(redisContext *c, const struct timeval tv) {
     const void *to_ptr = &tv;
     size_t to_sz = sizeof(tv);
-#ifdef _WIN32
-    DWORD timeout_msec = tv.tv_sec * 1000 + tv.tv_usec / 1000;
-    to_ptr = &timeout_msec;
-    to_sz = sizeof(timeout_msec);
-#endif
+
     if (setsockopt(c->fd,SOL_SOCKET,SO_RCVTIMEO,to_ptr,to_sz) == -1) {
         __redisSetErrorFromErrno(c,REDIS_ERR_IO,"setsockopt(SO_RCVTIMEO)");
         return REDIS_ERR;
@@ -329,6 +325,38 @@ int redisContextSetTimeout(redisContext *c, const struct timeval tv) {
         __redisSetErrorFromErrno(c,REDIS_ERR_IO,"setsockopt(SO_SNDTIMEO)");
         return REDIS_ERR;
     }
+    return REDIS_OK;
+}
+
+int redisContextUpdateConnectTimeout(redisContext *c, const struct timeval *timeout) {
+    /* Same timeval struct, short circuit */
+    if (c->connect_timeout == timeout)
+        return REDIS_OK;
+
+    /* Allocate context timeval if we need to */
+    if (c->connect_timeout == NULL) {
+        c->connect_timeout = hi_malloc(sizeof(*c->connect_timeout));
+        if (c->connect_timeout == NULL)
+            return REDIS_ERR;
+    }
+
+    memcpy(c->connect_timeout, timeout, sizeof(*c->connect_timeout));
+    return REDIS_OK;
+}
+
+int redisContextUpdateCommandTimeout(redisContext *c, const struct timeval *timeout) {
+    /* Same timeval struct, short circuit */
+    if (c->command_timeout == timeout)
+        return REDIS_OK;
+
+    /* Allocate context timeval if we need to */
+    if (c->command_timeout == NULL) {
+        c->command_timeout = hi_malloc(sizeof(*c->command_timeout));
+        if (c->command_timeout == NULL)
+            return REDIS_ERR;
+    }
+
+    memcpy(c->command_timeout, timeout, sizeof(*c->command_timeout));
     return REDIS_OK;
 }
 
@@ -356,21 +384,19 @@ static int _redisContextConnectTcp(redisContext *c, const char *addr, int port,
      * This is a bit ugly, but atleast it works and doesn't leak memory.
      **/
     if (c->tcp.host != addr) {
-        free(c->tcp.host);
+        hi_free(c->tcp.host);
 
-        c->tcp.host = strdup(addr);
+        c->tcp.host = hi_strdup(addr);
+        if (c->tcp.host == NULL)
+            goto oom;
     }
 
     if (timeout) {
-        if (c->timeout != timeout) {
-            if (c->timeout == NULL)
-                c->timeout = malloc(sizeof(struct timeval));
-
-            memcpy(c->timeout, timeout, sizeof(struct timeval));
-        }
+        if (redisContextUpdateConnectTimeout(c, timeout) == REDIS_ERR)
+            goto oom;
     } else {
-        free(c->timeout);
-        c->timeout = NULL;
+        hi_free(c->connect_timeout);
+        c->connect_timeout = NULL;
     }
 
     if (redisContextTimeoutMsec(c, &timeout_msec) != REDIS_OK) {
@@ -379,11 +405,11 @@ static int _redisContextConnectTcp(redisContext *c, const char *addr, int port,
     }
 
     if (source_addr == NULL) {
-        free(c->tcp.source_addr);
+        hi_free(c->tcp.source_addr);
         c->tcp.source_addr = NULL;
     } else if (c->tcp.source_addr != source_addr) {
-        free(c->tcp.source_addr);
-        c->tcp.source_addr = strdup(source_addr);
+        hi_free(c->tcp.source_addr);
+        c->tcp.source_addr = hi_strdup(source_addr);
     }
 
     snprintf(_port, 6, "%d", port);
@@ -446,8 +472,11 @@ addrretry:
         }
 
         /* For repeat connection */
-        free(c->saddr);
-        c->saddr = malloc(p->ai_addrlen);
+        hi_free(c->saddr);
+        c->saddr = hi_malloc(p->ai_addrlen);
+        if (c->saddr == NULL)
+            goto oom;
+
         memcpy(c->saddr, p->ai_addr, p->ai_addrlen);
         c->addrlen = p->ai_addrlen;
 
@@ -474,11 +503,11 @@ addrretry:
                 wait_for_ready:
                 if (redisContextWaitReady(c,timeout_msec) != REDIS_OK)
                     goto error;
+                if (redisSetTcpNoDelay(c) != REDIS_OK)
+                    goto error;
             }
         }
         if (blocking && redisSetBlocking(c,1) != REDIS_OK)
-            goto error;
-        if (redisSetTcpNoDelay(c) != REDIS_OK)
             goto error;
 
         c->flags |= REDIS_CONNECTED;
@@ -492,6 +521,8 @@ addrretry:
         goto error;
     }
 
+oom:
+    __redisSetError(c, REDIS_ERR_OOM, "Out of memory");
 error:
     rv = REDIS_ERR;
 end:
@@ -525,25 +556,32 @@ int redisContextConnectUnix(redisContext *c, const char *path, const struct time
         return REDIS_ERR;
 
     c->connection_type = REDIS_CONN_UNIX;
-    if (c->unix_sock.path != path)
-        c->unix_sock.path = strdup(path);
+    if (c->unix_sock.path != path) {
+        hi_free(c->unix_sock.path);
+
+        c->unix_sock.path = hi_strdup(path);
+        if (c->unix_sock.path == NULL)
+            goto oom;
+    }
 
     if (timeout) {
-        if (c->timeout != timeout) {
-            if (c->timeout == NULL)
-                c->timeout = malloc(sizeof(struct timeval));
-
-            memcpy(c->timeout, timeout, sizeof(struct timeval));
-        }
+        if (redisContextUpdateConnectTimeout(c, timeout) == REDIS_ERR)
+            goto oom;
     } else {
-        free(c->timeout);
-        c->timeout = NULL;
+        hi_free(c->connect_timeout);
+        c->connect_timeout = NULL;
     }
 
     if (redisContextTimeoutMsec(c,&timeout_msec) != REDIS_OK)
         return REDIS_ERR;
 
-    sa = (struct sockaddr_un*)(c->saddr = malloc(sizeof(struct sockaddr_un)));
+    /* Don't leak sockaddr if we're reconnecting */
+    if (c->saddr) hi_free(c->saddr);
+
+    sa = (struct sockaddr_un*)(c->saddr = hi_malloc(sizeof(struct sockaddr_un)));
+    if (sa == NULL)
+        goto oom;
+
     c->addrlen = sizeof(struct sockaddr_un);
     sa->sun_family = AF_UNIX;
     strncpy(sa->sun_path, path, sizeof(sa->sun_path) - 1);
@@ -568,4 +606,7 @@ int redisContextConnectUnix(redisContext *c, const char *path, const struct time
     errno = EPROTONOSUPPORT;
     return REDIS_ERR;
 #endif /* _WIN32 */
+oom:
+    __redisSetError(c, REDIS_ERR_OOM, "Out of memory");
+    return REDIS_ERR;
 }

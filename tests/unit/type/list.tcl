@@ -1,3 +1,11 @@
+proc wait_for_blocked_client {} {
+    wait_for_condition 50 100 {
+        [s blocked_clients] ne 0
+    } else {
+        fail "no blocked clients"
+    }
+}
+
 start_server {
     tags {"list"}
     overrides {
@@ -13,12 +21,12 @@ start_server {
         assert {[r LPOS mylist c] == 2}
     }
 
-    test {LPOS FIRST (positive and negative rank) option} {
-        assert {[r LPOS mylist c FIRST 1] == 2}
-        assert {[r LPOS mylist c FIRST 2] == 6}
-        assert {[r LPOS mylist c FIRST 4] eq ""}
-        assert {[r LPOS mylist c FIRST -1] == 7}
-        assert {[r LPOS mylist c FIRST -2] == 6}
+    test {LPOS RANK (positive and negative rank) option} {
+        assert {[r LPOS mylist c RANK 1] == 2}
+        assert {[r LPOS mylist c RANK 2] == 6}
+        assert {[r LPOS mylist c RANK 4] eq ""}
+        assert {[r LPOS mylist c RANK -1] == 7}
+        assert {[r LPOS mylist c RANK -2] == 6}
     }
 
     test {LPOS COUNT option} {
@@ -28,26 +36,32 @@ start_server {
         assert {[r LPOS mylist c COUNT 100] == {2 6 7}}
     }
 
-    test {LPOS COUNT + FIRST option} {
-        assert {[r LPOS mylist c COUNT 0 FIRST 2] == {6 7}}
-        assert {[r LPOS mylist c COUNT 2 FIRST -1] == {7 6}}
+    test {LPOS COUNT + RANK option} {
+        assert {[r LPOS mylist c COUNT 0 RANK 2] == {6 7}}
+        assert {[r LPOS mylist c COUNT 2 RANK -1] == {7 6}}
     }
 
     test {LPOS non existing key} {
-        assert {[r LPOS mylistxxx c COUNT 0 FIRST 2] eq {}}
+        assert {[r LPOS mylistxxx c COUNT 0 RANK 2] eq {}}
     }
 
     test {LPOS no match} {
-        assert {[r LPOS mylist x COUNT 2 FIRST -1] eq {}}
-        assert {[r LPOS mylist x FIRST -1] eq {}}
+        assert {[r LPOS mylist x COUNT 2 RANK -1] eq {}}
+        assert {[r LPOS mylist x RANK -1] eq {}}
     }
 
     test {LPOS MAXLEN} {
         assert {[r LPOS mylist a COUNT 0 MAXLEN 1] == {0}}
         assert {[r LPOS mylist c COUNT 0 MAXLEN 1] == {}}
         assert {[r LPOS mylist c COUNT 0 MAXLEN 3] == {2}}
-        assert {[r LPOS mylist c COUNT 0 MAXLEN 3 FIRST -1] == {7 6}}
-        assert {[r LPOS mylist c COUNT 0 MAXLEN 7 FIRST 2] == {6}}
+        assert {[r LPOS mylist c COUNT 0 MAXLEN 3 RANK -1] == {7 6}}
+        assert {[r LPOS mylist c COUNT 0 MAXLEN 7 RANK 2] == {6}}
+    }
+
+    test {LPOS when RANK is greater than matches} {
+        r DEL mylist
+        r LPUSH mylist a
+        assert {[r LPOS mylist b COUNT 10 RANK 5] eq {}}
     }
 
     test {LPUSH, RPUSH, LLENGTH, LINDEX, LPOP - ziplist} {
@@ -211,6 +225,8 @@ start_server {
         r del list
 
         $rd blpop list 0
+        after 100 ;# Make sure rd is blocked before MULTI
+
         r multi
         r lpush list a
         r del list
@@ -881,4 +897,45 @@ start_server {
         $rd2 close
         r ping
     } {PONG}
+
+    test "client unblock tests" {
+        r del l
+        set rd [redis_deferring_client]
+        $rd client id
+        set id [$rd read]
+
+        # test default args
+        $rd blpop l 0
+        wait_for_blocked_client
+        r client unblock $id
+        assert_equal {} [$rd read]
+
+        # test with timeout
+        $rd blpop l 0
+        wait_for_blocked_client
+        r client unblock $id TIMEOUT
+        assert_equal {} [$rd read]
+
+        # test with error
+        $rd blpop l 0
+        wait_for_blocked_client
+        r client unblock $id ERROR
+        catch {[$rd read]} e
+        assert_equal $e "UNBLOCKED client unblocked via CLIENT UNBLOCK"
+
+        # test with invalid client id
+        catch {[r client unblock asd]} e
+        assert_equal $e "ERR value is not an integer or out of range"
+
+        # test with non blocked client
+        set myid [r client id]
+        catch {[r client unblock $myid]} e
+        assert_equal $e {invalid command name "0"}
+
+        # finally, see the this client and list are still functional
+        $rd blpop l 0
+        wait_for_blocked_client
+        r lpush l foo
+        assert_equal {l foo} [$rd read]
+    } {}
 }

@@ -4,6 +4,7 @@ set ::num_failed 0
 set ::num_skipped 0
 set ::num_aborted 0
 set ::tests_failed {}
+set ::cur_test ""
 
 proc fail {msg} {
     error "assertion:$msg"
@@ -99,16 +100,7 @@ proc wait_for_condition {maxtries delay e _else_ elsescript} {
     }
 }
 
-proc test {name code {okpattern undefined}} {
-    # abort if tagged with a tag to deny
-    foreach tag $::denytags {
-        if {[lsearch $::tags $tag] >= 0} {
-            incr ::num_aborted
-            send_data_packet $::test_server_fd ignore $name
-            return
-        }
-    }
-
+proc test {name code {okpattern undefined} {options undefined}} {
     # abort if test name in skiptests
     if {[lsearch $::skiptests $name] >= 0} {
         incr ::num_skipped
@@ -116,7 +108,7 @@ proc test {name code {okpattern undefined}} {
         return
     }
 
-    # abort if test name in skiptests
+    # abort if only_tests was set but test name is not included
     if {[llength $::only_tests] > 0 && [lsearch $::only_tests $name] < 0} {
         incr ::num_skipped
         send_data_packet $::test_server_fd skip $name
@@ -143,16 +135,39 @@ proc test {name code {okpattern undefined}} {
     set details {}
     lappend details "$name in $::curfile"
 
+    # set a cur_test global to be logged into new servers that are spown
+    # and log the test name in all existing servers
+    set prev_test $::cur_test
+    set ::cur_test "$name in $::curfile"
+    if {!$::external} {
+        foreach srv $::servers {
+            set stdout [dict get $srv stdout]
+            set fd [open $stdout "a+"]
+            puts $fd "### Starting test $::cur_test"
+            close $fd
+        }
+    }
+
     send_data_packet $::test_server_fd testing $name
 
     if {[catch {set retval [uplevel 1 $code]} error]} {
-        if {[string match "assertion:*" $error]} {
+        set assertion [string match "assertion:*" $error]
+        if {$assertion || $::durable} {
             set msg [string range $error 10 end]
             lappend details $msg
+            if {!$assertion} {
+                lappend details $::errorInfo
+            }
             lappend ::tests_failed $details
 
             incr ::num_failed
             send_data_packet $::test_server_fd err [join $details "\n"]
+
+            if {$::stop_on_failure} {
+                puts "Test error (last server port:[srv port], log:[srv stdout]), press enter to teardown the test."
+                flush stdout
+                gets stdin
+            }
         } else {
             # Re-raise, let handler up the stack take care of this.
             error $error $::errorInfo
@@ -177,4 +192,5 @@ proc test {name code {okpattern undefined}} {
             send_data_packet $::test_server_fd err "Detected a memory leak in test '$name': $output"
         }
     }
+    set ::cur_test $prev_test
 }

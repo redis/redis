@@ -85,8 +85,12 @@ connection *connCreateSocket() {
 /* Create a new socket-type connection that is already associated with
  * an accepted connection.
  *
- * The socket is not read for I/O until connAccept() was called and
+ * The socket is not ready for I/O until connAccept() was called and
  * invoked the connection-level accept handler.
+ *
+ * Callers should use connGetState() and verify the created connection
+ * is not in an error state (which is not possible for a socket connection,
+ * but could but possible with other protocols).
  */
 connection *connCreateAcceptedSocket(int fd) {
     connection *conn = connCreateSocket();
@@ -325,6 +329,11 @@ static ssize_t connSocketSyncReadLine(connection *conn, char *ptr, ssize_t size,
     return syncReadLine(conn->fd, ptr, size, timeout);
 }
 
+static int connSocketGetType(connection *conn) {
+    (void) conn;
+
+    return CONN_TYPE_SOCKET;
+}
 
 ConnectionType CT_Socket = {
     .ae_handler = connSocketEventHandler,
@@ -339,7 +348,8 @@ ConnectionType CT_Socket = {
     .blocking_connect = connSocketBlockingConnect,
     .sync_write = connSocketSyncWrite,
     .sync_read = connSocketSyncRead,
-    .sync_readline = connSocketSyncReadLine
+    .sync_readline = connSocketSyncReadLine,
+    .get_type = connSocketGetType
 };
 
 

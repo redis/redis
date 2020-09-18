@@ -130,15 +130,18 @@ start_server {tags {"incr"}} {
         format $err
     } {WRONGTYPE*}
 
-    test {INCRBYFLOAT does not allow NaN or Infinity} {
-        r set foo 0
-        set err {}
-        catch {r incrbyfloat foo +inf} err
-        set err
-        # p.s. no way I can force NaN to test it from the API because
-        # there is no way to increment / decrement by infinity nor to
-        # perform divisions.
-    } {ERR*would produce*}
+    # On some platforms strtold("+inf") with valgrind returns a non-inf result
+    if {!$::valgrind} {
+        test {INCRBYFLOAT does not allow NaN or Infinity} {
+            r set foo 0
+            set err {}
+            catch {r incrbyfloat foo +inf} err
+            set err
+            # p.s. no way I can force NaN to test it from the API because
+            # there is no way to increment / decrement by infinity nor to
+            # perform divisions.
+        } {ERR*would produce*}
+    }
 
     test {INCRBYFLOAT decrement} {
         r set foo 1
