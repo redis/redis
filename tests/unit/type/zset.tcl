@@ -78,6 +78,46 @@ start_server {tags {"zset"}} {
             assert {[r zscore ztmp y] == 21}
         }
 
+        test "ZADD GX updates existing elements when new scores are greater" {
+            r del ztmp
+            r zadd ztmp 10 x 20 y 30 z
+            r zadd gx 5 foo 11 x 21 y 29 z
+            assert {[r zcard ztmp] == 4}
+            assert {[r zscore ztmp x] == 11}
+            assert {[r zscore ztmp y] == 21}
+            assert {[r zscore ztmp z] == 30}
+        }
+
+        test "ZADD LX updates existing elements when new scores are lower" {
+            r del ztmp
+            r zadd ztmp 10 x 20 y 30 z
+            r zadd gx 5 foo 11 x 21 y 29 z
+            assert {[r zcard ztmp] == 4}
+            assert {[r zscore ztmp x] == 10}
+            assert {[r zscore ztmp y] == 20}
+            assert {[r zscore ztmp z] == 29}
+        }
+
+        test "ZADD GX XX updates existing elements when new scores are greater and skips new elements" {
+            r del ztmp
+            r zadd ztmp 10 x 20 y 30 z
+            r zadd gx 5 foo 11 x 21 y 29 z
+            assert {[r zcard ztmp] == 3}
+            assert {[r zscore ztmp x] == 11}
+            assert {[r zscore ztmp y] == 21}
+            assert {[r zscore ztmp z] == 30}
+        }
+
+        test "ZADD LX XX updates existing elements when new scores are lower and skips new elements" {
+            r del ztmp
+            r zadd ztmp 10 x 20 y 30 z
+            r zadd gx 5 foo 11 x 21 y 29 z
+            assert {[r zcard ztmp] == 3}
+            assert {[r zscore ztmp x] == 10}
+            assert {[r zscore ztmp y] == 20}
+            assert {[r zscore ztmp z] == 29}
+        }
+
         test "ZADD XX and NX are not compatible" {
             r del ztmp
             catch {r zadd ztmp xx nx 10 x} err
@@ -99,6 +139,24 @@ start_server {tags {"zset"}} {
             assert {[r zscore ztmp a] == 100}
             assert {[r zscore ztmp b] == 200}
         }
+
+        test "ZADD GX and NX are not compatible" {
+            r del ztmp
+            catch {r zadd ztmp gx nx 10 x} err
+            set err
+        } {ERR*}
+
+        test "ZADD LX and NX are not compatible" {
+            r del ztmp
+            catch {r zadd ztmp lx nx 10 x} err
+            set err
+        } {ERR*}
+
+        test "ZADD LX and GX are not compatible" {
+            r del ztmp
+            catch {r zadd ztmp lx gx 10 x} err
+            set err
+        } {ERR*}
 
         test "ZADD INCR works like ZINCRBY" {
             r del ztmp
