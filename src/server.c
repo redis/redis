@@ -2798,12 +2798,21 @@ void resetServerStats(void) {
     server.aof_delayed_fsync = 0;
 }
 
+/* Make the thread killable at any time, so that kill threads functions
+ * can work reliably (default cancelability type is PTHREAD_CANCEL_DEFERRED).
+ * Needed for pthread_cancel used by the fast memory test used by the crash report. */
+void makeThreadKillable(void) {
+    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+    pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+}
+
 void initServer(void) {
     int j;
 
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
     setupSignalHandlers();
+    makeThreadKillable();
 
     if (server.syslog_enabled) {
         openlog(server.syslog_ident, LOG_PID | LOG_NDELAY | LOG_NOWAIT,
