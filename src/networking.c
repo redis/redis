@@ -2948,6 +2948,7 @@ void *IOThreadMain(void *myid) {
     snprintf(thdname, sizeof(thdname), "io_thd_%ld", id);
     redis_set_thread_title(thdname);
     redisSetCpuAffinity(server.server_cpulist);
+    makeThreadKillable();
 
     while(1) {
         /* Wait for start */
