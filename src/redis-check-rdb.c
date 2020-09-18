@@ -331,7 +331,7 @@ err:
     return 1;
 }
 
-/* RDB check main: called form redis.c when Redis is executed with the
+/* RDB check main: called form server.c when Redis is executed with the
  * redis-check-rdb alias, on during RDB loading errors.
  *
  * The function works in two ways: can be called with argc/argv as a

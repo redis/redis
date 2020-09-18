@@ -544,7 +544,7 @@ sds catAppendOnlyGenericCommand(sds dst, int argc, robj **argv) {
     return dst;
 }
 
-/* Create the sds representation of an PEXPIREAT command, using
+/* Create the sds representation of a PEXPIREAT command, using
  * 'seconds' as time to live and 'cmd' to understand what command
  * we are translating into a PEXPIREAT.
  *
@@ -858,7 +858,7 @@ int loadAppendOnlyFile(char *filename) {
         fakeClient->cmd = NULL;
         if (server.aof_load_truncated) valid_up_to = ftello(fp);
         if (server.key_load_delay)
-            usleep(server.key_load_delay);
+            debugDelay(server.key_load_delay);
     }
 
     /* This point can only be reached when EOF is reached without errors.
@@ -1244,12 +1244,16 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
         while(raxNext(&ri)) {
             streamCG *group = ri.data;
             /* Emit the XGROUP CREATE in order to create the group. */
-            if (rioWriteBulkCount(r,'*',5) == 0) return 0;
-            if (rioWriteBulkString(r,"XGROUP",6) == 0) return 0;
-            if (rioWriteBulkString(r,"CREATE",6) == 0) return 0;
-            if (rioWriteBulkObject(r,key) == 0) return 0;
-            if (rioWriteBulkString(r,(char*)ri.key,ri.key_len) == 0) return 0;
-            if (rioWriteBulkStreamID(r,&group->last_id) == 0) return 0;
+            if (!rioWriteBulkCount(r,'*',5) ||
+                !rioWriteBulkString(r,"XGROUP",6) ||
+                !rioWriteBulkString(r,"CREATE",6) ||
+                !rioWriteBulkObject(r,key) ||
+                !rioWriteBulkString(r,(char*)ri.key,ri.key_len) ||
+                !rioWriteBulkStreamID(r,&group->last_id)) 
+            {
+                raxStop(&ri);
+                return 0;
+            }
 
             /* Generate XCLAIMs for each consumer that happens to
              * have pending entries. Empty consumers have no semantical
@@ -1270,6 +1274,9 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                                                    ri.key_len,consumer,
                                                    ri_pel.key,nack) == 0)
                     {
+                        raxStop(&ri_pel);
+                        raxStop(&ri_cons);
+                        raxStop(&ri);
                         return 0;
                     }
                 }
@@ -1811,7 +1818,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             "Background AOF rewrite terminated with error");
     } else {
         /* SIGUSR1 is whitelisted, so we have a way to kill a child without
-         * tirggering an error condition. */
+         * triggering an error condition. */
         if (bysignal != SIGUSR1)
             server.aof_lastbgrewrite_status = C_ERR;
 

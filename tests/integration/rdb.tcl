@@ -25,7 +25,7 @@ start_server [list overrides [list "dir" $server_path "dbfilename" "encodings.rd
 
 set server_path [tmpdir "server.rdb-startup-test"]
 
-start_server [list overrides [list "dir" $server_path]] {
+start_server [list overrides [list "dir" $server_path] keep_persistence true] {
     test {Server started empty with non-existing RDB file} {
         r debug digest
     } {0000000000000000000000000000000000000000}
@@ -33,13 +33,13 @@ start_server [list overrides [list "dir" $server_path]] {
     r save
 }
 
-start_server [list overrides [list "dir" $server_path]] {
+start_server [list overrides [list "dir" $server_path] keep_persistence true] {
     test {Server started empty with empty RDB file} {
         r debug digest
     } {0000000000000000000000000000000000000000}
 }
 
-start_server [list overrides [list "dir" $server_path]] {
+start_server [list overrides [list "dir" $server_path] keep_persistence true] {
     test {Test RDB stream encoding} {
         for {set j 0} {$j < 1000} {incr j} {
             if {rand() < 0.9} {
@@ -64,7 +64,7 @@ set defaults {}
 proc start_server_and_kill_it {overrides code} {
     upvar defaults defaults srv srv server_path server_path
     set config [concat $defaults $overrides]
-    set srv [start_server [list overrides $config]]
+    set srv [start_server [list overrides $config keep_persistence true]]
     uplevel 1 $code
     kill_server $srv
 }
@@ -118,15 +118,33 @@ start_server_and_kill_it [list "dir" $server_path] {
 
 start_server {} {
     test {Test FLUSHALL aborts bgsave} {
+        # 1000 keys with 1ms sleep per key shuld take 1 second
         r config set rdb-key-save-delay 1000
         r debug populate 1000
         r bgsave
         assert_equal [s rdb_bgsave_in_progress] 1
         r flushall
-        after 200
-        assert_equal [s rdb_bgsave_in_progress] 0
+        # wait half a second max
+        wait_for_condition 5 100 {
+            [s rdb_bgsave_in_progress] == 0
+        } else {
+            fail "bgsave not aborted"
+        }
+        # veirfy that bgsave failed, by checking that the change counter is still high
+        assert_lessthan 999 [s rdb_changes_since_last_save]
         # make sure the server is still writable
         r set x xx
+    }
+
+    test {bgsave resets the change counter} {
+        r config set rdb-key-save-delay 0
+        r bgsave
+        wait_for_condition 50 100 {
+            [s rdb_bgsave_in_progress] == 0
+        } else {
+            fail "bgsave not done"
+        }
+        assert_equal [s rdb_changes_since_last_save] 0
     }
 }
 
@@ -137,18 +155,8 @@ test {client freed during loading} {
         # 100mb of rdb, 100k keys will load in more than 1 second
         r debug populate 100000 key 1000
 
-        catch {
-            r debug restart
-        }
+        restart_server 0 false
 
-        set stdout [srv 0 stdout]
-        while 1 {
-            # check that the new server actually started and is ready for connections
-            if {[exec grep -i "Server initialized" | wc -l < $stdout] > 1} {
-                break
-            }
-            after 10
-        }
         # make sure it's still loading
         assert_equal [s loading] 1
 

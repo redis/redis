@@ -245,7 +245,7 @@ int zslDelete(zskiplist *zsl, double score, sds ele, zskiplistNode **node) {
     return 0; /* not found */
 }
 
-/* Update the score of an elmenent inside the sorted set skiplist.
+/* Update the score of an element inside the sorted set skiplist.
  * Note that the element must exist and must match 'score'.
  * This function does not update the score in the hash table side, the
  * caller should take care of it.
@@ -1598,6 +1598,7 @@ void zaddGenericCommand(client *c, int flags) {
 
     /* Lookup the key and create the sorted set if does not exist. */
     zobj = lookupKeyWrite(c->db,key);
+    if (checkType(c,zobj,OBJ_ZSET)) goto cleanup;
     if (zobj == NULL) {
         if (xx) goto reply_to_client; /* No key + XX option: nothing to do. */
         if (server.zset_max_ziplist_entries == 0 ||
@@ -1608,11 +1609,6 @@ void zaddGenericCommand(client *c, int flags) {
             zobj = createZsetZiplistObject();
         }
         dbAdd(c->db,key,zobj);
-    } else {
-        if (zobj->type != OBJ_ZSET) {
-            addReply(c,shared.wrongtypeerr);
-            goto cleanup;
-        }
     }
 
     for (j = 0; j < elements; j++) {
@@ -2184,7 +2180,6 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
     robj *dstobj;
     zset *dstzset;
     zskiplistNode *znode;
-    int touched = 0;
 
     /* expect setnum input keys to be given */
     if ((getLongFromObjectOrReply(c, c->argv[2], &setnum, NULL) != C_OK))
@@ -2377,26 +2372,23 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
         serverPanic("Unknown operator");
     }
 
-    if (dbDelete(c->db,dstkey))
-        touched = 1;
     if (dstzset->zsl->length) {
         zsetConvertToZiplistIfNeeded(dstobj,maxelelen);
-        dbAdd(c->db,dstkey,dstobj);
+        setKey(c,c->db,dstkey,dstobj);
         addReplyLongLong(c,zsetLength(dstobj));
-        signalModifiedKey(c,c->db,dstkey);
         notifyKeyspaceEvent(NOTIFY_ZSET,
             (op == SET_OP_UNION) ? "zunionstore" : "zinterstore",
             dstkey,c->db->id);
         server.dirty++;
     } else {
-        decrRefCount(dstobj);
         addReply(c,shared.czero);
-        if (touched) {
+        if (dbDelete(c->db,dstkey)) {
             signalModifiedKey(c,c->db,dstkey);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",dstkey,c->db->id);
             server.dirty++;
         }
     }
+    decrRefCount(dstobj);
     zfree(src);
 }
 
@@ -3086,6 +3078,24 @@ void zscoreCommand(client *c) {
     }
 }
 
+void zmscoreCommand(client *c) {
+    robj *key = c->argv[1];
+    robj *zobj;
+    double score;
+    zobj = lookupKeyRead(c->db,key);
+    if (checkType(c,zobj,OBJ_ZSET)) return;
+
+    addReplyArrayLen(c,c->argc - 2);
+    for (int j = 2; j < c->argc; j++) {
+        /* Treat a missing set the same way as an empty set */
+        if (zobj == NULL || zsetScore(zobj,c->argv[j]->ptr,&score) == C_ERR) {
+            addReplyNull(c);
+        } else {
+            addReplyDouble(c,score);
+        }
+    }
+}
+
 void zrankGenericCommand(client *c, int reverse) {
     robj *key = c->argv[1];
     robj *ele = c->argv[2];
@@ -3266,20 +3276,16 @@ void blockingGenericZpopCommand(client *c, int where) {
 
     for (j = 1; j < c->argc-1; j++) {
         o = lookupKeyWrite(c->db,c->argv[j]);
+        if (checkType(c,o,OBJ_ZSET)) return;
         if (o != NULL) {
-            if (o->type != OBJ_ZSET) {
-                addReply(c,shared.wrongtypeerr);
+            if (zsetLength(o) != 0) {
+                /* Non empty zset, this is like a normal ZPOP[MIN|MAX]. */
+                genericZpopCommand(c,&c->argv[j],1,where,1,NULL);
+                /* Replicate it as an ZPOP[MIN|MAX] instead of BZPOP[MIN|MAX]. */
+                rewriteClientCommandVector(c,2,
+                    where == ZSET_MAX ? shared.zpopmax : shared.zpopmin,
+                    c->argv[j]);
                 return;
-            } else {
-                if (zsetLength(o) != 0) {
-                    /* Non empty zset, this is like a normal ZPOP[MIN|MAX]. */
-                    genericZpopCommand(c,&c->argv[j],1,where,1,NULL);
-                    /* Replicate it as an ZPOP[MIN|MAX] instead of BZPOP[MIN|MAX]. */
-                    rewriteClientCommandVector(c,2,
-                        where == ZSET_MAX ? shared.zpopmax : shared.zpopmin,
-                        c->argv[j]);
-                    return;
-                }
             }
         }
     }

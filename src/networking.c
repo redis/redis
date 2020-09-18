@@ -29,6 +29,7 @@
 
 #include "server.h"
 #include "atomicvar.h"
+#include "cluster.h"
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <math.h>
@@ -102,7 +103,8 @@ client *createClient(connection *conn) {
     }
 
     selectDb(c,0);
-    uint64_t client_id = ++server.next_client_id;
+    uint64_t client_id;
+    atomicGetIncr(server.next_client_id, client_id, 1);
     c->id = client_id;
     c->resp = 2;
     c->conn = conn;
@@ -169,7 +171,7 @@ client *createClient(connection *conn) {
     return c;
 }
 
-/* This funciton puts the client in the queue of clients that should write
+/* This function puts the client in the queue of clients that should write
  * their output buffers to the socket. Note that it does not *yet* install
  * the write handler, to start clients are put in a queue of clients that need
  * to write, so we try to do that before returning in the event loop (see the
@@ -267,7 +269,7 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
     listNode *ln = listLast(c->reply);
     clientReplyBlock *tail = ln? listNodeValue(ln): NULL;
 
-    /* Note that 'tail' may be NULL even if we have a tail node, becuase when
+    /* Note that 'tail' may be NULL even if we have a tail node, because when
      * addReplyDeferredLen() is used, it sets a dummy node to NULL just
      * fo fill it later, when the size of the bulk length is set. */
 
@@ -356,14 +358,18 @@ void addReplyProto(client *c, const char *s, size_t len) {
  *
  * If the error code is already passed in the string 's', the error
  * code provided is used, otherwise the string "-ERR " for the generic
- * error code is automatically added. */
+ * error code is automatically added.
+ * Note that 's' must NOT end with \r\n. */
 void addReplyErrorLength(client *c, const char *s, size_t len) {
     /* If the string already starts with "-..." then the error code
      * is provided by the caller. Otherwise we use "-ERR". */
     if (!len || s[0] != '-') addReplyProto(c,"-ERR ",5);
     addReplyProto(c,s,len);
     addReplyProto(c,"\r\n",2);
+}
 
+/* Do some actions after an error reply was sent (Log if needed, updates stats, etc.) */
+void afterErrorReply(client *c, const char *s, size_t len) {
     /* Sometimes it could be normal that a slave replies to a master with
      * an error and this function gets called. Actually the error will never
      * be sent because addReply*() against master clients has no effect...
@@ -389,10 +395,11 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
             from = "master";
         }
 
+        if (len > 4096) len = 4096;
         char *cmdname = c->lastcmd ? c->lastcmd->name : "<unknown>";
         serverLog(LL_WARNING,"== CRITICAL == This %s is sending an error "
-                             "to its %s: '%s' after processing the command "
-                             "'%s'", from, to, s, cmdname);
+                             "to its %s: '%.*s' after processing the command "
+                             "'%s'", from, to, (int)len, s, cmdname);
         if (ctype == CLIENT_TYPE_MASTER && server.repl_backlog &&
             server.repl_backlog_histlen > 0)
         {
@@ -402,23 +409,39 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
     }
 }
 
-void addReplyError(client *c, const char *err) {
-    addReplyErrorLength(c,err,strlen(err));
+/* The 'err' object is expected to start with -ERRORCODE and end with \r\n.
+ * Unlike addReplyErrorSds and others alike which rely on addReplyErrorLength. */
+void addReplyErrorObject(client *c, robj *err) {
+    addReply(c, err);
+    afterErrorReply(c, err->ptr, sdslen(err->ptr)-2); /* Ignore trailing \r\n */
 }
 
+/* See addReplyErrorLength for expectations from the input string. */
+void addReplyError(client *c, const char *err) {
+    addReplyErrorLength(c,err,strlen(err));
+    afterErrorReply(c,err,strlen(err));
+}
+
+/* See addReplyErrorLength for expectations from the input string. */
+void addReplyErrorSds(client *c, sds err) {
+    addReplyErrorLength(c,err,sdslen(err));
+    afterErrorReply(c,err,sdslen(err));
+}
+
+/* See addReplyErrorLength for expectations from the formatted string.
+ * The formatted string is safe to contain \r and \n anywhere. */
 void addReplyErrorFormat(client *c, const char *fmt, ...) {
-    size_t l, j;
     va_list ap;
     va_start(ap,fmt);
     sds s = sdscatvprintf(sdsempty(),fmt,ap);
     va_end(ap);
-    /* Make sure there are no newlines in the string, otherwise invalid protocol
-     * is emitted. */
-    l = sdslen(s);
-    for (j = 0; j < l; j++) {
-        if (s[j] == '\r' || s[j] == '\n') s[j] = ' ';
-    }
+    /* Trim any newlines at the end (ones will be added by addReplyErrorLength) */
+    s = sdstrim(s, "\r\n");
+    /* Make sure there are no newlines in the middle of the string, otherwise
+     * invalid protocol is emitted. */
+    s = sdsmapchars(s, "\r\n", "  ",  2);
     addReplyErrorLength(c,s,sdslen(s));
+    afterErrorReply(c,s,sdslen(s));
     sdsfree(s);
 }
 
@@ -483,6 +506,7 @@ void *addReplyDeferredLen(client *c) {
 
 /* Populate the length object and try gluing it to the next chunk. */
 void setDeferredAggregateLen(client *c, void *node, long length, char prefix) {
+    serverAssert(length >= 0);
     listNode *ln = (listNode*)node;
     clientReplyBlock *next;
     char lenstr[128];
@@ -890,7 +914,17 @@ void clientAcceptHandler(connection *conn) {
 #define MAX_ACCEPTS_PER_CALL 1000
 static void acceptCommonHandler(connection *conn, int flags, char *ip) {
     client *c;
+    char conninfo[100];
     UNUSED(ip);
+
+    if (connGetState(conn) != CONN_STATE_ACCEPTING) {
+        serverLog(LL_VERBOSE,
+            "Accepted client connection in error state: %s (conn: %s)",
+            connGetLastError(conn),
+            connGetInfo(conn, conninfo, sizeof(conninfo)));
+        connClose(conn);
+        return;
+    }
 
     /* Limit the number of connections we take at the same time.
      *
@@ -902,10 +936,10 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
     {
         char *err;
         if (server.cluster_enabled)
-            err = "-ERR max number of clients reached\r\n";
-        else
             err = "-ERR max number of clients + cluster "
                   "connections reached\r\n";
+        else
+            err = "-ERR max number of clients reached\r\n";
 
         /* That's a best effort error message, don't check write errors.
          * Note that for TLS connections, no handshake was done yet so nothing
@@ -920,7 +954,6 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
 
     /* Create connection and client */
     if ((c = createClient(conn)) == NULL) {
-        char conninfo[100];
         serverLog(LL_WARNING,
             "Error registering fd event for the new client: %s (conn: %s)",
             connGetLastError(conn),
@@ -1129,7 +1162,7 @@ void freeClient(client *c) {
         listDelNode(server.clients_to_close,ln);
     }
 
-    /* If it is our master that's beging disconnected we should make sure
+    /* If it is our master that's being disconnected we should make sure
      * to cache the state to try a partial resynchronization later.
      *
      * Note that before doing this we make sure that the client is not in
@@ -1281,6 +1314,9 @@ client *lookupClientByID(uint64_t id) {
  * set to 0. So when handler_installed is set to 0 the function must be
  * thread safe. */
 int writeToClient(client *c, int handler_installed) {
+    /* Update total number of writes on server */
+    atomicIncr(server.stat_total_writes_processed, 1);
+
     ssize_t nwritten = 0, totwritten = 0;
     size_t objlen;
     clientReplyBlock *o;
@@ -1341,7 +1377,7 @@ int writeToClient(client *c, int handler_installed) {
              zmalloc_used_memory() < server.maxmemory) &&
             !(c->flags & CLIENT_SLAVE)) break;
     }
-    server.stat_net_output_bytes += totwritten;
+    atomicIncr(server.stat_net_output_bytes, totwritten);
     if (nwritten == -1) {
         if (connGetState(c->conn) == CONN_STATE_CONNECTED) {
             nwritten = 0;
@@ -1456,7 +1492,7 @@ void resetClient(client *c) {
     }
 }
 
-/* This funciton is used when we want to re-enter the event loop but there
+/* This function is used when we want to re-enter the event loop but there
  * is the risk that the client we are dealing with will be freed in some
  * way. This happens for instance in:
  *
@@ -1677,7 +1713,8 @@ int processMultibulkBuffer(client *c) {
             }
 
             ok = string2ll(c->querybuf+c->qb_pos+1,newline-(c->querybuf+c->qb_pos+1),&ll);
-            if (!ok || ll < 0 || ll > server.proto_max_bulk_len) {
+            if (!ok || ll < 0 ||
+                (!(c->flags & CLIENT_MASTER) && ll > server.proto_max_bulk_len)) {
                 addReplyError(c,"Protocol error: invalid bulk length");
                 setProtocolError("invalid bulk length",c);
                 return C_ERR;
@@ -1794,8 +1831,8 @@ int processCommandAndResetClient(client *c) {
     }
     if (server.current_client == NULL) deadclient = 1;
     server.current_client = NULL;
-    /* freeMemoryIfNeeded may flush slave output buffers. This may
-     * result into a slave, that may be the active client, to be
+    /* performEvictions may flush slave output buffers. This may
+     * result in a slave, that may be the active client, to be
      * freed. */
     return deadclient ? C_ERR : C_OK;
 }
@@ -1896,6 +1933,9 @@ void readQueryFromClient(connection *conn) {
      * the event loop. This is the case if threaded I/O is enabled. */
     if (postponeClientRead(c)) return;
 
+    /* Update total number of reads on server */
+    atomicIncr(server.stat_total_reads_processed, 1);
+
     readlen = PROTO_IOBUF_LEN;
     /* If this is a multi bulk request, and we are processing a bulk reply
      * that is large enough, try to maximize the probability that the query
@@ -1940,7 +1980,7 @@ void readQueryFromClient(connection *conn) {
     sdsIncrLen(c->querybuf,nread);
     c->lastinteraction = server.unixtime;
     if (c->flags & CLIENT_MASTER) c->read_reploff += nread;
-    server.stat_net_input_bytes += nread;
+    atomicIncr(server.stat_net_input_bytes, nread);
     if (sdslen(c->querybuf) > server.client_max_querybuf_len) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
 
@@ -2011,7 +2051,7 @@ char *getClientPeerId(client *c) {
     return c->peerid;
 }
 
-/* Concatenate a string representing the state of a client in an human
+/* Concatenate a string representing the state of a client in a human
  * readable format, into the sds string 's'. */
 sds catClientInfoString(sds s, client *client) {
     char flags[16], events[3], conninfo[CONN_INFO_LEN], *p;
@@ -2142,6 +2182,7 @@ void clientCommand(client *c) {
 "SETNAME <name>         -- Assign the name <name> to the current connection.",
 "UNBLOCK <clientid> [TIMEOUT|ERROR] -- Unblock the specified blocked client.",
 "TRACKING (on|off) [REDIRECT <id>] [BCAST] [PREFIX first] [PREFIX second] [OPTIN] [OPTOUT]... -- Enable client keys tracking for client side caching.",
+"CACHING  (yes|no)      -- Enable/Disable tracking of the keys for next command in OPTIN/OPTOUT mode.",
 "GETREDIR               -- Return the client ID we are redirecting to when tracking is enabled.",
 NULL
         };
@@ -2501,7 +2542,7 @@ void helloCommand(client *c) {
         const char *opt = c->argv[j]->ptr;
         if (!strcasecmp(opt,"AUTH") && moreargs >= 2) {
             if (ACLAuthenticateUser(c, c->argv[j+1], c->argv[j+2]) == C_ERR) {
-                addReplyError(c,"-WRONGPASS invalid username-password pair");
+                addReplyError(c,"-WRONGPASS invalid username-password pair or user is disabled.");
                 return;
             }
             j += 2;
@@ -2757,7 +2798,7 @@ void asyncCloseClientOnOutputBufferLimitReached(client *c) {
     }
 }
 
-/* Helper function used by freeMemoryIfNeeded() in order to flush slaves
+/* Helper function used by performEvictions() in order to flush slaves
  * output buffers without returning control to the event loop.
  * This is also called by SHUTDOWN for a best-effort attempt to send
  * slaves the latest writes. */
@@ -2860,6 +2901,10 @@ int clientsArePaused(void) {
 void processEventsWhileBlocked(void) {
     int iterations = 4; /* See the function top-comment. */
 
+    /* Update our cached time since it is used to create and update the last
+     * interaction time with clients and for other important things. */
+    updateCachedTime(0);
+
     /* Note: when we are processing events while blocked (for instance during
      * busy Lua scripts), we set a global flag. When such flag is set, we
      * avoid handling the read part of clients using threaded I/O.
@@ -2876,6 +2921,9 @@ void processEventsWhileBlocked(void) {
         long long events = server.events_processed_while_blocked - startval;
         if (!events) break;
     }
+
+    whileBlockedCron();
+
     ProcessingEventsWhileBlocked = 0;
 }
 
@@ -2891,14 +2939,23 @@ int tio_debug = 0;
 
 pthread_t io_threads[IO_THREADS_MAX_NUM];
 pthread_mutex_t io_threads_mutex[IO_THREADS_MAX_NUM];
-_Atomic unsigned long io_threads_pending[IO_THREADS_MAX_NUM];
-int io_threads_active;  /* Are the threads currently spinning waiting I/O? */
+redisAtomic unsigned long io_threads_pending[IO_THREADS_MAX_NUM];
 int io_threads_op;      /* IO_THREADS_OP_WRITE or IO_THREADS_OP_READ. */
 
 /* This is the list of clients each thread will serve when threaded I/O is
  * used. We spawn io_threads_num-1 threads, since one is the main thread
  * itself. */
 list *io_threads_list[IO_THREADS_MAX_NUM];
+
+static inline unsigned long getIOPendingCount(int i) {
+    unsigned long count = 0;
+    atomicGetWithSync(io_threads_pending[i], count);
+    return count;
+}
+
+static inline void setIOPendingCount(int i, unsigned long count) {
+    atomicSetWithSync(io_threads_pending[i], count);
+}
 
 void *IOThreadMain(void *myid) {
     /* The ID is the thread number (from 0 to server.iothreads_num-1), and is
@@ -2913,17 +2970,17 @@ void *IOThreadMain(void *myid) {
     while(1) {
         /* Wait for start */
         for (int j = 0; j < 1000000; j++) {
-            if (io_threads_pending[id] != 0) break;
+            if (getIOPendingCount(id) != 0) break;
         }
 
         /* Give the main thread a chance to stop this thread. */
-        if (io_threads_pending[id] == 0) {
+        if (getIOPendingCount(id) == 0) {
             pthread_mutex_lock(&io_threads_mutex[id]);
             pthread_mutex_unlock(&io_threads_mutex[id]);
             continue;
         }
 
-        serverAssert(io_threads_pending[id] != 0);
+        serverAssert(getIOPendingCount(id) != 0);
 
         if (tio_debug) printf("[%ld] %d to handle\n", id, (int)listLength(io_threads_list[id]));
 
@@ -2943,7 +3000,7 @@ void *IOThreadMain(void *myid) {
             }
         }
         listEmpty(io_threads_list[id]);
-        io_threads_pending[id] = 0;
+        setIOPendingCount(id, 0);
 
         if (tio_debug) printf("[%ld] Done\n", id);
     }
@@ -2951,7 +3008,7 @@ void *IOThreadMain(void *myid) {
 
 /* Initialize the data structures needed for threaded I/O. */
 void initThreadedIO(void) {
-    io_threads_active = 0; /* We start with threads not active. */
+    server.io_threads_active = 0; /* We start with threads not active. */
 
     /* Don't spawn any thread if the user selected a single thread:
      * we'll handle I/O directly from the main thread. */
@@ -2972,7 +3029,7 @@ void initThreadedIO(void) {
         /* Things we do only for the additional threads. */
         pthread_t tid;
         pthread_mutex_init(&io_threads_mutex[i],NULL);
-        io_threads_pending[i] = 0;
+        setIOPendingCount(i, 0);
         pthread_mutex_lock(&io_threads_mutex[i]); /* Thread will be stopped. */
         if (pthread_create(&tid,NULL,IOThreadMain,(void*)(long)i) != 0) {
             serverLog(LL_WARNING,"Fatal: Can't initialize IO thread.");
@@ -2982,13 +3039,30 @@ void initThreadedIO(void) {
     }
 }
 
+void killIOThreads(void) {
+    int err, j;
+    for (j = 0; j < server.io_threads_num; j++) {
+        if (io_threads[j] == pthread_self()) continue;
+        if (io_threads[j] && pthread_cancel(io_threads[j]) == 0) {
+            if ((err = pthread_join(io_threads[j],NULL)) != 0) {
+                serverLog(LL_WARNING,
+                    "IO thread(tid:%lu) can not be joined: %s",
+                        (unsigned long)io_threads[j], strerror(err));
+            } else {
+                serverLog(LL_WARNING,
+                    "IO thread(tid:%lu) terminated",(unsigned long)io_threads[j]);
+            }
+        }
+    }
+}
+
 void startThreadedIO(void) {
     if (tio_debug) { printf("S"); fflush(stdout); }
     if (tio_debug) printf("--- STARTING THREADED IO ---\n");
-    serverAssert(io_threads_active == 0);
+    serverAssert(server.io_threads_active == 0);
     for (int j = 1; j < server.io_threads_num; j++)
         pthread_mutex_unlock(&io_threads_mutex[j]);
-    io_threads_active = 1;
+    server.io_threads_active = 1;
 }
 
 void stopThreadedIO(void) {
@@ -2999,10 +3073,10 @@ void stopThreadedIO(void) {
     if (tio_debug) printf("--- STOPPING THREADED IO [R%d] [W%d] ---\n",
         (int) listLength(server.clients_pending_read),
         (int) listLength(server.clients_pending_write));
-    serverAssert(io_threads_active == 1);
+    serverAssert(server.io_threads_active == 1);
     for (int j = 1; j < server.io_threads_num; j++)
         pthread_mutex_lock(&io_threads_mutex[j]);
-    io_threads_active = 0;
+    server.io_threads_active = 0;
 }
 
 /* This function checks if there are not enough pending clients to justify
@@ -3011,7 +3085,7 @@ void stopThreadedIO(void) {
  * we need to handle in parallel, however the I/O threading is disabled
  * globally for reads as well if we have too little pending clients.
  *
- * The function returns 0 if the I/O threading should be used becuase there
+ * The function returns 0 if the I/O threading should be used because there
  * are enough active threads, otherwise 1 is returned and the I/O threads
  * could be possibly stopped (if already active) as a side effect. */
 int stopThreadedIOIfNeeded(void) {
@@ -3021,7 +3095,7 @@ int stopThreadedIOIfNeeded(void) {
     if (server.io_threads_num == 1) return 1;
 
     if (pending < (server.io_threads_num*2)) {
-        if (io_threads_active) stopThreadedIO();
+        if (server.io_threads_active) stopThreadedIO();
         return 1;
     } else {
         return 0;
@@ -3039,7 +3113,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     }
 
     /* Start threads if needed. */
-    if (!io_threads_active) startThreadedIO();
+    if (!server.io_threads_active) startThreadedIO();
 
     if (tio_debug) printf("%d TOTAL WRITE pending clients\n", processed);
 
@@ -3061,7 +3135,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     io_threads_op = IO_THREADS_OP_WRITE;
     for (int j = 1; j < server.io_threads_num; j++) {
         int count = listLength(io_threads_list[j]);
-        io_threads_pending[j] = count;
+        setIOPendingCount(j, count);
     }
 
     /* Also use the main thread to process a slice of clients. */
@@ -3076,7 +3150,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     while(1) {
         unsigned long pending = 0;
         for (int j = 1; j < server.io_threads_num; j++)
-            pending += io_threads_pending[j];
+            pending += getIOPendingCount(j);
         if (pending == 0) break;
     }
     if (tio_debug) printf("I/O WRITE All threads finshed\n");
@@ -3096,6 +3170,10 @@ int handleClientsWithPendingWritesUsingThreads(void) {
         }
     }
     listEmpty(server.clients_pending_write);
+
+    /* Update processed count on server */
+    server.stat_io_writes_processed += processed;
+
     return processed;
 }
 
@@ -3104,7 +3182,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
  * As a side effect of calling this function the client is put in the
  * pending read clients and flagged as such. */
 int postponeClientRead(client *c) {
-    if (io_threads_active &&
+    if (server.io_threads_active &&
         server.io_threads_do_reads &&
         !ProcessingEventsWhileBlocked &&
         !(c->flags & (CLIENT_MASTER|CLIENT_SLAVE|CLIENT_PENDING_READ)))
@@ -3124,7 +3202,7 @@ int postponeClientRead(client *c) {
  * the reads in the buffers, and also parse the first command available
  * rendering it in the client structures. */
 int handleClientsWithPendingReadsUsingThreads(void) {
-    if (!io_threads_active || !server.io_threads_do_reads) return 0;
+    if (!server.io_threads_active || !server.io_threads_do_reads) return 0;
     int processed = listLength(server.clients_pending_read);
     if (processed == 0) return 0;
 
@@ -3147,7 +3225,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     io_threads_op = IO_THREADS_OP_READ;
     for (int j = 1; j < server.io_threads_num; j++) {
         int count = listLength(io_threads_list[j]);
-        io_threads_pending[j] = count;
+        setIOPendingCount(j, count);
     }
 
     /* Also use the main thread to process a slice of clients. */
@@ -3162,7 +3240,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     while(1) {
         unsigned long pending = 0;
         for (int j = 1; j < server.io_threads_num; j++)
-            pending += io_threads_pending[j];
+            pending += getIOPendingCount(j);
         if (pending == 0) break;
     }
     if (tio_debug) printf("I/O READ All threads finshed\n");
@@ -3185,5 +3263,9 @@ int handleClientsWithPendingReadsUsingThreads(void) {
         }
         processInputBuffer(c);
     }
+
+    /* Update processed count on server */
+    server.stat_io_reads_processed += processed;
+
     return processed;
 }

@@ -33,7 +33,7 @@ start_server {} {
     }
 
     test {WAIT should not acknowledge 1 additional copy if slave is blocked} {
-        set cmd [rediscli $slave_port "-h $slave_host debug sleep 5"]
+        set cmd [rediscli $slave_host $slave_port "debug sleep 5"]
         exec {*}$cmd > /dev/null 2> /dev/null &
         after 1000 ;# Give redis-cli the time to execute the command.
         $master set foo 0

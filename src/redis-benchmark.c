@@ -1,4 +1,4 @@
-/* Redis benchmark utility. 
+/* Redis benchmark utility.
  *
  * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
@@ -42,6 +42,7 @@
 #include <math.h>
 #include <pthread.h>
 
+#include <sdscompat.h> /* Use hiredis' sds compat header that maps sds calls to their hi_ variants */
 #include <sds.h> /* Use hiredis sds. */
 #include "ae.h"
 #include "hiredis.h"
@@ -50,12 +51,17 @@
 #include "zmalloc.h"
 #include "atomicvar.h"
 #include "crc16_slottable.h"
+#include "hdr_histogram.h"
 
 #define UNUSED(V) ((void) V)
 #define RANDPTR_INITIAL_SIZE 8
-#define MAX_LATENCY_PRECISION 3
+#define DEFAULT_LATENCY_PRECISION 3
+#define MAX_LATENCY_PRECISION 4
 #define MAX_THREADS 500
 #define CLUSTER_SLOTS 16384
+#define CONFIG_LATENCY_HISTOGRAM_MIN_VALUE 10L          /* >= 10 usecs */
+#define CONFIG_LATENCY_HISTOGRAM_MAX_VALUE 3000000L          /* <= 30 secs(us precision) */
+#define CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE 3000000L   /* <= 3 secs(us precision) */
 
 #define CLIENT_GET_EVENTLOOP(c) \
     (c->thread_id >= 0 ? config.threads[c->thread_id]->el : config.el)
@@ -70,10 +76,13 @@ static struct config {
     int hostport;
     const char *hostsocket;
     int numclients;
-    int liveclients;
+    redisAtomic int liveclients;
     int requests;
-    int requests_issued;
-    int requests_finished;
+    redisAtomic int requests_issued;
+    redisAtomic int requests_finished;
+    redisAtomic int previous_requests_finished;
+    int last_printed_bytes;
+    long long previous_tick;
     int keysize;
     int datasize;
     int randomkeys;
@@ -102,18 +111,14 @@ static struct config {
     int cluster_node_count;
     struct clusterNode **cluster_nodes;
     struct redisConfig *redis_config;
-    int is_fetching_slots;
-    int is_updating_slots;
-    int slots_last_update;
+    struct hdr_histogram* latency_histogram;
+    struct hdr_histogram* current_sec_latency_histogram;
+    redisAtomic int is_fetching_slots;
+    redisAtomic int is_updating_slots;
+    redisAtomic int slots_last_update;
     int enable_tracking;
-    /* Thread mutexes to be used as fallbacks by atomicvar.h */
-    pthread_mutex_t requests_issued_mutex;
-    pthread_mutex_t requests_finished_mutex;
     pthread_mutex_t liveclients_mutex;
-    pthread_mutex_t is_fetching_slots_mutex;
     pthread_mutex_t is_updating_slots_mutex;
-    pthread_mutex_t updating_slots_mutex;
-    pthread_mutex_t slots_last_update_mutex;
 } config;
 
 typedef struct _client {
@@ -183,6 +188,8 @@ static void *execBenchmarkThread(void *ptr);
 static clusterNode *createClusterNode(char *ip, int port);
 static redisConfig *getRedisConfig(const char *ip, int port,
                                    const char *hostsocket);
+static redisContext *getRedisContext(const char *ip, int port,
+                                     const char *hostsocket);
 static void freeRedisConfig(redisConfig *cfg);
 static int fetchClusterSlotsConfiguration(client c);
 static void updateClusterSlotsConfiguration();
@@ -238,6 +245,52 @@ void _serverAssert(const char *estr, const char *file, int line) {
     *((char*)-1) = 'x';
 }
 
+static redisContext *getRedisContext(const char *ip, int port,
+                                     const char *hostsocket)
+{
+    redisContext *ctx = NULL;
+    redisReply *reply =  NULL;
+    if (hostsocket == NULL)
+        ctx = redisConnect(ip, port);
+    else
+        ctx = redisConnectUnix(hostsocket);
+    if (ctx == NULL || ctx->err) {
+        fprintf(stderr,"Could not connect to Redis at ");
+        char *err = (ctx != NULL ? ctx->errstr : "");
+        if (hostsocket == NULL)
+            fprintf(stderr,"%s:%d: %s\n",ip,port,err);
+        else
+            fprintf(stderr,"%s: %s\n",hostsocket,err);
+        goto cleanup;
+    }
+    if (config.auth == NULL)
+        return ctx;
+    if (config.user == NULL)
+        reply = redisCommand(ctx,"AUTH %s", config.auth);
+    else
+        reply = redisCommand(ctx,"AUTH %s %s", config.user, config.auth);
+    if (reply != NULL) {
+        if (reply->type == REDIS_REPLY_ERROR) {
+            if (hostsocket == NULL)
+                fprintf(stderr, "Node %s:%d replied with error:\n%s\n", ip, port, reply->str);
+            else
+                fprintf(stderr, "Node %s replied with error:\n%s\n", hostsocket, reply->str);
+            goto cleanup;
+        }
+        freeReplyObject(reply);
+        return ctx;
+    }
+    fprintf(stderr, "ERROR: failed to fetch reply from ");
+    if (hostsocket == NULL)
+        fprintf(stderr, "%s:%d\n", ip, port);
+    else
+        fprintf(stderr, "%s\n", hostsocket);
+cleanup:
+    freeReplyObject(reply);
+    redisFree(ctx);
+    return NULL;
+}
+
 static redisConfig *getRedisConfig(const char *ip, int port,
                                    const char *hostsocket)
 {
@@ -245,33 +298,11 @@ static redisConfig *getRedisConfig(const char *ip, int port,
     if (!cfg) return NULL;
     redisContext *c = NULL;
     redisReply *reply = NULL, *sub_reply = NULL;
-    if (hostsocket == NULL)
-        c = redisConnect(ip, port);
-    else
-        c = redisConnectUnix(hostsocket);
-    if (c == NULL || c->err) {
-        fprintf(stderr,"Could not connect to Redis at ");
-        char *err = (c != NULL ? c->errstr : "");
-        if (hostsocket == NULL) fprintf(stderr,"%s:%d: %s\n",ip,port,err);
-        else fprintf(stderr,"%s: %s\n",hostsocket,err);
-        goto fail;
+    c = getRedisContext(ip, port, hostsocket);
+    if (c == NULL) {
+        freeRedisConfig(cfg);
+        return NULL;
     }
-
-    if(config.auth) {
-        void *authReply = NULL;
-        if (config.user == NULL)
-            redisAppendCommand(c, "AUTH %s", config.auth);
-        else
-            redisAppendCommand(c, "AUTH %s %s", config.user, config.auth);
-        if (REDIS_OK != redisGetReply(c, &authReply)) goto fail;
-        if (reply) freeReplyObject(reply);
-        reply = ((redisReply *) authReply);
-        if (reply->type == REDIS_REPLY_ERROR) {
-            fprintf(stderr, "ERROR: %s\n", reply->str);
-            goto fail;
-        }
-    }
-
     redisAppendCommand(c, "CONFIG GET %s", "save");
     redisAppendCommand(c, "CONFIG GET %s", "appendonly");
     int i = 0;
@@ -507,8 +538,23 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                 }
                 int requests_finished = 0;
                 atomicGetIncr(config.requests_finished, requests_finished, 1);
-                if (requests_finished < config.requests)
-                    config.latency[requests_finished] = c->latency;
+                if (requests_finished < config.requests){
+                        if (config.num_threads == 0) {
+                            hdr_record_value(
+                            config.latency_histogram,  // Histogram to record to
+                            (long)c->latency<=CONFIG_LATENCY_HISTOGRAM_MAX_VALUE ? (long)c->latency : CONFIG_LATENCY_HISTOGRAM_MAX_VALUE);  // Value to record
+                            hdr_record_value(
+                            config.current_sec_latency_histogram,  // Histogram to record to
+                            (long)c->latency<=CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE ? (long)c->latency : CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE);  // Value to record
+                        } else {
+                            hdr_record_value_atomic(
+                            config.latency_histogram,  // Histogram to record to
+                            (long)c->latency<=CONFIG_LATENCY_HISTOGRAM_MAX_VALUE ? (long)c->latency : CONFIG_LATENCY_HISTOGRAM_MAX_VALUE);  // Value to record
+                            hdr_record_value_atomic(
+                            config.current_sec_latency_histogram,  // Histogram to record to
+                            (long)c->latency<=CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE ? (long)c->latency : CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE);  // Value to record
+                        }
+                }
                 c->pending--;
                 if (c->pending == 0) {
                     clientDone(c);
@@ -767,27 +813,18 @@ static void createMissingClients(client c) {
     }
 }
 
-static int compareLatency(const void *a, const void *b) {
-    return (*(long long*)a)-(*(long long*)b);
-}
-
-static int ipow(int base, int exp) {
-    int result = 1;
-    while (exp) {
-        if (exp & 1) result *= base;
-        exp /= 2;
-        base *= base;
-    }
-    return result;
-}
-
 static void showLatencyReport(void) {
-    int i, curlat = 0;
-    int usbetweenlat = ipow(10, MAX_LATENCY_PRECISION-config.precision);
-    float perc, reqpersec;
 
-    reqpersec = (float)config.requests_finished/((float)config.totlatency/1000);
+    const float reqpersec = (float)config.requests_finished/((float)config.totlatency/1000.0f);
+    const float p0 = ((float) hdr_min(config.latency_histogram))/1000.0f;
+    const float p50 = hdr_value_at_percentile(config.latency_histogram, 50.0 )/1000.0f;
+    const float p95 = hdr_value_at_percentile(config.latency_histogram, 95.0 )/1000.0f;
+    const float p99 = hdr_value_at_percentile(config.latency_histogram, 99.0 )/1000.0f;
+    const float p100 = ((float) hdr_max(config.latency_histogram))/1000.0f;
+    const float avg = hdr_mean(config.latency_histogram)/1000.0f;
+
     if (!config.quiet && !config.csv) {
+        printf("%*s\r", config.last_printed_bytes, " "); // ensure there is a clean line
         printf("====== %s ======\n", config.title);
         printf("  %d requests completed in %.2f seconds\n", config.requests_finished,
             (float)config.totlatency/1000);
@@ -820,31 +857,52 @@ static void showLatencyReport(void) {
             printf("  threads: %d\n", config.num_threads);
 
         printf("\n");
-
-        qsort(config.latency,config.requests,sizeof(long long),compareLatency);
-        for (i = 0; i < config.requests; i++) {
-            if (config.latency[i]/usbetweenlat != curlat ||
-                i == (config.requests-1))
-            {
-                /* After the 2 milliseconds latency to have percentages split
-                 * by decimals will just add a lot of noise to the output. */
-                if (config.latency[i] >= 2000) {
-                    config.precision = 0;
-                    usbetweenlat = ipow(10,
-                        MAX_LATENCY_PRECISION-config.precision);
-                }
-
-                curlat = config.latency[i]/usbetweenlat;
-                perc = ((float)(i+1)*100)/config.requests;
-                printf("%.2f%% <= %.*f milliseconds\n", perc, config.precision,
-                    curlat/pow(10.0, config.precision));
+        printf("Latency by percentile distribution:\n");
+        struct hdr_iter iter;
+        long long previous_cumulative_count = -1;
+        const long long total_count = config.latency_histogram->total_count;
+        hdr_iter_percentile_init(&iter, config.latency_histogram, 1);
+        struct hdr_iter_percentiles *percentiles = &iter.specifics.percentiles;
+        while (hdr_iter_next(&iter))
+        {
+            const double value = iter.highest_equivalent_value / 1000.0f;
+            const double percentile = percentiles->percentile;
+            const long long cumulative_count = iter.cumulative_count;
+            if( previous_cumulative_count != cumulative_count || cumulative_count == total_count ){
+                printf("%3.3f%% <= %.3f milliseconds (cumulative count %lld)\n", percentile, value, cumulative_count);
             }
+            previous_cumulative_count = cumulative_count;
         }
-        printf("%.2f requests per second\n\n", reqpersec);
+        printf("\n");
+        printf("Cumulative distribution of latencies:\n");
+        previous_cumulative_count = -1;
+        hdr_iter_linear_init(&iter, config.latency_histogram, 100);
+        while (hdr_iter_next(&iter))
+        {
+            const double value = iter.highest_equivalent_value / 1000.0f;
+            const long long cumulative_count = iter.cumulative_count;
+            const double percentile = ((double)cumulative_count/(double)total_count)*100.0;
+            if( previous_cumulative_count != cumulative_count || cumulative_count == total_count ){
+                printf("%3.3f%% <= %.3f milliseconds (cumulative count %lld)\n", percentile, value, cumulative_count);
+            }
+            /* After the 2 milliseconds latency to have percentages split
+             * by decimals will just add a lot of noise to the output. */
+            if(iter.highest_equivalent_value > 2000){
+                hdr_iter_linear_set_value_units_per_bucket(&iter,1000);
+            }
+            previous_cumulative_count = cumulative_count;
+        }
+        printf("\n");
+        printf("Summary:\n");
+        printf("  throughput summary: %.2f requests per second\n", reqpersec);
+        printf("  latency summary (msec):\n");
+        printf("    %9s %9s %9s %9s %9s %9s\n", "avg", "min", "p50", "p95", "p99", "max");
+        printf("    %9.3f %9.3f %9.3f %9.3f %9.3f %9.3f\n", avg, p0, p50, p95, p99, p100);
     } else if (config.csv) {
-        printf("\"%s\",\"%.2f\"\n", config.title, reqpersec);
+        printf("\"%s\",\"%.2f\",\"%.3f\",\"%.3f\",\"%.3f\",\"%.3f\",\"%.3f\",\"%.3f\"\n", config.title, reqpersec, avg, p0, p50, p95, p99, p100);
     } else {
-        printf("%s: %.2f requests per second\n", config.title, reqpersec);
+        printf("%*s\r", config.last_printed_bytes, " "); // ensure there is a clean line
+        printf("%s: %.2f requests per second, p50=%.3f msec\n", config.title, reqpersec, p50);
     }
 }
 
@@ -877,6 +935,18 @@ static void benchmark(char *title, char *cmd, int len) {
     config.title = title;
     config.requests_issued = 0;
     config.requests_finished = 0;
+    config.previous_requests_finished = 0;
+    config.last_printed_bytes = 0;
+    hdr_init(
+        CONFIG_LATENCY_HISTOGRAM_MIN_VALUE,  // Minimum value
+        CONFIG_LATENCY_HISTOGRAM_MAX_VALUE,  // Maximum value
+        config.precision,  // Number of significant figures
+        &config.latency_histogram);  // Pointer to initialise
+    hdr_init(
+        CONFIG_LATENCY_HISTOGRAM_MIN_VALUE,  // Minimum value
+        CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE,  // Maximum value
+        config.precision,  // Number of significant figures
+        &config.current_sec_latency_histogram);  // Pointer to initialise
 
     if (config.num_threads) initBenchmarkThreads();
 
@@ -892,6 +962,9 @@ static void benchmark(char *title, char *cmd, int len) {
     showLatencyReport();
     freeAllClients();
     if (config.threads) freeBenchmarkThreads();
+    if (config.current_sec_latency_histogram) hdr_close(config.current_sec_latency_histogram);
+    if (config.latency_histogram) hdr_close(config.latency_histogram);
+
 }
 
 /* Thread functions. */
@@ -994,16 +1067,8 @@ static int fetchClusterConfiguration() {
     int success = 1;
     redisContext *ctx = NULL;
     redisReply *reply =  NULL;
-    if (config.hostsocket == NULL)
-        ctx = redisConnect(config.hostip,config.hostport);
-    else
-        ctx = redisConnectUnix(config.hostsocket);
-    if (ctx->err) {
-        fprintf(stderr,"Could not connect to Redis at ");
-        if (config.hostsocket == NULL) {
-            fprintf(stderr,"%s:%d: %s\n",config.hostip,config.hostport,
-                    ctx->errstr);
-        } else fprintf(stderr,"%s: %s\n",config.hostsocket,ctx->errstr);
+    ctx = getRedisContext(config.hostip, config.hostport, config.hostsocket);
+    if (ctx == NULL) {
         exit(1);
     }
     clusterNode *firstNode = createClusterNode((char *) config.hostip,
@@ -1199,11 +1264,9 @@ static int fetchClusterSlotsConfiguration(client c) {
         assert(node->port);
         /* Use first node as entry point to connect to. */
         if (ctx == NULL) {
-            ctx = redisConnect(node->ip, node->port);
-            if (!ctx || ctx->err) {
+            ctx = getRedisContext(node->ip, node->port, NULL);
+            if (!ctx) {
                 success = 0;
-                if (ctx && ctx->err)
-                    fprintf(stderr, "REDIS CONNECTION ERROR: %s\n", ctx->errstr);
                 goto cleanup;
             }
         }
@@ -1370,7 +1433,7 @@ int parseOptions(int argc, const char **argv) {
         } else if (!strcmp(argv[i],"--precision")) {
             if (lastarg) goto invalid;
             config.precision = atoi(argv[++i]);
-            if (config.precision < 0) config.precision = 0;
+            if (config.precision < 0) config.precision = DEFAULT_LATENCY_PRECISION;
             if (config.precision > MAX_LATENCY_PRECISION) config.precision = MAX_LATENCY_PRECISION;
         } else if (!strcmp(argv[i],"--threads")) {
              if (lastarg) goto invalid;
@@ -1417,7 +1480,8 @@ usage:
 " --cluster          Enable cluster mode.\n"
 " --enable-tracking  Send CLIENT TRACKING on before starting benchmark.\n"
 " -k <boolean>       1=keep alive 0=reconnect (default 1)\n"
-" -r <keyspacelen>   Use random keys for SET/GET/INCR, random values for SADD\n"
+" -r <keyspacelen>   Use random keys for SET/GET/INCR, random values for SADD,\n"
+"                    random members and scores for ZADD.\n"
 "  Using this option the benchmark will expand the string __rand_int__\n"
 "  inside an argument with a 12 digits number in the specified range\n"
 "  from 0 to keyspacelen-1. The substitution changes every time a command\n"
@@ -1458,9 +1522,12 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
     UNUSED(clientData);
     int liveclients = 0;
     int requests_finished = 0;
+    int previous_requests_finished = 0;
+    long long current_tick = mstime();
     atomicGet(config.liveclients, liveclients);
     atomicGet(config.requests_finished, requests_finished);
-
+    atomicGet(config.previous_requests_finished, previous_requests_finished);
+    
     if (liveclients == 0 && requests_finished != config.requests) {
         fprintf(stderr,"All clients disconnected... aborting.\n");
         exit(1);
@@ -1475,9 +1542,14 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
         fflush(stdout);
 	return 250;
     }
-    float dt = (float)(mstime()-config.start)/1000.0;
-    float rps = (float)requests_finished/dt;
-    printf("%s: %.2f\r", config.title, rps);
+    const float dt = (float)(current_tick-config.start)/1000.0;
+    const float rps = (float)requests_finished/dt;
+    const float instantaneous_dt = (float)(current_tick-config.previous_tick)/1000.0;
+    const float instantaneous_rps = (float)(requests_finished-previous_requests_finished)/instantaneous_dt;
+    config.previous_tick = current_tick;
+    atomicSet(config.previous_requests_finished,requests_finished);
+    config.last_printed_bytes = printf("%s: rps=%.1f (overall: %.1f) avg_msec=%.3f (overall: %.3f)\r", config.title, instantaneous_rps, rps, hdr_mean(config.current_sec_latency_histogram)/1000.0f, hdr_mean(config.latency_histogram)/1000.0f);
+    hdr_reset(config.current_sec_latency_histogram);
     fflush(stdout);
     return 250; /* every 250ms */
 }
@@ -1522,7 +1594,6 @@ int main(int argc, const char **argv) {
     config.csv = 0;
     config.loop = 0;
     config.idlemode = 0;
-    config.latency = NULL;
     config.clients = listCreate();
     config.hostip = "127.0.0.1";
     config.hostport = 6379;
@@ -1530,7 +1601,7 @@ int main(int argc, const char **argv) {
     config.tests = NULL;
     config.dbnum = 0;
     config.auth = NULL;
-    config.precision = 1;
+    config.precision = DEFAULT_LATENCY_PRECISION;
     config.num_threads = 0;
     config.threads = NULL;
     config.cluster_mode = 0;
@@ -1545,8 +1616,6 @@ int main(int argc, const char **argv) {
     i = parseOptions(argc,argv);
     argc -= i;
     argv += i;
-
-    config.latency = zmalloc(sizeof(long long)*config.requests);
 
     if (config.cluster_mode) {
         /* Fetch cluster configuration. */
@@ -1593,15 +1662,9 @@ int main(int argc, const char **argv) {
         if (config.redis_config == NULL)
             fprintf(stderr, "WARN: could not fetch server CONFIG\n");
     }
-
     if (config.num_threads > 0) {
-        pthread_mutex_init(&(config.requests_issued_mutex), NULL);
-        pthread_mutex_init(&(config.requests_finished_mutex), NULL);
         pthread_mutex_init(&(config.liveclients_mutex), NULL);
-        pthread_mutex_init(&(config.is_fetching_slots_mutex), NULL);
         pthread_mutex_init(&(config.is_updating_slots_mutex), NULL);
-        pthread_mutex_init(&(config.updating_slots_mutex), NULL);
-        pthread_mutex_init(&(config.slots_last_update_mutex), NULL);
     }
 
     if (config.keepalive == 0) {
@@ -1621,7 +1684,9 @@ int main(int argc, const char **argv) {
         else aeMain(config.el);
         /* and will wait for every */
     }
-
+    if(config.csv){
+        printf("\"test\",\"rps\",\"avg_latency_ms\",\"min_latency_ms\",\"p50_latency_ms\",\"p95_latency_ms\",\"p99_latency_ms\",\"max_latency_ms\"\n");
+    }
     /* Run benchmark with command in the remainder of the arguments. */
     if (argc) {
         sds title = sdsnew(argv[0]);
@@ -1632,6 +1697,8 @@ int main(int argc, const char **argv) {
 
         do {
             len = redisFormatCommandArgv(&cmd,argc,argv,NULL);
+            // adjust the datasize to the parsed command
+            config.datasize = len;
             benchmark(title,cmd,len);
             free(cmd);
         } while(config.loop);
@@ -1706,7 +1773,7 @@ int main(int argc, const char **argv) {
 
         if (test_is_selected("hset")) {
             len = redisFormatCommand(&cmd,
-                "HSET myhash:{tag}:__rand_int__ element:__rand_int__ %s",data);
+                "HSET myhash:{tag} element:__rand_int__ %s",data);
             benchmark("HSET",cmd,len);
             free(cmd);
         }
@@ -1714,6 +1781,21 @@ int main(int argc, const char **argv) {
         if (test_is_selected("spop")) {
             len = redisFormatCommand(&cmd,"SPOP myset:{tag}");
             benchmark("SPOP",cmd,len);
+            free(cmd);
+        }
+
+        if (test_is_selected("zadd")) {
+            char *score = "0";
+            if (config.randomkeys) score = "__rand_int__";
+            len = redisFormatCommand(&cmd,
+                "ZADD myzset:{tag} %s element:__rand_int__",score);
+            benchmark("ZADD",cmd,len);
+            free(cmd);
+        }
+
+        if (test_is_selected("zpopmin")) {
+            len = redisFormatCommand(&cmd,"ZPOPMIN myzset:{tag}");
+            benchmark("ZPOPMIN",cmd,len);
             free(cmd);
         }
 
