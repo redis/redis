@@ -1638,13 +1638,14 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
                 /* Find the address of the next page, which is our "safety"
                  * limit when dumping. Then try to dump just 128 bytes more
                  * than EIP if there is room, or stop sooner. */
+                void *base = (void *)info.dli_saddr;
                 unsigned long next = ((unsigned long)eip + sz) & ~(sz-1);
                 unsigned long end = (unsigned long)eip + 128;
                 if (end > next) end = next;
-                len = end - (unsigned long)info.dli_saddr;
+                len = end - (unsigned long)base;
                 serverLogHexDump(LL_WARNING, "dump of function",
-                    info.dli_saddr ,len);
-                dumpX86Calls(info.dli_saddr,len);
+                    base ,len);
+                dumpX86Calls(base,len);
             }
         }
     }
