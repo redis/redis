@@ -31,7 +31,7 @@ OPT=$(OPTIMIZATION)
 
 # Detect if the compiler supports C11 _Atomic
 C11_ATOMIC := $(shell sh -c 'echo "\#include <stdatomic.h>" > foo.c; \
-	$(CC) -std=c11 -c foo.c -o foo.o &> /dev/null; \
+	$(CC) -std=c11 -c foo.c -o foo.o > /dev/null 2>&1; \
 	if [ -f foo.o ]; then echo "yes"; rm foo.o; fi; rm foo.c')
 ifeq ($(C11_ATOMIC),yes)
 	STD+=-std=c11
