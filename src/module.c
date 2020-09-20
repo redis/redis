@@ -1996,6 +1996,7 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
 
     /* Presence of children processes. */
     if (hasActiveChildProcess()) flags |= REDISMODULE_CTX_FLAGS_ACTIVE_CHILD;
+    if (server.in_fork_child) flags |= REDISMODULE_CTX_FLAGS_IS_CHILD;
 
     return flags;
 }
@@ -6904,7 +6905,7 @@ int RM_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
     }
 
     openChildInfoPipe();
-    if ((childpid = redisFork()) == 0) {
+    if ((childpid = redisFork(CHILD_TYPE_MODULE)) == 0) {
         /* Child */
         redisSetProcTitle("redis-module-fork");
     } else if (childpid == -1) {
@@ -6924,7 +6925,7 @@ int RM_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
  * retcode will be provided to the done handler executed on the parent process.
  */
 int RM_ExitFromChild(int retcode) {
-    sendChildCOWInfo(CHILD_INFO_TYPE_MODULE, "Module fork");
+    sendChildCOWInfo(CHILD_TYPE_MODULE, "Module fork");
     exitFromChild(retcode);
     return REDISMODULE_OK;
 }

@@ -1385,7 +1385,7 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
     server.lastbgsave_try = time(NULL);
     openChildInfoPipe();
 
-    if ((childpid = redisFork()) == 0) {
+    if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {
         int retval;
 
         /* Child */
@@ -1393,7 +1393,7 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
         redisSetCpuAffinity(server.bgsave_cpulist);
         retval = rdbSave(filename,rsi);
         if (retval == C_OK) {
-            sendChildCOWInfo(CHILD_INFO_TYPE_RDB, "RDB");
+            sendChildCOWInfo(CHILD_TYPE_RDB, "RDB");
         }
         exitFromChild((retval == C_OK) ? 0 : 1);
     } else {
@@ -2540,7 +2540,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
 
     /* Create the child process. */
     openChildInfoPipe();
-    if ((childpid = redisFork()) == 0) {
+    if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {
         /* Child */
         int retval;
         rio rdb;
@@ -2555,7 +2555,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
             retval = C_ERR;
 
         if (retval == C_OK) {
-            sendChildCOWInfo(CHILD_INFO_TYPE_RDB, "RDB");
+            sendChildCOWInfo(CHILD_TYPE_RDB, "RDB");
         }
 
         rioFreeFd(&rdb);
