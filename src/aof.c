@@ -1603,7 +1603,7 @@ int rewriteAppendOnlyFileBackground(void) {
     if (hasActiveChildProcess()) return C_ERR;
     if (aofCreatePipes() != C_OK) return C_ERR;
     openChildInfoPipe();
-    if ((childpid = redisFork()) == 0) {
+    if ((childpid = redisFork(CHILD_TYPE_AOF)) == 0) {
         char tmpfile[256];
 
         /* Child */
@@ -1611,7 +1611,7 @@ int rewriteAppendOnlyFileBackground(void) {
         redisSetCpuAffinity(server.aof_rewrite_cpulist);
         snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
         if (rewriteAppendOnlyFile(tmpfile) == C_OK) {
-            sendChildCOWInfo(CHILD_INFO_TYPE_AOF, "AOF rewrite");
+            sendChildCOWInfo(CHILD_TYPE_AOF, "AOF rewrite");
             exitFromChild(0);
         } else {
             exitFromChild(1);
