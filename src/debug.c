@@ -1563,7 +1563,7 @@ int memtest_test_linux_anonymous_maps(void) {
     closeDirectLogFiledes(fd);
     return errors;
 }
-#endif
+#endif /* HAVE_PROC_MAPS */
 
 static void killMainThread(void) {
     int err;
