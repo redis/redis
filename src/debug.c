@@ -1563,7 +1563,7 @@ int memtest_test_linux_anonymous_maps(void) {
     closeDirectLogFiledes(fd);
     return errors;
 }
-#endif
+#endif /* HAVE_PROC_MAPS */
 
 static void killMainThread(void) {
     int err;
@@ -1580,7 +1580,7 @@ static void killMainThread(void) {
  * should be used only when it's critical to stop the threads for some reason.
  * Currently Redis does this only on crash (for instance on SIGSEGV) in order
  * to perform a fast memory check without other threads messing with memory. */
-static void killThreads(void) {
+void killThreads(void) {
     killMainThread();
     bioKillThreads();
     killIOThreads();
@@ -1600,7 +1600,7 @@ void doFastMemoryTest(void) {
                 "Fast memory test PASSED, however your memory can still be broken. Please run a memory test for several hours if possible.\n");
         }
     }
-#endif
+#endif /* HAVE_PROC_MAPS */
 }
 
 /* Scans the (assumed) x86 code starting at addr, for a max of `len`
