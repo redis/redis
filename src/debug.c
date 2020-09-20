@@ -1510,7 +1510,7 @@ int memtest_test_linux_anonymous_maps(void) {
     closeDirectLogFiledes(fd);
     return errors;
 }
-#endif
+#endif /* HAVE_PROC_MAPS */
 
 static void killMainThread(void) {
     int err;
@@ -1527,7 +1527,7 @@ static void killMainThread(void) {
  * should be used only when it's critical to stop the threads for some reason.
  * Currently Redis does this only on crash (for instance on SIGSEGV) in order
  * to perform a fast memory check without other threads messing with memory. */
-static void killThreads(void) {
+void killThreads(void) {
     killMainThread();
     bioKillThreads();
     killIOThreads();
