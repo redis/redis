@@ -1163,6 +1163,8 @@ void swapdbCommand(client *c) {
         addReplyError(c,"DB index is out of range");
         return;
     } else {
+        RedisModuleSwapDbInfo si = {REDISMODULE_SWAPDBINFO_VERSION,id1,id2};
+        moduleFireServerEvent(REDISMODULE_EVENT_SWAPDB,0,&si);
         server.dirty++;
         addReply(c,shared.ok);
     }

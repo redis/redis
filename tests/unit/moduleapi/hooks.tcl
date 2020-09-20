@@ -147,6 +147,12 @@ tags "modules" {
             set replica_stdout [srv 0 stdout]
         }
 
+        test {Test swapdb hooks} {
+            r swapdb 0 10
+            assert_equal [r hooks.event_last swapdb-first] 0
+            assert_equal [r hooks.event_last swapdb-second] 10
+
+        }
 
         # look into the log file of the server that just exited
         test {Test shutdown hook} {

@@ -190,6 +190,7 @@ typedef uint64_t RedisModuleTimerID;
 #define REDISMODULE_EVENT_CRON_LOOP 8
 #define REDISMODULE_EVENT_MODULE_CHANGE 9
 #define REDISMODULE_EVENT_LOADING_PROGRESS 10
+#define REDISMODULE_EVENT_SWAPDB 11
 
 typedef struct RedisModuleEvent {
     uint64_t id;        /* REDISMODULE_EVENT_... defines. */
@@ -242,6 +243,10 @@ static const RedisModuleEvent
     },
     RedisModuleEvent_LoadingProgress = {
         REDISMODULE_EVENT_LOADING_PROGRESS,
+        1
+    },
+    RedisModuleEvent_SwapDB = {
+        REDISMODULE_EVENT_SWAPDB,
         1
     };
 
@@ -373,6 +378,17 @@ typedef struct RedisModuleLoadingProgressInfo {
 } RedisModuleLoadingProgressV1;
 
 #define RedisModuleLoadingProgress RedisModuleLoadingProgressV1
+
+#define REDISMODULE_SWAPDBINFO_VERSION 1
+typedef struct RedisModuleSwapDbInfo {
+    uint64_t version;       /* Not used since this structure is never passed
+                               from the module to the core right now. Here
+                               for future compatibility. */
+    int32_t dbnum_first;    /* Swap Db first dbnum */
+    int32_t dbnum_second;   /* Swap Db second dbnum */
+} RedisModuleSwapDbInfoV1;
+
+#define RedisModuleSwapDbInfo RedisModuleSwapDbInfoV1
 
 /* ------------------------- End of common defines ------------------------ */
 
