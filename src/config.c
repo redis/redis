@@ -1552,60 +1552,62 @@ void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
     dictReleaseIterator(di);
 }
 
-/* This function overwrites the old configuration file with the new content.
- *
- * 1) The old file length is obtained.
- * 2) If the new content is smaller, padding is added.
- * 3) A single write(2) call is used to replace the content of the file.
- * 4) Later the file is truncated to the length of the new content.
- *
- * This way we are sure the file is left in a consistent state even if the
- * process is stopped between any of the four operations.
+/* This function replaces the old configuration file with the new content
+ * in an atomic manner.
  *
  * The function returns 0 on success, otherwise -1 is returned and errno
- * set accordingly. */
+ * is set accordingly. */
 int rewriteConfigOverwriteFile(char *configfile, sds content) {
-    int retval = 0;
-    int fd = open(configfile,O_RDWR|O_CREAT,0644);
-    int content_size = sdslen(content), padding = 0;
-    struct stat sb;
-    sds content_padded;
+    int fd = -1;
+    int retval = -1;
+    char tmp_conffile[PATH_MAX];
+    const char *tmp_suffix = ".XXXXXX";
+    size_t offset = 0;
+    ssize_t written_bytes = 0;
 
-    /* 1) Open the old file (or create a new one if it does not
-     *    exist), get the size. */
-    if (fd == -1) return -1; /* errno set by open(). */
-    if (fstat(fd,&sb) == -1) {
-        close(fd);
-        return -1; /* errno set by fstat(). */
+    int tmp_path_len = snprintf(tmp_conffile, sizeof(tmp_conffile), "%s%s", configfile, tmp_suffix);
+    if (tmp_path_len <= 0 || (unsigned int)tmp_path_len >= sizeof(tmp_conffile)) {
+        serverLog(LL_WARNING, "Config file full path is too long");
+        errno = ENAMETOOLONG;
+        return retval;
     }
 
-    /* 2) Pad the content at least match the old file size. */
-    content_padded = sdsdup(content);
-    if (content_size < sb.st_size) {
-        /* If the old file was bigger, pad the content with
-         * a newline plus as many "#" chars as required. */
-        padding = sb.st_size - content_size;
-        content_padded = sdsgrowzero(content_padded,sb.st_size);
-        content_padded[content_size] = '\n';
-        memset(content_padded+content_size+1,'#',padding-1);
+#ifdef _GNU_SOURCE
+    fd = mkostemp(tmp_conffile, O_CLOEXEC);
+#else
+    /* There's a theoretical chance here to leak the FD if a module thread forks & execv in the middle */
+    fd = mkstemp(tmp_conffile);
+#endif
+
+    if (fd == -1) {
+        serverLog(LL_WARNING, "Could not create tmp config file (%s)", strerror(errno));
+        return retval;
     }
 
-    /* 3) Write the new content using a single write(2). */
-    if (write(fd,content_padded,strlen(content_padded)) == -1) {
-        retval = -1;
-        goto cleanup;
+    while (offset < sdslen(content)) {
+         written_bytes = write(fd, content + offset, sdslen(content) - offset);
+         if (written_bytes <= 0) {
+             if (errno == EINTR) continue; /* FD is blocking, no other retryable errors */
+             serverLog(LL_WARNING, "Failed after writing (%ld) bytes to tmp config file (%s)", offset, strerror(errno));
+             goto cleanup;
+         }
+         offset+=written_bytes;
     }
 
-    /* 4) Truncate the file to the right length if we used padding. */
-    if (padding) {
-        if (ftruncate(fd,content_size) == -1) {
-            /* Non critical error... */
-        }
+    if (fsync(fd))
+        serverLog(LL_WARNING, "Could not sync tmp config file to disk (%s)", strerror(errno));
+    else if (fchmod(fd, 0644) == -1)
+        serverLog(LL_WARNING, "Could not chmod config file (%s)", strerror(errno));
+    else if (rename(tmp_conffile, configfile) == -1)
+        serverLog(LL_WARNING, "Could not rename tmp config file (%s)", strerror(errno));
+    else {
+        retval = 0;
+        serverLog(LL_DEBUG, "Rewritten config file (%s) successfully", configfile);
     }
 
 cleanup:
-    sdsfree(content_padded);
     close(fd);
+    if (retval) unlink(tmp_conffile);
     return retval;
 }
 
