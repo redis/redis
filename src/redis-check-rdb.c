@@ -272,6 +272,21 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             decrRefCount(auxkey);
             decrRefCount(auxval);
             continue; /* Read type again. */
+        } else if (type == RDB_OPCODE_MODULE_AUX) {
+            /* AUX: Auxiliary filed data for modules.
+             */
+            uint64_t moduleid, when_opcode, when;
+            rdbstate.doing = RDB_CHECK_DOING_READ_AUX;
+            if ((moduleid = rdbLoadLen(&rdb,NULL)) == RDB_LENERR) goto eoferr;
+            if ((when_opcode = rdbLoadLen(&rdb,NULL)) == RDB_LENERR) goto eoferr;
+            if ((when = rdbLoadLen(&rdb,NULL)) == RDB_LENERR) goto eoferr;
+
+            char name[10];
+            moduleTypeNameByID(name,moduleid);
+            rdbCheckInfo("Type name %s", name);
+
+            rdbLoadCheckModuleValue(&rdb,name);
+            continue; /* Read type again. */
         } else {
             if (!rdbIsObjectType(type)) {
                 rdbCheckError("Invalid object type: %d", type);
