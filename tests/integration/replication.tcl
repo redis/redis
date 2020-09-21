@@ -765,8 +765,8 @@ test {Kill rdb child process if its dumping RDB is not useful} {
                 for {set i 0} {$i < 10} {incr i} {
                     $master set $i $i
                 }
-                # Generating RDB will cost 1s(10 * 100ms)
-                $master config set rdb-key-save-delay 100000
+                # Generating RDB will cost 10s(10 * 1s)
+                $master config set rdb-key-save-delay 1000000
                 $master config set repl-diskless-sync no
                 $master config set save ""
 
@@ -789,8 +789,11 @@ test {Kill rdb child process if its dumping RDB is not useful} {
                 # Slave2 disconnect with master
                 $slave2 slaveof no one
                 # Should kill child
-                after 100
-                assert {[s 0 rdb_bgsave_in_progress] == 0}
+                wait_for_condition 20 10 {
+                    [s 0 rdb_bgsave_in_progress] eq 0
+                } else {
+                    fail "can't kill rdb child"
+                }
 
                 # If have save parameters, won't kill child
                 $master config set save "900 1"
@@ -805,6 +808,7 @@ test {Kill rdb child process if its dumping RDB is not useful} {
                 $slave2 slaveof no one
                 after 200
                 assert {[s 0 rdb_bgsave_in_progress] == 1}
+                catch {$master shutdown nosave}
             }
         }
     }

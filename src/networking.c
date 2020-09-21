@@ -1069,7 +1069,6 @@ void disconnectSlaves(void) {
 int anyOtherSlaveWaitRdb(client *except_me) {
     listIter li;
     listNode *ln;
-    int wait_rdb = 0;
 
     listRewind(server.slaves, &li);
     while((ln = listNext(&li))) {
@@ -1077,11 +1076,10 @@ int anyOtherSlaveWaitRdb(client *except_me) {
         if (slave != except_me &&
             slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END)
         {
-            wait_rdb = 1;
-            break;
+            return 1;
         }
     }
-    return wait_rdb;
+    return 0;
 }
 
 /* Remove the specified client from global lists where the client could
@@ -1240,7 +1238,7 @@ void freeClient(client *c) {
          * child process asap to dump rdb for next full synchronization or bgsave.
          * But we also need to check if users enable 'save' RDB, if enable, we
          * should not remove directly since that means RDB is important for users
-         * to keep data safe. */
+         * to keep data safe and we may delay configured 'save' for full sync. */
         if (server.saveparamslen == 0 &&
             c->replstate == SLAVE_STATE_WAIT_BGSAVE_END &&
             server.rdb_child_pid != -1 &&
