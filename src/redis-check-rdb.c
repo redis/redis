@@ -58,6 +58,7 @@ struct {
 #define RDB_CHECK_DOING_CHECK_SUM 5
 #define RDB_CHECK_DOING_READ_LEN 6
 #define RDB_CHECK_DOING_READ_AUX 7
+#define RDB_CHECK_DOING_READ_MODULE_AUX 8
 
 char *rdb_check_doing_string[] = {
     "start",
@@ -275,7 +276,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
         } else if (type == RDB_OPCODE_MODULE_AUX) {
             /* AUX: Auxiliary data for modules. */
             uint64_t moduleid, when_opcode, when;
-            rdbstate.doing = RDB_CHECK_DOING_READ_AUX;
+            rdbstate.doing = RDB_CHECK_DOING_READ_MODULE_AUX;
             if ((moduleid = rdbLoadLen(&rdb,NULL)) == RDB_LENERR) goto eoferr;
             if ((when_opcode = rdbLoadLen(&rdb,NULL)) == RDB_LENERR) goto eoferr;
             if ((when = rdbLoadLen(&rdb,NULL)) == RDB_LENERR) goto eoferr;
@@ -284,7 +285,8 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             moduleTypeNameByID(name,moduleid);
             rdbCheckInfo("Type name %s", name);
 
-            rdbLoadCheckModuleValue(&rdb,name);
+            robj *o = rdbLoadCheckModuleValue(&rdb,name);
+            decrRefCount(o);
             continue; /* Read type again. */
         } else {
             if (!rdbIsObjectType(type)) {
