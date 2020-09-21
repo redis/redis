@@ -273,8 +273,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             decrRefCount(auxval);
             continue; /* Read type again. */
         } else if (type == RDB_OPCODE_MODULE_AUX) {
-            /* AUX: Auxiliary filed data for modules.
-             */
+            /* AUX: Auxiliary data for modules. */
             uint64_t moduleid, when_opcode, when;
             rdbstate.doing = RDB_CHECK_DOING_READ_AUX;
             if ((moduleid = rdbLoadLen(&rdb,NULL)) == RDB_LENERR) goto eoferr;
