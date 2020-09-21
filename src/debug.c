@@ -1575,6 +1575,8 @@ void doFastMemoryTest(void) {
 #endif
 }
 
+#ifdef HAVE_BACKTRACE
+
 /* Scans the (assumed) x86 code starting at addr, for a max of `len`
  * bytes, searching for E8 (callq) opcodes, and dumping the symbols
  * and the call offset if they appear to be valid. */
@@ -1600,7 +1602,6 @@ void dumpX86Calls(void *addr, size_t len) {
         }
     }
 }
-
 void dumpCodeAroundEIP(void *eip) {
     Dl_info info;
     if (dladdr(eip, &info) != 0) {
@@ -1629,6 +1630,8 @@ void dumpCodeAroundEIP(void *eip) {
         }
     }
 }
+
+#endif // HAVE_BACKTRACE
 
 void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     UNUSED(secret);

@@ -42,12 +42,17 @@ endef
 export REDIS_TEST_CONFIG
 
 # Fallback to gcc when $CC is not in $PATH.
-CC:=$(shell sh -c 'type $${CC%% *} >/dev/null 2>/dev/null && echo $(CC) || echo gcc')
+#CC:=$(shell sh -c 'type $${CC%% *} >/dev/null 2>/dev/null && echo $(CC) || echo gcc')
+CC:=c99
 CXX:=$(shell sh -c 'type $${CXX%% *} >/dev/null 2>/dev/null && echo $(CXX) || echo g++')
 OPTIMIZATION?=-O3
 WARNINGS=-Wall -W -Wstrict-prototypes -Wwrite-strings -Wno-missing-field-initializers
+WARNINGS=
 DEBUG_FLAGS?= -g -ggdb
-REAL_CFLAGS=$(OPTIMIZATION) -fPIC $(CPPFLAGS) $(CFLAGS) $(WARNINGS) $(DEBUG_FLAGS)
+DEBUG_FLAGS=
+CFLAGS=-Wc,dll,expo,langlvl\(extc99\),float\(ieee\)gonum,goff,hgpr,roconst,ASM,asmlib\('CEE.SCEEMAC','SYS1.MACLIB','SYS1.MODGEN'\)
+#REAL_CFLAGS=$(OPTIMIZATION) -fPIC $(CPPFLAGS) $(CFLAGS) $(WARNINGS) $(DEBUG_FLAGS)
+REAL_CFLAGS=$(OPTIMIZATION) $(CPPFLAGS) $(CFLAGS) $(WARNINGS) $(DEBUG_FLAGS)
 REAL_LDFLAGS=$(LDFLAGS)
 
 DYLIBSUFFIX=so
@@ -220,7 +225,8 @@ check: hiredis-test
 	TEST_SSL=$(USE_SSL) ./test.sh
 
 .c.o:
-	$(CC) -std=c99 -pedantic -c $(REAL_CFLAGS) $<
+	#$(CC) -std=c99 -pedantic -c $(REAL_CFLAGS) $<
+	$(CC) -c $(REAL_CFLAGS) $<
 
 clean:
 	rm -rf $(DYLIBNAME) $(STLIBNAME) $(SSL_DYLIBNAME) $(SSL_STLIBNAME) $(TESTS) $(PKGCONFNAME) examples/hiredis-example* *.o *.gcda *.gcno *.gcov

@@ -69,7 +69,7 @@ ifeq ($(uname_S),SunOS)
 	LUA_CFLAGS= -D__C99FEATURES__=1
 endif
 
-LUA_CFLAGS+= -O2 -Wall -DLUA_ANSI -DENABLE_CJSON_GLOBAL -DREDIS_STATIC='' $(CFLAGS)
+LUA_CFLAGS+=-Wc,dll,expo,langlvl\(extc99\),float\(ieee\)gonum,goff,hgpr,roconst,ASM,asmlib\('CEE.SCEEMAC','SYS1.MACLIB','SYS1.MODGEN'\)
 LUA_LDFLAGS+= $(LDFLAGS)
 # lua's Makefile defines AR="ar rcu", which is unusual, and makes it more
 # challenging to cross-compile lua (and redis).  These defines make it easier

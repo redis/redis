@@ -129,13 +129,14 @@ static void monotonicInit_aarch64() {
 }
 #endif
 
-
+#ifdef CLOCK_MONOTONIC
 static monotime getMonotonicUs_posix() {
     /* clock_gettime() is specified in POSIX.1b (1993).  Even so, some systems
      * did not support this until much later.  CLOCK_MONOTONIC is technically
      * optional and may not be supported - but it appears to be universal.
      * If this is not supported, provide a system-specific alternate version.  */
     struct timespec ts;
+    gettime()
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return ((uint64_t)ts.tv_sec) * 1000000 + ts.tv_nsec / 1000;
 }
@@ -153,7 +154,23 @@ static void monotonicInit_posix() {
     getMonotonicUs = getMonotonicUs_posix;
 }
 
+#endif // CLOCK_MONOTONIC
 
+static monotime getMonotonicUs_safe() {
+    /* clock_gettime() is specified in POSIX.1b (1993).  Even so, some systems
+     * did not support this until much later.  CLOCK_MONOTONIC is technically
+     * optional and may not be supported - but it appears to be universal.
+     * If this is not supported, provide a system-specific alternate version.  */
+    struct timespec ts;
+    gettime(&ts);
+    return ((uint64_t)ts.tv_sec) * 1000000 + ts.tv_nsec / 1000;
+}
+
+static void monotonicInit_safe() {
+    snprintf(monotonic_info_string, sizeof(monotonic_info_string),
+            "POSIX gettime");
+    getMonotonicUs = getMonotonicUs_safe;
+}
 
 const char * monotonicInit() {
     #if defined(USE_PROCESSOR_CLOCK) && defined(__x86_64__) && defined(__linux__)
@@ -164,7 +181,11 @@ const char * monotonicInit() {
     if (getMonotonicUs == NULL) monotonicInit_aarch64();
     #endif
 
+    #ifdef CLOCK_MONOTONIC
     if (getMonotonicUs == NULL) monotonicInit_posix();
+    #endif
+
+    if (getMonotonicUs == NULL) monotonicInit_safe();
 
     return monotonic_info_string;
 }

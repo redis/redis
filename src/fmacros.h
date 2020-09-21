@@ -64,4 +64,14 @@
 #include <features.h>
 #endif
 
+#if defined(__IBMC__)
+#define _ALL_SOURCE
+#define _OE_SOCKETS 2
+#define AF_LOCAL AF_UNIX
+#define _Atomic
+#define MAXPATHLEN 256 
+#undef HAVE_BACKTRACE
+#define BYTE_ORDER BIG_ENDIAN
+#define _OPEN_THREADS 2
+#endif
 #endif

@@ -11,7 +11,7 @@
 #
 # Dependencies are stored in the Makefile.dep file. To rebuild this file
 # Just use 'make dep', but this is only needed by developers.
-
+CC=c99
 release_hdr := $(shell sh -c './mkreleasehdr.sh')
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 uname_M := $(shell sh -c 'uname -m 2>/dev/null || echo not')
@@ -21,13 +21,16 @@ NODEPS:=clean distclean
 
 # Default settings
 STD=-std=c11 -pedantic -DREDIS_STATIC=''
+STD=-DREDIS_STATIC=''
 ifneq (,$(findstring clang,$(CC)))
 ifneq (,$(findstring FreeBSD,$(uname_S)))
   STD+=-Wno-c11-extensions
 endif
 endif
 WARN=-Wall -W -Wno-missing-field-initializers
+WARN=
 OPT=$(OPTIMIZATION)
+OPT=
 
 PREFIX?=/usr/local
 INSTALL_BIN=$(PREFIX)/bin
@@ -71,12 +74,14 @@ ifeq ($(USE_JEMALLOC),no)
 endif
 
 # Override default settings if possible
--include .make-settings
-
+#-include .make-settings
+CFLAGS=-Wc,dll,expo,langlvl\(extc99\),float\(ieee\)gonum,goff,hgpr,roconst,ASM,asmlib\('CEE.SCEEMAC','SYS1.MACLIB','SYS1.MODGEN'\) -DBYTE_ORDER=BIG_ENDIAN
 FINAL_CFLAGS=$(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS)
 FINAL_LDFLAGS=$(LDFLAGS) $(REDIS_LDFLAGS) $(DEBUG)
 FINAL_LIBS=-lm
+FINAL_LIBS=
 DEBUG=-g -ggdb
+DEBUG=
 
 # Linux ARM needs -latomic at linking time
 ifneq (,$(filter aarch64 armv,$(uname_M)))
@@ -138,8 +143,8 @@ ifeq ($(uname_S),NetBSD)
 	FINAL_LIBS+= -lpthread -lexecinfo
 else
 	# All the other OSes (notably Linux)
-	FINAL_LDFLAGS+= -rdynamic
-	FINAL_LIBS+=-ldl -pthread -lrt
+	FINAL_LDFLAGS+= 
+	FINAL_LIBS+=
 endif
 endif
 endif
@@ -314,7 +319,7 @@ DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:%.o=%.d) $(REDIS_BENCHMARK_OBJ
 # building it should complete before building any other object. Instead of
 # depending on a single artifact, build all dependencies first.
 %.o: %.c .make-prerequisites
-	$(REDIS_CC) -MMD -o $@ -c $<
+	$(REDIS_CC) -o $@ -c $<
 
 clean:
 	rm -rf $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) *.o *.gcda *.gcno *.gcov redis.info lcov-html Makefile.dep dict-benchmark
@@ -355,7 +360,7 @@ bench: $(REDIS_BENCHMARK_NAME)
 	@echo ""
 	@echo "WARNING: if it fails under Linux you probably need to install libc6-dev-i386"
 	@echo ""
-	$(MAKE) CFLAGS="-m32" LDFLAGS="-m32"
+	$(MAKE)
 
 gcov:
 	$(MAKE) REDIS_CFLAGS="-fprofile-arcs -ftest-coverage -DCOVERAGE_TEST" REDIS_LDFLAGS="-fprofile-arcs -ftest-coverage"

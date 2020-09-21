@@ -7,12 +7,13 @@
 # Your platform. See PLATS for possible values.
 PLAT= none
 
-CC?= gcc
-CFLAGS= -O2 -Wall $(MYCFLAGS)
+CC= cc
+CFLAGS=-Wc,dll,expo,langlvl\(extc99\),float\(ieee\)gonum,goff,hgpr,roconst,ASM,asmlib\('CEE.SCEEMAC','SYS1.MACLIB','SYS1.MODGEN'\)
 AR= ar rcu
 RANLIB= ranlib
 RM= rm -f
 LIBS= -lm $(MYLIBS)
+LIBS= $(MYLIBS)
 
 MYCFLAGS=
 MYLDFLAGS=
@@ -50,7 +51,7 @@ a:	$(ALL_A)
 
 $(LUA_A): $(CORE_O) $(LIB_O)
 	$(AR) $@ $(CORE_O) $(LIB_O)	# DLL needs all object files
-	$(RANLIB) $@
+	#$(RANLIB) $@
 
 $(LUA_T): $(LUA_O) $(LUA_A)
 	$(CC) -o $@ $(MYLDFLAGS) $(LUA_O) $(LUA_A) $(LIBS)

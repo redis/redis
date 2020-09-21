@@ -30,6 +30,7 @@
 #include "server.h"
 #include "cluster.h"
 #include "rdb.h"
+#define __SUSV3
 #include <dlfcn.h>
 #include <sys/stat.h>
 #include <sys/wait.h>

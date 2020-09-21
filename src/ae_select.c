@@ -28,7 +28,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-
 #include <sys/select.h>
 #include <string.h>
 
