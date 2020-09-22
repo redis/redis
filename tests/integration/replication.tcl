@@ -752,3 +752,64 @@ test {replicaof right after disconnection} {
         }
     }
 }
+
+test {Kill rdb child process if its dumping RDB is not useful} {
+    start_server {tags {"repl"}} {
+        set slave1 [srv 0 client]
+        start_server {} {
+            set slave2 [srv 0 client]
+            start_server {} {
+                set master [srv 0 client]
+                set master_host [srv 0 host]
+                set master_port [srv 0 port]
+                for {set i 0} {$i < 10} {incr i} {
+                    $master set $i $i
+                }
+                # Generating RDB will cost 10s(10 * 1s)
+                $master config set rdb-key-save-delay 1000000
+                $master config set repl-diskless-sync no
+                $master config set save ""
+
+                $slave1 slaveof $master_host $master_port
+                $slave2 slaveof $master_host $master_port
+
+                # Wait for starting child
+                wait_for_condition 50 100 {
+                    [s 0 rdb_bgsave_in_progress] == 1
+                } else {
+                    fail "rdb child didn't start"
+                }
+
+                # Slave1 disconnect with master
+                $slave1 slaveof no one
+                # Shouldn't kill child since another slave wait for rdb
+                after 100
+                assert {[s 0 rdb_bgsave_in_progress] == 1}
+
+                # Slave2 disconnect with master
+                $slave2 slaveof no one
+                # Should kill child
+                wait_for_condition 20 10 {
+                    [s 0 rdb_bgsave_in_progress] eq 0
+                } else {
+                    fail "can't kill rdb child"
+                }
+
+                # If have save parameters, won't kill child
+                $master config set save "900 1"
+                $slave1 slaveof $master_host $master_port
+                $slave2 slaveof $master_host $master_port
+                wait_for_condition 50 100 {
+                    [s 0 rdb_bgsave_in_progress] == 1
+                } else {
+                    fail "rdb child didn't start"
+                }
+                $slave1 slaveof no one
+                $slave2 slaveof no one
+                after 200
+                assert {[s 0 rdb_bgsave_in_progress] == 1}
+                catch {$master shutdown nosave}
+            }
+        }
+    }
+}

@@ -1063,6 +1063,25 @@ void disconnectSlaves(void) {
     }
 }
 
+/* Check if there is any other slave waiting dumping RDB finished expect me.
+ * This function is useful to judge current dumping RDB can be used for full
+ * synchronization or not. */
+int anyOtherSlaveWaitRdb(client *except_me) {
+    listIter li;
+    listNode *ln;
+
+    listRewind(server.slaves, &li);
+    while((ln = listNext(&li))) {
+        client *slave = ln->value;
+        if (slave != except_me &&
+            slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END)
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Remove the specified client from global lists where the client could
  * be referenced, not including the Pub/Sub channels.
  * This is used by freeClient() and replicationCacheMaster(). */
@@ -1213,6 +1232,21 @@ void freeClient(client *c) {
     /* Master/slave cleanup Case 1:
      * we lost the connection with a slave. */
     if (c->flags & CLIENT_SLAVE) {
+        /* If there is no any other slave waiting dumping RDB finished, the
+         * current child process need not continue to dump RDB, then we kill it.
+         * So child process won't use more memory, and we also can fork a new
+         * child process asap to dump rdb for next full synchronization or bgsave.
+         * But we also need to check if users enable 'save' RDB, if enable, we
+         * should not remove directly since that means RDB is important for users
+         * to keep data safe and we may delay configured 'save' for full sync. */
+        if (server.saveparamslen == 0 &&
+            c->replstate == SLAVE_STATE_WAIT_BGSAVE_END &&
+            server.rdb_child_pid != -1 &&
+            server.rdb_child_type == RDB_CHILD_TYPE_DISK &&
+            anyOtherSlaveWaitRdb(c) == 0)
+        {
+            killRDBChild();
+        }
         if (c->replstate == SLAVE_STATE_SEND_BULK) {
             if (c->repldbfd != -1) close(c->repldbfd);
             if (c->replpreamble) sdsfree(c->replpreamble);
