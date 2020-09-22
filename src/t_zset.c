@@ -1283,9 +1283,9 @@ int zsetScore(robj *zobj, sds member, double *score) {
  *            assume 0 as previous score.
  * ZADD_NX:   Perform the operation only if the element does not exist.
  * ZADD_XX:   Perform the operation only if the element already exist.
- * ZADD_GX:   Perform the operation on existing elements only if the new score is 
+ * ZADD_GT:   Perform the operation on existing elements only if the new score is 
  *            greater than the current score.
- * ZADD_LX:   Perform the operation on existing elements only if the new score is 
+ * ZADD_LT:   Perform the operation on existing elements only if the new score is 
  *            less than the current score.
  *
  * When ZADD_INCR is used, the new score of the element is stored in
@@ -1321,8 +1321,8 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
     int incr = (*flags & ZADD_INCR) != 0;
     int nx = (*flags & ZADD_NX) != 0;
     int xx = (*flags & ZADD_XX) != 0;
-    int gx = (*flags & ZADD_GX) != 0;
-    int lx = (*flags & ZADD_LX) != 0;
+    int gt = (*flags & ZADD_GT) != 0;
+    int lt = (*flags & ZADD_LT) != 0;
     *flags = 0; /* We'll return our response flags. */
     double curscore;
 
@@ -1355,10 +1355,10 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
 
             /* Remove and re-insert when score changed. */
             if (score != curscore &&  
-                /* LX? Only update if score is less than current. */
-                (!lx || score < curscore) &&
-                /* GX? Only update if score is greater than current. */
-                (!gx || score > curscore)) 
+                /* LT? Only update if score is less than current. */
+                (!lt || score < curscore) &&
+                /* GT? Only update if score is greater than current. */
+                (!gt || score > curscore)) 
             {
                 zobj->ptr = zzlDelete(zobj->ptr,eptr);
                 zobj->ptr = zzlInsert(zobj->ptr,ele,score);
@@ -1405,10 +1405,10 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
 
             /* Remove and re-insert when score changes. */
             if (score != curscore &&  
-                /* LX? Only update if score is less than current. */
-                (!lx || score < curscore) &&
-                /* GX? Only update if score is greater than current. */
-                (!gx || score > curscore)) 
+                /* LT? Only update if score is less than current. */
+                (!lt || score < curscore) &&
+                /* GT? Only update if score is greater than current. */
+                (!gt || score > curscore)) 
             {
                 znode = zslUpdateScore(zs->zsl,curscore,ele,score);
                 /* Note that we did not removed the original element from
@@ -1571,8 +1571,8 @@ void zaddGenericCommand(client *c, int flags) {
         else if (!strcasecmp(opt,"xx")) flags |= ZADD_XX;
         else if (!strcasecmp(opt,"ch")) flags |= ZADD_CH;
         else if (!strcasecmp(opt,"incr")) flags |= ZADD_INCR;
-        else if (!strcasecmp(opt,"gx")) flags |= ZADD_GX;
-        else if (!strcasecmp(opt,"lx")) flags |= ZADD_LX;
+        else if (!strcasecmp(opt,"gt")) flags |= ZADD_GT;
+        else if (!strcasecmp(opt,"lt")) flags |= ZADD_LT;
         else break;
         scoreidx++;
     }
@@ -1582,8 +1582,8 @@ void zaddGenericCommand(client *c, int flags) {
     int nx = (flags & ZADD_NX) != 0;
     int xx = (flags & ZADD_XX) != 0;
     int ch = (flags & ZADD_CH) != 0;
-    int gx = (flags & ZADD_GX) != 0;
-    int lx = (flags & ZADD_LX) != 0;
+    int gt = (flags & ZADD_GT) != 0;
+    int lt = (flags & ZADD_LT) != 0;
 
     /* After the options, we expect to have an even number of args, since
      * we expect any number of score-element pairs. */
@@ -1601,12 +1601,12 @@ void zaddGenericCommand(client *c, int flags) {
         return;
     }
     
-    if ((gx && nx) || (lx && nx) || (gx && lx)) {
+    if ((gt && nx) || (lt && nx) || (gt && lt)) {
         addReplyError(c,
-            "GX, LX, and/or NX options at the same time are not compatible");
+            "GT, LT, and/or NX options at the same time are not compatible");
         return;
     }
-    /* Note that XX is compatible with either GX or LX */
+    /* Note that XX is compatible with either GT or LT */
 
     if (incr && elements > 1) {
         addReplyError(c,
