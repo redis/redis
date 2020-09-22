@@ -1600,19 +1600,10 @@ void zaddGenericCommand(client *c, int flags) {
             "XX and NX options at the same time are not compatible");
         return;
     }
-    if (gx && nx) {
+    
+    if (gx && nx || lx && nx || gx && lx) {
         addReplyError(c,
-            "GX and NX options at the same time are not compatible");
-        return;
-    }
-    if (lx && nx) {
-        addReplyError(c,
-            "LX and NX options at the same time are not compatible");
-        return;
-    }
-    if (gx && lx) {
-        addReplyError(c,
-            "GX and LX options at the same time are not compatible");
+            "GX, LX, and/or NX options at the same time are not compatible");
         return;
     }
     /* Note that XX is compatible with either GX or LX */

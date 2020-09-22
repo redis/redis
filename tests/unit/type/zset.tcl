@@ -81,7 +81,7 @@ start_server {tags {"zset"}} {
         test "ZADD GX updates existing elements when new scores are greater" {
             r del ztmp
             r zadd ztmp 10 x 20 y 30 z
-            r zadd ztmp gx 5 foo 11 x 21 y 29 z
+            assert {[r zadd ztmp gx ch 5 foo 11 x 21 y 29 z] == 3}
             assert {[r zcard ztmp] == 4}
             assert {[r zscore ztmp x] == 11}
             assert {[r zscore ztmp y] == 21}
@@ -91,7 +91,7 @@ start_server {tags {"zset"}} {
         test "ZADD LX updates existing elements when new scores are lower" {
             r del ztmp
             r zadd ztmp 10 x 20 y 30 z
-            r zadd ztmp lx 5 foo 11 x 21 y 29 z
+            assert {[r zadd ztmp lx ch 5 foo 11 x 21 y 29 z] == 2}
             assert {[r zcard ztmp] == 4}
             assert {[r zscore ztmp x] == 10}
             assert {[r zscore ztmp y] == 20}
@@ -101,7 +101,7 @@ start_server {tags {"zset"}} {
         test "ZADD GX XX updates existing elements when new scores are greater and skips new elements" {
             r del ztmp
             r zadd ztmp 10 x 20 y 30 z
-            r zadd ztmp gx xx 5 foo 11 x 21 y 29 z
+            assert {[r zadd ztmp gx xx ch 5 foo 11 x 21 y 29 z] == 2}
             assert {[r zcard ztmp] == 3}
             assert {[r zscore ztmp x] == 11}
             assert {[r zscore ztmp y] == 21}
@@ -111,7 +111,7 @@ start_server {tags {"zset"}} {
         test "ZADD LX XX updates existing elements when new scores are lower and skips new elements" {
             r del ztmp
             r zadd ztmp 10 x 20 y 30 z
-            r zadd ztmp lx xx 5 foo 11 x 21 y 29 z
+            assert {[r zadd ztmp lx xx ch 5 foo 11 x 21 y 29 z] == 1}
             assert {[r zcard ztmp] == 3}
             assert {[r zscore ztmp x] == 10}
             assert {[r zscore ztmp y] == 20}
