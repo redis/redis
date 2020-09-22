@@ -261,8 +261,9 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
     if (conn->state == CONN_STATE_CONNECTING &&
             (mask & AE_WRITABLE) && conn->conn_handler) {
 
-        if (connGetSocketError(conn)) {
-            conn->last_errno = errno;
+        int conn_error = connGetSocketError(conn);
+        if (conn_error) {
+            conn->last_errno = conn_error;
             conn->state = CONN_STATE_ERROR;
         } else {
             conn->state = CONN_STATE_CONNECTED;
