@@ -1374,7 +1374,8 @@ void replicationSendNewlineToMaster(void) {
  * the new dataset received by the master. */
 void replicationEmptyDbCallback(void *privdata) {
     UNUSED(privdata);
-    replicationSendNewlineToMaster();
+    if (server.repl_state == REPL_STATE_TRANSFER)
+        replicationSendNewlineToMaster();
 }
 
 /* Once we have a link with the master and the synchronization was
