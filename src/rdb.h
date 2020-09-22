@@ -149,6 +149,7 @@ robj *rdbLoadObject(int type, rio *rdb, sds key);
 void backgroundSaveDoneHandler(int exitcode, int bysignal);
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime);
 ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt);
+robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename);
 robj *rdbLoadStringObject(rio *rdb);
 ssize_t rdbSaveStringObject(rio *rdb, robj *obj);
 ssize_t rdbSaveRawString(rio *rdb, unsigned char *s, size_t len);
