@@ -68,7 +68,8 @@ char *rdb_check_doing_string[] = {
     "read-object-value",
     "check-sum",
     "read-len",
-    "read-aux"
+    "read-aux",
+    "read-module-aux"
 };
 
 char *rdb_type_string[] = {
