@@ -1917,6 +1917,12 @@ int RM_GetSelectedDb(RedisModuleCtx *ctx) {
  *
  *  * REDISMODULE_CTX_FLAGS_ACTIVE_CHILD: There is currently some background
  *                                        process active (RDB, AUX or module).
+ *
+ *  * REDISMODULE_CTX_FLAGS_MULTI_DIRTY: The next EXEC will fail due to dirty
+ *                                       CAS (touched keys).
+ *
+ *  * REDISMODULE_CTX_FLAGS_IS_CHILD: Redis is currently running inside
+ *                                    background child process.
  */
 int RM_GetContextFlags(RedisModuleCtx *ctx) {
 
