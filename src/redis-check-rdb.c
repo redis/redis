@@ -284,7 +284,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
 
             char name[10];
             moduleTypeNameByID(name,moduleid);
-            rdbCheckInfo("Type name %s", name);
+            rdbCheckInfo("MODULE AUX for: %s", name);
 
             robj *o = rdbLoadCheckModuleValue(&rdb,name);
             decrRefCount(o);
