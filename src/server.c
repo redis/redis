@@ -5393,6 +5393,7 @@ int main(int argc, char **argv) {
             }
         }
     } else {
+        ACLLoadUsersAtStartup();
         InitServerLast();
         sentinelIsRunning();
         if (server.supervised_mode == SUPERVISED_SYSTEMD) {
