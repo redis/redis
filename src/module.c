@@ -2380,6 +2380,8 @@ int RM_ZsetAddFlagsToCoreFlags(int flags) {
     int retflags = 0;
     if (flags & REDISMODULE_ZADD_XX) retflags |= ZADD_XX;
     if (flags & REDISMODULE_ZADD_NX) retflags |= ZADD_NX;
+    if (flags & REDISMODULE_ZADD_GT) retflags |= ZADD_GT;
+    if (flags & REDISMODULE_ZADD_LT) retflags |= ZADD_LT;
     return retflags;
 }
 
@@ -2406,6 +2408,10 @@ int RM_ZsetAddFlagsFromCoreFlags(int flags) {
  *
  *     REDISMODULE_ZADD_XX: Element must already exist. Do nothing otherwise.
  *     REDISMODULE_ZADD_NX: Element must not exist. Do nothing otherwise.
+ *     REDISMODULE_ZADD_GT: If element exists, new score must be greater than the current score. 
+ *                          Do nothing otherwise. Can optionally be combined with XX.
+ *     REDISMODULE_ZADD_LT: If element exists, new score must be less than the current score.
+ *                          Do nothing otherwise. Can optionally be combined with XX.
  *
  * The output flags are:
  *

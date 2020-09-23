@@ -55,6 +55,8 @@
 #define REDISMODULE_ZADD_ADDED   (1<<2)
 #define REDISMODULE_ZADD_UPDATED (1<<3)
 #define REDISMODULE_ZADD_NOP     (1<<4)
+#define REDISMODULE_ZADD_GT      (1<<5)
+#define REDISMODULE_ZADD_LT      (1<<6)
 
 /* Hash API flags. */
 #define REDISMODULE_HASH_NONE       0

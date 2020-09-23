@@ -1945,6 +1945,8 @@ void addACLLogEntry(client *c, int reason, int keypos, sds username);
 #define ZADD_INCR (1<<0)    /* Increment the score instead of setting it. */
 #define ZADD_NX (1<<1)      /* Don't touch elements not already existing. */
 #define ZADD_XX (1<<2)      /* Only touch elements already existing. */
+#define ZADD_GT (1<<7)      /* Only update existing when new scores are higher. */ 
+#define ZADD_LT (1<<8)      /* Only update existing when new scores are lower. */
 
 /* Output flags. */
 #define ZADD_NOP (1<<3)     /* Operation not performed because of conditionals.*/
