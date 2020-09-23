@@ -454,7 +454,7 @@ void updateSSLEvent(tls_connection *conn) {
 }
 
 static void tlsHandleEvent(tls_connection *conn, int mask) {
-    int ret;
+    int ret, conn_error;
 
     TLSCONN_DEBUG("tlsEventHandler(): fd=%d, state=%d, mask=%d, r=%d, w=%d, flags=%d",
             fd, conn->c.state, mask, conn->c.read_handler != NULL, conn->c.write_handler != NULL,
@@ -464,7 +464,7 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
 
     switch (conn->c.state) {
         case CONN_STATE_CONNECTING:
-            int conn_error = connGetSocketError((connection *) conn);
+            conn_error = connGetSocketError((connection *) conn);
             if (conn_error) {
                 conn->c.last_errno = conn_error;
                 conn->c.state = CONN_STATE_ERROR;
