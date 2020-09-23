@@ -984,6 +984,12 @@ static void *getMcontextEip(ucontext_t *uc) {
     #elif defined(__x86_64__)
     return (void*) uc->sc_rip;
     #endif
+#elif defined(__NetBSD__)
+    #if defined(__i386__)
+    return (void*) uc->uc_mcontext.__gregs[_REG_EIP];
+    #elif defined(__x86_64__)
+    return (void*) uc->uc_mcontext.__gregs[_REG_RIP];
+    #endif
 #elif defined(__DragonFly__)
     return (void*) uc->uc_mcontext.mc_rip;
 #else
@@ -1341,6 +1347,59 @@ void logRegisters(ucontext_t *uc) {
         (unsigned long) uc->sc_gs
     );
     logStackContent((void**)uc->sc_esp);
+    #endif
+#elif defined(__NetBSD__)
+    #if defined(__x86_64__)
+    serverLog(LL_WARNING,
+    "\n"
+    "RAX:%016lx RBX:%016lx\nRCX:%016lx RDX:%016lx\n"
+    "RDI:%016lx RSI:%016lx\nRBP:%016lx RSP:%016lx\n"
+    "R8 :%016lx R9 :%016lx\nR10:%016lx R11:%016lx\n"
+    "R12:%016lx R13:%016lx\nR14:%016lx R15:%016lx\n"
+    "RIP:%016lx EFL:%016lx\nCSGSFS:%016lx",
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_RAX],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_RBX],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_RCX],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_RDX],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_RDI],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_RSI],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_RBP],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_RSP],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_R8],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_R9],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_R10],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_R11],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_R12],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_R13],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_R14],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_R15],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_RIP],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_RFLAGS],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_CS]
+    );
+    logStackContent((void**)uc->uc_mcontext.__gregs[_REG_RSP]);
+    #elif defined(__i386__)
+    serverLog(LL_WARNING,
+    "\n"
+    "EAX:%08lx EBX:%08lx ECX:%08lx EDX:%08lx\n"
+    "EDI:%08lx ESI:%08lx EBP:%08lx ESP:%08lx\n"
+    "SS :%08lx EFL:%08lx EIP:%08lx CS:%08lx\n"
+    "DS :%08lx ES :%08lx FS :%08lx GS:%08lx",
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_EAX],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_EBX],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_EDX],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_EDI],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_ESI],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_EBP],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_ESP],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_SS],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_EFLAGS],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_EIP],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_CS],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_ES],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_FS],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_GS]
+    );
     #endif
 #elif defined(__DragonFly__)
     serverLog(LL_WARNING,
