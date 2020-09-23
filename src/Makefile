@@ -125,7 +125,7 @@ ifeq ($(uname_S),OpenBSD)
 	# OpenBSD
 	FINAL_LIBS+= -lpthread
 	ifeq ($(USE_BACKTRACE),yes)
-	    FINAL_CFLAGS+= -DHAVE_BACKTRACE -I/usr/local/include
+	    FINAL_CFLAGS+= -DUSE_BACKTRACE -I/usr/local/include
 	    FINAL_LDFLAGS+= -L/usr/local/lib
 	    FINAL_LIBS+= -lexecinfo
     	endif
@@ -135,7 +135,7 @@ ifeq ($(uname_S),NetBSD)
 	# NetBSD
 	FINAL_LIBS+= -lpthread
 	ifeq ($(USE_BACKTRACE),yes)
-	    FINAL_CFLAGS+= -DHAVE_BACKTRACE -I/usr/pkg/include
+	    FINAL_CFLAGS+= -DUSE_BACKTRACE -I/usr/pkg/include
 	    FINAL_LDFLAGS+= -L/usr/pkg/lib
 	    FINAL_LIBS+= -lexecinfo
     	endif
