@@ -64,7 +64,7 @@
 
 /* Test for backtrace() */
 #if defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__)) || \
-    defined(__FreeBSD__) || (defined(__OpenBSD__) && defined(USE_BACKTRACE))\
+    defined(__FreeBSD__) || ((defined(__OpenBSD__) || defined(__NetBSD__)) && defined(USE_BACKTRACE))\
  || defined(__DragonFly__)
 #define HAVE_BACKTRACE 1
 #endif
@@ -236,7 +236,7 @@ void setproctitle(const char *fmt, ...);
 #define redis_set_thread_title(name) pthread_set_name_np(pthread_self(), name)
 #elif defined __NetBSD__
 #include <pthread.h>
-#define redis_set_thread_title(name) pthread_setname_np(pthread_self(), name, NULL)
+#define redis_set_thread_title(name) pthread_setname_np(pthread_self(), "%s", name)
 #else
 #if (defined __APPLE__ && defined(MAC_OS_X_VERSION_10_7))
 int pthread_setname_np(const char *name);
