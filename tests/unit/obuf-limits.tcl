@@ -105,6 +105,8 @@ start_server {tags {"obuf-limits"}} {
         r set bigkey $value
         set rd1 [redis_deferring_client]
         set rd2 [redis_deferring_client]
+        $rd2 client setname multicommands
+        assert_equal "OK" [$rd2 read]
         # Let redis sleep 2s firstly
         $rd1 debug sleep 2
         $rd1 flush
@@ -124,6 +126,8 @@ start_server {tags {"obuf-limits"}} {
 
         # Reds must wake up if it can send reply
         assert_equal "PONG" [r ping]
+        set clients [r client list]
+        assert_no_match "*name=multicommands*" $clients
         set fd [$rd2 channel]
         assert_equal {} [read $fd]
     }
@@ -147,9 +151,9 @@ start_server {tags {"obuf-limits"}} {
         r del k1
         catch {[r exec]} e
         assert_match "*I/O error*" $e
+        reconnect
         set clients [r client list]
         assert_no_match "*name=transactionclient*" $clients
-        reconnect
 
         # Transactions should be executed completely
         assert_equal {} [r get k1]
