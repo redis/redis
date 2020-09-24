@@ -137,6 +137,7 @@ start_server {tags {"obuf-limits"}} {
         }
 
         # Output buffer limit is enforced during executing transaction
+        r client setname transactionclient
         r set k1 v1
         r multi
         r set k2 v2
@@ -145,6 +146,9 @@ start_server {tags {"obuf-limits"}} {
         r set k3 v3
         r del k1
         catch {[r exec]} e
+        assert_match "*I/O error*" $e
+        set clients [r client list]
+        assert_no_match "*name=transactionclient*" $clients
         reconnect
 
         # Transactions should be executed completely
