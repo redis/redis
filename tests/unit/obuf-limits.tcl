@@ -70,4 +70,94 @@ start_server {tags {"obuf-limits"}} {
         assert {$omem >= 100000 && $time_elapsed < 6}
         $rd1 close
     }
+
+    test {No response for single command if client output buffer hard limit is enforced} {
+        r config set client-output-buffer-limit {normal 100000 0 0}
+        # Total size of all items must be more than 100k
+        set item [string repeat "x" 1000]
+        for {set i 0} {$i < 150} {incr i} {
+            r lpush mylist $item
+        }
+        set orig_mem [s used_memory]
+        # Set client name and get all items
+        set rd [redis_deferring_client]
+        $rd client setname mybiglist
+        assert {[$rd read] eq "OK"}
+        $rd lrange mylist 0 -1
+        $rd flush
+        after 100
+
+        # Before we read reply, redis will close this client.
+        set clients [r client list]
+        assert_no_match "*name=mybiglist*" $clients
+        set cur_mem [s used_memory]
+        # 10k just is a deviation threshold
+        assert {$cur_mem < 10000 + $orig_mem}
+
+        # Read nothing
+        set fd [$rd channel]
+        assert_equal {} [read $fd]
+    }
+
+    test {No response for multi commands in pipeline if client output buffer limit is enforced} {
+        r config set client-output-buffer-limit {normal 100000 0 0}
+        set value [string repeat "x" 10000]
+        r set bigkey $value
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        $rd2 client setname multicommands
+        assert_equal "OK" [$rd2 read]
+        # Let redis sleep 2s firstly
+        $rd1 debug sleep 2
+        $rd1 flush
+        after 100
+
+        # Total size should be less than OS socket buffer, redis can
+        # execute all commands in this pipeline when it wakes up.
+        for {set i 0} {$i < 15} {incr i} {
+            $rd2 set $i $i
+            $rd2 get $i
+            $rd2 del $i
+            # One bigkey is 10k, total response size must be more than 100k
+            $rd2 get bigkey
+        }
+        $rd2 flush
+        after 100
+
+        # Reds must wake up if it can send reply
+        assert_equal "PONG" [r ping]
+        set clients [r client list]
+        assert_no_match "*name=multicommands*" $clients
+        set fd [$rd2 channel]
+        assert_equal {} [read $fd]
+    }
+
+    test {Execute transactions completely even if client output buffer limit is enforced} {
+        r config set client-output-buffer-limit {normal 100000 0 0}
+        # Total size of all items must be more than 100k
+        set item [string repeat "x" 1000]
+        for {set i 0} {$i < 150} {incr i} {
+            r lpush mylist2 $item
+        }
+
+        # Output buffer limit is enforced during executing transaction
+        r client setname transactionclient
+        r set k1 v1
+        r multi
+        r set k2 v2
+        r get k2
+        r lrange mylist2 0 -1
+        r set k3 v3
+        r del k1
+        catch {[r exec]} e
+        assert_match "*I/O error*" $e
+        reconnect
+        set clients [r client list]
+        assert_no_match "*name=transactionclient*" $clients
+
+        # Transactions should be executed completely
+        assert_equal {} [r get k1]
+        assert_equal "v2" [r get k2]
+        assert_equal "v3" [r get k3]
+    }
 }
