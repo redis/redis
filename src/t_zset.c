@@ -60,11 +60,8 @@
 /* -- INCLUSIONS ----------------------------------------------------------- */
 /* ========================================================================= */
 
-/* System Inclusions */
-#include <math.h>
-
-/* Project Inclusions */
 #include "server.h"
+#include <math.h>
 
 /* ========================================================================= */
 /* -- PRIVATE DEFINITIONS -------------------------------------------------- */
@@ -857,7 +854,6 @@ zrangestoreCommand (
   int command = -1;
   zrange_result_handler handler;
 
-  printf("%s/%d\n", __PRETTY_FUNCTION__, __LINE__);
   for (size_t i = 0
     ; i < (sizeof(zrange_commands)/sizeof(zrange_commands[0]))
     ; ++i) {
