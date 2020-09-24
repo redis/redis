@@ -1185,6 +1185,20 @@ int rioWriteStreamPendingEntry(rio *r, robj *key, const char *groupname, size_t 
     return 1;
 }
 
+/* Helper for rewriteStreamObject(): emit the XGROUP CREATECONSUMER is
+ * needed in order to create consumers that do not have any pending entries.
+ * All this in the context of the specified key and group. */
+int rioWriteStreamEmptyConsumer(rio *r, robj *key, const char *groupname, size_t groupname_len, streamConsumer *consumer) {
+    /* XGROUP CREATECONSUMER <key> <group> <consumer> */
+    if (rioWriteBulkCount(r,'*',5) == 0) return 0;
+    if (rioWriteBulkString(r,"XGROUP",6) == 0) return 0;
+    if (rioWriteBulkString(r,"CREATECONSUMER",14) == 0) return 0;
+    if (rioWriteBulkObject(r,key) == 0) return 0;
+    if (rioWriteBulkString(r,groupname,groupname_len) == 0) return 0;
+    if (rioWriteBulkString(r,consumer->name,sdslen(consumer->name)) == 0) return 0;
+    return 1;
+}
+
 /* Emit the commands needed to rebuild a stream object.
  * The function returns 0 on error, 1 on success. */
 int rewriteStreamObject(rio *r, robj *key, robj *o) {
@@ -1273,13 +1287,22 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
             }
 
             /* Generate XCLAIMs for each consumer that happens to
-             * have pending entries. Empty consumers have no semantical
-             * value so they are discarded. */
+             * have pending entries. Empty consumers would be generated with
+             * XGROUP CREATECONSUMER. */
             raxIterator ri_cons;
             raxStart(&ri_cons,group->consumers);
             raxSeek(&ri_cons,"^",NULL,0);
             while(raxNext(&ri_cons)) {
                 streamConsumer *consumer = ri_cons.data;
+                /* If there are no pending entries, just emit XGROUP CREATECONSUMER */
+                if (raxSize(consumer->pel) == 0) {
+                    if (rioWriteStreamEmptyConsumer(r,key,(char*)ri.key,
+                                                    ri.key_len,consumer) == 0)
+                    {
+                        return 0;
+                    }
+                    continue;
+                }
                 /* For the current consumer, iterate all the PEL entries
                  * to emit the XCLAIM protocol. */
                 raxIterator ri_pel;
