@@ -114,7 +114,10 @@ typedef long long ustime_t; /* microsecond time type. */
 #define NET_IP_STR_LEN 46 /* INET6_ADDRSTRLEN is 46, but we need to be sure */
 #define NET_PEER_ID_LEN (NET_IP_STR_LEN+32) /* Must be enough for ip:port */
 #define CONFIG_BINDADDR_MAX 16
-#define CONFIG_MIN_RESERVED_FDS 32
+#define CONFIG_MIN_RESERVED_FDS 64 /* We reserve a number of file descriptors
+                                    * for extra operations of persistence, listening
+                                    * sockets, log files, pipes, one extra client
+                                    * connection and so forth. */
 
 #define ACTIVE_EXPIRE_CYCLE_SLOW 0
 #define ACTIVE_EXPIRE_CYCLE_FAST 1
@@ -265,6 +268,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                              about writes performed by myself.*/
 #define CLIENT_IN_TO_TABLE (1ULL<<38) /* This client is in the timeout table. */
 #define CLIENT_PROTOCOL_ERROR (1ULL<<39) /* Protocol error chatting with it. */
+#define CLIENT_ONLY_ADMIN (1ULL<<40)  /* This client only can execute administrative
+                                       * commands and auth command. */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */

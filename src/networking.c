@@ -911,6 +911,24 @@ void clientAcceptHandler(connection *conn) {
                           c);
 }
 
+/* Return C_OK if the connection comes from the loopback interface and
+ * current clients count (include the cluster bus connections) is the same
+ * as the 'maxclients'. For administrators, there will be a chance to adjust
+ * 'maxclients' or do somethings when client number has reached 'maxclients'. */
+int canAcceptLoopbackConnection(connection *conn, unsigned long clients_count) {
+    if (clients_count == server.maxclients) {
+        char cip[NET_IP_STR_LEN+1] = { 0 };
+        connPeerToString(conn, cip, sizeof(cip)-1, NULL);
+
+        if (!strcmp(cip, "127.0.0.1") || !strcmp(cip, "::1")) {
+            serverLog(LL_VERBOSE,
+                "Accept the loopback connection from %s", cip);
+            return C_OK;
+        }
+    }
+    return C_ERR;
+}
+
 #define MAX_ACCEPTS_PER_CALL 1000
 static void acceptCommonHandler(connection *conn, int flags, char *ip) {
     client *c;
@@ -931,8 +949,11 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
      * Admission control will happen before a client is created and connAccept()
      * called, because we don't want to even start transport-level negotiation
      * if rejected. */
-    if (listLength(server.clients) + getClusterConnectionsCount()
-        >= server.maxclients)
+    int ac_admin = C_ERR;
+    unsigned long clients_count = listLength(server.clients) +
+                                  getClusterConnectionsCount();
+    if (clients_count >= server.maxclients &&
+        (ac_admin = canAcceptLoopbackConnection(conn, clients_count)) == C_ERR)
     {
         char *err;
         if (server.cluster_enabled)
@@ -964,6 +985,9 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
 
     /* Last chance to keep flags */
     c->flags |= flags;
+
+    /* Set administrator flag for the client. */
+    if (ac_admin == C_OK) c->flags |= CLIENT_ONLY_ADMIN;
 
     /* Initiate accept.
      *

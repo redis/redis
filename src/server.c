@@ -3657,6 +3657,20 @@ int processCommand(client *c) {
         }
     }
 
+    /* Check if this connection is reserved for administrators, if yes, users
+     * only can execute administrative commands and auth command, so that,
+     * normal clients can't disturb administrators to do somethings when client
+     * number has reached 'maxclients'. */
+    if (c->flags & CLIENT_ONLY_ADMIN) {
+        if (!(c->cmd->flags & CMD_ADMIN) && c->cmd->proc != authCommand) {
+            addReplyErrorFormat(c, "You only can execute administrative commands"
+                " and auth command based on this connection, but '%s' is not one",
+                c->cmd->name);
+            c->flags |= CLIENT_CLOSE_AFTER_REPLY;
+            return C_ERR;
+        }
+    }
+
     /* Check if the user can run this command according to the current
      * ACLs. */
     int acl_keypos;
