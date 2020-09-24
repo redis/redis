@@ -71,7 +71,7 @@ start_server {tags {"obuf-limits"}} {
         $rd1 close
     }
 
-    test {Won't write replies if client output buffer hard limit is enforced} {
+    test {No response for single command if client output buffer hard limit is enforced} {
         r config set client-output-buffer-limit {normal 100000 0 0}
         # Total size of all items must be more than 100k
         set item [string repeat "x" 1000]
@@ -96,6 +96,60 @@ start_server {tags {"obuf-limits"}} {
 
         # Read nothing
         set fd [$rd channel]
-        assert {[read $fd] eq {}}
+        assert_equal {} [read $fd]
+    }
+
+    test {No response for multi commands in pipeline if client output buffer limit is enforced} {
+        r config set client-output-buffer-limit {normal 100000 0 0}
+        set value [string repeat "x" 10000]
+        r set bigkey $value
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        # Let redis sleep 2s firstly
+        $rd1 debug sleep 2
+        $rd1 flush
+        after 100
+
+        # Total size should be less than OS socket buffer, redis can
+        # execute all commands in this pipeline when it wakes up.
+        for {set i 0} {$i < 15} {incr i} {
+            $rd2 set $i $i
+            $rd2 get $i
+            $rd2 del $i
+            # One bigkey is 10k, total response size must be more than 100k
+            $rd2 get bigkey
+        }
+        $rd2 flush
+        after 100
+
+        # Reds must wake up if it can send reply
+        assert_equal "PONG" [r ping]
+        set fd [$rd2 channel]
+        assert_equal {} [read $fd]
+    }
+
+    test {Execute transactions completely even if client output buffer limit is enforced} {
+        r config set client-output-buffer-limit {normal 100000 0 0}
+        # Total size of all items must be more than 100k
+        set item [string repeat "x" 1000]
+        for {set i 0} {$i < 150} {incr i} {
+            r lpush mylist2 $item
+        }
+
+        # Output buffer limit is enforced during executing transaction
+        r set k1 v1
+        r multi
+        r set k2 v2
+        r get k2
+        r lrange mylist2 0 -1
+        r set k3 v3
+        r del k1
+        catch {[r exec]} e
+        reconnect
+
+        # Transactions should be executed completely
+        assert_equal {} [r get k1]
+        assert_equal "v2" [r get k2]
+        assert_equal "v3" [r get k3]
     }
 }
