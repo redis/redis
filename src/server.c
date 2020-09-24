@@ -3404,7 +3404,7 @@ void call(client *c, int flags) {
 
     /* After executing command, we will close the client after writing entire
      * reply if it is set 'CLIENT_CLOSE_AFTER_COMMAND' flag. */
-    if (!server.loading && c->flags & CLIENT_CLOSE_AFTER_COMMAND) {
+    if (c->flags & CLIENT_CLOSE_AFTER_COMMAND) {
         c->flags &= ~CLIENT_CLOSE_AFTER_COMMAND;
         c->flags |= CLIENT_CLOSE_AFTER_REPLY;
     }
