@@ -223,6 +223,9 @@ int prepareClientToWrite(client *c) {
      * handler since there is no socket at all. */
     if (c->flags & (CLIENT_LUA|CLIENT_MODULE)) return C_OK;
 
+    /* If CLIENT_CLOSE_ASAP flag is set, we need not write anything. */
+    if (c->flags & CLIENT_CLOSE_ASAP) return C_ERR;
+
     /* CLIENT REPLY OFF / SKIP handling: don't send replies. */
     if (c->flags & (CLIENT_REPLY_OFF|CLIENT_REPLY_SKIP)) return C_ERR;
 
@@ -1435,6 +1438,9 @@ int handleClientsWithPendingWrites(void) {
         /* If a client is protected, don't do anything,
          * that may trigger write error or recreate handler. */
         if (c->flags & CLIENT_PROTECTED) continue;
+
+        /* Don't write to clients that are going to be closed anyway. */
+        if (c->flags & CLIENT_CLOSE_ASAP) continue;
 
         /* Try to write buffers to the client socket. */
         if (writeToClient(c,0) == C_ERR) continue;
@@ -3108,6 +3114,14 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
         c->flags &= ~CLIENT_PENDING_WRITE;
+
+        /* Remove clients from the list of pending writes since
+         * they are going to be closed ASAP. */
+        if (c->flags & CLIENT_CLOSE_ASAP) {
+            listDelNode(server.clients_pending_write, ln);
+            continue;
+        }
+
         int target_id = item_id % server.io_threads_num;
         listAddNodeTail(io_threads_list[target_id],c);
         item_id++;

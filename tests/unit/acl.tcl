@@ -260,6 +260,23 @@ start_server {tags {"acl"}} {
         catch {r ACL help xxx} e
         assert_match "*Unknown subcommand or wrong number of arguments*" $e
     }
+
+    test {Delete a user that the client doesn't use} {
+        r ACL setuser not_used on >passwd
+        assert {[r ACL deluser not_used] == 1}
+        # The client is not closed
+        assert {[r ping] eq {PONG}}
+    }
+
+    test {Delete a user that the client is using} {
+        r ACL setuser using on +acl >passwd
+        r AUTH using passwd
+        # The client will receive reply normally
+        assert {[r ACL deluser using] == 1}
+        # The client is closed
+        catch {[r ping]} e
+        assert_match "*I/O error*" $e
+    }
 }
 
 set server_path [tmpdir "server.acl"]

@@ -3345,6 +3345,13 @@ void call(client *c, int flags) {
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
 
+    /* After executing command, we will close the client after writing entire
+     * reply if it is set 'CLIENT_CLOSE_AFTER_COMMAND' flag. */
+    if (c->flags & CLIENT_CLOSE_AFTER_COMMAND) {
+        c->flags &= ~CLIENT_CLOSE_AFTER_COMMAND;
+        c->flags |= CLIENT_CLOSE_AFTER_REPLY;
+    }
+
     /* When EVAL is called loading the AOF we don't want commands called
      * from Lua to go into the slowlog or to populate statistics. */
     if (server.loading && c->flags & CLIENT_LUA)
