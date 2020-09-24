@@ -472,6 +472,9 @@ void loadServerConfigFromString(char *config) {
              server.client_max_querybuf_len = memtoll(argv[1],NULL);
         } else if ((!strcasecmp(argv[0],"slaveof") ||
                     !strcasecmp(argv[0],"replicaof")) && argc == 3) {
+            if (!strcasecmp(argv[1], "no") && !strcasecmp(argv[2], "one")) {
+                continue;
+            }
             slaveof_linenum = linenum;
             server.masterhost = sdsnew(argv[1]);
             server.masterport = atoi(argv[2]);
