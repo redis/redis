@@ -446,6 +446,10 @@ struct redisCommand redisCommandTable[] = {
      "read-only @sortedset",
      0,NULL,1,1,1,0,0,0},
 
+    {"zrangestore",zrangestoreCommand,-6,
+     "write use-memory @sortedset",
+     0,NULL,0,0,0,0,0,0},
+
     {"zrangebyscore",zrangebyscoreCommand,-4,
      "read-only @sortedset",
      0,NULL,1,1,1,0,0,0},

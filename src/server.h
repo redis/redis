@@ -2396,6 +2396,7 @@ void zunionstoreCommand(client *c);
 void zinterstoreCommand(client *c);
 void zunionCommand(client *c);
 void zinterCommand(client *c);
+void zrangestoreCommand(client *c);
 void zscanCommand(client *c);
 void hkeysCommand(client *c);
 void hvalsCommand(client *c);
