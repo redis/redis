@@ -1072,7 +1072,7 @@ struct redisServer {
     dict *orig_commands;        /* Command table before command renaming. */
     aeEventLoop *el;
     redisAtomic unsigned int lruclock; /* Clock for LRU eviction */
-    int shutdown_asap;          /* SHUTDOWN needed ASAP */
+    volatile sig_atomic_t shutdown_asap; /* SHUTDOWN needed ASAP */
     int activerehashing;        /* Incremental rehash in serverCron() */
     int active_defrag_running;  /* Active defragmentation running (holds current scan aggressiveness) */
     char *pidfile;              /* PID file path */
@@ -1129,7 +1129,7 @@ struct redisServer {
     long long events_processed_while_blocked; /* processEventsWhileBlocked() */
 
     /* RDB / AOF loading information */
-    int loading;                /* We are loading data from disk if true */
+    volatile sig_atomic_t loading; /* We are loading data from disk if true */
     off_t loading_total_bytes;
     off_t loading_loaded_bytes;
     time_t loading_start_time;
