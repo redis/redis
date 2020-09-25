@@ -133,26 +133,23 @@ typedef enum {
 /* -- PRIVATE TYPEDEFS ----------------------------------------------------- */
 /* ========================================================================= */
 
-typedef struct zsetclientwrapper       zsetclientwrapper;
 typedef struct zrange_result_handler   zrange_result_handler;
 
 typedef union _iterset                 iterset;
 typedef union _iterzset                iterzset;
 
-/* ========================================================================= */
-/* -- PRIVATE STRUCTURES --------------------------------------------------- */
-/* ========================================================================= */
-
 typedef void (*zrangeResultBeginFunction)(
   zrange_result_handler *c, int encoding);
 typedef void (*zrangeResultFinalizeFunction)(
   zrange_result_handler *c, size_t result_count);
-typedef void (*zrangeResultEmitBulkCBufferFunction)(
+typedef void (*zrangeResultEmitCBufferFunction)(
   zrange_result_handler *c, const void *p, size_t len, double score);
-typedef void (*zrangeResultEmitBulkLongLongFunction)(
+typedef void (*zrangeResultEmitLongLongFunction)(
   zrange_result_handler *c, long long ll, double score);
 
-/* ------------------------------------------------------------------------- */
+/* ========================================================================= */
+/* -- PRIVATE STRUCTURES --------------------------------------------------- */
+/* ========================================================================= */
 
 struct zrange_result_handler {
   zrange_consumer_type                 type;
@@ -163,10 +160,10 @@ struct zrange_result_handler {
   int                                  touched;
   int                                  withscores;
   int                                  should_emit_array_length;
-  zrangeResultBeginFunction            beginEmission;
-  zrangeResultFinalizeFunction         finalizeEmission;
-  zrangeResultEmitBulkCBufferFunction  emitBulkCBuffer;
-  zrangeResultEmitBulkLongLongFunction emitBulkLongLong;
+  zrangeResultBeginFunction            beginResultEmission;
+  zrangeResultFinalizeFunction         finalizeResultEmission;
+  zrangeResultEmitCBufferFunction      emitResultFromCBuffer;
+  zrangeResultEmitLongLongFunction     emitResultFromLongLong;
 };
 
 /* ------------------------------------------------------------------------- */
@@ -247,17 +244,17 @@ static void zrangeGenericCommand(zrange_result_handler *handler,
   int argc_start, zrange_type rangetype, zscan_direction direction);
 static void zrangeResultBeginClient(zrange_result_handler *handler,
   int encoding);
-static void zrangeResultEmitBulkCBufferToClient(zrange_result_handler *handler,
+static void zrangeResultEmitCBufferToClient(zrange_result_handler *handler,
   const void *value, size_t value_length_in_bytes, double score);
-static void zrangeResultEmitBulkLongLongToClient(
+static void zrangeResultEmitLongLongToClient(
   zrange_result_handler *handler, long long value, double score);
 static void zrangeResultFinalizeClient(zrange_result_handler *handler,
   size_t result_count);
 static void zrangeResultBeginStore(zrange_result_handler *handler,
   int encoding);
-static void zrangeResultEmitBulkCBufferForStore(zrange_result_handler *handler,
+static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
   const void *value, size_t value_length_in_bytes, double score);
-static void zrangeResultEmitBulkLongLongForStore(
+static void zrangeResultEmitLongLongForStore(
   zrange_result_handler *handler, long long value, double score);
 static void zrangeResultFinalizeStore(zrange_result_handler *handler,
   size_t result_count);
@@ -2273,7 +2270,7 @@ genericZrangebylexCommand (
     serverAssertWithInfo(c, zobj, eptr != NULL);
     sptr = ziplistNext(zl, eptr);
 
-    handler->beginEmission(handler, OBJ_ENCODING_ZIPLIST);
+    handler->beginResultEmission(handler, OBJ_ENCODING_ZIPLIST);
 
     /* If there is an offset, just traverse the number of elements without
      * checking the score because that is done in the next loop. */
@@ -2304,9 +2301,9 @@ genericZrangebylexCommand (
       rangelen++;
 
       if (vstr == NULL) {
-        handler->emitBulkLongLong(handler, vlong, 0.0);
+        handler->emitResultFromLongLong(handler, vlong, 0.0);
       } else {
-        handler->emitBulkCBuffer(handler, vstr, vlen, 0.0);
+        handler->emitResultFromCBuffer(handler, vstr, vlen, 0.0);
       }
 
       /* Move to next node */
@@ -2334,7 +2331,7 @@ genericZrangebylexCommand (
       return;
     }
 
-    handler->beginEmission(handler, OBJ_ENCODING_SKIPLIST);
+    handler->beginResultEmission(handler, OBJ_ENCODING_SKIPLIST);
 
     /* If there is an offset, just traverse the number of elements without
      * checking the score because that is done in the next loop. */
@@ -2359,7 +2356,7 @@ genericZrangebylexCommand (
       }
 
       rangelen++;
-      handler->emitBulkCBuffer(handler, ln->ele, sdslen(ln->ele), 0.0);
+      handler->emitResultFromCBuffer(handler, ln->ele, sdslen(ln->ele), 0.0);
 
       /* Move to next node */
       if (reverse) {
@@ -2372,7 +2369,7 @@ genericZrangebylexCommand (
     serverPanic("Unknown sorted set encoding");
   }
 
-  handler->finalizeEmission(handler, rangelen);
+  handler->finalizeResultEmission(handler, rangelen);
 } /* genericZrangebylexCommand() */
 
 /* ------------------------------------------------------------------------- */
@@ -2434,7 +2431,7 @@ genericZrangebyrankCommand (
     serverAssertWithInfo(c, zobj, eptr != NULL);
     sptr = ziplistNext(zl, eptr);
 
-    handler->beginEmission(handler, OBJ_ENCODING_ZIPLIST);
+    handler->beginResultEmission(handler, OBJ_ENCODING_ZIPLIST);
 
     while (rangelen--) {
       serverAssertWithInfo(c, zobj, eptr != NULL && sptr != NULL);
@@ -2445,9 +2442,9 @@ genericZrangebyrankCommand (
       }
 
       if (vstr == NULL) {
-        handler->emitBulkLongLong(handler, vlong, score);
+        handler->emitResultFromLongLong(handler, vlong, score);
       } else {
-        handler->emitBulkCBuffer(handler, vstr, vlen, score);
+        handler->emitResultFromCBuffer(handler, vstr, vlen, score);
       }
 
       if (reverse) {
@@ -2476,7 +2473,7 @@ genericZrangebyrankCommand (
       }
     }
 
-    handler->beginEmission(handler, OBJ_ENCODING_SKIPLIST);
+    handler->beginResultEmission(handler, OBJ_ENCODING_SKIPLIST);
 
     while (rangelen--) {
       serverAssertWithInfo(c, zobj, ln != NULL);
@@ -2486,7 +2483,7 @@ genericZrangebyrankCommand (
         score = ln->score;
       }
 
-      handler->emitBulkCBuffer(handler, ele, sdslen(ele), score);
+      handler->emitResultFromCBuffer(handler, ele, sdslen(ele), score);
 
       ln = reverse ? ln->backward : ln->level[0].forward;
     }
@@ -2494,7 +2491,7 @@ genericZrangebyrankCommand (
     serverPanic("Unknown sorted set encoding");
   }
 
-  handler->finalizeEmission(handler, result_cardinality);
+  handler->finalizeResultEmission(handler, result_cardinality);
 } /* genericZrangebyrankCommand() */
 
 /* ------------------------------------------------------------------------- */
@@ -2539,7 +2536,7 @@ genericZrangebyscoreCommand (
     serverAssertWithInfo(c, zobj, eptr != NULL);
     sptr = ziplistNext(zl, eptr);
 
-    handler->beginEmission(handler, OBJ_ENCODING_ZIPLIST);
+    handler->beginResultEmission(handler, OBJ_ENCODING_ZIPLIST);
 
     /* If there is an offset, just traverse the number of elements without
      * checking the score because that is done in the next loop. */
@@ -2572,10 +2569,10 @@ genericZrangebyscoreCommand (
       rangelen++;
 
       if (vstr == NULL) {
-        handler->emitBulkLongLong(handler, vlong,
+        handler->emitResultFromLongLong(handler, vlong,
           ((withscores) ? score : 0.0));
       } else {
-        handler->emitBulkCBuffer(handler, vstr, vlen,
+        handler->emitResultFromCBuffer(handler, vstr, vlen,
           ((withscores) ? score : 0.0));
       }
 
@@ -2604,7 +2601,7 @@ genericZrangebyscoreCommand (
       return;
     }
 
-    handler->beginEmission(handler, OBJ_ENCODING_SKIPLIST);
+    handler->beginResultEmission(handler, OBJ_ENCODING_SKIPLIST);
 
     /* If there is an offset, just traverse the number of elements without
      * checking the score because that is done in the next loop. */
@@ -2630,7 +2627,7 @@ genericZrangebyscoreCommand (
 
       rangelen++;
 
-      handler->emitBulkCBuffer(handler, ln->ele, sdslen(ln->ele),
+      handler->emitResultFromCBuffer(handler, ln->ele, sdslen(ln->ele),
         ((withscores) ? ln->score : 0.0));
 
       /* Move to next node */
@@ -2644,7 +2641,7 @@ genericZrangebyscoreCommand (
     serverPanic("Unknown sorted set encoding");
   }
 
-  handler->finalizeEmission(handler, rangelen);
+  handler->finalizeResultEmission(handler, rangelen);
 } /* genericZrangebyscoreCommand() */
 
 /* ------------------------------------------------------------------------- */
@@ -3209,7 +3206,7 @@ zrangeResultBeginClient (
 /* ------------------------------------------------------------------------- */
 
 static void
-zrangeResultEmitBulkCBufferToClient (
+zrangeResultEmitCBufferToClient (
   zrange_result_handler *handler,
   const void            *value,
   size_t                 value_length_in_bytes,
@@ -3229,7 +3226,7 @@ zrangeResultEmitBulkCBufferToClient (
 /* ------------------------------------------------------------------------- */
 
 static void
-zrangeResultEmitBulkLongLongToClient (
+zrangeResultEmitLongLongToClient (
   zrange_result_handler *handler,
   long long              value,
   double                 score
@@ -3243,7 +3240,7 @@ zrangeResultEmitBulkLongLongToClient (
   if (handler->withscores) {
     addReplyDouble(handler->client, score);
   }
-} /* zrangeResultEmitBulkLongLongToClient() */
+} /* zrangeResultEmitLongLongToClient() */
 
 /* ------------------------------------------------------------------------- */
 
@@ -3295,7 +3292,7 @@ zrangeResultBeginStore (
 /* ------------------------------------------------------------------------- */
 
 static void
-zrangeResultEmitBulkCBufferForStore (
+zrangeResultEmitCBufferForStore (
   zrange_result_handler *handler,
   const void            *value,
   size_t                 value_length_in_bytes,
@@ -3309,12 +3306,12 @@ zrangeResultEmitBulkCBufferForStore (
   if (retval == 0) {
     printf("yikers...\n");
   }
-} /* zrangeResultEmitBulkCBufferForStore() */
+} /* zrangeResultEmitCBufferForStore() */
 
 /* ------------------------------------------------------------------------- */
 
 static void
-zrangeResultEmitBulkLongLongForStore (
+zrangeResultEmitLongLongForStore (
   zrange_result_handler *handler,
   long long              value,
   double                 score
@@ -3327,7 +3324,7 @@ zrangeResultEmitBulkLongLongForStore (
   if (retval == 0) {
     printf("yikers...\n");
   }
-} /* zrangeResultEmitBulkLongLongForStore() */
+} /* zrangeResultEmitLongLongForStore() */
 
 /* ------------------------------------------------------------------------- */
 
@@ -3369,19 +3366,19 @@ zrangeResultHandlerInit (
   {
     case ZRANGE_CONSUMER_TYPE_CLIENT:
       {
-        handler->beginEmission = zrangeResultBeginClient;
-        handler->finalizeEmission = zrangeResultFinalizeClient;
-        handler->emitBulkCBuffer = zrangeResultEmitBulkCBufferToClient;
-        handler->emitBulkLongLong = zrangeResultEmitBulkLongLongToClient;
+        handler->beginResultEmission = zrangeResultBeginClient;
+        handler->finalizeResultEmission = zrangeResultFinalizeClient;
+        handler->emitResultFromCBuffer = zrangeResultEmitCBufferToClient;
+        handler->emitResultFromLongLong = zrangeResultEmitLongLongToClient;
       }
       break;
 
     case ZRANGE_CONSUMER_TYPE_INTERNAL:
       {
-        handler->beginEmission = zrangeResultBeginStore;
-        handler->finalizeEmission = zrangeResultFinalizeStore;
-        handler->emitBulkCBuffer = zrangeResultEmitBulkCBufferForStore;
-        handler->emitBulkLongLong = zrangeResultEmitBulkLongLongForStore;
+        handler->beginResultEmission = zrangeResultBeginStore;
+        handler->finalizeResultEmission = zrangeResultFinalizeStore;
+        handler->emitResultFromCBuffer = zrangeResultEmitCBufferForStore;
+        handler->emitResultFromLongLong = zrangeResultEmitLongLongForStore;
       }
       break;
   }
