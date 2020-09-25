@@ -1292,6 +1292,17 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
             rdbRemoveTempFile(server.rdb_child_pid);
         }
 
+        /* Make sure the new file (also used for persistence) is fully synced
+         * (not covered by earlier calls to rdb_fsync_range). */
+        if (fsync(server.repl_transfer_fd) == -1) {
+            serverLog(LL_WARNING,
+                "Failed trying to sync the temp DB to disk in "
+                "MASTER <-> REPLICA synchronization: %s",
+                strerror(errno));
+            cancelReplicationHandshake();
+            return;
+        }
+
         if (rename(server.repl_transfer_tmpfile,server.rdb_filename) == -1) {
             serverLog(LL_WARNING,"Failed trying to rename the temp DB into dump.rdb in MASTER <-> REPLICA synchronization: %s", strerror(errno));
             cancelReplicationHandshake();
