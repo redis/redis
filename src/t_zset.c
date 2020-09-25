@@ -237,7 +237,8 @@ static void genericZrangebylexCommand(zrange_result_handler *handler,
 static void genericZrangebyrankCommand(zrange_result_handler *handler,
   robj *zobj, long start, long end, int withscores, int reverse);
 static void genericZrangebyscoreCommand(zrange_result_handler *handler,
-  zrangespec *range, robj *zobj, long offset, long limit, int reverse);
+  zrangespec *range, robj *zobj, int withscores, long offset, long limit,
+  int reverse);
 static int sdscmplex(sds a, sds b);
 static void zaddGenericCommand(client *c, int flags);
 static void zrankGenericCommand(client *c, int reverse);
@@ -2503,6 +2504,7 @@ genericZrangebyscoreCommand (
   zrange_result_handler *handler,
   zrangespec            *range,
   robj                  *zobj,
+  int                    withscores,
   long                   offset,
   long                   limit,
   int                    reverse
@@ -2570,9 +2572,11 @@ genericZrangebyscoreCommand (
       rangelen++;
 
       if (vstr == NULL) {
-        handler->emitBulkLongLong(handler, vlong, score);
+        handler->emitBulkLongLong(handler, vlong,
+          ((withscores) ? score : 0.0));
       } else {
-        handler->emitBulkCBuffer(handler, vstr, vlen, score);
+        handler->emitBulkCBuffer(handler, vstr, vlen,
+          ((withscores) ? score : 0.0));
       }
 
       /* Move to next node */
@@ -2626,7 +2630,8 @@ genericZrangebyscoreCommand (
 
       rangelen++;
 
-      handler->emitBulkCBuffer(handler, ln->ele, sdslen(ln->ele), ln->score);
+      handler->emitBulkCBuffer(handler, ln->ele, sdslen(ln->ele),
+        ((withscores) ? ln->score : 0.0));
 
       /* Move to next node */
       if (reverse) {
@@ -3143,23 +3148,21 @@ zrangeGenericCommand (
     case ZRANGE_TYPE_RANK:
       {
         genericZrangebyrankCommand(handler, zobj, opt_start, opt_end,
-          opt_withscores,
-          reverse);
+          opt_withscores, reverse);
       }
       break;
 
     case ZRANGE_TYPE_SCORE:
       {
-        genericZrangebyscoreCommand(handler, &range, zobj, opt_offset,
-          opt_limit, reverse);
+        genericZrangebyscoreCommand(handler, &range, zobj, opt_withscores,
+          opt_offset, opt_limit, reverse);
       }
       break;
 
     case ZRANGE_TYPE_LEX:
       {
         genericZrangebylexCommand(handler, &lexrange, zobj, opt_offset,
-          opt_limit,
-          reverse);
+          opt_limit, reverse);
         zslFreeLexRange(&lexrange);
       }
       break;
@@ -3299,7 +3302,7 @@ zrangeResultEmitBulkCBufferForStore (
   double                 score
 ) {
   double newscore;
-  int retflags;
+  int retflags = 0;
   sds ele = sdsnewlen(value, value_length_in_bytes);
   int retval = zsetAdd(handler->dstobj, score, ele, &retflags, &newscore);
 
@@ -3317,7 +3320,7 @@ zrangeResultEmitBulkLongLongForStore (
   double                 score
 ) {
   double newscore;
-  int retflags;
+  int retflags = 0;
   sds ele = sdsfromlonglong(value);
   int retval = zsetAdd(handler->dstobj, score, ele, &retflags, &newscore);
 
