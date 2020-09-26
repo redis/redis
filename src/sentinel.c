@@ -114,6 +114,12 @@ typedef struct sentinelAddr {
 #define SENTINEL_LEADER (1<<17)
 #define SENTINEL_OBSERVER (1<<18)
 
+/*
+ * Ignores master_link_down_time and replication offset.
+ * WARNING: This break slave select logic and may destroy
+ *          data of old master but in some cases it may be useful. */
+#define SENTINEL_IGNORE_MAX_DOWN_TIME 0
+
 /* Script execution flags and limits. */
 #define SENTINEL_SCRIPT_NONE 0
 #define SENTINEL_SCRIPT_RUNNING 1
@@ -257,6 +263,7 @@ struct sentinelState {
     unsigned long simfailure_flags; /* Failures simulation. */
     int deny_scripts_reconfig; /* Allow SENTINEL SET ... to change script
                                   paths at runtime? */
+    int ignore_max_down_time; /* Ignore master_link_down_since_seconds huge value */
 } sentinel;
 
 /* A script execution job. */
@@ -505,6 +512,7 @@ void initSentinel(void) {
     sentinel.announce_port = 0;
     sentinel.simfailure_flags = SENTINEL_SIMFAILURE_NONE;
     sentinel.deny_scripts_reconfig = SENTINEL_DEFAULT_DENY_SCRIPTS_RECONFIG;
+    sentinel.ignore_max_down_time = SENTINEL_IGNORE_MAX_DOWN_TIME;
     memset(sentinel.myid,0,sizeof(sentinel.myid));
 }
 
@@ -1765,6 +1773,12 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
             return "Please specify yes or no for the "
                    "deny-scripts-reconfig options.";
         }
+    } else if (!strcasecmp(argv[0],"ignore-max-down-time") && argc == 2) {
+        /* ignore-max-down-time <yes|no> */
+        if ((sentinel.ignore_max_down_time = yesnotoi(argv[1])) == -1) {
+            return "Please specify yes or no for the "
+                   "ignore-max-down-time option.";
+        }
     } else {
         return "Unrecognized sentinel configuration statement.";
     }
@@ -1790,6 +1804,12 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
         sentinel.deny_scripts_reconfig ? "yes" : "no");
     rewriteConfigRewriteLine(state,"sentinel",line,
         sentinel.deny_scripts_reconfig != SENTINEL_DEFAULT_DENY_SCRIPTS_RECONFIG);
+
+    /* sentinel ignore-max-down-time. */
+    line = sdscatprintf(sdsempty(), "sentinel ignore-max-down-time %s",
+        sentinel.ignore_max_down_time ? "yes" : "no");
+    rewriteConfigRewriteLine(state,"sentinel",line,
+        sentinel.ignore_max_down_time != SENTINEL_IGNORE_MAX_DOWN_TIME);
 
     /* For every master emit a "sentinel monitor" config entry. */
     di = dictGetIterator(sentinel.masters);
@@ -3054,7 +3074,7 @@ void sentinelCommand(client *c) {
 "GET-MASTER-ADDR-BY-NAME <master-name> -- Return the ip and port number of the master with that name.",
 "RESET <pattern> -- Reset masters for specific master name matching this pattern.",
 "FAILOVER <master-name> -- Manually failover a master node without asking for agreement from other Sentinels",
-"PENDING-SCRIPTS -- Get pending scripts information.", 
+"PENDING-SCRIPTS -- Get pending scripts information.",
 "MONITOR <name> <ip> <port> <quorum> -- Start monitoring a new master with the specified name, ip, port and quorum.",
 "FLUSHCONFIG -- Force Sentinel to rewrite its configuration on disk, including the current Sentinel state.",
 "REMOVE <master-name> -- Remove master from Sentinel's monitor list.",
@@ -4188,6 +4208,7 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
     dictIterator *di;
     dictEntry *de;
     mstime_t max_master_down_time = 0;
+    int ignore_max_down_time = sentinel.ignore_max_down_time;
 
     if (master->flags & SRI_S_DOWN)
         max_master_down_time += mstime() - master->s_down_since_time;
@@ -4211,7 +4232,12 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
         else
             info_validity_time = SENTINEL_INFO_PERIOD*3;
         if (mstime() - slave->info_refresh > info_validity_time) continue;
-        if (slave->master_link_down_time > max_master_down_time) continue;
+        if (slave->master_link_down_time > max_master_down_time) {
+            /* It's important check, but if we use Redis for non-critical data,
+             * we may "break" this and ignore a huge value of master_link_down_time
+             * (INFO -> master_link_down_since_seconds). */
+            if (ignore_max_down_time != 1) continue;
+        }
         instance[instances++] = slave;
     }
     dictReleaseIterator(di);
@@ -4606,4 +4632,3 @@ void sentinelTimer(void) {
      * election because of split brain voting). */
     server.hz = CONFIG_DEFAULT_HZ + rand() % CONFIG_DEFAULT_HZ;
 }
-
