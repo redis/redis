@@ -2467,172 +2467,127 @@ void zinterCommand(client *c) {
 }
 
 typedef enum {
-  ZRANGE_DIRECTION_FORWARD = 0,
-  ZRANGE_DIRECTION_REVERSE = 1
+    ZRANGE_DIRECTION_FORWARD = 0,
+    ZRANGE_DIRECTION_REVERSE = 1
 } zrange_direction;
 
 typedef enum {
-  ZRANGE_CONSUMER_TYPE_CLIENT = 0,
-  ZRANGE_CONSUMER_TYPE_INTERNAL
+    ZRANGE_CONSUMER_TYPE_CLIENT = 0,
+    ZRANGE_CONSUMER_TYPE_INTERNAL
 } zrange_consumer_type;
 
 typedef struct zrange_result_handler zrange_result_handler;
 
-typedef void (*zrangeResultBeginFunction)(
-  zrange_result_handler *c, int encoding);
+typedef void (*zrangeResultBeginFunction)(zrange_result_handler *c);
 typedef void (*zrangeResultFinalizeFunction)(
-  zrange_result_handler *c, size_t result_count);
+    zrange_result_handler *c, size_t result_count);
 typedef void (*zrangeResultEmitCBufferFunction)(
-  zrange_result_handler *c, const void *p, size_t len, double score);
+    zrange_result_handler *c, const void *p, size_t len, double score);
 typedef void (*zrangeResultEmitLongLongFunction)(
-  zrange_result_handler *c, long long ll, double score);
+    zrange_result_handler *c, long long ll, double score);
 
 void zrangeGenericCommand (zrange_result_handler *handler, int argc_start,
     int rangetype, zrange_direction direction);
 
 struct zrange_result_handler {
-  zrange_consumer_type                 type;
-  client                              *client;
-  robj                                *dstkey;
-  robj                                *dstobj;
-  void                                *userdata;
-  int                                  touched;
-  int                                  withscores;
-  int                                  should_emit_array_length;
-  zrangeResultBeginFunction            beginResultEmission;
-  zrangeResultFinalizeFunction         finalizeResultEmission;
-  zrangeResultEmitCBufferFunction      emitResultFromCBuffer;
-  zrangeResultEmitLongLongFunction     emitResultFromLongLong;
+    zrange_consumer_type                 type;
+    client                              *client;
+    robj                                *dstkey;
+    robj                                *dstobj;
+    void                                *userdata;
+    int                                  touched;
+    int                                  withscores;
+    int                                  should_emit_array_length;
+    zrangeResultBeginFunction            beginResultEmission;
+    zrangeResultFinalizeFunction         finalizeResultEmission;
+    zrangeResultEmitCBufferFunction      emitResultFromCBuffer;
+    zrangeResultEmitLongLongFunction     emitResultFromLongLong;
 };
 
-static void
-zrangeResultBeginClient (
-  zrange_result_handler *handler,
-  int                    encoding
-) {
-  ((void) (encoding));
-
-  handler->userdata = addReplyDeferredLen(handler->client);
+static void zrangeResultBeginClient(zrange_result_handler *handler) {
+    handler->userdata = addReplyDeferredLen(handler->client);
 }
 
-static void
-zrangeResultEmitCBufferToClient (
-  zrange_result_handler *handler,
-  const void            *value,
-  size_t                 value_length_in_bytes,
-  double                 score
-) {
-  if (handler->should_emit_array_length) {
-    addReplyArrayLen(handler->client, 2);
-  }
+static void zrangeResultEmitCBufferToClient(zrange_result_handler *handler,
+    const void *value, size_t value_length_in_bytes, double score) {
 
-  addReplyBulkCBuffer(handler->client, value, value_length_in_bytes);
+    if (handler->should_emit_array_length) {
+        addReplyArrayLen(handler->client, 2);
+    }
 
-  if (handler->withscores) {
-    addReplyDouble(handler->client, score);
-  }
+    addReplyBulkCBuffer(handler->client, value, value_length_in_bytes);
+
+    if (handler->withscores) {
+        addReplyDouble(handler->client, score);
+    }
 }
 
-static void
-zrangeResultEmitLongLongToClient (
-  zrange_result_handler *handler,
-  long long              value,
-  double                 score
-) {
-  if (handler->should_emit_array_length) {
-    addReplyArrayLen(handler->client, 2);
-  }
+static void zrangeResultEmitLongLongToClient(zrange_result_handler *handler,
+    long long value, double score) {
 
-  addReplyBulkLongLong(handler->client, value);
+    if (handler->should_emit_array_length) {
+        addReplyArrayLen(handler->client, 2);
+    }
 
-  if (handler->withscores) {
-    addReplyDouble(handler->client, score);
-  }
+    addReplyBulkLongLong(handler->client, value);
+
+    if (handler->withscores) {
+        addReplyDouble(handler->client, score);
+    }
 }
 
-static void
-zrangeResultFinalizeClient (
-  zrange_result_handler *handler,
-  size_t                 result_count
-) {
-  if (handler->withscores && (handler->client->resp == 2)) {
-    result_count *= 2;
-  }
+static void zrangeResultFinalizeClient(zrange_result_handler *handler,
+    size_t result_count) {
 
-  setDeferredArrayLen(handler->client, handler->userdata, result_count);
+    if (handler->withscores && (handler->client->resp == 2)) {
+        result_count *= 2;
+    }
+
+    setDeferredArrayLen(handler->client, handler->userdata, result_count);
 }
 
-static void
-zrangeResultBeginStore (
-  zrange_result_handler *handler,
-  int                    encoding
-) {
-  if (dbDelete(handler->client->db, handler->dstkey)) {
-    signalModifiedKey(handler->client, handler->client->db, handler->dstkey);
-    handler->touched = 1;
-    ++server.dirty;
-  }
+static void zrangeResultBeginStore(zrange_result_handler *handler) {
+    if (dbDelete(handler->client->db, handler->dstkey)) {
+        signalModifiedKey(handler->client, handler->client->db, handler->dstkey);
+        handler->touched = 1;
+        ++server.dirty;
+    }
 
-  /* This is a cheap version of a strategy method... */
-  switch (encoding)
-  {
-    case OBJ_ENCODING_ZIPLIST:
-      {
-        handler->dstobj = createZsetZiplistObject();
-      }
-      break;
-
-    case OBJ_ENCODING_SKIPLIST: /* Fall-through */
-
-    default:
-      {
-        handler->dstobj = createZsetObject();
-      }
-  }
-
-  dbAdd(handler->client->db, handler->dstkey, handler->dstobj);
+    handler->dstobj = createZsetZiplistObject();
+    dbAdd(handler->client->db, handler->dstkey, handler->dstobj);
 }
 
-static void
-zrangeResultEmitCBufferForStore (
-  zrange_result_handler *handler,
-  const void            *value,
-  size_t                 value_length_in_bytes,
-  double                 score
-) {
-  double newscore;
-  int retflags = 0;
-  sds ele = sdsnewlen(value, value_length_in_bytes);
-  int retval = zsetAdd(handler->dstobj, score, ele, &retflags, &newscore);
+static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
+    const void *value, size_t value_length_in_bytes, double score) {
 
-  if (retval == 0) {
-    printf("yikers...\n");
-  }
+    double newscore;
+    int retflags = 0;
+    sds ele = sdsnewlen(value, value_length_in_bytes);
+    int retval = zsetAdd(handler->dstobj, score, ele, &retflags, &newscore);
+
+    if (retval == 0) {
+        printf("yikers...\n");
+    }
 }
 
-static void
-zrangeResultEmitLongLongForStore (
-  zrange_result_handler *handler,
-  long long              value,
-  double                 score
-) {
-  double newscore;
-  int retflags = 0;
-  sds ele = sdsfromlonglong(value);
-  int retval = zsetAdd(handler->dstobj, score, ele, &retflags, &newscore);
+static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
+    long long value, double score) {
 
-  if (retval == 0) {
-    printf("yikers...\n");
-  }
+    double newscore;
+    int retflags = 0;
+    sds ele = sdsfromlonglong(value);
+    int retval = zsetAdd(handler->dstobj, score, ele, &retflags, &newscore);
+
+    if (retval == 0) {
+        printf("yikers...\n");
+    }
 }
 
-static void
-zrangeResultFinalizeStore (
-  zrange_result_handler *handler,
-  size_t                 result_count
-) {
+static void zrangeResultFinalizeStore(zrange_result_handler *handler,
+    size_t result_count) {
+
     if (0 < result_count) {
-      addReplyLongLong(handler->client, result_count);
+        addReplyLongLong(handler->client, result_count);
         if (!handler->touched) {
             signalModifiedKey(handler->client, handler->client->db, handler->dstkey);
         }
@@ -2648,8 +2603,9 @@ zrangeResultFinalizeStore (
     }
 }
 
-static void zrangeResultHandlerInit (zrange_result_handler *handler,
+static void zrangeResultHandlerInit(zrange_result_handler *handler,
     client *client, zrange_consumer_type type) {
+
     memset(handler, 0, sizeof(*handler));
 
     handler->client = client;
@@ -2675,14 +2631,14 @@ static void zrangeResultHandlerInit (zrange_result_handler *handler,
     }
 }
 
-static void zrangeResultHandlerScoreEmissionEnable (
-    zrange_result_handler *handler) {
+static void zrangeResultHandlerScoreEmissionEnable(zrange_result_handler *handler) {
     handler->withscores = 1;
     handler->should_emit_array_length = (handler->client->resp > 2);
 }
 
-static void zrangeResultHandlerDestinationKeySet (
-    zrange_result_handler *handler, robj *dstkey) {
+static void zrangeResultHandlerDestinationKeySet (zrange_result_handler *handler,
+    robj *dstkey) {
+
     handler->dstkey = dstkey;
 }
 
@@ -2737,7 +2693,7 @@ void genericZrangebyrankCommand(zrange_result_handler *handler,
         serverAssertWithInfo(c,zobj,eptr != NULL);
         sptr = ziplistNext(zl,eptr);
 
-        handler->beginResultEmission(handler, OBJ_ENCODING_ZIPLIST);
+        handler->beginResultEmission(handler);
 
         while (rangelen--) {
             serverAssertWithInfo(c,zobj,eptr != NULL && sptr != NULL);
@@ -2777,7 +2733,7 @@ void genericZrangebyrankCommand(zrange_result_handler *handler,
                 ln = zslGetElementByRank(zsl,start+1);
         }
 
-        handler->beginResultEmission(handler, OBJ_ENCODING_SKIPLIST);
+        handler->beginResultEmission(handler);
 
         while(rangelen--) {
             serverAssertWithInfo(c,zobj,ln != NULL);
@@ -2843,7 +2799,7 @@ void genericZrangebyscoreCommand(zrange_result_handler *handler,
         serverAssertWithInfo(c,zobj,eptr != NULL);
         sptr = ziplistNext(zl,eptr);
 
-        handler->beginResultEmission(handler, OBJ_ENCODING_ZIPLIST);
+        handler->beginResultEmission(handler);
 
         /* If there is an offset, just traverse the number of elements without
          * checking the score because that is done in the next loop. */
@@ -2903,7 +2859,7 @@ void genericZrangebyscoreCommand(zrange_result_handler *handler,
             return;
         }
 
-        handler->beginResultEmission(handler, OBJ_ENCODING_SKIPLIST);
+        handler->beginResultEmission(handler);
 
         /* If there is an offset, just traverse the number of elements without
          * checking the score because that is done in the next loop. */
@@ -2945,14 +2901,14 @@ void zrangebyscoreCommand(client *c) {
     zrange_result_handler handler;
     zrangeResultHandlerInit(&handler, c, ZRANGE_CONSUMER_TYPE_CLIENT);
     zrangeGenericCommand(&handler, 0, ZRANGE_SCORE,
-      ZRANGE_DIRECTION_FORWARD);
+        ZRANGE_DIRECTION_FORWARD);
 }
 
 void zrevrangebyscoreCommand(client *c) {
     zrange_result_handler handler;
     zrangeResultHandlerInit(&handler, c, ZRANGE_CONSUMER_TYPE_CLIENT);
     zrangeGenericCommand(&handler, 0, ZRANGE_SCORE,
-      ZRANGE_DIRECTION_REVERSE);
+        ZRANGE_DIRECTION_REVERSE);
 }
 
 void zcountCommand(client *c) {
@@ -3143,7 +3099,7 @@ void genericZrangebylexCommand(zrange_result_handler *handler,
         serverAssertWithInfo(c,zobj,eptr != NULL);
         sptr = ziplistNext(zl,eptr);
 
-        handler->beginResultEmission(handler, OBJ_ENCODING_ZIPLIST);
+        handler->beginResultEmission(handler);
 
         /* If there is an offset, just traverse the number of elements without
          * checking the score because that is done in the next loop. */
@@ -3199,7 +3155,7 @@ void genericZrangebylexCommand(zrange_result_handler *handler,
             return;
         }
 
-        handler->beginResultEmission(handler, OBJ_ENCODING_SKIPLIST);
+        handler->beginResultEmission(handler);
 
         /* If there is an offset, just traverse the number of elements without
          * checking the score because that is done in the next loop. */
@@ -3270,8 +3226,8 @@ void zrangeGenericCommand (zrange_result_handler *handler, int argc_start,
      * generally be separate from execution, this has been written to match the
      * intermixed processing common to Redis command handlers.
      */
-  #define OPTIONAL_CLAUSE_WITHSCORES    0x01
-  #define OPTIONAL_CLAUSE_LIMIT         0x02
+#define OPTIONAL_CLAUSE_WITHSCORES    0x01
+#define OPTIONAL_CLAUSE_LIMIT         0x02
     int valid_optional_clauses = 0;
     int argc_processed = 0;
     int argc_remaining = 0;
@@ -3343,50 +3299,52 @@ void zrangeGenericCommand (zrange_result_handler *handler, int argc_start,
     /* Step 2: Parse remaining optional arguments. */
     argc_remaining = (c->argc - argc_processed);
     if (0 < argc_remaining) {
-      int pos = argc_processed;
-      while (argc_remaining) {
-        if ((valid_optional_clauses & OPTIONAL_CLAUSE_WITHSCORES) &&
-          (1 <= argc_remaining) &&
-          !strcasecmp(c->argv[pos]->ptr, "withscores")) {
-          ++pos;
-          --argc_remaining;
-          opt_withscores = 1;
-        } else if ((valid_optional_clauses & OPTIONAL_CLAUSE_LIMIT) &&
-          (3 <= argc_remaining) && !strcasecmp(c->argv[pos]->ptr, "limit")) {
-          if ((getLongFromObjectOrReply(c, c->argv[pos+1], &opt_offset, NULL)
-            != C_OK) ||
-            (getLongFromObjectOrReply(c, c->argv[pos+2], &opt_limit, NULL)
-            != C_OK)) {
-            break;
+        int pos = argc_processed;
+        while (argc_remaining) {
+          if ((valid_optional_clauses & OPTIONAL_CLAUSE_WITHSCORES) &&
+              (1 <= argc_remaining) &&
+              !strcasecmp(c->argv[pos]->ptr, "withscores"))
+          {
+              ++pos;
+              --argc_remaining;
+              opt_withscores = 1;
+          } else if ((valid_optional_clauses & OPTIONAL_CLAUSE_LIMIT) &&
+              (3 <= argc_remaining) && !strcasecmp(c->argv[pos]->ptr, "limit"))
+          {
+              if ((getLongFromObjectOrReply(c, c->argv[pos+1], &opt_offset, NULL)
+                  != C_OK) ||
+                  (getLongFromObjectOrReply(c, c->argv[pos+2], &opt_limit, NULL)
+                  != C_OK))
+              {
+                  goto cleanup;
+              }
+              pos += 3;
+              argc_remaining -= 3;
+          } else {
+              break;
           }
-          pos += 3;
-          argc_remaining -= 3;
-        } else {
-          break;
         }
-      }
+#undef OPTIONAL_CLAUSE_LIMIT
+#undef OPTIONAL_CLAUSE_WITHSCORES
 
-      if (0 < argc_remaining) {
-        addReply(c, shared.syntaxerr);
-        goto cleanup;
-      }
+        if (0 < argc_remaining) {
+            addReply(c, shared.syntaxerr);
+            goto cleanup;
+        }
     }
-  #undef OPTIONAL_CLAUSE_LIMIT
-  #undef OPTIONAL_CLAUSE_WITHSCORES
 
     if (opt_withscores) {
-      zrangeResultHandlerScoreEmissionEnable(handler);
+        zrangeResultHandlerScoreEmissionEnable(handler);
     }
 
     /* Step 3: Lookup the key and get the range. */
-    if (((zobj = lookupKeyReadOrReply(c, key, shared.emptyarray)) == NULL) ||
-      checkType(c, zobj, OBJ_ZSET)) {
-      goto cleanup;
+    if (((zobj = lookupKeyReadOrReply(c, key, shared.emptyarray)) == NULL)
+        || checkType(c, zobj, OBJ_ZSET)) {
+        goto cleanup;
     }
 
     /* Step 4: Pass this to the command-specific handler. */
-    switch (rangetype)
-    {
+    switch (rangetype) {
       case ZRANGE_RANK:
         {
           genericZrangebyrankCommand(handler, zobj, opt_start, opt_end,
@@ -3415,25 +3373,8 @@ void zrangeGenericCommand (zrange_result_handler *handler, int argc_start,
 
   cleanup:
 
-    switch (rangetype)
-    {
-      case ZRANGE_RANK:
-        {
-          // nothing to see here
-        }
-        break;
-
-      case ZRANGE_SCORE:
-        {
-          // nothing to see here
-        }
-        break;
-
-      case ZRANGE_LEX:
-        {
-          zslFreeLexRange(&lexrange);
-        }
-        break;
+    if (rangetype == ZRANGE_LEX) {
+        zslFreeLexRange(&lexrange);
     }
 }
 
