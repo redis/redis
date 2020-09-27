@@ -99,6 +99,8 @@ start_server {tags {"obuf-limits"}} {
         assert_equal {} [read $fd]
     }
 
+    # Note: This test assumes that what's written with one write, will be read by redis in one read.
+    # this assumption is wrong, but seem to work empirically (for now)
     test {No response for multi commands in pipeline if client output buffer limit is enforced} {
         r config set client-output-buffer-limit {normal 100000 0 0}
         set value [string repeat "x" 10000]
