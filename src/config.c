@@ -473,8 +473,17 @@ void loadServerConfigFromString(char *config) {
         } else if ((!strcasecmp(argv[0],"slaveof") ||
                     !strcasecmp(argv[0],"replicaof")) && argc == 3) {
             slaveof_linenum = linenum;
+            sdsfree(server.masterhost);
+            if (!strcasecmp(argv[1], "no") && !strcasecmp(argv[2], "one")) {
+                server.masterhost = NULL;
+                continue;
+            }
             server.masterhost = sdsnew(argv[1]);
-            server.masterport = atoi(argv[2]);
+            char *ptr;
+            server.masterport = strtol(argv[2], &ptr, 10);
+            if (server.masterport < 0 || server.masterport > 65535 || *ptr != '\0') {
+                err = "Invalid master port"; goto loaderr;
+            }
             server.repl_state = REPL_STATE_CONNECT;
         } else if (!strcasecmp(argv[0],"requirepass") && argc == 2) {
             if (strlen(argv[1]) > CONFIG_AUTHPASS_MAX_LEN) {
