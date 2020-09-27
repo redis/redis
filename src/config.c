@@ -474,6 +474,7 @@ void loadServerConfigFromString(char *config) {
                     !strcasecmp(argv[0],"replicaof")) && argc == 3) {
             slaveof_linenum = linenum;
             if (!strcasecmp(argv[1], "no") && !strcasecmp(argv[2], "one")) {
+                sdsfree(server.masterhost);
                 server.masterhost = NULL;
                 continue;
             }
