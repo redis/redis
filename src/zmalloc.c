@@ -319,8 +319,6 @@ size_t zmalloc_get_rss(void) {
     mib[3] = getpid();
     mib[4] = sizeof(info);
     mib[5] = 1;
-
-
     if (sysctl(mib, 4, &info, &infolen, NULL, 0) == 0)
         return (size_t)info.p_vm_rssize;
 
