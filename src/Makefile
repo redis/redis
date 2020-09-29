@@ -174,6 +174,7 @@ endif
 endif
 endif
 endif
+endif
 # Include paths to dependencies
 FINAL_CFLAGS+= -I../deps/hiredis -I../deps/linenoise -I../deps/lua/src -I../deps/hdr_histogram
 

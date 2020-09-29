@@ -352,6 +352,9 @@ void memtest(size_t megabytes, int passes) {
         ws.ws_col = 80;
         ws.ws_row = 20;
     }
+#else
+    ws.ws_col = 80;
+    ws.ws_row = 20;
 #endif
     memtest_alloc_and_test(megabytes,passes);
     printf("\nYour memory passed this test.\n");
