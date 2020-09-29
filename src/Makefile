@@ -146,9 +146,16 @@ ifeq ($(uname_S),NetBSD)
 	# NetBSD
 	FINAL_LIBS+= -lpthread -lexecinfo
 else
+ifeq ($(uname_S),Haiku)
+	# Haiku
+	FINAL_CFLAGS+= -DBSD_SOURCE
+	FINAL_LDFLAGS+= -lbsd -lnetwork
+	FINAL_LIBS+= -lpthread
+else
 	# All the other OSes (notably Linux)
 	FINAL_LDFLAGS+= -rdynamic
 	FINAL_LIBS+=-ldl -pthread -lrt
+endif
 endif
 endif
 endif
