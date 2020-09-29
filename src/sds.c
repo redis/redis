@@ -1121,13 +1121,16 @@ void *sds_malloc(size_t size) { return s_malloc(size); }
 void *sds_realloc(void *ptr, size_t size) { return s_realloc(ptr,size); }
 void sds_free(void *ptr) { s_free(ptr); }
 
-#if defined(SDS_TEST_MAIN)
+#ifdef REDIS_TEST
 #include <stdio.h>
 #include "testhelp.h"
 #include "limits.h"
 
 #define UNUSED(x) (void)(x)
-int sdsTest(void) {
+int sdsTest(int argc, char **argv) {
+    UNUSED(argc);
+    UNUSED(argv);
+
     {
         sds x = sdsnew("foo"), y;
 
@@ -1254,7 +1257,8 @@ int sdsTest(void) {
         {
             unsigned int oldfree;
             char *p;
-            int step = 10, j, i;
+            int i;
+            size_t step = 10, j;
 
             sdsfree(x);
             sdsfree(y);
@@ -1264,7 +1268,7 @@ int sdsTest(void) {
             /* Run the test a few times in order to hit the first two
              * SDS header types. */
             for (i = 0; i < 10; i++) {
-                int oldlen = sdslen(x);
+                size_t oldlen = sdslen(x);
                 x = sdsMakeRoomFor(x,step);
                 int type = x[-1]&SDS_TYPE_MASK;
 
@@ -1272,6 +1276,7 @@ int sdsTest(void) {
                 if (type != SDS_TYPE_5) {
                     test_cond("sdsMakeRoomFor() free", sdsavail(x) >= step);
                     oldfree = sdsavail(x);
+                    UNUSED(oldfree);
                 }
                 p = x+oldlen;
                 for (j = 0; j < step; j++) {
@@ -1288,11 +1293,5 @@ int sdsTest(void) {
     }
     test_report()
     return 0;
-}
-#endif
-
-#ifdef SDS_TEST_MAIN
-int main(void) {
-    return sdsTest();
 }
 #endif

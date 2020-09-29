@@ -156,9 +156,16 @@ ifeq ($(uname_S),NetBSD)
 	# NetBSD
 	FINAL_LIBS+= -lpthread -lexecinfo
 else
+ifeq ($(uname_S),Haiku)
+	# Haiku
+	FINAL_CFLAGS+= -DBSD_SOURCE
+	FINAL_LDFLAGS+= -lbsd -lnetwork
+	FINAL_LIBS+= -lpthread
+else
 	# All the other OSes (notably Linux)
 	FINAL_LDFLAGS+= -rdynamic
 	FINAL_LIBS+=-ldl -pthread -lrt
+endif
 endif
 endif
 endif
@@ -361,10 +368,6 @@ lcov:
 	@(set -e; cd ..; ./runtest --clients 1)
 	@geninfo -o redis.info .
 	@genhtml --legend -o lcov-html redis.info
-
-test-sds: sds.c sds.h
-	$(REDIS_CC) sds.c zmalloc.c -DSDS_TEST_MAIN $(FINAL_LIBS) -o /tmp/sds_test
-	/tmp/sds_test
 
 .PHONY: lcov
 
