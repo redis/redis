@@ -16,6 +16,14 @@ start_server {tags {"modules"}} {
         assert { [string match "*cmdstat_module*" $info] }
     }
 
+    test {test redis version} {
+        set info [r info server]
+        set temp [lindex [split $info "\n"] 1]
+        set temp1 [lindex [split $temp ":"] 1]
+        set version [string trim $temp1]
+        assert_equal $version [r test.redisversion]
+    }
+
     test {test long double conversions} {
         set ld [r test.ld_conversion]
         assert {[string match $ld "0.00000000000000001"]}
