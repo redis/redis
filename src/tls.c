@@ -167,8 +167,9 @@ int tlsConfigure(redisTLSContextConfig *ctx_config) {
         goto error;
     }
 
-    if (!ctx_config->ca_cert_file && !ctx_config->ca_cert_dir) {
-        serverLog(LL_WARNING, "Either tls-ca-cert-file or tls-ca-cert-dir must be configured!");
+    if (((server.tls_auth_clients != TLS_CLIENT_AUTH_NO) || server.tls_cluster || server.tls_replication) &&
+            !ctx_config->ca_cert_file && !ctx_config->ca_cert_dir) {
+        serverLog(LL_WARNING, "Either tls-ca-cert-file or tls-ca-cert-dir must be specified when tls-cluster, tls-replication or tls-auth-clients are enabled!");
         goto error;
     }
 
@@ -235,7 +236,8 @@ int tlsConfigure(redisTLSContextConfig *ctx_config) {
         goto error;
     }
     
-    if (SSL_CTX_load_verify_locations(ctx, ctx_config->ca_cert_file, ctx_config->ca_cert_dir) <= 0) {
+    if ((ctx_config->ca_cert_file || ctx_config->ca_cert_dir) &&
+        SSL_CTX_load_verify_locations(ctx, ctx_config->ca_cert_file, ctx_config->ca_cert_dir) <= 0) {
         ERR_error_string_n(ERR_get_error(), errbuf, sizeof(errbuf));
         serverLog(LL_WARNING, "Failed to configure CA certificate(s) file/directory: %s", errbuf);
         goto error;
