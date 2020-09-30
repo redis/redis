@@ -17,7 +17,7 @@ start_server {tags {"modules"}} {
     }
 
     test {test redis version} {
-        set version [s version]
+        set version [s redis_version]
         assert_equal $version [r test.redisversion]
     }
 
