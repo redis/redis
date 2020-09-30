@@ -7881,8 +7881,8 @@ int RM_GetContextFlagsAll() {
 
 /**
  * Returns the full KeyspaceNotification mask, using the return value
- * the user can check if the flags he needs are supported and what to do
- * in case it does not.
+ * the module can check if a certain set of flags are supported
+ * by the redis server version in use.
  * Example:
  *        int supportedFlags = RM_GetKeyspaceNotificationFlagsAll()
  *        if (supportedFlags & REDISMODULE_NOTIFY_LOADED) {
