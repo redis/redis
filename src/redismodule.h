@@ -194,8 +194,8 @@ typedef uint64_t RedisModuleTimerID;
 #define REDISMODULE_OPTION_NO_IMPLICIT_SIGNAL_MODIFIED (1<<1)
 
 /* Server events definitions.
- * Those flags should not be used directly by the user, instead
- * the user should use RedisModuleEvent_* variables */
+ * Those flags should not be used directly by the module, instead
+ * the module should use RedisModuleEvent_* variables */
 #define REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED 0
 #define REDISMODULE_EVENT_PERSISTENCE 1
 #define REDISMODULE_EVENT_FLUSHDB 2
