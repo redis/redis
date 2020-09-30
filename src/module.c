@@ -7865,8 +7865,8 @@ int RM_GetLFU(RedisModuleKey *key, long long *lfu_freq) {
 
 /**
  * Returns the full ContextFlags mask, using the return value
- * the user can check if the flags he needs are supported and what to do
- * in case it does not.
+ * the module can check if a certain set of flags are supported
+ * by the redis server version in use.
  * Example:
  *        int supportedFlags = RM_GetContextFlagsAll()
  *        if (supportedFlags & REDISMODULE_CTX_FLAGS_MULTI) {
