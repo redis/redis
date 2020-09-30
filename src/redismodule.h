@@ -117,9 +117,9 @@
 /* Redis is currently running inside background child process. */
 #define REDISMODULE_CTX_FLAGS_IS_CHILD (1<<20)
 
-/* Next context flag, this flag should no be used directly by the user.
- * Instead, users should use RedisModule_GetContextFlagsAll.
- * When adding a new CTX flag this value should be updated*/
+/* Next context flag, must be updated when adding new flags above!
+This flag should not be used directly by the module.
+ * Use RedisModule_GetContextFlagsAll instead. */
 #define _REDISMODULE_CTX_FLAGS_NEXT (1<<21)
 
 /* Keyspace changes notification classes. Every class is associated with a
