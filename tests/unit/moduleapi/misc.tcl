@@ -17,10 +17,7 @@ start_server {tags {"modules"}} {
     }
 
     test {test redis version} {
-        set info [r info server]
-        set temp [lindex [split $info "\n"] 1]
-        set temp1 [lindex [split $temp ":"] 1]
-        set version [string trim $temp1]
+        set version [s version]
         assert_equal $version [r test.redisversion]
     }
 
