@@ -7249,7 +7249,7 @@ int RM_SubscribeToServerEvent(RedisModuleCtx *ctx, RedisModuleEvent event, Redis
 
 /**
  * For a given server event and subevent, return zero if the
- * subevent is not supported and none zero otherwise.
+ * subevent is not supported and non-zero otherwise.
  */
 int RM_IsSubEventSupported(RedisModuleEvent event, int64_t subevent) {
     switch (event.id) {
