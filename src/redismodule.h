@@ -276,10 +276,6 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START 2
 #define REDISMODULE_SUBEVENT_PERSISTENCE_ENDED 3
 #define REDISMODULE_SUBEVENT_PERSISTENCE_FAILED 4
-/* Next REDISMODULE_SUBEVENT_PERSISTENCE flag,
- * this flag should no be used directly by the user.
- * Instead, users should use RedisModule_IsSubEventSupported.
- * When adding a new flag this value should be updated*/
 #define _REDISMODULE_SUBEVENT_PERSISTENCE_NEXT 5
 
 #define REDISMODULE_SUBEVENT_LOADING_RDB_START 0
@@ -287,72 +283,37 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_LOADING_REPL_START 2
 #define REDISMODULE_SUBEVENT_LOADING_ENDED 3
 #define REDISMODULE_SUBEVENT_LOADING_FAILED 4
-/* Next REDISMODULE_SUBEVENT_LOADING flag,
- * this flag should no be used directly by the user.
- * Instead, users should use RedisModule_IsSubEventSupported.
- * When adding a new flag this value should be updated*/
 #define _REDISMODULE_SUBEVENT_LOADING_NEXT 5
 
 #define REDISMODULE_SUBEVENT_CLIENT_CHANGE_CONNECTED 0
 #define REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED 1
-/* Next REDISMODULE_SUBEVENT_CLIENT_CHANGE flag,
- * this flag should no be used directly by the user.
- * Instead, users should use RedisModule_IsSubEventSupported.
- * When adding a new flag this value should be updated*/
 #define _REDISMODULE_SUBEVENT_CLIENT_CHANGE_NEXT 2
 
 #define REDISMODULE_SUBEVENT_MASTER_LINK_UP 0
 #define REDISMODULE_SUBEVENT_MASTER_LINK_DOWN 1
-/* Next REDISMODULE_SUBEVENT_MASTER flag,
- * this flag should no be used directly by the user.
- * Instead, users should use RedisModule_IsSubEventSupported.
- * When adding a new flag this value should be updated*/
 #define _REDISMODULE_SUBEVENT_MASTER_NEXT 2
 
 #define REDISMODULE_SUBEVENT_REPLICA_CHANGE_ONLINE 0
 #define REDISMODULE_SUBEVENT_REPLICA_CHANGE_OFFLINE 1
-/* Next REDISMODULE_SUBEVENT_REPLICA_CHANGE flag,
- * this flag should no be used directly by the user.
- * Instead, users should use RedisModule_IsSubEventSupported.
- * When adding a new flag this value should be updated*/
 #define _REDISMODULE_SUBEVENT_REPLICA_CHANGE_NEXT 2
 
 #define REDISMODULE_EVENT_REPLROLECHANGED_NOW_MASTER 0
 #define REDISMODULE_EVENT_REPLROLECHANGED_NOW_REPLICA 1
-/* Next REDISMODULE_EVENT_REPLROLECHANGED flag,
- * this flag should no be used directly by the user.
- * Instead, users should use RedisModule_IsSubEventSupported,
- * When adding a new flag this value should be updated*/
 #define _REDISMODULE_EVENT_REPLROLECHANGED_NEXT 2
 
 #define REDISMODULE_SUBEVENT_FLUSHDB_START 0
 #define REDISMODULE_SUBEVENT_FLUSHDB_END 1
-/* Next REDISMODULE_SUBEVENT_FLUSHDB flag,
- * this flag should no be used directly by the user.
- * Instead, users should use RedisModule_IsSubEventSupported.
- * When adding a new flag this value should be updated*/
 #define _REDISMODULE_SUBEVENT_FLUSHDB_NEXT 2
 
 #define REDISMODULE_SUBEVENT_MODULE_LOADED 0
 #define REDISMODULE_SUBEVENT_MODULE_UNLOADED 1
-/* Next REDISMODULE_SUBEVENT_MODULE flag,
- * this flag should no be used directly by the user.
- * Instead, users should use RedisModule_IsSubEventSupported.
- * When adding a new flag this value should be updated*/
 #define _REDISMODULE_SUBEVENT_MODULE_NEXT 2
 
 
 #define REDISMODULE_SUBEVENT_LOADING_PROGRESS_RDB 0
 #define REDISMODULE_SUBEVENT_LOADING_PROGRESS_AOF 1
-/* Next REDISMODULE_SUBEVENT_LOADING_PROGRESS flag,
- * this flag should no be used directly by the user.
- * Instead, users should use RedisModule_IsSubEventSupported.
- * When adding a new flag this value should be updated*/
 #define _REDISMODULE_SUBEVENT_LOADING_PROGRESS_NEXT 2
 
-/* "Next" flags for events without subevents.
- * We add those in case we will add subevents in the future.
- * in such case, those flags need to be updated*/
 #define _REDISMODULE_SUBEVENT_SHUTDOWN_NEXT 0
 #define _REDISMODULE_SUBEVENT_CRON_LOOP_NEXT 0
 #define _REDISMODULE_SUBEVENT_SWAPDB_NEXT 0

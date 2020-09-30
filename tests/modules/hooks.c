@@ -277,65 +277,39 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_Init(ctx,"testhook",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
 
+    /* Example on how to check if a server sub event is supported */
+    if (!RedisModule_IsSubEventSupported(RedisModuleEvent_ReplicationRoleChanged, REDISMODULE_EVENT_REPLROLECHANGED_NOW_MASTER)) {
+        return REDISMODULE_ERR;
+    }
+
     /* replication related hooks */
-    VerifySubEventSupported(RedisModuleEvent_ReplicationRoleChanged, REDISMODULE_EVENT_REPLROLECHANGED_NOW_MASTER);
-    VerifySubEventSupported(RedisModuleEvent_ReplicationRoleChanged, REDISMODULE_EVENT_REPLROLECHANGED_NOW_REPLICA);
     RedisModule_SubscribeToServerEvent(ctx,
         RedisModuleEvent_ReplicationRoleChanged, roleChangeCallback);
-
-    VerifySubEventSupported(RedisModuleEvent_ReplicaChange, REDISMODULE_SUBEVENT_REPLICA_CHANGE_ONLINE);
-    VerifySubEventSupported(RedisModuleEvent_ReplicaChange, REDISMODULE_SUBEVENT_REPLICA_CHANGE_OFFLINE);
     RedisModule_SubscribeToServerEvent(ctx,
         RedisModuleEvent_ReplicaChange, replicationChangeCallback);
-
-    VerifySubEventSupported(RedisModuleEvent_MasterLinkChange, REDISMODULE_SUBEVENT_MASTER_LINK_UP);
-    VerifySubEventSupported(RedisModuleEvent_MasterLinkChange, REDISMODULE_SUBEVENT_MASTER_LINK_DOWN);
     RedisModule_SubscribeToServerEvent(ctx,
         RedisModuleEvent_MasterLinkChange, rasterLinkChangeCallback);
 
     /* persistence related hooks */
-    VerifySubEventSupported(RedisModuleEvent_Persistence, REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START);
-    VerifySubEventSupported(RedisModuleEvent_Persistence, REDISMODULE_SUBEVENT_PERSISTENCE_AOF_START);
-    VerifySubEventSupported(RedisModuleEvent_Persistence, REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START);
-    VerifySubEventSupported(RedisModuleEvent_Persistence, REDISMODULE_SUBEVENT_PERSISTENCE_ENDED);
-    VerifySubEventSupported(RedisModuleEvent_Persistence, REDISMODULE_SUBEVENT_PERSISTENCE_FAILED);
     RedisModule_SubscribeToServerEvent(ctx,
         RedisModuleEvent_Persistence, persistenceCallback);
-
-    VerifySubEventSupported(RedisModuleEvent_Loading, REDISMODULE_SUBEVENT_LOADING_RDB_START);
-    VerifySubEventSupported(RedisModuleEvent_Loading, REDISMODULE_SUBEVENT_LOADING_AOF_START);
-    VerifySubEventSupported(RedisModuleEvent_Loading, REDISMODULE_SUBEVENT_LOADING_REPL_START);
-    VerifySubEventSupported(RedisModuleEvent_Loading, REDISMODULE_SUBEVENT_LOADING_ENDED);
-    VerifySubEventSupported(RedisModuleEvent_Loading, REDISMODULE_SUBEVENT_LOADING_FAILED);
     RedisModule_SubscribeToServerEvent(ctx,
         RedisModuleEvent_Loading, loadingCallback);
-
-    VerifySubEventSupported(RedisModuleEvent_LoadingProgress, REDISMODULE_SUBEVENT_LOADING_PROGRESS_RDB);
-    VerifySubEventSupported(RedisModuleEvent_LoadingProgress, REDISMODULE_SUBEVENT_LOADING_PROGRESS_AOF);
     RedisModule_SubscribeToServerEvent(ctx,
         RedisModuleEvent_LoadingProgress, loadingProgressCallback);
 
     /* other hooks */
-    VerifySubEventSupported(RedisModuleEvent_ClientChange, REDISMODULE_SUBEVENT_CLIENT_CHANGE_CONNECTED);
-    VerifySubEventSupported(RedisModuleEvent_ClientChange, REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED);
     RedisModule_SubscribeToServerEvent(ctx,
         RedisModuleEvent_ClientChange, clientChangeCallback);
-
-    VerifySubEventSupported(RedisModuleEvent_FlushDB, REDISMODULE_SUBEVENT_FLUSHDB_START);
-    VerifySubEventSupported(RedisModuleEvent_FlushDB, REDISMODULE_SUBEVENT_FLUSHDB_END);
     RedisModule_SubscribeToServerEvent(ctx,
         RedisModuleEvent_FlushDB, flushdbCallback);
-
     RedisModule_SubscribeToServerEvent(ctx,
         RedisModuleEvent_Shutdown, shutdownCallback);
     RedisModule_SubscribeToServerEvent(ctx,
         RedisModuleEvent_CronLoop, cronLoopCallback);
 
-    VerifySubEventSupported(RedisModuleEvent_ModuleChange, REDISMODULE_SUBEVENT_MODULE_LOADED);
-    VerifySubEventSupported(RedisModuleEvent_ModuleChange, REDISMODULE_SUBEVENT_MODULE_UNLOADED);
     RedisModule_SubscribeToServerEvent(ctx,
         RedisModuleEvent_ModuleChange, moduleChangeCallback);
-
     RedisModule_SubscribeToServerEvent(ctx,
         RedisModuleEvent_SwapDB, swapDbCallback);
 
