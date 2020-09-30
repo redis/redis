@@ -209,9 +209,7 @@ typedef uint64_t RedisModuleTimerID;
 #define REDISMODULE_EVENT_LOADING_PROGRESS 10
 #define REDISMODULE_EVENT_SWAPDB 11
 
-/*
- * Next event flag, should be updated if a new event added.
- */
+/* Next event flag, should be updated if a new event added. */
 #define _REDISMODULE_EVENT_NEXT 12
 
 typedef struct RedisModuleEvent {
