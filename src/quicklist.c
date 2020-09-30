@@ -34,6 +34,7 @@
 #include "ziplist.h"
 #include "util.h" /* for ll2string */
 #include "lzf.h"
+#include "compression_plugin_interface.h" /* for compression plugin */
 
 #if defined(REDIS_TEST) || defined(REDIS_TEST_VERBOSE)
 #include <stdio.h> /* for printf (debug printing), snprintf (genstr) */
@@ -45,6 +46,9 @@
 
 /* Optimization levels for size-based filling */
 static const size_t optimization_level[] = {4096, 8192, 16384, 32768, 65536};
+
+/* Compression plugin context */
+static CompressionPluginCtx *compressionplugin_ctx;
 
 /* Maximum size in bytes of any multi-element ziplist.
  * Larger values will live in their own isolated ziplists. */
@@ -94,6 +98,11 @@ void _quicklistBookmarkDelete(quicklist *ql, quicklistBookmark *bm);
 #define likely(x) (x)
 #define unlikely(x) (x)
 #endif
+
+/* Set Compression plugin context */
+void quicklistCompressionPlugin(void *ctx) {
+    compressionplugin_ctx = (CompressionPluginCtx*)ctx;
+}
 
 /* Create a new quicklist.
  * Free with quicklistRelease(). */
@@ -192,20 +201,37 @@ REDIS_STATIC int __quicklistCompressNode(quicklistNode *node) {
     if (node->sz < MIN_COMPRESS_BYTES)
         return 0;
 
-    quicklistLZF *lzf = zmalloc(sizeof(*lzf) + node->sz);
-
+    quicklistCompressed *ql_compressed =
+        zmalloc(sizeof(*ql_compressed) + node->sz);
     /* Cancel if compression fails or doesn't compress small enough */
-    if (((lzf->sz = lzf_compress(node->zl, node->sz, lzf->compressed,
-                                 node->sz)) == 0) ||
-        lzf->sz + MIN_COMPRESS_IMPROVE >= node->sz) {
-        /* lzf_compress aborts/rejects compression if value not compressable. */
-        zfree(lzf);
-        return 0;
+    if (!compressionplugin_ctx) {
+        if (((ql_compressed->sz =
+                  lzf_compress(node->zl, node->sz, ql_compressed->compressed,
+                               node->sz)) == 0) ||
+            ql_compressed->sz + MIN_COMPRESS_IMPROVE >= node->sz) {
+            /* lzf_compress aborts/rejects compression if value not
+             * compressable. */
+            zfree(ql_compressed);
+            return 0;
+        }
+        node->encoding = QUICKLIST_NODE_ENCODING_LZF;
+    } else {
+        if (((ql_compressed->sz =
+                  compressionplugin_ctx->compression_plugin->compress(
+                      node->zl, node->sz, ql_compressed->compressed, node->sz,
+                      compressionplugin_ctx->options)) == 0) ||
+            ql_compressed->sz + MIN_COMPRESS_IMPROVE >= node->sz) {
+            /* compression plugin aborts/rejects compression if value not
+             * compressable. */
+            zfree(ql_compressed);
+            return 0;
+        }
+        node->encoding = QUICKLIST_NODE_ENCODING_COMPRESSIONPLUGIN;
     }
-    lzf = zrealloc(lzf, sizeof(*lzf) + lzf->sz);
+    ql_compressed =
+        zrealloc(ql_compressed, sizeof(*ql_compressed) + ql_compressed->sz);
     zfree(node->zl);
-    node->zl = (unsigned char *)lzf;
-    node->encoding = QUICKLIST_NODE_ENCODING_LZF;
+    node->zl = (unsigned char *)ql_compressed;
     node->recompress = 0;
     return 1;
 }
@@ -226,13 +252,28 @@ REDIS_STATIC int __quicklistDecompressNode(quicklistNode *node) {
 #endif
 
     void *decompressed = zmalloc(node->sz);
-    quicklistLZF *lzf = (quicklistLZF *)node->zl;
-    if (lzf_decompress(lzf->compressed, lzf->sz, decompressed, node->sz) == 0) {
-        /* Someone requested decompress, but we can't decompress.  Not good. */
-        zfree(decompressed);
-        return 0;
+    quicklistCompressed *ql_compressed = (quicklistCompressed *)node->zl;
+    /* note: ideally shouldn't need to check the condition for compression
+     * plugin here again, since we already know the encoding type.*/
+    if (node->encoding != QUICKLIST_NODE_ENCODING_COMPRESSIONPLUGIN) {
+        if (lzf_decompress(ql_compressed->compressed, ql_compressed->sz,
+                           decompressed, node->sz) == 0) {
+            /* Someone requested decompress, but we can't decompress.  Not good.
+             */
+            zfree(decompressed);
+            return 0;
+        }
+    } else {
+        if (compressionplugin_ctx->compression_plugin->decompress(
+                ql_compressed->compressed, ql_compressed->sz, decompressed,
+                node->sz, compressionplugin_ctx->options) == 0) {
+            /* Someone requested decompress, but we can't decompress.  Not good.
+             */
+            zfree(decompressed);
+            return 0;
+        }
     }
-    zfree(lzf);
+    zfree(ql_compressed);
     node->zl = decompressed;
     node->encoding = QUICKLIST_NODE_ENCODING_RAW;
     return 1;
@@ -241,7 +282,9 @@ REDIS_STATIC int __quicklistDecompressNode(quicklistNode *node) {
 /* Decompress only compressed nodes. */
 #define quicklistDecompressNode(_node)                                         \
     do {                                                                       \
-        if ((_node) && (_node)->encoding == QUICKLIST_NODE_ENCODING_LZF) {     \
+        if ((_node) && ((_node)->encoding == QUICKLIST_NODE_ENCODING_LZF ||    \
+                        (_node)->encoding ==                                   \
+                            QUICKLIST_NODE_ENCODING_COMPRESSIONPLUGIN)) {      \
             __quicklistDecompressNode((_node));                                \
         }                                                                      \
     } while (0)
@@ -249,7 +292,9 @@ REDIS_STATIC int __quicklistDecompressNode(quicklistNode *node) {
 /* Force node to not be immediately re-compresable */
 #define quicklistDecompressNodeForUse(_node)                                   \
     do {                                                                       \
-        if ((_node) && (_node)->encoding == QUICKLIST_NODE_ENCODING_LZF) {     \
+        if ((_node) && ((_node)->encoding == QUICKLIST_NODE_ENCODING_LZF ||    \
+                        (_node)->encoding ==                                   \
+                            QUICKLIST_NODE_ENCODING_COMPRESSIONPLUGIN)) {      \
             __quicklistDecompressNode((_node));                                \
             (_node)->recompress = 1;                                           \
         }                                                                      \
@@ -258,10 +303,10 @@ REDIS_STATIC int __quicklistDecompressNode(quicklistNode *node) {
 /* Extract the raw LZF data from this quicklistNode.
  * Pointer to LZF data is assigned to '*data'.
  * Return value is the length of compressed LZF data. */
-size_t quicklistGetLzf(const quicklistNode *node, void **data) {
-    quicklistLZF *lzf = (quicklistLZF *)node->zl;
-    *data = lzf->compressed;
-    return lzf->sz;
+size_t quicklistGetCompressedData(const quicklistNode *node, void **data) {
+    quicklistCompressed *compressed_data = (quicklistCompressed *)node->zl;
+    *data = compressed_data->compressed;
+    return compressed_data->sz;
 }
 
 #define quicklistAllowsCompression(_ql) ((_ql)->compress != 0)
@@ -1209,11 +1254,13 @@ quicklist *quicklistDup(quicklist *orig) {
          current = current->next) {
         quicklistNode *node = quicklistCreateNode();
 
-        if (current->encoding == QUICKLIST_NODE_ENCODING_LZF) {
-            quicklistLZF *lzf = (quicklistLZF *)current->zl;
-            size_t lzf_sz = sizeof(*lzf) + lzf->sz;
-            node->zl = zmalloc(lzf_sz);
-            memcpy(node->zl, current->zl, lzf_sz);
+        if (current->encoding == QUICKLIST_NODE_ENCODING_LZF ||
+            current->encoding == QUICKLIST_NODE_ENCODING_COMPRESSIONPLUGIN) {
+            quicklistCompressed *compressed_node =
+                (quicklistCompressed *)current->zl;
+            size_t cn_sz = sizeof(*compressed_node) + compressed_node->sz;
+            node->zl = zmalloc(cn_sz);
+            memcpy(node->zl, current->zl, cn_sz);
         } else if (current->encoding == QUICKLIST_NODE_ENCODING_RAW) {
             node->zl = zmalloc(current->sz);
             memcpy(node->zl, current->zl, current->sz);
@@ -1681,7 +1728,7 @@ static int _ql_verify(quicklist *ql, uint32_t len, uint32_t count,
                     errors++;
                 }
             } else {
-                if (node->encoding != QUICKLIST_NODE_ENCODING_LZF &&
+                if ((node->encoding != QUICKLIST_NODE_ENCODING_LZF) &&
                     !node->attempted_compress) {
                     yell("Incorrect non-compression: node %d is NOT "
                          "compressed at depth %d ((%u, %u); total "

@@ -78,6 +78,8 @@ typedef long long ustime_t; /* microsecond time type. */
 #define REDISMODULE_CORE 1
 #include "redismodule.h"    /* Redis modules API defines. */
 
+#include "compression_plugin_interface.h"
+
 /* Following includes allow test functions to be called from Redis main() */
 #include "zipmap.h"
 #include "sha1.h"
@@ -884,6 +886,13 @@ struct moduleLoadQueueEntry {
     robj **argv;
 };
 
+struct compressionLoadQueueEntry {
+    sds path;
+    int set_default;
+    int argc;
+    robj **argv;
+};
+
 struct sharedObjectsStruct {
     robj *crlf, *ok, *err, *emptybulk, *czero, *cone, *pong, *space,
     *colon, *queued, *null[4], *nullarray[4], *emptymap[4], *emptyset[4],
@@ -1400,6 +1409,9 @@ struct redisServer {
     /* List parameters */
     int list_max_ziplist_size;
     int list_compress_depth;
+    /* Compression Plugin */
+    CompressionPluginCtx *compression_plugin_ctx;
+    list *loadcompression_queue; /* List of compressors to load at startup. */
     /* time cache */
     redisAtomic time_t unixtime; /* Unix time sampled every cron cycle. */
     time_t timezone;            /* Cached timezone. As set by tzset(). */

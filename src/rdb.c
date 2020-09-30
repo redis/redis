@@ -32,6 +32,7 @@
 #include "zipmap.h"
 #include "endianconv.h"
 #include "stream.h"
+#include "compression_plugin_interface.h"
 
 #include <math.h>
 #include <fcntl.h>
@@ -52,6 +53,17 @@ char* rdbFileBeingLoaded = NULL; /* used for rdb checking on read error */
 extern int rdbCheckMode;
 void rdbCheckError(const char *fmt, ...);
 void rdbCheckSetError(const char *fmt, ...);
+CompressionPluginCtx *decompressionplugin_ctx = NULL;
+
+/* Set decompressor plugin */
+void rdbDecompressionPlugin(char *name) {
+    decompressionplugin_ctx = compressionPluginCtxLookupByName(name);
+    if (!decompressionplugin_ctx) {
+        serverLog(LL_WARNING, "Decompressor %s to load RDB not found. Exiting.",
+                  name);
+        exit(1);
+    }
+}
 
 #ifdef __GNUC__
 void rdbReportError(int corruption_error, int linenum, char *reason, ...) __attribute__ ((format (printf, 3, 4)));
@@ -322,13 +334,17 @@ int rdbTryIntegerEncoding(char *s, size_t len, unsigned char *enc) {
     return rdbEncodeInteger(value,enc);
 }
 
-ssize_t rdbSaveLzfBlob(rio *rdb, void *data, size_t compress_len,
+ssize_t rdbSaveCompressedBlob(rio *rdb, void *data, size_t compress_len,
                        size_t original_len) {
     unsigned char byte;
     ssize_t n, nwritten = 0;
 
     /* Data compressed! Let's save it on disk */
-    byte = (RDB_ENCVAL<<6)|RDB_ENC_LZF;
+    if (server.compression_plugin_ctx) {
+        byte = (RDB_ENCVAL << 6) | RDB_ENC_COMPRESSIONPLUGIN;
+    } else {
+        byte = (RDB_ENCVAL << 6) | RDB_ENC_LZF;
+    }
     if ((n = rdbWriteRaw(rdb,&byte,1)) == -1) goto writeerr;
     nwritten += n;
 
@@ -347,7 +363,7 @@ writeerr:
     return -1;
 }
 
-ssize_t rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
+ssize_t rdbSaveCompressStringObject(rio *rdb, unsigned char *s, size_t len) {
     size_t comprlen, outlen;
     void *out;
 
@@ -355,12 +371,17 @@ ssize_t rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
     if (len <= 4) return 0;
     outlen = len-4;
     if ((out = zmalloc(outlen+1)) == NULL) return 0;
-    comprlen = lzf_compress(s, len, out, outlen);
+    if (server.compression_plugin_ctx) {
+        comprlen = server.compression_plugin_ctx->compression_plugin->compress(
+            s, len, out, outlen, server.compression_plugin_ctx->options);
+    } else {
+        comprlen = lzf_compress(s, len, out, outlen);
+    }
     if (comprlen == 0) {
         zfree(out);
         return 0;
     }
-    ssize_t nwritten = rdbSaveLzfBlob(rdb, out, comprlen, len);
+    ssize_t nwritten = rdbSaveCompressedBlob(rdb, out, comprlen, len);
     zfree(out);
     return nwritten;
 }
@@ -368,7 +389,7 @@ ssize_t rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
 /* Load an LZF compressed string in RDB format. The returned value
  * changes according to 'flags'. For more info check the
  * rdbGenericLoadStringObject() function. */
-void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr) {
+void *rdbLoadCompressedStringObject(rio *rdb, int flags, size_t *lenptr) {
     int plain = flags & RDB_LOAD_PLAIN;
     int sds = flags & RDB_LOAD_SDS;
     uint64_t len, clen;
@@ -389,7 +410,14 @@ void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr) {
 
     /* Load the compressed representation and uncompress it to target. */
     if (rioRead(rdb,c,clen) == 0) goto err;
-    if (lzf_decompress(c,clen,val,len) == 0) {
+    /* note: ideally shouldn't need to check the condition for compression
+     * plugin here again, since we already know the encoding type.*/
+    if (decompressionplugin_ctx) {
+        if (decompressionplugin_ctx->compression_plugin->decompress(
+                c, clen, val, len, decompressionplugin_ctx->options) == 0) {
+            rdbExitReportCorruptRDB("Invalid compressed string");
+        }
+    } else if (lzf_decompress(c, clen, val, len) == 0) {
         rdbExitReportCorruptRDB("Invalid LZF compressed string");
     }
     zfree(c);
@@ -426,7 +454,7 @@ ssize_t rdbSaveRawString(rio *rdb, unsigned char *s, size_t len) {
     /* Try LZF compression - under 20 bytes it's unable to compress even
      * aaaaaaaaaaaaaaaaaa so skip it */
     if (server.rdb_compression && len > 20) {
-        n = rdbSaveLzfStringObject(rdb,s,len);
+        n = rdbSaveCompressStringObject(rdb,s,len);
         if (n == -1) return -1;
         if (n > 0) return n;
         /* Return value of 0 means data can't be compressed, save the old way */
@@ -501,7 +529,8 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
         case RDB_ENC_INT32:
             return rdbLoadIntegerObject(rdb,len,flags,lenptr);
         case RDB_ENC_LZF:
-            return rdbLoadLzfStringObject(rdb,flags,lenptr);
+        case RDB_ENC_COMPRESSIONPLUGIN:
+            return rdbLoadCompressedStringObject(rdb,flags,lenptr);
         default:
             rdbExitReportCorruptRDB("Unknown RDB string encoding type %llu",len);
             return NULL;
@@ -794,8 +823,8 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key) {
             while(node) {
                 if (quicklistNodeIsCompressed(node)) {
                     void *data;
-                    size_t compress_len = quicklistGetLzf(node, &data);
-                    if ((n = rdbSaveLzfBlob(rdb,data,compress_len,node->sz)) == -1) return -1;
+                    size_t compress_len = quicklistGetCompressedData(node, &data);
+                    if ((n = rdbSaveCompressedBlob(rdb,data,compress_len,node->sz)) == -1) return -1;
                     nwritten += n;
                 } else {
                     if ((n = rdbSaveRawString(rdb,node->zl,node->sz)) == -1) return -1;
@@ -1139,6 +1168,15 @@ int rdbSaveInfoAuxFields(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             == -1) return -1;
     }
     if (rdbSaveAuxFieldStrInt(rdb,"aof-preamble",aof_preamble) == -1) return -1;
+
+    /* Add a field for compression plugin identifier for compression information
+     * used during storing/loading RDB file */
+    if (server.compression_plugin_ctx) {
+        if (rdbSaveAuxFieldStrStr(
+                rdb, "compressor-plugin",
+                (char *)server.compression_plugin_ctx->name) == -1)
+            return -1;
+    }
     return 1;
 }
 
@@ -2240,7 +2278,15 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             } else if (!strcasecmp(auxkey->ptr,"aof-preamble")) {
                 long long haspreamble = strtoll(auxval->ptr,NULL,10);
                 if (haspreamble) serverLog(LL_NOTICE,"RDB has an AOF tail");
-            } else if (!strcasecmp(auxkey->ptr,"redis-bits")) {
+            } else if (!strcasecmp(auxkey->ptr, "compressor-plugin")) {
+                char *plugin_name = (char *)auxval->ptr;
+                if (plugin_name)
+                    serverLog(LL_NOTICE,
+                              "RDB compression plugin used when created: %s",
+                              plugin_name);
+                /* setup decompression plugin*/
+                rdbDecompressionPlugin(plugin_name);
+            } else if (!strcasecmp(auxkey->ptr, "redis-bits")) {
                 /* Just ignored. */
             } else {
                 /* We ignore fields we don't understand, as by AUX field

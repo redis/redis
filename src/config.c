@@ -342,6 +342,27 @@ static int updateOOMScoreAdjValues(sds *args, char **err) {
     return C_OK;
 }
 
+void queueLoadCompression(sds path, sds *argv, int argc) {
+    int i;
+    struct compressionLoadQueueEntry *loadcompression;
+
+    loadcompression = zmalloc(sizeof(struct compressionLoadQueueEntry));
+    loadcompression->argv = zmalloc(sizeof(robj *) * argc);
+    loadcompression->set_default = 0;
+    loadcompression->path = sdsnew(path);
+    if (argc >= 1 && !strcasecmp(argv[0],"default")) {
+        loadcompression->set_default = 1;
+        argc = argc - 1;
+        argv = &argv[1];
+    }
+    loadcompression->argc = argc;
+    for (i = 0; i < argc; i++) {
+        loadcompression->argv[i] =
+            createRawStringObject(argv[i], sdslen(argv[i]));
+    }
+    listAddNodeTail(server.loadcompression_queue, loadcompression);
+}
+
 void initConfigValues() {
     for (standardConfig *config = configs; config->name != NULL; config++) {
         config->interface.init(config->data);
@@ -575,7 +596,9 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"loadmodule") && argc >= 2) {
             queueLoadModule(argv[1],&argv[2],argc-2);
-        } else if (!strcasecmp(argv[0],"sentinel")) {
+        } else if (!strcasecmp(argv[0], "loadcompression") && argc >= 2) {
+            queueLoadCompression(argv[1], &argv[2], argc-2);
+        } else if (!strcasecmp(argv[0], "sentinel")) {
             /* argc == 1 is handled by main() as we need to enter the sentinel
              * mode ASAP. */
             if (argc != 1) {
