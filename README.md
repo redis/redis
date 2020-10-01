@@ -45,6 +45,10 @@ as libsystemd-dev on Debian/Ubuntu or systemd-devel on CentOS) and run:
 
     % make USE_SYSTEMD=yes
 
+To append a suffix to Redis program names, use:
+
+    % make PROG_SUFFIX="-alt"
+
 You can run a 32 bit Redis binary using:
 
     % make 32bit
