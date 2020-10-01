@@ -1512,16 +1512,20 @@ void resetClient(client *c) {
  *    path, it is not really released, but only marked for later release. */
 void protectClient(client *c) {
     c->flags |= CLIENT_PROTECTED;
-    connSetReadHandler(c->conn,NULL);
-    connSetWriteHandler(c->conn,NULL);
+    if (c->conn) {
+        connSetReadHandler(c->conn,NULL);
+        connSetWriteHandler(c->conn,NULL);
+    }
 }
 
 /* This will undo the client protection done by protectClient() */
 void unprotectClient(client *c) {
     if (c->flags & CLIENT_PROTECTED) {
         c->flags &= ~CLIENT_PROTECTED;
-        connSetReadHandler(c->conn,readQueryFromClient);
-        if (clientHasPendingReplies(c)) clientInstallWriteHandler(c);
+        if (c->conn) {
+            connSetReadHandler(c->conn,readQueryFromClient);
+            if (clientHasPendingReplies(c)) clientInstallWriteHandler(c);
+        }
     }
 }
 
