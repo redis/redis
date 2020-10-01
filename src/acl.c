@@ -1291,7 +1291,12 @@ sds ACLLoadFromFile(const char *filename) {
     user *old_default_user = DefaultUser;
     Users = raxNew();
     ACLInitDefaultUser();
-
+    /* Set password for default user. */
+    if (server.requirepass) {
+        sds aclop = sdscatprintf(sdsempty(),">%s",server.requirepass);
+        ACLSetUser(DefaultUser,aclop,sdslen(aclop));
+        sdsfree(aclop);
+    }
     /* Load each line of the file. */
     for (int i = 0; i < totlines; i++) {
         sds *argv;
