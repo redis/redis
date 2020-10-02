@@ -394,6 +394,27 @@ start_server {tags {"string"}} {
         list $v1 $v2 [r get foo]
     } {{} OK 2}
 
+    test {Extended SET GET option} {
+        r del foo
+        r set foo bar
+        set old_value [r set foo bar2 GET]
+        set new_value [r get foo]
+        list $old_value $new_value
+    } {bar bar2}
+
+    test {Extended SET GET option with no previous value} {
+        r del foo
+        set old_value [r set foo bar GET]
+        set new_value [r get foo]
+        list $old_value $new_value
+    } {{} bar}
+
+    test {Extended SET GET with NX option should result in syntax err} {
+      catch {r set foo bar NX GET} err1
+      catch {r set foo bar NX GET} err2
+      list $err1 $err2
+    } {*syntax err* *syntax err*}
+
     test {Extended SET EX option} {
         r del foo
         r set foo bar ex 10
