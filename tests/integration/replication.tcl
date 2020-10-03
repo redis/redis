@@ -77,26 +77,49 @@ start_server {tags {"repl"}} {
             assert_equal [$A debug digest] [$B debug digest]
         }
 
-        foreach cmd {brpoplpush brpoprpush blpoplpush blpoprpush} {
-            test "[string toupper $cmd] replication, when blocking against empty list" {
-                set rd [redis_deferring_client]
-                $rd $cmd a b 5
-                r lpush a foo
-                wait_for_condition 50 100 {
-                    [$A debug digest] eq [$B debug digest]
-                } else {
-                    fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
-                }
+        test {BRPOPLPUSH replication, when blocking against empty list} {
+            set rd [redis_deferring_client]
+            $rd brpoplpush a b 5
+            r lpush a foo
+            wait_for_condition 50 100 {
+                [$A debug digest] eq [$B debug digest]
+            } else {
+                fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
             }
+        }
 
-            test "[string toupper $cmd] replication, list exists" {
-                set rd [redis_deferring_client]
-                r lpush c 1
-                r lpush c 2
-                r lpush c 3
-                $rd $cmd c d 5
-                after 1000
-                assert_equal [$A debug digest] [$B debug digest]
+        test {BRPOPLPUSH replication, list exists} {
+            set rd [redis_deferring_client]
+            r lpush c 1
+            r lpush c 2
+            r lpush c 3
+            $rd brpoplpush c d 5
+            after 1000
+            assert_equal [$A debug digest] [$B debug digest]
+        }
+
+        foreach wherefrom {left right} {
+            foreach whereto {left right} {
+                test "BLMOVE ($wherefrom, $whereto) replication, when blocking against empty list" {
+                    set rd [redis_deferring_client]
+                    $rd blmove a b $wherefrom $whereto 5
+                    r lpush a foo
+                    wait_for_condition 50 100 {
+                        [$A debug digest] eq [$B debug digest]
+                    } else {
+                        fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
+                    }
+                }
+
+                test "LMOVE ($wherefrom, $whereto) replication, list exists" {
+                    set rd [redis_deferring_client]
+                    r lpush c 1
+                    r lpush c 2
+                    r lpush c 3
+                    $rd blmove c d $wherefrom $whereto 5
+                    after 1000
+                    assert_equal [$A debug digest] [$B debug digest]
+                }
             }
         }
 

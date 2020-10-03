@@ -3298,7 +3298,7 @@ void blockingGenericZpopCommand(client *c, int where) {
     }
 
     /* If the keys do not exist we must block */
-    blockForKeys(c,BLOCKED_ZSET,c->argv + 1,c->argc - 2,timeout,NULL,NULL);
+    blockForKeys(c,BLOCKED_ZSET,c->argv + 1,c->argc - 2,timeout,NULL,0,0,NULL);
 }
 
 // BZPOPMIN key [key ...] timeout

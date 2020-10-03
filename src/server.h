@@ -698,7 +698,11 @@ typedef struct blockingState {
     dict *keys;             /* The keys we are waiting to terminate a blocking
                              * operation such as BLPOP or XREAD. Or NULL. */
     robj *target;           /* The key that should receive the element,
-                             * for BxPOPxPUSH. */
+                             * for BLMOVE. */
+    int wherefrom;          /* The position in the src list where we want to
+                             * pop an element for BLPOP, BRPOP and BLMOVE. */
+    int whereto;            /* The position in the target list where we want
+                             * to push an element for BLMOVE. */
 
     /* BLOCK_STREAM */
     size_t xread_count;     /* XREAD COUNT option. */
@@ -887,8 +891,8 @@ struct sharedObjectsStruct {
     *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr,
     *busykeyerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *unlink,
-    *rpop, *lpop, *lpush, *rpoplpush, *rpoprpush, *lpoplpush, *lpoprpush,
-    *zpopmin, *zpopmax, *emptyscan, *multi, *exec,
+    *rpop, *lpop, *lpush, *rpoplpush, *lmove, *blmove, *zpopmin, *zpopmax,
+    *emptyscan, *multi, *exec,
     *select[PROTO_SHARED_SELECT_CMDS],
     *integers[OBJ_SHARED_INTEGERS],
     *mbulkhdr[OBJ_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
@@ -1130,8 +1134,7 @@ struct redisServer {
                         *lpopCommand, *rpopCommand, *zpopminCommand,
                         *zpopmaxCommand, *sremCommand, *execCommand,
                         *expireCommand, *pexpireCommand, *xclaimCommand,
-                        *xgroupCommand, *rpoplpushCommand, *rpoprpushCommand,
-                        *lpoplpushCommand, *lpoprpushCommand;
+                        *xgroupCommand, *rpoplpushCommand, *lmoveCommand;
     /* Fields used only for stats */
     time_t stat_starttime;          /* Server start time */
     long long stat_numcommands;     /* Number of processed commands */
@@ -2203,7 +2206,7 @@ int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int 
 void disconnectAllBlockedClients(void);
 void handleClientsBlockedOnKeys(void);
 void signalKeyAsReady(redisDb *db, robj *key, int type);
-void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, robj *target, streamID *ids);
+void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, robj *target, int wherefrom, int whereto, streamID *ids);
 
 /* timeout.c -- Blocked clients timeout and connections timeout. */
 void addClientToTimeoutTable(client *c);
@@ -2309,9 +2312,7 @@ void sortCommand(client *c);
 void lremCommand(client *c);
 void lposCommand(client *c);
 void rpoplpushCommand(client *c);
-void rpoprpushCommand(client *c);
-void lpoplpushCommand(client *c);
-void lpoprpushCommand(client *c);
+void lmoveCommand(client *c);
 void infoCommand(client *c);
 void mgetCommand(client *c);
 void monitorCommand(client *c);
@@ -2355,9 +2356,7 @@ void discardCommand(client *c);
 void blpopCommand(client *c);
 void brpopCommand(client *c);
 void brpoplpushCommand(client *c);
-void brpoprpushCommand(client *c);
-void blpoplpushCommand(client *c);
-void blpoprpushCommand(client *c);
+void blmoveCommand(client *c);
 void appendCommand(client *c);
 void strlenCommand(client *c);
 void zrankCommand(client *c);

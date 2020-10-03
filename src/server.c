@@ -302,21 +302,13 @@ struct redisCommand redisCommandTable[] = {
      "write use-memory no-script @list @blocking",
      0,NULL,1,2,1,0,0,0},
 
-    {"brpoprpush",brpoprpushCommand,4,
+    {"blmove",blmoveCommand,6,
      "write use-memory no-script @list @blocking",
      0,NULL,1,2,1,0,0,0},
 
     {"blpop",blpopCommand,-3,
      "write no-script @list @blocking",
      0,NULL,1,-2,1,0,0,0},
-
-    {"blpoplpush",blpoplpushCommand,4,
-     "write use-memory no-script @list @blocking",
-     0,NULL,1,2,1,0,0,0},
-
-    {"blpoprpush",blpoprpushCommand,4,
-     "write use-memory no-script @list @blocking",
-     0,NULL,1,2,1,0,0,0},
 
     {"llen",llenCommand,2,
      "read-only fast @list",
@@ -350,15 +342,7 @@ struct redisCommand redisCommandTable[] = {
      "write use-memory @list",
      0,NULL,1,2,1,0,0,0},
 
-    {"rpoprpush",rpoprpushCommand,3,
-     "write use-memory @list",
-     0,NULL,1,2,1,0,0,0},
-
-    {"lpoplpush",lpoplpushCommand,3,
-     "write use-memory @list",
-     0,NULL,1,2,1,0,0,0},
-
-    {"lpoprpush",lpoprpushCommand,3,
+    {"lmove",lmoveCommand,5,
      "write use-memory @list",
      0,NULL,1,2,1,0,0,0},
 
@@ -2339,9 +2323,8 @@ void createSharedObjects(void) {
     shared.lpop = createStringObject("LPOP",4);
     shared.lpush = createStringObject("LPUSH",5);
     shared.rpoplpush = createStringObject("RPOPLPUSH",9);
-    shared.rpoprpush = createStringObject("RPOPRPUSH",9);
-    shared.lpoplpush = createStringObject("LPOPLPUSH",9);
-    shared.lpoprpush = createStringObject("LPOPRPUSH",9);
+    shared.lmove = createStringObject("LMOVE",5);
+    shared.blmove = createStringObject("BLMOVE",6);
     shared.zpopmin = createStringObject("ZPOPMIN",7);
     shared.zpopmax = createStringObject("ZPOPMAX",7);
     shared.multi = createStringObject("MULTI",5);
@@ -2479,9 +2462,7 @@ void initServerConfig(void) {
     server.xclaimCommand = lookupCommandByCString("xclaim");
     server.xgroupCommand = lookupCommandByCString("xgroup");
     server.rpoplpushCommand = lookupCommandByCString("rpoplpush");
-    server.rpoprpushCommand = lookupCommandByCString("rpoprpush");
-    server.lpoplpushCommand = lookupCommandByCString("lpoplpush");
-    server.lpoprpushCommand = lookupCommandByCString("lpoprpush");
+    server.lmoveCommand = lookupCommandByCString("lmove");
 
     /* Debugging */
     server.watchdog_period = 0;
