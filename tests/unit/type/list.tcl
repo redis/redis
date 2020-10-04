@@ -206,60 +206,33 @@ start_server {
             assert_equal "a b $large c" [r lrange blist 0 -1]
         }
 
-        test "BLMOVE RIGHT LEFT - $type" {
-            r del target
-            r rpush target bar
+        foreach wherefrom {left right} {
+            foreach whereto {left right} {
+                test "BLMOVE $wherefrom $whereto - $type" {
+                    r del target
+                    r rpush target bar
 
-            set rd [redis_deferring_client]
-            create_list blist "a b $large c d"
+                    set rd [redis_deferring_client]
+                    create_list blist "a b $large c d"
 
-            $rd blmove blist target right left 1
-            assert_equal d [$rd read]
+                    $rd blmove blist target $wherefrom $whereto 1
+                    set poppedelement [$rd read]
 
-            assert_equal d [r lpop target]
-            assert_equal "a b $large c" [r lrange blist 0 -1]
-        }
+                    if {$wherefrom eq "right"} {
+                        assert_equal d $poppedelement
+                        assert_equal "a b $large c" [r lrange blist 0 -1]
+                    } else {
+                        assert_equal a $poppedelement
+                        assert_equal "b $large c d" [r lrange blist 0 -1]
+                    }
 
-        test "BLMOVE RIGHT RIGHT - $type" {
-            r del target
-            r rpush target bar
-
-            set rd [redis_deferring_client]
-            create_list blist "a b $large c d"
-
-            $rd blmove blist target right right 1
-            assert_equal d [$rd read]
-
-            assert_equal d [r rpop target]
-            assert_equal "a b $large c" [r lrange blist 0 -1]
-        }
-
-        test "BLMOVE LEFT LEFT - $type" {
-            r del target
-            r rpush target bar
-
-            set rd [redis_deferring_client]
-            create_list blist "a b $large c d"
-
-            $rd blmove blist target left left 1
-            assert_equal a [$rd read]
-
-            assert_equal a [r lpop target]
-            assert_equal "b $large c d" [r lrange blist 0 -1]
-        }
-
-        test "BLMOVE LEFT RIGHT - $type" {
-            r del target
-            r rpush target bar
-
-            set rd [redis_deferring_client]
-            create_list blist "a b $large c d"
-
-            $rd blmove blist target left right 1
-            assert_equal a [$rd read]
-
-            assert_equal a [r rpop target]
-            assert_equal "b $large c d" [r lrange blist 0 -1]
+                    if {$whereto eq "right"} {
+                        assert_equal $poppedelement [r rpop target]
+                    } else {
+                        assert_equal $poppedelement [r lpop target]
+                    }
+                }
+            }
         }
     }
 
@@ -354,64 +327,27 @@ start_server {
         assert_equal {foo bar} [r lrange target 0 -1]
     }
 
-    test "BLMOVE RIGHT LEFT with zero timeout should block indefinitely" {
-        set rd [redis_deferring_client]
-        r del blist target
-        r rpush target bar
-        $rd blmove blist target right left 0
-        wait_for_condition 100 10 {
-            [s blocked_clients] == 1
-        } else {
-            fail "Timeout waiting for blocked clients"
+    foreach wherefrom {left right} {
+        foreach whereto {left right} {
+            test "BLMOVE $wherefrom $whereto with zero timeout should block indefinitely" {
+                set rd [redis_deferring_client]
+                r del blist target
+                r rpush target bar
+                $rd blmove blist target $wherefrom $whereto 0
+                wait_for_condition 100 10 {
+                    [s blocked_clients] == 1
+                } else {
+                    fail "Timeout waiting for blocked clients"
+                }
+                r rpush blist foo
+                assert_equal foo [$rd read]
+                if {$whereto eq "right"} {
+                    assert_equal {bar foo} [r lrange target 0 -1]
+                } else {
+                    assert_equal {foo bar} [r lrange target 0 -1]
+                }
+            }
         }
-        r rpush blist foo
-        assert_equal foo [$rd read]
-        assert_equal {foo bar} [r lrange target 0 -1]
-    }
-
-    test "BLMOVE RIGHT RIGHT with zero timeout should block indefinitely" {
-        set rd [redis_deferring_client]
-        r del blist target
-        r rpush target bar
-        $rd blmove blist target right right 0
-        wait_for_condition 100 10 {
-            [s blocked_clients] == 1
-        } else {
-            fail "Timeout waiting for blocked clients"
-        }
-        r rpush blist foo
-        assert_equal foo [$rd read]
-        assert_equal {bar foo} [r lrange target 0 -1]
-    }
-
-    test "BLMOVE LEFT LEFT with zero timeout should block indefinitely" {
-        set rd [redis_deferring_client]
-        r del blist target
-        r rpush target bar
-        $rd blmove blist target left left 0
-        wait_for_condition 100 10 {
-            [s blocked_clients] == 1
-        } else {
-            fail "Timeout waiting for blocked clients"
-        }
-        r rpush blist foo
-        assert_equal foo [$rd read]
-        assert_equal {foo bar} [r lrange target 0 -1]
-    }
-
-    test "BLMOVE LEFT RIGHT with zero timeout should block indefinitely" {
-        set rd [redis_deferring_client]
-        r del blist target
-        r rpush target bar
-        $rd blmove blist target left right 0
-        wait_for_condition 100 10 {
-            [s blocked_clients] == 1
-        } else {
-            fail "Timeout waiting for blocked clients"
-        }
-        r rpush blist foo
-        assert_equal foo [$rd read]
-        assert_equal {bar foo} [r lrange target 0 -1]
     }
 
     foreach wherefrom {left right} {
@@ -819,44 +755,27 @@ start_server {
             assert_encoding quicklist mylist2
         }
 
-        test "LMOVE RIGHT LEFT base case - $type" {
-            r del mylist1 mylist2
-            create_list mylist1 "a $large c d"
-            assert_equal d [r lmove mylist1 mylist2 right left]
-            assert_equal c [r lmove mylist1 mylist2 right left]
-            assert_equal "a $large" [r lrange mylist1 0 -1]
-            assert_equal "c d" [r lrange mylist2 0 -1]
-            assert_encoding quicklist mylist2
-        }
+        foreach wherefrom {left right} {
+            foreach whereto {left right} {
+                test "LMOVE $wherefrom $whereto base case - $type" {
+                    r del mylist1 mylist2
 
-        test "LMOVE RIGHT RIGHT base case - $type" {
-            r del mylist1 mylist2
-            create_list mylist1 "a $large c d"
-            assert_equal d [r lmove mylist1 mylist2 right right]
-            assert_equal c [r lmove mylist1 mylist2 right right]
-            assert_equal "a $large" [r lrange mylist1 0 -1]
-            assert_equal "d c" [r lrange mylist2 0 -1]
-            assert_encoding quicklist mylist2
-        }
-
-        test "LMOVE LEFT LEFT base case - $type" {
-            r del mylist1 mylist2
-            create_list mylist1 "a $large c d"
-            assert_equal a [r lmove mylist1 mylist2 left left]
-            assert_equal $large [r lmove mylist1 mylist2 left left]
-            assert_equal "c d" [r lrange mylist1 0 -1]
-            assert_equal "$large a" [r lrange mylist2 0 -1]
-            assert_encoding quicklist mylist2
-        }
-
-        test "LMOVE LEFT RIGHT base case - $type" {
-            r del mylist1 mylist2
-            create_list mylist1 "a $large c d"
-            assert_equal a [r lmove mylist1 mylist2 left right]
-            assert_equal $large [r lmove mylist1 mylist2 left right]
-            assert_equal "c d" [r lrange mylist1 0 -1]
-            assert_equal "a $large" [r lrange mylist2 0 -1]
-            assert_encoding quicklist mylist2
+                    if {$wherefrom eq "right"} {
+                        create_list mylist1 "c d $large a"
+                    } else {
+                        create_list mylist1 "a $large c d"
+                    }
+                    assert_equal a [r lmove mylist1 mylist2 $wherefrom $whereto]
+                    assert_equal $large [r lmove mylist1 mylist2 $wherefrom $whereto]
+                    assert_equal "c d" [r lrange mylist1 0 -1]
+                    if {$whereto eq "right"} {
+                        assert_equal "a $large" [r lrange mylist2 0 -1]
+                    } else {
+                        assert_equal "$large a" [r lrange mylist2 0 -1]
+                    }
+                    assert_encoding quicklist mylist2
+                }
+            }
         }
 
         test "RPOPLPUSH with the same list as src and dst - $type" {
@@ -866,32 +785,24 @@ start_server {
             assert_equal "c a $large" [r lrange mylist 0 -1]
         }
 
-        test "LMOVE RIGHT LEFT with the same list as src and dst - $type" {
-            create_list mylist "a $large c"
-            assert_equal "a $large c" [r lrange mylist 0 -1]
-            assert_equal c [r lmove mylist mylist right left]
-            assert_equal "c a $large" [r lrange mylist 0 -1]
-        }
-
-        test "LMOVE RIGHT RIGHT with the same list as src and dst - $type" {
-            create_list mylist "a $large c"
-            assert_equal "a $large c" [r lrange mylist 0 -1]
-            assert_equal c [r lmove mylist mylist right right]
-            assert_equal "a $large c" [r lrange mylist 0 -1]
-        }
-
-        test "LMOVE LEFT LEFT with the same list as src and dst - $type" {
-            create_list mylist "a $large c"
-            assert_equal "a $large c" [r lrange mylist 0 -1]
-            assert_equal a [r lmove mylist mylist left left]
-            assert_equal "a $large c" [r lrange mylist 0 -1]
-        }
-
-        test "LMOVE LEFT RIGHT with the same list as src and dst - $type" {
-            create_list mylist "a $large c"
-            assert_equal "a $large c" [r lrange mylist 0 -1]
-            assert_equal a [r lmove mylist mylist left right]
-            assert_equal "$large c a" [r lrange mylist 0 -1]
+        foreach wherefrom {left right} {
+            foreach whereto {left right} {
+                test "LMOVE $wherefrom $whereto with the same list as src and dst - $type" {
+                    if {$wherefrom eq "right"} {
+                        create_list mylist "a $large c"
+                        assert_equal "a $large c" [r lrange mylist 0 -1]
+                    } else {
+                        create_list mylist "c a $large"
+                        assert_equal "c a $large" [r lrange mylist 0 -1]
+                    }
+                    assert_equal c [r lmove mylist mylist $wherefrom $whereto]
+                    if {$whereto eq "right"} {
+                        assert_equal "a $large c" [r lrange mylist 0 -1]
+                    } else {
+                        assert_equal "c a $large" [r lrange mylist 0 -1]
+                    }
+                }
+            }
         }
 
         foreach {othertype otherlarge} [array get largevalue] {
@@ -910,63 +821,32 @@ start_server {
                 }
             }
 
-            test "LMOVE RIGHT LEFT with $type source and existing target $othertype" {
-                create_list srclist "a b c $large"
-                create_list dstlist "$otherlarge"
-                assert_equal $large [r lmove srclist dstlist right left]
-                assert_equal c [r lmove srclist dstlist right left]
-                assert_equal "a b" [r lrange srclist 0 -1]
-                assert_equal "c $large $otherlarge" [r lrange dstlist 0 -1]
+            foreach wherefrom {left right} {
+                foreach whereto {left right} {
+                    test "LMOVE $wherefrom $whereto with $type source and existing target $othertype" {
+                        create_list dstlist "$otherlarge"
 
-                # When we lmoved a large value, dstlist should be
-                # converted to the same encoding as srclist.
-                if {$type eq "linkedlist"} {
-                    assert_encoding quicklist dstlist
-                }
-            }
+                        if {$wherefrom eq "right"} {
+                            create_list srclist "a b c $large"
+                        } else {
+                            create_list srclist "$large c a b"
+                        }
+                        assert_equal $large [r lmove srclist dstlist $wherefrom $whereto]
+                        assert_equal c [r lmove srclist dstlist $wherefrom $whereto]
+                        assert_equal "a b" [r lrange srclist 0 -1]
 
-            test "LMOVE RIGHT RIGHT with $type source and existing target $othertype" {
-                create_list srclist "a b c $large"
-                create_list dstlist "$otherlarge"
-                assert_equal $large [r lmove srclist dstlist right right]
-                assert_equal c [r lmove srclist dstlist right right]
-                assert_equal "a b" [r lrange srclist 0 -1]
-                assert_equal "$otherlarge $large c" [r lrange dstlist 0 -1]
+                        if {$whereto eq "right"} {
+                            assert_equal "$otherlarge $large c" [r lrange dstlist 0 -1]
+                        } else {
+                            assert_equal "c $large $otherlarge" [r lrange dstlist 0 -1]
+                        }
 
-                # When we lmoved a large value, dstlist should be
-                # converted to the same encoding as srclist.
-                if {$type eq "linkedlist"} {
-                    assert_encoding quicklist dstlist
-                }
-            }
-
-            test "LMOVE LEFT LEFT with $type source and existing target $othertype" {
-                create_list srclist "$large a b c"
-                create_list dstlist "$otherlarge"
-                assert_equal $large [r lmove srclist dstlist left left]
-                assert_equal a [r lmove srclist dstlist left left]
-                assert_equal "b c" [r lrange srclist 0 -1]
-                assert_equal "a $large $otherlarge" [r lrange dstlist 0 -1]
-
-                # When we lmoved a large value, dstlist should be
-                # converted to the same encoding as srclist.
-                if {$type eq "linkedlist"} {
-                    assert_encoding quicklist dstlist
-                }
-            }
-
-            test "LMOVE LEFT RIGHT with $type source and existing target $othertype" {
-                create_list srclist "$large a b c"
-                create_list dstlist "$otherlarge"
-                assert_equal $large [r lmove srclist dstlist left right]
-                assert_equal a [r lmove srclist dstlist left right]
-                assert_equal "b c" [r lrange srclist 0 -1]
-                assert_equal "$otherlarge $large a" [r lrange dstlist 0 -1]
-
-                # When we lmoved a large value, dstlist should be
-                # converted to the same encoding as srclist.
-                if {$type eq "linkedlist"} {
-                    assert_encoding quicklist dstlist
+                        # When we lmoved a large value, dstlist should be
+                        # converted to the same encoding as srclist.
+                        if {$type eq "linkedlist"} {
+                            assert_encoding quicklist dstlist
+                        }
+                    }
                 }
             }
         }
