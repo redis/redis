@@ -237,6 +237,7 @@ static struct config {
     char *user;
     int output; /* output mode, see OUTPUT_* defines */
     sds mb_delim;
+    sds cmd_delim;
     char prompt[128];
     char *eval;
     int eval_ldb;
@@ -1251,7 +1252,7 @@ static int cliReadReply(int output_raw_strings) {
         } else {
             if (config.output == OUTPUT_RAW) {
                 out = cliFormatReplyRaw(reply);
-                out = sdscat(out,"\n");
+                out = sdscatsds(out, config.cmd_delim);
             } else if (config.output == OUTPUT_STANDARD) {
                 out = cliFormatReplyTTY(reply,"");
             } else if (config.output == OUTPUT_CSV) {
@@ -1533,6 +1534,9 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-d") && !lastarg) {
             sdsfree(config.mb_delim);
             config.mb_delim = sdsnew(argv[++i]);
+        } else if (!strcmp(argv[i],"-D") && !lastarg) {
+            sdsfree(config.cmd_delim);
+            config.cmd_delim = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"--verbose")) {
             config.verbose = 1;
         } else if (!strcmp(argv[i],"--cluster") && !lastarg) {
@@ -1726,7 +1730,8 @@ static void usage(void) {
 "  -n <db>            Database number.\n"
 "  -3                 Start session in RESP3 protocol mode.\n"
 "  -x                 Read last argument from STDIN.\n"
-"  -d <delimiter>     Multi-bulk delimiter in for raw formatting (default: \\n).\n"
+"  -d <delimiter>     Delimiter between response bulks for raw formatting (default: \\n).\n"
+"  -D <delimiter>     Delimiter between responses for raw formatting (default: \\n).\n"
 "  -c                 Enable cluster mode (follow -ASK and -MOVED redirections).\n"
 #ifdef USE_OPENSSL
 "  --tls              Establish a secure TLS connection.\n"
@@ -5360,8 +5365,6 @@ static void clusterManagerMode(clusterManagerCommandProc *proc) {
     exit(0);
 cluster_manager_err:
     freeClusterManager();
-    sdsfree(config.hostip);
-    sdsfree(config.mb_delim);
     exit(1);
 }
 
@@ -8118,6 +8121,7 @@ int main(int argc, char **argv) {
     else
         config.output = OUTPUT_STANDARD;
     config.mb_delim = sdsnew("\n");
+    config.cmd_delim = sdsnew("\n");
 
     firstarg = parseOptions(argc,argv);
     argc -= firstarg;
@@ -8141,8 +8145,6 @@ int main(int argc, char **argv) {
     if (CLUSTER_MANAGER_MODE()) {
         clusterManagerCommandProc *proc = validateClusterManagerCommand();
         if (!proc) {
-            sdsfree(config.hostip);
-            sdsfree(config.mb_delim);
             exit(1);
         }
         clusterManagerMode(proc);
