@@ -97,6 +97,21 @@ void linkClient(client *c) {
     raxInsert(server.clients_index,(unsigned char*)&id,sizeof(id),c,NULL);
 }
 
+/* Initialize defaults that apply to newly created clients. This is also used
+ * when resetting a client.
+ */
+static void initClientDefaults(client *c) {
+    selectDb(c,0);
+    c->resp = 2;
+    c->flags = 0;
+
+    /* If the default user does not require authentication, the user is
+     * directly authenticated. */
+    c->user = DefaultUser;
+    c->authenticated = (c->user->flags & USER_FLAG_NOPASS) &&
+                       !(c->user->flags & USER_FLAG_DISABLED);
+}
+
 client *createClient(connection *conn) {
     client *c = zmalloc(sizeof(client));
 
@@ -113,11 +128,10 @@ client *createClient(connection *conn) {
         connSetPrivateData(conn, c);
     }
 
-    selectDb(c,0);
+    initClientDefaults(c);
     uint64_t client_id;
     atomicGetIncr(server.next_client_id, client_id, 1);
     c->id = client_id;
-    c->resp = 2;
     c->conn = conn;
     c->name = NULL;
     c->bufpos = 0;
@@ -130,16 +144,10 @@ client *createClient(connection *conn) {
     c->argv = NULL;
     c->argv_len_sum = 0;
     c->cmd = c->lastcmd = NULL;
-    c->user = DefaultUser;
     c->multibulklen = 0;
     c->bulklen = -1;
     c->sentlen = 0;
-    c->flags = 0;
     c->ctime = c->lastinteraction = server.unixtime;
-    /* If the default user does not require authentication, the user is
-     * directly authenticated. */
-    c->authenticated = (c->user->flags & USER_FLAG_NOPASS) &&
-                       !(c->user->flags & USER_FLAG_DISABLED);
     c->replstate = REPL_STATE_NONE;
     c->repl_put_online_on_ack = 0;
     c->reploff = 0;
@@ -2238,6 +2246,42 @@ int clientSetNameOrReply(client *c, robj *name) {
     c->name = name;
     incrRefCount(name);
     return C_OK;
+}
+
+/* Reset the client state to resemble a newly connected client.
+ */
+void resetCommand(client *c) {
+    listNode *ln;
+
+    /* MONITOR clients are also marked with CLIENT_SLAVE, we need to
+     * distinguish the two.
+     */
+    if (c->flags & CLIENT_MONITOR) {
+        ln = listSearchKey(server.monitors,c);
+        serverAssert(ln != NULL);
+        listDelNode(server.monitors,ln);
+
+        c->flags &= ~(CLIENT_MONITOR|CLIENT_SLAVE);
+    }
+
+    if (c->flags & CLIENT_SLAVE) {
+        addReplyError(c,"cannot reset a replica");
+        return;
+    }
+
+    if (c->flags & CLIENT_TRACKING) disableTracking(c);
+
+    initClientDefaults(c);
+    moduleNotifyUserChanged(c);
+    discardTransaction(c);
+
+    pubsubUnsubscribeAllChannels(c,0);
+    pubsubUnsubscribeAllPatterns(c,0);
+
+    if (c->name) decrRefCount(c->name);
+    c->name = NULL;
+
+    addReplyStatus(c,"RESET");
 }
 
 void clientCommand(client *c) {
