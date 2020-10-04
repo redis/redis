@@ -239,7 +239,7 @@ static struct config {
     int output; /* output mode, see OUTPUT_* defines */
     int push_output; /* Should we display spontaneous PUSH replies */
     sds mb_delim;
-    sds raw_delim;
+    sds cmd_delim;
     char prompt[128];
     char *eval;
     int eval_ldb;
@@ -252,11 +252,6 @@ static struct config {
     int no_auth_warning;
     int resp3;
 } config;
-
-#define config_free(config) \
-            sdsfree(config.hostip);\
-            sdsfree(config.mb_delim);\
-            sdsfree(config.raw_delim);
 
 /* User preferences. */
 static struct pref {
@@ -1242,7 +1237,7 @@ static sds cliFormatReply(redisReply *reply, int mode, int verbatim) {
         out = cliFormatReplyTTY(reply, "");
     } else if (mode == OUTPUT_RAW) {
         out = cliFormatReplyRaw(reply);
-        out = sdscatsds(out, config.raw_delim);
+        out = sdscatsds(out, config.cmd_delim);
     } else if (mode == OUTPUT_CSV) {
         out = cliFormatReplyCSV(reply);
         out = sdscatlen(out, "\n", 1);
@@ -1611,8 +1606,8 @@ static int parseOptions(int argc, char **argv) {
             sdsfree(config.mb_delim);
             config.mb_delim = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"-D") && !lastarg) {
-            sdsfree(config.raw_delim);
-            config.raw_delim = sdsnew(argv[++i]);
+            sdsfree(config.cmd_delim);
+            config.cmd_delim = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"--verbose")) {
             config.verbose = 1;
         } else if (!strcmp(argv[i],"--cluster") && !lastarg) {
@@ -5453,7 +5448,6 @@ static void clusterManagerMode(clusterManagerCommandProc *proc) {
     exit(0);
 cluster_manager_err:
     freeClusterManager();
-    config_free(config);
     exit(1);
 }
 
@@ -8213,7 +8207,7 @@ int main(int argc, char **argv) {
         config.push_output = 1;
     }
     config.mb_delim = sdsnew("\n");
-    config.raw_delim = sdsnew("\n");
+    config.cmd_delim = sdsnew("\n");
 
     firstarg = parseOptions(argc,argv);
     argc -= firstarg;
@@ -8237,7 +8231,6 @@ int main(int argc, char **argv) {
     if (CLUSTER_MANAGER_MODE()) {
         clusterManagerCommandProc *proc = validateClusterManagerCommand();
         if (!proc) {
-            config_free(config);
             exit(1);
         }
         clusterManagerMode(proc);
