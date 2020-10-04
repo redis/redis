@@ -1242,7 +1242,7 @@ static sds cliFormatReply(redisReply *reply, int mode, int verbatim) {
         out = cliFormatReplyTTY(reply, "");
     } else if (mode == OUTPUT_RAW) {
         out = cliFormatReplyRaw(reply);
-        out = sdscatlen(out, config.raw_delim, sdslen(config.raw_delim));
+        out = sdscatsds(out, config.raw_delim);
     } else if (mode == OUTPUT_CSV) {
         out = cliFormatReplyCSV(reply);
         out = sdscatlen(out, "\n", 1);
