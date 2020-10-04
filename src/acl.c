@@ -289,7 +289,7 @@ void ACLFreeUserAndKillClients(user *u) {
     while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
         if (c->user == u) {
-            /* We'll free the conenction asynchronously, so
+            /* We'll free the connection asynchronously, so
              * in theory to set a different user is not needed.
              * However if there are bugs in Redis, soon or later
              * this may result in some security hole: it's much
@@ -297,7 +297,13 @@ void ACLFreeUserAndKillClients(user *u) {
              * it in non authenticated mode. */
             c->user = DefaultUser;
             c->authenticated = 0;
-            freeClientAsync(c);
+            /* We will write replies to this client later, so we can't
+             * close it directly even if async. */
+            if (c == server.current_client) {
+                c->flags |= CLIENT_CLOSE_AFTER_COMMAND;
+            } else {
+                freeClientAsync(c);
+            }
         }
     }
     ACLFreeUser(u);
@@ -1981,7 +1987,7 @@ void authCommand(client *c) {
     if (ACLAuthenticateUser(c,username,password) == C_OK) {
         addReply(c,shared.ok);
     } else {
-        addReplyError(c,"-WRONGPASS invalid username-password pair");
+        addReplyError(c,"-WRONGPASS invalid username-password pair or user is disabled.");
     }
 
     /* Free the "default" string object we created for the two

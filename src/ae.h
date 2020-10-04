@@ -33,7 +33,7 @@
 #ifndef __AE_H__
 #define __AE_H__
 
-#include <time.h>
+#include "monotonic.h"
 
 #define AE_OK 0
 #define AE_ERR -1
@@ -79,8 +79,7 @@ typedef struct aeFileEvent {
 /* Time event structure */
 typedef struct aeTimeEvent {
     long long id; /* time event identifier. */
-    long when_sec; /* seconds */
-    long when_ms; /* milliseconds */
+    monotime when;
     aeTimeProc *timeProc;
     aeEventFinalizerProc *finalizerProc;
     void *clientData;
@@ -101,7 +100,6 @@ typedef struct aeEventLoop {
     int maxfd;   /* highest file descriptor currently registered */
     int setsize; /* max number of file descriptors tracked */
     long long timeEventNextId;
-    time_t lastTime;     /* Used to detect system clock skew */
     aeFileEvent *events; /* Registered events */
     aeFiredEvent *fired; /* Fired events */
     aeTimeEvent *timeEventHead;

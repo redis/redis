@@ -116,7 +116,7 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
          * However, if the command caller is not the master, and as additional
          * safety measure, the command invoked is a read-only command, we can
          * safely return NULL here, and provide a more consistent behavior
-         * to clients accessign expired values in a read-only fashion, that
+         * to clients accessing expired values in a read-only fashion, that
          * will say the key as non existing.
          *
          * Notably this covers GETs when slaves are used to scale reads. */
@@ -371,7 +371,7 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
  *    firing module events.
  * and the function to return ASAP.
  *
- * On success the fuction returns the number of keys removed from the
+ * On success the function returns the number of keys removed from the
  * database(s). Otherwise -1 is returned in the specific case the
  * DB number is out of range, and errno is set to EINVAL. */
 long long emptyDbGeneric(redisDb *dbarray, int dbnum, int flags, void(callback)(void*)) {
@@ -863,7 +863,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         /* Filter element if it is an expired key. */
         if (!filter && o == NULL && expireIfNeeded(c->db, kobj)) filter = 1;
 
-        /* Remove the element and its associted value if needed. */
+        /* Remove the element and its associated value if needed. */
         if (filter) {
             decrRefCount(kobj);
             listDelNode(keys, node);
@@ -1157,6 +1157,8 @@ void swapdbCommand(client *c) {
         addReplyError(c,"DB index is out of range");
         return;
     } else {
+        RedisModuleSwapDbInfo si = {REDISMODULE_SWAPDBINFO_VERSION,id1,id2};
+        moduleFireServerEvent(REDISMODULE_EVENT_SWAPDB,0,&si);
         server.dirty++;
         addReply(c,shared.ok);
     }
@@ -1359,7 +1361,7 @@ int *getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, in
 /* Return all the arguments that are keys in the command passed via argc / argv.
  *
  * The command returns the positions of all the key arguments inside the array,
- * so the actual return value is an heap allocated array of integers. The
+ * so the actual return value is a heap allocated array of integers. The
  * length of the array is returned by reference into *numkeys.
  *
  * 'cmd' must be point to the corresponding entry into the redisCommand
@@ -1384,61 +1386,54 @@ void getKeysFreeResult(int *result) {
 }
 
 /* Helper function to extract keys from following commands:
+ * COMMAND [destkey] <num-keys> <key> [...] <key> [...] ... <options>
+ *
+ * eg:
+ * ZUNION <num-keys> <key> <key> ... <key> <options>
  * ZUNIONSTORE <destkey> <num-keys> <key> <key> ... <key> <options>
- * ZINTERSTORE <destkey> <num-keys> <key> <key> ... <key> <options> */
-int *zunionInterGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+ *
+ * 'storeKeyOfs': destkey index, 0 means destkey not exists.
+ * 'keyCountOfs': num-keys index.
+ * 'firstKeyOfs': firstkey index.
+ * 'keyStep': the interval of each key, usually this value is 1.
+ * */
+int *genericGetKeys(int storeKeyOfs, int keyCountOfs, int firstKeyOfs, int keyStep,
+                    robj **argv, int argc, int *numkeys) {
     int i, num, *keys;
-    UNUSED(cmd);
 
-    num = atoi(argv[2]->ptr);
+    num = atoi(argv[keyCountOfs]->ptr);
     /* Sanity check. Don't return any key if the command is going to
-     * reply with syntax error. */
-    if (num < 1 || num > (argc-3)) {
+     * reply with syntax error. (no input keys). */
+    if (num < 1 || num > (argc - firstKeyOfs)/keyStep) {
         *numkeys = 0;
         return NULL;
     }
 
-    /* Keys in z{union,inter}store come from two places:
-     * argv[1] = storage key,
-     * argv[3...n] = keys to intersect */
     keys = getKeysTempBuffer;
-    if (num+1>MAX_KEYS_BUFFER)
-        keys = zmalloc(sizeof(int)*(num+1));
+    *numkeys = storeKeyOfs ? num + 1 : num;
+    if (*numkeys > MAX_KEYS_BUFFER)
+        keys = zmalloc(sizeof(int)*(*numkeys));
 
-    /* Add all key positions for argv[3...n] to keys[] */
-    for (i = 0; i < num; i++) keys[i] = 3+i;
+    /* Add all key positions for argv[firstKeyOfs...n] to keys[] */
+    for (i = 0; i < num; i++) keys[i] = firstKeyOfs+(i*keyStep);
 
-    /* Finally add the argv[1] key position (the storage key target). */
-    keys[num] = 1;
-    *numkeys = num+1;  /* Total keys = {union,inter} keys + storage key */
+    if (storeKeyOfs) keys[num] = storeKeyOfs;
     return keys;
 }
 
-/* Helper function to extract keys from the following commands:
- * EVAL <script> <num-keys> <key> <key> ... <key> [more stuff]
- * EVALSHA <script> <num-keys> <key> <key> ... <key> [more stuff] */
-int *evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
-    int i, num, *keys;
+int *zunionInterStoreGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
     UNUSED(cmd);
+    return genericGetKeys(1, 2, 3, 1, argv, argc, numkeys);
+}
 
-    num = atoi(argv[2]->ptr);
-    /* Sanity check. Don't return any key if the command is going to
-     * reply with syntax error. */
-    if (num <= 0 || num > (argc-3)) {
-        *numkeys = 0;
-        return NULL;
-    }
+int *zunionInterGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 1, 2, 1, argv, argc, numkeys);
+}
 
-    keys = getKeysTempBuffer;
-    if (num>MAX_KEYS_BUFFER)
-        keys = zmalloc(sizeof(int)*num);
-
-    *numkeys = num;
-
-    /* Add all key positions for argv[3...n] to keys[] */
-    for (i = 0; i < num; i++) keys[i] = 3+i;
-
-    return keys;
+int *evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 2, 3, 1, argv, argc, numkeys);
 }
 
 /* Helper function to extract keys from the SORT command.

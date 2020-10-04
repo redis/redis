@@ -133,7 +133,7 @@ static unsigned int zipmapEncodeLength(unsigned char *p, unsigned int len) {
  * zipmap. Returns NULL if the key is not found.
  *
  * If NULL is returned, and totlen is not NULL, it is set to the entire
- * size of the zimap, so that the calling function will be able to
+ * size of the zipmap, so that the calling function will be able to
  * reallocate the original zipmap to make room for more entries. */
 static unsigned char *zipmapLookupRaw(unsigned char *zm, unsigned char *key, unsigned int klen, unsigned int *totlen) {
     unsigned char *p = zm+1, *k = NULL;

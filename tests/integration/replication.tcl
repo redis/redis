@@ -684,6 +684,48 @@ start_server {tags {"repl"}} {
     }
 }
 
+test "diskless replication child being killed is collected" {
+    # when diskless master is waiting for the replica to become writable
+    # it removes the read event from the rdb pipe so if the child gets killed
+    # the replica will hung. and the master may not collect the pid with wait3
+    start_server {tags {"repl"}} {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+        set master_pid [srv 0 pid]
+        $master config set repl-diskless-sync yes
+        $master config set repl-diskless-sync-delay 0
+        # put enough data in the db that the rdb file will be bigger than the socket buffers
+        $master debug populate 20000 test 10000
+        $master config set rdbcompression no
+        start_server {} {
+            set replica [srv 0 client]
+            set loglines [count_log_lines 0]
+            $replica config set repl-diskless-load swapdb
+            $replica config set key-load-delay 1000000
+            $replica replicaof $master_host $master_port
+
+            # wait for the replicas to start reading the rdb
+            wait_for_log_messages 0 {"*Loading DB in memory*"} $loglines 800 10
+
+            # wait to be sure the eplica is hung and the master is blocked on write
+            after 500
+
+            # simulate the OOM killer or anyone else kills the child
+            set fork_child_pid [get_child_pid -1]
+            puts "fork child is $fork_child_pid"
+            exec kill -9 $fork_child_pid
+
+            # wait for the parent to notice the child have exited
+            wait_for_condition 50 100 {
+                [s -1 rdb_bgsave_in_progress] == 0
+            } else {
+                fail "rdb child didn't terminate"
+            }
+        }
+    }
+}
+
 test {replicaof right after disconnection} {
     # this is a rare race condition that was reproduced sporadically by the psync2 unit.
     # see details in #7205
@@ -731,6 +773,67 @@ test {replicaof right after disconnection} {
                 assert_equal [status $master sync_full] 2
                 assert_equal [status $replica1 sync_full] 0
                 assert_equal [status $replica2 sync_full] 0
+            }
+        }
+    }
+}
+
+test {Kill rdb child process if its dumping RDB is not useful} {
+    start_server {tags {"repl"}} {
+        set slave1 [srv 0 client]
+        start_server {} {
+            set slave2 [srv 0 client]
+            start_server {} {
+                set master [srv 0 client]
+                set master_host [srv 0 host]
+                set master_port [srv 0 port]
+                for {set i 0} {$i < 10} {incr i} {
+                    $master set $i $i
+                }
+                # Generating RDB will cost 10s(10 * 1s)
+                $master config set rdb-key-save-delay 1000000
+                $master config set repl-diskless-sync no
+                $master config set save ""
+
+                $slave1 slaveof $master_host $master_port
+                $slave2 slaveof $master_host $master_port
+
+                # Wait for starting child
+                wait_for_condition 50 100 {
+                    [s 0 rdb_bgsave_in_progress] == 1
+                } else {
+                    fail "rdb child didn't start"
+                }
+
+                # Slave1 disconnect with master
+                $slave1 slaveof no one
+                # Shouldn't kill child since another slave wait for rdb
+                after 100
+                assert {[s 0 rdb_bgsave_in_progress] == 1}
+
+                # Slave2 disconnect with master
+                $slave2 slaveof no one
+                # Should kill child
+                wait_for_condition 20 10 {
+                    [s 0 rdb_bgsave_in_progress] eq 0
+                } else {
+                    fail "can't kill rdb child"
+                }
+
+                # If have save parameters, won't kill child
+                $master config set save "900 1"
+                $slave1 slaveof $master_host $master_port
+                $slave2 slaveof $master_host $master_port
+                wait_for_condition 50 100 {
+                    [s 0 rdb_bgsave_in_progress] == 1
+                } else {
+                    fail "rdb child didn't start"
+                }
+                $slave1 slaveof no one
+                $slave2 slaveof no one
+                after 200
+                assert {[s 0 rdb_bgsave_in_progress] == 1}
+                catch {$master shutdown nosave}
             }
         }
     }

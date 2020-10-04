@@ -43,5 +43,8 @@
 #define s_malloc zmalloc
 #define s_realloc zrealloc
 #define s_free zfree
+#define s_malloc_usable zmalloc_usable
+#define s_realloc_usable zrealloc_usable
+#define s_free_usable zfree_usable
 
 #endif

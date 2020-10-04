@@ -53,7 +53,7 @@
  * to 0, no timeout is processed).
  * It usually just needs to send a reply to the client.
  *
- * When implementing a new type of blocking opeation, the implementation
+ * When implementing a new type of blocking operation, the implementation
  * should modify unblockClient() and replyToBlockedClientTimedOut() in order
  * to handle the btype-specific behavior of this two functions.
  * If the blocking operation waits for certain keys to change state, the
@@ -119,7 +119,7 @@ void processUnblockedClients(void) {
 
 /* This function will schedule the client for reprocessing at a safe time.
  *
- * This is useful when a client was blocked for some reason (blocking opeation,
+ * This is useful when a client was blocked for some reason (blocking operation,
  * CLIENT PAUSE, or whatever), because it may end with some accumulated query
  * buffer that needs to be processed ASAP:
  *
@@ -371,11 +371,18 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
                 int noack = 0;
 
                 if (group) {
+                    int created = 0;
                     consumer =
                         streamLookupConsumer(group,
                                              receiver->bpop.xread_consumer->ptr,
-                                             SLC_NONE);
+                                             SLC_NONE,
+                                             &created);
                     noack = receiver->bpop.xread_group_noack;
+                    if (created && noack) {
+                        streamPropagateConsumerCreation(receiver,rl->key,
+                                                        receiver->bpop.xread_group,
+                                                        consumer->name);
+                    }
                 }
 
                 /* Emit the two elements sub-array consisting of

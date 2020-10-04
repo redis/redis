@@ -99,6 +99,14 @@ proc wait_for_ofs_sync {r1 r2} {
     }
 }
 
+proc wait_done_loading r {
+    wait_for_condition 50 100 {
+        [catch {$r ping} e] == 0
+    } else {
+        fail "Loading DB is taking too much time."
+    }
+}
+
 # count current log lines in server's stdout
 proc count_log_lines {srv_idx} {
     set _ [exec wc -l < [srv $srv_idx stdout]]
@@ -136,6 +144,14 @@ proc wait_for_log_messages {srv_idx patterns from_line maxtries delay} {
     if {$retry == 0} {
         fail "log message of '$patterns' not found in $stdout after line: $from_line till line: [expr $next_line -1]"
     }
+}
+
+# write line to server log file
+proc write_log_line {srv_idx msg} {
+    set logfile [srv $srv_idx stdout]
+    set fd [open $logfile "a+"]
+    puts $fd "### $msg"
+    close $fd
 }
 
 # Random integer between 0 and max (excluded).
@@ -416,6 +432,29 @@ proc colorstr {color str} {
     }
 }
 
+proc find_valgrind_errors {stderr} {
+    set fd [open $stderr]
+    set buf [read $fd]
+    close $fd
+
+    # Look for stack trace (" at 0x") and other errors (Invalid, Mismatched, etc).
+    # Look for "Warnings", but not the "set address range perms". These don't indicate any real concern.
+    # Look for the absense of a leak free summary (happens when redis isn't terminated properly).
+    if {[regexp -- { at 0x} $buf] ||
+        [regexp -- {^(?=.*Warning)(?:(?!set address range perms).)*$} $buf] ||
+        [regexp -- {Invalid} $buf] ||
+        [regexp -- {Mismatched} $buf] ||
+        [regexp -- {uninitialized} $buf] ||
+        [regexp -- {has a fishy} $buf] ||
+        [regexp -- {overlap} $buf] ||
+        (![regexp -- {definitely lost: 0 bytes} $buf] &&
+         ![regexp -- {no leaks are possible} $buf])} {
+        return $buf
+    }
+
+    return ""
+}
+
 # Execute a background process writing random data for the specified number
 # of seconds to the specified Redis instance.
 proc start_write_load {host port seconds} {
@@ -454,4 +493,29 @@ proc start_bg_complex_data {host port db ops} {
 # Stop a process generating write load executed with start_bg_complex_data.
 proc stop_bg_complex_data {handle} {
     catch {exec /bin/kill -9 $handle}
+}
+
+proc populate {num prefix size} {
+    set rd [redis_deferring_client]
+    for {set j 0} {$j < $num} {incr j} {
+        $rd set $prefix$j [string repeat A $size]
+    }
+    for {set j 0} {$j < $num} {incr j} {
+        $rd read
+    }
+    $rd close
+}
+
+proc get_child_pid {idx} {
+    set pid [srv $idx pid]
+    if {[string match {*Darwin*} [exec uname -a]]} {
+        set fd [open "|pgrep -P $pid" "r"]
+        set child_pid [string trim [lindex [split [read $fd] \n] 0]]
+    } else {
+        set fd [open "|ps --ppid $pid -o pid" "r"]
+        set child_pid [string trim [lindex [split [read $fd] \n] 1]]
+    }
+    close $fd
+
+    return $child_pid
 }

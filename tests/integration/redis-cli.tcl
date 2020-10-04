@@ -3,7 +3,7 @@ source tests/support/cli.tcl
 start_server {tags {"cli"}} {
     proc open_cli {{opts "-n 9"} {infile ""}} {
         set ::env(TERM) dumb
-        set cmdline [rediscli [srv port] $opts]
+        set cmdline [rediscli [srv host] [srv port] $opts]
         if {$infile ne ""} {
             set cmdline "$cmdline < $infile"
             set mode "r"
@@ -65,7 +65,7 @@ start_server {tags {"cli"}} {
     }
 
     proc _run_cli {opts args} {
-        set cmd [rediscli [srv port] [list -n 9 {*}$args]]
+        set cmd [rediscli [srv host] [srv port] [list -n 9 {*}$args]]
         foreach {key value} $opts {
             if {$key eq "pipe"} {
                 set cmd "sh -c \"$value | $cmd\""
@@ -182,6 +182,7 @@ start_server {tags {"cli"}} {
         set tmpfile [write_tmpfile "from file"]
         assert_equal "OK" [run_cli_with_input_file $tmpfile set key]
         assert_equal "from file" [r get key]
+        file delete $tmpfile
     }
 
     test_nontty_cli "Status reply" {
@@ -215,6 +216,7 @@ start_server {tags {"cli"}} {
         set tmpfile [write_tmpfile "from file"]
         assert_equal "OK" [run_cli_with_input_file $tmpfile set key]
         assert_equal "from file" [r get key]
+        file delete $tmpfile
     }
 
     proc test_redis_cli_rdb_dump {} {

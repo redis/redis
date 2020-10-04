@@ -353,6 +353,7 @@ void loadServerConfigFromString(char *config) {
     int linenum = 0, totlines, i;
     int slaveof_linenum = 0;
     sds *lines;
+    int save_loaded = 0;
 
     lines = sdssplitlen(config,strlen(config),"\n",1,&totlines);
 
@@ -425,6 +426,14 @@ void loadServerConfigFromString(char *config) {
                 err = "Invalid socket file permissions"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"save")) {
+            /* We don't reset save params before loading, because if they're not part
+             * of the file the defaults should be used.
+             */
+            if (!save_loaded) {
+                save_loaded = 1;
+                resetServerSaveParams();
+            }
+
             if (argc == 3) {
                 int seconds = atoi(argv[1]);
                 int changes = atoi(argv[2]);
@@ -464,8 +473,17 @@ void loadServerConfigFromString(char *config) {
         } else if ((!strcasecmp(argv[0],"slaveof") ||
                     !strcasecmp(argv[0],"replicaof")) && argc == 3) {
             slaveof_linenum = linenum;
+            sdsfree(server.masterhost);
+            if (!strcasecmp(argv[1], "no") && !strcasecmp(argv[2], "one")) {
+                server.masterhost = NULL;
+                continue;
+            }
             server.masterhost = sdsnew(argv[1]);
-            server.masterport = atoi(argv[2]);
+            char *ptr;
+            server.masterport = strtol(argv[2], &ptr, 10);
+            if (server.masterport < 0 || server.masterport > 65535 || *ptr != '\0') {
+                err = "Invalid master port"; goto loaderr;
+            }
             server.repl_state = REPL_STATE_CONNECT;
         } else if (!strcasecmp(argv[0],"requirepass") && argc == 2) {
             if (strlen(argv[1]) > CONFIG_AUTHPASS_MAX_LEN) {
@@ -1055,6 +1073,8 @@ struct rewriteConfigState {
     sds *lines;           /* Current lines as an array of sds strings */
     int has_tail;         /* True if we already added directives that were
                              not present in the original config file. */
+    int force_all;        /* True if we want all keywords to be force
+                             written. Currently only used for testing. */
 };
 
 /* Append the new line to the current configuration state. */
@@ -1101,6 +1121,7 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
     state->numlines = 0;
     state->lines = NULL;
     state->has_tail = 0;
+    state->force_all = 0;
     if (fp == NULL) return state;
 
     /* Read the old file line by line, populate the state. */
@@ -1179,7 +1200,7 @@ void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *opti
 
     rewriteConfigMarkAsProcessed(state,option);
 
-    if (!l && !force) {
+    if (!l && !force && !state->force_all) {
         /* Option not used previously, and we are not forced to use it. */
         sdsfree(line);
         sdsfree(o);
@@ -1276,7 +1297,7 @@ void rewriteConfigNumericalOption(struct rewriteConfigState *state, const char *
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
-/* Rewrite a octal option. */
+/* Rewrite an octal option. */
 void rewriteConfigOctalOption(struct rewriteConfigState *state, char *option, int value, int defvalue) {
     int force = value != defvalue;
     sds line = sdscatprintf(sdsempty(),"%s %o",option,value);
@@ -1422,7 +1443,8 @@ void rewriteConfigOOMScoreAdjValuesOption(struct rewriteConfigState *state) {
     char *option = "oom-score-adj-values";
     sds line;
 
-    line = sdsempty();
+    line = sdsnew(option);
+    line = sdscatlen(line, " ", 1);
     for (j = 0; j < CONFIG_OOM_COUNT; j++) {
         if (server.oom_score_adj_values[j] != configOOMScoreAdjValuesDefaults[j])
             force = 1;
@@ -1539,60 +1561,62 @@ void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
     dictReleaseIterator(di);
 }
 
-/* This function overwrites the old configuration file with the new content.
- *
- * 1) The old file length is obtained.
- * 2) If the new content is smaller, padding is added.
- * 3) A single write(2) call is used to replace the content of the file.
- * 4) Later the file is truncated to the length of the new content.
- *
- * This way we are sure the file is left in a consistent state even if the
- * process is stopped between any of the four operations.
+/* This function replaces the old configuration file with the new content
+ * in an atomic manner.
  *
  * The function returns 0 on success, otherwise -1 is returned and errno
- * set accordingly. */
+ * is set accordingly. */
 int rewriteConfigOverwriteFile(char *configfile, sds content) {
-    int retval = 0;
-    int fd = open(configfile,O_RDWR|O_CREAT,0644);
-    int content_size = sdslen(content), padding = 0;
-    struct stat sb;
-    sds content_padded;
+    int fd = -1;
+    int retval = -1;
+    char tmp_conffile[PATH_MAX];
+    const char *tmp_suffix = ".XXXXXX";
+    size_t offset = 0;
+    ssize_t written_bytes = 0;
 
-    /* 1) Open the old file (or create a new one if it does not
-     *    exist), get the size. */
-    if (fd == -1) return -1; /* errno set by open(). */
-    if (fstat(fd,&sb) == -1) {
-        close(fd);
-        return -1; /* errno set by fstat(). */
+    int tmp_path_len = snprintf(tmp_conffile, sizeof(tmp_conffile), "%s%s", configfile, tmp_suffix);
+    if (tmp_path_len <= 0 || (unsigned int)tmp_path_len >= sizeof(tmp_conffile)) {
+        serverLog(LL_WARNING, "Config file full path is too long");
+        errno = ENAMETOOLONG;
+        return retval;
     }
 
-    /* 2) Pad the content at least match the old file size. */
-    content_padded = sdsdup(content);
-    if (content_size < sb.st_size) {
-        /* If the old file was bigger, pad the content with
-         * a newline plus as many "#" chars as required. */
-        padding = sb.st_size - content_size;
-        content_padded = sdsgrowzero(content_padded,sb.st_size);
-        content_padded[content_size] = '\n';
-        memset(content_padded+content_size+1,'#',padding-1);
+#ifdef _GNU_SOURCE
+    fd = mkostemp(tmp_conffile, O_CLOEXEC);
+#else
+    /* There's a theoretical chance here to leak the FD if a module thread forks & execv in the middle */
+    fd = mkstemp(tmp_conffile);
+#endif
+
+    if (fd == -1) {
+        serverLog(LL_WARNING, "Could not create tmp config file (%s)", strerror(errno));
+        return retval;
     }
 
-    /* 3) Write the new content using a single write(2). */
-    if (write(fd,content_padded,strlen(content_padded)) == -1) {
-        retval = -1;
-        goto cleanup;
+    while (offset < sdslen(content)) {
+         written_bytes = write(fd, content + offset, sdslen(content) - offset);
+         if (written_bytes <= 0) {
+             if (errno == EINTR) continue; /* FD is blocking, no other retryable errors */
+             serverLog(LL_WARNING, "Failed after writing (%ld) bytes to tmp config file (%s)", offset, strerror(errno));
+             goto cleanup;
+         }
+         offset+=written_bytes;
     }
 
-    /* 4) Truncate the file to the right length if we used padding. */
-    if (padding) {
-        if (ftruncate(fd,content_size) == -1) {
-            /* Non critical error... */
-        }
+    if (fsync(fd))
+        serverLog(LL_WARNING, "Could not sync tmp config file to disk (%s)", strerror(errno));
+    else if (fchmod(fd, 0644) == -1)
+        serverLog(LL_WARNING, "Could not chmod config file (%s)", strerror(errno));
+    else if (rename(tmp_conffile, configfile) == -1)
+        serverLog(LL_WARNING, "Could not rename tmp config file (%s)", strerror(errno));
+    else {
+        retval = 0;
+        serverLog(LL_DEBUG, "Rewritten config file (%s) successfully", configfile);
     }
 
 cleanup:
-    sdsfree(content_padded);
     close(fd);
+    if (retval) unlink(tmp_conffile);
     return retval;
 }
 
@@ -1602,15 +1626,18 @@ cleanup:
  *
  * Configuration parameters that are at their default value, unless already
  * explicitly included in the old configuration file, are not rewritten.
+ * The force_all flag overrides this behavior and forces everything to be
+ * written. This is currently only used for testing purposes.
  *
  * On error -1 is returned and errno is set accordingly, otherwise 0. */
-int rewriteConfig(char *path) {
+int rewriteConfig(char *path, int force_all) {
     struct rewriteConfigState *state;
     sds newcontent;
     int retval;
 
     /* Step 1: read the old config into our rewrite state. */
     if ((state = rewriteConfigReadOldFile(path)) == NULL) return -1;
+    if (force_all) state->force_all = 1;
 
     /* Step 2: rewrite every single option, replacing or appending it inside
      * the rewrite state. */
@@ -2090,7 +2117,7 @@ static int isValidAOFfilename(char *val, char **err) {
 static int updateHZ(long long val, long long prev, char **err) {
     UNUSED(prev);
     UNUSED(err);
-    /* Hz is more an hint from the user, so we accept values out of range
+    /* Hz is more a hint from the user, so we accept values out of range
      * but cap them to reasonable values. */
     server.config_hz = val;
     if (server.config_hz < CONFIG_MIN_HZ) server.config_hz = CONFIG_MIN_HZ;
@@ -2108,7 +2135,7 @@ static int updateJemallocBgThread(int val, int prev, char **err) {
 
 static int updateReplBacklogSize(long long val, long long prev, char **err) {
     /* resizeReplicationBacklog sets server.repl_backlog_size, and relies on
-     * being able to tell when the size changes, so restore prev becore calling it. */
+     * being able to tell when the size changes, so restore prev before calling it. */
     UNUSED(err);
     server.repl_backlog_size = prev;
     resizeReplicationBacklog(val);
@@ -2123,7 +2150,7 @@ static int updateMaxmemory(long long val, long long prev, char **err) {
         if ((unsigned long long)val < used) {
             serverLog(LL_WARNING,"WARNING: the new maxmemory value set via CONFIG SET (%llu) is smaller than the current memory usage (%zu). This will result in key eviction and/or the inability to accept new write commands depending on the maxmemory-policy.", server.maxmemory, used);
         }
-        freeMemoryIfNeededAndSafe();
+        performEvictions();
     }
     return 1;
 }
@@ -2311,6 +2338,7 @@ standardConfig configs[] = {
     createIntConfig("replica-priority", "slave-priority", MODIFIABLE_CONFIG, 0, INT_MAX, server.slave_priority, 100, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("repl-diskless-sync-delay", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.repl_diskless_sync_delay, 5, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("maxmemory-samples", NULL, MODIFIABLE_CONFIG, 1, INT_MAX, server.maxmemory_samples, 5, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("maxmemory-eviction-tenacity", NULL, MODIFIABLE_CONFIG, 0, 100, server.maxmemory_eviction_tenacity, 10, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("timeout", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.maxidletime, 0, INTEGER_CONFIG, NULL, NULL), /* Default client timeout: infinite */
     createIntConfig("replica-announce-port", "slave-announce-port", MODIFIABLE_CONFIG, 0, 65535, server.slave_announce_port, 0, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("tcp-backlog", NULL, IMMUTABLE_CONFIG, 0, INT_MAX, server.tcp_backlog, 511, INTEGER_CONFIG, NULL, NULL), /* TCP listen backlog. */
@@ -2319,8 +2347,8 @@ standardConfig configs[] = {
     createIntConfig("repl-timeout", NULL, MODIFIABLE_CONFIG, 1, INT_MAX, server.repl_timeout, 60, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("repl-ping-replica-period", "repl-ping-slave-period", MODIFIABLE_CONFIG, 1, INT_MAX, server.repl_ping_slave_period, 10, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("list-compress-depth", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.list_compress_depth, 0, INTEGER_CONFIG, NULL, NULL),
-    createIntConfig("rdb-key-save-delay", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.rdb_key_save_delay, 0, INTEGER_CONFIG, NULL, NULL),
-    createIntConfig("key-load-delay", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.key_load_delay, 0, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("rdb-key-save-delay", NULL, MODIFIABLE_CONFIG, INT_MIN, INT_MAX, server.rdb_key_save_delay, 0, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("key-load-delay", NULL, MODIFIABLE_CONFIG, INT_MIN, INT_MAX, server.key_load_delay, 0, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("active-expire-effort", NULL, MODIFIABLE_CONFIG, 1, 10, server.active_expire_effort, 1, INTEGER_CONFIG, NULL, NULL), /* From 1 to 10. */
     createIntConfig("hz", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.config_hz, CONFIG_DEFAULT_HZ, INTEGER_CONFIG, NULL, updateHZ),
     createIntConfig("min-replicas-to-write", "min-slaves-to-write", MODIFIABLE_CONFIG, 0, INT_MAX, server.repl_min_slaves_to_write, 0, INTEGER_CONFIG, NULL, updateGoodSlaves),
@@ -2417,7 +2445,7 @@ NULL
             addReplyError(c,"The server is running without a config file");
             return;
         }
-        if (rewriteConfig(server.configfile) == -1) {
+        if (rewriteConfig(server.configfile, 0) == -1) {
             serverLog(LL_WARNING,"CONFIG REWRITE failed: %s", strerror(errno));
             addReplyErrorFormat(c,"Rewriting config file: %s", strerror(errno));
         } else {

@@ -544,7 +544,7 @@ sds catAppendOnlyGenericCommand(sds dst, int argc, robj **argv) {
     return dst;
 }
 
-/* Create the sds representation of an PEXPIREAT command, using
+/* Create the sds representation of a PEXPIREAT command, using
  * 'seconds' as time to live and 'cmd' to understand what command
  * we are translating into a PEXPIREAT.
  *
@@ -858,7 +858,7 @@ int loadAppendOnlyFile(char *filename) {
         fakeClient->cmd = NULL;
         if (server.aof_load_truncated) valid_up_to = ftello(fp);
         if (server.key_load_delay)
-            usleep(server.key_load_delay);
+            debugDelay(server.key_load_delay);
     }
 
     /* This point can only be reached when EOF is reached without errors.
@@ -1185,6 +1185,20 @@ int rioWriteStreamPendingEntry(rio *r, robj *key, const char *groupname, size_t 
     return 1;
 }
 
+/* Helper for rewriteStreamObject(): emit the XGROUP CREATECONSUMER is
+ * needed in order to create consumers that do not have any pending entries.
+ * All this in the context of the specified key and group. */
+int rioWriteStreamEmptyConsumer(rio *r, robj *key, const char *groupname, size_t groupname_len, streamConsumer *consumer) {
+    /* XGROUP CREATECONSUMER <key> <group> <consumer> */
+    if (rioWriteBulkCount(r,'*',5) == 0) return 0;
+    if (rioWriteBulkString(r,"XGROUP",6) == 0) return 0;
+    if (rioWriteBulkString(r,"CREATECONSUMER",14) == 0) return 0;
+    if (rioWriteBulkObject(r,key) == 0) return 0;
+    if (rioWriteBulkString(r,groupname,groupname_len) == 0) return 0;
+    if (rioWriteBulkString(r,consumer->name,sdslen(consumer->name)) == 0) return 0;
+    return 1;
+}
+
 /* Emit the commands needed to rebuild a stream object.
  * The function returns 0 on error, 1 on success. */
 int rewriteStreamObject(rio *r, robj *key, robj *o) {
@@ -1201,16 +1215,24 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
              * the ID, the second is an array of field-value pairs. */
 
             /* Emit the XADD <key> <id> ...fields... command. */
-            if (rioWriteBulkCount(r,'*',3+numfields*2) == 0) return 0;
-            if (rioWriteBulkString(r,"XADD",4) == 0) return 0;
-            if (rioWriteBulkObject(r,key) == 0) return 0;
-            if (rioWriteBulkStreamID(r,&id) == 0) return 0;
+            if (!rioWriteBulkCount(r,'*',3+numfields*2) || 
+                !rioWriteBulkString(r,"XADD",4) ||
+                !rioWriteBulkObject(r,key) ||
+                !rioWriteBulkStreamID(r,&id)) 
+            {
+                streamIteratorStop(&si);
+                return 0;
+            }
             while(numfields--) {
                 unsigned char *field, *value;
                 int64_t field_len, value_len;
                 streamIteratorGetField(&si,&field,&value,&field_len,&value_len);
-                if (rioWriteBulkString(r,(char*)field,field_len) == 0) return 0;
-                if (rioWriteBulkString(r,(char*)value,value_len) == 0) return 0;
+                if (!rioWriteBulkString(r,(char*)field,field_len) ||
+                    !rioWriteBulkString(r,(char*)value,value_len)) 
+                {
+                    streamIteratorStop(&si);
+                    return 0;                  
+                }
             }
         }
     } else {
@@ -1218,22 +1240,30 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
          * the key we are serializing is an empty string, which is possible
          * for the Stream type. */
         id.ms = 0; id.seq = 1; 
-        if (rioWriteBulkCount(r,'*',7) == 0) return 0;
-        if (rioWriteBulkString(r,"XADD",4) == 0) return 0;
-        if (rioWriteBulkObject(r,key) == 0) return 0;
-        if (rioWriteBulkString(r,"MAXLEN",6) == 0) return 0;
-        if (rioWriteBulkString(r,"0",1) == 0) return 0;
-        if (rioWriteBulkStreamID(r,&id) == 0) return 0;
-        if (rioWriteBulkString(r,"x",1) == 0) return 0;
-        if (rioWriteBulkString(r,"y",1) == 0) return 0;
+        if (!rioWriteBulkCount(r,'*',7) ||
+            !rioWriteBulkString(r,"XADD",4) ||
+            !rioWriteBulkObject(r,key) ||
+            !rioWriteBulkString(r,"MAXLEN",6) ||
+            !rioWriteBulkString(r,"0",1) ||
+            !rioWriteBulkStreamID(r,&id) ||
+            !rioWriteBulkString(r,"x",1) ||
+            !rioWriteBulkString(r,"y",1))
+        {
+            streamIteratorStop(&si);
+            return 0;     
+        }
     }
 
     /* Append XSETID after XADD, make sure lastid is correct,
      * in case of XDEL lastid. */
-    if (rioWriteBulkCount(r,'*',3) == 0) return 0;
-    if (rioWriteBulkString(r,"XSETID",6) == 0) return 0;
-    if (rioWriteBulkObject(r,key) == 0) return 0;
-    if (rioWriteBulkStreamID(r,&s->last_id) == 0) return 0;
+    if (!rioWriteBulkCount(r,'*',3) ||
+        !rioWriteBulkString(r,"XSETID",6) ||
+        !rioWriteBulkObject(r,key) ||
+        !rioWriteBulkStreamID(r,&s->last_id)) 
+    {
+        streamIteratorStop(&si);
+        return 0; 
+    }
 
 
     /* Create all the stream consumer groups. */
@@ -1252,17 +1282,27 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                 !rioWriteBulkStreamID(r,&group->last_id)) 
             {
                 raxStop(&ri);
+                streamIteratorStop(&si);
                 return 0;
             }
 
             /* Generate XCLAIMs for each consumer that happens to
-             * have pending entries. Empty consumers have no semantical
-             * value so they are discarded. */
+             * have pending entries. Empty consumers would be generated with
+             * XGROUP CREATECONSUMER. */
             raxIterator ri_cons;
             raxStart(&ri_cons,group->consumers);
             raxSeek(&ri_cons,"^",NULL,0);
             while(raxNext(&ri_cons)) {
                 streamConsumer *consumer = ri_cons.data;
+                /* If there are no pending entries, just emit XGROUP CREATECONSUMER */
+                if (raxSize(consumer->pel) == 0) {
+                    if (rioWriteStreamEmptyConsumer(r,key,(char*)ri.key,
+                                                    ri.key_len,consumer) == 0)
+                    {
+                        return 0;
+                    }
+                    continue;
+                }
                 /* For the current consumer, iterate all the PEL entries
                  * to emit the XCLAIM protocol. */
                 raxIterator ri_pel;
@@ -1277,6 +1317,7 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                         raxStop(&ri_pel);
                         raxStop(&ri_cons);
                         raxStop(&ri);
+                        streamIteratorStop(&si);
                         return 0;
                     }
                 }
@@ -1603,7 +1644,7 @@ int rewriteAppendOnlyFileBackground(void) {
     if (hasActiveChildProcess()) return C_ERR;
     if (aofCreatePipes() != C_OK) return C_ERR;
     openChildInfoPipe();
-    if ((childpid = redisFork()) == 0) {
+    if ((childpid = redisFork(CHILD_TYPE_AOF)) == 0) {
         char tmpfile[256];
 
         /* Child */
@@ -1611,7 +1652,7 @@ int rewriteAppendOnlyFileBackground(void) {
         redisSetCpuAffinity(server.aof_rewrite_cpulist);
         snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
         if (rewriteAppendOnlyFile(tmpfile) == C_OK) {
-            sendChildCOWInfo(CHILD_INFO_TYPE_AOF, "AOF rewrite");
+            sendChildCOWInfo(CHILD_TYPE_AOF, "AOF rewrite");
             exitFromChild(0);
         } else {
             exitFromChild(1);
@@ -1818,7 +1859,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             "Background AOF rewrite terminated with error");
     } else {
         /* SIGUSR1 is whitelisted, so we have a way to kill a child without
-         * tirggering an error condition. */
+         * triggering an error condition. */
         if (bysignal != SIGUSR1)
             server.aof_lastbgrewrite_status = C_ERR;
 

@@ -126,6 +126,8 @@
 #define CLUSTER_MANAGER_CMD_FLAG_COLOR          1 << 8
 #define CLUSTER_MANAGER_CMD_FLAG_CHECK_OWNERS   1 << 9
 #define CLUSTER_MANAGER_CMD_FLAG_FIX_WITH_UNREACHABLE_MASTERS 1 << 10
+#define CLUSTER_MANAGER_CMD_FLAG_MASTERS_ONLY   1 << 11
+#define CLUSTER_MANAGER_CMD_FLAG_SLAVES_ONLY    1 << 12
 
 #define CLUSTER_MANAGER_OPT_GETFRIENDS  1 << 0
 #define CLUSTER_MANAGER_OPT_COLD        1 << 1
@@ -237,6 +239,7 @@ static struct config {
     int output; /* output mode, see OUTPUT_* defines */
     int push_output; /* Should we display spontaneous PUSH replies */
     sds mb_delim;
+    sds cmd_delim;
     char prompt[128];
     char *eval;
     int eval_ldb;
@@ -311,7 +314,7 @@ static void cliRefreshPrompt(void) {
 
 /* Return the name of the dotfile for the specified 'dotfilename'.
  * Normally it just concatenates user $HOME to the file specified
- * in 'dotfilename'. However if the environment varialbe 'envoverride'
+ * in 'dotfilename'. However if the environment variable 'envoverride'
  * is set, its value is taken as the path.
  *
  * The function returns NULL (if the file is /dev/null or cannot be
@@ -1234,7 +1237,7 @@ static sds cliFormatReply(redisReply *reply, int mode, int verbatim) {
         out = cliFormatReplyTTY(reply, "");
     } else if (mode == OUTPUT_RAW) {
         out = cliFormatReplyRaw(reply);
-        out = sdscatlen(out, "\n", 1);
+        out = sdscatsds(out, config.cmd_delim);
     } else if (mode == OUTPUT_CSV) {
         out = cliFormatReplyCSV(reply);
         out = sdscatlen(out, "\n", 1);
@@ -1602,6 +1605,9 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-d") && !lastarg) {
             sdsfree(config.mb_delim);
             config.mb_delim = sdsnew(argv[++i]);
+        } else if (!strcmp(argv[i],"-D") && !lastarg) {
+            sdsfree(config.cmd_delim);
+            config.cmd_delim = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"--verbose")) {
             config.verbose = 1;
         } else if (!strcmp(argv[i],"--cluster") && !lastarg) {
@@ -1614,6 +1620,12 @@ static int parseOptions(int argc, char **argv) {
             i = j;
         } else if (!strcmp(argv[i],"--cluster") && lastarg) {
             usage();
+        } else if ((!strcmp(argv[i],"--cluster-only-masters"))) {
+            config.cluster_manager_command.flags |=
+                    CLUSTER_MANAGER_CMD_FLAG_MASTERS_ONLY;
+        } else if ((!strcmp(argv[i],"--cluster-only-replicas"))) {
+            config.cluster_manager_command.flags |=
+                    CLUSTER_MANAGER_CMD_FLAG_SLAVES_ONLY;
         } else if (!strcmp(argv[i],"--cluster-replicas") && !lastarg) {
             config.cluster_manager_command.replicas = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"--cluster-master-id") && !lastarg) {
@@ -1786,7 +1798,7 @@ static void usage(void) {
 "  -a <password>      Password to use when connecting to the server.\n"
 "                     You can also use the " REDIS_CLI_AUTH_ENV " environment\n"
 "                     variable to pass this password more safely\n"
-"                     (if both are used, this argument takes predecence).\n"
+"                     (if both are used, this argument takes precedence).\n"
 "  --user <username>  Used to send ACL style 'AUTH username pass'. Needs -a.\n"
 "  --pass <password>  Alias of -a for consistency with the new --user option.\n"
 "  --askpass          Force user to input password with mask from STDIN.\n"
@@ -1799,7 +1811,8 @@ static void usage(void) {
 "  -n <db>            Database number.\n"
 "  -3                 Start session in RESP3 protocol mode.\n"
 "  -x                 Read last argument from STDIN.\n"
-"  -d <delimiter>     Multi-bulk delimiter in for raw formatting (default: \\n).\n"
+"  -d <delimiter>     Delimiter between response bulks for raw formatting (default: \\n).\n"
+"  -D <delimiter>     Delimiter between responses for raw formatting (default: \\n).\n"
 "  -c                 Enable cluster mode (follow -ASK and -MOVED redirections).\n"
 #ifdef USE_OPENSSL
 "  --tls              Establish a secure TLS connection.\n"
@@ -2217,7 +2230,7 @@ static int evalMode(int argc, char **argv) {
         argv2[2] = sdscatprintf(sdsempty(),"%d",keys);
 
         /* Call it */
-        int eval_ldb = config.eval_ldb; /* Save it, may be reverteed. */
+        int eval_ldb = config.eval_ldb; /* Save it, may be reverted. */
         retval = issueCommand(argc+3-got_comma, argv2);
         if (eval_ldb) {
             if (!config.eval_ldb) {
@@ -2403,7 +2416,7 @@ clusterManagerCommandDef clusterManagerCommands[] = {
      "new_host:new_port existing_host:existing_port", "slave,master-id <arg>"},
     {"del-node", clusterManagerCommandDeleteNode, 2, "host:port node_id",NULL},
     {"call", clusterManagerCommandCall, -2,
-        "host:port command arg arg .. arg", NULL},
+        "host:port command arg arg .. arg", "only-masters,only-replicas"},
     {"set-timeout", clusterManagerCommandSetTimeout, 2,
      "host:port milliseconds", NULL},
     {"import", clusterManagerCommandImport, 1, "host:port",
@@ -5435,8 +5448,6 @@ static void clusterManagerMode(clusterManagerCommandProc *proc) {
     exit(0);
 cluster_manager_err:
     freeClusterManager();
-    sdsfree(config.hostip);
-    sdsfree(config.mb_delim);
     exit(1);
 }
 
@@ -6506,6 +6517,10 @@ static int clusterManagerCommandCall(int argc, char **argv) {
     listRewind(cluster_manager.nodes, &li);
     while ((ln = listNext(&li)) != NULL) {
         clusterManagerNode *n = ln->value;
+        if ((config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_MASTERS_ONLY)
+              && (n->replicate != NULL)) continue;  // continue if node is slave
+        if ((config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_SLAVES_ONLY)
+              && (n->replicate == NULL)) continue;   // continue if node is master
         if (!n->context && !clusterManagerNodeConnect(n)) continue;
         redisReply *reply = NULL;
         redisAppendCommandArgv(n->context, argc, (const char **) argv, argvlen);
@@ -6729,13 +6744,13 @@ struct distsamples {
  * samples greater than the previous one, and is also the stop sentinel.
  *
  * "tot' is the total number of samples in the different buckets, so it
- * is the SUM(samples[i].conut) for i to 0 up to the max sample.
+ * is the SUM(samples[i].count) for i to 0 up to the max sample.
  *
  * As a side effect the function sets all the buckets count to 0. */
 void showLatencyDistSamples(struct distsamples *samples, long long tot) {
     int j;
 
-     /* We convert samples into a index inside the palette
+     /* We convert samples into an index inside the palette
      * proportional to the percentage a given bucket represents.
      * This way intensity of the different parts of the spectrum
      * don't change relative to the number of requests, which avoids to
@@ -6893,21 +6908,52 @@ static ssize_t writeConn(redisContext *c, const char *buf, size_t buf_len)
 {
     int done = 0;
 
+    /* Append data to buffer which is *usually* expected to be empty
+     * but we don't assume that, and write.
+     */
     c->obuf = sdscatlen(c->obuf, buf, buf_len);
     if (redisBufferWrite(c, &done) == REDIS_ERR) {
-        sdsrange(c->obuf, 0, -(buf_len+1));
         if (!(c->flags & REDIS_BLOCK))
             errno = EAGAIN;
+
+        /* On error, we assume nothing was written and we roll back the
+         * buffer to its original state.
+         */
+        if (sdslen(c->obuf) > buf_len)
+            sdsrange(c->obuf, 0, -(buf_len+1));
+        else
+            sdsclear(c->obuf);
+
         return -1;
     }
 
-    size_t left = sdslen(c->obuf);
-    sdsclear(c->obuf);
-    if (!done) {
-        return buf_len - left;
+    /* If we're done, free up everything. We may have written more than
+     * buf_len (if c->obuf was not initially empty) but we don't have to
+     * tell.
+     */
+    if (done) {
+        sdsclear(c->obuf);
+        return buf_len;
     }
 
-    return buf_len;
+    /* Write was successful but we have some leftovers which we should
+     * remove from the buffer.
+     *
+     * Do we still have data that was there prior to our buf? If so,
+     * restore buffer to it's original state and report no new data was
+     * writen.
+     */
+    if (sdslen(c->obuf) > buf_len) {
+        sdsrange(c->obuf, 0, -(buf_len+1));
+        return 0;
+    }
+
+    /* At this point we're sure no prior data is left. We flush the buffer
+     * and report how much we've written.
+     */
+    size_t left = sdslen(c->obuf);
+    sdsclear(c->obuf);
+    return buf_len - left;
 }
 
 /* Read raw bytes through a redisContext. The read operation is not greedy
@@ -8011,7 +8057,7 @@ static void LRUTestMode(void) {
  * Intrisic latency mode.
  *
  * Measure max latency of a running process that does not result from
- * syscalls. Basically this software should provide an hint about how much
+ * syscalls. Basically this software should provide a hint about how much
  * time the kernel leaves the process without a chance to run.
  *--------------------------------------------------------------------------- */
 
@@ -8161,6 +8207,7 @@ int main(int argc, char **argv) {
         config.push_output = 1;
     }
     config.mb_delim = sdsnew("\n");
+    config.cmd_delim = sdsnew("\n");
 
     firstarg = parseOptions(argc,argv);
     argc -= firstarg;
@@ -8184,8 +8231,6 @@ int main(int argc, char **argv) {
     if (CLUSTER_MANAGER_MODE()) {
         clusterManagerCommandProc *proc = validateClusterManagerCommand();
         if (!proc) {
-            sdsfree(config.hostip);
-            sdsfree(config.mb_delim);
             exit(1);
         }
         clusterManagerMode(proc);
@@ -8282,4 +8327,3 @@ int main(int argc, char **argv) {
         return noninteractive(argc,convertToSds(argc,argv));
     }
 }
-
