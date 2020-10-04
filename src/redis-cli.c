@@ -1816,8 +1816,8 @@ static void usage(void) {
 "  -n <db>            Database number.\n"
 "  -3                 Start session in RESP3 protocol mode.\n"
 "  -x                 Read last argument from STDIN.\n"
-"  -d <delimiter>     Multi-bulk delimiter in for raw formatting (default: \\n).\n"
-"  -D <delimiter>     Raw response new-line delimiter in for raw formatting (default: \\n).\n"
+"  -d <delimiter>     Delimiter between response bulks for raw formatting (default: \\n).\n"
+"  -D <delimiter>     Delimiter between responses for raw formatting (default: \\n).\n"
 "  -c                 Enable cluster mode (follow -ASK and -MOVED redirections).\n"
 #ifdef USE_OPENSSL
 "  --tls              Establish a secure TLS connection.\n"
