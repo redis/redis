@@ -30,6 +30,9 @@
 #include "server.h"
 #include <math.h> /* isnan(), isinf() */
 
+/* Forward declarations */
+int getGenericCommand(client *c);
+
 /*-----------------------------------------------------------------------------
  * String Commands
  *----------------------------------------------------------------------------*/
