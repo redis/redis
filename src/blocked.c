@@ -371,11 +371,18 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
                 int noack = 0;
 
                 if (group) {
+                    int created = 0;
                     consumer =
                         streamLookupConsumer(group,
                                              receiver->bpop.xread_consumer->ptr,
-                                             SLC_NONE);
+                                             SLC_NONE,
+                                             &created);
                     noack = receiver->bpop.xread_group_noack;
+                    if (created && noack) {
+                        streamPropagateConsumerCreation(receiver,rl->key,
+                                                        receiver->bpop.xread_group,
+                                                        consumer->name);
+                    }
                 }
 
                 /* Emit the two elements sub-array consisting of

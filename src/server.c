@@ -428,10 +428,18 @@ struct redisCommand redisCommandTable[] = {
 
     {"zunionstore",zunionstoreCommand,-4,
      "write use-memory @sortedset",
-     0,zunionInterGetKeys,0,0,0,0,0,0},
+     0,zunionInterStoreGetKeys,0,0,0,0,0,0},
 
     {"zinterstore",zinterstoreCommand,-4,
      "write use-memory @sortedset",
+     0,zunionInterStoreGetKeys,0,0,0,0,0,0},
+
+    {"zunion",zunionCommand,-3,
+     "read-only @sortedset",
+     0,zunionInterGetKeys,0,0,0,0,0,0},
+
+    {"zinter",zinterCommand,-3,
+     "read-only @sortedset",
      0,zunionInterGetKeys,0,0,0,0,0,0},
 
     {"zrange",zrangeCommand,-4,
@@ -1618,8 +1626,10 @@ int clientsCronTrackClientsMemUsage(client *c) {
     size_t mem = 0;
     int type = getClientType(c);
     mem += getClientOutputBufferMemoryUsage(c);
-    mem += sdsAllocSize(c->querybuf);
-    mem += sizeof(client);
+    mem += sdsZmallocSize(c->querybuf);
+    mem += zmalloc_size(c);
+    mem += c->argv_len_sum;
+    if (c->argv) mem += zmalloc_size(c->argv);
     /* Now that we have the memory used by the client, remove the old
      * value from the old category, and add it back. */
     server.stat_clients_type_memory[c->client_cron_last_memory_type] -=
@@ -1764,7 +1774,8 @@ void databasesCron(void) {
 void updateCachedTime(int update_daylight_info) {
     server.ustime = ustime();
     server.mstime = server.ustime / 1000;
-    server.unixtime = server.mstime / 1000;
+    time_t unixtime = server.mstime / 1000;
+    atomicSet(server.unixtime, unixtime);
 
     /* To get information about daylight saving time, we need to call
      * localtime_r and cache the result. However calling localtime_r in this
@@ -1913,11 +1924,15 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     run_with_period(100) {
+        long long stat_net_input_bytes, stat_net_output_bytes;
+        atomicGet(server.stat_net_input_bytes, stat_net_input_bytes);
+        atomicGet(server.stat_net_output_bytes, stat_net_output_bytes);
+
         trackInstantaneousMetric(STATS_METRIC_COMMAND,server.stat_numcommands);
         trackInstantaneousMetric(STATS_METRIC_NET_INPUT,
-                server.stat_net_input_bytes);
+                stat_net_input_bytes);
         trackInstantaneousMetric(STATS_METRIC_NET_OUTPUT,
-                server.stat_net_output_bytes);
+                stat_net_output_bytes);
     }
 
     /* We have just LRU_BITS bits per object for LRU information.
@@ -1931,7 +1946,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      *
      * Note that you can change the resolution altering the
      * LRU_CLOCK_RESOLUTION define. */
-    server.lruclock = getLRUClock();
+    unsigned int lruclock = getLRUClock();
+    atomicSet(server.lruclock,lruclock);
 
     cronUpdateMemoryStats();
 
@@ -2443,7 +2459,8 @@ void initServerConfig(void) {
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.loading_process_events_interval_bytes = (1024*1024*2);
 
-    server.lruclock = getLRUClock();
+    unsigned int lruclock = getLRUClock();
+    atomicSet(server.lruclock,lruclock);
     resetServerSaveParams();
 
     appendServerSaveParams(60*60,1);  /* save after 1 hour and 1 change */
@@ -2846,9 +2863,9 @@ void resetServerStats(void) {
     server.stat_sync_partial_ok = 0;
     server.stat_sync_partial_err = 0;
     server.stat_io_reads_processed = 0;
-    server.stat_total_reads_processed = 0;
+    atomicSet(server.stat_total_reads_processed, 0);
     server.stat_io_writes_processed = 0;
-    server.stat_total_writes_processed = 0;
+    atomicSet(server.stat_total_writes_processed, 0);
     for (j = 0; j < STATS_METRIC_COUNT; j++) {
         server.inst_metric[j].idx = 0;
         server.inst_metric[j].last_sample_time = mstime();
@@ -2856,11 +2873,19 @@ void resetServerStats(void) {
         memset(server.inst_metric[j].samples,0,
             sizeof(server.inst_metric[j].samples));
     }
-    server.stat_net_input_bytes = 0;
-    server.stat_net_output_bytes = 0;
+    atomicSet(server.stat_net_input_bytes, 0);
+    atomicSet(server.stat_net_output_bytes, 0);
     server.stat_unexpected_error_replies = 0;
     server.aof_delayed_fsync = 0;
     server.blocked_last_cron = 0;
+}
+
+/* Make the thread killable at any time, so that kill threads functions
+ * can work reliably (default cancelability type is PTHREAD_CANCEL_DEFERRED).
+ * Needed for pthread_cancel used by the fast memory test used by the crash report. */
+void makeThreadKillable(void) {
+    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+    pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 }
 
 void initServer(void) {
@@ -2869,6 +2894,7 @@ void initServer(void) {
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
     setupSignalHandlers();
+    makeThreadKillable();
 
     if (server.syslog_enabled) {
         openlog(server.syslog_ident, LOG_PID | LOG_NDELAY | LOG_NOWAIT,
@@ -2879,6 +2905,8 @@ void initServer(void) {
     server.aof_state = server.aof_enabled ? AOF_ON : AOF_OFF;
     server.hz = server.config_hz;
     server.pid = getpid();
+    server.in_fork_child = CHILD_TYPE_NONE;
+    server.main_thread_id = pthread_self();
     server.current_client = NULL;
     server.fixed_time_expire = 0;
     server.clients = listCreate();
@@ -3401,6 +3429,13 @@ void call(client *c, int flags) {
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
 
+    /* After executing command, we will close the client after writing entire
+     * reply if it is set 'CLIENT_CLOSE_AFTER_COMMAND' flag. */
+    if (c->flags & CLIENT_CLOSE_AFTER_COMMAND) {
+        c->flags &= ~CLIENT_CLOSE_AFTER_COMMAND;
+        c->flags |= CLIENT_CLOSE_AFTER_REPLY;
+    }
+
     /* When EVAL is called loading the AOF we don't want commands called
      * from Lua to go into the slowlog or to populate statistics. */
     if (server.loading && c->flags & CLIENT_LUA)
@@ -3681,9 +3716,9 @@ int processCommand(client *c) {
      * condition, to avoid mixing the propagation of scripts with the
      * propagation of DELs due to eviction. */
     if (server.maxmemory && !server.lua_timedout) {
-        int out_of_memory = freeMemoryIfNeededAndSafe() == C_ERR;
-        /* freeMemoryIfNeeded may flush slave output buffers. This may result
-         * into a slave, that may be the active client, to be freed. */
+        int out_of_memory = (performEvictions() == EVICT_FAIL);
+        /* performEvictions may flush slave output buffers. This may result
+         * in a slave, that may be the active client, to be freed. */
         if (server.current_client == NULL) return C_ERR;
 
         int reject_cmd_on_oom = is_denyoom_command;
@@ -3870,6 +3905,10 @@ int prepareForShutdown(int flags) {
        overwrite the synchronous saving did by SHUTDOWN. */
     if (server.rdb_child_pid != -1) {
         serverLog(LL_WARNING,"There is a child saving an .rdb. Killing it!");
+        /* Note that, in killRDBChild, we call rdbRemoveTempFile that will
+         * do close fd(in order to unlink file actully) in background thread.
+         * The temp rdb file fd may won't be closed when redis exits quickly,
+         * but OS will close this fd when process exits. */
         killRDBChild();
     }
 
@@ -4185,6 +4224,8 @@ sds genRedisInfoString(const char *section) {
             call_uname = 0;
         }
 
+        unsigned int lruclock;
+        atomicGet(server.lruclock,lruclock);
         info = sdscatfmt(info,
             "# Server\r\n"
             "redis_version:%s\r\n"
@@ -4229,7 +4270,7 @@ sds genRedisInfoString(const char *section) {
             (int64_t)(uptime/(3600*24)),
             server.hz,
             server.config_hz,
-            server.lruclock,
+            lruclock,
             server.executable ? server.executable : "",
             server.configfile ? server.configfile : "",
             server.io_threads_active);
@@ -4471,6 +4512,13 @@ sds genRedisInfoString(const char *section) {
 
     /* Stats */
     if (allsections || defsections || !strcasecmp(section,"stats")) {
+        long long stat_total_reads_processed, stat_total_writes_processed;
+        long long stat_net_input_bytes, stat_net_output_bytes;
+        atomicGet(server.stat_total_reads_processed, stat_total_reads_processed);
+        atomicGet(server.stat_total_writes_processed, stat_total_writes_processed);
+        atomicGet(server.stat_net_input_bytes, stat_net_input_bytes);
+        atomicGet(server.stat_net_output_bytes, stat_net_output_bytes);
+
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Stats\r\n"
@@ -4512,8 +4560,8 @@ sds genRedisInfoString(const char *section) {
             server.stat_numconnections,
             server.stat_numcommands,
             getInstantaneousMetric(STATS_METRIC_COMMAND),
-            server.stat_net_input_bytes,
-            server.stat_net_output_bytes,
+            stat_net_input_bytes,
+            stat_net_output_bytes,
             (float)getInstantaneousMetric(STATS_METRIC_NET_INPUT)/1024,
             (float)getInstantaneousMetric(STATS_METRIC_NET_OUTPUT)/1024,
             server.stat_rejected_conn,
@@ -4540,8 +4588,8 @@ sds genRedisInfoString(const char *section) {
             (unsigned long long) trackingGetTotalItems(),
             (unsigned long long) trackingGetTotalPrefixes(),
             server.stat_unexpected_error_replies,
-            server.stat_total_reads_processed,
-            server.stat_total_writes_processed,
+            stat_total_reads_processed,
+            stat_total_writes_processed,
             server.stat_io_reads_processed,
             server.stat_io_writes_processed);
     }
@@ -4917,7 +4965,7 @@ static void sigShutdownHandler(int sig) {
      * on disk. */
     if (server.shutdown_asap && sig == SIGINT) {
         serverLogFromHandler(LL_WARNING, "You insist... exiting now.");
-        rdbRemoveTempFile(getpid());
+        rdbRemoveTempFile(getpid(), 1);
         exit(1); /* Exit with an error since this was not a clean shutdown. */
     } else if (server.loading) {
         serverLogFromHandler(LL_WARNING, "Received shutdown signal during loading, exiting now.");
@@ -4968,7 +5016,8 @@ void removeSignalHandlers(void) {
  * accepting writes because of a write error condition. */
 static void sigKillChildHandler(int sig) {
     UNUSED(sig);
-    serverLogFromHandler(LL_WARNING, "Received SIGUSR1 in child, exiting now.");
+    int level = server.in_fork_child == CHILD_TYPE_MODULE? LL_VERBOSE: LL_WARNING;
+    serverLogFromHandler(level, "Received SIGUSR1 in child, exiting now.");
     exitFromChild(SERVER_CHILD_NOERROR_RETVAL);
 }
 
@@ -4994,11 +5043,13 @@ void closeClildUnusedResourceAfterFork() {
         close(server.cluster_config_file_lock_fd);  /* don't care if this fails */
 }
 
-int redisFork() {
+/* purpose is one of CHILD_TYPE_ types */
+int redisFork(int purpose) {
     int childpid;
     long long start = ustime();
     if ((childpid = fork()) == 0) {
         /* Child */
+        server.in_fork_child = purpose;
         setOOMScoreAdj(CONFIG_OOM_BGCHILD);
         setupChildSignalHandlers();
         closeClildUnusedResourceAfterFork();
@@ -5174,7 +5225,6 @@ int iAmMaster(void) {
             (server.cluster_enabled && nodeIsMaster(server.cluster->myself)));
 }
 
-
 int main(int argc, char **argv) {
     struct timeval tv;
     int j;
@@ -5199,6 +5249,8 @@ int main(int argc, char **argv) {
             return crc64Test(argc, argv);
         } else if (!strcasecmp(argv[2], "zmalloc")) {
             return zmalloc_test(argc, argv);
+        } else if (!strcasecmp(argv[2], "sds")) {
+            return sdsTest(argc, argv);
         }
 
         return -1; /* test not found */

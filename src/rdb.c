@@ -34,6 +34,7 @@
 #include "stream.h"
 
 #include <math.h>
+#include <fcntl.h>
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/resource.h>
@@ -52,6 +53,9 @@ extern int rdbCheckMode;
 void rdbCheckError(const char *fmt, ...);
 void rdbCheckSetError(const char *fmt, ...);
 
+#ifdef __GNUC__
+void rdbReportError(int corruption_error, int linenum, char *reason, ...) __attribute__ ((format (printf, 3, 4)));
+#endif
 void rdbReportError(int corruption_error, int linenum, char *reason, ...) {
     va_list ap;
     char msg[1024];
@@ -487,7 +491,7 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
     int plain = flags & RDB_LOAD_PLAIN;
     int sds = flags & RDB_LOAD_SDS;
     int isencoded;
-    uint64_t len;
+    unsigned long long len;
 
     len = rdbLoadLen(rdb,&isencoded);
     if (isencoded) {
@@ -499,8 +503,8 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
         case RDB_ENC_LZF:
             return rdbLoadLzfStringObject(rdb,flags,lenptr);
         default:
-            rdbExitReportCorruptRDB("Unknown RDB string encoding type %d",len);
-            return NULL; /* Never reached. */
+            rdbExitReportCorruptRDB("Unknown RDB string encoding type %llu",len);
+            return NULL;
         }
     }
 
@@ -1142,6 +1146,8 @@ ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
     /* Save a module-specific aux value. */
     RedisModuleIO io;
     int retval = rdbSaveType(rdb, RDB_OPCODE_MODULE_AUX);
+    if (retval == -1) return -1;
+    io.bytes += retval;
 
     /* Write the "module" identifier as prefix, so that we'll be able
      * to call the right module during loading. */
@@ -1308,7 +1314,7 @@ werr: /* Write error. */
 int rdbSave(char *filename, rdbSaveInfo *rsi) {
     char tmpfile[256];
     char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
-    FILE *fp;
+    FILE *fp = NULL;
     rio rdb;
     int error = 0;
 
@@ -1337,10 +1343,11 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
     }
 
     /* Make sure data will not remain on the OS's output buffers */
-    if (fflush(fp) == EOF) goto werr;
-    if (fsync(fileno(fp)) == -1) goto werr;
-    if (fclose(fp) == EOF) goto werr;
-
+    if (fflush(fp)) goto werr;
+    if (fsync(fileno(fp))) goto werr;
+    if (fclose(fp)) { fp = NULL; goto werr; }
+    fp = NULL;
+    
     /* Use RENAME to make sure the DB file is changed atomically only
      * if the generate DB file is ok. */
     if (rename(tmpfile,filename) == -1) {
@@ -1366,7 +1373,7 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
 
 werr:
     serverLog(LL_WARNING,"Write error saving DB on disk: %s", strerror(errno));
-    fclose(fp);
+    if (fp) fclose(fp);
     unlink(tmpfile);
     stopSaving(0);
     return C_ERR;
@@ -1381,7 +1388,7 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
     server.lastbgsave_try = time(NULL);
     openChildInfoPipe();
 
-    if ((childpid = redisFork()) == 0) {
+    if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {
         int retval;
 
         /* Child */
@@ -1389,7 +1396,7 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
         redisSetCpuAffinity(server.bgsave_cpulist);
         retval = rdbSave(filename,rsi);
         if (retval == C_OK) {
-            sendChildCOWInfo(CHILD_INFO_TYPE_RDB, "RDB");
+            sendChildCOWInfo(CHILD_TYPE_RDB, "RDB");
         }
         exitFromChild((retval == C_OK) ? 0 : 1);
     } else {
@@ -1410,11 +1417,29 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
     return C_OK; /* unreached */
 }
 
-void rdbRemoveTempFile(pid_t childpid) {
+/* Note that we may call this function in signal handle 'sigShutdownHandler',
+ * so we need guarantee all functions we call are async-signal-safe.
+ * If  we call this function from signal handle, we won't call bg_unlik that
+ * is not async-signal-safe. */
+void rdbRemoveTempFile(pid_t childpid, int from_signal) {
     char tmpfile[256];
+    char pid[32];
 
-    snprintf(tmpfile,sizeof(tmpfile),"temp-%d.rdb", (int) childpid);
-    unlink(tmpfile);
+    /* Generate temp rdb file name using aync-signal safe functions. */
+    int pid_len = ll2string(pid, sizeof(pid), childpid);
+    strcpy(tmpfile, "temp-");
+    strncpy(tmpfile+5, pid, pid_len);
+    strcpy(tmpfile+5+pid_len, ".rdb");
+
+    if (from_signal) {
+        /* bg_unlink is not async-signal-safe, but in this case we don't really
+         * need to close the fd, it'll be released when the process exists. */
+        int fd = open(tmpfile, O_RDONLY|O_NONBLOCK);
+        UNUSED(fd);
+        unlink(tmpfile);
+    } else {
+        bg_unlink(tmpfile);
+    }
 }
 
 /* This function is called by rdbLoadObject() when the code is in RDB-check
@@ -1888,7 +1913,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                     return NULL;
                 }
                 streamConsumer *consumer =
-                    streamLookupConsumer(cgroup,cname,SLC_NONE);
+                    streamLookupConsumer(cgroup,cname,SLC_NONE,NULL);
                 sdsfree(cname);
                 consumer->seen_time = rdbLoadMillisecondTime(rdb,RDB_VERSION);
                 if (rioGetReadError(rdb)) {
@@ -2198,7 +2223,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                 if (luaCreateFunction(NULL,server.lua,auxval) == NULL) {
                     rdbExitReportCorruptRDB(
                         "Can't load Lua script from RDB file! "
-                        "BODY: %s", auxval->ptr);
+                        "BODY: %s", (char*)auxval->ptr);
                 }
             } else if (!strcasecmp(auxkey->ptr,"redis-ver")) {
                 serverLog(LL_NOTICE,"Loading RDB produced by version %s",
@@ -2416,7 +2441,7 @@ void backgroundSaveDoneHandlerDisk(int exitcode, int bysignal) {
         serverLog(LL_WARNING,
             "Background saving terminated by signal %d", bysignal);
         latencyStartMonitor(latency);
-        rdbRemoveTempFile(server.rdb_child_pid);
+        rdbRemoveTempFile(server.rdb_child_pid, 0);
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("rdb-unlink-temp-file",latency);
         /* SIGUSR1 is whitelisted, so we have a way to kill a child without
@@ -2485,7 +2510,7 @@ void backgroundSaveDoneHandler(int exitcode, int bysignal) {
  * the cleanup needed. */
 void killRDBChild(void) {
     kill(server.rdb_child_pid,SIGUSR1);
-    rdbRemoveTempFile(server.rdb_child_pid);
+    rdbRemoveTempFile(server.rdb_child_pid, 0);
     closeChildInfoPipe();
     updateDictResizePolicy();
 }
@@ -2539,7 +2564,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
 
     /* Create the child process. */
     openChildInfoPipe();
-    if ((childpid = redisFork()) == 0) {
+    if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {
         /* Child */
         int retval, dummy;
         rio rdb;
@@ -2554,7 +2579,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
             retval = C_ERR;
 
         if (retval == C_OK) {
-            sendChildCOWInfo(CHILD_INFO_TYPE_RDB, "RDB");
+            sendChildCOWInfo(CHILD_TYPE_RDB, "RDB");
         }
 
         rioFreeFd(&rdb);

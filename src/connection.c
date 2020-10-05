@@ -168,7 +168,12 @@ static int connSocketWrite(connection *conn, const void *data, size_t data_len) 
     int ret = write(conn->fd, data, data_len);
     if (ret < 0 && errno != EAGAIN) {
         conn->last_errno = errno;
-        conn->state = CONN_STATE_ERROR;
+
+        /* Don't overwrite the state of a connection that is not already
+         * connected, not to mess with handler callbacks.
+         */
+        if (conn->state == CONN_STATE_CONNECTED)
+            conn->state = CONN_STATE_ERROR;
     }
 
     return ret;
@@ -180,7 +185,12 @@ static int connSocketRead(connection *conn, void *buf, size_t buf_len) {
         conn->state = CONN_STATE_CLOSED;
     } else if (ret < 0 && errno != EAGAIN) {
         conn->last_errno = errno;
-        conn->state = CONN_STATE_ERROR;
+
+        /* Don't overwrite the state of a connection that is not already
+         * connected, not to mess with handler callbacks.
+         */
+        if (conn->state == CONN_STATE_CONNECTED)
+            conn->state = CONN_STATE_ERROR;
     }
 
     return ret;
@@ -251,8 +261,9 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
     if (conn->state == CONN_STATE_CONNECTING &&
             (mask & AE_WRITABLE) && conn->conn_handler) {
 
-        if (connGetSocketError(conn)) {
-            conn->last_errno = errno;
+        int conn_error = connGetSocketError(conn);
+        if (conn_error) {
+            conn->last_errno = conn_error;
             conn->state = CONN_STATE_ERROR;
         } else {
             conn->state = CONN_STATE_CONNECTED;

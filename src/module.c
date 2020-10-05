@@ -357,11 +357,6 @@ unsigned long long ModulesInHooks = 0; /* Total number of modules in hooks
 
 /* Data structures related to the redis module users */
 
-/* This callback type is called by moduleNotifyUserChanged() every time
- * a user authenticated via the module API is associated with a different
- * user or gets disconnected. */
-typedef void (*RedisModuleUserChangedFunc) (uint64_t client_id, void *privdata);
-
 /* This is the object returned by RM_CreateModuleUser(). The module API is
  * able to create users, set ACLs to such users, and later authenticate
  * clients using such newly created users. */
@@ -1922,6 +1917,12 @@ int RM_GetSelectedDb(RedisModuleCtx *ctx) {
  *
  *  * REDISMODULE_CTX_FLAGS_ACTIVE_CHILD: There is currently some background
  *                                        process active (RDB, AUX or module).
+ *
+ *  * REDISMODULE_CTX_FLAGS_MULTI_DIRTY: The next EXEC will fail due to dirty
+ *                                       CAS (touched keys).
+ *
+ *  * REDISMODULE_CTX_FLAGS_IS_CHILD: Redis is currently running inside
+ *                                    background child process.
  */
 int RM_GetContextFlags(RedisModuleCtx *ctx) {
 
@@ -1996,6 +1997,7 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
 
     /* Presence of children processes. */
     if (hasActiveChildProcess()) flags |= REDISMODULE_CTX_FLAGS_ACTIVE_CHILD;
+    if (server.in_fork_child) flags |= REDISMODULE_CTX_FLAGS_IS_CHILD;
 
     return flags;
 }
@@ -2378,6 +2380,8 @@ int RM_ZsetAddFlagsToCoreFlags(int flags) {
     int retflags = 0;
     if (flags & REDISMODULE_ZADD_XX) retflags |= ZADD_XX;
     if (flags & REDISMODULE_ZADD_NX) retflags |= ZADD_NX;
+    if (flags & REDISMODULE_ZADD_GT) retflags |= ZADD_GT;
+    if (flags & REDISMODULE_ZADD_LT) retflags |= ZADD_LT;
     return retflags;
 }
 
@@ -2404,6 +2408,10 @@ int RM_ZsetAddFlagsFromCoreFlags(int flags) {
  *
  *     REDISMODULE_ZADD_XX: Element must already exist. Do nothing otherwise.
  *     REDISMODULE_ZADD_NX: Element must not exist. Do nothing otherwise.
+ *     REDISMODULE_ZADD_GT: If element exists, new score must be greater than the current score. 
+ *                          Do nothing otherwise. Can optionally be combined with XX.
+ *     REDISMODULE_ZADD_LT: If element exists, new score must be less than the current score.
+ *                          Do nothing otherwise. Can optionally be combined with XX.
  *
  * The output flags are:
  *
@@ -2930,8 +2938,8 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
 }
 
 /* Get fields from an hash value. This function is called using a variable
- * number of arguments, alternating a field name (as a StringRedisModule
- * pointer) with a pointer to a StringRedisModule pointer, that is set to the
+ * number of arguments, alternating a field name (as a RedisModuleString
+ * pointer) with a pointer to a RedisModuleString pointer, that is set to the
  * value of the field if the field exists, or NULL if the field does not exist.
  * At the end of the field/value-ptr pairs, NULL must be specified as last
  * argument to signal the end of the arguments in the variadic function.
@@ -2945,22 +2953,22 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
  * As with RedisModule_HashSet() the behavior of the command can be specified
  * passing flags different than REDISMODULE_HASH_NONE:
  *
- * REDISMODULE_HASH_CFIELD: field names as null terminated C strings.
+ * REDISMODULE_HASH_CFIELDS: field names as null terminated C strings.
  *
  * REDISMODULE_HASH_EXISTS: instead of setting the value of the field
  * expecting a RedisModuleString pointer to pointer, the function just
  * reports if the field exists or not and expects an integer pointer
  * as the second element of each pair.
  *
- * Example of REDISMODULE_HASH_CFIELD:
+ * Example of REDISMODULE_HASH_CFIELDS:
  *
  *      RedisModuleString *username, *hashedpass;
- *      RedisModule_HashGet(mykey,"username",&username,"hp",&hashedpass, NULL);
+ *      RedisModule_HashGet(mykey,REDISMODULE_HASH_CFIELDS,"username",&username,"hp",&hashedpass, NULL);
  *
  * Example of REDISMODULE_HASH_EXISTS:
  *
  *      int exists;
- *      RedisModule_HashGet(mykey,argv[1],&exists,NULL);
+ *      RedisModule_HashGet(mykey,REDISMODULE_HASH_EXISTS,argv[1],&exists,NULL);
  *
  * The function returns REDISMODULE_OK on success and REDISMODULE_ERR if
  * the key is not an hash value.
@@ -5530,7 +5538,13 @@ void revokeClientAuthentication(client *c) {
 
     c->user = DefaultUser;
     c->authenticated = 0;
-    freeClientAsync(c);
+    /* We will write replies to this client later, so we can't close it
+     * directly even if async. */
+    if (c == server.current_client) {
+        c->flags |= CLIENT_CLOSE_AFTER_COMMAND;
+    } else {
+        freeClientAsync(c);
+    }
 }
 
 /* Cleanup all clients that have been authenticated with this module. This
@@ -5622,6 +5636,11 @@ int RM_SetModuleUserACL(RedisModuleUser *user, const char* acl) {
  * to the client in a threadsafe context.  */
 static int authenticateClientWithUser(RedisModuleCtx *ctx, user *user, RedisModuleUserChangedFunc callback, void *privdata, uint64_t *client_id) {
     if (user->flags & USER_FLAG_DISABLED) {
+        return REDISMODULE_ERR;
+    }
+
+    /* Avoid settings which are meaningless and will be lost */
+    if (!ctx->client || (ctx->client->flags & CLIENT_MODULE)) {
         return REDISMODULE_ERR;
     }
 
@@ -6904,7 +6923,7 @@ int RM_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
     }
 
     openChildInfoPipe();
-    if ((childpid = redisFork()) == 0) {
+    if ((childpid = redisFork(CHILD_TYPE_MODULE)) == 0) {
         /* Child */
         redisSetProcTitle("redis-module-fork");
     } else if (childpid == -1) {
@@ -6924,7 +6943,7 @@ int RM_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
  * retcode will be provided to the done handler executed on the parent process.
  */
 int RM_ExitFromChild(int retcode) {
-    sendChildCOWInfo(CHILD_INFO_TYPE_MODULE, "Module fork");
+    sendChildCOWInfo(CHILD_TYPE_MODULE, "Module fork");
     exitFromChild(retcode);
     return REDISMODULE_OK;
 }
@@ -7179,6 +7198,20 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *              int32_t progress;  // Approximate progress between 0 and 1024,
  *                                    or -1 if unknown.
  *
+ *      RedisModuleEvent_SwapDB
+ *
+ *          This event is called when a swap db command has been successfully 
+ *          Executed. 
+ *          For this event call currently there is no subevents available.
+ *
+ *          The data pointer can be casted to a RedisModuleSwapDbInfo
+ *          structure with the following fields:
+ *
+ *             int32_t dbnum_first;    // Swap Db first dbnum 
+ *             int32_t dbnum_second;   // Swap Db second dbnum 
+ *
+ *
+ *
  * The function returns REDISMODULE_OK if the module was successfully subscribed
  * for the specified event. If the API is called from a wrong context then
  * REDISMODULE_ERR is returned. */
@@ -7231,6 +7264,7 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
      * cheap if there are no registered modules. */
     if (listLength(RedisModule_EventListeners) == 0) return;
 
+    int real_client_used = 0;
     listIter li;
     listNode *ln;
     listRewind(RedisModule_EventListeners,&li);
@@ -7240,7 +7274,15 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
             RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
             ctx.module = el->module;
 
-            if (ModulesInHooks == 0) {
+            if (eid == REDISMODULE_EVENT_CLIENT_CHANGE) {
+                /* In the case of client changes, we're pushing the real client
+                 * so the event handler can mutate it if needed. For example,
+                 * to change its authentication state in a way that does not
+                 * depend on specific commands executed later.
+                 */
+                ctx.client = (client *) data;
+                real_client_used = 1;
+            } else if (ModulesInHooks == 0) {
                 ctx.client = moduleFreeContextReusedClient;
             } else {
                 ctx.client = createClient(NULL);
@@ -7283,6 +7325,8 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
                 moduledata = data;
             } else if (eid == REDISMODULE_EVENT_CRON_LOOP) {
                 moduledata = data;
+            } else if (eid == REDISMODULE_EVENT_SWAPDB) {
+                moduledata = data;
             }
 
             ModulesInHooks++;
@@ -7291,7 +7335,7 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
             el->module->in_hook--;
             ModulesInHooks--;
 
-            if (ModulesInHooks != 0) freeClient(ctx.client);
+            if (ModulesInHooks != 0 && !real_client_used) freeClient(ctx.client);
             moduleFreeContext(&ctx);
         }
     }

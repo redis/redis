@@ -390,7 +390,7 @@ unsigned int zipStoreEntryEncoding(unsigned char *p, unsigned char encoding, uns
         (lensize) = 1;                                                         \
         (len) = zipIntSize(encoding);                                          \
     }                                                                          \
-} while(0);
+} while(0)
 
 /* Encode the length of the previous entry and write it to "p". This only
  * uses the larger encoding (required in __ziplistCascadeUpdate). */
@@ -426,7 +426,7 @@ unsigned int zipStorePrevEntryLength(unsigned char *p, unsigned int len) {
     } else {                                                                   \
         (prevlensize) = 5;                                                     \
     }                                                                          \
-} while(0);
+} while(0)
 
 /* Return the length of the previous element, and the number of bytes that
  * are used in order to encode the previous element length.
@@ -444,7 +444,7 @@ unsigned int zipStorePrevEntryLength(unsigned char *p, unsigned int len) {
         memcpy(&(prevlen), ((char*)(ptr)) + 1, 4);                             \
         memrev32ifbe(&prevlen);                                                \
     }                                                                          \
-} while(0);
+} while(0)
 
 /* Given a pointer 'p' to the prevlen info that prefixes an entry, this
  * function returns the difference in number of bytes needed to encode

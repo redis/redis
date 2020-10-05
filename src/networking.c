@@ -48,12 +48,23 @@ size_t sdsZmallocSize(sds s) {
 }
 
 /* Return the amount of memory used by the sds string at object->ptr
- * for a string object. */
+ * for a string object. This includes internal fragmentation. */
 size_t getStringObjectSdsUsedMemory(robj *o) {
     serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
     switch(o->encoding) {
     case OBJ_ENCODING_RAW: return sdsZmallocSize(o->ptr);
     case OBJ_ENCODING_EMBSTR: return zmalloc_size(o)-sizeof(robj);
+    default: return 0; /* Just integer encoding for now. */
+    }
+}
+
+/* Return the length of a string object.
+ * This does NOT includes internal fragmentation or sds unused space. */
+size_t getStringObjectLen(robj *o) {
+    serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
+    switch(o->encoding) {
+    case OBJ_ENCODING_RAW: return sdslen(o->ptr);
+    case OBJ_ENCODING_EMBSTR: return sdslen(o->ptr);
     default: return 0; /* Just integer encoding for now. */
     }
 }
@@ -103,7 +114,8 @@ client *createClient(connection *conn) {
     }
 
     selectDb(c,0);
-    uint64_t client_id = ++server.next_client_id;
+    uint64_t client_id;
+    atomicGetIncr(server.next_client_id, client_id, 1);
     c->id = client_id;
     c->resp = 2;
     c->conn = conn;
@@ -116,6 +128,7 @@ client *createClient(connection *conn) {
     c->reqtype = 0;
     c->argc = 0;
     c->argv = NULL;
+    c->argv_len_sum = 0;
     c->cmd = c->lastcmd = NULL;
     c->user = DefaultUser;
     c->multibulklen = 0;
@@ -223,6 +236,9 @@ int prepareClientToWrite(client *c) {
      * handler since there is no socket at all. */
     if (c->flags & (CLIENT_LUA|CLIENT_MODULE)) return C_OK;
 
+    /* If CLIENT_CLOSE_ASAP flag is set, we need not write anything. */
+    if (c->flags & CLIENT_CLOSE_ASAP) return C_ERR;
+
     /* CLIENT REPLY OFF / SKIP handling: don't send replies. */
     if (c->flags & (CLIENT_REPLY_OFF|CLIENT_REPLY_SKIP)) return C_ERR;
 
@@ -289,7 +305,7 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
         size_t size = len < PROTO_REPLY_CHUNK_BYTES? PROTO_REPLY_CHUNK_BYTES: len;
         tail = zmalloc(size + sizeof(clientReplyBlock));
         /* take over the allocation's internal fragmentation */
-        tail->size = zmalloc_usable(tail) - sizeof(clientReplyBlock);
+        tail->size = zmalloc_usable_size(tail) - sizeof(clientReplyBlock);
         tail->used = len;
         memcpy(tail->buf, s, len);
         listAddNodeTail(c->reply, tail);
@@ -485,7 +501,7 @@ void trimReplyUnusedTailSpace(client *c) {
         tail = zrealloc(tail, tail->used + sizeof(clientReplyBlock));
         /* take over the allocation's internal fragmentation (at least for
          * memory usage tracking) */
-        tail->size = zmalloc_usable(tail) - sizeof(clientReplyBlock);
+        tail->size = zmalloc_usable_size(tail) - sizeof(clientReplyBlock);
         c->reply_bytes = c->reply_bytes + tail->size - old_size;
         listNodeValue(ln) = tail;
     }
@@ -537,7 +553,7 @@ void setDeferredAggregateLen(client *c, void *node, long length, char prefix) {
         /* Create a new node */
         clientReplyBlock *buf = zmalloc(lenstr_len + sizeof(clientReplyBlock));
         /* Take over the allocation's internal fragmentation */
-        buf->size = zmalloc_usable(buf) - sizeof(clientReplyBlock);
+        buf->size = zmalloc_usable_size(buf) - sizeof(clientReplyBlock);
         buf->used = lenstr_len;
         memcpy(buf->buf, lenstr, lenstr_len);
         listNodeValue(ln) = buf;
@@ -1048,6 +1064,7 @@ static void freeClientArgv(client *c) {
         decrRefCount(c->argv[j]);
     c->argc = 0;
     c->cmd = NULL;
+    c->argv_len_sum = 0;
 }
 
 /* Close all the slaves connections. This is useful in chained replication
@@ -1060,6 +1077,25 @@ void disconnectSlaves(void) {
     while((ln = listNext(&li))) {
         freeClient((client*)ln->value);
     }
+}
+
+/* Check if there is any other slave waiting dumping RDB finished expect me.
+ * This function is useful to judge current dumping RDB can be used for full
+ * synchronization or not. */
+int anyOtherSlaveWaitRdb(client *except_me) {
+    listIter li;
+    listNode *ln;
+
+    listRewind(server.slaves, &li);
+    while((ln = listNext(&li))) {
+        client *slave = ln->value;
+        if (slave != except_me &&
+            slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END)
+        {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 /* Remove the specified client from global lists where the client could
@@ -1212,6 +1248,21 @@ void freeClient(client *c) {
     /* Master/slave cleanup Case 1:
      * we lost the connection with a slave. */
     if (c->flags & CLIENT_SLAVE) {
+        /* If there is no any other slave waiting dumping RDB finished, the
+         * current child process need not continue to dump RDB, then we kill it.
+         * So child process won't use more memory, and we also can fork a new
+         * child process asap to dump rdb for next full synchronization or bgsave.
+         * But we also need to check if users enable 'save' RDB, if enable, we
+         * should not remove directly since that means RDB is important for users
+         * to keep data safe and we may delay configured 'save' for full sync. */
+        if (server.saveparamslen == 0 &&
+            c->replstate == SLAVE_STATE_WAIT_BGSAVE_END &&
+            server.rdb_child_pid != -1 &&
+            server.rdb_child_type == RDB_CHILD_TYPE_DISK &&
+            anyOtherSlaveWaitRdb(c) == 0)
+        {
+            killRDBChild();
+        }
         if (c->replstate == SLAVE_STATE_SEND_BULK) {
             if (c->repldbfd != -1) close(c->repldbfd);
             if (c->replpreamble) sdsfree(c->replpreamble);
@@ -1246,6 +1297,7 @@ void freeClient(client *c) {
      * and finally release the client structure itself. */
     if (c->name) decrRefCount(c->name);
     zfree(c->argv);
+    c->argv_len_sum = 0;
     freeClientMultiState(c);
     sdsfree(c->peerid);
     zfree(c);
@@ -1314,7 +1366,7 @@ client *lookupClientByID(uint64_t id) {
  * thread safe. */
 int writeToClient(client *c, int handler_installed) {
     /* Update total number of writes on server */
-    server.stat_total_writes_processed++;
+    atomicIncr(server.stat_total_writes_processed, 1);
 
     ssize_t nwritten = 0, totwritten = 0;
     size_t objlen;
@@ -1376,7 +1428,7 @@ int writeToClient(client *c, int handler_installed) {
              zmalloc_used_memory() < server.maxmemory) &&
             !(c->flags & CLIENT_SLAVE)) break;
     }
-    server.stat_net_output_bytes += totwritten;
+    atomicIncr(server.stat_net_output_bytes, totwritten);
     if (nwritten == -1) {
         if (connGetState(c->conn) == CONN_STATE_CONNECTED) {
             nwritten = 0;
@@ -1435,6 +1487,9 @@ int handleClientsWithPendingWrites(void) {
         /* If a client is protected, don't do anything,
          * that may trigger write error or recreate handler. */
         if (c->flags & CLIENT_PROTECTED) continue;
+
+        /* Don't write to clients that are going to be closed anyway. */
+        if (c->flags & CLIENT_CLOSE_ASAP) continue;
 
         /* Try to write buffers to the client socket. */
         if (writeToClient(c,0) == C_ERR) continue;
@@ -1506,16 +1561,20 @@ void resetClient(client *c) {
  *    path, it is not really released, but only marked for later release. */
 void protectClient(client *c) {
     c->flags |= CLIENT_PROTECTED;
-    connSetReadHandler(c->conn,NULL);
-    connSetWriteHandler(c->conn,NULL);
+    if (c->conn) {
+        connSetReadHandler(c->conn,NULL);
+        connSetWriteHandler(c->conn,NULL);
+    }
 }
 
 /* This will undo the client protection done by protectClient() */
 void unprotectClient(client *c) {
     if (c->flags & CLIENT_PROTECTED) {
         c->flags &= ~CLIENT_PROTECTED;
-        connSetReadHandler(c->conn,readQueryFromClient);
-        if (clientHasPendingReplies(c)) clientInstallWriteHandler(c);
+        if (c->conn) {
+            connSetReadHandler(c->conn,readQueryFromClient);
+            if (clientHasPendingReplies(c)) clientInstallWriteHandler(c);
+        }
     }
 }
 
@@ -1585,12 +1644,14 @@ int processInlineBuffer(client *c) {
     if (argc) {
         if (c->argv) zfree(c->argv);
         c->argv = zmalloc(sizeof(robj*)*argc);
+        c->argv_len_sum = 0;
     }
 
     /* Create redis objects for all arguments. */
     for (c->argc = 0, j = 0; j < argc; j++) {
         c->argv[c->argc] = createObject(OBJ_STRING,argv[j]);
         c->argc++;
+        c->argv_len_sum += sdslen(argv[j]);
     }
     zfree(argv);
     return C_OK;
@@ -1682,6 +1743,7 @@ int processMultibulkBuffer(client *c) {
         /* Setup argv array on client structure */
         if (c->argv) zfree(c->argv);
         c->argv = zmalloc(sizeof(robj*)*c->multibulklen);
+        c->argv_len_sum = 0;
     }
 
     serverAssertWithInfo(c,NULL,c->multibulklen > 0);
@@ -1754,6 +1816,7 @@ int processMultibulkBuffer(client *c) {
                 sdslen(c->querybuf) == (size_t)(c->bulklen+2))
             {
                 c->argv[c->argc++] = createObject(OBJ_STRING,c->querybuf);
+                c->argv_len_sum += c->bulklen;
                 sdsIncrLen(c->querybuf,-2); /* remove CRLF */
                 /* Assume that if we saw a fat argument we'll see another one
                  * likely... */
@@ -1762,6 +1825,7 @@ int processMultibulkBuffer(client *c) {
             } else {
                 c->argv[c->argc++] =
                     createStringObject(c->querybuf+c->qb_pos,c->bulklen);
+                c->argv_len_sum += c->bulklen;
                 c->qb_pos += c->bulklen+2;
             }
             c->bulklen = -1;
@@ -1830,8 +1894,8 @@ int processCommandAndResetClient(client *c) {
     }
     if (server.current_client == NULL) deadclient = 1;
     server.current_client = NULL;
-    /* freeMemoryIfNeeded may flush slave output buffers. This may
-     * result into a slave, that may be the active client, to be
+    /* performEvictions may flush slave output buffers. This may
+     * result in a slave, that may be the active client, to be
      * freed. */
     return deadclient ? C_ERR : C_OK;
 }
@@ -1878,8 +1942,9 @@ void processInputBuffer(client *c) {
         if (c->reqtype == PROTO_REQ_INLINE) {
             if (processInlineBuffer(c) != C_OK) break;
             /* If the Gopher mode and we got zero or one argument, process
-             * the request in Gopher mode. */
-            if (server.gopher_enabled &&
+             * the request in Gopher mode. To avoid data race, Redis won't
+             * support Gopher if enable io threads to read queries. */
+            if (server.gopher_enabled && !server.io_threads_do_reads &&
                 ((c->argc == 1 && ((char*)(c->argv[0]->ptr))[0] == '/') ||
                   c->argc == 0))
             {
@@ -1933,7 +1998,7 @@ void readQueryFromClient(connection *conn) {
     if (postponeClientRead(c)) return;
 
     /* Update total number of reads on server */
-    server.stat_total_reads_processed++;
+    atomicIncr(server.stat_total_reads_processed, 1);
 
     readlen = PROTO_IOBUF_LEN;
     /* If this is a multi bulk request, and we are processing a bulk reply
@@ -1979,7 +2044,7 @@ void readQueryFromClient(connection *conn) {
     sdsIncrLen(c->querybuf,nread);
     c->lastinteraction = server.unixtime;
     if (c->flags & CLIENT_MASTER) c->read_reploff += nread;
-    server.stat_net_input_bytes += nread;
+    atomicIncr(server.stat_net_input_bytes, nread);
     if (sdslen(c->querybuf) > server.client_max_querybuf_len) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
 
@@ -2083,8 +2148,21 @@ sds catClientInfoString(sds s, client *client) {
         if (connHasWriteHandler(client->conn)) *p++ = 'w';
     }
     *p = '\0';
+
+    /* Compute the total memory consumed by this client. */
+    size_t obufmem = getClientOutputBufferMemoryUsage(client);
+    size_t total_mem = obufmem;
+    total_mem += zmalloc_size(client); /* includes client->buf */
+    total_mem += sdsZmallocSize(client->querybuf);
+    /* For efficiency (less work keeping track of the argv memory), it doesn't include the used memory
+     * i.e. unused sds space and internal fragmentation, just the string length. but this is enough to
+     * spot problematic clients. */
+    total_mem += client->argv_len_sum;
+    if (client->argv)
+        total_mem += zmalloc_size(client->argv);
+
     return sdscatfmt(s,
-        "id=%U addr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U obl=%U oll=%U omem=%U events=%s cmd=%s user=%s",
+        "id=%U addr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s",
         (unsigned long long) client->id,
         getClientPeerId(client),
         connGetInfo(client->conn, conninfo, sizeof(conninfo)),
@@ -2098,9 +2176,11 @@ sds catClientInfoString(sds s, client *client) {
         (client->flags & CLIENT_MULTI) ? client->mstate.count : -1,
         (unsigned long long) sdslen(client->querybuf),
         (unsigned long long) sdsavail(client->querybuf),
+        (unsigned long long) client->argv_len_sum,
         (unsigned long long) client->bufpos,
         (unsigned long long) listLength(client->reply),
-        (unsigned long long) getClientOutputBufferMemoryUsage(client),
+        (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
+        (unsigned long long) total_mem,
         events,
         client->lastcmd ? client->lastcmd->name : "NULL",
         client->user ? client->user->name : "(superuser)");
@@ -2638,6 +2718,10 @@ void rewriteClientCommandVector(client *c, int argc, ...) {
     /* Replace argv and argc with our new versions. */
     c->argv = argv;
     c->argc = argc;
+    c->argv_len_sum = 0;
+    for (j = 0; j < c->argc; j++)
+        if (c->argv[j])
+            c->argv_len_sum += getStringObjectLen(c->argv[j]);
     c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
     serverAssertWithInfo(c,NULL,c->cmd != NULL);
     va_end(ap);
@@ -2645,10 +2729,15 @@ void rewriteClientCommandVector(client *c, int argc, ...) {
 
 /* Completely replace the client command vector with the provided one. */
 void replaceClientCommandVector(client *c, int argc, robj **argv) {
+    int j;
     freeClientArgv(c);
     zfree(c->argv);
     c->argv = argv;
     c->argc = argc;
+    c->argv_len_sum = 0;
+    for (j = 0; j < c->argc; j++)
+        if (c->argv[j])
+            c->argv_len_sum += getStringObjectLen(c->argv[j]);
     c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
     serverAssertWithInfo(c,NULL,c->cmd != NULL);
 }
@@ -2673,6 +2762,8 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
         c->argv[i] = NULL;
     }
     oldval = c->argv[i];
+    if (oldval) c->argv_len_sum -= getStringObjectLen(oldval);
+    if (newval) c->argv_len_sum += getStringObjectLen(newval);
     c->argv[i] = newval;
     incrRefCount(newval);
     if (oldval) decrRefCount(oldval);
@@ -2797,7 +2888,7 @@ void asyncCloseClientOnOutputBufferLimitReached(client *c) {
     }
 }
 
-/* Helper function used by freeMemoryIfNeeded() in order to flush slaves
+/* Helper function used by performEvictions() in order to flush slaves
  * output buffers without returning control to the event loop.
  * This is also called by SHUTDOWN for a best-effort attempt to send
  * slaves the latest writes. */
@@ -2938,13 +3029,23 @@ int tio_debug = 0;
 
 pthread_t io_threads[IO_THREADS_MAX_NUM];
 pthread_mutex_t io_threads_mutex[IO_THREADS_MAX_NUM];
-_Atomic unsigned long io_threads_pending[IO_THREADS_MAX_NUM];
+redisAtomic unsigned long io_threads_pending[IO_THREADS_MAX_NUM];
 int io_threads_op;      /* IO_THREADS_OP_WRITE or IO_THREADS_OP_READ. */
 
 /* This is the list of clients each thread will serve when threaded I/O is
  * used. We spawn io_threads_num-1 threads, since one is the main thread
  * itself. */
 list *io_threads_list[IO_THREADS_MAX_NUM];
+
+static inline unsigned long getIOPendingCount(int i) {
+    unsigned long count = 0;
+    atomicGetWithSync(io_threads_pending[i], count);
+    return count;
+}
+
+static inline void setIOPendingCount(int i, unsigned long count) {
+    atomicSetWithSync(io_threads_pending[i], count);
+}
 
 void *IOThreadMain(void *myid) {
     /* The ID is the thread number (from 0 to server.iothreads_num-1), and is
@@ -2955,21 +3056,22 @@ void *IOThreadMain(void *myid) {
     snprintf(thdname, sizeof(thdname), "io_thd_%ld", id);
     redis_set_thread_title(thdname);
     redisSetCpuAffinity(server.server_cpulist);
+    makeThreadKillable();
 
     while(1) {
         /* Wait for start */
         for (int j = 0; j < 1000000; j++) {
-            if (io_threads_pending[id] != 0) break;
+            if (getIOPendingCount(id) != 0) break;
         }
 
         /* Give the main thread a chance to stop this thread. */
-        if (io_threads_pending[id] == 0) {
+        if (getIOPendingCount(id) == 0) {
             pthread_mutex_lock(&io_threads_mutex[id]);
             pthread_mutex_unlock(&io_threads_mutex[id]);
             continue;
         }
 
-        serverAssert(io_threads_pending[id] != 0);
+        serverAssert(getIOPendingCount(id) != 0);
 
         if (tio_debug) printf("[%ld] %d to handle\n", id, (int)listLength(io_threads_list[id]));
 
@@ -2989,7 +3091,7 @@ void *IOThreadMain(void *myid) {
             }
         }
         listEmpty(io_threads_list[id]);
-        io_threads_pending[id] = 0;
+        setIOPendingCount(id, 0);
 
         if (tio_debug) printf("[%ld] Done\n", id);
     }
@@ -3018,13 +3120,30 @@ void initThreadedIO(void) {
         /* Things we do only for the additional threads. */
         pthread_t tid;
         pthread_mutex_init(&io_threads_mutex[i],NULL);
-        io_threads_pending[i] = 0;
+        setIOPendingCount(i, 0);
         pthread_mutex_lock(&io_threads_mutex[i]); /* Thread will be stopped. */
         if (pthread_create(&tid,NULL,IOThreadMain,(void*)(long)i) != 0) {
             serverLog(LL_WARNING,"Fatal: Can't initialize IO thread.");
             exit(1);
         }
         io_threads[i] = tid;
+    }
+}
+
+void killIOThreads(void) {
+    int err, j;
+    for (j = 0; j < server.io_threads_num; j++) {
+        if (io_threads[j] == pthread_self()) continue;
+        if (io_threads[j] && pthread_cancel(io_threads[j]) == 0) {
+            if ((err = pthread_join(io_threads[j],NULL)) != 0) {
+                serverLog(LL_WARNING,
+                    "IO thread(tid:%lu) can not be joined: %s",
+                        (unsigned long)io_threads[j], strerror(err));
+            } else {
+                serverLog(LL_WARNING,
+                    "IO thread(tid:%lu) terminated",(unsigned long)io_threads[j]);
+            }
+        }
     }
 }
 
@@ -3097,6 +3216,14 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
         c->flags &= ~CLIENT_PENDING_WRITE;
+
+        /* Remove clients from the list of pending writes since
+         * they are going to be closed ASAP. */
+        if (c->flags & CLIENT_CLOSE_ASAP) {
+            listDelNode(server.clients_pending_write, ln);
+            continue;
+        }
+
         int target_id = item_id % server.io_threads_num;
         listAddNodeTail(io_threads_list[target_id],c);
         item_id++;
@@ -3107,7 +3234,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     io_threads_op = IO_THREADS_OP_WRITE;
     for (int j = 1; j < server.io_threads_num; j++) {
         int count = listLength(io_threads_list[j]);
-        io_threads_pending[j] = count;
+        setIOPendingCount(j, count);
     }
 
     /* Also use the main thread to process a slice of clients. */
@@ -3122,7 +3249,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     while(1) {
         unsigned long pending = 0;
         for (int j = 1; j < server.io_threads_num; j++)
-            pending += io_threads_pending[j];
+            pending += getIOPendingCount(j);
         if (pending == 0) break;
     }
     if (tio_debug) printf("I/O WRITE All threads finshed\n");
@@ -3197,7 +3324,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     io_threads_op = IO_THREADS_OP_READ;
     for (int j = 1; j < server.io_threads_num; j++) {
         int count = listLength(io_threads_list[j]);
-        io_threads_pending[j] = count;
+        setIOPendingCount(j, count);
     }
 
     /* Also use the main thread to process a slice of clients. */
@@ -3212,7 +3339,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     while(1) {
         unsigned long pending = 0;
         for (int j = 1; j < server.io_threads_num; j++)
-            pending += io_threads_pending[j];
+            pending += getIOPendingCount(j);
         if (pending == 0) break;
     }
     if (tio_debug) printf("I/O READ All threads finshed\n");

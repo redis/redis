@@ -1858,7 +1858,7 @@ void ldbSendLogs(void) {
 int ldbStartSession(client *c) {
     ldb.forked = (c->flags & CLIENT_LUA_DEBUG_SYNC) == 0;
     if (ldb.forked) {
-        pid_t cp = redisFork();
+        pid_t cp = redisFork(CHILD_TYPE_LDB);
         if (cp == -1) {
             addReplyError(c,"Fork() failed: can't run EVAL in debugging mode.");
             return 0;

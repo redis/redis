@@ -110,12 +110,13 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields);
 void streamIteratorGetField(streamIterator *si, unsigned char **fieldptr, unsigned char **valueptr, int64_t *fieldlen, int64_t *valuelen);
 void streamIteratorStop(streamIterator *si);
 streamCG *streamLookupCG(stream *s, sds groupname);
-streamConsumer *streamLookupConsumer(streamCG *cg, sds name, int flags);
+streamConsumer *streamLookupConsumer(streamCG *cg, sds name, int flags, int *created);
 streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id);
 streamNACK *streamCreateNACK(streamConsumer *consumer);
 void streamDecodeID(void *buf, streamID *id);
 int streamCompareID(streamID *a, streamID *b);
 void streamFreeNACK(streamNACK *na);
 void streamIncrID(streamID *id);
+void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds consumername);
 
 #endif

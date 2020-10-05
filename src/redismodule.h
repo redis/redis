@@ -55,6 +55,8 @@
 #define REDISMODULE_ZADD_ADDED   (1<<2)
 #define REDISMODULE_ZADD_UPDATED (1<<3)
 #define REDISMODULE_ZADD_NOP     (1<<4)
+#define REDISMODULE_ZADD_GT      (1<<5)
+#define REDISMODULE_ZADD_LT      (1<<6)
 
 /* Hash API flags. */
 #define REDISMODULE_HASH_NONE       0
@@ -112,6 +114,8 @@
 #define REDISMODULE_CTX_FLAGS_ACTIVE_CHILD (1<<18)
 /* The next EXEC will fail due to dirty CAS (touched keys). */
 #define REDISMODULE_CTX_FLAGS_MULTI_DIRTY (1<<19)
+/* Redis is currently running inside background child process. */
+#define REDISMODULE_CTX_FLAGS_IS_CHILD (1<<20)
 
 /* Keyspace changes notification classes. Every class is associated with a
  * character for configuration purposes.
@@ -190,6 +194,7 @@ typedef uint64_t RedisModuleTimerID;
 #define REDISMODULE_EVENT_CRON_LOOP 8
 #define REDISMODULE_EVENT_MODULE_CHANGE 9
 #define REDISMODULE_EVENT_LOADING_PROGRESS 10
+#define REDISMODULE_EVENT_SWAPDB 11
 
 typedef struct RedisModuleEvent {
     uint64_t id;        /* REDISMODULE_EVENT_... defines. */
@@ -242,6 +247,10 @@ static const RedisModuleEvent
     },
     RedisModuleEvent_LoadingProgress = {
         REDISMODULE_EVENT_LOADING_PROGRESS,
+        1
+    },
+    RedisModuleEvent_SwapDB = {
+        REDISMODULE_EVENT_SWAPDB,
         1
     };
 
@@ -373,6 +382,17 @@ typedef struct RedisModuleLoadingProgressInfo {
 } RedisModuleLoadingProgressV1;
 
 #define RedisModuleLoadingProgress RedisModuleLoadingProgressV1
+
+#define REDISMODULE_SWAPDBINFO_VERSION 1
+typedef struct RedisModuleSwapDbInfo {
+    uint64_t version;       /* Not used since this structure is never passed
+                               from the module to the core right now. Here
+                               for future compatibility. */
+    int32_t dbnum_first;    /* Swap Db first dbnum */
+    int32_t dbnum_second;   /* Swap Db second dbnum */
+} RedisModuleSwapDbInfoV1;
+
+#define RedisModuleSwapDbInfo RedisModuleSwapDbInfoV1
 
 /* ------------------------- End of common defines ------------------------ */
 

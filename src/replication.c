@@ -1032,7 +1032,7 @@ void sendBulkToSlave(connection *conn) {
             freeClient(slave);
             return;
         }
-        server.stat_net_output_bytes += nwritten;
+        atomicIncr(server.stat_net_output_bytes, nwritten);
         sdsrange(slave->replpreamble,nwritten,-1);
         if (sdslen(slave->replpreamble) == 0) {
             sdsfree(slave->replpreamble);
@@ -1061,7 +1061,7 @@ void sendBulkToSlave(connection *conn) {
         return;
     }
     slave->repldboff += nwritten;
-    server.stat_net_output_bytes += nwritten;
+    atomicIncr(server.stat_net_output_bytes, nwritten);
     if (slave->repldboff == slave->repldbsize) {
         close(slave->repldbfd);
         slave->repldbfd = -1;
@@ -1102,7 +1102,7 @@ void rdbPipeWriteHandler(struct connection *conn) {
         return;
     } else {
         slave->repldboff += nwritten;
-        server.stat_net_output_bytes += nwritten;
+        atomicIncr(server.stat_net_output_bytes, nwritten);
         if (slave->repldboff < server.rdb_pipe_bufflen)
             return; /* more data to write.. */
     }
@@ -1180,7 +1180,7 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
                 /* Note: when use diskless replication, 'repldboff' is the offset
                  * of 'rdb_pipe_buff' sent rather than the offset of entire RDB. */
                 slave->repldboff = nwritten;
-                server.stat_net_output_bytes += nwritten;
+                atomicIncr(server.stat_net_output_bytes, nwritten);
             }
             /* If we were unable to write all the data to one of the replicas,
              * setup write handler (and disable pipe read handler, below) */
@@ -1361,7 +1361,8 @@ void replicationSendNewlineToMaster(void) {
  * the new dataset received by the master. */
 void replicationEmptyDbCallback(void *privdata) {
     UNUSED(privdata);
-    replicationSendNewlineToMaster();
+    if (server.repl_state == REPL_STATE_TRANSFER)
+        replicationSendNewlineToMaster();
 }
 
 /* Once we have a link with the master and the synchronization was
@@ -1558,7 +1559,7 @@ void readSyncBulkPayload(connection *conn) {
             cancelReplicationHandshake(1);
             return;
         }
-        server.stat_net_input_bytes += nread;
+        atomicIncr(server.stat_net_input_bytes, nread);
 
         /* When a mark is used, we want to detect EOF asap in order to avoid
          * writing the EOF mark into the file... */
@@ -1736,6 +1737,17 @@ void readSyncBulkPayload(connection *conn) {
                 "any race",
                     (long) server.rdb_child_pid);
             killRDBChild();
+        }
+
+        /* Make sure the new file (also used for persistence) is fully synced
+         * (not covered by earlier calls to rdb_fsync_range). */
+        if (fsync(server.repl_transfer_fd) == -1) {
+            serverLog(LL_WARNING,
+                "Failed trying to sync the temp DB to disk in "
+                "MASTER <-> REPLICA synchronization: %s",
+                strerror(errno));
+            cancelReplicationHandshake(1);
+            return;
         }
 
         /* Rename rdb like renaming rewrite aof asynchronously. */
