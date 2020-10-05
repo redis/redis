@@ -305,7 +305,7 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
         size_t size = len < PROTO_REPLY_CHUNK_BYTES? PROTO_REPLY_CHUNK_BYTES: len;
         tail = zmalloc(size + sizeof(clientReplyBlock));
         /* take over the allocation's internal fragmentation */
-        tail->size = zmalloc_usable(tail) - sizeof(clientReplyBlock);
+        tail->size = zmalloc_usable_size(tail) - sizeof(clientReplyBlock);
         tail->used = len;
         memcpy(tail->buf, s, len);
         listAddNodeTail(c->reply, tail);
@@ -501,7 +501,7 @@ void trimReplyUnusedTailSpace(client *c) {
         tail = zrealloc(tail, tail->used + sizeof(clientReplyBlock));
         /* take over the allocation's internal fragmentation (at least for
          * memory usage tracking) */
-        tail->size = zmalloc_usable(tail) - sizeof(clientReplyBlock);
+        tail->size = zmalloc_usable_size(tail) - sizeof(clientReplyBlock);
         c->reply_bytes = c->reply_bytes + tail->size - old_size;
         listNodeValue(ln) = tail;
     }
@@ -553,7 +553,7 @@ void setDeferredAggregateLen(client *c, void *node, long length, char prefix) {
         /* Create a new node */
         clientReplyBlock *buf = zmalloc(lenstr_len + sizeof(clientReplyBlock));
         /* Take over the allocation's internal fragmentation */
-        buf->size = zmalloc_usable(buf) - sizeof(clientReplyBlock);
+        buf->size = zmalloc_usable_size(buf) - sizeof(clientReplyBlock);
         buf->used = lenstr_len;
         memcpy(buf->buf, lenstr, lenstr_len);
         listNodeValue(ln) = buf;
@@ -1561,16 +1561,20 @@ void resetClient(client *c) {
  *    path, it is not really released, but only marked for later release. */
 void protectClient(client *c) {
     c->flags |= CLIENT_PROTECTED;
-    connSetReadHandler(c->conn,NULL);
-    connSetWriteHandler(c->conn,NULL);
+    if (c->conn) {
+        connSetReadHandler(c->conn,NULL);
+        connSetWriteHandler(c->conn,NULL);
+    }
 }
 
 /* This will undo the client protection done by protectClient() */
 void unprotectClient(client *c) {
     if (c->flags & CLIENT_PROTECTED) {
         c->flags &= ~CLIENT_PROTECTED;
-        connSetReadHandler(c->conn,readQueryFromClient);
-        if (clientHasPendingReplies(c)) clientInstallWriteHandler(c);
+        if (c->conn) {
+            connSetReadHandler(c->conn,readQueryFromClient);
+            if (clientHasPendingReplies(c)) clientInstallWriteHandler(c);
+        }
     }
 }
 

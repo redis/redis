@@ -1626,7 +1626,7 @@ int clientsCronTrackClientsMemUsage(client *c) {
     size_t mem = 0;
     int type = getClientType(c);
     mem += getClientOutputBufferMemoryUsage(c);
-    mem += sdsAllocSize(c->querybuf);
+    mem += sdsZmallocSize(c->querybuf);
     mem += zmalloc_size(c);
     mem += c->argv_len_sum;
     if (c->argv) mem += zmalloc_size(c->argv);
