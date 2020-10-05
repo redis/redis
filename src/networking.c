@@ -128,7 +128,7 @@ client *createClient(connection *conn) {
     c->reqtype = 0;
     c->argc = 0;
     c->argv = NULL;
-    c->argv_sum = 0;
+    c->argv_len_sum = 0;
     c->cmd = c->lastcmd = NULL;
     c->user = DefaultUser;
     c->multibulklen = 0;
@@ -1064,7 +1064,7 @@ static void freeClientArgv(client *c) {
         decrRefCount(c->argv[j]);
     c->argc = 0;
     c->cmd = NULL;
-    c->argv_sum = 0;
+    c->argv_len_sum = 0;
 }
 
 /* Close all the slaves connections. This is useful in chained replication
@@ -1297,7 +1297,7 @@ void freeClient(client *c) {
      * and finally release the client structure itself. */
     if (c->name) decrRefCount(c->name);
     zfree(c->argv);
-    c->argv_sum = 0;
+    c->argv_len_sum = 0;
     freeClientMultiState(c);
     sdsfree(c->peerid);
     zfree(c);
@@ -1640,14 +1640,14 @@ int processInlineBuffer(client *c) {
     if (argc) {
         if (c->argv) zfree(c->argv);
         c->argv = zmalloc(sizeof(robj*)*argc);
-        c->argv_sum = 0;
+        c->argv_len_sum = 0;
     }
 
     /* Create redis objects for all arguments. */
     for (c->argc = 0, j = 0; j < argc; j++) {
         c->argv[c->argc] = createObject(OBJ_STRING,argv[j]);
         c->argc++;
-        c->argv_sum += sdslen(argv[j]);
+        c->argv_len_sum += sdslen(argv[j]);
     }
     zfree(argv);
     return C_OK;
@@ -1739,7 +1739,7 @@ int processMultibulkBuffer(client *c) {
         /* Setup argv array on client structure */
         if (c->argv) zfree(c->argv);
         c->argv = zmalloc(sizeof(robj*)*c->multibulklen);
-        c->argv_sum = 0;
+        c->argv_len_sum = 0;
     }
 
     serverAssertWithInfo(c,NULL,c->multibulklen > 0);
@@ -1812,7 +1812,7 @@ int processMultibulkBuffer(client *c) {
                 sdslen(c->querybuf) == (size_t)(c->bulklen+2))
             {
                 c->argv[c->argc++] = createObject(OBJ_STRING,c->querybuf);
-                c->argv_sum += c->bulklen;
+                c->argv_len_sum += c->bulklen;
                 sdsIncrLen(c->querybuf,-2); /* remove CRLF */
                 /* Assume that if we saw a fat argument we'll see another one
                  * likely... */
@@ -1821,7 +1821,7 @@ int processMultibulkBuffer(client *c) {
             } else {
                 c->argv[c->argc++] =
                     createStringObject(c->querybuf+c->qb_pos,c->bulklen);
-                c->argv_sum += c->bulklen;
+                c->argv_len_sum += c->bulklen;
                 c->qb_pos += c->bulklen+2;
             }
             c->bulklen = -1;
@@ -2148,12 +2148,12 @@ sds catClientInfoString(sds s, client *client) {
     /* Compute the total memory consumed by this client. */
     size_t obufmem = getClientOutputBufferMemoryUsage(client);
     size_t total_mem = obufmem;
-    total_mem += sizeof(client); /* includes client->buf */
+    total_mem += zmalloc_size(client); /* includes client->buf */
     total_mem += sdsZmallocSize(client->querybuf);
     /* For efficiency (less work keeping track of the argv memory), it doesn't include the used memory
      * i.e. unused sds space and internal fragmentation, just the string length. but this is enough to
      * spot problematic clients. */
-    total_mem += client->argv_sum;
+    total_mem += client->argv_len_sum;
     if (client->argv)
         total_mem += zmalloc_size(client->argv);
 
@@ -2172,7 +2172,7 @@ sds catClientInfoString(sds s, client *client) {
         (client->flags & CLIENT_MULTI) ? client->mstate.count : -1,
         (unsigned long long) sdslen(client->querybuf),
         (unsigned long long) sdsavail(client->querybuf),
-        (unsigned long long) client->argv_sum,
+        (unsigned long long) client->argv_len_sum,
         (unsigned long long) client->bufpos,
         (unsigned long long) listLength(client->reply),
         (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
@@ -2714,10 +2714,10 @@ void rewriteClientCommandVector(client *c, int argc, ...) {
     /* Replace argv and argc with our new versions. */
     c->argv = argv;
     c->argc = argc;
-    c->argv_sum = 0;
+    c->argv_len_sum = 0;
     for (j = 0; j < c->argc; j++)
         if (c->argv[j])
-            c->argv_sum += getStringObjectLen(c->argv[j]);
+            c->argv_len_sum += getStringObjectLen(c->argv[j]);
     c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
     serverAssertWithInfo(c,NULL,c->cmd != NULL);
     va_end(ap);
@@ -2730,10 +2730,10 @@ void replaceClientCommandVector(client *c, int argc, robj **argv) {
     zfree(c->argv);
     c->argv = argv;
     c->argc = argc;
-    c->argv_sum = 0;
+    c->argv_len_sum = 0;
     for (j = 0; j < c->argc; j++)
         if (c->argv[j])
-            c->argv_sum += getStringObjectLen(c->argv[j]);
+            c->argv_len_sum += getStringObjectLen(c->argv[j]);
     c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
     serverAssertWithInfo(c,NULL,c->cmd != NULL);
 }
@@ -2758,8 +2758,8 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
         c->argv[i] = NULL;
     }
     oldval = c->argv[i];
-    if (oldval) c->argv_sum -= getStringObjectLen(oldval);
-    if (newval) c->argv_sum += getStringObjectLen(newval);
+    if (oldval) c->argv_len_sum -= getStringObjectLen(oldval);
+    if (newval) c->argv_len_sum += getStringObjectLen(newval);
     c->argv[i] = newval;
     incrRefCount(newval);
     if (oldval) decrRefCount(oldval);

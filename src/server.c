@@ -1627,8 +1627,8 @@ int clientsCronTrackClientsMemUsage(client *c) {
     int type = getClientType(c);
     mem += getClientOutputBufferMemoryUsage(c);
     mem += sdsAllocSize(c->querybuf);
-    mem += sizeof(client);
-    mem += c->argv_sum;
+    mem += zmalloc_size(c);
+    mem += c->argv_len_sum;
     if (c->argv) mem += zmalloc_size(c->argv);
     /* Now that we have the memory used by the client, remove the old
      * value from the old category, and add it back. */
