@@ -4992,10 +4992,13 @@ void setupSignalHandlers(void) {
     act.sa_sigaction = sigsegvHandler;
     if(server.crashlog_enabled) {
         sigaction(SIGSEGV, &act, NULL);
-        sigaction(SIGBUS, &act, NULL);
         sigaction(SIGFPE, &act, NULL);
         sigaction(SIGILL, &act, NULL);
     }
+
+    act.sa_sigaction = sigbusHandler;
+    sigaction(SIGBUS, &act, NULL);
+
     return;
 }
 

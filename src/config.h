@@ -258,4 +258,10 @@ int pthread_setname_np(const char *name);
 void setcpuaffinity(const char *cpulist);
 #endif
 
+/* Check if we can use BUS_MCEERR_AO/BUS_MCEERR_AR. */
+#include <signal.h>
+#if (defined BUS_MCEERR_AO && defined BUS_MCEERR_AR)
+#define USE_BUS_MCEERR
+#endif
+
 #endif

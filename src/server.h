@@ -2487,6 +2487,7 @@ void _serverPanic(const char *file, int line, const char *msg, ...);
 #endif
 void serverLogObjectDebugInfo(const robj *o);
 void sigsegvHandler(int sig, siginfo_t *info, void *secret);
+void sigbusHandler(int sig, siginfo_t *info, void *secret);
 sds genRedisInfoString(const char *section);
 sds genModulesInfoString(sds info);
 void enableWatchdog(int period);
