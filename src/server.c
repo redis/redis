@@ -3177,7 +3177,7 @@ struct redisCommand *lookupCommand(sds name) {
     return dictFetchValue(server.commands, name);
 }
 
-struct redisCommand *lookupCommandByCString(char *s) {
+struct redisCommand *lookupCommandByCString(const char *s) {
     struct redisCommand *cmd;
     sds name = sdsnew(s);
 
@@ -4041,7 +4041,8 @@ NULL
         addReplyLongLong(c, dictSize(server.commands));
     } else if (!strcasecmp(c->argv[1]->ptr,"getkeys") && c->argc >= 3) {
         struct redisCommand *cmd = lookupCommand(c->argv[2]->ptr);
-        int *keys, numkeys, j;
+        getKeysResult result = GETKEYS_RESULT_INIT;
+        int j;
 
         if (!cmd) {
             addReplyError(c,"Invalid command specified");
@@ -4056,14 +4057,13 @@ NULL
             return;
         }
 
-        keys = getKeysFromCommand(cmd,c->argv+2,c->argc-2,&numkeys);
-        if (!keys) {
+        if (!getKeysFromCommand(cmd,c->argv+2,c->argc-2,&result)) {
             addReplyError(c,"Invalid arguments specified for command");
         } else {
-            addReplyArrayLen(c,numkeys);
-            for (j = 0; j < numkeys; j++) addReplyBulk(c,c->argv[keys[j]+2]);
-            getKeysFreeResult(keys);
+            addReplyArrayLen(c,result.numkeys);
+            for (j = 0; j < result.numkeys; j++) addReplyBulk(c,c->argv[result.keys[j]+2]);
         }
+        getKeysFreeResult(&result);
     } else {
         addReplySubcommandSyntaxError(c);
     }

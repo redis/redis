@@ -1482,8 +1482,21 @@ typedef struct pubsubPattern {
     robj *pattern;
 } pubsubPattern;
 
+#define MAX_KEYS_BUFFER 256
+
+/* A result structure for the various getkeys function calls. It lists the
+ * keys as indices to the provided argv.
+ */
+typedef struct {
+    int keysbuf[MAX_KEYS_BUFFER];       /* Pre-allocated buffer, to save heap allocations */
+    int *keys;                          /* Key indices array, points to keysbuf or heap */
+    int numkeys;                        /* Number of key indices return */
+    int size;                           /* Available array size */
+} getKeysResult;
+#define GETKEYS_RESULT_INIT { {0}, NULL, 0, MAX_KEYS_BUFFER }
+
 typedef void redisCommandProc(client *c);
-typedef int *redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
+typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 struct redisCommand {
     char *name;
     redisCommandProc *proc;
@@ -1592,7 +1605,7 @@ extern dictType modulesDictType;
 void moduleInitModulesSystem(void);
 int moduleLoad(const char *path, void **argv, int argc);
 void moduleLoadFromQueue(void);
-int *moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
+int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 moduleType *moduleTypeLookupModuleByID(uint64_t id);
 void moduleTypeNameByID(char *name, uint64_t moduleid);
 void moduleFreeContext(struct RedisModuleCtx *ctx);
@@ -1998,7 +2011,7 @@ int freeMemoryIfNeededAndSafe(void);
 int processCommand(client *c);
 void setupSignalHandlers(void);
 struct redisCommand *lookupCommand(sds name);
-struct redisCommand *lookupCommandByCString(char *s);
+struct redisCommand *lookupCommandByCString(const char *s);
 struct redisCommand *lookupCommandOrOriginal(sds name);
 void call(client *c, int flags);
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int flags);
@@ -2159,16 +2172,17 @@ size_t lazyfreeGetPendingObjectsCount(void);
 void freeObjAsync(robj *o);
 
 /* API to get key arguments from commands */
-int *getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
-void getKeysFreeResult(int *result);
-int *zunionInterGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *numkeys);
-int *evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
-int *sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
-int *migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
-int *georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
-int *xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
-int *memoryGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
-int *lcsGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
+int *getKeysPrepareResult(getKeysResult *result, int numkeys);
+int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+void getKeysFreeResult(getKeysResult *result);
+int zunionInterGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
+int evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int memoryGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int lcsGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 
 /* Cluster */
 void clusterInit(void);

@@ -147,8 +147,7 @@ struct RedisModuleCtx {
                                              on keys. */
 
     /* Used if there is the REDISMODULE_CTX_KEYS_POS_REQUEST flag set. */
-    int *keys_pos;
-    int keys_count;
+    getKeysResult *keys_result;
 
     struct RedisModulePoolAllocBlock *pa_head;
     redisOpArray saved_oparray;    /* When propagating commands in a callback
@@ -158,7 +157,7 @@ struct RedisModuleCtx {
 };
 typedef struct RedisModuleCtx RedisModuleCtx;
 
-#define REDISMODULE_CTX_INIT {(void*)(unsigned long)&RM_GetApi, NULL, NULL, NULL, NULL, 0, 0, 0, NULL, 0, NULL, NULL, NULL, 0, NULL, {0}}
+#define REDISMODULE_CTX_INIT {(void*)(unsigned long)&RM_GetApi, NULL, NULL, NULL, NULL, 0, 0, 0, NULL, 0, NULL, NULL, NULL, NULL, {0}}
 #define REDISMODULE_CTX_MULTI_EMITTED (1<<0)
 #define REDISMODULE_CTX_AUTO_MEMORY (1<<1)
 #define REDISMODULE_CTX_KEYS_POS_REQUEST (1<<2)
@@ -670,18 +669,24 @@ void RedisModuleCommandDispatcher(client *c) {
  * In order to accomplish its work, the module command is called, flagging
  * the context in a way that the command can recognize this is a special
  * "get keys" call by calling RedisModule_IsKeysPositionRequest(ctx). */
-int *moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     RedisModuleCommandProxy *cp = (void*)(unsigned long)cmd->getkeys_proc;
     RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
 
     ctx.module = cp->module;
     ctx.client = NULL;
     ctx.flags |= REDISMODULE_CTX_KEYS_POS_REQUEST;
+
+    /* Initialize getKeysResult */
+    getKeysPrepareResult(result, MAX_KEYS_BUFFER);
+    ctx.keys_result = result;
+
     cp->func(&ctx,(void**)argv,argc);
-    int *res = ctx.keys_pos;
-    if (numkeys) *numkeys = ctx.keys_count;
+    /* We currently always use the array allocated by RM_KeyAtPos() and don't try
+     * to optimize for the pre-allocated buffer.
+     */
     moduleFreeContext(&ctx);
-    return res;
+    return result->numkeys;
 }
 
 /* Return non-zero if a module command, that was declared with the
@@ -706,10 +711,18 @@ int RM_IsKeysPositionRequest(RedisModuleCtx *ctx) {
  *  keys are at fixed positions. This interface is only used for commands
  *  with a more complex structure. */
 void RM_KeyAtPos(RedisModuleCtx *ctx, int pos) {
-    if (!(ctx->flags & REDISMODULE_CTX_KEYS_POS_REQUEST)) return;
+    if (!(ctx->flags & REDISMODULE_CTX_KEYS_POS_REQUEST) || !ctx->keys_result) return;
     if (pos <= 0) return;
-    ctx->keys_pos = zrealloc(ctx->keys_pos,sizeof(int)*(ctx->keys_count+1));
-    ctx->keys_pos[ctx->keys_count++] = pos;
+
+    getKeysResult *res = ctx->keys_result;
+
+    /* Check overflow */
+    if (res->numkeys == res->size) {
+        int newsize = res->size + (res->size > 8192 ? 8192 : res->size);
+        getKeysPrepareResult(res, newsize);
+    }
+
+    res->keys[res->numkeys++] = pos;
 }
 
 /* Helper for RM_CreateCommand(). Turns a string representing command
