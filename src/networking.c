@@ -2158,7 +2158,7 @@ sds catClientInfoString(sds s, client *client) {
         total_mem += zmalloc_size(client->argv);
 
     return sdscatfmt(s,
-        "id=%U addr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-sum=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s",
+        "id=%U addr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s",
         (unsigned long long) client->id,
         getClientPeerId(client),
         connGetInfo(client->conn, conninfo, sizeof(conninfo)),
