@@ -171,9 +171,14 @@ void trackingRememberKeys(client *c) {
     uint64_t caching_given = c->flags & CLIENT_TRACKING_CACHING;
     if ((optin && !caching_given) || (optout && caching_given)) return;
 
-    int numkeys;
-    int *keys = getKeysFromCommand(c->cmd,c->argv,c->argc,&numkeys);
-    if (keys == NULL) return;
+    getKeysResult result = GETKEYS_RESULT_INIT;
+    int numkeys = getKeysFromCommand(c->cmd,c->argv,c->argc,&result);
+    if (!numkeys) {
+        getKeysFreeResult(&result);
+        return;
+    }
+
+    int *keys = result.keys;
 
     for(int j = 0; j < numkeys; j++) {
         int idx = keys[j];
@@ -188,7 +193,7 @@ void trackingRememberKeys(client *c) {
         if (raxTryInsert(ids,(unsigned char*)&c->id,sizeof(c->id),NULL,NULL))
             TrackingTableTotalItems++;
     }
-    getKeysFreeResult(keys);
+    getKeysFreeResult(&result);
 }
 
 /* Given a key name, this function sends an invalidation message in the

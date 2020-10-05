@@ -1115,8 +1115,9 @@ int ACLCheckCommandPerm(client *c, int *keyidxptr) {
     if (!(c->user->flags & USER_FLAG_ALLKEYS) &&
         (c->cmd->getkeys_proc || c->cmd->firstkey))
     {
-        int numkeys;
-        int *keyidx = getKeysFromCommand(c->cmd,c->argv,c->argc,&numkeys);
+        getKeysResult result = GETKEYS_RESULT_INIT;
+        int numkeys = getKeysFromCommand(c->cmd,c->argv,c->argc,&result);
+        int *keyidx = result.keys;
         for (int j = 0; j < numkeys; j++) {
             listIter li;
             listNode *ln;
@@ -1137,11 +1138,11 @@ int ACLCheckCommandPerm(client *c, int *keyidxptr) {
             }
             if (!match) {
                 if (keyidxptr) *keyidxptr = keyidx[j];
-                getKeysFreeResult(keyidx);
+                getKeysFreeResult(&result);
                 return ACL_DENIED_KEY;
             }
         }
-        getKeysFreeResult(keyidx);
+        getKeysFreeResult(&result);
     }
 
     /* If we survived all the above checks, the user can execute the
