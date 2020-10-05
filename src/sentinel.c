@@ -3050,6 +3050,7 @@ void sentinelCommand(client *c) {
 "MASTER <master-name> -- Show the state and info of the specified master.",
 "REPLICAS <master-name> -- Show a list of replicas for this master and their state.",
 "SENTINELS <master-name> -- Show a list of Sentinel instances for this master and their state.",
+"MYID -- Show Current Sentinel Id",
 "IS-MASTER-DOWN-BY-ADDR <ip> <port> <current-epoch> <runid> -- Check if the master specified by ip:port is down from current Sentinel's point of view.",
 "GET-MASTER-ADDR-BY-NAME <master-name> -- Return the ip and port number of the master with that name.",
 "RESET <pattern> -- Reset masters for specific master name matching this pattern.",
@@ -3097,6 +3098,9 @@ NULL
         if ((ri = sentinelGetMasterByNameOrReplyError(c,c->argv[2])) == NULL)
             return;
         addReplyDictOfRedisInstances(c,ri->sentinels);
+    } else if (!strcasecmp(c->argv[1]->ptr,"myid") && c->argc == 2) {
+        /* SENTINEL MYID */
+        addReplyBulkCBuffer(c,sentinel.myid,CONFIG_RUN_ID_SIZE);
     } else if (!strcasecmp(c->argv[1]->ptr,"is-master-down-by-addr")) {
         /* SENTINEL IS-MASTER-DOWN-BY-ADDR <ip> <port> <current-epoch> <runid>
          *
