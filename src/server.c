@@ -2879,6 +2879,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * visit processCommand() at all). */
     handleClientsBlockedOnKeys();
 
+    /* Disconnect some clients if they are consuming too much memory. */
+    clientsEviction();
+
     /* Before we are going to sleep, let the threads access the dataset by
      * releasing the GIL. Redis main thread will not touch anything at this
      * time. */

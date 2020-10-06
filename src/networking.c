@@ -2137,6 +2137,8 @@ void processInputBuffer(client *c) {
         sdsrange(c->querybuf,c->qb_pos,-1);
         c->qb_pos = 0;
     }
+
+    updateClientMemUsage(c);
 }
 
 void readQueryFromClient(connection *conn) {
@@ -3745,6 +3747,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
         }
 
         processInputBuffer(c);
+        updateClientMemUsage(c);
 
         /* We may have pending replies if a thread readQueryFromClient() produced
          * replies and did not install a write handler (it can't).
@@ -3757,4 +3760,12 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     server.stat_io_reads_processed += processed;
 
     return processed;
+}
+
+void clientsEviction() {
+    while (server.stat_clients_type_memory[CLIENT_TYPE_NORMAL] +
+           server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB] > maxmemory_clients) {
+        client *c = NULL;
+        freeClient(c);
+   }
 }
