@@ -5741,6 +5741,15 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
             int slot = keyHashSlot((char*)key->ptr, sdslen(key->ptr));
             clusterNode *node = server.cluster->slots[slot];
 
+            /* if the client is read-only and attempting to access key that our
+             * replica can handle, allow it. */
+            if ((c->flags & CLIENT_READONLY) &&
+                (c->lastcmd->flags & CMD_READONLY) &&
+                nodeIsSlave(myself) && myself->slaveof == node)
+            {
+                node = myself;
+            }
+
             /* We send an error and unblock the client if:
              * 1) The slot is unassigned, emitting a cluster down error.
              * 2) The slot is not handled by this node, nor being imported. */
