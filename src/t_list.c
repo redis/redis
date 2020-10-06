@@ -678,12 +678,12 @@ int getListPositionFromObjectOrReply(client *c, robj *arg, int *position) {
     return C_OK;
 }
 
-robj *createStringFromListPosition(int position) {
+robj *getStringObjectFromListPosition(int position) {
     if (position == LIST_HEAD) {
-        return createStringObject("left", 4);
+        return shared.left;
     } else {
         // LIST_TAIL
-        return createStringObject("right", 5);
+        return shared.right;
     }
 }
 
@@ -752,10 +752,8 @@ void lmoveCommand(client *c) {
  * as well. This command was originally proposed by Ezra Zygmuntowicz.
  */
 void rpoplpushCommand(client *c) {
-    robj *right = createStringObject("RIGHT", 5);
-    robj *left = createStringObject("LEFT", 4);
     rewriteClientCommandVector(c, 5, shared.lmove,
-                               c->argv[1], c->argv[2], right, left);
+                               c->argv[1], c->argv[2], shared.right, shared.left);
     lmoveCommand(c);
 }
 
@@ -819,8 +817,8 @@ int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb 
             argv[0] = shared.lmove;
             argv[1] = key;
             argv[2] = dstkey;
-            argv[3] = createStringFromListPosition(wherefrom);
-            argv[4] = createStringFromListPosition(whereto);
+            argv[3] = getStringObjectFromListPosition(wherefrom);
+            argv[4] = getStringObjectFromListPosition(whereto);
             propagate(server.lmoveCommand,
                 db->id,argv,5,
                 PROPAGATE_AOF|
@@ -935,9 +933,7 @@ void blmoveCommand(client *c) {
 }
 
 void brpoplpushCommand(client *c) {
-    robj *right = createStringObject("RIGHT", 5);
-    robj *left = createStringObject("LEFT", 4);
     rewriteClientCommandVector(c, 6, shared.blmove,
-                               c->argv[1], c->argv[2], right, left, c->argv[3]);
+                               c->argv[1], c->argv[2], shared.right, shared.left, c->argv[3]);
     blmoveCommand(c);
 }
