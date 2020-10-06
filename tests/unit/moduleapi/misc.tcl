@@ -89,6 +89,6 @@ start_server {tags {"modules"}} {
 
     test {test detached thread safe cnotext} {
         r test.log_tsctx "info" "Test message"
-        wait_for_log_messages 0 {"*<misc> Test message*"} 0 10 100
+        verify_log_message 0 "*<misc> Test message*" 0
     }
 }
