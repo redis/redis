@@ -687,15 +687,10 @@ robj *getStringObjectFromListPosition(int position) {
     }
 }
 
-void lmoveCommand(client *c) {
+void lmoveGenericCommand(client *c, int wherefrom, int whereto) {
     robj *sobj, *value;
-    int wherefrom, whereto;
     if ((sobj = lookupKeyWriteOrReply(c,c->argv[1],shared.null[c->resp]))
         == NULL || checkType(c,sobj,OBJ_LIST)) return;
-    if (getListPositionFromObjectOrReply(c,c->argv[3],&wherefrom)
-        != C_OK) return;
-    if (getListPositionFromObjectOrReply(c,c->argv[4],&whereto)
-        != C_OK) return;
 
     if (listTypeLength(sobj) == 0) {
         /* This may only happen after loading very old RDB files. Recent
@@ -732,8 +727,20 @@ void lmoveCommand(client *c) {
         if (c->cmd->proc == blmoveCommand) {
             rewriteClientCommandVector(c,5,shared.lmove,
                                        c->argv[1],c->argv[2],c->argv[3],c->argv[4]);
+        } else if (c->cmd->proc == brpoplpushCommand) {
+            rewriteClientCommandVector(c,3,shared.rpoplpush,
+                                       c->argv[1],c->argv[2]);
         }
     }
+}
+
+void lmoveCommand(client *c) {
+    int wherefrom, whereto;
+    if (getListPositionFromObjectOrReply(c,c->argv[3],&wherefrom)
+        != C_OK) return;
+    if (getListPositionFromObjectOrReply(c,c->argv[4],&whereto)
+        != C_OK) return;
+    lmoveGenericCommand(c, wherefrom, whereto);
 }
 
 /* This is the semantic of this command:
@@ -752,9 +759,7 @@ void lmoveCommand(client *c) {
  * as well. This command was originally proposed by Ezra Zygmuntowicz.
  */
 void rpoplpushCommand(client *c) {
-    rewriteClientCommandVector(c, 5, shared.lmove,
-                               c->argv[1], c->argv[2], shared.right, shared.left);
-    lmoveCommand(c);
+    lmoveGenericCommand(c, LIST_TAIL, LIST_HEAD);
 }
 
 /*-----------------------------------------------------------------------------
@@ -813,14 +818,15 @@ int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb 
              checkType(receiver,dstobj,OBJ_LIST)))
         {
             lmoveHandlePush(receiver,dstkey,dstobj,value,whereto);
-            /* Propagate the LMOVE operation. */
-            argv[0] = shared.lmove;
+            /* Propagate the LMOVE/RPOPLPUSH operation. */
+            int isbrpoplpush = (receiver->lastcmd->proc == brpoplpushCommand);
+            argv[0] = isbrpoplpush ? shared.rpoplpush : shared.lmove;
             argv[1] = key;
             argv[2] = dstkey;
             argv[3] = getStringObjectFromListPosition(wherefrom);
             argv[4] = getStringObjectFromListPosition(whereto);
-            propagate(server.lmoveCommand,
-                db->id,argv,5,
+            propagate(isbrpoplpush ? server.rpoplpushCommand : server.lmoveCommand,
+                db->id,argv,(isbrpoplpush ? 3 : 5),
                 PROPAGATE_AOF|
                 PROPAGATE_REPL);
 
@@ -900,20 +906,9 @@ void brpopCommand(client *c) {
     blockingPopGenericCommand(c,LIST_TAIL);
 }
 
-void blmoveCommand(client *c) {
-    mstime_t timeout;
-
-    if (getTimeoutFromObjectOrReply(c,c->argv[5],&timeout,UNIT_SECONDS)
-        != C_OK) return;
-
+void blmoveGenericCommand(client *c, int wherefrom, int whereto, mstime_t timeout) {
     robj *key = lookupKeyWrite(c->db, c->argv[1]);
     if (checkType(c,key,OBJ_LIST)) return;
-
-    int wherefrom, whereto;
-    if (getListPositionFromObjectOrReply(c,c->argv[3],&wherefrom)
-        != C_OK) return;
-    if (getListPositionFromObjectOrReply(c,c->argv[4],&whereto)
-        != C_OK) return;
 
     if (key == NULL) {
         if (c->flags & CLIENT_MULTI) {
@@ -928,12 +923,25 @@ void blmoveCommand(client *c) {
         /* The list exists and has elements, so
          * the regular lmoveCommand is executed. */
         serverAssertWithInfo(c,key,listTypeLength(key) > 0);
-        lmoveCommand(c);
+        lmoveGenericCommand(c,wherefrom,whereto);
     }
 }
 
+void blmoveCommand(client *c) {
+    mstime_t timeout;
+    int wherefrom, whereto;
+    if (getListPositionFromObjectOrReply(c,c->argv[3],&wherefrom)
+        != C_OK) return;
+    if (getListPositionFromObjectOrReply(c,c->argv[4],&whereto)
+        != C_OK) return;
+    if (getTimeoutFromObjectOrReply(c,c->argv[5],&timeout,UNIT_SECONDS)
+        != C_OK) return;
+    blmoveGenericCommand(c,wherefrom,whereto,timeout);
+}
+
 void brpoplpushCommand(client *c) {
-    rewriteClientCommandVector(c, 6, shared.blmove,
-                               c->argv[1], c->argv[2], shared.right, shared.left, c->argv[3]);
-    blmoveCommand(c);
+    mstime_t timeout;
+    if (getTimeoutFromObjectOrReply(c,c->argv[3],&timeout,UNIT_SECONDS)
+        != C_OK) return;
+    blmoveGenericCommand(c, LIST_TAIL, LIST_HEAD, timeout);
 }
