@@ -1725,7 +1725,7 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     bugReportStart();
     serverLog(LL_WARNING,
         "Redis %s crashed by signal: %d, si_code: %d", REDIS_VERSION, sig, info->si_code);
-    if (sig == SIGSEGV || sig == SIGBUS || sig == SIGFPE) {
+    if (sig == SIGSEGV || sig == SIGBUS) {
         serverLog(LL_WARNING,
         "Accessing address: %p", (void*)info->si_addr);
     }
