@@ -48,12 +48,23 @@ size_t sdsZmallocSize(sds s) {
 }
 
 /* Return the amount of memory used by the sds string at object->ptr
- * for a string object. */
+ * for a string object. This includes internal fragmentation. */
 size_t getStringObjectSdsUsedMemory(robj *o) {
     serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
     switch(o->encoding) {
     case OBJ_ENCODING_RAW: return sdsZmallocSize(o->ptr);
     case OBJ_ENCODING_EMBSTR: return zmalloc_size(o)-sizeof(robj);
+    default: return 0; /* Just integer encoding for now. */
+    }
+}
+
+/* Return the length of a string object.
+ * This does NOT includes internal fragmentation or sds unused space. */
+size_t getStringObjectLen(robj *o) {
+    serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
+    switch(o->encoding) {
+    case OBJ_ENCODING_RAW: return sdslen(o->ptr);
+    case OBJ_ENCODING_EMBSTR: return sdslen(o->ptr);
     default: return 0; /* Just integer encoding for now. */
     }
 }
@@ -117,6 +128,7 @@ client *createClient(connection *conn) {
     c->reqtype = 0;
     c->argc = 0;
     c->argv = NULL;
+    c->argv_len_sum = 0;
     c->cmd = c->lastcmd = NULL;
     c->user = DefaultUser;
     c->multibulklen = 0;
@@ -293,7 +305,7 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
         size_t size = len < PROTO_REPLY_CHUNK_BYTES? PROTO_REPLY_CHUNK_BYTES: len;
         tail = zmalloc(size + sizeof(clientReplyBlock));
         /* take over the allocation's internal fragmentation */
-        tail->size = zmalloc_usable(tail) - sizeof(clientReplyBlock);
+        tail->size = zmalloc_usable_size(tail) - sizeof(clientReplyBlock);
         tail->used = len;
         memcpy(tail->buf, s, len);
         listAddNodeTail(c->reply, tail);
@@ -489,7 +501,7 @@ void trimReplyUnusedTailSpace(client *c) {
         tail = zrealloc(tail, tail->used + sizeof(clientReplyBlock));
         /* take over the allocation's internal fragmentation (at least for
          * memory usage tracking) */
-        tail->size = zmalloc_usable(tail) - sizeof(clientReplyBlock);
+        tail->size = zmalloc_usable_size(tail) - sizeof(clientReplyBlock);
         c->reply_bytes = c->reply_bytes + tail->size - old_size;
         listNodeValue(ln) = tail;
     }
@@ -541,7 +553,7 @@ void setDeferredAggregateLen(client *c, void *node, long length, char prefix) {
         /* Create a new node */
         clientReplyBlock *buf = zmalloc(lenstr_len + sizeof(clientReplyBlock));
         /* Take over the allocation's internal fragmentation */
-        buf->size = zmalloc_usable(buf) - sizeof(clientReplyBlock);
+        buf->size = zmalloc_usable_size(buf) - sizeof(clientReplyBlock);
         buf->used = lenstr_len;
         memcpy(buf->buf, lenstr, lenstr_len);
         listNodeValue(ln) = buf;
@@ -1052,6 +1064,7 @@ static void freeClientArgv(client *c) {
         decrRefCount(c->argv[j]);
     c->argc = 0;
     c->cmd = NULL;
+    c->argv_len_sum = 0;
 }
 
 /* Close all the slaves connections. This is useful in chained replication
@@ -1284,6 +1297,7 @@ void freeClient(client *c) {
      * and finally release the client structure itself. */
     if (c->name) decrRefCount(c->name);
     zfree(c->argv);
+    c->argv_len_sum = 0;
     freeClientMultiState(c);
     sdsfree(c->peerid);
     zfree(c);
@@ -1547,16 +1561,20 @@ void resetClient(client *c) {
  *    path, it is not really released, but only marked for later release. */
 void protectClient(client *c) {
     c->flags |= CLIENT_PROTECTED;
-    connSetReadHandler(c->conn,NULL);
-    connSetWriteHandler(c->conn,NULL);
+    if (c->conn) {
+        connSetReadHandler(c->conn,NULL);
+        connSetWriteHandler(c->conn,NULL);
+    }
 }
 
 /* This will undo the client protection done by protectClient() */
 void unprotectClient(client *c) {
     if (c->flags & CLIENT_PROTECTED) {
         c->flags &= ~CLIENT_PROTECTED;
-        connSetReadHandler(c->conn,readQueryFromClient);
-        if (clientHasPendingReplies(c)) clientInstallWriteHandler(c);
+        if (c->conn) {
+            connSetReadHandler(c->conn,readQueryFromClient);
+            if (clientHasPendingReplies(c)) clientInstallWriteHandler(c);
+        }
     }
 }
 
@@ -1626,12 +1644,14 @@ int processInlineBuffer(client *c) {
     if (argc) {
         if (c->argv) zfree(c->argv);
         c->argv = zmalloc(sizeof(robj*)*argc);
+        c->argv_len_sum = 0;
     }
 
     /* Create redis objects for all arguments. */
     for (c->argc = 0, j = 0; j < argc; j++) {
         c->argv[c->argc] = createObject(OBJ_STRING,argv[j]);
         c->argc++;
+        c->argv_len_sum += sdslen(argv[j]);
     }
     zfree(argv);
     return C_OK;
@@ -1723,6 +1743,7 @@ int processMultibulkBuffer(client *c) {
         /* Setup argv array on client structure */
         if (c->argv) zfree(c->argv);
         c->argv = zmalloc(sizeof(robj*)*c->multibulklen);
+        c->argv_len_sum = 0;
     }
 
     serverAssertWithInfo(c,NULL,c->multibulklen > 0);
@@ -1795,6 +1816,7 @@ int processMultibulkBuffer(client *c) {
                 sdslen(c->querybuf) == (size_t)(c->bulklen+2))
             {
                 c->argv[c->argc++] = createObject(OBJ_STRING,c->querybuf);
+                c->argv_len_sum += c->bulklen;
                 sdsIncrLen(c->querybuf,-2); /* remove CRLF */
                 /* Assume that if we saw a fat argument we'll see another one
                  * likely... */
@@ -1803,6 +1825,7 @@ int processMultibulkBuffer(client *c) {
             } else {
                 c->argv[c->argc++] =
                     createStringObject(c->querybuf+c->qb_pos,c->bulklen);
+                c->argv_len_sum += c->bulklen;
                 c->qb_pos += c->bulklen+2;
             }
             c->bulklen = -1;
@@ -2125,8 +2148,21 @@ sds catClientInfoString(sds s, client *client) {
         if (connHasWriteHandler(client->conn)) *p++ = 'w';
     }
     *p = '\0';
+
+    /* Compute the total memory consumed by this client. */
+    size_t obufmem = getClientOutputBufferMemoryUsage(client);
+    size_t total_mem = obufmem;
+    total_mem += zmalloc_size(client); /* includes client->buf */
+    total_mem += sdsZmallocSize(client->querybuf);
+    /* For efficiency (less work keeping track of the argv memory), it doesn't include the used memory
+     * i.e. unused sds space and internal fragmentation, just the string length. but this is enough to
+     * spot problematic clients. */
+    total_mem += client->argv_len_sum;
+    if (client->argv)
+        total_mem += zmalloc_size(client->argv);
+
     return sdscatfmt(s,
-        "id=%U addr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U obl=%U oll=%U omem=%U events=%s cmd=%s user=%s",
+        "id=%U addr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s",
         (unsigned long long) client->id,
         getClientPeerId(client),
         connGetInfo(client->conn, conninfo, sizeof(conninfo)),
@@ -2140,9 +2176,11 @@ sds catClientInfoString(sds s, client *client) {
         (client->flags & CLIENT_MULTI) ? client->mstate.count : -1,
         (unsigned long long) sdslen(client->querybuf),
         (unsigned long long) sdsavail(client->querybuf),
+        (unsigned long long) client->argv_len_sum,
         (unsigned long long) client->bufpos,
         (unsigned long long) listLength(client->reply),
-        (unsigned long long) getClientOutputBufferMemoryUsage(client),
+        (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
+        (unsigned long long) total_mem,
         events,
         client->lastcmd ? client->lastcmd->name : "NULL",
         client->user ? client->user->name : "(superuser)");
@@ -2680,6 +2718,10 @@ void rewriteClientCommandVector(client *c, int argc, ...) {
     /* Replace argv and argc with our new versions. */
     c->argv = argv;
     c->argc = argc;
+    c->argv_len_sum = 0;
+    for (j = 0; j < c->argc; j++)
+        if (c->argv[j])
+            c->argv_len_sum += getStringObjectLen(c->argv[j]);
     c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
     serverAssertWithInfo(c,NULL,c->cmd != NULL);
     va_end(ap);
@@ -2687,10 +2729,15 @@ void rewriteClientCommandVector(client *c, int argc, ...) {
 
 /* Completely replace the client command vector with the provided one. */
 void replaceClientCommandVector(client *c, int argc, robj **argv) {
+    int j;
     freeClientArgv(c);
     zfree(c->argv);
     c->argv = argv;
     c->argc = argc;
+    c->argv_len_sum = 0;
+    for (j = 0; j < c->argc; j++)
+        if (c->argv[j])
+            c->argv_len_sum += getStringObjectLen(c->argv[j]);
     c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
     serverAssertWithInfo(c,NULL,c->cmd != NULL);
 }
@@ -2715,6 +2762,8 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
         c->argv[i] = NULL;
     }
     oldval = c->argv[i];
+    if (oldval) c->argv_len_sum -= getStringObjectLen(oldval);
+    if (newval) c->argv_len_sum += getStringObjectLen(newval);
     c->argv[i] = newval;
     incrRefCount(newval);
     if (oldval) decrRefCount(oldval);

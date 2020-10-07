@@ -99,6 +99,21 @@ void *zmalloc(size_t size) {
 #endif
 }
 
+/* Similar to zmalloc, '*usable' is set to the usable size. */
+void *zmalloc_usable(size_t size, size_t *usable) {
+    void *ptr = malloc(size+PREFIX_SIZE);
+
+    if (!ptr) zmalloc_oom_handler(size);
+#ifdef HAVE_MALLOC_SIZE
+    update_zmalloc_stat_alloc(*usable = zmalloc_size(ptr));
+    return ptr;
+#else
+    *((size_t*)ptr) = *usable = size;
+    update_zmalloc_stat_alloc(size+PREFIX_SIZE);
+    return (char*)ptr+PREFIX_SIZE;
+#endif
+}
+
 /* Allocation and free functions that bypass the thread cache
  * and go straight to the allocator arena bins.
  * Currently implemented only for jemalloc. Used for online defragmentation. */
@@ -126,6 +141,21 @@ void *zcalloc(size_t size) {
     return ptr;
 #else
     *((size_t*)ptr) = size;
+    update_zmalloc_stat_alloc(size+PREFIX_SIZE);
+    return (char*)ptr+PREFIX_SIZE;
+#endif
+}
+
+/* Similar to zcalloc, '*usable' is set to the usable size. */
+void *zcalloc_usable(size_t size, size_t *usable) {
+    void *ptr = calloc(1, size+PREFIX_SIZE);
+
+    if (!ptr) zmalloc_oom_handler(size);
+#ifdef HAVE_MALLOC_SIZE
+    update_zmalloc_stat_alloc(*usable = zmalloc_size(ptr));
+    return ptr;
+#else
+    *((size_t*)ptr) = *usable = size;
     update_zmalloc_stat_alloc(size+PREFIX_SIZE);
     return (char*)ptr+PREFIX_SIZE;
 #endif
@@ -164,6 +194,41 @@ void *zrealloc(void *ptr, size_t size) {
 #endif
 }
 
+/* Similar to zrealloc, '*usable' is set to the new usable size. */
+void *zrealloc_usable(void *ptr, size_t size, size_t *usable) {
+#ifndef HAVE_MALLOC_SIZE
+    void *realptr;
+#endif
+    size_t oldsize;
+    void *newptr;
+
+    if (size == 0 && ptr != NULL) {
+        zfree(ptr);
+        *usable = 0;
+        return NULL;
+    }
+    if (ptr == NULL) return zmalloc_usable(size, usable);
+#ifdef HAVE_MALLOC_SIZE
+    oldsize = zmalloc_size(ptr);
+    newptr = realloc(ptr,size);
+    if (!newptr) zmalloc_oom_handler(size);
+
+    update_zmalloc_stat_free(oldsize);
+    update_zmalloc_stat_alloc(*usable = zmalloc_size(newptr));
+    return newptr;
+#else
+    realptr = (char*)ptr-PREFIX_SIZE;
+    oldsize = *((size_t*)realptr);
+    newptr = realloc(realptr,size+PREFIX_SIZE);
+    if (!newptr) zmalloc_oom_handler(size);
+
+    *((size_t*)newptr) = *usable = size;
+    update_zmalloc_stat_free(oldsize);
+    update_zmalloc_stat_alloc(size);
+    return (char*)newptr+PREFIX_SIZE;
+#endif
+}
+
 /* Provide zmalloc_size() for systems where this function is not provided by
  * malloc itself, given that in that case we store a header with this
  * information as the first bytes of every allocation. */
@@ -176,7 +241,7 @@ size_t zmalloc_size(void *ptr) {
     if (size&(sizeof(long)-1)) size += sizeof(long)-(size&(sizeof(long)-1));
     return size+PREFIX_SIZE;
 }
-size_t zmalloc_usable(void *ptr) {
+size_t zmalloc_usable_size(void *ptr) {
     return zmalloc_size(ptr)-PREFIX_SIZE;
 }
 #endif
@@ -194,6 +259,25 @@ void zfree(void *ptr) {
 #else
     realptr = (char*)ptr-PREFIX_SIZE;
     oldsize = *((size_t*)realptr);
+    update_zmalloc_stat_free(oldsize+PREFIX_SIZE);
+    free(realptr);
+#endif
+}
+
+/* Similar to zfree, '*usable' is set to the usable size being freed. */
+void zfree_usable(void *ptr, size_t *usable) {
+#ifndef HAVE_MALLOC_SIZE
+    void *realptr;
+    size_t oldsize;
+#endif
+
+    if (ptr == NULL) return;
+#ifdef HAVE_MALLOC_SIZE
+    update_zmalloc_stat_free(*usable = zmalloc_size(ptr));
+    free(ptr);
+#else
+    realptr = (char*)ptr-PREFIX_SIZE;
+    *usable = oldsize = *((size_t*)realptr);
     update_zmalloc_stat_free(oldsize+PREFIX_SIZE);
     free(realptr);
 #endif
