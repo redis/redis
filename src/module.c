@@ -7900,7 +7900,7 @@ int RM_GetKeyspaceNotificationFlagsAll() {
  * Example for 6.0.7 the return value will be 0x00060007.
  */
 int RM_GetServerVersion() {
-    return (REDIS_MAJOR_VERSION << 16) | (REDIS_MINOR_VERSION << 8) | REDIS_PATCH_VERSION;
+    return REDIS_VERSION_NUM;
 }
 
 /* Replace the value assigned to a module type.
