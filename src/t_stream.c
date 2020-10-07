@@ -2296,6 +2296,29 @@ void xreadCommand(client *c) {
                 ids[id_idx].seq = 0;
             }
             continue;
+        } else if (strcmp(c->argv[i]->ptr,"+") == 0) {
+            if (xreadgroup) {
+                addReplyError(c,"The + ID is meaningless in the context of "
+                                "XREADGROUP: you want to read the history of "
+                                "this consumer by specifying a proper ID, or "
+                                "use the > ID to get new messages. The + ID would "
+                                "just return an empty result set.");
+                goto cleanup;
+            }
+            if (o) {
+                stream *s = o->ptr;
+                ids[id_idx] = s->last_id;
+                if (ids[id_idx].seq > 0) {
+                    ids[id_idx].seq--;
+                } else {
+                    ids[id_idx].ms--;
+                    ids[id_idx].seq = UINT64_MAX;
+                }
+            } else {
+                ids[id_idx].ms = 0;
+                ids[id_idx].seq = 0;
+            }
+            continue;
         } else if (strcmp(c->argv[i]->ptr,">") == 0) {
             if (!xreadgroup) {
                 addReplyError(c,"The > ID can be specified only when calling "
