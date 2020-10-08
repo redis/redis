@@ -478,17 +478,30 @@ sds ACLDescribeUserCommandRules(user *u) {
     /* Try to add or subtract each category one after the other. Often a
      * single category will not perfectly match the set of commands into
      * it, so at the end we do a final pass adding/removing the single commands
-     * needed to make the bitmap exactly match. */
+     * needed to make the bitmap exactly match. A temp user is maintained to
+     * keep track of categories already applied. */
+    user tu = {0};
+    user *tempuser = &tu;
+    memcpy(tempuser->allowed_commands,
+        u->allowed_commands, 
+        sizeof(u->allowed_commands));
+
     for (int j = 0; ACLCommandCategories[j].flag != 0; j++) {
         unsigned long on, off;
-        ACLCountCategoryBitsForUser(u,&on,&off,ACLCommandCategories[j].name);
+        ACLCountCategoryBitsForUser(tempuser,&on,&off,ACLCommandCategories[j].name);
         if ((additive && on > off) || (!additive && off > on)) {
             sds op = sdsnewlen(additive ? "+@" : "-@", 2);
             op = sdscat(op,ACLCommandCategories[j].name);
             ACLSetUser(fakeuser,op,-1);
+
+            sds invop = sdsnewlen(additive ? "-@" : "+@", 2);
+            invop = sdscat(invop,ACLCommandCategories[j].name);
+            ACLSetUser(tempuser,invop,-1);
+
             rules = sdscatsds(rules,op);
             rules = sdscatlen(rules," ",1);
             sdsfree(op);
+            sdsfree(invop);
         }
     }
 
