@@ -1430,10 +1430,11 @@ void freeClient(client *c) {
      * we lost the connection with the master. */
     if (c->flags & CLIENT_MASTER) replicationHandleMasterDisconnection();
 
-   /* Remove the contribution that this client gave to our
+    /* Remove the contribution that this client gave to our
      * incrementally computed memory usage. */
     server.stat_clients_type_memory[c->client_cron_last_memory_type] -=
         c->client_cron_last_memory_usage;
+    removeClientFromEvictionPool(c);
 
     /* Release other dynamically allocated client structure fields,
      * and finally release the client structure itself. */
@@ -3762,10 +3763,29 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     return processed;
 }
 
+/* Returns true if client memory limit was reached */
+int clientEvictionCheckLimit() {
+    if (server.maxmemory_clients == 0 ||
+        server.stat_clients_type_memory[CLIENT_TYPE_NORMAL] +
+        server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB] < server.maxmemory_clients) {
+        return 0;
+    }
+    return 1;
+}
+
 void clientsEviction() {
-    while (server.stat_clients_type_memory[CLIENT_TYPE_NORMAL] +
-           server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB] > maxmemory_clients) {
-        client *c = NULL;
-        freeClient(c);
-   }
+    if (!clientEvictionCheckLimit())
+        return;
+
+    raxIterator ri;
+    raxStart(&ri,server.client_eviction_pull);
+    raxSeek(&ri,"$",NULL,0);
+    while (raxPrev(&ri)) {
+        client *best = ri.data;
+        freeClient(best);
+        server.stat_evictedclients++;
+        if (!clientEvictionCheckLimit())
+            break;
+    }
+    raxStop(&ri);
 }

@@ -2169,6 +2169,32 @@ int clientsCronTrackExpansiveClients(client *c, int time_idx) {
     return 0; /* This function never terminates the client. */
 }
 
+void removeClientFromEvictionPool(client *c) {
+    if (c->client_cron_last_memory_usage < server.client_eviction_pull_min)
+        return;
+
+
+    uint64_t old_score = htonu64(c->client_cron_last_memory_usage);
+    raxRemove(server.client_eviction_pull, (void*)&old_score, 8, NULL);
+
+    raxIterator ri;
+    if (c->client_cron_last_memory_usage == server.client_eviction_pull_min) {
+        raxStart(&ri,server.client_eviction_pull);
+        raxSeek(&ri,"^",NULL,0);
+        if (raxNext(&ri))
+            server.client_eviction_pull_min = ((client*)ri.data)->client_cron_last_memory_usage;
+        raxStop(&ri);
+    }
+
+    if (c->client_cron_last_memory_usage == server.client_eviction_pull_max) {
+        raxStart(&ri,server.client_eviction_pull);
+        raxSeek(&ri,"$",NULL,0);
+        if (raxPrev(&ri))
+            server.client_eviction_pull_max = ((client*)ri.data)->client_cron_last_memory_usage;
+        raxStop(&ri);
+    }
+}
+
 /* Iterating all the clients in getMemoryOverheadData() is too slow and
  * in turn would make the INFO command too slow. So we perform this
  * computation incrementally and track the (not instantaneous but updated
@@ -2187,6 +2213,32 @@ int clientsCronTrackClientsMemUsage(client *c) {
     server.stat_clients_type_memory[c->client_cron_last_memory_type] -=
         c->client_cron_last_memory_usage;
     server.stat_clients_type_memory[type] += mem;
+
+    /* Update the record in the clients eviction rax */
+    //TODO: score should include clientID in case there are two clients with the same score
+    //TODO: score may not just be used memory, it might need to include age and others
+    //TODO: skip non normal client types, and handle cases where client changes type
+    removeClientFromEvictionPool(c);
+    if (raxSize(server.client_eviction_pull) < CLIENT_EVICTION_POOL || mem > server.client_eviction_pull_min) {
+        uint64_t score = htonu64(mem);
+        raxInsert(server.client_eviction_pull, (void*)&score, 8, c, NULL);
+        if (mem < server.client_eviction_pull_min)
+            server.client_eviction_pull_min = mem;
+        if (mem > server.client_eviction_pull_max)
+            server.client_eviction_pull_max = mem;
+
+        /* too many items? remove the smallest one */
+        if (raxSize(server.client_eviction_pull) > CLIENT_EVICTION_POOL) {
+            raxIterator ri;
+            raxStart(&ri,server.client_eviction_pull);
+            raxSeek(&ri,"^",NULL,0);
+            if (raxNext(&ri))
+                raxRemove(server.client_eviction_pull, ri.key, ri.key_len, NULL);
+            raxStop(&ri);
+        }
+
+    }
+
     /* Remember what we added and where, to remove it next time. */
     c->client_cron_last_memory_usage = mem;
     c->client_cron_last_memory_type = type;
@@ -3512,6 +3564,7 @@ void resetServerStats(void) {
     server.stat_expired_time_cap_reached_count = 0;
     server.stat_expire_cycle_time_used = 0;
     server.stat_evictedkeys = 0;
+    server.stat_evictedclients = 0;
     server.stat_total_eviction_exceeded_time = 0;
     server.stat_last_eviction_exceeded_time = 0;
     server.stat_keyspace_misses = 0;
@@ -5676,6 +5729,7 @@ sds genRedisInfoString(const char *section) {
             "expired_time_cap_reached_count:%lld\r\n"
             "expire_cycle_cpu_milliseconds:%lld\r\n"
             "evicted_keys:%lld\r\n"
+            "evicted_clients:%lld\r\n"
             "total_eviction_exceeded_time:%lld\r\n"
             "current_eviction_exceeded_time:%lld\r\n"
             "keyspace_hits:%lld\r\n"
@@ -5718,6 +5772,7 @@ sds genRedisInfoString(const char *section) {
             server.stat_expired_time_cap_reached_count,
             server.stat_expire_cycle_time_used/1000,
             server.stat_evictedkeys,
+            server.stat_evictedclients,
             (server.stat_total_eviction_exceeded_time + current_eviction_exceeded_time) / 1000,
             current_eviction_exceeded_time / 1000,
             server.stat_keyspace_hits,
