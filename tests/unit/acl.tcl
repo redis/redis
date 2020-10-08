@@ -135,6 +135,20 @@ start_server {tags {"acl"}} {
         assert_match {*+acl*} $cmdstr
     }
 
+    # A regression test make sure that as long as there is a simple
+    # category defining the commands, that it will be used as is.
+    test {ACL GETUSER provides reasonable results} {
+        # Test for future commands where allowed
+        r ACL setuser additive reset +@all -@write
+        set cmdstr [dict get [r ACL getuser additive] commands]
+        assert_match {+@all -@write} $cmdstr
+
+        # Test for future commands are disallowed
+        r ACL setuser subtractive reset -@all +@read
+        set cmdstr [dict get [r ACL getuser subtractive] commands]
+        assert_match {-@all +@read} $cmdstr
+    }
+
     test {ACL #5998 regression: memory leaks adding / removing subcommands} {
         r AUTH default ""
         r ACL setuser newuser reset -debug +debug|a +debug|b +debug|c
