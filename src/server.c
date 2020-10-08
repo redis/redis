@@ -302,6 +302,10 @@ struct redisCommand redisCommandTable[] = {
      "write use-memory no-script @list @blocking",
      0,NULL,1,2,1,0,0,0},
 
+    {"blmove",blmoveCommand,6,
+     "write use-memory no-script @list @blocking",
+     0,NULL,1,2,1,0,0,0},
+
     {"blpop",blpopCommand,-3,
      "write no-script @list @blocking",
      0,NULL,1,-2,1,0,0,0},
@@ -335,6 +339,10 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,1,1,1,0,0,0},
 
     {"rpoplpush",rpoplpushCommand,3,
+     "write use-memory @list",
+     0,NULL,1,2,1,0,0,0},
+
+    {"lmove",lmoveCommand,5,
      "write use-memory @list",
      0,NULL,1,2,1,0,0,0},
 
@@ -2385,10 +2393,15 @@ void createSharedObjects(void) {
     shared.lpop = createStringObject("LPOP",4);
     shared.lpush = createStringObject("LPUSH",5);
     shared.rpoplpush = createStringObject("RPOPLPUSH",9);
+    shared.lmove = createStringObject("LMOVE",5);
+    shared.blmove = createStringObject("BLMOVE",6);
     shared.zpopmin = createStringObject("ZPOPMIN",7);
     shared.zpopmax = createStringObject("ZPOPMAX",7);
     shared.multi = createStringObject("MULTI",5);
     shared.exec = createStringObject("EXEC",4);
+    /* Used in the LMOVE/BLMOVE commands */
+    shared.left = createStringObject("left",4);
+    shared.right = createStringObject("right",5);
     for (j = 0; j < OBJ_SHARED_INTEGERS; j++) {
         shared.integers[j] =
             makeObjectShared(createObject(OBJ_STRING,(void*)(long)j));
@@ -2523,6 +2536,7 @@ void initServerConfig(void) {
     server.xclaimCommand = lookupCommandByCString("xclaim");
     server.xgroupCommand = lookupCommandByCString("xgroup");
     server.rpoplpushCommand = lookupCommandByCString("rpoplpush");
+    server.lmoveCommand = lookupCommandByCString("lmove");
 
     /* Debugging */
     server.watchdog_period = 0;

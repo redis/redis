@@ -1,7 +1,5 @@
 proc cmdstat {cmd} {
-    if {[regexp "\r\ncmdstat_$cmd:(.*?)\r\n" [r info commandstats] _ value]} {
-        set _ $value
-    }
+    return [cmdrstat $cmd r]
 }
 
 start_server {tags {"introspection"}} {
