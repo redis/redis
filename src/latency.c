@@ -59,6 +59,7 @@ dictType latencyTimeSeriesDictType = {
 /* ------------------------- Utility functions ------------------------------ */
 
 #ifdef __linux__
+#include <sys/prctl.h>
 /* Returns 1 if Transparent Huge Pages support is enabled in the kernel.
  * Otherwise (or if we are unable to check) 0 is returned. */
 int THPIsEnabled(void) {
@@ -72,6 +73,21 @@ int THPIsEnabled(void) {
     }
     fclose(fp);
     return (strstr(buf,"[always]") != NULL) ? 1 : 0;
+}
+
+/* since linux-3.5, kernel supports to set the state of the "THP disable" flag
+ * for the calling thread. PR_SET_THP_DISABLE is defined in linux/prctl.h */
+int THPDisable(void) {
+    int ret = -EINVAL;
+
+    if (!server.disable_thp)
+        return ret;
+
+#ifdef PR_SET_THP_DISABLE
+    ret = prctl(PR_SET_THP_DISABLE, 1, 0, 0, 0);
+#endif
+
+    return ret;
 }
 #endif
 
