@@ -191,9 +191,15 @@ start_server {tags {"repl"}} {
 }
 
 foreach mdl {no yes} {
+  foreach msrt {no yes} {
+    # It's meaningful to enable send-rdb-by-thread only in disk-based mode
+    if {$mdl eq {yes} && $msrt eq {yes}} {
+        continue
+    }
     foreach sdl {disabled swapdb} {
         start_server {tags {"repl"}} {
             set master [srv 0 client]
+            $master config set send-rdb-by-thread $msrt
             $master config set repl-diskless-sync $mdl
             $master config set repl-diskless-sync-delay 1
             set master_host [srv 0 host]
@@ -205,7 +211,7 @@ foreach mdl {no yes} {
                     lappend slaves [srv 0 client]
                     start_server {} {
                         lappend slaves [srv 0 client]
-                        test "Connect multiple replicas at the same time (issue #141), master diskless=$mdl, replica diskless=$sdl" {
+                        test "Connect multiple replicas at the same time (issue #141), master diskless=$mdl, send-rdb-by-thread=$msrt, replica diskless=$sdl" {
                             # start load handles only inside the test, so that the test can be skipped
                             set load_handle0 [start_bg_complex_data $master_host $master_port 9 100000000]
                             set load_handle1 [start_bg_complex_data $master_host $master_port 11 100000000]
@@ -278,6 +284,69 @@ foreach mdl {no yes} {
                         }
                    }
                 }
+            }
+        }
+    }
+  }
+}
+
+start_server {tags {"repl"} overrides {rdb-bulk-send-delay 1000000}} {
+    set master [srv 0 client]
+    set master_log [srv 0 stdout]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+    # Write 1M data, sending RDB file will cost several seconds
+    set item [string repeat "x" 100000]
+    for {set i 0} { $i < 10 } { incr i } {
+        $master lpush $i $item
+    }
+    $master config set rdbcompression no
+    $master config set send-rdb-by-thread yes
+
+    test {Release sending rdb thread when replica disconnects} {
+        start_server {tags {"repl"}} {
+            set replica [srv 0 client]
+            set replica_host [srv 0 host]
+            set replica_port [srv 0 port]
+            $replica slaveof $master_host $master_port
+            wait_for_condition 50 100 {
+                [string match "*send_bulk*" [$master info replication]]
+            } else {
+                fail "Can't start to send rdb file"
+            }
+            assert {[log_file_matches $master_log "*start*thread*send*${replica_host}*${replica_port}*"]}
+
+            # Disconnect with master
+            $replica slaveof no one
+            # The sending rdb thread should be released
+            wait_for_condition 50 100 {
+                [log_file_matches $master_log "*thread*${replica_host}*${replica_port}*released*"]
+            } else {
+                fail "Can't release sending rdb thread"
+            }
+        }
+    }
+
+    test {Release sending rdb thread when close replica's connection} {
+        start_server {tags {"repl"}} {
+            set replica2 [srv 0 client]
+            set replica2_host [srv 0 host]
+            set replica2_port [srv 0 port]
+            $replica2 slaveof $master_host $master_port
+            wait_for_condition 50 100 {
+                [string match "*send_bulk*" [$master info replication]]
+            } else {
+                fail "Can't start to send rdb file"
+            }
+            assert {[log_file_matches $master_log "*start*thread*send*${replica2_host}*${replica2_port}*"]}
+
+            # Close replicas' connections
+            $master client kill type replica
+            # The sending rdb thread should be released
+            wait_for_condition 50 100 {
+                [log_file_matches $master_log "*thread*${replica2_host}*${replica2_port}*released*"]
+            } else {
+                fail "Can't release sending rdb thread"
             }
         }
     }

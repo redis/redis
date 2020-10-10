@@ -328,6 +328,12 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define SLAVE_CAPA_EOF (1<<0)    /* Can parse the RDB EOF streaming format. */
 #define SLAVE_CAPA_PSYNC2 (1<<1) /* Supports PSYNC2 protocol. */
 
+/* State of master sending RDB to slave by thread. */
+#define THREAD_SEND_DB_NONE 0
+#define THREAD_SEND_DB_START 1   /* Start creating a thread to send RDB file. */
+#define THREAD_SEND_DB_SUCCESS 2 /* Send RDB file to replicas successfully. */
+#define THREAD_SEND_DB_FAIL 3    /* Fail to send RDB file. */
+
 /* Synchronous read timeout - slave side */
 #define CONFIG_REPL_SYNCIO_TIMEOUT 5
 
@@ -872,6 +878,8 @@ typedef struct client {
     /* Response buffer */
     int bufpos;
     char buf[PROTO_REPLY_CHUNK_BYTES];
+    pthread_t send_db_thread; /* The thread of Sending RDB to replica. */
+    redisAtomic int thread_send_db_state; /* State of sending RDB. */
 } client;
 
 struct saveparam {
@@ -1325,6 +1333,10 @@ struct redisServer {
     int repl_diskless_load;         /* Slave parse RDB directly from the socket.
                                      * see REPL_DISKLESS_LOAD_* enum */
     int repl_diskless_sync_delay;   /* Delay to start a diskless repl BGSAVE. */
+    int send_rdb_by_thread;         /* Send RDB file by thread when full disk-based sync. */
+    int rdb_bulk_send_delay;        /* Delay in microseconds between bulks while
+                                     * send the RDB file. (for testings). negative
+                                     * value means fractions of microsecons (on average). */
     /* Replication (slave) */
     char *masteruser;               /* AUTH with this user and masterauth with master */
     char *masterauth;               /* AUTH with this password with master */
@@ -1868,6 +1880,7 @@ void feedReplicationBacklog(void *ptr, size_t len);
 void showLatestBacklog(void);
 void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask);
 void rdbPipeWriteHandlerConnRemoved(struct connection *conn);
+void updateSlavesReplicationStateIfNeed(void);
 
 /* Generic persistence functions */
 void startLoadingFile(FILE* fp, char* filename, int rdbflags);
@@ -2501,6 +2514,8 @@ void debugDelay(int usec);
 void killIOThreads(void);
 void killThreads(void);
 void makeThreadKillable(void);
+void setPthreadAttrStacksize(pthread_attr_t *attr);
+int blockThreadSigalrm(void);
 
 /* TLS stuff */
 void tlsInit(void);

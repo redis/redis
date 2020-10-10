@@ -93,6 +93,7 @@ start_server {tags {"introspection"}} {
             port
             tls-port
             io-threads
+            rdb-bulk-send-delay
             logfile
             unixsocketperm
             slaveof

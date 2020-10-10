@@ -2274,6 +2274,10 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Close clients that need to be closed asynchronous */
     freeClientsInAsyncFreeQueue();
 
+    /* If we send RDB file to slaves by threads, check sending RDB is finished
+     * or not, and update slaves' replication state if need. */
+    updateSlavesReplicationStateIfNeed();
+
     /* Before we are going to sleep, let the threads access the dataset by
      * releasing the GIL. Redis main thread will not touch anything at this
      * time. */
@@ -2481,6 +2485,7 @@ void initServerConfig(void) {
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
     server.master_repl_offset = 0;
+    server.send_rdb_by_thread = 0;
 
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
@@ -2878,6 +2883,33 @@ void resetServerStats(void) {
     server.stat_unexpected_error_replies = 0;
     server.aof_delayed_fsync = 0;
     server.blocked_last_cron = 0;
+}
+
+/* Make sure we have enough stack to perform all the things we do in the
+ * main thread. */
+#define REDIS_THREAD_STACK_SIZE (1024*1024*4)
+
+/* Set the stack size of pthread_attr. */
+void setPthreadAttrStacksize(pthread_attr_t *attr) {
+    size_t stacksize;
+
+    /* Set the stack size as by default it may be small in some system */
+    pthread_attr_init(attr);
+    pthread_attr_getstacksize(attr,&stacksize);
+    if (!stacksize) stacksize = 1; /* The world is full of Solaris Fixes */
+    while (stacksize < REDIS_THREAD_STACK_SIZE) stacksize *= 2;
+    pthread_attr_setstacksize(attr,stacksize);
+}
+
+/* Block SIGALRM of calling thread so that the thread will not receive
+ * the watchdog signal since read and write system call may return a negative
+ * value with EINTR errno. */
+int blockThreadSigalrm(void) {
+    sigset_t sigset;
+
+    sigemptyset(&sigset);
+    sigaddset(&sigset,SIGALRM);
+    return pthread_sigmask(SIG_BLOCK,&sigset,NULL);
 }
 
 /* Make the thread killable at any time, so that kill threads functions

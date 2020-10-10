@@ -1015,6 +1015,181 @@ void removeRDBUsedToSyncReplicas(void) {
     }
 }
 
+/* When enable sending RDB file by a separate thread, we check state of
+ * the sending RDB thread for slaves and update its' replication state
+ * if need. Put slaves into the online state if send RDB successfully,
+ * disconnect with slaves if fail. */
+void updateSlavesReplicationStateIfNeed(void) {
+    listNode *ln;
+    listIter li;
+
+    listRewind(server.slaves, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        client *slave = listNodeValue(ln);
+        /* Only check slaves that send RDB file by a thread. */
+        if (slave->replstate == SLAVE_STATE_SEND_BULK && slave->send_db_thread) {
+            int state;
+            atomicGet(slave->thread_send_db_state, state);
+            if (state != THREAD_SEND_DB_SUCCESS &&
+                state != THREAD_SEND_DB_FAIL)
+            {
+                continue;
+            }
+
+            /* Join the sending RDB thread, otherwise, that also can establish
+             * data synchronization implicitly. */
+            mstime_t latency;
+            latencyStartMonitor(latency);
+            if (pthread_join(slave->send_db_thread, NULL) != 0) {
+                serverLog(LL_WARNING, "Fail to release the thread of sending RDB "
+                    "to %s: %s", replicationGetSlaveName(slave), strerror(errno));
+            } else {
+                serverLog(LL_NOTICE, "The thread of sending RDB to %s is released",
+                    replicationGetSlaveName(slave));
+            }
+            latencyEndMonitor(latency);
+            latencyAddSampleIfNeeded("release_thread", latency);
+
+            /* Reset sending rdb thread info. */
+            slave->send_db_thread = 0;
+            atomicSet(slave->thread_send_db_state, THREAD_SEND_DB_NONE);
+            /* If send RDB file to the slave successfully, we can put it into
+             * the online state. */
+            if (state == THREAD_SEND_DB_SUCCESS) {
+                connNonBlock(slave->conn); /* Reset nonblocking mode. */
+                putSlaveOnline(slave);
+            } else {
+                freeClient(slave); /* Disconnect with the slave if fail. */
+            }
+        }
+    }
+}
+
+/* Implement redis_sendfile to transfer data between file descriptors and
+ * avoid transferring data to and from user space. But it only supports
+ * blocking I/O currently.
+ *
+ * The function prototype is just like sendfile(2) on Linux. in_fd is a file
+ * descriptor opened for reading and out_fd is a descriptor opened for writing.
+ * offset specifies where to start reading data from in_fd. count is the number
+ * of bytes to copy between the file descriptors.
+ *
+ * The return value is the number of bytes written to out_fd, if the transfer
+ * was successful. On error, -1 is returned, and errno is set appropriately. */
+ssize_t redis_sendfile(int out_fd, int in_fd, off_t offset, size_t count) {
+#if HAVE_SENDFILE
+#if defined(__linux__)
+    #include <sys/sendfile.h>
+    return sendfile(out_fd, in_fd, &offset, count);
+
+#elif defined(__APPLE__)
+    off_t len = count;
+    if (sendfile(in_fd, out_fd, offset, &len, NULL, 0) == -1)
+        return -1;
+    else
+        return (ssize_t)len;
+#endif
+#endif
+    UNUSED(out_fd);
+    UNUSED(in_fd);
+    UNUSED(offset);
+    UNUSED(count);
+    errno = ENOSYS;
+    return -1;
+}
+
+/* Sending RDB file thread. */
+void *sendRDBToSlaveThread(void *arg) {
+    connection *conn = arg;
+    client *slave = connGetPrivateData(conn);
+    char buf[PROTO_IOBUF_LEN];
+    ssize_t nwritten, buflen;
+    int use_sendfile = 0;
+
+    /* Set thread tiltle and cpu affinity. */
+    char thdname[16]; /* Thread name must not be more than 16 bytes. */
+    snprintf(thdname, sizeof(thdname), "send_rdb_%llu",
+        (unsigned long long)slave->id & 0xFFFF);
+    thdname[sizeof(thdname) - 1] = '\0';
+    redis_set_thread_title(thdname);
+    redisSetCpuAffinity(server.server_cpulist);
+
+    /* Block SIGALRM for sending RDB thread, so it will not receive the
+     * watchdog signal, since thera are many blocking I/O operations. */
+    if (blockThreadSigalrm()) {
+        serverLog(LL_WARNING, "Can't mask SIGALRM in %s: %s", thdname,
+            strerror(errno));
+    }
+
+    /* Before sending the RDB file, we send the preamble as configured by the
+     * replication process. Currently the preamble is just the bulk count of
+     * the file in the form "$<length>\r\n". */
+    while (slave->replpreamble) {
+        nwritten = connWrite(conn,slave->replpreamble,sdslen(slave->replpreamble));
+        if (nwritten == -1) {
+            serverLog(LL_VERBOSE,
+                "Write error sending RDB preamble to replica: %s",
+                connGetLastError(conn));
+            goto fail;
+        }
+        atomicIncr(server.stat_net_output_bytes, nwritten);
+        sdsrange(slave->replpreamble,nwritten,-1);
+        if (sdslen(slave->replpreamble) == 0) {
+            sdsfree(slave->replpreamble);
+            slave->replpreamble = NULL;
+        }
+    }
+
+#if HAVE_SENDFILE
+    /* We can't use 'sendfile' if enable tls replication. */
+    if(!server.tls_replication) use_sendfile = 1;
+#endif
+
+    /* If the preamble was already transferred, send the RDB bulk data. */
+    while (slave->repldboff != slave->repldbsize) {
+        /* We use 'redis_sendfile' to send RDB file if supports, so that we
+         * can reduce CPU usage by zero copy. */
+        if (use_sendfile) {
+            if ((nwritten = redis_sendfile(conn->fd,slave->repldbfd,
+                slave->repldboff,PROTO_IOBUF_LEN)) == -1)
+            {
+                serverLog(LL_WARNING,
+                    "Sendfile error sending DB to replica: %s",
+                    strerror(errno));
+                goto fail;
+            }
+        } else {
+            lseek(slave->repldbfd,slave->repldboff,SEEK_SET);
+            buflen = read(slave->repldbfd,buf,PROTO_IOBUF_LEN);
+            if (buflen <= 0) {
+                serverLog(LL_WARNING,"Read error sending DB to replica: %s",
+                     (buflen == 0) ? "premature EOF" : strerror(errno));
+                goto fail;
+            }
+            if ((nwritten = connWrite(conn,buf,buflen)) == -1) {
+                serverLog(LL_WARNING,"Write error sending DB to replica: %s",
+                    connGetLastError(conn));
+                goto fail;
+            }
+        }
+        slave->repldboff += nwritten;
+        atomicIncr(server.stat_net_output_bytes, nwritten);
+
+        /* Delay to continue if required (for testing). */
+        if (server.rdb_bulk_send_delay) debugDelay(server.rdb_bulk_send_delay);
+    }
+    close(slave->repldbfd);
+    slave->repldbfd = -1;
+    atomicSet(slave->thread_send_db_state, THREAD_SEND_DB_SUCCESS);
+    return NULL;
+
+fail:
+    /* Correspond to 'freeClient'. But for thread-safe, we will free it
+     * in the main thread, just set state here. */
+    atomicSet(slave->thread_send_db_state, THREAD_SEND_DB_FAIL);
+    return NULL;
+}
+
 void sendBulkToSlave(connection *conn) {
     client *slave = connGetPrivateData(conn);
     char buf[PROTO_IOBUF_LEN];
@@ -1285,9 +1460,43 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                     (unsigned long long) slave->repldbsize);
 
                 connSetWriteHandler(slave->conn,NULL);
-                if (connSetWriteHandler(slave->conn,sendBulkToSlave) == C_ERR) {
-                    freeClient(slave);
-                    continue;
+                /* Send RDB file by a separate thread. */
+                if (server.send_rdb_by_thread) {
+                    int ret;
+                    mstime_t latency;
+                    pthread_attr_t stacksize_attr;
+
+                    /* We use blocking IO in sending RDB file thread to avoid filling CPU.
+                     * Note that, we call readQueryFromClient only when replica disconnects
+                     * since that triggering readable event, it will return 0 immediately
+                     * when we read the fd replica closed, so that doesn't block server even
+                     * if the fd is in blocking mode. */
+                    connBlock(slave->conn);
+                    atomicSet(slave->thread_send_db_state, THREAD_SEND_DB_START);
+                    latencyStartMonitor(latency);
+                    /* We should set the stack size as by default it may be small in some
+                     * systems, but we alloc little big stack space in sending RDB thread. */
+                    setPthreadAttrStacksize(&stacksize_attr);
+                    ret = pthread_create(&slave->send_db_thread, &stacksize_attr,
+                            sendRDBToSlaveThread, (void*)slave->conn);
+                    latencyEndMonitor(latency);
+                    latencyAddSampleIfNeeded("create_thread", latency);
+                    if (ret != 0) {
+                        serverLog(LL_WARNING, "Fail to create thread for sending RDB to "
+                            "%s: %s", replicationGetSlaveName(slave), strerror(errno));
+                        atomicSet(slave->thread_send_db_state, THREAD_SEND_DB_NONE);
+                        slave->send_db_thread = 0;
+                        freeClient(slave);
+                    } else {
+                        serverLog(LL_NOTICE, "Start a thread to send RDB to %s",
+                            replicationGetSlaveName(slave));
+                    }
+                } else {
+                    /* Send RDB file during server event loop by default. */
+                    if (connSetWriteHandler(slave->conn, sendBulkToSlave) == C_ERR) {
+                        freeClient(slave);
+                        continue;
+                    }
                 }
             }
         }

@@ -176,6 +176,7 @@ client *createClient(connection *conn) {
     c->auth_callback = NULL;
     c->auth_callback_privdata = NULL;
     c->auth_module = NULL;
+    c->send_db_thread = 0;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
     if (conn) linkClient(c);
@@ -1169,6 +1170,35 @@ void unlinkClient(client *c) {
 
 void freeClient(client *c) {
     listNode *ln;
+
+    /* Release sending rdb thread if it doesn't exit, we do that properly
+     * before closing slave's connection. */
+    if ((c->flags & CLIENT_SLAVE) && c->send_db_thread &&
+        c->replstate == SLAVE_STATE_SEND_BULK)
+    {
+        char *slavename = replicationGetSlaveName(c);
+        mstime_t latency;
+        latencyStartMonitor(latency);
+        /* We don't change default cancelability type for sending rdb threads
+         * since we want to free memory safely. The thread which cancelability
+         * type is deferred is canceled when it calls a function that is a
+         * cancellation point. In sending rdb thread, there are many cancellation
+         * points, such as write and read, and no heavy computation, so it has no
+         * much dalay, moreover, we don't use mutex, so it won't cause deadlock. */
+        if (pthread_cancel(c->send_db_thread) == 0) {
+            if (pthread_join(c->send_db_thread, NULL) != 0) {
+                serverLog(LL_WARNING, "Fail to release the thread of sending "
+                    "RDB to %s: %s", slavename, strerror(errno));
+            } else {
+                serverLog(LL_NOTICE, "The thread of sending RDB to %s "
+                    "is killed and released", slavename);
+            }
+        }
+        latencyEndMonitor(latency);
+        latencyAddSampleIfNeeded("release_thread", latency);
+        c->send_db_thread = 0;
+        atomicSet(c->thread_send_db_state, THREAD_SEND_DB_NONE);
+    }
 
     /* If a client is protected, yet we need to free it right now, make sure
      * to at least use asynchronous freeing. */
