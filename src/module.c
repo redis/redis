@@ -147,8 +147,7 @@ struct RedisModuleCtx {
                                              on keys. */
 
     /* Used if there is the REDISMODULE_CTX_KEYS_POS_REQUEST flag set. */
-    int *keys_pos;
-    int keys_count;
+    getKeysResult *keys_result;
 
     struct RedisModulePoolAllocBlock *pa_head;
     redisOpArray saved_oparray;    /* When propagating commands in a callback
@@ -158,7 +157,7 @@ struct RedisModuleCtx {
 };
 typedef struct RedisModuleCtx RedisModuleCtx;
 
-#define REDISMODULE_CTX_INIT {(void*)(unsigned long)&RM_GetApi, NULL, NULL, NULL, NULL, 0, 0, 0, NULL, 0, NULL, NULL, NULL, 0, NULL, {0}}
+#define REDISMODULE_CTX_INIT {(void*)(unsigned long)&RM_GetApi, NULL, NULL, NULL, NULL, 0, 0, 0, NULL, 0, NULL, NULL, NULL, NULL, {0}}
 #define REDISMODULE_CTX_MULTI_EMITTED (1<<0)
 #define REDISMODULE_CTX_AUTO_MEMORY (1<<1)
 #define REDISMODULE_CTX_KEYS_POS_REQUEST (1<<2)
@@ -665,18 +664,24 @@ void RedisModuleCommandDispatcher(client *c) {
  * In order to accomplish its work, the module command is called, flagging
  * the context in a way that the command can recognize this is a special
  * "get keys" call by calling RedisModule_IsKeysPositionRequest(ctx). */
-int *moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     RedisModuleCommandProxy *cp = (void*)(unsigned long)cmd->getkeys_proc;
     RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
 
     ctx.module = cp->module;
     ctx.client = NULL;
     ctx.flags |= REDISMODULE_CTX_KEYS_POS_REQUEST;
+
+    /* Initialize getKeysResult */
+    getKeysPrepareResult(result, MAX_KEYS_BUFFER);
+    ctx.keys_result = result;
+
     cp->func(&ctx,(void**)argv,argc);
-    int *res = ctx.keys_pos;
-    if (numkeys) *numkeys = ctx.keys_count;
+    /* We currently always use the array allocated by RM_KeyAtPos() and don't try
+     * to optimize for the pre-allocated buffer.
+     */
     moduleFreeContext(&ctx);
-    return res;
+    return result->numkeys;
 }
 
 /* Return non-zero if a module command, that was declared with the
@@ -701,10 +706,18 @@ int RM_IsKeysPositionRequest(RedisModuleCtx *ctx) {
  *  keys are at fixed positions. This interface is only used for commands
  *  with a more complex structure. */
 void RM_KeyAtPos(RedisModuleCtx *ctx, int pos) {
-    if (!(ctx->flags & REDISMODULE_CTX_KEYS_POS_REQUEST)) return;
+    if (!(ctx->flags & REDISMODULE_CTX_KEYS_POS_REQUEST) || !ctx->keys_result) return;
     if (pos <= 0) return;
-    ctx->keys_pos = zrealloc(ctx->keys_pos,sizeof(int)*(ctx->keys_count+1));
-    ctx->keys_pos[ctx->keys_count++] = pos;
+
+    getKeysResult *res = ctx->keys_result;
+
+    /* Check overflow */
+    if (res->numkeys == res->size) {
+        int newsize = res->size + (res->size > 8192 ? 8192 : res->size);
+        getKeysPrepareResult(res, newsize);
+    }
+
+    res->keys[res->numkeys++] = pos;
 }
 
 /* Helper for RM_CreateCommand(). Turns a string representing command
@@ -2938,8 +2951,8 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
 }
 
 /* Get fields from an hash value. This function is called using a variable
- * number of arguments, alternating a field name (as a StringRedisModule
- * pointer) with a pointer to a StringRedisModule pointer, that is set to the
+ * number of arguments, alternating a field name (as a RedisModuleString
+ * pointer) with a pointer to a RedisModuleString pointer, that is set to the
  * value of the field if the field exists, or NULL if the field does not exist.
  * At the end of the field/value-ptr pairs, NULL must be specified as last
  * argument to signal the end of the arguments in the variadic function.
@@ -4492,7 +4505,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
             "Blocking module command called from transaction");
     } else {
         if (keys) {
-            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,timeout,NULL,NULL);
+            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,timeout,NULL,NULL,NULL);
         } else {
             blockClient(c,BLOCKED_MODULE);
         }
@@ -4888,8 +4901,9 @@ int RM_BlockedClientDisconnected(RedisModuleCtx *ctx) {
  * that a blocked client was used when the context was created, otherwise
  * no RedisModule_Reply* call should be made at all.
  *
- * TODO: thread safe contexts do not inherit the blocked client
- * selected database. */
+ * NOTE: If you're creating a detached thread safe context (bc is NULL),
+ * consider using `RM_GetDetachedThreadSafeContext` which will also retain
+ * the module ID and thus be more useful for logging. */
 RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
     RedisModuleCtx *ctx = zmalloc(sizeof(*ctx));
     RedisModuleCtx empty = REDISMODULE_CTX_INIT;
@@ -4909,6 +4923,21 @@ RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
         if (bc->client) ctx->client->id = bc->client->id;
     }
     return ctx;
+}
+
+/* Return a detached thread safe context that is not associated with any
+ * specific blocked client, but is associated with the module's context.
+ *
+ * This is useful for modules that wish to hold a global context over
+ * a long term, for purposes such as logging. */
+RedisModuleCtx *RM_GetDetachedThreadSafeContext(RedisModuleCtx *ctx) {
+    RedisModuleCtx *new_ctx = zmalloc(sizeof(*new_ctx));
+    RedisModuleCtx empty = REDISMODULE_CTX_INIT;
+    memcpy(new_ctx,&empty,sizeof(empty));
+    new_ctx->module = ctx->module;
+    new_ctx->flags |= REDISMODULE_CTX_THREAD_SAFE;
+    new_ctx->client = createClient(NULL);
+    return new_ctx;
 }
 
 /* Release a thread safe context. */
@@ -5639,6 +5668,11 @@ static int authenticateClientWithUser(RedisModuleCtx *ctx, user *user, RedisModu
         return REDISMODULE_ERR;
     }
 
+    /* Avoid settings which are meaningless and will be lost */
+    if (!ctx->client || (ctx->client->flags & CLIENT_MODULE)) {
+        return REDISMODULE_ERR;
+    }
+
     moduleNotifyUserChanged(ctx->client);
 
     ctx->client->user = user;
@@ -5701,6 +5735,31 @@ int RM_DeauthenticateAndCloseClient(RedisModuleCtx *ctx, uint64_t client_id) {
     /* Revoke also marks client to be closed ASAP */
     revokeClientAuthentication(c);
     return REDISMODULE_OK;
+}
+
+/* Return the X.509 client-side certificate used by the client to authenticate
+ * this connection.
+ *
+ * The return value is an allocated RedisModuleString that is a X.509 certificate
+ * encoded in PEM (Base64) format. It should be freed (or auto-freed) by the caller.
+ *
+ * A NULL value is returned in the following conditions:
+ *
+ * - Connection ID does not exist
+ * - Connection is not a TLS connection
+ * - Connection is a TLS connection but no client ceritifcate was used
+ */
+RedisModuleString *RM_GetClientCertificate(RedisModuleCtx *ctx, uint64_t client_id) {
+    client *c = lookupClientByID(client_id);
+    if (c == NULL) return NULL;
+
+    sds cert = connTLSGetPeerCert(c->conn);
+    if (!cert) return NULL;
+
+    RedisModuleString *s = createObject(OBJ_STRING, cert);
+    if (ctx != NULL) autoMemoryAdd(ctx, REDISMODULE_AM_STRING, s);
+
+    return s;
 }
 
 /* --------------------------------------------------------------------------
@@ -7296,6 +7355,7 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
      * cheap if there are no registered modules. */
     if (listLength(RedisModule_EventListeners) == 0) return;
 
+    int real_client_used = 0;
     listIter li;
     listNode *ln;
     listRewind(RedisModule_EventListeners,&li);
@@ -7305,7 +7365,15 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
             RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
             ctx.module = el->module;
 
-            if (ModulesInHooks == 0) {
+            if (eid == REDISMODULE_EVENT_CLIENT_CHANGE) {
+                /* In the case of client changes, we're pushing the real client
+                 * so the event handler can mutate it if needed. For example,
+                 * to change its authentication state in a way that does not
+                 * depend on specific commands executed later.
+                 */
+                ctx.client = (client *) data;
+                real_client_used = 1;
+            } else if (ModulesInHooks == 0) {
                 ctx.client = moduleFreeContextReusedClient;
             } else {
                 ctx.client = createClient(NULL);
@@ -7358,7 +7426,7 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
             el->module->in_hook--;
             ModulesInHooks--;
 
-            if (ModulesInHooks != 0) freeClient(ctx.client);
+            if (ModulesInHooks != 0 && !real_client_used) freeClient(ctx.client);
             moduleFreeContext(&ctx);
         }
     }
@@ -7937,6 +8005,69 @@ int RM_ModuleTypeReplaceValue(RedisModuleKey *key, moduleType *mt, void *new_val
     return REDISMODULE_OK;
 }
 
+/* For a specified command, parse its arguments and return an array that
+ * contains the indexes of all key name arguments. This function is
+ * essnetially a more efficient way to do COMMAND GETKEYS.
+ *
+ * A NULL return value indicates the specified command has no keys, or
+ * an error condition. Error conditions are indicated by setting errno
+ * as folllows:
+ *
+ *  ENOENT: Specified command does not exist.
+ *  EINVAL: Invalid command arity specified.
+ *
+ * NOTE: The returned array is not a Redis Module object so it does not
+ * get automatically freed even when auto-memory is used. The caller
+ * must explicitly call RM_Free() to free it.
+ */
+int *RM_GetCommandKeys(RedisModuleCtx *ctx, const char *cmdname, RedisModuleString **argv, int argc, int *num_keys) {
+    UNUSED(ctx);
+    struct redisCommand *cmd;
+    int *res = NULL;
+
+    /* Find command */
+    if ((cmd = lookupCommandByCString(cmdname)) == NULL) {
+        errno = ENOENT;
+        return NULL;
+    }
+
+    /* Bail out if command has no keys */
+    if (cmd->getkeys_proc == NULL && cmd->firstkey == 0) {
+        errno = 0;
+        return NULL;
+    }
+
+    if ((cmd->arity > 0 && cmd->arity != argc) || (argc < -cmd->arity)) {
+        errno = EINVAL;
+        return NULL;
+    }
+
+    getKeysResult result = GETKEYS_RESULT_INIT;
+    getKeysFromCommand(cmd, argv, argc, &result);
+
+    *num_keys = result.numkeys;
+    if (!result.numkeys) {
+        errno = 0;
+        getKeysFreeResult(&result);
+        return NULL;
+    }
+
+    if (result.keys == result.keysbuf) {
+        /* If the result is using a stack based array, copy it. */
+        unsigned long int size = sizeof(int) * result.numkeys;
+        res = zmalloc(size);
+        memcpy(res, result.keys, size);
+    } else {
+        /* We return the heap based array and intentionally avoid calling
+         * getKeysFreeResult() here, as it is the caller's responsibility
+         * to free this array.
+         */
+        res = result.keys;
+    }
+
+    return res;
+}
+
 /* Register all the APIs we export. Keep this function at the end of the
  * file so that's easy to seek it to add new entries. */
 void moduleRegisterCoreAPI(void) {
@@ -8073,6 +8204,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(AbortBlock);
     REGISTER_API(Milliseconds);
     REGISTER_API(GetThreadSafeContext);
+    REGISTER_API(GetDetachedThreadSafeContext);
     REGISTER_API(FreeThreadSafeContext);
     REGISTER_API(ThreadSafeContextLock);
     REGISTER_API(ThreadSafeContextTryLock);
@@ -8176,4 +8308,6 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetKeyspaceNotificationFlagsAll);
     REGISTER_API(IsSubEventSupported);
     REGISTER_API(GetServerVersion);
+    REGISTER_API(GetClientCertificate);
+    REGISTER_API(GetCommandKeys);
 }

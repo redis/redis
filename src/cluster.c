@@ -5644,7 +5644,10 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         margc = ms->commands[i].argc;
         margv = ms->commands[i].argv;
 
-        keyindex = getKeysFromCommand(mcmd,margv,margc,&numkeys);
+        getKeysResult result = GETKEYS_RESULT_INIT;
+        numkeys = getKeysFromCommand(mcmd,margv,margc,&result);
+        keyindex = result.keys;
+
         for (j = 0; j < numkeys; j++) {
             robj *thiskey = margv[keyindex[j]];
             int thisslot = keyHashSlot((char*)thiskey->ptr,
@@ -5662,7 +5665,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                  * not trapped earlier in processCommand(). Report the same
                  * error to the client. */
                 if (n == NULL) {
-                    getKeysFreeResult(keyindex);
+                    getKeysFreeResult(&result);
                     if (error_code)
                         *error_code = CLUSTER_REDIR_DOWN_UNBOUND;
                     return NULL;
@@ -5686,7 +5689,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                 if (!equalStringObjects(firstkey,thiskey)) {
                     if (slot != thisslot) {
                         /* Error: multiple keys from different slots. */
-                        getKeysFreeResult(keyindex);
+                        getKeysFreeResult(&result);
                         if (error_code)
                             *error_code = CLUSTER_REDIR_CROSS_SLOT;
                         return NULL;
@@ -5705,7 +5708,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                 missing_keys++;
             }
         }
-        getKeysFreeResult(keyindex);
+        getKeysFreeResult(&result);
     }
 
     /* No key at all in command? then we can serve the request
@@ -5854,6 +5857,15 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
             robj *key = dictGetKey(de);
             int slot = keyHashSlot((char*)key->ptr, sdslen(key->ptr));
             clusterNode *node = server.cluster->slots[slot];
+
+            /* if the client is read-only and attempting to access key that our
+             * replica can handle, allow it. */
+            if ((c->flags & CLIENT_READONLY) &&
+                (c->lastcmd->flags & CMD_READONLY) &&
+                nodeIsSlave(myself) && myself->slaveof == node)
+            {
+                node = myself;
+            }
 
             /* We send an error and unblock the client if:
              * 1) The slot is unassigned, emitting a cluster down error.

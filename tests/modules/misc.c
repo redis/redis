@@ -207,6 +207,24 @@ int test_redisversion(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
     RedisModuleString* vStr = RedisModule_CreateStringPrintf(ctx, "%d.%d.%d", major, minor, patch);
     RedisModule_ReplyWithString(ctx, vStr);
     RedisModule_FreeString(ctx, vStr);
+  
+    return REDISMODULE_OK;
+}
+
+int test_getclientcert(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    (void) argv;
+    (void) argc;
+
+    RedisModuleString *cert = RedisModule_GetClientCertificate(ctx,
+            RedisModule_GetClientId(ctx));
+    if (!cert) {
+        RedisModule_ReplyWithNull(ctx);
+    } else {
+        RedisModule_ReplyWithString(ctx, cert);
+        RedisModule_FreeString(ctx, cert);
+    }
+
     return REDISMODULE_OK;
 }
 
@@ -246,6 +264,30 @@ int test_clientinfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+int test_log_tsctx(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    RedisModuleCtx *tsctx = RedisModule_GetDetachedThreadSafeContext(ctx);
+
+    if (argc != 3) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+    char level[50];
+    size_t level_len;
+    const char *level_str = RedisModule_StringPtrLen(argv[1], &level_len);
+    snprintf(level, sizeof(level) - 1, "%.*s", (int) level_len, level_str);
+
+    size_t msg_len;
+    const char *msg_str = RedisModule_StringPtrLen(argv[2], &msg_len);
+
+    RedisModule_Log(tsctx, level, "%.*s", (int) msg_len, msg_str);
+    RedisModule_FreeThreadSafeContext(tsctx);
+
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -275,6 +317,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"test.clientinfo", test_clientinfo,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.redisversion", test_redisversion,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"test.getclientcert", test_getclientcert,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"test.log_tsctx", test_log_tsctx,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

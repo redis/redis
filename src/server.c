@@ -302,6 +302,10 @@ struct redisCommand redisCommandTable[] = {
      "write use-memory no-script @list @blocking",
      0,NULL,1,2,1,0,0,0},
 
+    {"blmove",blmoveCommand,6,
+     "write use-memory no-script @list @blocking",
+     0,NULL,1,2,1,0,0,0},
+
     {"blpop",blpopCommand,-3,
      "write no-script @list @blocking",
      0,NULL,1,-2,1,0,0,0},
@@ -335,6 +339,10 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,1,1,1,0,0,0},
 
     {"rpoplpush",rpoplpushCommand,3,
+     "write use-memory @list",
+     0,NULL,1,2,1,0,0,0},
+
+    {"lmove",lmoveCommand,5,
      "write use-memory @list",
      0,NULL,1,2,1,0,0,0},
 
@@ -1626,8 +1634,10 @@ int clientsCronTrackClientsMemUsage(client *c) {
     size_t mem = 0;
     int type = getClientType(c);
     mem += getClientOutputBufferMemoryUsage(c);
-    mem += sdsAllocSize(c->querybuf);
-    mem += sizeof(client);
+    mem += sdsZmallocSize(c->querybuf);
+    mem += zmalloc_size(c);
+    mem += c->argv_len_sum;
+    if (c->argv) mem += zmalloc_size(c->argv);
     /* Now that we have the memory used by the client, remove the old
      * value from the old category, and add it back. */
     server.stat_clients_type_memory[c->client_cron_last_memory_type] -=
@@ -2383,10 +2393,15 @@ void createSharedObjects(void) {
     shared.lpop = createStringObject("LPOP",4);
     shared.lpush = createStringObject("LPUSH",5);
     shared.rpoplpush = createStringObject("RPOPLPUSH",9);
+    shared.lmove = createStringObject("LMOVE",5);
+    shared.blmove = createStringObject("BLMOVE",6);
     shared.zpopmin = createStringObject("ZPOPMIN",7);
     shared.zpopmax = createStringObject("ZPOPMAX",7);
     shared.multi = createStringObject("MULTI",5);
     shared.exec = createStringObject("EXEC",4);
+    /* Used in the LMOVE/BLMOVE commands */
+    shared.left = createStringObject("left",4);
+    shared.right = createStringObject("right",5);
     for (j = 0; j < OBJ_SHARED_INTEGERS; j++) {
         shared.integers[j] =
             makeObjectShared(createObject(OBJ_STRING,(void*)(long)j));
@@ -2521,6 +2536,7 @@ void initServerConfig(void) {
     server.xclaimCommand = lookupCommandByCString("xclaim");
     server.xgroupCommand = lookupCommandByCString("xgroup");
     server.rpoplpushCommand = lookupCommandByCString("rpoplpush");
+    server.lmoveCommand = lookupCommandByCString("lmove");
 
     /* Debugging */
     server.watchdog_period = 0;
@@ -3257,7 +3273,7 @@ struct redisCommand *lookupCommand(sds name) {
     return dictFetchValue(server.commands, name);
 }
 
-struct redisCommand *lookupCommandByCString(char *s) {
+struct redisCommand *lookupCommandByCString(const char *s) {
     struct redisCommand *cmd;
     sds name = sdsnew(s);
 
@@ -4126,7 +4142,8 @@ NULL
         addReplyLongLong(c, dictSize(server.commands));
     } else if (!strcasecmp(c->argv[1]->ptr,"getkeys") && c->argc >= 3) {
         struct redisCommand *cmd = lookupCommand(c->argv[2]->ptr);
-        int *keys, numkeys, j;
+        getKeysResult result = GETKEYS_RESULT_INIT;
+        int j;
 
         if (!cmd) {
             addReplyError(c,"Invalid command specified");
@@ -4141,14 +4158,13 @@ NULL
             return;
         }
 
-        keys = getKeysFromCommand(cmd,c->argv+2,c->argc-2,&numkeys);
-        if (!keys) {
+        if (!getKeysFromCommand(cmd,c->argv+2,c->argc-2,&result)) {
             addReplyError(c,"Invalid arguments specified for command");
         } else {
-            addReplyArrayLen(c,numkeys);
-            for (j = 0; j < numkeys; j++) addReplyBulk(c,c->argv[keys[j]+2]);
-            getKeysFreeResult(keys);
+            addReplyArrayLen(c,result.numkeys);
+            for (j = 0; j < result.numkeys; j++) addReplyBulk(c,c->argv[result.keys[j]+2]);
         }
+        getKeysFreeResult(&result);
     } else {
         addReplySubcommandSyntaxError(c);
     }
@@ -4891,7 +4907,7 @@ void version(void) {
 }
 
 void usage(void) {
-    fprintf(stderr,"Usage: ./redis-server [/path/to/redis.conf] [options]\n");
+    fprintf(stderr,"Usage: ./redis-server [/path/to/redis.conf] [options] [-]\n");
     fprintf(stderr,"       ./redis-server - (read config from stdin)\n");
     fprintf(stderr,"       ./redis-server -v or --version\n");
     fprintf(stderr,"       ./redis-server -h or --help\n");
@@ -4901,6 +4917,7 @@ void usage(void) {
     fprintf(stderr,"       ./redis-server /etc/redis/6379.conf\n");
     fprintf(stderr,"       ./redis-server --port 7777\n");
     fprintf(stderr,"       ./redis-server --port 7777 --replicaof 127.0.0.1 8888\n");
+    fprintf(stderr,"       ./redis-server /etc/myredis.conf --loglevel verbose -\n");
     fprintf(stderr,"       ./redis-server /etc/myredis.conf --loglevel verbose\n\n");
     fprintf(stderr,"Sentinel mode:\n");
     fprintf(stderr,"       ./redis-server /etc/sentinel.conf --sentinel\n");
@@ -5226,6 +5243,7 @@ int iAmMaster(void) {
 int main(int argc, char **argv) {
     struct timeval tv;
     int j;
+    char config_from_stdin = 0;
 
 #ifdef REDIS_TEST
     if (argc == 3 && !strcasecmp(argv[1], "test")) {
@@ -5303,7 +5321,6 @@ int main(int argc, char **argv) {
     if (argc >= 2) {
         j = 1; /* First option to parse in argv[] */
         sds options = sdsempty();
-        char *configfile = NULL;
 
         /* Handle special options --help and --version */
         if (strcmp(argv[1], "-v") == 0 ||
@@ -5320,30 +5337,29 @@ int main(int argc, char **argv) {
                 exit(1);
             }
         }
-
-        /* First argument is the config file name? */
-        if (argv[j][0] != '-' || argv[j][1] != '-') {
-            configfile = argv[j];
-            server.configfile = getAbsolutePath(configfile);
-            /* Replace the config file in server.exec_argv with
-             * its absolute path. */
-            zfree(server.exec_argv[j]);
-            server.exec_argv[j] = zstrdup(server.configfile);
-            j++;
+        /* Parse command line options
+         * Precedence wise, File, stdin, explicit options -- last config is the one that matters.
+         *
+         * First argument is the config file name? */
+        if (argv[1][0] != '-') {
+            /* Replace the config file in server.exec_argv with its absolute path. */
+            server.configfile = getAbsolutePath(argv[1]);
+            zfree(server.exec_argv[1]);
+            server.exec_argv[1] = zstrdup(server.configfile);
+            j = 2; // Skip this arg when parsing options
         }
 
-        /* All the other options are parsed and conceptually appended to the
-         * configuration file. For instance --port 6380 will generate the
-         * string "port 6380\n" to be parsed after the actual file name
-         * is parsed, if any. */
-        while(j != argc) {
-            if (argv[j][0] == '-' && argv[j][1] == '-') {
+        while(j < argc) {
+            /* Either first or last argument - Should we read config from stdin? */
+            if (argv[j][0] == '-' && argv[j][1] == '\0' && (j == 1 || j == argc-1)) {
+                config_from_stdin = 1;
+            }
+            /* All the other options are parsed and conceptually appended to the
+             * configuration file. For instance --port 6380 will generate the
+             * string "port 6380\n" to be parsed after the actual config file
+             * and stdin input are parsed (if they exist). */
+            else if (argv[j][0] == '-' && argv[j][1] == '-') {
                 /* Option name */
-                if (!strcmp(argv[j], "--check-rdb")) {
-                    /* Argument has no options, need to skip for parsing. */
-                    j++;
-                    continue;
-                }
                 if (sdslen(options)) options = sdscat(options,"\n");
                 options = sdscat(options,argv[j]+2);
                 options = sdscat(options," ");
@@ -5354,14 +5370,13 @@ int main(int argc, char **argv) {
             }
             j++;
         }
-        if (server.sentinel_mode && configfile && *configfile == '-') {
-            serverLog(LL_WARNING,
-                "Sentinel config from STDIN not allowed.");
+
+        if (server.sentinel_mode && ! server.configfile) {
             serverLog(LL_WARNING,
                 "Sentinel needs config file on disk to save state.  Exiting...");
             exit(1);
         }
-        loadServerConfig(configfile,options);
+        loadServerConfig(server.configfile, config_from_stdin, options);
         sdsfree(options);
     }
 
