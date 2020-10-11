@@ -467,7 +467,7 @@ void loadServerConfigFromString(char *config) {
                 fclose(logfp);
             }
         } else if (!strcasecmp(argv[0],"include") && argc == 2) {
-            loadServerConfig(argv[1],NULL);
+            loadServerConfig(argv[1], 0, NULL);
         } else if ((!strcasecmp(argv[0],"client-query-buffer-limit")) && argc == 2) {
              server.client_max_querybuf_len = memtoll(argv[1],NULL);
         } else if ((!strcasecmp(argv[0],"slaveof") ||
@@ -619,28 +619,31 @@ loaderr:
  * Both filename and options can be NULL, in such a case are considered
  * empty. This way loadServerConfig can be used to just load a file or
  * just load a string. */
-void loadServerConfig(char *filename, char *options) {
+void loadServerConfig(char *filename, char config_from_stdin, char *options) {
     sds config = sdsempty();
     char buf[CONFIG_MAX_LINE+1];
+    FILE *fp;
 
     /* Load the file content */
     if (filename) {
-        FILE *fp;
-
-        if (filename[0] == '-' && filename[1] == '\0') {
-            fp = stdin;
-        } else {
-            if ((fp = fopen(filename,"r")) == NULL) {
-                serverLog(LL_WARNING,
+        if ((fp = fopen(filename,"r")) == NULL) {
+            serverLog(LL_WARNING,
                     "Fatal error, can't open config file '%s': %s",
                     filename, strerror(errno));
-                exit(1);
-            }
+            exit(1);
         }
         while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
             config = sdscat(config,buf);
-        if (fp != stdin) fclose(fp);
+        fclose(fp);
     }
+    /* Append content from stdin */
+    if (config_from_stdin) {
+        serverLog(LL_WARNING,"Reading config from stdin");
+        fp = stdin;
+        while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
+            config = sdscat(config,buf);
+    }
+
     /* Append the additional options */
     if (options) {
         config = sdscat(config,"\n");

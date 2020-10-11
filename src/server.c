@@ -4907,7 +4907,7 @@ void version(void) {
 }
 
 void usage(void) {
-    fprintf(stderr,"Usage: ./redis-server [/path/to/redis.conf] [options]\n");
+    fprintf(stderr,"Usage: ./redis-server [/path/to/redis.conf] [options] [-]\n");
     fprintf(stderr,"       ./redis-server - (read config from stdin)\n");
     fprintf(stderr,"       ./redis-server -v or --version\n");
     fprintf(stderr,"       ./redis-server -h or --help\n");
@@ -4917,6 +4917,7 @@ void usage(void) {
     fprintf(stderr,"       ./redis-server /etc/redis/6379.conf\n");
     fprintf(stderr,"       ./redis-server --port 7777\n");
     fprintf(stderr,"       ./redis-server --port 7777 --replicaof 127.0.0.1 8888\n");
+    fprintf(stderr,"       ./redis-server /etc/myredis.conf --loglevel verbose -\n");
     fprintf(stderr,"       ./redis-server /etc/myredis.conf --loglevel verbose\n\n");
     fprintf(stderr,"Sentinel mode:\n");
     fprintf(stderr,"       ./redis-server /etc/sentinel.conf --sentinel\n");
@@ -5242,6 +5243,7 @@ int iAmMaster(void) {
 int main(int argc, char **argv) {
     struct timeval tv;
     int j;
+    char config_from_stdin = 0;
 
 #ifdef REDIS_TEST
     if (argc == 3 && !strcasecmp(argv[1], "test")) {
@@ -5319,7 +5321,6 @@ int main(int argc, char **argv) {
     if (argc >= 2) {
         j = 1; /* First option to parse in argv[] */
         sds options = sdsempty();
-        char *configfile = NULL;
 
         /* Handle special options --help and --version */
         if (strcmp(argv[1], "-v") == 0 ||
@@ -5336,30 +5337,29 @@ int main(int argc, char **argv) {
                 exit(1);
             }
         }
-
-        /* First argument is the config file name? */
-        if (argv[j][0] != '-' || argv[j][1] != '-') {
-            configfile = argv[j];
-            server.configfile = getAbsolutePath(configfile);
-            /* Replace the config file in server.exec_argv with
-             * its absolute path. */
-            zfree(server.exec_argv[j]);
-            server.exec_argv[j] = zstrdup(server.configfile);
-            j++;
+        /* Parse command line options
+         * Precedence wise, File, stdin, explicit options -- last config is the one that matters.
+         *
+         * First argument is the config file name? */
+        if (argv[1][0] != '-') {
+            /* Replace the config file in server.exec_argv with its absolute path. */
+            server.configfile = getAbsolutePath(argv[1]);
+            zfree(server.exec_argv[1]);
+            server.exec_argv[1] = zstrdup(server.configfile);
+            j = 2; // Skip this arg when parsing options
         }
 
-        /* All the other options are parsed and conceptually appended to the
-         * configuration file. For instance --port 6380 will generate the
-         * string "port 6380\n" to be parsed after the actual file name
-         * is parsed, if any. */
-        while(j != argc) {
-            if (argv[j][0] == '-' && argv[j][1] == '-') {
+        while(j < argc) {
+            /* Either first or last argument - Should we read config from stdin? */
+            if (argv[j][0] == '-' && argv[j][1] == '\0' && (j == 1 || j == argc-1)) {
+                config_from_stdin = 1;
+            }
+            /* All the other options are parsed and conceptually appended to the
+             * configuration file. For instance --port 6380 will generate the
+             * string "port 6380\n" to be parsed after the actual config file
+             * and stdin input are parsed (if they exist). */
+            else if (argv[j][0] == '-' && argv[j][1] == '-') {
                 /* Option name */
-                if (!strcmp(argv[j], "--check-rdb")) {
-                    /* Argument has no options, need to skip for parsing. */
-                    j++;
-                    continue;
-                }
                 if (sdslen(options)) options = sdscat(options,"\n");
                 options = sdscat(options,argv[j]+2);
                 options = sdscat(options," ");
@@ -5370,14 +5370,13 @@ int main(int argc, char **argv) {
             }
             j++;
         }
-        if (server.sentinel_mode && configfile && *configfile == '-') {
-            serverLog(LL_WARNING,
-                "Sentinel config from STDIN not allowed.");
+
+        if (server.sentinel_mode && ! server.configfile) {
             serverLog(LL_WARNING,
                 "Sentinel needs config file on disk to save state.  Exiting...");
             exit(1);
         }
-        loadServerConfig(configfile,options);
+        loadServerConfig(server.configfile, config_from_stdin, options);
         sdsfree(options);
     }
 
