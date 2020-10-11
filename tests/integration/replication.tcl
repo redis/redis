@@ -78,6 +78,7 @@ start_server {tags {"repl"}} {
         }
 
         test {BRPOPLPUSH replication, when blocking against empty list} {
+            $A config resetstat
             set rd [redis_deferring_client]
             $rd brpoplpush a b 5
             r lpush a foo
@@ -86,9 +87,12 @@ start_server {tags {"repl"}} {
             } else {
                 fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
             }
+            assert_match {*calls=1,*} [cmdrstat rpoplpush $A]
+            assert_match {} [cmdrstat lmove $A]
         }
 
         test {BRPOPLPUSH replication, list exists} {
+            $A config resetstat
             set rd [redis_deferring_client]
             r lpush c 1
             r lpush c 2
@@ -96,6 +100,39 @@ start_server {tags {"repl"}} {
             $rd brpoplpush c d 5
             after 1000
             assert_equal [$A debug digest] [$B debug digest]
+            assert_match {*calls=1,*} [cmdrstat rpoplpush $A]
+            assert_match {} [cmdrstat lmove $A]
+        }
+
+        foreach wherefrom {left right} {
+            foreach whereto {left right} {
+                test "BLMOVE ($wherefrom, $whereto) replication, when blocking against empty list" {
+                    $A config resetstat
+                    set rd [redis_deferring_client]
+                    $rd blmove a b $wherefrom $whereto 5
+                    r lpush a foo
+                    wait_for_condition 50 100 {
+                        [$A debug digest] eq [$B debug digest]
+                    } else {
+                        fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
+                    }
+                    assert_match {*calls=1,*} [cmdrstat lmove $A]
+                    assert_match {} [cmdrstat rpoplpush $A]
+                }
+
+                test "BLMOVE ($wherefrom, $whereto) replication, list exists" {
+                    $A config resetstat
+                    set rd [redis_deferring_client]
+                    r lpush c 1
+                    r lpush c 2
+                    r lpush c 3
+                    $rd blmove c d $wherefrom $whereto 5
+                    after 1000
+                    assert_equal [$A debug digest] [$B debug digest]
+                    assert_match {*calls=1,*} [cmdrstat lmove $A]
+                    assert_match {} [cmdrstat rpoplpush $A]
+                }
+            }
         }
 
         test {BLPOP followed by role change, issue #2473} {

@@ -430,6 +430,45 @@ start_server {tags {"scripting"}} {
         set res
     } {102}
 
+    test {EVAL timeout from AOF} {
+        # generate a long running script that is propagated to the AOF as script
+        # make sure that the script times out during loading
+        r config set appendonly no
+        r config set aof-use-rdb-preamble no
+        r config set lua-replicate-commands no
+        r flushall
+        r config set appendonly yes
+        wait_for_condition 50 100 {
+            [s aof_rewrite_in_progress] == 0
+        } else {
+            fail "AOF rewrite can't complete after CONFIG SET appendonly yes."
+        }
+        r config set lua-time-limit 1
+        set rd [redis_deferring_client]
+        set start [clock clicks -milliseconds]
+        $rd eval {redis.call('set',KEYS[1],'y'); for i=1,1500000 do redis.call('ping') end return 'ok'} 1 x
+        $rd flush
+        after 100
+        catch {r ping} err
+        assert_match {BUSY*} $err
+        $rd read
+        set elapsed [expr [clock clicks -milliseconds]-$start]
+        if {$::verbose} { puts "script took $elapsed milliseconds" }
+        set start [clock clicks -milliseconds]
+        $rd debug loadaof
+        $rd flush
+        after 100
+        catch {r ping} err
+        assert_match {LOADING*} $err
+        $rd read
+        set elapsed [expr [clock clicks -milliseconds]-$start]
+        if {$::verbose} { puts "loading took $elapsed milliseconds" }
+        $rd close
+        r get x
+    } {y}
+    r config set aof-use-rdb-preamble yes
+    r config set lua-replicate-commands yes
+
     test {We can call scripts rewriting client->argv from Lua} {
         r del myset
         r sadd myset a b c

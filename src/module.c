@@ -147,8 +147,7 @@ struct RedisModuleCtx {
                                              on keys. */
 
     /* Used if there is the REDISMODULE_CTX_KEYS_POS_REQUEST flag set. */
-    int *keys_pos;
-    int keys_count;
+    getKeysResult *keys_result;
 
     struct RedisModulePoolAllocBlock *pa_head;
     redisOpArray saved_oparray;    /* When propagating commands in a callback
@@ -158,7 +157,7 @@ struct RedisModuleCtx {
 };
 typedef struct RedisModuleCtx RedisModuleCtx;
 
-#define REDISMODULE_CTX_INIT {(void*)(unsigned long)&RM_GetApi, NULL, NULL, NULL, NULL, 0, 0, 0, NULL, 0, NULL, NULL, NULL, 0, NULL, {0}}
+#define REDISMODULE_CTX_INIT {(void*)(unsigned long)&RM_GetApi, NULL, NULL, NULL, NULL, 0, 0, 0, NULL, 0, NULL, NULL, NULL, NULL, {0}}
 #define REDISMODULE_CTX_MULTI_EMITTED (1<<0)
 #define REDISMODULE_CTX_AUTO_MEMORY (1<<1)
 #define REDISMODULE_CTX_KEYS_POS_REQUEST (1<<2)
@@ -665,18 +664,24 @@ void RedisModuleCommandDispatcher(client *c) {
  * In order to accomplish its work, the module command is called, flagging
  * the context in a way that the command can recognize this is a special
  * "get keys" call by calling RedisModule_IsKeysPositionRequest(ctx). */
-int *moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     RedisModuleCommandProxy *cp = (void*)(unsigned long)cmd->getkeys_proc;
     RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
 
     ctx.module = cp->module;
     ctx.client = NULL;
     ctx.flags |= REDISMODULE_CTX_KEYS_POS_REQUEST;
+
+    /* Initialize getKeysResult */
+    getKeysPrepareResult(result, MAX_KEYS_BUFFER);
+    ctx.keys_result = result;
+
     cp->func(&ctx,(void**)argv,argc);
-    int *res = ctx.keys_pos;
-    if (numkeys) *numkeys = ctx.keys_count;
+    /* We currently always use the array allocated by RM_KeyAtPos() and don't try
+     * to optimize for the pre-allocated buffer.
+     */
     moduleFreeContext(&ctx);
-    return res;
+    return result->numkeys;
 }
 
 /* Return non-zero if a module command, that was declared with the
@@ -701,10 +706,18 @@ int RM_IsKeysPositionRequest(RedisModuleCtx *ctx) {
  *  keys are at fixed positions. This interface is only used for commands
  *  with a more complex structure. */
 void RM_KeyAtPos(RedisModuleCtx *ctx, int pos) {
-    if (!(ctx->flags & REDISMODULE_CTX_KEYS_POS_REQUEST)) return;
+    if (!(ctx->flags & REDISMODULE_CTX_KEYS_POS_REQUEST) || !ctx->keys_result) return;
     if (pos <= 0) return;
-    ctx->keys_pos = zrealloc(ctx->keys_pos,sizeof(int)*(ctx->keys_count+1));
-    ctx->keys_pos[ctx->keys_count++] = pos;
+
+    getKeysResult *res = ctx->keys_result;
+
+    /* Check overflow */
+    if (res->numkeys == res->size) {
+        int newsize = res->size + (res->size > 8192 ? 8192 : res->size);
+        getKeysPrepareResult(res, newsize);
+    }
+
+    res->keys[res->numkeys++] = pos;
 }
 
 /* Helper for RM_CreateCommand(). Turns a string representing command
@@ -4492,7 +4505,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
             "Blocking module command called from transaction");
     } else {
         if (keys) {
-            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,timeout,NULL,NULL);
+            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,timeout,NULL,NULL,NULL);
         } else {
             blockClient(c,BLOCKED_MODULE);
         }
@@ -5636,6 +5649,11 @@ int RM_SetModuleUserACL(RedisModuleUser *user, const char* acl) {
  * to the client in a threadsafe context.  */
 static int authenticateClientWithUser(RedisModuleCtx *ctx, user *user, RedisModuleUserChangedFunc callback, void *privdata, uint64_t *client_id) {
     if (user->flags & USER_FLAG_DISABLED) {
+        return REDISMODULE_ERR;
+    }
+
+    /* Avoid settings which are meaningless and will be lost */
+    if (!ctx->client || (ctx->client->flags & CLIENT_MODULE)) {
         return REDISMODULE_ERR;
     }
 
@@ -7284,6 +7302,7 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
      * cheap if there are no registered modules. */
     if (listLength(RedisModule_EventListeners) == 0) return;
 
+    int real_client_used = 0;
     listIter li;
     listNode *ln;
     listRewind(RedisModule_EventListeners,&li);
@@ -7293,7 +7312,15 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
             RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
             ctx.module = el->module;
 
-            if (ModulesInHooks == 0) {
+            if (eid == REDISMODULE_EVENT_CLIENT_CHANGE) {
+                /* In the case of client changes, we're pushing the real client
+                 * so the event handler can mutate it if needed. For example,
+                 * to change its authentication state in a way that does not
+                 * depend on specific commands executed later.
+                 */
+                ctx.client = (client *) data;
+                real_client_used = 1;
+            } else if (ModulesInHooks == 0) {
                 ctx.client = moduleFreeContextReusedClient;
             } else {
                 ctx.client = createClient(NULL);
@@ -7346,7 +7373,7 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
             el->module->in_hook--;
             ModulesInHooks--;
 
-            if (ModulesInHooks != 0) freeClient(ctx.client);
+            if (ModulesInHooks != 0 && !real_client_used) freeClient(ctx.client);
             moduleFreeContext(&ctx);
         }
     }
@@ -7885,6 +7912,69 @@ int RM_ModuleTypeReplaceValue(RedisModuleKey *key, moduleType *mt, void *new_val
     return REDISMODULE_OK;
 }
 
+/* For a specified command, parse its arguments and return an array that
+ * contains the indexes of all key name arguments. This function is
+ * essnetially a more efficient way to do COMMAND GETKEYS.
+ *
+ * A NULL return value indicates the specified command has no keys, or
+ * an error condition. Error conditions are indicated by setting errno
+ * as folllows:
+ *
+ *  ENOENT: Specified command does not exist.
+ *  EINVAL: Invalid command arity specified.
+ *
+ * NOTE: The returned array is not a Redis Module object so it does not
+ * get automatically freed even when auto-memory is used. The caller
+ * must explicitly call RM_Free() to free it.
+ */
+int *RM_GetCommandKeys(RedisModuleCtx *ctx, const char *cmdname, RedisModuleString **argv, int argc, int *num_keys) {
+    UNUSED(ctx);
+    struct redisCommand *cmd;
+    int *res = NULL;
+
+    /* Find command */
+    if ((cmd = lookupCommandByCString(cmdname)) == NULL) {
+        errno = ENOENT;
+        return NULL;
+    }
+
+    /* Bail out if command has no keys */
+    if (cmd->getkeys_proc == NULL && cmd->firstkey == 0) {
+        errno = 0;
+        return NULL;
+    }
+
+    if ((cmd->arity > 0 && cmd->arity != argc) || (argc < -cmd->arity)) {
+        errno = EINVAL;
+        return NULL;
+    }
+
+    getKeysResult result = GETKEYS_RESULT_INIT;
+    getKeysFromCommand(cmd, argv, argc, &result);
+
+    *num_keys = result.numkeys;
+    if (!result.numkeys) {
+        errno = 0;
+        getKeysFreeResult(&result);
+        return NULL;
+    }
+
+    if (result.keys == result.keysbuf) {
+        /* If the result is using a stack based array, copy it. */
+        unsigned long int size = sizeof(int) * result.numkeys;
+        res = zmalloc(size);
+        memcpy(res, result.keys, size);
+    } else {
+        /* We return the heap based array and intentionally avoid calling
+         * getKeysFreeResult() here, as it is the caller's responsibility
+         * to free this array.
+         */
+        res = result.keys;
+    }
+
+    return res;
+}
+
 /* Register all the APIs we export. Keep this function at the end of the
  * file so that's easy to seek it to add new entries. */
 void moduleRegisterCoreAPI(void) {
@@ -8121,4 +8211,5 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(AuthenticateClientWithACLUser);
     REGISTER_API(AuthenticateClientWithUser);
     REGISTER_API(GetClientCertificate);
+    REGISTER_API(GetCommandKeys);
 }

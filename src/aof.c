@@ -669,6 +669,7 @@ struct client *createAOFClient(void) {
     c->querybuf_peak = 0;
     c->argc = 0;
     c->argv = NULL;
+    c->argv_len_sum = 0;
     c->bufpos = 0;
     c->flags = 0;
     c->btype = BLOCKED_NONE;
@@ -694,6 +695,7 @@ void freeFakeClientArgv(struct client *c) {
     for (j = 0; j < c->argc; j++)
         decrRefCount(c->argv[j]);
     zfree(c->argv);
+    c->argv_len_sum = 0;
 }
 
 void freeFakeClient(struct client *c) {

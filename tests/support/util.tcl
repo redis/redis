@@ -519,3 +519,9 @@ proc get_child_pid {idx} {
 
     return $child_pid
 }
+
+proc cmdrstat {cmd r} {
+    if {[regexp "\r\ncmdstat_$cmd:(.*?)\r\n" [$r info commandstats] _ value]} {
+        set _ $value
+    }
+}
