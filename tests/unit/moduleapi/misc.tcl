@@ -96,4 +96,9 @@ start_server {tags {"modules"}} {
             assert {$cert == ""}
         }
     }
+
+    test {test detached thread safe cnotext} {
+        r test.log_tsctx "info" "Test message"
+        verify_log_message 0 "*<misc> Test message*" 0
+    }
 }
