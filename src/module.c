@@ -4900,8 +4900,9 @@ int RM_BlockedClientDisconnected(RedisModuleCtx *ctx) {
  * that a blocked client was used when the context was created, otherwise
  * no RedisModule_Reply* call should be made at all.
  *
- * TODO: thread safe contexts do not inherit the blocked client
- * selected database. */
+ * NOTE: If you're creating a detached thread safe context (bc is NULL),
+ * consider using `RM_GetDetachedThreadSafeContext` which will also retain
+ * the module ID and thus be more useful for logging. */
 RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
     RedisModuleCtx *ctx = zmalloc(sizeof(*ctx));
     RedisModuleCtx empty = REDISMODULE_CTX_INIT;
@@ -4921,6 +4922,21 @@ RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
         if (bc->client) ctx->client->id = bc->client->id;
     }
     return ctx;
+}
+
+/* Return a detached thread safe context that is not associated with any
+ * specific blocked client, but is associated with the module's context.
+ *
+ * This is useful for modules that wish to hold a global context over
+ * a long term, for purposes such as logging. */
+RedisModuleCtx *RM_GetDetachedThreadSafeContext(RedisModuleCtx *ctx) {
+    RedisModuleCtx *new_ctx = zmalloc(sizeof(*new_ctx));
+    RedisModuleCtx empty = REDISMODULE_CTX_INIT;
+    memcpy(new_ctx,&empty,sizeof(empty));
+    new_ctx->module = ctx->module;
+    new_ctx->flags |= REDISMODULE_CTX_THREAD_SAFE;
+    new_ctx->client = createClient(NULL);
+    return new_ctx;
 }
 
 /* Release a thread safe context. */
@@ -8078,6 +8094,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(AbortBlock);
     REGISTER_API(Milliseconds);
     REGISTER_API(GetThreadSafeContext);
+    REGISTER_API(GetDetachedThreadSafeContext);
     REGISTER_API(FreeThreadSafeContext);
     REGISTER_API(ThreadSafeContextLock);
     REGISTER_API(ThreadSafeContextTryLock);
