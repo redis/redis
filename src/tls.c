@@ -37,6 +37,7 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/rand.h>
+#include <openssl/pem.h>
 
 #define REDIS_TLS_PROTO_TLSv1       (1<<0)
 #define REDIS_TLS_PROTO_TLSv1_1     (1<<1)
@@ -868,6 +869,30 @@ int tlsProcessPendingData() {
     return processed;
 }
 
+/* Fetch the peer certificate used for authentication on the specified
+ * connection and return it as a PEM-encoded sds.
+ */
+sds connTLSGetPeerCert(connection *conn_) {
+    tls_connection *conn = (tls_connection *) conn_;
+    if (conn_->type->get_type(conn_) != CONN_TYPE_TLS || !conn->ssl) return NULL;
+
+    X509 *cert = SSL_get_peer_certificate(conn->ssl);
+    if (!cert) return NULL;
+
+    BIO *bio = BIO_new(BIO_s_mem());
+    if (bio == NULL || !PEM_write_bio_X509(bio, cert)) {
+        if (bio != NULL) BIO_free(bio);
+        return NULL;
+    }
+
+    const char *bio_ptr;
+    long long bio_len = BIO_get_mem_data(bio, &bio_ptr);
+    sds cert_pem = sdsnewlen(bio_ptr, bio_len);
+    BIO_free(bio);
+
+    return cert_pem;
+}
+
 #else   /* USE_OPENSSL */
 
 void tlsInit(void) {
@@ -895,6 +920,11 @@ int tlsHasPendingData() {
 
 int tlsProcessPendingData() {
     return 0;
+}
+
+sds connTLSGetPeerCert(connection *conn_) {
+    (void) conn_;
+    return NULL;
 }
 
 #endif
