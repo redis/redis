@@ -5736,6 +5736,31 @@ int RM_DeauthenticateAndCloseClient(RedisModuleCtx *ctx, uint64_t client_id) {
     return REDISMODULE_OK;
 }
 
+/* Return the X.509 client-side certificate used by the client to authenticate
+ * this connection.
+ *
+ * The return value is an allocated RedisModuleString that is a X.509 certificate
+ * encoded in PEM (Base64) format. It should be freed (or auto-freed) by the caller.
+ *
+ * A NULL value is returned in the following conditions:
+ *
+ * - Connection ID does not exist
+ * - Connection is not a TLS connection
+ * - Connection is a TLS connection but no client ceritifcate was used
+ */
+RedisModuleString *RM_GetClientCertificate(RedisModuleCtx *ctx, uint64_t client_id) {
+    client *c = lookupClientByID(client_id);
+    if (c == NULL) return NULL;
+
+    sds cert = connTLSGetPeerCert(c->conn);
+    if (!cert) return NULL;
+
+    RedisModuleString *s = createObject(OBJ_STRING, cert);
+    if (ctx != NULL) autoMemoryAdd(ctx, REDISMODULE_AM_STRING, s);
+
+    return s;
+}
+
 /* --------------------------------------------------------------------------
  * Modules Dictionary API
  *
@@ -8194,5 +8219,6 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(DeauthenticateAndCloseClient);
     REGISTER_API(AuthenticateClientWithACLUser);
     REGISTER_API(AuthenticateClientWithUser);
+    REGISTER_API(GetClientCertificate);
     REGISTER_API(GetCommandKeys);
 }

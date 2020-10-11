@@ -195,6 +195,23 @@ int test_setlfu(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+int test_getclientcert(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    (void) argv;
+    (void) argc;
+
+    RedisModuleString *cert = RedisModule_GetClientCertificate(ctx,
+            RedisModule_GetClientId(ctx));
+    if (!cert) {
+        RedisModule_ReplyWithNull(ctx);
+    } else {
+        RedisModule_ReplyWithString(ctx, cert);
+        RedisModule_FreeString(ctx, cert);
+    }
+
+    return REDISMODULE_OK;
+}
+
 int test_clientinfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     (void) argv;
@@ -282,6 +299,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"test.getlfu", test_getlfu,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.clientinfo", test_clientinfo,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"test.getclientcert", test_getclientcert,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.log_tsctx", test_log_tsctx,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
