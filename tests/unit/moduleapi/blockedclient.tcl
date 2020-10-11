@@ -9,7 +9,7 @@ start_server {tags {"modules"}} {
         assert_match "OK" [r acquire_gil]
     }
 
-    test {Locked GIL acquisition durring multi} {
+    test {Locked GIL acquisition during multi} {
     	r multi
     	r acquire_gil
     	assert_equal {{Blocked client is not supported inside multi}} [r exec]
