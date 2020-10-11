@@ -57,6 +57,14 @@ int acquire_gil(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     UNUSED(argv);
     UNUSED(argc);
 
+    int flags = RedisModule_GetContextFlags(ctx);
+    int allFlags = RedisModule_GetContextFlagsAll();
+    if ((allFlags & REDISMODULE_CTX_FLAGS_MULTI) &&
+        (flags & REDISMODULE_CTX_FLAGS_MULTI)) {
+        RedisModule_ReplyWithSimpleString(ctx, "Blocked client is not supported inside multi");
+        return REDISMODULE_OK;
+    }
+
     /* This command handler tries to acquire the GIL twice
      * once in the worker thread using "RedisModule_ThreadSafeContextLock"
      * second in the sub-worker thread

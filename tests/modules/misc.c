@@ -195,6 +195,22 @@ int test_setlfu(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+int test_redisversion(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
+    (void) argv;
+    (void) argc;
+
+    int version = RedisModule_GetServerVersion();
+    int patch = version & 0x000000ff;
+    int minor = (version & 0x0000ff00) >> 8;
+    int major = (version & 0x00ff0000) >> 16;
+
+    RedisModuleString* vStr = RedisModule_CreateStringPrintf(ctx, "%d.%d.%d", major, minor, patch);
+    RedisModule_ReplyWithString(ctx, vStr);
+    RedisModule_FreeString(ctx, vStr);
+  
+    return REDISMODULE_OK;
+}
+
 int test_getclientcert(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     (void) argv;
@@ -299,6 +315,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"test.getlfu", test_getlfu,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.clientinfo", test_clientinfo,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"test.redisversion", test_redisversion,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.getclientcert", test_getclientcert,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
