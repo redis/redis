@@ -86,4 +86,9 @@ start_server {tags {"modules"}} {
         set info [r test.clientinfo]
         assert { [dict get $info flags] == "${ssl_flag}::tracking::" }
     }
+
+    test {test detached thread safe cnotext} {
+        r test.log_tsctx "info" "Test message"
+        verify_log_message 0 "*<misc> Test message*" 0
+    }
 }
