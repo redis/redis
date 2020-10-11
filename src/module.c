@@ -7266,13 +7266,14 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *
  *
  * The function returns REDISMODULE_OK if the module was successfully subscribed
- * for the specified event. If the API is called from a wrong context then
- * REDISMODULE_ERR is returned. */
+ * for the specified event. If the API is called from a wrong context or unsupported event
+ * is given then REDISMODULE_ERR is returned. */
 int RM_SubscribeToServerEvent(RedisModuleCtx *ctx, RedisModuleEvent event, RedisModuleEventCallback callback) {
     RedisModuleEventListener *el;
 
     /* Protect in case of calls from contexts without a module reference. */
     if (ctx->module == NULL) return REDISMODULE_ERR;
+    if (event.id >= _REDISMODULE_EVENT_NEXT) return REDISMODULE_ERR;
 
     /* Search an event matching this module and event ID. */
     listIter li;
@@ -7302,6 +7303,42 @@ int RM_SubscribeToServerEvent(RedisModuleCtx *ctx, RedisModuleEvent event, Redis
     el->callback = callback;
     listAddNodeTail(RedisModule_EventListeners,el);
     return REDISMODULE_OK;
+}
+
+/**
+ * For a given server event and subevent, return zero if the
+ * subevent is not supported and non-zero otherwise.
+ */
+int RM_IsSubEventSupported(RedisModuleEvent event, int64_t subevent) {
+    switch (event.id) {
+    case REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED:
+        return subevent < _REDISMODULE_EVENT_REPLROLECHANGED_NEXT;
+    case REDISMODULE_EVENT_PERSISTENCE:
+        return subevent < _REDISMODULE_SUBEVENT_PERSISTENCE_NEXT;
+    case REDISMODULE_EVENT_FLUSHDB:
+        return subevent < _REDISMODULE_SUBEVENT_FLUSHDB_NEXT;
+    case REDISMODULE_EVENT_LOADING:
+        return subevent < _REDISMODULE_SUBEVENT_LOADING_NEXT;
+    case REDISMODULE_EVENT_CLIENT_CHANGE:
+        return subevent < _REDISMODULE_SUBEVENT_CLIENT_CHANGE_NEXT;
+    case REDISMODULE_EVENT_SHUTDOWN:
+        return subevent < _REDISMODULE_SUBEVENT_SHUTDOWN_NEXT;
+    case REDISMODULE_EVENT_REPLICA_CHANGE:
+        return subevent < _REDISMODULE_EVENT_REPLROLECHANGED_NEXT;
+    case REDISMODULE_EVENT_MASTER_LINK_CHANGE:
+        return subevent < _REDISMODULE_SUBEVENT_MASTER_NEXT;
+    case REDISMODULE_EVENT_CRON_LOOP:
+        return subevent < _REDISMODULE_SUBEVENT_CRON_LOOP_NEXT;
+    case REDISMODULE_EVENT_MODULE_CHANGE:
+        return subevent < _REDISMODULE_SUBEVENT_MODULE_NEXT;
+    case REDISMODULE_EVENT_LOADING_PROGRESS:
+        return subevent < _REDISMODULE_SUBEVENT_LOADING_PROGRESS_NEXT;
+    case REDISMODULE_EVENT_SWAPDB:
+        return subevent < _REDISMODULE_SUBEVENT_SWAPDB_NEXT;
+    default:
+        break;
+    }
+    return 0;
 }
 
 /* This is called by the Redis internals every time we want to fire an
@@ -7886,6 +7923,46 @@ int RM_GetLFU(RedisModuleKey *key, long long *lfu_freq) {
     return REDISMODULE_OK;
 }
 
+/**
+ * Returns the full ContextFlags mask, using the return value
+ * the module can check if a certain set of flags are supported
+ * by the redis server version in use.
+ * Example:
+ *        int supportedFlags = RM_GetContextFlagsAll()
+ *        if (supportedFlags & REDISMODULE_CTX_FLAGS_MULTI) {
+ *              // REDISMODULE_CTX_FLAGS_MULTI is supported
+ *        } else{
+ *              // REDISMODULE_CTX_FLAGS_MULTI is not supported
+ *        }
+ */
+int RM_GetContextFlagsAll() {
+    return _REDISMODULE_CTX_FLAGS_NEXT - 1;
+}
+
+/**
+ * Returns the full KeyspaceNotification mask, using the return value
+ * the module can check if a certain set of flags are supported
+ * by the redis server version in use.
+ * Example:
+ *        int supportedFlags = RM_GetKeyspaceNotificationFlagsAll()
+ *        if (supportedFlags & REDISMODULE_NOTIFY_LOADED) {
+ *              // REDISMODULE_NOTIFY_LOADED is supported
+ *        } else{
+ *              // REDISMODULE_NOTIFY_LOADED is not supported
+ *        }
+ */
+int RM_GetKeyspaceNotificationFlagsAll() {
+    return _REDISMODULE_NOTIFY_NEXT - 1;
+}
+
+/**
+ * Return the redis version in format of 0x00MMmmpp.
+ * Example for 6.0.7 the return value will be 0x00060007.
+ */
+int RM_GetServerVersion() {
+    return REDIS_VERSION_NUM;
+}
+
 /* Replace the value assigned to a module type.
  *
  * The key must be open for writing, have an existing value, and have a moduleType
@@ -8219,6 +8296,10 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(DeauthenticateAndCloseClient);
     REGISTER_API(AuthenticateClientWithACLUser);
     REGISTER_API(AuthenticateClientWithUser);
+    REGISTER_API(GetContextFlagsAll);
+    REGISTER_API(GetKeyspaceNotificationFlagsAll);
+    REGISTER_API(IsSubEventSupported);
+    REGISTER_API(GetServerVersion);
     REGISTER_API(GetClientCertificate);
     REGISTER_API(GetCommandKeys);
 }
