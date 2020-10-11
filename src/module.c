@@ -8012,13 +8012,13 @@ int RM_ModuleTypeReplaceValue(RedisModuleKey *key, moduleType *mt, void *new_val
  * get automatically freed even when auto-memory is used. The caller
  * must explicitly call RM_Free() to free it.
  */
-int *RM_GetCommandKeys(RedisModuleCtx *ctx, const char *cmdname, RedisModuleString **argv, int argc, int *num_keys) {
+int *RM_GetCommandKeys(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int *num_keys) {
     UNUSED(ctx);
     struct redisCommand *cmd;
     int *res = NULL;
 
     /* Find command */
-    if ((cmd = lookupCommandByCString(cmdname)) == NULL) {
+    if ((cmd = lookupCommand(argv[0]->ptr)) == NULL) {
         errno = ENOENT;
         return NULL;
     }
