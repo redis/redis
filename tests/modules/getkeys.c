@@ -69,11 +69,8 @@ int getkeys_introspect(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_OK;
     }
 
-    size_t cmd_len;
-    const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
-
     int num_keys;
-    int *keyidx = RedisModule_GetCommandKeys(ctx, cmd, &argv[1], argc - 1, &num_keys);
+    int *keyidx = RedisModule_GetCommandKeys(ctx, &argv[1], argc - 1, &num_keys);
 
     if (!keyidx) {
         if (!errno)
