@@ -1,3 +1,103 @@
+start_server {tags {"maxmemory"}} {
+    r config set maxmemory 10mb
+    r config set maxmemory-policy allkeys-lru
+    set rd [redis_deferring_client]
+
+    proc refill {} {
+        r flushdb
+        # fill 5mb using 50 keys of 100kb
+        for {set j 0} {$j < 50} {incr j} {
+            r setrange $j 100000 x
+        }
+    }
+
+    set clients {}
+    test "eviction due to output buffers of many MGET clients" {
+        refill
+
+        for {set j 0} {$j < 20} {incr j} {
+            set rr [redis_deferring_client]
+            lappend clients $rr
+        }
+
+        $rd debug sleep 1
+        $rd flush
+        after 100
+
+        for {set j 0} {$j < 5} {incr j} {
+            foreach rr $clients {
+                $rr mget 1
+                $rr flush
+            }
+        }
+        $rd read
+
+        for {set j 0} {$j < 5} {incr j} {
+            foreach rr $clients {
+                if {[catch { $rr read } err]} {
+                    lremove clients $rr
+                }
+            }
+        }
+
+        r dbsize
+    } {50}
+    foreach rr $clients {
+        $rr close
+    }
+
+    set clients {}
+    test "eviction due to input buffer of a dead client" {
+        refill
+
+        for {set j 0} {$j < 30} {incr j} {
+            set rr [redis_deferring_client]
+            lappend clients $rr
+        }
+
+        foreach rr $clients {
+            if {[catch {
+                $rr write "*200\r\n"
+                for {set j 0} {$j < 199} {incr j} {
+                    $rr write "\$1000\r\n"
+                    $rr write [string repeat x 1000]
+                    $rr write "\r\n"
+                }
+            }]} {
+                lremove clients $rr
+            }
+        }
+
+        r dbsize
+    } {50}
+    foreach rr $clients {
+        $rr close
+    }
+
+    set clients {}
+    test "eviction due to output buffers of pubsub" {
+        refill
+        for {set j 0} {$j < 30} {incr j} {
+            set rr [redis_deferring_client]
+            lappend clients $rr
+        }
+
+        foreach rr $clients {
+            $rr subscribe bla
+        }
+
+        for {set j 0} {$j < 50} {incr j} {
+            catch {r publish bla [string repeat x 100000]} err
+        }
+
+        r dbsize
+    } {50}
+    foreach rr $clients {
+        $rr close
+    }
+
+}
+
 start_server {tags {"maxmemory external:skip"}} {
     test "Without maxmemory small integers are shared" {
         r config set maxmemory 0
