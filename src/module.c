@@ -4637,8 +4637,9 @@ RedisModuleBlockedClient *RM_BlockClientOnKeys(RedisModuleCtx *ctx, RedisModuleC
 
 /* This function is used in order to potentially unblock a client blocked
  * on keys with RedisModule_BlockClientOnKeys(). When this function is called,
- * all the clients blocked for this key will get their reply callback called,
- * and if the callback returns REDISMODULE_OK the client will be unblocked. */
+ * all the clients blocked for this key will get their reply_callback called.
+ *
+ * Note: The function has no effect if the signaled key doesn't exist. */
 void RM_SignalKeyAsReady(RedisModuleCtx *ctx, RedisModuleString *key) {
     signalKeyAsReady(ctx->client->db, key);
 }
@@ -4682,14 +4683,13 @@ int moduleClientIsBlockedOnKeys(client *c) {
  *
  * Note 1: this function can be called from threads spawned by the module.
  *
- * Note 2: when we unblock a client that is blocked for keys using
- * the API RedisModule_BlockClientOnKeys(), the privdata argument here is
- * not used, and the reply callback is called with the privdata pointer that
- * was passed when blocking the client.
- *
+ * Note 2: when we unblock a client that is blocked for keys using the API
+ * RedisModule_BlockClientOnKeys(), the privdata argument here is not used.
  * Unblocking a client that was blocked for keys using this API will still
  * require the client to get some reply, so the function will use the
- * "timeout" handler in order to do so. */
+ * "timeout" handler in order to do so (The privdata provided in
+ * RedisModule_BlockClientOnKeys() is accessible from the timeout
+ * callback via RM_GetBlockedClientPrivateData). */
 int RM_UnblockClient(RedisModuleBlockedClient *bc, void *privdata) {
     if (bc->blocked_on_keys) {
         /* In theory the user should always pass the timeout handler as an
@@ -4833,6 +4833,7 @@ void moduleBlockedClientTimedOut(client *c) {
     ctx.module = bc->module;
     ctx.client = bc->client;
     ctx.blocked_client = bc;
+    ctx.blocked_privdata = bc->privdata;
     bc->timeout_callback(&ctx,(void**)c->argv,c->argc);
     moduleFreeContext(&ctx);
     /* For timeout events, we do not want to call the disconnect callback,
