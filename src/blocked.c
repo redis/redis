@@ -507,7 +507,7 @@ void handleClientsBlockedOnKeys(void) {
             server.fixed_time_expire++;
             updateCachedTime(0);
 
-            /* Serve clients blocked on list key. */
+            /* Serve clients blocked on the key. */
             robj *o = lookupKeyWrite(rl->db,rl->key);
 
             if (o != NULL) {
