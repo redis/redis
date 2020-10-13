@@ -236,6 +236,12 @@ static inline void sdssetallocextrabit(sds s, size_t value) {
     }
 }
 
+static inline void sdssettype(sds s, char type) {
+    unsigned char *fp = ((unsigned char*)s)-1;
+    *fp &= type;
+    *fp |= type;
+}
+
 static inline void sdssetlen(sds s, size_t newlen) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {

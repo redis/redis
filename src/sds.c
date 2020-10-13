@@ -118,12 +118,11 @@ sds sdsnewlen(const void *init, size_t initlen) {
     else if (!init)
         memset(sh, 0, hdrlen+initlen+1);
     s = (char*)sh+hdrlen;
-    fp = ((unsigned char*)s)-1;
     usable = usable-hdrlen-1;
     if (usable > sdsTypeMaxSize(type))
         usable = sdsTypeMaxSize(type);
 
-    *fp = type;
+    sdssettype(s, type);
     sdssetlen(s,initlen);
     sdssetalloc(s, usable);
 
@@ -229,7 +228,7 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
         memcpy((char*)newsh+hdrlen, s, len+1);
         s_free(sh);
         s = (char*)newsh+hdrlen;
-        s[-1] = type;
+        sdssettype(s, type);
         sdssetlen(s, len);
     }
     usable = usable-hdrlen-1;
@@ -275,7 +274,7 @@ sds sdsRemoveFreeSpace(sds s) {
         memcpy((char*)newsh+hdrlen, s, len+1);
         s_free(sh);
         s = (char*)newsh+hdrlen;
-        s[-1] = type;
+        sdssettype(s, type);
         sdssetlen(s, len);
     }
     sdssetalloc(s, len);
