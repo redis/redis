@@ -11,6 +11,8 @@ start_server {tags {"maxmemory"}} {
         }
     }
 
+    r config set maxmemory-clients 3mb
+
     set clients {}
     test "eviction due to output buffers of many MGET clients" {
         refill

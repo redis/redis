@@ -1603,6 +1603,7 @@ int writeToClient(client *c, int handler_installed) {
             return C_ERR;
         }
     }
+    updateClientMemUsage(c);
     return C_OK;
 }
 
@@ -3774,14 +3775,17 @@ int clientEvictionCheckLimit() {
 }
 
 void clientsEviction() {
+    raxIterator ri;
     if (!clientEvictionCheckLimit())
         return;
 
-    raxIterator ri;
     raxStart(&ri,server.client_eviction_pull);
     raxSeek(&ri,"$",NULL,0);
     while (raxPrev(&ri)) {
         client *best = ri.data;
+        sds ci = catClientInfoString(sdsempty(),best);
+        serverLog(LL_NOTICE, "Evicting client: %s", ci);
+        sdsfree(ci);
         freeClient(best);
         server.stat_evictedclients++;
         if (!clientEvictionCheckLimit())

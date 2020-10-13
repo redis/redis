@@ -2173,9 +2173,11 @@ void removeClientFromEvictionPool(client *c) {
     if (c->client_cron_last_memory_usage < server.client_eviction_pull_min)
         return;
 
-
-    uint64_t old_score = htonu64(c->client_cron_last_memory_usage);
-    raxRemove(server.client_eviction_pull, (void*)&old_score, 8, NULL);
+    char buf[16];
+    uint64_t score = htonu64(c->client_cron_last_memory_usage);
+    memcpy(buf, &score, 8);
+    memcpy(buf+8, &c->id, 8);
+    raxRemove(server.client_eviction_pull, (void*)&buf, 16, NULL);
 
     raxIterator ri;
     if (c->client_cron_last_memory_usage == server.client_eviction_pull_min) {
@@ -2208,6 +2210,7 @@ int clientsCronTrackClientsMemUsage(client *c) {
     mem += zmalloc_size(c);
     mem += c->argv_len_sum;
     if (c->argv) mem += zmalloc_size(c->argv);
+
     /* Now that we have the memory used by the client, remove the old
      * value from the old category, and add it back. */
     server.stat_clients_type_memory[c->client_cron_last_memory_type] -=
@@ -2215,13 +2218,16 @@ int clientsCronTrackClientsMemUsage(client *c) {
     server.stat_clients_type_memory[type] += mem;
 
     /* Update the record in the clients eviction rax */
-    //TODO: score should include clientID in case there are two clients with the same score
     //TODO: score may not just be used memory, it might need to include age and others
     //TODO: skip non normal client types, and handle cases where client changes type
+    //TODO: add some minimum under which clients don't bother to run the rax code below (in remove too)
     removeClientFromEvictionPool(c);
     if (raxSize(server.client_eviction_pull) < CLIENT_EVICTION_POOL || mem > server.client_eviction_pull_min) {
+        char buf[16];
         uint64_t score = htonu64(mem);
-        raxInsert(server.client_eviction_pull, (void*)&score, 8, c, NULL);
+        memcpy(buf, &score, 8);
+        memcpy(buf+8, &c->id, 8);
+        raxInsert(server.client_eviction_pull, (void*)buf, 16, c, NULL);
         if (mem < server.client_eviction_pull_min)
             server.client_eviction_pull_min = mem;
         if (mem > server.client_eviction_pull_max)
@@ -4665,6 +4671,10 @@ int processCommand(client *c) {
             return C_OK;
         }
     }
+
+    /* Before evicting any keys, disconnect some clients if total clients memory
+     * is too high. */
+    clientsEviction();
 
     /* Handle the maxmemory directive.
      *
