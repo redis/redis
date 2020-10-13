@@ -60,12 +60,12 @@ static inline int sdsHdrSize(char type) {
 static inline char sdsReqType(size_t string_size) {
     if (string_size < 1<<5)
         return SDS_TYPE_5;
-    if (string_size < 1<<8)
+    if (string_size < 1<<10)
         return SDS_TYPE_8;
-    if (string_size < 1<<16)
+    if (string_size < 1<<18)
         return SDS_TYPE_16;
 #if (LONG_MAX == LLONG_MAX)
-    if (string_size < 1ll<<32)
+    if (string_size < 1ll<<34)
         return SDS_TYPE_32;
     return SDS_TYPE_64;
 #else
@@ -77,12 +77,12 @@ static inline size_t sdsTypeMaxSize(char type) {
     if (type == SDS_TYPE_5)
         return (1<<5) - 1;
     if (type == SDS_TYPE_8)
-        return (1<<8) - 1;
+        return (1<<10) - 1;
     if (type == SDS_TYPE_16)
-        return (1<<16) - 1;
+        return (1<<18) - 1;
 #if (LONG_MAX == LLONG_MAX)
     if (type == SDS_TYPE_32)
-        return (1ll<<32) - 1;
+        return (1ll<<34) - 1;
 #endif
     return -1; /* this is equivalent to the max SDS_TYPE_64 or SDS_TYPE_32 */
 }
@@ -122,40 +122,11 @@ sds sdsnewlen(const void *init, size_t initlen) {
     usable = usable-hdrlen-1;
     if (usable > sdsTypeMaxSize(type))
         usable = sdsTypeMaxSize(type);
-    switch(type) {
-        case SDS_TYPE_5: {
-            *fp = type | (initlen << SDS_TYPE_BITS);
-            break;
-        }
-        case SDS_TYPE_8: {
-            SDS_HDR_VAR(8,s);
-            sh->len = initlen;
-            sh->alloc = usable;
-            *fp = type;
-            break;
-        }
-        case SDS_TYPE_16: {
-            SDS_HDR_VAR(16,s);
-            sh->len = initlen;
-            sh->alloc = usable;
-            *fp = type;
-            break;
-        }
-        case SDS_TYPE_32: {
-            SDS_HDR_VAR(32,s);
-            sh->len = initlen;
-            sh->alloc = usable;
-            *fp = type;
-            break;
-        }
-        case SDS_TYPE_64: {
-            SDS_HDR_VAR(64,s);
-            sh->len = initlen;
-            sh->alloc = usable;
-            *fp = type;
-            break;
-        }
-    }
+
+    *fp = type;
+    sdssetlen(s,initlen);
+    sdssetalloc(s, usable);
+
     if (initlen && init)
         memcpy(s, init, initlen);
     s[initlen] = '\0';
@@ -366,26 +337,30 @@ void sdsIncrLen(sds s, ssize_t incr) {
         }
         case SDS_TYPE_8: {
             SDS_HDR_VAR(8,s);
-            assert((incr >= 0 && sh->alloc-sh->len >= incr) || (incr < 0 && sh->len >= (unsigned int)(-incr)));
-            len = (sh->len += incr);
+            assert((incr >= 0 && sdsalloc(s)-sdslen(s) >= incr) || (incr < 0 && sdslen(s) >= (unsigned int)(-incr)));
+            sdsinclen(s, incr);
+            len = sdslen(s);
             break;
         }
         case SDS_TYPE_16: {
             SDS_HDR_VAR(16,s);
-            assert((incr >= 0 && sh->alloc-sh->len >= incr) || (incr < 0 && sh->len >= (unsigned int)(-incr)));
-            len = (sh->len += incr);
+            assert((incr >= 0 && sdsalloc(s)-sdslen(s) >= incr) || (incr < 0 && sdslen(s) >= (unsigned int)(-incr)));
+            sdsinclen(s, incr);
+            len = sdslen(s);
             break;
         }
         case SDS_TYPE_32: {
             SDS_HDR_VAR(32,s);
-            assert((incr >= 0 && sh->alloc-sh->len >= (unsigned int)incr) || (incr < 0 && sh->len >= (unsigned int)(-incr)));
-            len = (sh->len += incr);
+            assert((incr >= 0 && sdsalloc(s)-sdslen(s) >= (unsigned int)incr) || (incr < 0 && sdslen(s) >= (unsigned int)(-incr)));
+            sdsinclen(s, incr);
+            len = sdslen(s);
             break;
         }
         case SDS_TYPE_64: {
             SDS_HDR_VAR(64,s);
-            assert((incr >= 0 && sh->alloc-sh->len >= (uint64_t)incr) || (incr < 0 && sh->len >= (uint64_t)(-incr)));
-            len = (sh->len += incr);
+            assert((incr >= 0 && sdsalloc(s)-sdslen(s) >= (uint64_t)incr) || (incr < 0 && sdslen(s) >= (uint64_t)(-incr)));
+            sdsinclen(s, incr);
+            len = sdslen(s);
             break;
         }
         default: len = 0; /* Just to avoid compilation warnings. */
