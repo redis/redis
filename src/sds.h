@@ -83,11 +83,11 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 #define SDS_HDR_VAR(T,s) struct sdshdr##T *sh = (void*)((s)-(sizeof(struct sdshdr##T)));
 #define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
-#define SDS_LSB_4_5_MASK (4ll << 4) // 56x0_0011_4x0
-#define SDS_LSB_6_7_MASK (4ll << 6) // 56x0_1100_4x0
-#define SDS_LSB_8_9_MASK (4ll << 8) // 52x0_0011_8x0
-#define SDS_LSB_16_17_MASK (4ll << 16) // 40x0_0011_16x0
-#define SDS_LSB_32_33_MASK (4ll << 32) // 24x0_0011_32x0
+#define SDS_LSB_4_5_MASK (3ll << 4) // 56x0_0011_4x0
+#define SDS_LSB_6_7_MASK (3ll << 6) // 56x0_1100_4x0
+#define SDS_LSB_8_9_MASK (3ll << 8) // 52x0_0011_8x0
+#define SDS_LSB_16_17_MASK (3ll << 16) // 40x0_0011_16x0
+#define SDS_LSB_32_33_MASK (3ll << 32) // 24x0_0011_32x0
 
 // Returns the low extra bit masked by SDS_FLAGS_0_1_MSB_MASK
 static inline size_t sdslenextra(const sds s) {
