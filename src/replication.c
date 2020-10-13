@@ -2453,7 +2453,7 @@ void replicationAbortSyncTransfer(void) {
     undoConnectWithMaster();
     if (server.repl_transfer_fd!=-1) {
         close(server.repl_transfer_fd);
-        unlink(server.repl_transfer_tmpfile);
+        bg_unlink(server.repl_transfer_tmpfile);
         zfree(server.repl_transfer_tmpfile);
         server.repl_transfer_tmpfile = NULL;
         server.repl_transfer_fd = -1;
