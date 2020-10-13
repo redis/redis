@@ -254,12 +254,6 @@ void setKey(client *c, redisDb *db, robj *key, robj *val) {
     genericSetKey(c,db,key,val,0,1);
 }
 
-/* Return true if the specified key exists in the specified database.
- * LRU/LFU info is not updated in any way. */
-int dbExists(redisDb *db, robj *key) {
-    return dictFind(db->dict,key->ptr) != NULL;
-}
-
 /* Return a random key, in form of a Redis object.
  * If there are no keys, NULL is returned.
  *
