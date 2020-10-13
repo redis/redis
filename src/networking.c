@@ -1979,6 +1979,14 @@ void processInputBuffer(client *c) {
                 return;
             }
         }
+
+        /* If the client reached the soft limit, break so that we can write
+         * some data into the socket and process the rest of the pipeline
+         * on the next event. */
+        if (c->obuf_soft_limit_reached_time) {
+            queueClientForReprocessing(c);
+            break;
+        }
     }
 
     /* Trim to pos */
@@ -2855,8 +2863,8 @@ int checkClientOutputBufferLimits(client *c) {
         } else {
             time_t elapsed = server.unixtime - c->obuf_soft_limit_reached_time;
 
-            if (elapsed <=
-                server.client_obuf_limits[class].soft_limit_seconds) {
+            if (!server.client_obuf_limits[class].soft_limit_seconds ||
+                elapsed <= server.client_obuf_limits[class].soft_limit_seconds) {
                 soft = 0; /* The client still did not reached the max number of
                              seconds for the soft limit to be considered
                              reached. */

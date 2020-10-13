@@ -106,7 +106,7 @@ configEnum tls_auth_clients_enum[] = {
 };
 /* Output buffer limits presets. */
 clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUNT] = {
-    {0, 0, 0}, /* normal */
+    {0, 1024*1024*64, 0}, /* normal */
     {1024*1024*256, 1024*1024*64, 60}, /* slave */
     {1024*1024*32, 1024*1024*8, 60}  /* pubsub */
 };

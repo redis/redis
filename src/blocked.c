@@ -98,7 +98,12 @@ void processUnblockedClients(void) {
     listNode *ln;
     client *c;
 
-    while (listLength(server.unblocked_clients)) {
+    /* Since processInputBuffer can re-add the client to the unblocked list,
+     * we limit the iteration count so that these will be handled at the next
+     * event loop. */
+    int count = listLength(server.unblocked_clients);
+
+    while (listLength(server.unblocked_clients) && count--) {
         ln = listFirst(server.unblocked_clients);
         serverAssert(ln != NULL);
         c = ln->value;

@@ -1,4 +1,52 @@
 start_server {tags {"maxmemory"}} {
+    r config set maxmemory 10mb
+    r config set maxmemory-policy allkeys-lru
+    r config set client-output-buffer-limit "normal 0 2mb 0"
+    set rd [redis_deferring_client]
+
+    proc refill {} {
+        r flushdb
+        # fill 5mb using 50 keys of 100kb
+        for {set j 0} {$j < 50} {incr j} {
+            r setrange $j 100000 x
+        }
+    }
+
+    test "eviction due to output buffers of big MGET pipeline" {
+        refill
+        set rd1 [redis_deferring_client]
+        set cmds ""
+        for {set j 0} {$j < 100} {incr j} {
+            set cmd "MGET "
+            for {set jj 0} {$jj < 10} {incr jj} {
+                append cmd "$jj "
+            }
+            append cmd "\r\n"
+            append cmds $cmd
+        }
+
+        $rd debug sleep 1
+        $rd flush
+        after 100
+
+        $rd1 write $cmds
+        $rd1 flush
+
+        $rd read
+
+        for {set j 0} {$j < 4} {incr j} {
+            $rd1 read
+        }
+
+        $rd1 close
+
+        r dbsize
+    } {50}
+
+    $rd close
+}
+
+start_server {tags {"maxmemory"}} {
     test "Without maxmemory small integers are shared" {
         r config set maxmemory 0
         r set a 1
