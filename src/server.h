@@ -878,7 +878,7 @@ typedef struct client {
     /* Response buffer */
     int bufpos;
     char buf[PROTO_REPLY_CHUNK_BYTES];
-    pthread_t send_db_thread; /* The thread of Sending RDB to replica. */
+    pthread_t send_db_thread; /* The thread of sending RDB to replica. */
     redisAtomic int thread_send_db_state; /* State of sending RDB. */
 } client;
 
@@ -1333,7 +1333,8 @@ struct redisServer {
     int repl_diskless_load;         /* Slave parse RDB directly from the socket.
                                      * see REPL_DISKLESS_LOAD_* enum */
     int repl_diskless_sync_delay;   /* Delay to start a diskless repl BGSAVE. */
-    int send_rdb_by_thread;         /* Send RDB file by thread when full disk-based sync. */
+    int send_rdb_max_threads;       /* Max thread number used for sending RDB. */
+    int send_rdb_active_threads;    /* Active thread number used for sending RDB. */
     int rdb_bulk_send_delay;        /* Delay in microseconds between bulks while
                                      * send the RDB file. (for testings). negative
                                      * value means fractions of microsecons (on average). */

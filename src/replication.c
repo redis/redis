@@ -1044,11 +1044,12 @@ void updateSlavesReplicationStateIfNeed(void) {
                 serverLog(LL_WARNING, "Fail to release the thread of sending RDB "
                     "to %s: %s", replicationGetSlaveName(slave), strerror(errno));
             } else {
+                server.send_rdb_active_threads--; /* Decrease. */
                 serverLog(LL_NOTICE, "The thread of sending RDB to %s is released",
                     replicationGetSlaveName(slave));
             }
             latencyEndMonitor(latency);
-            latencyAddSampleIfNeeded("release_thread", latency);
+            latencyAddSampleIfNeeded("release-thread", latency);
 
             /* Reset sending rdb thread info. */
             slave->send_db_thread = 0;
@@ -1461,7 +1462,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
 
                 connSetWriteHandler(slave->conn,NULL);
                 /* Send RDB file by a separate thread. */
-                if (server.send_rdb_by_thread) {
+                if (server.send_rdb_active_threads < server.send_rdb_max_threads) {
                     int ret;
                     mstime_t latency;
                     pthread_attr_t stacksize_attr;
@@ -1480,7 +1481,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                     ret = pthread_create(&slave->send_db_thread, &stacksize_attr,
                             sendRDBToSlaveThread, (void*)slave->conn);
                     latencyEndMonitor(latency);
-                    latencyAddSampleIfNeeded("create_thread", latency);
+                    latencyAddSampleIfNeeded("create-thread", latency);
                     if (ret != 0) {
                         serverLog(LL_WARNING, "Fail to create thread for sending RDB to "
                             "%s: %s", replicationGetSlaveName(slave), strerror(errno));
@@ -1488,6 +1489,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                         slave->send_db_thread = 0;
                         freeClient(slave);
                     } else {
+                        server.send_rdb_active_threads++; /* Increase. */
                         serverLog(LL_NOTICE, "Start a thread to send RDB to %s",
                             replicationGetSlaveName(slave));
                     }

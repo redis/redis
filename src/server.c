@@ -2485,7 +2485,8 @@ void initServerConfig(void) {
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
     server.master_repl_offset = 0;
-    server.send_rdb_by_thread = 0;
+    server.send_rdb_max_threads = 0;
+    server.send_rdb_active_threads = 0;
 
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
@@ -4280,7 +4281,8 @@ sds genRedisInfoString(const char *section) {
             "lru_clock:%u\r\n"
             "executable:%s\r\n"
             "config_file:%s\r\n"
-            "io_threads_active:%i\r\n",
+            "io_threads_active:%i\r\n"
+            "send_rdb_active_threads:%i\r\n",
             REDIS_VERSION,
             redisGitSHA1(),
             strtol(redisGitDirty(),NULL,10) > 0,
@@ -4305,7 +4307,8 @@ sds genRedisInfoString(const char *section) {
             lruclock,
             server.executable ? server.executable : "",
             server.configfile ? server.configfile : "",
-            server.io_threads_active);
+            server.io_threads_active,
+            server.send_rdb_active_threads);
     }
 
     /* Clients */

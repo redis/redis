@@ -1184,18 +1184,20 @@ void freeClient(client *c) {
          * type is deferred is canceled when it calls a function that is a
          * cancellation point. In sending rdb thread, there are many cancellation
          * points, such as write and read, and no heavy computation, so it has no
-         * much dalay, moreover, we don't use mutex, so it won't cause deadlock. */
+         * much dalay, moreover, we don't use mutex cross cancellation points,
+         * so it won't cause deadlock. */
         if (pthread_cancel(c->send_db_thread) == 0) {
             if (pthread_join(c->send_db_thread, NULL) != 0) {
                 serverLog(LL_WARNING, "Fail to release the thread of sending "
                     "RDB to %s: %s", slavename, strerror(errno));
             } else {
+                server.send_rdb_active_threads--; /* Decrease. */
                 serverLog(LL_NOTICE, "The thread of sending RDB to %s "
                     "is killed and released", slavename);
             }
         }
         latencyEndMonitor(latency);
-        latencyAddSampleIfNeeded("release_thread", latency);
+        latencyAddSampleIfNeeded("release-thread", latency);
         c->send_db_thread = 0;
         atomicSet(c->thread_send_db_state, THREAD_SEND_DB_NONE);
     }

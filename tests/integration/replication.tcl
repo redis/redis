@@ -199,7 +199,9 @@ foreach mdl {no yes} {
     foreach sdl {disabled swapdb} {
         start_server {tags {"repl"}} {
             set master [srv 0 client]
-            $master config set send-rdb-by-thread $msrt
+            if {$msrt eq {yes}} {
+                $master config set send-rdb-max-threads 3
+            }
             $master config set repl-diskless-sync $mdl
             $master config set repl-diskless-sync-delay 1
             set master_host [srv 0 host]
@@ -301,7 +303,7 @@ start_server {tags {"repl"} overrides {rdb-bulk-send-delay 1000000}} {
         $master lpush $i $item
     }
     $master config set rdbcompression no
-    $master config set send-rdb-by-thread yes
+    $master config set send-rdb-max-threads 1
 
     test {Release sending rdb thread when replica disconnects} {
         start_server {tags {"repl"}} {
@@ -314,13 +316,13 @@ start_server {tags {"repl"} overrides {rdb-bulk-send-delay 1000000}} {
             } else {
                 fail "Can't start to send rdb file"
             }
-            assert {[log_file_matches $master_log "*start*thread*send*${replica_host}*${replica_port}*"]}
+            assert {[log_file_matches $master_log "*thread to send RDB to ${replica_host}:${replica_port}*"]}
 
             # Disconnect with master
             $replica slaveof no one
             # The sending rdb thread should be released
             wait_for_condition 50 100 {
-                [log_file_matches $master_log "*thread*${replica_host}*${replica_port}*released*"]
+                [log_file_matches $master_log "*RDB to ${replica_host}:${replica_port} is*released*"]
             } else {
                 fail "Can't release sending rdb thread"
             }
@@ -338,15 +340,93 @@ start_server {tags {"repl"} overrides {rdb-bulk-send-delay 1000000}} {
             } else {
                 fail "Can't start to send rdb file"
             }
-            assert {[log_file_matches $master_log "*start*thread*send*${replica2_host}*${replica2_port}*"]}
+            assert {[log_file_matches $master_log "*thread to send RDB to ${replica2_host}:${replica2_port}*"]}
 
             # Close replicas' connections
             $master client kill type replica
             # The sending rdb thread should be released
             wait_for_condition 50 100 {
-                [log_file_matches $master_log "*thread*${replica2_host}*${replica2_port}*released*"]
+                [log_file_matches $master_log "*RDB to ${replica2_host}:${replica2_port} is*released*"]
             } else {
                 fail "Can't release sending rdb thread"
+            }
+        }
+    }
+}
+
+start_server {tags {"repl"} overrides {rdb-bulk-send-delay 1000000}} {
+    set master [srv 0 client]
+    set master_log [srv 0 stdout]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+    # Write 10M data, sending RDB file will cost several seconds
+    set item [string repeat "x" 100000]
+    for {set i 0} { $i < 10 } { incr i } {
+        $master lpush $i $item
+    }
+    $master config set rdbcompression no
+
+    start_server {tags {"repl"}} {
+        test {Send rdb by event loop by default} {
+            set replica [srv 0 client]
+            set replica_host [srv 0 host]
+            set replica_port [srv 0 port]
+            $replica slaveof $master_host $master_port
+            after 100
+            assert_equal [s -1 send_rdb_active_threads] 0
+            assert {![log_file_matches $master_log "*thread to send RDB to ${replica_host}:${replica_port}*"]}
+        }
+
+        test {Enable sending rdb by a thread} {
+            $master config set send-rdb-max-threads 1
+            # Full sync again
+            $replica slaveof no one
+            $replica flushall
+            $replica slaveof $master_host $master_port
+            wait_for_condition 50 100 {
+                [string match "*${replica_port}*send_bulk*" [$master info replication]]
+            } else {
+                fail "Can't start to send rdb file"
+            }
+            assert {[log_file_matches $master_log "*thread to send RDB to ${replica_host}:${replica_port}*"]}
+            assert_equal [s -1 send_rdb_active_threads] 1
+        }
+
+        start_server {tags {"repl"}} {
+            set replica2 [srv 0 client]
+            set replica2_host [srv 0 host]
+            set replica2_port [srv 0 port]
+
+            test {Can't exceed sending rdb thread max mumber limit} {
+                $replica2 slaveof $master_host $master_port
+                after 100
+                assert_equal [s -2 send_rdb_active_threads] 1
+                assert {![log_file_matches $master_log "*thread to send RDB to ${replica2_host}:${replica2_port}*"]}
+            }
+
+            test {Increase sending rdb thread max mumber} {
+                $master config set send-rdb-max-threads 2
+                # Full sync again
+                $replica2 slaveof no one
+                $replica2 flushall
+                $replica2 slaveof $master_host $master_port
+                wait_for_condition 50 100 {
+                    [string match "*${replica2_port}*send_bulk*" [$master info replication]]
+                } else {
+                    fail "Can't start to send rdb file"
+                }
+                assert {[log_file_matches $master_log "*thread to send RDB to ${replica2_host}:${replica2_port}*"]}
+                assert_equal [s -2 send_rdb_active_threads] 2
+            }
+
+            test {Decrease sending rdb thread max mumber} {
+                $master config set send-rdb-max-threads 1
+                assert_equal [s -2 send_rdb_active_threads] 1
+                $master config set send-rdb-max-threads 0
+                assert_equal [s -2 send_rdb_active_threads] 0
+                # Threads should be released
+                assert {[log_file_matches $master_log "*RDB to ${replica_host}:${replica_port} is*released*"]}
+                assert {[log_file_matches $master_log "*RDB to ${replica2_host}:${replica2_port} is*released*"]}
             }
         }
     }
