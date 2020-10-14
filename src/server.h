@@ -1497,6 +1497,7 @@ struct redisServer {
     char *bio_cpulist; /* cpu affinity list of bio thread. */
     char *aof_rewrite_cpulist; /* cpu affinity list of aof rewrite process. */
     char *bgsave_cpulist; /* cpu affinity list of bgsave process. */
+    char *send_rdb_cpulist; /* cpu affinity list of send rdb threads. */
 };
 
 typedef struct pubsubPattern {

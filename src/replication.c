@@ -1113,7 +1113,7 @@ void *sendRDBToSlaveThread(void *arg) {
         (unsigned long long)slave->id & 0xFFFF);
     thdname[sizeof(thdname) - 1] = '\0';
     redis_set_thread_title(thdname);
-    redisSetCpuAffinity(server.server_cpulist);
+    redisSetCpuAffinity(server.send_rdb_cpulist);
 
     /* Block SIGALRM for sending RDB thread, so it will not receive the
      * watchdog signal, since thera are many blocking I/O operations. */
