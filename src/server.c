@@ -4387,7 +4387,8 @@ sds genRedisInfoString(const char *section) {
             "mem_aof_buffer:%zu\r\n"
             "mem_allocator:%s\r\n"
             "active_defrag_running:%d\r\n"
-            "lazyfree_pending_objects:%zu\r\n",
+            "lazyfree_pending_objects:%zu\r\n"
+            "lazyfreed_objects:%zu\r\n",
             zmalloc_used,
             hmem,
             server.cron_malloc_stats.process_rss,
@@ -4430,7 +4431,8 @@ sds genRedisInfoString(const char *section) {
             mh->aof_buffer,
             ZMALLOC_LIB,
             server.active_defrag_running,
-            lazyfreeGetPendingObjectsCount()
+            lazyfreeGetPendingObjectsCount(),
+            lazyfreeGetFreedObjectsCount()
         );
         freeMemoryOverheadData(mh);
     }

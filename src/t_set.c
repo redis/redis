@@ -1080,7 +1080,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             sdsfree(ele);
         }
         setTypeReleaseIterator(si);
-        server.lazyfree_lazy_server_del ? freeObjAsync(dstset) :
+        server.lazyfree_lazy_server_del ? freeObjAsync(NULL, dstset) :
                                           decrRefCount(dstset);
     } else {
         /* If we have a target key where to store the resulting set
