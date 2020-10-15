@@ -602,13 +602,13 @@ void bitopCommand(client *c) {
     unsigned char *res = NULL; /* Resulting string. */
 
     /* Parse the operation name. */
-    if ((opname[0] == 'a' || opname[0] == 'A') && !strcasecmp(opname,"and"))
+    if (!strcasecmp(opname,"and"))
         op = BITOP_AND;
-    else if((opname[0] == 'o' || opname[0] == 'O') && !strcasecmp(opname,"or"))
+    else if(!strcasecmp(opname,"or"))
         op = BITOP_OR;
-    else if((opname[0] == 'x' || opname[0] == 'X') && !strcasecmp(opname,"xor"))
+    else if(!strcasecmp(opname,"xor"))
         op = BITOP_XOR;
-    else if((opname[0] == 'n' || opname[0] == 'N') && !strcasecmp(opname,"not"))
+    else if(!strcasecmp(opname,"not"))
         op = BITOP_NOT;
     else {
         addReply(c,shared.syntaxerr);
