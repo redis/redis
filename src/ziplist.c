@@ -1230,7 +1230,7 @@ void ziplistRepr(unsigned char *zl) {
     zlentry entry;
 
     printf(
-        "{total bytes %d} "
+        "{total bytes %u} "
         "{num entries %u}\n"
         "{tail offset %u}\n",
         intrev32ifbe(ZIPLIST_BYTES(zl)),
@@ -1243,7 +1243,7 @@ void ziplistRepr(unsigned char *zl) {
             "{\n"
                 "\taddr 0x%08lx,\n"
                 "\tindex %2d,\n"
-                "\toffset %5ld,\n"
+                "\toffset %5lu,\n"
                 "\thdr+entry len: %5u,\n"
                 "\thdr len%2u,\n"
                 "\tprevrawlen: %5u,\n"

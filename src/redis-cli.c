@@ -388,12 +388,20 @@ static sds percentDecode(const char *pe, size_t len) {
 static void parseRedisUri(const char *uri) {
 
     const char *scheme = "redis://";
+    const char *tlsscheme = "rediss://";
     const char *curr = uri;
     const char *end = uri + strlen(uri);
     const char *userinfo, *username, *port, *host, *path;
 
     /* URI must start with a valid scheme. */
-    if (strncasecmp(scheme, curr, strlen(scheme))) {
+    if (!strncasecmp(tlsscheme, curr, strlen(tlsscheme))) {
+#ifdef USE_OPENSSL
+        config.tls = 1;
+#else
+        fprintf(stderr,"rediss:// is only supported when redis-cli is compiled with OpenSSL\n");
+        exit(1);
+#endif
+    } else if (strncasecmp(scheme, curr, strlen(scheme))) {
         fprintf(stderr,"Invalid URI scheme\n");
         exit(1);
     }
