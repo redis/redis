@@ -850,6 +850,7 @@ typedef struct client {
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
+    sds sockname;
     listNode *client_list_node; /* list node in client list */
     RedisModuleUserChangedFunc auth_callback; /* Module callback to execute
                                                * when the authenticated user
@@ -1715,6 +1716,7 @@ void *dupClientReplyValue(void *o);
 void getClientsMaxBuffers(unsigned long *longest_output_list,
                           unsigned long *biggest_input_buffer);
 char *getClientPeerId(client *client);
+char *getClientSockName(client *client);
 sds catClientInfoString(sds s, client *client);
 sds getAllClientsInfoString(int type);
 void rewriteClientCommandVector(client *c, int argc, ...);

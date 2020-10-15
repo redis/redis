@@ -2792,6 +2792,11 @@ void replicationCacheMaster(client *c) {
         sdsfree(c->peerid);
         c->peerid = NULL;
     }
+    /* Invalidate the Sock Name cache. */
+    if (c->sockname) {
+        sdsfree(c->sockname);
+        c->sockname = NULL;
+    }
 
     /* Caching the master happens instead of the actual freeClient() call,
      * so make sure to adjust the replication state. This function will

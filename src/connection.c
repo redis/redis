@@ -381,6 +381,10 @@ int connFormatPeer(connection *conn, char *buf, size_t buf_len) {
     return anetFormatPeer(conn ? conn->fd : -1, buf, buf_len);
 }
 
+int connFormatSockName(connection *conn, char *buf, size_t buf_len) {
+    return anetFormatSock(conn ? conn->fd : -1, buf, buf_len);
+}
+
 int connSockName(connection *conn, char *ip, size_t ip_len, int *port) {
     return anetSockName(conn->fd, ip, ip_len, port);
 }

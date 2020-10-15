@@ -168,6 +168,7 @@ client *createClient(connection *conn) {
     c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType,NULL);
     c->pubsub_patterns = listCreate();
     c->peerid = NULL;
+    c->sockname = NULL;
     c->client_list_node = NULL;
     c->client_tracking_redirection = 0;
     c->client_tracking_prefixes = NULL;
@@ -1300,6 +1301,7 @@ void freeClient(client *c) {
     c->argv_len_sum = 0;
     freeClientMultiState(c);
     sdsfree(c->peerid);
+    sdsfree(c->sockname);
     zfree(c);
 }
 
@@ -2101,6 +2103,29 @@ void genClientPeerId(client *client, char *peerid,
     }
 }
 
+/* A Redis "Sock Name" is a colon separated ip:port pair.
+ * For IPv4 it's in the form x.y.z.k:port, example: "127.0.0.1:1234".
+ * For IPv6 addresses we use [] around the IP part, like in "[::1]:1234".
+ * For Unix sockets we use path:0, like in "/tmp/redis:0".
+ *
+ * A Sock Name always fits inside a buffer of NET_PEER_ID_LEN bytes, including
+ * the null term.
+ *
+ * On failure the function still populates 'sockname' with the "?:0" string
+ * in case you want to relax error checking or need to display something
+ * anyway (see anetPeerToString implementation for more info). */
+void genClientSockName(client *client, char *sockname,
+                     size_t sockname_len) {
+    if (client->flags & CLIENT_UNIX_SOCKET) {
+        /* Unix socket client. */
+        snprintf(sockname,sockname_len,"%s:0",server.unixsocket);
+    } else {
+        /* TCP client. */
+        connFormatSockName(client->conn,sockname,sockname_len);
+    }
+}
+
+
 /* This function returns the client peer id, by creating and caching it
  * if client->peerid is NULL, otherwise returning the cached value.
  * The Peer ID never changes during the life of the client, however it
@@ -2113,6 +2138,20 @@ char *getClientPeerId(client *c) {
         c->peerid = sdsnew(peerid);
     }
     return c->peerid;
+}
+
+/* This function returns the client bound socket name, by creating and caching
+ * it if client->sockname is NULL, otherwise returning the cached value.
+ * The Socket Name never changes during the life of the client, however it
+ * is expensive to compute. */
+char *getClientSockname(client *c) {
+    char sockname[NET_PEER_ID_LEN];
+
+    if (c->sockname == NULL) {
+        genClientSockName(c,sockname,sizeof(sockname));
+        c->sockname = sdsnew(sockname);
+    }
+    return c->sockname;
 }
 
 /* Concatenate a string representing the state of a client in a human
@@ -2162,9 +2201,10 @@ sds catClientInfoString(sds s, client *client) {
         total_mem += zmalloc_size(client->argv);
 
     return sdscatfmt(s,
-        "id=%U addr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s",
+        "id=%U addr=%s target=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s",
         (unsigned long long) client->id,
         getClientPeerId(client),
+        getClientSockname(client),
         connGetInfo(client->conn, conninfo, sizeof(conninfo)),
         client->name ? (char*)client->name->ptr : "",
         (long long)(server.unixtime - client->ctime),

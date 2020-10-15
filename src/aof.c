@@ -681,6 +681,7 @@ struct client *createAOFClient(void) {
     c->obuf_soft_limit_reached_time = 0;
     c->watched_keys = listCreate();
     c->peerid = NULL;
+    c->sockname = NULL;
     c->resp = 2;
     c->user = NULL;
     listSetFreeMethod(c->reply,freeClientReplyValue);
