@@ -508,7 +508,7 @@ proc populate {num prefix size} {
 
 proc get_child_pid {idx} {
     set pid [srv $idx pid]
-    if {[string match {*Darwin*} [exec uname -a]]} {
+    if {[file exists "/usr/bin/pgrep"]} {
         set fd [open "|pgrep -P $pid" "r"]
         set child_pid [string trim [lindex [split [read $fd] \n] 0]]
     } else {
