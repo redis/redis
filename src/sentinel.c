@@ -2023,7 +2023,9 @@ void sentinelSendAuthIfNeeded(sentinelRedisInstance *ri, redisAsyncContext *c) {
         auth_pass = ri->master->auth_pass;
         auth_user = ri->master->auth_user;
     } else if (ri->flags & SRI_SENTINEL) {
-        if (sentinel.sentinel_auth_user && sentinel.sentinel_auth_pass) {
+        /* If sentinel_auth_user is NULL, AUTH will use default user
+           with sentinel_auth_pass to autenticate */
+        if (sentinel.sentinel_auth_pass) {
             auth_pass = sentinel.sentinel_auth_pass;
             auth_user = sentinel.sentinel_auth_user;
         } else {
