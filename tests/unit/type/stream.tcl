@@ -105,6 +105,7 @@ start_server {
     test {XADD with NOMKSTREAM option} {
         r DEL mystream
         assert_equal "" [r XADD mystream NOMKSTREAM * item 1 value a]
+        assert_equal 0 [r EXISTS mystream]
         r XADD mystream * item 1 value a
         r XADD mystream NOMKSTREAM * item 2 value b
         assert_equal 2 [r XLEN mystream]
