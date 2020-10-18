@@ -1573,7 +1573,7 @@ size_t ClientsPeakMemInput[CLIENTS_PEAK_MEM_USAGE_SLOTS];
 size_t ClientsPeakMemOutput[CLIENTS_PEAK_MEM_USAGE_SLOTS];
 
 int clientsCronTrackExpansiveClients(client *c) {
-    size_t in_usage = sdsAllocSize(c->querybuf);
+    size_t in_usage = sdsZmallocSize(c->querybuf) + c->argv_len_sum;
     size_t out_usage = getClientOutputBufferMemoryUsage(c);
     int i = server.unixtime % CLIENTS_PEAK_MEM_USAGE_SLOTS;
     int zeroidx = (i+1) % CLIENTS_PEAK_MEM_USAGE_SLOTS;
@@ -2109,6 +2109,10 @@ extern int ProcessingEventsWhileBlocked;
  * call some other low-risk functions. */
 void beforeSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
+
+    size_t zmalloc_used = zmalloc_used_memory();
+    if (zmalloc_used > server.stat_peak_memory)
+        server.stat_peak_memory = zmalloc_used;
 
     /* Just call a subset of vital functions in case we are re-entering
      * the event loop from processEventsWhileBlocked(). Note that in this
@@ -3485,6 +3489,12 @@ void call(client *c, int flags) {
 
     server.fixed_time_expire--;
     server.stat_numcommands++;
+
+    /* Record peak memory after each command and before the eviction that runs
+     * before the next command. */
+    size_t zmalloc_used = zmalloc_used_memory();
+    if (zmalloc_used > server.stat_peak_memory)
+        server.stat_peak_memory = zmalloc_used;
 }
 
 /* Used when a command that is ready for execution needs to be rejected, due to
