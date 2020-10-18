@@ -249,15 +249,15 @@ int geoGetPointsInRange(robj *zobj, double min, double max, double lon, double l
             /* If we fell out of range, break. */
             if (!zslValueLteMax(score, &range))
                 break;
-
             /* We know the element exists. ziplistGet should always succeed */
             ziplistGet(eptr, &vstr, &vlen, &vlong);
-            member = (vstr == NULL) ? sdsfromlonglong(vlong) :
-                                      sdsnewlen(vstr,vlen);
+            member = (vstr == NULL) ?   sdscpyfromlonglong(member, vlong) :
+                                        sdscpylen(member, vstr, vlen);
             if (geoAppendIfWithinRadius(ga,lon,lat,radius,score,member)
-                == C_ERR) sdsfree(member);
+                == C_ERR) sdsclear(member);
             zzlNext(zl, &eptr, &sptr);
         }
+        sdsfree(member);
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;
         zskiplist *zsl = zs->zsl;
