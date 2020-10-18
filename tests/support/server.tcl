@@ -94,7 +94,7 @@ proc kill_server config {
 
 proc is_alive config {
     set pid [dict get $config pid]
-    if {[catch {exec ps -p $pid} err]} {
+    if {[catch {exec kill -0 $pid} err]} {
         return 0
     } else {
         return 1
