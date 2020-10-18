@@ -2029,6 +2029,8 @@ void sentinelSendAuthIfNeeded(sentinelRedisInstance *ri, redisAsyncContext *c) {
             auth_pass = sentinel.sentinel_auth_pass;
             auth_user = sentinel.sentinel_auth_user;
         } else {
+            /* Compatibility with old configs. requirepass is used
+             * for both incoming and outgoing authentication. */
             auth_pass = server.requirepass;
             auth_user = NULL;
         }
