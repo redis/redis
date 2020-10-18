@@ -2081,60 +2081,37 @@ void getClientsMaxBuffers(unsigned long *longest_output_list,
     *biggest_input_buffer = bib;
 }
 
-/* A Redis "Peer ID" is a colon separated ip:port pair.
+/* A Redis "Address String" is a colon separated ip:port pair.
  * For IPv4 it's in the form x.y.z.k:port, example: "127.0.0.1:1234".
  * For IPv6 addresses we use [] around the IP part, like in "[::1]:1234".
  * For Unix sockets we use path:0, like in "/tmp/redis:0".
  *
- * A Peer ID always fits inside a buffer of NET_PEER_ID_LEN bytes, including
- * the null term.
+ * An Address String always fits inside a buffer of NET_ADDR_STR_LEN bytes,
+ * including the null term.
  *
- * On failure the function still populates 'peerid' with the "?:0" string
- * in case you want to relax error checking or need to display something
- * anyway (see anetPeerToString implementation for more info). */
-void genClientPeerId(client *client, char *peerid,
-                            size_t peerid_len) {
+ * On failure the function still populates "addr" with the "?:0" string in case
+ * you want to relax error checking or need to display something anyway (see
+ * anetFdToString implementation for more info). */
+void genClientAddrString(client *client, char *addr,
+                         size_t addr_len, int fd_to_str_type) {
     if (client->flags & CLIENT_UNIX_SOCKET) {
         /* Unix socket client. */
-        snprintf(peerid,peerid_len,"%s:0",server.unixsocket);
+        snprintf(addr,addr_len,"%s:0",server.unixsocket);
     } else {
         /* TCP client. */
-        connFormatPeer(client->conn,peerid,peerid_len);
+        connFormatFdAddr(client->conn,addr,addr_len,fd_to_str_type);
     }
 }
-
-/* A Redis "Sock Name" is a colon separated ip:port pair.
- * For IPv4 it's in the form x.y.z.k:port, example: "127.0.0.1:1234".
- * For IPv6 addresses we use [] around the IP part, like in "[::1]:1234".
- * For Unix sockets we use path:0, like in "/tmp/redis:0".
- *
- * A Sock Name always fits inside a buffer of NET_PEER_ID_LEN bytes, including
- * the null term.
- *
- * On failure the function still populates 'sockname' with the "?:0" string
- * in case you want to relax error checking or need to display something
- * anyway (see anetPeerToString implementation for more info). */
-void genClientSockName(client *client, char *sockname,
-                     size_t sockname_len) {
-    if (client->flags & CLIENT_UNIX_SOCKET) {
-        /* Unix socket client. */
-        snprintf(sockname,sockname_len,"%s:0",server.unixsocket);
-    } else {
-        /* TCP client. */
-        connFormatSockName(client->conn,sockname,sockname_len);
-    }
-}
-
 
 /* This function returns the client peer id, by creating and caching it
  * if client->peerid is NULL, otherwise returning the cached value.
  * The Peer ID never changes during the life of the client, however it
  * is expensive to compute. */
 char *getClientPeerId(client *c) {
-    char peerid[NET_PEER_ID_LEN];
+    char peerid[NET_ADDR_STR_LEN];
 
     if (c->peerid == NULL) {
-        genClientPeerId(c,peerid,sizeof(peerid));
+        genClientAddrString(c,peerid,sizeof(peerid),FD_TO_PEER_NAME);
         c->peerid = sdsnew(peerid);
     }
     return c->peerid;
@@ -2145,10 +2122,10 @@ char *getClientPeerId(client *c) {
  * The Socket Name never changes during the life of the client, however it
  * is expensive to compute. */
 char *getClientSockname(client *c) {
-    char sockname[NET_PEER_ID_LEN];
+    char sockname[NET_ADDR_STR_LEN];
 
     if (c->sockname == NULL) {
-        genClientSockName(c,sockname,sizeof(sockname));
+        genClientAddrString(c,sockname,sizeof(sockname),FD_TO_SOCK_NAME);
         c->sockname = sdsnew(sockname);
     }
     return c->sockname;

@@ -57,7 +57,7 @@ int RDBGeneratedByReplication = 0;
  * IP address and its listening port which is more clear for the user, for
  * example: "Closing connection with replica 10.1.2.3:6380". */
 char *replicationGetSlaveName(client *c) {
-    static char buf[NET_PEER_ID_LEN];
+    static char buf[NET_ADDR_STR_LEN];
     char ip[NET_IP_STR_LEN];
 
     ip[0] = '\0';
