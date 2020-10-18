@@ -615,7 +615,7 @@ int anetFdToString(int fd, char *ip, size_t ip_len, int *port, int fd_to_str_typ
     }
     return 0;
 
-    error:
+error:
     if (ip) {
         if (ip_len >= 2) {
             ip[0] = '?';
