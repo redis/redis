@@ -2089,7 +2089,7 @@ void getClientsMaxBuffers(unsigned long *longest_output_list,
  * An Address String always fits inside a buffer of NET_ADDR_STR_LEN bytes,
  * including the null term.
  *
- * On failure the function still populates "addr" with the "?:0" string in case
+ * On failure the function still populates 'addr' with the "?:0" string in case
  * you want to relax error checking or need to display something anyway (see
  * anetFdToString implementation for more info). */
 void genClientAddrString(client *client, char *addr,
@@ -2268,6 +2268,7 @@ void clientCommand(client *c) {
 "KILL <ip:port>         -- Kill connection made from <ip:port>.",
 "KILL <option> <value> [option value ...] -- Kill connections. Options are:",
 "     ADDR <ip:port>                      -- Kill connection made from <ip:port>",
+"     TARGET <ip:port>                    -- Kill connection made to <ip:port>",
 "     TYPE (normal|master|replica|pubsub) -- Kill connections by type.",
 "     USER <username>   -- Kill connections authenticated with such user.",
 "     SKIPME (yes|no)   -- Skip killing current connection (default: yes).",
@@ -2321,6 +2322,7 @@ NULL
         /* CLIENT KILL <ip:port>
          * CLIENT KILL <option> [value] ... <option> [value] */
         char *addr = NULL;
+        char *target = NULL;
         user *user = NULL;
         int type = -1;
         uint64_t id = 0;
@@ -2353,6 +2355,8 @@ NULL
                     }
                 } else if (!strcasecmp(c->argv[i]->ptr,"addr") && moreargs) {
                     addr = c->argv[i+1]->ptr;
+                } else if (!strcasecmp(c->argv[i]->ptr,"target") && moreargs) {
+                    target = c->argv[i+1]->ptr;
                 } else if (!strcasecmp(c->argv[i]->ptr,"user") && moreargs) {
                     user = ACLGetUserByName(c->argv[i+1]->ptr,
                                             sdslen(c->argv[i+1]->ptr));
@@ -2386,6 +2390,7 @@ NULL
         while ((ln = listNext(&li)) != NULL) {
             client *client = listNodeValue(ln);
             if (addr && strcmp(getClientPeerId(client),addr) != 0) continue;
+            if (target && strcmp(getClientSockname(client),target) != 0) continue;
             if (type != -1 && getClientType(client) != type) continue;
             if (id != 0 && client->id != id) continue;
             if (user && client->user != user) continue;
