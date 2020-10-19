@@ -694,7 +694,7 @@ void srandmemberWithCountCommand(client *c) {
      *
      * This is done because if the number of requested elements is just
      * a bit less than the number of elements in the set, the natural approach
-     * used into CASE 3 is highly inefficient. */
+     * used into CASE 4 is highly inefficient. */
     if (count*SRANDMEMBER_SUB_STRATEGY_MUL > size) {
         setTypeIterator *si;
 

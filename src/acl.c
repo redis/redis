@@ -53,6 +53,10 @@ list *UsersToLoad;  /* This is a list of users found in the configuration file
 list *ACLLog;       /* Our security log, the user is able to inspect that
                        using the ACL LOG command .*/
 
+static rax *commandId = NULL; /* Command name to id mapping */
+
+static unsigned long nextid = 0; /* Next command id that has not been assigned */
+
 struct ACLCategoryItem {
     const char *name;
     uint64_t flag;
@@ -1031,18 +1035,16 @@ int ACLAuthenticateUser(client *c, robj *username, robj *password) {
  * command name, so that a command retains the same ID in case of modules that
  * are unloaded and later reloaded. */
 unsigned long ACLGetCommandID(const char *cmdname) {
-    static rax *map = NULL;
-    static unsigned long nextid = 0;
 
     sds lowername = sdsnew(cmdname);
     sdstolower(lowername);
-    if (map == NULL) map = raxNew();
-    void *id = raxFind(map,(unsigned char*)lowername,sdslen(lowername));
+    if (commandId == NULL) commandId = raxNew();
+    void *id = raxFind(commandId,(unsigned char*)lowername,sdslen(lowername));
     if (id != raxNotFound) {
         sdsfree(lowername);
         return (unsigned long)id;
     }
-    raxInsert(map,(unsigned char*)lowername,strlen(lowername),
+    raxInsert(commandId,(unsigned char*)lowername,strlen(lowername),
               (void*)nextid,NULL);
     sdsfree(lowername);
     unsigned long thisid = nextid;
@@ -1058,6 +1060,13 @@ unsigned long ACLGetCommandID(const char *cmdname) {
      * with ACL SAVE. */
     if (nextid == USER_COMMAND_BITS_COUNT-1) nextid++;
     return thisid;
+}
+
+/* Clear command id table and reset nextid to 0. */
+void ACLClearCommandID(void) {
+    if (commandId) raxFree(commandId);
+    commandId = NULL;
+    nextid = 0;
 }
 
 /* Return an username by its name, or NULL if the user does not exist. */
