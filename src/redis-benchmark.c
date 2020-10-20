@@ -1842,7 +1842,7 @@ int main(int argc, const char **argv) {
         if (test_is_selected("mset")) {
             const char *cmd_argv[21];
             cmd_argv[0] = "MSET";
-            char* key_placeholder = sdscatprintf(sdsnew(""),"key%s:__rand_int__",tag);
+            sds key_placeholder = sdscatprintf(sdsnew(""),"key%s:__rand_int__",tag);
             for (i = 1; i < 21; i += 2) {
                 cmd_argv[i] = key_placeholder;
                 cmd_argv[i+1] = data;
@@ -1850,7 +1850,7 @@ int main(int argc, const char **argv) {
             len = redisFormatCommandArgv(&cmd,21,cmd_argv,NULL);
             benchmark("MSET (10 keys)",cmd,len);
             free(cmd);
-            free(key_placeholder);
+            sdsfree(key_placeholder);
         }
 
         if (!config.csv) printf("\n");
