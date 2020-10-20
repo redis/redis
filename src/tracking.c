@@ -27,7 +27,6 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-
 #include "server.h"
 
 /* The tracking table is constituted by a radix tree of keys, each pointing
@@ -350,19 +349,22 @@ void trackingInvalidateKey(client *c, robj *keyobj) {
 }
 
 /* This function is called when one or all the Redis databases are
- * flushed (dbid == -1 in case of FLUSHALL). Caching keys are not
- * specific for each DB but are global: currently what we do is send a
- * special notification to clients with tracking enabled, sending a
- * RESP NULL, which means, "all the keys", in order to avoid flooding
- * clients with many invalidation messages for all the keys they may
- * hold.
+ * flushed. Caching keys are not specific for each DB but are global: 
+ * currently what we do is send a special notification to clients with 
+ * tracking enabled, sending a RESP NULL, which means, "all the keys", 
+ * in order to avoid flooding clients with many invalidation messages 
+ * for all the keys they may hold.
  */
-void freeTrackingRadixTree(void *rt) {
+void freeTrackingRadixTreeCallback(void *rt) {
     raxFree(rt);
 }
 
+void freeTrackingRadixTree(rax *rt) {
+    raxFreeWithCallback(rt,freeTrackingRadixTreeCallback);
+}
+
 /* A RESP NULL is sent to indicate that all keys are invalid */
-void trackingInvalidateKeysOnFlush(int dbid) {
+void trackingInvalidateKeysOnFlush(int async) {
     if (server.tracking_clients) {
         listNode *ln;
         listIter li;
@@ -376,8 +378,12 @@ void trackingInvalidateKeysOnFlush(int dbid) {
     }
 
     /* In case of FLUSHALL, reclaim all the memory used by tracking. */
-    if (dbid == -1 && TrackingTable) {
-        raxFreeWithCallback(TrackingTable,freeTrackingRadixTree);
+    if (TrackingTable) {
+        if (async) {
+            freeTrackingRadixTreeAsync(TrackingTable);
+        } else {
+            freeTrackingRadixTree(TrackingTable);
+        }
         TrackingTable = raxNew();
         TrackingTableTotalItems = 0;
     }

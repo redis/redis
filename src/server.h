@@ -1814,7 +1814,8 @@ void enableTracking(client *c, uint64_t redirect_to, uint64_t options, robj **pr
 void disableTracking(client *c);
 void trackingRememberKeys(client *c);
 void trackingInvalidateKey(client *c, robj *keyobj);
-void trackingInvalidateKeysOnFlush(int dbid);
+void trackingInvalidateKeysOnFlush(int async);
+void freeTrackingRadixTreeAsync(rax *rt);
 void trackingLimitUsedSlots(void);
 uint64_t trackingGetTotalItems(void);
 uint64_t trackingGetTotalKeys(void);
@@ -2246,7 +2247,7 @@ void discardDbBackup(dbBackup *buckup, int flags, void(callback)(void*));
 
 int selectDb(client *c, int id);
 void signalModifiedKey(client *c, redisDb *db, robj *key);
-void signalFlushedDb(int dbid);
+void signalFlushedDb(int dbid, int async);
 unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count);
 unsigned int countKeysInSlot(unsigned int hashslot);
 unsigned int delKeysInSlot(unsigned int hashslot);
@@ -2263,7 +2264,6 @@ size_t lazyfreeGetFreedObjectsCount(void);
 void freeObjAsync(robj *key, robj *obj);
 void freeSlotsToKeysMapAsync(rax *rt);
 void freeSlotsToKeysMap(rax *rt, int async);
-
 
 /* API to get key arguments from commands */
 int *getKeysPrepareResult(getKeysResult *result, int numkeys);
