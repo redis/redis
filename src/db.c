@@ -1070,6 +1070,102 @@ void moveCommand(client *c) {
     addReply(c,shared.cone);
 }
 
+void copyCommand(client *c) {
+    robj *o;
+    redisDb *src, *dst;
+    int srcid;
+    long long dbid, expire;
+    int j, replace = 0;
+    if (server.cluster_enabled) {
+        addReplyError(c,"COPY is not allowed in cluster mode");
+        return;
+    }
+    
+    if (c->argc >= 6){
+        addReply(c,shared.syntaxerr);
+        return;
+    }
+    
+    /* Obtain source and target DB pointers 
+     * Default target DB is the same as the source DB 
+     * Parse the REPLACE option and targetDB option. */
+    src = c->db;
+    srcid = c->db->id;
+    dbid = c->db->id;
+
+    /* Parse the REPLACE option and targetDB option. */
+    for (j = 3; j < c->argc; j++) {
+        if (!strcasecmp(c->argv[j]->ptr,"replace")) {
+            replace = 1;
+        } else if (getLongLongFromObject(c->argv[j],&dbid) == C_ERR ||
+            dbid < INT_MIN || dbid > INT_MAX ||
+            selectDb(c,dbid) == C_ERR)
+        {
+            addReply(c,shared.outofrangeerr);
+            return;
+        }
+    }
+    dst = c->db;
+    selectDb(c,srcid); /* Back to the source DB */
+
+    /* If the user select the same DB as
+     * the source DB and using newkey as the same key
+     * it is probably an error. */
+    robj *key = c->argv[1];
+    robj *newkey = c->argv[2];
+    if (src == dst && (sdscmp(key->ptr, newkey->ptr) == 0)) {
+        addReply(c,shared.sameobjecterr);
+        return;
+    }
+
+    /* Check if the element exists and get a reference */
+    o = lookupKeyWrite(c->db,key);
+    if (!o) {
+        addReply(c,shared.czero);
+        return;
+    }
+    expire = getExpire(c->db,key);
+
+    /* Return zero if the key already exists in the target DB. 
+     * If REPLACE option is selected, delete newkey from targetDB. */
+    if (lookupKeyWrite(dst,newkey) != NULL) {
+        if (replace) {
+            dbDelete(dst,newkey);
+        } else {
+            addReply(c,shared.czero);
+            return;
+        }
+    }
+
+    /* Duplicate object according to object's type. */
+    robj *newobj;
+    switch(o->type) {
+        case OBJ_STRING: newobj = dupStringObject(o); break;
+        case OBJ_LIST: newobj = dupListObject(o); break;
+        case OBJ_SET: newobj = dupSetObject(o); break;
+        case OBJ_ZSET: newobj = dupZsetObject(o); break;
+        case OBJ_HASH: newobj = dupHashObject(o); break;
+        case OBJ_STREAM: newobj = dupStreamObject(o); break;
+        case OBJ_MODULE:
+            addReplyError(c, "Copying　module type object is not supported ");
+            return;
+        default: {
+            addReplyError(c, "unknown type object");
+            return;
+        };
+    }
+
+    dbAdd(dst,newkey,newobj);
+    if (expire != -1) setExpire(c, dst, newkey, expire);
+
+    /* OK! key copied */
+    signalModifiedKey(c,dst,c->argv[2]);
+    notifyKeyspaceEvent(NOTIFY_GENERIC,"copy_to",c->argv[2],dst->id);
+
+    server.dirty++;
+    addReply(c,shared.cone);
+}
+
 /* Helper function for dbSwapDatabases(): scans the list of keys that have
  * one or more blocked clients for B[LR]POP or other blocking commands
  * and signal the keys as ready if they are of the right type. See the comment

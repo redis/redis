@@ -211,6 +211,363 @@ robj *dupStringObject(const robj *o) {
     }
 }
 
+
+/* This is a helper function for the COPY command.
+ * Duplicate a list object, with the guarantee that the returned object
+ * has the same encoding as the original one.
+ * 
+ * The resulting object always has refcount set to 1 */
+robj *dupListObject(robj *o) {
+    robj *lobj;
+    long llen, start = 0;
+    char buf[64];
+
+    serverAssert(o->type == OBJ_LIST);
+
+    switch (o->encoding) {
+        case OBJ_ENCODING_QUICKLIST:
+            lobj = createQuicklistObject();
+            break;
+        default:
+            serverPanic("Wrong encoding.");
+            break;
+    }
+    quicklistSetOptions(lobj->ptr, server.list_max_ziplist_size, server.list_compress_depth);
+    llen = listTypeLength(o);
+    listTypeIterator *iter = listTypeInitIterator(o, start, LIST_TAIL);
+    while (llen--) {
+        listTypeEntry entry;
+        listTypeNext(iter, &entry);
+        quicklistEntry *qe = &entry.entry;
+        if (qe->value) {
+            robj *obj = createObject(OBJ_STRING, sdsnewlen((const char *)qe->value, qe->sz));
+            listTypePush(lobj, obj, LIST_TAIL);
+        } else {
+            ll2string(buf, 64, qe->longval);
+            robj *obj = createObject(OBJ_STRING, sdsnewlen((const char *)buf, strlen(buf)));
+            listTypePush(lobj, obj, LIST_TAIL);
+        }
+    }
+    listTypeReleaseIterator(iter);
+    return lobj;
+}
+/* This is a helper function for the COPY command.
+ * Duplicate a set object, with the guarantee that the returned object
+ * has the same encoding as the original one.
+ * 
+ * The resulting object always has refcount set to 1 */
+robj *dupSetObject(robj *o) {
+    robj *set;
+    setTypeIterator *si;
+    sds elesds;
+    int64_t intobj;
+    int encoding;
+
+    serverAssert(o->type == OBJ_SET);
+
+    /* Create a new set object that have the same encoding as the original object's encoding */
+    switch (o->encoding) {
+        case OBJ_ENCODING_INTSET:
+            set = createIntsetObject();
+            break;
+        case OBJ_ENCODING_HT:
+            set = createSetObject();
+            break;
+        default:
+            serverPanic("Wrong encoding.");
+            break;
+    }
+    si = setTypeInitIterator(o);
+    while ((encoding = setTypeNext(si, &elesds, &intobj)) != -1) {
+        if (encoding == OBJ_ENCODING_INTSET) {
+            elesds = sdsfromlonglong(intobj);
+            setTypeAdd(set, elesds);
+            sdsfree(elesds);
+        } else {
+            setTypeAdd(set, elesds);
+        }
+    }
+    setTypeReleaseIterator(si);
+    return set;
+}
+
+/* This is a helper function for the COPY command.
+ * Duplicate a zset object, with the guarantee that the returned object
+ * has the same encoding as the original one.
+ * 
+ * The resulting object always has refcount set to 1 */
+robj *dupZsetObject(robj *o) {
+    robj *zobj;
+    char buf[64];
+    long llen, start = 0;
+    int retflags = ZADD_NONE;
+
+    serverAssert(o->type == OBJ_ZSET);
+    
+    /* Create a new zset object that have the same encoding as the original object's encoding */
+    switch (o->encoding) {
+        case OBJ_ENCODING_ZIPLIST:
+            zobj = createZsetZiplistObject();
+            break;
+        case OBJ_ENCODING_SKIPLIST:
+            zobj = createZsetObject();
+            break;
+        default:
+            serverPanic("Wrong encoding.");
+            break;
+    }
+    llen = zsetLength(o);
+    if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
+        unsigned char *zl = o->ptr;
+        unsigned char *eptr, *sptr;
+        unsigned char *vstr;
+        unsigned int vlen;
+        long long vlong;
+        double score;
+
+        eptr = ziplistIndex(zl, 2 * start);
+        sptr = ziplistNext(zl, eptr);
+
+
+        /* Extract score-element pair from an original zset object. 
+         * add a score-element pair to a new zset object which encoding is ZIPLIST.*/
+        while (llen--) {
+            ziplistGet(eptr, &vstr, &vlen, &vlong);
+            score = zzlGetScore(sptr);
+            if (vstr == NULL) {
+                ll2string(buf, 64, vlong);
+                sds ele = sdsnewlen((const char *)buf, strlen(buf));
+                zsetAdd(zobj, score, ele, &retflags, NULL);
+                sdsfree(ele);
+            } else {
+                sds ele = sdsnewlen((const char *)vstr, vlen);
+                zsetAdd(zobj, score, ele, &retflags, NULL);
+                sdsfree(ele);
+            }
+            zzlNext(zl, &eptr, &sptr);
+        }
+
+    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
+        zset *zs = o->ptr;
+        zskiplist *zsl = zs->zsl;
+        zskiplistNode *ln;
+        sds ele;
+
+        /* Add a score-element pair to a new zset object which encoding is SKIPLIST. */
+        ln = zsl->header->level[0].forward;
+        while (llen--) {
+            ele = ln->ele;
+            zsetAdd(zobj, ln->score, ele, &retflags, NULL);
+            ln = ln->level[0].forward;
+        }
+    } else {
+        serverPanic("Unknown sorted set encoding");
+    }
+    return zobj;
+}
+
+/* This is a helper function for the COPY command.
+ * Duplicate a hash object, with the guarantee that the returned object
+ * has the same encoding as the original one.
+ * 
+ * The resulting object always has refcount set to 1 */
+robj *dupHashObject(robj *o) {
+    robj *hobj;
+    char buf[64];
+    hashTypeIterator *hi;
+
+    serverAssert(o->type == OBJ_HASH);
+
+    switch (o->encoding) {
+        case OBJ_ENCODING_ZIPLIST:
+            hobj = createHashObject();
+            break;
+        case OBJ_ENCODING_HT:
+            hobj = createHashObject();
+            hashTypeConvert(hobj, OBJ_ENCODING_HT);
+            break;
+        default:
+            serverPanic("Wrong encoding.");
+            break;
+    }
+
+    hi = hashTypeInitIterator(o);
+
+    while (hashTypeNext(hi) != C_ERR) {
+        if (hi->encoding == OBJ_ENCODING_ZIPLIST) {
+            unsigned char *vstr = NULL;
+            unsigned int vlen = UINT_MAX;
+            long long vll = LLONG_MAX;
+            unsigned char *kstr = NULL;
+            unsigned int klen = UINT_MAX;
+            long long kll = LLONG_MAX;
+            sds hkey, hvalue;
+
+            /* Extract a key-value pair from an original hash object.*/
+            hashTypeCurrentFromZiplist(hi, OBJ_HASH_KEY, &kstr, &klen, &kll);
+            if (kstr) {
+                hkey = sdsnewlen((const char *)kstr, klen);
+            } else {
+                ll2string(buf, 64, kll);
+                hkey = sdsnewlen((const char *)buf, strlen(buf));
+            }
+            hashTypeCurrentFromZiplist(hi, OBJ_HASH_VALUE, &vstr, &vlen, &vll);
+            if (vstr) {
+                hvalue = sdsnewlen((const char *)vstr, vlen);
+            } else {
+                ll2string(buf, 64, vll);
+                hvalue = sdsnewlen((const char *)buf, strlen(buf));
+            }
+
+            /* Add a key-value pair to a new hash object. */
+            hashTypeSet(hobj, hkey, hvalue, HASH_SET_COPY);
+            sdsfree(hkey);
+            sdsfree(hvalue);
+        } else if (hi->encoding == OBJ_ENCODING_HT) {
+            sds hkey, hvalue;
+            /* Extract a key-value pair from an original hash object.*/
+            hkey = hashTypeCurrentFromHashTable(hi, OBJ_HASH_KEY);
+            hvalue = hashTypeCurrentFromHashTable(hi, OBJ_HASH_VALUE);
+
+            /* Add a key-value pair to a new hash object. */
+            hashTypeSet(hobj, hkey, hvalue, HASH_SET_COPY);
+            sdsfree(hkey);
+            sdsfree(hvalue);
+        } else {
+            serverPanic("Unknown hash encoding");
+        }
+    }
+    hashTypeReleaseIterator(hi);
+    return hobj;
+}
+
+/* This is a helper function for the COPY command.
+ * Duplicate a Stream object, with the guarantee that the returned object
+ * has the same encoding as the original one.
+ * 
+ * The resulting object always has refcount set to 1 */
+robj *dupStreamObject(robj *o) {
+    robj *sobj;
+    
+    serverAssert(o->type == OBJ_STREAM);
+
+    switch (o->encoding) {
+        case OBJ_ENCODING_STREAM:
+            sobj = createStreamObject();
+            break;
+        default:
+            serverPanic("Wrong encoding.");
+            break;
+    }
+
+    streamID id;
+    stream *s;
+    stream *new_s;
+    streamID startid;
+    streamID endid;
+    int64_t numfields;
+    int rev = 0;
+
+    startid.ms = startid.seq = 0;
+    endid.ms = endid.seq = UINT64_MAX;
+    s = o->ptr;
+    new_s = sobj->ptr;
+
+    streamIterator si;
+    streamIteratorStart(&si, s, &startid, &endid, rev);
+    while (streamIteratorGetID(&si, &id, &numfields)) {
+        /* Extract field-value pairs from an original stream object
+         * and, add these to a new stream object. */
+        robj **argv;
+        argv = zmalloc(sizeof(robj *) * numfields * 2);
+        for (int j = 0; j < numfields; j++) {
+            unsigned char *key, *value;
+            int64_t key_len, value_len;
+
+            streamIteratorGetField(&si, &key, &value, &key_len, &value_len);
+            argv[j * 2] = createObject(OBJ_STRING, sdsnewlen((const char *)key, key_len));
+            argv[j * 2 + 1] = createObject(OBJ_STRING, sdsnewlen((const char *)value, value_len));
+        }
+        streamAppendItem(new_s, argv, numfields, &id, &id);
+        zfree(argv);
+    }
+    streamIteratorStop(&si);
+
+    if (s->cgroups == NULL) {
+        /*Nothing to do*/
+    } else {
+        /* Consumer Groups */
+        raxIterator ri_cgroups;
+        raxStart(&ri_cgroups, s->cgroups);
+        raxSeek(&ri_cgroups, "^", NULL, 0);
+        while (raxNext(&ri_cgroups)) {
+            streamCG *cg = ri_cgroups.data;
+            streamCG *new_cg = streamCreateCG(new_s, (char *)ri_cgroups.key,
+                                              ri_cgroups.key_len, &cg->last_id);
+            /* If already exists */
+            if (new_cg == NULL) {
+                new_cg = raxFind(s->cgroups, ri_cgroups.key, ri_cgroups.key_len);
+            }
+
+            /* Consumers */
+            raxIterator ri_consumers;
+            raxStart(&ri_consumers, cg->consumers);
+            raxSeek(&ri_consumers, "^", NULL, 0);
+            while (raxNext(&ri_consumers)) {
+                streamConsumer *consumer = ri_consumers.data;
+                streamConsumer *new_consumer = raxFind(new_cg->consumers, 
+                                (unsigned char *)consumer->name, sdslen(consumer->name));
+                if (new_consumer == raxNotFound) {
+                    new_consumer = zmalloc(sizeof(*new_consumer));
+                    new_consumer->name = sdsdup(consumer->name);
+                    new_consumer->pel = raxNew();
+                    raxInsert(new_cg->consumers, (unsigned char *)new_consumer->name, 
+                                    sdslen(new_consumer->name), new_consumer, NULL);
+                    new_consumer->seen_time = consumer->seen_time;
+                }
+
+                /* Consumer PEL */
+                raxIterator ri_cpel;
+                raxStart(&ri_cpel, consumer->pel);
+                raxSeek(&ri_cpel, "^", NULL, 0);
+                while (raxNext(&ri_cpel)) {
+                    unsigned char buf[sizeof(streamID)];
+                    streamNACK *nack = ri_cpel.data;
+                    streamDecodeID(ri_cpel.key,&id);
+                    streamEncodeID(buf, &id);
+                    /* Insert NACK. */
+                    streamNACK *new_nack = zmalloc(sizeof(*new_nack));
+                    new_nack->delivery_time = nack->delivery_time;
+                    new_nack->delivery_count = nack->delivery_count;
+                    new_nack->consumer = new_consumer;
+                    int group_inserted = raxTryInsert(new_cg->pel, buf, sizeof(buf), new_nack, NULL);
+                    int consumer_inserted = raxTryInsert(new_consumer->pel, buf, sizeof(buf), new_nack, NULL);
+
+                    if (group_inserted == 0) {
+                        streamFreeNACK(new_nack);
+                        new_nack = raxFind(new_cg->pel, buf, sizeof(buf));
+                        serverAssert(new_nack != raxNotFound);
+                        raxRemove(new_nack->consumer->pel, buf, sizeof(buf), NULL);
+                        /* Update the consumer and NACK metadata. */
+                        new_nack->delivery_time = nack->delivery_time;
+                        new_nack->delivery_count = nack->delivery_count;
+                        new_nack->consumer = new_consumer;
+                        /* Add the entry in the new consumer local PEL. */
+                        raxInsert(new_consumer->pel, buf, sizeof(buf), new_nack, NULL);
+                    } else if (group_inserted == 1 && consumer_inserted == 0) {
+                        serverPanic(
+                            "NACK half-created. Should not be possible.");
+                    }
+                }
+                raxStop(&ri_cpel);
+            }
+            raxStop(&ri_consumers);
+        }
+        raxStop(&ri_cgroups);
+    }
+    return sobj;
+}
+
 robj *createQuicklistObject(void) {
     quicklist *l = quicklistCreate();
     robj *o = createObject(OBJ_LIST,l);

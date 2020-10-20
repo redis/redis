@@ -169,6 +169,72 @@ start_server {tags {"keyspace"}} {
         format $res
     } {0}
 
+    test {COPY basic usage for string} {
+        r set mykey foobar
+        set res {}
+        r copy mykey mynewkey
+        lappend res [r get mynewkey]
+        lappend res [r dbsize]
+        r copy mykey mynewkey 10
+        r select 10
+        lappend res [r get mynewkey]
+        lappend res [r dbsize]
+        r select 9
+        format $res
+    } [list foobar 2 foobar 1]
+
+    test {COPY for string does not replace an existing key without REPLACE option} {
+        r set mykey2 hello
+        catch {r copy mykey2 mynewkey 10} e
+        set e
+    } {0}
+
+    test {COPY for string can replace an existing key with REPLACE option} {
+        r copy mykey2 mynewkey 10 REPLACE
+        r select 10
+        r get mynewkey
+    } {hello}
+
+    test {COPY for string ensures that copied data is independent of copying data} {
+        r flushdb
+        r select 9
+        r set mykey foobar
+        set res {}
+        r copy mykey mynewkey 10
+        r select 10
+        lappend res [r get mynewkey]
+        r set mynewkey hoge
+        lappend res [r get mynewkey]
+        r select 9
+        lappend res [r get mykey]
+        r select 10
+        r flushdb
+        r select 9
+        format $res
+    } [list foobar hoge foobar]
+
+    test {COPY for string does not copy data to no-integer DB} {
+        r set mykey foobar
+        catch {r copy mykey mynewkey notanumber} e
+        set e
+    } {*ERR*index out of range}
+
+    test {COPY can copy key expire metadata as well} {
+        r set mykey foobar ex 100
+        r copy mykey mynewkey REPLACE
+        assert {[r ttl mynewkey] > 0 && [r ttl mynewkey] <= 100}
+        assert {[r get mynewkey] eq "foobar"}
+    }
+
+    test {COPY does not create an expire if it does not exist} {
+        r set mykey foobar
+        assert {[r ttl mykey] == -1}
+        r copy mykey mynewkey REPLACE
+        assert {[r ttl mynewkey] == -1}
+        assert {[r get mynewkey] eq "foobar"}
+        r flushdb
+    }
+
     test {MOVE basic usage} {
         r set mykey foobar
         r move mykey 10
