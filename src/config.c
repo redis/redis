@@ -1610,7 +1610,7 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
          written_bytes = write(fd, content + offset, sdslen(content) - offset);
          if (written_bytes <= 0) {
              if (errno == EINTR) continue; /* FD is blocking, no other retryable errors */
-             serverLog(LL_WARNING, "Failed after writing (%ld) bytes to tmp config file (%s)", offset, strerror(errno));
+             serverLog(LL_WARNING, "Failed after writing (%zd) bytes to tmp config file (%s)", offset, strerror(errno));
              goto cleanup;
          }
          offset+=written_bytes;
