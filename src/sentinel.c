@@ -466,7 +466,8 @@ struct redisCommand sentinelcmds[] = {
     {"shutdown",shutdownCommand,-1,"admin",0,NULL,0,0,0,0,0},
     {"auth",authCommand,-2,"no-auth fast @connection",0,NULL,0,0,0,0,0},
     {"hello",helloCommand,-2,"no-auth fast @connection",0,NULL,0,0,0,0,0},
-    {"acl",aclCommand,-2,"admin",0,NULL,0,0,0,0,0,0}
+    {"acl",aclCommand,-2,"admin",0,NULL,0,0,0,0,0,0},
+    {"command",commandCommand,-1, "random @connection", 0,NULL,0,0,0,0,0,0}
 };
 
 /* This function overwrites a few normal Redis config default with Sentinel
