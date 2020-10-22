@@ -142,6 +142,10 @@ proc wait_for_log_messages {srv_idx patterns from_line maxtries delay} {
         after $delay
     }
     if {$retry == 0} {
+        if {$::verbose} {
+            puts "content of $stdout from line: $from_line:"
+            puts [exec tail -n +$from_line < $stdout]
+        }
         fail "log message of '$patterns' not found in $stdout after line: $from_line till line: [expr $next_line -1]"
     }
 }
