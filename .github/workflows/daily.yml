@@ -200,7 +200,7 @@ jobs:
       run: make
     - name: test
       run: |
-        ./runtest --accurate --verbose
+        ./runtest --accurate --verbose --no-latency
     - name: module api test
       run: ./runtest-moduleapi --verbose
     - name: sentinel tests
