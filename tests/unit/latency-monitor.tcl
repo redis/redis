@@ -32,8 +32,8 @@ start_server {tags {"latency-monitor"}} {
             assert {$eventname eq "command"}
             if {!$::no_latency} {
                 assert {$max >= 450 & $max <= 650}
+                assert {$time == $last_time}
             }
-            assert {$time == $last_time}
             break
         }
     }
