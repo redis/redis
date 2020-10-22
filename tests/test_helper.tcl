@@ -50,6 +50,7 @@ set ::all_tests {
     integration/psync2-reg
     integration/psync2-pingoff
     integration/redis-cli
+    integration/redis-benchmark
     unit/pubsub
     unit/slowlog
     unit/scripting
