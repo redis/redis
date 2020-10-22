@@ -2820,15 +2820,15 @@ int listenToPort(int port, int *fds, int *count) {
             fds[*count] = anetTcpServer(server.neterr,port,addr,server.tcp_backlog);
         }
         if (fds[*count] == ANET_ERR) {
-            if (errno == EADDRNOTAVAIL && optional)
-                continue;
             serverLog(LL_WARNING,
                 "Could not create server TCP listening socket %s:%d: %s",
                 addr, port, server.neterr);
-                if (errno == ENOPROTOOPT     || errno == EPROTONOSUPPORT ||
-                    errno == ESOCKTNOSUPPORT || errno == EPFNOSUPPORT ||
-                    errno == EAFNOSUPPORT)
-                    continue;
+            if (errno == EADDRNOTAVAIL && optional)
+                continue;
+            if (errno == ENOPROTOOPT     || errno == EPROTONOSUPPORT ||
+                errno == ESOCKTNOSUPPORT || errno == EPFNOSUPPORT ||
+                errno == EAFNOSUPPORT)
+                continue;
             return C_ERR;
         }
         anetNonBlock(NULL,fds[*count]);
