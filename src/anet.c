@@ -608,7 +608,7 @@ int anetFdToString(int fd, char *ip, size_t ip_len, int *port, int fd_to_str_typ
         if (ip) inet_ntop(AF_INET6,(void*)&(s->sin6_addr),ip,ip_len);
         if (port) *port = ntohs(s->sin6_port);
     } else if (sa.ss_family == AF_UNIX) {
-        if (ip) strncpy(ip,"/unixsocket",ip_len);
+        if (ip) snprintf(ip, ip_len, "/unixsocket");
         if (port) *port = 0;
     } else {
         goto error;
