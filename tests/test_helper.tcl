@@ -88,6 +88,7 @@ set ::quiet 0
 set ::denytags {}
 set ::skiptests {}
 set ::skipunits {}
+set ::no_latency 0
 set ::allowtags {}
 set ::only_tests {}
 set ::single_tests {}
@@ -540,6 +541,7 @@ proc print_help_screen {} {
         "--skipfile <file>  Name of a file containing test names that should be skipped (one per line)."
         "--skiptest <name>  Name of a file containing test names that should be skipped (one per line)."
         "--dont-clean       Don't delete redis log files after the run."
+        "--no-latency       Skip latency measurements and validation by some tests."
         "--stop             Blocks once the first test fails."
         "--loop             Execute the specified set of tests forever."
         "--wait-server      Wait after server is started (so that you can attach a debugger)."
@@ -641,6 +643,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set ::durable 1
     } elseif {$opt eq {--dont-clean}} {
         set ::dont_clean 1
+    } elseif {$opt eq {--no-latency}} {
+        set ::no_latency 1
     } elseif {$opt eq {--wait-server}} {
         set ::wait_server 1
     } elseif {$opt eq {--stop}} {
