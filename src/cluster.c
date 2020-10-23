@@ -1816,6 +1816,7 @@ int clusterProcessPacket(clusterLink *link) {
             server.cluster->mf_master_offset == 0)
         {
             server.cluster->mf_master_offset = sender->repl_offset;
+            clusterDoBeforeSleep(CLUSTER_TODO_HANDLE_MANUALFAILOVER);
             serverLog(LL_WARNING,
                 "Received replication offset for paused "
                 "master manual failover: %lld",
@@ -2160,6 +2161,12 @@ int clusterProcessPacket(clusterLink *link) {
         pauseClients(now+(CLUSTER_MF_TIMEOUT*CLUSTER_MF_PAUSE_MULT));
         serverLog(LL_WARNING,"Manual failover requested by replica %.40s.",
             sender->name);
+        /* We need to send a ping message to the replica, as it would carry
+         * `server.cluster->mf_master_offset`, which means the master paused clients
+         * at offset `server.cluster->mf_master_offset`, so that the replica would
+         * know that it is safe to set its `server.cluster->mf_can_start` to 1 so as
+         * to complete failover as quickly as possible. */
+        clusterSendPing(link, CLUSTERMSG_TYPE_PING);
     } else if (type == CLUSTERMSG_TYPE_UPDATE) {
         clusterNode *n; /* The node the update is about. */
         uint64_t reportedConfigEpoch =
@@ -3434,7 +3441,10 @@ void clusterHandleManualFailover(void) {
         serverLog(LL_WARNING,
             "All master replication stream processed, "
             "manual failover can start.");
+        clusterDoBeforeSleep(CLUSTER_TODO_HANDLE_FAILOVER);
+        return;
     }
+    clusterDoBeforeSleep(CLUSTER_TODO_HANDLE_MANUALFAILOVER);
 }
 
 /* -----------------------------------------------------------------------------
@@ -3709,25 +3719,35 @@ void clusterCron(void) {
  * handlers, or to perform potentially expansive tasks that we need to do
  * a single time before replying to clients. */
 void clusterBeforeSleep(void) {
-    /* Handle failover, this is needed when it is likely that there is already
-     * the quorum from masters in order to react fast. */
-    if (server.cluster->todo_before_sleep & CLUSTER_TODO_HANDLE_FAILOVER)
-        clusterHandleSlaveFailover();
-
-    /* Update the cluster state. */
-    if (server.cluster->todo_before_sleep & CLUSTER_TODO_UPDATE_STATE)
-        clusterUpdateState();
-
-    /* Save the config, possibly using fsync. */
-    if (server.cluster->todo_before_sleep & CLUSTER_TODO_SAVE_CONFIG) {
-        int fsync = server.cluster->todo_before_sleep &
-                    CLUSTER_TODO_FSYNC_CONFIG;
-        clusterSaveConfigOrDie(fsync);
-    }
+    int flags = server.cluster->todo_before_sleep;
 
     /* Reset our flags (not strictly needed since every single function
      * called for flags set should be able to clear its flag). */
     server.cluster->todo_before_sleep = 0;
+
+    if (flags & CLUSTER_TODO_HANDLE_MANUALFAILOVER) {
+        /* Handle manual failover as soon as possible so that won't have a 100ms
+         * as it was handled only in clusterCron */
+        if(nodeIsSlave(myself)) {
+            clusterHandleManualFailover();
+            if (!(server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_FAILOVER))
+                clusterHandleSlaveFailover();
+        }
+    } else if (flags & CLUSTER_TODO_HANDLE_FAILOVER) {
+        /* Handle failover, this is needed when it is likely that there is already
+         * the quorum from masters in order to react fast. */
+        clusterHandleSlaveFailover();
+    }
+
+    /* Update the cluster state. */
+    if (flags & CLUSTER_TODO_UPDATE_STATE)
+        clusterUpdateState();
+
+    /* Save the config, possibly using fsync. */
+    if (flags & CLUSTER_TODO_SAVE_CONFIG) {
+        int fsync = flags & CLUSTER_TODO_FSYNC_CONFIG;
+        clusterSaveConfigOrDie(fsync);
+    }
 }
 
 void clusterDoBeforeSleep(int flags) {
