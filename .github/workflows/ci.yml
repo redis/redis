@@ -24,7 +24,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: make
-      run: make
+      run: make REDIS_CFLAGS='-Werror'
 
   build-macos-latest:
     runs-on: macos-latest
