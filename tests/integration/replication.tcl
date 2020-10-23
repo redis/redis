@@ -655,11 +655,11 @@ start_server {tags {"repl"}} {
                             puts "master utime: $master_utime"
                             puts "master stime: $master_stime"
                         }
-                        if {$all_drop == "all" || $all_drop == "slow"} {
+                        if {!$::no_latency && ($all_drop == "all" || $all_drop == "slow")} {
                             assert {$master_utime < 70}
                             assert {$master_stime < 70}
                         }
-                        if {$all_drop == "none" || $all_drop == "fast"} {
+                        if {!$::no_latency && ($all_drop == "none" || $all_drop == "fast")} {
                             assert {$master_utime < 15}
                             assert {$master_stime < 15}
                         }

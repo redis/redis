@@ -1335,6 +1335,12 @@ void rewriteConfigSaveOption(struct rewriteConfigState *state) {
     int j;
     sds line;
 
+    /* In Sentinel mode we don't need to rewrite the save parameters */
+    if (server.sentinel_mode) {
+        rewriteConfigMarkAsProcessed(state,"save");
+        return;
+    }
+
     /* Note that if there are no save parameters at all, all the current
      * config line with "save" will be detected as orphaned and deleted,
      * resulting into no RDB persistence as expected. */
@@ -1610,7 +1616,7 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
          written_bytes = write(fd, content + offset, sdslen(content) - offset);
          if (written_bytes <= 0) {
              if (errno == EINTR) continue; /* FD is blocking, no other retryable errors */
-             serverLog(LL_WARNING, "Failed after writing (%ld) bytes to tmp config file (%s)", offset, strerror(errno));
+             serverLog(LL_WARNING, "Failed after writing (%zd) bytes to tmp config file (%s)", offset, strerror(errno));
              goto cleanup;
          }
          offset+=written_bytes;

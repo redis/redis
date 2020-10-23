@@ -17,7 +17,9 @@ start_server {tags {"latency-monitor"}} {
         set max 450
         foreach event [r latency history command] {
             lassign $event time latency
-            assert {$latency >= $min && $latency <= $max}
+            if {!$::no_latency} {
+                assert {$latency >= $min && $latency <= $max}
+            }
             incr min 100
             incr max 100
             set last_time $time ; # Used in the next test
@@ -28,8 +30,10 @@ start_server {tags {"latency-monitor"}} {
         foreach event [r latency latest] {
             lassign $event eventname time latency max
             assert {$eventname eq "command"}
-            assert {$max >= 450 & $max <= 650}
-            assert {$time == $last_time}
+            if {!$::no_latency} {
+                assert {$max >= 450 & $max <= 650}
+                assert {$time == $last_time}
+            }
             break
         }
     }
