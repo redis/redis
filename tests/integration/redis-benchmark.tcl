@@ -93,13 +93,13 @@ start_server {tags {"benchmark"}} {
         test {benchmark: arbitrary command} {
             r config resetstat
             r flushall
-            set cmd [redisbenchmark $master_host $master_port "-c 5 -n 1000 -e INCRBYFLOAT mykey 10.0"]
+            set cmd [redisbenchmark $master_host $master_port "-c 5 -n 150s -e INCRBYFLOAT mykey 10.0"]
             if {[catch { exec {*}$cmd } error]} {
                 set first_line [lindex [split $error "\n"] 0]
                 puts [colorstr red "redis-benchmark non zero code. first line: $first_line"]
                 fail "redis-benchmark non zero code. first line: $first_line"
             }
-            assert_match  {*calls=1000,*} [cmdstat incrbyfloat]
+            assert_match  {*calls=150,*} [cmdstat incrbyfloat]
             # assert one of the non benchmarked commands is not present
             assert_match  {} [cmdstat get]
 
@@ -110,18 +110,18 @@ start_server {tags {"benchmark"}} {
         test {benchmark: keyspace length} {
             r flushall
             r config resetstat
-            set cmd [redisbenchmark $master_host $master_port "-r 500 -t set -n 100000"]
+            set cmd [redisbenchmark $master_host $master_port "-r 50 -t set -n 1000"]
             if {[catch { exec {*}$cmd } error]} {
                 set first_line [lindex [split $error "\n"] 0]
                 puts [colorstr red "redis-benchmark non zero code. first line: $first_line"]
                 fail "redis-benchmark non zero code. first line: $first_line"
             }
-            assert_match  {*calls=100000,*} [cmdstat set]
+            assert_match  {*calls=1000,*} [cmdstat set]
             # assert one of the non benchmarked commands is not present
             assert_match  {} [cmdstat get]
 
             # ensure the keyspace has the desired size
-            assert_match  {500} [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
+            assert_match  {50} [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
         }
     }
 }
