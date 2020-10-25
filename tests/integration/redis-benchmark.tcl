@@ -93,7 +93,7 @@ start_server {tags {"benchmark"}} {
         test {benchmark: arbitrary command} {
             r config resetstat
             r flushall
-            set cmd [redisbenchmark $master_host $master_port "-c 5 -n 150s -e INCRBYFLOAT mykey 10.0"]
+            set cmd [redisbenchmark $master_host $master_port "-c 5 -n 150 -e INCRBYFLOAT mykey 10.0"]
             if {[catch { exec {*}$cmd } error]} {
                 set first_line [lindex [split $error "\n"] 0]
                 puts [colorstr red "redis-benchmark non zero code. first line: $first_line"]
