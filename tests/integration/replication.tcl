@@ -70,11 +70,25 @@ start_server {tags {"repl"}} {
             }
         }
 
-        test {INCRBYFLOAT replication, should not remove expire} {
-            r set test 1 EX 100
-            r incrbyfloat test 0.1
-            after 1000
-            assert_equal [$A debug digest] [$B debug digest]
+        test {GETSET replication} {
+            $A config resetstat
+            $A config set loglevel debug
+            $B config set loglevel debug
+            r set test foo
+            assert_equal [r getset test bar] foo
+            wait_for_condition 500 10 {
+                [$A get test] eq "bar"
+            } else {
+                fail "getset wasn't propagated"
+            }
+            assert_equal [r set test vaz get] bar
+            wait_for_condition 500 10 {
+                [$A get test] eq "vaz"
+            } else {
+                fail "set get wasn't propagated"
+            }
+            assert_match {*calls=3,*} [cmdrstat set $A]
+            assert_match {} [cmdrstat getset $A]
         }
 
         test {BRPOPLPUSH replication, when blocking against empty list} {

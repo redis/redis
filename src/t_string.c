@@ -90,7 +90,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     }
 
     if (flags & OBJ_SET_GET) {
-       getGenericCommand(c);
+        getGenericCommand(c);
     }
 
     genericSetKey(c,c->db,key,val,flags & OBJ_SET_KEEPTTL,1);
@@ -106,7 +106,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
 
 /* SET key value [NX] [XX] [KEEPTTL] [GET] [EX <seconds>] [PX <milliseconds>] */
 void setCommand(client *c) {
-    int j;
+    int j, get_index = -1;
     robj *expire = NULL;
     int unit = UNIT_SECONDS;
     int flags = OBJ_SET_NO_FLAGS;
@@ -130,6 +130,7 @@ void setCommand(client *c) {
                    (a[2] == 't' || a[2] == 'T') && a[3] == '\0' &&
                    !(flags & OBJ_SET_NX)) {
             flags |= OBJ_SET_GET;
+            get_index = j;
         } else if (!strcasecmp(c->argv[j]->ptr,"KEEPTTL") &&
                    !(flags & OBJ_SET_EX) && !(flags & OBJ_SET_PX))
         {
@@ -160,6 +161,19 @@ void setCommand(client *c) {
 
     c->argv[2] = tryObjectEncoding(c->argv[2]);
     setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL);
+
+    /* Propagate without the GET argument */
+    if (flags & OBJ_SET_GET) {
+        int argc = 0;
+        robj **argv = zmalloc((c->argc-1)*sizeof(robj*));
+        for (j=0; j < c->argc; j++) {
+            if (j == get_index)
+                continue;
+            argv[argc++] = c->argv[j];
+            incrRefCount(c->argv[j]);
+        }
+        replaceClientCommandVector(c, argc, argv);
+    }
 }
 
 void setnxCommand(client *c) {
@@ -201,6 +215,11 @@ void getsetCommand(client *c) {
     setKey(c,c->db,c->argv[1],c->argv[2]);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[1],c->db->id);
     server.dirty++;
+
+    /* Propagate as SET command */
+    robj *setcmd = createStringObject("SET",3);
+    rewriteClientCommandArgument(c,0,setcmd);
+    decrRefCount(setcmd);
 }
 
 void setrangeCommand(client *c) {
