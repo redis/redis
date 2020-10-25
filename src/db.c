@@ -1421,12 +1421,12 @@ int *genericGetKeys(int storeKeyOfs, int keyCountOfs, int firstKeyOfs, int keySt
     return keys;
 }
 
-int *zunionInterStoreGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+int *zunionInterDiffStoreGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
     UNUSED(cmd);
     return genericGetKeys(1, 2, 3, 1, argv, argc, numkeys);
 }
 
-int *zunionInterGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+int *zunionInterDiffGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
     UNUSED(cmd);
     return genericGetKeys(0, 1, 2, 1, argv, argc, numkeys);
 }

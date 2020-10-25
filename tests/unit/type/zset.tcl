@@ -773,6 +773,21 @@ start_server {tags {"zset"}} {
             }
         }
 
+        test "ZDIFFSTORE basics - $encoding" {
+            assert_equal 1 [r zdiffstore zsetc 2 zseta zsetb]
+            assert_equal {a 1} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZDIFFSTORE with WITHSCORES - $encoding" {
+            r del zsetc
+            r zadd zseta 4 e
+            r zadd zseta 5 f
+            r zadd zsetc 4 e
+
+            assert_equal 2 [r zdiffstore zsetd 3 zseta zsetb zsetc]
+            assert_equal {a 1 f 5} [r zrange zsetd 0 -1 withscores]
+        }
+
         test "Basic ZPOP with a single key - $encoding" {
             r del zset
             assert_equal {} [r zpopmin zset]

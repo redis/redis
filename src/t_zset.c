@@ -2184,6 +2184,44 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
     }
 }
 
+void zdiff(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen) {
+    int j;
+    zsetopval zval;
+    zskiplistNode *znode;
+    sds tmp;
+
+    if (zuiLength(&src[0]) == 0) {
+        return;
+    }
+
+    memset(&zval, 0, sizeof(zval));
+    zuiInitIterator(&src[0]);
+    while (zuiNext(&src[0],&zval)) {
+        double score, value;
+        int exists = 0;
+
+        score = zval.score;
+        if (isnan(score)) score = 0;
+
+        for (j = 1; j < setnum; j++) {
+            /* It is not safe to access the zset we are
+                * iterating, so explicitly check for equal object. */
+            if (src[j].subject == src[0].subject ||
+                    zuiFind(&src[j],&zval,&value)) {
+                exists = 1;
+                break;
+            }
+        }
+
+        if (!exists) {
+            tmp = zuiNewSdsFromValue(&zval);
+            znode = zslInsert(dstzset->zsl,score,tmp);
+            dictAdd(dstzset->dict,tmp,&znode->score);
+            if (sdslen(tmp) > *maxelelen) *maxelelen = sdslen(tmp);
+        }
+    }
+}
+
 uint64_t dictSdsHash(const void *key);
 int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
 
@@ -2196,15 +2234,15 @@ dictType setAccumulatorDictType = {
     NULL                       /* val destructor */
 };
 
-/* The zunionInterGenericCommand() function is called in order to implement the
- * following commands: ZUNION, ZINTER, ZUNIONSTORE, ZINTERSTORE.
+/* The zunionInterDiffGenericCommand() function is called in order to implement the
+ * following commands: ZUNION, ZINTER, ZDIFF, ZUNIONSTORE, ZINTERSTORE, ZDIFFSTORE.
  *
- * 'numkeysIndex' parameter position of key number. for ZUNION/ZINTER command, this
- * value is 1, for ZUNIONSTORE/ZINTERSTORE command, this value is 2.
+ * 'numkeysIndex' parameter position of key number. for ZUNION/ZINTER/ZDIFF command,
+ * this value is 1, for ZUNIONSTORE/ZINTERSTORE/ZDIFFSTORE command, this value is 2.
  *
- * 'op' SET_OP_INTER or SET_OP_UNION.
+ * 'op' SET_OP_INTER, SET_OP_UNION or SET_OP_DIFF.
  */
-void zunionInterGenericCommand(client *c, robj *dstkey, int numkeysIndex, int op) {
+void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, int op) {
     int i, j;
     long setnum;
     int aggregate = REDIS_AGGR_SUM;
@@ -2223,7 +2261,7 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int numkeysIndex, int op
 
     if (setnum < 1) {
         addReplyError(c,
-            "at least 1 input key is needed for ZUNIONSTORE/ZINTERSTORE");
+            "at least 1 input key is needed for ZUNIONSTORE/ZINTERSTORE/ZDIFFSTORE");
         return;
     }
 
@@ -2260,7 +2298,8 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int numkeysIndex, int op
         int remaining = c->argc - j;
 
         while (remaining) {
-            if (remaining >= (setnum + 1) &&
+            if (op != SET_OP_DIFF &&
+                remaining >= (setnum + 1) &&
                 !strcasecmp(c->argv[j]->ptr,"weights"))
             {
                 j++; remaining--;
@@ -2272,7 +2311,8 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int numkeysIndex, int op
                         return;
                     }
                 }
-            } else if (remaining >= 2 &&
+            } else if (op != SET_OP_DIFF &&
+                       remaining >= 2 &&
                        !strcasecmp(c->argv[j]->ptr,"aggregate"))
             {
                 j++; remaining--;
@@ -2301,9 +2341,11 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int numkeysIndex, int op
         }
     }
 
-    /* sort sets from the smallest to largest, this will improve our
-     * algorithm's performance */
-    qsort(src,setnum,sizeof(zsetopsrc),zuiCompareByCardinality);
+    if (op != SET_OP_DIFF) {
+        /* sort sets from the smallest to largest, this will improve our
+        * algorithm's performance */
+        qsort(src,setnum,sizeof(zsetopsrc),zuiCompareByCardinality);
+    }
 
     dstobj = createZsetObject();
     dstzset = dstobj->ptr;
@@ -2409,6 +2451,8 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int numkeysIndex, int op
         }
         dictReleaseIterator(di);
         dictRelease(accumulator);
+    } else if (op == SET_OP_DIFF) {
+        zdiff(src, setnum, dstzset, &maxelelen);
     } else {
         serverPanic("Unknown operator");
     }
@@ -2419,7 +2463,8 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int numkeysIndex, int op
             setKey(c, c->db, dstkey, dstobj);
             addReplyLongLong(c, zsetLength(dstobj));
             notifyKeyspaceEvent(NOTIFY_ZSET,
-                                (op == SET_OP_UNION) ? "zunionstore" : "zinterstore",
+                                (op == SET_OP_UNION) ? "zunionstore" :
+                                    (op == SET_OP_INTER ? "zinterstore" : "zdiffstore"),
                                 dstkey, c->db->id);
             server.dirty++;
         } else {
@@ -2451,19 +2496,27 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int numkeysIndex, int op
 }
 
 void zunionstoreCommand(client *c) {
-    zunionInterGenericCommand(c, c->argv[1], 2, SET_OP_UNION);
+    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_UNION);
 }
 
 void zinterstoreCommand(client *c) {
-    zunionInterGenericCommand(c, c->argv[1], 2, SET_OP_INTER);
+    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_INTER);
+}
+
+void zdiffstoreCommand(client *c) {
+    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_DIFF);
 }
 
 void zunionCommand(client *c) {
-    zunionInterGenericCommand(c, NULL, 1, SET_OP_UNION);
+    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_UNION);
 }
 
 void zinterCommand(client *c) {
-    zunionInterGenericCommand(c, NULL, 1, SET_OP_INTER);
+    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_INTER);
+}
+
+void zdiffCommand(client *c) {
+    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_DIFF);
 }
 
 void zrangeGenericCommand(client *c, int reverse) {
