@@ -257,6 +257,8 @@ struct sentinelState {
     unsigned long simfailure_flags; /* Failures simulation. */
     int deny_scripts_reconfig; /* Allow SENTINEL SET ... to change script
                                   paths at runtime? */
+    char *sentinel_auth_pass;    /* Password to use for AUTH against other sentinel */
+    char *sentinel_auth_user;    /* Username for ACLs AUTH against other sentinel. */
 } sentinel;
 
 /* A script execution job. */
@@ -451,19 +453,20 @@ void sentinelPublishCommand(client *c);
 void sentinelRoleCommand(client *c);
 
 struct redisCommand sentinelcmds[] = {
-    {"ping",pingCommand,1,"",0,NULL,0,0,0,0,0},
-    {"sentinel",sentinelCommand,-2,"",0,NULL,0,0,0,0,0},
-    {"subscribe",subscribeCommand,-2,"",0,NULL,0,0,0,0,0},
-    {"unsubscribe",unsubscribeCommand,-1,"",0,NULL,0,0,0,0,0},
-    {"psubscribe",psubscribeCommand,-2,"",0,NULL,0,0,0,0,0},
-    {"punsubscribe",punsubscribeCommand,-1,"",0,NULL,0,0,0,0,0},
-    {"publish",sentinelPublishCommand,3,"",0,NULL,0,0,0,0,0},
-    {"info",sentinelInfoCommand,-1,"",0,NULL,0,0,0,0,0},
-    {"role",sentinelRoleCommand,1,"ok-loading",0,NULL,0,0,0,0,0},
-    {"client",clientCommand,-2,"read-only no-script",0,NULL,0,0,0,0,0},
-    {"shutdown",shutdownCommand,-1,"",0,NULL,0,0,0,0,0},
-    {"auth",authCommand,2,"no-auth no-script ok-loading ok-stale fast",0,NULL,0,0,0,0,0},
-    {"hello",helloCommand,-2,"no-auth no-script fast",0,NULL,0,0,0,0,0}
+    {"ping",pingCommand,1,"fast @connection",0,NULL,0,0,0,0,0},
+    {"sentinel",sentinelCommand,-2,"admin",0,NULL,0,0,0,0,0},
+    {"subscribe",subscribeCommand,-2,"pub-sub",0,NULL,0,0,0,0,0},
+    {"unsubscribe",unsubscribeCommand,-1,"pub-sub",0,NULL,0,0,0,0,0},
+    {"psubscribe",psubscribeCommand,-2,"pub-sub",0,NULL,0,0,0,0,0},
+    {"punsubscribe",punsubscribeCommand,-1,"pub-sub",0,NULL,0,0,0,0,0},
+    {"publish",sentinelPublishCommand,3,"pub-sub fast",0,NULL,0,0,0,0,0},
+    {"info",sentinelInfoCommand,-1,"random @dangerous",0,NULL,0,0,0,0,0},
+    {"role",sentinelRoleCommand,1,"fast read-only @dangerous",0,NULL,0,0,0,0,0},
+    {"client",clientCommand,-2,"admin random @connection",0,NULL,0,0,0,0,0},
+    {"shutdown",shutdownCommand,-1,"admin",0,NULL,0,0,0,0,0},
+    {"auth",authCommand,-2,"no-auth fast @connection",0,NULL,0,0,0,0,0},
+    {"hello",helloCommand,-2,"no-auth fast @connection",0,NULL,0,0,0,0,0},
+    {"acl",aclCommand,-2,"admin",0,NULL,0,0,0,0,0,0}
 };
 
 /* This function overwrites a few normal Redis config default with Sentinel
@@ -480,11 +483,15 @@ void initSentinel(void) {
     /* Remove usual Redis commands from the command table, then just add
      * the SENTINEL command. */
     dictEmpty(server.commands,NULL);
+    dictEmpty(server.orig_commands,NULL);
+    ACLClearCommandID();
     for (j = 0; j < sizeof(sentinelcmds)/sizeof(sentinelcmds[0]); j++) {
         int retval;
         struct redisCommand *cmd = sentinelcmds+j;
-
+        cmd->id = ACLGetCommandID(cmd->name); /* Assign the ID used for ACL. */
         retval = dictAdd(server.commands, sdsnew(cmd->name), cmd);
+        serverAssert(retval == DICT_OK);
+        retval = dictAdd(server.orig_commands, sdsnew(cmd->name), cmd);
         serverAssert(retval == DICT_OK);
 
         /* Translate the command string flags description into an actual
@@ -505,6 +512,8 @@ void initSentinel(void) {
     sentinel.announce_port = 0;
     sentinel.simfailure_flags = SENTINEL_SIMFAILURE_NONE;
     sentinel.deny_scripts_reconfig = SENTINEL_DEFAULT_DENY_SCRIPTS_RECONFIG;
+    sentinel.sentinel_auth_pass = NULL;
+    sentinel.sentinel_auth_user = NULL;
     memset(sentinel.myid,0,sizeof(sentinel.myid));
 }
 
@@ -1765,6 +1774,14 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
             return "Please specify yes or no for the "
                    "deny-scripts-reconfig options.";
         }
+    } else if (!strcasecmp(argv[0],"sentinel-user") && argc == 2) {
+        /* sentinel-user <user-name> */
+        if (strlen(argv[1]))
+            sentinel.sentinel_auth_user = sdsnew(argv[1]);
+    } else if (!strcasecmp(argv[0],"sentinel-pass") && argc == 2) {
+        /* sentinel-pass <password> */
+        if (strlen(argv[1]))
+            sentinel.sentinel_auth_pass = sdsnew(argv[1]);
     } else {
         return "Unrecognized sentinel configuration statement.";
     }
@@ -1938,6 +1955,19 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
         rewriteConfigRewriteLine(state,"sentinel",line,1);
     }
 
+    /* sentinel sentinel-user. */
+    if (sentinel.sentinel_auth_user) {
+        line = sdscatprintf(sdsempty(), "sentinel sentinel-user %s", sentinel.sentinel_auth_user);
+        rewriteConfigRewriteLine(state,"sentinel",line,1);
+    }
+
+    /* sentinel sentinel-pass. */
+    if (sentinel.sentinel_auth_pass) {
+        line = sdscatprintf(sdsempty(), "sentinel sentinel-pass %s", sentinel.sentinel_auth_pass);
+        rewriteConfigRewriteLine(state,"sentinel",line,1);
+    }
+
+
     dictReleaseIterator(di);
 }
 
@@ -1993,8 +2023,17 @@ void sentinelSendAuthIfNeeded(sentinelRedisInstance *ri, redisAsyncContext *c) {
         auth_pass = ri->master->auth_pass;
         auth_user = ri->master->auth_user;
     } else if (ri->flags & SRI_SENTINEL) {
-        auth_pass = server.requirepass;
-        auth_user = NULL;
+        /* If sentinel_auth_user is NULL, AUTH will use default user
+           with sentinel_auth_pass to autenticate */
+        if (sentinel.sentinel_auth_pass) {
+            auth_pass = sentinel.sentinel_auth_pass;
+            auth_user = sentinel.sentinel_auth_user;
+        } else {
+            /* Compatibility with old configs. requirepass is used
+             * for both incoming and outgoing authentication. */
+            auth_pass = server.requirepass;
+            auth_user = NULL;
+        }
     }
 
     if (auth_pass && auth_user == NULL) {

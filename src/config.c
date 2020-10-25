@@ -467,7 +467,7 @@ void loadServerConfigFromString(char *config) {
                 fclose(logfp);
             }
         } else if (!strcasecmp(argv[0],"include") && argc == 2) {
-            loadServerConfig(argv[1],NULL);
+            loadServerConfig(argv[1], 0, NULL);
         } else if ((!strcasecmp(argv[0],"client-query-buffer-limit")) && argc == 2) {
              server.client_max_querybuf_len = memtoll(argv[1],NULL);
         } else if ((!strcasecmp(argv[0],"slaveof") ||
@@ -495,11 +495,16 @@ void loadServerConfigFromString(char *config) {
              * additionally is to remember the cleartext password in this
              * case, for backward compatibility with Redis <= 5. */
             ACLSetUser(DefaultUser,"resetpass",-1);
-            sds aclop = sdscatprintf(sdsempty(),">%s",argv[1]);
-            ACLSetUser(DefaultUser,aclop,sdslen(aclop));
-            sdsfree(aclop);
             sdsfree(server.requirepass);
-            server.requirepass = sdsnew(argv[1]);
+            server.requirepass = NULL;
+            if (sdslen(argv[1])) {
+                sds aclop = sdscatprintf(sdsempty(),">%s",argv[1]);
+                ACLSetUser(DefaultUser,aclop,sdslen(aclop));
+                sdsfree(aclop);
+                server.requirepass = sdsnew(argv[1]);
+            } else {
+                ACLSetUser(DefaultUser,"nopass",-1);
+            }
         } else if (!strcasecmp(argv[0],"list-max-ziplist-entries") && argc == 2){
             /* DEAD OPTION */
         } else if (!strcasecmp(argv[0],"list-max-ziplist-value") && argc == 2) {
@@ -619,28 +624,31 @@ loaderr:
  * Both filename and options can be NULL, in such a case are considered
  * empty. This way loadServerConfig can be used to just load a file or
  * just load a string. */
-void loadServerConfig(char *filename, char *options) {
+void loadServerConfig(char *filename, char config_from_stdin, char *options) {
     sds config = sdsempty();
     char buf[CONFIG_MAX_LINE+1];
+    FILE *fp;
 
     /* Load the file content */
     if (filename) {
-        FILE *fp;
-
-        if (filename[0] == '-' && filename[1] == '\0') {
-            fp = stdin;
-        } else {
-            if ((fp = fopen(filename,"r")) == NULL) {
-                serverLog(LL_WARNING,
+        if ((fp = fopen(filename,"r")) == NULL) {
+            serverLog(LL_WARNING,
                     "Fatal error, can't open config file '%s': %s",
                     filename, strerror(errno));
-                exit(1);
-            }
+            exit(1);
         }
         while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
             config = sdscat(config,buf);
-        if (fp != stdin) fclose(fp);
+        fclose(fp);
     }
+    /* Append content from stdin */
+    if (config_from_stdin) {
+        serverLog(LL_WARNING,"Reading config from stdin");
+        fp = stdin;
+        while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
+            config = sdscat(config,buf);
+    }
+
     /* Append the additional options */
     if (options) {
         config = sdscat(config,"\n");
@@ -714,11 +722,16 @@ void configSetCommand(client *c) {
          * additionally is to remember the cleartext password in this
          * case, for backward compatibility with Redis <= 5. */
         ACLSetUser(DefaultUser,"resetpass",-1);
-        sds aclop = sdscatprintf(sdsempty(),">%s",(char*)o->ptr);
-        ACLSetUser(DefaultUser,aclop,sdslen(aclop));
-        sdsfree(aclop);
         sdsfree(server.requirepass);
-        server.requirepass = sdsnew(o->ptr);
+        server.requirepass = NULL;
+        if (sdslen(o->ptr)) {
+            sds aclop = sdscatprintf(sdsempty(),">%s",(char*)o->ptr);
+            ACLSetUser(DefaultUser,aclop,sdslen(aclop));
+            sdsfree(aclop);
+            server.requirepass = sdsnew(o->ptr);
+        } else {
+            ACLSetUser(DefaultUser,"nopass",-1);
+        }
     } config_set_special_field("save") {
         int vlen, j;
         sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
@@ -1322,6 +1335,12 @@ void rewriteConfigSaveOption(struct rewriteConfigState *state) {
     int j;
     sds line;
 
+    /* In Sentinel mode we don't need to rewrite the save parameters */
+    if (server.sentinel_mode) {
+        rewriteConfigMarkAsProcessed(state,"save");
+        return;
+    }
+
     /* Note that if there are no save parameters at all, all the current
      * config line with "save" will be detected as orphaned and deleted,
      * resulting into no RDB persistence as expected. */
@@ -1597,7 +1616,7 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
          written_bytes = write(fd, content + offset, sdslen(content) - offset);
          if (written_bytes <= 0) {
              if (errno == EINTR) continue; /* FD is blocking, no other retryable errors */
-             serverLog(LL_WARNING, "Failed after writing (%ld) bytes to tmp config file (%s)", offset, strerror(errno));
+             serverLog(LL_WARNING, "Failed after writing (%zd) bytes to tmp config file (%s)", offset, strerror(errno));
              goto cleanup;
          }
          offset+=written_bytes;

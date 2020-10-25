@@ -1449,7 +1449,7 @@ werr:
  * are inserted using a single command. */
 int rewriteAppendOnlyFile(char *filename) {
     rio aof;
-    FILE *fp;
+    FILE *fp = NULL;
     char tmpfile[256];
     char byte;
 
@@ -1526,9 +1526,10 @@ int rewriteAppendOnlyFile(char *filename) {
         goto werr;
 
     /* Make sure data will not remain on the OS's output buffers */
-    if (fflush(fp) == EOF) goto werr;
-    if (fsync(fileno(fp)) == -1) goto werr;
-    if (fclose(fp) == EOF) goto werr;
+    if (fflush(fp)) goto werr;
+    if (fsync(fileno(fp))) goto werr;
+    if (fclose(fp)) { fp = NULL; goto werr; }
+    fp = NULL;
 
     /* Use RENAME to make sure the DB file is changed atomically only
      * if the generate DB file is ok. */
@@ -1544,7 +1545,7 @@ int rewriteAppendOnlyFile(char *filename) {
 
 werr:
     serverLog(LL_WARNING,"Write error writing append only file on disk: %s", strerror(errno));
-    fclose(fp);
+    if (fp) fclose(fp);
     unlink(tmpfile);
     stopSaving(0);
     return C_ERR;
@@ -1703,10 +1704,10 @@ void aofRemoveTempFile(pid_t childpid) {
     char tmpfile[256];
 
     snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) childpid);
-    unlink(tmpfile);
+    bg_unlink(tmpfile);
 
     snprintf(tmpfile,256,"temp-rewriteaof-%d.aof", (int) childpid);
-    unlink(tmpfile);
+    bg_unlink(tmpfile);
 }
 
 /* Update the server.aof_current_size field explicitly using stat(2)

@@ -142,6 +142,10 @@ proc wait_for_log_messages {srv_idx patterns from_line maxtries delay} {
         after $delay
     }
     if {$retry == 0} {
+        if {$::verbose} {
+            puts "content of $stdout from line: $from_line:"
+            puts [exec tail -n +$from_line < $stdout]
+        }
         fail "log message of '$patterns' not found in $stdout after line: $from_line till line: [expr $next_line -1]"
     }
 }
@@ -508,7 +512,7 @@ proc populate {num prefix size} {
 
 proc get_child_pid {idx} {
     set pid [srv $idx pid]
-    if {[string match {*Darwin*} [exec uname -a]]} {
+    if {[file exists "/usr/bin/pgrep"]} {
         set fd [open "|pgrep -P $pid" "r"]
         set child_pid [string trim [lindex [split [read $fd] \n] 0]]
     } else {
