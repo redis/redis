@@ -594,7 +594,7 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (c->written == 0) {
         /* Enforce upper bound to number of requests. */
         int requests_issued = 0;
-        atomicGetIncr(config.requests_issued, requests_issued, 1);
+        atomicGetIncr(config.requests_issued, requests_issued, config.pipeline);
         if (requests_issued >= config.requests) {
             freeClient(c);
             return;
