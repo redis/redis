@@ -40,6 +40,11 @@
 #include <pthread.h>
 #include <sched.h>
 #endif
+#ifdef __APPLE__
+#include <mach/mach_types.h>
+#include <mach/thread_act.h>
+#include <mach/thread_policy.h>
+#endif
 #include "config.h"
 
 #ifdef USE_SETCPUAFFINITY
@@ -82,9 +87,9 @@ void setcpuaffinity(const char *cpulist) {
     if (!cpulist)
         return;
 
-#ifndef __NetBSD__
+#if defined(__linux__) || defined(__FreeBSD__)
     CPU_ZERO(&cpuset);
-#else
+#elif defined(__NetBSD__)
     cpuset = cpuset_create();
 #endif
 
@@ -121,10 +126,13 @@ void setcpuaffinity(const char *cpulist) {
             return;
 
         while (a <= b) {
-#ifndef __NetBSD__
+#if defined(__linux__) || defined(__FreeBSD__)
             CPU_SET(a, &cpuset);
-#else
+#elif defined(__NetBSD__)
             cpuset_set(a, cpuset);
+#elif defined(__APPLE__)
+	    thread_affinity_policy_data_t cpuset = {a};
+	    thread_policy_set(pthread_mach_thread_np(pthread_self()), THREAD_AFFINITY_POLICY, (thread_policy_t)&cpuset, 1);
 #endif
             a += s;
         }
