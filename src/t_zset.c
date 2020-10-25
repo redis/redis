@@ -2184,15 +2184,11 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
     }
 }
 
-void zdiff(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen) {
+void zdiffAlgorithm1(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen) {
     int j;
     zsetopval zval;
     zskiplistNode *znode;
     sds tmp;
-
-    if (zuiLength(&src[0]) == 0) {
-        return;
-    }
 
     memset(&zval, 0, sizeof(zval));
     zuiInitIterator(&src[0]);
@@ -2218,6 +2214,122 @@ void zdiff(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen) {
             znode = zslInsert(dstzset->zsl,score,tmp);
             dictAdd(dstzset->dict,tmp,&znode->score);
             if (sdslen(tmp) > *maxelelen) *maxelelen = sdslen(tmp);
+        }
+    }
+}
+
+
+void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen) {
+    /* DIFF Algorithm 2:
+     *
+     * Add all the elements of the first set to the auxiliary set.
+     * Then remove all the elements of all the next sets from it.
+     *
+     * This is O(N) where N is the sum of all the elements in every
+     * set. */
+    int j;
+    int cardinality = 0;
+    zsetopval zval;
+    zskiplistNode *znode;
+    sds tmp;
+    zsetopsrc dst;
+    robj dstrobj;
+    double score;
+    dictEntry *de;
+
+    for (j = 0; j < setnum; j++) {
+        if (zuiLength(&src[j]) == 0) continue;
+
+        memset(&zval, 0, sizeof(zval));
+        zuiInitIterator(&src[j]);
+        while (zuiNext(&src[j],&zval)) {
+            if (j == 0) {
+                tmp = zuiNewSdsFromValue(&zval);
+                znode = zslInsert(dstzset->zsl,zval.score,tmp);
+                dictAdd(dstzset->dict,tmp,&znode->score);
+                cardinality++;
+            } else {
+                tmp = zuiNewSdsFromValue(&zval);
+                de = dictUnlink(dstzset->dict,tmp);
+                if (de != NULL) {
+                    /* Get the score in order to delete from the skiplist later. */
+                    score = *(double*)dictGetVal(de);
+
+                    /* Delete from the hash table and later from the skiplist.
+                    * Note that the order is important: deleting from the skiplist
+                    * actually releases the SDS string representing the element,
+                    * which is shared between the skiplist and the hash table, so
+                    * we need to delete from the skiplist as the final step. */
+                    dictFreeUnlinkedEntry(dstzset->dict,de);
+
+                    /* Delete from skiplist. */
+                    int retval = zslDelete(dstzset->zsl,score,tmp,NULL);
+                    serverAssert(retval);
+                    cardinality--;
+                }
+            }
+        }
+
+        /* Exit if result set is empty as any additional removal
+            * of elements will have no effect. */
+        if (cardinality == 0) break;
+    }
+
+    if (htNeedsResize(dstzset->dict)) dictResize(dstzset->dict);
+
+    /* Now we need to iterate through the resulting zset to find maxelelen,
+     * the maximum element length */
+    dstrobj.ptr = dstzset;
+    dstrobj.encoding = OBJ_ENCODING_SKIPLIST;
+    dstrobj.type = OBJ_ZSET;
+    dst.subject = &dstrobj;
+    dst.encoding = OBJ_ENCODING_SKIPLIST;
+    dst.type = OBJ_ZSET;
+
+    memset(&zval, 0, sizeof(zval));
+    zuiInitIterator(&dst);
+    while (zuiNext(&dst,&zval)) {
+        tmp = zuiNewSdsFromValue(&zval);
+        if (sdslen(tmp) > *maxelelen) *maxelelen = sdslen(tmp);
+    }
+}
+
+int chooseDiffAlgorithm(zsetopsrc *src, long setnum) {
+    int j;
+
+    /* Select what DIFF algorithm to use.
+     *
+     * Algorithm 1 is O(N*M) where N is the size of the element first set
+     * and M the total number of sets.
+     *
+     * Algorithm 2 is O(N) where N is the total number of elements in all
+     * the sets.
+     *
+     * We compute what is the best bet with the current input here. */
+    long long algo_one_work = 0;
+    long long algo_two_work = 0;
+
+    for (j = 0; j < setnum; j++) {
+        algo_one_work += zuiLength(&src[0]);
+        algo_two_work += zuiLength(&src[j]);
+    }
+
+    /* Algorithm 1 has better constant times and performs less operations
+        * if there are elements in common. Give it some advantage. */
+    algo_one_work /= 2;
+    return (algo_one_work <= algo_two_work) ? 1 : 2;
+}
+
+void zdiff(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen) {
+    /* Skip everything if the smallest input is empty. */
+    if (zuiLength(&src[0]) > 0) {
+        int diff_algo = chooseDiffAlgorithm(src, setnum);
+        if (diff_algo == 1) {
+            zdiffAlgorithm1(src, setnum, dstzset, maxelelen);
+        } else if (diff_algo == 2) {
+            zdiffAlgorithm2(src, setnum, dstzset, maxelelen);
+        } else {
+            serverPanic("Unknown algorithm");
         }
     }
 }
