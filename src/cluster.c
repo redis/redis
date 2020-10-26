@@ -1270,8 +1270,8 @@ void markNodeAsFailingIfNeeded(clusterNode *node) {
     if (nodeFailed(node)) return; /* Already FAILing. */
 
     failures = clusterNodeFailureReportsCount(node);
-    /* Also count myself as a voter if I'm a master. */
-    if (nodeIsMaster(myself)) failures++;
+    /* Also count myself as a voter if I'm a master having at least one slot. */
+    if (nodeIsMaster(myself) && myself->numslots) failures++;
     if (failures < needed_quorum) return; /* No weak agreement from masters. */
 
     serverLog(LL_NOTICE,
