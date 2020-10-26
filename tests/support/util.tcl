@@ -128,6 +128,8 @@ proc wait_for_log_messages {srv_idx patterns from_line maxtries delay} {
     set next_line [expr $from_line + 1] ;# searching form the line after
     set stdout [srv $srv_idx stdout]
     while {$retry} {
+        # re-read the last line (unless it's before to our first), last time we read it, it might have been incomplete
+        set next_line [expr $next_line - 1 > $from_line + 1 ? $next_line - 1 : $from_line + 1]
         set result [exec tail -n +$next_line < $stdout]
         set result [split $result "\n"]
         foreach line $result {
