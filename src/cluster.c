@@ -2879,7 +2879,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
      * The master can be non failing if the request is flagged
      * with CLUSTERMSG_FLAG0_FORCEACK (manual failover). */
     if (nodeIsMaster(node) || master == NULL ||
-        (!nodeFailed(master) && !force_ack))
+        (!nodeFailing(master) && !force_ack))
     {
         if (nodeIsMaster(node)) {
             serverLog(LL_WARNING,
@@ -2889,7 +2889,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
             serverLog(LL_WARNING,
                     "Failover auth denied to %.40s: I don't know its master",
                     node->name);
-        } else if (!nodeFailed(master)) {
+        } else if (!nodeFailing(master)) {
             serverLog(LL_WARNING,
                     "Failover auth denied to %.40s: its master is up",
                     node->name);
@@ -3709,25 +3709,26 @@ void clusterCron(void) {
  * handlers, or to perform potentially expansive tasks that we need to do
  * a single time before replying to clients. */
 void clusterBeforeSleep(void) {
+    /* Reset our flags (not strictly needed since every single function
+     * called for flags set should be able to clear its flag). */
+    int flag = server.cluster->todo_before_sleep;
+    server.cluster->todo_before_sleep = 0;
+
     /* Handle failover, this is needed when it is likely that there is already
      * the quorum from masters in order to react fast. */
-    if (server.cluster->todo_before_sleep & CLUSTER_TODO_HANDLE_FAILOVER)
+    if (flag & CLUSTER_TODO_HANDLE_FAILOVER)
         clusterHandleSlaveFailover();
 
     /* Update the cluster state. */
-    if (server.cluster->todo_before_sleep & CLUSTER_TODO_UPDATE_STATE)
+    if (flag & CLUSTER_TODO_UPDATE_STATE)
         clusterUpdateState();
 
     /* Save the config, possibly using fsync. */
-    if (server.cluster->todo_before_sleep & CLUSTER_TODO_SAVE_CONFIG) {
-        int fsync = server.cluster->todo_before_sleep &
+    if (flag & CLUSTER_TODO_SAVE_CONFIG) {
+        int fsync = flag &
                     CLUSTER_TODO_FSYNC_CONFIG;
         clusterSaveConfigOrDie(fsync);
     }
-
-    /* Reset our flags (not strictly needed since every single function
-     * called for flags set should be able to clear its flag). */
-    server.cluster->todo_before_sleep = 0;
 }
 
 void clusterDoBeforeSleep(int flags) {

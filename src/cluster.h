@@ -62,6 +62,7 @@ typedef struct clusterLink {
 #define nodeWithoutAddr(n) ((n)->flags & CLUSTER_NODE_NOADDR)
 #define nodeTimedOut(n) ((n)->flags & CLUSTER_NODE_PFAIL)
 #define nodeFailed(n) ((n)->flags & CLUSTER_NODE_FAIL)
+#define nodeFailing(n) ((n)->flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL))
 #define nodeCantFailover(n) ((n)->flags & CLUSTER_NODE_NOFAILOVER)
 
 /* Reasons why a slave is not able to failover. */
