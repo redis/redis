@@ -12,6 +12,350 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 6.0.9     Released Mon Oct 26 10:37:47 IST 2020
+================================================================================
+
+Upgrade urgency: SECURITY if you use an affected platform (see below).
+                 Otherwise the upgrade urgency is MODERATE.
+
+This release fixes a potential heap overflow when using a heap allocator other
+than jemalloc or glibc's malloc. See:
+https://github.com/redis/redis/pull/7963
+
+Other fixes in this release:
+
+New:
+* Memory reporting of clients argv (#7874)
+* Add redis-cli control on raw format line delimiter (#7841)
+* Add redis-cli support for rediss:// -u prefix (#7900)
+* Get rss size support for NetBSD and DragonFlyBSD
+
+Behavior changes:
+* WATCH no longer ignores keys which have expired for MULTI/EXEC (#7920)
+* Correct OBJECT ENCODING response for stream type (#7797)
+* Allow blocked XREAD on a cluster replica (#7881)
+* TLS: Do not require CA config if not used (#7862)
+
+Bug fixes:
+* INFO report real peak memory (before eviction) (#7894)
+* Allow requirepass config to clear the password (#7899)
+* Fix config rewrite file handling to make it really atomic (#7824)
+* Fix excessive categories being displayed from ACLs (#7889)
+* Add fsync in replica when full RDB payload was received (#7839)
+* Don't write replies to socket when output buffer limit reached (#7202)
+* Fix redis-check-rdb support for modules aux data (#7826)
+* Other smaller bug fixes
+
+Modules API:
+* Add APIs for version and compatibility checks (#7865)
+* Add RM_GetClientCertificate (#7866)
+* Add RM_GetDetachedThreadSafeContext (#7886)
+* Add RM_GetCommandKeys (#7884)
+* Add Swapdb Module Event (#7804)
+* RM_GetContextFlags provides indication of being in a fork child (#7783)
+* RM_GetContextFlags document missing flags: MULTI_DIRTY, IS_CHILD (#7821)
+* Expose real client on connection events (#7867)
+* Minor improvements to module blocked on keys (#7903)
+
+Full list of commits:
+
+Yossi Gottlieb in commit ce0d74d8f:
+ Fix wrong zmalloc_size() assumption. (#7963)
+ 1 file changed, 3 deletions(-)
+
+Oran Agra in commit d3ef26822:
+ Attempt to fix sporadic test failures due to wait_for_log_messages (#7955)
+ 1 file changed, 2 insertions(+)
+
+David CARLIER in commit 76993a0d4:
+ cpu affinity: DragonFlyBSD support (#7956)
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+
+Zach Fewtrell in commit b23cdc14a:
+ fix invalid 'failover' identifier in cluster slave selection test (#7942)
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+WuYunlong in commit 99a4cb401:
+ Update rdb_last_bgsave_time_sec in INFO on diskless replication (#7917)
+ 1 file changed, 11 insertions(+), 14 deletions(-)
+
+Wen Hui in commit 258287c35:
+ do not add save parameter during config rewrite in sentinel mode (#7945)
+ 1 file changed, 6 insertions(+)
+
+Qu Chen in commit 6134279e2:
+ WATCH no longer ignores keys which have expired for MULTI/EXEC. (#7920)
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+Oran Agra in commit d15ec67c6:
+ improve verbose logging on failed test. print log file lines (#7938)
+ 1 file changed, 4 insertions(+)
+
+Yossi Gottlieb in commit 8a2e6d24f:
+ Add a --no-latency tests flag. (#7939)
+ 5 files changed, 23 insertions(+), 9 deletions(-)
+
+filipe oliveira in commit 0a1737dc5:
+ Fixed bug concerning redis-benchmark non clustered benchmark forcing always the same hash tag {tag} (#7931)
+ 1 file changed, 31 insertions(+), 24 deletions(-)
+
+Oran Agra in commit 6d9b3df71:
+ fix 32bit build warnings (#7926)
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+Wen Hui in commit ed6f7a55e:
+ fix double fclose in aofrewrite (#7919)
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+Oran Agra in commit 331d73c92:
+ INFO report peak memory before eviction (#7894)
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+Yossi Gottlieb in commit e88e13528:
+ Fix tests failure on busybox systems. (#7916)
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+Oran Agra in commit b7f53738e:
+ Allow requirepass config to clear the password (#7899)
+ 1 file changed, 18 insertions(+), 8 deletions(-)
+
+Wang Yuan in commit 2ecb28b68:
+ Remove temporary aof and rdb files in a background thread (#7905)
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+guybe7 in commit 7bc605e6b:
+ Minor improvements to module blocked on keys (#7903)
+ 3 files changed, 15 insertions(+), 9 deletions(-)
+
+Andreas Lind in commit 1b484608d:
+ Support redis-cli -u rediss://... (#7900)
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+Yossi Gottlieb in commit 95095d680:
+ Modules: fix RM_GetCommandKeys API. (#7901)
+ 3 files changed, 4 insertions(+), 7 deletions(-)
+
+Meir Shpilraien (Spielrein) in commit cd3ae2f2c:
+ Add Module API for version and compatibility checks (#7865)
+ 9 files changed, 180 insertions(+), 3 deletions(-)
+
+Yossi Gottlieb in commit 1d723f734:
+ Module API: Add RM_GetClientCertificate(). (#7866)
+ 6 files changed, 88 insertions(+)
+
+Yossi Gottlieb in commit d72172752:
+ Modules: Add RM_GetDetachedThreadSafeContext(). (#7886)
+ 4 files changed, 52 insertions(+), 2 deletions(-)
+
+Yossi Gottlieb in commit e4f9aff19:
+ Modules: add RM_GetCommandKeys().
+ 6 files changed, 238 insertions(+), 1 deletion(-)
+
+Yossi Gottlieb in commit 6682b913e:
+ Introduce getKeysResult for getKeysFromCommand.
+ 7 files changed, 170 insertions(+), 121 deletions(-)
+
+Madelyn Olson in commit 9db65919c:
+ Fixed excessive categories being displayed from acls (#7889)
+ 2 files changed, 29 insertions(+), 2 deletions(-)
+
+Oran Agra in commit f34c50cf6:
+ Add some additional signal info to the crash log (#7891)
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+Oran Agra in commit 300bb4701:
+ Allow blocked XREAD on a cluster replica (#7881)
+ 3 files changed, 43 insertions(+)
+
+Oran Agra in commit bc5cf0f1a:
+ memory reporting of clients argv (#7874)
+ 5 files changed, 55 insertions(+), 5 deletions(-)
+
+DvirDukhan in commit 13d2e6a57:
+ redis-cli add control on raw format line delimiter (#7841)
+ 1 file changed, 8 insertions(+), 6 deletions(-)
+
+Oran Agra in commit d54e25620:
+ Include internal sds fragmentation in MEMORY reporting (#7864)
+ 2 files changed, 7 insertions(+), 7 deletions(-)
+
+Oran Agra in commit ac2c2b74e:
+ Fix crash in script timeout during AOF loading (#7870)
+ 2 files changed, 47 insertions(+), 4 deletions(-)
+
+Rafi Einstein in commit 00d2082e7:
+ Makefile: enable program suffixes via PROG_SUFFIX (#7868)
+ 2 files changed, 10 insertions(+), 6 deletions(-)
+
+nitaicaro in commit d2c2c26e7:
+ Fixed Tracking test “The other connection is able to get invalidations” (#7871)
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+Yossi Gottlieb in commit 2c172556f:
+ Modules: expose real client on conn events.
+ 1 file changed, 11 insertions(+), 2 deletions(-)
+
+Yossi Gottlieb in commit 2972d0c1f:
+ Module API: Fail ineffective auth calls.
+ 1 file changed, 5 insertions(+)
+
+Yossi Gottlieb in commit aeb2a3b6a:
+ TLS: Do not require CA config if not used. (#7862)
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+Oran Agra in commit d8e64aeb8:
+ warning: comparison between signed and unsigned integer in 32bit build (#7838)
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+David CARLIER in commit 151209982:
+ Add support for Haiku OS (#7435)
+ 3 files changed, 16 insertions(+)
+
+Gavrie Philipson in commit b1d3e169f:
+ Fix typo in module API docs (#7861)
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+David CARLIER in commit 08e3b8d13:
+ getting rss size implementation for netbsd (#7293)
+ 1 file changed, 20 insertions(+)
+
+Oran Agra in commit 0377a889b:
+ Fix new obuf-limits tests to work with TLS (#7848)
+ 2 files changed, 29 insertions(+), 13 deletions(-)
+
+caozb in commit a057ad9b1:
+ ignore slaveof no one in redis.conf (#7842)
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+Wang Yuan in commit 87ecee645:
+ Don't support Gopher if enable io threads to read queries (#7851)
+ 2 files changed, 8 insertions(+), 5 deletions(-)
+
+Wang Yuan in commit b92902236:
+ Set 'loading' and 'shutdown_asap' to volatile sig_atomic_t type (#7845)
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Uri Shachar in commit ee0875a02:
+ Fix config rewrite file handling to make it really atomic (#7824)
+ 1 file changed, 49 insertions(+), 47 deletions(-)
+
+WuYunlong in commit d577519e1:
+ Add fsync to readSyncBulkPayload(). (#7839)
+ 1 file changed, 11 insertions(+)
+
+Wen Hui in commit 104e0ea3e:
+ rdb.c: handle fclose error case differently to avoid double fclose (#7307)
+ 1 file changed, 7 insertions(+), 6 deletions(-)
+
+Wang Yuan in commit 0eb015ac6:
+ Don't write replies if close the client ASAP (#7202)
+ 7 files changed, 144 insertions(+), 2 deletions(-)
+
+Guy Korland in commit 08a03e32c:
+ Fix RedisModule_HashGet examples (#6697)
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+Oran Agra in commit 09551645d:
+ fix recently broken TLS build error, and add coverage for CI (#7833)
+ 2 files changed, 4 insertions(+), 3 deletions(-)
+
+David CARLIER in commit c545ba5d0:
+ Further NetBSD update and build fixes. (#7831)
+ 3 files changed, 72 insertions(+), 3 deletions(-)
+
+WuYunlong in commit ec9050053:
+ Fix redundancy use of semicolon in do-while macros in ziplist.c. (#7832)
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+yixiang in commit 27a4d1314:
+ Fix connGetSocketError usage (#7811)
+ 2 files changed, 6 insertions(+), 4 deletions(-)
+
+Oran Agra in commit 30795dcae:
+ RM_GetContextFlags - document missing flags (#7821)
+ 1 file changed, 6 insertions(+)
+
+Yossi Gottlieb in commit 14a12849f:
+ Fix occasional hangs on replication reconnection. (#7830)
+ 2 files changed, 14 insertions(+), 3 deletions(-)
+
+Ariel Shtul in commit d5a1b06dc:
+ Fix redis-check-rdb support for modules aux data (#7826)
+ 3 files changed, 21 insertions(+), 1 deletion(-)
+
+Wen Hui in commit 39f793693:
+ refactor rewriteStreamObject code for adding missing streamIteratorStop call (#7829)
+ 1 file changed, 36 insertions(+), 18 deletions(-)
+
+WuYunlong in commit faad29bfb:
+ Make IO threads killable so that they can be canceled at any time.
+ 1 file changed, 1 insertion(+)
+
+WuYunlong in commit b3f1b5830:
+ Make main thread killable so that it can be canceled at any time. Refine comment of makeThreadKillable().
+ 3 files changed, 11 insertions(+), 4 deletions(-)
+
+Oran Agra in commit 0f43d1f55:
+ RM_GetContextFlags provides indication that we're in a fork child (#7783)
+ 8 files changed, 28 insertions(+), 18 deletions(-)
+
+Wen Hui in commit a55ea9cdf:
+ Add Swapdb Module Event (#7804)
+ 5 files changed, 52 insertions(+)
+
+Daniel Dai in commit 1d8f72bef:
+ fix make warnings in debug.c MacOS (#7805)
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+David CARLIER in commit 556953d93:
+ debug.c: NetBSD build warning fix. (#7810)
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+Wang Yuan in commit d02435b66:
+ Remove tmp rdb file in background thread (#7762)
+ 6 files changed, 82 insertions(+), 8 deletions(-)
+
+Oran Agra in commit 1bd7bfdc0:
+ Add printf attribute and fix warnings and a minor bug (#7803)
+ 2 files changed, 12 insertions(+), 4 deletions(-)
+
+WuYunlong in commit d25147b4c:
+ bio: doFastMemoryTest should try to kill io threads as well.
+ 3 files changed, 19 insertions(+)
+
+WuYunlong in commit 4489ba081:
+ bio: fix doFastMemoryTest.
+ 4 files changed, 25 insertions(+), 3 deletions(-)
+
+Wen Hui in commit cf85def67:
+ correct OBJECT ENCODING response for stream type (#7797)
+ 1 file changed, 1 insertion(+)
+
+WuYunlong in commit cf5bcf892:
+ Clarify help text of tcl scripts. (#7798)
+ 1 file changed, 1 insertion(+)
+
+Mykhailo Pylyp in commit f72665c65:
+ Recalculate hardcoded variables from $::instances_count in sentinel tests (#7561)
+ 3 files changed, 15 insertions(+), 13 deletions(-)
+
+Oran Agra in commit c67b19e7a:
+ Fix failing valgrind installation in github actions (#7792)
+ 1 file changed, 1 insertion(+)
+
+Oran Agra in commit 92763fd2a:
+ fix broken PEXPIREAT test (#7791)
+ 1 file changed, 10 insertions(+), 6 deletions(-)
+
+Wang Yuan in commit f5b4c0ccb:
+ Remove dead global variable 'lru_clock' (#7782)
+ 1 file changed, 1 deletion(-)
+
+Oran Agra in commit 82d431fd6:
+ Squash merging 125 typo/grammar/comment/doc PRs (#7773)
+ 80 files changed, 436 insertions(+), 416 deletions(-)
+
+================================================================================
 Redis 6.0.8     Released Wed Sep 09 23:34:17 IDT 2020
 ================================================================================
 
