@@ -77,6 +77,9 @@ uint64_t clusterGetMaxEpoch(void);
 int clusterBumpConfigEpochWithoutConsensus(void);
 void moduleCallClusterReceivers(const char *sender_id, uint64_t module_id, uint8_t type, const unsigned char *payload, uint32_t len);
 
+#define RCVBUF_INIT_LEN 1024
+#define RCVBUF_MAX_PREALLOC (1<<20) /* 1MB */
+
 /* -----------------------------------------------------------------------------
  * Initialization
  * -------------------------------------------------------------------------- */
@@ -613,7 +616,8 @@ clusterLink *createClusterLink(clusterNode *node) {
     clusterLink *link = zmalloc(sizeof(*link));
     link->ctime = mstime();
     link->sndbuf = sdsempty();
-    link->rcvbuf = sdsempty();
+    link->rcvbuf = zmalloc(link->rcvbuf_alloc = RCVBUF_INIT_LEN);
+    link->rcvbuf_len = 0;
     link->node = node;
     link->conn = NULL;
     return link;
@@ -628,7 +632,7 @@ void freeClusterLink(clusterLink *link) {
         link->conn = NULL;
     }
     sdsfree(link->sndbuf);
-    sdsfree(link->rcvbuf);
+    zfree(link->rcvbuf);
     if (link->node)
         link->node->link = NULL;
     zfree(link);
@@ -1728,7 +1732,7 @@ int clusterProcessPacket(clusterLink *link) {
 
     /* Perform sanity checks */
     if (totlen < 16) return 1; /* At least signature, version, totlen, count. */
-    if (totlen > sdslen(link->rcvbuf)) return 1;
+    if (totlen > link->rcvbuf_len) return 1;
 
     if (ntohs(hdr->ver) != CLUSTER_PROTO_VER) {
         /* Can't handle messages of different versions. */
@@ -2282,7 +2286,7 @@ void clusterReadHandler(connection *conn) {
     unsigned int readlen, rcvbuflen;
 
     while(1) { /* Read as long as there is data to read. */
-        rcvbuflen = sdslen(link->rcvbuf);
+        rcvbuflen = link->rcvbuf_len;
         if (rcvbuflen < 8) {
             /* First, obtain the first 8 bytes to get the full message
              * length. */
@@ -2318,7 +2322,15 @@ void clusterReadHandler(connection *conn) {
             return;
         } else {
             /* Read data and recast the pointer to the new buffer. */
-            link->rcvbuf = sdscatlen(link->rcvbuf,buf,nread);
+            size_t unused = link->rcvbuf_alloc - link->rcvbuf_len;
+            if ((size_t)nread > unused) {
+                size_t required = link->rcvbuf_len + nread;
+                /* If less than 1mb, grow to twice the needed size, if larger grow by 1mb. */
+                link->rcvbuf_alloc = required < RCVBUF_MAX_PREALLOC ? required * 2: required + RCVBUF_MAX_PREALLOC;
+                link->rcvbuf = zrealloc(link->rcvbuf, link->rcvbuf_alloc);
+            }
+            memcpy(link->rcvbuf + link->rcvbuf_len, buf, nread);
+            link->rcvbuf_len += nread;
             hdr = (clusterMsg*) link->rcvbuf;
             rcvbuflen += nread;
         }
@@ -2326,8 +2338,11 @@ void clusterReadHandler(connection *conn) {
         /* Total length obtained? Process this packet. */
         if (rcvbuflen >= 8 && rcvbuflen == ntohl(hdr->totlen)) {
             if (clusterProcessPacket(link)) {
-                sdsfree(link->rcvbuf);
-                link->rcvbuf = sdsempty();
+                if (link->rcvbuf_alloc > RCVBUF_INIT_LEN) {
+                    zfree(link->rcvbuf);
+                    link->rcvbuf = zmalloc(link->rcvbuf_alloc = RCVBUF_INIT_LEN);
+                }
+                link->rcvbuf_len = 0;
             } else {
                 return; /* Link no longer valid. */
             }
