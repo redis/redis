@@ -46,13 +46,19 @@
 #include <sdscompat.h> /* Use hiredis' sds compat header that maps sds calls to their hi_ variants */
 #include <sds.h> /* Use hiredis sds. */
 #include "ae.h"
-#include "hiredis.h"
+#include <hiredis.h>
+#ifdef USE_OPENSSL
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#include <hiredis_ssl.h>
+#endif
 #include "adlist.h"
 #include "dict.h"
 #include "zmalloc.h"
 #include "atomicvar.h"
 #include "crc16_slottable.h"
 #include "hdr_histogram.h"
+#include "cli_common.h"
 
 #define UNUSED(V) ((void) V)
 #define RANDPTR_INITIAL_SIZE 8
@@ -76,6 +82,8 @@ static struct config {
     const char *hostip;
     int hostport;
     const char *hostsocket;
+    int tls;
+    struct cliSSLconfig sslconfig;
     int numclients;
     redisAtomic int liveclients;
     int requests;
@@ -280,6 +288,13 @@ static redisContext *getRedisContext(const char *ip, int port,
             fprintf(stderr,"%s: %s\n",hostsocket,err);
         goto cleanup;
     }
+    if (config.tls==1) {
+        const char *err = NULL;
+        if (cliSecureConnection(ctx, config.sslconfig, &err) == REDIS_ERR && err) {
+            fprintf(stderr, "Could not negotiate a TLS connection: %s\n", err);
+            goto cleanup;
+        }
+    }
     if (config.auth == NULL)
         return ctx;
     if (config.user == NULL)
@@ -307,6 +322,8 @@ cleanup:
     redisFree(ctx);
     return NULL;
 }
+
+
 
 static redisConfig *getRedisConfig(const char *ip, int port,
                                    const char *hostsocket)
@@ -606,19 +623,26 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         c->start = ustime();
         c->latency = -1;
     }
-    if (sdslen(c->obuf) > c->written) {
+    const ssize_t buflen = sdslen(c->obuf);
+    const ssize_t writeLen = buflen-c->written;
+    if (writeLen > 0) {
         void *ptr = c->obuf+c->written;
-        ssize_t nwritten = write(c->context->fd,ptr,sdslen(c->obuf)-c->written);
-        if (nwritten == -1) {
-            if (errno != EPIPE)
-                fprintf(stderr, "Writing to socket: %s\n", strerror(errno));
-            freeClient(c);
-            return;
-        }
-        c->written += nwritten;
-        if (sdslen(c->obuf) == c->written) {
-            aeDeleteFileEvent(el,c->context->fd,AE_WRITABLE);
-            aeCreateFileEvent(el,c->context->fd,AE_READABLE,readHandler,c);
+        while(1) {
+            /* Optimistically try to write before checking if the file descriptor
+             * is actually writable. At worst we get EAGAIN. */
+            const ssize_t nwritten = cliWriteConn(c->context,ptr,writeLen);
+            if (nwritten != writeLen) {
+                if (nwritten == -1 && errno != EAGAIN) {
+                    if (errno != EPIPE)
+                        fprintf(stderr, "Error writing to the server: %s\n", strerror(errno));
+                    freeClient(c);
+                    return;
+                }
+            } else {
+                aeDeleteFileEvent(el,c->context->fd,AE_WRITABLE);
+                aeCreateFileEvent(el,c->context->fd,AE_READABLE,readHandler,c);
+                return;
+            }
         }
     }
 }
@@ -679,6 +703,13 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
         else
             fprintf(stderr,"%s: %s\n",config.hostsocket,c->context->errstr);
         exit(1);
+    }
+    if (config.tls==1) {
+        const char *err = NULL;
+        if (cliSecureConnection(c->context, config.sslconfig, &err) == REDIS_ERR && err) {
+            fprintf(stderr, "Could not negotiate a TLS connection: %s\n", err);
+            exit(1);
+        }
     }
     c->thread_id = thread_id;
     /* Suppress hiredis cleanup of unused buffers for max speed. */
@@ -1471,6 +1502,25 @@ int parseOptions(int argc, const char **argv) {
         } else if (!strcmp(argv[i],"--help")) {
             exit_status = 0;
             goto usage;
+        #ifdef USE_OPENSSL
+        } else if (!strcmp(argv[i],"--tls")) {
+            config.tls = 1;
+        } else if (!strcmp(argv[i],"--sni")) {
+            if (lastarg) goto invalid;
+            config.sslconfig.sni = strdup(argv[++i]);
+        } else if (!strcmp(argv[i],"--cacertdir")) {
+            if (lastarg) goto invalid;
+            config.sslconfig.cacertdir = strdup(argv[++i]);
+        } else if (!strcmp(argv[i],"--cacert")) {
+            if (lastarg) goto invalid;
+            config.sslconfig.cacert = strdup(argv[++i]);
+        } else if (!strcmp(argv[i],"--cert")) {
+            if (lastarg) goto invalid;
+            config.sslconfig.cert = strdup(argv[++i]);
+        } else if (!strcmp(argv[i],"--key")) {
+            if (lastarg) goto invalid;
+            config.sslconfig.key = strdup(argv[++i]);
+        #endif
         } else {
             /* Assume the user meant to provide an option when the arg starts
              * with a dash. We're done otherwise and should use the remainder
@@ -1518,6 +1568,16 @@ usage:
 " -t <tests>         Only run the comma separated list of tests. The test\n"
 "                    names are the same as the ones produced as output.\n"
 " -I                 Idle mode. Just open N idle connections and wait.\n"
+#ifdef USE_OPENSSL
+" --tls              Establish a secure TLS connection.\n"
+" --sni <host>       Server name indication for TLS.\n"
+" --cacert <file>    CA Certificate file to verify with.\n"
+" --cacertdir <dir>  Directory where trusted CA certificates are stored.\n"
+"                    If neither cacert nor cacertdir are specified, the default\n"
+"                    system-wide trusted root certs configuration will apply.\n"
+" --cert <file>      Client certificate to authenticate with.\n"
+" --key <file>       Private key file to authenticate with.\n"
+#endif
 " --help             Output this help and exit.\n"
 " --version          Output version and exit.\n\n"
 "Examples:\n\n"
@@ -1641,6 +1701,12 @@ int main(int argc, const char **argv) {
     argv += i;
 
     tag = "";
+
+#ifdef USE_OPENSSL
+    if (config.tls) {
+        cliSecureInit();
+    }
+#endif
 
     if (config.cluster_mode) {
         // We only include the slot placeholder {tag} if cluster mode is enabled
