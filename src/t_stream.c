@@ -2048,14 +2048,8 @@ void xpendingCommand(client *c) {
     long long count;
     long long minidle = 0;
 
-    /* Must contain at least key and group. */
-    if (c->argc < 3) {
-        addReply(c,shared.syntaxerr);
-        return;
-    }
-
     /* Start and stop, and the consumer, can be omitted. Also the IDLE modifier. */
-    if (c->argc < 6 || c->argc > 9) {
+    if (c->argc != 3 && (c->argc < 6 || c->argc > 9)) {
         addReply(c,shared.syntaxerr);
         return;
     }

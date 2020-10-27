@@ -70,7 +70,13 @@ start_server {
         assert {[llength $pending] == 2}
     }
 
+    test {XPENDING only group} {
+        set pending [r XPENDING mystream mygroup]
+        assert {[llength $pending] == 4}
+    }
+
     test {XPENDING with IDLE} {
+        after 20
         set pending [r XPENDING mystream mygroup - + 10 client-1 IDLE 99999999]
         assert {[llength $pending] == 0}
         set pending [r XPENDING mystream mygroup - + 10 client-1 IDLE 1]
