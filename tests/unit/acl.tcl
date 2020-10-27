@@ -138,15 +138,21 @@ start_server {tags {"acl"}} {
     # A regression test make sure that as long as there is a simple
     # category defining the commands, that it will be used as is.
     test {ACL GETUSER provides reasonable results} {
-        # Test for future commands where allowed
-        r ACL setuser additive reset +@all -@write
-        set cmdstr [dict get [r ACL getuser additive] commands]
-        assert_match {+@all -@write} $cmdstr
+        set categories [r ACL CAT]
 
-        # Test for future commands are disallowed
-        r ACL setuser subtractive reset -@all +@read
-        set cmdstr [dict get [r ACL getuser subtractive] commands]
-        assert_match {-@all +@read} $cmdstr
+        # Test that adding each single category will
+        # result in just that category with both +@all and -@all
+        foreach category $categories {
+            # Test for future commands where allowed
+            r ACL setuser additive reset +@all "-@$category"
+            set cmdstr [dict get [r ACL getuser additive] commands]
+            assert_equal "+@all -@$category" $cmdstr
+
+            # Test for future commands where disallowed
+            r ACL setuser restrictive reset -@all "+@$category"
+            set cmdstr [dict get [r ACL getuser restrictive] commands]
+            assert_equal "-@all +@$category" $cmdstr
+        }
     }
 
     test {ACL #5998 regression: memory leaks adding / removing subcommands} {
