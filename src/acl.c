@@ -488,6 +488,12 @@ sds ACLDescribeUserCommandRules(user *u) {
      * already applied. */
     user tu = {0};
     user *tempuser = &tu;
+    
+    /* Keep track of the categories that have been applied, to prevent
+     * applying them twice.  */
+    char applied[sizeof(ACLCommandCategories)/sizeof(ACLCommandCategories[0])];
+    memset(applied, 0, sizeof(applied));
+
     memcpy(tempuser->allowed_commands,
         u->allowed_commands, 
         sizeof(u->allowed_commands));
@@ -495,9 +501,10 @@ sds ACLDescribeUserCommandRules(user *u) {
         int best = -1;
         unsigned long mindiff = INT_MAX, maxsame = 0;
         for (int j = 0; ACLCommandCategories[j].flag != 0; j++) {
+            if (applied[j]) continue;
+
             unsigned long on, off, diff, same;
             ACLCountCategoryBitsForUser(tempuser,&on,&off,ACLCommandCategories[j].name);
-
             /* Check if the current category is the best this loop:
              * * It has more commands in common with the user than commands
              *   that are different.
@@ -509,7 +516,8 @@ sds ACLDescribeUserCommandRules(user *u) {
             diff = additive ? off : on;
             same = additive ? on : off;
             if (same > diff && 
-                    ((diff < mindiff) || (diff == mindiff && same > maxsame))) {
+                ((diff < mindiff) || (diff == mindiff && same > maxsame)))
+            {
                 best = j;
                 mindiff = diff;
                 maxsame = same;
@@ -531,8 +539,9 @@ sds ACLDescribeUserCommandRules(user *u) {
         rules = sdscatlen(rules," ",1);
         sdsfree(op);
         sdsfree(invop);
-    }
 
+        applied[best] = 1;
+    }
 
     /* Fix the final ACLs with single commands differences. */
     dictIterator *di = dictGetIterator(server.orig_commands);
