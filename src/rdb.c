@@ -43,7 +43,7 @@
 #include <sys/stat.h>
 #include <sys/param.h>
 
-/* This macro is called when the internal RDB stracture is corrupt */
+/* This macro is called when the internal RDB structure is corrupt */
 #define rdbExitReportCorruptRDB(...) rdbReportError(1, __LINE__,__VA_ARGS__)
 /* This macro is called when RDB read failed (possibly a short read) */
 #define rdbReportReadError(...) rdbReportError(0, __LINE__,__VA_ARGS__)
