@@ -328,7 +328,6 @@ robj *dupZsetObject(robj *o) {
         eptr = ziplistIndex(zl, 2 * start);
         sptr = ziplistNext(zl, eptr);
 
-
         /* Extract score-element pair from an original zset object. 
          * add a score-element pair to a new zset object which encoding is ZIPLIST.*/
         while (llen--) {
@@ -346,7 +345,6 @@ robj *dupZsetObject(robj *o) {
             }
             zzlNext(zl, &eptr, &sptr);
         }
-
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = o->ptr;
         zskiplist *zsl = zs->zsl;

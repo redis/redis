@@ -1075,11 +1075,7 @@ void copyCommand(client *c) {
     redisDb *src, *dst;
     int srcid;
     long long dbid, expire;
-    int j, replace = 0;
-    if (server.cluster_enabled) {
-        addReplyError(c,"COPY is not allowed in cluster mode");
-        return;
-    }
+    int j, replace = 0, delete = 0;
     
     if (c->argc >= 6){
         addReply(c,shared.syntaxerr);
@@ -1092,8 +1088,6 @@ void copyCommand(client *c) {
     src = c->db;
     srcid = c->db->id;
     dbid = c->db->id;
-
-    /* Parse the REPLACE option and targetDB option. */
     for (j = 3; j < c->argc; j++) {
         if (!strcasecmp(c->argv[j]->ptr,"replace")) {
             replace = 1;
@@ -1107,6 +1101,10 @@ void copyCommand(client *c) {
     }
     dst = c->db;
     selectDb(c,srcid); /* Back to the source DB */
+    if ((server.cluster_enabled == 1) && (srcid != 0 || dbid != 0)) {
+        addReplyError(c,"Copying to another database is not allowed in cluster mode");
+        return;
+    }
 
     /* If the user select the same DB as
      * the source DB and using newkey as the same key
@@ -1130,7 +1128,7 @@ void copyCommand(client *c) {
      * If REPLACE option is selected, delete newkey from targetDB. */
     if (lookupKeyWrite(dst,newkey) != NULL) {
         if (replace) {
-            dbDelete(dst,newkey);
+            delete = 1;
         } else {
             addReply(c,shared.czero);
             return;
@@ -1153,6 +1151,10 @@ void copyCommand(client *c) {
             addReplyError(c, "unknown type object");
             return;
         };
+    }
+
+    if (delete) {
+        dbDelete(dst,newkey);
     }
 
     dbAdd(dst,newkey,newobj);
