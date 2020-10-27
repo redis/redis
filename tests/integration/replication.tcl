@@ -725,7 +725,6 @@ test "diskless replication child being killed is collected" {
 
             # simulate the OOM killer or anyone else kills the child
             set fork_child_pid [get_child_pid -1]
-            puts "fork child is $fork_child_pid"
             exec kill -9 $fork_child_pid
 
             # wait for the parent to notice the child have exited
@@ -812,7 +811,9 @@ test {Kill rdb child process if its dumping RDB is not useful} {
 
                 # Wait for starting child
                 wait_for_condition 50 100 {
-                    [s 0 rdb_bgsave_in_progress] == 1
+                    ([s 0 rdb_bgsave_in_progress] == 1) &&
+                    ([string match "*wait_bgsave*" [s 0 slave0]]) &&
+                    ([string match "*wait_bgsave*" [s 0 slave1]])
                 } else {
                     fail "rdb child didn't start"
                 }
@@ -837,7 +838,9 @@ test {Kill rdb child process if its dumping RDB is not useful} {
                 $slave1 slaveof $master_host $master_port
                 $slave2 slaveof $master_host $master_port
                 wait_for_condition 50 100 {
-                    [s 0 rdb_bgsave_in_progress] == 1
+                    ([s 0 rdb_bgsave_in_progress] == 1) &&
+                    ([string match "*wait_bgsave*" [s 0 slave0]]) &&
+                    ([string match "*wait_bgsave*" [s 0 slave1]])
                 } else {
                     fail "rdb child didn't start"
                 }
