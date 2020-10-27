@@ -29,6 +29,7 @@
  */
 
 #include "fmacros.h"
+#include "version.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -179,6 +180,8 @@ typedef struct redisConfig {
 } redisConfig;
 
 /* Prototypes */
+char *redisGitSHA1(void);
+char *redisGitDirty(void);
 static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 static void createMissingClients(client c);
 static benchmarkThread *createBenchmarkThread(int index);
@@ -195,6 +198,20 @@ static int fetchClusterSlotsConfiguration(client c);
 static void updateClusterSlotsConfiguration();
 int showThroughput(struct aeEventLoop *eventLoop, long long id,
                    void *clientData);
+
+static sds benchmarkVersion(void) {
+    sds version;
+    version = sdscatprintf(sdsempty(), "%s", REDIS_VERSION);
+
+    /* Add git commit and working tree status when available */
+    if (strtoll(redisGitSHA1(),NULL,16)) {
+        version = sdscatprintf(version, " (git:%s", redisGitSHA1());
+        if (strtoll(redisGitDirty(),NULL,10))
+            version = sdscatprintf(version, "-dirty");
+        version = sdscat(version, ")");
+    }
+    return version;
+}
 
 /* Dict callbacks */
 static uint64_t dictSdsHash(const void *key);
@@ -577,9 +594,8 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (c->written == 0) {
         /* Enforce upper bound to number of requests. */
         int requests_issued = 0;
-        atomicGetIncr(config.requests_issued, requests_issued, 1);
+        atomicGetIncr(config.requests_issued, requests_issued, config.pipeline);
         if (requests_issued >= config.requests) {
-            freeClient(c);
             return;
         }
 
@@ -1364,6 +1380,11 @@ int parseOptions(int argc, const char **argv) {
         if (!strcmp(argv[i],"-c")) {
             if (lastarg) goto invalid;
             config.numclients = atoi(argv[++i]);
+        } else if (!strcmp(argv[i],"-v") || !strcmp(argv[i], "--version")) {
+            sds version = benchmarkVersion();
+            printf("redis-benchmark %s\n", version);
+            sdsfree(version);
+            exit(0);
         } else if (!strcmp(argv[i],"-n")) {
             if (lastarg) goto invalid;
             config.requests = atoi(argv[++i]);
@@ -1496,7 +1517,9 @@ usage:
 " -l                 Loop. Run the tests forever\n"
 " -t <tests>         Only run the comma separated list of tests. The test\n"
 "                    names are the same as the ones produced as output.\n"
-" -I                 Idle mode. Just open N idle connections and wait.\n\n"
+" -I                 Idle mode. Just open N idle connections and wait.\n"
+" --help             Output this help and exit.\n"
+" --version          Output version and exit.\n\n"
 "Examples:\n\n"
 " Run the benchmark with the default configuration against 127.0.0.1:6379:\n"
 "   $ redis-benchmark\n\n"
