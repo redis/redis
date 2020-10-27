@@ -38,7 +38,9 @@ typedef struct clusterLink {
     mstime_t ctime;             /* Link creation time */
     connection *conn;           /* Connection to remote node */
     sds sndbuf;                 /* Packet send buffer */
-    sds rcvbuf;                 /* Packet reception buffer */
+    char *rcvbuf;               /* Packet reception buffer */
+    size_t rcvbuf_len;          /* Used size of rcvbuf */
+    size_t rcvbuf_alloc;        /* Used size of rcvbuf */
     struct clusterNode *node;   /* Node related to this link if any, or NULL */
 } clusterLink;
 
