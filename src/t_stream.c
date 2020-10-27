@@ -2029,28 +2029,54 @@ cleanup:
     if (ids != static_ids) zfree(ids);
 }
 
-/* XPENDING <key> <group> [<start> <stop> <count> [<consumer>]]
+/* XPENDING <key> <group> [<start> <stop> <count> [<consumer>] [IDLE <idle>]]
  *
  * If start and stop are omitted, the command just outputs information about
  * the amount of pending messages for the key/group pair, together with
  * the minimum and maximum ID of pending messages.
  *
  * If start and stop are provided instead, the pending messages are returned
- * with informations about the current owner, number of deliveries and last
+ * with information about the current owner, number of deliveries and last
  * delivery time and so forth. */
 void xpendingCommand(client *c) {
     int justinfo = c->argc == 3; /* Without the range just outputs general
                                     informations about the PEL. */
     robj *key = c->argv[1];
     robj *groupname = c->argv[2];
-    robj *consumername = (c->argc == 7) ? c->argv[6] : NULL;
+    robj *consumername = NULL;
     streamID startid, endid;
     long long count;
+    long long minidle = 0;
 
-    /* Start and stop, and the consumer, can be omitted. */
-    if (c->argc != 3 && c->argc != 6 && c->argc != 7) {
+    /* Must contain at least key and group. */
+    if (c->argc < 3) {
         addReply(c,shared.syntaxerr);
         return;
+    }
+
+    /* Start and stop, and the consumer, can be omitted. Also the IDLE modifier. */
+    if (c->argc < 6 || c->argc > 9) {
+        addReply(c,shared.syntaxerr);
+        return;
+    }
+
+    /* Find consumer name and idle time */
+    if (c->argc >= 7) {
+        if (c->argc == 7 || c->argc == 9) {
+            consumername = c->argv[6];
+        }
+        if (c->argc >= 8) {
+            /* Must contain IDLE */
+            int idlemodifieridx = c->argc == 9 ? 7 : 6;
+            robj *idlemodifier = c->argv[idlemodifieridx];
+            robj *idlevalue = c->argv[idlemodifieridx + 1];
+            if (strcasecmp(idlemodifier->ptr, "IDLE")) {
+                addReply(c,shared.syntaxerr);
+                return;
+            }
+            if (getLongLongFromObjectOrReply(c, idlevalue, &minidle, NULL) == C_ERR)
+                return;
+        }
     }
 
     /* Parse start/end/count arguments ASAP if needed, in order to report
@@ -2154,6 +2180,11 @@ void xpendingCommand(client *c) {
 
         while(count && raxNext(&ri) && memcmp(ri.key,endkey,ri.key_len) <= 0) {
             streamNACK *nack = ri.data;
+
+            if (minidle) {
+                mstime_t this_idle = now - nack->delivery_time;
+                if (this_idle < minidle) continue;
+            }
 
             arraylen++;
             count--;
@@ -2388,7 +2419,7 @@ void xclaimCommand(client *c) {
              *
              * Note that the nack could be created by FORCE, in this
              * case there was no pre-existing entry and minidle should
-             * be ignored, but in that case nick->consumer is NULL. */
+             * be ignored, but in that case nack->consumer is NULL. */
             if (nack->consumer && minidle) {
                 mstime_t this_idle = now - nack->delivery_time;
                 if (this_idle < minidle) continue;

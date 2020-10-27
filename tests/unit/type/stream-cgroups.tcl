@@ -70,6 +70,17 @@ start_server {
         assert {[llength $pending] == 2}
     }
 
+    test {XPENDING with IDLE} {
+        set pending [r XPENDING mystream mygroup - + 10 client-1 IDLE 99999999]
+        assert {[llength $pending] == 0}
+        set pending [r XPENDING mystream mygroup - + 10 client-1 IDLE 1]
+        assert {[llength $pending] == 2}
+        set pending [r XPENDING mystream mygroup - + 10 IDLE 99999999]
+        assert {[llength $pending] == 0}
+        set pending [r XPENDING mystream mygroup - + 10 IDLE 1]
+        assert {[llength $pending] == 4}
+    }
+
     test {XACK is able to remove items from the client/group PEL} {
         set pending [r XPENDING mystream mygroup - + 10 client-1]
         set id1 [lindex $pending 0 0]
