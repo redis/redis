@@ -70,6 +70,13 @@ start_server {tags {"repl"}} {
             }
         }
 
+        test {INCRBYFLOAT replication, should not remove expire} {
+            r set test 1 EX 100
+            r incrbyfloat test 0.1
+            after 1000
+            assert_equal [$A debug digest] [$B debug digest]
+        }
+
         test {GETSET replication} {
             $A config resetstat
             $A config set loglevel debug

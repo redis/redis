@@ -106,7 +106,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
 
 /* SET key value [NX] [XX] [KEEPTTL] [GET] [EX <seconds>] [PX <milliseconds>] */
 void setCommand(client *c) {
-    int j, get_index = -1;
+    int j;
     robj *expire = NULL;
     int unit = UNIT_SECONDS;
     int flags = OBJ_SET_NO_FLAGS;
@@ -130,7 +130,6 @@ void setCommand(client *c) {
                    (a[2] == 't' || a[2] == 'T') && a[3] == '\0' &&
                    !(flags & OBJ_SET_NX)) {
             flags |= OBJ_SET_GET;
-            get_index = j;
         } else if (!strcasecmp(c->argv[j]->ptr,"KEEPTTL") &&
                    !(flags & OBJ_SET_EX) && !(flags & OBJ_SET_PX))
         {
@@ -167,7 +166,12 @@ void setCommand(client *c) {
         int argc = 0;
         robj **argv = zmalloc((c->argc-1)*sizeof(robj*));
         for (j=0; j < c->argc; j++) {
-            if (j == get_index)
+            char *a = c->argv[j]->ptr;
+            /* Skip GET which may be repeated multiple times. */
+            if (j >= 3 &&
+                (a[0] == 'g' || a[0] == 'G') &&
+                (a[1] == 'e' || a[1] == 'E') &&
+                (a[2] == 't' || a[2] == 'T') && a[3] == '\0')
                 continue;
             argv[argc++] = c->argv[j];
             incrRefCount(c->argv[j]);
