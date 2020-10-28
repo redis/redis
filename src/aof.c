@@ -961,15 +961,25 @@ int rewriteListObject(rio *r, robj *key, robj *o) {
             if (count == 0) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                     AOF_REWRITE_ITEMS_PER_CMD : items;
-                if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
-                if (rioWriteBulkString(r,"RPUSH",5) == 0) return 0;
-                if (rioWriteBulkObject(r,key) == 0) return 0;
+                if (!rioWriteBulkCount(r,'*',2+cmd_items) ||
+                    !rioWriteBulkString(r,"RPUSH",5) ||
+                    !rioWriteBulkObject(r,key)) 
+                {
+                    quicklistReleaseIterator(li);
+                    return 0;
+                }
             }
 
             if (entry.value) {
-                if (rioWriteBulkString(r,(char*)entry.value,entry.sz) == 0) return 0;
+                if (!rioWriteBulkString(r,(char*)entry.value,entry.sz)) {
+                    quicklistReleaseIterator(li);
+                    return 0;
+                }
             } else {
-                if (rioWriteBulkLongLong(r,entry.longval) == 0) return 0;
+                if (!rioWriteBulkLongLong(r,entry.longval)) {
+                    quicklistReleaseIterator(li);
+                    return 0;
+                }
             }
             if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
             items--;
@@ -995,11 +1005,14 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                     AOF_REWRITE_ITEMS_PER_CMD : items;
 
-                if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
-                if (rioWriteBulkString(r,"SADD",4) == 0) return 0;
-                if (rioWriteBulkObject(r,key) == 0) return 0;
+                if (!rioWriteBulkCount(r,'*',2+cmd_items) ||
+                    !rioWriteBulkString(r,"SADD",4) ||
+                    !rioWriteBulkObject(r,key)) 
+                {
+                    return 0;
+                }
             }
-            if (rioWriteBulkLongLong(r,llval) == 0) return 0;
+            if (!rioWriteBulkLongLong(r,llval)) return 0;
             if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
             items--;
         }
@@ -1013,11 +1026,18 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                     AOF_REWRITE_ITEMS_PER_CMD : items;
 
-                if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
-                if (rioWriteBulkString(r,"SADD",4) == 0) return 0;
-                if (rioWriteBulkObject(r,key) == 0) return 0;
+                if (!rioWriteBulkCount(r,'*',2+cmd_items) ||
+                    !rioWriteBulkString(r,"SADD",4) ||
+                    !rioWriteBulkObject(r,key)) 
+                {
+                    dictReleaseIterator(di);
+                    return 0;
+                }
             }
-            if (rioWriteBulkString(r,ele,sdslen(ele)) == 0) return 0;
+            if (!rioWriteBulkString(r,ele,sdslen(ele))) {
+                dictReleaseIterator(di);
+                return 0;          
+            }
             if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
             items--;
         }
@@ -1054,15 +1074,18 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                     AOF_REWRITE_ITEMS_PER_CMD : items;
 
-                if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
-                if (rioWriteBulkString(r,"ZADD",4) == 0) return 0;
-                if (rioWriteBulkObject(r,key) == 0) return 0;
+                if (!rioWriteBulkCount(r,'*',2+cmd_items*2) ||
+                    !rioWriteBulkString(r,"ZADD",4) ||
+                    !rioWriteBulkObject(r,key)) 
+                {
+                    return 0;
+                }
             }
-            if (rioWriteBulkDouble(r,score) == 0) return 0;
+            if (!rioWriteBulkDouble(r,score)) return 0;
             if (vstr != NULL) {
-                if (rioWriteBulkString(r,(char*)vstr,vlen) == 0) return 0;
+                if (!rioWriteBulkString(r,(char*)vstr,vlen)) return 0;
             } else {
-                if (rioWriteBulkLongLong(r,vll) == 0) return 0;
+                if (!rioWriteBulkLongLong(r,vll)) return 0;
             }
             zzlNext(zl,&eptr,&sptr);
             if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
@@ -1081,12 +1104,20 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                     AOF_REWRITE_ITEMS_PER_CMD : items;
 
-                if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
-                if (rioWriteBulkString(r,"ZADD",4) == 0) return 0;
-                if (rioWriteBulkObject(r,key) == 0) return 0;
+                if (!rioWriteBulkCount(r,'*',2+cmd_items*2) ||
+                    !rioWriteBulkString(r,"ZADD",4) ||
+                    !rioWriteBulkObject(r,key)) 
+                {
+                    dictReleaseIterator(di);
+                    return 0;
+                }
             }
-            if (rioWriteBulkDouble(r,*score) == 0) return 0;
-            if (rioWriteBulkString(r,ele,sdslen(ele)) == 0) return 0;
+            if (!rioWriteBulkDouble(r,*score) ||
+                !rioWriteBulkString(r,ele,sdslen(ele)))
+            {
+                dictReleaseIterator(di);
+                return 0;
+            }
             if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
             items--;
         }
@@ -1135,13 +1166,21 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
             int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                 AOF_REWRITE_ITEMS_PER_CMD : items;
 
-            if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
-            if (rioWriteBulkString(r,"HMSET",5) == 0) return 0;
-            if (rioWriteBulkObject(r,key) == 0) return 0;
+            if (!rioWriteBulkCount(r,'*',2+cmd_items*2) ||
+                !rioWriteBulkString(r,"HMSET",5) ||
+                !rioWriteBulkObject(r,key)) 
+            {
+                hashTypeReleaseIterator(hi);
+                return 0;
+            }
         }
 
-        if (rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY) == 0) return 0;
-        if (rioWriteHashIteratorCursor(r, hi, OBJ_HASH_VALUE) == 0) return 0;
+        if (!rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY) ||
+            !rioWriteHashIteratorCursor(r, hi, OBJ_HASH_VALUE))
+        {
+            hashTypeReleaseIterator(hi);
+            return 0;           
+        }
         if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
         items--;
     }
