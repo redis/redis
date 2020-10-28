@@ -2277,10 +2277,12 @@ void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelel
                     cardinality--;
                 }
             }
+
+            /* Exit if result set is empty as any additional removal
+                * of elements will have no effect. */
+            if (cardinality == 0) break;
         }
 
-        /* Exit if result set is empty as any additional removal
-            * of elements will have no effect. */
         if (cardinality == 0) break;
     }
 
