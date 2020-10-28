@@ -1322,17 +1322,7 @@ struct commandHelp {
     "destination numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX]",
     "Add multiple sorted sets and store the resulting sorted set in a new key",
     4,
-    "2.0.0" },
-    { "ZDIFF",
-    "numkeys key [key ...] [WITHSCORES]",
-    "Subtract multiple sorted sets from the first set and return the resulting set elements",
-    4,
-    "6.2.0" },
-    { "ZDIFFSTORE",
-    "destination numkeys key [key ...]",
-    "Subtract multiple sorted sets from the first set and store the resulting sorted set in a new key",
-    4,
-    "6.2.0" }
+    "2.0.0" }
 };
 
 #endif
