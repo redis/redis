@@ -2162,6 +2162,10 @@ int zuiCompareByCardinality(const void *s1, const void *s2) {
     return 0;
 }
 
+int zuiCompareByRevCardinality(const void *s1, const void *s2) {
+    return zuiCompareByCardinality(s1, s2) * -1;
+}
+
 #define REDIS_AGGR_SUM 1
 #define REDIS_AGGR_MIN 2
 #define REDIS_AGGR_MAX 3
@@ -2189,6 +2193,11 @@ void zdiffAlgorithm1(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelel
     zsetopval zval;
     zskiplistNode *znode;
     sds tmp;
+
+    /* With algorithm 1 it is better to order the sets to subtract
+     * by decreasing size, so that we are more likely to find
+     * duplicated elements ASAP. */
+    qsort(src+1,setnum-1,sizeof(zsetopsrc),zuiCompareByRevCardinality);
 
     memset(&zval, 0, sizeof(zval));
     zuiInitIterator(&src[0]);
