@@ -105,7 +105,7 @@ void addReplyPubsubPatSubscribed(client *c, robj *pattern) {
 
 /* Send the pubsub pattern unsubscription notification to the client.
  * Pattern can be NULL: this is useful when the client sends a mass
- * pubsubscribe command but there are no pattern to unsubscribe from: we
+ * punsubscribe command but there are no pattern to unsubscribe from: we
  * still send a notification. */
 void addReplyPubsubPatUnsubscribed(client *c, robj *pattern) {
     if (c->resp == 2)
