@@ -2256,8 +2256,6 @@ void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelel
     zsetopval zval;
     zskiplistNode *znode;
     sds tmp;
-    zsetopsrc dst;
-    robj dstrobj;
     double score;
     dictEntry *de;
 
