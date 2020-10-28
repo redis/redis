@@ -487,6 +487,10 @@ static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backl
     hints.ai_family = af;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;    /* No effect if bindaddr != NULL */
+    if (bindaddr && !strcmp("*", bindaddr))
+        bindaddr = NULL;
+    if (af == AF_INET6 && bindaddr && !strcmp("::*", bindaddr))
+        bindaddr = NULL;
 
     if ((rv = getaddrinfo(bindaddr,_port,&hints,&servinfo)) != 0) {
         anetSetError(err, "%s", gai_strerror(rv));
