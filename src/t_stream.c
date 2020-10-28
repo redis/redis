@@ -2393,14 +2393,17 @@ void xclaimCommand(client *c) {
                 mstime_t this_idle = now - nack->delivery_time;
                 if (this_idle < minidle) continue;
             }
+            if (consumer == NULL)
+                consumer = streamLookupConsumer(group,c->argv[3]->ptr,SLC_NONE,NULL);
+            /* Nothing to do if current and claiming consumers are the same */
+            if (nack->consumer == consumer)
+                continue;
             /* Remove the entry from the old consumer.
              * Note that nack->consumer is NULL if we created the
              * NACK above because of the FORCE option. */
             if (nack->consumer)
                 raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
             /* Update the consumer and idle time. */
-            if (consumer == NULL)
-                consumer = streamLookupConsumer(group,c->argv[3]->ptr,SLC_NONE,NULL);
             nack->consumer = consumer;
             nack->delivery_time = deliverytime;
             /* Set the delivery attempts counter if given, otherwise
