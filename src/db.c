@@ -1691,7 +1691,7 @@ void slotToKeyFlush(void) {
            sizeof(server.cluster->slots_keys_count));
 }
 
-/* Pupulate the specified array of objects with keys in the specified slot.
+/* Populate the specified array of objects with keys in the specified slot.
  * New objects are returned to represent keys, it's up to the caller to
  * decrement the reference count to release the keys names. */
 unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count) {
