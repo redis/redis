@@ -2188,6 +2188,21 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
     }
 }
 
+int dictGetMaxElementLength(dict *d) {
+    dictIterator *di;
+    dictEntry *de;
+    size_t maxelelen = 0;
+
+    di = dictGetIterator(d);
+
+    while((de = dictNext(di)) != NULL) {
+        sds ele = dictGetKey(de);
+        if (sdslen(ele) > maxelelen) maxelelen = sdslen(ele);
+    }
+
+    return maxelelen;
+}
+
 void zdiffAlgorithm1(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen) {
     int j;
     zsetopval zval;
@@ -2286,23 +2301,12 @@ void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelel
         if (cardinality == 0) break;
     }
 
+    /* Redize dict if needed after removing multiple elements */
     if (htNeedsResize(dstzset->dict)) dictResize(dstzset->dict);
 
-    /* Now we need to iterate through the resulting zset to find maxelelen,
-     * the maximum element length */
-    dstrobj.ptr = dstzset;
-    dstrobj.encoding = OBJ_ENCODING_SKIPLIST;
-    dstrobj.type = OBJ_ZSET;
-    dst.subject = &dstrobj;
-    dst.encoding = OBJ_ENCODING_SKIPLIST;
-    dst.type = OBJ_ZSET;
-
-    memset(&zval, 0, sizeof(zval));
-    zuiInitIterator(&dst);
-    while (zuiNext(&dst,&zval)) {
-        tmp = zuiNewSdsFromValue(&zval);
-        if (sdslen(tmp) > *maxelelen) *maxelelen = sdslen(tmp);
-    }
+    /* Using this algorithm, we can't calculate the max element as we go,
+     * we have to iterate through all elements to find the max one after. */
+    *maxelelen = dictGetMaxElementLength(dstzset->dict);
 }
 
 int chooseDiffAlgorithm(zsetopsrc *src, long setnum) {
