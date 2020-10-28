@@ -120,5 +120,5 @@ void streamFreeNACK(streamNACK *na);
 void streamIncrID(streamID *id);
 void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds consumername);
 int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_id, streamID *use_id);
-robj *createObjectFromStreamID(streamID *id);
+
 #endif

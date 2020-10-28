@@ -1076,12 +1076,7 @@ void copyCommand(client *c) {
     int srcid;
     long long dbid, expire;
     int j, replace = 0, delete = 0;
-    
-    if (c->argc >= 6){
-        addReply(c,shared.syntaxerr);
-        return;
-    }
-    
+
     /* Obtain source and target DB pointers 
      * Default target DB is the same as the source DB 
      * Parse the REPLACE option and targetDB option. */
@@ -1089,18 +1084,26 @@ void copyCommand(client *c) {
     srcid = c->db->id;
     dbid = c->db->id;
     for (j = 3; j < c->argc; j++) {
+        int additional = c->argc - j - 1;
         if (!strcasecmp(c->argv[j]->ptr,"replace")) {
             replace = 1;
-        } else if (getLongLongFromObject(c->argv[j],&dbid) == C_ERR ||
-            dbid < INT_MIN || dbid > INT_MAX ||
-            selectDb(c,dbid) == C_ERR)
-        {
-            addReply(c,shared.outofrangeerr);
+        } else if (!strcasecmp(c->argv[j]->ptr, "db") && additional >= 1) {
+            if (getLongLongFromObject(c->argv[j+1], &dbid) == C_ERR ||
+                dbid < INT_MIN || dbid > INT_MAX ||
+                selectDb(c, dbid) == C_ERR)
+            {
+                addReplyErrorFormat(c, "-NODB No such number of db '%s' ",(char*)c->argv[j+1]->ptr);
+                return;
+            }
+            j++; /* Consume additional arg. */
+        } else {
+            addReply(c, shared.syntaxerr);
             return;
         }
     }
     dst = c->db;
     selectDb(c,srcid); /* Back to the source DB */
+
     if ((server.cluster_enabled == 1) && (srcid != 0 || dbid != 0)) {
         addReplyError(c,"Copying to another database is not allowed in cluster mode");
         return;
@@ -1117,7 +1120,7 @@ void copyCommand(client *c) {
     }
 
     /* Check if the element exists and get a reference */
-    o = lookupKeyWrite(c->db,key);
+    o = lookupKeyWrite(c->db, key);
     if (!o) {
         addReply(c,shared.czero);
         return;
@@ -1145,7 +1148,7 @@ void copyCommand(client *c) {
         case OBJ_HASH: newobj = dupHashObject(o); break;
         case OBJ_STREAM: newobj = dupStreamObject(o); break;
         case OBJ_MODULE:
-            addReplyError(c, "Copying　module type object is not supported ");
+            addReplyError(c, "Copying module type object is not supported");
             return;
         default: {
             addReplyError(c, "unknown type object");
