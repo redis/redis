@@ -158,9 +158,8 @@ NULL
     } else if ((c->argc == 2 || c->argc == 3) &&
                !strcasecmp(c->argv[1]->ptr,"get"))
     {
-        long count = 10, sent = 0;
+        long count = 10;
         listIter li;
-        void *totentries;
         listNode *ln;
         slowlogEntry *se;
 
@@ -168,8 +167,12 @@ NULL
             getLongFromObjectOrReply(c,c->argv[2],&count,NULL) != C_OK)
             return;
 
+        if (count < 0) count = 0;
+        if ((size_t)count > listLength(server.slowlog)) 
+            count = listLength(server.slowlog);
+
         listRewind(server.slowlog,&li);
-        totentries = addReplyDeferredLen(c);
+        addReplyArrayLen(c,count);
         while(count-- && (ln = listNext(&li))) {
             int j;
 
@@ -183,9 +186,7 @@ NULL
                 addReplyBulk(c,se->argv[j]);
             addReplyBulkCBuffer(c,se->peerid,sdslen(se->peerid));
             addReplyBulkCBuffer(c,se->cname,sdslen(se->cname));
-            sent++;
         }
-        setDeferredArrayLen(c,totentries,sent);
     } else {
         addReplySubcommandSyntaxError(c);
     }
