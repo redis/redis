@@ -97,14 +97,9 @@ void linkClient(client *c) {
     raxInsert(server.clients_index,(unsigned char*)&id,sizeof(id),c,NULL);
 }
 
-/* Initialize defaults that apply to newly created clients. This is also used
- * when resetting a client.
+/* Initialize client authentication state.
  */
-static void initClientDefaults(client *c) {
-    selectDb(c,0);
-    c->resp = 2;
-    c->flags = 0;
-
+static void clientSetDefaultAuth(client *c) {
     /* If the default user does not require authentication, the user is
      * directly authenticated. */
     c->user = DefaultUser;
@@ -128,10 +123,11 @@ client *createClient(connection *conn) {
         connSetPrivateData(conn, c);
     }
 
-    initClientDefaults(c);
+    selectDb(c,0);
     uint64_t client_id;
     atomicGetIncr(server.next_client_id, client_id, 1);
     c->id = client_id;
+    c->resp = 2;
     c->conn = conn;
     c->name = NULL;
     c->bufpos = 0;
@@ -147,7 +143,9 @@ client *createClient(connection *conn) {
     c->multibulklen = 0;
     c->bulklen = -1;
     c->sentlen = 0;
+    c->flags = 0;
     c->ctime = c->lastinteraction = server.unixtime;
+    clientSetDefaultAuth(c);
     c->replstate = REPL_STATE_NONE;
     c->repl_put_online_on_ack = 0;
     c->reploff = 0;
@@ -2264,22 +2262,30 @@ void resetCommand(client *c) {
         c->flags &= ~(CLIENT_MONITOR|CLIENT_SLAVE);
     }
 
-    if (c->flags & CLIENT_SLAVE) {
-        addReplyError(c,"cannot reset a replica");
+    if (c->flags & (CLIENT_SLAVE|CLIENT_MASTER|CLIENT_MODULE)) {
+        addReplyError(c,"can only reset normal client connections");
         return;
     }
 
     if (c->flags & CLIENT_TRACKING) disableTracking(c);
+    selectDb(c,0);
+    c->resp = 2;
 
-    initClientDefaults(c);
+    clientSetDefaultAuth(c);
     moduleNotifyUserChanged(c);
     discardTransaction(c);
 
     pubsubUnsubscribeAllChannels(c,0);
     pubsubUnsubscribeAllPatterns(c,0);
 
-    if (c->name) decrRefCount(c->name);
-    c->name = NULL;
+    if (c->name) {
+        decrRefCount(c->name);
+        c->name = NULL;
+    }
+
+    /* Selectively clear state flags not covered above */
+    c->flags &= ~(CLIENT_ASKING|CLIENT_READONLY|CLIENT_PUBSUB|
+            CLIENT_REPLY_OFF|CLIENT_REPLY_SKIP_NEXT);
 
     addReplyStatus(c,"RESET");
 }
