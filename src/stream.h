@@ -58,6 +58,7 @@ typedef struct streamCG {
                                as processed. The key of the radix tree is the
                                ID as a 64 bit big endian number, while the
                                associated value is a streamNACK structure.*/
+    rax *idle_pel;
     rax *consumers;         /* A radix tree representing the consumers by name
                                and their associated representation in the form
                                of streamConsumer structures. */
@@ -76,6 +77,7 @@ typedef struct streamConsumer {
                                    the same streamNACK structure referenced
                                    in the "pel" of the consumer group structure
                                    itself, so the value is shared. */
+    rax *idle_pel;
 } streamConsumer;
 
 /* Pending (yet not acknowledged) message in a consumer group. */

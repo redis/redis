@@ -173,6 +173,13 @@ void streamDecodeID(void *buf, streamID *id) {
     id->seq = ntohu64(e[1]);
 }
 
+void idleEncodeId(void *buf, streamNACK *nack) {
+    uint64_t e[2];
+    e[0] = htonu64(nack->delivery_time);
+    e[1] = (uint64_t) nack;
+    memcpy(buf, e, sizeof(e));
+}
+
 /* Compare two stream IDs. Return -1 if a < b, 0 if a == b, 1 if a > b. */
 int streamCompareID(streamID *a, streamID *b) {
     if (a->ms > b->ms) return 1;
@@ -1031,10 +1038,17 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
              * will not require extra lookups. We'll fix the problem later
              * if we find that there is already a entry for this ID. */
             streamNACK *nack = streamCreateNACK(consumer);
+            unsigned char idleBuf[sizeof(uint64_t) * 2];
+            idleEncodeId(idleBuf, nack);
+
             int group_inserted =
                 raxTryInsert(group->pel,buf,sizeof(buf),nack,NULL);
             int consumer_inserted =
                 raxTryInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
+            raxTryInsert(group->idle_pel,idleBuf,sizeof(idleBuf),NULL,NULL);
+            raxTryInsert(consumer->idle_pel,idleBuf,sizeof(idleBuf),NULL,NULL);
+
+            /* TODO: update to handle potential idle insertion failures here */
 
             /* Now we can check if the entry was already busy, and
              * in that case reassign the entry to the new consumer,
@@ -1700,6 +1714,7 @@ void streamFreeNACK(streamNACK *na) {
 void streamFreeConsumer(streamConsumer *sc) {
     raxFree(sc->pel); /* No value free callback: the PEL entries are shared
                          between the consumer and the main stream PEL. */
+    raxFree(sc->idle_pel);
     sdsfree(sc->name);
     zfree(sc);
 }
@@ -1715,6 +1730,7 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id) {
 
     streamCG *cg = zmalloc(sizeof(*cg));
     cg->pel = raxNew();
+    cg->idle_pel = raxNew();
     cg->consumers = raxNew();
     cg->last_id = *id;
     raxInsert(s->cgroups,(unsigned char*)name,namelen,cg,NULL);
@@ -1724,6 +1740,7 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id) {
 /* Free a consumer group and all its associated data. */
 void streamFreeCG(streamCG *cg) {
     raxFreeWithCallback(cg->pel,(void(*)(void*))streamFreeNACK);
+    raxFree(cg->idle_pel);
     raxFreeWithCallback(cg->consumers,(void(*)(void*))streamFreeConsumer);
     zfree(cg);
 }
@@ -1751,6 +1768,7 @@ streamConsumer *streamLookupConsumer(streamCG *cg, sds name, int flags, int *cre
         consumer = zmalloc(sizeof(*consumer));
         consumer->name = sdsdup(name);
         consumer->pel = raxNew();
+        consumer->idle_pel = raxNew();
         raxInsert(cg->consumers,(unsigned char*)name,sdslen(name),
                   consumer,NULL);
         consumer->seen_time = mstime();
@@ -1778,6 +1796,15 @@ uint64_t streamDelConsumer(streamCG *cg, sds name) {
     while(raxNext(&ri)) {
         streamNACK *nack = ri.data;
         raxRemove(cg->pel,ri.key,ri.key_len,NULL);
+        streamFreeNACK(nack);
+    }
+    raxStop(&ri);
+
+    raxStart(&ri,consumer->idle_pel);
+    raxSeek(&ri,"^",NULL,0);
+    while(raxNext(&ri)) {
+        streamNACK *nack = ri.data;
+        raxRemove(cg->idle_pel,ri.key,ri.key_len,NULL);
         streamFreeNACK(nack);
     }
     raxStop(&ri);
@@ -2019,6 +2046,12 @@ void xackCommand(client *c) {
         if (nack != raxNotFound) {
             raxRemove(group->pel,buf,sizeof(buf),NULL);
             raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+
+            unsigned char idleBuf[sizeof(streamID) + sizeof(mstime_t)];
+            idleEncodeId(idleBuf, nack);
+            raxRemove(group->idle_pel, idleBuf,sizeof(idleBuf),NULL);
+            raxRemove(nack->consumer->idle_pel,idleBuf,sizeof(idleBuf),NULL);
+
             streamFreeNACK(nack);
             acknowledged++;
             server.dirty++;
@@ -2355,6 +2388,7 @@ void xclaimCommand(client *c) {
     for (int j = 5; j <= last_id_arg; j++) {
         streamID id = ids[j-5];
         unsigned char buf[sizeof(streamID)];
+        unsigned char idleBuf[sizeof(streamID) + sizeof(mstime_t)];
         streamEncodeID(buf,&id);
 
         /* Lookup the ID in the group PEL. */
@@ -2380,6 +2414,8 @@ void xclaimCommand(client *c) {
             /* Create the NACK. */
             nack = streamCreateNACK(NULL);
             raxInsert(group->pel,buf,sizeof(buf),nack,NULL);
+            idleEncodeId(idleBuf,nack);
+            raxInsert(group->idle_pel,idleBuf,sizeof(idleBuf),nack,NULL);
         }
 
         if (nack != raxNotFound) {
@@ -2396,8 +2432,11 @@ void xclaimCommand(client *c) {
             /* Remove the entry from the old consumer.
              * Note that nack->consumer is NULL if we created the
              * NACK above because of the FORCE option. */
-            if (nack->consumer)
+            if (nack->consumer) {
                 raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+                idleEncodeId(idleBuf, nack);
+                raxRemove(nack->consumer->idle_pel,idleBuf,sizeof(idleBuf),NULL);
+            }
             /* Update the consumer and idle time. */
             if (consumer == NULL)
                 consumer = streamLookupConsumer(group,c->argv[3]->ptr,SLC_NONE,NULL);
@@ -2412,6 +2451,9 @@ void xclaimCommand(client *c) {
             }
             /* Add the entry in the new consumer local PEL. */
             raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
+            idleEncodeId(idleBuf, nack);
+            raxInsert(consumer->idle_pel,idleBuf,sizeof(idleBuf),nack,NULL);
+
             /* Send the reply for this entry. */
             if (justid) {
                 addReplyStreamID(c,&id);
