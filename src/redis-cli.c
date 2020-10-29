@@ -236,6 +236,8 @@ static struct config {
     char *auth;
     int askpass;
     char *user;
+    char *from_user;
+    char *from_pass;
     int output; /* output mode, see OUTPUT_* defines */
     int push_output; /* Should we display spontaneous PUSH replies */
     sds mb_delim;
@@ -756,14 +758,14 @@ static void freeHintsCallback(void *ptr) {
  *--------------------------------------------------------------------------- */
 
 /* Send AUTH command to the server */
-static int cliAuth(void) {
+static int cliAuth(redisContext *ctx, char *user, char *auth) {
     redisReply *reply;
-    if (config.auth == NULL) return REDIS_OK;
+    if (auth == NULL) return REDIS_OK;
 
-    if (config.user == NULL)
-        reply = redisCommand(context,"AUTH %s",config.auth);
+    if (user == NULL)
+        reply = redisCommand(ctx,"AUTH %s",auth);
     else
-        reply = redisCommand(context,"AUTH %s %s",config.user,config.auth);
+        reply = redisCommand(ctx,"AUTH %s %s",user,auth);
     if (reply != NULL) {
         if (reply->type == REDIS_REPLY_ERROR)
             fprintf(stderr,"Warning: AUTH failed\n");
@@ -917,7 +919,7 @@ static int cliConnect(int flags) {
         anetKeepAlive(NULL, context->fd, REDIS_CLI_KEEPALIVE_INTERVAL);
 
         /* Do AUTH, select the right DB, switch to RESP3 if needed. */
-        if (cliAuth() != REDIS_OK)
+        if (cliAuth(context, config.user, config.auth) != REDIS_OK)
             return REDIS_ERR;
         if (cliSelect() != REDIS_OK)
             return REDIS_ERR;
@@ -1548,6 +1550,10 @@ static int parseOptions(int argc, char **argv) {
             config.auth = argv[++i];
         } else if (!strcmp(argv[i],"--user") && !lastarg) {
             config.user = argv[++i];
+        } else if (!strcmp(argv[i],"--from-user") && !lastarg) {
+            config.from_user = argv[++i];
+        } else if (!strcmp(argv[i],"--from-pass") && !lastarg) {
+            config.from_pass = argv[++i];
         } else if (!strcmp(argv[i],"-u") && !lastarg) {
             parseRedisUri(argv[++i]);
         } else if (!strcmp(argv[i],"--raw")) {
@@ -1809,6 +1815,8 @@ static void usage(void) {
 "                     (if both are used, this argument takes precedence).\n"
 "  --user <username>  Used to send ACL style 'AUTH username pass'. Needs -a.\n"
 "  --pass <password>  Alias of -a for consistency with the new --user option.\n"
+"  --from-user <username>  Source node auth user name where we import keys from.\n"
+"  --from-pass <password>  Source node auth password where we import keys from.\n"
 "  --askpass          Force user to input password with mask from STDIN.\n"
 "                     If this argument is used, '-a' and " REDIS_CLI_AUTH_ENV "\n"
 "                     environment variable will be ignored.\n"
@@ -6371,6 +6379,7 @@ static int clusterManagerCommandImport(int argc, char **argv) {
     int port = 0, src_port = 0;
     char *ip = NULL, *src_ip = NULL;
     char *invalid_args_msg = NULL;
+    sds cmdfmt = NULL;
     if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) {
         invalid_args_msg = CLUSTER_MANAGER_INVALID_HOST_ARG;
         goto invalid_args;
@@ -6402,6 +6411,12 @@ static int clusterManagerCommandImport(int argc, char **argv) {
                 src_port, src_ctx->errstr);
         goto cleanup;
     }
+    //Auth for the source node. 
+    if (cliAuth(src_ctx, config.from_user, config.from_pass) == REDIS_ERR) {
+        success = 0;
+        goto cleanup;
+    }
+
     src_reply = reconnectingRedisCommand(src_ctx, "INFO");
     if (!src_reply || src_reply->type == REDIS_REPLY_ERROR) {
         if (src_reply && src_reply->str) reply_err = src_reply->str;
@@ -6441,8 +6456,15 @@ static int clusterManagerCommandImport(int argc, char **argv) {
             }
         }
     }
+    cmdfmt = sdsnew("MIGRATE %s %d %s %d %d");
+    if (config.auth) {
+        if (config.user) {
+            cmdfmt = sdscatfmt(cmdfmt," AUTH2 %s %s", config.user, config.auth); 
+        } else {
+            cmdfmt = sdscatfmt(cmdfmt," AUTH %s", config.auth);
+        }
+    }
 
-    char cmdfmt[50] = "MIGRATE %s %d %s %d %d";
     if (config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_COPY)
         strcat(cmdfmt, " %s");
     if (config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_REPLACE)
@@ -6499,6 +6521,7 @@ cleanup:
                              src_ip, src_port, reply_err);
     if (src_ctx) redisFree(src_ctx);
     if (src_reply) freeReplyObject(src_reply);
+    if (cmdfmt) sdsfree(cmdfmt);
     return success;
 invalid_args:
     fprintf(stderr, "%s", invalid_args_msg);
@@ -8179,6 +8202,8 @@ int main(int argc, char **argv) {
     config.auth = NULL;
     config.askpass = 0;
     config.user = NULL;
+    config.from_user = NULL;
+    config.from_pass = NULL;
     config.eval = NULL;
     config.eval_ldb = 0;
     config.eval_ldb_end = 0;
