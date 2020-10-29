@@ -61,7 +61,7 @@ static inline double rad_deg(double ang) { return ang / D_R; }
  * of the 9 search area boxes during radius queries. */
 uint8_t geohashEstimateStepsByRadius(double range_meters, double lat) {
     if (range_meters == 0) return 26;
-    int step = 1;
+    uint8_t step = 1;
     while (range_meters < MERCATOR_MAX) {
         range_meters *= 2;
         step++;
@@ -121,7 +121,7 @@ GeoHashRadius geohashGetAreasByRadius(double longitude, double latitude, double 
     GeoHashArea area;
     double min_lon, max_lon, min_lat, max_lat;
     double bounds[4];
-    int steps;
+    uint8_t steps;
 
     geohashBoundingBox(longitude, latitude, radius_meters, bounds);
     min_lon = bounds[0];
