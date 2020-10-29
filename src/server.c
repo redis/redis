@@ -4801,8 +4801,10 @@ sds genRedisInfoString(const char *section) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
         "# Cluster\r\n"
-        "cluster_enabled:%d\r\n",
-        server.cluster_enabled);
+        "cluster_enabled:%d\r\n"
+        "connected_clusters:%lu\r\n",
+        server.cluster_enabled,
+        getClusterConnectionsCount());
     }
 
     /* Key space */
