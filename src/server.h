@@ -761,6 +761,8 @@ typedef struct readyList {
                                            no AUTH is needed, and every
                                            connection is immediately
                                            authenticated. */
+#define USER_FLAG_ALLCHANNELS (1<<5)    /* The user can mention any Pub/Sub
+                                           channel. */
 typedef struct {
     sds name;       /* The username as an SDS string. */
     uint64_t flags; /* See USER_FLAG_* */
@@ -784,6 +786,10 @@ typedef struct {
     list *patterns;  /* A list of allowed key patterns. If this field is NULL
                         the user cannot mention any key in a command, unless
                         the flag ALLKEYS is set in the user. */
+    list *channels;  /* A list of allowed Pub/Sub channel patterns. If this
+                        field is NULL the user cannot mention any channel in a
+                        `PUBLISH` or [P][UNSUSBSCRIBE] command, unless the flag
+                        ALLCHANNELS is set in the user. */
 } user;
 
 /* With multiplexing we need to take per-client state.
@@ -1937,17 +1943,19 @@ void sendChildCOWInfo(int ptype, char *pname);
 extern rax *Users;
 extern user *DefaultUser;
 void ACLInit(void);
-/* Return values for ACLCheckCommandPerm(). */
+/* Return values for ACLCheckCommandPerm() and ACLCheckPubsubPerm(). */
 #define ACL_OK 0
 #define ACL_DENIED_CMD 1
 #define ACL_DENIED_KEY 2
 #define ACL_DENIED_AUTH 3 /* Only used for ACL LOG entries. */
+#define ACL_DENIED_CHANNEL 4 /* Only used for pub/sub commands */
 int ACLCheckUserCredentials(robj *username, robj *password);
 int ACLAuthenticateUser(client *c, robj *username, robj *password);
 unsigned long ACLGetCommandID(const char *cmdname);
 void ACLClearCommandID(void);
 user *ACLGetUserByName(const char *name, size_t namelen);
 int ACLCheckCommandPerm(client *c, int *keyidxptr);
+int ACLCheckPubsubPerm(client *c, int idx, int count, int literal, int *idxptr);
 int ACLSetUser(user *u, const char *op, ssize_t oplen);
 sds ACLDefaultUserFirstPassword(void);
 uint64_t ACLGetCommandCategoryFlagByName(const char *name);
@@ -2071,6 +2079,7 @@ struct redisMemOverhead *getMemoryOverheadData(void);
 void freeMemoryOverheadData(struct redisMemOverhead *mh);
 void checkChildrenDone(void);
 int setOOMScoreAdj(int process_class);
+void rejectCommandFormat(client *c, const char *fmt, ...);
 
 #define RESTART_SERVER_NONE 0
 #define RESTART_SERVER_GRACEFULLY (1<<0)     /* Do proper shutdown. */

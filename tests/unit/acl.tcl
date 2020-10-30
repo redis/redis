@@ -81,6 +81,29 @@ start_server {tags {"acl"}} {
         set e
     } {*NOPERM*key*}
 
+    test {By default users are not able to publish to any channel} {
+        catch {r PUBLISH foo bar} e
+        set e
+    } {*NOPERM*channel*}
+
+    test {By default users are not able to subscribe to any channel} {
+        catch {r SUBSCRIBE foo} e
+        set e
+    } {*NOPERM*channel*}
+
+    test {By default users are not able to subscribe to any pattern} {
+        catch {r PSUBSCRIBE bar*} e
+        set e
+    } {*NOPERM*channel*}
+
+    test {It's possible to allow publishing to a subset of channels} {
+        r ACL setuser newuser &foo:1 &bar:*
+        r PUBLISH foo:1 a
+        r PUBLISH bar:2 b
+        catch {r PUBLISH zap:3 c} e
+        set e
+    } {*NOPERM*channel*}
+
     test {Users can be configured to authenticate with any password} {
         r ACL setuser newuser nopass
         r AUTH newuser zipzapblabla
@@ -158,7 +181,7 @@ start_server {tags {"acl"}} {
 
     test {ACL LOG shows failed command executions at toplevel} {
         r ACL LOG RESET
-        r ACL setuser antirez >foo on +set ~object:1234
+        r ACL setuser antirez >foo on +set +publish ~object:1234
         r ACL setuser antirez +eval +multi +exec
         r AUTH antirez foo
         catch {r GET foo}
@@ -187,6 +210,15 @@ start_server {tags {"acl"}} {
         set entry [lindex [r ACL LOG] 0]
         assert {[dict get $entry reason] eq {key}}
         assert {[dict get $entry object] eq {somekeynotallowed}}
+    }
+
+    test {ACL LOG is able to log channel access violations and channel name} {
+        r AUTH antirez foo
+        catch {r PUBLISH somechannelnotallowed nullmsg}
+        r AUTH default ""
+        set entry [lindex [r ACL LOG] 0]
+        assert {[dict get $entry reason] eq {channel}}
+        assert {[dict get $entry object] eq {somechannelnotallowed}}
     }
 
     test {ACL LOG RESET is able to flush the entries in the log} {
