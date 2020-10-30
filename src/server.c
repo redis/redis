@@ -4314,6 +4314,7 @@ sds genRedisInfoString(const char *section) {
         info = sdscatprintf(info,
             "# Clients\r\n"
             "connected_clients:%lu\r\n"
+            "cluster_connections:%lu\r\n"
             "maxclients:%u\r\n"
             "client_recent_max_input_buffer:%zu\r\n"
             "client_recent_max_output_buffer:%zu\r\n"
@@ -4321,6 +4322,7 @@ sds genRedisInfoString(const char *section) {
             "tracking_clients:%d\r\n"
             "clients_in_timeout_table:%llu\r\n",
             listLength(server.clients)-listLength(server.slaves),
+            getClusterConnectionsCount(),
             server.maxclients,
             maxin, maxout,
             server.blocked_clients,
@@ -4801,10 +4803,8 @@ sds genRedisInfoString(const char *section) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
         "# Cluster\r\n"
-        "cluster_enabled:%d\r\n"
-        "connected_clusters:%lu\r\n",
-        server.cluster_enabled,
-        getClusterConnectionsCount());
+        "cluster_enabled:%d\r\n",
+        server.cluster_enabled);
     }
 
     /* Key space */
