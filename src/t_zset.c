@@ -2162,7 +2162,7 @@ int zuiCompareByCardinality(const void *s1, const void *s2) {
     return 0;
 }
 
-int zuiCompareByRevCardinality(const void *s1, const void *s2) {
+static int zuiCompareByRevCardinality(const void *s1, const void *s2) {
     return zuiCompareByCardinality(s1, s2) * -1;
 }
 
@@ -2188,7 +2188,7 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
     }
 }
 
-int dictGetMaxElementLength(dict *d) {
+static int dictGetMaxElementLength(dict *d) {
     dictIterator *di;
     dictEntry *de;
     size_t maxelelen = 0;
@@ -2203,7 +2203,7 @@ int dictGetMaxElementLength(dict *d) {
     return maxelelen;
 }
 
-void zdiffAlgorithm1(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen) {
+static void zdiffAlgorithm1(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen) {
     int j;
     zsetopval zval;
     zskiplistNode *znode;
@@ -2243,7 +2243,7 @@ void zdiffAlgorithm1(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelel
 }
 
 
-void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen) {
+static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen) {
     /* DIFF Algorithm 2:
      *
      * Add all the elements of the first set to the auxiliary set.
@@ -2307,7 +2307,7 @@ void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelel
     *maxelelen = dictGetMaxElementLength(dstzset->dict);
 }
 
-int chooseDiffAlgorithm(zsetopsrc *src, long setnum) {
+static int chooseDiffAlgorithm(zsetopsrc *src, long setnum) {
     int j;
 
     /* Select what DIFF algorithm to use.
@@ -2333,7 +2333,7 @@ int chooseDiffAlgorithm(zsetopsrc *src, long setnum) {
     return (algo_one_work <= algo_two_work) ? 1 : 2;
 }
 
-void zdiff(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen) {
+static void zdiff(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen) {
     /* Skip everything if the smallest input is empty. */
     if (zuiLength(&src[0]) > 0) {
         int diff_algo = chooseDiffAlgorithm(src, setnum);
