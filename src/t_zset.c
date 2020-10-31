@@ -2276,7 +2276,10 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
      * Then remove all the elements of all the next sets from it.
      *
      * This is O(N + K*log(K)) where N is the sum of all the elements in every
-     * set, and K is the size of the resulting set. */
+     * set, and K is the size of the resulting set.
+     *
+     * There is also a O(K) cost at the end for finding the largest element
+     * size, but this doesn't change the algorithm complexity. */
     int j;
     int cardinality = 0;
     zsetopval zval;
