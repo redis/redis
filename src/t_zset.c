@@ -2212,6 +2212,8 @@ static int dictGetMaxElementLength(dict *d) {
         if (sdslen(ele) > maxelelen) maxelelen = sdslen(ele);
     }
 
+    dictReleaseIterator(di);
+
     return maxelelen;
 }
 
