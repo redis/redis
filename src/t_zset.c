@@ -2251,8 +2251,6 @@ static void zdiffAlgorithm1(zsetopsrc *src, long setnum, zset *dstzset, size_t *
         if (isnan(score)) score = 0;
 
         for (j = 1; j < setnum; j++) {
-            /* It is not safe to access the zset we are
-                * iterating, so explicitly check for equal object. */
             if (zuiFind(&src[j],&zval,&value)) {
                 exists = 1;
                 break;
