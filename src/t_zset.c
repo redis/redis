@@ -2302,7 +2302,7 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
 
     /* Using this algorithm, we can't calculate the max element as we go,
      * we have to iterate through all elements to find the max one after. */
-    *maxelelen = dictGetMaxElementLength(dstzset->dict);
+    *maxelelen = zsetDictGetMaxElementLength(dstzset->dict);
 }
 
 static int zsetChooseDiffAlgorithm(zsetopsrc *src, long setnum) {
@@ -2334,7 +2334,7 @@ static int zsetChooseDiffAlgorithm(zsetopsrc *src, long setnum) {
 static void zdiff(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen) {
     /* Skip everything if the smallest input is empty. */
     if (zuiLength(&src[0]) > 0) {
-        int diff_algo = chooseDiffAlgorithm(src, setnum);
+        int diff_algo = zsetChooseDiffAlgorithm(src, setnum);
         if (diff_algo == 1) {
             zdiffAlgorithm1(src, setnum, dstzset, maxelelen);
         } else if (diff_algo == 2) {
