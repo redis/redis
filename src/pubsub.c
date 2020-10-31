@@ -374,7 +374,7 @@ int pubsubCheckACLPermissions(client *c, int idx, int count, int literal) {
 
 /* SUBSCRIBE channel [channel ...] */
 void subscribeCommand(client *c) {
-    if (pubsubCheckACLPermissions(c, 1, c->argc, 0) != ACL_OK) return;
+    if (pubsubCheckACLPermissions(c, 1, c->argc-1, 0) != ACL_OK) return;
     for (int j = 1; j < c->argc; j++)
         pubsubSubscribeChannel(c,c->argv[j]);
     c->flags |= CLIENT_PUBSUB;
@@ -395,7 +395,7 @@ void unsubscribeCommand(client *c) {
 
 /* PSUBSCRIBE pattern [pattern ...] */
 void psubscribeCommand(client *c) {
-    if (pubsubCheckACLPermissions(c, 1, c->argc, 1) != ACL_OK) return;
+    if (pubsubCheckACLPermissions(c, 1, c->argc-1, 1) != ACL_OK) return;
     for (int j = 1; j < c->argc; j++)
         pubsubSubscribePattern(c,c->argv[j]);
     c->flags |= CLIENT_PUBSUB;
