@@ -647,6 +647,10 @@ struct redisCommand redisCommandTable[] = {
      "ok-stale fast @connection",
      0,NULL,0,0,0,0,0,0},
 
+    {"dbpos",dbposCommand,-1,
+     "ok-stale fast @connection",
+     0,NULL,0,0,0,0,0,0},
+
     {"echo",echoCommand,2,
      "read-only fast @connection",
      0,NULL,0,0,0,0,0,0},
@@ -3547,7 +3551,8 @@ int processCommand(client *c) {
     if (deny_write_type != DISK_ERROR_TYPE_NONE &&
         server.masterhost == NULL &&
         (c->cmd->flags & CMD_WRITE ||
-         c->cmd->proc == pingCommand))
+         c->cmd->proc == pingCommand||
+         c->cmd->proc == dbposCommand))
     {
         flagTransaction(c);
         if (deny_write_type == DISK_ERROR_TYPE_RDB)
@@ -3816,6 +3821,16 @@ void pingCommand(client *c) {
         else
             addReplyBulk(c,c->argv[1]);
     }
+}
+
+void dbposCommand(client *c) {
+    /* The command takes zero  arguments. */
+    if (c->argc > 1) {
+        addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
+                            c->cmd->name);
+        return;
+    }
+    addReplyLongLong(c,c->db->id);
 }
 
 void echoCommand(client *c) {

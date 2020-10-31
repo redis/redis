@@ -2202,6 +2202,7 @@ char *redisBuildIdString(void);
 /* Commands prototypes */
 void authCommand(client *c);
 void pingCommand(client *c);
+void dbposCommand(client *c);
 void echoCommand(client *c);
 void commandCommand(client *c);
 void setCommand(client *c);
