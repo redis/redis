@@ -487,16 +487,16 @@ void ltrimCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-/* LPOS key element [FIRST rank] [COUNT num-matches] [MAXLEN len]
+/* LPOS key element [RANK rank] [COUNT num-matches] [MAXLEN len]
  *
- * FIRST "rank" is the position of the match, so if it is 1, the first match
+ * The "rank" is the position of the match, so if it is 1, the first match
  * is returned, if it is 2 the second match is returned and so forth.
  * It is 1 by default. If negative has the same meaning but the search is
  * performed starting from the end of the list.
  *
  * If COUNT is given, instead of returning the single element, a list of
  * all the matching elements up to "num-matches" are returned. COUNT can
- * be combiled with FIRST in order to returning only the element starting
+ * be combiled with RANK in order to returning only the element starting
  * from the Nth. If COUNT is zero, all the matching elements are returned.
  *
  * MAXLEN tells the command to scan a max of len elements. If zero (the
@@ -515,12 +515,12 @@ void lposCommand(client *c) {
         char *opt = c->argv[j]->ptr;
         int moreargs = (c->argc-1)-j;
 
-        if (!strcasecmp(opt,"FIRST") && moreargs) {
+        if (!strcasecmp(opt,"RANK") && moreargs) {
             j++;
             if (getLongFromObjectOrReply(c, c->argv[j], &rank, NULL) != C_OK)
                 return;
             if (rank == 0) {
-                addReplyError(c,"FIRST can't be zero: use 1 to start from "
+                addReplyError(c,"RANK can't be zero: use 1 to start from "
                                 "the first match, 2 from the second, ...");
                 return;
             }
@@ -572,13 +572,14 @@ void lposCommand(client *c) {
     li = listTypeInitIterator(o,direction == LIST_HEAD ? -1 : 0,direction);
     listTypeEntry entry;
     long llen = listTypeLength(o);
-    long index = 0, matches = 0, matchindex = -1;
+    long index = 0, matches = 0, matchindex = -1, arraylen = 0;
     while (listTypeNext(li,&entry) && (maxlen == 0 || index < maxlen)) {
         if (listTypeEqual(&entry,ele)) {
             matches++;
             matchindex = (direction == LIST_TAIL) ? index : llen - index - 1;
             if (matches >= rank) {
                 if (arraylenptr) {
+                    arraylen++;
                     addReplyLongLong(c,matchindex);
                     if (count && matches-rank+1 >= count) break;
                 } else {
@@ -594,7 +595,7 @@ void lposCommand(client *c) {
     /* Reply to the client. Note that arraylenptr is not NULL only if
      * the COUNT option was selected. */
     if (arraylenptr != NULL) {
-        setDeferredArrayLen(c,arraylenptr,matches-rank+1);
+        setDeferredArrayLen(c,arraylenptr,arraylen);
     } else {
         if (matchindex != -1)
             addReplyLongLong(c,matchindex);
@@ -722,7 +723,7 @@ void rpoplpushCommand(client *c) {
  * Blocking POP operations
  *----------------------------------------------------------------------------*/
 
-/* This is a helper function for handleClientsBlockedOnKeys(). It's work
+/* This is a helper function for handleClientsBlockedOnKeys(). Its work
  * is to serve a specific client (receiver) that is blocked on 'key'
  * in the context of the specified 'db', doing the following:
  *
@@ -808,7 +809,7 @@ void blockingPopGenericCommand(client *c, int where) {
                 return;
             } else {
                 if (listTypeLength(o) != 0) {
-                    /* Non empty list, this is like a non normal [LR]POP. */
+                    /* Non empty list, this is like a normal [LR]POP. */
                     char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
                     robj *value = listTypePop(o,where);
                     serverAssert(value != NULL);
@@ -844,7 +845,7 @@ void blockingPopGenericCommand(client *c, int where) {
         return;
     }
 
-    /* If the list is empty or the key does not exists we must block */
+    /* If the keys do not exist we must block */
     blockForKeys(c,BLOCKED_LIST,c->argv + 1,c->argc - 2,timeout,NULL,NULL);
 }
 

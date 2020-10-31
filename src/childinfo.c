@@ -76,11 +76,11 @@ void receiveChildInfo(void) {
     if (read(server.child_info_pipe[0],&server.child_info_data,wlen) == wlen &&
         server.child_info_data.magic == CHILD_INFO_MAGIC)
     {
-        if (server.child_info_data.process_type == CHILD_INFO_TYPE_RDB) {
+        if (server.child_info_data.process_type == CHILD_TYPE_RDB) {
             server.stat_rdb_cow_bytes = server.child_info_data.cow_size;
-        } else if (server.child_info_data.process_type == CHILD_INFO_TYPE_AOF) {
+        } else if (server.child_info_data.process_type == CHILD_TYPE_AOF) {
             server.stat_aof_cow_bytes = server.child_info_data.cow_size;
-        } else if (server.child_info_data.process_type == CHILD_INFO_TYPE_MODULE) {
+        } else if (server.child_info_data.process_type == CHILD_TYPE_MODULE) {
             server.stat_module_cow_bytes = server.child_info_data.cow_size;
         }
     }

@@ -115,7 +115,7 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst, int writeflag)
     if (fieldobj) {
         if (o->type != OBJ_HASH) goto noobj;
 
-        /* Retrieve value from hash by the field name. The returend object
+        /* Retrieve value from hash by the field name. The returned object
          * is a new object with refcount already incremented. */
         o = hashTypeGetValueObject(o, fieldobj->ptr);
     } else {

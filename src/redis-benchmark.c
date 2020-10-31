@@ -1,4 +1,4 @@
-/* Redis benchmark utility. 
+/* Redis benchmark utility.
  *
  * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
@@ -183,6 +183,8 @@ static void *execBenchmarkThread(void *ptr);
 static clusterNode *createClusterNode(char *ip, int port);
 static redisConfig *getRedisConfig(const char *ip, int port,
                                    const char *hostsocket);
+static redisContext *getRedisContext(const char *ip, int port,
+                                     const char *hostsocket);
 static void freeRedisConfig(redisConfig *cfg);
 static int fetchClusterSlotsConfiguration(client c);
 static void updateClusterSlotsConfiguration();
@@ -238,6 +240,52 @@ void _serverAssert(const char *estr, const char *file, int line) {
     *((char*)-1) = 'x';
 }
 
+static redisContext *getRedisContext(const char *ip, int port,
+                                     const char *hostsocket)
+{
+    redisContext *ctx = NULL;
+    redisReply *reply =  NULL;
+    if (hostsocket == NULL)
+        ctx = redisConnect(ip, port);
+    else
+        ctx = redisConnectUnix(hostsocket);
+    if (ctx == NULL || ctx->err) {
+        fprintf(stderr,"Could not connect to Redis at ");
+        char *err = (ctx != NULL ? ctx->errstr : "");
+        if (hostsocket == NULL)
+            fprintf(stderr,"%s:%d: %s\n",ip,port,err);
+        else
+            fprintf(stderr,"%s: %s\n",hostsocket,err);
+        goto cleanup;
+    }
+    if (config.auth == NULL)
+        return ctx;
+    if (config.user == NULL)
+        reply = redisCommand(ctx,"AUTH %s", config.auth);
+    else
+        reply = redisCommand(ctx,"AUTH %s %s", config.user, config.auth);
+    if (reply != NULL) {
+        if (reply->type == REDIS_REPLY_ERROR) {
+            if (hostsocket == NULL)
+                fprintf(stderr, "Node %s:%d replied with error:\n%s\n", ip, port, reply->str);
+            else
+                fprintf(stderr, "Node %s replied with error:\n%s\n", hostsocket, reply->str);
+            goto cleanup;
+        }
+        freeReplyObject(reply);
+        return ctx;
+    }
+    fprintf(stderr, "ERROR: failed to fetch reply from ");
+    if (hostsocket == NULL)
+        fprintf(stderr, "%s:%d\n", ip, port);
+    else
+        fprintf(stderr, "%s\n", hostsocket);
+cleanup:
+    freeReplyObject(reply);
+    redisFree(ctx);
+    return NULL;
+}
+
 static redisConfig *getRedisConfig(const char *ip, int port,
                                    const char *hostsocket)
 {
@@ -245,33 +293,11 @@ static redisConfig *getRedisConfig(const char *ip, int port,
     if (!cfg) return NULL;
     redisContext *c = NULL;
     redisReply *reply = NULL, *sub_reply = NULL;
-    if (hostsocket == NULL)
-        c = redisConnect(ip, port);
-    else
-        c = redisConnectUnix(hostsocket);
-    if (c == NULL || c->err) {
-        fprintf(stderr,"Could not connect to Redis at ");
-        char *err = (c != NULL ? c->errstr : "");
-        if (hostsocket == NULL) fprintf(stderr,"%s:%d: %s\n",ip,port,err);
-        else fprintf(stderr,"%s: %s\n",hostsocket,err);
-        goto fail;
+    c = getRedisContext(ip, port, hostsocket);
+    if (c == NULL) {
+        freeRedisConfig(cfg);
+        return NULL;
     }
-
-    if(config.auth) {
-        void *authReply = NULL;
-        if (config.user == NULL)
-            redisAppendCommand(c, "AUTH %s", config.auth);
-        else
-            redisAppendCommand(c, "AUTH %s %s", config.user, config.auth);
-        if (REDIS_OK != redisGetReply(c, &authReply)) goto fail;
-        if (reply) freeReplyObject(reply);
-        reply = ((redisReply *) authReply);
-        if (reply->type == REDIS_REPLY_ERROR) {
-            fprintf(stderr, "ERROR: %s\n", reply->str);
-            goto fail;
-        }
-    }
-
     redisAppendCommand(c, "CONFIG GET %s", "save");
     redisAppendCommand(c, "CONFIG GET %s", "appendonly");
     int i = 0;
@@ -733,7 +759,7 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
                 }
                 c->stagptr[c->staglen++] = p;
                 c->stagfree--;
-                p += 5; /* 12 is strlen("{tag}"). */
+                p += 5; /* 5 is strlen("{tag}"). */
             }
         }
     }
@@ -994,16 +1020,8 @@ static int fetchClusterConfiguration() {
     int success = 1;
     redisContext *ctx = NULL;
     redisReply *reply =  NULL;
-    if (config.hostsocket == NULL)
-        ctx = redisConnect(config.hostip,config.hostport);
-    else
-        ctx = redisConnectUnix(config.hostsocket);
-    if (ctx->err) {
-        fprintf(stderr,"Could not connect to Redis at ");
-        if (config.hostsocket == NULL) {
-            fprintf(stderr,"%s:%d: %s\n",config.hostip,config.hostport,
-                    ctx->errstr);
-        } else fprintf(stderr,"%s: %s\n",config.hostsocket,ctx->errstr);
+    ctx = getRedisContext(config.hostip, config.hostport, config.hostsocket);
+    if (ctx == NULL) {
         exit(1);
     }
     clusterNode *firstNode = createClusterNode((char *) config.hostip,
@@ -1199,11 +1217,9 @@ static int fetchClusterSlotsConfiguration(client c) {
         assert(node->port);
         /* Use first node as entry point to connect to. */
         if (ctx == NULL) {
-            ctx = redisConnect(node->ip, node->port);
-            if (!ctx || ctx->err) {
+            ctx = getRedisContext(node->ip, node->port, NULL);
+            if (!ctx) {
                 success = 0;
-                if (ctx && ctx->err)
-                    fprintf(stderr, "REDIS CONNECTION ERROR: %s\n", ctx->errstr);
                 goto cleanup;
             }
         }
@@ -1417,7 +1433,8 @@ usage:
 " --cluster          Enable cluster mode.\n"
 " --enable-tracking  Send CLIENT TRACKING on before starting benchmark.\n"
 " -k <boolean>       1=keep alive 0=reconnect (default 1)\n"
-" -r <keyspacelen>   Use random keys for SET/GET/INCR, random values for SADD\n"
+" -r <keyspacelen>   Use random keys for SET/GET/INCR, random values for SADD,\n"
+"                    random members and scores for ZADD.\n"
 "  Using this option the benchmark will expand the string __rand_int__\n"
 "  inside an argument with a 12 digits number in the specified range\n"
 "  from 0 to keyspacelen-1. The substitution changes every time a command\n"
@@ -1498,7 +1515,7 @@ int test_is_selected(char *name) {
 
 int main(int argc, const char **argv) {
     int i;
-    char *data, *cmd;
+    char *data, *cmd, *tag;
     int len;
 
     client c;
@@ -1548,7 +1565,12 @@ int main(int argc, const char **argv) {
 
     config.latency = zmalloc(sizeof(long long)*config.requests);
 
+    tag = "";
+
     if (config.cluster_mode) {
+        // We only include the slot placeholder {tag} if cluster mode is enabled
+        tag = ":{tag}";
+
         /* Fetch cluster configuration. */
         if (!fetchClusterConfiguration() || !config.cluster_nodes) {
             if (!config.hostsocket) {
@@ -1656,64 +1678,79 @@ int main(int argc, const char **argv) {
         }
 
         if (test_is_selected("set")) {
-            len = redisFormatCommand(&cmd,"SET key:{tag}:__rand_int__ %s",data);
+            len = redisFormatCommand(&cmd,"SET key%s:__rand_int__ %s",tag,data);
             benchmark("SET",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("get")) {
-            len = redisFormatCommand(&cmd,"GET key:{tag}:__rand_int__");
+            len = redisFormatCommand(&cmd,"GET key%s:__rand_int__",tag);
             benchmark("GET",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("incr")) {
-            len = redisFormatCommand(&cmd,"INCR counter:{tag}:__rand_int__");
+            len = redisFormatCommand(&cmd,"INCR counter%s:__rand_int__",tag);
             benchmark("INCR",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("lpush")) {
-            len = redisFormatCommand(&cmd,"LPUSH mylist:{tag} %s",data);
+            len = redisFormatCommand(&cmd,"LPUSH mylist%s %s",tag,data);
             benchmark("LPUSH",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("rpush")) {
-            len = redisFormatCommand(&cmd,"RPUSH mylist:{tag} %s",data);
+            len = redisFormatCommand(&cmd,"RPUSH mylist%s %s",tag,data);
             benchmark("RPUSH",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("lpop")) {
-            len = redisFormatCommand(&cmd,"LPOP mylist:{tag}");
+            len = redisFormatCommand(&cmd,"LPOP mylist%s",tag);
             benchmark("LPOP",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("rpop")) {
-            len = redisFormatCommand(&cmd,"RPOP mylist:{tag}");
+            len = redisFormatCommand(&cmd,"RPOP mylist%s",tag);
             benchmark("RPOP",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("sadd")) {
             len = redisFormatCommand(&cmd,
-                "SADD myset:{tag} element:__rand_int__");
+                "SADD myset%s element:__rand_int__",tag);
             benchmark("SADD",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("hset")) {
             len = redisFormatCommand(&cmd,
-                "HSET myhash:{tag}:__rand_int__ element:__rand_int__ %s",data);
+                "HSET myhash%s element:__rand_int__ %s",tag,data);
             benchmark("HSET",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("spop")) {
-            len = redisFormatCommand(&cmd,"SPOP myset:{tag}");
+            len = redisFormatCommand(&cmd,"SPOP myset%s",tag);
             benchmark("SPOP",cmd,len);
+            free(cmd);
+        }
+
+        if (test_is_selected("zadd")) {
+            char *score = "0";
+            if (config.randomkeys) score = "__rand_int__";
+            len = redisFormatCommand(&cmd,
+                "ZADD myzset%s %s element:__rand_int__",tag,score);
+            benchmark("ZADD",cmd,len);
+            free(cmd);
+        }
+
+        if (test_is_selected("zpopmin")) {
+            len = redisFormatCommand(&cmd,"ZPOPMIN myzset%s",tag);
+            benchmark("ZPOPMIN",cmd,len);
             free(cmd);
         }
 
@@ -1723,45 +1760,47 @@ int main(int argc, const char **argv) {
             test_is_selected("lrange_500") ||
             test_is_selected("lrange_600"))
         {
-            len = redisFormatCommand(&cmd,"LPUSH mylist:{tag} %s",data);
+            len = redisFormatCommand(&cmd,"LPUSH mylist%s %s",tag,data);
             benchmark("LPUSH (needed to benchmark LRANGE)",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("lrange") || test_is_selected("lrange_100")) {
-            len = redisFormatCommand(&cmd,"LRANGE mylist:{tag} 0 99");
+            len = redisFormatCommand(&cmd,"LRANGE mylist%s 0 99",tag);
             benchmark("LRANGE_100 (first 100 elements)",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("lrange") || test_is_selected("lrange_300")) {
-            len = redisFormatCommand(&cmd,"LRANGE mylist:{tag} 0 299");
+            len = redisFormatCommand(&cmd,"LRANGE mylist%s 0 299",tag);
             benchmark("LRANGE_300 (first 300 elements)",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("lrange") || test_is_selected("lrange_500")) {
-            len = redisFormatCommand(&cmd,"LRANGE mylist:{tag} 0 449");
+            len = redisFormatCommand(&cmd,"LRANGE mylist%s 0 449",tag);
             benchmark("LRANGE_500 (first 450 elements)",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("lrange") || test_is_selected("lrange_600")) {
-            len = redisFormatCommand(&cmd,"LRANGE mylist:{tag} 0 599");
+            len = redisFormatCommand(&cmd,"LRANGE mylist%s 0 599",tag);
             benchmark("LRANGE_600 (first 600 elements)",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("mset")) {
-            const char *argv[21];
-            argv[0] = "MSET";
+            const char *cmd_argv[21];
+            cmd_argv[0] = "MSET";
+            sds key_placeholder = sdscatprintf(sdsnew(""),"key%s:__rand_int__",tag);
             for (i = 1; i < 21; i += 2) {
-                argv[i] = "key:{tag}:__rand_int__";
-                argv[i+1] = data;
+                cmd_argv[i] = key_placeholder;
+                cmd_argv[i+1] = data;
             }
-            len = redisFormatCommandArgv(&cmd,21,argv,NULL);
+            len = redisFormatCommandArgv(&cmd,21,cmd_argv,NULL);
             benchmark("MSET (10 keys)",cmd,len);
             free(cmd);
+            sdsfree(key_placeholder);
         }
 
         if (!config.csv) printf("\n");

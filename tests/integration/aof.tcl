@@ -52,15 +52,9 @@ tags {"aof"} {
             assert_equal 1 [is_alive $srv]
         }
 
-        set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
-
-        wait_for_condition 50 100 {
-            [catch {$client ping} e] == 0
-        } else {
-            fail "Loading DB is taking too much time."
-        }
-
         test "Truncated AOF loaded: we expect foo to be equal to 5" {
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $client
             assert {[$client get foo] eq "5"}
         }
 
@@ -75,15 +69,9 @@ tags {"aof"} {
             assert_equal 1 [is_alive $srv]
         }
 
-        set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
-
-        wait_for_condition 50 100 {
-            [catch {$client ping} e] == 0
-        } else {
-            fail "Loading DB is taking too much time."
-        }
-
         test "Truncated AOF loaded: we expect foo to be equal to 6 now" {
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $client
             assert {[$client get foo] eq "6"}
         }
     }
@@ -183,11 +171,7 @@ tags {"aof"} {
 
         test "Fixed AOF: Keyspace should contain values that were parseable" {
             set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
-            wait_for_condition 50 100 {
-                [catch {$client ping} e] == 0
-            } else {
-                fail "Loading DB is taking too much time."
-            }
+            wait_done_loading $client
             assert_equal "hello" [$client get foo]
             assert_equal "" [$client get bar]
         }
@@ -207,11 +191,7 @@ tags {"aof"} {
 
         test "AOF+SPOP: Set should have 1 member" {
             set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
-            wait_for_condition 50 100 {
-                [catch {$client ping} e] == 0
-            } else {
-                fail "Loading DB is taking too much time."
-            }
+            wait_done_loading $client
             assert_equal 1 [$client scard set]
         }
     }
@@ -231,11 +211,7 @@ tags {"aof"} {
 
         test "AOF+SPOP: Set should have 1 member" {
             set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
-            wait_for_condition 50 100 {
-                [catch {$client ping} e] == 0
-            } else {
-                fail "Loading DB is taking too much time."
-            }
+            wait_done_loading $client
             assert_equal 1 [$client scard set]
         }
     }
@@ -254,11 +230,7 @@ tags {"aof"} {
 
         test "AOF+EXPIRE: List should be empty" {
             set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
-            wait_for_condition 50 100 {
-                [catch {$client ping} e] == 0
-            } else {
-                fail "Loading DB is taking too much time."
-            }
+            wait_done_loading $client
             assert_equal 0 [$client llen list]
         }
     }

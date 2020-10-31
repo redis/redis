@@ -34,6 +34,7 @@
 #include "stream.h"
 
 #include <math.h>
+#include <fcntl.h>
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/resource.h>
@@ -52,6 +53,9 @@ extern int rdbCheckMode;
 void rdbCheckError(const char *fmt, ...);
 void rdbCheckSetError(const char *fmt, ...);
 
+#ifdef __GNUC__
+void rdbReportError(int corruption_error, int linenum, char *reason, ...) __attribute__ ((format (printf, 3, 4)));
+#endif
 void rdbReportError(int corruption_error, int linenum, char *reason, ...) {
     va_list ap;
     char msg[1024];
@@ -487,7 +491,7 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
     int plain = flags & RDB_LOAD_PLAIN;
     int sds = flags & RDB_LOAD_SDS;
     int isencoded;
-    uint64_t len;
+    unsigned long long len;
 
     len = rdbLoadLen(rdb,&isencoded);
     if (isencoded) {
@@ -499,8 +503,8 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
         case RDB_ENC_LZF:
             return rdbLoadLzfStringObject(rdb,flags,lenptr);
         default:
-            rdbExitReportCorruptRDB("Unknown RDB string encoding type %d",len);
-            return NULL; /* Never reached. */
+            rdbExitReportCorruptRDB("Unknown RDB string encoding type %llu",len);
+            return NULL;
         }
     }
 
@@ -697,15 +701,23 @@ ssize_t rdbSaveStreamPEL(rio *rdb, rax *pel, int nacks) {
     while(raxNext(&ri)) {
         /* We store IDs in raw form as 128 big big endian numbers, like
          * they are inside the radix tree key. */
-        if ((n = rdbWriteRaw(rdb,ri.key,sizeof(streamID))) == -1) return -1;
+        if ((n = rdbWriteRaw(rdb,ri.key,sizeof(streamID))) == -1) {
+            raxStop(&ri);
+            return -1;
+        }
         nwritten += n;
 
         if (nacks) {
             streamNACK *nack = ri.data;
-            if ((n = rdbSaveMillisecondTime(rdb,nack->delivery_time)) == -1)
+            if ((n = rdbSaveMillisecondTime(rdb,nack->delivery_time)) == -1) {
+                raxStop(&ri);
                 return -1;
+            }
             nwritten += n;
-            if ((n = rdbSaveLen(rdb,nack->delivery_count)) == -1) return -1;
+            if ((n = rdbSaveLen(rdb,nack->delivery_count)) == -1) {
+                raxStop(&ri);
+                return -1;
+            }
             nwritten += n;
             /* We don't save the consumer name: we'll save the pending IDs
              * for each consumer in the consumer PEL, and resolve the consumer
@@ -734,20 +746,27 @@ size_t rdbSaveStreamConsumers(rio *rdb, streamCG *cg) {
         streamConsumer *consumer = ri.data;
 
         /* Consumer name. */
-        if ((n = rdbSaveRawString(rdb,ri.key,ri.key_len)) == -1) return -1;
+        if ((n = rdbSaveRawString(rdb,ri.key,ri.key_len)) == -1) {
+            raxStop(&ri);
+            return -1;
+        }
         nwritten += n;
 
         /* Last seen time. */
-        if ((n = rdbSaveMillisecondTime(rdb,consumer->seen_time)) == -1)
+        if ((n = rdbSaveMillisecondTime(rdb,consumer->seen_time)) == -1) {
+            raxStop(&ri);
             return -1;
+        }
         nwritten += n;
 
         /* Consumer PEL, without the ACKs (see last parameter of the function
          * passed with value of 0), at loading time we'll lookup the ID
          * in the consumer group global PEL and will put a reference in the
          * consumer local PEL. */
-        if ((n = rdbSaveStreamPEL(rdb,consumer->pel,0)) == -1)
+        if ((n = rdbSaveStreamPEL(rdb,consumer->pel,0)) == -1) {
+            raxStop(&ri);
             return -1;
+        }
         nwritten += n;
     }
     raxStop(&ri);
@@ -912,9 +931,15 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key) {
         while (raxNext(&ri)) {
             unsigned char *lp = ri.data;
             size_t lp_bytes = lpBytes(lp);
-            if ((n = rdbSaveRawString(rdb,ri.key,ri.key_len)) == -1) return -1;
+            if ((n = rdbSaveRawString(rdb,ri.key,ri.key_len)) == -1) {
+                raxStop(&ri);
+                return -1;
+            }
             nwritten += n;
-            if ((n = rdbSaveRawString(rdb,lp,lp_bytes)) == -1) return -1;
+            if ((n = rdbSaveRawString(rdb,lp,lp_bytes)) == -1) {
+                raxStop(&ri);
+                return -1;
+            }
             nwritten += n;
         }
         raxStop(&ri);
@@ -946,22 +971,36 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key) {
                 streamCG *cg = ri.data;
 
                 /* Save the group name. */
-                if ((n = rdbSaveRawString(rdb,ri.key,ri.key_len)) == -1)
+                if ((n = rdbSaveRawString(rdb,ri.key,ri.key_len)) == -1) {
+                    raxStop(&ri);
                     return -1;
+                }
                 nwritten += n;
 
                 /* Last ID. */
-                if ((n = rdbSaveLen(rdb,cg->last_id.ms)) == -1) return -1;
+                if ((n = rdbSaveLen(rdb,cg->last_id.ms)) == -1) {
+                    raxStop(&ri);
+                    return -1;
+                }
                 nwritten += n;
-                if ((n = rdbSaveLen(rdb,cg->last_id.seq)) == -1) return -1;
+                if ((n = rdbSaveLen(rdb,cg->last_id.seq)) == -1) {
+                    raxStop(&ri);
+                    return -1;
+                }
                 nwritten += n;
 
                 /* Save the global PEL. */
-                if ((n = rdbSaveStreamPEL(rdb,cg->pel,1)) == -1) return -1;
+                if ((n = rdbSaveStreamPEL(rdb,cg->pel,1)) == -1) {
+                    raxStop(&ri);
+                    return -1;
+                }
                 nwritten += n;
 
                 /* Save the consumers of this group. */
-                if ((n = rdbSaveStreamConsumers(rdb,cg)) == -1) return -1;
+                if ((n = rdbSaveStreamConsumers(rdb,cg)) == -1) {
+                    raxStop(&ri);
+                    return -1;
+                }
                 nwritten += n;
             }
             raxStop(&ri);
@@ -1107,6 +1146,8 @@ ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
     /* Save a module-specific aux value. */
     RedisModuleIO io;
     int retval = rdbSaveType(rdb, RDB_OPCODE_MODULE_AUX);
+    if (retval == -1) return -1;
+    io.bytes += retval;
 
     /* Write the "module" identifier as prefix, so that we'll be able
      * to call the right module during loading. */
@@ -1273,7 +1314,7 @@ werr: /* Write error. */
 int rdbSave(char *filename, rdbSaveInfo *rsi) {
     char tmpfile[256];
     char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
-    FILE *fp;
+    FILE *fp = NULL;
     rio rdb;
     int error = 0;
 
@@ -1302,10 +1343,11 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
     }
 
     /* Make sure data will not remain on the OS's output buffers */
-    if (fflush(fp) == EOF) goto werr;
-    if (fsync(fileno(fp)) == -1) goto werr;
-    if (fclose(fp) == EOF) goto werr;
-
+    if (fflush(fp)) goto werr;
+    if (fsync(fileno(fp))) goto werr;
+    if (fclose(fp)) { fp = NULL; goto werr; }
+    fp = NULL;
+    
     /* Use RENAME to make sure the DB file is changed atomically only
      * if the generate DB file is ok. */
     if (rename(tmpfile,filename) == -1) {
@@ -1331,7 +1373,7 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
 
 werr:
     serverLog(LL_WARNING,"Write error saving DB on disk: %s", strerror(errno));
-    fclose(fp);
+    if (fp) fclose(fp);
     unlink(tmpfile);
     stopSaving(0);
     return C_ERR;
@@ -1346,7 +1388,7 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
     server.lastbgsave_try = time(NULL);
     openChildInfoPipe();
 
-    if ((childpid = redisFork()) == 0) {
+    if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {
         int retval;
 
         /* Child */
@@ -1354,7 +1396,7 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
         redisSetCpuAffinity(server.bgsave_cpulist);
         retval = rdbSave(filename,rsi);
         if (retval == C_OK) {
-            sendChildCOWInfo(CHILD_INFO_TYPE_RDB, "RDB");
+            sendChildCOWInfo(CHILD_TYPE_RDB, "RDB");
         }
         exitFromChild((retval == C_OK) ? 0 : 1);
     } else {
@@ -1375,11 +1417,29 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
     return C_OK; /* unreached */
 }
 
-void rdbRemoveTempFile(pid_t childpid) {
+/* Note that we may call this function in signal handle 'sigShutdownHandler',
+ * so we need guarantee all functions we call are async-signal-safe.
+ * If  we call this function from signal handle, we won't call bg_unlik that
+ * is not async-signal-safe. */
+void rdbRemoveTempFile(pid_t childpid, int from_signal) {
     char tmpfile[256];
+    char pid[32];
 
-    snprintf(tmpfile,sizeof(tmpfile),"temp-%d.rdb", (int) childpid);
-    unlink(tmpfile);
+    /* Generate temp rdb file name using aync-signal safe functions. */
+    int pid_len = ll2string(pid, sizeof(pid), childpid);
+    strcpy(tmpfile, "temp-");
+    strncpy(tmpfile+5, pid, pid_len);
+    strcpy(tmpfile+5+pid_len, ".rdb");
+
+    if (from_signal) {
+        /* bg_unlink is not async-signal-safe, but in this case we don't really
+         * need to close the fd, it'll be released when the process exists. */
+        int fd = open(tmpfile, O_RDONLY|O_NONBLOCK);
+        UNUSED(fd);
+        unlink(tmpfile);
+    } else {
+        bg_unlink(tmpfile);
+    }
 }
 
 /* This function is called by rdbLoadObject() when the code is in RDB-check
@@ -2137,7 +2197,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
         } else if (type == RDB_OPCODE_AUX) {
             /* AUX: generic string-string fields. Use to add state to RDB
              * which is backward compatible. Implementations of RDB loading
-             * are requierd to skip AUX fields they don't understand.
+             * are required to skip AUX fields they don't understand.
              *
              * An AUX field is composed of two strings: key and value. */
             robj *auxkey, *auxval;
@@ -2165,7 +2225,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                 if (luaCreateFunction(NULL,server.lua,auxval) == NULL) {
                     rdbExitReportCorruptRDB(
                         "Can't load Lua script from RDB file! "
-                        "BODY: %s", auxval->ptr);
+                        "BODY: %s", (char*)auxval->ptr);
                 }
             } else if (!strcasecmp(auxkey->ptr,"redis-ver")) {
                 serverLog(LL_NOTICE,"Loading RDB produced by version %s",
@@ -2272,6 +2332,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             decrRefCount(val);
         } else {
             robj keyobj;
+            initStaticStringObject(keyobj,key);
 
             /* Add the new object in the hash table */
             int added = dbAddRDBLoad(db,key,val);
@@ -2280,7 +2341,6 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                     /* This flag is useful for DEBUG RELOAD special modes.
                      * When it's set we allow new keys to replace the current
                      * keys with the same name. */
-                    initStaticStringObject(keyobj,key);
                     dbSyncDelete(db,&keyobj);
                     dbAddRDBLoad(db,key,val);
                 } else {
@@ -2292,12 +2352,14 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
 
             /* Set the expire time if needed */
             if (expiretime != -1) {
-                initStaticStringObject(keyobj,key);
                 setExpire(NULL,db,&keyobj,expiretime);
             }
 
             /* Set usage information (for eviction). */
             objectSetLRUOrLFU(val,lfu_freq,lru_idle,lru_clock,1000);
+
+            /* call key space notification on key loaded for modules only */
+            moduleNotifyKeyspaceEvent(NOTIFY_LOADED, "loaded", &keyobj, db->id);
         }
 
         /* Loading the database more slowly is useful in order to test
@@ -2364,7 +2426,7 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
 
 /* A background saving child (BGSAVE) terminated its work. Handle this.
  * This function covers the case of actual BGSAVEs. */
-void backgroundSaveDoneHandlerDisk(int exitcode, int bysignal) {
+static void backgroundSaveDoneHandlerDisk(int exitcode, int bysignal) {
     if (!bysignal && exitcode == 0) {
         serverLog(LL_NOTICE,
             "Background saving terminated with success");
@@ -2380,27 +2442,20 @@ void backgroundSaveDoneHandlerDisk(int exitcode, int bysignal) {
         serverLog(LL_WARNING,
             "Background saving terminated by signal %d", bysignal);
         latencyStartMonitor(latency);
-        rdbRemoveTempFile(server.rdb_child_pid);
+        rdbRemoveTempFile(server.rdb_child_pid, 0);
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("rdb-unlink-temp-file",latency);
         /* SIGUSR1 is whitelisted, so we have a way to kill a child without
-         * tirggering an error condition. */
+         * triggering an error condition. */
         if (bysignal != SIGUSR1)
             server.lastbgsave_status = C_ERR;
     }
-    server.rdb_child_pid = -1;
-    server.rdb_child_type = RDB_CHILD_TYPE_NONE;
-    server.rdb_save_time_last = time(NULL)-server.rdb_save_time_start;
-    server.rdb_save_time_start = -1;
-    /* Possibly there are slaves waiting for a BGSAVE in order to be served
-     * (the first stage of SYNC is a bulk transfer of dump.rdb) */
-    updateSlavesWaitingBgsave((!bysignal && exitcode == 0) ? C_OK : C_ERR, RDB_CHILD_TYPE_DISK);
 }
 
 /* A background saving child (BGSAVE) terminated its work. Handle this.
  * This function covers the case of RDB -> Slaves socket transfers for
  * diskless replication. */
-void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
+static void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
     if (!bysignal && exitcode == 0) {
         serverLog(LL_NOTICE,
             "Background RDB transfer terminated with success");
@@ -2410,15 +2465,11 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
         serverLog(LL_WARNING,
             "Background transfer terminated by signal %d", bysignal);
     }
-    server.rdb_child_pid = -1;
-    server.rdb_child_type = RDB_CHILD_TYPE_NONE;
-    server.rdb_save_time_start = -1;
-
-    updateSlavesWaitingBgsave((!bysignal && exitcode == 0) ? C_OK : C_ERR, RDB_CHILD_TYPE_SOCKET);
 }
 
 /* When a background RDB saving/transfer terminates, call the right handler. */
 void backgroundSaveDoneHandler(int exitcode, int bysignal) {
+    int type = server.rdb_child_type;
     switch(server.rdb_child_type) {
     case RDB_CHILD_TYPE_DISK:
         backgroundSaveDoneHandlerDisk(exitcode,bysignal);
@@ -2430,6 +2481,14 @@ void backgroundSaveDoneHandler(int exitcode, int bysignal) {
         serverPanic("Unknown RDB child type.");
         break;
     }
+
+    server.rdb_child_pid = -1;
+    server.rdb_child_type = RDB_CHILD_TYPE_NONE;
+    server.rdb_save_time_last = time(NULL)-server.rdb_save_time_start;
+    server.rdb_save_time_start = -1;
+    /* Possibly there are slaves waiting for a BGSAVE in order to be served
+     * (the first stage of SYNC is a bulk transfer of dump.rdb) */
+    updateSlavesWaitingBgsave((!bysignal && exitcode == 0) ? C_OK : C_ERR, type);
 }
 
 /* Kill the RDB saving child using SIGUSR1 (so that the parent will know
@@ -2437,7 +2496,7 @@ void backgroundSaveDoneHandler(int exitcode, int bysignal) {
  * the cleanup needed. */
 void killRDBChild(void) {
     kill(server.rdb_child_pid,SIGUSR1);
-    rdbRemoveTempFile(server.rdb_child_pid);
+    rdbRemoveTempFile(server.rdb_child_pid, 0);
     closeChildInfoPipe();
     updateDictResizePolicy();
 }
@@ -2481,7 +2540,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
 
     /* Create the child process. */
     openChildInfoPipe();
-    if ((childpid = redisFork()) == 0) {
+    if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {
         /* Child */
         int retval;
         rio rdb;
@@ -2496,7 +2555,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
             retval = C_ERR;
 
         if (retval == C_OK) {
-            sendChildCOWInfo(CHILD_INFO_TYPE_RDB, "RDB");
+            sendChildCOWInfo(CHILD_TYPE_RDB, "RDB");
         }
 
         rioFreeFd(&rdb);

@@ -102,7 +102,7 @@ void disableTracking(client *c) {
 /* Set the client 'c' to track the prefix 'prefix'. If the client 'c' is
  * already registered for the specified prefix, no operation is performed. */
 void enableBcastTrackingForPrefix(client *c, char *prefix, size_t plen) {
-    bcastState *bs = raxFind(PrefixTable,(unsigned char*)prefix,sdslen(prefix));
+    bcastState *bs = raxFind(PrefixTable,(unsigned char*)prefix,plen);
     /* If this is the first client subscribing to such prefix, create
      * the prefix in the table. */
     if (bs == raxNotFound) {
@@ -134,7 +134,7 @@ void enableTracking(client *c, uint64_t redirect_to, uint64_t options, robj **pr
                   CLIENT_TRACKING_NOLOOP);
     c->client_tracking_redirection = redirect_to;
 
-    /* This may be the first client we ever enable. Crete the tracking
+    /* This may be the first client we ever enable. Create the tracking
      * table if it does not exist. */
     if (TrackingTable == NULL) {
         TrackingTable = raxNew();
@@ -171,9 +171,14 @@ void trackingRememberKeys(client *c) {
     uint64_t caching_given = c->flags & CLIENT_TRACKING_CACHING;
     if ((optin && !caching_given) || (optout && caching_given)) return;
 
-    int numkeys;
-    int *keys = getKeysFromCommand(c->cmd,c->argv,c->argc,&numkeys);
-    if (keys == NULL) return;
+    getKeysResult result = GETKEYS_RESULT_INIT;
+    int numkeys = getKeysFromCommand(c->cmd,c->argv,c->argc,&result);
+    if (!numkeys) {
+        getKeysFreeResult(&result);
+        return;
+    }
+
+    int *keys = result.keys;
 
     for(int j = 0; j < numkeys; j++) {
         int idx = keys[j];
@@ -188,7 +193,7 @@ void trackingRememberKeys(client *c) {
         if (raxTryInsert(ids,(unsigned char*)&c->id,sizeof(c->id),NULL,NULL))
             TrackingTableTotalItems++;
     }
-    getKeysFreeResult(keys);
+    getKeysFreeResult(&result);
 }
 
 /* Given a key name, this function sends an invalidation message in the
@@ -198,9 +203,11 @@ void trackingRememberKeys(client *c) {
  *
  * In case the 'proto' argument is non zero, the function will assume that
  * 'keyname' points to a buffer of 'keylen' bytes already expressed in the
- * form of Redis RESP protocol, representing an array of keys to send
- * to the client as value of the invalidation. This is used in BCAST mode
- * in order to optimized the implementation to use less CPU time. */
+ * form of Redis RESP protocol. This is used for:
+ * - In BCAST mode, to send an array of invalidated keys to all
+ *   applicable clients
+ * - Following a flush command, to send a single RESP NULL to indicate
+ *   that all keys are now invalid. */
 void sendTrackingMessage(client *c, char *keyname, size_t keylen, int proto) {
     int using_redirection = 0;
     if (c->client_tracking_redirection) {
@@ -342,17 +349,19 @@ void trackingInvalidateKey(client *c, robj *keyobj) {
     trackingInvalidateKeyRaw(c,keyobj->ptr,sdslen(keyobj->ptr),1);
 }
 
-/* This function is called when one or all the Redis databases are flushed
- * (dbid == -1 in case of FLUSHALL). Caching keys are not specific for
- * each DB but are global: currently what we do is send a special
- * notification to clients with tracking enabled, invalidating the caching
- * key "", which means, "all the keys", in order to avoid flooding clients
- * with many invalidation messages for all the keys they may hold.
+/* This function is called when one or all the Redis databases are
+ * flushed (dbid == -1 in case of FLUSHALL). Caching keys are not
+ * specific for each DB but are global: currently what we do is send a
+ * special notification to clients with tracking enabled, sending a
+ * RESP NULL, which means, "all the keys", in order to avoid flooding
+ * clients with many invalidation messages for all the keys they may
+ * hold.
  */
 void freeTrackingRadixTree(void *rt) {
     raxFree(rt);
 }
 
+/* A RESP NULL is sent to indicate that all keys are invalid */
 void trackingInvalidateKeysOnFlush(int dbid) {
     if (server.tracking_clients) {
         listNode *ln;
@@ -361,7 +370,7 @@ void trackingInvalidateKeysOnFlush(int dbid) {
         while ((ln = listNext(&li)) != NULL) {
             client *c = listNodeValue(ln);
             if (c->flags & CLIENT_TRACKING) {
-                sendTrackingMessage(c,"",1,0);
+                sendTrackingMessage(c,shared.null[c->resp]->ptr,sdslen(shared.null[c->resp]->ptr),1);
             }
         }
     }

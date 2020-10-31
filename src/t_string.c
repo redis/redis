@@ -35,8 +35,8 @@
  *----------------------------------------------------------------------------*/
 
 static int checkStringLength(client *c, long long size) {
-    if (size > 512*1024*1024) {
-        addReplyError(c,"string exceeds maximum allowed size (512MB)");
+    if (!(c->flags & CLIENT_MASTER) && size > server.proto_max_bulk_len) {
+        addReplyError(c,"string exceeds maximum allowed size (proto-max-bulk-len)");
         return C_ERR;
     }
     return C_OK;
@@ -316,7 +316,7 @@ void msetGenericCommand(client *c, int nx) {
     }
 
     /* Handle the NX flag. The MSETNX semantic is to return zero and don't
-     * set anything if at least one key alerady exists. */
+     * set anything if at least one key already exists. */
     if (nx) {
         for (j = 1; j < c->argc; j += 2) {
             if (lookupKeyWrite(c->db,c->argv[j]) != NULL) {
@@ -516,13 +516,13 @@ void stralgoLCS(client *c) {
             withmatchlen = 1;
         } else if (!strcasecmp(opt,"MINMATCHLEN") && moreargs) {
             if (getLongLongFromObjectOrReply(c,c->argv[j+1],&minmatchlen,NULL)
-                != C_OK) return;
+                != C_OK) goto cleanup;
             if (minmatchlen < 0) minmatchlen = 0;
             j++;
         } else if (!strcasecmp(opt,"STRINGS") && moreargs > 1) {
             if (a != NULL) {
                 addReplyError(c,"Either use STRINGS or KEYS");
-                return;
+                goto cleanup;
             }
             a = c->argv[j+1]->ptr;
             b = c->argv[j+2]->ptr;
@@ -530,10 +530,21 @@ void stralgoLCS(client *c) {
         } else if (!strcasecmp(opt,"KEYS") && moreargs > 1) {
             if (a != NULL) {
                 addReplyError(c,"Either use STRINGS or KEYS");
-                return;
+                goto cleanup;
             }
             obja = lookupKeyRead(c->db,c->argv[j+1]);
             objb = lookupKeyRead(c->db,c->argv[j+2]);
+            if ((obja && obja->type != OBJ_STRING) ||
+                (objb && objb->type != OBJ_STRING))
+            {
+                addReplyError(c,
+                    "The specified keys must contain string values");
+                /* Don't cleanup the objects, we need to do that
+                 * only after callign getDecodedObject(). */
+                obja = NULL;
+                objb = NULL;
+                goto cleanup;
+            }
             obja = obja ? getDecodedObject(obja) : createStringObject("",0);
             objb = objb ? getDecodedObject(objb) : createStringObject("",0);
             a = obja->ptr;
@@ -541,7 +552,7 @@ void stralgoLCS(client *c) {
             j += 2;
         } else {
             addReply(c,shared.syntaxerr);
-            return;
+            goto cleanup;
         }
     }
 
@@ -549,12 +560,12 @@ void stralgoLCS(client *c) {
     if (a == NULL) {
         addReplyError(c,"Please specify two strings: "
                         "STRINGS or KEYS options are mandatory");
-        return;
+        goto cleanup;
     } else if (getlen && getidx) {
         addReplyError(c,
             "If you want both the length and indexes, please "
             "just use IDX.");
-        return;
+        goto cleanup;
     }
 
     /* Compute the LCS using the vanilla dynamic programming technique of
@@ -689,10 +700,12 @@ void stralgoLCS(client *c) {
     }
 
     /* Cleanup. */
-    if (obja) decrRefCount(obja);
-    if (objb) decrRefCount(objb);
     sdsfree(result);
     zfree(lcs);
+
+cleanup:
+    if (obja) decrRefCount(obja);
+    if (objb) decrRefCount(objb);
     return;
 }
 

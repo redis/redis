@@ -83,16 +83,16 @@ char *replicationGetSlaveName(client *c) {
  * the file deletion to the filesystem. This call removes the file in a
  * background thread instead. We actually just do close() in the thread,
  * by using the fact that if there is another instance of the same file open,
- * the foreground unlink() will not really do anything, and deleting the
- * file will only happen once the last reference is lost. */
+ * the foreground unlink() will only remove the fs name, and deleting the
+ * file's storage space will only happen once the last reference is lost. */
 int bg_unlink(const char *filename) {
     int fd = open(filename,O_RDONLY|O_NONBLOCK);
     if (fd == -1) {
         /* Can't open the file? Fall back to unlinking in the main thread. */
         return unlink(filename);
     } else {
-        /* The following unlink() will not do anything since file
-         * is still open. */
+        /* The following unlink() removes the name but doesn't free the
+         * file contents because a process still has it open. */
         int retval = unlink(filename);
         if (retval == -1) {
             /* If we got an unlink error, we just return it, closing the
@@ -204,7 +204,7 @@ void feedReplicationBacklogWithObject(robj *o) {
  * as well. This function is used if the instance is a master: we use
  * the commands received by our clients in order to create the replication
  * stream. Instead if the instance is a slave and has sub-slaves attached,
- * we use replicationFeedSlavesFromMaster() */
+ * we use replicationFeedSlavesFromMasterStream() */
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     listNode *ln;
     listIter li;
@@ -535,7 +535,7 @@ int masterTryPartialResynchronization(client *c) {
         (strcasecmp(master_replid, server.replid2) ||
          psync_offset > server.second_replid_offset))
     {
-        /* Run id "?" is used by slaves that want to force a full resync. */
+        /* Replid "?" is used by slaves that want to force a full resync. */
         if (master_replid[0] != '?') {
             if (strcasecmp(master_replid, server.replid) &&
                 strcasecmp(master_replid, server.replid2))
@@ -707,7 +707,7 @@ int startBgsaveForReplication(int mincapa) {
     return retval;
 }
 
-/* SYNC and PSYNC command implemenation. */
+/* SYNC and PSYNC command implementation. */
 void syncCommand(client *c) {
     /* ignore SYNC if already slave or in monitor mode */
     if (c->flags & CLIENT_SLAVE) return;
@@ -1240,6 +1240,12 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
         } else if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
             struct redis_stat buf;
 
+            if (bgsaveerr != C_OK) {
+                freeClient(slave);
+                serverLog(LL_WARNING,"SYNC failed. BGSAVE child returned an error");
+                continue;
+            }
+
             /* If this was an RDB on disk save, we have to prepare to send
              * the RDB from disk to the slave socket. Otherwise if this was
              * already an RDB -> Slaves socket transfer, used in the case of
@@ -1278,11 +1284,6 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                 slave->repl_put_online_on_ack = 1;
                 slave->repl_ack_time = server.unixtime; /* Timeout otherwise. */
             } else {
-                if (bgsaveerr != C_OK) {
-                    freeClient(slave);
-                    serverLog(LL_WARNING,"SYNC failed. BGSAVE child returned an error");
-                    continue;
-                }
                 if ((slave->repldbfd = open(server.rdb_filename,O_RDONLY)) == -1 ||
                     redis_fstat(slave->repldbfd,&buf) == -1) {
                     freeClient(slave);
@@ -1373,10 +1374,11 @@ void replicationSendNewlineToMaster(void) {
  * the new dataset received by the master. */
 void replicationEmptyDbCallback(void *privdata) {
     UNUSED(privdata);
-    replicationSendNewlineToMaster();
+    if (server.repl_state == REPL_STATE_TRANSFER)
+        replicationSendNewlineToMaster();
 }
 
-/* Once we have a link with the master and the synchroniziation was
+/* Once we have a link with the master and the synchronization was
  * performed, this function materializes the master client we store
  * at server.master, starting from the specified file descriptor. */
 void replicationCreateMasterClient(connection *conn, int dbid) {
@@ -1453,7 +1455,7 @@ redisDb *disklessLoadMakeBackups(void) {
  * the 'restore' argument (the number of DBs to replace) is non-zero.
  *
  * When instead the loading succeeded we want just to free our old backups,
- * in that case the funciton will do just that when 'restore' is 0. */
+ * in that case the function will do just that when 'restore' is 0. */
 void disklessLoadRestoreBackups(redisDb *backup, int restore, int empty_db_flags)
 {
     if (restore) {
@@ -1487,7 +1489,7 @@ void readSyncBulkPayload(connection *conn) {
     off_t left;
 
     /* Static vars used to hold the EOF mark, and the last bytes received
-     * form the server: when they match, we reached the end of the transfer. */
+     * from the server: when they match, we reached the end of the transfer. */
     static char eofmark[CONFIG_RUN_ID_SIZE];
     static char lastbytes[CONFIG_RUN_ID_SIZE];
     static int usemark = 0;
@@ -1750,6 +1752,17 @@ void readSyncBulkPayload(connection *conn) {
             killRDBChild();
         }
 
+        /* Make sure the new file (also used for persistence) is fully synced
+         * (not covered by earlier calls to rdb_fsync_range). */
+        if (fsync(server.repl_transfer_fd) == -1) {
+            serverLog(LL_WARNING,
+                "Failed trying to sync the temp DB to disk in "
+                "MASTER <-> REPLICA synchronization: %s",
+                strerror(errno));
+            cancelReplicationHandshake();
+            return;
+        }
+
         /* Rename rdb like renaming rewrite aof asynchronously. */
         int old_rdb_fd = open(server.rdb_filename,O_RDONLY|O_NONBLOCK);
         if (rename(server.repl_transfer_tmpfile,server.rdb_filename) == -1) {
@@ -1804,7 +1817,7 @@ void readSyncBulkPayload(connection *conn) {
                           REDISMODULE_SUBEVENT_MASTER_LINK_UP,
                           NULL);
 
-    /* After a full resynchroniziation we use the replication ID and
+    /* After a full resynchronization we use the replication ID and
      * offset of the master. The secondary ID / offset are cleared since
      * we are starting a new history. */
     memcpy(server.replid,server.master->replid,sizeof(server.replid));
@@ -1900,7 +1913,7 @@ char *sendSynchronousCommand(int flags, connection *conn, ...) {
 /* Try a partial resynchronization with the master if we are about to reconnect.
  * If there is no cached master structure, at least try to issue a
  * "PSYNC ? -1" command in order to trigger a full resync using the PSYNC
- * command in order to obtain the master run id and the master replication
+ * command in order to obtain the master replid and the master replication
  * global offset.
  *
  * This function is designed to be called from syncWithMaster(), so the
@@ -1928,7 +1941,7 @@ char *sendSynchronousCommand(int flags, connection *conn, ...) {
  *
  * PSYNC_CONTINUE: If the PSYNC command succeeded and we can continue.
  * PSYNC_FULLRESYNC: If PSYNC is supported but a full resync is needed.
- *                   In this case the master run_id and global replication
+ *                   In this case the master replid and global replication
  *                   offset is saved.
  * PSYNC_NOT_SUPPORTED: If the server does not understand PSYNC at all and
  *                      the caller should fall back to SYNC.
@@ -1959,7 +1972,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
     /* Writing half */
     if (!read_reply) {
         /* Initially set master_initial_offset to -1 to mark the current
-         * master run_id and offset as not valid. Later if we'll be able to do
+         * master replid and offset as not valid. Later if we'll be able to do
          * a FULL resync using the PSYNC command we'll set the offset at the
          * right value, so that this information will be propagated to the
          * client structure representing the master into server.master. */
@@ -2000,7 +2013,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
     if (!strncmp(reply,"+FULLRESYNC",11)) {
         char *replid = NULL, *offset = NULL;
 
-        /* FULL RESYNC, parse the reply in order to extract the run id
+        /* FULL RESYNC, parse the reply in order to extract the replid
          * and the replication offset. */
         replid = strchr(reply,' ');
         if (replid) {
@@ -2157,6 +2170,7 @@ void syncWithMaster(connection *conn) {
          * both. */
         if (err[0] != '+' &&
             strncmp(err,"-NOAUTH",7) != 0 &&
+            strncmp(err,"-NOPERM",7) != 0 &&
             strncmp(err,"-ERR operation not permitted",28) != 0)
         {
             serverLog(LL_WARNING,"Error reply to PING from master: '%s'",err);
@@ -2291,7 +2305,7 @@ void syncWithMaster(connection *conn) {
 
     /* Try a partial resynchonization. If we don't have a cached master
      * slaveTryPartialResynchronization() will at least try to use PSYNC
-     * to start a full resynchronization so that we get the master run id
+     * to start a full resynchronization so that we get the master replid
      * and the global offset, to try a partial resync at the next
      * reconnection attempt. */
     if (server.repl_state == REPL_STATE_SEND_PSYNC) {
@@ -2439,7 +2453,7 @@ void replicationAbortSyncTransfer(void) {
     undoConnectWithMaster();
     if (server.repl_transfer_fd!=-1) {
         close(server.repl_transfer_fd);
-        unlink(server.repl_transfer_tmpfile);
+        bg_unlink(server.repl_transfer_tmpfile);
         zfree(server.repl_transfer_tmpfile);
         server.repl_transfer_tmpfile = NULL;
         server.repl_transfer_fd = -1;
@@ -2453,7 +2467,7 @@ void replicationAbortSyncTransfer(void) {
  * If there was a replication handshake in progress 1 is returned and
  * the replication state (server.repl_state) set to REPL_STATE_CONNECT.
  *
- * Otherwise zero is returned and no operation is perforemd at all. */
+ * Otherwise zero is returned and no operation is performed at all. */
 int cancelReplicationHandshake(void) {
     if (server.repl_state == REPL_STATE_TRANSFER) {
         replicationAbortSyncTransfer();
@@ -2480,6 +2494,9 @@ void replicationSetMaster(char *ip, int port) {
         freeClient(server.master);
     }
     disconnectAllBlockedClients(); /* Clients blocked in master, now slave. */
+
+    /* Update oom_score_adj */
+    setOOMScoreAdj(-1);
 
     /* Force our slaves to resync with us as well. They may hopefully be able
      * to partially resync with us, but we can notify the replid change. */
@@ -2542,6 +2559,9 @@ void replicationUnsetMaster(void) {
      * with PSYNC version 2, there is no need for full resync after a
      * master switch. */
     server.slaveseldb = -1;
+
+    /* Update oom_score_adj */
+    setOOMScoreAdj(-1);
 
     /* Once we turn from slave to master, we consider the starting time without
      * slaves (that is used to count the replication backlog time to live) as
@@ -2822,6 +2842,11 @@ void replicationResurrectCachedMaster(connection *conn) {
     server.repl_state = REPL_STATE_CONNECTED;
     server.repl_down_since = 0;
 
+    /* Fire the master link modules event. */
+    moduleFireServerEvent(REDISMODULE_EVENT_MASTER_LINK_CHANGE,
+                          REDISMODULE_SUBEVENT_MASTER_LINK_UP,
+                          NULL);
+
     /* Re-add to the list of clients. */
     linkClient(server.master);
     if (connSetReadHandler(server.master->conn, readQueryFromClient)) {
@@ -2874,7 +2899,7 @@ void refreshGoodSlavesCount(void) {
  *
  * We don't care about taking a different cache for every different slave
  * since to fill the cache again is not very costly, the goal of this code
- * is to avoid that the same big script is trasmitted a big number of times
+ * is to avoid that the same big script is transmitted a big number of times
  * per second wasting bandwidth and processor speed, but it is not a problem
  * if we need to rebuild the cache from scratch from time to time, every used
  * script will need to be transmitted a single time to reappear in the cache.
@@ -2884,7 +2909,7 @@ void refreshGoodSlavesCount(void) {
  * 1) Every time a new slave connects, we flush the whole script cache.
  * 2) We only send as EVALSHA what was sent to the master as EVALSHA, without
  *    trying to convert EVAL into EVALSHA specifically for slaves.
- * 3) Every time we trasmit a script as EVAL to the slaves, we also add the
+ * 3) Every time we transmit a script as EVAL to the slaves, we also add the
  *    corresponding SHA1 of the script into the cache as we are sure every
  *    slave knows about the script starting from now.
  * 4) On SCRIPT FLUSH command, we replicate the command to all the slaves
@@ -2975,7 +3000,7 @@ int replicationScriptCacheExists(sds sha1) {
 
 /* This just set a flag so that we broadcast a REPLCONF GETACK command
  * to all the slaves in the beforeSleep() function. Note that this way
- * we "group" all the clients that want to wait for synchronouns replication
+ * we "group" all the clients that want to wait for synchronous replication
  * in a given event loop iteration, and send a single GETACK for them all. */
 void replicationRequestAckFromSlaves(void) {
     server.get_ack_from_slaves = 1;

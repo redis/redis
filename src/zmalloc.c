@@ -181,9 +181,6 @@ void *zrealloc(void *ptr, size_t size) {
 size_t zmalloc_size(void *ptr) {
     void *realptr = (char*)ptr-PREFIX_SIZE;
     size_t size = *((size_t*)realptr);
-    /* Assume at least that all the allocations are padded at sizeof(long) by
-     * the underlying allocator. */
-    if (size&(sizeof(long)-1)) size += sizeof(long)-(size&(sizeof(long)-1));
     return size+PREFIX_SIZE;
 }
 size_t zmalloc_usable(void *ptr) {
@@ -311,6 +308,26 @@ size_t zmalloc_get_rss(void) {
 
     if (sysctl(mib, 4, &info, &infolen, NULL, 0) == 0)
         return (size_t)info.ki_rssize;
+
+    return 0L;
+}
+#elif defined(__NetBSD__)
+#include <sys/types.h>
+#include <sys/sysctl.h>
+#include <unistd.h>
+
+size_t zmalloc_get_rss(void) {
+    struct kinfo_proc2 info;
+    size_t infolen = sizeof(info);
+    int mib[6];
+    mib[0] = CTL_KERN;
+    mib[1] = KERN_PROC;
+    mib[2] = KERN_PROC_PID;
+    mib[3] = getpid();
+    mib[4] = sizeof(info);
+    mib[5] = 1;
+    if (sysctl(mib, 4, &info, &infolen, NULL, 0) == 0)
+        return (size_t)info.p_vm_rssize;
 
     return 0L;
 }
