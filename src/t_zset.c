@@ -2253,8 +2253,7 @@ static void zdiffAlgorithm1(zsetopsrc *src, long setnum, zset *dstzset, size_t *
         for (j = 1; j < setnum; j++) {
             /* It is not safe to access the zset we are
                 * iterating, so explicitly check for equal object. */
-            if (src[j].subject == src[0].subject ||
-                    zuiFind(&src[j],&zval,&value)) {
+            if (zuiFind(&src[j],&zval,&value)) {
                 exists = 1;
                 break;
             }
@@ -2335,6 +2334,12 @@ static int zsetChooseDiffAlgorithm(zsetopsrc *src, long setnum) {
     long long algo_two_work = 0;
 
     for (j = 0; j < setnum; j++) {
+        /* If any other set is equal to the first set, there is nothing to be
+         * done, since we would remove all elements anyway. */
+        if (j > 0 && src[0].subject == src[j].subject) {
+            return 0;
+        }
+
         algo_one_work += zuiLength(&src[0]);
         algo_two_work += zuiLength(&src[j]);
     }
@@ -2353,7 +2358,7 @@ static void zdiff(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen)
             zdiffAlgorithm1(src, setnum, dstzset, maxelelen);
         } else if (diff_algo == 2) {
             zdiffAlgorithm2(src, setnum, dstzset, maxelelen);
-        } else {
+        } else if (diff_algo != 0) {
             serverPanic("Unknown algorithm");
         }
     }
