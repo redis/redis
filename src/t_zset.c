@@ -2218,6 +2218,19 @@ static int zsetDictGetMaxElementLength(dict *d) {
 }
 
 static void zdiffAlgorithm1(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen) {
+    /* DIFF Algorithm 1:
+     *
+     * We perform the diff by iterating all the elements of the first set,
+     * and only adding it to the target set if the element does not exist
+     * into all the other sets.
+     *
+     * This way we perform at max N*M operations, where N is the size of
+     * the first set, and M the number of sets.
+     *
+     * There is also a O(K*log(K)) cost for adding the resulting elements
+     * to the target set, where K is the final size of the target set.
+     *
+     * The final complexity of this algorithm is O(N*M + K*log(K)). */
     int j;
     zsetopval zval;
     zskiplistNode *znode;
@@ -2263,8 +2276,8 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
      * Add all the elements of the first set to the auxiliary set.
      * Then remove all the elements of all the next sets from it.
      *
-     * This is O(N) where N is the sum of all the elements in every
-     * set. */
+     * This is O(N + K*log(K)) where N is the sum of all the elements in every
+     * set, and K is the size of the resulting set. */
     int j;
     int cardinality = 0;
     zsetopval zval;
@@ -2310,11 +2323,12 @@ static int zsetChooseDiffAlgorithm(zsetopsrc *src, long setnum) {
 
     /* Select what DIFF algorithm to use.
      *
-     * Algorithm 1 is O(N*M) where N is the size of the element first set
-     * and M the total number of sets.
+     * Algorithm 1 is O(N*M + K*log(K)) where N is the size of the element
+     * first set, M the total number of sets, and K is the size of the
+     * result set.
      *
-     * Algorithm 2 is O(N) where N is the total number of elements in all
-     * the sets.
+     * Algorithm 2 is O(N + K*log(K)) where N is the total number of elements
+     * in all the sets and K is the size of the result set.
      *
      * We compute what is the best bet with the current input here. */
     long long algo_one_work = 0;
@@ -2326,7 +2340,7 @@ static int zsetChooseDiffAlgorithm(zsetopsrc *src, long setnum) {
     }
 
     /* Algorithm 1 has better constant times and performs less operations
-        * if there are elements in common. Give it some advantage. */
+     * if there are elements in common. Give it some advantage. */
     algo_one_work /= 2;
     return (algo_one_work <= algo_two_work) ? 1 : 2;
 }
