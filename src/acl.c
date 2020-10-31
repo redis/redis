@@ -1240,6 +1240,8 @@ int ACLCheckPubsubPerm(client *c, int idx, int count, int literal, int *idxptr) 
      * arguments. */
     if (!(c->user->flags & USER_FLAG_ALLCHANNELS)) {
         for (int j = idx; j < idx+count; j++) {
+            sds channel = c->argv[j]->ptr;
+            size_t clen = sdslen(channel);
             listIter li;
             listNode *ln;
             listRewind(u->channels,&li);
@@ -1249,9 +1251,9 @@ int ACLCheckPubsubPerm(client *c, int idx, int count, int literal, int *idxptr) 
             while((ln = listNext(&li))) {
                 sds pattern = listNodeValue(ln);
                 size_t plen = sdslen(pattern);
-                if ((literal && !sdscmp(pattern,c->argv[j]->ptr)) || 
-                    (!literal && stringmatchlen(pattern,plen,c->argv[j]->ptr,
-                                                sdslen(c->argv[j]->ptr),0)))
+                
+                if ((literal && !sdscmp(pattern,channel)) || 
+                    (!literal && stringmatchlen(pattern,plen,channel,clen,0)))
                 {
                     match = 1;
                     break;
