@@ -98,9 +98,45 @@ start_server {tags {"acl"}} {
 
     test {It's possible to allow publishing to a subset of channels} {
         r ACL setuser newuser &foo:1 &bar:*
-        r PUBLISH foo:1 a
-        r PUBLISH bar:2 b
+        catch {r PUBLISH foo:1 a} e
+        assert {$e eq 0}
+        catch {r PUBLISH bar:2 b} e
+        assert {$e eq 0}
         catch {r PUBLISH zap:3 c} e
+        set e
+    } {*NOPERM*channel*}
+
+    test {It's possible to allow subscribing to a subset of channels} {
+        set rd [redis_deferring_client]
+        $rd AUTH newuser passwd2
+        catch {$rd read} e
+        assert {$e eq "OK"}
+        $rd SUBSCRIBE foo:1
+        catch {$rd read} e
+        assert {[string match {*subscribe*foo:1*} $e]}
+        $rd SUBSCRIBE bar:2
+        catch {$rd read} e
+        assert {[string match {*subscribe*bar:2*} $e]}
+        $rd SUBSCRIBE zap:3
+        catch {$rd read} e
+        $rd QUIT
+        set e
+    } {*NOPERM*channel*}
+
+    test {It's possible to allow subscribing to a subset of channel patterns} {
+        set rd [redis_deferring_client]
+        $rd AUTH newuser passwd2
+        catch {$rd read} e
+        assert {$e eq "OK"}
+        $rd PSUBSCRIBE foo:1
+        catch {$rd read} e
+        assert {[string match {*psubscribe*foo:1*} $e]}
+        $rd PSUBSCRIBE bar:*
+        catch {$rd read} e
+        assert {[string match {*subscribe*bar:*} $e]}
+        $rd PSUBSCRIBE bar:3
+        catch {$rd read} e
+        $rd QUIT
         set e
     } {*NOPERM*channel*}
 
