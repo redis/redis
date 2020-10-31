@@ -2200,7 +2200,7 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
     }
 }
 
-static int dictGetMaxElementLength(dict *d) {
+static int zsetDictGetMaxElementLength(dict *d) {
     dictIterator *di;
     dictEntry *de;
     size_t maxelelen = 0;
@@ -2305,7 +2305,7 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
     *maxelelen = dictGetMaxElementLength(dstzset->dict);
 }
 
-static int chooseDiffAlgorithm(zsetopsrc *src, long setnum) {
+static int zsetChooseDiffAlgorithm(zsetopsrc *src, long setnum) {
     int j;
 
     /* Select what DIFF algorithm to use.
