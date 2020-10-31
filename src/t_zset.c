@@ -1435,6 +1435,36 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
     return 0; /* Never reached. */
 }
 
+/* Deletes the element 'ele' from the sorted set encoded as a skiplist+dict,
+ * returning 1 if the element existed and was deleted, 0 otherwise (the
+ * element was not there). It does not resize the dict after deleting the
+ * element. */
+static int zsetslDel(zset *zs, sds ele) {
+    dictEntry *de;
+    double score;
+
+    de = dictUnlink(zs->dict,ele);
+    if (de != NULL) {
+        /* Get the score in order to delete from the skiplist later. */
+        score = *(double*)dictGetVal(de);
+
+        /* Delete from the hash table and later from the skiplist.
+         * Note that the order is important: deleting from the skiplist
+         * actually releases the SDS string representing the element,
+         * which is shared between the skiplist and the hash table, so
+         * we need to delete from the skiplist as the final step. */
+        dictFreeUnlinkedEntry(zs->dict,de);
+
+        /* Delete from skiplist. */
+        int retval = zslDelete(zs->zsl,score,ele,NULL);
+        serverAssert(retval);
+
+        return 1;
+    }
+
+    return 0;
+}
+
 /* Delete the element 'ele' from the sorted set, returning 1 if the element
  * existed and was deleted, 0 otherwise (the element was not there). */
 int zsetDel(robj *zobj, sds ele) {
@@ -1447,25 +1477,7 @@ int zsetDel(robj *zobj, sds ele) {
         }
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;
-        dictEntry *de;
-        double score;
-
-        de = dictUnlink(zs->dict,ele);
-        if (de != NULL) {
-            /* Get the score in order to delete from the skiplist later. */
-            score = *(double*)dictGetVal(de);
-
-            /* Delete from the hash table and later from the skiplist.
-             * Note that the order is important: deleting from the skiplist
-             * actually releases the SDS string representing the element,
-             * which is shared between the skiplist and the hash table, so
-             * we need to delete from the skiplist as the final step. */
-            dictFreeUnlinkedEntry(zs->dict,de);
-
-            /* Delete from skiplist. */
-            int retval = zslDelete(zs->zsl,score,ele,NULL);
-            serverAssert(retval);
-
+        if (zsetslDel(zs, ele)) {
             if (htNeedsResize(zs->dict)) dictResize(zs->dict);
             return 1;
         }
@@ -2256,8 +2268,6 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
     zsetopval zval;
     zskiplistNode *znode;
     sds tmp;
-    double score;
-    dictEntry *de;
 
     for (j = 0; j < setnum; j++) {
         if (zuiLength(&src[j]) == 0) continue;
@@ -2272,21 +2282,7 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
                 cardinality++;
             } else {
                 tmp = zuiNewSdsFromValue(&zval);
-                de = dictUnlink(dstzset->dict,tmp);
-                if (de != NULL) {
-                    /* Get the score in order to delete from the skiplist later. */
-                    score = *(double*)dictGetVal(de);
-
-                    /* Delete from the hash table and later from the skiplist.
-                    * Note that the order is important: deleting from the skiplist
-                    * actually releases the SDS string representing the element,
-                    * which is shared between the skiplist and the hash table, so
-                    * we need to delete from the skiplist as the final step. */
-                    dictFreeUnlinkedEntry(dstzset->dict,de);
-
-                    /* Delete from skiplist. */
-                    int retval = zslDelete(dstzset->zsl,score,tmp,NULL);
-                    serverAssert(retval);
+                if (zsetslDel(dstzset, tmp)) {
                     cardinality--;
                 }
             }
