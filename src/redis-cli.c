@@ -1818,8 +1818,6 @@ static void usage(void) {
 "                     (if both are used, this argument takes precedence).\n"
 "  --user <username>  Used to send ACL style 'AUTH username pass'. Needs -a.\n"
 "  --pass <password>  Alias of -a for consistency with the new --user option.\n"
-"  --from-user <username>  Source node auth user name where we import keys from.\n"
-"  --from-pass <password>  Source node auth password where we import keys from.\n"
 "  --askpass          Force user to input password with mask from STDIN.\n"
 "                     If this argument is used, '-a' and " REDIS_CLI_AUTH_ENV "\n"
 "                     environment variable will be ignored.\n"
@@ -2439,7 +2437,7 @@ clusterManagerCommandDef clusterManagerCommands[] = {
     {"set-timeout", clusterManagerCommandSetTimeout, 2,
      "host:port milliseconds", NULL},
     {"import", clusterManagerCommandImport, 1, "host:port",
-     "from <arg>,copy,replace"},
+     "from <arg>,from-user <arg>,from-pass <arg>,from-askpass,copy,replace"},
     {"backup", clusterManagerCommandBackup, 2,  "host:port backup_directory",
      NULL},
     {"help", clusterManagerCommandHelp, 0, NULL, NULL}
