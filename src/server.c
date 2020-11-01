@@ -1039,7 +1039,7 @@ struct redisCommand redisCommandTable[] = {
      0,lcsGetKeys,0,0,0,0,0,0},
 
     {"reset",resetCommand,-1,
-     "no-script ok-stale fast @connection",
+     "no-script ok-stale ok-loading fast @connection",
      0,NULL,0,0,0,0,0,0}
 };
 
