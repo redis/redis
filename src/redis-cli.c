@@ -188,6 +188,9 @@ typedef struct clusterManagerCommand {
     int pipeline;
     float threshold;
     char *backup_dir;
+    char *from_user;
+    char *from_pass;
+    int from_askpass;
 } clusterManagerCommand;
 
 static void createClusterManagerCommand(char *cmdname, int argc, char **argv);
@@ -236,8 +239,6 @@ static struct config {
     char *auth;
     int askpass;
     char *user;
-    char *from_user;
-    char *from_pass;
     int output; /* output mode, see OUTPUT_* defines */
     int push_output; /* Should we display spontaneous PUSH replies */
     sds mb_delim;
@@ -1550,10 +1551,6 @@ static int parseOptions(int argc, char **argv) {
             config.auth = argv[++i];
         } else if (!strcmp(argv[i],"--user") && !lastarg) {
             config.user = argv[++i];
-        } else if (!strcmp(argv[i],"--from-user") && !lastarg) {
-            config.from_user = argv[++i];
-        } else if (!strcmp(argv[i],"--from-pass") && !lastarg) {
-            config.from_pass = argv[++i];
         } else if (!strcmp(argv[i],"-u") && !lastarg) {
             parseRedisUri(argv[++i]);
         } else if (!strcmp(argv[i],"--raw")) {
@@ -1648,6 +1645,12 @@ static int parseOptions(int argc, char **argv) {
             config.cluster_manager_command.from = argv[++i];
         } else if (!strcmp(argv[i],"--cluster-to") && !lastarg) {
             config.cluster_manager_command.to = argv[++i];
+        } else if (!strcmp(argv[i],"--cluster-from-user") && !lastarg) {
+            config.cluster_manager_command.from_user = argv[++i];
+        } else if (!strcmp(argv[i],"--cluster-from-pass") && !lastarg) {
+            config.cluster_manager_command.from_pass = argv[++i];
+        } else if (!strcmp(argv[i], "--cluster-from-askpass")) {
+            config.cluster_manager_command.from_askpass = 1;
         } else if (!strcmp(argv[i],"--cluster-weight") && !lastarg) {
             if (config.cluster_manager_command.weight != NULL) {
                 fprintf(stderr, "WARNING: you cannot use --cluster-weight "
@@ -6412,7 +6415,9 @@ static int clusterManagerCommandImport(int argc, char **argv) {
         goto cleanup;
     }
     //Auth for the source node. 
-    if (cliAuth(src_ctx, config.from_user, config.from_pass) == REDIS_ERR) {
+    char *from_user = config.cluster_manager_command.from_user;
+    char *from_pass = config.cluster_manager_command.from_pass;
+    if (cliAuth(src_ctx, from_user, from_pass) == REDIS_ERR) {
         success = 0;
         goto cleanup;
     }
@@ -8157,9 +8162,9 @@ static void intrinsicLatencyMode(void) {
     }
 }
 
-static sds askPassword() {
+static sds askPassword(const char *msg) {
     linenoiseMaskModeEnable();
-    sds auth = linenoise("Please input password: ");
+    sds auth = linenoise(msg);
     linenoiseMaskModeDisable();
     return auth;
 }
@@ -8202,8 +8207,6 @@ int main(int argc, char **argv) {
     config.auth = NULL;
     config.askpass = 0;
     config.user = NULL;
-    config.from_user = NULL;
-    config.from_pass = NULL;
     config.eval = NULL;
     config.eval_ldb = 0;
     config.eval_ldb_end = 0;
@@ -8219,6 +8222,9 @@ int main(int argc, char **argv) {
     config.cluster_manager_command.replicas = 0;
     config.cluster_manager_command.from = NULL;
     config.cluster_manager_command.to = NULL;
+    config.cluster_manager_command.from_user = NULL;
+    config.cluster_manager_command.from_pass = NULL;
+    config.cluster_manager_command.from_askpass = 0;
     config.cluster_manager_command.weight = NULL;
     config.cluster_manager_command.weight_argc = 0;
     config.cluster_manager_command.slots = 0;
@@ -8249,7 +8255,12 @@ int main(int argc, char **argv) {
     parseEnv();
 
     if (config.askpass) {
-        config.auth = askPassword();
+        config.auth = askPassword("Please input password: ");
+    }
+
+    if (config.cluster_manager_command.from_askpass) {
+        config.cluster_manager_command.from_pass = askPassword(
+            "Please input import source node password: ");
     }
 
 #ifdef USE_OPENSSL
