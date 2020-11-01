@@ -5004,6 +5004,7 @@ void setupSignalHandlers(void) {
         sigaction(SIGBUS, &act, NULL);
         sigaction(SIGFPE, &act, NULL);
         sigaction(SIGILL, &act, NULL);
+        sigaction(SIGABRT, &act, NULL);
     }
     return;
 }
@@ -5017,6 +5018,7 @@ void removeSignalHandlers(void) {
     sigaction(SIGBUS, &act, NULL);
     sigaction(SIGFPE, &act, NULL);
     sigaction(SIGILL, &act, NULL);
+    sigaction(SIGABRT, &act, NULL);
 }
 
 /* This is the signal handler for children process. It is currently useful

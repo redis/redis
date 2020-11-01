@@ -22,3 +22,14 @@ if {$system_name eq {linux} || $system_name eq {darwin}} {
         }
     }
 }
+
+set server_path [tmpdir server1.log]
+start_server [list overrides [list dir $server_path]] {
+    test "Crash report generated on SIGABRT" {
+        set pid [s process_id]
+        exec kill -SIGABRT $pid
+        set pattern "*STACK TRACE*"
+        set result [exec tail -1000 < [srv 0 stdout]]
+        assert {[string match $pattern $result]}
+    }
+}
