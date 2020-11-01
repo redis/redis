@@ -3834,7 +3834,7 @@ int processCommand(client *c) {
         c->cmd->proc != resetCommand) {
         rejectCommandFormat(c,
             "Can't execute '%s': only (P)SUBSCRIBE / "
-            "(P)UNSUBSCRIBE / PING / QUIT are allowed in this context",
+            "(P)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context",
             c->cmd->name);
         return C_OK;
     }

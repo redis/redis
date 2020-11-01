@@ -2252,7 +2252,7 @@ void resetCommand(client *c) {
     listNode *ln;
 
     /* MONITOR clients are also marked with CLIENT_SLAVE, we need to
-     * distinguish the two.
+     * distinguish between the two.
      */
     if (c->flags & CLIENT_MONITOR) {
         ln = listSearchKey(server.monitors,c);
