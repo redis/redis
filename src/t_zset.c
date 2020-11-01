@@ -2251,7 +2251,13 @@ static void zdiffAlgorithm1(zsetopsrc *src, long setnum, zset *dstzset, size_t *
         if (isnan(score)) score = 0;
 
         for (j = 1; j < setnum; j++) {
-            if (zuiFind(&src[j],&zval,&value)) {
+            /* It is not safe to access the zset we are
+             * iterating, so explicitly check for equal object.
+             * This check isn't really needed anymore since we already
+             * check for a duplicate set in the zsetChooseDiffAlgorithm
+             * function, but we're leaving it for future-proofing. */
+            if (src[j].subject == src[0].subject ||
+                zuiFind(&src[j],&zval,&value)) {
                 exists = 1;
                 break;
             }
