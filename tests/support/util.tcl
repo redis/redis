@@ -128,6 +128,8 @@ proc wait_for_log_messages {srv_idx patterns from_line maxtries delay} {
     set next_line [expr $from_line + 1] ;# searching form the line after
     set stdout [srv $srv_idx stdout]
     while {$retry} {
+        # re-read the last line (unless it's before to our first), last time we read it, it might have been incomplete
+        set next_line [expr $next_line - 1 > $from_line + 1 ? $next_line - 1 : $from_line + 1]
         set result [exec tail -n +$next_line < $stdout]
         set result [split $result "\n"]
         foreach line $result {
@@ -142,6 +144,10 @@ proc wait_for_log_messages {srv_idx patterns from_line maxtries delay} {
         after $delay
     }
     if {$retry == 0} {
+        if {$::verbose} {
+            puts "content of $stdout from line: $from_line:"
+            puts [exec tail -n +$from_line < $stdout]
+        }
         fail "log message of '$patterns' not found in $stdout after line: $from_line till line: [expr $next_line -1]"
     }
 }
@@ -508,7 +514,7 @@ proc populate {num prefix size} {
 
 proc get_child_pid {idx} {
     set pid [srv $idx pid]
-    if {[string match {*Darwin*} [exec uname -a]]} {
+    if {[file exists "/usr/bin/pgrep"]} {
         set fd [open "|pgrep -P $pid" "r"]
         set child_pid [string trim [lindex [split [read $fd] \n] 0]]
     } else {
@@ -518,4 +524,10 @@ proc get_child_pid {idx} {
     close $fd
 
     return $child_pid
+}
+
+proc cmdrstat {cmd r} {
+    if {[regexp "\r\ncmdstat_$cmd:(.*?)\r\n" [$r info commandstats] _ value]} {
+        set _ $value
+    }
 }

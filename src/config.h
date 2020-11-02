@@ -124,6 +124,10 @@
 #define USE_SETPROCTITLE
 #endif
 
+#if defined(__HAIKU__)
+#define ESOCKTNOSUPPORT 0
+#endif
+
 #if ((defined __linux && defined(__GLIBC__)) || defined __APPLE__)
 #define USE_SETPROCTITLE
 #define INIT_SETPROCTITLE_REPLACEMENT
@@ -249,7 +253,7 @@ int pthread_setname_np(const char *name);
 #endif
 
 /* Check if we can use setcpuaffinity(). */
-#if (defined __linux || defined __NetBSD__ || defined __FreeBSD__)
+#if (defined __linux || defined __NetBSD__ || defined __FreeBSD__ || defined __DragonFly__)
 #define USE_SETCPUAFFINITY
 void setcpuaffinity(const char *cpulist);
 #endif

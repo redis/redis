@@ -29,6 +29,7 @@
  */
 
 #include "fmacros.h"
+#include "version.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -45,13 +46,19 @@
 #include <sdscompat.h> /* Use hiredis' sds compat header that maps sds calls to their hi_ variants */
 #include <sds.h> /* Use hiredis sds. */
 #include "ae.h"
-#include "hiredis.h"
+#include <hiredis.h>
+#ifdef USE_OPENSSL
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#include <hiredis_ssl.h>
+#endif
 #include "adlist.h"
 #include "dict.h"
 #include "zmalloc.h"
 #include "atomicvar.h"
 #include "crc16_slottable.h"
 #include "hdr_histogram.h"
+#include "cli_common.h"
 
 #define UNUSED(V) ((void) V)
 #define RANDPTR_INITIAL_SIZE 8
@@ -75,6 +82,8 @@ static struct config {
     const char *hostip;
     int hostport;
     const char *hostsocket;
+    int tls;
+    struct cliSSLconfig sslconfig;
     int numclients;
     redisAtomic int liveclients;
     int requests;
@@ -179,6 +188,8 @@ typedef struct redisConfig {
 } redisConfig;
 
 /* Prototypes */
+char *redisGitSHA1(void);
+char *redisGitDirty(void);
 static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 static void createMissingClients(client c);
 static benchmarkThread *createBenchmarkThread(int index);
@@ -195,6 +206,20 @@ static int fetchClusterSlotsConfiguration(client c);
 static void updateClusterSlotsConfiguration();
 int showThroughput(struct aeEventLoop *eventLoop, long long id,
                    void *clientData);
+
+static sds benchmarkVersion(void) {
+    sds version;
+    version = sdscatprintf(sdsempty(), "%s", REDIS_VERSION);
+
+    /* Add git commit and working tree status when available */
+    if (strtoll(redisGitSHA1(),NULL,16)) {
+        version = sdscatprintf(version, " (git:%s", redisGitSHA1());
+        if (strtoll(redisGitDirty(),NULL,10))
+            version = sdscatprintf(version, "-dirty");
+        version = sdscat(version, ")");
+    }
+    return version;
+}
 
 /* Dict callbacks */
 static uint64_t dictSdsHash(const void *key);
@@ -263,6 +288,13 @@ static redisContext *getRedisContext(const char *ip, int port,
             fprintf(stderr,"%s: %s\n",hostsocket,err);
         goto cleanup;
     }
+    if (config.tls==1) {
+        const char *err = NULL;
+        if (cliSecureConnection(ctx, config.sslconfig, &err) == REDIS_ERR && err) {
+            fprintf(stderr, "Could not negotiate a TLS connection: %s\n", err);
+            goto cleanup;
+        }
+    }
     if (config.auth == NULL)
         return ctx;
     if (config.user == NULL)
@@ -290,6 +322,8 @@ cleanup:
     redisFree(ctx);
     return NULL;
 }
+
+
 
 static redisConfig *getRedisConfig(const char *ip, int port,
                                    const char *hostsocket)
@@ -577,9 +611,8 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (c->written == 0) {
         /* Enforce upper bound to number of requests. */
         int requests_issued = 0;
-        atomicGetIncr(config.requests_issued, requests_issued, 1);
+        atomicGetIncr(config.requests_issued, requests_issued, config.pipeline);
         if (requests_issued >= config.requests) {
-            freeClient(c);
             return;
         }
 
@@ -590,19 +623,26 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         c->start = ustime();
         c->latency = -1;
     }
-    if (sdslen(c->obuf) > c->written) {
+    const ssize_t buflen = sdslen(c->obuf);
+    const ssize_t writeLen = buflen-c->written;
+    if (writeLen > 0) {
         void *ptr = c->obuf+c->written;
-        ssize_t nwritten = write(c->context->fd,ptr,sdslen(c->obuf)-c->written);
-        if (nwritten == -1) {
-            if (errno != EPIPE)
-                fprintf(stderr, "Writing to socket: %s\n", strerror(errno));
-            freeClient(c);
-            return;
-        }
-        c->written += nwritten;
-        if (sdslen(c->obuf) == c->written) {
-            aeDeleteFileEvent(el,c->context->fd,AE_WRITABLE);
-            aeCreateFileEvent(el,c->context->fd,AE_READABLE,readHandler,c);
+        while(1) {
+            /* Optimistically try to write before checking if the file descriptor
+             * is actually writable. At worst we get EAGAIN. */
+            const ssize_t nwritten = cliWriteConn(c->context,ptr,writeLen);
+            if (nwritten != writeLen) {
+                if (nwritten == -1 && errno != EAGAIN) {
+                    if (errno != EPIPE)
+                        fprintf(stderr, "Error writing to the server: %s\n", strerror(errno));
+                    freeClient(c);
+                    return;
+                }
+            } else {
+                aeDeleteFileEvent(el,c->context->fd,AE_WRITABLE);
+                aeCreateFileEvent(el,c->context->fd,AE_READABLE,readHandler,c);
+                return;
+            }
         }
     }
 }
@@ -663,6 +703,13 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
         else
             fprintf(stderr,"%s: %s\n",config.hostsocket,c->context->errstr);
         exit(1);
+    }
+    if (config.tls==1) {
+        const char *err = NULL;
+        if (cliSecureConnection(c->context, config.sslconfig, &err) == REDIS_ERR && err) {
+            fprintf(stderr, "Could not negotiate a TLS connection: %s\n", err);
+            exit(1);
+        }
     }
     c->thread_id = thread_id;
     /* Suppress hiredis cleanup of unused buffers for max speed. */
@@ -779,7 +826,7 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
                 }
                 c->stagptr[c->staglen++] = p;
                 c->stagfree--;
-                p += 5; /* 12 is strlen("{tag}"). */
+                p += 5; /* 5 is strlen("{tag}"). */
             }
         }
     }
@@ -1364,6 +1411,11 @@ int parseOptions(int argc, const char **argv) {
         if (!strcmp(argv[i],"-c")) {
             if (lastarg) goto invalid;
             config.numclients = atoi(argv[++i]);
+        } else if (!strcmp(argv[i],"-v") || !strcmp(argv[i], "--version")) {
+            sds version = benchmarkVersion();
+            printf("redis-benchmark %s\n", version);
+            sdsfree(version);
+            exit(0);
         } else if (!strcmp(argv[i],"-n")) {
             if (lastarg) goto invalid;
             config.requests = atoi(argv[++i]);
@@ -1450,6 +1502,25 @@ int parseOptions(int argc, const char **argv) {
         } else if (!strcmp(argv[i],"--help")) {
             exit_status = 0;
             goto usage;
+        #ifdef USE_OPENSSL
+        } else if (!strcmp(argv[i],"--tls")) {
+            config.tls = 1;
+        } else if (!strcmp(argv[i],"--sni")) {
+            if (lastarg) goto invalid;
+            config.sslconfig.sni = strdup(argv[++i]);
+        } else if (!strcmp(argv[i],"--cacertdir")) {
+            if (lastarg) goto invalid;
+            config.sslconfig.cacertdir = strdup(argv[++i]);
+        } else if (!strcmp(argv[i],"--cacert")) {
+            if (lastarg) goto invalid;
+            config.sslconfig.cacert = strdup(argv[++i]);
+        } else if (!strcmp(argv[i],"--cert")) {
+            if (lastarg) goto invalid;
+            config.sslconfig.cert = strdup(argv[++i]);
+        } else if (!strcmp(argv[i],"--key")) {
+            if (lastarg) goto invalid;
+            config.sslconfig.key = strdup(argv[++i]);
+        #endif
         } else {
             /* Assume the user meant to provide an option when the arg starts
              * with a dash. We're done otherwise and should use the remainder
@@ -1496,7 +1567,19 @@ usage:
 " -l                 Loop. Run the tests forever\n"
 " -t <tests>         Only run the comma separated list of tests. The test\n"
 "                    names are the same as the ones produced as output.\n"
-" -I                 Idle mode. Just open N idle connections and wait.\n\n"
+" -I                 Idle mode. Just open N idle connections and wait.\n"
+#ifdef USE_OPENSSL
+" --tls              Establish a secure TLS connection.\n"
+" --sni <host>       Server name indication for TLS.\n"
+" --cacert <file>    CA Certificate file to verify with.\n"
+" --cacertdir <dir>  Directory where trusted CA certificates are stored.\n"
+"                    If neither cacert nor cacertdir are specified, the default\n"
+"                    system-wide trusted root certs configuration will apply.\n"
+" --cert <file>      Client certificate to authenticate with.\n"
+" --key <file>       Private key file to authenticate with.\n"
+#endif
+" --help             Output this help and exit.\n"
+" --version          Output version and exit.\n\n"
 "Examples:\n\n"
 " Run the benchmark with the default configuration against 127.0.0.1:6379:\n"
 "   $ redis-benchmark\n\n"
@@ -1570,7 +1653,7 @@ int test_is_selected(char *name) {
 
 int main(int argc, const char **argv) {
     int i;
-    char *data, *cmd;
+    char *data, *cmd, *tag;
     int len;
 
     client c;
@@ -1617,7 +1700,18 @@ int main(int argc, const char **argv) {
     argc -= i;
     argv += i;
 
+    tag = "";
+
+#ifdef USE_OPENSSL
+    if (config.tls) {
+        cliSecureInit();
+    }
+#endif
+
     if (config.cluster_mode) {
+        // We only include the slot placeholder {tag} if cluster mode is enabled
+        tag = ":{tag}";
+
         /* Fetch cluster configuration. */
         if (!fetchClusterConfiguration() || !config.cluster_nodes) {
             if (!config.hostsocket) {
@@ -1723,63 +1817,63 @@ int main(int argc, const char **argv) {
         }
 
         if (test_is_selected("set")) {
-            len = redisFormatCommand(&cmd,"SET key:{tag}:__rand_int__ %s",data);
+            len = redisFormatCommand(&cmd,"SET key%s:__rand_int__ %s",tag,data);
             benchmark("SET",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("get")) {
-            len = redisFormatCommand(&cmd,"GET key:{tag}:__rand_int__");
+            len = redisFormatCommand(&cmd,"GET key%s:__rand_int__",tag);
             benchmark("GET",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("incr")) {
-            len = redisFormatCommand(&cmd,"INCR counter:{tag}:__rand_int__");
+            len = redisFormatCommand(&cmd,"INCR counter%s:__rand_int__",tag);
             benchmark("INCR",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("lpush")) {
-            len = redisFormatCommand(&cmd,"LPUSH mylist:{tag} %s",data);
+            len = redisFormatCommand(&cmd,"LPUSH mylist%s %s",tag,data);
             benchmark("LPUSH",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("rpush")) {
-            len = redisFormatCommand(&cmd,"RPUSH mylist:{tag} %s",data);
+            len = redisFormatCommand(&cmd,"RPUSH mylist%s %s",tag,data);
             benchmark("RPUSH",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("lpop")) {
-            len = redisFormatCommand(&cmd,"LPOP mylist:{tag}");
+            len = redisFormatCommand(&cmd,"LPOP mylist%s",tag);
             benchmark("LPOP",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("rpop")) {
-            len = redisFormatCommand(&cmd,"RPOP mylist:{tag}");
+            len = redisFormatCommand(&cmd,"RPOP mylist%s",tag);
             benchmark("RPOP",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("sadd")) {
             len = redisFormatCommand(&cmd,
-                "SADD myset:{tag} element:__rand_int__");
+                "SADD myset%s element:__rand_int__",tag);
             benchmark("SADD",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("hset")) {
             len = redisFormatCommand(&cmd,
-                "HSET myhash:{tag} element:__rand_int__ %s",data);
+                "HSET myhash%s element:__rand_int__ %s",tag,data);
             benchmark("HSET",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("spop")) {
-            len = redisFormatCommand(&cmd,"SPOP myset:{tag}");
+            len = redisFormatCommand(&cmd,"SPOP myset%s",tag);
             benchmark("SPOP",cmd,len);
             free(cmd);
         }
@@ -1788,13 +1882,13 @@ int main(int argc, const char **argv) {
             char *score = "0";
             if (config.randomkeys) score = "__rand_int__";
             len = redisFormatCommand(&cmd,
-                "ZADD myzset:{tag} %s element:__rand_int__",score);
+                "ZADD myzset%s %s element:__rand_int__",tag,score);
             benchmark("ZADD",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("zpopmin")) {
-            len = redisFormatCommand(&cmd,"ZPOPMIN myzset:{tag}");
+            len = redisFormatCommand(&cmd,"ZPOPMIN myzset%s",tag);
             benchmark("ZPOPMIN",cmd,len);
             free(cmd);
         }
@@ -1805,45 +1899,47 @@ int main(int argc, const char **argv) {
             test_is_selected("lrange_500") ||
             test_is_selected("lrange_600"))
         {
-            len = redisFormatCommand(&cmd,"LPUSH mylist:{tag} %s",data);
+            len = redisFormatCommand(&cmd,"LPUSH mylist%s %s",tag,data);
             benchmark("LPUSH (needed to benchmark LRANGE)",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("lrange") || test_is_selected("lrange_100")) {
-            len = redisFormatCommand(&cmd,"LRANGE mylist:{tag} 0 99");
+            len = redisFormatCommand(&cmd,"LRANGE mylist%s 0 99",tag);
             benchmark("LRANGE_100 (first 100 elements)",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("lrange") || test_is_selected("lrange_300")) {
-            len = redisFormatCommand(&cmd,"LRANGE mylist:{tag} 0 299");
+            len = redisFormatCommand(&cmd,"LRANGE mylist%s 0 299",tag);
             benchmark("LRANGE_300 (first 300 elements)",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("lrange") || test_is_selected("lrange_500")) {
-            len = redisFormatCommand(&cmd,"LRANGE mylist:{tag} 0 449");
+            len = redisFormatCommand(&cmd,"LRANGE mylist%s 0 449",tag);
             benchmark("LRANGE_500 (first 450 elements)",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("lrange") || test_is_selected("lrange_600")) {
-            len = redisFormatCommand(&cmd,"LRANGE mylist:{tag} 0 599");
+            len = redisFormatCommand(&cmd,"LRANGE mylist%s 0 599",tag);
             benchmark("LRANGE_600 (first 600 elements)",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("mset")) {
-            const char *argv[21];
-            argv[0] = "MSET";
+            const char *cmd_argv[21];
+            cmd_argv[0] = "MSET";
+            sds key_placeholder = sdscatprintf(sdsnew(""),"key%s:__rand_int__",tag);
             for (i = 1; i < 21; i += 2) {
-                argv[i] = "key:{tag}:__rand_int__";
-                argv[i+1] = data;
+                cmd_argv[i] = key_placeholder;
+                cmd_argv[i+1] = data;
             }
-            len = redisFormatCommandArgv(&cmd,21,argv,NULL);
+            len = redisFormatCommandArgv(&cmd,21,cmd_argv,NULL);
             benchmark("MSET (10 keys)",cmd,len);
             free(cmd);
+            sdsfree(key_placeholder);
         }
 
         if (!config.csv) printf("\n");

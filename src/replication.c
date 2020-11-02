@@ -57,7 +57,7 @@ int RDBGeneratedByReplication = 0;
  * IP address and its listening port which is more clear for the user, for
  * example: "Closing connection with replica 10.1.2.3:6380". */
 char *replicationGetSlaveName(client *c) {
-    static char buf[NET_PEER_ID_LEN];
+    static char buf[NET_ADDR_STR_LEN];
     char ip[NET_IP_STR_LEN];
 
     ip[0] = '\0';
@@ -1739,6 +1739,17 @@ void readSyncBulkPayload(connection *conn) {
             killRDBChild();
         }
 
+        /* Make sure the new file (also used for persistence) is fully synced
+         * (not covered by earlier calls to rdb_fsync_range). */
+        if (fsync(server.repl_transfer_fd) == -1) {
+            serverLog(LL_WARNING,
+                "Failed trying to sync the temp DB to disk in "
+                "MASTER <-> REPLICA synchronization: %s",
+                strerror(errno));
+            cancelReplicationHandshake(1);
+            return;
+        }
+
         /* Rename rdb like renaming rewrite aof asynchronously. */
         int old_rdb_fd = open(server.rdb_filename,O_RDONLY|O_NONBLOCK);
         if (rename(server.repl_transfer_tmpfile,server.rdb_filename) == -1) {
@@ -2433,7 +2444,7 @@ void replicationAbortSyncTransfer(void) {
     undoConnectWithMaster();
     if (server.repl_transfer_fd!=-1) {
         close(server.repl_transfer_fd);
-        unlink(server.repl_transfer_tmpfile);
+        bg_unlink(server.repl_transfer_tmpfile);
         zfree(server.repl_transfer_tmpfile);
         server.repl_transfer_tmpfile = NULL;
         server.repl_transfer_fd = -1;
@@ -2780,6 +2791,11 @@ void replicationCacheMaster(client *c) {
     if (c->peerid) {
         sdsfree(c->peerid);
         c->peerid = NULL;
+    }
+    /* Invalidate the Sock Name cache. */
+    if (c->sockname) {
+        sdsfree(c->sockname);
+        c->sockname = NULL;
     }
 
     /* Caching the master happens instead of the actual freeClient() call,

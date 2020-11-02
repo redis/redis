@@ -1724,10 +1724,13 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
 
     bugReportStart();
     serverLog(LL_WARNING,
-        "Redis %s crashed by signal: %d", REDIS_VERSION, sig);
+        "Redis %s crashed by signal: %d, si_code: %d", REDIS_VERSION, sig, info->si_code);
     if (sig == SIGSEGV || sig == SIGBUS) {
         serverLog(LL_WARNING,
         "Accessing address: %p", (void*)info->si_addr);
+    }
+    if (info->si_pid != -1) {
+        serverLog(LL_WARNING, "Killed by PID: %d, UID: %d", info->si_pid, info->si_uid);
     }
 
 #ifdef HAVE_BACKTRACE

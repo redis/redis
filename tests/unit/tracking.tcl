@@ -38,6 +38,7 @@ start_server {tags {"tracking"}} {
 
     test {The other connection is able to get invalidations} {
         r SET a 1
+        r SET b 1
         r GET a
         r INCR b ; # This key should not be notified, since it wasn't fetched.
         r INCR a

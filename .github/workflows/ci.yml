@@ -9,8 +9,9 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: make
-      # build with TLS just for compilatoin coverage
-      run: make BUILD_TLS=yes
+      # Fail build if there are warnings
+      # build with TLS just for compilation coverage
+      run: make REDIS_CFLAGS='-Werror' BUILD_TLS=yes
     - name: test
       run: |
         sudo apt-get install tcl8.5
@@ -23,14 +24,14 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: make
-      run: make
+      run: make REDIS_CFLAGS='-Werror'
 
   build-macos-latest:
     runs-on: macos-latest
     steps:
     - uses: actions/checkout@v2
     - name: make
-      run: make
+      run: make REDIS_CFLAGS='-Werror'
 
   build-32bit:
     runs-on: ubuntu-latest
@@ -39,14 +40,14 @@ jobs:
     - name: make
       run: |
         sudo apt-get update && sudo apt-get install libc6-dev-i386
-        make 32bit
+        make REDIS_CFLAGS='-Werror' 32bit
 
   build-libc-malloc:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
     - name: make
-      run: make MALLOC=libc
+      run: make REDIS_CFLAGS='-Werror' MALLOC=libc
 
   build-centos7-jemalloc:
     runs-on: ubuntu-latest
@@ -56,7 +57,7 @@ jobs:
     - name: make
       run: |
         yum -y install gcc make
-        make
+        make REDIS_CFLAGS='-Werror'
 
   build-centos6-jemalloc:
     runs-on: ubuntu-latest

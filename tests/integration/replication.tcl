@@ -78,6 +78,7 @@ start_server {tags {"repl"}} {
         }
 
         test {BRPOPLPUSH replication, when blocking against empty list} {
+            $A config resetstat
             set rd [redis_deferring_client]
             $rd brpoplpush a b 5
             r lpush a foo
@@ -86,9 +87,12 @@ start_server {tags {"repl"}} {
             } else {
                 fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
             }
+            assert_match {*calls=1,*} [cmdrstat rpoplpush $A]
+            assert_match {} [cmdrstat lmove $A]
         }
 
         test {BRPOPLPUSH replication, list exists} {
+            $A config resetstat
             set rd [redis_deferring_client]
             r lpush c 1
             r lpush c 2
@@ -96,6 +100,39 @@ start_server {tags {"repl"}} {
             $rd brpoplpush c d 5
             after 1000
             assert_equal [$A debug digest] [$B debug digest]
+            assert_match {*calls=1,*} [cmdrstat rpoplpush $A]
+            assert_match {} [cmdrstat lmove $A]
+        }
+
+        foreach wherefrom {left right} {
+            foreach whereto {left right} {
+                test "BLMOVE ($wherefrom, $whereto) replication, when blocking against empty list" {
+                    $A config resetstat
+                    set rd [redis_deferring_client]
+                    $rd blmove a b $wherefrom $whereto 5
+                    r lpush a foo
+                    wait_for_condition 50 100 {
+                        [$A debug digest] eq [$B debug digest]
+                    } else {
+                        fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
+                    }
+                    assert_match {*calls=1,*} [cmdrstat lmove $A]
+                    assert_match {} [cmdrstat rpoplpush $A]
+                }
+
+                test "BLMOVE ($wherefrom, $whereto) replication, list exists" {
+                    $A config resetstat
+                    set rd [redis_deferring_client]
+                    r lpush c 1
+                    r lpush c 2
+                    r lpush c 3
+                    $rd blmove c d $wherefrom $whereto 5
+                    after 1000
+                    assert_equal [$A debug digest] [$B debug digest]
+                    assert_match {*calls=1,*} [cmdrstat lmove $A]
+                    assert_match {} [cmdrstat rpoplpush $A]
+                }
+            }
         }
 
         test {BLPOP followed by role change, issue #2473} {
@@ -618,11 +655,11 @@ start_server {tags {"repl"}} {
                             puts "master utime: $master_utime"
                             puts "master stime: $master_stime"
                         }
-                        if {$all_drop == "all" || $all_drop == "slow"} {
+                        if {!$::no_latency && ($all_drop == "all" || $all_drop == "slow")} {
                             assert {$master_utime < 70}
                             assert {$master_stime < 70}
                         }
-                        if {$all_drop == "none" || $all_drop == "fast"} {
+                        if {!$::no_latency && ($all_drop == "none" || $all_drop == "fast")} {
                             assert {$master_utime < 15}
                             assert {$master_stime < 15}
                         }
@@ -688,7 +725,6 @@ test "diskless replication child being killed is collected" {
 
             # simulate the OOM killer or anyone else kills the child
             set fork_child_pid [get_child_pid -1]
-            puts "fork child is $fork_child_pid"
             exec kill -9 $fork_child_pid
 
             # wait for the parent to notice the child have exited
@@ -775,7 +811,9 @@ test {Kill rdb child process if its dumping RDB is not useful} {
 
                 # Wait for starting child
                 wait_for_condition 50 100 {
-                    [s 0 rdb_bgsave_in_progress] == 1
+                    ([s 0 rdb_bgsave_in_progress] == 1) &&
+                    ([string match "*wait_bgsave*" [s 0 slave0]]) &&
+                    ([string match "*wait_bgsave*" [s 0 slave1]])
                 } else {
                     fail "rdb child didn't start"
                 }
@@ -800,7 +838,9 @@ test {Kill rdb child process if its dumping RDB is not useful} {
                 $slave1 slaveof $master_host $master_port
                 $slave2 slaveof $master_host $master_port
                 wait_for_condition 50 100 {
-                    [s 0 rdb_bgsave_in_progress] == 1
+                    ([s 0 rdb_bgsave_in_progress] == 1) &&
+                    ([string match "*wait_bgsave*" [s 0 slave0]]) &&
+                    ([string match "*wait_bgsave*" [s 0 slave1]])
                 } else {
                     fail "rdb child didn't start"
                 }
