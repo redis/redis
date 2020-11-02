@@ -1586,12 +1586,10 @@ usage:
 " --tls-ciphers <list> Sets the list of prefered ciphers (TLSv1.2 and below)\n"
 "                    in order of preference from highest to lowest separated by colon (\":\").\n"
 "                    See the ciphers(1ssl) manpage for more information about the syntax of this string.\n"
-"                    If none is specified, the default system-wide settings are used.\n"
 " --tls-ciphersuites <list> Sets the list of prefered ciphersuites (TLSv1.3)\n"
 "                    in order of preference from highest to lowest separated by colon (\":\").\n"
 "                    See the ciphers(1ssl) manpage for more information about the syntax of this string,\n"
 "                    and specifically for TLSv1.3 ciphersuites.\n"
-"                    If none is specified, the default system-wide settings are used.\n"
 #endif
 " --help             Output this help and exit.\n"
 " --version          Output version and exit.\n\n"
