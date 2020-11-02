@@ -41,6 +41,16 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         assert_equal {foobar} [lindex $e 5]
     }
 
+    test {SLOWLOG - Rewritten commands are logged as their original command} {
+        r sadd set a b c d e
+        r config set slowlog-log-slower-than 0
+        r slowlog reset
+        # spop is replicated as DEL when all the members are removed
+        r spop set 10
+
+        lindex [lindex [r slowlog get] 0] 3
+    } {spop set 10}
+
     test {SLOWLOG - commands with too many arguments are trimmed} {
         r config set slowlog-log-slower-than 0
         r slowlog reset

@@ -139,6 +139,8 @@ client *createClient(connection *conn) {
     c->argc = 0;
     c->argv = NULL;
     c->argv_len_sum = 0;
+    c->original_argc = 0;
+    c->original_argv = NULL;
     c->cmd = c->lastcmd = NULL;
     c->multibulklen = 0;
     c->bulklen = -1;
@@ -1065,6 +1067,17 @@ void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 }
 
+void freeClientOriginalArgv(client *c) {
+    /* We didn't rewrite this client */
+    if (!c->original_argv) return;
+
+    for (int j = 0; j < c->original_argc; j++)
+        decrRefCount(c->original_argv[j]);
+    zfree(c->original_argv);
+    c->original_argv = NULL;
+    c->original_argc = 0;
+}
+
 static void freeClientArgv(client *c) {
     int j;
     for (j = 0; j < c->argc; j++)
@@ -1246,6 +1259,7 @@ void freeClient(client *c) {
     /* Free data structures. */
     listRelease(c->reply);
     freeClientArgv(c);
+    freeClientOriginalArgv(c);
 
     /* Unlink the client: this will close the socket, remove the I/O
      * handlers, and remove references of the client from different
@@ -2765,6 +2779,19 @@ void securityWarningCommand(client *c) {
     freeClientAsync(c);
 }
 
+/* Keep track of the original command arguments so that we can generate
+ * an accurate slowlog entry after the command has been executed. */
+static void retainOriginalCommandVector(client *c) {
+    /* We already rewrote this command, so don't rewrite it again */
+    if (c->original_argv) return;
+    c->original_argc = c->argc;
+    c->original_argv = zmalloc(sizeof(robj*)*(c->argc));
+    for (int j = 0; j < c->argc; j++) {
+        c->original_argv[j] = c->argv[j];
+        incrRefCount(c->argv[j]);
+    }
+}
+
 /* Rewrite the command vector of the client. All the new objects ref count
  * is incremented. The old command vector is freed, and the old objects
  * ref count is decremented. */
@@ -2772,6 +2799,7 @@ void rewriteClientCommandVector(client *c, int argc, ...) {
     va_list ap;
     int j;
     robj **argv; /* The new argument vector */
+    retainOriginalCommandVector(c);
 
     argv = zmalloc(sizeof(robj*)*argc);
     va_start(ap,argc);
@@ -2802,6 +2830,7 @@ void rewriteClientCommandVector(client *c, int argc, ...) {
 /* Completely replace the client command vector with the provided one. */
 void replaceClientCommandVector(client *c, int argc, robj **argv) {
     int j;
+    retainOriginalCommandVector(c);
     freeClientArgv(c);
     zfree(c->argv);
     c->argv = argv;
