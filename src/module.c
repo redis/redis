@@ -5441,7 +5441,10 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
             raxRemove(Timers,(unsigned char*)ri.key,ri.key_len,NULL);
             zfree(timer);
         } else {
-            next_period = (expiretime-now)/1000; /* Scale to milliseconds. */
+            /* We call ustime() again instead of using the cached 'now' so that
+             * 'next_period' isn't affected by the time it took to execute
+             * previous calls to 'callback. */
+            next_period = (expiretime-ustime())/1000; /* Scale to milliseconds. */
             break;
         }
     }
@@ -5454,7 +5457,16 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
 
 /* Create a new timer that will fire after `period` milliseconds, and will call
  * the specified function using `data` as argument. The returned timer ID can be
- * used to get information from the timer or to stop it before it fires. */
+ * used to get information from the timer or to stop it before it fires.
+ * Note that for the common use case of a repeating timer (Re-registration
+ * of the timer inside the RedisModuleTimerProc callback) it matters when
+ * this API is called:
+ * If it is called at the beginning of 'callback' it means
+ * the event will triggered every 'period'.
+ * If it is called at the end of 'callback' it means
+ * there will 'period' milliseconds gaps between events.
+ * (If the time it takes to execute 'callback' is negligible the two
+ * statements above mean the same) */
 RedisModuleTimerID RM_CreateTimer(RedisModuleCtx *ctx, mstime_t period, RedisModuleTimerProc callback, void *data) {
     RedisModuleTimer *timer = zmalloc(sizeof(*timer));
     timer->module = ctx->module;
