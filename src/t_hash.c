@@ -549,6 +549,55 @@ robj *hashTypeDup(robj *o) {
     return hobj;
 }
 
+/* callback for to check the ziplist doesn't have duplicate recoreds */
+static int _hashZiplistEntryValidation(unsigned char *p, void *userdata) {
+    struct {
+        long count;
+        dict *fields;
+    } *data = userdata;
+
+    /* Odd records are field names, add to dict and check that's not a dup */
+    if (((data->count) & 1) == 0) {
+        unsigned char *str;
+        unsigned int slen;
+        long long vll;
+        if (!ziplistGet(p, &str, &slen, &vll))
+            return 0;
+        sds field = str? sdsnewlen(str, slen): sdsfromlonglong(vll);;
+        if (dictAdd(data->fields, field, NULL) != DICT_OK) {
+            /* Duplicate, return an error */
+            sdsfree(field);
+            return 0;
+        }
+    }
+
+    (data->count)++;
+    return 1;
+}
+
+/* Validate the integrity of the data stracture.
+ * when `deep` is 0, only the integrity of the header is validated.
+ * when `deep` is 1, we scan all the entries one by one. */
+int hashZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep) {
+    if (!deep)
+        return ziplistValidateIntegrity(zl, size, 0, NULL, NULL);
+
+    /* Keep track of the field names to locate duplicate ones */
+    struct {
+        long count;
+        dict *fields;
+    } data = {0, dictCreate(&hashDictType, NULL)};
+
+    int ret = ziplistValidateIntegrity(zl, size, 1, _hashZiplistEntryValidation, &data);
+
+    /* make sure we have an even number of records. */
+    if (data.count & 1)
+        ret = 0;
+
+    dictRelease(data.fields);
+    return ret;
+}
+
 /*-----------------------------------------------------------------------------
  * Hash type commands
  *----------------------------------------------------------------------------*/

@@ -17,7 +17,7 @@ test {corrupt payload: #7445 - with sanitize} {
             r restore key 0 $corrupt_payload_7445
         } err
         assert_match "*Bad data format*" $err
-        verify_log_message 0 "*Ziplist integrity check failed*" 0
+        verify_log_message 0 "*integrity check failed*" 0
     }
 }
 
@@ -89,7 +89,7 @@ test {corrupt payload: quicklist small ziplist prev len} {
             r restore key 0 "\x0E\x01\x13\x13\x00\x00\x00\x0E\x00\x00\x00\x02\x00\x00\x02\x61\x00\x02\x02\x62\x00\xFF\x09\x00\xC7\x71\x03\x97\x07\x75\xB0\x63"
         } err
         assert_match "*Bad data format*" $err
-        verify_log_message 0 "*Ziplist integrity check failed*" 0
+        verify_log_message 0 "*integrity check failed*" 0
     }
 }
 
@@ -114,7 +114,7 @@ test {corrupt payload: #3080 - quicklist} {
             r DUMP key ;# DUMP was used in the original issue, but now even with shallow sanitization restore safely fails, so this is dead code
         } err
         assert_match "*Bad data format*" $err
-        verify_log_message 0 "*Ziplist integrity check failed*" 0
+        verify_log_message 0 "*integrity check failed*" 0
     }
 }
 
@@ -126,7 +126,7 @@ test {corrupt payload: #3080 - ziplist} {
             r RESTORE key 0 "\x0A\x80\x00\x00\x00\x10\x41\x41\x41\x41\x41\x41\x41\x41\x02\x00\x00\x80\x41\x41\x41\x41\x07\x00\x39\x5B\x49\xE0\xC1\xC6\xDD\x76"
         } err
         assert_match "*Bad data format*" $err
-        verify_log_message 0 "*Ziplist integrity check failed*" 0
+        verify_log_message 0 "*integrity check failed*" 0
     }
 }
 
@@ -144,7 +144,7 @@ test {corrupt payload: load corrupted rdb with no CRC - #3505} {
 
     set stdout [dict get $srv stdout]
     assert_equal [count_message_lines $stdout "Terminating server after rdb file reading failure."]  1
-    assert_lessthan 1 [count_message_lines $stdout "Ziplist integrity check failed"]
+    assert_lessthan 1 [count_message_lines $stdout "integrity check failed"]
     kill_server $srv ;# let valgrind look for issues
 }
 
@@ -191,6 +191,36 @@ test {corrupt payload: listpack too long entry prev len} {
         } err
         assert_match "*Bad data format*" $err
         verify_log_message 0 "*Stream listpack integrity check failed*" 0
+    }
+}
+
+test {corrupt payload: hash ziplist with duplicate records} {
+    # when we do perform full sanitization, we expect duplicate records to fail the restore
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+        catch { r RESTORE _hash 0 "\x0D\x3D\x3D\x00\x00\x00\x3A\x00\x00\x00\x14\x13\x00\xF5\x02\xF5\x02\xF2\x02\x53\x5F\x31\x04\xF3\x02\xF3\x02\xF7\x02\xF7\x02\xF8\x02\x02\x5F\x37\x04\xF1\x02\xF1\x02\xF6\x02\x02\x5F\x35\x04\xF4\x02\x02\x5F\x33\x04\xFA\x02\x02\x5F\x39\x04\xF9\x02\xF9\xFF\x09\x00\xB5\x48\xDE\x62\x31\xD0\xE5\x63" } err
+        assert_match "*Bad data format*" $err
+    }
+}
+
+test {corrupt payload: hash ziplist uneven record count} {
+    # when we do perform full sanitization, we expect duplicate records to fail the restore
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+        catch { r RESTORE _hash 0 "\r\x1b\x1b\x00\x00\x00\x16\x00\x00\x00\x04\x00\x00\x02a\x00\x04\x02b\x00\x04\x02a\x00\x04\x02d\x00\xff\t\x00\xa1\x98\x36x\xcc\x8e\x93\x2e" } err
+        assert_match "*Bad data format*" $err
+    }
+}
+
+test {corrupt payload: hash dupliacte records} {
+    # when we do perform full sanitization, we expect duplicate records to fail the restore
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+        catch { r RESTORE _hash 0 "\x04\x02\x01a\x01b\x01a\x01d\t\x00\xc6\x9c\xab\xbc\bk\x0c\x06" } err
+        assert_match "*Bad data format*" $err
     }
 }
 
@@ -255,7 +285,7 @@ test {corrupt payload: fuzzer findings - invalid ziplist encoding} {
             r RESTORE _listbig 0 "\x0E\x02\x1B\x1B\x00\x00\x00\x16\x00\x00\x00\x05\x00\x00\x02\x5F\x39\x04\xF9\x02\x86\x5F\x37\x04\xF7\x02\x02\x5F\x35\xFF\x19\x19\x00\x00\x00\x16\x00\x00\x00\x05\x00\x00\xF5\x02\x02\x5F\x33\x04\xF3\x02\x02\x5F\x31\x04\xF1\xFF\x09\x00\x0C\xFC\x99\x2C\x23\x45\x15\x60"
         } err
         assert_match "*Bad data format*" $err
-        verify_log_message 0 "*Ziplist integrity check failed*" 0
+        verify_log_message 0 "*integrity check failed*" 0
     }
 }
 
@@ -397,6 +427,18 @@ test {corrupt payload: fuzzer findings - infinite loop} {
         r debug set-skip-checksum-validation 1
         r RESTORE _stream 0 "\x0F\x01\x10\x00\x00\x01\x75\x3A\xA6\xD0\x93\x00\x00\x00\x00\x00\x00\x00\x00\x40\x42\x42\x00\x00\x00\x18\x00\x03\x01\x00\x01\x02\x01\x84\x69\x74\x65\x6D\x05\x85\x76\x61\x6C\x75\x65\x06\x00\x01\x02\x01\x00\x01\x00\x01\x01\x01\x00\x01\x05\x01\x02\x01\x00\x01\x01\x01\x01\x01\x82\x5F\x31\x03\xFD\x01\x02\x01\x00\x01\x02\x01\x01\x01\x02\x01\x05\x01\xFF\x03\x81\x00\x00\x01\x75\x3A\xA6\xD0\x93\x02\x01\x07\x6D\x79\x67\x72\x6F\x75\x70\x81\x00\x00\x01\x75\x3A\xA6\xD0\x93\x00\x01\x00\x00\x01\x75\x3A\xA6\xD0\x93\x00\x00\x00\x00\x00\x00\x00\x00\x94\xD0\xA6\x3A\x75\x01\x00\x00\x01\x01\x05\x41\x6C\x69\x63\x65\x94\xD0\xA6\x3A\x75\x01\x00\x00\x01\x00\x00\x01\x75\x3A\xA6\xD0\x93\x00\x00\x00\x00\x00\x00\x00\x00\x09\x00\xC4\x09\xAD\x69\x7E\xEE\xA6\x2F"
         catch { r XREVRANGE _stream 288270516 971031845 }
+        assert_equal [count_log_message 0 "crashed by signal"] 0
+        assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
+    }
+}
+
+test {corrupt payload: fuzzer findings - hash convert asserts on RESTORE with shallow sanitization} {
+    # if we don't perform full sanitization, and the next command can assert on converting
+    # a ziplist to hash records, then we're ok with that happning in RESTORE too
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r debug set-skip-checksum-validation 1
+        catch { r RESTORE _hash 0 "\x0D\x3D\x3D\x00\x00\x00\x3A\x00\x00\x00\x14\x13\x00\xF5\x02\xF5\x02\xF2\x02\x53\x5F\x31\x04\xF3\x02\xF3\x02\xF7\x02\xF7\x02\xF8\x02\x02\x5F\x37\x04\xF1\x02\xF1\x02\xF6\x02\x02\x5F\x35\x04\xF4\x02\x02\x5F\x33\x04\xFA\x02\x02\x5F\x39\x04\xF9\x02\xF9\xFF\x09\x00\xB5\x48\xDE\x62\x31\xD0\xE5\x63" }
         assert_equal [count_log_message 0 "crashed by signal"] 0
         assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
     }

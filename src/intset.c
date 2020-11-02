@@ -284,8 +284,11 @@ size_t intsetBlobLen(intset *is) {
     return sizeof(intset)+intrev32ifbe(is->length)*intrev32ifbe(is->encoding);
 }
 
-int intsetValidateIntegrity(const unsigned char *p, size_t size) {
-    const intset *is = (const intset *)p;
+/* Validate the integrity of the data stracture.
+ * when `deep` is 0, only the integrity of the header is validated.
+ * when `deep` is 1, we make sure there are no duplicate or out of order records. */
+int intsetValidateIntegrity(const unsigned char *p, size_t size, int deep) {
+    intset *is = (intset *)p;
     /* check that we can actually read the header. */
     if (size < sizeof(*is))
         return 0;
@@ -307,6 +310,22 @@ int intsetValidateIntegrity(const unsigned char *p, size_t size) {
     uint32_t count = intrev32ifbe(is->length);
     if (sizeof(*is) + count*record_size != size)
         return 0;
+
+    /* check that the set is not empty. */
+    if (count==0)
+        return 0;
+
+    if (!deep)
+        return 1;
+
+    /* check that there are no dup or out of order records. */
+    int64_t prev = _intsetGet(is,0);
+    for (uint32_t i=1; i<count; i++) {
+        int64_t cur = _intsetGet(is,i);
+        if (cur <= prev)
+            return 0;
+        prev = cur;
+    }
 
     return 1;
 }

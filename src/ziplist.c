@@ -1406,7 +1406,8 @@ void ziplistRepr(unsigned char *zl) {
 /* Validate the integrity of the data stracture.
  * when `deep` is 0, only the integrity of the header is validated.
  * when `deep` is 1, we scan all the entries one by one. */
-int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep) {
+int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
+    ziplistValidateEntryCB entry_cb, void *cb_userdata) {
     /* check that we can actually read the header. (and ZIP_END) */
     if (size < ZIPLIST_HEADER_SIZE + ZIPLIST_END_SIZE)
         return 0;
@@ -1439,6 +1440,10 @@ int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep) {
 
         /* Make sure the record stating the prev entry size is correct. */
         if (e.prevrawlen != prev_raw_size)
+            return 0;
+
+        /* Optionally let the caller validate the entry too. */
+        if (entry_cb && !entry_cb(p, cb_userdata))
             return 0;
 
         /* Move to the next entry */
