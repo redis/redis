@@ -1523,9 +1523,11 @@ int parseOptions(int argc, const char **argv) {
         } else if (!strcmp(argv[i],"--tls-ciphers")) {
             if (lastarg) goto invalid;
             config.sslconfig.ciphers = strdup(argv[++i]);
+        #ifdef TLS1_3_VERSION
         } else if (!strcmp(argv[i],"--tls-ciphersuites")) {
             if (lastarg) goto invalid;
             config.sslconfig.ciphersuites = strdup(argv[++i]);
+        #endif
         #endif
         } else {
             /* Assume the user meant to provide an option when the arg starts

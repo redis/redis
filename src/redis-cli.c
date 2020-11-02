@@ -1643,8 +1643,10 @@ static int parseOptions(int argc, char **argv) {
             config.sslconfig.key = argv[++i];
         } else if (!strcmp(argv[i],"--tls-ciphers") && !lastarg) {
             config.sslconfig.ciphers = argv[++i];
+        #ifdef TLS1_3_VERSION
         } else if (!strcmp(argv[i],"--tls-ciphersuites") && !lastarg) {
             config.sslconfig.ciphersuites = argv[++i];
+        #endif
 #endif
         } else if (!strcmp(argv[i],"-v") || !strcmp(argv[i], "--version")) {
             sds version = cliVersion();
