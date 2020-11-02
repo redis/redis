@@ -78,6 +78,14 @@ int cliSecureConnection(redisContext *c, cliSSLconfig config, const char **err) 
             *err = "Invalid private key";
             goto error;
         }
+        if (config.ciphers && !SSL_CTX_set_cipher_list(ssl_ctx, config.ciphers)) {
+            *err = "Error while configuring ciphers";
+            goto error;
+        }
+        if (config.ciphersuites && !SSL_CTX_set_ciphersuites(ssl_ctx, config.ciphersuites)) {
+            *err = "Error while setting cypher suites";
+            goto error;
+        }
     }
 
     SSL *ssl = SSL_new(ssl_ctx);

@@ -1641,6 +1641,10 @@ static int parseOptions(int argc, char **argv) {
             config.sslconfig.cert = argv[++i];
         } else if (!strcmp(argv[i],"--key") && !lastarg) {
             config.sslconfig.key = argv[++i];
+        } else if (!strcmp(argv[i],"--tls-ciphers") && !lastarg) {
+            config.sslconfig.ciphers = argv[++i];
+        } else if (!strcmp(argv[i],"--tls-ciphersuites") && !lastarg) {
+            config.sslconfig.ciphersuites = argv[++i];
 #endif
         } else if (!strcmp(argv[i],"-v") || !strcmp(argv[i], "--version")) {
             sds version = cliVersion();
@@ -1763,6 +1767,15 @@ static void usage(void) {
 "                     system-wide trusted root certs configuration will apply.\n"
 "  --cert <file>      Client certificate to authenticate with.\n"
 "  --key <file>       Private key file to authenticate with.\n"
+" --tls-ciphers <list> Sets the list of prefered ciphers (TLSv1.2 and below)\n"
+"                     in order of preference from highest to lowest separated by colon (\":\").\n"
+"                     See the ciphers(1ssl) manpage for more information about the syntax of this string.\n"
+"                     If none is specified, the default system-wide settings are used.\n"
+" --tls-ciphersuites <list> Sets the list of prefered ciphersuites (TLSv1.3)\n"
+"                     in order of preference from highest to lowest separated by colon (\":\").\n"
+"                     See the ciphers(1ssl) manpage for more information about the syntax of this string,\n"
+"                     and specifically for TLSv1.3 ciphersuites.\n"
+"                     If none is specified, the default system-wide settings are used.\n"
 #endif
 "  --raw              Use raw formatting for replies (default when STDOUT is\n"
 "                     not a tty).\n"
