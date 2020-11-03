@@ -839,6 +839,9 @@ void _serverAssert(const char *estr, const char *file, int line) {
 #endif
         printCrashReport();
     }
+
+    // remove the signal handler so on abort() we will output the crash report.
+    removeSignalHandlers();
     bugReportEnd(0, 0);
 }
 
@@ -923,6 +926,9 @@ void _serverPanic(const char *file, int line, const char *msg, ...) {
 #endif
         printCrashReport();
     }
+
+    // remove the signal handler so on abort() we will output the crash report.
+    removeSignalHandlers();
     bugReportEnd(0, 0);
 }
 
