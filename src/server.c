@@ -5081,7 +5081,6 @@ int redisFork(int purpose) {
         if (childpid == -1) {
             return -1;
         }
-        updateDictResizePolicy();
     }
     return childpid;
 }
