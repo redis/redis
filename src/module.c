@@ -7001,6 +7001,7 @@ int RM_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
         server.module_child_pid = childpid;
         moduleForkInfo.done_handler = cb;
         moduleForkInfo.done_handler_user_data = user_data;
+        updateDictResizePolicy();
         serverLog(LL_VERBOSE, "Module fork started pid: %d ", childpid);
     }
     return childpid;
