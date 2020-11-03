@@ -250,3 +250,23 @@ start_server {tags {"other"}} {
         r save
     } {OK}
 }
+
+start_server {tags {"other"}} {
+    test {Don't rehash if redis has child proecess} {
+        r config set save ""
+        r config set rdb-key-save-delay 1000000
+
+        populate 4096 "" 1
+        r bgsave
+        r mset k1 v1 k2 v2
+        # Hash table should not rehash
+        assert_no_match "*table size: 8192*" [r debug HTSTATS 9]
+        exec kill -9 [get_child_pid 0]
+        after 200
+
+        # Hash table should rehash since there is no child process,
+        # size is power of two and over 4098, so it is 16384
+        r set k3 v3
+        assert_match "*table size: 16384*" [r debug HTSTATS 9]
+    }
+}
