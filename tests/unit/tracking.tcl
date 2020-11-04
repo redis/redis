@@ -29,6 +29,7 @@ start_server {tags {"tracking"}} {
             r CLIENT TRACKING off
             r HELLO 2
             r config set tracking-table-max-keys 1000000
+            r SELECT 0
         }
     }
 
@@ -329,6 +330,28 @@ start_server {tags {"tracking"}} {
         # We should receive an expire notification for one of
         # the two keys (only one must remain)
         assert {$keys eq {key1} || $keys eq {key2}}
+    }
+
+    test {Invalidation message received for flushall} {
+        clean_all
+        r CLIENT TRACKING off
+        r CLIENT TRACKING on REDIRECT $redir_id
+        $rd_sg SET key1 1
+        r GET key1
+        $rd_sg FLUSHALL
+        set msg [$rd_redirection read]
+        assert {[lindex msg 2] eq {} }
+    }
+
+    test {Invalidation message received for flushdb} {
+        clean_all
+        r CLIENT TRACKING off
+        r CLIENT TRACKING on REDIRECT $redir_id
+        $rd_sg SET key1 1
+        r GET key1
+        $rd_sg FLUSHDB
+        set msg [$rd_redirection read]
+        assert {[lindex msg 2] eq {} }
     }
 
     # Keys are defined to be evicted 100 at a time by default.
