@@ -1015,10 +1015,10 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key) {
          * to call the right module during loading. */
         int retval = rdbSaveLen(rdb,mt->id);
         if (retval == -1) return -1;
+        moduleInitIOContext(io,mt,rdb,key);
         io.bytes += retval;
 
         /* Then write the module-specific representation + EOF marker. */
-        moduleInitIOContext(io,mt,rdb,key);
         mt->rdb_save(&io,mv->value);
         retval = rdbSaveLen(rdb,RDB_MODULE_OPCODE_EOF);
         if (retval == -1)
@@ -1147,6 +1147,7 @@ ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
     RedisModuleIO io;
     int retval = rdbSaveType(rdb, RDB_OPCODE_MODULE_AUX);
     if (retval == -1) return -1;
+    moduleInitIOContext(io,mt,rdb,NULL);
     io.bytes += retval;
 
     /* Write the "module" identifier as prefix, so that we'll be able
@@ -1166,7 +1167,6 @@ ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
     io.bytes += retval;
 
     /* Then write the module-specific representation + EOF marker. */
-    moduleInitIOContext(io,mt,rdb,NULL);
     mt->aux_save(&io,when);
     retval = rdbSaveLen(rdb,RDB_MODULE_OPCODE_EOF);
     if (retval == -1)
