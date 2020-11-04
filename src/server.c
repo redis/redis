@@ -4295,12 +4295,16 @@ sds genRedisInfoString(const char *section) {
         info = sdscatprintf(info,
             "# Clients\r\n"
             "connected_clients:%lu\r\n"
+            "cluster_connections:%lu\r\n"
+            "maxclients:%u\r\n"
             "client_recent_max_input_buffer:%zu\r\n"
             "client_recent_max_output_buffer:%zu\r\n"
             "blocked_clients:%d\r\n"
             "tracking_clients:%d\r\n"
             "clients_in_timeout_table:%llu\r\n",
             listLength(server.clients)-listLength(server.slaves),
+            getClusterConnectionsCount(),
+            server.maxclients,
             maxin, maxout,
             server.blocked_clients,
             server.tracking_clients,
