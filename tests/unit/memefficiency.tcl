@@ -395,7 +395,7 @@ start_server {tags {"defrag"} overrides {appendonly yes auto-aof-rewrite-percent
             # if the current slab is lower in utilization the defragger would have ended up in stagnation,
             # keept running and not move any allocation.
             # this test is more consistent on a fresh server with no history
-            start_server {tags {"defrag"}} {
+            start_server {tags {"defrag"} overrides {save ""}} {
                 r flushdb
                 r config resetstat
                 r config set hz 100
