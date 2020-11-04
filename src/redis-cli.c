@@ -189,6 +189,9 @@ typedef struct clusterManagerCommand {
     int pipeline;
     float threshold;
     char *backup_dir;
+    char *from_user;
+    char *from_pass;
+    int from_askpass;
 } clusterManagerCommand;
 
 static void createClusterManagerCommand(char *cmdname, int argc, char **argv);
@@ -753,14 +756,14 @@ static void freeHintsCallback(void *ptr) {
  *--------------------------------------------------------------------------- */
 
 /* Send AUTH command to the server */
-static int cliAuth(void) {
+static int cliAuth(redisContext *ctx, char *user, char *auth) {
     redisReply *reply;
-    if (config.auth == NULL) return REDIS_OK;
+    if (auth == NULL) return REDIS_OK;
 
-    if (config.user == NULL)
-        reply = redisCommand(context,"AUTH %s",config.auth);
+    if (user == NULL)
+        reply = redisCommand(ctx,"AUTH %s",auth);
     else
-        reply = redisCommand(context,"AUTH %s %s",config.user,config.auth);
+        reply = redisCommand(ctx,"AUTH %s %s",user,auth);
     if (reply != NULL) {
         if (reply->type == REDIS_REPLY_ERROR)
             fprintf(stderr,"Warning: AUTH failed\n");
@@ -849,7 +852,7 @@ static int cliConnect(int flags) {
         anetKeepAlive(NULL, context->fd, REDIS_CLI_KEEPALIVE_INTERVAL);
 
         /* Do AUTH, select the right DB, switch to RESP3 if needed. */
-        if (cliAuth() != REDIS_OK)
+        if (cliAuth(context, config.user, config.auth) != REDIS_OK)
             return REDIS_ERR;
         if (cliSelect() != REDIS_OK)
             return REDIS_ERR;
@@ -1574,6 +1577,12 @@ static int parseOptions(int argc, char **argv) {
             config.cluster_manager_command.from = argv[++i];
         } else if (!strcmp(argv[i],"--cluster-to") && !lastarg) {
             config.cluster_manager_command.to = argv[++i];
+        } else if (!strcmp(argv[i],"--cluster-from-user") && !lastarg) {
+            config.cluster_manager_command.from_user = argv[++i];
+        } else if (!strcmp(argv[i],"--cluster-from-pass") && !lastarg) {
+            config.cluster_manager_command.from_pass = argv[++i];
+        } else if (!strcmp(argv[i], "--cluster-from-askpass")) {
+            config.cluster_manager_command.from_askpass = 1;
         } else if (!strcmp(argv[i],"--cluster-weight") && !lastarg) {
             if (config.cluster_manager_command.weight != NULL) {
                 fprintf(stderr, "WARNING: you cannot use --cluster-weight "
@@ -2360,7 +2369,7 @@ clusterManagerCommandDef clusterManagerCommands[] = {
     {"set-timeout", clusterManagerCommandSetTimeout, 2,
      "host:port milliseconds", NULL},
     {"import", clusterManagerCommandImport, 1, "host:port",
-     "from <arg>,copy,replace"},
+     "from <arg>,from-user <arg>,from-pass <arg>,from-askpass,copy,replace"},
     {"backup", clusterManagerCommandBackup, 2,  "host:port backup_directory",
      NULL},
     {"help", clusterManagerCommandHelp, 0, NULL, NULL}
@@ -6303,6 +6312,7 @@ static int clusterManagerCommandImport(int argc, char **argv) {
     int port = 0, src_port = 0;
     char *ip = NULL, *src_ip = NULL;
     char *invalid_args_msg = NULL;
+    sds cmdfmt = NULL;
     if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) {
         invalid_args_msg = CLUSTER_MANAGER_INVALID_HOST_ARG;
         goto invalid_args;
@@ -6334,6 +6344,14 @@ static int clusterManagerCommandImport(int argc, char **argv) {
                 src_port, src_ctx->errstr);
         goto cleanup;
     }
+    // Auth for the source node. 
+    char *from_user = config.cluster_manager_command.from_user;
+    char *from_pass = config.cluster_manager_command.from_pass;
+    if (cliAuth(src_ctx, from_user, from_pass) == REDIS_ERR) {
+        success = 0;
+        goto cleanup;
+    }
+
     src_reply = reconnectingRedisCommand(src_ctx, "INFO");
     if (!src_reply || src_reply->type == REDIS_REPLY_ERROR) {
         if (src_reply && src_reply->str) reply_err = src_reply->str;
@@ -6373,8 +6391,15 @@ static int clusterManagerCommandImport(int argc, char **argv) {
             }
         }
     }
+    cmdfmt = sdsnew("MIGRATE %s %d %s %d %d");
+    if (config.auth) {
+        if (config.user) {
+            cmdfmt = sdscatfmt(cmdfmt," AUTH2 %s %s", config.user, config.auth); 
+        } else {
+            cmdfmt = sdscatfmt(cmdfmt," AUTH %s", config.auth);
+        }
+    }
 
-    char cmdfmt[50] = "MIGRATE %s %d %s %d %d";
     if (config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_COPY)
         strcat(cmdfmt, " %s");
     if (config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_REPLACE)
@@ -6431,6 +6456,7 @@ cleanup:
                              src_ip, src_port, reply_err);
     if (src_ctx) redisFree(src_ctx);
     if (src_reply) freeReplyObject(src_reply);
+    if (cmdfmt) sdsfree(cmdfmt);
     return success;
 invalid_args:
     fprintf(stderr, "%s", invalid_args_msg);
@@ -8000,9 +8026,9 @@ static void intrinsicLatencyMode(void) {
     }
 }
 
-static sds askPassword() {
+static sds askPassword(const char *msg) {
     linenoiseMaskModeEnable();
-    sds auth = linenoise("Please input password: ");
+    sds auth = linenoise(msg);
     linenoiseMaskModeDisable();
     return auth;
 }
@@ -8060,6 +8086,9 @@ int main(int argc, char **argv) {
     config.cluster_manager_command.replicas = 0;
     config.cluster_manager_command.from = NULL;
     config.cluster_manager_command.to = NULL;
+    config.cluster_manager_command.from_user = NULL;
+    config.cluster_manager_command.from_pass = NULL;
+    config.cluster_manager_command.from_askpass = 0;
     config.cluster_manager_command.weight = NULL;
     config.cluster_manager_command.weight_argc = 0;
     config.cluster_manager_command.slots = 0;
@@ -8090,7 +8119,12 @@ int main(int argc, char **argv) {
     parseEnv();
 
     if (config.askpass) {
-        config.auth = askPassword();
+        config.auth = askPassword("Please input password: ");
+    }
+
+    if (config.cluster_manager_command.from_askpass) {
+        config.cluster_manager_command.from_pass = askPassword(
+            "Please input import source node password: ");
     }
 
 #ifdef USE_OPENSSL
