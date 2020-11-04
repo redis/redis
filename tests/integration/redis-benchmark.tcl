@@ -143,15 +143,25 @@ start_server {tags {"benchmark"}} {
             test {benchmark: specific tls-ciphersuites} {
                 r flushall
                 r config resetstat
+                set ciphersuites_supported 1
                 set cmd [redisbenchmark $master_host $master_port "-r 50 -t set -n 1000 --tls-ciphersuites \"TLS_AES_128_GCM_SHA256\""]
                 if {[catch { exec {*}$cmd } error]} {
                     set first_line [lindex [split $error "\n"] 0]
-                    puts [colorstr red "redis-benchmark non zero code. first line: $first_line"]
-                    fail "redis-benchmark non zero code. first line: $first_line"
+                    if {[string match "*Invalid option*" $first_line]} {
+                        set ciphersuites_supported 0
+                        if {$::verbose} {
+                            puts "Skipping test, TLSv1.3 not supported."
+                        }
+                    } else {
+                        puts [colorstr red "redis-benchmark non zero code. first line: $first_line"]
+                        fail "redis-benchmark non zero code. first line: $first_line"
+                    }
                 }
-                assert_match  {*calls=1000,*} [cmdstat set]
-                # assert one of the non benchmarked commands is not present
-                assert_match  {} [cmdstat get]
+                if {$ciphersuites_supported} {
+                    assert_match  {*calls=1000,*} [cmdstat set]
+                    # assert one of the non benchmarked commands is not present
+                    assert_match  {} [cmdstat get]
+                }
             }
         }
     }
