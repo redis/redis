@@ -133,7 +133,8 @@ proc execute_test_file name {
 # as argument, and an associated name.
 # It will run the specified code and signal it to the test server when
 # finished.
-proc execute_test_code {name code} {
+proc execute_test_code {name filename code} {
+    set ::curfile $filename
     eval $code
     send_data_packet $::test_server_fd done "$name"
 }
@@ -238,7 +239,7 @@ proc run_solo {name code} {
         eval $code
         return
     }
-    send_data_packet $::test_server_fd run_solo [list $name $code]
+    send_data_packet $::test_server_fd run_solo [list $name $::curfile $code]
 }
 
 proc cleanup {} {
@@ -507,8 +508,8 @@ proc test_client_main server_port {
         if {$cmd eq {run}} {
             execute_test_file $data
         } elseif {$cmd eq {run_code}} {
-            foreach {name code} $data break
-            execute_test_code $name $code
+            foreach {name filename code} $data break
+            execute_test_code $name $filename $code
         } else {
             error "Unknown test client command: $cmd"
         }
