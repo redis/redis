@@ -22,12 +22,11 @@ if {$system_name eq {linux} || $system_name eq {darwin}} {
         }
     }
 
+    # Valgrind will complain that the process terminated by a signal, skip it.
     if {!$::valgrind} {
         set server_path [tmpdir server1.log]
         start_server [list overrides [list dir $server_path]] {
             test "Crash report generated on SIGABRT" {
-                r config set crash-memcheck-enabled no
-                r config set use-exit-on-panic yes
                 set pid [s process_id]
                 exec kill -SIGABRT $pid
                 set pattern "*STACK TRACE*"
