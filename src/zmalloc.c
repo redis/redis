@@ -365,7 +365,7 @@ size_t zmalloc_get_rss(void) {
 
     return t_info.resident_size;
 }
-#elif defined(__FreeBSD__)
+#elif defined(__FreeBSD__) || defined(__DragonFly__)
 #include <sys/types.h>
 #include <sys/sysctl.h>
 #include <sys/user.h>
@@ -381,7 +381,11 @@ size_t zmalloc_get_rss(void) {
     mib[3] = getpid();
 
     if (sysctl(mib, 4, &info, &infolen, NULL, 0) == 0)
+#if defined(__FreeBSD__)
         return (size_t)info.ki_rssize;
+#else
+        return (size_t)info.kp_vm_rssize;
+#endif
 
     return 0L;
 }
