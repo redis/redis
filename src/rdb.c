@@ -1015,10 +1015,10 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key) {
          * to call the right module during loading. */
         int retval = rdbSaveLen(rdb,mt->id);
         if (retval == -1) return -1;
+        moduleInitIOContext(io,mt,rdb,key);
         io.bytes += retval;
 
         /* Then write the module-specific representation + EOF marker. */
-        moduleInitIOContext(io,mt,rdb,key);
         mt->rdb_save(&io,mv->value);
         retval = rdbSaveLen(rdb,RDB_MODULE_OPCODE_EOF);
         if (retval == -1)
@@ -1147,6 +1147,7 @@ ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
     RedisModuleIO io;
     int retval = rdbSaveType(rdb, RDB_OPCODE_MODULE_AUX);
     if (retval == -1) return -1;
+    moduleInitIOContext(io,mt,rdb,NULL);
     io.bytes += retval;
 
     /* Write the "module" identifier as prefix, so that we'll be able
@@ -1166,7 +1167,6 @@ ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
     io.bytes += retval;
 
     /* Then write the module-specific representation + EOF marker. */
-    moduleInitIOContext(io,mt,rdb,NULL);
     mt->aux_save(&io,when);
     retval = rdbSaveLen(rdb,RDB_MODULE_OPCODE_EOF);
     if (retval == -1)
@@ -1412,6 +1412,7 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
         server.rdb_save_time_start = time(NULL);
         server.rdb_child_pid = childpid;
         server.rdb_child_type = RDB_CHILD_TYPE_DISK;
+        updateDictResizePolicy();
         return C_OK;
     }
     return C_OK; /* unreached */
@@ -1419,7 +1420,7 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
 
 /* Note that we may call this function in signal handle 'sigShutdownHandler',
  * so we need guarantee all functions we call are async-signal-safe.
- * If  we call this function from signal handle, we won't call bg_unlik that
+ * If  we call this function from signal handle, we won't call bg_unlink that
  * is not async-signal-safe. */
 void rdbRemoveTempFile(pid_t childpid, int from_signal) {
     char tmpfile[256];
@@ -1892,7 +1893,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                     return NULL;
                 }
                 if (!raxInsert(cgroup->pel,rawid,sizeof(rawid),nack,NULL))
-                    rdbExitReportCorruptRDB("Duplicated gobal PEL entry "
+                    rdbExitReportCorruptRDB("Duplicated global PEL entry "
                                             "loading stream consumer group");
             }
 
@@ -2618,6 +2619,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
             server.rdb_save_time_start = time(NULL);
             server.rdb_child_pid = childpid;
             server.rdb_child_type = RDB_CHILD_TYPE_SOCKET;
+            updateDictResizePolicy();
             close(rdb_pipe_write); /* close write in parent so that it can detect the close on the child. */
             if (aeCreateFileEvent(server.el, server.rdb_pipe_read, AE_READABLE, rdbPipeReadHandler,NULL) == AE_ERR) {
                 serverPanic("Unrecoverable error creating server.rdb_pipe_read file event.");

@@ -61,6 +61,7 @@
 #include "help.h"
 #include "anet.h"
 #include "ae.h"
+#include "cli_common.h"
 
 #define UNUSED(V) ((void) V)
 
@@ -188,6 +189,9 @@ typedef struct clusterManagerCommand {
     int pipeline;
     float threshold;
     char *backup_dir;
+    char *from_user;
+    char *from_pass;
+    int from_askpass;
 } clusterManagerCommand;
 
 static void createClusterManagerCommand(char *cmdname, int argc, char **argv);
@@ -199,11 +203,7 @@ static struct config {
     int hostport;
     char *hostsocket;
     int tls;
-    char *sni;
-    char *cacert;
-    char *cacertdir;
-    char *cert;
-    char *key;
+    cliSSLconfig sslconfig;
     long repeat;
     long interval;
     int dbnum;
@@ -756,14 +756,14 @@ static void freeHintsCallback(void *ptr) {
  *--------------------------------------------------------------------------- */
 
 /* Send AUTH command to the server */
-static int cliAuth(void) {
+static int cliAuth(redisContext *ctx, char *user, char *auth) {
     redisReply *reply;
-    if (config.auth == NULL) return REDIS_OK;
+    if (auth == NULL) return REDIS_OK;
 
-    if (config.user == NULL)
-        reply = redisCommand(context,"AUTH %s",config.auth);
+    if (user == NULL)
+        reply = redisCommand(ctx,"AUTH %s",auth);
     else
-        reply = redisCommand(context,"AUTH %s %s",config.user,config.auth);
+        reply = redisCommand(ctx,"AUTH %s %s",user,auth);
     if (reply != NULL) {
         if (reply->type == REDIS_REPLY_ERROR)
             fprintf(stderr,"Warning: AUTH failed\n");
@@ -786,71 +786,6 @@ static int cliSelect(void) {
         return result;
     }
     return REDIS_ERR;
-}
-
-/* Wrapper around redisSecureConnection to avoid hiredis_ssl dependencies if
- * not building with TLS support.
- */
-static int cliSecureConnection(redisContext *c, const char **err) {
-#ifdef USE_OPENSSL
-    static SSL_CTX *ssl_ctx = NULL;
-
-    if (!ssl_ctx) {
-        ssl_ctx = SSL_CTX_new(SSLv23_client_method());
-        if (!ssl_ctx) {
-            *err = "Failed to create SSL_CTX";
-            goto error;
-        }
-
-        SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
-        SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
-
-        if (config.cacert || config.cacertdir) {
-            if (!SSL_CTX_load_verify_locations(ssl_ctx, config.cacert, config.cacertdir)) {
-                *err = "Invalid CA Certificate File/Directory";
-                goto error;
-            }
-        } else {
-            if (!SSL_CTX_set_default_verify_paths(ssl_ctx)) {
-                *err = "Failed to use default CA paths";
-                goto error;
-            }
-        }
-
-        if (config.cert && !SSL_CTX_use_certificate_chain_file(ssl_ctx, config.cert)) {
-            *err = "Invalid client certificate";
-            goto error;
-        }
-
-        if (config.key && !SSL_CTX_use_PrivateKey_file(ssl_ctx, config.key, SSL_FILETYPE_PEM)) {
-            *err = "Invalid private key";
-            goto error;
-        }
-    }
-
-    SSL *ssl = SSL_new(ssl_ctx);
-    if (!ssl) {
-        *err = "Failed to create SSL object";
-        return REDIS_ERR;
-    }
-
-    if (config.sni && !SSL_set_tlsext_host_name(ssl, config.sni)) {
-        *err = "Failed to configure SNI";
-        SSL_free(ssl);
-        return REDIS_ERR;
-    }
-
-    return redisInitiateSSL(c, ssl);
-
-error:
-    SSL_CTX_free(ssl_ctx);
-    ssl_ctx = NULL;
-    return REDIS_ERR;
-#else
-    (void) c;
-    (void) err;
-    return REDIS_OK;
-#endif
 }
 
 /* Select RESP3 mode if redis-cli was started with the -3 option.  */
@@ -886,7 +821,7 @@ static int cliConnect(int flags) {
 
         if (!context->err && config.tls) {
             const char *err = NULL;
-            if (cliSecureConnection(context, &err) == REDIS_ERR && err) {
+            if (cliSecureConnection(context, config.sslconfig, &err) == REDIS_ERR && err) {
                 fprintf(stderr, "Could not negotiate a TLS connection: %s\n", err);
                 redisFree(context);
                 context = NULL;
@@ -917,7 +852,7 @@ static int cliConnect(int flags) {
         anetKeepAlive(NULL, context->fd, REDIS_CLI_KEEPALIVE_INTERVAL);
 
         /* Do AUTH, select the right DB, switch to RESP3 if needed. */
-        if (cliAuth() != REDIS_OK)
+        if (cliAuth(context, config.user, config.auth) != REDIS_OK)
             return REDIS_ERR;
         if (cliSelect() != REDIS_OK)
             return REDIS_ERR;
@@ -1484,7 +1419,7 @@ static redisReply *reconnectingRedisCommand(redisContext *c, const char *fmt, ..
             c = redisConnect(config.hostip,config.hostport);
             if (!c->err && config.tls) {
                 const char *err = NULL;
-                if (cliSecureConnection(c, &err) == REDIS_ERR && err) {
+                if (cliSecureConnection(c, config.sslconfig, &err) == REDIS_ERR && err) {
                     fprintf(stderr, "TLS Error: %s\n", err);
                     exit(1);
                 }
@@ -1642,6 +1577,12 @@ static int parseOptions(int argc, char **argv) {
             config.cluster_manager_command.from = argv[++i];
         } else if (!strcmp(argv[i],"--cluster-to") && !lastarg) {
             config.cluster_manager_command.to = argv[++i];
+        } else if (!strcmp(argv[i],"--cluster-from-user") && !lastarg) {
+            config.cluster_manager_command.from_user = argv[++i];
+        } else if (!strcmp(argv[i],"--cluster-from-pass") && !lastarg) {
+            config.cluster_manager_command.from_pass = argv[++i];
+        } else if (!strcmp(argv[i], "--cluster-from-askpass")) {
+            config.cluster_manager_command.from_askpass = 1;
         } else if (!strcmp(argv[i],"--cluster-weight") && !lastarg) {
             if (config.cluster_manager_command.weight != NULL) {
                 fprintf(stderr, "WARNING: you cannot use --cluster-weight "
@@ -1700,15 +1641,21 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--tls")) {
             config.tls = 1;
         } else if (!strcmp(argv[i],"--sni") && !lastarg) {
-            config.sni = argv[++i];
+            config.sslconfig.sni = argv[++i];
         } else if (!strcmp(argv[i],"--cacertdir") && !lastarg) {
-            config.cacertdir = argv[++i];
+            config.sslconfig.cacertdir = argv[++i];
         } else if (!strcmp(argv[i],"--cacert") && !lastarg) {
-            config.cacert = argv[++i];
+            config.sslconfig.cacert = argv[++i];
         } else if (!strcmp(argv[i],"--cert") && !lastarg) {
-            config.cert = argv[++i];
+            config.sslconfig.cert = argv[++i];
         } else if (!strcmp(argv[i],"--key") && !lastarg) {
-            config.key = argv[++i];
+            config.sslconfig.key = argv[++i];
+        } else if (!strcmp(argv[i],"--tls-ciphers") && !lastarg) {
+            config.sslconfig.ciphers = argv[++i];
+        #ifdef TLS1_3_VERSION
+        } else if (!strcmp(argv[i],"--tls-ciphersuites") && !lastarg) {
+            config.sslconfig.ciphersuites = argv[++i];
+        #endif
 #endif
         } else if (!strcmp(argv[i],"-v") || !strcmp(argv[i], "--version")) {
             sds version = cliVersion();
@@ -1831,6 +1778,15 @@ static void usage(void) {
 "                     system-wide trusted root certs configuration will apply.\n"
 "  --cert <file>      Client certificate to authenticate with.\n"
 "  --key <file>       Private key file to authenticate with.\n"
+"  --tls-ciphers <list> Sets the list of prefered ciphers (TLSv1.2 and below)\n"
+"                     in order of preference from highest to lowest separated by colon (\":\").\n"
+"                     See the ciphers(1ssl) manpage for more information about the syntax of this string.\n"
+#ifdef TLS1_3_VERSION
+"  --tls-ciphersuites <list> Sets the list of prefered ciphersuites (TLSv1.3)\n"
+"                     in order of preference from highest to lowest separated by colon (\":\").\n"
+"                     See the ciphers(1ssl) manpage for more information about the syntax of this string,\n"
+"                     and specifically for TLSv1.3 ciphersuites.\n"
+#endif
 #endif
 "  --raw              Use raw formatting for replies (default when STDOUT is\n"
 "                     not a tty).\n"
@@ -2428,7 +2384,7 @@ clusterManagerCommandDef clusterManagerCommands[] = {
     {"set-timeout", clusterManagerCommandSetTimeout, 2,
      "host:port milliseconds", NULL},
     {"import", clusterManagerCommandImport, 1, "host:port",
-     "from <arg>,copy,replace"},
+     "from <arg>,from-user <arg>,from-pass <arg>,from-askpass,copy,replace"},
     {"backup", clusterManagerCommandBackup, 2,  "host:port backup_directory",
      NULL},
     {"help", clusterManagerCommandHelp, 0, NULL, NULL}
@@ -2677,7 +2633,7 @@ static int clusterManagerNodeConnect(clusterManagerNode *node) {
     node->context = redisConnect(node->ip, node->port);
     if (!node->context->err && config.tls) {
         const char *err = NULL;
-        if (cliSecureConnection(node->context, &err) == REDIS_ERR && err) {
+        if (cliSecureConnection(node->context, config.sslconfig, &err) == REDIS_ERR && err) {
             fprintf(stderr,"TLS Error: %s\n", err);
             redisFree(node->context);
             node->context = NULL;
@@ -6371,6 +6327,7 @@ static int clusterManagerCommandImport(int argc, char **argv) {
     int port = 0, src_port = 0;
     char *ip = NULL, *src_ip = NULL;
     char *invalid_args_msg = NULL;
+    sds cmdfmt = NULL;
     if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) {
         invalid_args_msg = CLUSTER_MANAGER_INVALID_HOST_ARG;
         goto invalid_args;
@@ -6402,6 +6359,14 @@ static int clusterManagerCommandImport(int argc, char **argv) {
                 src_port, src_ctx->errstr);
         goto cleanup;
     }
+    // Auth for the source node. 
+    char *from_user = config.cluster_manager_command.from_user;
+    char *from_pass = config.cluster_manager_command.from_pass;
+    if (cliAuth(src_ctx, from_user, from_pass) == REDIS_ERR) {
+        success = 0;
+        goto cleanup;
+    }
+
     src_reply = reconnectingRedisCommand(src_ctx, "INFO");
     if (!src_reply || src_reply->type == REDIS_REPLY_ERROR) {
         if (src_reply && src_reply->str) reply_err = src_reply->str;
@@ -6441,8 +6406,15 @@ static int clusterManagerCommandImport(int argc, char **argv) {
             }
         }
     }
+    cmdfmt = sdsnew("MIGRATE %s %d %s %d %d");
+    if (config.auth) {
+        if (config.user) {
+            cmdfmt = sdscatfmt(cmdfmt," AUTH2 %s %s", config.user, config.auth); 
+        } else {
+            cmdfmt = sdscatfmt(cmdfmt," AUTH %s", config.auth);
+        }
+    }
 
-    char cmdfmt[50] = "MIGRATE %s %d %s %d %d";
     if (config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_COPY)
         strcat(cmdfmt, " %s");
     if (config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_REPLACE)
@@ -6499,6 +6471,7 @@ cleanup:
                              src_ip, src_port, reply_err);
     if (src_ctx) redisFree(src_ctx);
     if (src_reply) freeReplyObject(src_reply);
+    if (cmdfmt) sdsfree(cmdfmt);
     return success;
 invalid_args:
     fprintf(stderr, "%s", invalid_args_msg);
@@ -6898,72 +6871,6 @@ void sendCapa() {
     sendReplconf("capa", "eof");
 }
 
-/* Wrapper around hiredis to allow arbitrary reads and writes.
- *
- * We piggybacks on top of hiredis to achieve transparent TLS support,
- * and use its internal buffers so it can co-exist with commands
- * previously/later issued on the connection.
- *
- * Interface is close to enough to read()/write() so things should mostly
- * work transparently.
- */
-
-/* Write a raw buffer through a redisContext. If we already have something
- * in the buffer (leftovers from hiredis operations) it will be written
- * as well.
- */
-static ssize_t writeConn(redisContext *c, const char *buf, size_t buf_len)
-{
-    int done = 0;
-
-    /* Append data to buffer which is *usually* expected to be empty
-     * but we don't assume that, and write.
-     */
-    c->obuf = sdscatlen(c->obuf, buf, buf_len);
-    if (redisBufferWrite(c, &done) == REDIS_ERR) {
-        if (!(c->flags & REDIS_BLOCK))
-            errno = EAGAIN;
-
-        /* On error, we assume nothing was written and we roll back the
-         * buffer to its original state.
-         */
-        if (sdslen(c->obuf) > buf_len)
-            sdsrange(c->obuf, 0, -(buf_len+1));
-        else
-            sdsclear(c->obuf);
-
-        return -1;
-    }
-
-    /* If we're done, free up everything. We may have written more than
-     * buf_len (if c->obuf was not initially empty) but we don't have to
-     * tell.
-     */
-    if (done) {
-        sdsclear(c->obuf);
-        return buf_len;
-    }
-
-    /* Write was successful but we have some leftovers which we should
-     * remove from the buffer.
-     *
-     * Do we still have data that was there prior to our buf? If so,
-     * restore buffer to it's original state and report no new data was
-     * writen.
-     */
-    if (sdslen(c->obuf) > buf_len) {
-        sdsrange(c->obuf, 0, -(buf_len+1));
-        return 0;
-    }
-
-    /* At this point we're sure no prior data is left. We flush the buffer
-     * and report how much we've written.
-     */
-    size_t left = sdslen(c->obuf);
-    sdsclear(c->obuf);
-    return buf_len - left;
-}
-
 /* Read raw bytes through a redisContext. The read operation is not greedy
  * and may not fill the buffer entirely.
  */
@@ -6984,7 +6891,7 @@ unsigned long long sendSync(redisContext *c, char *out_eof) {
     ssize_t nread;
 
     /* Send the SYNC command. */
-    if (writeConn(c, "SYNC\r\n", 6) != 6) {
+    if (cliWriteConn(c, "SYNC\r\n", 6) != 6) {
         fprintf(stderr,"Error writing to master\n");
         exit(1);
     }
@@ -7249,7 +7156,7 @@ static void pipeMode(void) {
             while(1) {
                 /* Transfer current buffer to server. */
                 if (obuf_len != 0) {
-                    ssize_t nwritten = writeConn(context,obuf+obuf_pos,obuf_len);
+                    ssize_t nwritten = cliWriteConn(context,obuf+obuf_pos,obuf_len);
 
                     if (nwritten == -1) {
                         if (errno != EAGAIN && errno != EINTR) {
@@ -8134,9 +8041,9 @@ static void intrinsicLatencyMode(void) {
     }
 }
 
-static sds askPassword() {
+static sds askPassword(const char *msg) {
     linenoiseMaskModeEnable();
-    sds auth = linenoise("Please input password: ");
+    sds auth = linenoise(msg);
     linenoiseMaskModeDisable();
     return auth;
 }
@@ -8194,6 +8101,9 @@ int main(int argc, char **argv) {
     config.cluster_manager_command.replicas = 0;
     config.cluster_manager_command.from = NULL;
     config.cluster_manager_command.to = NULL;
+    config.cluster_manager_command.from_user = NULL;
+    config.cluster_manager_command.from_pass = NULL;
+    config.cluster_manager_command.from_askpass = 0;
     config.cluster_manager_command.weight = NULL;
     config.cluster_manager_command.weight_argc = 0;
     config.cluster_manager_command.slots = 0;
@@ -8224,14 +8134,17 @@ int main(int argc, char **argv) {
     parseEnv();
 
     if (config.askpass) {
-        config.auth = askPassword();
+        config.auth = askPassword("Please input password: ");
+    }
+
+    if (config.cluster_manager_command.from_askpass) {
+        config.cluster_manager_command.from_pass = askPassword(
+            "Please input import source node password: ");
     }
 
 #ifdef USE_OPENSSL
     if (config.tls) {
-        ERR_load_crypto_strings();
-        SSL_load_error_strings();
-        SSL_library_init();
+        cliSecureInit();
     }
 #endif
 
