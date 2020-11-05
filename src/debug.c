@@ -1221,7 +1221,7 @@ void logRegisters(ucontext_t *uc) {
 	      "R10:%016lx R9 :%016lx\nR8 :%016lx R7 :%016lx\n"
 	      "R6 :%016lx R5 :%016lx\nR4 :%016lx R3 :%016lx\n"
 	      "R2 :%016lx R1 :%016lx\nR0 :%016lx EC :%016lx\n"
-	      "fp: %016lx ip:%016lx\n",
+	      "fp: %016lx ip:%016lx\n"
 	      "pc:%016lx sp:%016lx\ncpsr:%016lx fault_address:%016lx\n",
 	      (unsigned long) uc->uc_mcontext.arm_r10,
 	      (unsigned long) uc->uc_mcontext.arm_r9,
