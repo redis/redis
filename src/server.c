@@ -2463,6 +2463,7 @@ void initServerConfig(void) {
     server.client_max_querybuf_len = PROTO_MAX_QUERYBUF_LEN;
     server.saveparams = NULL;
     server.loading = 0;
+    server.loading_rdb_used_mem = 0;
     server.logfile = zstrdup(CONFIG_DEFAULT_LOGFILE);
     server.aof_state = AOF_OFF;
     server.aof_rewrite_base_size = 0;
@@ -4501,13 +4502,20 @@ sds genRedisInfoString(const char *section) {
         }
 
         if (server.loading) {
-            double perc;
+            double perc = 0;
             time_t eta, elapsed;
-            off_t remaining_bytes = server.loading_total_bytes-
-                                    server.loading_loaded_bytes;
+            off_t remaining_bytes = 1;
 
-            perc = ((double)server.loading_loaded_bytes /
-                   (server.loading_total_bytes+1)) * 100;
+            if (server.loading_total_bytes) {
+                perc = ((double)server.loading_loaded_bytes / server.loading_total_bytes) * 100;
+                remaining_bytes = server.loading_total_bytes - server.loading_loaded_bytes;
+            } else if(server.loading_rdb_used_mem) {
+                perc = ((double)server.loading_loaded_bytes / server.loading_rdb_used_mem) * 100;
+                remaining_bytes = server.loading_rdb_used_mem - server.loading_loaded_bytes;
+                /* used mem is only a (bad) estimation of the rdb file size, avoid going over 100% */
+                if (perc > 99.99) perc = 99.99;
+                if (remaining_bytes < 1) remaining_bytes = 1;
+            }
 
             elapsed = time(NULL)-server.loading_start_time;
             if (elapsed == 0) {
@@ -4520,11 +4528,13 @@ sds genRedisInfoString(const char *section) {
             info = sdscatprintf(info,
                 "loading_start_time:%jd\r\n"
                 "loading_total_bytes:%llu\r\n"
+                "loading_rdb_used_mem:%llu\r\n"
                 "loading_loaded_bytes:%llu\r\n"
                 "loading_loaded_perc:%.2f\r\n"
                 "loading_eta_seconds:%jd\r\n",
                 (intmax_t) server.loading_start_time,
                 (unsigned long long) server.loading_total_bytes,
+                (unsigned long long) server.loading_rdb_used_mem,
                 (unsigned long long) server.loading_loaded_bytes,
                 perc,
                 (intmax_t)eta
@@ -4649,11 +4659,20 @@ sds genRedisInfoString(const char *section) {
             );
 
             if (server.repl_state == REPL_STATE_TRANSFER) {
+                double perc = 0;
+                if (server.repl_transfer_size) {
+                    perc = ((double)server.repl_transfer_read / server.repl_transfer_size) * 100;
+                }
                 info = sdscatprintf(info,
+                    "master_sync_total_bytes:%lld\r\n"
+                    "master_sync_read_bytes:%lld\r\n"
                     "master_sync_left_bytes:%lld\r\n"
-                    "master_sync_last_io_seconds_ago:%d\r\n"
-                    , (long long)
-                        (server.repl_transfer_size - server.repl_transfer_read),
+                    "master_sync_perc:%.2f\r\n"
+                    "master_sync_last_io_seconds_ago:%d\r\n",
+                    (long long) server.repl_transfer_size,
+                    (long long) server.repl_transfer_read,
+                    (long long) (server.repl_transfer_size - server.repl_transfer_read),
+                    perc,
                     (int)(server.unixtime-server.repl_transfer_lastio)
                 );
             }

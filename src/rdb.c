@@ -2023,6 +2023,7 @@ void startLoading(size_t size, int rdbflags) {
     server.loading_start_time = time(NULL);
     server.loading_loaded_bytes = 0;
     server.loading_total_bytes = size;
+    server.loading_rdb_used_mem = 0;
     blockingOperationStarts();
 
     /* Fire the loading modules start event. */
@@ -2238,6 +2239,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                 long long usedmem = strtoll(auxval->ptr,NULL,10);
                 serverLog(LL_NOTICE,"RDB memory usage when created %.2f Mb",
                     (double) usedmem / (1024*1024));
+                server.loading_rdb_used_mem = usedmem;
             } else if (!strcasecmp(auxkey->ptr,"aof-preamble")) {
                 long long haspreamble = strtoll(auxval->ptr,NULL,10);
                 if (haspreamble) serverLog(LL_NOTICE,"RDB has an AOF tail");
