@@ -1416,11 +1416,6 @@ void xreadCommand(client *c) {
         int moreargs = c->argc-i-1;
         char *o = c->argv[i]->ptr;
         if (!strcasecmp(o,"BLOCK") && moreargs) {
-            if (c->flags & CLIENT_LUA) {
-                /* There is no sense to use BLOCK option within LUA */
-                addReplyErrorFormat(c, "%s command is not allowed with BLOCK option from scripts", (char *)c->argv[0]->ptr);
-                return;
-            }
             i++;
             if (getTimeoutFromObjectOrReply(c,c->argv[i],&timeout,
                 UNIT_MILLISECONDS) != C_OK) return;
@@ -1628,9 +1623,9 @@ void xreadCommand(client *c) {
 
     /* Block if needed. */
     if (timeout != -1) {
-        /* If we are inside a MULTI/EXEC and the list is empty the only thing
+        /* If we are not allowed to block the client, the only thing
          * we can do is treating it as a timeout (even with timeout 0). */
-        if (c->flags & CLIENT_MULTI) {
+        if (c->flags & CLIENT_DENY_BLOCKING) {
             addReplyNullArray(c);
             goto cleanup;
         }

@@ -1255,6 +1255,9 @@ void scriptingInit(int setup) {
     if (server.lua_client == NULL) {
         server.lua_client = createClient(NULL);
         server.lua_client->flags |= CLIENT_LUA;
+
+        /* We do not want to allow blocking commands inside lua */
+        server.lua_client->flags |= CLIENT_DENY_BLOCKING;
     }
 
     /* Lua beginners often don't use "local", this is likely to introduce

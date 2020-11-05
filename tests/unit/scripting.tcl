@@ -140,21 +140,24 @@ start_server {tags {"scripting"}} {
         } {*execution time*}
     }
 
-    test {EVAL - Scripts can't run certain commands} {
-        set e {}
-        catch {r eval {return redis.pcall('blpop','x',0)} 0} e
-        set e
-    } {*not allowed*}
+    test {EVAL - Scripts are not blocked on blocking commands} {
+        assert {[r eval {return redis.pcall('blpop','empty_list',10)} 0] eq {}}
+        assert {[r eval {return redis.pcall('brpop','empty_list',10)} 0] eq {}}
+        assert {[r eval {return redis.pcall('brpoplpush','empty_list1', 'empty_list2',10)} 0] eq {}}
+        assert {[r eval {return redis.pcall('blmove','empty_list1', 'empty_list2', 'LEFT', 'LEFT', 10)} 0] eq {}}
+        assert {[r eval {return redis.pcall('bzpopmin','empty_zset', 10)} 0] eq {}}
+        assert {[r eval {return redis.pcall('bzpopmax','empty_zset', 10)} 0] eq {}}
+    }
 
-    test {EVAL - Scripts can't run XREAD and XREADGROUP with BLOCK option} {
+    test {EVAL - Scripts ignore block option on XREAD and XREADGROUP} {
         r del s
         r xgroup create s g $ MKSTREAM
         set res [r eval {return redis.pcall('xread','STREAMS','s','$')} 1 s]
         assert {$res eq {}}
-        assert_error "*xread command is not allowed with BLOCK option from scripts" {r eval {return redis.pcall('xread','BLOCK',0,'STREAMS','s','$')} 1 s}
+        assert {[r eval {return redis.pcall('xread','BLOCK',10,'STREAMS','s','$')} 1 s] eq {}}
         set res [r eval {return redis.pcall('xreadgroup','group','g','c','STREAMS','s','>')} 1 s]
         assert {$res eq {}}
-        assert_error "*xreadgroup command is not allowed with BLOCK option from scripts" {r eval {return redis.pcall('xreadgroup','group','g','c','BLOCK',0,'STREAMS','s','>')} 1 s}
+        assert {[r eval {return redis.pcall('xreadgroup','group','g','c','BLOCK',10,'STREAMS','s','>')} 1 s] eq {}}
     }
 
     test {EVAL - Scripts can't run certain commands} {

@@ -295,19 +295,19 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,1,1,1,0,0,0},
 
     {"brpop",brpopCommand,-3,
-     "write no-script @list @blocking",
+     "write @list @blocking",
      0,NULL,1,-2,1,0,0,0},
 
     {"brpoplpush",brpoplpushCommand,4,
-     "write use-memory no-script @list @blocking",
+     "write use-memory @list @blocking",
      0,NULL,1,2,1,0,0,0},
 
     {"blmove",blmoveCommand,6,
-     "write use-memory no-script @list @blocking",
+     "write use-memory @list @blocking",
      0,NULL,1,2,1,0,0,0},
 
     {"blpop",blpopCommand,-3,
-     "write no-script @list @blocking",
+     "write @list @blocking",
      0,NULL,1,-2,1,0,0,0},
 
     {"llen",llenCommand,2,
@@ -515,11 +515,11 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,1,1,1,0,0,0},
 
     {"bzpopmin",bzpopminCommand,-3,
-     "write no-script fast @sortedset @blocking",
+     "write fast @sortedset @blocking",
      0,NULL,1,-2,1,0,0,0},
 
     {"bzpopmax",bzpopmaxCommand,-3,
-     "write no-script fast @sortedset @blocking",
+     "write fast @sortedset @blocking",
      0,NULL,1,-2,1,0,0,0},
 
     {"hset",hsetCommand,-4,

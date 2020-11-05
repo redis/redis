@@ -83,7 +83,7 @@ void queueMultiCommand(client *c) {
 void discardTransaction(client *c) {
     freeClientMultiState(c);
     initClientMultiState(c);
-    c->flags &= ~(CLIENT_MULTI|CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC);
+    c->flags &= ~(CLIENT_DENY_BLOCKING|CLIENT_MULTI|CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC);
     unwatchAllKeys(c);
 }
 
@@ -100,6 +100,9 @@ void multiCommand(client *c) {
         return;
     }
     c->flags |= CLIENT_MULTI;
+
+    /* we do not want to allow blocking commands inside multi */
+    c->flags |= CLIENT_DENY_BLOCKING;
     addReply(c,shared.ok);
 }
 
