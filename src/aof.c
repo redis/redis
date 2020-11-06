@@ -291,6 +291,12 @@ int startAppendOnly(void) {
     server.aof_state = AOF_WAIT_REWRITE;
     server.aof_last_fsync = server.unixtime;
     server.aof_fd = newfd;
+
+    /* If AOF was in error state, we just ignore it and log the event. */
+    if (server.aof_last_write_status == C_ERR) {
+        serverLog(LL_WARNING,"AOF reopen, just ignore the last error.");
+        server.aof_last_write_status = C_OK;
+    }
     return C_OK;
 }
 
