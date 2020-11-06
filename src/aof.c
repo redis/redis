@@ -244,6 +244,8 @@ void stopAppendOnly(void) {
     server.aof_state = AOF_OFF;
     server.aof_rewrite_scheduled = 0;
     killAppendOnlyChild();
+    sdsfree(server.aof_buf);
+    server.aof_buf = sdsempty();
 }
 
 /* Called when the user switches from "appendonly no" to "appendonly yes"
