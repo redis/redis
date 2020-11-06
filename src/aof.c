@@ -1873,14 +1873,19 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             /* AOF enabled, replace the old fd with the new one. */
             oldfd = server.aof_fd;
             server.aof_fd = newfd;
-            if (server.aof_fsync == AOF_FSYNC_ALWAYS)
+            if (server.aof_fsync == AOF_FSYNC_ALWAYS) {
+                latencyStartMonitor(latency);
                 redis_fsync(newfd);
-            else if (server.aof_fsync == AOF_FSYNC_EVERYSEC)
+                latencyEndMonitor(latency);
+                latencyAddSampleIfNeeded("aof-fsync-rewrite-done",latency);
+            } else if (server.aof_fsync == AOF_FSYNC_EVERYSEC) {
                 aof_background_fsync(newfd);
+            }
             server.aof_selected_db = -1; /* Make sure SELECT is re-issued */
             aofUpdateCurrentSize();
             server.aof_rewrite_base_size = server.aof_current_size;
             server.aof_fsync_offset = server.aof_current_size;
+            server.aof_last_fsync = server.unixtime;
 
             /* Clear regular AOF buffer since its contents was just written to
              * the new AOF from the background rewrite buffer. */
