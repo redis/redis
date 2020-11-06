@@ -237,6 +237,8 @@ void stopAppendOnly(void) {
     serverAssert(server.aof_state != AOF_OFF);
     flushAppendOnlyFile(1);
     redis_fsync(server.aof_fd);
+    server.aof_fsync_offset = server.aof_current_size;
+    server.aof_last_fsync = server.unixtime;
     close(server.aof_fd);
 
     server.aof_fd = -1;
