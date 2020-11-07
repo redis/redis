@@ -238,9 +238,12 @@ start_server {tags {"keyspace"}} {
         r del mylist mynewlist
         r lpush mylist a b c d
         r copy mylist mynewlist
-        assert_equal [r debug digest-value mylist] [r debug digest-value mynewlist]
+        set digest [r debug digest-value mylist]
+        assert_equal $digest [r debug digest-value mynewlist]
         assert_equal 1 [r object refcount mylist]
         assert_equal 1 [r object refcount mynewlist]
+        r del mylist
+        assert_equal $digest [r debug digest-value mynewlist]
     }
 
     test {COPY basic usage for intset set} {
@@ -248,9 +251,12 @@ start_server {tags {"keyspace"}} {
         r sadd set1 1 2 3
         assert_encoding intset set1
         r copy set1 newset1
-        assert_equal [r debug digest-value set1] [r debug digest-value newset1]
+        set digest [r debug digest-value set1]
+        assert_equal $digest [r debug digest-value newset1]
         assert_equal 1 [r object refcount set1]
         assert_equal 1 [r object refcount newset1]
+        r del set1
+        assert_equal $digest [r debug digest-value newset1]
     }
 
     test {COPY basic usage for hashtable set} {
@@ -258,9 +264,12 @@ start_server {tags {"keyspace"}} {
         r sadd set2 1 2 3 a
         assert_encoding hashtable set2
         r copy set2 newset2
-        assert_equal [r debug digest-value set2] [r debug digest-value newset2]
+        set digest [r debug digest-value set2]
+        assert_equal $digest [r debug digest-value newset2]
         assert_equal 1 [r object refcount set2]
         assert_equal 1 [r object refcount newset2]
+        r del set2
+        assert_equal $digest [r debug digest-value newset2]
     }
 
     test {COPY basic usage for ziplist sorted set} {
@@ -268,9 +277,12 @@ start_server {tags {"keyspace"}} {
         r zadd zset1 123 foobar
         assert_encoding ziplist zset1
         r copy zset1 newzset1
-        assert_equal [r debug digest-value zset1] [r debug digest-value newzset1]
+        set digest [r debug digest-value zset1]
+        assert_equal $digest [r debug digest-value newzset1]
         assert_equal 1 [r object refcount zset1]
         assert_equal 1 [r object refcount newzset1]
+        r del zset1
+        assert_equal $digest [r debug digest-value newzset1]
     }
 
      test {COPY basic usage for skiplist sorted set} {
@@ -282,9 +294,12 @@ start_server {tags {"keyspace"}} {
         }
         assert_encoding skiplist zset2
         r copy zset2 newzset2
-        assert_equal [r debug digest-value zset2] [r debug digest-value newzset2]
+        set digest [r debug digest-value zset2]
+        assert_equal $digest [r debug digest-value newzset2]
         assert_equal 1 [r object refcount zset2]
         assert_equal 1 [r object refcount newzset2]
+        r del zset2
+        assert_equal $digest [r debug digest-value newzset2]
         r config set zset-max-ziplist-entries $original_max
     }
 
@@ -293,9 +308,12 @@ start_server {tags {"keyspace"}} {
         r hset hash1 tmp 17179869184
         assert_encoding ziplist hash1
         r copy hash1 newhash1
-        assert_equal [r debug digest-value hash1] [r debug digest-value newhash1]
+        set digest [r debug digest-value hash1]
+        assert_equal $digest [r debug digest-value newhash1]
         assert_equal 1 [r object refcount hash1]
         assert_equal 1 [r object refcount newhash1]
+        r del hash1
+        assert_equal $digest [r debug digest-value newhash1]
     }
 
     test {COPY basic usage for hashtable hash} {
@@ -307,9 +325,12 @@ start_server {tags {"keyspace"}} {
         }
         assert_encoding hashtable hash2
         r copy hash2 newhash2
-        assert_equal [r debug digest-value hash2] [r debug digest-value newhash2]
+        set digest [r debug digest-value hash2]
+        assert_equal $digest [r debug digest-value newhash2]
         assert_equal 1 [r object refcount hash2]
         assert_equal 1 [r object refcount newhash2]
+        r del hash2
+        assert_equal $digest [r debug digest-value newhash2]
         r config set hash-max-ziplist-entries $original_max
     }
 
@@ -318,9 +339,12 @@ start_server {tags {"keyspace"}} {
         r XADD mystream * item 1 value a
         r XADD mystream * item 2 value b
         r copy mystream mynewstream
-        assert_equal [r debug digest-value mystream] [r debug digest-value mynewstream]
+        set digest [r debug digest-value mystream]
+        assert_equal $digest [r debug digest-value mynewstream]
         assert_equal 1 [r object refcount mystream]
         assert_equal 1 [r object refcount mynewstream]
+        r del mystream
+        assert_equal $digest [r debug digest-value mynewstream]
     }
 
     test {COPY basic usage for stream-cgroups} {
@@ -356,6 +380,13 @@ start_server {tags {"keyspace"}} {
         assert_equal [llength $reply] 12
         assert_equal [lindex $reply 1] 4
         assert_equal [lindex $reply 9] "{100-0 {a 1}}"
+
+        set digest [r debug digest-value x]
+        assert_equal $digest [r debug digest-value newx]
+        assert_equal 1 [r object refcount x]
+        assert_equal 1 [r object refcount newx]
+        r del x
+        assert_equal $digest [r debug digest-value newx]
         r flushdb
     }
 
