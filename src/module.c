@@ -3465,6 +3465,8 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     }
     call(c,call_flags);
 
+    serverAssert((c->flags & CLIENT_BLOCKED) == 0);
+
     /* Convert the result of the Redis command into a module reply. */
     sds proto = sdsnewlen(c->buf,c->bufpos);
     c->bufpos = 0;

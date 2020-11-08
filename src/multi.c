@@ -209,6 +209,7 @@ void execCommand(client *c) {
                 "no permission to touch the specified keys");
         } else {
             call(c,server.loading ? CMD_CALL_NONE : CMD_CALL_FULL);
+            serverAssert((c->flags & CLIENT_BLOCKED) == 0);
         }
 
         /* Commands may alter argc/argv, restore mstate. */
