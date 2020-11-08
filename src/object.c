@@ -255,7 +255,7 @@ robj *dupSetObject(robj *o) {
         case OBJ_ENCODING_HT:
             set = createSetObject();
             dict *d = o->ptr;
-            dictExpand(set->ptr, d->ht[0].size);
+            dictExpand(set->ptr, dictSize(d));
             break;
         default:
             serverPanic("Wrong encoding.");
@@ -287,6 +287,8 @@ robj *dupSetObject(robj *o) {
  * The resulting object always has refcount set to 1 */
 robj *dupZsetObject(robj *o) {
     robj *zobj;
+    zset *zs;
+    zset *new_zs;
 
     serverAssert(o->type == OBJ_ZSET);
     
@@ -297,6 +299,9 @@ robj *dupZsetObject(robj *o) {
             break;
         case OBJ_ENCODING_SKIPLIST:
             zobj = createZsetObject();
+            zs = o->ptr;
+            new_zs = zobj->ptr;
+            dictExpand(new_zs->dict,dictSize(zs->dict));
             break;
         default:
             serverPanic("Wrong encoding.");
@@ -310,11 +315,11 @@ robj *dupZsetObject(robj *o) {
         zfree(zobj->ptr);
         zobj->ptr = new_zl;
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
-        zset *zs = o->ptr;
+        zs = o->ptr;
+        new_zs = zobj->ptr;
         zskiplist *zsl = zs->zsl;
         zskiplistNode *ln;
         sds ele;
-        int retflags = ZADD_NONE;
         long llen = zsetLength(o);
         
         /* We copy the skiplist elements from the greatest to the
@@ -326,7 +331,9 @@ robj *dupZsetObject(robj *o) {
         ln = zsl->tail;
         while (llen--) {
             ele = ln->ele;
-            zsetAdd(zobj, ln->score, ele, &retflags, NULL);
+            sds new_ele = sdsdup(ele);
+            zskiplistNode *znode = zslInsert(new_zs->zsl,ln->score,new_ele);
+            dictAdd(new_zs->dict,new_ele,&znode->score);
             ln = ln->backward;
         }
     } else {
@@ -354,7 +361,7 @@ robj *dupHashObject(robj *o) {
             hobj = createHashObject();
             hashTypeConvert(hobj, OBJ_ENCODING_HT);
             dict *d = o->ptr;
-            dictExpand(hobj->ptr, d->ht[0].size);
+            dictExpand(hobj->ptr, dictSize(d));
             break;
         default:
             serverPanic("Wrong encoding.");
@@ -453,18 +460,13 @@ robj *dupStreamObject(robj *o) {
         raxSeek(&ri_consumers, "^", NULL, 0);
         while (raxNext(&ri_consumers)) {
             streamConsumer *consumer = ri_consumers.data;
-            streamConsumer *new_consumer =
-                raxFind(new_cg->consumers, (unsigned char *)consumer->name,
-                        sdslen(consumer->name));
-            if (new_consumer == raxNotFound) {
-                new_consumer = zmalloc(sizeof(*new_consumer));
-                new_consumer->name = sdsdup(consumer->name);
-                new_consumer->pel = raxNew();
-                raxInsert(new_cg->consumers,
-                          (unsigned char *)new_consumer->name,
-                          sdslen(new_consumer->name), new_consumer, NULL);
-                new_consumer->seen_time = consumer->seen_time;
-            }
+            streamConsumer *new_consumer;
+            new_consumer = zmalloc(sizeof(*new_consumer));
+            new_consumer->name = sdsdup(consumer->name);
+            new_consumer->pel = raxNew();
+            raxInsert(new_cg->consumers,(unsigned char *)new_consumer->name,
+                        sdslen(new_consumer->name), new_consumer, NULL);
+            new_consumer->seen_time = consumer->seen_time;
 
             /* Consumer PEL */
             raxIterator ri_cpel;
@@ -480,26 +482,10 @@ robj *dupStreamObject(robj *o) {
                 new_nack->delivery_time = nack->delivery_time;
                 new_nack->delivery_count = nack->delivery_count;
                 new_nack->consumer = new_consumer;
-                int group_inserted =
-                    raxTryInsert(new_cg->pel, buf, sizeof(buf), new_nack, NULL);
-                int consumer_inserted = raxTryInsert(
-                    new_consumer->pel, buf, sizeof(buf), new_nack, NULL);
+                int group_inserted = raxTryInsert(new_consumer->pel, buf, sizeof(buf), new_nack, NULL);
+                raxInsert(new_cg->pel, buf, sizeof(buf), new_nack, NULL);
 
-                if (group_inserted == 0) {
-                    streamFreeNACK(new_nack);
-                    new_nack = raxFind(new_cg->pel, buf, sizeof(buf));
-                    serverAssert(new_nack != raxNotFound);
-                    raxRemove(new_nack->consumer->pel, buf, sizeof(buf), NULL);
-                    /* Update the consumer and NACK metadata. */
-                    new_nack->delivery_time = nack->delivery_time;
-                    new_nack->delivery_count = nack->delivery_count;
-                    new_nack->consumer = new_consumer;
-                    /* Add the entry in the new consumer local PEL. */
-                    raxInsert(new_consumer->pel, buf, sizeof(buf), new_nack,
-                              NULL);
-                } else if (group_inserted == 1 && consumer_inserted == 0) {
-                    serverPanic("NACK half-created. Should not be possible.");
-                }
+                serverAssert(group_inserted == 1);
             }
             raxStop(&ri_cpel);
         }
