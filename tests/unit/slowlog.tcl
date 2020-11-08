@@ -70,7 +70,7 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         assert_equal [lindex $e 3] {debug sleep 0.2}
     }
 
-    test {SLOWLOG - can clean older entires} {
+    test {SLOWLOG - can clean older entries} {
         r client setname lastentry_client
         r config set slowlog-max-len 1
         r debug sleep 0.2

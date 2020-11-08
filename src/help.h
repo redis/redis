@@ -1175,7 +1175,7 @@ struct commandHelp {
     "5.0.0" },
     { "XLEN",
     "key",
-    "Return the number of entires in a stream",
+    "Return the number of entries in a stream",
     14,
     "5.0.0" },
     { "XPENDING",
