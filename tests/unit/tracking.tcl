@@ -29,7 +29,6 @@ start_server {tags {"tracking"}} {
             r CLIENT TRACKING off
             r HELLO 2
             r config set tracking-table-max-keys 1000000
-            r SELECT 0
         }
     }
 
