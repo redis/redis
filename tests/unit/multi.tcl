@@ -509,14 +509,14 @@ start_server {tags {"multi"}} {
         r xgroup create s g $ MKSTREAM
 
         set m [r multi]
-        r blpop empty_list 10
-        r brpop empty_list 10
-        r brpoplpush empty_list1 empty_list2 10
-        r blmove empty_list1 empty_list2 LEFT LEFT 10
-        r bzpopmin empty_zset 10
-        r bzpopmax empty_zset 10
-        r xread BLOCK 10 STREAMS s $
-        r xreadgroup group g c BLOCK 10 STREAMS s >
+        r blpop empty_list 0
+        r brpop empty_list 0
+        r brpoplpush empty_list1 empty_list2 0
+        r blmove empty_list1 empty_list2 LEFT LEFT 0
+        r bzpopmin empty_zset 0
+        r bzpopmax empty_zset 0
+        r xread BLOCK 0 STREAMS s $
+        r xreadgroup group g c BLOCK 0 STREAMS s >
         set res [r exec]
 
         list $m $res

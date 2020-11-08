@@ -360,6 +360,18 @@ int pubsubPublishMessage(robj *channel, robj *message) {
 void subscribeCommand(client *c) {
     int j;
 
+    if ((c->flags & CLIENT_DENY_BLOCKING) && !(c->flags & CLIENT_MULTI)) {
+        /**
+         * A Client that has CLIENT_DENY_BLOCKING flag on
+         * expect a reply per command and so can not execute subscribe.
+         *
+         * Notice that we have a special treatment for multi because of
+         * backword compatibility
+         */
+        addReplyError(c, "subscribe is not allow on DENY BLOCKING client");
+        return;
+    }
+
     for (j = 1; j < c->argc; j++)
         pubsubSubscribeChannel(c,c->argv[j]);
     c->flags |= CLIENT_PUBSUB;

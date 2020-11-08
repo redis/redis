@@ -20,11 +20,56 @@ start_server {tags {"modules"}} {
     }
 
     test {Blocking command are not block the client on RM_Call} {
-    	assert {[r do_rm_call blpop empty_list 10] eq {}}
-        assert {[r do_rm_call brpop empty_list 10] eq {}}
-        assert {[r do_rm_call brpoplpush empty_list1 empty_list2 10] eq {}}
-        assert {[r do_rm_call blmove empty_list1 empty_list2 LEFT LEFT 10] eq {}}
-        assert {[r do_rm_call bzpopmin empty_zset 10] eq {}}
-        assert {[r do_rm_call bzpopmax empty_zset 10] eq {}}
+    	r lpush l test
+    	assert_equal [r do_rm_call blpop l 0] {l test}
+    	
+    	r lpush l test
+    	assert_equal [r do_rm_call brpop l 0] {l test}
+    	
+    	r lpush l1 test
+    	assert_equal [r do_rm_call brpoplpush l1 l2 0] {test}
+    	assert_equal [r do_rm_call brpop l2 0] {l2 test}
+
+    	r lpush l1 test
+    	assert_equal [r do_rm_call blmove l1 l2 LEFT LEFT 0] {test}
+    	assert_equal [r do_rm_call brpop l2 0] {l2 test}
+
+    	r ZADD zset1 0 a 1 b 2 c
+    	assert_equal [r do_rm_call bzpopmin zset1 0] {zset1 a 0}
+    	assert_equal [r do_rm_call bzpopmax zset1 0] {zset1 c 2}
+
+    	r xgroup create s g $ MKSTREAM
+    	r xadd s * foo bar
+    	assert {[r do_rm_call xread BLOCK 0 STREAMS s 0-0] ne {}}
+    	assert {[r do_rm_call xreadgroup group g c BLOCK 0 STREAMS s >] ne {}}
+
+    	assert {[r do_rm_call blpop empty_list 0] eq {}}
+        assert {[r do_rm_call brpop empty_list 0] eq {}}
+        assert {[r do_rm_call brpoplpush empty_list1 empty_list2 0] eq {}}
+        assert {[r do_rm_call blmove empty_list1 empty_list2 LEFT LEFT 0] eq {}}
+        
+        assert {[r do_rm_call bzpopmin empty_zset 0] eq {}}
+        assert {[r do_rm_call bzpopmax empty_zset 0] eq {}}
+       
+        r xgroup create empty_stream g $ MKSTREAM
+        assert {[r do_rm_call xread BLOCK 0 STREAMS empty_stream $] eq {}}
+        assert {[r do_rm_call xreadgroup group g c BLOCK 0 STREAMS empty_stream >] eq {}}
+
     }
+
+    test {Monitor disallow inside RM_Call} {
+        set e {}
+        catch {
+            r do_rm_call monitor
+        } e
+        set e
+    } {*monitor is not allow*}
+
+    test {subscribe disallow inside RM_Call} {
+        set e {}
+        catch {
+            r do_rm_call subscribe x
+        } e
+        set e
+    } {*subscribe is not allow*}
 }

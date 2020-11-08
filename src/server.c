@@ -295,19 +295,19 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,1,1,1,0,0,0},
 
     {"brpop",brpopCommand,-3,
-     "write @list @blocking",
+     "write no-script @list @blocking",
      0,NULL,1,-2,1,0,0,0},
 
     {"brpoplpush",brpoplpushCommand,4,
-     "write use-memory @list @blocking",
+     "write use-memory no-script @list @blocking",
      0,NULL,1,2,1,0,0,0},
 
     {"blmove",blmoveCommand,6,
-     "write use-memory @list @blocking",
+     "write use-memory no-script @list @blocking",
      0,NULL,1,2,1,0,0,0},
 
     {"blpop",blpopCommand,-3,
-     "write @list @blocking",
+     "write no-script @list @blocking",
      0,NULL,1,-2,1,0,0,0},
 
     {"llen",llenCommand,2,
@@ -515,11 +515,11 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,1,1,1,0,0,0},
 
     {"bzpopmin",bzpopminCommand,-3,
-     "write fast @sortedset @blocking",
+     "write no-script fast @sortedset @blocking",
      0,NULL,1,-2,1,0,0,0},
 
     {"bzpopmax",bzpopmaxCommand,-3,
-     "write fast @sortedset @blocking",
+     "write no-script fast @sortedset @blocking",
      0,NULL,1,-2,1,0,0,0},
 
     {"hset",hsetCommand,-4,
@@ -4857,6 +4857,18 @@ void infoCommand(client *c) {
 }
 
 void monitorCommand(client *c) {
+    if ((c->flags & CLIENT_DENY_BLOCKING) && !(c->flags & CLIENT_MULTI)) {
+        /**
+         * A Client that has CLIENT_DENY_BLOCKING flag on
+         * expect a reply per command and so can not execute monitor.
+         *
+         * Notice that we have a special treatment for multi because of
+         * backword compatibility
+         */
+        addReplyError(c, "monitor is not allow on DENY BLOCKING client");
+        return;
+    }
+
     /* ignore MONITOR if already slave or in monitor mode */
     if (c->flags & CLIENT_SLAVE) return;
 
