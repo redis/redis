@@ -217,7 +217,7 @@ start_server {tags {"keyspace"}} {
         r set mykey foobar
         catch {r copy mykey mynewkey DB notanumber} e
         set e
-    } {NODB No such number of db 'notanumber'}
+    } {*ERR*invalid DB index}
 
     test {COPY can copy key expire metadata as well} {
         r set mykey foobar ex 100
@@ -336,8 +336,9 @@ start_server {tags {"keyspace"}} {
 
     test {COPY basic usage for stream} {
         r del mystream mynewstream
-        r XADD mystream * item 1 value a
-        r XADD mystream * item 2 value b
+        for {set i 0} {$i < 1000} {incr i} {
+            r XADD mystream * item 2 value b
+        }
         r copy mystream mynewstream
         set digest [r debug digest-value mystream]
         assert_equal $digest [r debug digest-value mynewstream]

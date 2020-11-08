@@ -254,6 +254,8 @@ robj *dupSetObject(robj *o) {
             break;
         case OBJ_ENCODING_HT:
             set = createSetObject();
+            dict *d = o->ptr;
+            dictExpand(set->ptr, d->ht[0].size);
             break;
         default:
             serverPanic("Wrong encoding.");
@@ -261,12 +263,9 @@ robj *dupSetObject(robj *o) {
     }
     if (set->encoding == OBJ_ENCODING_INTSET) {
         intset *is = o->ptr;
-        int len = intrev32ifbe(is->length);
-        uint32_t size = len*intrev32ifbe(is->encoding);
-        intset *newis = zmalloc(sizeof(intset)+size);
-        memcpy(newis->contents,is->contents,size);
-        newis->encoding = is->encoding;
-        newis->length = is->length;
+        size_t size = intsetBlobLen(is);
+        intset *newis = zmalloc(size);
+        memcpy(newis,is,size);
         zfree(set->ptr);
         set->ptr = newis;
     } else if (set->encoding == OBJ_ENCODING_HT) {
@@ -354,6 +353,8 @@ robj *dupHashObject(robj *o) {
         case OBJ_ENCODING_HT:
             hobj = createHashObject();
             hashTypeConvert(hobj, OBJ_ENCODING_HT);
+            dict *d = o->ptr;
+            dictExpand(hobj->ptr, d->ht[0].size);
             break;
         default:
             serverPanic("Wrong encoding.");
@@ -416,11 +417,11 @@ robj *dupStreamObject(robj *o) {
     raxIterator ri;
     uint64_t rax_key[2];
     raxStart(&ri, s->rax);
-    raxSeek(&ri, "$", NULL, 0);
+    raxSeek(&ri, "^", NULL, 0);
     size_t lp_bytes = 0;      /* Total bytes in the listpack. */
     unsigned char *lp = NULL; /* listpack pointer. */
     /* Get a reference to the listpack node. */
-    if (raxNext(&ri)) {
+    while (raxNext(&ri)) {
         lp = ri.data;
         lp_bytes = lpBytes(lp);
         unsigned char *new_lp = zmalloc(lp_bytes);

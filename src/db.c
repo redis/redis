@@ -1092,7 +1092,7 @@ void copyCommand(client *c) {
                 dbid < INT_MIN || dbid > INT_MAX ||
                 selectDb(c, dbid) == C_ERR)
             {
-                addReplyErrorFormat(c, "-NODB No such number of db '%s' ",(char*)c->argv[j+1]->ptr);
+                addReplyError(c,"invalid DB index");
                 return;
             }
             j++; /* Consume additional arg. */
