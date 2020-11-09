@@ -400,7 +400,7 @@ void psubscribeCommand(client *c) {
          * Notice that we have a special treatment for multi because of
          * backword compatibility
          */
-        addReplyError(c, "psubscribe is not allow on DENY BLOCKING client");
+        addReplyError(c, "PSUBSCRIBE is not allowed for DENY BLOCKING client");
         return;
     }
 
