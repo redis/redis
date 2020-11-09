@@ -1020,13 +1020,13 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
 
 #define RedisModule_Assert(_e) ((_e)?(void)0 : (RedisModule__Assert(#_e,__FILE__,__LINE__),exit(1)))
 
+#define RMAPI_FUNC_SUPPORTED(func) (func != NULL)
+
 #else
 
 /* Things only defined for the modules core, not exported to modules
  * including this file. */
 #define RedisModuleString robj
-
-#define RMAPI_FUNC_SUPPORTED(func) (func != NULL)
 
 #endif /* REDISMODULE_CORE */
 #endif /* REDISMODULE_H */
