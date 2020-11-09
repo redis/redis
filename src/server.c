@@ -4859,9 +4859,8 @@ void infoCommand(client *c) {
 void monitorCommand(client *c) {
     if (c->flags & CLIENT_DENY_BLOCKING) {
         /**
-         * A Client that has CLIENT_DENY_BLOCKING flag on
-         * expect a reply per command and so can not execute monitor.
-         */
+         * A client that has CLIENT_DENY_BLOCKING flag on
+         * expects a reply per command and so can't execute MONITOR. */
         addReplyError(c, "monitor is not allow on DENY BLOCKING client");
         return;
     }
