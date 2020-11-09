@@ -415,7 +415,6 @@ robj *dupStreamObject(robj *o) {
             break;
     }
 
-    streamID id;
     stream *s;
     stream *new_s;
     s = o->ptr;
@@ -454,6 +453,19 @@ robj *dupStreamObject(robj *o) {
 
         serverAssert(new_cg != NULL);
 
+        /* Consumer Group PEL */
+        raxIterator ri_cg_pel;
+        raxStart(&ri_cg_pel,cg->pel);
+        raxSeek(&ri_cg_pel,"^",NULL,0);
+        while(raxNext(&ri_cg_pel)){
+            streamNACK *nack = ri_cg_pel.data;
+            streamNACK *new_nack = streamCreateNACK(NULL);
+            new_nack->delivery_time = nack->delivery_time;
+            new_nack->delivery_count = nack->delivery_count;
+            raxInsert(new_cg->pel, ri_cg_pel.key, sizeof(streamID), new_nack, NULL);
+        }
+        raxStop(&ri_cg_pel);
+
         /* Consumers */
         raxIterator ri_consumers;
         raxStart(&ri_consumers, cg->consumers);
@@ -473,19 +485,12 @@ robj *dupStreamObject(robj *o) {
             raxStart(&ri_cpel, consumer->pel);
             raxSeek(&ri_cpel, "^", NULL, 0);
             while (raxNext(&ri_cpel)) {
-                unsigned char buf[sizeof(streamID)];
-                streamNACK *nack = ri_cpel.data;
-                streamDecodeID(ri_cpel.key, &id);
-                streamEncodeID(buf, &id);
-                /* Insert NACK. */
-                streamNACK *new_nack = zmalloc(sizeof(*new_nack));
-                new_nack->delivery_time = nack->delivery_time;
-                new_nack->delivery_count = nack->delivery_count;
-                new_nack->consumer = new_consumer;
-                int group_inserted = raxTryInsert(new_consumer->pel, buf, sizeof(buf), new_nack, NULL);
-                raxInsert(new_cg->pel, buf, sizeof(buf), new_nack, NULL);
+                streamNACK *new_nack = raxFind(new_cg->pel,ri_cpel.key,sizeof(streamID));
 
-                serverAssert(group_inserted == 1);
+                serverAssert(new_nack != raxNotFound);
+
+                new_nack->consumer = new_consumer;
+                raxInsert(new_consumer->pel,ri_cpel.key,sizeof(streamID),new_nack,NULL); 
             }
             raxStop(&ri_cpel);
         }
