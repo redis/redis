@@ -116,7 +116,7 @@
 #define REDISMODULE_CTX_FLAGS_MULTI_DIRTY (1<<19)
 /* Redis is currently running inside background child process. */
 #define REDISMODULE_CTX_FLAGS_IS_CHILD (1<<20)
-/* The current client do not allow blocking, either called from
+/* The current client does not allow blocking, either called from
  * within multi, lua, or from another module using RM_Call */
 #define REDISMODULE_CTX_FLAGS_DENY_BLOCKING (1<<21)
 
