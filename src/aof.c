@@ -673,7 +673,7 @@ struct client *createAOFClient(void) {
     c->bufpos = 0;
 
     /*
-     * The AOF client should never be blocked (unlikle master
+     * The AOF client should never be blocked (unlike master
      * replication connection).
      * This is because blocking the AOF client might cause
      * deadlock (because potentially no one will unblock it).
