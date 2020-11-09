@@ -63,7 +63,7 @@ start_server {tags {"modules"}} {
             r do_rm_call monitor
         } e
         set e
-    } {*monitor is not allow*}
+    } {*MONITOR is not allow*}
 
     test {subscribe disallow inside RM_Call} {
         set e {}
