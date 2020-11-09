@@ -268,7 +268,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_CLOSE_AFTER_COMMAND (1ULL<<40) /* Close after executing commands
                                                * and writing entire reply. */
 #define CLIENT_DENY_BLOCKING (1ULL<<41) /* Indicate that the client should not be blocked.
-                                           currently, turned on inside MULTI, LUA, RM_Call,
+                                           currently, turned on inside MULTI, Lua, RM_Call,
                                            and AOF client */
 
 /* Client block type (btype field in client structure)
