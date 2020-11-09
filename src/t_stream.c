@@ -1419,7 +1419,7 @@ void xreadCommand(client *c) {
             if (c->flags & CLIENT_LUA) {
                 /*
                  * Although the CLIENT_DENY_BLOCKING flag should protect from blocking the client
-                 * on LUA/MULTI/RM_Call we want a special treatment for lua to keep backword compatibility.
+                 * on Lua/MULTI/RM_Call we want special treatment for Lua to keep backword compatibility.
                  * There is no sense to use BLOCK option within LUA
                  */
                 addReplyErrorFormat(c, "%s command is not allowed with BLOCK option from scripts", (char *)c->argv[0]->ptr);
