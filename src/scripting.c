@@ -1257,7 +1257,7 @@ void scriptingInit(int setup) {
         server.lua_client = createClient(NULL);
         server.lua_client->flags |= CLIENT_LUA;
 
-        /* We do not want to allow blocking commands inside lua */
+        /* We do not want to allow blocking commands inside Lua */
         server.lua_client->flags |= CLIENT_DENY_BLOCKING;
     }
 
@@ -2721,4 +2721,3 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
         server.lua_time_start = mstime();
     }
 }
-
