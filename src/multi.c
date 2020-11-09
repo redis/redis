@@ -83,7 +83,7 @@ void queueMultiCommand(client *c) {
 void discardTransaction(client *c) {
     freeClientMultiState(c);
     initClientMultiState(c);
-    c->flags &= ~(CLIENT_DENY_BLOCKING|CLIENT_MULTI|CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC);
+    c->flags &= ~(CLIENT_MULTI|CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC);
     unwatchAllKeys(c);
 }
 
@@ -101,8 +101,6 @@ void multiCommand(client *c) {
     }
     c->flags |= CLIENT_MULTI;
 
-    /* we do not want to allow blocking commands inside multi */
-    c->flags |= CLIENT_DENY_BLOCKING;
     addReply(c,shared.ok);
 }
 
@@ -171,6 +169,11 @@ void execCommand(client *c) {
         goto handle_monitor;
     }
 
+    uint64_t old_flags = c->flags;
+
+    /* we do not want to allow blocking commands inside multi */
+    c->flags |= CLIENT_DENY_BLOCKING;
+
     /* Exec all the queued commands */
     unwatchAllKeys(c); /* Unwatch ASAP otherwise we'll waste CPU cycles */
     orig_argv = c->argv;
@@ -217,6 +220,11 @@ void execCommand(client *c) {
         c->mstate.commands[j].argv = c->argv;
         c->mstate.commands[j].cmd = c->cmd;
     }
+
+    // restore old DENY_BLOCKING value
+    if (!(old_flags & CLIENT_DENY_BLOCKING))
+        c->flags &= ~CLIENT_DENY_BLOCKING;
+
     c->argv = orig_argv;
     c->argc = orig_argc;
     c->cmd = orig_cmd;
