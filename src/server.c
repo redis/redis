@@ -4861,7 +4861,7 @@ void monitorCommand(client *c) {
         /**
          * A client that has CLIENT_DENY_BLOCKING flag on
          * expects a reply per command and so can't execute MONITOR. */
-        addReplyError(c, "monitor is not allow on DENY BLOCKING client");
+        addReplyError(c, "MONITOR is not allowed for DENY BLOCKING client");
         return;
     }
 
