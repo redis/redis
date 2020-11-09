@@ -362,7 +362,7 @@ void subscribeCommand(client *c) {
 
     if ((c->flags & CLIENT_DENY_BLOCKING) && !(c->flags & CLIENT_MULTI)) {
         /**
-         * A Client that has CLIENT_DENY_BLOCKING flag on
+         * A client that has CLIENT_DENY_BLOCKING flag on
          * expect a reply per command and so can not execute subscribe.
          *
          * Notice that we have a special treatment for multi because of
