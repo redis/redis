@@ -4857,13 +4857,10 @@ void infoCommand(client *c) {
 }
 
 void monitorCommand(client *c) {
-    if ((c->flags & CLIENT_DENY_BLOCKING) && !(c->flags & CLIENT_MULTI)) {
+    if (c->flags & CLIENT_DENY_BLOCKING) {
         /**
          * A Client that has CLIENT_DENY_BLOCKING flag on
          * expect a reply per command and so can not execute monitor.
-         *
-         * Notice that we have a special treatment for multi because of
-         * backword compatibility
          */
         addReplyError(c, "monitor is not allow on DENY BLOCKING client");
         return;
