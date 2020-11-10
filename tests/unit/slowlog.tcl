@@ -71,7 +71,7 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         r set A 0
         r slowlog reset
         
-        # INCRBYFLOAT is replicated is SET
+        # INCRBYFLOAT is replicated as SET
         r INCRBYFLOAT A 1.0
         assert_equal {INCRBYFLOAT A 1.0} [lindex [lindex [r slowlog get] 0] 3]
     }
