@@ -66,6 +66,14 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         # GETSET is replicated as SET
         r getset a 5
         assert_equal {getset a 5} [lindex [lindex [r slowlog get] 0] 3]
+
+        # INCRBYFLOAT calls rewrite multiple times, so it's a special case
+        r set A 0
+        r slowlog reset
+        
+        # INCRBYFLOAT is replicated is SET
+        r INCRBYFLOAT A 1.0
+        assert_equal {INCRBYFLOAT A 1.0} [lindex [lindex [r slowlog get] 0] 3]
     }
 
     test {SLOWLOG - commands with too many arguments are trimmed} {
