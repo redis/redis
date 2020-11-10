@@ -42,14 +42,31 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
     }
 
     test {SLOWLOG - Rewritten commands are logged as their original command} {
-        r sadd set a b c d e
         r config set slowlog-log-slower-than 0
-        r slowlog reset
-        # spop is replicated as DEL when all the members are removed
-        r spop set 10
 
-        lindex [lindex [r slowlog get] 0] 3
-    } {spop set 10}
+        # Test rewriting client arguments
+        r sadd set a b c d e
+        r slowlog reset
+
+        # SPOP is rewritten as DEL when all keys are removed
+        r spop set 10
+        assert_equal {spop set 10} [lindex [lindex [r slowlog get] 0] 3]
+
+        # Test replacing client arguments
+        r slowlog reset
+
+        # GEOADD is replicated as ZADD
+        r geoadd cool-cities -122.33207 47.60621 Seattle
+        assert_equal {geoadd cool-cities -122.33207 47.60621 Seattle} [lindex [lindex [r slowlog get] 0] 3]
+
+        # Test replacing a single command argument
+        r set A 5
+        r slowlog reset
+        
+        # GETSET is replicated as SET
+        r getset a 5
+        assert_equal {getset a 5} [lindex [lindex [r slowlog get] 0] 3]
+    }
 
     test {SLOWLOG - commands with too many arguments are trimmed} {
         r config set slowlog-log-slower-than 0
