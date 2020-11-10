@@ -2390,6 +2390,15 @@ clusterManagerCommandDef clusterManagerCommands[] = {
     {"help", clusterManagerCommandHelp, 0, NULL, NULL}
 };
 
+typedef struct clusterManagerOptionDef {
+    char *name;
+    char *desc;
+} clusterManagerOptionDef;
+
+clusterManagerOptionDef clusterManagerOptions[] = {
+    {"--cluster-yes", "Automatic yes to cluster commands prompts"}
+};
+
 static void getRDB(clusterManagerNode *node);
 
 static void createClusterManagerCommand(char *cmdname, int argc, char **argv) {
@@ -6622,7 +6631,21 @@ static int clusterManagerCommandHelp(int argc, char **argv) {
     }
     fprintf(stderr, "\nFor check, fix, reshard, del-node, set-timeout you "
                     "can specify the host and port of any working node in "
-                    "the cluster.\n\n");
+                    "the cluster.\n");
+
+    int options_count = sizeof(clusterManagerOptions) /
+                        sizeof(clusterManagerOptionDef);
+    i = 0;
+    fprintf(stderr, "\nCluster Manager Options:\n");
+    for (; i < options_count; i++) {
+        clusterManagerOptionDef *def = &(clusterManagerOptions[i]);
+        int namelen = strlen(def->name), padlen = padding - namelen;
+        fprintf(stderr, "  %s", def->name);
+        for (j = 0; j < padlen; j++) fprintf(stderr, " ");
+        fprintf(stderr, "%s\n", def->desc);
+    }
+
+    fprintf(stderr, "\n");
     return 0;
 }
 
