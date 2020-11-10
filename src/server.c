@@ -3467,8 +3467,13 @@ void call(client *c, int flags) {
         char *latency_event = (c->cmd->flags & CMD_FAST) ?
                               "fast-command" : "command";
         latencyAddSampleIfNeeded(latency_event,duration/1000);
-        slowlogPushEntryIfNeeded(c,c->argv,c->argc,duration);
+        /* If command argument vector was rewritten, use the original
+         * arguments. */
+        robj **argv = c->original_argv ? c->original_argv : c->argv;
+        int argc = c->original_argv ? c->original_argc : c->argc;
+        slowlogPushEntryIfNeeded(c,argv,argc,duration);
     }
+    freeClientOriginalArgv(c);
 
     if (flags & CMD_CALL_STATS) {
         /* use the real command that was executed (cmd and lastamc) may be
