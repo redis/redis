@@ -2244,11 +2244,8 @@ static void zdiffAlgorithm1(zsetopsrc *src, long setnum, zset *dstzset, size_t *
     memset(&zval, 0, sizeof(zval));
     zuiInitIterator(&src[0]);
     while (zuiNext(&src[0],&zval)) {
-        double score, value;
+        double value;
         int exists = 0;
-
-        score = zval.score;
-        if (isnan(score)) score = 0;
 
         for (j = 1; j < setnum; j++) {
             /* It is not safe to access the zset we are
@@ -2265,7 +2262,7 @@ static void zdiffAlgorithm1(zsetopsrc *src, long setnum, zset *dstzset, size_t *
 
         if (!exists) {
             tmp = zuiNewSdsFromValue(&zval);
-            znode = zslInsert(dstzset->zsl,score,tmp);
+            znode = zslInsert(dstzset->zsl,zval.score,tmp);
             dictAdd(dstzset->dict,tmp,&znode->score);
             if (sdslen(tmp) > *maxelelen) *maxelelen = sdslen(tmp);
         }
