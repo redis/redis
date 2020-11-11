@@ -1156,8 +1156,8 @@ void copyCommand(client *c) {
         };
     }
 
-    if (delete) {
-        dbDelete(dst,newkey);
+    if (delete && dbDelete(dst,newkey)) {
+        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[2],dst->id);
     }
 
     dbAdd(dst,newkey,newobj);
