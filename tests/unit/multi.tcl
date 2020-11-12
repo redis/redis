@@ -221,7 +221,7 @@ start_server {tags {"multi"}} {
         r exec
     } {}
 
-    test {WATCH will not consider touched expired keys} {
+    test {WATCH will consider touched expired keys} {
         r del x
         r set x foo
         r expire x 1
@@ -230,7 +230,7 @@ start_server {tags {"multi"}} {
         r multi
         r ping
         r exec
-    } {PONG}
+    } {}
 
     test {DISCARD should clear the WATCH dirty flag on the client} {
         r watch x

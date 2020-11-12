@@ -53,6 +53,10 @@ list *UsersToLoad;  /* This is a list of users found in the configuration file
 list *ACLLog;       /* Our security log, the user is able to inspect that
                        using the ACL LOG command .*/
 
+static rax *commandId = NULL; /* Command name to id mapping */
+
+static unsigned long nextid = 0; /* Next command id that has not been assigned */
+
 struct ACLCategoryItem {
     const char *name;
     uint64_t flag;
@@ -475,34 +479,68 @@ sds ACLDescribeUserCommandRules(user *u) {
         ACLSetUser(fakeuser,"-@all",-1);
     }
 
-    /* Try to add or subtract each category one after the other. Often a
-     * single category will not perfectly match the set of commands into
-     * it, so at the end we do a final pass adding/removing the single commands
-     * needed to make the bitmap exactly match. A temp user is maintained to
-     * keep track of categories already applied. */
+    /* Attempt to find a good approximation for categories and commands
+     * based on the current bits used, by looping over the category list
+     * and applying the best fit each time. Often a set of categories will not 
+     * perfectly match the set of commands into it, so at the end we do a 
+     * final pass adding/removing the single commands needed to make the bitmap
+     * exactly match. A temp user is maintained to keep track of categories 
+     * already applied. */
     user tu = {0};
     user *tempuser = &tu;
+    
+    /* Keep track of the categories that have been applied, to prevent
+     * applying them twice.  */
+    char applied[sizeof(ACLCommandCategories)/sizeof(ACLCommandCategories[0])];
+    memset(applied, 0, sizeof(applied));
+
     memcpy(tempuser->allowed_commands,
         u->allowed_commands, 
         sizeof(u->allowed_commands));
+    while (1) {
+        int best = -1;
+        unsigned long mindiff = INT_MAX, maxsame = 0;
+        for (int j = 0; ACLCommandCategories[j].flag != 0; j++) {
+            if (applied[j]) continue;
 
-    for (int j = 0; ACLCommandCategories[j].flag != 0; j++) {
-        unsigned long on, off;
-        ACLCountCategoryBitsForUser(tempuser,&on,&off,ACLCommandCategories[j].name);
-        if ((additive && on > off) || (!additive && off > on)) {
-            sds op = sdsnewlen(additive ? "+@" : "-@", 2);
-            op = sdscat(op,ACLCommandCategories[j].name);
-            ACLSetUser(fakeuser,op,-1);
-
-            sds invop = sdsnewlen(additive ? "-@" : "+@", 2);
-            invop = sdscat(invop,ACLCommandCategories[j].name);
-            ACLSetUser(tempuser,invop,-1);
-
-            rules = sdscatsds(rules,op);
-            rules = sdscatlen(rules," ",1);
-            sdsfree(op);
-            sdsfree(invop);
+            unsigned long on, off, diff, same;
+            ACLCountCategoryBitsForUser(tempuser,&on,&off,ACLCommandCategories[j].name);
+            /* Check if the current category is the best this loop:
+             * * It has more commands in common with the user than commands
+             *   that are different.
+             * AND EITHER
+             * * It has the fewest number of differences
+             *    than the best match we have found so far. 
+             * * OR it matches the fewest number of differences
+             *   that we've seen but it has more in common. */
+            diff = additive ? off : on;
+            same = additive ? on : off;
+            if (same > diff && 
+                ((diff < mindiff) || (diff == mindiff && same > maxsame)))
+            {
+                best = j;
+                mindiff = diff;
+                maxsame = same;
+            }
         }
+
+        /* We didn't find a match */
+        if (best == -1) break;
+
+        sds op = sdsnewlen(additive ? "+@" : "-@", 2);
+        op = sdscat(op,ACLCommandCategories[best].name);
+        ACLSetUser(fakeuser,op,-1);
+
+        sds invop = sdsnewlen(additive ? "-@" : "+@", 2);
+        invop = sdscat(invop,ACLCommandCategories[best].name);
+        ACLSetUser(tempuser,invop,-1);
+
+        rules = sdscatsds(rules,op);
+        rules = sdscatlen(rules," ",1);
+        sdsfree(op);
+        sdsfree(invop);
+
+        applied[best] = 1;
     }
 
     /* Fix the final ACLs with single commands differences. */
@@ -1031,18 +1069,16 @@ int ACLAuthenticateUser(client *c, robj *username, robj *password) {
  * command name, so that a command retains the same ID in case of modules that
  * are unloaded and later reloaded. */
 unsigned long ACLGetCommandID(const char *cmdname) {
-    static rax *map = NULL;
-    static unsigned long nextid = 0;
 
     sds lowername = sdsnew(cmdname);
     sdstolower(lowername);
-    if (map == NULL) map = raxNew();
-    void *id = raxFind(map,(unsigned char*)lowername,sdslen(lowername));
+    if (commandId == NULL) commandId = raxNew();
+    void *id = raxFind(commandId,(unsigned char*)lowername,sdslen(lowername));
     if (id != raxNotFound) {
         sdsfree(lowername);
         return (unsigned long)id;
     }
-    raxInsert(map,(unsigned char*)lowername,strlen(lowername),
+    raxInsert(commandId,(unsigned char*)lowername,strlen(lowername),
               (void*)nextid,NULL);
     sdsfree(lowername);
     unsigned long thisid = nextid;
@@ -1058,6 +1094,13 @@ unsigned long ACLGetCommandID(const char *cmdname) {
      * with ACL SAVE. */
     if (nextid == USER_COMMAND_BITS_COUNT-1) nextid++;
     return thisid;
+}
+
+/* Clear command id table and reset nextid to 0. */
+void ACLClearCommandID(void) {
+    if (commandId) raxFree(commandId);
+    commandId = NULL;
+    nextid = 0;
 }
 
 /* Return an username by its name, or NULL if the user does not exist. */
@@ -1629,7 +1672,7 @@ void addACLLogEntry(client *c, int reason, int keypos, sds username) {
         le->cinfo = NULL;
         ACLFreeLogEntry(le);
     } else {
-        /* Add it to our list of entires. We'll have to trim the list
+        /* Add it to our list of entries. We'll have to trim the list
          * to its maximum size. */
         listAddNodeHead(ACLLog, le);
         while(listLength(ACLLog) > server.acllog_max_len) {

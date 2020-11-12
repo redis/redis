@@ -49,6 +49,10 @@
 #undef ip_len
 #endif
 
+/* FD to address string conversion types */
+#define FD_TO_PEER_NAME 0
+#define FD_TO_SOCK_NAME 1
+
 int anetTcpConnect(char *err, const char *addr, int port);
 int anetTcpNonBlockConnect(char *err, const char *addr, int port);
 int anetTcpNonBlockBindConnect(char *err, const char *addr, int port, const char *source_addr);
@@ -71,11 +75,9 @@ int anetDisableTcpNoDelay(char *err, int fd);
 int anetTcpKeepAlive(char *err, int fd);
 int anetSendTimeout(char *err, int fd, long long ms);
 int anetRecvTimeout(char *err, int fd, long long ms);
-int anetPeerToString(int fd, char *ip, size_t ip_len, int *port);
+int anetFdToString(int fd, char *ip, size_t ip_len, int *port, int fd_to_str_type);
 int anetKeepAlive(char *err, int fd, int interval);
-int anetSockName(int fd, char *ip, size_t ip_len, int *port);
 int anetFormatAddr(char *fmt, size_t fmt_len, char *ip, int port);
-int anetFormatPeer(int fd, char *fmt, size_t fmt_len);
-int anetFormatSock(int fd, char *fmt, size_t fmt_len);
+int anetFormatFdAddr(int fd, char *buf, size_t buf_len, int fd_to_str_type);
 
 #endif
