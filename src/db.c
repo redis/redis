@@ -1143,7 +1143,7 @@ void copyCommand(client *c) {
     switch(o->type) {
         case OBJ_STRING: newobj = dupStringObject(o); break;
         case OBJ_LIST: newobj = listTypeDup(o); break;
-        case OBJ_SET: newobj = dupSetObject(o); break;
+        case OBJ_SET: newobj = setTypeDup(o); break;
         case OBJ_ZSET: newobj = zsetDup(o); break;
         case OBJ_HASH: newobj = hashTypeDup(o); break;
         case OBJ_STREAM: newobj = dupStreamObject(o); break;

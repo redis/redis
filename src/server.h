@@ -1817,7 +1817,6 @@ robj *createStringObject(const char *ptr, size_t len);
 robj *createRawStringObject(const char *ptr, size_t len);
 robj *createEmbeddedStringObject(const char *ptr, size_t len);
 robj *dupStringObject(const robj *o);
-robj *dupSetObject(robj *o);
 robj *dupStreamObject(robj *o);
 int isSdsRepresentableAsLongLong(sds s, long long *llval);
 int isObjectRepresentableAsLongLong(robj *o, long long *llongval);
@@ -2094,6 +2093,7 @@ int setTypeRandomElement(robj *setobj, sds *sdsele, int64_t *llele);
 unsigned long setTypeRandomElements(robj *set, unsigned long count, robj *aux_set);
 unsigned long setTypeSize(const robj *subject);
 void setTypeConvert(robj *subject, int enc);
+robj *setTypeDup(robj *o);
 
 /* Hash data type */
 #define HASH_SET_TAKE_FIELD (1<<0)
