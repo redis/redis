@@ -1784,6 +1784,7 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where);
 int listTypeEqual(listTypeEntry *entry, robj *o);
 void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry);
 void listTypeConvert(robj *subject, int enc);
+robj *listTypeDup(robj *o);
 void unblockClientWaitingData(client *c);
 void popGenericCommand(client *c, int where);
 
@@ -1816,7 +1817,6 @@ robj *createStringObject(const char *ptr, size_t len);
 robj *createRawStringObject(const char *ptr, size_t len);
 robj *createEmbeddedStringObject(const char *ptr, size_t len);
 robj *dupStringObject(const robj *o);
-robj *dupListObject(robj *o);
 robj *dupSetObject(robj *o);
 robj *dupHashObject(robj *o);
 robj *dupStreamObject(robj *o);
