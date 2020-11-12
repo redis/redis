@@ -1081,6 +1081,7 @@ void copyCommand(client *c) {
      * Default target DB is the same as the source DB 
      * Parse the REPLACE option and targetDB option. */
     src = c->db;
+    dst = c->db;
     srcid = c->db->id;
     dbid = c->db->id;
     for (j = 3; j < c->argc; j++) {
@@ -1095,14 +1096,14 @@ void copyCommand(client *c) {
                 addReplyError(c,"invalid DB index");
                 return;
             }
+            dst = c->db;
+            selectDb(c,srcid); /* Back to the source DB */
             j++; /* Consume additional arg. */
         } else {
             addReply(c, shared.syntaxerr);
             return;
         }
     }
-    dst = c->db;
-    selectDb(c,srcid); /* Back to the source DB */
 
     if ((server.cluster_enabled == 1) && (srcid != 0 || dbid != 0)) {
         addReplyError(c,"Copying to another database is not allowed in cluster mode");
