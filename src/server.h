@@ -1793,6 +1793,7 @@ void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry);
 void listTypeConvert(robj *subject, int enc);
 void unblockClientWaitingData(client *c);
 void popGenericCommand(client *c, int where);
+void listElementsRemoved(client *c, robj *key, int where, robj *o);
 
 /* MULTI/EXEC/WATCH... */
 void unwatchAllKeys(client *c);
