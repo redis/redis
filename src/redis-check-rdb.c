@@ -34,7 +34,6 @@
 
 void createSharedObjects(void);
 void rdbLoadProgressCallback(rio *r, const void *buf, size_t len);
-long long rdbLoadMillisecondTime(rio *rdb);
 int rdbCheckMode = 0;
 
 struct {
@@ -59,6 +58,7 @@ struct {
 #define RDB_CHECK_DOING_CHECK_SUM 5
 #define RDB_CHECK_DOING_READ_LEN 6
 #define RDB_CHECK_DOING_READ_AUX 7
+#define RDB_CHECK_DOING_READ_MODULE_AUX 8
 
 char *rdb_check_doing_string[] = {
     "start",
@@ -68,7 +68,8 @@ char *rdb_check_doing_string[] = {
     "read-object-value",
     "check-sum",
     "read-len",
-    "read-aux"
+    "read-aux",
+    "read-module-aux"
 };
 
 char *rdb_type_string[] = {
@@ -85,7 +86,8 @@ char *rdb_type_string[] = {
     "set-intset",
     "zset-ziplist",
     "hash-ziplist",
-    "quicklist"
+    "quicklist",
+    "stream"
 };
 
 /* Show a few stats collected into 'rdbstate' */
@@ -170,6 +172,7 @@ void rdbCheckSetupSignals(void) {
     sigaction(SIGBUS, &act, NULL);
     sigaction(SIGFPE, &act, NULL);
     sigaction(SIGILL, &act, NULL);
+    sigaction(SIGABRT, &act, NULL);
 }
 
 /* Check the specified RDB file. Return 0 if the RDB looks sane, otherwise
@@ -201,10 +204,10 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
         goto err;
     }
 
-    startLoading(fp);
+    expiretime = -1;
+    startLoadingFile(fp, rdbfilename, RDBFLAGS_NONE);
     while(1) {
         robj *key, *val;
-        expiretime = -1;
 
         /* Read type. */
         rdbstate.doing = RDB_CHECK_DOING_READ_TYPE;
@@ -216,21 +219,26 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             /* EXPIRETIME: load an expire associated with the next key
              * to load. Note that after loading an expire we need to
              * load the actual type, and continue. */
-            if ((expiretime = rdbLoadTime(&rdb)) == -1) goto eoferr;
-            /* We read the time so we need to read the object type again. */
-            rdbstate.doing = RDB_CHECK_DOING_READ_TYPE;
-            if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
-            /* the EXPIRETIME opcode specifies time in seconds, so convert
-             * into milliseconds. */
+            expiretime = rdbLoadTime(&rdb);
             expiretime *= 1000;
+            if (rioGetReadError(&rdb)) goto eoferr;
+            continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_EXPIRETIME_MS) {
             /* EXPIRETIME_MS: milliseconds precision expire times introduced
              * with RDB v3. Like EXPIRETIME but no with more precision. */
             rdbstate.doing = RDB_CHECK_DOING_READ_EXPIRE;
-            if ((expiretime = rdbLoadMillisecondTime(&rdb)) == -1) goto eoferr;
-            /* We read the time so we need to read the object type again. */
-            rdbstate.doing = RDB_CHECK_DOING_READ_TYPE;
-            if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
+            expiretime = rdbLoadMillisecondTime(&rdb, rdbver);
+            if (rioGetReadError(&rdb)) goto eoferr;
+            continue; /* Read next opcode. */
+        } else if (type == RDB_OPCODE_FREQ) {
+            /* FREQ: LFU frequency. */
+            uint8_t byte;
+            if (rioRead(&rdb,&byte,1) == 0) goto eoferr;
+            continue; /* Read next opcode. */
+        } else if (type == RDB_OPCODE_IDLE) {
+            /* IDLE: LRU idle time. */
+            if (rdbLoadLen(&rdb,NULL) == RDB_LENERR) goto eoferr;
+            continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_EOF) {
             /* EOF: End of file, exit the main loop. */
             break;
@@ -267,6 +275,21 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             decrRefCount(auxkey);
             decrRefCount(auxval);
             continue; /* Read type again. */
+        } else if (type == RDB_OPCODE_MODULE_AUX) {
+            /* AUX: Auxiliary data for modules. */
+            uint64_t moduleid, when_opcode, when;
+            rdbstate.doing = RDB_CHECK_DOING_READ_MODULE_AUX;
+            if ((moduleid = rdbLoadLen(&rdb,NULL)) == RDB_LENERR) goto eoferr;
+            if ((when_opcode = rdbLoadLen(&rdb,NULL)) == RDB_LENERR) goto eoferr;
+            if ((when = rdbLoadLen(&rdb,NULL)) == RDB_LENERR) goto eoferr;
+
+            char name[10];
+            moduleTypeNameByID(name,moduleid);
+            rdbCheckInfo("MODULE AUX for: %s", name);
+
+            robj *o = rdbLoadCheckModuleValue(&rdb,name);
+            decrRefCount(o);
+            continue; /* Read type again. */
         } else {
             if (!rdbIsObjectType(type)) {
                 rdbCheckError("Invalid object type: %d", type);
@@ -282,19 +305,16 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
         rdbstate.keys++;
         /* Read value */
         rdbstate.doing = RDB_CHECK_DOING_READ_OBJECT_VALUE;
-        if ((val = rdbLoadObject(type,&rdb)) == NULL) goto eoferr;
-        /* Check if the key already expired. This function is used when loading
-         * an RDB file from disk, either at startup, or when an RDB was
-         * received from the master. In the latter case, the master is
-         * responsible for key expiry. If we would expire keys here, the
-         * snapshot taken by the master may not be reflected on the slave. */
-        if (server.masterhost == NULL && expiretime != -1 && expiretime < now)
+        if ((val = rdbLoadObject(type,&rdb,key->ptr)) == NULL) goto eoferr;
+        /* Check if the key already expired. */
+        if (expiretime != -1 && expiretime < now)
             rdbstate.already_expired++;
         if (expiretime != -1) rdbstate.expires++;
         rdbstate.key = NULL;
         decrRefCount(key);
         decrRefCount(val);
         rdbstate.key_type = -1;
+        expiretime = -1;
     }
     /* Verify the checksum if RDB version is >= 5 */
     if (rdbver >= 5 && server.rdb_checksum) {
@@ -314,6 +334,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
     }
 
     if (closefile) fclose(fp);
+    stopLoading(1);
     return 0;
 
 eoferr: /* unexpected end of file is handled here with a fatal exit */
@@ -324,10 +345,11 @@ eoferr: /* unexpected end of file is handled here with a fatal exit */
     }
 err:
     if (closefile) fclose(fp);
+    stopLoading(0);
     return 1;
 }
 
-/* RDB check main: called form redis.c when Redis is executed with the
+/* RDB check main: called form server.c when Redis is executed with the
  * redis-check-rdb alias, on during RDB loading errors.
  *
  * The function works in two ways: can be called with argc/argv as a

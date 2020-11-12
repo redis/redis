@@ -21,7 +21,7 @@ proc get_cluster_nodes id {
             pong_recv [lindex $args 5] \
             config_epoch [lindex $args 6] \
             linkstate [lindex $args 7] \
-            slots [lrange $args 8 -1] \
+            slots [lrange $args 8 end] \
         ]
         lappend nodes $node
     }
@@ -38,6 +38,16 @@ proc get_myself id {
     set nodes [get_cluster_nodes $id]
     foreach n $nodes {
         if {[has_flag $n myself]} {return $n}
+    }
+    return {}
+}
+
+# Get a specific node by ID by parsing the CLUSTER NODES output
+# of the instance Number 'instance_id'
+proc get_node_by_id {instance_id node_id} {
+    set nodes [get_cluster_nodes $instance_id]
+    foreach n $nodes {
+        if {[dict get $n id] eq $node_id} {return $n}
     }
     return {}
 }

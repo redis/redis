@@ -291,7 +291,7 @@ int lpEncodeGetType(unsigned char *ele, uint32_t size, unsigned char *intenc, ui
 /* Store a reverse-encoded variable length field, representing the length
  * of the previous element of size 'l', in the target buffer 'buf'.
  * The function returns the number of bytes used to encode it, from
- * 1 to 5. If 'buf' is NULL the funciton just returns the number of bytes
+ * 1 to 5. If 'buf' is NULL the function just returns the number of bytes
  * needed in order to encode the backlen. */
 unsigned long lpEncodeBacklen(unsigned char *buf, uint64_t l) {
     if (l <= 127) {
@@ -405,7 +405,7 @@ unsigned char *lpNext(unsigned char *lp, unsigned char *p) {
 }
 
 /* If 'p' points to an element of the listpack, calling lpPrev() will return
- * the pointer to the preivous element (the one on the left), or NULL if 'p'
+ * the pointer to the previous element (the one on the left), or NULL if 'p'
  * already pointed to the first element of the listpack. */
 unsigned char *lpPrev(unsigned char *lp, unsigned char *p) {
     if (p-lp == LP_HDR_SIZE) return NULL;
@@ -560,7 +560,7 @@ unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf) {
     /* Return the string representation of the integer or the value itself
      * depending on intbuf being NULL or not. */
     if (intbuf) {
-        *count = snprintf((char*)intbuf,LP_INTBUF_SIZE,"%lld",val);
+        *count = snprintf((char*)intbuf,LP_INTBUF_SIZE,"%lld",(long long)val);
         return intbuf;
     } else {
         *count = val;
@@ -568,7 +568,7 @@ unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf) {
     }
 }
 
-/* Insert, delete or replace the specified element 'ele' of lenght 'len' at
+/* Insert, delete or replace the specified element 'ele' of length 'len' at
  * the specified position 'p', with 'p' being a listpack element pointer
  * obtained with lpFirst(), lpLast(), lpIndex(), lpNext(), lpPrev() or
  * lpSeek().
@@ -707,10 +707,30 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, un
         }
     }
     lpSetTotalBytes(lp,new_listpack_bytes);
+
+#if 0
+    /* This code path is normally disabled: what it does is to force listpack
+     * to return *always* a new pointer after performing some modification to
+     * the listpack, even if the previous allocation was enough. This is useful
+     * in order to spot bugs in code using listpacks: by doing so we can find
+     * if the caller forgets to set the new pointer where the listpack reference
+     * is stored, after an update. */
+    unsigned char *oldlp = lp;
+    lp = lp_malloc(new_listpack_bytes);
+    memcpy(lp,oldlp,new_listpack_bytes);
+    if (newp) {
+        unsigned long offset = (*newp)-oldlp;
+        *newp = lp + offset;
+    }
+    /* Make sure the old allocation contains garbage. */
+    memset(oldlp,'A',new_listpack_bytes);
+    lp_free(oldlp);
+#endif
+
     return lp;
 }
 
-/* Append the specified element 'ele' of lenght 'len' at the end of the
+/* Append the specified element 'ele' of length 'len' at the end of the
  * listpack. It is implemented in terms of lpInsert(), so the return value is
  * the same as lpInsert(). */
 unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size) {
@@ -748,18 +768,18 @@ unsigned char *lpSeek(unsigned char *lp, long index) {
     if (numele != LP_HDR_NUMELE_UNKNOWN) {
         if (index < 0) index = (long)numele+index;
         if (index < 0) return NULL; /* Index still < 0 means out of range. */
-        if (index >= numele) return NULL; /* Out of range the other side. */
+        if (index >= (long)numele) return NULL; /* Out of range the other side. */
         /* We want to scan right-to-left if the element we are looking for
          * is past the half of the listpack. */
-        if (index > numele/2) {
+        if (index > (long)numele/2) {
             forward = 0;
-            /* Left to right scanning always expects a negative index. Convert
+            /* Right to left scanning always expects a negative index. Convert
              * our index to negative form. */
             index -= numele;
         }
     } else {
         /* If the listpack length is unspecified, for negative indexes we
-         * want to always scan left-to-right. */
+         * want to always scan right-to-left. */
         if (index < 0) forward = 0;
     }
 

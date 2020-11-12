@@ -1,12 +1,3 @@
-proc start_bg_complex_data {host port db ops} {
-    set tclsh [info nameofexecutable]
-    exec $tclsh tests/helpers/bg_complex_data.tcl $host $port $db $ops &
-}
-
-proc stop_bg_complex_data {handle} {
-    catch {exec /bin/kill -9 $handle}
-}
-
 start_server {tags {"repl"}} {
     start_server {} {
 
@@ -25,7 +16,7 @@ start_server {tags {"repl"}} {
             s 0 role
         } {slave}
 
-        test {Test replication with parallel clients writing in differnet DBs} {
+        test {Test replication with parallel clients writing in different DBs} {
             after 5000
             stop_bg_complex_data $load_handle0
             stop_bg_complex_data $load_handle1
@@ -47,7 +38,7 @@ start_server {tags {"repl"}} {
                 set fd [open /tmp/repldump2.txt w]
                 puts -nonewline $fd $csv2
                 close $fd
-                puts "Master - Slave inconsistency"
+                puts "Master - Replica inconsistency"
                 puts "Run diff -u against /tmp/repldump*.txt for more info"
             }
             assert_equal [r debug digest] [r -1 debug digest]

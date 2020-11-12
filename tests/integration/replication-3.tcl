@@ -25,7 +25,7 @@ start_server {tags {"repl"}} {
                 set fd [open /tmp/repldump2.txt w]
                 puts -nonewline $fd $csv2
                 close $fd
-                puts "Master - Slave inconsistency"
+                puts "Master - Replica inconsistency"
                 puts "Run diff -u against /tmp/repldump*.txt for more info"
             }
             assert_equal [r debug digest] [r -1 debug digest]
@@ -98,7 +98,7 @@ start_server {tags {"repl"}} {
                 set fd [open /tmp/repldump2.txt w]
                 puts -nonewline $fd $csv2
                 close $fd
-                puts "Master - Slave inconsistency"
+                puts "Master - Replica inconsistency"
                 puts "Run diff -u against /tmp/repldump*.txt for more info"
             }
 
@@ -118,7 +118,7 @@ start_server {tags {"repl"}} {
             # correctly the RDB file: such file will contain "lua" AUX
             # sections with scripts already in the memory of the master.
 
-            wait_for_condition 50 100 {
+            wait_for_condition 500 100 {
                 [s -1 master_link_status] eq {up}
             } else {
                 fail "Replication not started."

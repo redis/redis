@@ -1,9 +1,10 @@
 # Failover stress test.
 # In this test a different node is killed in a loop for N
 # iterations. The test checks that certain properties
-# are preseved across iterations.
+# are preserved across iterations.
 
 source "../tests/includes/init-tests.tcl"
+source "../../../tests/support/cli.tcl"
 
 test "Create a 5 nodes cluster" {
     create_cluster 5 5
@@ -31,7 +32,7 @@ test "Enable AOF in all the instances" {
     }
 }
 
-# Return nno-zero if the specified PID is about a process still in execution,
+# Return non-zero if the specified PID is about a process still in execution,
 # otherwise 0 is returned.
 proc process_is_running {pid} {
     # PS should return with an error if PID is non existing,
@@ -44,7 +45,7 @@ proc process_is_running {pid} {
 #
 # - N commands are sent to the cluster in the course of the test.
 # - Every command selects a random key from key:0 to key:MAX-1.
-# - The operation RPUSH key <randomvalue> is perforemd.
+# - The operation RPUSH key <randomvalue> is performed.
 # - Tcl remembers into an array all the values pushed to each list.
 # - After N/2 commands, the resharding process is started in background.
 # - The test continues while the resharding is in progress.
@@ -73,12 +74,13 @@ test "Cluster consistency during live resharding" {
             flush stdout
             set target [dict get [get_myself [randomInt 5]] id]
             set tribpid [lindex [exec \
-                ../../../src/redis-trib.rb reshard \
-                --from all \
-                --to $target \
-                --slots 100 \
-                --yes \
+                ../../../src/redis-cli --cluster reshard \
                 127.0.0.1:[get_instance_attrib redis 0 port] \
+                --cluster-from all \
+                --cluster-to $target \
+                --cluster-slots 100 \
+                --cluster-yes \
+                {*}[rediscli_tls_config "../../../tests"] \
                 | [info nameofexecutable] \
                 ../tests/helpers/onlydots.tcl \
                 &] 0]

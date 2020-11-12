@@ -1,5 +1,5 @@
 # gendoc.rb -- Converts the top-comments inside module.c to modules API
-#              reference documentaiton in markdown format.
+#              reference documentation in markdown format.
 
 # Convert the C comment to markdown
 def markdown(s)

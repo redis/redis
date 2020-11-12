@@ -61,6 +61,7 @@ set regression_vectors {
     {939895 151 59.149620271823181 65.204186651485145}
     {1412 156 149.29737817929004 15.95807862745508}
     {564862 149 84.062063109158544 -65.685403922426232}
+    {1546032440391 16751 -1.8175081637769495 20.665668878082954}
 }
 set rv_idx 0
 
@@ -274,8 +275,19 @@ start_server {tags {"geo"}} {
                 foreach place $diff {
                     set mydist [geo_distance $lon $lat $search_lon $search_lat]
                     set mydist [expr $mydist/1000]
-                    if {($mydist / $radius_km) > 0.999} {incr rounding_errors}
+                    if {($mydist / $radius_km) > 0.999} {
+                        incr rounding_errors
+                        continue
+                    }
+                    if {$mydist < $radius_m} {
+                        # This is a false positive for redis since given the 
+                        # same points the higher precision calculation provided 
+                        # by TCL shows the point within range
+                        incr rounding_errors
+                        continue
+                    }
                 }
+
                 # Make sure this is a real error and not a rounidng issue.
                 if {[llength $diff] == $rounding_errors} {
                     set res $res2; # Error silenced

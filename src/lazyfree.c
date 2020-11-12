@@ -3,8 +3,7 @@
 #include "atomicvar.h"
 #include "cluster.h"
 
-static size_t lazyfree_objects = 0;
-pthread_mutex_t lazyfree_objects_mutex = PTHREAD_MUTEX_INITIALIZER;
+static redisAtomic size_t lazyfree_objects = 0;
 
 /* Return the number of currently pending objects to free. */
 size_t lazyfreeGetPendingObjectsCount(void) {
@@ -15,7 +14,7 @@ size_t lazyfreeGetPendingObjectsCount(void) {
 
 /* Return the amount of work needed in order to free an object.
  * The return value is not always the actual number of allocations the
- * object is compoesd of, but a number proportional to it.
+ * object is composed of, but a number proportional to it.
  *
  * For strings the function always returns 1.
  *
@@ -23,10 +22,10 @@ size_t lazyfreeGetPendingObjectsCount(void) {
  * the function just returns the number of elements the object is composed of.
  *
  * Objects composed of single allocations are always reported as having a
- * single item even if they are actaully logical composed of multiple
+ * single item even if they are actually logical composed of multiple
  * elements.
  *
- * For lists the funciton returns the number of elements in the quicklist
+ * For lists the function returns the number of elements in the quicklist
  * representing the list. */
 size_t lazyfreeGetFreeEffort(robj *obj) {
     if (obj->type == OBJ_LIST) {
@@ -41,6 +40,30 @@ size_t lazyfreeGetFreeEffort(robj *obj) {
     } else if (obj->type == OBJ_HASH && obj->encoding == OBJ_ENCODING_HT) {
         dict *ht = obj->ptr;
         return dictSize(ht);
+    } else if (obj->type == OBJ_STREAM) {
+        size_t effort = 0;
+        stream *s = obj->ptr;
+
+        /* Make a best effort estimate to maintain constant runtime. Every macro
+         * node in the Stream is one allocation. */
+        effort += s->rax->numnodes;
+
+        /* Every consumer group is an allocation and so are the entries in its
+         * PEL. We use size of the first group's PEL as an estimate for all
+         * others. */
+        if (s->cgroups) {
+            raxIterator ri;
+            streamCG *cg;
+            raxStart(&ri,s->cgroups);
+            raxSeek(&ri,"^",NULL,0);
+            /* There must be at least one group so the following should always
+             * work. */
+            serverAssert(raxNext(&ri));
+            cg = ri.data;
+            effort += raxSize(s->cgroups)*(1+raxSize(cg->pel));
+            raxStop(&ri);
+        }
+        return effort;
     } else {
         return 1; /* Everything else is a single allocation. */
     }
@@ -64,9 +87,15 @@ int dbAsyncDelete(redisDb *db, robj *key) {
         robj *val = dictGetVal(de);
         size_t free_effort = lazyfreeGetFreeEffort(val);
 
-        /* If releasing the object is too much work, let's put it into the
-         * lazy free list. */
-        if (free_effort > LAZYFREE_THRESHOLD) {
+        /* If releasing the object is too much work, do it in the background
+         * by adding the object to the lazy free list.
+         * Note that if the object is shared, to reclaim it now it is not
+         * possible. This rarely happens, however sometimes the implementation
+         * of parts of the Redis core may call incrRefCount() to protect
+         * objects, and then call dbDelete(). In this case we'll fall
+         * through and reach the dictFreeUnlinkedEntry() call, that will be
+         * equivalent to just calling decrRefCount(). */
+        if (free_effort > LAZYFREE_THRESHOLD && val->refcount == 1) {
             atomicIncr(lazyfree_objects,1);
             bioCreateBackgroundJob(BIO_LAZY_FREE,val,NULL,NULL);
             dictSetVal(db->dict,de,NULL);
@@ -77,10 +106,21 @@ int dbAsyncDelete(redisDb *db, robj *key) {
      * field to NULL in order to lazy free it later. */
     if (de) {
         dictFreeUnlinkedEntry(db->dict,de);
-        if (server.cluster_enabled) slotToKeyDel(key);
+        if (server.cluster_enabled) slotToKeyDel(key->ptr);
         return 1;
     } else {
         return 0;
+    }
+}
+
+/* Free an object, if the object is huge enough, free it in async way. */
+void freeObjAsync(robj *o) {
+    size_t free_effort = lazyfreeGetFreeEffort(o);
+    if (free_effort > LAZYFREE_THRESHOLD && o->refcount == 1) {
+        atomicIncr(lazyfree_objects,1);
+        bioCreateBackgroundJob(BIO_LAZY_FREE,o,NULL,NULL);
+    } else {
+        decrRefCount(o);
     }
 }
 
@@ -96,7 +136,7 @@ void emptyDbAsync(redisDb *db) {
 }
 
 /* Empty the slots-keys map of Redis CLuster by creating a new empty one
- * and scheduiling the old for lazy freeing. */
+ * and scheduling the old for lazy freeing. */
 void slotToKeyFlushAsync(void) {
     rax *old = server.cluster->slots_to_keys;
 
@@ -115,7 +155,7 @@ void lazyfreeFreeObjectFromBioThread(robj *o) {
 }
 
 /* Release a database from the lazyfree thread. The 'db' pointer is the
- * database which was substitutied with a fresh one in the main thread
+ * database which was substituted with a fresh one in the main thread
  * when the database was logically deleted. 'sl' is a skiplist used by
  * Redis Cluster in order to take the hash slots -> keys mapping. This
  * may be NULL if Redis Cluster is disabled. */

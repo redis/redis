@@ -72,7 +72,7 @@ start_server {tags {"expire"}} {
         list [r persist foo] [r persist nokeyatall]
     } {0 0}
 
-    test {EXPIRE pricision is now the millisecond} {
+    test {EXPIRE precision is now the millisecond} {
         # This test is very likely to do a false positive if the
         # server is under pressure, so if it does not work give it a few more
         # chances.
@@ -92,7 +92,7 @@ start_server {tags {"expire"}} {
         # This test is very likely to do a false positive if the
         # server is under pressure, so if it does not work give it a few more
         # chances.
-        for {set j 0} {$j < 3} {incr j} {
+        for {set j 0} {$j < 30} {incr j} {
             r del x y z
             r psetex x 100 somevalue
             after 80
@@ -108,20 +108,24 @@ start_server {tags {"expire"}} {
             set d [r get x]
 
             r set x somevalue
-            r pexpireat x [expr ([clock seconds]*1000)+100]
-            after 80
+            set now [r time]
+            r pexpireat x [expr ([lindex $now 0]*1000)+([lindex $now 1]/1000)+200]
+            after 20
             set e [r get x]
-            after 120
+            after 220
             set f [r get x]
 
             if {$a eq {somevalue} && $b eq {} &&
                 $c eq {somevalue} && $d eq {} &&
                 $e eq {somevalue} && $f eq {}} break
         }
-        list $a $b
-    } {somevalue {}}
+        if {$::verbose} {
+            puts "sub-second expire test attempts: $j"
+        }
+        list $a $b $c $d $e $f
+    } {somevalue {} somevalue {} somevalue {}}
 
-    test {TTL returns tiem to live in seconds} {
+    test {TTL returns time to live in seconds} {
         r del x
         r setex x 10 somevalue
         set ttl [r ttl x]
@@ -214,6 +218,29 @@ start_server {tags {"expire"}} {
         assert {$ttl <= 98 && $ttl > 90}
 
         r set foo bar PX 100000
+        after 2000
+        r debug loadaof
+        set ttl [r ttl foo]
+        assert {$ttl <= 98 && $ttl > 90}
+    }
+
+    test {SET command will remove expire} {
+        r set foo bar EX 100
+        r set foo bar
+        r ttl foo
+    } {-1}
+
+    test {SET - use KEEPTTL option, TTL should not be removed} {
+        r set foo bar EX 100
+        r set foo bar KEEPTTL
+        set ttl [r ttl foo]
+        assert {$ttl <= 100 && $ttl > 90}
+    }
+
+    test {SET - use KEEPTTL option, TTL should not be removed after loadaof} {
+        r config set appendonly yes
+        r set foo bar EX 100
+        r set foo bar2 KEEPTTL
         after 2000
         r debug loadaof
         set ttl [r ttl foo]

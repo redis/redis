@@ -18,6 +18,7 @@ start_server {} {
         set R($j) [srv [expr 0-$j] client]
         set R_host($j) [srv [expr 0-$j] host]
         set R_port($j) [srv [expr 0-$j] port]
+        set R_unixsocket($j) [srv [expr 0-$j] unixsocket]
         if {$debug_msg} {puts "Log file: [srv [expr 0-$j] stdout]"}
     }
 
@@ -27,26 +28,29 @@ start_server {} {
         $R(2) slaveof $R_host(0) $R_port(0)
         $R(0) set foo bar
         wait_for_condition 50 1000 {
-            [$R(1) dbsize] == 1 && [$R(2) dbsize] == 1
+            [status $R(1) master_link_status] == "up" &&
+            [status $R(2) master_link_status] == "up" &&
+            [$R(1) dbsize] == 1 &&
+            [$R(2) dbsize] == 1
         } else {
-            fail "Slaves not replicating from master"
+            fail "Replicas not replicating from master"
         }
         $R(0) config set repl-backlog-size 10mb
         $R(1) config set repl-backlog-size 10mb
     }
 
     set cycle_start_time [clock milliseconds]
-    set bench_pid [exec src/redis-benchmark -p $R_port(0) -n 10000000 -r 1000 incr __rand_int__ > /dev/null &]
+    set bench_pid [exec src/redis-benchmark -s $R_unixsocket(0) -n 10000000 -r 1000 incr __rand_int__ > /dev/null &]
     while 1 {
         set elapsed [expr {[clock milliseconds]-$cycle_start_time}]
         if {$elapsed > $duration*1000} break
         if {rand() < .05} {
-            test "PSYNC2 #3899 regression: kill first slave" {
+            test "PSYNC2 #3899 regression: kill first replica" {
                 $R(1) client kill type master
             }
         }
         if {rand() < .05} {
-            test "PSYNC2 #3899 regression: kill chained slave" {
+            test "PSYNC2 #3899 regression: kill chained replica" {
                 $R(2) client kill type master
             }
         }
