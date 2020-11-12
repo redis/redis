@@ -1145,7 +1145,7 @@ void copyCommand(client *c) {
         case OBJ_LIST: newobj = listTypeDup(o); break;
         case OBJ_SET: newobj = dupSetObject(o); break;
         case OBJ_ZSET: newobj = zsetDup(o); break;
-        case OBJ_HASH: newobj = dupHashObject(o); break;
+        case OBJ_HASH: newobj = hashTypeDup(o); break;
         case OBJ_STREAM: newobj = dupStreamObject(o); break;
         case OBJ_MODULE:
             addReplyError(c, "Copying module type object is not supported");
