@@ -293,7 +293,7 @@ void queueLoadModule(sds path, sds *argv, int argc) {
  * server.oom_score_adj_values if valid.
  */
 
-static int updateOOMScoreAdjValues(sds *args, char **err) {
+static int updateOOMScoreAdjValues(sds *args, char **err, int apply) {
     int i;
     int values[CONFIG_OOM_COUNT];
 
@@ -301,8 +301,8 @@ static int updateOOMScoreAdjValues(sds *args, char **err) {
         char *eptr;
         long long val = strtoll(args[i], &eptr, 10);
 
-        if (*eptr != '\0' || val < -1000 || val > 1000) {
-            if (err) *err = "Invalid oom-score-adj-values, elements must be between -1000 and 1000.";
+        if (*eptr != '\0' || val < -2000 || val > 2000) {
+            if (err) *err = "Invalid oom-score-adj-values, elements must be between -2000 and 2000.";
             return C_ERR;
         }
 
@@ -326,6 +326,10 @@ static int updateOOMScoreAdjValues(sds *args, char **err) {
         old_values[i] = server.oom_score_adj_values[i];
         server.oom_score_adj_values[i] = values[i];
     }
+    
+    /* When parsing the config file, we want to apply only when all is done. */
+    if (!apply)
+        return C_OK;
 
     /* Update */
     if (setOOMScoreAdj(-1) == C_ERR) {
@@ -559,7 +563,7 @@ void loadServerConfigFromString(char *config) {
             server.client_obuf_limits[class].soft_limit_bytes = soft;
             server.client_obuf_limits[class].soft_limit_seconds = soft_seconds;
         } else if (!strcasecmp(argv[0],"oom-score-adj-values") && argc == 1 + CONFIG_OOM_COUNT) {
-            if (updateOOMScoreAdjValues(&argv[1], &err) == C_ERR) goto loaderr;
+            if (updateOOMScoreAdjValues(&argv[1], &err, 0) == C_ERR) goto loaderr;
         } else if (!strcasecmp(argv[0],"notify-keyspace-events") && argc == 2) {
             int flags = keyspaceEventsStringToFlags(argv[1]);
 
@@ -822,7 +826,7 @@ void configSetCommand(client *c) {
         int success = 1;
 
         sds *v = sdssplitlen(o->ptr, sdslen(o->ptr), " ", 1, &vlen);
-        if (vlen != CONFIG_OOM_COUNT || updateOOMScoreAdjValues(v, &errstr) == C_ERR)
+        if (vlen != CONFIG_OOM_COUNT || updateOOMScoreAdjValues(v, &errstr, 1) == C_ERR)
             success = 0;
 
         sdsfreesplitres(v, vlen);
