@@ -965,6 +965,12 @@ start_server {tags {"zset"}} {
             set oldscore $score
         }
     }
+
+    test "ZUNIONSTORE/ZINTERSTORE/ZDIFFSTORE error if using WITHSCORES " {
+        assert_error "*ERR*syntax*" {r zunionstore foo 2 zsetd zsetf withscores}
+        assert_error "*ERR*syntax*" {r zinterstore foo 2 zsetd zsetf withscores}
+        assert_error "*ERR*syntax*" {r zdiffstore foo 2 zsetd zsetf withscores}
+    }
     
     test {ZMSCORE retrieve} {
         r del zmscoretest

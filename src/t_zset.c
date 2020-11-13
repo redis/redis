@@ -2481,6 +2481,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 }
                 j++; remaining--;
             } else if (remaining >= 1 &&
+                       !dstkey &&
                        !strcasecmp(c->argv[j]->ptr,"withscores"))
             {
                 j++; remaining--;
