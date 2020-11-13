@@ -2276,11 +2276,16 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
      * Add all the elements of the first set to the auxiliary set.
      * Then remove all the elements of all the next sets from it.
      *
-     * This is O(N + K*log(K)) where N is the sum of all the elements in every
-     * set, and K is the size of the resulting set.
+
+     * This is O(L + (N-K)log(N)) where L is the sum of all the elements in every
+     * set, N is the size of the first set, and K is the size of the result set.
+     *
+     * Note that from the (L-N) dict searches, (N-K) got to the zsetRemoveFromSkiplist
+     * which costs log(N)
      *
      * There is also a O(K) cost at the end for finding the largest element
-     * size, but this doesn't change the algorithm complexity. */
+     * size, but this doesn't change the algorithm complexity since K < L, and
+     * O(2L) is the same as O(L). */
     int j;
     int cardinality = 0;
     zsetopval zval;
@@ -2326,12 +2331,13 @@ static int zsetChooseDiffAlgorithm(zsetopsrc *src, long setnum) {
 
     /* Select what DIFF algorithm to use.
      *
-     * Algorithm 1 is O(N*M + K*log(K)) where N is the size of the element
+     * Algorithm 1 is O(N*M + K*log(K)) where N is the size of the
      * first set, M the total number of sets, and K is the size of the
      * result set.
      *
-     * Algorithm 2 is O(N + K*log(K)) where N is the total number of elements
-     * in all the sets and K is the size of the result set.
+     * Algorithm 2 is O(L + (N-K)log(N)) where L is the total number of elements
+     * in all the sets, N is the size of the first set, and K is the size of the
+     * result set.
      *
      * We compute what is the best bet with the current input here. */
     long long algo_one_work = 0;
