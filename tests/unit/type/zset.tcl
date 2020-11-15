@@ -612,10 +612,11 @@ start_server {tags {"zset"}} {
             assert_equal 0 [r exists dst_key]
         }
 
-        test "ZUNION/ZINTER against non-existing key - $encoding" {
+        test "ZUNION/ZINTER/ZDIFF against non-existing key - $encoding" {
             r del zseta
             assert_equal {} [r zunion 1 zseta]
             assert_equal {} [r zinter 1 zseta]
+            assert_equal {} [r zdiff 1 zseta]
         }
 
         test "ZUNIONSTORE with empty set - $encoding" {
@@ -626,12 +627,13 @@ start_server {tags {"zset"}} {
             r zrange zsetc 0 -1 withscores
         } {a 1 b 2}
 
-        test "ZUNION/ZINTER with empty set - $encoding" {
+        test "ZUNION/ZINTER/ZDIFF with empty set - $encoding" {
             r del zseta zsetb
             r zadd zseta 1 a
             r zadd zseta 2 b
             assert_equal {a 1 b 2} [r zunion 2 zseta zsetb withscores]
             assert_equal {} [r zinter 2 zseta zsetb withscores]
+            assert_equal {a 1 b 2} [r zdiff 2 zseta zsetb withscores]
         }
 
         test "ZUNIONSTORE basics - $encoding" {
@@ -647,7 +649,7 @@ start_server {tags {"zset"}} {
             assert_equal {a 1 b 3 d 3 c 5} [r zrange zsetc 0 -1 withscores]
         }
 
-        test "ZUNION/ZINTER with integer members - $encoding" {
+        test "ZUNION/ZINTER/ZDIFF with integer members - $encoding" {
             r del zsetd zsetf
             r zadd zsetd 1 1
             r zadd zsetd 2 2
@@ -658,6 +660,7 @@ start_server {tags {"zset"}} {
 
             assert_equal {1 2 2 2 4 4 3 6} [r zunion 2 zsetd zsetf withscores]
             assert_equal {1 2 3 6} [r zinter 2 zsetd zsetf withscores]
+            assert_equal {2 2} [r zdiff 2 zsetd zsetf withscores]
         }
 
         test "ZUNIONSTORE with weights - $encoding" {
@@ -770,6 +773,80 @@ start_server {tags {"zset"}} {
                 assert_error "*weight*not*float*" {
                     r $cmd zsetinf3 2 zsetinf1 zsetinf2 weights nan nan
                 }
+            }
+        }
+
+        test "ZDIFFSTORE basics - $encoding" {
+            assert_equal 1 [r zdiffstore zsetc 2 zseta zsetb]
+            assert_equal {a 1} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZDIFF basics - $encoding" {
+            assert_equal {a 1} [r zdiff 2 zseta zsetb withscores]
+        }
+
+        test "ZDIFFSTORE with a regular set - $encoding" {
+            r del seta
+            r sadd seta a
+            r sadd seta b
+            r sadd seta c
+            assert_equal 1 [r zdiffstore zsetc 2 seta zsetb]
+            assert_equal {a 1} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZDIFF subtracting set from itself - $encoding" {
+            assert_equal 0 [r zdiffstore zsetc 2 zseta zseta]
+            assert_equal {} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZDIFF algorithm 1 - $encoding" {
+            r del zseta zsetb zsetc
+            r zadd zseta 1 a
+            r zadd zseta 2 b
+            r zadd zseta 3 c
+            r zadd zsetb 1 b
+            r zadd zsetb 2 c
+            r zadd zsetb 3 d
+            assert_equal 1 [r zdiffstore zsetc 2 zseta zsetb]
+            assert_equal {a 1} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZDIFF algorithm 2 - $encoding" {
+            r del zseta zsetb zsetc zsetd zsete
+            r zadd zseta 1 a
+            r zadd zseta 2 b
+            r zadd zseta 3 c
+            r zadd zseta 5 e
+            r zadd zsetb 1 b
+            r zadd zsetc 1 c
+            r zadd zsetd 1 d
+            assert_equal 2 [r zdiffstore zsete 4 zseta zsetb zsetc zsetd]
+            assert_equal {a 1 e 5} [r zrange zsete 0 -1 withscores]
+        }
+
+        test "ZDIFF fuzzing" {
+            for {set j 0} {$j < 100} {incr j} {
+                unset -nocomplain s
+                array set s {}
+                set args {}
+                set num_sets [expr {[randomInt 10]+1}]
+                for {set i 0} {$i < $num_sets} {incr i} {
+                    set num_elements [randomInt 100]
+                    r del zset_$i
+                    lappend args zset_$i
+                    while {$num_elements} {
+                        set ele [randomValue]
+                        r zadd zset_$i [randomInt 100] $ele
+                        if {$i == 0} {
+                            set s($ele) x
+                        } else {
+                            unset -nocomplain s($ele)
+                        }
+                        incr num_elements -1
+                    }
+                }
+                set result [lsort [r zdiff [llength $args] {*}$args]]
+                assert_equal $result [lsort [array names s]]
             }
         }
 
@@ -887,6 +964,12 @@ start_server {tags {"zset"}} {
             assert {$score >= $oldscore}
             set oldscore $score
         }
+    }
+
+    test "ZUNIONSTORE/ZINTERSTORE/ZDIFFSTORE error if using WITHSCORES " {
+        assert_error "*ERR*syntax*" {r zunionstore foo 2 zsetd zsetf withscores}
+        assert_error "*ERR*syntax*" {r zinterstore foo 2 zsetd zsetf withscores}
+        assert_error "*ERR*syntax*" {r zdiffstore foo 2 zsetd zsetf withscores}
     }
     
     test {ZMSCORE retrieve} {

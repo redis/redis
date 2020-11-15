@@ -53,7 +53,6 @@ int cliSecureConnection(redisContext *c, cliSSLconfig config, const char **err) 
             *err = "Failed to create SSL_CTX";
             goto error;
         }
-
         SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
         SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
 
@@ -78,6 +77,16 @@ int cliSecureConnection(redisContext *c, cliSSLconfig config, const char **err) 
             *err = "Invalid private key";
             goto error;
         }
+        if (config.ciphers && !SSL_CTX_set_cipher_list(ssl_ctx, config.ciphers)) {
+            *err = "Error while configuring ciphers";
+            goto error;
+        }
+#ifdef TLS1_3_VERSION
+        if (config.ciphersuites && !SSL_CTX_set_ciphersuites(ssl_ctx, config.ciphersuites)) {
+            *err = "Error while setting cypher suites";
+            goto error;
+        }
+#endif
     }
 
     SSL *ssl = SSL_new(ssl_ctx);

@@ -249,6 +249,57 @@ start_server {tags {"other"}} {
         waitForBgsave r
         r save
     } {OK}
+
+    test {RESET clears client state} {
+        r client setname test-client
+        r client tracking on
+
+        assert_equal [r reset] "RESET"
+        set client [r client list]
+        assert_match {*name= *} $client
+        assert_match {*flags=N *} $client
+    }
+
+    test {RESET clears MONITOR state} {
+        set rd [redis_deferring_client]
+        $rd monitor
+        assert_equal [$rd read] "OK"
+
+        $rd reset
+
+        # skip reset ouptut
+        $rd read
+        assert_equal [$rd read] "RESET"
+
+        assert_no_match {*flags=O*} [r client list]
+    }
+
+    test {RESET clears and discards MULTI state} {
+        r multi
+        r set key-a a
+
+        r reset
+        catch {r exec} err
+        assert_match {*EXEC without MULTI*} $err
+    }
+
+    test {RESET clears Pub/Sub state} {
+        r subscribe channel-1
+        r reset
+
+        # confirm we're not subscribed by executing another command
+        r set key val
+    }
+
+    test {RESET clears authenticated state} {
+        r acl setuser user1 on >secret +@all
+        r auth user1 secret
+        assert_equal [r acl whoami] user1
+
+        r reset
+
+        assert_equal [r acl whoami] default
+    }
 }
 
 start_server {tags {"other"}} {

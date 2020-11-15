@@ -1672,7 +1672,7 @@ void addACLLogEntry(client *c, int reason, int keypos, sds username) {
         le->cinfo = NULL;
         ACLFreeLogEntry(le);
     } else {
-        /* Add it to our list of entires. We'll have to trim the list
+        /* Add it to our list of entries. We'll have to trim the list
          * to its maximum size. */
         listAddNodeHead(ACLLog, le);
         while(listLength(ACLLog) > server.acllog_max_len) {

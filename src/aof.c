@@ -669,6 +669,8 @@ struct client *createAOFClient(void) {
     c->querybuf_peak = 0;
     c->argc = 0;
     c->argv = NULL;
+    c->original_argc = 0;
+    c->original_argv = NULL;
     c->argv_len_sum = 0;
     c->bufpos = 0;
     c->flags = 0;
@@ -704,6 +706,7 @@ void freeFakeClient(struct client *c) {
     listRelease(c->reply);
     listRelease(c->watched_keys);
     freeClientMultiState(c);
+    freeClientOriginalArgv(c);
     zfree(c);
 }
 

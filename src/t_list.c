@@ -363,26 +363,30 @@ void lsetCommand(client *c) {
     }
 }
 
-void popGenericCommand(client *c, int where) {
-    robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.null[c->resp]);
-    if (o == NULL || checkType(c,o,OBJ_LIST)) return;
+void listElementsRemoved(client *c, robj *key, int where, robj *o) {
+    char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
 
-    robj *value = listTypePop(o,where);
+    notifyKeyspaceEvent(NOTIFY_LIST, event, key, c->db->id);
+    if (listTypeLength(o) == 0) {
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
+        dbDelete(c->db, key);
+    }
+    signalModifiedKey(c, c->db, key);
+    server.dirty++;
+}
+
+void popGenericCommand(client *c, int where) {
+    robj *o = lookupKeyWriteOrReply(c, c->argv[1], shared.null[c->resp]);
+    if (o == NULL || checkType(c, o, OBJ_LIST))
+        return;
+
+    robj *value = listTypePop(o, where);
     if (value == NULL) {
         addReplyNull(c);
     } else {
-        char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
-
         addReplyBulk(c,value);
         decrRefCount(value);
-        notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
-        if (listTypeLength(o) == 0) {
-            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",
-                                c->argv[1],c->db->id);
-            dbDelete(c->db,c->argv[1]);
-        }
-        signalModifiedKey(c,c->db,c->argv[1]);
-        server.dirty++;
+        listElementsRemoved(c,c->argv[1],where,o);
     }
 }
 
@@ -859,7 +863,6 @@ void blockingPopGenericCommand(client *c, int where) {
             } else {
                 if (listTypeLength(o) != 0) {
                     /* Non empty list, this is like a normal [LR]POP. */
-                    char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
                     robj *value = listTypePop(o,where);
                     serverAssert(value != NULL);
 
@@ -867,15 +870,7 @@ void blockingPopGenericCommand(client *c, int where) {
                     addReplyBulk(c,c->argv[j]);
                     addReplyBulk(c,value);
                     decrRefCount(value);
-                    notifyKeyspaceEvent(NOTIFY_LIST,event,
-                                        c->argv[j],c->db->id);
-                    if (listTypeLength(o) == 0) {
-                        dbDelete(c->db,c->argv[j]);
-                        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",
-                                            c->argv[j],c->db->id);
-                    }
-                    signalModifiedKey(c,c->db,c->argv[j]);
-                    server.dirty++;
+                    listElementsRemoved(c,c->argv[j],where,o);
 
                     /* Replicate it as an [LR]POP instead of B[LR]POP. */
                     rewriteClientCommandVector(c,2,

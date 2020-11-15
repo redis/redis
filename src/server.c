@@ -436,19 +436,27 @@ struct redisCommand redisCommandTable[] = {
 
     {"zunionstore",zunionstoreCommand,-4,
      "write use-memory @sortedset",
-     0,zunionInterStoreGetKeys,0,0,0,0,0,0},
+     0,zunionInterDiffStoreGetKeys,0,0,0,0,0,0},
 
     {"zinterstore",zinterstoreCommand,-4,
      "write use-memory @sortedset",
-     0,zunionInterStoreGetKeys,0,0,0,0,0,0},
+     0,zunionInterDiffStoreGetKeys,0,0,0,0,0,0},
+
+    {"zdiffstore",zdiffstoreCommand,-4,
+     "write use-memory @sortedset",
+     0,zunionInterDiffStoreGetKeys,0,0,0,0,0,0},
 
     {"zunion",zunionCommand,-3,
      "read-only @sortedset",
-     0,zunionInterGetKeys,0,0,0,0,0,0},
+     0,zunionInterDiffGetKeys,0,0,0,0,0,0},
 
     {"zinter",zinterCommand,-3,
      "read-only @sortedset",
-     0,zunionInterGetKeys,0,0,0,0,0,0},
+     0,zunionInterDiffGetKeys,0,0,0,0,0,0},
+
+    {"zdiff",zdiffCommand,-3,
+     "read-only @sortedset",
+     0,zunionInterDiffGetKeys,0,0,0,0,0,0},
 
     {"zrange",zrangeCommand,-4,
      "read-only @sortedset",
@@ -1036,7 +1044,11 @@ struct redisCommand redisCommandTable[] = {
 
     {"stralgo",stralgoCommand,-2,
      "read-only @string",
-     0,lcsGetKeys,0,0,0,0,0,0}
+     0,lcsGetKeys,0,0,0,0,0,0},
+
+    {"reset",resetCommand,-1,
+     "no-script ok-stale ok-loading fast @connection",
+     0,NULL,0,0,0,0,0,0}
 };
 
 /*============================ Utility functions ============================ */
@@ -2459,6 +2471,7 @@ void initServerConfig(void) {
     server.client_max_querybuf_len = PROTO_MAX_QUERYBUF_LEN;
     server.saveparams = NULL;
     server.loading = 0;
+    server.loading_rdb_used_mem = 0;
     server.logfile = zstrdup(CONFIG_DEFAULT_LOGFILE);
     server.aof_state = AOF_OFF;
     server.aof_rewrite_base_size = 0;
@@ -3462,8 +3475,13 @@ void call(client *c, int flags) {
         char *latency_event = (c->cmd->flags & CMD_FAST) ?
                               "fast-command" : "command";
         latencyAddSampleIfNeeded(latency_event,duration/1000);
-        slowlogPushEntryIfNeeded(c,c->argv,c->argc,duration);
+        /* If command argument vector was rewritten, use the original
+         * arguments. */
+        robj **argv = c->original_argv ? c->original_argv : c->argv;
+        int argc = c->original_argv ? c->original_argc : c->argc;
+        slowlogPushEntryIfNeeded(c,argv,argc,duration);
     }
+    freeClientOriginalArgv(c);
 
     if (flags & CMD_CALL_STATS) {
         /* use the real command that was executed (cmd and lastamc) may be
@@ -3740,7 +3758,8 @@ int processCommand(client *c) {
          * set. */
         if (c->flags & CLIENT_MULTI &&
             c->cmd->proc != execCommand &&
-            c->cmd->proc != discardCommand) {
+            c->cmd->proc != discardCommand &&
+            c->cmd->proc != resetCommand) {
             reject_cmd_on_oom = 1;
         }
 
@@ -3806,10 +3825,11 @@ int processCommand(client *c) {
         c->cmd->proc != subscribeCommand &&
         c->cmd->proc != unsubscribeCommand &&
         c->cmd->proc != psubscribeCommand &&
-        c->cmd->proc != punsubscribeCommand) {
+        c->cmd->proc != punsubscribeCommand &&
+        c->cmd->proc != resetCommand) {
         rejectCommandFormat(c,
             "Can't execute '%s': only (P)SUBSCRIBE / "
-            "(P)UNSUBSCRIBE / PING / QUIT are allowed in this context",
+            "(P)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context",
             c->cmd->name);
         return C_OK;
     }
@@ -3860,7 +3880,8 @@ int processCommand(client *c) {
     /* Exec the command */
     if (c->flags & CLIENT_MULTI &&
         c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
-        c->cmd->proc != multiCommand && c->cmd->proc != watchCommand)
+        c->cmd->proc != multiCommand && c->cmd->proc != watchCommand &&
+        c->cmd->proc != resetCommand)
     {
         queueMultiCommand(c);
         addReply(c,shared.queued);
@@ -4295,12 +4316,16 @@ sds genRedisInfoString(const char *section) {
         info = sdscatprintf(info,
             "# Clients\r\n"
             "connected_clients:%lu\r\n"
+            "cluster_connections:%lu\r\n"
+            "maxclients:%u\r\n"
             "client_recent_max_input_buffer:%zu\r\n"
             "client_recent_max_output_buffer:%zu\r\n"
             "blocked_clients:%d\r\n"
             "tracking_clients:%d\r\n"
             "clients_in_timeout_table:%llu\r\n",
             listLength(server.clients)-listLength(server.slaves),
+            getClusterConnectionsCount(),
+            server.maxclients,
             maxin, maxout,
             server.blocked_clients,
             server.tracking_clients,
@@ -4490,13 +4515,20 @@ sds genRedisInfoString(const char *section) {
         }
 
         if (server.loading) {
-            double perc;
+            double perc = 0;
             time_t eta, elapsed;
-            off_t remaining_bytes = server.loading_total_bytes-
-                                    server.loading_loaded_bytes;
+            off_t remaining_bytes = 1;
 
-            perc = ((double)server.loading_loaded_bytes /
-                   (server.loading_total_bytes+1)) * 100;
+            if (server.loading_total_bytes) {
+                perc = ((double)server.loading_loaded_bytes / server.loading_total_bytes) * 100;
+                remaining_bytes = server.loading_total_bytes - server.loading_loaded_bytes;
+            } else if(server.loading_rdb_used_mem) {
+                perc = ((double)server.loading_loaded_bytes / server.loading_rdb_used_mem) * 100;
+                remaining_bytes = server.loading_rdb_used_mem - server.loading_loaded_bytes;
+                /* used mem is only a (bad) estimation of the rdb file size, avoid going over 100% */
+                if (perc > 99.99) perc = 99.99;
+                if (remaining_bytes < 1) remaining_bytes = 1;
+            }
 
             elapsed = time(NULL)-server.loading_start_time;
             if (elapsed == 0) {
@@ -4509,11 +4541,13 @@ sds genRedisInfoString(const char *section) {
             info = sdscatprintf(info,
                 "loading_start_time:%jd\r\n"
                 "loading_total_bytes:%llu\r\n"
+                "loading_rdb_used_mem:%llu\r\n"
                 "loading_loaded_bytes:%llu\r\n"
                 "loading_loaded_perc:%.2f\r\n"
                 "loading_eta_seconds:%jd\r\n",
                 (intmax_t) server.loading_start_time,
                 (unsigned long long) server.loading_total_bytes,
+                (unsigned long long) server.loading_rdb_used_mem,
                 (unsigned long long) server.loading_loaded_bytes,
                 perc,
                 (intmax_t)eta
@@ -4638,11 +4672,20 @@ sds genRedisInfoString(const char *section) {
             );
 
             if (server.repl_state == REPL_STATE_TRANSFER) {
+                double perc = 0;
+                if (server.repl_transfer_size) {
+                    perc = ((double)server.repl_transfer_read / server.repl_transfer_size) * 100;
+                }
                 info = sdscatprintf(info,
+                    "master_sync_total_bytes:%lld\r\n"
+                    "master_sync_read_bytes:%lld\r\n"
                     "master_sync_left_bytes:%lld\r\n"
-                    "master_sync_last_io_seconds_ago:%d\r\n"
-                    , (long long)
-                        (server.repl_transfer_size - server.repl_transfer_read),
+                    "master_sync_perc:%.2f\r\n"
+                    "master_sync_last_io_seconds_ago:%d\r\n",
+                    (long long) server.repl_transfer_size,
+                    (long long) server.repl_transfer_read,
+                    (long long) (server.repl_transfer_size - server.repl_transfer_read),
+                    perc,
                     (int)(server.unixtime-server.repl_transfer_lastio)
                 );
             }
