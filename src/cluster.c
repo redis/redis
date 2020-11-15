@@ -3358,7 +3358,7 @@ void clusterHandleSlaveMigration(int max_slaves) {
          * node ID. */
         if (okslaves == max_slaves) {
             for (j = 0; j < node->numslaves; j++) {
-                if (memcmp(node->slaves[j]->name,
+                if (!nodeFailed(node->slaves[j]) && memcmp(node->slaves[j]->name,
                            candidate->name,
                            CLUSTER_NAMELEN) < 0)
                 {
