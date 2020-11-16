@@ -3666,6 +3666,8 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
  *          .mem_usage = myType_MemUsageCallBack,
  *          .aux_load = myType_AuxRDBLoadCallBack,
  *          .aux_save = myType_AuxRDBSaveCallBack,
+ *          .free_effort = myType_FreeEffortCallBack
+ *          .unlink = myType_UnlinkCallBack
  *      }
  *
  * * **rdb_load**: A callback function pointer that loads data from RDB files.
@@ -3677,7 +3679,15 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
  *   'when' argument is either REDISMODULE_AUX_BEFORE_RDB or REDISMODULE_AUX_AFTER_RDB.
  * * **aux_load**: A callback function pointer that loads out of keyspace data from RDB files.
  *   Similar to aux_save, returns REDISMODULE_OK on success, and ERR otherwise.
- *
+ * * **free_effort**: A callback function pointer that used to determine whether the module's
+ *   memory needs to be lazy reclaimed. The module should return the complexity involved by
+ *   freeing the value. for example: how many pointers are gonna be freed. Note that if it 
+ *   returns 0, we'll always do an async free.
+ * * **unlink**: A callback function pointer that used to notifies the module that the key has 
+ *   been removed from the DB by redis, and may soon be freed by a background thread. Note that 
+ *   it won't be called on FLUSHALL/FLUSHDB (both sync and async), and the module can use the 
+ *   RedisModuleEvent_FlushDB to hook into that.
+ * 
  * The **digest** and **mem_usage** methods should currently be omitted since
  * they are not yet implemented inside the Redis modules core.
  *
@@ -3720,6 +3730,10 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
             moduleTypeAuxSaveFunc aux_save;
             int aux_save_triggers;
         } v2;
+        struct {
+            moduleTypeFreeEffortFunc free_effort;
+            moduleTypeUnlinkFunc unlink;
+        } v3;
     } *tms = (struct typemethods*) typemethods_ptr;
 
     moduleType *mt = zcalloc(sizeof(*mt));
@@ -3735,6 +3749,10 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
         mt->aux_load = tms->v2.aux_load;
         mt->aux_save = tms->v2.aux_save;
         mt->aux_save_triggers = tms->v2.aux_save_triggers;
+    }
+    if (tms->version >= 3) {
+        mt->free_effort = tms->v3.free_effort;
+        mt->unlink = tms->v3.unlink;
     }
     memcpy(mt->name,name,sizeof(mt->name));
     listAddNodeTail(ctx->module->types,mt);
@@ -7489,6 +7507,18 @@ void processModuleLoadingProgressEvent(int is_aof) {
     }
 }
 
+/* When a module key is deleted (in dbAsyncDelete/dbSyncDelete/dbOverwrite), it 
+*  will be called to tell the module which key is about to be released. */
+void moduleNotifyKeyUnlink(robj *key, robj *val) {
+    if (val->type == OBJ_MODULE) {
+        moduleValue *mv = val->ptr;
+        moduleType *mt = mv->type;
+        if (mt->unlink != NULL) {
+            mt->unlink(key,mv->value);
+        } 
+    }
+}
+
 /* --------------------------------------------------------------------------
  * Modules API internals
  * -------------------------------------------------------------------------- */
@@ -7990,6 +8020,15 @@ int RM_GetServerVersion() {
     return REDIS_VERSION_NUM;
 }
 
+/**
+ * Return the current redis-server runtime value of REDISMODULE_TYPE_METHOD_VERSION.
+ * You can use that when calling RM_CreateDataType to know which fields of
+ * RedisModuleTypeMethods are gonna be supported and which will be ignored.
+ */
+int RM_GetTypeMethodVersion() {
+    return REDISMODULE_TYPE_METHOD_VERSION;
+}
+
 /* Replace the value assigned to a module type.
  *
  * The key must be open for writing, have an existing value, and have a moduleType
@@ -8329,4 +8368,5 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetServerVersion);
     REGISTER_API(GetClientCertificate);
     REGISTER_API(GetCommandKeys);
+    REGISTER_API(GetTypeMethodVersion);
 }

@@ -26,7 +26,8 @@ TEST_MODULES = \
     keyspace_events.so \
     blockedclient.so \
     getkeys.so \
-    timer.so
+    test_lazyfree.so \
+    timer.so \
 
 
 .PHONY: all
