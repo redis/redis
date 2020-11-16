@@ -2267,6 +2267,7 @@ static void zdiffAlgorithm1(zsetopsrc *src, long setnum, zset *dstzset, size_t *
             if (sdslen(tmp) > *maxelelen) *maxelelen = sdslen(tmp);
         }
     }
+    zuiClearIterator(&src[0]);
 }
 
 
@@ -2304,7 +2305,7 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
                 dictAdd(dstzset->dict,tmp,&znode->score);
                 cardinality++;
             } else {
-                tmp = zuiNewSdsFromValue(&zval);
+                tmp = zuiSdsFromValue(&zval);
                 if (zsetRemoveFromSkiplist(dstzset, tmp)) {
                     cardinality--;
                 }
@@ -2314,6 +2315,7 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
                 * of elements will have no effect. */
             if (cardinality == 0) break;
         }
+        zuiClearIterator(&src[j]);
 
         if (cardinality == 0) break;
     }
