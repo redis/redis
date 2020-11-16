@@ -1580,6 +1580,67 @@ void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
     dictReleaseIterator(di);
 }
 
+/* This function overwrites the old configuration file with the new content.
+ *
+ * 1) The old file length is obtained.
+ * 2) If the new content is smaller, padding is added.
+ * 3) A single write(2) call is used to replace the content of the file.
+ * 4) Later the file is truncated to the length of the new content.
+ *
+ * This way we are sure the file is left in a consistent state even if the
+ * process is stopped between any of the four operations.
+ *
+ * This fallback method is called when atomic fails because of missing
+ * write permission in the configuration directory (e.g. /etc)
+ *
+ * The function returns 0 on success, otherwise -1 is returned and errno
+ * set accordingly. */
+int rewriteConfigOverwriteFileFallback(char *configfile, sds content) {
+    int retval = 0;
+    int fd = open(configfile,O_RDWR|O_CREAT,0644);
+    int content_size = sdslen(content), padding = 0;
+    struct stat sb;
+    sds content_padded;
+
+    /* 1) Open the old file (or create a new one if it does not
+     *    exist), get the size. */
+    if (fd == -1) return -1; /* errno set by open(). */
+    if (fstat(fd,&sb) == -1) {
+        close(fd);
+        return -1; /* errno set by fstat(). */
+    }
+
+    /* 2) Pad the content at least match the old file size. */
+    content_padded = sdsdup(content);
+    if (content_size < sb.st_size) {
+        /* If the old file was bigger, pad the content with
+         * a newline plus as many "#" chars as required. */
+        padding = sb.st_size - content_size;
+        content_padded = sdsgrowzero(content_padded,sb.st_size);
+        content_padded[content_size] = '\n';
+        memset(content_padded+content_size+1,'#',padding-1);
+    }
+
+    /* 3) Write the new content using a single write(2). */
+    if (write(fd,content_padded,strlen(content_padded)) == -1) {
+        retval = -1;
+        goto cleanup;
+    }
+
+    /* 4) Truncate the file to the right length if we used padding. */
+    if (padding) {
+        if (ftruncate(fd,content_size) == -1) {
+            /* Non critical error... */
+        }
+    }
+    serverLog(LL_DEBUG, "Rewritten config file (%s) successfully", configfile);
+
+cleanup:
+    sdsfree(content_padded);
+    close(fd);
+    return retval;
+}
+
 /* This function replaces the old configuration file with the new content
  * in an atomic manner.
  *
@@ -1608,6 +1669,10 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
 #endif
 
     if (fd == -1) {
+        if (errno == EACCES) {
+            serverLog(LL_DEBUG, "Could not create tmp config file (%s), try fallback", strerror(errno));
+            return rewriteConfigOverwriteFileFallback(configfile, content);
+        }
         serverLog(LL_WARNING, "Could not create tmp config file (%s)", strerror(errno));
         return retval;
     }
