@@ -2029,7 +2029,7 @@ cleanup:
     if (ids != static_ids) zfree(ids);
 }
 
-/* XPENDING <key> <group> [<start> <stop> <count> [<consumer>] [IDLE <idle>]]
+/* XPENDING <key> <group> [<start> <stop> <count> [<consumer> [IDLE <idle>]]]
  *
  * If start and stop are omitted, the command just outputs information about
  * the amount of pending messages for the key/group pair, together with
@@ -2037,7 +2037,8 @@ cleanup:
  *
  * If start and stop are provided instead, the pending messages are returned
  * with information about the current owner, number of deliveries and last
- * delivery time and so forth. */
+ * delivery time and so forth.
+ * If <consumer> is an empty string then the entire group PEL will be used. */
 void xpendingCommand(client *c) {
     int justinfo = c->argc == 3; /* Without the range just outputs general
                                     informations about the PEL. */
@@ -2049,22 +2050,18 @@ void xpendingCommand(client *c) {
     long long minidle = 0;
 
     /* Start and stop, and the consumer, can be omitted. Also the IDLE modifier. */
-    if (c->argc != 3 && (c->argc < 6 || c->argc > 9)) {
+    if (c->argc != 3 && c->argc != 6 && c->argc != 7 && c->argc != 9) {
         addReply(c,shared.syntaxerr);
         return;
     }
 
     /* Find consumer name and idle time */
     if (c->argc >= 7) {
-        if (c->argc == 7 || c->argc == 9) {
-            consumername = c->argv[6];
-        }
-        if (c->argc >= 8) {
+        consumername = c->argv[6];
+        if (c->argc == 9) {
             /* Must contain IDLE */
-            int idlemodifieridx = c->argc == 9 ? 7 : 6;
-            robj *idlemodifier = c->argv[idlemodifieridx];
-            robj *idlevalue = c->argv[idlemodifieridx + 1];
-            if (strcasecmp(idlemodifier->ptr, "IDLE")) {
+            robj *idlevalue = c->argv[8];
+            if (strcasecmp(c->argv[7]->ptr, "IDLE")) {
                 addReply(c,shared.syntaxerr);
                 return;
             }
@@ -2142,10 +2139,10 @@ void xpendingCommand(client *c) {
             raxStop(&ri);
         }
     }
-    /* XPENDING <key> <group> <start> <stop> <count> [<consumer>] variant. */
+    /* XPENDING <key> <group> <start> <stop> <count> [<consumer> [IDLE <idle>]] variant. */
     else {
         streamConsumer *consumer = NULL;
-        if (consumername) {
+        if (consumername && sdslen(consumername->ptr) > 0) {
             consumer = streamLookupConsumer(group,
                                             consumername->ptr,
                                             SLC_NOCREAT|SLC_NOREFRESH,

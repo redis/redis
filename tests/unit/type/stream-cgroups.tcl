@@ -81,9 +81,9 @@ start_server {
         assert {[llength $pending] == 0}
         set pending [r XPENDING mystream mygroup - + 10 client-1 IDLE 1]
         assert {[llength $pending] == 2}
-        set pending [r XPENDING mystream mygroup - + 10 IDLE 99999999]
+        set pending [r XPENDING mystream mygroup - + 10 "" IDLE 99999999]
         assert {[llength $pending] == 0}
-        set pending [r XPENDING mystream mygroup - + 10 IDLE 1]
+        set pending [r XPENDING mystream mygroup - + 10 "" IDLE 1]
         assert {[llength $pending] == 4}
     }
 
