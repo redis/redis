@@ -1553,6 +1553,68 @@ long zsetRank(robj *zobj, sds ele, int reverse) {
     }
 }
 
+/* This is a helper function for the COPY command.
+ * Duplicate a sorted set object, with the guarantee that the returned object
+ * has the same encoding as the original one.
+ *
+ * The resulting object always has refcount set to 1 */
+robj *zsetDup(robj *o) {
+    robj *zobj;
+    zset *zs;
+    zset *new_zs;
+
+    serverAssert(o->type == OBJ_ZSET);
+
+    /* Create a new sorted set object that have the same encoding as the original object's encoding */
+    switch (o->encoding) {
+        case OBJ_ENCODING_ZIPLIST:
+            zobj = createZsetZiplistObject();
+            break;
+        case OBJ_ENCODING_SKIPLIST:
+            zobj = createZsetObject();
+            zs = o->ptr;
+            new_zs = zobj->ptr;
+            dictExpand(new_zs->dict,dictSize(zs->dict));
+            break;
+        default:
+            serverPanic("Wrong encoding.");
+            break;
+    }
+    if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
+        unsigned char *zl = o->ptr;
+        size_t sz = ziplistBlobLen(zl);
+        unsigned char *new_zl = zmalloc(sz);
+        memcpy(new_zl, zl, sz);
+        zfree(zobj->ptr);
+        zobj->ptr = new_zl;
+    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
+        zs = o->ptr;
+        new_zs = zobj->ptr;
+        zskiplist *zsl = zs->zsl;
+        zskiplistNode *ln;
+        sds ele;
+        long llen = zsetLength(o);
+
+        /* We copy the skiplist elements from the greatest to the
+         * smallest (that's trivial since the elements are already ordered in
+         * the skiplist): this improves the load process, since the next loaded
+         * element will always be the smaller, so adding to the skiplist
+         * will always immediately stop at the head, making the insertion
+         * O(1) instead of O(log(N)). */
+        ln = zsl->tail;
+        while (llen--) {
+            ele = ln->ele;
+            sds new_ele = sdsdup(ele);
+            zskiplistNode *znode = zslInsert(new_zs->zsl,ln->score,new_ele);
+            dictAdd(new_zs->dict,new_ele,&znode->score);
+            ln = ln->backward;
+        }
+    } else {
+        serverPanic("Unknown sorted set encoding");
+    }
+    return zobj;
+}
+
 /*-----------------------------------------------------------------------------
  * Sorted set commands
  *----------------------------------------------------------------------------*/

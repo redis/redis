@@ -190,6 +190,29 @@ void listTypeConvert(robj *subject, int enc) {
     }
 }
 
+/* This is a helper function for the COPY command.
+ * Duplicate a list object, with the guarantee that the returned object
+ * has the same encoding as the original one.
+ *
+ * The resulting object always has refcount set to 1 */
+robj *listTypeDup(robj *o) {
+    robj *lobj;
+
+    serverAssert(o->type == OBJ_LIST);
+
+    switch (o->encoding) {
+        case OBJ_ENCODING_QUICKLIST:
+            lobj = createQuicklistObject();
+            break;
+        default:
+            serverPanic("Wrong encoding.");
+            break;
+    }
+    zfree(lobj->ptr);
+    lobj->ptr = quicklistDup(o->ptr);
+    return lobj;
+}
+
 /*-----------------------------------------------------------------------------
  * List Commands
  *----------------------------------------------------------------------------*/

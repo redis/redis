@@ -630,6 +630,10 @@ struct redisCommand redisCommandTable[] = {
      "write fast @keyspace",
      0,NULL,1,1,1,0,0,0},
 
+    {"copy",copyCommand,-3,
+     "write use-memory @keyspace",
+     0,NULL,1,2,1,0,0,0},
+
     /* Like for SET, we can't mark rename as a fast command because
      * overwriting the target key may result in an implicit slow DEL. */
     {"rename",renameCommand,3,
