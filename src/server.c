@@ -4887,6 +4887,14 @@ void infoCommand(client *c) {
 }
 
 void monitorCommand(client *c) {
+    if (c->flags & CLIENT_DENY_BLOCKING) {
+        /**
+         * A client that has CLIENT_DENY_BLOCKING flag on
+         * expects a reply per command and so can't execute MONITOR. */
+        addReplyError(c, "MONITOR is not allowed for DENY BLOCKING client");
+        return;
+    }
+
     /* ignore MONITOR if already slave or in monitor mode */
     if (c->flags & CLIENT_SLAVE) return;
 

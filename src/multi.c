@@ -100,6 +100,7 @@ void multiCommand(client *c) {
         return;
     }
     c->flags |= CLIENT_MULTI;
+
     addReply(c,shared.ok);
 }
 
@@ -168,6 +169,11 @@ void execCommand(client *c) {
         goto handle_monitor;
     }
 
+    uint64_t old_flags = c->flags;
+
+    /* we do not want to allow blocking commands inside multi */
+    c->flags |= CLIENT_DENY_BLOCKING;
+
     /* Exec all the queued commands */
     unwatchAllKeys(c); /* Unwatch ASAP otherwise we'll waste CPU cycles */
     orig_argv = c->argv;
@@ -206,6 +212,7 @@ void execCommand(client *c) {
                 "no permission to touch the specified keys");
         } else {
             call(c,server.loading ? CMD_CALL_NONE : CMD_CALL_FULL);
+            serverAssert((c->flags & CLIENT_BLOCKED) == 0);
         }
 
         /* Commands may alter argc/argv, restore mstate. */
@@ -213,6 +220,11 @@ void execCommand(client *c) {
         c->mstate.commands[j].argv = c->argv;
         c->mstate.commands[j].cmd = c->cmd;
     }
+
+    // restore old DENY_BLOCKING value
+    if (!(old_flags & CLIENT_DENY_BLOCKING))
+        c->flags &= ~CLIENT_DENY_BLOCKING;
+
     c->argv = orig_argv;
     c->argc = orig_argc;
     c->cmd = orig_cmd;

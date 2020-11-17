@@ -3632,9 +3632,9 @@ void blockingGenericZpopCommand(client *c, int where) {
         }
     }
 
-    /* If we are inside a MULTI/EXEC and the zset is empty the only thing
+    /* If we are not allowed to block the client and the zset is empty the only thing
      * we can do is treating it as a timeout (even with timeout 0). */
-    if (c->flags & CLIENT_MULTI) {
+    if (c->flags & CLIENT_DENY_BLOCKING) {
         addReplyNullArray(c);
         return;
     }

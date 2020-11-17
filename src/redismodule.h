@@ -120,11 +120,14 @@
 #define REDISMODULE_CTX_FLAGS_MULTI_DIRTY (1<<19)
 /* Redis is currently running inside background child process. */
 #define REDISMODULE_CTX_FLAGS_IS_CHILD (1<<20)
+/* The current client does not allow blocking, either called from
+ * within multi, lua, or from another module using RM_Call */
+#define REDISMODULE_CTX_FLAGS_DENY_BLOCKING (1<<21)
 
 /* Next context flag, must be updated when adding new flags above!
 This flag should not be used directly by the module.
  * Use RedisModule_GetContextFlagsAll instead. */
-#define _REDISMODULE_CTX_FLAGS_NEXT (1<<21)
+#define _REDISMODULE_CTX_FLAGS_NEXT (1<<22)
 
 /* Keyspace changes notification classes. Every class is associated with a
  * character for configuration purposes.

@@ -905,9 +905,9 @@ void blockingPopGenericCommand(client *c, int where) {
         }
     }
 
-    /* If we are inside a MULTI/EXEC and the list is empty the only thing
+    /* If we are not allowed to block the client, the only thing
      * we can do is treating it as a timeout (even with timeout 0). */
-    if (c->flags & CLIENT_MULTI) {
+    if (c->flags & CLIENT_DENY_BLOCKING) {
         addReplyNullArray(c);
         return;
     }
@@ -930,8 +930,8 @@ void blmoveGenericCommand(client *c, int wherefrom, int whereto, mstime_t timeou
     if (checkType(c,key,OBJ_LIST)) return;
 
     if (key == NULL) {
-        if (c->flags & CLIENT_MULTI) {
-            /* Blocking against an empty list in a multi state
+        if (c->flags & CLIENT_DENY_BLOCKING) {
+            /* Blocking against an empty list when blocking is not allowed
              * returns immediately. */
             addReplyNull(c);
         } else {

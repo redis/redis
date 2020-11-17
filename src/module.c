@@ -1947,6 +1947,8 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
              flags |= REDISMODULE_CTX_FLAGS_LUA;
             if (ctx->client->flags & CLIENT_MULTI)
              flags |= REDISMODULE_CTX_FLAGS_MULTI;
+            if (ctx->client->flags & CLIENT_DENY_BLOCKING)
+             flags |= REDISMODULE_CTX_FLAGS_DENY_BLOCKING;
             /* Module command received from MASTER, is replicated. */
             if (ctx->client->flags & CLIENT_MASTER)
              flags |= REDISMODULE_CTX_FLAGS_REPLICATED;
@@ -3392,6 +3394,9 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 
     /* Setup our fake client for command execution. */
     c->flags |= CLIENT_MODULE;
+
+    /* We do not want to allow block, the module do not expect it */
+    c->flags |= CLIENT_DENY_BLOCKING;
     c->db = ctx->client->db;
     c->argv = argv;
     c->argc = argc;
@@ -3459,6 +3464,8 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
             call_flags |= CMD_CALL_PROPAGATE_REPL;
     }
     call(c,call_flags);
+
+    serverAssert((c->flags & CLIENT_BLOCKED) == 0);
 
     /* Convert the result of the Redis command into a module reply. */
     sds proto = sdsnewlen(c->buf,c->bufpos);

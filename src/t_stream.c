@@ -1521,7 +1521,10 @@ void xreadCommand(client *c) {
         char *o = c->argv[i]->ptr;
         if (!strcasecmp(o,"BLOCK") && moreargs) {
             if (c->flags & CLIENT_LUA) {
-                /* There is no sense to use BLOCK option within LUA */
+                /*
+                 * Although the CLIENT_DENY_BLOCKING flag should protect from blocking the client
+                 * on Lua/MULTI/RM_Call we want special treatment for Lua to keep backword compatibility.
+                 * There is no sense to use BLOCK option within Lua. */
                 addReplyErrorFormat(c, "%s command is not allowed with BLOCK option from scripts", (char *)c->argv[0]->ptr);
                 return;
             }
@@ -1732,9 +1735,9 @@ void xreadCommand(client *c) {
 
     /* Block if needed. */
     if (timeout != -1) {
-        /* If we are inside a MULTI/EXEC and the list is empty the only thing
+        /* If we are not allowed to block the client, the only thing
          * we can do is treating it as a timeout (even with timeout 0). */
-        if (c->flags & CLIENT_MULTI) {
+        if (c->flags & CLIENT_DENY_BLOCKING) {
             addReplyNullArray(c);
             goto cleanup;
         }

@@ -673,7 +673,18 @@ struct client *createAOFClient(void) {
     c->original_argv = NULL;
     c->argv_len_sum = 0;
     c->bufpos = 0;
-    c->flags = 0;
+
+    /*
+     * The AOF client should never be blocked (unlike master
+     * replication connection).
+     * This is because blocking the AOF client might cause
+     * deadlock (because potentially no one will unblock it).
+     * Also, if the AOF client will be blocked just for
+     * background processing there is a chance that the
+     * command execution order will be violated.
+     */
+    c->flags = CLIENT_DENY_BLOCKING;
+
     c->btype = BLOCKED_NONE;
     /* We set the fake client as a slave waiting for the synchronization
      * so that Redis will not try to send replies to this client. */
