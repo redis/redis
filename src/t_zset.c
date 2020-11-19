@@ -1567,13 +1567,12 @@ robj *zsetDup(robj *o) {
 
     /* Create a new sorted set object that have the same encoding as the original object's encoding */
     if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-        zobj = createZsetZiplistObject();
         unsigned char *zl = o->ptr;
         size_t sz = ziplistBlobLen(zl);
         unsigned char *new_zl = zmalloc(sz);
         memcpy(new_zl, zl, sz);
-        zfree(zobj->ptr);
-        zobj->ptr = new_zl;
+        zobj = createObject(OBJ_ZSET, new_zl);
+        zobj->encoding = OBJ_ENCODING_ZIPLIST;
     } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
         zobj = createZsetObject();
         zs = o->ptr;
