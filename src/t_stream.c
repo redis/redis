@@ -91,6 +91,21 @@ void streamIncrID(streamID *id) {
     }
 }
 
+/* Set 'id' to be its predecessor streamID */
+void streamDecrID(streamID *id) {
+    if (id->seq == 0) {
+        if (id->ms == 0) {
+            /* Special case where 'id' is the first possible streamID... */
+            id->ms = id->seq = 0;
+        } else {
+            id->ms--;
+            id->seq = UINT64_MAX;
+        }
+    } else {
+        id->seq--;
+    }
+}
+
 /* Generate the next stream item ID given the previous one. If the current
  * milliseconds Unix time is greater than the previous one, just use this
  * as time part and start with sequence part of zero. Otherwise we use the
@@ -1441,9 +1456,29 @@ void xrangeGenericCommand(client *c, int rev) {
     long long count = -1;
     robj *startarg = rev ? c->argv[3] : c->argv[2];
     robj *endarg = rev ? c->argv[2] : c->argv[3];
+    int startex = 0, endex = 0, invalid_id = 0;
+    char *startp = startarg->ptr, *endp = endarg->ptr;
+    size_t startlen = sdslen(startarg->ptr), endlen = sdslen(endarg->ptr);
 
-    if (streamParseIDOrReply(c,startarg,&startid,0) == C_ERR) return;
-    if (streamParseIDOrReply(c,endarg,&endid,UINT64_MAX) == C_ERR) return;
+    /* Check for open/close (inclusive/exclusive) range prefixes. */
+    if (startlen > 1 && startp[0] == '(' && startp[1] != '-') {
+        startex = 1;
+    }
+    if (endlen > 1 && endp[0] == '(' && endp[1] != '-') {
+        endex = 1;
+    }
+    
+    /* Parse start and end IDs. */
+    startarg = createStringObject(startp+startex,startlen-startex);
+    endarg = createStringObject(endp+endex,endlen-endex);
+    invalid_id = (streamParseIDOrReply(c,startarg,&startid,0) == C_ERR) ||
+                 (streamParseIDOrReply(c,endarg,&endid,UINT64_MAX) == C_ERR);
+    decrRefCount(startarg);
+    decrRefCount(endarg);
+
+    if (invalid_id) return;
+    if (startex) streamIncrID(&startid);
+    if (endex) streamDecrID(&endid);
 
     /* Parse the COUNT option if any. */
     if (c->argc > 4) {

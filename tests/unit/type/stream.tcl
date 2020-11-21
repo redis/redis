@@ -168,6 +168,24 @@ start_server {
         assert {[r xrange mystream - +] == [lreverse [r xrevrange mystream + -]]}
     }
 
+    test {XRANGE exclusive ranges} {
+        set ids {0-1 0-18446744073709551615 1-0 42-0 42-42
+                 18446744073709551615-18446744073709551614
+                 18446744073709551615-18446744073709551615}
+        set total [llength $ids]
+        r multi
+        r DEL vipstream
+        foreach id $ids {
+            r XADD vipstream $id foo bar
+        }
+        r exec
+        assert {[llength [r xrange vipstream - +]] == $total}
+        assert {[llength [r xrange vipstream ([lindex $ids 0] +]] == $total-1}
+        assert {[llength [r xrange vipstream - ([lindex $ids $total-1]]] == $total-1}
+        assert {[llength [r xrange vipstream (0-1 (1-0]] == 1}
+        assert {[llength [r xrange vipstream (1-0 (42-42]] == 1}
+    }
+
     test {XREAD with non empty stream} {
         set res [r XREAD COUNT 1 STREAMS mystream 0-0]
         assert {[lrange [lindex $res 0 1 0 1] 0 1] eq {item 0}}
