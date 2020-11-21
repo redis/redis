@@ -202,7 +202,7 @@ robj *listTypeDup(robj *o) {
 
     switch (o->encoding) {
         case OBJ_ENCODING_QUICKLIST:
-            lobj = createObject(OBJ_LIST, o->ptr);
+            lobj = createObject(OBJ_LIST, quicklistDup(o->ptr));
             lobj->encoding = OBJ_ENCODING_QUICKLIST;
             break;
         default:
