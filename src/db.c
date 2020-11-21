@@ -1098,7 +1098,6 @@ void copyCommand(client *c) {
             replace = 1;
         } else if (!strcasecmp(c->argv[j]->ptr, "db") && additional >= 1) {
             if (getLongLongFromObject(c->argv[j+1], &dbid) == C_ERR ||
-                dbid < INT_MIN || dbid > INT_MAX ||
                 selectDb(c, dbid) == C_ERR)
             {
                 addReplyError(c,"invalid DB index");
