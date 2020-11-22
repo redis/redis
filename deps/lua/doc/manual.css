@@ -8,17 +8,14 @@ pre, code {
 }
 
 span.apii {
+	color: gray ;
 	float: right ;
 	font-family: inherit ;
 	font-style: normal ;
 	font-size: small ;
-	color: gray ;
 }
 
-p+h1, ul+h1 {
-	padding-top: 0.4em ;
-	padding-bottom: 0.4em ;
-	padding-left: 30px ;
-	margin-left: -30px ;
-	background-color: #E0E0FF ;
+h2:before {
+	content: "" ;
+	padding-right: 0em ;
 }
