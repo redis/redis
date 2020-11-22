@@ -1448,7 +1448,13 @@ void xaddCommand(client *c) {
     signalKeyAsReady(c->db, c->argv[1], OBJ_STREAM);
 }
 
-/* XRANGE/XREVRANGE actual implementation. */
+/* XRANGE/XREVRANGE actual implementation.
+ * The 'start' and 'end' IDs are parsed as follows:
+ *   Incomplete 'start' has its sequence set to 0, and 'end' to UINT64_MAX.
+ *   "-" and "+"" mean the minimal and maximal ID values, respectively.
+ *   The "(" prefix means an open (exclusive) range, so XRANGE stream (1-0 (2-0
+ *   will match anything from 1-1 and 1-UINT64_MAX.
+ */
 void xrangeGenericCommand(client *c, int rev) {
     robj *o;
     stream *s;
@@ -1460,23 +1466,27 @@ void xrangeGenericCommand(client *c, int rev) {
     char *startp = startarg->ptr, *endp = endarg->ptr;
     size_t startlen = sdslen(startarg->ptr), endlen = sdslen(endarg->ptr);
 
-    /* Check for open/close (inclusive/exclusive) range prefixes. */
-    if (startlen > 1 && startp[0] == '(' && startp[1] != '-') {
+    /* Check for open/close (exclusive/inclusive) range prefixes. */
+    if (startlen > 1 && startp[0] == '(') {
         startex = 1;
     }
-    if (endlen > 1 && endp[0] == '(' && endp[1] != '-') {
+    if (endlen > 1 && endp[0] == '(') {
         endex = 1;
     }
     
     /* Parse start and end IDs. */
     startarg = createStringObject(startp+startex,startlen-startex);
     endarg = createStringObject(endp+endex,endlen-endex);
-    invalid_id = (streamParseIDOrReply(c,startarg,&startid,0) == C_ERR) ||
-                 (streamParseIDOrReply(c,endarg,&endid,UINT64_MAX) == C_ERR);
+    invalid_id = (startex
+                  ? streamParseStrictIDOrReply(c,startarg,&startid,0) == C_ERR
+                  : streamParseIDOrReply(c,startarg,&startid,0) == C_ERR) ||
+                 (endex
+                  ? streamParseStrictIDOrReply(c,endarg,&endid,UINT64_MAX) == C_ERR
+                  : streamParseIDOrReply(c,endarg,&endid,UINT64_MAX) == C_ERR);
     decrRefCount(startarg);
     decrRefCount(endarg);
+    if (invalid_id) return; /* Invalid ID error after decrementing robj refs. */
 
-    if (invalid_id) return;
     if (startex) streamIncrID(&startid);
     if (endex) streamDecrID(&endid);
 
