@@ -80,10 +80,16 @@
 void *zmalloc(size_t size);
 void *zcalloc(size_t size);
 void *zrealloc(void *ptr, size_t size);
+void *ztrymalloc(size_t size);
+void *ztrycalloc(size_t size);
+void *ztryrealloc(void *ptr, size_t size);
 void zfree(void *ptr);
 void *zmalloc_usable(size_t size, size_t *usable);
 void *zcalloc_usable(size_t size, size_t *usable);
 void *zrealloc_usable(void *ptr, size_t size, size_t *usable);
+void *ztrymalloc_usable(size_t size, size_t *usable);
+void *ztrycalloc_usable(size_t size, size_t *usable);
+void *ztryrealloc_usable(void *ptr, size_t size, size_t *usable);
 void zfree_usable(void *ptr, size_t *usable);
 char *zstrdup(const char *s);
 size_t zmalloc_used_memory(void);

@@ -444,6 +444,25 @@ test {corrupt payload: fuzzer findings - hash convert asserts on RESTORE with sh
     }
 }
 
+test {corrupt payload: OOM in rdbGenericLoadStringObject} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        catch { r RESTORE x 0 "\x0A\x81\x7F\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x13\x00\x00\x00\x0E\x00\x00\x00\x02\x00\x00\x02\x61\x00\x04\x02\x62\x00\xFF\x09\x00\x57\x04\xE5\xCD\xD4\x37\x6C\x57" } err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: fuzzer findings - OOM in dictExpand} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r debug set-skip-checksum-validation 1
+        catch { r RESTORE x 0 "\x02\x81\x02\x5F\x31\xC0\x00\xC0\x02\x09\x00\xCD\x84\x2C\xB7\xE8\xA4\x49\x57" } err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
 test {corrupt payload: fuzzer findings - invalid tail offset after removal} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no

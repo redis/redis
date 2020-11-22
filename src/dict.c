@@ -143,9 +143,13 @@ int dictResize(dict *d)
     return dictExpand(d, minimal);
 }
 
-/* Expand or create the hash table */
-int dictExpand(dict *d, unsigned long size)
+/* Expand or create the hash table,
+ * when malloc_failed is non-NULL, it'll avoid panic if malloc fails (in which case it'll be set to 1).
+ * Returns DICT_OK if expand was performed, and DICT_ERR if skipped. */
+int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
 {
+    if (malloc_failed) *malloc_failed = 0;
+
     /* the size is invalid if it is smaller than the number of
      * elements already inside the hash table */
     if (dictIsRehashing(d) || d->ht[0].used > size)
@@ -160,7 +164,14 @@ int dictExpand(dict *d, unsigned long size)
     /* Allocate the new hash table and initialize all pointers to NULL */
     n.size = realsize;
     n.sizemask = realsize-1;
-    n.table = zcalloc(realsize*sizeof(dictEntry*));
+    if (malloc_failed) {
+        n.table = ztrycalloc(realsize*sizeof(dictEntry*));
+        *malloc_failed = n.table == NULL;
+        if (*malloc_failed)
+            return DICT_ERR;
+    } else
+        n.table = zcalloc(realsize*sizeof(dictEntry*));
+
     n.used = 0;
 
     /* Is this the first initialization? If so it's not really a rehashing
@@ -174,6 +185,18 @@ int dictExpand(dict *d, unsigned long size)
     d->ht[1] = n;
     d->rehashidx = 0;
     return DICT_OK;
+}
+
+/* return DICT_ERR if expand was not performed */
+int dictExpand(dict *d, unsigned long size) {
+    return _dictExpand(d, size, NULL);
+}
+
+/* return DICT_ERR if expand failed due to memory allocation failure */
+int dictTryExpand(dict *d, unsigned long size) {
+    int malloc_failed;
+    _dictExpand(d, size, &malloc_failed);
+    return malloc_failed? DICT_ERR : DICT_OK;
 }
 
 /* Performs N steps of incremental rehashing. Returns 1 if there are still
