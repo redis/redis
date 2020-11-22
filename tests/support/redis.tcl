@@ -109,6 +109,7 @@ proc ::redis::__dispatch__raw__ {id method argv} {
         }
         ::redis::redis_write $fd $cmd
         if {[catch {flush $fd}]} {
+            catch {close $fd}
             set ::redis::fd($id) {}
             return -code error "I/O error reading reply"
         }
@@ -251,6 +252,7 @@ proc ::redis::redis_read_reply {id fd} {
         % {redis_read_map $id $fd}
         default {
             if {$type eq {}} {
+                catch {close $fd}
                 set ::redis::fd($id) {}
                 return -code error "I/O error reading reply"
             }
