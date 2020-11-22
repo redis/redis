@@ -1017,9 +1017,8 @@ int luaSetResp(lua_State *lua) {
  * ------------------------------------------------------------------------- */
 
 void luaLoadLib(lua_State *lua, const char *libname, lua_CFunction luafunc) {
-  lua_pushcfunction(lua, luafunc);
-  lua_pushstring(lua, libname);
-  lua_call(lua, 1, 0);
+	luaL_requiref(lua, libname, luafunc, 1);
+	lua_pop(lua, 1);
 }
 
 LUALIB_API int (luaopen_cjson) (lua_State *L);
