@@ -377,7 +377,7 @@ zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec *range) {
 }
 
 /* Delete all the elements with score between min and max from the skiplist.
- * Min and max are inclusive, so a score >= min || score <= max is deleted.
+ * Min and max are inclusive, so a score >= min && score <= max is deleted.
  * Note that this function takes the reference to the hash table view of the
  * sorted set, in order to remove the elements from the hash table too. */
 unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec *range, dict *dict) {
