@@ -387,14 +387,22 @@ void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr) {
 
     if ((clen = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
     if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
-    if ((c = zmalloc(clen)) == NULL) goto err;
+    if ((c = ztrymalloc(clen)) == NULL) {
+        serverLog(server.loading? LL_WARNING: LL_VERBOSE, "rdbLoadLzfStringObject failed allocating %llu bytes", (unsigned long long)clen);
+        goto err;
+    }
 
     /* Allocate our target according to the uncompressed size. */
     if (plain) {
-        val = zmalloc(len);
+        val = ztrymalloc(len);
     } else {
-        val = sdsnewlen(SDS_NOINIT,len);
+        val = sdstrynewlen(SDS_NOINIT,len);
     }
+    if (!val) {
+        serverLog(server.loading? LL_WARNING: LL_VERBOSE, "rdbLoadLzfStringObject failed allocating %llu bytes", (unsigned long long)len);
+        goto err;
+    }
+
     if (lenptr) *lenptr = len;
 
     /* Load the compressed representation and uncompress it to target. */
@@ -522,7 +530,11 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
     }
 
     if (plain || sds) {
-        void *buf = plain ? zmalloc(len) : sdsnewlen(SDS_NOINIT,len);
+        void *buf = plain ? ztrymalloc(len) : sdstrynewlen(SDS_NOINIT,len);
+        if (!buf) {
+            serverLog(server.loading? LL_WARNING: LL_VERBOSE, "rdbGenericLoadStringObject failed allocating %llu bytes", len);
+            return NULL;
+        }
         if (lenptr) *lenptr = len;
         if (len && rioRead(rdb,buf,len) == 0) {
             if (plain)
@@ -1545,8 +1557,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
             o = createSetObject();
             /* It's faster to expand the dict to the right size asap in order
              * to avoid rehashing */
-            if (len > DICT_HT_INITIAL_SIZE)
-                dictExpand(o->ptr,len);
+            if (len > DICT_HT_INITIAL_SIZE && dictTryExpand(o->ptr,len) != DICT_OK) {
+                rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)len);
+                decrRefCount(o);
+                return NULL;
+            }
         } else {
             o = createIntsetObject();
         }
@@ -1574,7 +1589,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                     }
                 } else {
                     setTypeConvert(o,OBJ_ENCODING_HT);
-                    dictExpand(o->ptr,len);
+                    if (dictTryExpand(o->ptr,len) != DICT_OK) {
+                        rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)len);
+                        sdsfree(sdsele);
+                        decrRefCount(o);
+                        return NULL;
+                    }
                 }
             }
 
@@ -1601,8 +1621,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
         o = createZsetObject();
         zs = o->ptr;
 
-        if (zsetlen > DICT_HT_INITIAL_SIZE)
-            dictExpand(zs->dict,zsetlen);
+        if (zsetlen > DICT_HT_INITIAL_SIZE && dictTryExpand(zs->dict,zsetlen) != DICT_OK) {
+            rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)zsetlen);
+            decrRefCount(o);
+            return NULL;
+        }
 
         /* Load every single element of the sorted set. */
         while(zsetlen--) {
@@ -1723,8 +1746,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
             dupSearchDict = NULL;
         }
 
-        if (o->encoding == OBJ_ENCODING_HT && len > DICT_HT_INITIAL_SIZE)
-            dictExpand(o->ptr,len);
+        if (o->encoding == OBJ_ENCODING_HT && len > DICT_HT_INITIAL_SIZE) {
+            if (dictTryExpand(o->ptr,len) != DICT_OK) {
+                rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)len);
+                decrRefCount(o);
+                return NULL;
+            }
+        }
 
         /* Load remaining fields and values into the hash table */
         while (o->encoding == OBJ_ENCODING_HT && len > 0) {
@@ -1823,9 +1851,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                         zl = ziplistPush(zl, vstr, vlen, ZIPLIST_TAIL);
 
                         /* search for duplicate records */
-                        sds field = sdsnewlen(fstr, flen);
-                        if (dictAdd(dupSearchDict, field, NULL) != DICT_OK) {
-                            rdbReportCorruptRDB("Hash zipmap with dup elements");
+                        sds field = sdstrynewlen(fstr, flen);
+                        if (!field || dictAdd(dupSearchDict, field, NULL) != DICT_OK) {
+                            rdbReportCorruptRDB("Hash zipmap with dup elements, or big length (%u)", flen);
                             dictRelease(dupSearchDict);
                             sdsfree(field);
                             zfree(encoded);
