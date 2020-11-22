@@ -180,6 +180,8 @@ FINAL_CFLAGS+= -I../deps/hiredis -I../deps/linenoise -I../deps/lua/src -I../deps
 
 # Determine systemd support and/or build preference (defaulting to auto-detection)
 BUILD_WITH_SYSTEMD=no
+LIBSYSTEMD_LIBS=-lsystemd
+
 # If 'USE_SYSTEMD' in the environment is neither "no" nor "yes", try to
 # auto-detect libsystemd's presence and link accordingly.
 ifneq ($(USE_SYSTEMD),no)
@@ -188,17 +190,18 @@ ifneq ($(USE_SYSTEMD),no)
 # (unless a later check tells us otherwise)
 ifeq ($(LIBSYSTEMD_PKGCONFIG),0)
 	BUILD_WITH_SYSTEMD=yes
+	LIBSYSTEMD_LIBS=$(shell $(PKG_CONFIG) --libs libsystemd)
 endif
 endif
+
+# If 'USE_SYSTEMD' is set to "yes" use pkg-config if available or fall back to
+# default -lsystemd.
 ifeq ($(USE_SYSTEMD),yes)
-ifneq ($(LIBSYSTEMD_PKGCONFIG),0)
-$(error USE_SYSTEMD is set to "$(USE_SYSTEMD)", but $(PKG_CONFIG) cannot find libsystemd)
-endif
-# Force building with libsystemd
 	BUILD_WITH_SYSTEMD=yes
 endif
+
 ifeq ($(BUILD_WITH_SYSTEMD),yes)
-	FINAL_LIBS+=$(shell $(PKG_CONFIG) --libs libsystemd)
+	FINAL_LIBS+=$(LIBSYSTEMD_LIBS)
 	FINAL_CFLAGS+= -DHAVE_LIBSYSTEMD
 endif
 
