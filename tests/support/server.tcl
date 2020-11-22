@@ -229,6 +229,7 @@ proc start_server {options {code undefined}} {
     # setup defaults
     set baseconfig "default.conf"
     set overrides {}
+    set omit {}
     set tags {}
     set keep_persistence false
 
@@ -240,6 +241,9 @@ proc start_server {options {code undefined}} {
             }
             "overrides" {
                 set overrides $value
+            }
+            "omit" {
+                set omit $value
             }
             "tags" {
                 # If we 'tags' contain multiple tags, quoted and seperated by spaces,
@@ -306,8 +310,10 @@ proc start_server {options {code undefined}} {
     set data [split [exec cat "tests/assets/$baseconfig"] "\n"]
     set config {}
     if {$::tls} {
-        dict set config "tls-cert-file" [format "%s/tests/tls/redis.crt" [pwd]]
-        dict set config "tls-key-file" [format "%s/tests/tls/redis.key" [pwd]]
+        dict set config "tls-cert-file" [format "%s/tests/tls/server.crt" [pwd]]
+        dict set config "tls-key-file" [format "%s/tests/tls/server.key" [pwd]]
+        dict set config "tls-client-cert-file" [format "%s/tests/tls/client.crt" [pwd]]
+        dict set config "tls-client-key-file" [format "%s/tests/tls/client.key" [pwd]]
         dict set config "tls-dh-params-file" [format "%s/tests/tls/redis.dh" [pwd]]
         dict set config "tls-ca-cert-file" [format "%s/tests/tls/ca.crt" [pwd]]
         dict set config "loglevel" "debug"
@@ -341,6 +347,11 @@ proc start_server {options {code undefined}} {
     # apply overrides from global space and arguments
     foreach {directive arguments} [concat $::global_overrides $overrides] {
         dict set config $directive $arguments
+    }
+
+    # remove directives that are marked to be omitted
+    foreach directive $omit {
+        dict unset config $directive
     }
 
     # write new configuration to temporary file

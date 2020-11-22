@@ -44,8 +44,8 @@ proc redis {{server 127.0.0.1} {port 6379} {defer 0} {tls 0} {tlsoptions {}}} {
         package require tls
         ::tls::init \
             -cafile "$::tlsdir/ca.crt" \
-            -certfile "$::tlsdir/redis.crt" \
-            -keyfile "$::tlsdir/redis.key" \
+            -certfile "$::tlsdir/client.crt" \
+            -keyfile "$::tlsdir/client.key" \
             {*}$tlsoptions
         set fd [::tls::socket $server $port]
     } else {
