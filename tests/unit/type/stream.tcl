@@ -186,6 +186,12 @@ start_server {
         assert {[llength [r xrange vipstream (1-0 (42-42]] == 1}
         catch {r xrange vipstream (- +} e
         assert_match {ERR*} $e
+        catch {r xrange vipstream - (+} e
+        assert_match {ERR*} $e
+        catch {r xrange vipstream (18446744073709551615-18446744073709551615 +} e
+        assert_match {ERR*} $e
+        catch {r xrange vipstream - (0-0} e
+        assert_match {ERR*} $e
     }
 
     test {XREAD with non empty stream} {

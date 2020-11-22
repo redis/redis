@@ -76,12 +76,16 @@ unsigned long streamLength(const robj *subject) {
     return s->length;
 }
 
-/* Set 'id' to be its successor streamID */
-void streamIncrID(streamID *id) {
+/* Set 'id' to be its successor stream ID.
+ * If 'id' is the maximal possible id, it is wrapped around to 0-0 and a
+ * non-zero value is returned. */
+int streamIncrID(streamID *id) {
+    int ret = 0;
     if (id->seq == UINT64_MAX) {
         if (id->ms == UINT64_MAX) {
             /* Special case where 'id' is the last possible streamID... */
             id->ms = id->seq = 0;
+            ret = 1;
         } else {
             id->ms++;
             id->seq = 0;
@@ -89,14 +93,19 @@ void streamIncrID(streamID *id) {
     } else {
         id->seq++;
     }
+    return ret;
 }
 
-/* Set 'id' to be its predecessor streamID */
-void streamDecrID(streamID *id) {
+/* Set 'id' to be its predecessor stream ID.
+ * If 'id' is the minimal possible id, it remains 0-0 and a non-zero value is
+ * returned. */
+int streamDecrID(streamID *id) {
+    int ret = 0;
     if (id->seq == 0) {
         if (id->ms == 0) {
             /* Special case where 'id' is the first possible streamID... */
             id->ms = id->seq = 0;
+            ret = 1;
         } else {
             id->ms--;
             id->seq = UINT64_MAX;
@@ -104,6 +113,7 @@ void streamDecrID(streamID *id) {
     } else {
         id->seq--;
     }
+    return ret;
 }
 
 /* Generate the next stream item ID given the previous one. If the current
@@ -1324,6 +1334,27 @@ int streamParseStrictIDOrReply(client *c, robj *o, streamID *id, uint64_t missin
     return streamGenericParseIDOrReply(c,o,id,missing_seq,1);
 }
 
+/* Helper for parsing a stream ID that is a range query interval. When the
+ * exclude argument is NULL, streamParseIDOrReply() is called and the interval
+ * is treated as close (inclusive). Otherwise, the exclude argument is set if 
+ * the interval is open (the "(" prefix) and streamParseStrictIDOrReply() is
+ * called in that case.
+ */
+int streamParseIntervalIDOrReply(client *c, robj *o, streamID *id, int *exclude, uint64_t missing_seq) {
+    char *p = o->ptr;
+    size_t len = sdslen(p);
+    int invalid = 0;
+    
+    if (exclude != NULL) *exclude = (len > 1 && p[0] == '(');
+    if (exclude != NULL && *exclude) {
+        robj *t = createStringObject(p+1,len-1);
+        invalid = (streamParseStrictIDOrReply(c,t,id,missing_seq) == C_ERR);
+        decrRefCount(t);
+    } else invalid = (streamParseIDOrReply(c,o,id,missing_seq) == C_ERR);
+    if (invalid) return C_ERR;
+    return C_OK;
+}
+
 /* We propagate MAXLEN ~ <count> as MAXLEN = <resulting-len-of-stream>
  * otherwise trimming is no longer determinsitic on replicas / AOF. */
 void streamRewriteApproxMaxlen(client *c, stream *s, int maxlen_arg_idx) {
@@ -1462,33 +1493,24 @@ void xrangeGenericCommand(client *c, int rev) {
     long long count = -1;
     robj *startarg = rev ? c->argv[3] : c->argv[2];
     robj *endarg = rev ? c->argv[2] : c->argv[3];
-    int startex = 0, endex = 0, invalid_id = 0;
-    char *startp = startarg->ptr, *endp = endarg->ptr;
-    size_t startlen = sdslen(startarg->ptr), endlen = sdslen(endarg->ptr);
-
-    /* Check for open/close (exclusive/inclusive) range prefixes. */
-    if (startlen > 1 && startp[0] == '(') {
-        startex = 1;
-    }
-    if (endlen > 1 && endp[0] == '(') {
-        endex = 1;
-    }
+    int startex = 0, endex = 0;
     
     /* Parse start and end IDs. */
-    startarg = createStringObject(startp+startex,startlen-startex);
-    endarg = createStringObject(endp+endex,endlen-endex);
-    invalid_id = (startex
-                  ? streamParseStrictIDOrReply(c,startarg,&startid,0) == C_ERR
-                  : streamParseIDOrReply(c,startarg,&startid,0) == C_ERR) ||
-                 (endex
-                  ? streamParseStrictIDOrReply(c,endarg,&endid,UINT64_MAX) == C_ERR
-                  : streamParseIDOrReply(c,endarg,&endid,UINT64_MAX) == C_ERR);
-    decrRefCount(startarg);
-    decrRefCount(endarg);
-    if (invalid_id) return; /* Invalid ID error after decrementing robj refs. */
-
-    if (startex) streamIncrID(&startid);
-    if (endex) streamDecrID(&endid);
+    if (streamParseIntervalIDOrReply(c,startarg,&startid,&startex,0) != C_OK)
+        return;
+    if (startex && streamIncrID(&startid)) {
+        addReplyErrorFormat(c,"'%s' is an invalid start ID for an interval",
+                            (char*)startarg->ptr);
+        return;
+    }
+    if (streamParseIntervalIDOrReply(c,endarg,&endid,&endex,UINT64_MAX) != C_OK)
+        return;
+    if (endex && streamDecrID(&endid)) {
+        addReplyErrorFormat(c,"'%s' is an invalid end ID for an interval",
+                            (char*)endarg->ptr);
+                              
+        return;
+    }
 
     /* Parse the COUNT option if any. */
     if (c->argc > 4) {
