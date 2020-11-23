@@ -55,6 +55,7 @@
 #include <sys/utsname.h>
 #include <locale.h>
 #include <sys/socket.h>
+#include <string.h>
 
 /* Our shared "common" objects */
 
@@ -1814,6 +1815,26 @@ void resetServerStats(void) {
     server.aof_delayed_fsync = 0;
 }
 
+void checkUnixSocketDirectory(char* unix_socket_path)
+{
+    char directory[100] = "/";
+    char path[100] = "";
+    strcpy(path,unix_socket_path);
+	/* Extract the first token. */
+	char * token = strtok(path, "/");
+	/* loop through the string to extract all other tokens. */
+    while( token != NULL ) {
+		if(strchr(token, '.') == NULL)
+		{
+			strcat(directory,token);
+			/* check directory existance and if it does not exist, create it.*/
+            mkdir(directory,2777);
+            strcat(directory,"/");
+        }
+	token = strtok(NULL, "/");
+    }
+}
+
 void initServer(void) {
     int j;
 
@@ -1856,6 +1877,9 @@ void initServer(void) {
     if (server.port != 0 &&
         listenToPort(server.port,server.ipfd,&server.ipfd_count) == C_ERR)
         exit(1);
+
+    /* Check redis unixsocket path existance. */
+    checkUnixSocketDirectory(server.unixsocket);
 
     /* Open the listening Unix domain socket. */
     if (server.unixsocket != NULL) {
