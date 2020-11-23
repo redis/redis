@@ -104,7 +104,7 @@ int streamDecrID(streamID *id) {
     if (id->seq == 0) {
         if (id->ms == 0) {
             /* Special case where 'id' is the first possible streamID... */
-            id->ms = id->seq = 0;
+            id->ms = id->seq = UINT64_MAX;
             ret = 1;
         } else {
             id->ms--;
