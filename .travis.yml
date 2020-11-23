@@ -1,0 +1,30 @@
+language: c
+
+before_script:
+  - sudo apt update
+  - sudo apt install -y cmake tree
+  - pyenv global 3.7.1
+  - pip3 install boto3
+  - export PATH=$PATH:$HOME/build/xcalibyte_github/redis/bin
+# install xcal client
+  - wget -q https://ci-integration.oss-cn-shanghai.aliyuncs.com/xcal-agent.tgz && tar -xf xcal-agent.tgz -C $HOME/build && cd $HOME/build/xcal-agent/xcalbuild/linux/bear && sudo rm -rf build && mkdir build && cd build && cmake .. && make && sudo make install
+  - export PYTHONPATH=$HOME/build/xcal-agent/agent:$HOME/build/xcal-agent/agent/commondef/src
+  - ls
+  - pwd
+# install submit task
+#  - wget -q https://ci-integration.oss-cn-shanghai.aliyuncs.com/submit_task.tgz && tar -zxvf submit_task.tgz -C $HOME/build/xcalibyte_github/redis && cd $HOME/build/xcalibyte_github/redis/install && . ./install_submit_task.sh && . ./set_path.sh
+#- cd $HOME/build/knightley/travis_ci_xcalscan_cloud_integration/c_testcase/basic
+
+env:
+  - USER_ID='xcalibyte_github'
+  
+stage: compile
+script:
+  - echo "hello redis"
+# - make
+#- $HOME/build/xcal-agent/tools/xcal-agent.py -pc $HOME/build/knightley/travis_ci_xcalscan_cloud_integration/xcal-preprocess.conf -a -d
+
+after_success:
+  - echo "hello redis success"
+#- tree .xcalagent
+#  - cd "$(dirname "$(find . -type f -name xcal-task.conf | head -1)")" && before_submit.sh && ls && cat xcal-task.conf && submit_task.sh xcal-task.conf
