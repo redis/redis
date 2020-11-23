@@ -78,14 +78,14 @@ unsigned long streamLength(const robj *subject) {
 
 /* Set 'id' to be its successor stream ID.
  * If 'id' is the maximal possible id, it is wrapped around to 0-0 and a
- * non-zero value is returned. */
+ * C_ERR is returned. */
 int streamIncrID(streamID *id) {
-    int ret = 0;
+    int ret = C_OK;
     if (id->seq == UINT64_MAX) {
         if (id->ms == UINT64_MAX) {
             /* Special case where 'id' is the last possible streamID... */
             id->ms = id->seq = 0;
-            ret = 1;
+            ret = C_ERR;
         } else {
             id->ms++;
             id->seq = 0;
@@ -97,15 +97,15 @@ int streamIncrID(streamID *id) {
 }
 
 /* Set 'id' to be its predecessor stream ID.
- * If 'id' is the minimal possible id, it remains 0-0 and a non-zero value is
+ * If 'id' is the minimal possible id, it remains 0-0 and a C_ERR is
  * returned. */
 int streamDecrID(streamID *id) {
-    int ret = 0;
+    int ret = C_OK;
     if (id->seq == 0) {
         if (id->ms == 0) {
             /* Special case where 'id' is the first possible streamID... */
             id->ms = id->seq = UINT64_MAX;
-            ret = 1;
+            ret = C_ERR;
         } else {
             id->ms--;
             id->seq = UINT64_MAX;
@@ -1350,8 +1350,10 @@ int streamParseIntervalIDOrReply(client *c, robj *o, streamID *id, int *exclude,
         robj *t = createStringObject(p+1,len-1);
         invalid = (streamParseStrictIDOrReply(c,t,id,missing_seq) == C_ERR);
         decrRefCount(t);
-    } else invalid = (streamParseIDOrReply(c,o,id,missing_seq) == C_ERR);
-    if (invalid) return C_ERR;
+    } else 
+        invalid = (streamParseIDOrReply(c,o,id,missing_seq) == C_ERR);
+    if (invalid)
+        return C_ERR;
     return C_OK;
 }
 
@@ -1498,17 +1500,14 @@ void xrangeGenericCommand(client *c, int rev) {
     /* Parse start and end IDs. */
     if (streamParseIntervalIDOrReply(c,startarg,&startid,&startex,0) != C_OK)
         return;
-    if (startex && streamIncrID(&startid)) {
-        addReplyErrorFormat(c,"'%s' is an invalid start ID for an interval",
-                            (char*)startarg->ptr);
+    if (startex && streamIncrID(&startid) != C_OK) {
+        addReplyError(c,"invalid start ID for the interval");
         return;
     }
     if (streamParseIntervalIDOrReply(c,endarg,&endid,&endex,UINT64_MAX) != C_OK)
         return;
-    if (endex && streamDecrID(&endid)) {
-        addReplyErrorFormat(c,"'%s' is an invalid end ID for an interval",
-                            (char*)endarg->ptr);
-                              
+    if (endex && streamDecrID(&endid) != C_OK) {
+        addReplyError(c,"invalid end ID for the interval");
         return;
     }
 
@@ -1542,24 +1541,12 @@ void xrangeGenericCommand(client *c, int rev) {
     }
 }
 
-/* XRANGE key start end [COUNT <n>]
- * The 'start' and 'end' IDs are parsed as follows:
- *   Incomplete 'start' has its sequence set to 0, and 'end' to UINT64_MAX.
- *   "-" and "+"" mean the minimal and maximal ID values, respectively.
- *   The "(" prefix means an open (exclusive) range, so XRANGE stream (1-0 (2-0
- *   will match anything from 1-1 and 1-UINT64_MAX.
- */
+/* XRANGE key start end [COUNT <n>] */
 void xrangeCommand(client *c) {
     xrangeGenericCommand(c,0);
 }
 
-/* XREVRANGE key end start [COUNT <n>]
- * The 'start' and 'end' IDs are parsed as follows:
- *   Incomplete 'start' has its sequence set to 0, and 'end' to UINT64_MAX.
- *   "-" and "+"" mean the minimal and maximal ID values, respectively.
- *   The "(" prefix means an open (exclusive) range, so XRANGE stream (1-0 (2-0
- *   will match anything from 1-1 and 1-UINT64_MAX.
- */
+/* XREVRANGE key end start [COUNT <n>] */
 void xrevrangeCommand(client *c) {
     xrangeGenericCommand(c,1);
 }
