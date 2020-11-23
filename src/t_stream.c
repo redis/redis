@@ -1542,12 +1542,24 @@ void xrangeGenericCommand(client *c, int rev) {
     }
 }
 
-/* XRANGE key start end [COUNT <n>] */
+/* XRANGE key start end [COUNT <n>]
+ * The 'start' and 'end' IDs are parsed as follows:
+ *   Incomplete 'start' has its sequence set to 0, and 'end' to UINT64_MAX.
+ *   "-" and "+"" mean the minimal and maximal ID values, respectively.
+ *   The "(" prefix means an open (exclusive) range, so XRANGE stream (1-0 (2-0
+ *   will match anything from 1-1 and 1-UINT64_MAX.
+ */
 void xrangeCommand(client *c) {
     xrangeGenericCommand(c,0);
 }
 
-/* XREVRANGE key end start [COUNT <n>] */
+/* XREVRANGE key end start [COUNT <n>]
+ * The 'start' and 'end' IDs are parsed as follows:
+ *   Incomplete 'start' has its sequence set to 0, and 'end' to UINT64_MAX.
+ *   "-" and "+"" mean the minimal and maximal ID values, respectively.
+ *   The "(" prefix means an open (exclusive) range, so XRANGE stream (1-0 (2-0
+ *   will match anything from 1-1 and 1-UINT64_MAX.
+ */
 void xrevrangeCommand(client *c) {
     xrangeGenericCommand(c,1);
 }
