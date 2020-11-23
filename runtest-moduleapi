@@ -8,7 +8,7 @@ done
 
 if [ -z $TCLSH ]
 then
-    echo "You need tcl 8.5 or newer in order to run the Redis test"
+    echo "You need tcl 8.5 or newer in order to run the Redis ModuleApi test"
     exit 1
 fi
 
@@ -25,4 +25,8 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/scan \
 --single unit/moduleapi/datatype \
 --single unit/moduleapi/auth \
+--single unit/moduleapi/keyspace_events \
+--single unit/moduleapi/blockedclient \
+--single unit/moduleapi/getkeys \
+--single unit/moduleapi/test_lazyfree \
 "${@}"

@@ -21,7 +21,19 @@ start_server {tags {"tls"}} {
             catch {$s PING} e
             assert_match {PONG} $e
 
+            r CONFIG SET tls-auth-clients optional
+
+            set s [redis [srv 0 host] [srv 0 port]]
+            ::tls::import [$s channel]
+            catch {$s PING} e
+            assert_match {PONG} $e
+
             r CONFIG SET tls-auth-clients yes
+
+            set s [redis [srv 0 host] [srv 0 port]]
+            ::tls::import [$s channel]
+            catch {$s PING} e
+            assert_match {*error*} $e
         }
 
         test {TLS: Verify tls-protocols behaves as expected} {

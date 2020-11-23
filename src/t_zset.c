@@ -245,7 +245,7 @@ int zslDelete(zskiplist *zsl, double score, sds ele, zskiplistNode **node) {
     return 0; /* not found */
 }
 
-/* Update the score of an elmenent inside the sorted set skiplist.
+/* Update the score of an element inside the sorted set skiplist.
  * Note that the element must exist and must match 'score'.
  * This function does not update the score in the hash table side, the
  * caller should take care of it.
@@ -377,7 +377,8 @@ zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec *range) {
 }
 
 /* Delete all the elements with score between min and max from the skiplist.
- * Min and max are inclusive, so a score >= min || score <= max is deleted.
+ * Both min and max can be inclusive or exclusive (see range->minex and
+ * range->maxex). When inclusive a score >= min && score <= max is deleted.
  * Note that this function takes the reference to the hash table view of the
  * sorted set, in order to remove the elements from the hash table too. */
 unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec *range, dict *dict) {
@@ -1283,6 +1284,10 @@ int zsetScore(robj *zobj, sds member, double *score) {
  *            assume 0 as previous score.
  * ZADD_NX:   Perform the operation only if the element does not exist.
  * ZADD_XX:   Perform the operation only if the element already exist.
+ * ZADD_GT:   Perform the operation on existing elements only if the new score is 
+ *            greater than the current score.
+ * ZADD_LT:   Perform the operation on existing elements only if the new score is 
+ *            less than the current score.
  *
  * When ZADD_INCR is used, the new score of the element is stored in
  * '*newscore' if 'newscore' is not NULL.
@@ -1317,6 +1322,8 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
     int incr = (*flags & ZADD_INCR) != 0;
     int nx = (*flags & ZADD_NX) != 0;
     int xx = (*flags & ZADD_XX) != 0;
+    int gt = (*flags & ZADD_GT) != 0;
+    int lt = (*flags & ZADD_LT) != 0;
     *flags = 0; /* We'll return our response flags. */
     double curscore;
 
@@ -1348,7 +1355,12 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
             }
 
             /* Remove and re-insert when score changed. */
-            if (score != curscore) {
+            if (score != curscore &&  
+                /* LT? Only update if score is less than current. */
+                (!lt || score < curscore) &&
+                /* GT? Only update if score is greater than current. */
+                (!gt || score > curscore)) 
+            {
                 zobj->ptr = zzlDelete(zobj->ptr,eptr);
                 zobj->ptr = zzlInsert(zobj->ptr,ele,score);
                 *flags |= ZADD_UPDATED;
@@ -1393,7 +1405,12 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
             }
 
             /* Remove and re-insert when score changes. */
-            if (score != curscore) {
+            if (score != curscore &&  
+                /* LT? Only update if score is less than current. */
+                (!lt || score < curscore) &&
+                /* GT? Only update if score is greater than current. */
+                (!gt || score > curscore)) 
+            {
                 znode = zslUpdateScore(zs->zsl,curscore,ele,score);
                 /* Note that we did not removed the original element from
                  * the hash table representing the sorted set, so we just
@@ -1419,6 +1436,36 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
     return 0; /* Never reached. */
 }
 
+/* Deletes the element 'ele' from the sorted set encoded as a skiplist+dict,
+ * returning 1 if the element existed and was deleted, 0 otherwise (the
+ * element was not there). It does not resize the dict after deleting the
+ * element. */
+static int zsetRemoveFromSkiplist(zset *zs, sds ele) {
+    dictEntry *de;
+    double score;
+
+    de = dictUnlink(zs->dict,ele);
+    if (de != NULL) {
+        /* Get the score in order to delete from the skiplist later. */
+        score = *(double*)dictGetVal(de);
+
+        /* Delete from the hash table and later from the skiplist.
+         * Note that the order is important: deleting from the skiplist
+         * actually releases the SDS string representing the element,
+         * which is shared between the skiplist and the hash table, so
+         * we need to delete from the skiplist as the final step. */
+        dictFreeUnlinkedEntry(zs->dict,de);
+
+        /* Delete from skiplist. */
+        int retval = zslDelete(zs->zsl,score,ele,NULL);
+        serverAssert(retval);
+
+        return 1;
+    }
+
+    return 0;
+}
+
 /* Delete the element 'ele' from the sorted set, returning 1 if the element
  * existed and was deleted, 0 otherwise (the element was not there). */
 int zsetDel(robj *zobj, sds ele) {
@@ -1431,25 +1478,7 @@ int zsetDel(robj *zobj, sds ele) {
         }
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;
-        dictEntry *de;
-        double score;
-
-        de = dictUnlink(zs->dict,ele);
-        if (de != NULL) {
-            /* Get the score in order to delete from the skiplist later. */
-            score = *(double*)dictGetVal(de);
-
-            /* Delete from the hash table and later from the skiplist.
-             * Note that the order is important: deleting from the skiplist
-             * actually releases the SDS string representing the element,
-             * which is shared between the skiplist and the hash table, so
-             * we need to delete from the skiplist as the final step. */
-            dictFreeUnlinkedEntry(zs->dict,de);
-
-            /* Delete from skiplist. */
-            int retval = zslDelete(zs->zsl,score,ele,NULL);
-            serverAssert(retval);
-
+        if (zsetRemoveFromSkiplist(zs, ele)) {
             if (htNeedsResize(zs->dict)) dictResize(zs->dict);
             return 1;
         }
@@ -1525,6 +1554,68 @@ long zsetRank(robj *zobj, sds ele, int reverse) {
     }
 }
 
+/* This is a helper function for the COPY command.
+ * Duplicate a sorted set object, with the guarantee that the returned object
+ * has the same encoding as the original one.
+ *
+ * The resulting object always has refcount set to 1 */
+robj *zsetDup(robj *o) {
+    robj *zobj;
+    zset *zs;
+    zset *new_zs;
+
+    serverAssert(o->type == OBJ_ZSET);
+
+    /* Create a new sorted set object that have the same encoding as the original object's encoding */
+    switch (o->encoding) {
+        case OBJ_ENCODING_ZIPLIST:
+            zobj = createZsetZiplistObject();
+            break;
+        case OBJ_ENCODING_SKIPLIST:
+            zobj = createZsetObject();
+            zs = o->ptr;
+            new_zs = zobj->ptr;
+            dictExpand(new_zs->dict,dictSize(zs->dict));
+            break;
+        default:
+            serverPanic("Wrong encoding.");
+            break;
+    }
+    if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
+        unsigned char *zl = o->ptr;
+        size_t sz = ziplistBlobLen(zl);
+        unsigned char *new_zl = zmalloc(sz);
+        memcpy(new_zl, zl, sz);
+        zfree(zobj->ptr);
+        zobj->ptr = new_zl;
+    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
+        zs = o->ptr;
+        new_zs = zobj->ptr;
+        zskiplist *zsl = zs->zsl;
+        zskiplistNode *ln;
+        sds ele;
+        long llen = zsetLength(o);
+
+        /* We copy the skiplist elements from the greatest to the
+         * smallest (that's trivial since the elements are already ordered in
+         * the skiplist): this improves the load process, since the next loaded
+         * element will always be the smaller, so adding to the skiplist
+         * will always immediately stop at the head, making the insertion
+         * O(1) instead of O(log(N)). */
+        ln = zsl->tail;
+        while (llen--) {
+            ele = ln->ele;
+            sds new_ele = sdsdup(ele);
+            zskiplistNode *znode = zslInsert(new_zs->zsl,ln->score,new_ele);
+            dictAdd(new_zs->dict,new_ele,&znode->score);
+            ln = ln->backward;
+        }
+    } else {
+        serverPanic("Unknown sorted set encoding");
+    }
+    return zobj;
+}
+
 /*-----------------------------------------------------------------------------
  * Sorted set commands
  *----------------------------------------------------------------------------*/
@@ -1555,6 +1646,8 @@ void zaddGenericCommand(client *c, int flags) {
         else if (!strcasecmp(opt,"xx")) flags |= ZADD_XX;
         else if (!strcasecmp(opt,"ch")) flags |= ZADD_CH;
         else if (!strcasecmp(opt,"incr")) flags |= ZADD_INCR;
+        else if (!strcasecmp(opt,"gt")) flags |= ZADD_GT;
+        else if (!strcasecmp(opt,"lt")) flags |= ZADD_LT;
         else break;
         scoreidx++;
     }
@@ -1564,6 +1657,8 @@ void zaddGenericCommand(client *c, int flags) {
     int nx = (flags & ZADD_NX) != 0;
     int xx = (flags & ZADD_XX) != 0;
     int ch = (flags & ZADD_CH) != 0;
+    int gt = (flags & ZADD_GT) != 0;
+    int lt = (flags & ZADD_LT) != 0;
 
     /* After the options, we expect to have an even number of args, since
      * we expect any number of score-element pairs. */
@@ -1580,6 +1675,13 @@ void zaddGenericCommand(client *c, int flags) {
             "XX and NX options at the same time are not compatible");
         return;
     }
+    
+    if ((gt && nx) || (lt && nx) || (gt && lt)) {
+        addReplyError(c,
+            "GT, LT, and/or NX options at the same time are not compatible");
+        return;
+    }
+    /* Note that XX is compatible with either GT or LT */
 
     if (incr && elements > 1) {
         addReplyError(c,
@@ -1598,6 +1700,7 @@ void zaddGenericCommand(client *c, int flags) {
 
     /* Lookup the key and create the sorted set if does not exist. */
     zobj = lookupKeyWrite(c->db,key);
+    if (checkType(c,zobj,OBJ_ZSET)) goto cleanup;
     if (zobj == NULL) {
         if (xx) goto reply_to_client; /* No key + XX option: nothing to do. */
         if (server.zset_max_ziplist_entries == 0 ||
@@ -1608,11 +1711,6 @@ void zaddGenericCommand(client *c, int flags) {
             zobj = createZsetZiplistObject();
         }
         dbAdd(c->db,key,zobj);
-    } else {
-        if (zobj->type != OBJ_ZSET) {
-            addReply(c,shared.wrongtypeerr);
-            goto cleanup;
-        }
     }
 
     for (j = 0; j < elements; j++) {
@@ -2139,6 +2237,10 @@ int zuiCompareByCardinality(const void *s1, const void *s2) {
     return 0;
 }
 
+static int zuiCompareByRevCardinality(const void *s1, const void *s2) {
+    return zuiCompareByCardinality(s1, s2) * -1;
+}
+
 #define REDIS_AGGR_SUM 1
 #define REDIS_AGGR_MIN 2
 #define REDIS_AGGR_MAX 3
@@ -2161,6 +2263,182 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
     }
 }
 
+static int zsetDictGetMaxElementLength(dict *d) {
+    dictIterator *di;
+    dictEntry *de;
+    size_t maxelelen = 0;
+
+    di = dictGetIterator(d);
+
+    while((de = dictNext(di)) != NULL) {
+        sds ele = dictGetKey(de);
+        if (sdslen(ele) > maxelelen) maxelelen = sdslen(ele);
+    }
+
+    dictReleaseIterator(di);
+
+    return maxelelen;
+}
+
+static void zdiffAlgorithm1(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen) {
+    /* DIFF Algorithm 1:
+     *
+     * We perform the diff by iterating all the elements of the first set,
+     * and only adding it to the target set if the element does not exist
+     * into all the other sets.
+     *
+     * This way we perform at max N*M operations, where N is the size of
+     * the first set, and M the number of sets.
+     *
+     * There is also a O(K*log(K)) cost for adding the resulting elements
+     * to the target set, where K is the final size of the target set.
+     *
+     * The final complexity of this algorithm is O(N*M + K*log(K)). */
+    int j;
+    zsetopval zval;
+    zskiplistNode *znode;
+    sds tmp;
+
+    /* With algorithm 1 it is better to order the sets to subtract
+     * by decreasing size, so that we are more likely to find
+     * duplicated elements ASAP. */
+    qsort(src+1,setnum-1,sizeof(zsetopsrc),zuiCompareByRevCardinality);
+
+    memset(&zval, 0, sizeof(zval));
+    zuiInitIterator(&src[0]);
+    while (zuiNext(&src[0],&zval)) {
+        double value;
+        int exists = 0;
+
+        for (j = 1; j < setnum; j++) {
+            /* It is not safe to access the zset we are
+             * iterating, so explicitly check for equal object.
+             * This check isn't really needed anymore since we already
+             * check for a duplicate set in the zsetChooseDiffAlgorithm
+             * function, but we're leaving it for future-proofing. */
+            if (src[j].subject == src[0].subject ||
+                zuiFind(&src[j],&zval,&value)) {
+                exists = 1;
+                break;
+            }
+        }
+
+        if (!exists) {
+            tmp = zuiNewSdsFromValue(&zval);
+            znode = zslInsert(dstzset->zsl,zval.score,tmp);
+            dictAdd(dstzset->dict,tmp,&znode->score);
+            if (sdslen(tmp) > *maxelelen) *maxelelen = sdslen(tmp);
+        }
+    }
+    zuiClearIterator(&src[0]);
+}
+
+
+static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen) {
+    /* DIFF Algorithm 2:
+     *
+     * Add all the elements of the first set to the auxiliary set.
+     * Then remove all the elements of all the next sets from it.
+     *
+
+     * This is O(L + (N-K)log(N)) where L is the sum of all the elements in every
+     * set, N is the size of the first set, and K is the size of the result set.
+     *
+     * Note that from the (L-N) dict searches, (N-K) got to the zsetRemoveFromSkiplist
+     * which costs log(N)
+     *
+     * There is also a O(K) cost at the end for finding the largest element
+     * size, but this doesn't change the algorithm complexity since K < L, and
+     * O(2L) is the same as O(L). */
+    int j;
+    int cardinality = 0;
+    zsetopval zval;
+    zskiplistNode *znode;
+    sds tmp;
+
+    for (j = 0; j < setnum; j++) {
+        if (zuiLength(&src[j]) == 0) continue;
+
+        memset(&zval, 0, sizeof(zval));
+        zuiInitIterator(&src[j]);
+        while (zuiNext(&src[j],&zval)) {
+            if (j == 0) {
+                tmp = zuiNewSdsFromValue(&zval);
+                znode = zslInsert(dstzset->zsl,zval.score,tmp);
+                dictAdd(dstzset->dict,tmp,&znode->score);
+                cardinality++;
+            } else {
+                tmp = zuiSdsFromValue(&zval);
+                if (zsetRemoveFromSkiplist(dstzset, tmp)) {
+                    cardinality--;
+                }
+            }
+
+            /* Exit if result set is empty as any additional removal
+                * of elements will have no effect. */
+            if (cardinality == 0) break;
+        }
+        zuiClearIterator(&src[j]);
+
+        if (cardinality == 0) break;
+    }
+
+    /* Redize dict if needed after removing multiple elements */
+    if (htNeedsResize(dstzset->dict)) dictResize(dstzset->dict);
+
+    /* Using this algorithm, we can't calculate the max element as we go,
+     * we have to iterate through all elements to find the max one after. */
+    *maxelelen = zsetDictGetMaxElementLength(dstzset->dict);
+}
+
+static int zsetChooseDiffAlgorithm(zsetopsrc *src, long setnum) {
+    int j;
+
+    /* Select what DIFF algorithm to use.
+     *
+     * Algorithm 1 is O(N*M + K*log(K)) where N is the size of the
+     * first set, M the total number of sets, and K is the size of the
+     * result set.
+     *
+     * Algorithm 2 is O(L + (N-K)log(N)) where L is the total number of elements
+     * in all the sets, N is the size of the first set, and K is the size of the
+     * result set.
+     *
+     * We compute what is the best bet with the current input here. */
+    long long algo_one_work = 0;
+    long long algo_two_work = 0;
+
+    for (j = 0; j < setnum; j++) {
+        /* If any other set is equal to the first set, there is nothing to be
+         * done, since we would remove all elements anyway. */
+        if (j > 0 && src[0].subject == src[j].subject) {
+            return 0;
+        }
+
+        algo_one_work += zuiLength(&src[0]);
+        algo_two_work += zuiLength(&src[j]);
+    }
+
+    /* Algorithm 1 has better constant times and performs less operations
+     * if there are elements in common. Give it some advantage. */
+    algo_one_work /= 2;
+    return (algo_one_work <= algo_two_work) ? 1 : 2;
+}
+
+static void zdiff(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen) {
+    /* Skip everything if the smallest input is empty. */
+    if (zuiLength(&src[0]) > 0) {
+        int diff_algo = zsetChooseDiffAlgorithm(src, setnum);
+        if (diff_algo == 1) {
+            zdiffAlgorithm1(src, setnum, dstzset, maxelelen);
+        } else if (diff_algo == 2) {
+            zdiffAlgorithm2(src, setnum, dstzset, maxelelen);
+        } else if (diff_algo != 0) {
+            serverPanic("Unknown algorithm");
+        }
+    }
+}
+
 uint64_t dictSdsHash(const void *key);
 int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
 
@@ -2173,7 +2451,15 @@ dictType setAccumulatorDictType = {
     NULL                       /* val destructor */
 };
 
-void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
+/* The zunionInterDiffGenericCommand() function is called in order to implement the
+ * following commands: ZUNION, ZINTER, ZDIFF, ZUNIONSTORE, ZINTERSTORE, ZDIFFSTORE.
+ *
+ * 'numkeysIndex' parameter position of key number. for ZUNION/ZINTER/ZDIFF command,
+ * this value is 1, for ZUNIONSTORE/ZINTERSTORE/ZDIFFSTORE command, this value is 2.
+ *
+ * 'op' SET_OP_INTER, SET_OP_UNION or SET_OP_DIFF.
+ */
+void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, int op) {
     int i, j;
     long setnum;
     int aggregate = REDIS_AGGR_SUM;
@@ -2184,26 +2470,27 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
     robj *dstobj;
     zset *dstzset;
     zskiplistNode *znode;
+    int withscores = 0;
 
     /* expect setnum input keys to be given */
-    if ((getLongFromObjectOrReply(c, c->argv[2], &setnum, NULL) != C_OK))
+    if ((getLongFromObjectOrReply(c, c->argv[numkeysIndex], &setnum, NULL) != C_OK))
         return;
 
     if (setnum < 1) {
         addReplyError(c,
-            "at least 1 input key is needed for ZUNIONSTORE/ZINTERSTORE");
+            "at least 1 input key is needed for ZUNIONSTORE/ZINTERSTORE/ZDIFFSTORE");
         return;
     }
 
     /* test if the expected number of keys would overflow */
-    if (setnum > c->argc-3) {
+    if (setnum > (c->argc-(numkeysIndex+1))) {
         addReply(c,shared.syntaxerr);
         return;
     }
 
     /* read keys to be used for input */
     src = zcalloc(sizeof(zsetopsrc) * setnum);
-    for (i = 0, j = 3; i < setnum; i++, j++) {
+    for (i = 0, j = numkeysIndex+1; i < setnum; i++, j++) {
         robj *obj = lookupKeyWrite(c->db,c->argv[j]);
         if (obj != NULL) {
             if (obj->type != OBJ_ZSET && obj->type != OBJ_SET) {
@@ -2228,7 +2515,8 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
         int remaining = c->argc - j;
 
         while (remaining) {
-            if (remaining >= (setnum + 1) &&
+            if (op != SET_OP_DIFF &&
+                remaining >= (setnum + 1) &&
                 !strcasecmp(c->argv[j]->ptr,"weights"))
             {
                 j++; remaining--;
@@ -2240,7 +2528,8 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
                         return;
                     }
                 }
-            } else if (remaining >= 2 &&
+            } else if (op != SET_OP_DIFF &&
+                       remaining >= 2 &&
                        !strcasecmp(c->argv[j]->ptr,"aggregate"))
             {
                 j++; remaining--;
@@ -2256,6 +2545,12 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
                     return;
                 }
                 j++; remaining--;
+            } else if (remaining >= 1 &&
+                       !dstkey &&
+                       !strcasecmp(c->argv[j]->ptr,"withscores"))
+            {
+                j++; remaining--;
+                withscores = 1;
             } else {
                 zfree(src);
                 addReply(c,shared.syntaxerr);
@@ -2264,9 +2559,11 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
         }
     }
 
-    /* sort sets from the smallest to largest, this will improve our
-     * algorithm's performance */
-    qsort(src,setnum,sizeof(zsetopsrc),zuiCompareByCardinality);
+    if (op != SET_OP_DIFF) {
+        /* sort sets from the smallest to largest, this will improve our
+        * algorithm's performance */
+        qsort(src,setnum,sizeof(zsetopsrc),zuiCompareByCardinality);
+    }
 
     dstobj = createZsetObject();
     dstzset = dstobj->ptr;
@@ -2372,24 +2669,44 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
         }
         dictReleaseIterator(di);
         dictRelease(accumulator);
+    } else if (op == SET_OP_DIFF) {
+        zdiff(src, setnum, dstzset, &maxelelen);
     } else {
         serverPanic("Unknown operator");
     }
 
-    if (dstzset->zsl->length) {
-        zsetConvertToZiplistIfNeeded(dstobj,maxelelen);
-        setKey(c,c->db,dstkey,dstobj);
-        addReplyLongLong(c,zsetLength(dstobj));
-        notifyKeyspaceEvent(NOTIFY_ZSET,
-            (op == SET_OP_UNION) ? "zunionstore" : "zinterstore",
-            dstkey,c->db->id);
-        server.dirty++;
-    } else {
-        addReply(c,shared.czero);
-        if (dbDelete(c->db,dstkey)) {
-            signalModifiedKey(c,c->db,dstkey);
-            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",dstkey,c->db->id);
+    if (dstkey) {
+        if (dstzset->zsl->length) {
+            zsetConvertToZiplistIfNeeded(dstobj, maxelelen);
+            setKey(c, c->db, dstkey, dstobj);
+            addReplyLongLong(c, zsetLength(dstobj));
+            notifyKeyspaceEvent(NOTIFY_ZSET,
+                                (op == SET_OP_UNION) ? "zunionstore" :
+                                    (op == SET_OP_INTER ? "zinterstore" : "zdiffstore"),
+                                dstkey, c->db->id);
             server.dirty++;
+        } else {
+            addReply(c, shared.czero);
+            if (dbDelete(c->db, dstkey)) {
+                signalModifiedKey(c, c->db, dstkey);
+                notifyKeyspaceEvent(NOTIFY_GENERIC, "del", dstkey, c->db->id);
+                server.dirty++;
+            }
+        }
+    } else {
+        unsigned long length = dstzset->zsl->length;
+        zskiplist *zsl = dstzset->zsl;
+        zskiplistNode *zn = zsl->header->level[0].forward;
+        if (withscores && c->resp == 2)
+            addReplyArrayLen(c, length*2);
+        else
+            addReplyArrayLen(c, length);
+
+        while (zn != NULL) {
+            if (withscores && c->resp > 2) addReplyArrayLen(c,2);
+            addReplyBulkCBuffer(c,zn->ele,sdslen(zn->ele));
+            if (withscores) addReplyDouble(c,zn->score);
+            zn = zn->level[0].forward;
         }
     }
     decrRefCount(dstobj);
@@ -2397,11 +2714,27 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
 }
 
 void zunionstoreCommand(client *c) {
-    zunionInterGenericCommand(c,c->argv[1], SET_OP_UNION);
+    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_UNION);
 }
 
 void zinterstoreCommand(client *c) {
-    zunionInterGenericCommand(c,c->argv[1], SET_OP_INTER);
+    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_INTER);
+}
+
+void zdiffstoreCommand(client *c) {
+    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_DIFF);
+}
+
+void zunionCommand(client *c) {
+    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_UNION);
+}
+
+void zinterCommand(client *c) {
+    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_INTER);
+}
+
+void zdiffCommand(client *c) {
+    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_DIFF);
 }
 
 void zrangeGenericCommand(client *c, int reverse) {
@@ -2573,6 +2906,12 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
     /* Ok, lookup the key and get the range */
     if ((zobj = lookupKeyReadOrReply(c,key,shared.emptyarray)) == NULL ||
         checkType(c,zobj,OBJ_ZSET)) return;
+
+    /* For invalid offset, return directly. */
+    if (offset > 0 && offset >= (long)zsetLength(zobj)) {
+        addReply(c,shared.emptyarray);
+        return;
+    }
 
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl = zobj->ptr;
@@ -3082,6 +3421,24 @@ void zscoreCommand(client *c) {
     }
 }
 
+void zmscoreCommand(client *c) {
+    robj *key = c->argv[1];
+    robj *zobj;
+    double score;
+    zobj = lookupKeyRead(c->db,key);
+    if (checkType(c,zobj,OBJ_ZSET)) return;
+
+    addReplyArrayLen(c,c->argc - 2);
+    for (int j = 2; j < c->argc; j++) {
+        /* Treat a missing set the same way as an empty set */
+        if (zobj == NULL || zsetScore(zobj,c->argv[j]->ptr,&score) == C_ERR) {
+            addReplyNull(c);
+        } else {
+            addReplyDouble(c,score);
+        }
+    }
+}
+
 void zrankGenericCommand(client *c, int reverse) {
     robj *key = c->argv[1];
     robj *ele = c->argv[2];
@@ -3262,33 +3619,29 @@ void blockingGenericZpopCommand(client *c, int where) {
 
     for (j = 1; j < c->argc-1; j++) {
         o = lookupKeyWrite(c->db,c->argv[j]);
+        if (checkType(c,o,OBJ_ZSET)) return;
         if (o != NULL) {
-            if (o->type != OBJ_ZSET) {
-                addReply(c,shared.wrongtypeerr);
+            if (zsetLength(o) != 0) {
+                /* Non empty zset, this is like a normal ZPOP[MIN|MAX]. */
+                genericZpopCommand(c,&c->argv[j],1,where,1,NULL);
+                /* Replicate it as an ZPOP[MIN|MAX] instead of BZPOP[MIN|MAX]. */
+                rewriteClientCommandVector(c,2,
+                    where == ZSET_MAX ? shared.zpopmax : shared.zpopmin,
+                    c->argv[j]);
                 return;
-            } else {
-                if (zsetLength(o) != 0) {
-                    /* Non empty zset, this is like a normal ZPOP[MIN|MAX]. */
-                    genericZpopCommand(c,&c->argv[j],1,where,1,NULL);
-                    /* Replicate it as an ZPOP[MIN|MAX] instead of BZPOP[MIN|MAX]. */
-                    rewriteClientCommandVector(c,2,
-                        where == ZSET_MAX ? shared.zpopmax : shared.zpopmin,
-                        c->argv[j]);
-                    return;
-                }
             }
         }
     }
 
-    /* If we are inside a MULTI/EXEC and the zset is empty the only thing
+    /* If we are not allowed to block the client and the zset is empty the only thing
      * we can do is treating it as a timeout (even with timeout 0). */
-    if (c->flags & CLIENT_MULTI) {
+    if (c->flags & CLIENT_DENY_BLOCKING) {
         addReplyNullArray(c);
         return;
     }
 
     /* If the keys do not exist we must block */
-    blockForKeys(c,BLOCKED_ZSET,c->argv + 1,c->argc - 2,timeout,NULL,NULL);
+    blockForKeys(c,BLOCKED_ZSET,c->argv + 1,c->argc - 2,timeout,NULL,NULL,NULL);
 }
 
 // BZPOPMIN key [key ...] timeout

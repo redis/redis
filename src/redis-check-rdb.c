@@ -58,6 +58,7 @@ struct {
 #define RDB_CHECK_DOING_CHECK_SUM 5
 #define RDB_CHECK_DOING_READ_LEN 6
 #define RDB_CHECK_DOING_READ_AUX 7
+#define RDB_CHECK_DOING_READ_MODULE_AUX 8
 
 char *rdb_check_doing_string[] = {
     "start",
@@ -67,7 +68,8 @@ char *rdb_check_doing_string[] = {
     "read-object-value",
     "check-sum",
     "read-len",
-    "read-aux"
+    "read-aux",
+    "read-module-aux"
 };
 
 char *rdb_type_string[] = {
@@ -170,6 +172,7 @@ void rdbCheckSetupSignals(void) {
     sigaction(SIGBUS, &act, NULL);
     sigaction(SIGFPE, &act, NULL);
     sigaction(SIGILL, &act, NULL);
+    sigaction(SIGABRT, &act, NULL);
 }
 
 /* Check the specified RDB file. Return 0 if the RDB looks sane, otherwise
@@ -272,6 +275,21 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             decrRefCount(auxkey);
             decrRefCount(auxval);
             continue; /* Read type again. */
+        } else if (type == RDB_OPCODE_MODULE_AUX) {
+            /* AUX: Auxiliary data for modules. */
+            uint64_t moduleid, when_opcode, when;
+            rdbstate.doing = RDB_CHECK_DOING_READ_MODULE_AUX;
+            if ((moduleid = rdbLoadLen(&rdb,NULL)) == RDB_LENERR) goto eoferr;
+            if ((when_opcode = rdbLoadLen(&rdb,NULL)) == RDB_LENERR) goto eoferr;
+            if ((when = rdbLoadLen(&rdb,NULL)) == RDB_LENERR) goto eoferr;
+
+            char name[10];
+            moduleTypeNameByID(name,moduleid);
+            rdbCheckInfo("MODULE AUX for: %s", name);
+
+            robj *o = rdbLoadCheckModuleValue(&rdb,name);
+            decrRefCount(o);
+            continue; /* Read type again. */
         } else {
             if (!rdbIsObjectType(type)) {
                 rdbCheckError("Invalid object type: %d", type);
@@ -331,7 +349,7 @@ err:
     return 1;
 }
 
-/* RDB check main: called form redis.c when Redis is executed with the
+/* RDB check main: called form server.c when Redis is executed with the
  * redis-check-rdb alias, on during RDB loading errors.
  *
  * The function works in two ways: can be called with argc/argv as a

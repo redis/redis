@@ -28,6 +28,12 @@ int fork_create(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
     }
+
+    if(!RMAPI_FUNC_SUPPORTED(RedisModule_Fork)){
+        RedisModule_ReplyWithError(ctx, "Fork api is not supported in the current redis version");
+        return REDISMODULE_OK;
+    }
+
     RedisModule_StringToLongLong(argv[1], &code_to_exit_with);
     exitted_with_code = -1;
     child_pid = RedisModule_Fork(done_handler, (void*)0xdeadbeef);

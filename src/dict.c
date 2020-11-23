@@ -237,8 +237,12 @@ long long timeInMilliseconds(void) {
     return (((long long)tv.tv_sec)*1000)+(tv.tv_usec/1000);
 }
 
-/* Rehash for an amount of time between ms milliseconds and ms+1 milliseconds */
+/* Rehash in ms+"delta" milliseconds. The value of "delta" is larger 
+ * than 0, and is smaller than 1 in most cases. The exact upper bound 
+ * depends on the running time of dictRehash(d,100).*/
 int dictRehashMilliseconds(dict *d, int ms) {
+    if (d->iterators > 0) return 0;
+
     long long start = timeInMilliseconds();
     int rehashes = 0;
 
@@ -619,9 +623,7 @@ dictEntry *dictGetRandomKey(dict *d)
         do {
             /* We are sure there are no elements in indexes from 0
              * to rehashidx-1 */
-            h = d->rehashidx + (random() % (d->ht[0].size +
-                                            d->ht[1].size -
-                                            d->rehashidx));
+            h = d->rehashidx + (random() % (dictSlots(d) - d->rehashidx));
             he = (h >= d->ht[0].size) ? d->ht[1].table[h - d->ht[0].size] :
                                       d->ht[0].table[h];
         } while(he == NULL);
@@ -749,7 +751,7 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
  * this function instead what we do is to consider a "linear" range of the table
  * that may be constituted of N buckets with chains of different lengths
  * appearing one after the other. Then we report a random element in the range.
- * In this way we smooth away the problem of different chain lenghts. */
+ * In this way we smooth away the problem of different chain lengths. */
 #define GETFAIR_NUM_ENTRIES 15
 dictEntry *dictGetFairRandomKey(dict *d) {
     dictEntry *entries[GETFAIR_NUM_ENTRIES];
@@ -757,7 +759,7 @@ dictEntry *dictGetFairRandomKey(dict *d) {
     /* Note that dictGetSomeKeys() may return zero elements in an unlucky
      * run() even if there are actually elements inside the hash table. So
      * when we get zero, we call the true dictGetRandomKey() that will always
-     * yeld the element if the hash table has at least one. */
+     * yield the element if the hash table has at least one. */
     if (count == 0) return dictGetRandomKey(d);
     unsigned int idx = rand() % count;
     return entries[idx];
@@ -1119,7 +1121,7 @@ size_t _dictGetStatsHt(char *buf, size_t bufsize, dictht *ht, int tableid) {
             i, clvector[i], ((float)clvector[i]/ht->size)*100);
     }
 
-    /* Unlike snprintf(), teturn the number of characters actually written. */
+    /* Unlike snprintf(), return the number of characters actually written. */
     if (bufsize) buf[bufsize-1] = '\0';
     return strlen(buf);
 }

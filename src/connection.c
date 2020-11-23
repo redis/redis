@@ -85,8 +85,12 @@ connection *connCreateSocket() {
 /* Create a new socket-type connection that is already associated with
  * an accepted connection.
  *
- * The socket is not read for I/O until connAccept() was called and
+ * The socket is not ready for I/O until connAccept() was called and
  * invoked the connection-level accept handler.
+ *
+ * Callers should use connGetState() and verify the created connection
+ * is not in an error state (which is not possible for a socket connection,
+ * but could but possible with other protocols).
  */
 connection *connCreateAcceptedSocket(int fd) {
     connection *conn = connCreateSocket();
@@ -164,7 +168,12 @@ static int connSocketWrite(connection *conn, const void *data, size_t data_len) 
     int ret = write(conn->fd, data, data_len);
     if (ret < 0 && errno != EAGAIN) {
         conn->last_errno = errno;
-        conn->state = CONN_STATE_ERROR;
+
+        /* Don't overwrite the state of a connection that is not already
+         * connected, not to mess with handler callbacks.
+         */
+        if (conn->state == CONN_STATE_CONNECTED)
+            conn->state = CONN_STATE_ERROR;
     }
 
     return ret;
@@ -176,7 +185,12 @@ static int connSocketRead(connection *conn, void *buf, size_t buf_len) {
         conn->state = CONN_STATE_CLOSED;
     } else if (ret < 0 && errno != EAGAIN) {
         conn->last_errno = errno;
-        conn->state = CONN_STATE_ERROR;
+
+        /* Don't overwrite the state of a connection that is not already
+         * connected, not to mess with handler callbacks.
+         */
+        if (conn->state == CONN_STATE_CONNECTED)
+            conn->state = CONN_STATE_ERROR;
     }
 
     return ret;
@@ -247,8 +261,9 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
     if (conn->state == CONN_STATE_CONNECTING &&
             (mask & AE_WRITABLE) && conn->conn_handler) {
 
-        if (connGetSocketError(conn)) {
-            conn->last_errno = errno;
+        int conn_error = connGetSocketError(conn);
+        if (conn_error) {
+            conn->last_errno = conn_error;
             conn->state = CONN_STATE_ERROR;
         } else {
             conn->state = CONN_STATE_CONNECTED;
@@ -325,6 +340,11 @@ static ssize_t connSocketSyncReadLine(connection *conn, char *ptr, ssize_t size,
     return syncReadLine(conn->fd, ptr, size, timeout);
 }
 
+static int connSocketGetType(connection *conn) {
+    (void) conn;
+
+    return CONN_TYPE_SOCKET;
+}
 
 ConnectionType CT_Socket = {
     .ae_handler = connSocketEventHandler,
@@ -339,7 +359,8 @@ ConnectionType CT_Socket = {
     .blocking_connect = connSocketBlockingConnect,
     .sync_write = connSocketSyncWrite,
     .sync_read = connSocketSyncRead,
-    .sync_readline = connSocketSyncReadLine
+    .sync_readline = connSocketSyncReadLine,
+    .get_type = connSocketGetType
 };
 
 
@@ -353,15 +374,15 @@ int connGetSocketError(connection *conn) {
 }
 
 int connPeerToString(connection *conn, char *ip, size_t ip_len, int *port) {
-    return anetPeerToString(conn ? conn->fd : -1, ip, ip_len, port);
-}
-
-int connFormatPeer(connection *conn, char *buf, size_t buf_len) {
-    return anetFormatPeer(conn ? conn->fd : -1, buf, buf_len);
+    return anetFdToString(conn ? conn->fd : -1, ip, ip_len, port, FD_TO_PEER_NAME);
 }
 
 int connSockName(connection *conn, char *ip, size_t ip_len, int *port) {
-    return anetSockName(conn->fd, ip, ip_len, port);
+    return anetFdToString(conn->fd, ip, ip_len, port, FD_TO_SOCK_NAME);
+}
+
+int connFormatFdAddr(connection *conn, char *buf, size_t buf_len, int fd_to_str_type) {
+    return anetFormatFdAddr(conn ? conn->fd : -1, buf, buf_len, fd_to_str_type);
 }
 
 int connBlock(connection *conn) {

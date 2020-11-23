@@ -221,7 +221,7 @@ start_server {tags {"multi"}} {
         r exec
     } {}
 
-    test {WATCH will not consider touched expired keys} {
+    test {WATCH will consider touched expired keys} {
         r del x
         r set x foo
         r expire x 1
@@ -230,7 +230,7 @@ start_server {tags {"multi"}} {
         r multi
         r ping
         r exec
-    } {PONG}
+    } {}
 
     test {DISCARD should clear the WATCH dirty flag on the client} {
         r watch x
@@ -466,4 +466,59 @@ start_server {tags {"multi"}} {
         assert { $xx == 1 }
         $r1 close;
     }
+
+    test {EXEC with only read commands should not be rejected when OOM} {
+        set r2 [redis_client]
+
+        r set x value
+        r multi
+        r get x
+        r ping
+
+        # enforcing OOM
+        $r2 config set maxmemory 1
+
+        # finish the multi transaction with exec
+        assert { [r exec] == {value PONG} }
+
+        # releasing OOM
+        $r2 config set maxmemory 0
+        $r2 close
+    }
+
+    test {EXEC with at least one use-memory command should fail} {
+        set r2 [redis_client]
+
+        r multi
+        r set x 1
+        r get x
+
+        # enforcing OOM
+        $r2 config set maxmemory 1
+
+        # finish the multi transaction with exec
+        catch {r exec} e
+        assert_match {EXECABORT*OOM*} $e
+
+        # releasing OOM
+        $r2 config set maxmemory 0
+        $r2 close
+    }
+
+    test {Blocking commands ignores the timeout} {
+        r xgroup create s g $ MKSTREAM
+
+        set m [r multi]
+        r blpop empty_list 0
+        r brpop empty_list 0
+        r brpoplpush empty_list1 empty_list2 0
+        r blmove empty_list1 empty_list2 LEFT LEFT 0
+        r bzpopmin empty_zset 0
+        r bzpopmax empty_zset 0
+        r xread BLOCK 0 STREAMS s $
+        r xreadgroup group g c BLOCK 0 STREAMS s >
+        set res [r exec]
+
+        list $m $res
+    } {OK {{} {} {} {} {} {} {} {}}}
 }

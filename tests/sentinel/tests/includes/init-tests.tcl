@@ -18,7 +18,7 @@ test "(init) Remove old master entry from sentinels" {
     }
 }
 
-set redis_slaves 4
+set redis_slaves [expr $::instances_count - 1]
 test "(init) Create a master-slaves cluster of [expr $redis_slaves+1] instances" {
     create_redis_master_slave_cluster [expr {$redis_slaves+1}]
 }

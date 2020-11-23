@@ -36,7 +36,7 @@
 
 /* Count number of bits set in the binary array pointed by 's' and long
  * 'count' bytes. The implementation of this function is required to
- * work with a input string length up to 512 MB. */
+ * work with an input string length up to 512 MB. */
 size_t redisPopcount(void *s, long count) {
     size_t bits = 0;
     unsigned char *p = s;
@@ -107,7 +107,7 @@ long redisBitpos(void *s, unsigned long count, int bit) {
     int found;
 
     /* Process whole words first, seeking for first word that is not
-     * all ones or all zeros respectively if we are lookig for zeros
+     * all ones or all zeros respectively if we are looking for zeros
      * or ones. This is much faster with large strings having contiguous
      * blocks of 1 or 0 bits compared to the vanilla bit per bit processing.
      *
@@ -480,12 +480,12 @@ int getBitfieldTypeFromArgument(client *c, robj *o, int *sign, int *bits) {
 robj *lookupStringForBitCommand(client *c, size_t maxbit) {
     size_t byte = maxbit >> 3;
     robj *o = lookupKeyWrite(c->db,c->argv[1]);
+    if (checkType(c,o,OBJ_STRING)) return NULL;
 
     if (o == NULL) {
         o = createObject(OBJ_STRING,sdsnewlen(NULL, byte+1));
         dbAdd(c->db,c->argv[1],o);
     } else {
-        if (checkType(c,o,OBJ_STRING)) return NULL;
         o = dbUnshareStringValue(c->db,c->argv[1],o);
         o->ptr = sdsgrowzero(o->ptr,byte+1);
     }
@@ -496,7 +496,7 @@ robj *lookupStringForBitCommand(client *c, size_t maxbit) {
  * in 'len'. The user is required to pass (likely stack allocated) buffer
  * 'llbuf' of at least LONG_STR_SIZE bytes. Such a buffer is used in the case
  * the object is integer encoded in order to provide the representation
- * without usign heap allocation.
+ * without using heap allocation.
  *
  * The function returns the pointer to the object array of bytes representing
  * the string it contains, that may be a pointer to 'llbuf' or to the

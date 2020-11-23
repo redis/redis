@@ -1,3 +1,11 @@
+proc wait_for_blocked_client {} {
+    wait_for_condition 50 100 {
+        [s blocked_clients] ne 0
+    } else {
+        fail "no blocked clients"
+    }
+}
+
 start_server {
     tags {"list"}
     overrides {
@@ -48,6 +56,12 @@ start_server {
         assert {[r LPOS mylist c COUNT 0 MAXLEN 3] == {2}}
         assert {[r LPOS mylist c COUNT 0 MAXLEN 3 RANK -1] == {7 6}}
         assert {[r LPOS mylist c COUNT 0 MAXLEN 7 RANK 2] == {6}}
+    }
+
+    test {LPOS when RANK is greater than matches} {
+        r DEL mylist
+        r LPUSH mylist a
+        assert {[r LPOS mylist b COUNT 10 RANK 5] eq {}}
     }
 
     test {LPUSH, RPUSH, LLENGTH, LINDEX, LPOP - ziplist} {
@@ -180,6 +194,7 @@ start_server {
 
         test "BRPOPLPUSH - $type" {
             r del target
+            r rpush target bar
 
             set rd [redis_deferring_client]
             create_list blist "a b $large c d"
@@ -187,8 +202,37 @@ start_server {
             $rd brpoplpush blist target 1
             assert_equal d [$rd read]
 
-            assert_equal d [r rpop target]
+            assert_equal d [r lpop target]
             assert_equal "a b $large c" [r lrange blist 0 -1]
+        }
+
+        foreach wherefrom {left right} {
+            foreach whereto {left right} {
+                test "BLMOVE $wherefrom $whereto - $type" {
+                    r del target
+                    r rpush target bar
+
+                    set rd [redis_deferring_client]
+                    create_list blist "a b $large c d"
+
+                    $rd blmove blist target $wherefrom $whereto 1
+                    set poppedelement [$rd read]
+
+                    if {$wherefrom eq "right"} {
+                        assert_equal d $poppedelement
+                        assert_equal "a b $large c" [r lrange blist 0 -1]
+                    } else {
+                        assert_equal a $poppedelement
+                        assert_equal "b $large c d" [r lrange blist 0 -1]
+                    }
+
+                    if {$whereto eq "right"} {
+                        assert_equal $poppedelement [r rpop target]
+                    } else {
+                        assert_equal $poppedelement [r lpop target]
+                    }
+                }
+            }
         }
     }
 
@@ -211,6 +255,8 @@ start_server {
         r del list
 
         $rd blpop list 0
+        after 100 ;# Make sure rd is blocked before MULTI
+
         r multi
         r lpush list a
         r del list
@@ -269,24 +315,60 @@ start_server {
     test "BRPOPLPUSH with zero timeout should block indefinitely" {
         set rd [redis_deferring_client]
         r del blist target
+        r rpush target bar
         $rd brpoplpush blist target 0
-        after 1000
+        wait_for_condition 100 10 {
+            [s blocked_clients] == 1
+        } else {
+            fail "Timeout waiting for blocked clients"
+        }
         r rpush blist foo
         assert_equal foo [$rd read]
-        assert_equal {foo} [r lrange target 0 -1]
+        assert_equal {foo bar} [r lrange target 0 -1]
     }
 
-    test "BRPOPLPUSH with a client BLPOPing the target list" {
-        set rd [redis_deferring_client]
-        set rd2 [redis_deferring_client]
-        r del blist target
-        $rd2 blpop target 0
-        $rd brpoplpush blist target 0
-        after 1000
-        r rpush blist foo
-        assert_equal foo [$rd read]
-        assert_equal {target foo} [$rd2 read]
-        assert_equal 0 [r exists target]
+    foreach wherefrom {left right} {
+        foreach whereto {left right} {
+            test "BLMOVE $wherefrom $whereto with zero timeout should block indefinitely" {
+                set rd [redis_deferring_client]
+                r del blist target
+                r rpush target bar
+                $rd blmove blist target $wherefrom $whereto 0
+                wait_for_condition 100 10 {
+                    [s blocked_clients] == 1
+                } else {
+                    fail "Timeout waiting for blocked clients"
+                }
+                r rpush blist foo
+                assert_equal foo [$rd read]
+                if {$whereto eq "right"} {
+                    assert_equal {bar foo} [r lrange target 0 -1]
+                } else {
+                    assert_equal {foo bar} [r lrange target 0 -1]
+                }
+            }
+        }
+    }
+
+    foreach wherefrom {left right} {
+        foreach whereto {left right} {
+            test "BLMOVE ($wherefrom, $whereto) with a client BLPOPing the target list" {
+                set rd [redis_deferring_client]
+                set rd2 [redis_deferring_client]
+                r del blist target
+                $rd2 blpop target 0
+                $rd blmove blist target $wherefrom $whereto 0
+                wait_for_condition 100 10 {
+                    [s blocked_clients] == 2
+                } else {
+                    fail "Timeout waiting for blocked clients"
+                }
+                r rpush blist foo
+                assert_equal foo [$rd read]
+                assert_equal {target foo} [$rd2 read]
+                assert_equal 0 [r exists target]
+            }
+        }
     }
 
     test "BRPOPLPUSH with wrong source type" {
@@ -309,7 +391,11 @@ start_server {
         r del blist target
         r set target nolist
         $rd brpoplpush blist target 0
-        after 1000
+        wait_for_condition 100 10 {
+            [s blocked_clients] == 1
+        } else {
+            fail "Timeout waiting for blocked clients"
+        }
         r rpush blist foo
         assert_error "WRONGTYPE*" {$rd read}
         assert_equal {foo} [r lrange blist 0 -1]
@@ -339,14 +425,14 @@ start_server {
         assert_equal {foo} [r lrange target2 0 -1]
     }
 
-    test "Linked BRPOPLPUSH" {
+    test "Linked LMOVEs" {
       set rd1 [redis_deferring_client]
       set rd2 [redis_deferring_client]
 
       r del list1 list2 list3
 
-      $rd1 brpoplpush list1 list2 0
-      $rd2 brpoplpush list2 list3 0
+      $rd1 blmove list1 list2 right left 0
+      $rd2 blmove list2 list3 left right 0
 
       r rpush list1 foo
 
@@ -435,7 +521,16 @@ start_server {
       set rd [redis_deferring_client]
 
       $rd brpoplpush foo_list bar_list 1
-      after 2000
+      wait_for_condition 100 10 {
+          [s blocked_clients] == 1
+      } else {
+          fail "Timeout waiting for blocked client"
+      }
+      wait_for_condition 500 10 {
+          [s blocked_clients] == 0
+      } else {
+          fail "Timeout waiting for client to unblock"
+      }
       $rd read
     } {}
 
@@ -660,11 +755,54 @@ start_server {
             assert_encoding quicklist mylist2
         }
 
+        foreach wherefrom {left right} {
+            foreach whereto {left right} {
+                test "LMOVE $wherefrom $whereto base case - $type" {
+                    r del mylist1 mylist2
+
+                    if {$wherefrom eq "right"} {
+                        create_list mylist1 "c d $large a"
+                    } else {
+                        create_list mylist1 "a $large c d"
+                    }
+                    assert_equal a [r lmove mylist1 mylist2 $wherefrom $whereto]
+                    assert_equal $large [r lmove mylist1 mylist2 $wherefrom $whereto]
+                    assert_equal "c d" [r lrange mylist1 0 -1]
+                    if {$whereto eq "right"} {
+                        assert_equal "a $large" [r lrange mylist2 0 -1]
+                    } else {
+                        assert_equal "$large a" [r lrange mylist2 0 -1]
+                    }
+                    assert_encoding quicklist mylist2
+                }
+            }
+        }
+
         test "RPOPLPUSH with the same list as src and dst - $type" {
             create_list mylist "a $large c"
             assert_equal "a $large c" [r lrange mylist 0 -1]
             assert_equal c [r rpoplpush mylist mylist]
             assert_equal "c a $large" [r lrange mylist 0 -1]
+        }
+
+        foreach wherefrom {left right} {
+            foreach whereto {left right} {
+                test "LMOVE $wherefrom $whereto with the same list as src and dst - $type" {
+                    if {$wherefrom eq "right"} {
+                        create_list mylist "a $large c"
+                        assert_equal "a $large c" [r lrange mylist 0 -1]
+                    } else {
+                        create_list mylist "c a $large"
+                        assert_equal "c a $large" [r lrange mylist 0 -1]
+                    }
+                    assert_equal c [r lmove mylist mylist $wherefrom $whereto]
+                    if {$whereto eq "right"} {
+                        assert_equal "a $large c" [r lrange mylist 0 -1]
+                    } else {
+                        assert_equal "c a $large" [r lrange mylist 0 -1]
+                    }
+                }
+            }
         }
 
         foreach {othertype otherlarge} [array get largevalue] {
@@ -680,6 +818,35 @@ start_server {
                 # converted to the same encoding as srclist.
                 if {$type eq "linkedlist"} {
                     assert_encoding quicklist dstlist
+                }
+            }
+
+            foreach wherefrom {left right} {
+                foreach whereto {left right} {
+                    test "LMOVE $wherefrom $whereto with $type source and existing target $othertype" {
+                        create_list dstlist "$otherlarge"
+
+                        if {$wherefrom eq "right"} {
+                            create_list srclist "a b c $large"
+                        } else {
+                            create_list srclist "$large c a b"
+                        }
+                        assert_equal $large [r lmove srclist dstlist $wherefrom $whereto]
+                        assert_equal c [r lmove srclist dstlist $wherefrom $whereto]
+                        assert_equal "a b" [r lrange srclist 0 -1]
+
+                        if {$whereto eq "right"} {
+                            assert_equal "$otherlarge $large c" [r lrange dstlist 0 -1]
+                        } else {
+                            assert_equal "c $large $otherlarge" [r lrange dstlist 0 -1]
+                        }
+
+                        # When we lmoved a large value, dstlist should be
+                        # converted to the same encoding as srclist.
+                        if {$type eq "linkedlist"} {
+                            assert_encoding quicklist dstlist
+                        }
+                    }
                 }
             }
         }
@@ -881,4 +1048,45 @@ start_server {
         $rd2 close
         r ping
     } {PONG}
+
+    test "client unblock tests" {
+        r del l
+        set rd [redis_deferring_client]
+        $rd client id
+        set id [$rd read]
+
+        # test default args
+        $rd blpop l 0
+        wait_for_blocked_client
+        r client unblock $id
+        assert_equal {} [$rd read]
+
+        # test with timeout
+        $rd blpop l 0
+        wait_for_blocked_client
+        r client unblock $id TIMEOUT
+        assert_equal {} [$rd read]
+
+        # test with error
+        $rd blpop l 0
+        wait_for_blocked_client
+        r client unblock $id ERROR
+        catch {[$rd read]} e
+        assert_equal $e "UNBLOCKED client unblocked via CLIENT UNBLOCK"
+
+        # test with invalid client id
+        catch {[r client unblock asd]} e
+        assert_equal $e "ERR value is not an integer or out of range"
+
+        # test with non blocked client
+        set myid [r client id]
+        catch {[r client unblock $myid]} e
+        assert_equal $e {invalid command name "0"}
+
+        # finally, see the this client and list are still functional
+        $rd blpop l 0
+        wait_for_blocked_client
+        r lpush l foo
+        assert_equal {l foo} [$rd read]
+    } {}
 }

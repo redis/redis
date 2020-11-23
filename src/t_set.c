@@ -193,7 +193,7 @@ sds setTypeNextObject(setTypeIterator *si) {
 }
 
 /* Return random element from a non empty set.
- * The returned element can be a int64_t value if the set is encoded
+ * The returned element can be an int64_t value if the set is encoded
  * as an "intset" blob of integers, or an SDS string if the set
  * is a regular set.
  *
@@ -261,19 +261,62 @@ void setTypeConvert(robj *setobj, int enc) {
     }
 }
 
+/* This is a helper function for the COPY command.
+ * Duplicate a set object, with the guarantee that the returned object
+ * has the same encoding as the original one.
+ *
+ * The resulting object always has refcount set to 1 */
+robj *setTypeDup(robj *o) {
+    robj *set;
+    setTypeIterator *si;
+    sds elesds;
+    int64_t intobj;
+
+    serverAssert(o->type == OBJ_SET);
+
+    /* Create a new set object that have the same encoding as the original object's encoding */
+    switch (o->encoding) {
+        case OBJ_ENCODING_INTSET:
+            set = createIntsetObject();
+            break;
+        case OBJ_ENCODING_HT:
+            set = createSetObject();
+            dict *d = o->ptr;
+            dictExpand(set->ptr, dictSize(d));
+            break;
+        default:
+            serverPanic("Wrong encoding.");
+            break;
+    }
+    if (set->encoding == OBJ_ENCODING_INTSET) {
+        intset *is = o->ptr;
+        size_t size = intsetBlobLen(is);
+        intset *newis = zmalloc(size);
+        memcpy(newis,is,size);
+        zfree(set->ptr);
+        set->ptr = newis;
+    } else if (set->encoding == OBJ_ENCODING_HT) {
+        si = setTypeInitIterator(o);
+        while (setTypeNext(si, &elesds, &intobj) != -1) {
+            setTypeAdd(set, elesds);
+        }
+        setTypeReleaseIterator(si);
+    } else {
+        serverPanic("Unknown set encoding");
+    }
+    return set;
+}
+
 void saddCommand(client *c) {
     robj *set;
     int j, added = 0;
 
     set = lookupKeyWrite(c->db,c->argv[1]);
+    if (checkType(c,set,OBJ_SET)) return;
+    
     if (set == NULL) {
         set = setTypeCreate(c->argv[2]->ptr);
         dbAdd(c->db,c->argv[1],set);
-    } else {
-        if (set->type != OBJ_SET) {
-            addReply(c,shared.wrongtypeerr);
-            return;
-        }
     }
 
     for (j = 2; j < c->argc; j++) {
@@ -330,7 +373,7 @@ void smoveCommand(client *c) {
     /* If the source key has the wrong type, or the destination key
      * is set and has the wrong type, return with an error. */
     if (checkType(c,srcset,OBJ_SET) ||
-        (dstset && checkType(c,dstset,OBJ_SET))) return;
+        checkType(c,dstset,OBJ_SET)) return;
 
     /* If srcset and dstset are equal, SMOVE is a no-op */
     if (srcset == dstset) {
@@ -380,6 +423,25 @@ void sismemberCommand(client *c) {
         addReply(c,shared.cone);
     else
         addReply(c,shared.czero);
+}
+
+void smismemberCommand(client *c) {
+    robj *set;
+    int j;
+
+    /* Don't abort when the key cannot be found. Non-existing keys are empty
+     * sets, where SMISMEMBER should respond with a series of zeros. */
+    set = lookupKeyRead(c->db,c->argv[1]);
+    if (set && checkType(c,set,OBJ_SET)) return;
+
+    addReplyArrayLen(c,c->argc - 2);
+
+    for (j = 2; j < c->argc; j++) {
+        if (set && setTypeIsMember(set,c->argv[j]->ptr))
+            addReply(c,shared.cone);
+        else
+            addReply(c,shared.czero);
+    }
 }
 
 void scardCommand(client *c) {
@@ -442,7 +504,7 @@ void spopWithCountCommand(client *c) {
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
 
-        /* Propagate this command as an DEL operation */
+        /* Propagate this command as a DEL operation */
         rewriteClientCommandVector(c,2,shared.del,c->argv[1]);
         signalModifiedKey(c,c->db,c->argv[1]);
         server.dirty++;
@@ -676,9 +738,9 @@ void srandmemberWithCountCommand(client *c) {
      * In this case we create a set from scratch with all the elements, and
      * subtract random elements to reach the requested number of elements.
      *
-     * This is done because if the number of requsted elements is just
+     * This is done because if the number of requested elements is just
      * a bit less than the number of elements in the set, the natural approach
-     * used into CASE 3 is highly inefficient. */
+     * used into CASE 4 is highly inefficient. */
     if (count*SRANDMEMBER_SUB_STRATEGY_MUL > size) {
         setTypeIterator *si;
 
@@ -1064,7 +1126,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             sdsfree(ele);
         }
         setTypeReleaseIterator(si);
-        server.lazyfree_lazy_server_del ? freeObjAsync(dstset) :
+        server.lazyfree_lazy_server_del ? freeObjAsync(NULL, dstset) :
                                           decrRefCount(dstset);
     } else {
         /* If we have a target key where to store the resulting set

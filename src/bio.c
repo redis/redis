@@ -86,7 +86,7 @@ struct bio_job {
 void *bioProcessBackgroundJobs(void *arg);
 void lazyfreeFreeObjectFromBioThread(robj *o);
 void lazyfreeFreeDatabaseFromBioThread(dict *ht1, dict *ht2);
-void lazyfreeFreeSlotsMapFromBioThread(zskiplist *sl);
+void lazyfreeFreeSlotsMapFromBioThread(rax *rt);
 
 /* Make sure we have enough stack to perform all the things we do in the
  * main thread. */
@@ -168,10 +168,7 @@ void *bioProcessBackgroundJobs(void *arg) {
 
     redisSetCpuAffinity(server.bio_cpulist);
 
-    /* Make the thread killable at any time, so that bioKillThreads()
-     * can work reliably. */
-    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
-    pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+    makeThreadKillable();
 
     pthread_mutex_lock(&bio_mutex[type]);
     /* Block SIGALRM so we are sure that only the main thread will
@@ -268,10 +265,11 @@ void bioKillThreads(void) {
     int err, j;
 
     for (j = 0; j < BIO_NUM_OPS; j++) {
+        if (bio_threads[j] == pthread_self()) continue;
         if (bio_threads[j] && pthread_cancel(bio_threads[j]) == 0) {
             if ((err = pthread_join(bio_threads[j],NULL)) != 0) {
                 serverLog(LL_WARNING,
-                    "Bio thread for job type #%d can be joined: %s",
+                    "Bio thread for job type #%d can not be joined: %s",
                         j, strerror(err));
             } else {
                 serverLog(LL_WARNING,

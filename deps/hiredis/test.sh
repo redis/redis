@@ -4,7 +4,9 @@ REDIS_SERVER=${REDIS_SERVER:-redis-server}
 REDIS_PORT=${REDIS_PORT:-56379}
 REDIS_SSL_PORT=${REDIS_SSL_PORT:-56443}
 TEST_SSL=${TEST_SSL:-0}
+SKIPS_AS_FAILS=${SKIPS_AS_FAILS-:0}
 SSL_TEST_ARGS=
+SKIPS_ARG=
 
 tmpdir=$(mktemp -d)
 PID_FILE=${tmpdir}/hiredis-test-redis.pid
@@ -67,4 +69,10 @@ fi
 cat ${tmpdir}/redis.conf
 ${REDIS_SERVER} ${tmpdir}/redis.conf
 
-${TEST_PREFIX:-} ./hiredis-test -h 127.0.0.1 -p ${REDIS_PORT} -s ${SOCK_FILE} ${SSL_TEST_ARGS}
+# Wait until we detect the unix socket
+while [ ! -S "${SOCK_FILE}" ]; do sleep 1; done
+
+# Treat skips as failures if directed
+[ "$SKIPS_AS_FAILS" = 1 ] && SKIPS_ARG="--skips-as-fails"
+
+${TEST_PREFIX:-} ./hiredis-test -h 127.0.0.1 -p ${REDIS_PORT} -s ${SOCK_FILE} ${SSL_TEST_ARGS} ${SKIPS_ARG}

@@ -52,7 +52,7 @@
 #endif
 #endif
 
-#if defined(__GNUC__) && __GNUC__ >= 5
+#if defined(__GNUC__) && __GNUC__ >= 7
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
 #endif

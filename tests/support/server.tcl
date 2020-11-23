@@ -13,22 +13,20 @@ proc start_server_error {config_file error} {
 }
 
 proc check_valgrind_errors stderr {
-    set fd [open $stderr]
-    set buf [read $fd]
-    close $fd
-
-    # look for stack trace and other errors, or the absense of a leak free summary
-    if {[regexp -- { at 0x} $buf] ||
-        [regexp -- {Warning} $buf] ||
-        [regexp -- {Invalid} $buf] ||
-        [regexp -- {Mismatched} $buf] ||
-        [regexp -- {uninitialized} $buf] ||
-        [regexp -- {has a fishy} $buf] ||
-        [regexp -- {overlap} $buf] ||
-        (![regexp -- {definitely lost: 0 bytes} $buf] &&
-         ![regexp -- {no leaks are possible} $buf])} {
-        send_data_packet $::test_server_fd err "Valgrind error: $buf\n"
+    set res [find_valgrind_errors $stderr]
+    if {$res != ""} {
+        send_data_packet $::test_server_fd err "Valgrind error: $res\n"
     }
+}
+
+proc clean_persistence config {
+    # we may wanna keep the logs for later, but let's clean the persistence
+    # files right away, since they can accumulate and take up a lot of space
+    set config [dict get $config "config"]
+    set rdb [format "%s/%s" [dict get $config "dir"] "dump.rdb"]
+    set aof [format "%s/%s" [dict get $config "dir"] "appendonly.aof"]
+    catch {exec rm -rf $rdb}
+    catch {exec rm -rf $aof}
 }
 
 proc kill_server config {
@@ -96,7 +94,7 @@ proc kill_server config {
 
 proc is_alive config {
     set pid [dict get $config pid]
-    if {[catch {exec ps -p $pid} err]} {
+    if {[catch {exec kill -0 $pid} err]} {
         return 0
     } else {
         return 1
@@ -150,7 +148,19 @@ proc server_is_up {host port retrynum} {
 
 # doesn't really belong here, but highly coupled to code in start_server
 proc tags {tags code} {
+    # If we 'tags' contain multiple tags, quoted and seperated by spaces,
+    # we want to get rid of the quotes in order to have a proper list
+    set tags [string map { \" "" } $tags]
     set ::tags [concat $::tags $tags]
+    # We skip unwanted tags
+    foreach tag $::denytags {
+        if {[lsearch $::tags $tag] >= 0} {
+            incr ::num_aborted
+            send_data_packet $::test_server_fd ignore "Tag: $tag"
+            set ::tags [lrange $::tags 0 end-[llength $tags]]
+            return
+        }
+    }
     uplevel 1 $code
     set ::tags [lrange $::tags 0 end-[llength $tags]]
 }
@@ -216,6 +226,46 @@ proc wait_server_started {config_file stdout pid} {
 }
 
 proc start_server {options {code undefined}} {
+    # setup defaults
+    set baseconfig "default.conf"
+    set overrides {}
+    set tags {}
+    set keep_persistence false
+
+    # parse options
+    foreach {option value} $options {
+        switch $option {
+            "config" {
+                set baseconfig $value
+            }
+            "overrides" {
+                set overrides $value
+            }
+            "tags" {
+                # If we 'tags' contain multiple tags, quoted and seperated by spaces,
+                # we want to get rid of the quotes in order to have a proper list
+                set tags [string map { \" "" } $value]
+                set ::tags [concat $::tags $tags]
+            }
+            "keep_persistence" {
+                set keep_persistence $value
+            }
+            default {
+                error "Unknown option $option"
+            }
+        }
+    }
+
+    # We skip unwanted tags
+    foreach tag $::denytags {
+        if {[lsearch $::tags $tag] >= 0} {
+            incr ::num_aborted
+            send_data_packet $::test_server_fd ignore "Tag: $tag"
+            set ::tags [lrange $::tags 0 end-[llength $tags]]
+            return
+        }
+    }
+
     # If we are running against an external server, we just push the
     # host/port pair in the stack the first time
     if {$::external} {
@@ -227,31 +277,30 @@ proc start_server {options {code undefined}} {
             dict set srv "client" $client
             $client select 9
 
+            set config {}
+            dict set config "port" $::port
+            dict set srv "config" $config
+
             # append the server to the stack
             lappend ::servers $srv
         }
-        uplevel 1 $code
-        return
-    }
+        r flushall
+        if {[catch {set retval [uplevel 1 $code]} error]} {
+            if {$::durable} {
+                set msg [string range $error 10 end]
+                lappend details $msg
+                lappend details $::errorInfo
+                lappend ::tests_failed $details
 
-    # setup defaults
-    set baseconfig "default.conf"
-    set overrides {}
-    set tags {}
-
-    # parse options
-    foreach {option value} $options {
-        switch $option {
-            "config" {
-                set baseconfig $value }
-            "overrides" {
-                set overrides $value }
-            "tags" {
-                set tags $value
-                set ::tags [concat $::tags $value] }
-            default {
-                error "Unknown option $option" }
+                incr ::num_failed
+                send_data_packet $::test_server_fd err [join $details "\n"]
+            } else {
+                # Re-raise, let handler up the stack take care of this.
+                error $error $::errorInfo
+            }
         }
+        set ::tags [lrange $::tags 0 end-[llength $tags]]
+        return
     }
 
     set data [split [exec cat "tests/assets/$baseconfig"] "\n"]
@@ -301,6 +350,13 @@ proc start_server {options {code undefined}} {
     set stdout [format "%s/%s" [dict get $config "dir"] "stdout"]
     set stderr [format "%s/%s" [dict get $config "dir"] "stderr"]
 
+    # if we're inside a test, write the test name to the server log file
+    if {[info exists ::cur_test]} {
+        set fd [open $stdout "a+"]
+        puts $fd "### Starting server for test $::cur_test"
+        close $fd
+    }
+
     # We need a loop here to retry with different ports.
     set server_started 0
     while {$server_started == 0} {
@@ -327,6 +383,11 @@ proc start_server {options {code undefined}} {
                 dict set config port $port
             }
             create_server_config_file $config_file $config
+
+            # Truncate log so wait_server_started will not be looking at
+            # output of the failed server.
+            close [open $stdout "w"]
+
             continue; # Try again
         }
 
@@ -396,6 +457,9 @@ proc start_server {options {code undefined}} {
             # fetch srv back from the server list, in case it was restarted by restart_server (new PID)
             set srv [lindex $::servers end]
 
+            # pop the server object
+            set ::servers [lrange $::servers 0 end-1]
+
             # Kill the server without checking for leaks
             dict set srv "skipleaks" 1
             kill_server $srv
@@ -410,7 +474,18 @@ proc start_server {options {code undefined}} {
             }
             puts ""
 
-            error $error $backtrace
+            if {$::durable} {
+                set msg [string range $error 10 end]
+                lappend details $msg
+                lappend details $backtrace
+                lappend ::tests_failed $details
+
+                incr ::num_failed
+                send_data_packet $::test_server_fd err [join $details "\n"]
+            } else {
+                # Re-raise, let handler up the stack take care of this.
+                error $error $backtrace
+            }
         }
 
         # fetch srv back from the server list, in case it was restarted by restart_server (new PID)
@@ -426,6 +501,10 @@ proc start_server {options {code undefined}} {
 
         set ::tags [lrange $::tags 0 end-[llength $tags]]
         kill_server $srv
+        if {!$keep_persistence} {
+            clean_persistence $srv
+        }
+        set _ ""
     } else {
         set ::tags [lrange $::tags 0 end-[llength $tags]]
         set _ $srv
@@ -439,6 +518,13 @@ proc restart_server {level wait_ready} {
     set stdout [dict get $srv "stdout"]
     set stderr [dict get $srv "stderr"]
     set config_file [dict get $srv "config_file"]
+
+    # if we're inside a test, write the test name to the server log file
+    if {[info exists ::cur_test]} {
+        set fd [open $stdout "a+"]
+        puts $fd "### Restarting server for test $::cur_test"
+        close $fd
+    }
 
     set prev_ready_count [exec grep -i "Ready to accept" | wc -l < $stdout]
 
