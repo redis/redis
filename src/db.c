@@ -607,7 +607,7 @@ void selectCommand(client *c) {
         addReplyError(c,"SELECT is not allowed in cluster mode");
         return;
     }
-    if (selectDb(c,id) == C_ERR) {
+    if (id < INT_MIN || id > INT_MAX || selectDb(c,id) == C_ERR) {
         addReplyError(c,"DB index is out of range");
     } else {
         addReply(c,shared.ok);
