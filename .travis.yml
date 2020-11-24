@@ -4,7 +4,7 @@ before_script:
   - sudo apt update
   - sudo apt install -y cmake tree
   - pyenv global 3.7.1
-  - pip3 install boto3
+  - pip3 install requests boto3
   - export PATH=$PATH:$HOME/build/xcalibyte-github/redis/bin
 # install xcal client
   - wget -q https://ci-integration.oss-cn-shanghai.aliyuncs.com/xcal-agent.tgz && tar -xf xcal-agent.tgz -C $HOME/build && cd $HOME/build/xcal-agent/xcalbuild/linux/bear && sudo rm -rf build && mkdir build && cd build && cmake .. && make && sudo make install
