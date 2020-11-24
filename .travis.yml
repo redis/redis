@@ -12,8 +12,8 @@ before_script:
   - ls
   - pwd
 # install submit task
-#  - wget -q https://ci-integration.oss-cn-shanghai.aliyuncs.com/submit_task.tgz && tar -zxvf submit_task.tgz -C $HOME/build/xcalibyte_github/redis && cd $HOME/build/xcalibyte_github/redis/install && . ./install_submit_task.sh && . ./set_path.sh
-#- cd $HOME/build/knightley/travis_ci_xcalscan_cloud_integration/c_testcase/basic
+  - wget -q https://ci-integration.oss-cn-shanghai.aliyuncs.com/submit_task.tgz && tar -zxvf submit_task.tgz -C $HOME/build/xcalibyte_github/redis && cd $HOME/build/xcalibyte_github/redis/install && . ./install_submit_task.sh && . ./set_path.sh
+  - cd $HOME/build/knightley/travis_ci_xcalscan_cloud_integration/c_testcase/basic
 
 env:
   - USER_ID='xcalibyte_github'
@@ -21,8 +21,8 @@ env:
 stage: compile
 script:
   - echo "hello redis"
-# - make
-#- $HOME/build/xcal-agent/tools/xcal-agent.py -pc $HOME/build/knightley/travis_ci_xcalscan_cloud_integration/xcal-preprocess.conf -a -d
+  - make
+  - $HOME/build/xcal-agent/tools/xcal-agent.py -pc $HOME/build/knightley/travis_ci_xcalscan_cloud_integration/xcal-preprocess.conf -a -d
 
 after_success:
   - echo "hello redis success"
