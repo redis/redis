@@ -1,2 +1,2 @@
 #!/bin/bash
-cp $HOME/build/xcalibyte-github/task_summary.pdf .
+cp $HOME/build/xcalibyte-github/redis/task_summary.pdf .
