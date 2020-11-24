@@ -112,7 +112,9 @@ static int spt_copyenv(int envc, char *oldenv[]) {
 	if (environ != oldenv)
 		return 0;
 
-	/* Copy environ into envcopy before clearing it */
+	/* Copy environ into envcopy before clearing it. Shallow copy is
+	 * enough as clearenv() only clears the environ array.
+	 */
 	envsize = (envc + 1) * sizeof(char *);
 	envcopy = malloc(envsize);
 	if (!envcopy)
@@ -137,15 +139,17 @@ static int spt_copyenv(int envc, char *oldenv[]) {
 		error = (0 != setenv(envcopy[i], eq + 1, 1))? errno : 0;
 		*eq = '=';
 
-		/* On error, restore to envcopy if clearenv() was used or just revert */
+		/* On error, do our best to restore state */
 		if (error) {
 #ifdef HAVE_CLEARENV
-			/* State of environ is undefined after clearenv(), so
-			 * we don't try to free it. */
+			/* We don't assume it is safe to free environ, so we
+			 * may leak it. As clearenv() was shallow using envcopy
+			 * here is safe.
+			 */
 			environ = envcopy;
 #else
 			free(envcopy);
-			free(environ);  /* alloc'd by spt_clearenv */
+			free(environ);  /* Safe to free, we have just alloc'd it */
 			environ = oldenv;
 #endif
 			return error;
