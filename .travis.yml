@@ -21,11 +21,9 @@ env:
 stage: compile
 script:
   - cd $HOME/build/xcalibyte-github/redis
-  - echo "hello redis"
   - make
   - $HOME/build/xcal-agent/tools/xcal-agent.py -pc $HOME/build/xcalibyte-github/redis/xcal-preprocess.conf -a -d
 
 after_success:
-  - echo "hello redis success"
   - tree .xcalagent
   - cd "$(dirname "$(find . -type f -name xcal-task.conf | head -1)")" && before_submit.sh && ls && cat xcal-task.conf && submit_task.sh xcal-task.conf
