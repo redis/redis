@@ -140,6 +140,8 @@ static int spt_copyenv(int envc, char *oldenv[]) {
 		/* On error, restore to envcopy if clearenv() was used or just revert */
 		if (error) {
 #ifdef HAVE_CLEARENV
+			/* State of environ is undefined after clearenv(), so
+			 * we don't try to free it. */
 			environ = envcopy;
 #else
 			free(envcopy);
