@@ -2917,6 +2917,26 @@ void makeThreadKillable(void) {
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 }
 
+void checkUnixSocketDirectory(char* unix_socket_path)
+{
+    char directory[100] = "/";
+    char path[100] = "";
+    strcpy(path,unix_socket_path);
+	/* Extract the first token. */
+	char * token = strtok(path, "/");
+	/* loop through the string to extract all other tokens. */
+    while( token != NULL ) {
+		if(strchr(token, '.') == NULL)
+		{
+			strcat(directory,token);
+			/* check directory existance and if it does not exist, create it.*/
+            mkdir(directory,2777);
+            strcat(directory,"/");
+        }
+	token = strtok(NULL, "/");
+    }
+}
+
 void initServer(void) {
     int j;
 
@@ -2981,6 +3001,9 @@ void initServer(void) {
     if (server.tls_port != 0 &&
         listenToPort(server.tls_port,server.tlsfd,&server.tlsfd_count) == C_ERR)
         exit(1);
+
+    /* Check redis unixsocket path existance. */
+    checkUnixSocketDirectory(server.unixsocket);
 
     /* Open the listening Unix domain socket. */
     if (server.unixsocket != NULL) {
@@ -5222,7 +5245,7 @@ void loadDataFromDisk(void) {
 void redisOutOfMemoryHandler(size_t allocation_size) {
     serverLog(LL_WARNING,"Out Of Memory allocating %zu bytes!",
         allocation_size);
-    serverPanic("Redis aborting for OUT OF MEMORY. Allocating %zu bytes!", 
+    serverPanic("Redis aborting for OUT OF MEMORY. Allocating %zu bytes!",
         allocation_size);
 }
 
