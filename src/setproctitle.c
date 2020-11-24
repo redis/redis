@@ -50,6 +50,10 @@
 #if !HAVE_SETPROCTITLE
 #if (defined __linux || defined __APPLE__)
 
+#ifdef __GLIBC__
+#define HAVE_CLEARENV
+#endif
+
 extern char **environ;
 
 static struct {
@@ -80,11 +84,9 @@ static inline size_t spt_min(size_t a, size_t b) {
  * For discussion on the portability of the various methods, see
  * http://lists.freebsd.org/pipermail/freebsd-stable/2008-June/043136.html
  */
-static int spt_clearenv(void) {
-#if __GLIBC__
-	clearenv();
-
-	return 0;
+int spt_clearenv(void) {
+#ifdef HAVE_CLEARENV
+	return clearenv();
 #else
 	extern char **environ;
 	static char **tmp;
@@ -100,34 +102,62 @@ static int spt_clearenv(void) {
 } /* spt_clearenv() */
 
 
-static int spt_copyenv(char *oldenv[]) {
+static int spt_copyenv(int envc, char *oldenv[]) {
 	extern char **environ;
+	char **envcopy = NULL;
 	char *eq;
 	int i, error;
+	int envsize;
 
 	if (environ != oldenv)
 		return 0;
 
-	if ((error = spt_clearenv()))
-		goto error;
+	/* Copy environ into envcopy before clearing it. Shallow copy is
+	 * enough as clearenv() only clears the environ array.
+	 */
+	envsize = (envc + 1) * sizeof(char *);
+	envcopy = malloc(envsize);
+	if (!envcopy)
+		return ENOMEM;
+	memcpy(envcopy, oldenv, envsize);
 
-	for (i = 0; oldenv[i]; i++) {
-		if (!(eq = strchr(oldenv[i], '=')))
+	/* Note that the state after clearenv() failure is undefined, but we'll
+	 * just assume an error means it was left unchanged.
+	 */
+	if ((error = spt_clearenv())) {
+		environ = oldenv;
+		free(envcopy);
+		return error;
+	}
+
+	/* Set environ from envcopy */
+	for (i = 0; envcopy[i]; i++) {
+		if (!(eq = strchr(envcopy[i], '=')))
 			continue;
 
 		*eq = '\0';
-		error = (0 != setenv(oldenv[i], eq + 1, 1))? errno : 0;
+		error = (0 != setenv(envcopy[i], eq + 1, 1))? errno : 0;
 		*eq = '=';
 
-		if (error)
-			goto error;
+		/* On error, do our best to restore state */
+		if (error) {
+#ifdef HAVE_CLEARENV
+			/* We don't assume it is safe to free environ, so we
+			 * may leak it. As clearenv() was shallow using envcopy
+			 * here is safe.
+			 */
+			environ = envcopy;
+#else
+			free(envcopy);
+			free(environ);  /* Safe to free, we have just alloc'd it */
+			environ = oldenv;
+#endif
+			return error;
+		}
 	}
 
+	free(envcopy);
 	return 0;
-error:
-	environ = oldenv;
-
-	return error;
 } /* spt_copyenv() */
 
 
@@ -152,7 +182,7 @@ static int spt_copyargs(int argc, char *argv[]) {
 void spt_init(int argc, char *argv[]) {
         char **envp = environ;
 	char *base, *end, *nul, *tmp;
-	int i, error;
+	int i, error, envc;
 
 	if (!(base = argv[0]))
 		return;
@@ -173,6 +203,7 @@ void spt_init(int argc, char *argv[]) {
 
 		end = envp[i] + strlen(envp[i]) + 1;
 	}
+	envc = i;
 
 	if (!(SPT.arg0 = strdup(argv[0])))
 		goto syerr;
@@ -195,7 +226,7 @@ void spt_init(int argc, char *argv[]) {
 #endif
 
 
-	if ((error = spt_copyenv(envp)))
+	if ((error = spt_copyenv(envc, envp)))
 		goto error;
 
 	if ((error = spt_copyargs(argc, argv)))
