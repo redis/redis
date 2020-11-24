@@ -452,14 +452,18 @@ void geoaddCommand(client *c) {
 #define SORT_ASC 1
 #define SORT_DESC 2
 
-#define RADIUS_COORDS (1<<0)    /* Search around coordinates. */
-#define RADIUS_MEMBER (1<<1)    /* Search around member. */
-#define RADIUS_NOSTORE (1<<2)   /* Do not acceot STORE/STOREDIST option. */
+#define GEO_CENTER_COORDS  (1<<0)    /* Search around coordinates. */
+#define GEO_CENTER_MEMBER  (1<<1)    /* Search around member. */
+#define GEO_NOSTORE        (1<<2)    /* Do not acceot STORE/STOREDIST option. */
+#define GEO_SHAPE_CIRCULAR (1<<3)    /* Use circular geographic area. */
+#define GEO_SHAPE_BBOX     (1<<4)    /* Use rectangular geographic area. */
+
+
 
 /* GEORADIUS key x y radius unit [WITHDIST] [WITHHASH] [WITHCOORD] [ASC|DESC]
  *                               [COUNT count] [STORE key] [STOREDIST key]
  * GEORADIUSBYMEMBER key member radius unit ... options ... */
-void georadiusGeneric(client *c, int flags) {
+void geoShapeGeneric(client *c, int flags) {
     robj *key = c->argv[1];
     robj *storekey = NULL;
     int storedist = 0; /* 0 for STORE, 1 for STOREDIST. */
@@ -474,11 +478,11 @@ void georadiusGeneric(client *c, int flags) {
     /* Find long/lat to use for radius search based on inquiry type */
     int base_args;
     double xy[2] = { 0 };
-    if (flags & RADIUS_COORDS) {
+    if (flags & GEO_CENTER_COORDS) {
         base_args = 6;
         if (extractLongLatOrReply(c, c->argv + 2, xy) == C_ERR)
             return;
-    } else if (flags & RADIUS_MEMBER) {
+    } else if (flags & GEO_CENTER_MEMBER) {
         base_args = 5;
         robj *member = c->argv[2];
         if (longLatFromMember(zobj, member, xy) == C_ERR) {
@@ -486,16 +490,23 @@ void georadiusGeneric(client *c, int flags) {
             return;
         }
     } else {
-        addReplyError(c, "Unknown georadius search type");
+        addReplyError(c, "Unknown geo center type");
         return;
     }
-
-    /* Extract radius and units from arguments */
     double radius_meters = 0, conversion = 1;
-    if ((radius_meters = extractDistanceOrReply(c, c->argv + base_args - 2,
-                                                &conversion)) < 0) {
+    if (flags & GEO_SHAPE_CIRCULAR) {
+        /* Extract radius and units from arguments */
+        if ((radius_meters = extractDistanceOrReply(c, c->argv + base_args - 2,
+                                                    &conversion)) < 0) {
+            return;
+        }
+    } else if (flags & GEO_SHAPE_BBOX) { 
+
+    } else {
+        addReplyError(c, "Unknown geo shape type");
         return;
     }
+    
 
     /* Discover and populate all optional parameters. */
     int withdist = 0, withhash = 0, withcoords = 0;
@@ -525,14 +536,14 @@ void georadiusGeneric(client *c, int flags) {
                 i++;
             } else if (!strcasecmp(arg, "store") &&
                        (i+1) < remaining &&
-                       !(flags & RADIUS_NOSTORE))
+                       !(flags & GEO_NOSTORE))
             {
                 storekey = c->argv[base_args+i+1];
                 storedist = 0;
                 i++;
             } else if (!strcasecmp(arg, "storedist") &&
                        (i+1) < remaining &&
-                       !(flags & RADIUS_NOSTORE))
+                       !(flags & GEO_NOSTORE))
             {
                 storekey = c->argv[base_args+i+1];
                 storedist = 1;
@@ -674,22 +685,22 @@ void georadiusGeneric(client *c, int flags) {
 
 /* GEORADIUS wrapper function. */
 void georadiusCommand(client *c) {
-    georadiusGeneric(c, RADIUS_COORDS);
+    geoShapeGeneric(c, GEO_CENTER_COORDS|GEO_SHAPE_CIRCULAR);
 }
 
 /* GEORADIUSBYMEMBER wrapper function. */
 void georadiusbymemberCommand(client *c) {
-    georadiusGeneric(c, RADIUS_MEMBER);
+    geoShapeGeneric(c, GEO_CENTER_MEMBER|GEO_SHAPE_CIRCULAR);
 }
 
 /* GEORADIUS_RO wrapper function. */
 void georadiusroCommand(client *c) {
-    georadiusGeneric(c, RADIUS_COORDS|RADIUS_NOSTORE);
+    geoShapeGeneric(c, GEO_CENTER_COORDS|GEO_SHAPE_CIRCULAR|GEO_NOSTORE);
 }
 
 /* GEORADIUSBYMEMBER_RO wrapper function. */
 void georadiusbymemberroCommand(client *c) {
-    georadiusGeneric(c, RADIUS_MEMBER|RADIUS_NOSTORE);
+    geoShapeGeneric(c, GEO_CENTER_MEMBER|GEO_SHAPE_CIRCULAR|GEO_NOSTORE);
 }
 
 /* GEOHASH key ele1 ele2 ... eleN
