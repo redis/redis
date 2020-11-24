@@ -1018,8 +1018,7 @@ void renamenxCommand(client *c) {
 void moveCommand(client *c) {
     robj *o;
     redisDb *src, *dst;
-    int srcid;
-    int dbid;
+    int srcid, dbid;
     long long expire;
 
     if (server.cluster_enabled) {
@@ -1081,8 +1080,7 @@ void moveCommand(client *c) {
 void copyCommand(client *c) {
     robj *o;
     redisDb *src, *dst;
-    int srcid;
-    int dbid;
+    int srcid, dbid;
     long long expire;
     int j, replace = 0, delete = 0;
 
