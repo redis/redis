@@ -1567,30 +1567,18 @@ robj *zsetDup(robj *o) {
     serverAssert(o->type == OBJ_ZSET);
 
     /* Create a new sorted set object that have the same encoding as the original object's encoding */
-    switch (o->encoding) {
-        case OBJ_ENCODING_ZIPLIST:
-            zobj = createZsetZiplistObject();
-            break;
-        case OBJ_ENCODING_SKIPLIST:
-            zobj = createZsetObject();
-            zs = o->ptr;
-            new_zs = zobj->ptr;
-            dictExpand(new_zs->dict,dictSize(zs->dict));
-            break;
-        default:
-            serverPanic("Wrong encoding.");
-            break;
-    }
-    if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
+    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl = o->ptr;
         size_t sz = ziplistBlobLen(zl);
         unsigned char *new_zl = zmalloc(sz);
         memcpy(new_zl, zl, sz);
-        zfree(zobj->ptr);
-        zobj->ptr = new_zl;
-    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
+        zobj = createObject(OBJ_ZSET, new_zl);
+        zobj->encoding = OBJ_ENCODING_ZIPLIST;
+    } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
+        zobj = createZsetObject();
         zs = o->ptr;
         new_zs = zobj->ptr;
+        dictExpand(new_zs->dict,dictSize(zs->dict));
         zskiplist *zsl = zs->zsl;
         zskiplistNode *ln;
         sds ele;
