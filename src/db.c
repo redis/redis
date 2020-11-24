@@ -597,17 +597,16 @@ void existsCommand(client *c) {
 }
 
 void selectCommand(client *c) {
-    long id;
+    int id;
 
-    if (getLongFromObjectOrReply(c, c->argv[1], &id,
-        "invalid DB index") != C_OK)
+    if (getIntFromObjectOrReply(c, c->argv[1], &id, NULL) != C_OK)
         return;
 
     if (server.cluster_enabled && id != 0) {
         addReplyError(c,"SELECT is not allowed in cluster mode");
         return;
     }
-    if (id < INT_MIN || id > INT_MAX || selectDb(c,id) == C_ERR) {
+    if (selectDb(c,id) == C_ERR) {
         addReplyError(c,"DB index is out of range");
     } else {
         addReply(c,shared.ok);
@@ -1020,7 +1019,8 @@ void moveCommand(client *c) {
     robj *o;
     redisDb *src, *dst;
     int srcid;
-    long long dbid, expire;
+    int dbid;
+    long long expire;
 
     if (server.cluster_enabled) {
         addReplyError(c,"MOVE is not allowed in cluster mode");
@@ -1031,11 +1031,12 @@ void moveCommand(client *c) {
     src = c->db;
     srcid = c->db->id;
 
-    if (getLongLongFromObject(c->argv[2],&dbid) == C_ERR ||
-        dbid < INT_MIN || dbid > INT_MAX ||
-        selectDb(c,dbid) == C_ERR)
+    if (getIntFromObjectOrReply(c, c->argv[2], &dbid, NULL) != C_OK)
+        return;
+
+    if (selectDb(c,dbid) == C_ERR)
     {
-        addReply(c,shared.outofrangeerr);
+        addReplyError(c,"DB index is out of range");
         return;
     }
     dst = c->db;
@@ -1082,7 +1083,8 @@ void copyCommand(client *c) {
     robj *o;
     redisDb *src, *dst;
     int srcid;
-    long long dbid, expire;
+    int dbid;
+    long long expire;
     int j, replace = 0, delete = 0;
 
     /* Obtain source and target DB pointers 
@@ -1097,11 +1099,12 @@ void copyCommand(client *c) {
         if (!strcasecmp(c->argv[j]->ptr,"replace")) {
             replace = 1;
         } else if (!strcasecmp(c->argv[j]->ptr, "db") && additional >= 1) {
-            if (getLongLongFromObject(c->argv[j+1], &dbid) == C_ERR ||
-                dbid < INT_MIN || dbid > INT_MAX ||
-                selectDb(c, dbid) == C_ERR)
+            if (getIntFromObjectOrReply(c, c->argv[j+1], &dbid, NULL) != C_OK)
+                return;
+
+            if (selectDb(c, dbid) == C_ERR)
             {
-                addReplyError(c,"invalid DB index");
+                addReplyError(c,"DB index is out of range");
                 return;
             }
             dst = c->db;
