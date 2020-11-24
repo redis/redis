@@ -523,10 +523,8 @@ robj *hashTypeDup(robj *o) {
         hobj = createObject(OBJ_HASH, new_zl);
         hobj->encoding = OBJ_ENCODING_ZIPLIST;
     } else if(o->encoding == OBJ_ENCODING_HT){
-        hobj = createHashObject();
-        hashTypeConvert(hobj, OBJ_ENCODING_HT);
-        dict *d = o->ptr;
-        dictExpand(hobj->ptr, dictSize(d));
+        dict *d = dictCreate(&hashDictType, NULL);
+        dictExpand(d, dictSize((const dict*)o->ptr));
 
         hi = hashTypeInitIterator(o);
         while (hashTypeNext(hi) != C_ERR) {
@@ -539,9 +537,12 @@ robj *hashTypeDup(robj *o) {
             newvalue = sdsdup(value);
 
             /* Add a field-value pair to a new hash object. */
-            dictAdd(hobj->ptr,newfield,newvalue);
+            dictAdd(d,newfield,newvalue);
         }
         hashTypeReleaseIterator(hi);
+
+        hobj = createObject(OBJ_HASH, d);
+        hobj->encoding = OBJ_ENCODING_HT;
     } else {
         serverPanic("Unknown hash encoding");
     }
