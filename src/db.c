@@ -1034,8 +1034,7 @@ void moveCommand(client *c) {
     if (getIntFromObjectOrReply(c, c->argv[2], &dbid, NULL) != C_OK)
         return;
 
-    if (selectDb(c,dbid) == C_ERR)
-    {
+    if (selectDb(c,dbid) == C_ERR) {
         addReplyError(c,"DB index is out of range");
         return;
     }
@@ -1102,8 +1101,7 @@ void copyCommand(client *c) {
             if (getIntFromObjectOrReply(c, c->argv[j+1], &dbid, NULL) != C_OK)
                 return;
 
-            if (selectDb(c, dbid) == C_ERR)
-            {
+            if (selectDb(c, dbid) == C_ERR) {
                 addReplyError(c,"DB index is out of range");
                 return;
             }
