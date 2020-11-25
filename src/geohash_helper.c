@@ -50,6 +50,7 @@
 const double DEG_TO_RAD = 0.017453292519943295769236907684886;
 /// @brief Earth's quatratic mean radius for WGS-84
 const double EARTH_RADIUS_IN_METERS = 6372797.560856;
+const double TWO_EARTH_RADIUS_IN_METERS = 2.0 * 6372797.560856;
 
 const double MERCATOR_MAX = 20037726.37;
 const double MERCATOR_MIN = -20037726.37;
@@ -100,14 +101,45 @@ uint8_t geohashEstimateStepsByRadius(double range_meters, double lat) {
  * Since this function is currently only used as an optimization, the
  * optimization is not used for very big radiuses, however the function
  * should be fixed. */
-int geohashBoundingBox(double longitude, double latitude, double radius_meters,
+int geohashBoundingBoxFromRadius(double longitude, double latitude, double radius_meters,
                        double *bounds) {
     if (!bounds) return 0;
+    const double long_delta = rad_deg(radius_meters/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude)));
+    const double lat_delta = rad_deg(radius_meters/EARTH_RADIUS_IN_METERS);
+    bounds[0] = longitude - long_delta;
+    bounds[2] = longitude + long_delta;
+    bounds[1] = latitude - lat_delta;
+    bounds[3] = latitude + lat_delta;
+    return 1;
+}
 
-    bounds[0] = longitude - rad_deg(radius_meters/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude)));
-    bounds[2] = longitude + rad_deg(radius_meters/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude)));
-    bounds[1] = latitude - rad_deg(radius_meters/EARTH_RADIUS_IN_METERS);
-    bounds[3] = latitude + rad_deg(radius_meters/EARTH_RADIUS_IN_METERS);
+/* Return the bounding box of the search area centered at latitude,longitude
+ * having a bondary center +/- [width,height]. bounds[0] - bounds[2] is the minimum
+ * and maximum longitude, while bounds[1] - bounds[3] is the minimum and
+ * maximum latitude.
+ *
+ * This function does not behave correctly with very large width and height values, for
+ * instance for the coordinates 81.634948934258375 30.561509253718668 and a
+ * width and height of 7083 kilometers, it reports as bounding boxes:
+ *
+ * min_lon 7.680495, min_lat -33.119473, max_lon 155.589402, max_lat 94.242491
+ *
+ * However, for instance, a min_lon of 7.680495 is not correct, because the
+ * point -1.27579540014266968 61.33421815228281559 is at less than 7000
+ * kilometers away.
+ *
+ * Since this function is currently only used as an optimization, the
+ * optimization is not used for very big radiuses, however the function
+ * should be fixed. */
+int geohashBoundingBoxFromRectangle(double longitude, double latitude, double height_meters, double width_meters,
+                       double *bounds) {
+    if (!bounds) return 0;
+    const double long_delta = rad_deg(width_meters/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude)));
+    const double lat_delta = rad_deg(height_meters/EARTH_RADIUS_IN_METERS);
+    bounds[0] = longitude - long_delta;
+    bounds[2] = longitude + long_delta;
+    bounds[1] = latitude - lat_delta;
+    bounds[3] = latitude + lat_delta;
     return 1;
 }
 
@@ -123,7 +155,7 @@ GeoHashRadius geohashGetAreasByRadius(double longitude, double latitude, double 
     double bounds[4];
     int steps;
 
-    geohashBoundingBox(longitude, latitude, radius_meters, bounds);
+    geohashBoundingBoxFromRadius(longitude, latitude, radius_meters, bounds);
     min_lon = bounds[0];
     min_lat = bounds[1];
     max_lon = bounds[2];
@@ -150,14 +182,100 @@ GeoHashRadius geohashGetAreasByRadius(double longitude, double latitude, double 
         geohashDecode(long_range, lat_range, neighbors.east, &east);
         geohashDecode(long_range, lat_range, neighbors.west, &west);
 
-        if (geohashGetDistance(longitude,latitude,longitude,north.latitude.max)
+        if (geohashGetDistance(longitude,latitude,longitude,north.latitude.max,NULL,NULL)
             < radius_meters) decrease_step = 1;
-        if (geohashGetDistance(longitude,latitude,longitude,south.latitude.min)
+        if (geohashGetDistance(longitude,latitude,longitude,south.latitude.min,NULL,NULL)
             < radius_meters) decrease_step = 1;
-        if (geohashGetDistance(longitude,latitude,east.longitude.max,latitude)
+        if (geohashGetDistance(longitude,latitude,east.longitude.max,latitude,NULL,NULL)
             < radius_meters) decrease_step = 1;
-        if (geohashGetDistance(longitude,latitude,west.longitude.min,latitude)
+        if (geohashGetDistance(longitude,latitude,west.longitude.min,latitude,NULL,NULL)
             < radius_meters) decrease_step = 1;
+    }
+
+    if (steps > 1 && decrease_step) {
+        steps--;
+        geohashEncode(&long_range,&lat_range,longitude,latitude,steps,&hash);
+        geohashNeighbors(&hash,&neighbors);
+        geohashDecode(long_range,lat_range,hash,&area);
+    }
+
+    /* Exclude the search areas that are useless. */
+    if (steps >= 2) {
+        if (area.latitude.min < min_lat) {
+            GZERO(neighbors.south);
+            GZERO(neighbors.south_west);
+            GZERO(neighbors.south_east);
+        }
+        if (area.latitude.max > max_lat) {
+            GZERO(neighbors.north);
+            GZERO(neighbors.north_east);
+            GZERO(neighbors.north_west);
+        }
+        if (area.longitude.min < min_lon) {
+            GZERO(neighbors.west);
+            GZERO(neighbors.south_west);
+            GZERO(neighbors.north_west);
+        }
+        if (area.longitude.max > max_lon) {
+            GZERO(neighbors.east);
+            GZERO(neighbors.south_east);
+            GZERO(neighbors.north_east);
+        }
+    }
+    radius.hash = hash;
+    radius.neighbors = neighbors;
+    radius.area = area;
+    return radius;
+}
+
+/* Return a set of areas (center + 8) that are able to cover a range query
+ * for the specified position and radius. */
+GeoHashRadius geohashGetAreasByBoudingBox(double longitude, double latitude, double height_meters, double width_meters) {
+    GeoHashRange long_range, lat_range;
+    GeoHashRadius radius;
+    GeoHashBits hash;
+    GeoHashNeighbors neighbors;
+    GeoHashArea area;
+    double min_lon, max_lon, min_lat, max_lat;
+    double bounds[4];
+    int steps;
+
+    geohashBoundingBoxFromRectangle(longitude, latitude, height_meters, width_meters, bounds);
+    min_lon = bounds[0];
+    min_lat = bounds[1];
+    max_lon = bounds[2];
+    max_lat = bounds[3];
+
+    const double min_distance_meters = height_meters > width_meters ? width_meters : height_meters;
+    steps = geohashEstimateStepsByRadius(min_distance_meters,latitude);
+
+    geohashGetCoordRange(&long_range,&lat_range);
+    geohashEncode(&long_range,&lat_range,longitude,latitude,steps,&hash);
+    geohashNeighbors(&hash,&neighbors);
+    geohashDecode(long_range,lat_range,hash,&area);
+
+    /* Check if the step is enough at the limits of the covered area.
+     * Sometimes when the search area is near an edge of the
+     * area, the estimated step is not small enough, since one of the
+     * north / south / west / east square is too near to the search area
+     * to cover everything. */
+    int decrease_step = 0;
+    {
+        GeoHashArea north, south, east, west;
+
+        geohashDecode(long_range, lat_range, neighbors.north, &north);
+        geohashDecode(long_range, lat_range, neighbors.south, &south);
+        geohashDecode(long_range, lat_range, neighbors.east, &east);
+        geohashDecode(long_range, lat_range, neighbors.west, &west);
+
+        if (geohashGetDistance(longitude,latitude,longitude,north.latitude.max,NULL,NULL)
+            < height_meters) decrease_step = 1;
+        if (geohashGetDistance(longitude,latitude,longitude,south.latitude.min,NULL,NULL)
+            < height_meters) decrease_step = 1;
+        if (geohashGetDistance(longitude,latitude,east.longitude.max,latitude,NULL,NULL)
+            < width_meters) decrease_step = 1;
+        if (geohashGetDistance(longitude,latitude,west.longitude.min,latitude,NULL,NULL)
+            < width_meters) decrease_step = 1;
     }
 
     if (steps > 1 && decrease_step) {
@@ -208,22 +326,53 @@ GeoHashFix52Bits geohashAlign52Bits(const GeoHashBits hash) {
 }
 
 /* Calculate distance using haversin great circle distance formula. */
-double geohashGetDistance(double lon1d, double lat1d, double lon2d, double lat2d) {
+double geohashGetDistance(double lon1d, double lat1d, double lon2d, double lat2d, double* same_longd, double *same_latd) {
     const double lat1r = deg_rad(lat1d);
     const double lon1r = deg_rad(lon1d);
     const double lat2r = deg_rad(lat2d);
     const double lon2r = deg_rad(lon2d);
     const double u = sin((lat2r - lat1r) / 2);
     const double v = sin((lon2r - lon1r) / 2);
-    return 2.0 * EARTH_RADIUS_IN_METERS *
-           asin(sqrt(u * u + cos(lat1r) * cos(lat2r) * v * v));
+    const double hav_lat = u * u;
+    const double cos_cos_hav_lon = cos(lat1r) * cos(lat2r) * v * v;
+
+    /* If same_latd is not null, also calculate the great circle distance 
+     * assuming 2d is at the longitude as 1d
+     * This implies that v=0 due to sin(0)=0
+     */
+    if (same_longd){
+        *same_longd = TWO_EARTH_RADIUS_IN_METERS * asin(sqrt(hav_lat));
+    }
+    /* If same_latd is not null, also calculate the great circle distance 
+     * assuming 2d is at the latitude as 1d
+     * This implies that u=0 due to sin(0)=0
+     */
+    if (same_latd){
+        *same_latd = TWO_EARTH_RADIUS_IN_METERS * asin(sqrt(cos_cos_hav_lon));
+    }
+    return TWO_EARTH_RADIUS_IN_METERS *
+           asin(sqrt(hav_lat + cos_cos_hav_lon));
 }
 
 int geohashGetDistanceIfInRadius(double x1, double y1,
                                  double x2, double y2, double radius,
                                  double *distance) {
-    *distance = geohashGetDistance(x1, y1, x2, y2);
+    *distance = geohashGetDistance(x1, y1, x2, y2, NULL, NULL);
     if (*distance > radius) return 0;
+    return 1;
+}
+
+int geohashGetDistanceIfInBoundingBox(double x1, double y1,
+                                 double x2, double y2, double height, double width,
+                                 double *distance) {
+    double distance_height = 0.0, distance_width = 0.0;
+    *distance = geohashGetDistance(x1, y1, x2, y2, &distance_width, &distance_height);
+    /* compute only y distance */
+    // const double distance_height_1 = geohashGetDistance(x1, y1, x1, y2,NULL,NULL);
+    /* compute only x distance */ 
+    // const double distance_width_1 = geohashGetDistance(x1, y2, x2, y2,NULL,NULL);
+    // D("harvesin distance [%.2f] ([%.2f],[%.2f]) ([%.2f],[%.2f]) is zero",*distance, distance_width, distance_height, distance_width_1, distance_height_1);
+    if (distance_height > height || distance_width > width ) return 0;
     return 1;
 }
 

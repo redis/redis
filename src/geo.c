@@ -222,7 +222,7 @@ void addReplyDoubleDistance(client *c, double d) {
     addReplyBulkCBuffer(c, dbuf, dlen);
 }
 
-/* Helper function for geoGetPointsInRange(): given a sorted set score
+/* Helper function for geoGetPointsInRangeByRadius(): given a sorted set score
  * representing a point, and another point (the center of our search) and
  * a radius, appends this entry as a geoPoint into the specified geoArray
  * only if the point is within the search area.
@@ -250,6 +250,35 @@ int geoAppendIfWithinRadius(geoArray *ga, double lon, double lat, double radius,
     return C_OK;
 }
 
+
+/* Helper function for geoGetPointsInRangeByRadius(): given a sorted set score
+ * representing a point, and another point (the center of our search) and
+ * a radius, appends this entry as a geoPoint into the specified geoArray
+ * only if the point is within the search area.
+ *
+ * returns C_OK if the point is included, or REIDS_ERR if it is outside. */
+int geoAppendIfWithinBoundingBox(geoArray *ga, double lon, double lat, double height, double width, double score, sds member) {
+    double distance, xy[2];
+
+    if (!decodeGeohash(score,xy)) return C_ERR; /* Can't decode. */
+    /* Note that geohashGetDistanceIfInBoundingBox() takes arguments in
+     * reverse order: longitude first, latitude later. */
+    if (!geohashGetDistanceIfInBoundingBox(lon,lat, xy[0], xy[1],
+                                           height, width, &distance))
+    {
+        return C_ERR;
+    }
+
+    /* Append the new element. */
+    geoPoint *gp = geoArrayAppend(ga);
+    gp->longitude = xy[0];
+    gp->latitude = xy[1];
+    gp->dist = distance;
+    gp->member = member;
+    gp->score = score;
+    return C_OK;
+}
+
 /* Query a Redis sorted set to extract all the elements between 'min' and
  * 'max', appending them into the array of geoPoint structures 'gparray'.
  * The command returns the number of elements added to the array.
@@ -262,7 +291,7 @@ int geoAppendIfWithinRadius(geoArray *ga, double lon, double lat, double radius,
  * using multiple queries to the sorted set, that we later need to sort
  * via qsort. Similarly we need to be able to reject points outside the search
  * radius area ASAP in order to allocate and process more points than needed. */
-int geoGetPointsInRange(robj *zobj, double min, double max, double lon, double lat, double radius, geoArray *ga) {
+int geoGetPointsInRangeByRadius(robj *zobj, double min, double max, double lon, double lat, double radius, geoArray *ga) {
     /* minex 0 = include min in range; maxex 1 = exclude max in range */
     /* That's: min <= val < max */
     zrangespec range = { .min = min, .max = max, .minex = 0, .maxex = 1 };
@@ -323,6 +352,80 @@ int geoGetPointsInRange(robj *zobj, double min, double max, double lon, double l
     return ga->used - origincount;
 }
 
+
+/* Query a Redis sorted set to extract all the elements between 'min' and
+ * 'max', appending them into the array of geoPoint structures 'gparray'.
+ * The command returns the number of elements added to the array.
+ *
+ * Elements which are farest than 'height' and 'width' from the specified 'y' and 'x'
+ * coordinates are not included.
+ *
+ * The ability of this function to append to an existing set of points is
+ * important for good performances because querying by radius is performed
+ * using multiple queries to the sorted set, that we later need to sort
+ * via qsort. Similarly we need to be able to reject points outside the search
+ * radius area ASAP in order to allocate and process more points than needed. */
+int geoGetPointsInRangeByBoundingBox(robj *zobj, double min, double max, double lon, double lat, double height, double width, geoArray *ga) {
+    /* minex 0 = include min in range; maxex 1 = exclude max in range */
+    /* That's: min <= val < max */
+    zrangespec range = { .min = min, .max = max, .minex = 0, .maxex = 1 };
+    size_t origincount = ga->used;
+    sds member;
+
+    if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
+        unsigned char *zl = zobj->ptr;
+        unsigned char *eptr, *sptr;
+        unsigned char *vstr = NULL;
+        unsigned int vlen = 0;
+        long long vlong = 0;
+        double score = 0;
+
+        if ((eptr = zzlFirstInRange(zl, &range)) == NULL) {
+            /* Nothing exists starting at our min.  No results. */
+            return 0;
+        }
+
+        sptr = ziplistNext(zl, eptr);
+        while (eptr) {
+            score = zzlGetScore(sptr);
+
+            /* If we fell out of range, break. */
+            if (!zslValueLteMax(score, &range))
+                break;
+
+            /* We know the element exists. ziplistGet should always succeed */
+            ziplistGet(eptr, &vstr, &vlen, &vlong);
+            member = (vstr == NULL) ? sdsfromlonglong(vlong) :
+                                      sdsnewlen(vstr,vlen);
+            if (geoAppendIfWithinBoundingBox(ga,lon,lat,height,width,score,member)
+                == C_ERR) sdsfree(member);
+            zzlNext(zl, &eptr, &sptr);
+        }
+    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
+        zset *zs = zobj->ptr;
+        zskiplist *zsl = zs->zsl;
+        zskiplistNode *ln;
+
+        if ((ln = zslFirstInRange(zsl, &range)) == NULL) {
+            /* Nothing exists starting at our min.  No results. */
+            return 0;
+        }
+
+        while (ln) {
+            sds ele = ln->ele;
+            /* Abort when the node is no longer in range. */
+            if (!zslValueLteMax(ln->score, &range))
+                break;
+
+            ele = sdsdup(ele);
+            if (geoAppendIfWithinBoundingBox(ga,lon,lat,height,width,ln->score,ele)
+                == C_ERR) sdsfree(ele);
+            ln = ln->level[0].forward;
+        }
+    }
+    return ga->used - origincount;
+}
+
 /* Compute the sorted set scores min (inclusive), max (exclusive) we should
  * query in order to retrieve all the elements inside the specified area
  * 'hash'. The two scores are returned by reference in *min and *max. */
@@ -353,17 +456,27 @@ void scoresOfGeoHashBox(GeoHashBits hash, GeoHashFix52Bits *min, GeoHashFix52Bit
 }
 
 /* Obtain all members between the min/max of this geohash bounding box.
- * Populate a geoArray of GeoPoints by calling geoGetPointsInRange().
+ * Populate a geoArray of GeoPoints by calling geoGetPointsInRangeByRadius().
  * Return the number of points added to the array. */
-int membersOfGeoHashBox(robj *zobj, GeoHashBits hash, geoArray *ga, double lon, double lat, double radius) {
+int membersOfGeoHashBoxByRadius(robj *zobj, GeoHashBits hash, geoArray *ga, double lon, double lat, double radius) {
     GeoHashFix52Bits min, max;
 
     scoresOfGeoHashBox(hash,&min,&max);
-    return geoGetPointsInRange(zobj, min, max, lon, lat, radius, ga);
+    return geoGetPointsInRangeByRadius(zobj, min, max, lon, lat, radius, ga);
+}
+
+/* Obtain all members between the min/max of this geohash bounding box.
+ * Populate a geoArray of GeoPoints by calling geoGetPointsInRangeByRadius().
+ * Return the number of points added to the array. */
+int membersOfGeoHashBoxByBoudingBox(robj *zobj, GeoHashBits hash, geoArray *ga, double lon, double lat, double height, double width) {
+    GeoHashFix52Bits min, max;
+
+    scoresOfGeoHashBox(hash,&min,&max);
+    return geoGetPointsInRangeByBoundingBox(zobj, min, max, lon, lat, height, width, ga);
 }
 
 /* Search all eight neighbors + self geohash box */
-int membersOfAllNeighbors(robj *zobj, GeoHashRadius n, double lon, double lat, double radius, geoArray *ga) {
+int membersOfAllNeighborsByBoudingBox(robj *zobj, GeoHashRadius n, double lon, double lat, double height, double width, geoArray *ga) {
     GeoHashBits neighbors[9];
     unsigned int i, count = 0, last_processed = 0;
 
@@ -417,7 +530,68 @@ int membersOfAllNeighbors(robj *zobj, GeoHashRadius n, double lon, double lat, d
             #endif
             continue;
         }
-        count += membersOfGeoHashBox(zobj, current_neighbour, ga, lon, lat, radius);
+        count += membersOfGeoHashBoxByBoudingBox(zobj, current_neighbour, ga, lon, lat, height, width);
+        last_processed = i;
+    }
+    return count;
+}
+
+/* Search all eight neighbors + self geohash box */
+int membersOfAllNeighborsByRadius(robj *zobj, GeoHashRadius n, double lon, double lat, double radius, geoArray *ga) {
+    GeoHashBits neighbors[9];
+    unsigned int i, count = 0, last_processed = 0;
+
+    neighbors[0] = n.hash;
+    neighbors[1] = n.neighbors.north;
+    neighbors[2] = n.neighbors.south;
+    neighbors[3] = n.neighbors.east;
+    neighbors[4] = n.neighbors.west;
+    neighbors[5] = n.neighbors.north_east;
+    neighbors[6] = n.neighbors.north_west;
+    neighbors[7] = n.neighbors.south_east;
+    neighbors[8] = n.neighbors.south_west;
+
+    /* For each neighbor (*and* our own hashbox), get all the matching
+     * members and add them to the potential result list. */
+    for (i = 0; i < 9; i++) {
+        const GeoHashBits current_neighbour = neighbors[i];
+        if (HASHISZERO(current_neighbour)) {
+            #ifdef GEO_DEBUG
+            D("neighbors[%d] is zero",i);
+            #endif
+            continue;
+        }
+
+        /* Debugging info. */
+        #ifdef GEO_DEBUG
+        GeoHashRange long_range, lat_range;
+        geohashGetCoordRange(&long_range,&lat_range);
+        GeoHashArea myarea = {{0}};
+        geohashDecode(long_range, lat_range, neighbors[i], &myarea);
+
+        /* Dump center square. */
+        D("neighbors[%d]:\n",i);
+        D("area.longitude.min: %f\n", myarea.longitude.min);
+        D("area.longitude.max: %f\n", myarea.longitude.max);
+        D("area.latitude.min: %f\n", myarea.latitude.min);
+        D("area.latitude.max: %f\n", myarea.latitude.max);
+        D("\n");
+        #endif
+
+        /* When a huge Radius (in the 5000 km range or more) is used,
+         * adjacent neighbors can be the same, leading to duplicated
+         * elements. Skip every range which is the same as the one
+         * processed previously. */
+        if (last_processed &&
+            current_neighbour.bits == neighbors[last_processed].bits &&
+            current_neighbour.step == neighbors[last_processed].step)
+        {
+            #ifdef GEO_DEBUG
+            D("Skipping processing of %d, same as previous\n",i);
+            #endif
+            continue;
+        }
+        count += membersOfGeoHashBoxByRadius(zobj, current_neighbour, ga, lon, lat, radius);
         last_processed = i;
     }
     return count;
@@ -620,11 +794,11 @@ void geoShapeGeneric(client *c, int flags) {
     if (flags & GEO_SHAPE_CIRCULAR) {
         georadius = geohashGetAreasByRadiusWGS84(xy[0], xy[1], radius_meters);
         /* Search the zset for all matching points */
-        membersOfAllNeighbors(zobj, georadius, xy[0], xy[1], radius_meters, ga);
+        membersOfAllNeighborsByRadius(zobj, georadius, xy[0], xy[1], radius_meters, ga);
     } else if (flags & GEO_SHAPE_BBOX) { 
-        georadius = geohashGetAreasByRadiusWGS84(xy[0], xy[1], width_meters);
+        georadius = geohashGetAreasByBoudingBox(xy[0], xy[1], height_meters, width_meters);
         /* Search the zset for all matching points */
-        membersOfAllNeighbors(zobj, georadius, xy[0], xy[1], width_meters, ga);
+        membersOfAllNeighborsByBoudingBox(zobj, georadius, xy[0], xy[1], height_meters, width_meters, ga);
     } else {
         addReplyError(c, "Unknown geo shape type");
         return;
@@ -908,5 +1082,5 @@ void geodistCommand(client *c) {
         addReplyNull(c);
     else
         addReplyDoubleDistance(c,
-            geohashGetDistance(xyxy[0],xyxy[1],xyxy[2],xyxy[3]) / to_meter);
+            geohashGetDistance(xyxy[0],xyxy[1],xyxy[2],xyxy[3],NULL,NULL) / to_meter);
 }
