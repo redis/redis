@@ -316,8 +316,8 @@ start_server {tags {"other"}} {
         after 200
 
         # Hash table should rehash since there is no child process,
-        # size is power of two and over 4098, so it is 16384
+        # size is power of two and over 4098, so it is 8192
         r set k3 v3
-        assert_match "*table size: 16384*" [r debug HTSTATS 9]
+        assert_match "*table size: 8192*" [r debug HTSTATS 9]
     }
 }

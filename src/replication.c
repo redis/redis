@@ -1439,7 +1439,7 @@ redisDb *disklessLoadMakeBackups(void) {
     for (int i=0; i<server.dbnum; i++) {
         backups[i] = server.db[i];
         server.db[i].dict = dictCreate(&dbDictType,NULL);
-        server.db[i].expires = dictCreate(&keyptrDictType,NULL);
+        server.db[i].expires = dictCreate(&dbExpiresDictType,NULL);
     }
     return backups;
 }

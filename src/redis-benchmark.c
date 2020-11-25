@@ -1299,7 +1299,8 @@ static int fetchClusterSlotsConfiguration(client c) {
         NULL,                      /* val dup */
         dictSdsKeyCompare,         /* key compare */
         NULL,                      /* key destructor */
-        NULL                       /* val destructor */
+        NULL,                      /* val destructor */
+        NULL                       /* allow to expand */
     };
     /* printf("[%d] fetchClusterSlotsConfiguration\n", c->thread_id); */
     dict *masters = dictCreate(&dtype, NULL);
