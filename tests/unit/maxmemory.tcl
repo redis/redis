@@ -241,3 +241,56 @@ test_slave_buffers {slave buffer are counted correctly} 1000000 10 0 1
 # test again with fewer (and bigger) commands without pipeline, but with eviction
 test_slave_buffers "replica buffer don't induce eviction" 100000 100 1 0
 
+start_server {tags {"maxmemory"}} {
+    test {client tracking don't cause eviction feedback loop} {
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-lru
+
+        # 10 clients listening on tracking messages
+        set clients {}
+        for {set j 0} {$j < 10} {incr j} {
+            lappend clients [redis_deferring_client]
+        }
+        foreach rd $clients {
+            $rd HELLO 3
+            $rd read ; # Consume the HELLO reply
+            $rd CLIENT TRACKING on
+            $rd read ; # Consume the CLIENT reply
+        }
+
+        # populate 10 keys, with long key name and short value
+        for {set j 0} {$j < 10} {incr j} {
+            # key name needs to be larger than the static reply buffer (PROTO_REPLY_CHUNK_BYTES)
+            set key $j[string repeat x 32768]
+            r set $key x
+            
+            # for each key, enable caching for this key
+            foreach rd $clients {
+                $rd get $key                
+                $rd read
+            }
+        }
+
+        # set the memory limit with room for 1 more key
+        set used [s used_memory]
+        set limit [expr {$used + 32768}]
+        r config set maxmemory $limit
+        
+        # add 2 more key with big name and small value
+        # we expect just a few to get evicted
+        for {set j 1000} {$j < 1002} {incr j} {
+            r set $j[string repeat x 32768] x
+        }
+
+        # make sure some eviction happened
+        assert_range [s evicted_keys] 1 4
+
+        foreach rd $clients {
+            $rd read ;# make sure we have some invalidation message waiting
+            $rd close
+        }
+        
+        # make sure we didn't drain the database
+        assert_range [r dbsize] 8 11
+    }
+}
