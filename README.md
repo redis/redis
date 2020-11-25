@@ -1,3 +1,4 @@
+[![Build Status](https://travis-ci.org/xcalibyte-github/redis.svg?branch=unstable)](https://travis-ci.org/xcalibyte-github/redis)
 This README is just a fast *quick start* document. You can find more detailed documentation at [redis.io](https://redis.io).
 
 What is Redis?
