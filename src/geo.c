@@ -171,6 +171,46 @@ double extractDistanceOrReply(client *c, robj **argv,
     return distance * to_meters;
 }
 
+/* Input Argument Helper.
+ * Extract the distance from the specified three arguments starting at 'argv'
+ * that should be in the form: <height> <width> <unit>, and return the distance in the
+ * specified unit on success. *conversions is populated with the coefficient
+ * to use in order to convert meters to the unit.
+ *
+ * Returns C_OK on successful decoding, otherwise C_ERR is returned. */
+double extractHeightWidthDistanceOrReply(client *c, robj **argv, double *conversion, double *height_meters, double* width_meters) {
+    double height, width;
+    if (getDoubleFromObjectOrReply(c, argv[0], &height,
+                                   "need numeric height") != C_OK) {
+        return C_ERR;
+    }
+
+    if (height < 0) {
+        addReplyError(c,"height cannot be negative");
+        return C_ERR;
+    }
+
+    if (getDoubleFromObjectOrReply(c, argv[1], &width,
+                                   "need numeric width") != C_OK) {
+        return C_ERR;
+    }
+
+    if (width < 0) {
+        addReplyError(c,"width cannot be negative");
+        return C_ERR;
+    }
+
+    double to_meters = extractUnitOrReply(c,argv[2]);
+    if (to_meters < 0) {
+        return C_ERR;
+    }
+
+    if (conversion) *conversion = to_meters;
+    *height_meters = height * to_meters;
+    *width_meters = width * to_meters;
+    return C_OK;
+}
+
 /* The default addReplyDouble has too much accuracy.  We use this
  * for returning location distances. "5.2145 meters away" is nicer
  * than "5.2144992818115 meters away." We provide 4 digits after the dot
@@ -326,7 +366,6 @@ int membersOfGeoHashBox(robj *zobj, GeoHashBits hash, geoArray *ga, double lon, 
 int membersOfAllNeighbors(robj *zobj, GeoHashRadius n, double lon, double lat, double radius, geoArray *ga) {
     GeoHashBits neighbors[9];
     unsigned int i, count = 0, last_processed = 0;
-    int debugmsg = 0;
 
     neighbors[0] = n.hash;
     neighbors[1] = n.neighbors.north;
@@ -340,41 +379,45 @@ int membersOfAllNeighbors(robj *zobj, GeoHashRadius n, double lon, double lat, d
 
     /* For each neighbor (*and* our own hashbox), get all the matching
      * members and add them to the potential result list. */
-    for (i = 0; i < sizeof(neighbors) / sizeof(*neighbors); i++) {
-        if (HASHISZERO(neighbors[i])) {
-            if (debugmsg) D("neighbors[%d] is zero",i);
+    for (i = 0; i < 9; i++) {
+        const GeoHashBits current_neighbour = neighbors[i];
+        if (HASHISZERO(current_neighbour)) {
+            #ifdef GEO_DEBUG
+            D("neighbors[%d] is zero",i);
+            #endif
             continue;
         }
 
         /* Debugging info. */
-        if (debugmsg) {
-            GeoHashRange long_range, lat_range;
-            geohashGetCoordRange(&long_range,&lat_range);
-            GeoHashArea myarea = {{0}};
-            geohashDecode(long_range, lat_range, neighbors[i], &myarea);
+        #ifdef GEO_DEBUG
+        GeoHashRange long_range, lat_range;
+        geohashGetCoordRange(&long_range,&lat_range);
+        GeoHashArea myarea = {{0}};
+        geohashDecode(long_range, lat_range, neighbors[i], &myarea);
 
-            /* Dump center square. */
-            D("neighbors[%d]:\n",i);
-            D("area.longitude.min: %f\n", myarea.longitude.min);
-            D("area.longitude.max: %f\n", myarea.longitude.max);
-            D("area.latitude.min: %f\n", myarea.latitude.min);
-            D("area.latitude.max: %f\n", myarea.latitude.max);
-            D("\n");
-        }
+        /* Dump center square. */
+        D("neighbors[%d]:\n",i);
+        D("area.longitude.min: %f\n", myarea.longitude.min);
+        D("area.longitude.max: %f\n", myarea.longitude.max);
+        D("area.latitude.min: %f\n", myarea.latitude.min);
+        D("area.latitude.max: %f\n", myarea.latitude.max);
+        D("\n");
+        #endif
 
         /* When a huge Radius (in the 5000 km range or more) is used,
          * adjacent neighbors can be the same, leading to duplicated
          * elements. Skip every range which is the same as the one
          * processed previously. */
         if (last_processed &&
-            neighbors[i].bits == neighbors[last_processed].bits &&
-            neighbors[i].step == neighbors[last_processed].step)
+            current_neighbour.bits == neighbors[last_processed].bits &&
+            current_neighbour.step == neighbors[last_processed].step)
         {
-            if (debugmsg)
-                D("Skipping processing of %d, same as previous\n",i);
+            #ifdef GEO_DEBUG
+            D("Skipping processing of %d, same as previous\n",i);
+            #endif
             continue;
         }
-        count += membersOfGeoHashBox(zobj, neighbors[i], ga, lon, lat, radius);
+        count += membersOfGeoHashBox(zobj, current_neighbour, ga, lon, lat, radius);
         last_processed = i;
     }
     return count;
@@ -493,7 +536,7 @@ void geoShapeGeneric(client *c, int flags) {
         addReplyError(c, "Unknown geo center type");
         return;
     }
-    double radius_meters = 0, conversion = 1;
+    double radius_meters = 0, height_meters = 0, width_meters = 0, conversion = 1;
     if (flags & GEO_SHAPE_CIRCULAR) {
         /* Extract radius and units from arguments */
         if ((radius_meters = extractDistanceOrReply(c, c->argv + base_args - 2,
@@ -501,7 +544,12 @@ void geoShapeGeneric(client *c, int flags) {
             return;
         }
     } else if (flags & GEO_SHAPE_BBOX) { 
-
+        base_args++;
+        /* Extract radius and units from arguments */
+        if ( extractHeightWidthDistanceOrReply(c, c->argv + base_args - 3,
+                                                    &conversion, &height_meters, &width_meters ) == C_ERR) {
+            return;
+        }
     } else {
         addReplyError(c, "Unknown geo shape type");
         return;
@@ -566,15 +614,22 @@ void geoShapeGeneric(client *c, int flags) {
     /* COUNT without ordering does not make much sense, force ASC
      * ordering if COUNT was specified but no sorting was requested. */
     if (count != 0 && sort == SORT_NONE) sort = SORT_ASC;
-
-    /* Get all neighbor geohash boxes for our radius search */
-    GeoHashRadius georadius =
-        geohashGetAreasByRadiusWGS84(xy[0], xy[1], radius_meters);
-
-    /* Search the zset for all matching points */
     geoArray *ga = geoArrayCreate();
-    membersOfAllNeighbors(zobj, georadius, xy[0], xy[1], radius_meters, ga);
-
+    /* Get all neighbor geohash boxes for our radius search */
+    GeoHashRadius georadius = { 0 };
+    if (flags & GEO_SHAPE_CIRCULAR) {
+        georadius = geohashGetAreasByRadiusWGS84(xy[0], xy[1], radius_meters);
+        /* Search the zset for all matching points */
+        membersOfAllNeighbors(zobj, georadius, xy[0], xy[1], radius_meters, ga);
+    } else if (flags & GEO_SHAPE_BBOX) { 
+        georadius = geohashGetAreasByRadiusWGS84(xy[0], xy[1], width_meters);
+        /* Search the zset for all matching points */
+        membersOfAllNeighbors(zobj, georadius, xy[0], xy[1], width_meters, ga);
+    } else {
+        addReplyError(c, "Unknown geo shape type");
+        return;
+    }
+    
     /* If no matching results, the user gets an empty reply. */
     if (ga->used == 0 && storekey == NULL) {
         addReply(c,shared.emptyarray);
@@ -701,6 +756,26 @@ void georadiusroCommand(client *c) {
 /* GEORADIUSBYMEMBER_RO wrapper function. */
 void georadiusbymemberroCommand(client *c) {
     geoShapeGeneric(c, GEO_CENTER_MEMBER|GEO_SHAPE_CIRCULAR|GEO_NOSTORE);
+}
+
+/* GEOBBOX wrapper function. */
+void geobboxCommand(client *c) {
+    geoShapeGeneric(c, GEO_CENTER_COORDS|GEO_SHAPE_BBOX);
+}
+
+/* GEOBBOXBYMEMBER wrapper function. */
+void geobboxbymemberCommand(client *c) {
+    geoShapeGeneric(c, GEO_CENTER_MEMBER|GEO_SHAPE_BBOX);
+}
+
+/* GEOBBOX_RO wrapper function. */
+void geobboxroCommand(client *c) {
+    geoShapeGeneric(c, GEO_CENTER_COORDS|GEO_SHAPE_BBOX|GEO_NOSTORE);
+}
+
+/* GEOBBOXBYMEMBER_RO wrapper function. */
+void geobboxbymemberroCommand(client *c) {
+    geoShapeGeneric(c, GEO_CENTER_MEMBER|GEO_SHAPE_BBOX|GEO_NOSTORE);
 }
 
 /* GEOHASH key ele1 ele2 ... eleN

@@ -934,6 +934,22 @@ struct redisCommand redisCommandTable[] = {
      "read-only @geo",
      0,georadiusGetKeys,1,1,1,0,0,0},
 
+    {"geobbox",geobboxCommand,-7,
+     "write @geo",
+     0,georadiusGetKeys,1,1,1,0,0,0},
+
+    {"geobbox_ro",geobboxroCommand,-7,
+     "read-only @geo",
+     0,georadiusGetKeys,1,1,1,0,0,0},
+
+    {"geobboxbymember",geobboxbymemberCommand,-6,
+     "write @geo",
+     0,georadiusGetKeys,1,1,1,0,0,0},
+
+    {"geobboxbymember_ro",geobboxbymemberroCommand,-6,
+     "read-only @geo",
+     0,georadiusGetKeys,1,1,1,0,0,0},
+
     {"geohash",geohashCommand,-2,
      "read-only @geo",
      0,NULL,1,1,1,0,0,0},
