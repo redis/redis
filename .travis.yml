@@ -10,8 +10,6 @@ before_script:
 # install xcal client
   - wget -q https://ci-integration.oss-cn-shanghai.aliyuncs.com/xcal-agent.tgz && tar -xf xcal-agent.tgz -C $HOME/build && cd $HOME/build/xcal-agent/xcalbuild/linux/bear && sudo rm -rf build && mkdir build && cd build && cmake .. && make && sudo make install
   - export PYTHONPATH=$HOME/build/xcal-agent/agent:$HOME/build/xcal-agent/agent/commondef/src
-  - ls
-  - pwd
 # install submit task
   - wget -q https://ci-integration.oss-cn-shanghai.aliyuncs.com/submit_task.tgz && tar -zxvf submit_task.tgz -C $HOME/build/xcalibyte-github/redis && cd $HOME/build/xcalibyte-github/redis/install && . ./install_submit_task.sh && . ./set_path.sh
 
