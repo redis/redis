@@ -954,7 +954,7 @@ unsigned long dictScan(dict *d,
 /* Because we may need to allocate huge memory chunk at once when dict
  * expands, we will check this allocation is allowed or not if the dict
  * type has expandAllowed member function. */
-static int dictCanExpand(dict *d) {
+static int dictTypeExpandAllowed(dict *d) {
     if (d->type->expandAllowed == NULL) return 1;
     return d->type->expandAllowed(
                     _dictNextPower(d->ht[0].used + 1) * sizeof(dictEntry*),
@@ -977,7 +977,7 @@ static int _dictExpandIfNeeded(dict *d)
     if (d->ht[0].used >= d->ht[0].size &&
         (dict_can_resize ||
          d->ht[0].used/d->ht[0].size > dict_force_resize_ratio) &&
-        dictCanExpand(d))
+        dictTypeExpandAllowed(d))
     {
         return dictExpand(d, d->ht[0].used + 1);
     }

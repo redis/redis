@@ -246,7 +246,7 @@ start_server {tags {"maxmemory"}} {
         r config set maxmemory 0
         r config set maxmemory-policy allkeys-random
 
-        # Next rehash size is 8196, that will eat 64k memory
+        # Next rehash size is 8192, that will eat 64k memory
         populate 4096 "" 1
 
         set used [s used_memory]
