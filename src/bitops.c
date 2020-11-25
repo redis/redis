@@ -36,7 +36,7 @@
 
 /* Count number of bits set in the binary array pointed by 's' and long
  * 'count' bytes. The implementation of this function is required to
- * work with an input string length up to 512 MB. */
+ * work with an input string length up to 512 MB or more (server.proto_max_bulk_len) */
 size_t redisPopcount(void *s, long count) {
     size_t bits = 0;
     unsigned char *p = s;
@@ -405,7 +405,7 @@ void printBits(unsigned char *p, unsigned long count) {
 
 /* This helper function used by GETBIT / SETBIT parses the bit offset argument
  * making sure an error is returned if it is negative or if it overflows
- * Redis 512 MB limit for the string value.
+ * Redis 512 MB limit for the string value or more (server.proto_max_bulk_len).
  *
  * If the 'hash' argument is true, and 'bits is positive, then the command
  * will also parse bit offsets prefixed by "#". In such a case the offset
@@ -428,8 +428,8 @@ int getBitOffsetFromArgument(client *c, robj *o, size_t *offset, int hash, int b
     /* Adjust the offset by 'bits' for #<offset> form. */
     if (usehash) loffset *= bits;
 
-    /* Limit offset to 512MB in bytes */
-    if ((loffset < 0) || ((unsigned long long)loffset >> 3) >= (512*1024*1024))
+    /* Limit offset to server.proto_max_bulk_len (512MB in bytes by default) */
+    if ((loffset < 0) || (loffset >> 3) >= server.proto_max_bulk_len)
     {
         addReplyError(c,err);
         return C_ERR;
