@@ -294,6 +294,26 @@ start_server {
         assert {[lindex $reply 0 3] == 2}
     }
 
+    test {XCLAIM same consumer} {
+        # Add 3 items into the stream, and create a consumer group
+        r del mystream
+        set id1 [r XADD mystream * a 1]
+        set id2 [r XADD mystream * b 2]
+        set id3 [r XADD mystream * c 3]
+        r XGROUP CREATE mystream mygroup 0
+
+        set reply [
+            r XREADGROUP GROUP mygroup client1 count 1 STREAMS mystream >
+        ]
+        assert {[llength [lindex $reply 0 1 0 1]] == 2}
+        assert {[lindex $reply 0 1 0 1] eq {a 1}}
+        r debug sleep 0.2
+        set reply [
+            r XCLAIM mystream mygroup client1 10 $id1
+        ]
+        assert {[llength $reply] == 1}
+    }
+
     test {XINFO FULL output} {
         r del x
         r XADD x 100 a 1
