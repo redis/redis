@@ -2,7 +2,6 @@ set testmodule [file normalize tests/modules/keyspace_events.so]
 
 tags "modules" {
     start_server [list overrides [list loadmodule "$testmodule"]] {
-
         test {Test loaded key space event} {
             r set x 1
             r hset y f v
@@ -17,6 +16,12 @@ tags "modules" {
             assert_equal {1 p} [r keyspace.is_key_loaded p]
             assert_equal {1 t} [r keyspace.is_key_loaded t]
             assert_equal {1 s} [r keyspace.is_key_loaded s]
+        }
+
+        test {Nested multi due to RM_Call} {
+            r set x 1
+            r set x_copy 1
+            r keyspace.del_key_copy x
         }
 	}
 }

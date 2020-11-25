@@ -3020,6 +3020,7 @@ void initServer(void) {
     listSetFreeMethod(server.pubsub_patterns,freePubsubPattern);
     listSetMatchMethod(server.pubsub_patterns,listMatchPubsubPattern);
     server.cronloops = 0;
+    server.propagate_in_transaction = 0;
     server.rdb_child_pid = -1;
     server.aof_child_pid = -1;
     server.module_child_pid = -1;

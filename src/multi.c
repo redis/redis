@@ -113,14 +113,28 @@ void discardCommand(client *c) {
     addReply(c,shared.ok);
 }
 
+void beforePropagagteMultiOrExec(int multi) {
+    if (multi) {
+        /* Propagating MULTI */
+        serverAssert(!server.propagate_in_transaction);
+        server.propagate_in_transaction = 1;
+    } else {
+        /* Propagating EXEC */
+        serverAssert(server.propagate_in_transaction == 1);
+        server.propagate_in_transaction = 0;
+    }
+}
+
 /* Send a MULTI command to all the slaves and AOF file. Check the execCommand
  * implementation for more information. */
 void execCommandPropagateMulti(client *c) {
+    beforePropagagteMultiOrExec(1);
     propagate(server.multiCommand,c->db->id,&shared.multi,1,
               PROPAGATE_AOF|PROPAGATE_REPL);
 }
 
 void execCommandPropagateExec(client *c) {
+    beforePropagagteMultiOrExec(0);
     propagate(server.execCommand,c->db->id,&shared.exec,1,
               PROPAGATE_AOF|PROPAGATE_REPL);
 }
@@ -235,6 +249,7 @@ void execCommand(client *c) {
     if (must_propagate) {
         int is_master = server.masterhost == NULL;
         server.dirty++;
+        beforePropagagteMultiOrExec(0);
         /* If inside the MULTI/EXEC block this instance was suddenly
          * switched from master to slave (using the SLAVEOF command), the
          * initial MULTI was propagated into the replication backlog, but the

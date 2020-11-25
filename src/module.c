@@ -584,6 +584,7 @@ void moduleHandlePropagationAfterCommandCallback(RedisModuleCtx *ctx) {
 
     /* Handle the replication of the final EXEC, since whatever a command
      * emits is always wrapped around MULTI/EXEC. */
+    beforePropagagteMultiOrExec(0);
     alsoPropagate(server.execCommand,c->db->id,&shared.exec,1,
         PROPAGATE_AOF|PROPAGATE_REPL);
 
@@ -1608,6 +1609,8 @@ int RM_ReplyWithLongDouble(RedisModuleCtx *ctx, long double ld) {
  * in the context of a command execution. EXEC will be handled by the
  * RedisModuleCommandDispatcher() function. */
 void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx) {
+    /* Skip this if server has already emitted MULTI */
+    if (server.propagate_in_transaction) return;
     /* Skip this if client explicitly wrap the command with MULTI, or if
      * the module command was called by a script. */
     if (ctx->client->flags & (CLIENT_MULTI|CLIENT_LUA)) return;
