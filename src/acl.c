@@ -1221,8 +1221,8 @@ int ACLCheckCommandPerm(client *c, int *keyidxptr) {
 }
 
 /* Check if the pub/sub channels of the command, that's ready to be executed in
- * the client 'c' and already referenced by c->cmd, can be executed by this
- * client according to the ACLs channels associated to the client user c->user.
+ * the client 'c', can be executed by this client according to the ACLs channels
+ * associated to the client user c->user.
  * 
  * idx and count are the index and count of channel arguments from the
  * command. The literal argument controls whether the user's ACL channels are 
@@ -1703,9 +1703,9 @@ void addACLLogEntry(client *c, int reason, int argpos, sds username) {
 
     switch(reason) {
     case ACL_DENIED_CMD: le->object = sdsnew(c->cmd->name); break;
-    case ACL_DENIED_KEY: le->object = sdsnew(c->argv[argpos]->ptr); break;
-    case ACL_DENIED_CHANNEL: le->object = sdsnew(c->argv[argpos]->ptr); break;
-    case ACL_DENIED_AUTH: le->object = sdsnew(c->argv[0]->ptr); break;
+    case ACL_DENIED_KEY: le->object = sdsdup(c->argv[argpos]->ptr); break;
+    case ACL_DENIED_CHANNEL: le->object = sdsdup(c->argv[argpos]->ptr); break;
+    case ACL_DENIED_AUTH: le->object = sdsdup(c->argv[0]->ptr); break;
     default: le->object = sdsempty();
     }
 
