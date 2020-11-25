@@ -2029,7 +2029,7 @@ cleanup:
     if (ids != static_ids) zfree(ids);
 }
 
-/* XPENDING <key> <group> [<start> <stop> <count> [<consumer> [IDLE <idle>]]]
+/* XPENDING <key> <group> [[IDLE <idle>] <start> <stop> <count> [<consumer>]]
  *
  * If start and stop are omitted, the command just outputs information about
  * the amount of pending messages for the key/group pair, together with
@@ -2037,8 +2037,7 @@ cleanup:
  *
  * If start and stop are provided instead, the pending messages are returned
  * with information about the current owner, number of deliveries and last
- * delivery time and so forth.
- * If <consumer> is an empty string then the entire group PEL will be used. */
+ * delivery time and so forth. */
 void xpendingCommand(client *c) {
     int justinfo = c->argc == 3; /* Without the range just outputs general
                                     informations about the PEL. */
@@ -2050,36 +2049,39 @@ void xpendingCommand(client *c) {
     long long minidle = 0;
 
     /* Start and stop, and the consumer, can be omitted. Also the IDLE modifier. */
-    if (c->argc != 3 && c->argc != 6 && c->argc != 7 && c->argc != 9) {
+    if (c->argc != 3 && (c->argc < 6 || c->argc > 9)) {
         addReply(c,shared.syntaxerr);
         return;
-    }
-
-    /* Find consumer name and idle time */
-    if (c->argc >= 7) {
-        consumername = c->argv[6];
-        if (c->argc == 9) {
-            /* Must contain IDLE */
-            robj *idlevalue = c->argv[8];
-            if (strcasecmp(c->argv[7]->ptr, "IDLE")) {
-                addReply(c,shared.syntaxerr);
-                return;
-            }
-            if (getLongLongFromObjectOrReply(c, idlevalue, &minidle, NULL) == C_ERR)
-                return;
-        }
     }
 
     /* Parse start/end/count arguments ASAP if needed, in order to report
      * syntax errors before any other error. */
     if (c->argc >= 6) {
-        if (getLongLongFromObjectOrReply(c,c->argv[5],&count,NULL) == C_ERR)
+        int startidx = 3; /* Without IDLE */
+
+        if (!strcasecmp(c->argv[3]->ptr, "IDLE")) {
+            if (getLongLongFromObjectOrReply(c, c->argv[4], &minidle, NULL) == C_ERR)
+                return;
+            if (c->argc < 8) {
+                /* If IDLE was provided we must have at least 'start end count' */
+                addReply(c,shared.syntaxerr);
+                return;
+            }
+            /* Search for rest of arguments after 'IDLE <idle>' */
+            startidx += 2;
+        }
+        if (getLongLongFromObjectOrReply(c,c->argv[startidx+2],&count,NULL) == C_ERR)
             return;
         if (count < 0) count = 0;
-        if (streamParseIDOrReply(c,c->argv[3],&startid,0) == C_ERR)
+        if (streamParseIDOrReply(c,c->argv[startidx],&startid,0) == C_ERR)
             return;
-        if (streamParseIDOrReply(c,c->argv[4],&endid,UINT64_MAX) == C_ERR)
+        if (streamParseIDOrReply(c,c->argv[startidx+1],&endid,UINT64_MAX) == C_ERR)
             return;
+
+        if (startidx+3 < c->argc) {
+            /* 'consumer' was provided */
+            consumername = c->argv[startidx+3];
+        }
     }
 
     /* Lookup the key and the group inside the stream. */
@@ -2139,10 +2141,10 @@ void xpendingCommand(client *c) {
             raxStop(&ri);
         }
     }
-    /* XPENDING <key> <group> <start> <stop> <count> [<consumer> [IDLE <idle>]] variant. */
+    /* XPENDING <key> <group> [IDLE <idle>] <start> <stop> <count> [<consumer>] variant. */
     else {
         streamConsumer *consumer = NULL;
-        if (consumername && sdslen(consumername->ptr) > 0) {
+        if (consumername) {
             consumer = streamLookupConsumer(group,
                                             consumername->ptr,
                                             SLC_NOCREAT|SLC_NOREFRESH,
