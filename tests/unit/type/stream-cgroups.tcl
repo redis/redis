@@ -219,18 +219,9 @@ start_server {
         assert {[llength [lindex $reply 0 1 0 1]] == 2}
         assert {[lindex $reply 0 1 0 1] eq {a 1}}
 
-        set reply [
-            r XPENDING mystream mygroup - + 10
-        ]
-        assert {[llength $reply] == 1}
-        set reply [
-            r XPENDING mystream mygroup - + 10 client1
-        ]
-        assert {[llength $reply] == 1}
-        set reply [
-            r XPENDING mystream mygroup - + 10 client2
-        ]
-        assert {[llength $reply] == 0}
+        assert {[llength [r XPENDING mystream mygroup - + 10]] == 1}
+        assert {[llength [r XPENDING mystream mygroup - + 10 client1]] == 1}
+        assert {[llength [r XPENDING mystream mygroup - + 10 client2]] == 0}
 
         r debug sleep 0.2
         set reply [
@@ -239,18 +230,9 @@ start_server {
         assert {[llength [lindex $reply 0 1]] == 2}
         assert {[lindex $reply 0 1] eq {a 1}}
 
-        set reply [
-            r XPENDING mystream mygroup - + 10
-        ]
-        assert {[llength $reply] == 1}
-        set reply [
-            r XPENDING mystream mygroup - + 10 client1
-        ]
-        assert {[llength $reply] == 0}
-        set reply [
-            r XPENDING mystream mygroup - + 10 client2
-        ]
-        assert {[llength $reply] == 1}
+        assert {[llength [r XPENDING mystream mygroup - + 10]] == 1}
+        assert {[llength [r XPENDING mystream mygroup - + 10 client1]] == 0}
+        assert {[llength [r XPENDING mystream mygroup - + 10 client2]] == 1}
 
         # Client 1 reads another 2 items from stream
         r XREADGROUP GROUP mygroup client1 count 2 STREAMS mystream >
@@ -335,10 +317,13 @@ start_server {
         assert {[llength [lindex $reply 0 1 0 1]] == 2}
         assert {[lindex $reply 0 1 0 1] eq {a 1}}
         r debug sleep 0.2
+        assert {[llength [r XCLAIM mystream mygroup client1 10 $id1]] == 1}
+
         set reply [
-            r XCLAIM mystream mygroup client1 10 $id1
+            r XPENDING mystream mygroup - + 10
         ]
         assert {[llength $reply] == 1}
+        assert {[lindex $reply 0 1] eq {client1}}
     }
 
     test {XINFO FULL output} {
