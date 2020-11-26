@@ -2,6 +2,7 @@ set testmodule [file normalize tests/modules/keyspace_events.so]
 
 tags "modules" {
     start_server [list overrides [list loadmodule "$testmodule"]] {
+
         test {Test loaded key space event} {
             r set x 1
             r hset y f v
@@ -19,9 +20,52 @@ tags "modules" {
         }
 
         test {Nested multi due to RM_Call} {
+            r del multi
+            r del lua
+
             r set x 1
             r set x_copy 1
             r keyspace.del_key_copy x
-        }
+            r keyspace.incr_case1 x
+            r keyspace.incr_case2 x
+            r keyspace.incr_case3 x
+            assert_equal {} [r get multi]
+            assert_equal {} [r get lua]
+            r get x
+        } {3}
+        
+        test {Nested multi due to RM_Call, with client MULTI} {
+            r del multi
+            r del lua
+
+            r set x 1
+            r set x_copy 1
+            r multi
+            r keyspace.del_key_copy x
+            r keyspace.incr_case1 x
+            r keyspace.incr_case2 x
+            r keyspace.incr_case3 x
+            r exec
+            assert_equal {1} [r get multi]
+            assert_equal {} [r get lua]
+            r get x
+        } {3}
+        
+        test {Nested multi due to RM_Call, with EVAL} {
+            r del multi
+            r del lua
+
+            r set x 1
+            r set x_copy 1
+            r eval {
+                redis.pcall('keyspace.del_key_copy', KEYS[1])
+                redis.pcall('keyspace.incr_case1', KEYS[1])
+                redis.pcall('keyspace.incr_case2', KEYS[1])
+                redis.pcall('keyspace.incr_case3', KEYS[1])
+            } 1 x
+            assert_equal {} [r get multi]
+            assert_equal {1} [r get lua]
+            r get x
+        } {3}
 	}
 }

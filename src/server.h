@@ -1104,6 +1104,8 @@ struct redisServer {
     int sentinel_mode;          /* True if this instance is a Sentinel. */
     size_t initial_memory_usage; /* Bytes used after initialization. */
     int always_show_logo;       /* Show logo even for non-stdout logging. */
+    int in_eval;                /* Are we inside EVAL? */
+    int in_exec;                /* Are we inside EXEC? */
     int propagate_in_transaction;  /* Make sure we don't propagate nested MULTI/EXEC */
     /* Modules */
     dict *moduleapi;            /* Exported core APIs dictionary for modules. */
@@ -1822,7 +1824,7 @@ void flagTransaction(client *c);
 void execCommandAbort(client *c, sds error);
 void execCommandPropagateMulti(client *c);
 void execCommandPropagateExec(client *c);
-void beforePropagagteMultiOrExec(int multi);
+void beforePropagateMultiOrExec(int multi);
 
 /* Redis object implementation */
 void decrRefCount(robj *o);
