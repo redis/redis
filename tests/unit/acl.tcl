@@ -81,62 +81,63 @@ start_server {tags {"acl"}} {
         set e
     } {*NOPERM*key*}
 
-    test {By default users are not able to publish to any channel} {
-        catch {r PUBLISH foo bar} e
-        set e
-    } {*NOPERM*channel*}
+    test {By default users are able to publish to any channel} {
+        r ACL setuser psuser on >pspass +acl +@pubsub
+        r AUTH psuser pspass
+        r PUBLISH foo bar
+    } {0}
 
-    test {By default users are not able to subscribe to any channel} {
-        catch {r SUBSCRIBE foo} e
-        set e
-    } {*NOPERM*channel*}
+    test {By default users are able to subscribe to any channel} {
+        set rd [redis_deferring_client]
+        $rd AUTH psuser pspass
+        $rd read
+        $rd SUBSCRIBE foo
+        assert_match {subscribe foo 1} [$rd read]
+        $rd close
+    } {0}
 
-    test {By default users are not able to subscribe to any pattern} {
-        catch {r PSUBSCRIBE bar*} e
-        set e
-    } {*NOPERM*channel*}
+    test {By default users are able to subscribe to any pattern} {
+        set rd [redis_deferring_client]
+        $rd AUTH psuser pspass
+        $rd read
+        $rd PSUBSCRIBE bar*
+        assert_match {psubscribe bar\* 1} [$rd read]
+        $rd close
+    } {0}
 
     test {It's possible to allow publishing to a subset of channels} {
-        r ACL setuser newuser &foo:1 &bar:*
-        catch {r PUBLISH foo:1 a} e
-        assert {$e eq 0}
-        catch {r PUBLISH bar:2 b} e
-        assert {$e eq 0}
-        catch {r PUBLISH zap:3 c} e
+        r ACL setuser psuser resetchannels &foo:1 &bar:*
+        assert_equal {0} [r PUBLISH foo:1 somemessage]
+        assert_equal {0} [r PUBLISH bar:2 anothermessage]
+        catch {r PUBLISH zap:3 nosuchmessage} e
         set e
     } {*NOPERM*channel*}
 
     test {It's possible to allow subscribing to a subset of channels} {
         set rd [redis_deferring_client]
-        $rd AUTH newuser passwd2
-        catch {$rd read} e
-        assert {$e eq "OK"}
+        $rd AUTH psuser pspass
+        $rd read
         $rd SUBSCRIBE foo:1
-        catch {$rd read} e
-        assert {[string match {*subscribe*foo:1*} $e]}
+        assert_match {subscribe foo:1 1} [$rd read]
         $rd SUBSCRIBE bar:2
-        catch {$rd read} e
-        assert {[string match {*subscribe*bar:2*} $e]}
+        assert_match {subscribe bar:2 2} [$rd read]
         $rd SUBSCRIBE zap:3
         catch {$rd read} e
-        $rd QUIT
+        $rd close
         set e
     } {*NOPERM*channel*}
 
     test {It's possible to allow subscribing to a subset of channel patterns} {
         set rd [redis_deferring_client]
-        $rd AUTH newuser passwd2
-        catch {$rd read} e
-        assert {$e eq "OK"}
+        $rd AUTH psuser pspass
+        $rd read
         $rd PSUBSCRIBE foo:1
-        catch {$rd read} e
-        assert {[string match {*psubscribe*foo:1*} $e]}
+        assert_match {psubscribe foo:1 1} [$rd read]
         $rd PSUBSCRIBE bar:*
+        assert_match {psubscribe bar:\* 2} [$rd read]
+        $rd PSUBSCRIBE bar:baz
         catch {$rd read} e
-        assert {[string match {*subscribe*bar:*} $e]}
-        $rd PSUBSCRIBE bar:3
-        catch {$rd read} e
-        $rd QUIT
+        $rd close
         set e
     } {*NOPERM*channel*}
 
@@ -217,8 +218,9 @@ start_server {tags {"acl"}} {
 
     test {ACL LOG shows failed command executions at toplevel} {
         r ACL LOG RESET
-        r ACL setuser antirez >foo on +set +publish ~object:1234
+        r ACL setuser antirez >foo on +set ~object:1234
         r ACL setuser antirez +eval +multi +exec
+        r ACL setuser antirez resetchannels +publish
         r AUTH antirez foo
         catch {r GET foo}
         r AUTH default ""

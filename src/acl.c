@@ -242,7 +242,7 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     if (raxFind(Users,(unsigned char*)name,namelen) != raxNotFound) return NULL;
     user *u = zmalloc(sizeof(*u));
     u->name = sdsnewlen(name,namelen);
-    u->flags = USER_FLAG_DISABLED;
+    u->flags = USER_FLAG_DISABLED | server.acl_pubusub_default;
     u->allowed_subcommands = NULL;
     u->passwords = listCreate();
     u->patterns = listCreate();

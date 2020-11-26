@@ -1477,11 +1477,12 @@ struct redisServer {
     long long latency_monitor_threshold;
     dict *latency_events;
     /* ACLs */
-    char *acl_filename;     /* ACL Users file. NULL if not configured. */
+    char *acl_filename;           /* ACL Users file. NULL if not configured. */
     unsigned long acllog_max_len; /* Maximum length of the ACL LOG list. */
-    sds requirepass;        /* Remember the cleartext password set with the
-                               old "requirepass" directive for backward
-                               compatibility with Redis <= 5. */
+    sds requirepass;              /* Remember the cleartext password set with
+                                     the old "requirepass" directive for
+                                     backward compatibility with Redis <= 5. */
+    int acl_pubusub_default;      /* Default ACL pub/sub channels flag */
     /* Assert & bug reporting */
     int watchdog_period;  /* Software watchdog period in ms. 0 = off */
     /* System hardware info */
