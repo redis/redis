@@ -2140,9 +2140,7 @@ void xpendingCommand(client *c) {
             setDeferredArrayLen(c,arraylen_ptr,arraylen);
             raxStop(&ri);
         }
-    }
-    /* XPENDING <key> <group> [IDLE <idle>] <start> <stop> <count> [<consumer>] variant. */
-    else {
+    } else { /* <start>, <stop> and <count> provided, return actual pending entries (not just info) */
         streamConsumer *consumer = NULL;
         if (consumername) {
             consumer = streamLookupConsumer(group,
