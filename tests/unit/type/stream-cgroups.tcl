@@ -218,12 +218,39 @@ start_server {
         ]
         assert {[llength [lindex $reply 0 1 0 1]] == 2}
         assert {[lindex $reply 0 1 0 1] eq {a 1}}
+
+        set reply [
+            r XPENDING mystream mygroup - + 10
+        ]
+        assert {[llength $reply] == 1}
+        set reply [
+            r XPENDING mystream mygroup - + 10 client1
+        ]
+        assert {[llength $reply] == 1}
+        set reply [
+            r XPENDING mystream mygroup - + 10 client2
+        ]
+        assert {[llength $reply] == 0}
+
         r debug sleep 0.2
         set reply [
             r XCLAIM mystream mygroup client2 10 $id1
         ]
         assert {[llength [lindex $reply 0 1]] == 2}
         assert {[lindex $reply 0 1] eq {a 1}}
+
+        set reply [
+            r XPENDING mystream mygroup - + 10
+        ]
+        assert {[llength $reply] == 1}
+        set reply [
+            r XPENDING mystream mygroup - + 10 client1
+        ]
+        assert {[llength $reply] == 0}
+        set reply [
+            r XPENDING mystream mygroup - + 10 client2
+        ]
+        assert {[llength $reply] == 1}
 
         # Client 1 reads another 2 items from stream
         r XREADGROUP GROUP mygroup client1 count 2 STREAMS mystream >

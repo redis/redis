@@ -2508,7 +2508,6 @@ void xclaimCommand(client *c) {
                  * NACK above because of the FORCE option. */
                 if (nack->consumer)
                     raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
-                nack->consumer = consumer;
             }
             nack->delivery_time = deliverytime;
             /* Set the delivery attempts counter if given, otherwise
@@ -2521,6 +2520,7 @@ void xclaimCommand(client *c) {
             if (nack->consumer != consumer) {
                 /* Add the entry in the new consumer local PEL. */
                 raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
+                nack->consumer = consumer;
             }
             /* Send the reply for this entry. */
             if (justid) {
