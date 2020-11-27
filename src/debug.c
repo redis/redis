@@ -644,7 +644,11 @@ NULL
         for (int j = 2; j < c->argc; j++) {
             unsigned char digest[20];
             memset(digest,0,20); /* Start with a clean result */
-            robj *o = lookupKeyReadWithFlags(c->db,c->argv[j],LOOKUP_NOTOUCH);
+
+            /* We don't use lookupKey because a debug command should
+             * work on logically expired keys */
+            dictEntry *de;
+            robj *o = ((de = dictFind(c->db->dict,c->argv[j]->ptr)) == NULL) ? NULL : dictGetVal(de);
             if (o) xorObjectDigest(c->db,c->argv[j],digest,o);
 
             sds d = sdsempty();
@@ -967,7 +971,7 @@ static void *getMcontextEip(ucontext_t *uc) {
     #endif
 #elif defined(__linux__)
     /* Linux */
-    #if defined(__i386__) || defined(__ILP32__)
+    #if defined(__i386__) || ((defined(__X86_64__) || defined(__x86_64__)) && defined(__ILP32__))
     return (void*) uc->uc_mcontext.gregs[14]; /* Linux 32 */
     #elif defined(__X86_64__) || defined(__x86_64__)
     return (void*) uc->uc_mcontext.gregs[16]; /* Linux 64 */
@@ -1135,7 +1139,7 @@ void logRegisters(ucontext_t *uc) {
 /* Linux */
 #elif defined(__linux__)
     /* Linux x86 */
-    #if defined(__i386__) || defined(__ILP32__)
+    #if defined(__i386__) || ((defined(__X86_64__) || defined(__x86_64__)) && defined(__ILP32__))
     serverLog(LL_WARNING,
     "\n"
     "EAX:%08lx EBX:%08lx ECX:%08lx EDX:%08lx\n"

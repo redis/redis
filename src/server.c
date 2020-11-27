@@ -630,6 +630,10 @@ struct redisCommand redisCommandTable[] = {
      "write fast @keyspace",
      0,NULL,1,1,1,0,0,0},
 
+    {"copy",copyCommand,-3,
+     "write use-memory @keyspace",
+     0,NULL,1,2,1,0,0,0},
+
     /* Like for SET, we can't mark rename as a fast command because
      * overwriting the target key may result in an implicit slow DEL. */
     {"rename",renameCommand,3,
@@ -1611,7 +1615,8 @@ size_t ClientsPeakMemInput[CLIENTS_PEAK_MEM_USAGE_SLOTS];
 size_t ClientsPeakMemOutput[CLIENTS_PEAK_MEM_USAGE_SLOTS];
 
 int clientsCronTrackExpansiveClients(client *c) {
-    size_t in_usage = sdsZmallocSize(c->querybuf) + c->argv_len_sum;
+    size_t in_usage = sdsZmallocSize(c->querybuf) + c->argv_len_sum +
+	              (c->argv ? zmalloc_size(c->argv) : 0);
     size_t out_usage = getClientOutputBufferMemoryUsage(c);
     int i = server.unixtime % CLIENTS_PEAK_MEM_USAGE_SLOTS;
     int zeroidx = (i+1) % CLIENTS_PEAK_MEM_USAGE_SLOTS;
@@ -2302,15 +2307,17 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Close clients that need to be closed asynchronous */
     freeClientsInAsyncFreeQueue();
 
+    /* Try to process blocked clients every once in while. Example: A module
+     * calls RM_SignalKeyAsReady from within a timer callback (So we don't
+     * visit processCommand() at all). */
+    handleClientsBlockedOnKeys();
+
     /* Before we are going to sleep, let the threads access the dataset by
      * releasing the GIL. Redis main thread will not touch anything at this
      * time. */
     if (moduleCount()) moduleReleaseGIL();
 
-    /* Try to process blocked clients every once in while. Example: A module
-     * calls RM_SignalKeyAsReady from within a timer callback (So we don't
-     * visit processCommand() at all). */
-    handleClientsBlockedOnKeys();
+    /* Do NOT add anything below moduleReleaseGIL !!! */
 }
 
 /* This function is called immediately after the event loop multiplexing
@@ -2319,6 +2326,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 void afterSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
 
+    /* Do NOT add anything above moduleAcquireGIL !!! */
+
+    /* Aquire the modules GIL so that their threads won't touch anything. */
     if (!ProcessingEventsWhileBlocked) {
         if (moduleCount()) moduleAcquireGIL();
     }
@@ -2663,7 +2673,7 @@ static void readOOMScoreAdj(void) {
  */
 int setOOMScoreAdj(int process_class) {
 
-    if (!server.oom_score_adj) return C_OK;
+    if (server.oom_score_adj == OOM_SCORE_ADJ_NO) return C_OK;
     if (process_class == -1)
         process_class = (server.masterhost ? CONFIG_OOM_REPLICA : CONFIG_OOM_MASTER);
 
@@ -2674,7 +2684,9 @@ int setOOMScoreAdj(int process_class) {
     int val;
     char buf[64];
 
-    val = server.oom_score_adj_base + server.oom_score_adj_values[process_class];
+    val = server.oom_score_adj_values[process_class];
+    if (server.oom_score_adj == OOM_SCORE_RELATIVE)
+        val += server.oom_score_adj_base;
     if (val > 1000) val = 1000;
     if (val < -1000) val = -1000;
 
@@ -4243,10 +4255,19 @@ sds genRedisInfoString(const char *section) {
         static int call_uname = 1;
         static struct utsname name;
         char *mode;
+        char *supervised;
 
         if (server.cluster_enabled) mode = "cluster";
         else if (server.sentinel_mode) mode = "sentinel";
         else mode = "standalone";
+
+        if (server.supervised) {
+            if (server.supervised_mode == SUPERVISED_UPSTART) supervised = "upstart";
+            else if (server.supervised_mode == SUPERVISED_SYSTEMD) supervised = "systemd";
+            else supervised = "unknown";
+        } else {
+            supervised = "no";
+        }
 
         if (sections++) info = sdscat(info,"\r\n");
 
@@ -4271,6 +4292,7 @@ sds genRedisInfoString(const char *section) {
             "atomicvar_api:%s\r\n"
             "gcc_version:%i.%i.%i\r\n"
             "process_id:%I\r\n"
+            "process_supervised:%s\r\n"
             "run_id:%s\r\n"
             "tcp_port:%i\r\n"
             "uptime_in_seconds:%I\r\n"
@@ -4296,6 +4318,7 @@ sds genRedisInfoString(const char *section) {
             0,0,0,
 #endif
             (int64_t) getpid(),
+            supervised,
             server.runid,
             server.port ? server.port : server.tls_port,
             (int64_t)uptime,
@@ -4404,7 +4427,8 @@ sds genRedisInfoString(const char *section) {
             "mem_aof_buffer:%zu\r\n"
             "mem_allocator:%s\r\n"
             "active_defrag_running:%d\r\n"
-            "lazyfree_pending_objects:%zu\r\n",
+            "lazyfree_pending_objects:%zu\r\n"
+            "lazyfreed_objects:%zu\r\n",
             zmalloc_used,
             hmem,
             server.cron_malloc_stats.process_rss,
@@ -4447,7 +4471,8 @@ sds genRedisInfoString(const char *section) {
             mh->aof_buffer,
             ZMALLOC_LIB,
             server.active_defrag_running,
-            lazyfreeGetPendingObjectsCount()
+            lazyfreeGetPendingObjectsCount(),
+            lazyfreeGetFreedObjectsCount()
         );
         freeMemoryOverheadData(mh);
     }
@@ -4870,6 +4895,14 @@ void infoCommand(client *c) {
 }
 
 void monitorCommand(client *c) {
+    if (c->flags & CLIENT_DENY_BLOCKING) {
+        /**
+         * A client that has CLIENT_DENY_BLOCKING flag on
+         * expects a reply per command and so can't execute MONITOR. */
+        addReplyError(c, "MONITOR is not allowed for DENY BLOCKING client");
+        return;
+    }
+
     /* ignore MONITOR if already slave or in monitor mode */
     if (c->flags & CLIENT_SLAVE) return;
 
@@ -5218,62 +5251,82 @@ void redisSetCpuAffinity(const char *cpulist) {
 #endif
 }
 
-/*
- * Check whether systemd or upstart have been used to start redis.
- */
+/* Send a notify message to systemd. Returns sd_notify return code which is
+ * a positive number on success. */
+int redisCommunicateSystemd(const char *sd_notify_msg) {
+#ifdef HAVE_LIBSYSTEMD
+    int ret = sd_notify(0, sd_notify_msg);
 
-int redisSupervisedUpstart(void) {
+    if (ret == 0)
+        serverLog(LL_WARNING, "systemd supervision error: NOTIFY_SOCKET not found!");
+    else if (ret < 0)
+        serverLog(LL_WARNING, "systemd supervision error: sd_notify: %d", ret);
+    return ret;
+#else
+    UNUSED(sd_notify_msg);
+    return 0;
+#endif
+}
+
+/* Attempt to set up upstart supervision. Returns 1 if successful. */
+static int redisSupervisedUpstart(void) {
     const char *upstart_job = getenv("UPSTART_JOB");
 
     if (!upstart_job) {
         serverLog(LL_WARNING,
-                "upstart supervision requested, but UPSTART_JOB not found");
+                "upstart supervision requested, but UPSTART_JOB not found!");
         return 0;
     }
 
-    serverLog(LL_NOTICE, "supervised by upstart, will stop to signal readiness");
+    serverLog(LL_NOTICE, "supervised by upstart, will stop to signal readiness.");
     raise(SIGSTOP);
     unsetenv("UPSTART_JOB");
     return 1;
 }
 
-int redisCommunicateSystemd(const char *sd_notify_msg) {
-    const char *notify_socket = getenv("NOTIFY_SOCKET");
-    if (!notify_socket) {
-        serverLog(LL_WARNING,
-                "systemd supervision requested, but NOTIFY_SOCKET not found");
-    }
-
-    #ifdef HAVE_LIBSYSTEMD
-    (void) sd_notify(0, sd_notify_msg);
-    #else
-    UNUSED(sd_notify_msg);
-    #endif
+/* Attempt to set up systemd supervision. Returns 1 if successful. */
+static int redisSupervisedSystemd(void) {
+#ifndef HAVE_LIBSYSTEMD
+    serverLog(LL_WARNING,
+            "systemd supervision requested or auto-detected, but Redis is compiled without libsystemd support!");
     return 0;
+#else
+    if (redisCommunicateSystemd("STATUS=Redis is loading...\n") <= 0)
+        return 0;
+    serverLog(LL_NOTICE,
+        "Supervised by systemd. Please make sure you set appropriate values for TimeoutStartSec and TimeoutStopSec in your service unit.");
+    return 1;
+#endif
 }
 
 int redisIsSupervised(int mode) {
-    if (mode == SUPERVISED_AUTODETECT) {
-        const char *upstart_job = getenv("UPSTART_JOB");
-        const char *notify_socket = getenv("NOTIFY_SOCKET");
+    int ret = 0;
 
-        if (upstart_job) {
-            redisSupervisedUpstart();
-        } else if (notify_socket) {
-            server.supervised_mode = SUPERVISED_SYSTEMD;
-            serverLog(LL_WARNING,
-                "WARNING auto-supervised by systemd - you MUST set appropriate values for TimeoutStartSec and TimeoutStopSec in your service unit.");
-            return redisCommunicateSystemd("STATUS=Redis is loading...\n");
+    if (mode == SUPERVISED_AUTODETECT) {
+        if (getenv("UPSTART_JOB")) {
+            serverLog(LL_VERBOSE, "Upstart supervision detected.");
+            mode = SUPERVISED_UPSTART;
+        } else if (getenv("NOTIFY_SOCKET")) {
+            serverLog(LL_VERBOSE, "Systemd supervision detected.");
+            mode = SUPERVISED_SYSTEMD;
         }
-    } else if (mode == SUPERVISED_UPSTART) {
-        return redisSupervisedUpstart();
-    } else if (mode == SUPERVISED_SYSTEMD) {
-        serverLog(LL_WARNING,
-            "WARNING supervised by systemd - you MUST set appropriate values for TimeoutStartSec and TimeoutStopSec in your service unit.");
-        return redisCommunicateSystemd("STATUS=Redis is loading...\n");
     }
 
-    return 0;
+    switch (mode) {
+        case SUPERVISED_UPSTART:
+            ret = redisSupervisedUpstart();
+            break;
+        case SUPERVISED_SYSTEMD:
+            ret = redisSupervisedSystemd();
+            break;
+        default:
+            break;
+    }
+
+    if (ret)
+        server.supervised_mode = mode;
+
+    return ret;
 }
 
 int iAmMaster(void) {

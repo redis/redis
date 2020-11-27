@@ -724,6 +724,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
             call_flags |= CMD_CALL_PROPAGATE_REPL;
     }
     call(c,call_flags);
+    serverAssert((c->flags & CLIENT_BLOCKED) == 0);
 
     /* Convert the result of the Redis command into a suitable Lua type.
      * The first thing we need is to create a single string from the client
@@ -1255,6 +1256,9 @@ void scriptingInit(int setup) {
     if (server.lua_client == NULL) {
         server.lua_client = createClient(NULL);
         server.lua_client->flags |= CLIENT_LUA;
+
+        /* We do not want to allow blocking commands inside Lua */
+        server.lua_client->flags |= CLIENT_DENY_BLOCKING;
     }
 
     /* Lua beginners often don't use "local", this is likely to introduce
@@ -2717,4 +2721,3 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
         server.lua_time_start = mstime();
     }
 }
-

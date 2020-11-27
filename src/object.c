@@ -1229,10 +1229,7 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
 /* This is a helper function for the OBJECT command. We need to lookup keys
  * without any modification of LRU or other parameters. */
 robj *objectCommandLookup(client *c, robj *key) {
-    dictEntry *de;
-
-    if ((de = dictFind(c->db->dict,key->ptr)) == NULL) return NULL;
-    return (robj*) dictGetVal(de);
+    return lookupKeyReadWithFlags(c->db,key,LOOKUP_NOTOUCH|LOOKUP_NONOTIFY);
 }
 
 robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply) {

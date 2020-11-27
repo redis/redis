@@ -28,4 +28,5 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/keyspace_events \
 --single unit/moduleapi/blockedclient \
 --single unit/moduleapi/getkeys \
+--single unit/moduleapi/test_lazyfree \
 "${@}"

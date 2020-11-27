@@ -14,6 +14,10 @@
 /* API versions. */
 #define REDISMODULE_APIVER_1 1
 
+/* Version of the RedisModuleTypeMethods structure. Once the RedisModuleTypeMethods 
+ * structure is changed, this version number needs to be changed synchronistically. */
+#define REDISMODULE_TYPE_METHOD_VERSION 3
+
 /* API flags and constants */
 #define REDISMODULE_READ (1<<0)
 #define REDISMODULE_WRITE (1<<1)
@@ -116,11 +120,14 @@
 #define REDISMODULE_CTX_FLAGS_MULTI_DIRTY (1<<19)
 /* Redis is currently running inside background child process. */
 #define REDISMODULE_CTX_FLAGS_IS_CHILD (1<<20)
+/* The current client does not allow blocking, either called from
+ * within multi, lua, or from another module using RM_Call */
+#define REDISMODULE_CTX_FLAGS_DENY_BLOCKING (1<<21)
 
 /* Next context flag, must be updated when adding new flags above!
 This flag should not be used directly by the module.
  * Use RedisModule_GetContextFlagsAll instead. */
-#define _REDISMODULE_CTX_FLAGS_NEXT (1<<21)
+#define _REDISMODULE_CTX_FLAGS_NEXT (1<<22)
 
 /* Keyspace changes notification classes. Every class is associated with a
  * character for configuration purposes.
@@ -485,6 +492,8 @@ typedef void (*RedisModuleTypeRewriteFunc)(RedisModuleIO *aof, RedisModuleString
 typedef size_t (*RedisModuleTypeMemUsageFunc)(const void *value);
 typedef void (*RedisModuleTypeDigestFunc)(RedisModuleDigest *digest, void *value);
 typedef void (*RedisModuleTypeFreeFunc)(void *value);
+typedef size_t (*RedisModuleTypeFreeEffortFunc)(RedisModuleString *key, const void *value);
+typedef void (*RedisModuleTypeUnlinkFunc)(RedisModuleString *key, const void *value);
 typedef void (*RedisModuleClusterMessageReceiver)(RedisModuleCtx *ctx, const char *sender_id, uint8_t type, const unsigned char *payload, uint32_t len);
 typedef void (*RedisModuleTimerProc)(RedisModuleCtx *ctx, void *data);
 typedef void (*RedisModuleCommandFilterFunc) (RedisModuleCommandFilterCtx *filter);
@@ -494,7 +503,6 @@ typedef void (*RedisModuleScanCB)(RedisModuleCtx *ctx, RedisModuleString *keynam
 typedef void (*RedisModuleScanKeyCB)(RedisModuleKey *key, RedisModuleString *field, RedisModuleString *value, void *privdata);
 typedef void (*RedisModuleUserChangedFunc) (uint64_t client_id, void *privdata);
 
-#define REDISMODULE_TYPE_METHOD_VERSION 2
 typedef struct RedisModuleTypeMethods {
     uint64_t version;
     RedisModuleTypeLoadFunc rdb_load;
@@ -506,6 +514,8 @@ typedef struct RedisModuleTypeMethods {
     RedisModuleTypeAuxLoadFunc aux_load;
     RedisModuleTypeAuxSaveFunc aux_save;
     int aux_save_triggers;
+    RedisModuleTypeFreeEffortFunc free_effort;
+    RedisModuleTypeUnlinkFunc unlink;
 } RedisModuleTypeMethods;
 
 #define REDISMODULE_GET_API(name) \
@@ -706,6 +716,7 @@ REDISMODULE_API int (*RedisModule_GetContextFlagsAll)() REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetKeyspaceNotificationFlagsAll)() REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_IsSubEventSupported)(RedisModuleEvent event, uint64_t subevent) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetServerVersion)() REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_GetTypeMethodVersion)() REDISMODULE_ATTR;
 
 /* Experimental APIs */
 #ifdef REDISMODULE_EXPERIMENTAL_API
@@ -956,6 +967,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetKeyspaceNotificationFlagsAll);
     REDISMODULE_GET_API(IsSubEventSupported);
     REDISMODULE_GET_API(GetServerVersion);
+    REDISMODULE_GET_API(GetTypeMethodVersion);
 
 #ifdef REDISMODULE_EXPERIMENTAL_API
     REDISMODULE_GET_API(GetThreadSafeContext);

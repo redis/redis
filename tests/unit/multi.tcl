@@ -504,4 +504,21 @@ start_server {tags {"multi"}} {
         $r2 config set maxmemory 0
         $r2 close
     }
+
+    test {Blocking commands ignores the timeout} {
+        r xgroup create s g $ MKSTREAM
+
+        set m [r multi]
+        r blpop empty_list 0
+        r brpop empty_list 0
+        r brpoplpush empty_list1 empty_list2 0
+        r blmove empty_list1 empty_list2 LEFT LEFT 0
+        r bzpopmin empty_zset 0
+        r bzpopmax empty_zset 0
+        r xread BLOCK 0 STREAMS s $
+        r xreadgroup group g c BLOCK 0 STREAMS s >
+        set res [r exec]
+
+        list $m $res
+    } {OK {{} {} {} {} {} {} {} {}}}
 }

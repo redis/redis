@@ -118,5 +118,6 @@ int streamCompareID(streamID *a, streamID *b);
 void streamFreeNACK(streamNACK *na);
 void streamIncrID(streamID *id);
 void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds consumername);
+robj *streamDup(robj *o);
 
 #endif

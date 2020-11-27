@@ -826,18 +826,16 @@ void syncCommand(client *c) {
 
     /* CASE 3: There is no BGSAVE is progress. */
     } else {
-        if (server.repl_diskless_sync && (c->slave_capa & SLAVE_CAPA_EOF)) {
+        if (server.repl_diskless_sync && (c->slave_capa & SLAVE_CAPA_EOF) &&
+            server.repl_diskless_sync_delay)
+        {
             /* Diskless replication RDB child is created inside
              * replicationCron() since we want to delay its start a
              * few seconds to wait for more slaves to arrive. */
-            if (server.repl_diskless_sync_delay)
-                serverLog(LL_NOTICE,"Delay next BGSAVE for diskless SYNC");
-            else
-                startBgsaveForReplication(c->slave_capa);
+            serverLog(LL_NOTICE,"Delay next BGSAVE for diskless SYNC");
         } else {
-            /* Target is disk (or the slave is not capable of supporting
-             * diskless replication) and we don't have a BGSAVE in progress,
-             * let's start one. */
+            /* We don't have a BGSAVE in progress, let's start one. Diskless
+             * or disk-based mode is determined by replica's capacity. */
             if (!hasActiveChildProcess()) {
                 startBgsaveForReplication(c->slave_capa);
             } else {
@@ -1372,7 +1370,20 @@ void replicationCreateMasterClient(connection *conn, int dbid) {
     server.master = createClient(conn);
     if (conn)
         connSetReadHandler(server.master->conn, readQueryFromClient);
+
+    /**
+     * Important note:
+     * The CLIENT_DENY_BLOCKING flag is not, and should not, be set here.
+     * For commands like BLPOP, it makes no sense to block the master
+     * connection, and such blocking attempt will probably cause deadlock and
+     * break the replication. We consider such a thing as a bug because
+     * commands as BLPOP should never be sent on the replication link.
+     * A possible use-case for blocking the replication link is if a module wants
+     * to pass the execution to a background thread and unblock after the
+     * execution is done. This is the reason why we allow blocking the replication
+     * connection. */
     server.master->flags |= CLIENT_MASTER;
+
     server.master->authenticated = 1;
     server.master->reploff = server.master_initial_offset;
     server.master->read_reploff = server.master->reploff;

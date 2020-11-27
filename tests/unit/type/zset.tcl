@@ -432,6 +432,7 @@ start_server {tags {"zset"}} {
             create_default_zset
             assert_equal {e 4 f 5} [r zrangebyscore zset 2 5 LIMIT 2 3 WITHSCORES]
             assert_equal {d 3 c 2} [r zrevrangebyscore zset 5 2 LIMIT 2 3 WITHSCORES]
+            assert_equal {} [r zrangebyscore zset 2 5 LIMIT 12 13 WITHSCORES]
         }
 
         test "ZRANGEBYSCORE with non-value min or max" {

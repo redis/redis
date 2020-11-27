@@ -147,8 +147,7 @@ void *connGetPrivateData(connection *conn) {
 /* Close the connection and free resources. */
 static void connSocketClose(connection *conn) {
     if (conn->fd != -1) {
-        aeDeleteFileEvent(server.el,conn->fd,AE_READABLE);
-        aeDeleteFileEvent(server.el,conn->fd,AE_WRITABLE);
+        aeDeleteFileEvent(server.el,conn->fd, AE_READABLE | AE_WRITABLE);
         close(conn->fd);
         conn->fd = -1;
     }

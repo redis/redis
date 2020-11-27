@@ -65,6 +65,12 @@ int acquire_gil(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_OK;
     }
 
+    if ((allFlags & REDISMODULE_CTX_FLAGS_DENY_BLOCKING) &&
+        (flags & REDISMODULE_CTX_FLAGS_DENY_BLOCKING)) {
+        RedisModule_ReplyWithSimpleString(ctx, "Blocked client is not allowed");
+        return REDISMODULE_OK;
+    }
+
     /* This command handler tries to acquire the GIL twice
      * once in the worker thread using "RedisModule_ThreadSafeContextLock"
      * second in the sub-worker thread
@@ -79,6 +85,28 @@ int acquire_gil(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+int do_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
+    UNUSED(argv);
+    UNUSED(argc);
+
+    if(argc < 2){
+        return RedisModule_WrongArity(ctx);
+    }
+
+    const char* cmd = RedisModule_StringPtrLen(argv[1], NULL);
+
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, "v", argv + 2, argc - 2);
+    if(!rep){
+        RedisModule_ReplyWithError(ctx, "NULL reply returned");
+    }else{
+        RedisModule_ReplyWithCallReply(ctx, rep);
+        RedisModule_FreeCallReply(rep);
+    }
+
+    return REDISMODULE_OK;
+}
+
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -87,6 +115,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "acquire_gil", acquire_gil, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "do_rm_call", do_rm_call, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
