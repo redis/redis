@@ -374,7 +374,7 @@ int pubsubCheckACLPermissionsOrReply(client *c, int idx, int count, int literal)
 
 /* SUBSCRIBE channel [channel ...] */
 void subscribeCommand(client *c) {
-    if (pubsubCheckACLPermissionsOrReply(c, 1, c->argc-1, 0) != ACL_OK) return;
+    if (pubsubCheckACLPermissionsOrReply(c,1,c->argc-1,0) != ACL_OK) return;
     for (int j = 1; j < c->argc; j++)
         pubsubSubscribeChannel(c,c->argv[j]);
     c->flags |= CLIENT_PUBSUB;
@@ -395,7 +395,7 @@ void unsubscribeCommand(client *c) {
 
 /* PSUBSCRIBE pattern [pattern ...] */
 void psubscribeCommand(client *c) {
-    if (pubsubCheckACLPermissionsOrReply(c, 1, c->argc-1, 1) != ACL_OK) return;
+    if (pubsubCheckACLPermissionsOrReply(c,1,c->argc-1,1) != ACL_OK) return;
     for (int j = 1; j < c->argc; j++)
         pubsubSubscribePattern(c,c->argv[j]);
     c->flags |= CLIENT_PUBSUB;
@@ -416,7 +416,7 @@ void punsubscribeCommand(client *c) {
 
 /* PUBLISH <channel> <message> */
 void publishCommand(client *c) {
-    if (pubsubCheckACLPermissionsOrReply(c, 1, 1, 0) != ACL_OK) return;
+    if (pubsubCheckACLPermissionsOrReply(c,1,1,0) != ACL_OK) return;
     int receivers = pubsubPublishMessage(c->argv[1],c->argv[2]);
     if (server.cluster_enabled)
         clusterPropagatePublish(c->argv[1],c->argv[2]);

@@ -668,7 +668,6 @@ void ACLResetSubcommands(user *u) {
     u->allowed_subcommands = NULL;
 }
 
-
 /* Add a subcommand to the list of subcommands for the user 'u' and
  * the command id specified. */
 void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub) {
@@ -1220,6 +1219,82 @@ int ACLCheckCommandPerm(client *c, int *keyidxptr) {
     return ACL_OK;
 }
 
+int ACLCheckPubsubChannelPerm(sds channel, list *allowed, int literal) {
+    listIter li;
+    listNode *ln;
+    size_t clen = sdslen(channel);
+    int match = 0;
+
+    listRewind(allowed,&li);
+    while((ln = listNext(&li))) {
+        sds pattern = listNodeValue(ln);
+        size_t plen = sdslen(pattern);
+
+        if ((literal && !sdscmp(pattern,channel)) || 
+            (!literal && stringmatchlen(pattern,plen,channel,clen,0)))
+        {
+            match = 1;
+            break;
+        }
+    }
+    if (!match) {
+        return ACL_DENIED_CHANNEL;
+    }
+    return ACL_OK;
+}
+
+/* Check if the user's existing pub/sub clients violate the ACL pub/sub
+ * permissions specified via the upcoming argument, and kill them if so. */
+void ACLKillPubsubClientsIfNeeded(user *u, list *upcoming) {
+    listIter li, lpi;
+    listNode *ln, *lpn;
+    robj *o;
+    int kill = 0;
+    
+    /* Nothing to kill when the upcoming are a literal super set of the original
+     * permissions. */
+    listRewind(u->channels,&li);
+    while (!kill && ((ln = listNext(&li)) != NULL)) {
+        sds pattern = listNodeValue(ln);
+        kill = (ACLCheckPubsubChannelPerm(pattern,upcoming,1) ==
+                ACL_DENIED_CHANNEL);
+    }
+    if (!kill) return;
+
+    /* Scan all connected clients to find the user's pub/subs. */
+    listRewind(server.clients,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        client *c = listNodeValue(ln);
+        kill = 0;
+
+        if (c->user == u && getClientType(c) == CLIENT_TYPE_PUBSUB) {
+            /* Check for pattern violations. */
+            listRewind(c->pubsub_patterns,&lpi);
+            while (!kill && ((lpn = listNext(&lpi)) != NULL)) {
+                o = lpn->value;
+                kill = (ACLCheckPubsubChannelPerm(o->ptr,upcoming,1) == 
+                        ACL_DENIED_CHANNEL);
+            }
+            /* Check for channel violations. */
+            if (!kill) {
+                dictIterator *di = dictGetIterator(c->pubsub_channels);
+                dictEntry *de;                
+                while (!kill && ((de = dictNext(di)) != NULL)) {
+                    o = dictGetKey(de);
+                    kill = (ACLCheckPubsubChannelPerm(o->ptr,upcoming,0) ==
+                            ACL_DENIED_CHANNEL);
+                }
+                dictReleaseIterator(di);
+            }
+
+            /* Kill it. */
+            if (kill) {
+                freeClient(c);
+            }
+        }
+    }
+}
+
 /* Check if the pub/sub channels of the command, that's ready to be executed in
  * the client 'c', can be executed by this client according to the ACLs channels
  * associated to the client user c->user.
@@ -1240,26 +1315,8 @@ int ACLCheckPubsubPerm(client *c, int idx, int count, int literal, int *idxptr) 
      * arguments. */
     if (!(c->user->flags & USER_FLAG_ALLCHANNELS)) {
         for (int j = idx; j < idx+count; j++) {
-            sds channel = c->argv[j]->ptr;
-            size_t clen = sdslen(channel);
-            listIter li;
-            listNode *ln;
-            listRewind(u->channels,&li);
-
-            /* Test this channel against every pattern. */
-            int match = 0;
-            while((ln = listNext(&li))) {
-                sds pattern = listNodeValue(ln);
-                size_t plen = sdslen(pattern);
-                
-                if ((literal && !sdscmp(pattern,channel)) || 
-                    (!literal && stringmatchlen(pattern,plen,channel,clen,0)))
-                {
-                    match = 1;
-                    break;
-                }
-            }
-            if (!match) {
+            if (ACLCheckPubsubChannelPerm(c->argv[j]->ptr,u->channels,literal)
+                != ACL_OK) {
                 if (idxptr) *idxptr = j;
                 return ACL_DENIED_CHANNEL;
             }
@@ -1812,6 +1869,11 @@ void aclCommand(client *c) {
                 return;
             }
         }
+
+        /* Existing pub/sub clients authenticated with the user may need to be
+         * disconnected if (some of) their channel permissions were revoked. */
+        if (u && !(tempu->flags & USER_FLAG_ALLCHANNELS))
+            ACLKillPubsubClientsIfNeeded(u,tempu->channels);
 
         /* Overwrite the user with the temporary user we modified above. */
         if (!u) u = ACLCreateUser(username,sdslen(username));

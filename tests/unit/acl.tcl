@@ -82,7 +82,7 @@ start_server {tags {"acl"}} {
     } {*NOPERM*key*}
 
     test {By default users are able to publish to any channel} {
-        r ACL setuser psuser on >pspass +acl +@pubsub
+        r ACL setuser psuser on >pspass +acl +client +@pubsub
         r AUTH psuser pspass
         r PUBLISH foo bar
     } {0}
@@ -123,7 +123,6 @@ start_server {tags {"acl"}} {
         assert_match {subscribe bar:2 2} [$rd read]
         $rd SUBSCRIBE zap:3
         catch {$rd read} e
-        $rd close
         set e
     } {*NOPERM*channel*}
 
@@ -137,9 +136,44 @@ start_server {tags {"acl"}} {
         assert_match {psubscribe bar:\* 2} [$rd read]
         $rd PSUBSCRIBE bar:baz
         catch {$rd read} e
-        $rd close
         set e
     } {*NOPERM*channel*}
+    
+    test {Subscribers are killed when revoked of channel permission} {
+        set rd [redis_deferring_client]
+        r ACL setuser psuser resetchannels &foo:1
+        $rd AUTH psuser pspass
+        $rd CLIENT SETNAME deathrow
+        $rd SUBSCRIBE foo:1
+        r ACL setuser psuser resetchannels
+        assert_no_match {*deathrow*} [r CLIENT LIST]
+        $rd close
+    } {0}
+
+    test {Subscribers are killed when revoked of pattern permission} {
+        set rd [redis_deferring_client]
+        r ACL setuser psuser resetchannels &bar:*
+        $rd AUTH psuser pspass
+        $rd CLIENT SETNAME deathrow
+        $rd PSUBSCRIBE bar:*
+        r ACL setuser psuser resetchannels
+        assert_no_match {*deathrow*} [r CLIENT LIST]
+        $rd close
+    } {0}
+
+    test {Subscribers are pardoned if literal permissions are retained and/or gaining allchannels} {
+        set rd [redis_deferring_client]
+        r ACL setuser psuser resetchannels &foo:1 &bar:*
+        $rd AUTH psuser pspass
+        $rd CLIENT SETNAME pardoned
+        $rd SUBSCRIBE foo:1
+        $rd PSUBSCRIBE bar:*
+        r ACL setuser psuser resetchannels &foo:1 &bar:* &baz:qaz &zoo:*
+        assert_match {*pardoned*} [r CLIENT LIST]
+        r ACL setuser psuser allchannels
+        assert_match {*pardoned*} [r CLIENT LIST]
+        $rd close
+    } {0}
 
     test {Users can be configured to authenticate with any password} {
         r ACL setuser newuser nopass
