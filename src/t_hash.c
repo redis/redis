@@ -504,6 +504,60 @@ void hashTypeConvert(robj *o, int enc) {
     }
 }
 
+/* This is a helper function for the COPY command.
+ * Duplicate a hash object, with the guarantee that the returned object
+ * has the same encoding as the original one.
+ *
+ * The resulting object always has refcount set to 1 */
+robj *hashTypeDup(robj *o) {
+    robj *hobj;
+    hashTypeIterator *hi;
+
+    serverAssert(o->type == OBJ_HASH);
+
+    switch (o->encoding) {
+        case OBJ_ENCODING_ZIPLIST:
+            hobj = createHashObject();
+            break;
+        case OBJ_ENCODING_HT:
+            hobj = createHashObject();
+            hashTypeConvert(hobj, OBJ_ENCODING_HT);
+            dict *d = o->ptr;
+            dictExpand(hobj->ptr, dictSize(d));
+            break;
+        default:
+            serverPanic("Wrong encoding.");
+            break;
+    }
+
+    if(o->encoding == OBJ_ENCODING_ZIPLIST){
+        unsigned char *zl = o->ptr;
+        size_t sz = ziplistBlobLen(zl);
+        unsigned char *new_zl = zmalloc(sz);
+        memcpy(new_zl, zl, sz);
+        zfree(hobj->ptr);
+        hobj->ptr = new_zl;
+    } else if(o->encoding == OBJ_ENCODING_HT){
+        hi = hashTypeInitIterator(o);
+        while (hashTypeNext(hi) != C_ERR) {
+            sds field, value;
+            sds newfield, newvalue;
+            /* Extract a field-value pair from an original hash object.*/
+            field = hashTypeCurrentFromHashTable(hi, OBJ_HASH_KEY);
+            value = hashTypeCurrentFromHashTable(hi, OBJ_HASH_VALUE);
+            newfield = sdsdup(field);
+            newvalue = sdsdup(value);
+
+            /* Add a field-value pair to a new hash object. */
+            dictAdd(hobj->ptr,newfield,newvalue);
+        }
+        hashTypeReleaseIterator(hi);
+    } else {
+        serverPanic("Unknown hash encoding");
+    }
+    return hobj;
+}
+
 /*-----------------------------------------------------------------------------
  * Hash type commands
  *----------------------------------------------------------------------------*/

@@ -225,7 +225,7 @@ int connKeepAlive(connection *conn, int interval);
 int connSendTimeout(connection *conn, long long ms);
 int connRecvTimeout(connection *conn, long long ms);
 int connPeerToString(connection *conn, char *ip, size_t ip_len, int *port);
-int connFormatPeer(connection *conn, char *buf, size_t buf_len);
+int connFormatFdAddr(connection *conn, char *buf, size_t buf_len, int fd_to_str_type);
 int connSockName(connection *conn, char *ip, size_t ip_len, int *port);
 const char *connGetInfo(connection *conn, char *buf, size_t buf_len);
 

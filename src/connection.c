@@ -374,15 +374,15 @@ int connGetSocketError(connection *conn) {
 }
 
 int connPeerToString(connection *conn, char *ip, size_t ip_len, int *port) {
-    return anetPeerToString(conn ? conn->fd : -1, ip, ip_len, port);
-}
-
-int connFormatPeer(connection *conn, char *buf, size_t buf_len) {
-    return anetFormatPeer(conn ? conn->fd : -1, buf, buf_len);
+    return anetFdToString(conn ? conn->fd : -1, ip, ip_len, port, FD_TO_PEER_NAME);
 }
 
 int connSockName(connection *conn, char *ip, size_t ip_len, int *port) {
-    return anetSockName(conn->fd, ip, ip_len, port);
+    return anetFdToString(conn->fd, ip, ip_len, port, FD_TO_SOCK_NAME);
+}
+
+int connFormatFdAddr(connection *conn, char *buf, size_t buf_len, int fd_to_str_type) {
+    return anetFormatFdAddr(conn ? conn->fd : -1, buf, buf_len, fd_to_str_type);
 }
 
 int connBlock(connection *conn) {

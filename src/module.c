@@ -1947,6 +1947,8 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
              flags |= REDISMODULE_CTX_FLAGS_LUA;
             if (ctx->client->flags & CLIENT_MULTI)
              flags |= REDISMODULE_CTX_FLAGS_MULTI;
+            if (ctx->client->flags & CLIENT_DENY_BLOCKING)
+             flags |= REDISMODULE_CTX_FLAGS_DENY_BLOCKING;
             /* Module command received from MASTER, is replicated. */
             if (ctx->client->flags & CLIENT_MASTER)
              flags |= REDISMODULE_CTX_FLAGS_REPLICATED;
@@ -3392,6 +3394,9 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 
     /* Setup our fake client for command execution. */
     c->flags |= CLIENT_MODULE;
+
+    /* We do not want to allow block, the module do not expect it */
+    c->flags |= CLIENT_DENY_BLOCKING;
     c->db = ctx->client->db;
     c->argv = argv;
     c->argc = argc;
@@ -3459,6 +3464,8 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
             call_flags |= CMD_CALL_PROPAGATE_REPL;
     }
     call(c,call_flags);
+
+    serverAssert((c->flags & CLIENT_BLOCKED) == 0);
 
     /* Convert the result of the Redis command into a module reply. */
     sds proto = sdsnewlen(c->buf,c->bufpos);
@@ -3666,6 +3673,8 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
  *          .mem_usage = myType_MemUsageCallBack,
  *          .aux_load = myType_AuxRDBLoadCallBack,
  *          .aux_save = myType_AuxRDBSaveCallBack,
+ *          .free_effort = myType_FreeEffortCallBack
+ *          .unlink = myType_UnlinkCallBack
  *      }
  *
  * * **rdb_load**: A callback function pointer that loads data from RDB files.
@@ -3677,7 +3686,15 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
  *   'when' argument is either REDISMODULE_AUX_BEFORE_RDB or REDISMODULE_AUX_AFTER_RDB.
  * * **aux_load**: A callback function pointer that loads out of keyspace data from RDB files.
  *   Similar to aux_save, returns REDISMODULE_OK on success, and ERR otherwise.
- *
+ * * **free_effort**: A callback function pointer that used to determine whether the module's
+ *   memory needs to be lazy reclaimed. The module should return the complexity involved by
+ *   freeing the value. for example: how many pointers are gonna be freed. Note that if it 
+ *   returns 0, we'll always do an async free.
+ * * **unlink**: A callback function pointer that used to notifies the module that the key has 
+ *   been removed from the DB by redis, and may soon be freed by a background thread. Note that 
+ *   it won't be called on FLUSHALL/FLUSHDB (both sync and async), and the module can use the 
+ *   RedisModuleEvent_FlushDB to hook into that.
+ * 
  * The **digest** and **mem_usage** methods should currently be omitted since
  * they are not yet implemented inside the Redis modules core.
  *
@@ -3720,6 +3737,10 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
             moduleTypeAuxSaveFunc aux_save;
             int aux_save_triggers;
         } v2;
+        struct {
+            moduleTypeFreeEffortFunc free_effort;
+            moduleTypeUnlinkFunc unlink;
+        } v3;
     } *tms = (struct typemethods*) typemethods_ptr;
 
     moduleType *mt = zcalloc(sizeof(*mt));
@@ -3735,6 +3756,10 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
         mt->aux_load = tms->v2.aux_load;
         mt->aux_save = tms->v2.aux_save;
         mt->aux_save_triggers = tms->v2.aux_save_triggers;
+    }
+    if (tms->version >= 3) {
+        mt->free_effort = tms->v3.free_effort;
+        mt->unlink = tms->v3.unlink;
     }
     memcpy(mt->name,name,sizeof(mt->name));
     listAddNodeTail(ctx->module->types,mt);
@@ -5442,7 +5467,10 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
             raxRemove(Timers,(unsigned char*)ri.key,ri.key_len,NULL);
             zfree(timer);
         } else {
-            next_period = (expiretime-now)/1000; /* Scale to milliseconds. */
+            /* We call ustime() again instead of using the cached 'now' so that
+             * 'next_period' isn't affected by the time it took to execute
+             * previous calls to 'callback. */
+            next_period = (expiretime-ustime())/1000; /* Scale to milliseconds. */
             break;
         }
     }
@@ -5450,12 +5478,26 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
 
     /* Reschedule the next timer or cancel it. */
     if (next_period <= 0) next_period = 1;
-    return (raxSize(Timers) > 0) ? next_period : AE_NOMORE;
+    if (raxSize(Timers) > 0) {
+        return next_period;
+    } else {
+        aeTimer = -1;
+        return AE_NOMORE;
+    }
 }
 
 /* Create a new timer that will fire after `period` milliseconds, and will call
  * the specified function using `data` as argument. The returned timer ID can be
- * used to get information from the timer or to stop it before it fires. */
+ * used to get information from the timer or to stop it before it fires.
+ * Note that for the common use case of a repeating timer (Re-registration
+ * of the timer inside the RedisModuleTimerProc callback) it matters when
+ * this API is called:
+ * If it is called at the beginning of 'callback' it means
+ * the event will triggered every 'period'.
+ * If it is called at the end of 'callback' it means
+ * there will 'period' milliseconds gaps between events.
+ * (If the time it takes to execute 'callback' is negligible the two
+ * statements above mean the same) */
 RedisModuleTimerID RM_CreateTimer(RedisModuleCtx *ctx, mstime_t period, RedisModuleTimerProc callback, void *data) {
     RedisModuleTimer *timer = zmalloc(sizeof(*timer));
     timer->module = ctx->module;
@@ -6989,6 +7031,7 @@ int RM_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
         server.module_child_pid = childpid;
         moduleForkInfo.done_handler = cb;
         moduleForkInfo.done_handler_user_data = user_data;
+        updateDictResizePolicy();
         serverLog(LL_VERBOSE, "Module fork started pid: %d ", childpid);
     }
     return childpid;
@@ -7468,6 +7511,18 @@ void processModuleLoadingProgressEvent(int is_aof) {
                               &fi);
         /* decide when the next event should fire. */
         next_event = now + 1000000 / server.hz;
+    }
+}
+
+/* When a module key is deleted (in dbAsyncDelete/dbSyncDelete/dbOverwrite), it 
+*  will be called to tell the module which key is about to be released. */
+void moduleNotifyKeyUnlink(robj *key, robj *val) {
+    if (val->type == OBJ_MODULE) {
+        moduleValue *mv = val->ptr;
+        moduleType *mt = mv->type;
+        if (mt->unlink != NULL) {
+            mt->unlink(key,mv->value);
+        } 
     }
 }
 
@@ -7972,6 +8027,15 @@ int RM_GetServerVersion() {
     return REDIS_VERSION_NUM;
 }
 
+/**
+ * Return the current redis-server runtime value of REDISMODULE_TYPE_METHOD_VERSION.
+ * You can use that when calling RM_CreateDataType to know which fields of
+ * RedisModuleTypeMethods are gonna be supported and which will be ignored.
+ */
+int RM_GetTypeMethodVersion() {
+    return REDISMODULE_TYPE_METHOD_VERSION;
+}
+
 /* Replace the value assigned to a module type.
  *
  * The key must be open for writing, have an existing value, and have a moduleType
@@ -8311,4 +8375,5 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetServerVersion);
     REGISTER_API(GetClientCertificate);
     REGISTER_API(GetCommandKeys);
+    REGISTER_API(GetTypeMethodVersion);
 }

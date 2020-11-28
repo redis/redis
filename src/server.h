@@ -112,7 +112,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CONFIG_DEFAULT_UNIX_SOCKET_PERM 0
 #define CONFIG_DEFAULT_LOGFILE ""
 #define NET_IP_STR_LEN 46 /* INET6_ADDRSTRLEN is 46, but we need to be sure */
-#define NET_PEER_ID_LEN (NET_IP_STR_LEN+32) /* Must be enough for ip:port */
+#define NET_ADDR_STR_LEN (NET_IP_STR_LEN+32) /* Must be enough for ip:port */
 #define CONFIG_BINDADDR_MAX 16
 #define CONFIG_MIN_RESERVED_FDS 32
 
@@ -267,6 +267,9 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_PROTOCOL_ERROR (1ULL<<39) /* Protocol error chatting with it. */
 #define CLIENT_CLOSE_AFTER_COMMAND (1ULL<<40) /* Close after executing commands
                                                * and writing entire reply. */
+#define CLIENT_DENY_BLOCKING (1ULL<<41) /* Indicate that the client should not be blocked.
+                                           currently, turned on inside MULTI, Lua, RM_Call,
+                                           and AOF client */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -378,6 +381,11 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define SET_OP_UNION 0
 #define SET_OP_DIFF 1
 #define SET_OP_INTER 2
+
+/* oom-score-adj defines */
+#define OOM_SCORE_ADJ_NO 0
+#define OOM_SCORE_RELATIVE 1
+#define OOM_SCORE_ADJ_ABSOLUTE 2
 
 /* Redis maxmemory strategies. Instead of using just incremental number
  * for this defines, we use a set of flags so that testing for certain
@@ -513,6 +521,8 @@ typedef void (*moduleTypeRewriteFunc)(struct RedisModuleIO *io, struct redisObje
 typedef void (*moduleTypeDigestFunc)(struct RedisModuleDigest *digest, void *value);
 typedef size_t (*moduleTypeMemUsageFunc)(const void *value);
 typedef void (*moduleTypeFreeFunc)(void *value);
+typedef size_t (*moduleTypeFreeEffortFunc)(struct redisObject *key, const void *value);
+typedef void (*moduleTypeUnlinkFunc)(struct redisObject *key, void *value);
 
 /* This callback type is called by moduleNotifyUserChanged() every time
  * a user authenticated via the module API is associated with a different
@@ -532,6 +542,8 @@ typedef struct RedisModuleType {
     moduleTypeMemUsageFunc mem_usage;
     moduleTypeDigestFunc digest;
     moduleTypeFreeFunc free;
+    moduleTypeFreeEffortFunc free_effort;
+    moduleTypeUnlinkFunc unlink;
     moduleTypeAuxLoadFunc aux_load;
     moduleTypeAuxSaveFunc aux_save;
     int aux_save_triggers;
@@ -814,6 +826,8 @@ typedef struct client {
     size_t querybuf_peak;   /* Recent (100ms or more) peak of querybuf size. */
     int argc;               /* Num of arguments of current command. */
     robj **argv;            /* Arguments of current command. */
+    int original_argc;      /* Num of arguments of original command if arguments were rewritten. */
+    robj **original_argv;   /* Arguments of original command if arguments were rewritten. */
     size_t argv_len_sum;    /* Sum of lengths of objects in argv list. */
     struct redisCommand *cmd, *lastcmd;  /* Last command executed. */
     user *user;             /* User associated with this connection. If the
@@ -856,6 +870,7 @@ typedef struct client {
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
+    sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */
     RedisModuleUserChangedFunc auth_callback; /* Module callback to execute
                                                * when the authenticated user
@@ -1019,7 +1034,7 @@ typedef struct rdbSaveInfo {
     long long repl_offset;                  /* Replication offset. */
 } rdbSaveInfo;
 
-#define RDB_SAVE_INFO_INIT {-1,0,"000000000000000000000000000000",-1}
+#define RDB_SAVE_INFO_INIT {-1,0,"0000000000000000000000000000000000000000",-1}
 
 struct malloc_stats {
     size_t zmalloc_used;
@@ -1144,6 +1159,7 @@ struct redisServer {
     /* RDB / AOF loading information */
     volatile sig_atomic_t loading; /* We are loading data from disk if true */
     off_t loading_total_bytes;
+    off_t loading_rdb_used_mem;
     off_t loading_loaded_bytes;
     time_t loading_start_time;
     off_t loading_process_events_interval_bytes;
@@ -1387,6 +1403,7 @@ struct redisServer {
     int oom_score_adj_base;         /* Base oom_score_adj value, as observed on startup */
     int oom_score_adj_values[CONFIG_OOM_COUNT];   /* Linux oom_score_adj configuration */
     int oom_score_adj;                            /* If true, oom_score_adj is managed */
+    int disable_thp;                              /* If true, disable THP by syscall */
     /* Blocked clients */
     unsigned int blocked_clients;   /* # of clients executing a blocking cmd.*/
     unsigned int blocked_clients_by_type[BLOCKED_NUM];
@@ -1653,6 +1670,7 @@ int moduleTryServeClientBlockedOnKey(client *c, robj *key);
 void moduleUnblockClient(client *c);
 int moduleClientIsBlockedOnKeys(client *c);
 void moduleNotifyUserChanged(client *c);
+void moduleNotifyKeyUnlink(robj *key, robj *val);
 
 /* Utils */
 long long ustime(void);
@@ -1672,6 +1690,7 @@ void closeTimedoutClients(void);
 void freeClient(client *c);
 void freeClientAsync(client *c);
 void resetClient(client *c);
+void freeClientOriginalArgv(client *c);
 void sendReplyToClient(connection *conn);
 void *addReplyDeferredLen(client *c);
 void setDeferredArrayLen(client *c, void *node, long length);
@@ -1722,6 +1741,7 @@ void *dupClientReplyValue(void *o);
 void getClientsMaxBuffers(unsigned long *longest_output_list,
                           unsigned long *biggest_input_buffer);
 char *getClientPeerId(client *client);
+char *getClientSockName(client *client);
 sds catClientInfoString(sds s, client *client);
 sds getAllClientsInfoString(int type);
 void rewriteClientCommandVector(client *c, int argc, ...);
@@ -1791,8 +1811,10 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where);
 int listTypeEqual(listTypeEntry *entry, robj *o);
 void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry);
 void listTypeConvert(robj *subject, int enc);
+robj *listTypeDup(robj *o);
 void unblockClientWaitingData(client *c);
 void popGenericCommand(client *c, int where);
+void listElementsRemoved(client *c, robj *key, int where, robj *o);
 
 /* MULTI/EXEC/WATCH... */
 void unwatchAllKeys(client *c);
@@ -1841,6 +1863,8 @@ robj *createZsetZiplistObject(void);
 robj *createStreamObject(void);
 robj *createModuleObject(moduleType *mt, void *value);
 int getLongFromObjectOrReply(client *c, robj *o, long *target, const char *msg);
+int getPositiveLongFromObjectOrReply(client *c, robj *o, long *target, const char *msg);
+int getRangeLongFromObjectOrReply(client *c, robj *o, long min, long max, long *target, const char *msg);
 int checkType(client *c, robj *o, int type);
 int getLongLongFromObjectOrReply(client *c, robj *o, long long *target, const char *msg);
 int getDoubleFromObjectOrReply(client *c, robj *o, double *target, const char *msg);
@@ -2021,6 +2045,7 @@ unsigned long zslGetRank(zskiplist *zsl, double score, sds o);
 int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore);
 long zsetRank(robj *zobj, sds ele, int reverse);
 int zsetDel(robj *zobj, sds ele);
+robj *zsetDup(robj *o);
 void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey, robj *countarg);
 sds ziplistGetObject(unsigned char *sptr);
 int zslValueGteMin(double value, zrangespec *spec);
@@ -2100,6 +2125,7 @@ int setTypeRandomElement(robj *setobj, sds *sdsele, int64_t *llele);
 unsigned long setTypeRandomElements(robj *set, unsigned long count, robj *aux_set);
 unsigned long setTypeSize(const robj *subject);
 void setTypeConvert(robj *subject, int enc);
+robj *setTypeDup(robj *o);
 
 /* Hash data type */
 #define HASH_SET_TAKE_FIELD (1<<0)
@@ -2124,6 +2150,7 @@ sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what);
 robj *hashTypeLookupWriteOrCreate(client *c, robj *key);
 robj *hashTypeGetValueObject(robj *o, sds field);
 int hashTypeSet(robj *o, sds field, sds value, int flags);
+robj *hashTypeDup(robj *o);
 
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(client *c, int notify);
@@ -2167,6 +2194,7 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
                        long long lru_clock, int lru_multiplier);
 #define LOOKUP_NONE 0
 #define LOOKUP_NOTOUCH (1<<0)
+#define LOOKUP_NONOTIFY (1<<1)
 void dbAdd(redisDb *db, robj *key, robj *val);
 int dbAddRDBLoad(redisDb *db, sds key, robj *val);
 void dbOverwrite(redisDb *db, robj *key, robj *val);
@@ -2201,14 +2229,15 @@ int dbAsyncDelete(redisDb *db, robj *key);
 void emptyDbAsync(redisDb *db);
 void slotToKeyFlushAsync(void);
 size_t lazyfreeGetPendingObjectsCount(void);
-void freeObjAsync(robj *o);
+size_t lazyfreeGetFreedObjectsCount(void);
+void freeObjAsync(robj *key, robj *obj);
 
 /* API to get key arguments from commands */
 int *getKeysPrepareResult(getKeysResult *result, int numkeys);
 int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 void getKeysFreeResult(getKeysResult *result);
-int zunionInterGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
-int zunionInterStoreGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
+int zunionInterDiffGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
+int zunionInterDiffStoreGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
@@ -2330,6 +2359,7 @@ void bgsaveCommand(client *c);
 void bgrewriteaofCommand(client *c);
 void shutdownCommand(client *c);
 void moveCommand(client *c);
+void copyCommand(client *c);
 void renameCommand(client *c);
 void renamenxCommand(client *c);
 void lpushCommand(client *c);
@@ -2427,8 +2457,10 @@ void hstrlenCommand(client *c);
 void zremrangebyrankCommand(client *c);
 void zunionstoreCommand(client *c);
 void zinterstoreCommand(client *c);
+void zdiffstoreCommand(client *c);
 void zunionCommand(client *c);
 void zinterCommand(client *c);
+void zdiffCommand(client *c);
 void zscanCommand(client *c);
 void hkeysCommand(client *c);
 void hvalsCommand(client *c);
@@ -2500,6 +2532,7 @@ void xtrimCommand(client *c);
 void lolwutCommand(client *c);
 void aclCommand(client *c);
 void stralgoCommand(client *c);
+void resetCommand(client *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));

@@ -102,11 +102,8 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
         /* Key expired. If we are in the context of a master, expireIfNeeded()
          * returns 0 only when the key does not exist at all, so it's safe
          * to return NULL ASAP. */
-        if (server.masterhost == NULL) {
-            server.stat_keyspace_misses++;
-            notifyKeyspaceEvent(NOTIFY_KEY_MISS, "keymiss", key, db->id);
-            return NULL;
-        }
+        if (server.masterhost == NULL)
+            goto keymiss;
 
         /* However if we are in the context of a slave, expireIfNeeded() will
          * not really try to expire the key, it only returns information
@@ -125,19 +122,21 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
             server.current_client->cmd &&
             server.current_client->cmd->flags & CMD_READONLY)
         {
-            server.stat_keyspace_misses++;
-            notifyKeyspaceEvent(NOTIFY_KEY_MISS, "keymiss", key, db->id);
-            return NULL;
+            goto keymiss;
         }
     }
     val = lookupKey(db,key,flags);
-    if (val == NULL) {
+    if (val == NULL)
+        goto keymiss;
+    server.stat_keyspace_hits++;
+    return val;
+
+keymiss:
+    if (!(flags & LOOKUP_NONOTIFY)) {
         server.stat_keyspace_misses++;
         notifyKeyspaceEvent(NOTIFY_KEY_MISS, "keymiss", key, db->id);
     }
-    else
-        server.stat_keyspace_hits++;
-    return val;
+    return NULL;
 }
 
 /* Like lookupKeyReadWithFlags(), but does not use any flag, which is the
@@ -217,10 +216,14 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         val->lru = old->lru;
     }
+    /* Although the key is not really deleted from the database, we regard 
+    overwrite as two steps of unlink+add, so we still need to call the unlink 
+    callback of the module. */
+    moduleNotifyKeyUnlink(key,val);
     dictSetVal(db->dict, de, val);
 
     if (server.lazyfree_lazy_server_del) {
-        freeObjAsync(old);
+        freeObjAsync(key,old);
         dictSetVal(db->dict, &auxentry, NULL);
     }
 
@@ -298,7 +301,12 @@ int dbSyncDelete(redisDb *db, robj *key) {
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
-    if (dictDelete(db->dict,key->ptr) == DICT_OK) {
+    dictEntry *de = dictUnlink(db->dict,key->ptr);
+    if (de) {
+        robj *val = dictGetVal(de);
+        /* Tells the module that the key has been unlinked from the database. */
+        moduleNotifyKeyUnlink(key,val);
+        dictFreeUnlinkedEntry(db->dict,de);
         if (server.cluster_enabled) slotToKeyDel(key->ptr);
         return 1;
     } else {
@@ -583,7 +591,7 @@ void existsCommand(client *c) {
     int j;
 
     for (j = 1; j < c->argc; j++) {
-        if (lookupKeyRead(c->db,c->argv[j])) count++;
+        if (lookupKeyReadWithFlags(c->db,c->argv[j],LOOKUP_NOTOUCH)) count++;
     }
     addReplyLongLong(c,count);
 }
@@ -1070,6 +1078,108 @@ void moveCommand(client *c) {
     addReply(c,shared.cone);
 }
 
+void copyCommand(client *c) {
+    robj *o;
+    redisDb *src, *dst;
+    int srcid;
+    long long dbid, expire;
+    int j, replace = 0, delete = 0;
+
+    /* Obtain source and target DB pointers 
+     * Default target DB is the same as the source DB 
+     * Parse the REPLACE option and targetDB option. */
+    src = c->db;
+    dst = c->db;
+    srcid = c->db->id;
+    dbid = c->db->id;
+    for (j = 3; j < c->argc; j++) {
+        int additional = c->argc - j - 1;
+        if (!strcasecmp(c->argv[j]->ptr,"replace")) {
+            replace = 1;
+        } else if (!strcasecmp(c->argv[j]->ptr, "db") && additional >= 1) {
+            if (getLongLongFromObject(c->argv[j+1], &dbid) == C_ERR ||
+                dbid < INT_MIN || dbid > INT_MAX ||
+                selectDb(c, dbid) == C_ERR)
+            {
+                addReplyError(c,"invalid DB index");
+                return;
+            }
+            dst = c->db;
+            selectDb(c,srcid); /* Back to the source DB */
+            j++; /* Consume additional arg. */
+        } else {
+            addReply(c, shared.syntaxerr);
+            return;
+        }
+    }
+
+    if ((server.cluster_enabled == 1) && (srcid != 0 || dbid != 0)) {
+        addReplyError(c,"Copying to another database is not allowed in cluster mode");
+        return;
+    }
+
+    /* If the user select the same DB as
+     * the source DB and using newkey as the same key
+     * it is probably an error. */
+    robj *key = c->argv[1];
+    robj *newkey = c->argv[2];
+    if (src == dst && (sdscmp(key->ptr, newkey->ptr) == 0)) {
+        addReply(c,shared.sameobjecterr);
+        return;
+    }
+
+    /* Check if the element exists and get a reference */
+    o = lookupKeyWrite(c->db, key);
+    if (!o) {
+        addReply(c,shared.czero);
+        return;
+    }
+    expire = getExpire(c->db,key);
+
+    /* Return zero if the key already exists in the target DB. 
+     * If REPLACE option is selected, delete newkey from targetDB. */
+    if (lookupKeyWrite(dst,newkey) != NULL) {
+        if (replace) {
+            delete = 1;
+        } else {
+            addReply(c,shared.czero);
+            return;
+        }
+    }
+
+    /* Duplicate object according to object's type. */
+    robj *newobj;
+    switch(o->type) {
+        case OBJ_STRING: newobj = dupStringObject(o); break;
+        case OBJ_LIST: newobj = listTypeDup(o); break;
+        case OBJ_SET: newobj = setTypeDup(o); break;
+        case OBJ_ZSET: newobj = zsetDup(o); break;
+        case OBJ_HASH: newobj = hashTypeDup(o); break;
+        case OBJ_STREAM: newobj = streamDup(o); break;
+        case OBJ_MODULE:
+            addReplyError(c, "Copying module type object is not supported");
+            return;
+        default: {
+            addReplyError(c, "unknown type object");
+            return;
+        };
+    }
+
+    if (delete) {
+        dbDelete(dst,newkey);
+    }
+
+    dbAdd(dst,newkey,newobj);
+    if (expire != -1) setExpire(c, dst, newkey, expire);
+
+    /* OK! key copied */
+    signalModifiedKey(c,dst,c->argv[2]);
+    notifyKeyspaceEvent(NOTIFY_GENERIC,"copy_to",c->argv[2],dst->id);
+
+    server.dirty++;
+    addReply(c,shared.cone);
+}
+
 /* Helper function for dbSwapDatabases(): scans the list of keys that have
  * one or more blocked clients for B[LR]POP or other blocking commands
  * and signal the keys as ready if they are of the right type. See the comment
@@ -1441,12 +1551,12 @@ int genericGetKeys(int storeKeyOfs, int keyCountOfs, int firstKeyOfs, int keySte
     return result->numkeys;
 }
 
-int zunionInterStoreGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+int zunionInterDiffStoreGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     UNUSED(cmd);
     return genericGetKeys(1, 2, 3, 1, argv, argc, result);
 }
 
-int zunionInterGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+int zunionInterDiffGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     UNUSED(cmd);
     return genericGetKeys(0, 1, 2, 1, argv, argc, result);
 }
@@ -1691,7 +1801,7 @@ void slotToKeyFlush(void) {
            sizeof(server.cluster->slots_keys_count));
 }
 
-/* Pupulate the specified array of objects with keys in the specified slot.
+/* Populate the specified array of objects with keys in the specified slot.
  * New objects are returned to represent keys, it's up to the caller to
  * decrement the reference count to release the keys names. */
 unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count) {

@@ -261,6 +261,52 @@ void setTypeConvert(robj *setobj, int enc) {
     }
 }
 
+/* This is a helper function for the COPY command.
+ * Duplicate a set object, with the guarantee that the returned object
+ * has the same encoding as the original one.
+ *
+ * The resulting object always has refcount set to 1 */
+robj *setTypeDup(robj *o) {
+    robj *set;
+    setTypeIterator *si;
+    sds elesds;
+    int64_t intobj;
+
+    serverAssert(o->type == OBJ_SET);
+
+    /* Create a new set object that have the same encoding as the original object's encoding */
+    switch (o->encoding) {
+        case OBJ_ENCODING_INTSET:
+            set = createIntsetObject();
+            break;
+        case OBJ_ENCODING_HT:
+            set = createSetObject();
+            dict *d = o->ptr;
+            dictExpand(set->ptr, dictSize(d));
+            break;
+        default:
+            serverPanic("Wrong encoding.");
+            break;
+    }
+    if (set->encoding == OBJ_ENCODING_INTSET) {
+        intset *is = o->ptr;
+        size_t size = intsetBlobLen(is);
+        intset *newis = zmalloc(size);
+        memcpy(newis,is,size);
+        zfree(set->ptr);
+        set->ptr = newis;
+    } else if (set->encoding == OBJ_ENCODING_HT) {
+        si = setTypeInitIterator(o);
+        while (setTypeNext(si, &elesds, &intobj) != -1) {
+            setTypeAdd(set, elesds);
+        }
+        setTypeReleaseIterator(si);
+    } else {
+        serverPanic("Unknown set encoding");
+    }
+    return set;
+}
+
 void saddCommand(client *c) {
     robj *set;
     int j, added = 0;
@@ -1080,7 +1126,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             sdsfree(ele);
         }
         setTypeReleaseIterator(si);
-        server.lazyfree_lazy_server_del ? freeObjAsync(dstset) :
+        server.lazyfree_lazy_server_del ? freeObjAsync(NULL, dstset) :
                                           decrRefCount(dstset);
     } else {
         /* If we have a target key where to store the resulting set

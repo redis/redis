@@ -436,19 +436,27 @@ struct redisCommand redisCommandTable[] = {
 
     {"zunionstore",zunionstoreCommand,-4,
      "write use-memory @sortedset",
-     0,zunionInterStoreGetKeys,0,0,0,0,0,0},
+     0,zunionInterDiffStoreGetKeys,0,0,0,0,0,0},
 
     {"zinterstore",zinterstoreCommand,-4,
      "write use-memory @sortedset",
-     0,zunionInterStoreGetKeys,0,0,0,0,0,0},
+     0,zunionInterDiffStoreGetKeys,0,0,0,0,0,0},
+
+    {"zdiffstore",zdiffstoreCommand,-4,
+     "write use-memory @sortedset",
+     0,zunionInterDiffStoreGetKeys,0,0,0,0,0,0},
 
     {"zunion",zunionCommand,-3,
      "read-only @sortedset",
-     0,zunionInterGetKeys,0,0,0,0,0,0},
+     0,zunionInterDiffGetKeys,0,0,0,0,0,0},
 
     {"zinter",zinterCommand,-3,
      "read-only @sortedset",
-     0,zunionInterGetKeys,0,0,0,0,0,0},
+     0,zunionInterDiffGetKeys,0,0,0,0,0,0},
+
+    {"zdiff",zdiffCommand,-3,
+     "read-only @sortedset",
+     0,zunionInterDiffGetKeys,0,0,0,0,0,0},
 
     {"zrange",zrangeCommand,-4,
      "read-only @sortedset",
@@ -621,6 +629,10 @@ struct redisCommand redisCommandTable[] = {
     {"move",moveCommand,3,
      "write fast @keyspace",
      0,NULL,1,1,1,0,0,0},
+
+    {"copy",copyCommand,-3,
+     "write use-memory @keyspace",
+     0,NULL,1,2,1,0,0,0},
 
     /* Like for SET, we can't mark rename as a fast command because
      * overwriting the target key may result in an implicit slow DEL. */
@@ -1036,7 +1048,11 @@ struct redisCommand redisCommandTable[] = {
 
     {"stralgo",stralgoCommand,-2,
      "read-only @string",
-     0,lcsGetKeys,0,0,0,0,0,0}
+     0,lcsGetKeys,0,0,0,0,0,0},
+
+    {"reset",resetCommand,-1,
+     "no-script ok-stale ok-loading fast @connection",
+     0,NULL,0,0,0,0,0,0}
 };
 
 /*============================ Utility functions ============================ */
@@ -1968,16 +1984,17 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* Show some info about non-empty databases */
-    run_with_period(5000) {
-        for (j = 0; j < server.dbnum; j++) {
-            long long size, used, vkeys;
+    if (server.verbosity <= LL_VERBOSE) {
+        run_with_period(5000) {
+            for (j = 0; j < server.dbnum; j++) {
+                long long size, used, vkeys;
 
-            size = dictSlots(server.db[j].dict);
-            used = dictSize(server.db[j].dict);
-            vkeys = dictSize(server.db[j].expires);
-            if (used || vkeys) {
-                serverLog(LL_VERBOSE,"DB %d: %lld keys (%lld volatile) in %lld slots HT.",j,used,vkeys,size);
-                /* dictPrintStats(server.dict); */
+                size = dictSlots(server.db[j].dict);
+                used = dictSize(server.db[j].dict);
+                vkeys = dictSize(server.db[j].expires);
+                if (used || vkeys) {
+                    serverLog(LL_VERBOSE,"DB %d: %lld keys (%lld volatile) in %lld slots HT.",j,used,vkeys,size);
+                }
             }
         }
     }
@@ -2051,6 +2068,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             }
         }
     }
+    /* Just for the sake of defensive programming, to avoid forgeting to
+     * call this function when need. */
+    updateDictResizePolicy();
 
 
     /* AOF postponed flush: Try at every cron cycle if the slow fsync
@@ -2286,15 +2306,17 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Close clients that need to be closed asynchronous */
     freeClientsInAsyncFreeQueue();
 
+    /* Try to process blocked clients every once in while. Example: A module
+     * calls RM_SignalKeyAsReady from within a timer callback (So we don't
+     * visit processCommand() at all). */
+    handleClientsBlockedOnKeys();
+
     /* Before we are going to sleep, let the threads access the dataset by
      * releasing the GIL. Redis main thread will not touch anything at this
      * time. */
     if (moduleCount()) moduleReleaseGIL();
 
-    /* Try to process blocked clients every once in while. Example: A module
-     * calls RM_SignalKeyAsReady from within a timer callback (So we don't
-     * visit processCommand() at all). */
-    handleClientsBlockedOnKeys();
+    /* Do NOT add anything below moduleReleaseGIL !!! */
 }
 
 /* This function is called immediately after the event loop multiplexing
@@ -2303,6 +2325,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 void afterSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
 
+    /* Do NOT add anything above moduleAcquireGIL !!! */
+
+    /* Aquire the modules GIL so that their threads won't touch anything. */
     if (!ProcessingEventsWhileBlocked) {
         if (moduleCount()) moduleAcquireGIL();
     }
@@ -2455,6 +2480,7 @@ void initServerConfig(void) {
     server.client_max_querybuf_len = PROTO_MAX_QUERYBUF_LEN;
     server.saveparams = NULL;
     server.loading = 0;
+    server.loading_rdb_used_mem = 0;
     server.logfile = zstrdup(CONFIG_DEFAULT_LOGFILE);
     server.aof_state = AOF_OFF;
     server.aof_rewrite_base_size = 0;
@@ -2646,7 +2672,7 @@ static void readOOMScoreAdj(void) {
  */
 int setOOMScoreAdj(int process_class) {
 
-    if (!server.oom_score_adj) return C_OK;
+    if (server.oom_score_adj == OOM_SCORE_ADJ_NO) return C_OK;
     if (process_class == -1)
         process_class = (server.masterhost ? CONFIG_OOM_REPLICA : CONFIG_OOM_MASTER);
 
@@ -2657,7 +2683,9 @@ int setOOMScoreAdj(int process_class) {
     int val;
     char buf[64];
 
-    val = server.oom_score_adj_base + server.oom_score_adj_values[process_class];
+    val = server.oom_score_adj_values[process_class];
+    if (server.oom_score_adj == OOM_SCORE_RELATIVE)
+        val += server.oom_score_adj_base;
     if (val > 1000) val = 1000;
     if (val < -1000) val = -1000;
 
@@ -2798,59 +2826,37 @@ void checkTcpBacklogSettings(void) {
  * one of the IPv4 or IPv6 protocols. */
 int listenToPort(int port, int *fds, int *count) {
     int j;
+    char **bindaddr = server.bindaddr;
+    int bindaddr_count = server.bindaddr_count;
+    char *default_bindaddr[2] = {"*", "-::*"};
 
-    /* Force binding of 0.0.0.0 if no bind address is specified, always
-     * entering the loop if j == 0. */
-    if (server.bindaddr_count == 0) server.bindaddr[0] = NULL;
-    for (j = 0; j < server.bindaddr_count || j == 0; j++) {
-        if (server.bindaddr[j] == NULL) {
-            int unsupported = 0;
-            /* Bind * for both IPv6 and IPv4, we enter here only if
-             * server.bindaddr_count == 0. */
-            fds[*count] = anetTcp6Server(server.neterr,port,NULL,
-                server.tcp_backlog);
-            if (fds[*count] != ANET_ERR) {
-                anetNonBlock(NULL,fds[*count]);
-                (*count)++;
-            } else if (errno == EAFNOSUPPORT) {
-                unsupported++;
-                serverLog(LL_WARNING,"Not listening to IPv6: unsupported");
-            }
+    /* Force binding of 0.0.0.0 if no bind address is specified. */
+    if (server.bindaddr_count == 0) {
+        bindaddr_count = 2;
+        bindaddr = default_bindaddr;
+    }
 
-            if (*count == 1 || unsupported) {
-                /* Bind the IPv4 address as well. */
-                fds[*count] = anetTcpServer(server.neterr,port,NULL,
-                    server.tcp_backlog);
-                if (fds[*count] != ANET_ERR) {
-                    anetNonBlock(NULL,fds[*count]);
-                    (*count)++;
-                } else if (errno == EAFNOSUPPORT) {
-                    unsupported++;
-                    serverLog(LL_WARNING,"Not listening to IPv4: unsupported");
-                }
-            }
-            /* Exit the loop if we were able to bind * on IPv4 and IPv6,
-             * otherwise fds[*count] will be ANET_ERR and we'll print an
-             * error and return to the caller with an error. */
-            if (*count + unsupported == 2) break;
-        } else if (strchr(server.bindaddr[j],':')) {
+    for (j = 0; j < bindaddr_count; j++) {
+        char* addr = bindaddr[j];
+        int optional = *addr == '-';
+        if (optional) addr++;
+        if (strchr(addr,':')) {
             /* Bind IPv6 address. */
-            fds[*count] = anetTcp6Server(server.neterr,port,server.bindaddr[j],
-                server.tcp_backlog);
+            fds[*count] = anetTcp6Server(server.neterr,port,addr,server.tcp_backlog);
         } else {
             /* Bind IPv4 address. */
-            fds[*count] = anetTcpServer(server.neterr,port,server.bindaddr[j],
-                server.tcp_backlog);
+            fds[*count] = anetTcpServer(server.neterr,port,addr,server.tcp_backlog);
         }
         if (fds[*count] == ANET_ERR) {
             serverLog(LL_WARNING,
                 "Could not create server TCP listening socket %s:%d: %s",
-                server.bindaddr[j] ? server.bindaddr[j] : "*",
-                port, server.neterr);
-                if (errno == ENOPROTOOPT     || errno == EPROTONOSUPPORT ||
-                    errno == ESOCKTNOSUPPORT || errno == EPFNOSUPPORT ||
-                    errno == EAFNOSUPPORT    || errno == EADDRNOTAVAIL)
-                    continue;
+                addr, port, server.neterr);
+            if (errno == EADDRNOTAVAIL && optional)
+                continue;
+            if (errno == ENOPROTOOPT     || errno == EPROTONOSUPPORT ||
+                errno == ESOCKTNOSUPPORT || errno == EPFNOSUPPORT ||
+                errno == EAFNOSUPPORT)
+                continue;
             return C_ERR;
         }
         anetNonBlock(NULL,fds[*count]);
@@ -3480,8 +3486,13 @@ void call(client *c, int flags) {
         char *latency_event = (c->cmd->flags & CMD_FAST) ?
                               "fast-command" : "command";
         latencyAddSampleIfNeeded(latency_event,duration/1000);
-        slowlogPushEntryIfNeeded(c,c->argv,c->argc,duration);
+        /* If command argument vector was rewritten, use the original
+         * arguments. */
+        robj **argv = c->original_argv ? c->original_argv : c->argv;
+        int argc = c->original_argv ? c->original_argc : c->argc;
+        slowlogPushEntryIfNeeded(c,argv,argc,duration);
     }
+    freeClientOriginalArgv(c);
 
     if (flags & CMD_CALL_STATS) {
         /* use the real command that was executed (cmd and lastamc) may be
@@ -3758,7 +3769,8 @@ int processCommand(client *c) {
          * set. */
         if (c->flags & CLIENT_MULTI &&
             c->cmd->proc != execCommand &&
-            c->cmd->proc != discardCommand) {
+            c->cmd->proc != discardCommand &&
+            c->cmd->proc != resetCommand) {
             reject_cmd_on_oom = 1;
         }
 
@@ -3824,10 +3836,11 @@ int processCommand(client *c) {
         c->cmd->proc != subscribeCommand &&
         c->cmd->proc != unsubscribeCommand &&
         c->cmd->proc != psubscribeCommand &&
-        c->cmd->proc != punsubscribeCommand) {
+        c->cmd->proc != punsubscribeCommand &&
+        c->cmd->proc != resetCommand) {
         rejectCommandFormat(c,
             "Can't execute '%s': only (P)SUBSCRIBE / "
-            "(P)UNSUBSCRIBE / PING / QUIT are allowed in this context",
+            "(P)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context",
             c->cmd->name);
         return C_OK;
     }
@@ -3878,7 +3891,8 @@ int processCommand(client *c) {
     /* Exec the command */
     if (c->flags & CLIENT_MULTI &&
         c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
-        c->cmd->proc != multiCommand && c->cmd->proc != watchCommand)
+        c->cmd->proc != multiCommand && c->cmd->proc != watchCommand &&
+        c->cmd->proc != resetCommand)
     {
         queueMultiCommand(c);
         addReply(c,shared.queued);
@@ -4240,10 +4254,19 @@ sds genRedisInfoString(const char *section) {
         static int call_uname = 1;
         static struct utsname name;
         char *mode;
+        char *supervised;
 
         if (server.cluster_enabled) mode = "cluster";
         else if (server.sentinel_mode) mode = "sentinel";
         else mode = "standalone";
+
+        if (server.supervised) {
+            if (server.supervised_mode == SUPERVISED_UPSTART) supervised = "upstart";
+            else if (server.supervised_mode == SUPERVISED_SYSTEMD) supervised = "systemd";
+            else supervised = "unknown";
+        } else {
+            supervised = "no";
+        }
 
         if (sections++) info = sdscat(info,"\r\n");
 
@@ -4268,6 +4291,7 @@ sds genRedisInfoString(const char *section) {
             "atomicvar_api:%s\r\n"
             "gcc_version:%i.%i.%i\r\n"
             "process_id:%I\r\n"
+            "process_supervised:%s\r\n"
             "run_id:%s\r\n"
             "tcp_port:%i\r\n"
             "uptime_in_seconds:%I\r\n"
@@ -4293,6 +4317,7 @@ sds genRedisInfoString(const char *section) {
             0,0,0,
 #endif
             (int64_t) getpid(),
+            supervised,
             server.runid,
             server.port ? server.port : server.tls_port,
             (int64_t)uptime,
@@ -4313,12 +4338,16 @@ sds genRedisInfoString(const char *section) {
         info = sdscatprintf(info,
             "# Clients\r\n"
             "connected_clients:%lu\r\n"
+            "cluster_connections:%lu\r\n"
+            "maxclients:%u\r\n"
             "client_recent_max_input_buffer:%zu\r\n"
             "client_recent_max_output_buffer:%zu\r\n"
             "blocked_clients:%d\r\n"
             "tracking_clients:%d\r\n"
             "clients_in_timeout_table:%llu\r\n",
             listLength(server.clients)-listLength(server.slaves),
+            getClusterConnectionsCount(),
+            server.maxclients,
             maxin, maxout,
             server.blocked_clients,
             server.tracking_clients,
@@ -4397,7 +4426,8 @@ sds genRedisInfoString(const char *section) {
             "mem_aof_buffer:%zu\r\n"
             "mem_allocator:%s\r\n"
             "active_defrag_running:%d\r\n"
-            "lazyfree_pending_objects:%zu\r\n",
+            "lazyfree_pending_objects:%zu\r\n"
+            "lazyfreed_objects:%zu\r\n",
             zmalloc_used,
             hmem,
             server.cron_malloc_stats.process_rss,
@@ -4440,7 +4470,8 @@ sds genRedisInfoString(const char *section) {
             mh->aof_buffer,
             ZMALLOC_LIB,
             server.active_defrag_running,
-            lazyfreeGetPendingObjectsCount()
+            lazyfreeGetPendingObjectsCount(),
+            lazyfreeGetFreedObjectsCount()
         );
         freeMemoryOverheadData(mh);
     }
@@ -4508,13 +4539,20 @@ sds genRedisInfoString(const char *section) {
         }
 
         if (server.loading) {
-            double perc;
+            double perc = 0;
             time_t eta, elapsed;
-            off_t remaining_bytes = server.loading_total_bytes-
-                                    server.loading_loaded_bytes;
+            off_t remaining_bytes = 1;
 
-            perc = ((double)server.loading_loaded_bytes /
-                   (server.loading_total_bytes+1)) * 100;
+            if (server.loading_total_bytes) {
+                perc = ((double)server.loading_loaded_bytes / server.loading_total_bytes) * 100;
+                remaining_bytes = server.loading_total_bytes - server.loading_loaded_bytes;
+            } else if(server.loading_rdb_used_mem) {
+                perc = ((double)server.loading_loaded_bytes / server.loading_rdb_used_mem) * 100;
+                remaining_bytes = server.loading_rdb_used_mem - server.loading_loaded_bytes;
+                /* used mem is only a (bad) estimation of the rdb file size, avoid going over 100% */
+                if (perc > 99.99) perc = 99.99;
+                if (remaining_bytes < 1) remaining_bytes = 1;
+            }
 
             elapsed = time(NULL)-server.loading_start_time;
             if (elapsed == 0) {
@@ -4527,11 +4565,13 @@ sds genRedisInfoString(const char *section) {
             info = sdscatprintf(info,
                 "loading_start_time:%jd\r\n"
                 "loading_total_bytes:%llu\r\n"
+                "loading_rdb_used_mem:%llu\r\n"
                 "loading_loaded_bytes:%llu\r\n"
                 "loading_loaded_perc:%.2f\r\n"
                 "loading_eta_seconds:%jd\r\n",
                 (intmax_t) server.loading_start_time,
                 (unsigned long long) server.loading_total_bytes,
+                (unsigned long long) server.loading_rdb_used_mem,
                 (unsigned long long) server.loading_loaded_bytes,
                 perc,
                 (intmax_t)eta
@@ -4656,11 +4696,20 @@ sds genRedisInfoString(const char *section) {
             );
 
             if (server.repl_state == REPL_STATE_TRANSFER) {
+                double perc = 0;
+                if (server.repl_transfer_size) {
+                    perc = ((double)server.repl_transfer_read / server.repl_transfer_size) * 100;
+                }
                 info = sdscatprintf(info,
+                    "master_sync_total_bytes:%lld\r\n"
+                    "master_sync_read_bytes:%lld\r\n"
                     "master_sync_left_bytes:%lld\r\n"
-                    "master_sync_last_io_seconds_ago:%d\r\n"
-                    , (long long)
-                        (server.repl_transfer_size - server.repl_transfer_read),
+                    "master_sync_perc:%.2f\r\n"
+                    "master_sync_last_io_seconds_ago:%d\r\n",
+                    (long long) server.repl_transfer_size,
+                    (long long) server.repl_transfer_read,
+                    (long long) (server.repl_transfer_size - server.repl_transfer_read),
+                    perc,
                     (int)(server.unixtime-server.repl_transfer_lastio)
                 );
             }
@@ -4845,6 +4894,14 @@ void infoCommand(client *c) {
 }
 
 void monitorCommand(client *c) {
+    if (c->flags & CLIENT_DENY_BLOCKING) {
+        /**
+         * A client that has CLIENT_DENY_BLOCKING flag on
+         * expects a reply per command and so can't execute MONITOR. */
+        addReplyError(c, "MONITOR is not allowed for DENY BLOCKING client");
+        return;
+    }
+
     /* ignore MONITOR if already slave or in monitor mode */
     if (c->flags & CLIENT_SLAVE) return;
 
@@ -4874,7 +4931,7 @@ void linuxMemoryWarnings(void) {
     if (linuxOvercommitMemoryValue() == 0) {
         serverLog(LL_WARNING,"WARNING overcommit_memory is set to 0! Background save may fail under low memory condition. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.");
     }
-    if (THPIsEnabled()) {
+    if (THPIsEnabled() && THPDisable()) {
         serverLog(LL_WARNING,"WARNING you have Transparent Huge Pages (THP) support enabled in your kernel. This will create latency and memory usage issues with Redis. To fix this issue run the command 'echo madvise > /sys/kernel/mm/transparent_hugepage/enabled' as root, and add it to your /etc/rc.local in order to retain the setting after a reboot. Redis must be restarted after THP is disabled (set to 'madvise' or 'never').");
     }
 }
@@ -5025,6 +5082,7 @@ void setupSignalHandlers(void) {
         sigaction(SIGBUS, &act, NULL);
         sigaction(SIGFPE, &act, NULL);
         sigaction(SIGILL, &act, NULL);
+        sigaction(SIGABRT, &act, NULL);
     }
     return;
 }
@@ -5038,6 +5096,7 @@ void removeSignalHandlers(void) {
     sigaction(SIGBUS, &act, NULL);
     sigaction(SIGFPE, &act, NULL);
     sigaction(SIGILL, &act, NULL);
+    sigaction(SIGABRT, &act, NULL);
 }
 
 /* This is the signal handler for children process. It is currently useful
@@ -5091,7 +5150,6 @@ int redisFork(int purpose) {
         if (childpid == -1) {
             return -1;
         }
-        updateDictResizePolicy();
     }
     return childpid;
 }
@@ -5192,62 +5250,82 @@ void redisSetCpuAffinity(const char *cpulist) {
 #endif
 }
 
-/*
- * Check whether systemd or upstart have been used to start redis.
- */
+/* Send a notify message to systemd. Returns sd_notify return code which is
+ * a positive number on success. */
+int redisCommunicateSystemd(const char *sd_notify_msg) {
+#ifdef HAVE_LIBSYSTEMD
+    int ret = sd_notify(0, sd_notify_msg);
 
-int redisSupervisedUpstart(void) {
+    if (ret == 0)
+        serverLog(LL_WARNING, "systemd supervision error: NOTIFY_SOCKET not found!");
+    else if (ret < 0)
+        serverLog(LL_WARNING, "systemd supervision error: sd_notify: %d", ret);
+    return ret;
+#else
+    UNUSED(sd_notify_msg);
+    return 0;
+#endif
+}
+
+/* Attempt to set up upstart supervision. Returns 1 if successful. */
+static int redisSupervisedUpstart(void) {
     const char *upstart_job = getenv("UPSTART_JOB");
 
     if (!upstart_job) {
         serverLog(LL_WARNING,
-                "upstart supervision requested, but UPSTART_JOB not found");
+                "upstart supervision requested, but UPSTART_JOB not found!");
         return 0;
     }
 
-    serverLog(LL_NOTICE, "supervised by upstart, will stop to signal readiness");
+    serverLog(LL_NOTICE, "supervised by upstart, will stop to signal readiness.");
     raise(SIGSTOP);
     unsetenv("UPSTART_JOB");
     return 1;
 }
 
-int redisCommunicateSystemd(const char *sd_notify_msg) {
-    const char *notify_socket = getenv("NOTIFY_SOCKET");
-    if (!notify_socket) {
-        serverLog(LL_WARNING,
-                "systemd supervision requested, but NOTIFY_SOCKET not found");
-    }
-
-    #ifdef HAVE_LIBSYSTEMD
-    (void) sd_notify(0, sd_notify_msg);
-    #else
-    UNUSED(sd_notify_msg);
-    #endif
+/* Attempt to set up systemd supervision. Returns 1 if successful. */
+static int redisSupervisedSystemd(void) {
+#ifndef HAVE_LIBSYSTEMD
+    serverLog(LL_WARNING,
+            "systemd supervision requested or auto-detected, but Redis is compiled without libsystemd support!");
     return 0;
+#else
+    if (redisCommunicateSystemd("STATUS=Redis is loading...\n") <= 0)
+        return 0;
+    serverLog(LL_NOTICE,
+        "Supervised by systemd. Please make sure you set appropriate values for TimeoutStartSec and TimeoutStopSec in your service unit.");
+    return 1;
+#endif
 }
 
 int redisIsSupervised(int mode) {
-    if (mode == SUPERVISED_AUTODETECT) {
-        const char *upstart_job = getenv("UPSTART_JOB");
-        const char *notify_socket = getenv("NOTIFY_SOCKET");
+    int ret = 0;
 
-        if (upstart_job) {
-            redisSupervisedUpstart();
-        } else if (notify_socket) {
-            server.supervised_mode = SUPERVISED_SYSTEMD;
-            serverLog(LL_WARNING,
-                "WARNING auto-supervised by systemd - you MUST set appropriate values for TimeoutStartSec and TimeoutStopSec in your service unit.");
-            return redisCommunicateSystemd("STATUS=Redis is loading...\n");
+    if (mode == SUPERVISED_AUTODETECT) {
+        if (getenv("UPSTART_JOB")) {
+            serverLog(LL_VERBOSE, "Upstart supervision detected.");
+            mode = SUPERVISED_UPSTART;
+        } else if (getenv("NOTIFY_SOCKET")) {
+            serverLog(LL_VERBOSE, "Systemd supervision detected.");
+            mode = SUPERVISED_SYSTEMD;
         }
-    } else if (mode == SUPERVISED_UPSTART) {
-        return redisSupervisedUpstart();
-    } else if (mode == SUPERVISED_SYSTEMD) {
-        serverLog(LL_WARNING,
-            "WARNING supervised by systemd - you MUST set appropriate values for TimeoutStartSec and TimeoutStopSec in your service unit.");
-        return redisCommunicateSystemd("STATUS=Redis is loading...\n");
     }
 
-    return 0;
+    switch (mode) {
+        case SUPERVISED_UPSTART:
+            ret = redisSupervisedUpstart();
+            break;
+        case SUPERVISED_SYSTEMD:
+            ret = redisSupervisedSystemd();
+            break;
+        default:
+            break;
+    }
+
+    if (ret)
+        server.supervised_mode = mode;
+
+    return ret;
 }
 
 int iAmMaster(void) {

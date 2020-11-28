@@ -730,6 +730,23 @@ int getLongFromObjectOrReply(client *c, robj *o, long *target, const char *msg) 
     return C_OK;
 }
 
+int getRangeLongFromObjectOrReply(client *c, robj *o, long min, long max, long *target, const char *msg) {
+    if (getLongFromObjectOrReply(c, o, target, msg) != C_OK) return C_ERR;
+    if (*target < min || *target > max) {
+        if (msg != NULL) {
+            addReplyError(c,(char*)msg);
+        } else {
+            addReplyErrorFormat(c,"value is out of range, value must between %ld and %ld", min, max);
+        }
+        return C_ERR;
+    }
+    return C_OK;
+}
+
+int getPositiveLongFromObjectOrReply(client *c, robj *o, long *target, const char *msg) {
+    return getRangeLongFromObjectOrReply(c, o, 0, LONG_MAX, target, msg);
+}
+
 char *strEncoding(int encoding) {
     switch(encoding) {
     case OBJ_ENCODING_RAW: return "raw";
@@ -1212,10 +1229,7 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
 /* This is a helper function for the OBJECT command. We need to lookup keys
  * without any modification of LRU or other parameters. */
 robj *objectCommandLookup(client *c, robj *key) {
-    dictEntry *de;
-
-    if ((de = dictFind(c->db->dict,key->ptr)) == NULL) return NULL;
-    return (robj*) dictGetVal(de);
+    return lookupKeyReadWithFlags(c->db,key,LOOKUP_NOTOUCH|LOOKUP_NONOTIFY);
 }
 
 robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply) {

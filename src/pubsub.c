@@ -374,8 +374,21 @@ int pubsubCheckACLPermissionsOrReply(client *c, int idx, int count, int literal)
 
 /* SUBSCRIBE channel [channel ...] */
 void subscribeCommand(client *c) {
+    int j;
     if (pubsubCheckACLPermissionsOrReply(c,1,c->argc-1,0) != ACL_OK) return;
-    for (int j = 1; j < c->argc; j++)
+    if ((c->flags & CLIENT_DENY_BLOCKING) && !(c->flags & CLIENT_MULTI)) {
+        /**
+         * A client that has CLIENT_DENY_BLOCKING flag on
+         * expect a reply per command and so can not execute subscribe.
+         *
+         * Notice that we have a special treatment for multi because of
+         * backword compatibility
+         */
+        addReplyError(c, "SUBSCRIBE isn't allowed for a DENY BLOCKING client");
+        return;
+    }
+
+    for (j = 1; j < c->argc; j++)
         pubsubSubscribeChannel(c,c->argv[j]);
     c->flags |= CLIENT_PUBSUB;
 }
@@ -395,8 +408,21 @@ void unsubscribeCommand(client *c) {
 
 /* PSUBSCRIBE pattern [pattern ...] */
 void psubscribeCommand(client *c) {
+    int j;
     if (pubsubCheckACLPermissionsOrReply(c,1,c->argc-1,1) != ACL_OK) return;
-    for (int j = 1; j < c->argc; j++)
+    if ((c->flags & CLIENT_DENY_BLOCKING) && !(c->flags & CLIENT_MULTI)) {
+        /**
+         * A client that has CLIENT_DENY_BLOCKING flag on
+         * expect a reply per command and so can not execute subscribe.
+         *
+         * Notice that we have a special treatment for multi because of
+         * backword compatibility
+         */
+        addReplyError(c, "PSUBSCRIBE isn't allowed for a DENY BLOCKING client");
+        return;
+    }
+
+    for (j = 1; j < c->argc; j++)
         pubsubSubscribePattern(c,c->argv[j]);
     c->flags |= CLIENT_PUBSUB;
 }
