@@ -625,7 +625,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         case ACL_DENIED_AUTH:
             luaPushError(lua, "The user executing the script can't publish "
                               "to the channel mentioned in the command");
-                
+            break;
         default:
             luaPushError(lua, "The user executing the script is lacking the "
                               "permissions for the command");
