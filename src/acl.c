@@ -1254,6 +1254,9 @@ int ACLCheckCommandPerm(client *c, int *keyidxptr) {
     return ACL_OK;
 }
 
+/* Check if the provided channel is whitelisted by the given allowed channels
+ * list. Glob-style pattern matching is employed, unless the literal flag is
+ * set. Returns ACL_OK if access is granted or ACL_DENIED_CHANNEL otherwise. */
 int ACLCheckPubsubChannelPerm(sds channel, list *allowed, int literal) {
     listIter li;
     listNode *ln;
