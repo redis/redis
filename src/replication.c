@@ -1465,9 +1465,15 @@ void disklessLoadRestoreBackups(redisDb *backup, int restore, int empty_db_flags
             server.db[i] = backup[i];
         }
     } else {
-        /* Delete (Pass EMPTYDB_BACKUP in order to avoid firing module events) . */
-        emptyDbGeneric(backup,-1,empty_db_flags|EMPTYDB_BACKUP,replicationEmptyDbCallback);
+        /* Delete. */
+        int async = (empty_db_flags & EMPTYDB_ASYNC);
         for (int i=0; i<server.dbnum; i++) {
+            if (async) {
+                emptyDbAsync(&backup[i]);
+            } else {
+                dictEmpty(backup[i].dict, replicationEmptyDbCallback);
+                dictEmpty(backup[i].expires, replicationEmptyDbCallback);
+            }
             dictRelease(backup[i].dict);
             dictRelease(backup[i].expires);
         }
