@@ -2330,6 +2330,7 @@ void clientCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
 "ID                     -- Return the ID of the current connection.",
+"INFO                   -- Return information about the current client connection.",
 "GETNAME                -- Return the name of the current connection.",
 "KILL <ip:port>         -- Kill connection made from <ip:port>.",
 "KILL <option> <value> [option value ...] -- Kill connections. Options are:",
@@ -2353,6 +2354,12 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"id") && c->argc == 2) {
         /* CLIENT ID */
         addReplyLongLong(c,c->id);
+    } else if (!strcasecmp(c->argv[1]->ptr,"info")) {
+        /* CLIENT INFO */
+        sds o = catClientInfoString(sdsempty(), c);
+        o = sdscatlen(o,"\n",1);
+        addReplyVerbatim(c,o,sdslen(o),"txt");
+        sdsfree(o);
     } else if (!strcasecmp(c->argv[1]->ptr,"list")) {
         /* CLIENT LIST */
         int type = -1;
