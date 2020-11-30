@@ -2341,6 +2341,7 @@ void clientCommand(client *c) {
 "     SKIPME (yes|no)   -- Skip killing current connection (default: yes).",
 "LIST [options ...]     -- Return information about client connections. Options:",
 "     TYPE (normal|master|replica|pubsub) -- Return clients of specified type.",
+"     ID <id>                             -- Return clients of specified IDs only.",
 "PAUSE <timeout>        -- Suspend all Redis clients for <timout> milliseconds.",
 "REPLY (on|off|skip)    -- Control the replies sent to the current connection.",
 "SETNAME <name>         -- Assign the name <name> to the current connection.",
@@ -2354,7 +2355,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"id") && c->argc == 2) {
         /* CLIENT ID */
         addReplyLongLong(c,c->id);
-    } else if (!strcasecmp(c->argv[1]->ptr,"info")) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"info") && c->argc == 2) {
         /* CLIENT INFO */
         sds o = catClientInfoString(sdsempty(), c);
         o = sdscatlen(o,"\n",1);
@@ -2363,18 +2364,37 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"list")) {
         /* CLIENT LIST */
         int type = -1;
+        sds o = NULL;
         if (c->argc == 4 && !strcasecmp(c->argv[2]->ptr,"type")) {
             type = getClientTypeByName(c->argv[3]->ptr);
             if (type == -1) {
                 addReplyErrorFormat(c,"Unknown client type '%s'",
                     (char*) c->argv[3]->ptr);
                 return;
-             }
+            }
+        } else if (c->argc > 3 && !strcasecmp(c->argv[2]->ptr,"id")) {
+            int j;
+            o = sdsempty();
+            for (j = 3; j < c->argc; j++) {
+                long long cid;
+                if (getLongLongFromObjectOrReply(c, c->argv[j], &cid,
+                            "Invalid client ID")) {
+                    sdsfree(o);
+                    return;
+                }
+                client *cl = lookupClientByID(cid);
+                if (cl) {
+                    o = catClientInfoString(o, cl);
+                    o = sdscatlen(o, "\n", 1);
+                }
+            }
         } else if (c->argc != 2) {
             addReply(c,shared.syntaxerr);
             return;
         }
-        sds o = getAllClientsInfoString(type);
+
+        if (!o)
+            o = getAllClientsInfoString(type);
         addReplyVerbatim(c,o,sdslen(o),"txt");
         sdsfree(o);
     } else if (!strcasecmp(c->argv[1]->ptr,"reply") && c->argc == 3) {
