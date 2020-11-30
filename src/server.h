@@ -523,6 +523,7 @@ typedef size_t (*moduleTypeMemUsageFunc)(const void *value);
 typedef void (*moduleTypeFreeFunc)(void *value);
 typedef size_t (*moduleTypeFreeEffortFunc)(struct redisObject *key, const void *value);
 typedef void (*moduleTypeUnlinkFunc)(struct redisObject *key, void *value);
+typedef void *(*moduleTypeCopyFunc)(struct redisObject *fromkey, struct redisObject *tokey, const void *value);
 
 /* This callback type is called by moduleNotifyUserChanged() every time
  * a user authenticated via the module API is associated with a different
@@ -544,6 +545,7 @@ typedef struct RedisModuleType {
     moduleTypeFreeFunc free;
     moduleTypeFreeEffortFunc free_effort;
     moduleTypeUnlinkFunc unlink;
+    moduleTypeCopyFunc copy;
     moduleTypeAuxLoadFunc aux_load;
     moduleTypeAuxSaveFunc aux_save;
     int aux_save_triggers;

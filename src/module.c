@@ -3675,6 +3675,7 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
  *          .aux_save = myType_AuxRDBSaveCallBack,
  *          .free_effort = myType_FreeEffortCallBack
  *          .unlink = myType_UnlinkCallBack
+ *          .copy = myType_CopyCallback
  *      }
  *
  * * **rdb_load**: A callback function pointer that loads data from RDB files.
@@ -3694,10 +3695,12 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
  *   been removed from the DB by redis, and may soon be freed by a background thread. Note that 
  *   it won't be called on FLUSHALL/FLUSHDB (both sync and async), and the module can use the 
  *   RedisModuleEvent_FlushDB to hook into that.
+ * * **copy**: A callback function pointer that is used to make a copy of the specified key.
+ *   The module is expected to perform a deep copy of the specified value and return it.
+ *   In addition, hints about the names of the source and destination keys is provided.
+ *   Note: if the target key exists and is being overwritten, the copy callback will be
+ *         called first, followed by a free callback to the value that is being replaced.
  * 
- * The **digest** and **mem_usage** methods should currently be omitted since
- * they are not yet implemented inside the Redis modules core.
- *
  * Note: the module name "AAAAAAAAA" is reserved and produces an error, it
  * happens to be pretty lame as well.
  *
@@ -3740,6 +3743,7 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
         struct {
             moduleTypeFreeEffortFunc free_effort;
             moduleTypeUnlinkFunc unlink;
+            moduleTypeCopyFunc copy;
         } v3;
     } *tms = (struct typemethods*) typemethods_ptr;
 
@@ -3760,6 +3764,7 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
     if (tms->version >= 3) {
         mt->free_effort = tms->v3.free_effort;
         mt->unlink = tms->v3.unlink;
+        mt->copy = tms->v3.copy;
     }
     memcpy(mt->name,name,sizeof(mt->name));
     listAddNodeTail(ctx->module->types,mt);

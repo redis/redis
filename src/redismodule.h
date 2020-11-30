@@ -494,6 +494,7 @@ typedef void (*RedisModuleTypeDigestFunc)(RedisModuleDigest *digest, void *value
 typedef void (*RedisModuleTypeFreeFunc)(void *value);
 typedef size_t (*RedisModuleTypeFreeEffortFunc)(RedisModuleString *key, const void *value);
 typedef void (*RedisModuleTypeUnlinkFunc)(RedisModuleString *key, const void *value);
+typedef void *(*RedisModuleTypeCopyFunc)(RedisModuleString *fromkey, RedisModuleString *tokey, const void *value);
 typedef void (*RedisModuleClusterMessageReceiver)(RedisModuleCtx *ctx, const char *sender_id, uint8_t type, const unsigned char *payload, uint32_t len);
 typedef void (*RedisModuleTimerProc)(RedisModuleCtx *ctx, void *data);
 typedef void (*RedisModuleCommandFilterFunc) (RedisModuleCommandFilterCtx *filter);
@@ -516,6 +517,7 @@ typedef struct RedisModuleTypeMethods {
     int aux_save_triggers;
     RedisModuleTypeFreeEffortFunc free_effort;
     RedisModuleTypeUnlinkFunc unlink;
+    RedisModuleTypeCopyFunc copy;
 } RedisModuleTypeMethods;
 
 #define REDISMODULE_GET_API(name) \
