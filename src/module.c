@@ -3699,7 +3699,7 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
  *   The module is expected to perform a deep copy of the specified value and return it.
  *   In addition, hints about the names of the source and destination keys is provided.
  *   Note: if the target key exists and is being overwritten, the copy callback will be
- *         called first, followed by a free callback to the value that is being replaced.
+ *   called first, followed by a free callback to the value that is being replaced.
  * 
  * Note: the module name "AAAAAAAAA" is reserved and produces an error, it
  * happens to be pretty lame as well.
