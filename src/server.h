@@ -2230,6 +2230,8 @@ void slotToKeyFlushAsync(void);
 size_t lazyfreeGetPendingObjectsCount(void);
 size_t lazyfreeGetFreedObjectsCount(void);
 void freeObjAsync(robj *key, robj *obj);
+void freeSlotsToKeysMapAsync(rax *rt);
+
 
 /* API to get key arguments from commands */
 int *getKeysPrepareResult(getKeysResult *result, int numkeys);

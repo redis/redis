@@ -1432,16 +1432,28 @@ static int useDisklessLoad() {
 }
 
 /* Helper function for readSyncBulkPayload() to make backups of the current
- * DBs before socket-loading the new ones. The backups may be restored later
- * or freed by disklessLoadRestoreBackups(). */
-redisDb *disklessLoadMakeBackups(void) {
-    redisDb *backups = zmalloc(sizeof(redisDb)*server.dbnum);
+ * DBs and cluster slots to keys map before socket-loading the new ones.
+ * The backups may be restored later or freed by disklessLoadRestoreBackups(). */
+void disklessLoadMakeBackups(redisDb **db_backups, slotsToKeysMap **slots_backup)
+{
+    /* Backup DBs. */
+    *db_backups = zmalloc(sizeof(redisDb)*server.dbnum);
     for (int i=0; i<server.dbnum; i++) {
-        backups[i] = server.db[i];
+        (*db_backups)[i] = server.db[i];
         server.db[i].dict = dictCreate(&dbDictType,NULL);
         server.db[i].expires = dictCreate(&keyptrDictType,NULL);
     }
-    return backups;
+
+    /* Backup cluster slots to keys map. */
+    if (server.cluster_enabled) {
+        *slots_backup = zmalloc(sizeof(slotsToKeysMap));
+        (*slots_backup)->slots_to_keys = server.cluster->slots_to_keys;
+        memcpy((*slots_backup)->slots_keys_count, server.cluster->slots_keys_count,
+            sizeof(server.cluster->slots_keys_count));
+        server.cluster->slots_to_keys = raxNew();
+        memset(server.cluster->slots_keys_count, 0,
+            sizeof(server.cluster->slots_keys_count));
+    }
 }
 
 /* Helper function for readSyncBulkPayload(): when replica-side diskless
@@ -1454,7 +1466,8 @@ redisDb *disklessLoadMakeBackups(void) {
  *
  * When instead the loading succeeded we want just to free our old backups,
  * in that case the function will do just that when 'restore' is 0. */
-void disklessLoadRestoreBackups(redisDb *backup, int restore, int empty_db_flags)
+void disklessLoadRestoreBackups(redisDb *db_backup, slotsToKeysMap *map_backup,
+                                int restore, int empty_db_flags)
 {
     if (restore) {
         /* Restore. */
@@ -1462,23 +1475,39 @@ void disklessLoadRestoreBackups(redisDb *backup, int restore, int empty_db_flags
         for (int i=0; i<server.dbnum; i++) {
             dictRelease(server.db[i].dict);
             dictRelease(server.db[i].expires);
-            server.db[i] = backup[i];
+            server.db[i] = db_backup[i];
+        }
+        if (server.cluster_enabled) {
+            /* We have freed slots_to_keys in emptyDbGeneric, it won't block
+             * server even if empty_db_flags have EMPTYDB_ASYNC flag. */
+            raxFree(server.cluster->slots_to_keys);
+            server.cluster->slots_to_keys = map_backup->slots_to_keys;
+            memcpy(server.cluster->slots_keys_count, map_backup->slots_keys_count,
+                   sizeof(server.cluster->slots_keys_count));
         }
     } else {
         /* Delete. */
         int async = (empty_db_flags & EMPTYDB_ASYNC);
         for (int i=0; i<server.dbnum; i++) {
             if (async) {
-                emptyDbAsync(&backup[i]);
+                emptyDbAsync(&db_backup[i]);
             } else {
-                dictEmpty(backup[i].dict, replicationEmptyDbCallback);
-                dictEmpty(backup[i].expires, replicationEmptyDbCallback);
+                dictEmpty(db_backup[i].dict, replicationEmptyDbCallback);
+                dictEmpty(db_backup[i].expires, replicationEmptyDbCallback);
             }
-            dictRelease(backup[i].dict);
-            dictRelease(backup[i].expires);
+            dictRelease(db_backup[i].dict);
+            dictRelease(db_backup[i].expires);
+        }
+        if (server.cluster_enabled) {
+            if (async) {
+                freeSlotsToKeysMapAsync(map_backup->slots_to_keys);
+            } else {
+                raxFree(map_backup->slots_to_keys);
+            }
         }
     }
-    zfree(backup);
+    zfree(db_backup);
+    if (server.cluster_enabled) zfree(map_backup);
 }
 
 /* Asynchronously read the SYNC payload we receive from a master */
@@ -1487,7 +1516,8 @@ void readSyncBulkPayload(connection *conn) {
     char buf[PROTO_IOBUF_LEN];
     ssize_t nread, readlen, nwritten;
     int use_diskless_load = useDisklessLoad();
-    redisDb *diskless_load_backup = NULL;
+    redisDb *diskless_load_db_backup = NULL;
+    slotsToKeysMap *diskless_load_slots_to_keys = NULL;
     int empty_db_flags = server.repl_slave_lazy_flush ? EMPTYDB_ASYNC :
                                                         EMPTYDB_NO_FLAGS;
     off_t left;
@@ -1668,8 +1698,10 @@ void readSyncBulkPayload(connection *conn) {
         server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB)
     {
         /* Create a backup of server.db[] and initialize to empty
-         * dictionaries */
-        diskless_load_backup = disklessLoadMakeBackups();
+         * dictionaries and a backup of server.cluster->slots_to_keys
+         * and initialize to empty radix tree. */
+        disklessLoadMakeBackups(&diskless_load_db_backup,
+            &diskless_load_slots_to_keys);
     }
     /* We call to emptyDb even in case of REPL_DISKLESS_LOAD_SWAPDB
      * (Where disklessLoadMakeBackups left server.db empty) because we
@@ -1704,8 +1736,8 @@ void readSyncBulkPayload(connection *conn) {
             rioFreeConn(&rdb, NULL);
             if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
                 /* Restore the backed up databases. */
-                disklessLoadRestoreBackups(diskless_load_backup,1,
-                                           empty_db_flags);
+                disklessLoadRestoreBackups(diskless_load_db_backup,
+                    diskless_load_slots_to_keys, 1, empty_db_flags);
             } else {
                 /* Remove the half-loaded data in case we started with
                  * an empty replica. */
@@ -1724,7 +1756,8 @@ void readSyncBulkPayload(connection *conn) {
             /* Delete the backup databases we created before starting to load
              * the new RDB. Now the RDB was loaded with success so the old
              * data is useless. */
-            disklessLoadRestoreBackups(diskless_load_backup,0,empty_db_flags);
+            disklessLoadRestoreBackups(diskless_load_db_backup,
+                diskless_load_slots_to_keys, 0, empty_db_flags);
         }
 
         /* Verify the end mark is correct. */

@@ -1794,6 +1794,17 @@ void slotToKeyFlush(void) {
            sizeof(server.cluster->slots_keys_count));
 }
 
+/* Empty the slots-keys map of Redis CLuster by creating a new empty one
+ * and scheduling the old for lazy freeing. */
+void slotToKeyFlushAsync(void) {
+    rax *old = server.cluster->slots_to_keys;
+
+    server.cluster->slots_to_keys = raxNew();
+    memset(server.cluster->slots_keys_count,0,
+           sizeof(server.cluster->slots_keys_count));
+    freeSlotsToKeysMapAsync(old);
+}
+
 /* Populate the specified array of objects with keys in the specified slot.
  * New objects are returned to represent keys, it's up to the caller to
  * decrement the reference count to release the keys names. */
