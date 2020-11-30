@@ -1827,7 +1827,7 @@ int main(int argc, const char **argv) {
         if (test_is_selected("ping_inline") || test_is_selected("ping"))
             benchmark("PING_INLINE","PING\r\n",6);
 
-        if (test_is_selected("ping_mbulk") || test_is_selected("ping")) {
+        if (test_is_selected("ping_bulk") || test_is_selected("ping")) {
             len = redisFormatCommand(&cmd,"PING");
             benchmark("PING_BULK",cmd,len);
             free(cmd);
