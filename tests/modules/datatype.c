@@ -43,6 +43,11 @@ static void datatype_free(void *value) {
 
 static void *datatype_copy(RedisModuleString *fromkey, RedisModuleString *tokey, const void *value) {
     const DataType *old = value;
+
+    /* Answers to ultimate questions cannot be copied! */
+    if (old->intval == 42)
+        return NULL;
+
     DataType *new = (DataType *) RedisModule_Alloc(sizeof(DataType));
 
     new->intval = old->intval;

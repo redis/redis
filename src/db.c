@@ -1163,7 +1163,12 @@ void copyCommand(client *c) {
                     addReplyError(c, "not supported for this module key");
                     return;
                 }
-                newobj = createModuleObject(mt, mt->copy(key, newkey, mv->value));
+                void *newval = mt->copy(key, newkey, mv->value);
+                if (!newval) {
+                    addReplyError(c, "module key failed to copy");
+                    return;
+                }
+                newobj = createModuleObject(mt, newval);
             }; break;
         default: {
             addReplyError(c, "unknown type object");
