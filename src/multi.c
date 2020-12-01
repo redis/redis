@@ -198,18 +198,34 @@ void execCommand(client *c) {
             must_propagate = 1;
         }
 
-        int acl_keypos;
-        int acl_retval = ACLCheckCommandPerm(c,&acl_keypos);
+        /* ACL permissions are also checked at the time of execution in case
+         * they were changed after the commands were ququed. */
+        int acl_errpos;
+        int acl_retval = ACLCheckCommandPerm(c,&acl_errpos);
+        if (acl_retval == ACL_OK && c->cmd->proc == publishCommand)
+            acl_retval = ACLCheckPubsubPerm(c,1,1,0,&acl_errpos);
         if (acl_retval != ACL_OK) {
-            addACLLogEntry(c,acl_retval,acl_keypos,NULL);
+            char *reason;
+            switch (acl_retval) {
+            case ACL_DENIED_CMD:
+                reason = "no permission to execute the command or subcommand";
+                break;
+            case ACL_DENIED_KEY:
+                reason = "no permission to touch the specified keys";
+                break;
+            case ACL_DENIED_CHANNEL:
+                reason = "no permission to publish to the specified channel";
+                break;
+            default:
+                reason = "no permission";
+                break;
+            }
+            addACLLogEntry(c,acl_retval,acl_errpos,NULL);
             addReplyErrorFormat(c,
                 "-NOPERM ACLs rules changed between the moment the "
                 "transaction was accumulated and the EXEC call. "
                 "This command is no longer allowed for the "
-                "following reason: %s",
-                (acl_retval == ACL_DENIED_CMD) ?
-                "no permission to execute the command or subcommand" :
-                "no permission to touch the specified keys");
+                "following reason: %s", reason);
         } else {
             call(c,server.loading ? CMD_CALL_NONE : CMD_CALL_FULL);
             serverAssert((c->flags & CLIENT_BLOCKED) == 0);
