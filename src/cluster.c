@@ -430,6 +430,8 @@ int clusterLockConfig(char *filename) {
      * (redis-aof-rewrite) is still alive, the fd(lock) will still be held by the
      * child process, and the main process will fail to get lock, means fail to start. */
     server.cluster_config_file_lock_fd = fd;
+#else
+    UNUSED(filename);
 #endif /* __sun */
 
     return C_OK;
