@@ -1156,24 +1156,13 @@ void copyCommand(client *c) {
         case OBJ_ZSET: newobj = zsetDup(o); break;
         case OBJ_HASH: newobj = hashTypeDup(o); break;
         case OBJ_STREAM: newobj = streamDup(o); break;
-        case OBJ_MODULE: {
-                moduleValue *mv = o->ptr;
-                moduleType *mt = mv->type;
-                if (!mt->copy) {
-                    addReplyError(c, "not supported for this module key");
-                    return;
-                }
-                void *newval = mt->copy(key, newkey, mv->value);
-                if (!newval) {
-                    addReplyError(c, "module key failed to copy");
-                    return;
-                }
-                newobj = createModuleObject(mt, newval);
-            }; break;
-        default: {
+        case OBJ_MODULE:
+            newobj = moduleTypeDupOrReply(c, key, newkey, o);
+            if (!newobj) return;
+            break;
+        default:
             addReplyError(c, "unknown type object");
             return;
-        };
     }
 
     if (delete) {

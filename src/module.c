@@ -3636,6 +3636,24 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
     }
 }
 
+/* Create a copy of a module type value using the copy callback. If failed
+ * or not supported, produce an error reply and return NULL.
+ */
+robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, robj *value) {
+    moduleValue *mv = value->ptr;
+    moduleType *mt = mv->type;
+    if (!mt->copy) {
+        addReplyError(c, "not supported for this module key");
+        return NULL;
+    }
+    void *newval = mt->copy(fromkey, tokey, mv->value);
+    if (!newval) {
+        addReplyError(c, "module key failed to copy");
+        return NULL;
+    }
+    return createModuleObject(mt, newval);
+}
+
 /* Register a new data type exported by the module. The parameters are the
  * following. Please for in depth documentation check the modules API
  * documentation, especially https://redis.io/topics/modules-native-types.

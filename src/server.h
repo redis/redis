@@ -1666,6 +1666,7 @@ void moduleUnblockClient(client *c);
 int moduleClientIsBlockedOnKeys(client *c);
 void moduleNotifyUserChanged(client *c);
 void moduleNotifyKeyUnlink(robj *key, robj *val);
+robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, robj *value);
 
 /* Utils */
 long long ustime(void);
