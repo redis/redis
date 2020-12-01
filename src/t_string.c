@@ -71,7 +71,7 @@ static int checkStringLength(client *c, long long size) {
 
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
-
+    
     if (expire) {
         if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != C_OK)
             return;
@@ -90,7 +90,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     }
 
     if (flags & OBJ_SET_GET) {
-        getGenericCommand(c);
+        if (getGenericCommand(c) == C_ERR) return;
     }
 
     genericSetKey(c,c->db,key,val,flags & OBJ_SET_KEEPTTL,1);
