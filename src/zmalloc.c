@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <unistd.h>
 
 /* This function provide us access to the original libc free(). This is useful
  * for instance to free results obtained by backtrace_symbols(). We need
@@ -333,7 +334,6 @@ void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {
  * version of the function. */
 
 #if defined(HAVE_PROC_STAT)
-#include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -370,9 +370,6 @@ size_t zmalloc_get_rss(void) {
     return rss;
 }
 #elif defined(HAVE_TASKINFO)
-#include <unistd.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <sys/types.h>
 #include <sys/sysctl.h>
 #include <mach/task.h>
@@ -393,7 +390,6 @@ size_t zmalloc_get_rss(void) {
 #include <sys/types.h>
 #include <sys/sysctl.h>
 #include <sys/user.h>
-#include <unistd.h>
 
 size_t zmalloc_get_rss(void) {
     struct kinfo_proc info;
@@ -416,7 +412,6 @@ size_t zmalloc_get_rss(void) {
 #elif defined(__NetBSD__)
 #include <sys/types.h>
 #include <sys/sysctl.h>
-#include <unistd.h>
 
 size_t zmalloc_get_rss(void) {
     struct kinfo_proc2 info;
