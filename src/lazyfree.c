@@ -158,6 +158,7 @@ void emptyDbAsync(redisDb *db) {
     bioCreateBackgroundJob(BIO_LAZY_FREE,NULL,oldht1,oldht2);
 }
 
+/* Release the radix tree mapping Redis Cluster keys to slots asynchronously. */
 void freeSlotsToKeysMapAsync(rax *rt) {
     atomicIncr(lazyfree_objects,rt->numele);
     bioCreateBackgroundJob(BIO_LAZY_FREE,NULL,NULL,rt);

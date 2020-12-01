@@ -1456,58 +1456,58 @@ void disklessLoadMakeBackups(redisDb **db_backups, slotsToKeysMap **slots_backup
     }
 }
 
-/* Helper function for readSyncBulkPayload(): when replica-side diskless
- * database loading is used, Redis makes a backup of the existing databases
- * before loading the new ones from the socket.
- *
- * If the socket loading went wrong, we want to restore the old backups
- * into the server databases. This function does just that in the case
- * the 'restore' argument (the number of DBs to replace) is non-zero.
- *
- * When instead the loading succeeded we want just to free our old backups,
- * in that case the function will do just that when 'restore' is 0. */
-void disklessLoadRestoreBackups(redisDb *db_backup, slotsToKeysMap *map_backup,
-                                int restore, int empty_db_flags)
+/* We empty DBs and slots to keys map if the loading went wrong.
+ * When replica-side diskless database loading is used, Redis makes
+ * a backup of the existing databases before loading the new ones from
+ * the socket. So if the socket loading went wrong, we want to restore
+ * the old backups into the server databases. */
+void emptyDbAndRestoreBackupsIfHave(redisDb *db_backup,
+            slotsToKeysMap *map_backup, int empty_db_flags)
 {
-    if (restore) {
-        /* Restore. */
-        emptyDbGeneric(server.db,-1,empty_db_flags,replicationEmptyDbCallback);
+    /* Empty server main DB. */
+    emptyDb(-1, empty_db_flags, replicationEmptyDbCallback);
+
+    /* Restore DBs if have. */
+    if (db_backup) {
         for (int i=0; i<server.dbnum; i++) {
             dictRelease(server.db[i].dict);
             dictRelease(server.db[i].expires);
             server.db[i] = db_backup[i];
         }
-        if (server.cluster_enabled) {
-            /* We have freed slots_to_keys in emptyDbGeneric, it won't block
-             * server even if empty_db_flags have EMPTYDB_ASYNC flag. */
-            raxFree(server.cluster->slots_to_keys);
-            server.cluster->slots_to_keys = map_backup->slots_to_keys;
-            memcpy(server.cluster->slots_keys_count, map_backup->slots_keys_count,
-                   sizeof(server.cluster->slots_keys_count));
-        }
-    } else {
-        /* Delete. */
-        int async = (empty_db_flags & EMPTYDB_ASYNC);
-        for (int i=0; i<server.dbnum; i++) {
-            if (async) {
-                emptyDbAsync(&db_backup[i]);
-            } else {
-                dictEmpty(db_backup[i].dict, replicationEmptyDbCallback);
-                dictEmpty(db_backup[i].expires, replicationEmptyDbCallback);
-            }
-            dictRelease(db_backup[i].dict);
-            dictRelease(db_backup[i].expires);
-        }
-        if (server.cluster_enabled) {
-            if (async) {
-                freeSlotsToKeysMapAsync(map_backup->slots_to_keys);
-            } else {
-                raxFree(map_backup->slots_to_keys);
-            }
-        }
+        zfree(db_backup);
+    }
+
+    /* Restore slots to keys map if have. */
+    if (map_backup) {
+        /* We have freed slots_to_keys in emptyDb, it won't block
+         * server even if empty_db_flags have EMPTYDB_ASYNC flag. */
+        raxFree(server.cluster->slots_to_keys);
+        server.cluster->slots_to_keys = map_backup->slots_to_keys;
+        memcpy(server.cluster->slots_keys_count, map_backup->slots_keys_count,
+                sizeof(server.cluster->slots_keys_count));
+        zfree(map_backup);
+    }
+}
+
+/* When the loading succeeded, we want just to free our old backups. */
+void disklessLoadFreeBackups(redisDb *db_backup, slotsToKeysMap *map_backup,
+                             int empty_db_flags)
+{
+    int async = (empty_db_flags & EMPTYDB_ASYNC);
+
+    /* Release DBs backup . */
+    emptyDbStructure(db_backup, -1, async, replicationEmptyDbCallback);
+    for (int i=0; i<server.dbnum; i++) {
+        dictRelease(db_backup[i].dict);
+        dictRelease(db_backup[i].expires);
     }
     zfree(db_backup);
-    zfree(map_backup);
+
+    /* Release slots to keys map backup. */
+    if (map_backup) {
+        freeSlotsToKeysMap(map_backup->slots_to_keys, async);
+        zfree(map_backup);
+    }
 }
 
 /* Asynchronously read the SYNC payload we receive from a master */
@@ -1734,15 +1734,11 @@ void readSyncBulkPayload(connection *conn) {
                 "from socket");
             cancelReplicationHandshake(1);
             rioFreeConn(&rdb, NULL);
-            if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
-                /* Restore the backed up databases. */
-                disklessLoadRestoreBackups(diskless_load_db_backup,
-                    diskless_load_slots_to_keys, 1, empty_db_flags);
-            } else {
-                /* Remove the half-loaded data in case we started with
-                 * an empty replica. */
-                emptyDb(-1,empty_db_flags,replicationEmptyDbCallback);
-            }
+
+            /* We empty DBs when occur errors when load RDB. If we backup
+             * DBs and slots to keys map, we can restore them. */
+            emptyDbAndRestoreBackupsIfHave(diskless_load_db_backup,
+                    diskless_load_slots_to_keys, empty_db_flags);
 
             /* Note that there's no point in restarting the AOF on SYNC
              * failure, it'll be restarted when sync succeeds or the replica
@@ -1755,9 +1751,10 @@ void readSyncBulkPayload(connection *conn) {
         if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
             /* Delete the backup databases we created before starting to load
              * the new RDB. Now the RDB was loaded with success so the old
-             * data is useless. */
-            disklessLoadRestoreBackups(diskless_load_db_backup,
-                diskless_load_slots_to_keys, 0, empty_db_flags);
+             * data is useless. We also need to free slots to keys map if
+             * enable cluster mode. */
+            disklessLoadFreeBackups(diskless_load_db_backup,
+                diskless_load_slots_to_keys, empty_db_flags);
         }
 
         /* Verify the end mark is correct. */

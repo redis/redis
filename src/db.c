@@ -358,6 +358,40 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
     }
     return o;
 }
+/* Remove all keys from redis database(s) structure. The dbarray argument
+ * may not be server main DBs instead of backups.
+ *
+ * The dbnum can be -1 if all the DBs should be flushed, or the specified
+ * DB number if we want to flush only a single Redis database number.
+ * The function returns the number of keys removed from the database(s). */
+long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
+                           void(callback)(void*))
+{
+    long long removed = 0;
+    int startdb, enddb;
+
+    if (dbnum == -1) {
+        startdb = 0;
+        enddb = server.dbnum-1;
+    } else {
+        startdb = enddb = dbnum;
+    }
+
+    for (int j = startdb; j <= enddb; j++) {
+        removed += dictSize(dbarray[j].dict);
+        if (async) {
+            emptyDbAsync(&dbarray[j]);
+        } else {
+            dictEmpty(dbarray[j].dict,callback);
+            dictEmpty(dbarray[j].expires,callback);
+        }
+        /* Because all keys of database are removed, reset average ttl. */
+        dbarray[j].avg_ttl = 0;
+        dbarray[j].expires_cursor = 0;
+    }
+
+    return removed;
+}
 
 /* Remove all keys from all the databases in a Redis server.
  * If callback is given the function is called from time to time to
@@ -393,34 +427,12 @@ long long emptyDbGeneric(redisDb *dbarray, int dbnum, int flags, void(callback)(
      * there. */
     signalFlushedDb(dbnum);
 
-    int startdb, enddb;
-    if (dbnum == -1) {
-        startdb = 0;
-        enddb = server.dbnum-1;
-    } else {
-        startdb = enddb = dbnum;
-    }
+    /* Empty redis database structure. */
+    removed = emptyDbStructure(dbarray, dbnum, async, callback);
 
-    for (int j = startdb; j <= enddb; j++) {
-        removed += dictSize(dbarray[j].dict);
-        if (async) {
-            emptyDbAsync(&dbarray[j]);
-        } else {
-            dictEmpty(dbarray[j].dict,callback);
-            dictEmpty(dbarray[j].expires,callback);
-        }
-        /* Because we will start a new database, reset average ttl. */
-        dbarray[j].avg_ttl = 0;
-        dbarray[j].expires_cursor = 0;
-    }
+    /* Flush slots to keys map. */
+    if (server.cluster_enabled) slotToKeyFlush(async);
 
-    if (server.cluster_enabled) {
-        if (async) {
-            slotToKeyFlushAsync();
-        } else {
-            slotToKeyFlush();
-        }
-    }
     if (dbnum == -1) flushSlaveKeysWithExpireList();
 
     /* Also fire the end event. Note that this event will fire almost
@@ -1787,22 +1799,25 @@ void slotToKeyDel(sds key) {
     slotToKeyUpdateKey(key,0);
 }
 
-void slotToKeyFlush(void) {
-    raxFree(server.cluster->slots_to_keys);
-    server.cluster->slots_to_keys = raxNew();
-    memset(server.cluster->slots_keys_count,0,
-           sizeof(server.cluster->slots_keys_count));
+/* Release the radix tree mapping Redis Cluster keys to slots. If 'async'
+ * is true, we release it asynchronously. */
+void freeSlotsToKeysMap(rax *rt, int async) {
+    if (async) {
+        freeSlotsToKeysMapAsync(rt);
+    } else {
+        raxFree(rt);
+    }
 }
 
-/* Empty the slots-keys map of Redis CLuster by creating a new empty one
- * and scheduling the old for lazy freeing. */
-void slotToKeyFlushAsync(void) {
+/* Empty the slots-keys map of Redis CLuster by creating a new empty one and
+ * freeing the old . */
+void slotToKeyFlush(int async) {
     rax *old = server.cluster->slots_to_keys;
 
     server.cluster->slots_to_keys = raxNew();
     memset(server.cluster->slots_keys_count,0,
            sizeof(server.cluster->slots_keys_count));
-    freeSlotsToKeysMapAsync(old);
+    freeSlotsToKeysMap(old, async);
 }
 
 /* Populate the specified array of objects with keys in the specified slot.

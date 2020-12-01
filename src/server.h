@@ -2209,6 +2209,7 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);
 #define EMPTYDB_ASYNC (1<<0)    /* Reclaim memory in another thread. */
 long long emptyDb(int dbnum, int flags, void(callback)(void*));
 long long emptyDbGeneric(redisDb *dbarray, int dbnum, int flags, void(callback)(void*));
+long long emptyDbStructure(redisDb *dbarray, int dbnum, int async, void(callback)(void*));
 void flushAllDataAndResetRDB(int flags);
 long long dbTotalServerKeyCount();
 
@@ -2223,14 +2224,14 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor);
 int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor);
 void slotToKeyAdd(sds key);
 void slotToKeyDel(sds key);
-void slotToKeyFlush(void);
 int dbAsyncDelete(redisDb *db, robj *key);
 void emptyDbAsync(redisDb *db);
-void slotToKeyFlushAsync(void);
+void slotToKeyFlush(int async);
 size_t lazyfreeGetPendingObjectsCount(void);
 size_t lazyfreeGetFreedObjectsCount(void);
 void freeObjAsync(robj *key, robj *obj);
 void freeSlotsToKeysMapAsync(rax *rt);
+void freeSlotsToKeysMap(rax *rt, int async);
 
 
 /* API to get key arguments from commands */
