@@ -100,8 +100,8 @@ endif
 ifeq ($(uname_S),SunOS)
 	# SunOS
         ifneq ($(@@),32bit)
-		CFLAGS+= -m64
-		LDFLAGS+= -m64
+		FINAL_CFLAGS+=-m64
+		FINAL_LDFLAGS+=-m64
 	endif
 	DEBUG=-g
 	DEBUG_FLAGS=-g
