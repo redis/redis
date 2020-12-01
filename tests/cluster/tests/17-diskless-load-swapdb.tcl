@@ -31,7 +31,7 @@ test "Right to restore backups when fail to diskless load " {
     $master config set appendonly no
     $master config set save ""
 
-    # Writ a key that belongs to slot 0 
+    # Write a key that belongs to slot 0
     set slot0_key "06S"
     $master set $slot0_key 1
     after 100
@@ -44,7 +44,7 @@ test "Right to restore backups when fail to diskless load " {
     # Delete the key from master
     $master del $slot0_key
 
-    # Replia must full sync with master when start because replication
+    # Replica must full sync with master when start because replication
     # backlog size is very small, and dumping rdb will cost several seconds.
     set num 10000
     set value [string repeat A 1024]

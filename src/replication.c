@@ -1507,7 +1507,7 @@ void disklessLoadRestoreBackups(redisDb *db_backup, slotsToKeysMap *map_backup,
         }
     }
     zfree(db_backup);
-    if (server.cluster_enabled) zfree(map_backup);
+    zfree(map_backup);
 }
 
 /* Asynchronously read the SYNC payload we receive from a master */
