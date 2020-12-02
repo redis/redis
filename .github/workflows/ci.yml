@@ -4,6 +4,20 @@ on: [push, pull_request]
 
 jobs:
 
+  test-valgrind:
+    runs-on: ubuntu-latest
+    if: github.repository == 'redis/redis'
+    timeout-minutes: 14400
+    steps:
+    - uses: actions/checkout@v2
+    - name: make
+      run: make valgrind
+    - name: test
+      run: |
+        sudo apt-get update
+        sudo apt-get install tcl8.5 valgrind -y
+        ./runtest --valgrind --verbose --clients 1 --single unit/acl
+
   test-ubuntu-latest:
     runs-on: ubuntu-latest
     steps:
