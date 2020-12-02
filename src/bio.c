@@ -203,7 +203,7 @@ void *bioProcessBackgroundJobs(void *arg) {
             /* What we free changes depending on what arguments are set:
              * arg1 -> free the object at pointer.
              * arg2 & arg3 -> free two dictionaries (a Redis DB).
-             * only arg3 -> free the skiplist. */
+             * only arg3 -> free the radix tree. */
             if (job->arg1)
                 lazyfreeFreeObjectFromBioThread(job->arg1);
             else if (job->arg2 && job->arg3)
