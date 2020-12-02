@@ -143,8 +143,11 @@ start_server {tags {"acl"}} {
         set rd [redis_deferring_client]
         r ACL setuser psuser resetchannels &foo:1
         $rd AUTH psuser pspass
+        $rd read
         $rd CLIENT SETNAME deathrow
+        $rd read
         $rd SUBSCRIBE foo:1
+        $rd read
         r ACL setuser psuser resetchannels
         assert_no_match {*deathrow*} [r CLIENT LIST]
         $rd close
@@ -154,8 +157,11 @@ start_server {tags {"acl"}} {
         set rd [redis_deferring_client]
         r ACL setuser psuser resetchannels &bar:*
         $rd AUTH psuser pspass
+        $rd read
         $rd CLIENT SETNAME deathrow
+        $rd read
         $rd PSUBSCRIBE bar:*
+        $rd read
         r ACL setuser psuser resetchannels
         assert_no_match {*deathrow*} [r CLIENT LIST]
         $rd close
@@ -165,9 +171,13 @@ start_server {tags {"acl"}} {
         set rd [redis_deferring_client]
         r ACL setuser psuser resetchannels &foo:1 &bar:*
         $rd AUTH psuser pspass
+        $rd read
         $rd CLIENT SETNAME pardoned
+        $rd read
         $rd SUBSCRIBE foo:1
+        $rd read
         $rd PSUBSCRIBE bar:*
+        $rd read
         r ACL setuser psuser resetchannels &foo:1 &bar:* &baz:qaz &zoo:*
         assert_match {*pardoned*} [r CLIENT LIST]
         r ACL setuser psuser allchannels
