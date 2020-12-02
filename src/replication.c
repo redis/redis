@@ -1433,81 +1433,26 @@ static int useDisklessLoad() {
 
 /* Helper function for readSyncBulkPayload() to make backups of the current
  * DBs and cluster slots to keys map before socket-loading the new ones.
- * The backups may be restored later or freed by disklessLoadRestoreBackups(). */
-void disklessLoadMakeBackups(redisDb **db_backups, slotsToKeysMap **slots_backup)
-{
-    /* Backup DBs. */
-    *db_backups = zmalloc(sizeof(redisDb)*server.dbnum);
-    for (int i=0; i<server.dbnum; i++) {
-        (*db_backups)[i] = server.db[i];
-        server.db[i].dict = dictCreate(&dbDictType,NULL);
-        server.db[i].expires = dictCreate(&keyptrDictType,NULL);
-    }
-
-    /* Backup cluster slots to keys map. */
-    if (server.cluster_enabled) {
-        *slots_backup = zmalloc(sizeof(slotsToKeysMap));
-        (*slots_backup)->slots_to_keys = server.cluster->slots_to_keys;
-        memcpy((*slots_backup)->slots_keys_count, server.cluster->slots_keys_count,
-            sizeof(server.cluster->slots_keys_count));
-        server.cluster->slots_to_keys = raxNew();
-        memset(server.cluster->slots_keys_count, 0,
-            sizeof(server.cluster->slots_keys_count));
-    }
+ * The backups may be restored by disklessLoadRestoreBackup or freed by
+ * disklessLoadDiscardBackup later. */
+dbBackup *disklessLoadMakeBackup(void) {
+    return backupDb();
 }
 
-/* We empty DBs and slots to keys map if the loading went wrong.
- * When replica-side diskless database loading is used, Redis makes
- * a backup of the existing databases before loading the new ones from
- * the socket. So if the socket loading went wrong, we want to restore
- * the old backups into the server databases. */
-void emptyDbAndRestoreBackupsIfHave(redisDb *db_backup,
-            slotsToKeysMap *map_backup, int empty_db_flags)
-{
-    /* Empty server main DB. */
-    emptyDb(-1, empty_db_flags, replicationEmptyDbCallback);
-
-    /* Restore DBs if have. */
-    if (db_backup) {
-        for (int i=0; i<server.dbnum; i++) {
-            dictRelease(server.db[i].dict);
-            dictRelease(server.db[i].expires);
-            server.db[i] = db_backup[i];
-        }
-        zfree(db_backup);
-    }
-
-    /* Restore slots to keys map if have. */
-    if (map_backup) {
-        /* We have freed slots_to_keys in emptyDb, it won't block
-         * server even if empty_db_flags have EMPTYDB_ASYNC flag. */
-        raxFree(server.cluster->slots_to_keys);
-        server.cluster->slots_to_keys = map_backup->slots_to_keys;
-        memcpy(server.cluster->slots_keys_count, map_backup->slots_keys_count,
-                sizeof(server.cluster->slots_keys_count));
-        zfree(map_backup);
-    }
+/* Helper function for readSyncBulkPayload(): when replica-side diskless
+ * database loading is used, Redis makes a backup of the existing databases
+ * before loading the new ones from the socket.
+ *
+ * If the socket loading went wrong, we want to restore the old backups
+ * into the server databases. */
+void disklessLoadRestoreBackup(dbBackup *buckup) {
+    restoreDbBackup(buckup);
 }
 
-/* When the loading succeeded, we want just to free our old backups. */
-void disklessLoadFreeBackups(redisDb *db_backup, slotsToKeysMap *map_backup,
-                             int empty_db_flags)
-{
-    int async = (empty_db_flags & EMPTYDB_ASYNC);
-
-    /* Release DBs backup . */
-    emptyDbStructure(db_backup, -1, async, replicationEmptyDbCallback);
-    for (int i=0; i<server.dbnum; i++) {
-        dictRelease(db_backup[i].dict);
-        dictRelease(db_backup[i].expires);
-    }
-    zfree(db_backup);
-
-    /* Release slots to keys map backup. */
-    if (map_backup) {
-        freeSlotsToKeysMap(map_backup->slots_to_keys, async);
-        zfree(map_backup);
-    }
+/* Helper function for readSyncBulkPayload() to discard our old backups
+ * when the loading succeeded. */
+void disklessLoadDiscardBackup(dbBackup *buckup, int flag) {
+    discardDbBackup(buckup, flag, replicationEmptyDbCallback);
 }
 
 /* Asynchronously read the SYNC payload we receive from a master */
@@ -1516,8 +1461,7 @@ void readSyncBulkPayload(connection *conn) {
     char buf[PROTO_IOBUF_LEN];
     ssize_t nread, readlen, nwritten;
     int use_diskless_load = useDisklessLoad();
-    redisDb *diskless_load_db_backup = NULL;
-    slotsToKeysMap *diskless_load_slots_to_keys = NULL;
+    dbBackup *diskless_load_backup = NULL;
     int empty_db_flags = server.repl_slave_lazy_flush ? EMPTYDB_ASYNC :
                                                         EMPTYDB_NO_FLAGS;
     off_t left;
@@ -1700,11 +1644,10 @@ void readSyncBulkPayload(connection *conn) {
         /* Create a backup of server.db[] and initialize to empty
          * dictionaries and a backup of server.cluster->slots_to_keys
          * and initialize to empty radix tree. */
-        disklessLoadMakeBackups(&diskless_load_db_backup,
-            &diskless_load_slots_to_keys);
+        diskless_load_backup = disklessLoadMakeBackup();
     }
     /* We call to emptyDb even in case of REPL_DISKLESS_LOAD_SWAPDB
-     * (Where disklessLoadMakeBackups left server.db empty) because we
+     * (Where disklessLoadMakeBackup left server.db empty) because we
      * want to execute all the auxiliary logic of emptyDb (Namely,
      * fire module events) */
     emptyDb(-1,empty_db_flags,replicationEmptyDbCallback);
@@ -1735,10 +1678,14 @@ void readSyncBulkPayload(connection *conn) {
             cancelReplicationHandshake(1);
             rioFreeConn(&rdb, NULL);
 
-            /* We empty DBs when occur errors when load RDB. If we backup
-             * DBs and slots to keys map, we can restore them. */
-            emptyDbAndRestoreBackupsIfHave(diskless_load_db_backup,
-                    diskless_load_slots_to_keys, empty_db_flags);
+            /* Remove the half-loaded data in case we started with
+             * an empty replica. */
+            emptyDb(-1,empty_db_flags,replicationEmptyDbCallback);
+
+            if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
+                /* Restore the backed up databases. */
+                disklessLoadRestoreBackup(diskless_load_backup);
+            }
 
             /* Note that there's no point in restarting the AOF on SYNC
              * failure, it'll be restarted when sync succeeds or the replica
@@ -1751,10 +1698,8 @@ void readSyncBulkPayload(connection *conn) {
         if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
             /* Delete the backup databases we created before starting to load
              * the new RDB. Now the RDB was loaded with success so the old
-             * data is useless. We also need to free slots to keys map if
-             * enable cluster mode. */
-            disklessLoadFreeBackups(diskless_load_db_backup,
-                diskless_load_slots_to_keys, empty_db_flags);
+             * data is useless. */
+            disklessLoadDiscardBackup(diskless_load_backup, empty_db_flags);
         }
 
         /* Verify the end mark is correct. */

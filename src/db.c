@@ -34,6 +34,13 @@
 #include <signal.h>
 #include <ctype.h>
 
+/* Database backup. */
+struct dbBackup {
+    redisDb *dbarray;
+    rax *slots_to_keys;
+    uint64_t slots_keys_count[CLUSTER_SLOTS];
+};
+
 /*-----------------------------------------------------------------------------
  * C-level DB API
  *----------------------------------------------------------------------------*/
@@ -358,7 +365,8 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
     }
     return o;
 }
-/* Remove all keys from redis database(s) structure. The dbarray argument
+
+/* Remove all keys from the database(s) structure. The dbarray argument
  * may not be server main DBs instead of backups.
  *
  * The dbnum can be -1 if all the DBs should be flushed, or the specified
@@ -430,7 +438,9 @@ long long emptyDbGeneric(redisDb *dbarray, int dbnum, int flags, void(callback)(
     /* Empty redis database structure. */
     removed = emptyDbStructure(dbarray, dbnum, async, callback);
 
-    /* Flush slots to keys map. */
+    /* Flush slots to keys map if enable cluster, we can flush entire
+     * slots to keys map whatever dbnum because only support one DB
+     * in cluster mode. */
     if (server.cluster_enabled) slotToKeyFlush(async);
 
     if (dbnum == -1) flushSlaveKeysWithExpireList();
@@ -446,6 +456,69 @@ long long emptyDbGeneric(redisDb *dbarray, int dbnum, int flags, void(callback)(
 
 long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
     return emptyDbGeneric(server.db, dbnum, flags, callback);
+}
+
+dbBackup *backupDb(void) {
+    dbBackup *backup = zmalloc(sizeof(dbBackup));
+
+    /* Backup main DBs. */
+    backup->dbarray = zmalloc(sizeof(redisDb)*server.dbnum);
+    for (int i=0; i<server.dbnum; i++) {
+        backup->dbarray[i] = server.db[i];
+        server.db[i].dict = dictCreate(&dbDictType,NULL);
+        server.db[i].expires = dictCreate(&keyptrDictType,NULL);
+    }
+
+    /* Backup cluster slots to keys map if enable cluster. */
+    if (server.cluster_enabled) {
+        backup->slots_to_keys = server.cluster->slots_to_keys;
+        memcpy(backup->slots_keys_count, server.cluster->slots_keys_count,
+            sizeof(server.cluster->slots_keys_count));
+        server.cluster->slots_to_keys = raxNew();
+        memset(server.cluster->slots_keys_count, 0,
+            sizeof(server.cluster->slots_keys_count));
+    }
+
+    return backup;
+}
+
+void discardDbBackup(dbBackup *buckup, int flags, void(callback)(void*)) {
+    int async = (flags & EMPTYDB_ASYNC);
+
+    /* Release main DBs backup . */
+    emptyDbStructure(buckup->dbarray, -1, async, callback);
+    for (int i=0; i<server.dbnum; i++) {
+        dictRelease(buckup->dbarray[i].dict);
+        dictRelease(buckup->dbarray[i].expires);
+    }
+
+    /* Release slots to keys map backup if enable cluster. */
+    if (server.cluster_enabled) freeSlotsToKeysMap(buckup->slots_to_keys, async);
+
+    /* Release buckup. */
+    zfree(buckup->dbarray);
+    zfree(buckup);
+}
+
+void restoreDbBackup(dbBackup *buckup) {
+    /* Restore main DBs. */
+    for (int i=0; i<server.dbnum; i++) {
+        dictRelease(server.db[i].dict);
+        dictRelease(server.db[i].expires);
+        server.db[i] = buckup->dbarray[i];
+    }
+
+    /* Restore slots to keys map backup if enable cluster. */
+    if (server.cluster_enabled) {
+        raxFree(server.cluster->slots_to_keys);
+        server.cluster->slots_to_keys = buckup->slots_to_keys;
+        memcpy(server.cluster->slots_keys_count, buckup->slots_keys_count,
+                sizeof(server.cluster->slots_keys_count));
+    }
+
+    /* Release buckup. */
+    zfree(buckup->dbarray);
+    zfree(buckup);
 }
 
 int selectDb(client *c, int id) {
@@ -1810,7 +1883,7 @@ void freeSlotsToKeysMap(rax *rt, int async) {
 }
 
 /* Empty the slots-keys map of Redis CLuster by creating a new empty one and
- * freeing the old . */
+ * freeing the old one. */
 void slotToKeyFlush(int async) {
     rax *old = server.cluster->slots_to_keys;
 

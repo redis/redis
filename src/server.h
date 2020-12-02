@@ -684,6 +684,11 @@ typedef struct redisDb {
     list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
 } redisDb;
 
+/* Declare database backup that include redis main DBs and slots to keys map.
+ * Definition is in db.c. We can't define it here since we define CLUSTER_SLOTS
+ * in cluster.h. */
+typedef struct dbBackup dbBackup;
+
 /* Client MULTI/EXEC state */
 typedef struct multiCmd {
     robj **argv;
@@ -2212,6 +2217,10 @@ long long emptyDbGeneric(redisDb *dbarray, int dbnum, int flags, void(callback)(
 long long emptyDbStructure(redisDb *dbarray, int dbnum, int async, void(callback)(void*));
 void flushAllDataAndResetRDB(int flags);
 long long dbTotalServerKeyCount();
+dbBackup *backupDb(void);
+void restoreDbBackup(dbBackup *buckup);
+void discardDbBackup(dbBackup *buckup, int flags, void(callback)(void*));
+
 
 int selectDb(client *c, int id);
 void signalModifiedKey(client *c, redisDb *db, robj *key);

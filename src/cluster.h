@@ -180,11 +180,6 @@ typedef struct clusterState {
                                        excluding nodes without address. */
 } clusterState;
 
-typedef struct slotsToKeysMap {
-    rax *slots_to_keys;
-    uint64_t slots_keys_count[CLUSTER_SLOTS];
-} slotsToKeysMap;
-
 /* Redis cluster messages header */
 
 /* Initially we don't know our "name", but we'll find it once we connect
