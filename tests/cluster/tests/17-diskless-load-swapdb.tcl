@@ -1,4 +1,4 @@
-# Check basic transactions on a replica.
+# Check replica can restore database buckup correctly if fail to diskless load.
 
 source "../tests/includes/init-tests.tcl"
 

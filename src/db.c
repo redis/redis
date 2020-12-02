@@ -367,7 +367,7 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
 }
 
 /* Remove all keys from the database(s) structure. The dbarray argument
- * may not or may not be the server main DBs (could be a backup).
+ * may not be the server main DBs (could be a backup).
  *
  * The dbnum can be -1 if all the DBs should be emptied, or the specified
  * DB index if we want to empty only a single database.
@@ -415,7 +415,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
  * On success the function returns the number of keys removed from the
  * database(s). Otherwise -1 is returned in the specific case the
  * DB number is out of range, and errno is set to EINVAL. */
-long long emptyDbGeneric(redisDb *dbarray, int dbnum, int flags, void(callback)(void*)) {
+long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
     int async = (flags & EMPTYDB_ASYNC);
     RedisModuleFlushInfoV1 fi = {REDISMODULE_FLUSHINFO_VERSION,!async,dbnum};
     long long removed = 0;
@@ -436,7 +436,7 @@ long long emptyDbGeneric(redisDb *dbarray, int dbnum, int flags, void(callback)(
     signalFlushedDb(dbnum);
 
     /* Empty redis database structure. */
-    removed = emptyDbStructure(dbarray, dbnum, async, callback);
+    removed = emptyDbStructure(server.db, dbnum, async, callback);
 
     /* Flush slots to keys map if enable cluster, we can flush entire
      * slots to keys map whatever dbnum because only support one DB
@@ -452,10 +452,6 @@ long long emptyDbGeneric(redisDb *dbarray, int dbnum, int flags, void(callback)(
                           &fi);
 
     return removed;
-}
-
-long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
-    return emptyDbGeneric(server.db, dbnum, flags, callback);
 }
 
 /* Store a backup of the database for later use, and put an empty one
@@ -511,6 +507,8 @@ void discardDbBackup(dbBackup *buckup, int flags, void(callback)(void*)) {
 void restoreDbBackup(dbBackup *buckup) {
     /* Restore main DBs. */
     for (int i=0; i<server.dbnum; i++) {
+        serverAssert(dictSize(server.db[i].dict) == 0);
+        serverAssert(dictSize(server.db[i].expires) == 0);
         dictRelease(server.db[i].dict);
         dictRelease(server.db[i].expires);
         server.db[i] = buckup->dbarray[i];
@@ -518,6 +516,7 @@ void restoreDbBackup(dbBackup *buckup) {
 
     /* Restore slots to keys map backup if enable cluster. */
     if (server.cluster_enabled) {
+        serverAssert(server.cluster->slots_to_keys->numele == 0);
         raxFree(server.cluster->slots_to_keys);
         server.cluster->slots_to_keys = buckup->slots_to_keys;
         memcpy(server.cluster->slots_keys_count, buckup->slots_keys_count,

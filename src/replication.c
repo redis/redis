@@ -1432,9 +1432,8 @@ static int useDisklessLoad() {
 }
 
 /* Helper function for readSyncBulkPayload() to make backups of the current
- * DBs and cluster slots to keys map before socket-loading the new ones.
- * The backups may be restored by disklessLoadRestoreBackup or freed by
- * disklessLoadDiscardBackup later. */
+ * databases before socket-loading the new ones. The backups may be restored
+ * by disklessLoadRestoreBackup or freed by disklessLoadDiscardBackup later. */
 dbBackup *disklessLoadMakeBackup(void) {
     return backupDb();
 }
