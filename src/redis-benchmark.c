@@ -1829,7 +1829,7 @@ int main(int argc, const char **argv) {
 
         if (test_is_selected("ping_mbulk") || test_is_selected("ping")) {
             len = redisFormatCommand(&cmd,"PING");
-            benchmark("PING_BULK",cmd,len);
+            benchmark("PING_MBULK",cmd,len);
             free(cmd);
         }
 
