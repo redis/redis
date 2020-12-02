@@ -1642,8 +1642,7 @@ void readSyncBulkPayload(connection *conn) {
         server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB)
     {
         /* Create a backup of server.db[] and initialize to empty
-         * dictionaries and a backup of server.cluster->slots_to_keys
-         * and initialize to empty radix tree. */
+         * dictionaries. */
         diskless_load_backup = disklessLoadMakeBackup();
     }
     /* We call to emptyDb even in case of REPL_DISKLESS_LOAD_SWAPDB

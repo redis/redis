@@ -367,10 +367,10 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
 }
 
 /* Remove all keys from the database(s) structure. The dbarray argument
- * may not be server main DBs instead of backups.
+ * may not or may not be the server main DBs (could be a backup).
  *
- * The dbnum can be -1 if all the DBs should be flushed, or the specified
- * DB number if we want to flush only a single Redis database number.
+ * The dbnum can be -1 if all the DBs should be emptied, or the specified
+ * DB index if we want to empty only a single database.
  * The function returns the number of keys removed from the database(s). */
 long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
                            void(callback)(void*))
@@ -458,6 +458,8 @@ long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
     return emptyDbGeneric(server.db, dbnum, flags, callback);
 }
 
+/* Store a backup of the database for later use, and put an empty one
+ * instead of it. */
 dbBackup *backupDb(void) {
     dbBackup *backup = zmalloc(sizeof(dbBackup));
 
@@ -482,6 +484,8 @@ dbBackup *backupDb(void) {
     return backup;
 }
 
+/* Discard a previously created backup, this can be slow (similar to FLUSHALL)
+ * Arguments are similar to the ones of emptyDb, see EMPTYDB_ flags. */
 void discardDbBackup(dbBackup *buckup, int flags, void(callback)(void*)) {
     int async = (flags & EMPTYDB_ASYNC);
 
@@ -500,6 +504,10 @@ void discardDbBackup(dbBackup *buckup, int flags, void(callback)(void*)) {
     zfree(buckup);
 }
 
+/* Restore the previously created backup (discarding what currently resides
+ * in the db).
+ * This function should be called after the current contents of the database
+ * was emptied with a previous call to emptyDb (possibly using the async mode). */
 void restoreDbBackup(dbBackup *buckup) {
     /* Restore main DBs. */
     for (int i=0; i<server.dbnum; i++) {
