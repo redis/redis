@@ -17,7 +17,7 @@ jobs:
         sudo apt-get install tcl8.5
         ./runtest --verbose
     - name: module api test
-      run: ./runtest-moduleapi --verbose --single unit/maxmemory
+      run: ./runtest-moduleapi --verbose
 
   build-ubuntu-old:
     runs-on: ubuntu-16.04
