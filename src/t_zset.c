@@ -1965,17 +1965,20 @@ void zuiInitIterator(zsetopsrc *op) {
             serverPanic("Unknown set encoding");
         }
     } else if (op->type == OBJ_ZSET) {
+        /* Sorted sets are traversed in reverse order to optimize for
+         * the insertion of the elements in a new list as in
+         * ZDIFF/ZINTER/ZUNION */
         iterzset *it = &op->iter.zset;
         if (op->encoding == OBJ_ENCODING_ZIPLIST) {
             it->zl.zl = op->subject->ptr;
-            it->zl.eptr = ziplistIndex(it->zl.zl,0);
+            it->zl.eptr = ziplistIndex(it->zl.zl,-2);
             if (it->zl.eptr != NULL) {
                 it->zl.sptr = ziplistNext(it->zl.zl,it->zl.eptr);
                 serverAssert(it->zl.sptr != NULL);
             }
         } else if (op->encoding == OBJ_ENCODING_SKIPLIST) {
             it->sl.zs = op->subject->ptr;
-            it->sl.node = it->sl.zs->zsl->header->level[0].forward;
+            it->sl.node = it->sl.zs->zsl->tail;
         } else {
             serverPanic("Unknown sorted set encoding");
         }
@@ -2082,16 +2085,16 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
             serverAssert(ziplistGet(it->zl.eptr,&val->estr,&val->elen,&val->ell));
             val->score = zzlGetScore(it->zl.sptr);
 
-            /* Move to next element. */
-            zzlNext(it->zl.zl,&it->zl.eptr,&it->zl.sptr);
+            /* Move to next element (going backwards, see zuiInitIterator). */
+            zzlPrev(it->zl.zl,&it->zl.eptr,&it->zl.sptr);
         } else if (op->encoding == OBJ_ENCODING_SKIPLIST) {
             if (it->sl.node == NULL)
                 return 0;
             val->ele = it->sl.node->ele;
             val->score = it->sl.node->score;
 
-            /* Move to next element. */
-            it->sl.node = it->sl.node->level[0].forward;
+            /* Move to next element. (going backwards, see zuiInitIterator) */
+            it->sl.node = it->sl.node->backward;
         } else {
             serverPanic("Unknown sorted set encoding");
         }
