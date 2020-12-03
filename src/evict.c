@@ -625,12 +625,13 @@ int performEvictions(void) {
                 dbAsyncDelete(db,keyobj);
             else
                 dbSyncDelete(db,keyobj);
+signalModifiedKey(NULL,db,keyobj);
             latencyEndMonitor(eviction_latency);
             latencyAddSampleIfNeeded("eviction-del",eviction_latency);
             delta -= (long long) zmalloc_used_memory();
             mem_freed += delta;
             server.stat_evictedkeys++;
-            signalModifiedKey(NULL,db,keyobj);
+            //signalModifiedKey(NULL,db,keyobj);
             notifyKeyspaceEvent(NOTIFY_EVICTED, "evicted",
                 keyobj, db->id);
             decrRefCount(keyobj);

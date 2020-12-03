@@ -245,6 +245,7 @@ start_server {tags {"maxmemory"}} {
     test {client tracking don't cause eviction feedback loop} {
         r config set maxmemory 0
         r config set maxmemory-policy allkeys-lru
+        r config set maxmemory-eviction-tenacity 100
 
         # 10 clients listening on tracking messages
         set clients {}
@@ -258,39 +259,36 @@ start_server {tags {"maxmemory"}} {
             $rd read ; # Consume the CLIENT reply
         }
 
-        # populate 10 keys, with long key name and short value
-        for {set j 0} {$j < 10} {incr j} {
-            # key name needs to be larger than the static reply buffer (PROTO_REPLY_CHUNK_BYTES)
-            set key $j[string repeat x 32768]
+        # populate 300 keys, with long key name and short value
+        for {set j 0} {$j < 300} {incr j} {
+            set key $j[string repeat x 1000]
             r set $key x
-            
+
             # for each key, enable caching for this key
             foreach rd $clients {
-                $rd get $key                
+                $rd get $key
                 $rd read
             }
         }
 
-        # set the memory limit with room for 1 more key
+        # set the memory limit which will cause a few keys to be evicted
+        # we need to make sure to evict keynames of a total size of more than
+        # 16kb since the (PROTO_REPLY_CHUNK_BYTES), only after that the
+        # invalidation messages have a chance to trigger further eviction.
         set used [s used_memory]
-        set limit [expr {$used + 32768}]
+        set limit [expr {$used - 40000}]
         r config set maxmemory $limit
-        
-        # add 2 more key with big name and small value
-        # we expect just a few to get evicted
-        for {set j 1000} {$j < 1002} {incr j} {
-            r set $j[string repeat x 32768] x
-        }
 
         # make sure some eviction happened
-        assert_range [s evicted_keys] 1 4
-
+        set evicted [s evicted_keys]
+        if {$::verbose} { puts "evicted: $evicted" }
+        assert_range $evicted 10 50
         foreach rd $clients {
             $rd read ;# make sure we have some invalidation message waiting
             $rd close
         }
-        
+
         # make sure we didn't drain the database
-        assert_range [r dbsize] 8 11
+        assert_range [r dbsize] 200 300
     }
 }
