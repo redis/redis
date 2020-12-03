@@ -81,11 +81,9 @@ start_server {tags {"tracking"}} {
         assert {$keys eq {a:1 a:2 b:1 b:2}}
     }
 
-    test {Adding prefixes to BCAST mode works} {
-        r CLIENT TRACKING on BCAST REDIRECT $redir_id PREFIX c:
-        r INCR c:1234
-        set keys [lsort [lindex [$rd_redirection read] 2]]
-        assert {$keys eq {c:1234}}
+    test {Cannot call BCAST mode again when BCAST already enabled} {
+        catch {r CLIENT TRACKING on BCAST REDIRECT $redir_id PREFIX c:} e
+        assert_match {ERR BCAST*} $e
     }
 
     test {Tracking NOLOOP mode in standard mode works} {

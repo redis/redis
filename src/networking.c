@@ -2641,6 +2641,14 @@ NULL
                 return;
             }
 
+            if (options & CLIENT_TRACKING_BCAST && c->flags & CLIENT_TRACKING_BCAST) {
+                addReplyError(c,
+                "BCAST mode already enabled, you cannot enable BCAST again "
+                "before disabling tracking for this client.");
+                zfree(prefix);
+                return;
+            }
+
             enableTracking(c,redir,options,prefix,numprefix);
         } else if (!strcasecmp(c->argv[2]->ptr,"off")) {
             disableTracking(c);
