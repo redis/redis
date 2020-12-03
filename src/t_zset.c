@@ -2085,7 +2085,7 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
             serverAssert(ziplistGet(it->zl.eptr,&val->estr,&val->elen,&val->ell));
             val->score = zzlGetScore(it->zl.sptr);
 
-            /* Move to next element. */
+            /* Move to next element (going backwards, see zuiInitIterator). */
             zzlPrev(it->zl.zl,&it->zl.eptr,&it->zl.sptr);
         } else if (op->encoding == OBJ_ENCODING_SKIPLIST) {
             if (it->sl.node == NULL)
@@ -2093,7 +2093,7 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
             val->ele = it->sl.node->ele;
             val->score = it->sl.node->score;
 
-            /* Move to next element. */
+            /* Move to next element. (going backwards, see zuiInitIterator) */
             it->sl.node = it->sl.node->backward;
         } else {
             serverPanic("Unknown sorted set encoding");
