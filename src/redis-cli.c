@@ -1783,6 +1783,7 @@ static void usage(void) {
 "  -d <delimiter>     Delimiter between response bulks for raw formatting (default: \\n).\n"
 "  -D <delimiter>     Delimiter between responses for raw formatting (default: \\n).\n"
 "  -c                 Enable cluster mode (follow -ASK and -MOVED redirections).\n"
+"  -e                 Return exit error code when command execution fails.\n"
 #ifdef USE_OPENSSL
 "  --tls              Establish a secure TLS connection.\n"
 "  --sni <host>       Server name indication for TLS.\n"
