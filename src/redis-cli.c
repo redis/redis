@@ -1267,7 +1267,9 @@ static int cliReadReply(int output_raw_strings) {
                 slot, config.hostip, config.hostport);
         config.cluster_reissue_command = 1;
         cliRefreshPrompt();
-    } else if (config.set_errcode && reply->type == REDIS_REPLY_ERROR) {
+    } else if (!config.interactive && config.set_errcode && 
+        reply->type == REDIS_REPLY_ERROR) 
+    {
         fprintf(stderr,"%s\n",reply->str);
         exit(1);
         return REDIS_ERR; /* avoid compiler warning */
