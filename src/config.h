@@ -87,6 +87,7 @@
 #include <sys/feature_tests.h>
 #ifdef _DTRACE_VERSION
 #define HAVE_EVPORT 1
+#define HAVE_PSINFO 1
 #endif
 #endif
 
