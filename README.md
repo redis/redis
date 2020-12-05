@@ -138,7 +138,7 @@ If you want to see a more verbose output, use the following:
 Running Redis
 -------------
 
-To run Redis with the default configuration, just type:
+To run Redis with the default configuration, just type the following. You may need root permissions:
 
     % cd src
     % ./redis-server
