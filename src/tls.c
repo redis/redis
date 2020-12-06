@@ -34,6 +34,7 @@
 
 #ifdef USE_OPENSSL
 
+#include <openssl/conf.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/rand.h>
@@ -136,6 +137,17 @@ static void initCryptoLocks(void) {
 #endif /* USE_CRYPTO_LOCKS */
 
 void tlsInit(void) {
+    /* Enable configuring OpenSSL using the standard openssl.cnf
+     * OPENSSL_config()/OPENSSL_init_crypto() should be the first 
+     * call to the OpenSSL* library.
+     *  - OPENSSL_config() should be used for OpenSSL versions < 1.1.0
+     *  - OPENSSL_init_crypto() should be used for OpenSSL versions >= 1.1.0
+     */
+    #if OPENSSL_VERSION_NUMBER < 0x10100000L
+    OPENSSL_config(NULL);
+    #else
+    OPENSSL_init_crypto(OPENSSL_INIT_LOAD_CONFIG, NULL);
+    #endif
     ERR_load_crypto_strings();
     SSL_load_error_strings();
     SSL_library_init();
