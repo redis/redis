@@ -481,7 +481,7 @@ void spopWithCountCommand(client *c) {
 
     /* Generate an SPOP keyspace notification */
     notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
-    server.dirty += count;
+    server.dirty += (count >= size) ? size : count;
 
     /* CASE 1:
      * The number of requested elements is greater than or equal to
