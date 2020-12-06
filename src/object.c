@@ -747,6 +747,16 @@ int getPositiveLongFromObjectOrReply(client *c, robj *o, long *target, const cha
     return getRangeLongFromObjectOrReply(c, o, 0, LONG_MAX, target, msg);
 }
 
+int getIntFromObjectOrReply(client *c, robj *o, int *target, const char *msg) {
+    long value;
+
+    if (getRangeLongFromObjectOrReply(c, o, INT_MIN, INT_MAX, &value, msg) != C_OK)
+        return C_ERR;
+
+    *target = value;
+    return C_OK;
+}
+
 char *strEncoding(int encoding) {
     switch(encoding) {
     case OBJ_ENCODING_RAW: return "raw";

@@ -412,6 +412,20 @@ int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *lev
     return C_ERR;
 }
 
+/* Return 1 if used memory is more than maxmemory after allocating more memory,
+ * return 0 if not. Redis may reject user's requests or evict some keys if used
+ * memory exceeds maxmemory, especially, when we allocate huge memory at once. */
+int overMaxmemoryAfterAlloc(size_t moremem) {
+    if (!server.maxmemory) return  0; /* No limit. */
+
+    /* Check quickly. */
+    size_t mem_used = zmalloc_used_memory();
+    if (mem_used + moremem <= server.maxmemory) return 0;
+
+    size_t overhead = freeMemoryGetNotCountedMemory();
+    mem_used = (mem_used > overhead) ? mem_used - overhead : 0;
+    return mem_used + moremem > server.maxmemory;
+}
 
 /* The evictionTimeProc is started when "maxmemory" has been breached and
  * could not immediately be resolved.  This will spin the event loop with short

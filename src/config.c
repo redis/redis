@@ -113,6 +113,12 @@ configEnum oom_score_adj_enum[] = {
     {NULL, 0}
 };
 
+configEnum acl_pubsub_default_enum[] = {
+    {"allchannels", USER_FLAG_ALLCHANNELS},
+    {"resetchannels", 0},
+    {NULL, 0}
+};
+
 /* Output buffer limits presets. */
 clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUNT] = {
     {0, 0, 0}, /* normal */
@@ -1079,7 +1085,8 @@ dictType optionToLineDictType = {
     NULL,                       /* val dup */
     dictSdsKeyCaseCompare,      /* key compare */
     dictSdsDestructor,          /* key destructor */
-    dictListDestructor          /* val destructor */
+    dictListDestructor,         /* val destructor */
+    NULL                        /* allow to expand */
 };
 
 dictType optionSetDictType = {
@@ -1088,7 +1095,8 @@ dictType optionSetDictType = {
     NULL,                       /* val dup */
     dictSdsKeyCaseCompare,      /* key compare */
     dictSdsDestructor,          /* key destructor */
-    NULL                        /* val destructor */
+    NULL,                       /* val destructor */
+    NULL                        /* allow to expand */
 };
 
 /* The config rewrite state. */
@@ -2352,6 +2360,7 @@ standardConfig configs[] = {
     createEnumConfig("maxmemory-policy", NULL, MODIFIABLE_CONFIG, maxmemory_policy_enum, server.maxmemory_policy, MAXMEMORY_NO_EVICTION, NULL, NULL),
     createEnumConfig("appendfsync", NULL, MODIFIABLE_CONFIG, aof_fsync_enum, server.aof_fsync, AOF_FSYNC_EVERYSEC, NULL, NULL),
     createEnumConfig("oom-score-adj", NULL, MODIFIABLE_CONFIG, oom_score_adj_enum, server.oom_score_adj, OOM_SCORE_ADJ_NO, NULL, updateOOMScoreAdj),
+    createEnumConfig("acl-pubsub-default", NULL, MODIFIABLE_CONFIG, acl_pubsub_default_enum, server.acl_pubusub_default, USER_FLAG_ALLCHANNELS, NULL, NULL),
 
     /* Integer configs */
     createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),

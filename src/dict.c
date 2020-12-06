@@ -951,6 +951,16 @@ unsigned long dictScan(dict *d,
 
 /* ------------------------- private functions ------------------------------ */
 
+/* Because we may need to allocate huge memory chunk at once when dict
+ * expands, we will check this allocation is allowed or not if the dict
+ * type has expandAllowed member function. */
+static int dictTypeExpandAllowed(dict *d) {
+    if (d->type->expandAllowed == NULL) return 1;
+    return d->type->expandAllowed(
+                    _dictNextPower(d->ht[0].used + 1) * sizeof(dictEntry*),
+                    (double)d->ht[0].used / d->ht[0].size);
+}
+
 /* Expand the hash table if needed */
 static int _dictExpandIfNeeded(dict *d)
 {
@@ -966,9 +976,10 @@ static int _dictExpandIfNeeded(dict *d)
      * the number of buckets. */
     if (d->ht[0].used >= d->ht[0].size &&
         (dict_can_resize ||
-         d->ht[0].used/d->ht[0].size > dict_force_resize_ratio))
+         d->ht[0].used/d->ht[0].size > dict_force_resize_ratio) &&
+        dictTypeExpandAllowed(d))
     {
-        return dictExpand(d, d->ht[0].used*2);
+        return dictExpand(d, d->ht[0].used + 1);
     }
     return DICT_OK;
 }
@@ -1173,6 +1184,7 @@ dictType BenchmarkDictType = {
     NULL,
     compareCallback,
     freeCallback,
+    NULL,
     NULL
 };
 
