@@ -425,13 +425,23 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"]] {
         r SET key value
     }
 
-    test "Bob: just excute @set and acl command" {
+    test "Bob: just execute @set and acl command" {
         r AUTH bob bob
         assert_equal "bob" [r acl whoami]
         assert_equal "3" [r sadd set 1 2 3]
         catch {r SET key value} e
         set e
     } {*NOPERM*}
+    
+    test "Select command restriction, verify current database" {
+        r ACL setuser cuser on >pass +@all ~* -SELECT +SELECT|5
+        r select 5
+        r AUTH cuser pass
+        assert_equal "cuser" [r acl whoami]
+        catch {r SELECT 0} e
+        assert_equal "5" r CURRDB
+        set e
+    } {*NOPERM*command*}
 
     test "ACL load and save" {
         r ACL setuser eve +get allkeys >eve on

@@ -290,6 +290,24 @@ static long long mstime(void) {
     return ustime()/1000;
 }
 
+static int getCurrentDb(void) {
+    redisReply *reply;
+    int db;
+
+    reply = redisCommand(context, "CURRDB");
+
+    if(reply == NULL || reply->type != REDIS_REPLY_INTEGER) {
+        fprintf(stderr, "Couldn't determine current db!\n");
+        exit(1);
+    }
+
+    /* Grab the number of keys and free our reply */
+    db = reply->integer;
+    freeReplyObject(reply);
+
+    return db;
+}
+
 static void cliRefreshPrompt(void) {
     if (config.eval_ldb) return;
 
@@ -303,8 +321,10 @@ static void cliRefreshPrompt(void) {
     }
 
     /* Add [dbnum] if needed */
-    if (config.dbnum != 0)
-        prompt = sdscatfmt(prompt,"[%i]",config.dbnum);
+    int db = getCurrentDb();
+    if (db != 0) {
+        prompt = sdscatfmt(prompt,"[%i]", db);
+    }
 
     /* Copy the prompt in the static buffer. */
     prompt = sdscatlen(prompt,"> ",2);
@@ -781,7 +801,10 @@ static int cliSelect(void) {
     reply = redisCommand(context,"SELECT %d",config.dbnum);
     if (reply != NULL) {
         int result = REDIS_OK;
-        if (reply->type == REDIS_REPLY_ERROR) result = REDIS_ERR;
+        if (reply->type == REDIS_REPLY_ERROR) {
+            result = REDIS_ERR;
+            fprintf(stderr,"Warning: SELECT failed\n");
+        }
         freeReplyObject(reply);
         return result;
     }
@@ -864,6 +887,7 @@ static int cliConnect(int flags) {
     if (config.push_output) {
         redisSetPushCallback(context, cliPushHandler);
     }
+    cliRefreshPrompt();
 
     return REDIS_OK;
 }

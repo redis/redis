@@ -698,6 +698,15 @@ void selectCommand(client *c) {
     }
 }
 
+void currdbCommand(client *c) {
+
+    if (server.cluster_enabled) {
+        addReplyLongLong(c, 0);
+    } else {
+        addReplyLongLong(c, c->db->id);
+    }
+}
+
 void randomkeyCommand(client *c) {
     robj *key;
 

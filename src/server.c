@@ -1052,7 +1052,11 @@ struct redisCommand redisCommandTable[] = {
 
     {"reset",resetCommand,-1,
      "no-script ok-stale ok-loading fast @connection",
-     0,NULL,0,0,0,0,0,0}
+     0,NULL,0,0,0,0,0,0},
+
+    {"currdb",currdbCommand,-1,
+      "ok-stale ok-loading fast @connection",
+      0,NULL,0,0,0,0,0,0},
 };
 
 /*============================ Utility functions ============================ */
