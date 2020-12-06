@@ -232,13 +232,20 @@ proc ::redis::redis_read_line fd {
     string trim [gets $fd]
 }
 
+proc ::redis::redis_read_null fd {
+    gets $fd
+    return {}
+}
+
 proc ::redis::redis_read_reply {id fd} {
     set type [read $fd 1]
     switch -exact -- $type {
+        _ {redis_read_null $fd}
         : -
         + {redis_read_line $fd}
         - {return -code error [redis_read_line $fd]}
         $ {redis_bulk_read $fd}
+        > -
         * {redis_multi_bulk_read $id $fd}
         % {redis_read_map $id $fd}
         default {
