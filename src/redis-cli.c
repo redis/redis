@@ -2294,7 +2294,8 @@ static dictType clusterManagerDictType = {
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
     NULL,                      /* key destructor */
-    dictSdsDestructor          /* val destructor */
+    dictSdsDestructor,         /* val destructor */
+    NULL                       /* allow to expand */
 };
 
 static dictType clusterManagerLinkDictType = {
@@ -2303,7 +2304,8 @@ static dictType clusterManagerLinkDictType = {
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
     dictSdsDestructor,         /* key destructor */
-    dictListDestructor         /* val destructor */
+    dictListDestructor,        /* val destructor */
+    NULL                       /* allow to expand */
 };
 
 typedef int clusterManagerCommandProc(int argc, char **argv);
@@ -7360,7 +7362,8 @@ static dictType typeinfoDictType = {
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
     NULL,                      /* key destructor (owned by the value)*/
-    type_free                  /* val destructor */
+    type_free,                 /* val destructor */
+    NULL                       /* allow to expand */
 };
 
 static void getKeyTypes(dict *types_dict, redisReply *keys, typeinfo **types) {

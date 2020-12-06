@@ -2439,7 +2439,8 @@ dictType setAccumulatorDictType = {
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
     NULL,                      /* key destructor */
-    NULL                       /* val destructor */
+    NULL,                      /* val destructor */
+    NULL                       /* allow to expand */
 };
 
 /* The zunionInterDiffGenericCommand() function is called in order to implement the

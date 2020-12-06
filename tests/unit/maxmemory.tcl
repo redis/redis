@@ -241,3 +241,22 @@ test_slave_buffers {slave buffer are counted correctly} 1000000 10 0 1
 # test again with fewer (and bigger) commands without pipeline, but with eviction
 test_slave_buffers "replica buffer don't induce eviction" 100000 100 1 0
 
+start_server {tags {"maxmemory"}} {
+    test {Don't rehash if used memory exceeds maxmemory after rehash} {
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-random
+
+        # Next rehash size is 8192, that will eat 64k memory
+        populate 4096 "" 1
+
+        set used [s used_memory]
+        set limit [expr {$used + 10*1024}]
+        r config set maxmemory $limit
+        r set k1 v1
+        # Next writing command will trigger evicting some keys if last
+        # command trigger DB dict rehash
+        r set k2 v2
+        # There must be 4098 keys because redis doesn't evict keys.
+        r dbsize
+    } {4098}
+}
