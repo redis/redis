@@ -433,6 +433,27 @@ size_t zmalloc_get_rss(void) {
 
     return 0L;
 }
+#elif defined(HAVE_PSINFO)
+#include <unistd.h>
+#include <sys/procfs.h>
+#include <fcntl.h>
+
+size_t zmalloc_get_rss(void) {
+    struct prpsinfo info;
+    char filename[256];
+    int fd;
+
+    snprintf(filename,256,"/proc/%d/psinfo",getpid());
+
+    if ((fd = open(filename,O_RDONLY)) == -1) return 0;
+    if (ioctl(fd, PIOCPSINFO, &info) == -1) {
+        close(fd);
+	return 0;
+    }
+
+    close(fd);
+    return info.pr_rssize;
+}
 #else
 size_t zmalloc_get_rss(void) {
     /* If we can't get the RSS in an OS-specific way for this system just
