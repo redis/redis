@@ -1302,7 +1302,7 @@ uint64_t dictEncObjHash(const void *key) {
  * memory to contain hash buckets when dict expands, that may lead redis
  * rejects user's requests or evicts some keys, we can stop dict to expand
  * provisionally if used memory will be over maxmemory after dict expands,
- * but to gurantee the performance of redis, we still allow dict to expand
+ * but to guarantee the performance of redis, we still allow dict to expand
  * if dict load factor exceeds HASHTABLE_MAX_LOAD_FACTOR. */
 int dictExpandAllowed(size_t moreMem, double usedRatio) {
     if (usedRatio <= HASHTABLE_MAX_LOAD_FACTOR) {
