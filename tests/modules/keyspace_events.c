@@ -39,7 +39,7 @@
 /** strores all the keys on which we got 'loaded' keyspace notification **/
 RedisModuleDict *loaded_event_log = NULL;
 
-static int KeySpace_Notification(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key){
+static int KeySpace_NotificationLoaded(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key){
     REDISMODULE_NOT_USED(ctx);
     REDISMODULE_NOT_USED(type);
 
@@ -49,6 +49,29 @@ static int KeySpace_Notification(RedisModuleCtx *ctx, int type, const char *even
         RedisModule_DictGetC(loaded_event_log, (void*)keyName, strlen(keyName), &nokey);
         if(nokey){
             RedisModule_DictSetC(loaded_event_log, (void*)keyName, strlen(keyName), RedisModule_HoldString(ctx, key));
+        }
+    }
+
+    return REDISMODULE_OK;
+}
+
+static int KeySpace_NotificationGeneric(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(type);
+
+    if (strcmp(event, "del") == 0) {
+        RedisModuleString *copykey = RedisModule_CreateStringPrintf(ctx, "%s_copy", RedisModule_StringPtrLen(key, NULL));
+        RedisModuleCallReply* rep = RedisModule_Call(ctx, "DEL", "s!", copykey);
+        RedisModule_FreeString(ctx, copykey);
+        RedisModule_FreeCallReply(rep);
+
+        int ctx_flags = RedisModule_GetContextFlags(ctx);
+        if (ctx_flags & REDISMODULE_CTX_FLAGS_LUA) {
+            RedisModuleCallReply* rep = RedisModule_Call(ctx, "INCR", "c", "lua");
+            RedisModule_FreeCallReply(rep);
+        }
+        if (ctx_flags & REDISMODULE_CTX_FLAGS_MULTI) {
+            RedisModuleCallReply* rep = RedisModule_Call(ctx, "INCR", "c", "multi");
+            RedisModule_FreeCallReply(rep);
         }
     }
 
@@ -75,6 +98,68 @@ static int cmdIsKeyLoaded(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     return REDISMODULE_OK;
 }
 
+static int cmdDelKeyCopy(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2)
+        return RedisModule_WrongArity(ctx);
+
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "DEL", "s!", argv[1]);
+    if (!rep) {
+        RedisModule_ReplyWithError(ctx, "NULL reply returned");
+    } else {
+        RedisModule_ReplyWithCallReply(ctx, rep);
+        RedisModule_FreeCallReply(rep);
+    }
+    return REDISMODULE_OK;
+}
+
+/* Call INCR and propagate using RM_Call with `!`. */
+static int cmdIncrCase1(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2)
+        return RedisModule_WrongArity(ctx);
+
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "INCR", "s!", argv[1]);
+    if (!rep) {
+        RedisModule_ReplyWithError(ctx, "NULL reply returned");
+    } else {
+        RedisModule_ReplyWithCallReply(ctx, rep);
+        RedisModule_FreeCallReply(rep);
+    }
+    return REDISMODULE_OK;
+}
+
+/* Call INCR and propagate using RM_Replicate. */
+static int cmdIncrCase2(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2)
+        return RedisModule_WrongArity(ctx);
+
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "INCR", "s", argv[1]);
+    if (!rep) {
+        RedisModule_ReplyWithError(ctx, "NULL reply returned");
+    } else {
+        RedisModule_ReplyWithCallReply(ctx, rep);
+        RedisModule_FreeCallReply(rep);
+    }
+    RedisModule_Replicate(ctx, "INCR", "s", argv[1]);
+    return REDISMODULE_OK;
+}
+
+/* Call INCR and propagate using RM_ReplicateVerbatim. */
+static int cmdIncrCase3(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2)
+        return RedisModule_WrongArity(ctx);
+
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "INCR", "s", argv[1]);
+    if (!rep) {
+        RedisModule_ReplyWithError(ctx, "NULL reply returned");
+    } else {
+        RedisModule_ReplyWithCallReply(ctx, rep);
+        RedisModule_FreeCallReply(rep);
+    }
+    RedisModule_ReplicateVerbatim(ctx);
+    return REDISMODULE_OK;
+}
+
+
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -94,11 +179,31 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     }
 
-    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_LOADED, KeySpace_Notification) != REDISMODULE_OK){
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_LOADED, KeySpace_NotificationLoaded) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_GENERIC, KeySpace_NotificationGeneric) != REDISMODULE_OK){
         return REDISMODULE_ERR;
     }
 
     if (RedisModule_CreateCommand(ctx,"keyspace.is_key_loaded", cmdIsKeyLoaded,"",0,0,0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx,"keyspace.del_key_copy", cmdDelKeyCopy,"",0,0,0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+    
+    if (RedisModule_CreateCommand(ctx,"keyspace.incr_case1", cmdIncrCase1,"",0,0,0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+    
+    if (RedisModule_CreateCommand(ctx,"keyspace.incr_case2", cmdIncrCase2,"",0,0,0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+    
+    if (RedisModule_CreateCommand(ctx,"keyspace.incr_case3", cmdIncrCase3,"",0,0,0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
 
