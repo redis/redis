@@ -81,6 +81,110 @@ start_server {tags {"acl"}} {
         set e
     } {*NOPERM*key*}
 
+    test {By default users are able to publish to any channel} {
+        r ACL setuser psuser on >pspass +acl +client +@pubsub
+        r AUTH psuser pspass
+        r PUBLISH foo bar
+    } {0}
+
+    test {By default users are able to subscribe to any channel} {
+        set rd [redis_deferring_client]
+        $rd AUTH psuser pspass
+        $rd read
+        $rd SUBSCRIBE foo
+        assert_match {subscribe foo 1} [$rd read]
+        $rd close
+    } {0}
+
+    test {By default users are able to subscribe to any pattern} {
+        set rd [redis_deferring_client]
+        $rd AUTH psuser pspass
+        $rd read
+        $rd PSUBSCRIBE bar*
+        assert_match {psubscribe bar\* 1} [$rd read]
+        $rd close
+    } {0}
+
+    test {It's possible to allow publishing to a subset of channels} {
+        r ACL setuser psuser resetchannels &foo:1 &bar:*
+        assert_equal {0} [r PUBLISH foo:1 somemessage]
+        assert_equal {0} [r PUBLISH bar:2 anothermessage]
+        catch {r PUBLISH zap:3 nosuchmessage} e
+        set e
+    } {*NOPERM*channel*}
+
+    test {It's possible to allow subscribing to a subset of channels} {
+        set rd [redis_deferring_client]
+        $rd AUTH psuser pspass
+        $rd read
+        $rd SUBSCRIBE foo:1
+        assert_match {subscribe foo:1 1} [$rd read]
+        $rd SUBSCRIBE bar:2
+        assert_match {subscribe bar:2 2} [$rd read]
+        $rd SUBSCRIBE zap:3
+        catch {$rd read} e
+        set e
+    } {*NOPERM*channel*}
+
+    test {It's possible to allow subscribing to a subset of channel patterns} {
+        set rd [redis_deferring_client]
+        $rd AUTH psuser pspass
+        $rd read
+        $rd PSUBSCRIBE foo:1
+        assert_match {psubscribe foo:1 1} [$rd read]
+        $rd PSUBSCRIBE bar:*
+        assert_match {psubscribe bar:\* 2} [$rd read]
+        $rd PSUBSCRIBE bar:baz
+        catch {$rd read} e
+        set e
+    } {*NOPERM*channel*}
+    
+    test {Subscribers are killed when revoked of channel permission} {
+        set rd [redis_deferring_client]
+        r ACL setuser psuser resetchannels &foo:1
+        $rd AUTH psuser pspass
+        $rd read
+        $rd CLIENT SETNAME deathrow
+        $rd read
+        $rd SUBSCRIBE foo:1
+        $rd read
+        r ACL setuser psuser resetchannels
+        assert_no_match {*deathrow*} [r CLIENT LIST]
+        $rd close
+    } {0}
+
+    test {Subscribers are killed when revoked of pattern permission} {
+        set rd [redis_deferring_client]
+        r ACL setuser psuser resetchannels &bar:*
+        $rd AUTH psuser pspass
+        $rd read
+        $rd CLIENT SETNAME deathrow
+        $rd read
+        $rd PSUBSCRIBE bar:*
+        $rd read
+        r ACL setuser psuser resetchannels
+        assert_no_match {*deathrow*} [r CLIENT LIST]
+        $rd close
+    } {0}
+
+    test {Subscribers are pardoned if literal permissions are retained and/or gaining allchannels} {
+        set rd [redis_deferring_client]
+        r ACL setuser psuser resetchannels &foo:1 &bar:*
+        $rd AUTH psuser pspass
+        $rd read
+        $rd CLIENT SETNAME pardoned
+        $rd read
+        $rd SUBSCRIBE foo:1
+        $rd read
+        $rd PSUBSCRIBE bar:*
+        $rd read
+        r ACL setuser psuser resetchannels &foo:1 &bar:* &baz:qaz &zoo:*
+        assert_match {*pardoned*} [r CLIENT LIST]
+        r ACL setuser psuser allchannels
+        assert_match {*pardoned*} [r CLIENT LIST]
+        $rd close
+    } {0}
+
     test {Users can be configured to authenticate with any password} {
         r ACL setuser newuser nopass
         r AUTH newuser zipzapblabla
@@ -166,6 +270,7 @@ start_server {tags {"acl"}} {
         r ACL LOG RESET
         r ACL setuser antirez >foo on +set ~object:1234
         r ACL setuser antirez +eval +multi +exec
+        r ACL setuser antirez resetchannels +publish
         r AUTH antirez foo
         catch {r GET foo}
         r AUTH default ""
@@ -193,6 +298,15 @@ start_server {tags {"acl"}} {
         set entry [lindex [r ACL LOG] 0]
         assert {[dict get $entry reason] eq {key}}
         assert {[dict get $entry object] eq {somekeynotallowed}}
+    }
+
+    test {ACL LOG is able to log channel access violations and channel name} {
+        r AUTH antirez foo
+        catch {r PUBLISH somechannelnotallowed nullmsg}
+        r AUTH default ""
+        set entry [lindex [r ACL LOG] 0]
+        assert {[dict get $entry reason] eq {channel}}
+        assert {[dict get $entry object] eq {somechannelnotallowed}}
     }
 
     test {ACL LOG RESET is able to flush the entries in the log} {

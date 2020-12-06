@@ -515,29 +515,17 @@ robj *hashTypeDup(robj *o) {
 
     serverAssert(o->type == OBJ_HASH);
 
-    switch (o->encoding) {
-        case OBJ_ENCODING_ZIPLIST:
-            hobj = createHashObject();
-            break;
-        case OBJ_ENCODING_HT:
-            hobj = createHashObject();
-            hashTypeConvert(hobj, OBJ_ENCODING_HT);
-            dict *d = o->ptr;
-            dictExpand(hobj->ptr, dictSize(d));
-            break;
-        default:
-            serverPanic("Wrong encoding.");
-            break;
-    }
-
     if(o->encoding == OBJ_ENCODING_ZIPLIST){
         unsigned char *zl = o->ptr;
         size_t sz = ziplistBlobLen(zl);
         unsigned char *new_zl = zmalloc(sz);
         memcpy(new_zl, zl, sz);
-        zfree(hobj->ptr);
-        hobj->ptr = new_zl;
+        hobj = createObject(OBJ_HASH, new_zl);
+        hobj->encoding = OBJ_ENCODING_ZIPLIST;
     } else if(o->encoding == OBJ_ENCODING_HT){
+        dict *d = dictCreate(&hashDictType, NULL);
+        dictExpand(d, dictSize((const dict*)o->ptr));
+
         hi = hashTypeInitIterator(o);
         while (hashTypeNext(hi) != C_ERR) {
             sds field, value;
@@ -549,9 +537,12 @@ robj *hashTypeDup(robj *o) {
             newvalue = sdsdup(value);
 
             /* Add a field-value pair to a new hash object. */
-            dictAdd(hobj->ptr,newfield,newvalue);
+            dictAdd(d,newfield,newvalue);
         }
         hashTypeReleaseIterator(hi);
+
+        hobj = createObject(OBJ_HASH, d);
+        hobj->encoding = OBJ_ENCODING_HT;
     } else {
         serverPanic("Unknown hash encoding");
     }

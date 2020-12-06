@@ -1643,7 +1643,8 @@ size_t ClientsPeakMemInput[CLIENTS_PEAK_MEM_USAGE_SLOTS];
 size_t ClientsPeakMemOutput[CLIENTS_PEAK_MEM_USAGE_SLOTS];
 
 int clientsCronTrackExpansiveClients(client *c) {
-    size_t in_usage = sdsZmallocSize(c->querybuf) + c->argv_len_sum;
+    size_t in_usage = sdsZmallocSize(c->querybuf) + c->argv_len_sum +
+	              (c->argv ? zmalloc_size(c->argv) : 0);
     size_t out_usage = getClientOutputBufferMemoryUsage(c);
     int i = server.unixtime % CLIENTS_PEAK_MEM_USAGE_SLOTS;
     int zeroidx = (i+1) % CLIENTS_PEAK_MEM_USAGE_SLOTS;
@@ -4926,7 +4927,7 @@ void monitorCommand(client *c) {
         /**
          * A client that has CLIENT_DENY_BLOCKING flag on
          * expects a reply per command and so can't execute MONITOR. */
-        addReplyError(c, "MONITOR is not allowed for DENY BLOCKING client");
+        addReplyError(c, "MONITOR isn't allowed for DENY BLOCKING client");
         return;
     }
 

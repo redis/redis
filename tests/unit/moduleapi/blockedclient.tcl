@@ -63,7 +63,7 @@ start_server {tags {"modules"}} {
             r do_rm_call monitor
         } e
         set e
-    } {*MONITOR is not allow*}
+    } {*ERR*DENY BLOCKING*}
 
     test {subscribe disallow inside RM_Call} {
         set e {}
@@ -71,5 +71,5 @@ start_server {tags {"modules"}} {
             r do_rm_call subscribe x
         } e
         set e
-    } {*subscribe is not allow*}
+    } {*ERR*DENY BLOCKING*}
 }

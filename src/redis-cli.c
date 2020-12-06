@@ -1363,9 +1363,16 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             /* Unset our default PUSH handler so this works in RESP2/RESP3 */
             redisSetPushCallback(context, NULL);
 
-            while (1) {
+            while (config.pubsub_mode) {
                 if (cliReadReply(output_raw) != REDIS_OK) exit(1);
+                if (config.last_cmd_type == REDIS_REPLY_ERROR) {
+                    if (config.push_output) {
+                        redisSetPushCallback(context, cliPushHandler);
+                    }
+                    config.pubsub_mode = 0;
+                }
             }
+            continue;
         }
 
         if (config.slave_mode) {

@@ -58,13 +58,3 @@ jobs:
       run: |
         yum -y install gcc make
         make REDIS_CFLAGS='-Werror'
-
-  build-centos6-jemalloc:
-    runs-on: ubuntu-latest
-    container: centos:6
-    steps:
-    - uses: actions/checkout@v1
-    - name: make
-      run: |
-        yum -y install gcc make
-        make

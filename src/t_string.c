@@ -90,7 +90,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     }
 
     if (flags & OBJ_SET_GET) {
-        getGenericCommand(c);
+        if (getGenericCommand(c) == C_ERR) return;
     }
 
     genericSetKey(c,c->db,key,val,flags & OBJ_SET_KEEPTTL,1);

@@ -275,27 +275,17 @@ robj *setTypeDup(robj *o) {
     serverAssert(o->type == OBJ_SET);
 
     /* Create a new set object that have the same encoding as the original object's encoding */
-    switch (o->encoding) {
-        case OBJ_ENCODING_INTSET:
-            set = createIntsetObject();
-            break;
-        case OBJ_ENCODING_HT:
-            set = createSetObject();
-            dict *d = o->ptr;
-            dictExpand(set->ptr, dictSize(d));
-            break;
-        default:
-            serverPanic("Wrong encoding.");
-            break;
-    }
-    if (set->encoding == OBJ_ENCODING_INTSET) {
+    if (o->encoding == OBJ_ENCODING_INTSET) {
         intset *is = o->ptr;
         size_t size = intsetBlobLen(is);
         intset *newis = zmalloc(size);
         memcpy(newis,is,size);
-        zfree(set->ptr);
-        set->ptr = newis;
-    } else if (set->encoding == OBJ_ENCODING_HT) {
+        set = createObject(OBJ_SET, newis);
+        set->encoding = OBJ_ENCODING_INTSET;
+    } else if (o->encoding == OBJ_ENCODING_HT) {
+        set = createSetObject();
+        dict *d = o->ptr;
+        dictExpand(set->ptr, dictSize(d));
         si = setTypeInitIterator(o);
         while (setTypeNext(si, &elesds, &intobj) != -1) {
             setTypeAdd(set, elesds);

@@ -116,7 +116,8 @@ streamNACK *streamCreateNACK(streamConsumer *consumer);
 void streamDecodeID(void *buf, streamID *id);
 int streamCompareID(streamID *a, streamID *b);
 void streamFreeNACK(streamNACK *na);
-void streamIncrID(streamID *id);
+int streamIncrID(streamID *id);
+int streamDecrID(streamID *id);
 void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds consumername);
 robj *streamDup(robj *o);
 

@@ -217,7 +217,7 @@ start_server {tags {"keyspace"}} {
         r set mykey foobar
         catch {r copy mykey mynewkey DB notanumber} e
         set e
-    } {*ERR*invalid DB index}
+    } {ERR value is not an integer or out of range}
 
     test {COPY can copy key expire metadata as well} {
         r set mykey foobar ex 100
@@ -398,7 +398,7 @@ start_server {tags {"keyspace"}} {
         r set mykey hello
         catch {r move mykey notanumber} e
         set e
-    } {*ERR*index out of range}
+    } {ERR value is not an integer or out of range}
 
     test {MOVE can move key expire metadata as well} {
         r select 10

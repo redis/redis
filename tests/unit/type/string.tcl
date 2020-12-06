@@ -415,6 +415,14 @@ start_server {tags {"string"}} {
       list $err1 $err2
     } {*syntax err* *syntax err*}
 
+    test {Extended SET GET with incorrect type should result in wrong type error} {
+      r del foo
+      r rpush foo waffle
+      catch {r set foo bar GET} err1
+      assert_equal "waffle" [r rpop foo]
+      set err1
+    } {*WRONGTYPE*}
+
     test {Extended SET EX option} {
         r del foo
         r set foo bar ex 10

@@ -685,6 +685,11 @@ typedef struct redisDb {
     list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
 } redisDb;
 
+/* Declare database backup that include redis main DBs and slots to keys map.
+ * Definition is in db.c. We can't define it here since we define CLUSTER_SLOTS
+ * in cluster.h. */
+typedef struct dbBackup dbBackup;
+
 /* Client MULTI/EXEC state */
 typedef struct multiCmd {
     robj **argv;
@@ -774,6 +779,8 @@ typedef struct readyList {
                                            no AUTH is needed, and every
                                            connection is immediately
                                            authenticated. */
+#define USER_FLAG_ALLCHANNELS (1<<5)    /* The user can mention any Pub/Sub
+                                           channel. */
 typedef struct {
     sds name;       /* The username as an SDS string. */
     uint64_t flags; /* See USER_FLAG_* */
@@ -797,6 +804,10 @@ typedef struct {
     list *patterns;  /* A list of allowed key patterns. If this field is NULL
                         the user cannot mention any key in a command, unless
                         the flag ALLKEYS is set in the user. */
+    list *channels;  /* A list of allowed Pub/Sub channel patterns. If this
+                        field is NULL the user cannot mention any channel in a
+                        `PUBLISH` or [P][UNSUSBSCRIBE] command, unless the flag
+                        ALLCHANNELS is set in the user. */
 } user;
 
 /* With multiplexing we need to take per-client state.
@@ -1489,11 +1500,12 @@ struct redisServer {
     long long latency_monitor_threshold;
     dict *latency_events;
     /* ACLs */
-    char *acl_filename;     /* ACL Users file. NULL if not configured. */
+    char *acl_filename;           /* ACL Users file. NULL if not configured. */
     unsigned long acllog_max_len; /* Maximum length of the ACL LOG list. */
-    sds requirepass;        /* Remember the cleartext password set with the
-                               old "requirepass" directive for backward
-                               compatibility with Redis <= 5. */
+    sds requirepass;              /* Remember the cleartext password set with
+                                     the old "requirepass" directive for
+                                     backward compatibility with Redis <= 5. */
+    int acl_pubusub_default;      /* Default ACL pub/sub channels flag */
     /* Assert & bug reporting */
     int watchdog_period;  /* Software watchdog period in ms. 0 = off */
     /* System hardware info */
@@ -1866,6 +1878,7 @@ int getDoubleFromObject(const robj *o, double *target);
 int getLongLongFromObject(robj *o, long long *target);
 int getLongDoubleFromObject(robj *o, long double *target);
 int getLongDoubleFromObjectOrReply(client *c, robj *o, long double *target, const char *msg);
+int getIntFromObjectOrReply(client *c, robj *o, int *target, const char *msg);
 char *strEncoding(int encoding);
 int compareStringObjects(robj *a, robj *b);
 int collateStringObjects(robj *a, robj *b);
@@ -1962,17 +1975,19 @@ void sendChildCOWInfo(int ptype, char *pname);
 extern rax *Users;
 extern user *DefaultUser;
 void ACLInit(void);
-/* Return values for ACLCheckCommandPerm(). */
+/* Return values for ACLCheckCommandPerm() and ACLCheckPubsubPerm(). */
 #define ACL_OK 0
 #define ACL_DENIED_CMD 1
 #define ACL_DENIED_KEY 2
 #define ACL_DENIED_AUTH 3 /* Only used for ACL LOG entries. */
+#define ACL_DENIED_CHANNEL 4 /* Only used for pub/sub commands */
 int ACLCheckUserCredentials(robj *username, robj *password);
 int ACLAuthenticateUser(client *c, robj *username, robj *password);
 unsigned long ACLGetCommandID(const char *cmdname);
 void ACLClearCommandID(void);
 user *ACLGetUserByName(const char *name, size_t namelen);
 int ACLCheckCommandPerm(client *c, int *keyidxptr);
+int ACLCheckPubsubPerm(client *c, int idx, int count, int literal, int *idxptr);
 int ACLSetUser(user *u, const char *op, ssize_t oplen);
 sds ACLDefaultUserFirstPassword(void);
 uint64_t ACLGetCommandCategoryFlagByName(const char *name);
@@ -2098,6 +2113,7 @@ struct redisMemOverhead *getMemoryOverheadData(void);
 void freeMemoryOverheadData(struct redisMemOverhead *mh);
 void checkChildrenDone(void);
 int setOOMScoreAdj(int process_class);
+void rejectCommandFormat(client *c, const char *fmt, ...);
 
 #define RESTART_SERVER_NONE 0
 #define RESTART_SERVER_GRACEFULLY (1<<0)     /* Do proper shutdown. */
@@ -2199,11 +2215,14 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);
 
 #define EMPTYDB_NO_FLAGS 0      /* No flags. */
 #define EMPTYDB_ASYNC (1<<0)    /* Reclaim memory in another thread. */
-#define EMPTYDB_BACKUP (1<<2)   /* DB array is a backup for REPL_DISKLESS_LOAD_SWAPDB. */
 long long emptyDb(int dbnum, int flags, void(callback)(void*));
-long long emptyDbGeneric(redisDb *dbarray, int dbnum, int flags, void(callback)(void*));
+long long emptyDbStructure(redisDb *dbarray, int dbnum, int async, void(callback)(void*));
 void flushAllDataAndResetRDB(int flags);
 long long dbTotalServerKeyCount();
+dbBackup *backupDb(void);
+void restoreDbBackup(dbBackup *buckup);
+void discardDbBackup(dbBackup *buckup, int flags, void(callback)(void*));
+
 
 int selectDb(client *c, int id);
 void signalModifiedKey(client *c, redisDb *db, robj *key);
@@ -2216,13 +2235,15 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor);
 int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor);
 void slotToKeyAdd(sds key);
 void slotToKeyDel(sds key);
-void slotToKeyFlush(void);
 int dbAsyncDelete(redisDb *db, robj *key);
 void emptyDbAsync(redisDb *db);
-void slotToKeyFlushAsync(void);
+void slotToKeyFlush(int async);
 size_t lazyfreeGetPendingObjectsCount(void);
 size_t lazyfreeGetFreedObjectsCount(void);
 void freeObjAsync(robj *key, robj *obj);
+void freeSlotsToKeysMapAsync(rax *rt);
+void freeSlotsToKeysMap(rax *rt, int async);
+
 
 /* API to get key arguments from commands */
 int *getKeysPrepareResult(getKeysResult *result, int numkeys);
