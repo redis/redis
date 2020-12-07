@@ -581,8 +581,10 @@ void hsetCommand(client *c) {
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
     hashTypeTryConversion(o,c->argv,2,c->argc-1);
 
-    for (i = 2; i < c->argc; i += 2)
+    for (i = 2; i < c->argc; i += 2) {
         created += !hashTypeSet(o,c->argv[i]->ptr,c->argv[i+1]->ptr,HASH_SET_COPY);
+        server.dirty++;
+    }
 
     /* HMSET (deprecated) and HSET return value is different. */
     char *cmdname = c->argv[0]->ptr;
@@ -595,7 +597,6 @@ void hsetCommand(client *c) {
     }
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
-    server.dirty += created;
 }
 
 void hincrbyCommand(client *c) {
