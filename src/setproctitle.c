@@ -194,14 +194,16 @@ void spt_init(int argc, char *argv[]) {
 		if (!argv[i] || argv[i] < end)
 			continue;
 
-		end = argv[i] + strlen(argv[i]) + 1;
+		if (end >= argv[i] && end <= argv[i] + strlen(argv[i]))
+			end = argv[i] + strlen(argv[i]) + 1;
 	}
 
 	for (i = 0; envp[i]; i++) {
 		if (envp[i] < end)
 			continue;
 
-		end = envp[i] + strlen(envp[i]) + 1;
+		if (end >= envp[i] && end <= envp[i] + strlen(envp[i]))
+			end = envp[i] + strlen(envp[i]) + 1;
 	}
 	envc = i;
 
@@ -294,3 +296,14 @@ error:
 
 #endif /* __linux || __APPLE__ */
 #endif /* !HAVE_SETPROCTITLE */
+
+#ifdef SETPROCTITLE_TEST_MAIN
+int main(int argc, char *argv[]) {
+	spt_init(argc, argv);
+
+	printf("SPT.arg0: [%p] '%s'\n", SPT.arg0, SPT.arg0);
+	printf("SPT.base: [%p] '%s'\n", SPT.base, SPT.base);
+	printf("SPT.end: [%p] (%d bytes after base)'\n", SPT.end, (int) (SPT.end - SPT.base));
+	return 0;
+}
+#endif
