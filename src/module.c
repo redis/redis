@@ -3708,7 +3708,14 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
  *   zero value if finished or non-zero value if more work is left to be done. If more work
  *   needs to be done, RM_DefragCursorSet() and RM_DefragCursorGet() can be used to track
  *   this work across different calls.
- * 
+ *   Normally, the defrag mechanism invokes the callback without a time limit, so
+ *   RM_DefragShouldStop() always returns zero. The "late defrag" mechanism which has
+ *   a time limit and provides cursor support is used only for keys that are determined
+ *   to have significant internal complexity. To determine this, the defrag mechanism
+ *   uses the free_effort callback and the 'active-defrag-max-scan-fields' config directive.
+ *   NOTE: The value is passed as a void** and the function is expected to update the
+ *   pointer if the top-level value pointer is defragmented and consequentially changes.
+ *
  * The **digest** and **mem_usage** methods should currently be omitted since
  * they are not yet implemented inside the Redis modules core.
  *
@@ -8181,8 +8188,10 @@ int RM_RegisterDefragFunc(RedisModuleCtx *ctx, RedisModuleDefragFunc cb) {
  *
  * When stopped and more work is left to be done, the callback should
  * return 1. Otherwise, it should return 0.
+ *
+ * NOTE: Modules should consider the frequency in which this function is called,
+ * so it generally makes sense to do small batches of work in between calls.
  */
-
 int RM_DefragShouldStop(RedisModuleDefragCtx *ctx) {
     return (ctx->endtime != 0 && ctx->endtime < ustime());
 }
@@ -8193,9 +8202,22 @@ int RM_DefragShouldStop(RedisModuleDefragCtx *ctx) {
  * value and the defrag callback is about to exit without fully iterating its
  * data type.
  *
- * If called for a quick defrag operation, it will return REDISMODULE_ERR.
+ * This behavior is reserved to cases where late defrag is performed. Late
+ * defrag is selected for keys that implement the free_effort callback and
+ * return a free_effort value that is larger than the defrag
+ * 'active-defrag-max-scan-fields' configuration directive.
+ *
+ * Smaller keys, keys that do not implement free_effort or the global
+ * defrag callback are not called in late-defrag mode. In those cases, a
+ * call to this function will return REDISMODULE_ERR.
+ *
+ * The cursor may be used by the module to represent some progress into the
+ * module's data type. Modules may also store additional cursor-related
+ * information locally and use the cursor as a flag that indicates when
+ * traversal of a new key begins. This is possible because the API makes
+ * a guarantee that concurrent defragmentation of multiple keys will
+ * not be performed.
  */
-
 int RM_DefragCursorSet(RedisModuleDefragCtx *ctx, unsigned long cursor) {
     if (!ctx->cursor)
         return REDISMODULE_ERR;
@@ -8206,10 +8228,10 @@ int RM_DefragCursorSet(RedisModuleDefragCtx *ctx, unsigned long cursor) {
 
 /* Fetch a cursor value that has been previously stored using RM_DefragCursorSet().
  *
- * If called for a quick defrag operation, it will return REDISMODULE_ERR
- * and the cursor should be ignored.
+ * If not called for a late defrag operation, REDISMODULE_ERR will be returned and
+ * the cursor should be ignored. See DM_DefragCursorSet() for more details on
+ * defrag cursors.
  */
-
 int RM_DefragCursorGet(RedisModuleDefragCtx *ctx, unsigned long *cursor) {
     if (!ctx->cursor)
         return REDISMODULE_ERR;
@@ -8219,9 +8241,16 @@ int RM_DefragCursorGet(RedisModuleDefragCtx *ctx, unsigned long *cursor) {
 }
 
 /* Defrag a memory allocation previously allocated by RM_Alloc, RM_Calloc, etc.
- * Returns a newly allocated pointer, or NULL if defrag is not required.
+ * The defragmentation process involves allocating a new memory block and copying
+ * the contents to it, like realloc().
+ *
+ * If defragmentation was not necessary, NULL is returned and the operation has
+ * no other effect.
+ *
+ * If a non-NULL value is returned, the caller should use the new pointer instead
+ * of the old one and update any reference to the old pointer, which must not
+ * be used again.
  */
-
 void *RM_DefragAlloc(RedisModuleDefragCtx *ctx, void *ptr) {
     void *newptr = activeDefragAlloc(ptr);
     if (newptr)
@@ -8231,9 +8260,12 @@ void *RM_DefragAlloc(RedisModuleDefragCtx *ctx, void *ptr) {
 }
 
 /* Defrag a RedisModuleString previously allocated by RM_Alloc, RM_Calloc, etc.
- * Returns a newly allocated pointer, or NULL if defrag is not required.
+ * See RM_DefragAlloc() for more information on how the defragmentation process
+ * works.
+ *
+ * NOTE: Currently retained strings (which have multiple references) do not get
+ * defragmented.
  */
-
 RedisModuleString *RM_DefragRedisModuleString(RedisModuleDefragCtx *ctx, RedisModuleString *str) {
     return activeDefragStringOb(str, &ctx->defragged);
 }
@@ -8244,13 +8276,18 @@ RedisModuleString *RM_DefragRedisModuleString(RedisModuleDefragCtx *ctx, RedisMo
  * Returns a zero value (and initializes the cursor) if no more needs to be done,
  * or a non-zero value otherwise.
  */
-
 int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long endtime, long long *defragged) {
     moduleValue *mv = value->ptr;
     moduleType *mt = mv->type;
 
     RedisModuleDefragCtx defrag_ctx = { 0, endtime, cursor };
-    int ret = mt->defrag(&defrag_ctx, key, &mv->value);
+
+    /* Invoke callback. Note that the callback may be missing if the key has been
+     * replaced with a different type since our last visit.
+     */
+    int ret = 0;
+    if (mt->defrag)
+        ret = mt->defrag(&defrag_ctx, key, &mv->value);
 
     *defragged += defrag_ctx.defragged;
     if (!ret) {
@@ -8264,16 +8301,24 @@ int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long en
 /* Attempt to defrag a module data type value. Depending on complexity,
  * the operation may happen immediately or be scheduled for later.
  *
- * Returns the number of defragmented blocks, or -1 if the operation
- * is to be scheduled for later.
+ * Returns 1 if the operation has been completed or 0 if it needs to
+ * be scheduled for late defrag.
  */
-
-long moduleDefragValue(robj *key, robj *value) {
+int moduleDefragValue(robj *key, robj *value, long *defragged) {
     moduleValue *mv = value->ptr;
     moduleType *mt = mv->type;
 
+    /* Try to defrag moduleValue itself regardless of whether or not
+     * defrag callbacks are provided.
+     */
+    moduleValue *newmv = activeDefragAlloc(mv);
+    if (newmv) {
+        (*defragged)++;
+        value->ptr = mv = newmv;
+    }
+
     if (!mt->defrag)
-        return 0;
+        return 1;
 
     /* Use free_effort to determine complexity of module value, and if
      * necessary schedule it for defragLater instead of quick immediate
@@ -8284,23 +8329,14 @@ long moduleDefragValue(robj *key, robj *value) {
         if (!effort)
             effort = SIZE_MAX;
         if (effort > server.active_defrag_max_scan_fields) {
-            return -1;  /* Defrag later */
+            return 0;  /* Defrag later */
         }
-    }
-
-    /* Not doing late defrag! First defrag the moduleValue itself,
-     * then set up context and call the defrag callback.
-     */
-    long defragged = 0;
-    moduleValue *newmv = activeDefragAlloc(mv);
-    if (newmv) {
-        defragged++;
-        value->ptr = mv = newmv;
     }
 
     RedisModuleDefragCtx defrag_ctx = { 0, 0, NULL };
     mt->defrag(&defrag_ctx, key, &mv->value);
-    return defragged;
+    (*defragged) += defrag_ctx.defragged;
+    return 1;
 }
 
 /* Call registered module API defrag functions */

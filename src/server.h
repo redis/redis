@@ -1697,7 +1697,7 @@ void moduleUnblockClient(client *c);
 int moduleClientIsBlockedOnKeys(client *c);
 void moduleNotifyUserChanged(client *c);
 void moduleNotifyKeyUnlink(robj *key, robj *val);
-long moduleDefragValue(robj *key, robj *obj);
+int moduleDefragValue(robj *key, robj *obj, long *defragged);
 int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long endtime, long long *defragged);
 long moduleDefragGlobals(void);
 

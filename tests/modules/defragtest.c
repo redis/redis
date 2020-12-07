@@ -179,7 +179,8 @@ int FragDefrag(RedisModuleDefragCtx *ctx, RedisModuleString *key, void **value) 
         }
 
         if ((o->maxstep && ++steps > o->maxstep) ||
-            ((i % 64 == 0) && RedisModule_DefragShouldStop(ctx))) {
+            ((i % 64 == 0) && RedisModule_DefragShouldStop(ctx)))
+        {
             RedisModule_DefragCursorSet(ctx, i);
             last_set_cursor = i;
             return 1;

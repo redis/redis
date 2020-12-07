@@ -800,12 +800,10 @@ long defragStream(redisDb *db, dictEntry *kde) {
 long defragModule(redisDb *db, dictEntry *kde) {
     robj *obj = dictGetVal(kde);
     serverAssert(obj->type == OBJ_MODULE);
+    long defragged = 0;
 
-    long defragged = moduleDefragValue(dictGetKey(kde), obj);
-    if (defragged == -1) {
+    if (!moduleDefragValue(dictGetKey(kde), obj, &defragged))
         defragLater(db, kde);
-        return 0;
-    }
 
     return defragged;
 }
