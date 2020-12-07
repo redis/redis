@@ -865,20 +865,26 @@ void AddReplyFromClient(client *dst, client *src) {
         return;
     }
 
-    if (prepareClientToWrite(dst) != C_OK)
-        return;
+    /* First add the static buffer (either into the static buffer or reply list) */
     addReplyProto(dst,src->buf, src->bufpos);
 
-    /* we're bypassing _addReplyProtoToList, so we need to add the pre/post
-     * checks in it. We need to re-test this here (although already covered
-     * by prepareClientToWrite) since addReplyProto may have set this flag. */
+    /* We need to check with prepareClientToWrite again (after addReplyProto)
+     * since addReplyProto may have changed something (like CLIENT_CLOSE_ASAP) */
+    if (prepareClientToWrite(dst) != C_OK)
+        return;
+
+    /* We're bypassing _addReplyProtoToList, so we need to add the pre/post
+     * checks in it. */
     if (dst->flags & CLIENT_CLOSE_AFTER_REPLY) return;
 
+    /* Concatenate the reply list into the dest */
     if (listLength(src->reply))
         listJoin(dst->reply,src->reply);
     dst->reply_bytes += src->reply_bytes;
     src->reply_bytes = 0;
     src->bufpos = 0;
+
+    /* Check output buffer limits */
     asyncCloseClientOnOutputBufferLimitReached(dst);
 }
 
