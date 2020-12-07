@@ -179,6 +179,16 @@ int dbAsyncDelete(redisDb *db, robj *key) {
     }
 }
 
+/* Free an object, if the object is huge enough, free it in async way. */
+void freeObjAsync(robj *key, robj *obj) {
+    size_t free_effort = lazyfreeGetFreeEffort(key,obj);
+    if (free_effort > LAZYFREE_THRESHOLD && obj->refcount == 1) {
+        atomicIncr(lazyfree_objects,1);
+        bioCreateLazyFreeJob(lazyfreeFreeObject,1,obj);
+    } else {
+        decrRefCount(obj);
+    }
+}
 
 /* Empty a Redis DB asynchronously. What the function does actually is to
  * create a new empty set of hash tables and scheduling the old ones for
@@ -191,22 +201,10 @@ void emptyDbAsync(redisDb *db) {
     bioCreateLazyFreeJob(lazyfreeFreeDatabase,2,oldht1,oldht2);
 }
 
-/* Free an object, if the object is huge enough, free it in async way. */
-void freeObjAsync(robj *key, robj *obj) {
-    size_t free_effort = lazyfreeGetFreeEffort(key,obj);
-    if (free_effort > LAZYFREE_THRESHOLD && obj->refcount == 1) {
-        atomicIncr(lazyfree_objects,1);
-        bioCreateLazyFreeJob(lazyfreeFreeObject,1,obj);
-    } else {
-        decrRefCount(obj);
-    }
-}
-
-/* Empty the slots-keys map of Redis Cluster by creating a new empty one
- * and scheduling the old for lazy freeing. */
-void freeSlotsToKeysMapAsync(rax *old) {
-    atomicIncr(lazyfree_objects,old->numele);
-    bioCreateLazyFreeJob(lazyfreeFreeSlotsMap,1,old);
+/* Release the radix tree mapping Redis Cluster keys to slots asynchronously. */
+void freeSlotsToKeysMapAsync(rax *rt) {
+    atomicIncr(lazyfree_objects,rt->numele);
+    bioCreateLazyFreeJob(lazyfreeFreeSlotsMap,1,rt);
 }
 
 /* Free an object, if the object is huge enough, free it in async way. */
