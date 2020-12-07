@@ -219,6 +219,7 @@ start_server {
         assert {[llength [lindex $reply 0 1 0 1]] == 2}
         assert {[lindex $reply 0 1 0 1] eq {a 1}}
 
+        # make sure the entry is present in both the gorup, and the right consumer
         assert {[llength [r XPENDING mystream mygroup - + 10]] == 1}
         assert {[llength [r XPENDING mystream mygroup - + 10 client1]] == 1}
         assert {[llength [r XPENDING mystream mygroup - + 10 client2]] == 0}
@@ -230,6 +231,7 @@ start_server {
         assert {[llength [lindex $reply 0 1]] == 2}
         assert {[lindex $reply 0 1] eq {a 1}}
 
+        # make sure the entry is present in both the gorup, and the right consumer
         assert {[llength [r XPENDING mystream mygroup - + 10]] == 1}
         assert {[llength [r XPENDING mystream mygroup - + 10 client1]] == 0}
         assert {[llength [r XPENDING mystream mygroup - + 10 client2]] == 1}
@@ -311,17 +313,15 @@ start_server {
         set id3 [r XADD mystream * c 3]
         r XGROUP CREATE mystream mygroup 0
 
-        set reply [
-            r XREADGROUP GROUP mygroup client1 count 1 STREAMS mystream >
-        ]
+        set reply [r XREADGROUP GROUP mygroup client1 count 1 STREAMS mystream >]
         assert {[llength [lindex $reply 0 1 0 1]] == 2}
         assert {[lindex $reply 0 1 0 1] eq {a 1}}
         r debug sleep 0.2
+        # re-claim with the same consumer that already has it
         assert {[llength [r XCLAIM mystream mygroup client1 10 $id1]] == 1}
 
-        set reply [
-            r XPENDING mystream mygroup - + 10
-        ]
+        # make sure the entry is still in the PEL
+        set reply [r XPENDING mystream mygroup - + 10]
         assert {[llength $reply] == 1}
         assert {[lindex $reply 0 1] eq {client1}}
     }
