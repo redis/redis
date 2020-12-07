@@ -852,13 +852,28 @@ void addReplySubcommandSyntaxError(client *c) {
 /* Append 'src' client output buffers into 'dst' client output buffers. 
  * This function clears the output buffers of 'src' */
 void AddReplyFromClient(client *dst, client *src) {
+    /* If the source client contains a partial response due to client output
+     * buffer limits, propagate that to the dest rather than copy a partial
+     * reply. We don't wanna run the risk of copying partial response in case
+     * for some reason the output limits don't reach the same decision (maybe
+     * they changed) */
+    if (src->flags & CLIENT_CLOSE_ASAP) {
+        sds client = catClientInfoString(sdsempty(),dst);
+        freeClientAsync(dst);
+        serverLog(LL_WARNING,"Client %s scheduled to be closed ASAP for overcoming of output buffer limits.", client);
+        sdsfree(client);
+        return;
+    }
+
     if (prepareClientToWrite(dst) != C_OK)
         return;
     addReplyProto(dst,src->buf, src->bufpos);
 
     /* we're bypassing _addReplyProtoToList, so we need to add the pre/post
-     * checks in it. */
+     * checks in it. We need to re-test this here (although already covered
+     * by prepareClientToWrite) since addReplyProto may have set this flag. */
     if (dst->flags & CLIENT_CLOSE_AFTER_REPLY) return;
+
     if (listLength(src->reply))
         listJoin(dst->reply,src->reply);
     dst->reply_bytes += src->reply_bytes;
