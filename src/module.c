@@ -8263,8 +8263,11 @@ void *RM_DefragAlloc(RedisModuleDefragCtx *ctx, void *ptr) {
  * See RM_DefragAlloc() for more information on how the defragmentation process
  * works.
  *
- * NOTE: Currently retained strings (which have multiple references) do not get
- * defragmented.
+ * NOTE: It is only possible to defrag strings that have a single reference.
+ * Typically this means strings retained with RM_RetainString or RM_HoldString
+ * may not be defragmentable. One exception is command argvs which, if retained
+ * by the module, will end up with a single reference (because the reference
+ * on the Redis side is dropped as soon as the command callback returns).
  */
 RedisModuleString *RM_DefragRedisModuleString(RedisModuleDefragCtx *ctx, RedisModuleString *str) {
     return activeDefragStringOb(str, &ctx->defragged);
