@@ -107,9 +107,9 @@ void *bg_call_worker(void *arg) {
     RedisModule_ThreadSafeContextUnlock(ctx);
 
     // Reply to client
-    if(!rep){
+    if (!rep) {
         RedisModule_ReplyWithError(ctx, "NULL reply returned");
-    }else{
+    } else {
         RedisModule_ReplyWithCallReply(ctx, rep);
         RedisModule_FreeCallReply(rep);
     }
