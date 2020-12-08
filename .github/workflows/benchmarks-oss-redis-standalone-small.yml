@@ -1,0 +1,43 @@
+on: [push]
+name: Benchmark oss-redis-standalone-small
+jobs:
+  deploy-infrastructure:
+    runs-on: ubuntu-latest
+    env:
+      EC2_REGION: ${{ secrets.EC2_REGION }}
+      EC2_ACCESS_KEY: ${{ secrets.EC2_ACCESS_KEY }}
+      EC2_SECRET_KEY: ${{ secrets.EC2_SECRET_KEY }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.EC2_ACCESS_KEY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.EC2_SECRET_KEY }}
+    steps:
+    - name: Check EC2_REGION,EC2_ACCESS_KEY,EC2_SECRET_KEY are set
+      run: |
+        if ${{ env.EC2_REGION == '' }} || ${{ env.EC2_ACCESS_KEY == '' }} || ${{ env.EC2_SECRET_KEY == '' }} ; then
+          echo "ec2 secrets are not set"
+          exit 1
+        fi
+    - name: Add infra key
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.EC2_PRIVATE_PEM }}" > ~/.ssh/perf-cto-joint-tasks.pem
+        chmod 600 ~/.ssh/perf-cto-joint-tasks.pem
+
+    - name: Setup testing infrastructure and benchmark 
+      run: |
+        set -x
+        git clone https://github.com/RedisLabsModules/testing-infrastructure
+        cd testing-infrastructure
+        ./install_deps.sh
+        cd terraform/oss-redis-standalone-small
+        rm common.tf
+        terraform init
+        terraform apply --auto-approve -var 'github_actor=${{ github.actor }}' \
+                                       -var 'github_repo=${{ github.repository }}' \
+                                       -var 'github_sha=${{ github.sha }}'
+
+    - name: Tear down testing-infrastructure
+      run: |
+        cd testing-infrastructure/terraform/oss-redis-standalone-small
+        terraform destroy --auto-approve
+
+      
