@@ -87,6 +87,20 @@ start_server {
         assert {[llength $pending] == 4}
     }
 
+    test {XPENDING with exclusive range intervals works as expected} {
+        set pending [r XPENDING mystream mygroup - + 10]
+        assert {[llength $pending] == 4}
+        set startid [lindex [lindex $pending 0] 0]
+        set endid [lindex [lindex $pending 3] 0]
+        set expending [r XPENDING mystream mygroup ($startid ($endid 10]
+        assert {[llength $expending] == 2}
+        for {set j 0} {$j < 2} {incr j} {
+            set itemid [lindex [lindex $expending $j] 0]
+            assert {$itemid ne $startid}
+            assert {$itemid ne $endid}
+        }
+    }
+
     test {XACK is able to remove items from the client/group PEL} {
         set pending [r XPENDING mystream mygroup - + 10 client-1]
         set id1 [lindex $pending 0 0]
