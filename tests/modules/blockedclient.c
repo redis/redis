@@ -85,13 +85,14 @@ int acquire_gil(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+typedef struct {
+    RedisModuleString **argv;
+    int argc;
+    RedisModuleBlockedClient *bc;
+} bg_call_data;
+
 void *bg_call_worker(void *arg) {
-    typedef struct {
-        RedisModuleString **argv;
-        int argc;
-        RedisModuleBlockedClient *bc;
-    } bg_data;
-    bg_data *bg = arg;
+    bg_call_data *bg = arg;
 
     // Get Redis module context
     RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bg->bc);
@@ -148,14 +149,8 @@ int do_bg_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_OK;
     }
 
-    typedef struct {
-        RedisModuleString **argv;
-        int argc;
-        RedisModuleBlockedClient *bc;
-    } bg_data;
-
     /* Make a copy of the arguments and pass them to the thread. */
-    bg_data *bg = RedisModule_Alloc(sizeof(bg_data));
+    bg_call_data *bg = RedisModule_Alloc(sizeof(bg_call_data));
     bg->argv = RedisModule_Alloc(sizeof(RedisModuleString*)*argc);
     bg->argc = argc;
     for (int i=0; i<argc; i++)
