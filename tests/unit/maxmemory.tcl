@@ -291,6 +291,11 @@ start_server {tags {"maxmemory"}} {
             }
         }
 
+        # we need to wait one second for the client querybuf excess memory to be
+        # trimmed by cron, otherwise the INFO used_memory and CONFIG maxmemory
+        # below (on slow machines) won't be "atomic" and won't trigger eviction.
+        after 1100
+
         # set the memory limit which will cause a few keys to be evicted
         # we need to make sure to evict keynames of a total size of more than
         # 16kb since the (PROTO_REPLY_CHUNK_BYTES), only after that the
@@ -302,13 +307,20 @@ start_server {tags {"maxmemory"}} {
         # make sure some eviction happened
         set evicted [s evicted_keys]
         if {$::verbose} { puts "evicted: $evicted" }
+
+        # make sure we didn't drain the database
+        assert_range [r dbsize] 200 300
+
         assert_range $evicted 10 50
         foreach rd $clients {
             $rd read ;# make sure we have some invalidation message waiting
             $rd close
         }
 
-        # make sure we didn't drain the database
-        assert_range [r dbsize] 200 300
+        # eviction continues (known problem described in #8069)
+        # for now this test only make sures the eviction loop itself doesn't
+        # have feedback loop
+        set evicted [s evicted_keys]
+        if {$::verbose} { puts "evicted: $evicted" }
     }
 }
