@@ -1182,8 +1182,8 @@ static int fetchClusterConfiguration() {
         }
         if (myself) {
             node = firstNode;
-            if (node->ip == NULL && ip != NULL) {
-                node->ip = ip;
+            if (ip != NULL && strcmp(node->ip, ip) != 0) {
+                node->ip = sdsnew(ip);
                 node->port = port;
             }
         } else {
