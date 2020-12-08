@@ -218,7 +218,7 @@ typedef uint64_t RedisModuleTimerID;
 #define REDISMODULE_EVENT_REPL_BACKUP 12
 
 /* Next event flag, should be updated if a new event added. */
-#define _REDISMODULE_EVENT_NEXT 12
+#define _REDISMODULE_EVENT_NEXT 13
 
 typedef struct RedisModuleEvent {
     uint64_t id;        /* REDISMODULE_EVENT_... defines. */
