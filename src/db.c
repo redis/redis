@@ -1242,12 +1242,12 @@ void copyCommand(client *c) {
         case OBJ_HASH: newobj = hashTypeDup(o); break;
         case OBJ_STREAM: newobj = streamDup(o); break;
         case OBJ_MODULE:
-            addReplyError(c, "Copying module type object is not supported");
-            return;
-        default: {
+            newobj = moduleTypeDupOrReply(c, key, newkey, o);
+            if (!newobj) return;
+            break;
+        default:
             addReplyError(c, "unknown type object");
             return;
-        };
     }
 
     if (delete) {

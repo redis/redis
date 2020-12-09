@@ -2231,8 +2231,9 @@ void xpendingCommand(client *c) {
     robj *groupname = c->argv[2];
     robj *consumername = NULL;
     streamID startid, endid;
-    long long count;
+    long long count = 0;
     long long minidle = 0;
+    int startex = 0, endex = 0;
 
     /* Start and stop, and the consumer, can be omitted. Also the IDLE modifier. */
     if (c->argc != 3 && (c->argc < 6 || c->argc > 9)) {
@@ -2256,13 +2257,25 @@ void xpendingCommand(client *c) {
             /* Search for rest of arguments after 'IDLE <idle>' */
             startidx += 2;
         }
+
+        /* count argument. */
         if (getLongLongFromObjectOrReply(c,c->argv[startidx+2],&count,NULL) == C_ERR)
             return;
         if (count < 0) count = 0;
-        if (streamParseIDOrReply(c,c->argv[startidx],&startid,0) == C_ERR)
+
+        /* start and end arguments. */
+        if (streamParseIntervalIDOrReply(c,c->argv[startidx],&startid,&startex,0) != C_OK)
             return;
-        if (streamParseIDOrReply(c,c->argv[startidx+1],&endid,UINT64_MAX) == C_ERR)
+        if (startex && streamIncrID(&startid) != C_OK) {
+            addReplyError(c,"invalid start ID for the interval");
             return;
+        }
+        if (streamParseIntervalIDOrReply(c,c->argv[startidx+1],&endid,&endex,UINT64_MAX) != C_OK)
+            return;
+        if (endex && streamDecrID(&endid) != C_OK) {
+            addReplyError(c,"invalid end ID for the interval");
+            return;
+        }
 
         if (startidx+3 < c->argc) {
             /* 'consumer' was provided */
@@ -2601,15 +2614,15 @@ void xclaimCommand(client *c) {
                 mstime_t this_idle = now - nack->delivery_time;
                 if (this_idle < minidle) continue;
             }
-            /* Remove the entry from the old consumer.
-             * Note that nack->consumer is NULL if we created the
-             * NACK above because of the FORCE option. */
-            if (nack->consumer)
-                raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
-            /* Update the consumer and idle time. */
             if (consumer == NULL)
                 consumer = streamLookupConsumer(group,c->argv[3]->ptr,SLC_NONE,NULL);
-            nack->consumer = consumer;
+            if (nack->consumer != consumer) {
+                /* Remove the entry from the old consumer.
+                 * Note that nack->consumer is NULL if we created the
+                 * NACK above because of the FORCE option. */
+                if (nack->consumer)
+                    raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+            }
             nack->delivery_time = deliverytime;
             /* Set the delivery attempts counter if given, otherwise
              * autoincrement unless JUSTID option provided */
@@ -2618,8 +2631,11 @@ void xclaimCommand(client *c) {
             } else if (!justid) {
                 nack->delivery_count++;
             }
-            /* Add the entry in the new consumer local PEL. */
-            raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
+            if (nack->consumer != consumer) {
+                /* Add the entry in the new consumer local PEL. */
+                raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
+                nack->consumer = consumer;
+            }
             /* Send the reply for this entry. */
             if (justid) {
                 addReplyStreamID(c,&id);

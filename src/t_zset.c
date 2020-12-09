@@ -1612,7 +1612,7 @@ static int _zsetZiplistValidateIntegrity(unsigned char *p, void *userdata) {
     } *data = userdata;
 
     /* Even records are field names, add to dict and check that's not a dup */
-    if (((data->count) & 1) == 1) {
+    if (((data->count) & 1) == 0) {
         unsigned char *str;
         unsigned int slen;
         long long vll;

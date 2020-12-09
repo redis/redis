@@ -457,13 +457,8 @@ void spopWithCountCommand(client *c) {
     robj *set;
 
     /* Get the count argument */
-    if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != C_OK) return;
-    if (l >= 0) {
-        count = (unsigned long) l;
-    } else {
-        addReply(c,shared.outofrangeerr);
-        return;
-    }
+    if (getPositiveLongFromObjectOrReply(c,c->argv[2],&l,NULL) != C_OK) return;
+    count = (unsigned long) l;
 
     /* Make sure a key with the name inputted exists, and that it's type is
      * indeed a set. Otherwise, return nil */

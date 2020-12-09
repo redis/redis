@@ -72,4 +72,22 @@ start_server {tags {"modules"}} {
         } e
         set e
     } {*ERR*DENY BLOCKING*}
+
+    test {RM_Call from blocked client} {
+        r hset hash foo bar
+        r do_bg_rm_call hgetall hash
+    } {foo bar}
+
+    test {blocked client reaches client output buffer limit} {
+        r hset hash big [string repeat x 50000]
+        r hset hash bada [string repeat x 50000]
+        r hset hash boom [string repeat x 50000]
+        r config set client-output-buffer-limit {normal 100000 0 0}
+        r client setname myclient
+        catch {r do_bg_rm_call hgetall hash} e
+        assert_match "*I/O error*" $e
+        reconnect
+        set clients [r client list]
+        assert_no_match "*name=myclient*" $clients
+    }
 }

@@ -270,6 +270,9 @@ int prepareClientToWrite(client *c) {
  * Low level functions to add more data to output buffers.
  * -------------------------------------------------------------------------- */
 
+/* Attempts to add the reply to the static buffer in the client struct.
+ * Returns C_ERR if the buffer is full, or the reply list is not empty,
+ * in which case the reply must be added to the reply list. */
 int _addReplyToBuffer(client *c, const char *s, size_t len) {
     size_t available = sizeof(c->buf)-c->bufpos;
 
@@ -287,6 +290,8 @@ int _addReplyToBuffer(client *c, const char *s, size_t len) {
     return C_OK;
 }
 
+/* Adds the reply to the reply linked list.
+ * Note: some edits to this function need to be relayed to AddReplyFromClient. */
 void _addReplyProtoToList(client *c, const char *s, size_t len) {
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
 
@@ -848,14 +853,40 @@ void addReplySubcommandSyntaxError(client *c) {
 /* Append 'src' client output buffers into 'dst' client output buffers. 
  * This function clears the output buffers of 'src' */
 void AddReplyFromClient(client *dst, client *src) {
+    /* If the source client contains a partial response due to client output
+     * buffer limits, propagate that to the dest rather than copy a partial
+     * reply. We don't wanna run the risk of copying partial response in case
+     * for some reason the output limits don't reach the same decision (maybe
+     * they changed) */
+    if (src->flags & CLIENT_CLOSE_ASAP) {
+        sds client = catClientInfoString(sdsempty(),dst);
+        freeClientAsync(dst);
+        serverLog(LL_WARNING,"Client %s scheduled to be closed ASAP for overcoming of output buffer limits.", client);
+        sdsfree(client);
+        return;
+    }
+
+    /* First add the static buffer (either into the static buffer or reply list) */
+    addReplyProto(dst,src->buf, src->bufpos);
+
+    /* We need to check with prepareClientToWrite again (after addReplyProto)
+     * since addReplyProto may have changed something (like CLIENT_CLOSE_ASAP) */
     if (prepareClientToWrite(dst) != C_OK)
         return;
-    addReplyProto(dst,src->buf, src->bufpos);
+
+    /* We're bypassing _addReplyProtoToList, so we need to add the pre/post
+     * checks in it. */
+    if (dst->flags & CLIENT_CLOSE_AFTER_REPLY) return;
+
+    /* Concatenate the reply list into the dest */
     if (listLength(src->reply))
         listJoin(dst->reply,src->reply);
     dst->reply_bytes += src->reply_bytes;
     src->reply_bytes = 0;
     src->bufpos = 0;
+
+    /* Check output buffer limits */
+    asyncCloseClientOnOutputBufferLimitReached(dst);
 }
 
 /* Copy 'src' client output buffers into 'dst' client output buffers.
@@ -2331,6 +2362,7 @@ void clientCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
 "ID                     -- Return the ID of the current connection.",
+"INFO                   -- Return information about the current client connection.",
 "GETNAME                -- Return the name of the current connection.",
 "KILL <ip:port>         -- Kill connection made from <ip:port>.",
 "KILL <option> <value> [option value ...] -- Kill connections. Options are:",
@@ -2341,6 +2373,7 @@ void clientCommand(client *c) {
 "     SKIPME (yes|no)   -- Skip killing current connection (default: yes).",
 "LIST [options ...]     -- Return information about client connections. Options:",
 "     TYPE (normal|master|replica|pubsub) -- Return clients of specified type.",
+"     ID id [id ...]                      -- Return clients of specified IDs only.",
 "PAUSE <timeout>        -- Suspend all Redis clients for <timout> milliseconds.",
 "REPLY (on|off|skip)    -- Control the replies sent to the current connection.",
 "SETNAME <name>         -- Assign the name <name> to the current connection.",
@@ -2354,21 +2387,46 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"id") && c->argc == 2) {
         /* CLIENT ID */
         addReplyLongLong(c,c->id);
+    } else if (!strcasecmp(c->argv[1]->ptr,"info") && c->argc == 2) {
+        /* CLIENT INFO */
+        sds o = catClientInfoString(sdsempty(), c);
+        o = sdscatlen(o,"\n",1);
+        addReplyVerbatim(c,o,sdslen(o),"txt");
+        sdsfree(o);
     } else if (!strcasecmp(c->argv[1]->ptr,"list")) {
         /* CLIENT LIST */
         int type = -1;
+        sds o = NULL;
         if (c->argc == 4 && !strcasecmp(c->argv[2]->ptr,"type")) {
             type = getClientTypeByName(c->argv[3]->ptr);
             if (type == -1) {
                 addReplyErrorFormat(c,"Unknown client type '%s'",
                     (char*) c->argv[3]->ptr);
                 return;
-             }
+            }
+        } else if (c->argc > 3 && !strcasecmp(c->argv[2]->ptr,"id")) {
+            int j;
+            o = sdsempty();
+            for (j = 3; j < c->argc; j++) {
+                long long cid;
+                if (getLongLongFromObjectOrReply(c, c->argv[j], &cid,
+                            "Invalid client ID")) {
+                    sdsfree(o);
+                    return;
+                }
+                client *cl = lookupClientByID(cid);
+                if (cl) {
+                    o = catClientInfoString(o, cl);
+                    o = sdscatlen(o, "\n", 1);
+                }
+            }
         } else if (c->argc != 2) {
             addReply(c,shared.syntaxerr);
             return;
         }
-        sds o = getAllClientsInfoString(type);
+
+        if (!o)
+            o = getAllClientsInfoString(type);
         addReplyVerbatim(c,o,sdslen(o),"txt");
         sdsfree(o);
     } else if (!strcasecmp(c->argv[1]->ptr,"reply") && c->argc == 3) {

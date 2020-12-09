@@ -530,6 +530,7 @@ typedef size_t (*moduleTypeMemUsageFunc)(const void *value);
 typedef void (*moduleTypeFreeFunc)(void *value);
 typedef size_t (*moduleTypeFreeEffortFunc)(struct redisObject *key, const void *value);
 typedef void (*moduleTypeUnlinkFunc)(struct redisObject *key, void *value);
+typedef void *(*moduleTypeCopyFunc)(struct redisObject *fromkey, struct redisObject *tokey, const void *value);
 typedef int (*moduleTypeDefragFunc)(struct RedisModuleDefragCtx *ctx, struct redisObject *key, void **value);
 
 /* This callback type is called by moduleNotifyUserChanged() every time
@@ -552,6 +553,7 @@ typedef struct RedisModuleType {
     moduleTypeFreeFunc free;
     moduleTypeFreeEffortFunc free_effort;
     moduleTypeUnlinkFunc unlink;
+    moduleTypeCopyFunc copy;
     moduleTypeDefragFunc defrag;
     moduleTypeAuxLoadFunc aux_load;
     moduleTypeAuxSaveFunc aux_save;
@@ -1697,6 +1699,7 @@ void moduleUnblockClient(client *c);
 int moduleClientIsBlockedOnKeys(client *c);
 void moduleNotifyUserChanged(client *c);
 void moduleNotifyKeyUnlink(robj *key, robj *val);
+robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, robj *value);
 int moduleDefragValue(robj *key, robj *obj, long *defragged);
 int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long endtime, long long *defragged);
 long moduleDefragGlobals(void);
