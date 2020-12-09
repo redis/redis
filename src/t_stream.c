@@ -2661,7 +2661,7 @@ cleanup:
     if (ids != static_ids) zfree(ids);
 }
 
-/* XAUTOCLAIM <key> <group> <consumer> <min-idle-time> <start> <stop> <count>
+/* XAUTOCLAIM <key> <group> <consumer> <min-idle-time> <start> <count>
  *
  * Gets ownership of one or multiple messages in the Pending Entries List
  * of a given stream consumer group.
@@ -2682,33 +2682,38 @@ void xautoclaimCommand(client *c) {
     robj *o = lookupKeyRead(c->db,c->argv[1]);
     long long minidle; /* Minimum idle time argument. */
     long long count; /* Maximum entries to claim. */
-    streamID startid, endid;
+    streamID startid;
+    int startex;
 
     /* Parse idle/start/end/count arguments ASAP if needed, in order to report
      * syntax errors before any other error. */
-     if (getLongLongFromObjectOrReply(c,c->argv[4],&minidle,
-        "Invalid min-idle-time argument for XAUTOCLAIM")
-        != C_OK) return;
+    if (getLongLongFromObjectOrReply(c,c->argv[4],&minidle,"Invalid min-idle-time argument for XAUTOCLAIM") != C_OK)
+        return;
     if (minidle < 0) minidle = 0;
-    if (streamParseIDOrReply(c,c->argv[5],&startid,0) == C_ERR)
+
+    if (streamParseIntervalIDOrReply(c,c->argv[5],&startid,&startex,0) != C_OK)
         return;
-    if (streamParseIDOrReply(c,c->argv[6],&endid,UINT64_MAX) == C_ERR)
+    if (startex && streamIncrID(&startid) != C_OK) {
+        addReplyError(c,"invalid start ID for the interval");
         return;
-    if (getLongLongFromObjectOrReply(c,c->argv[7],&count,NULL) == C_ERR)
+    }
+
+    if (getLongLongFromObjectOrReply(c,c->argv[6],&count,NULL) != C_OK)
         return;
     if (count < 0) count = 0;
 
     if (o) {
-        if (checkType(c,o,OBJ_STREAM)) return; /* Type error. */
+        if (checkType(c,o,OBJ_STREAM))
+            return; /* Type error. */
         group = streamLookupCG(o->ptr,c->argv[2]->ptr);
     }
 
     /* No key or group? Send an error given that the group creation
      * is mandatory. */
     if (o == NULL || group == NULL) {
-        addReplyErrorFormat(c,"-NOGROUP No such key '%s' or "
-                              "consumer group '%s'", (char*)c->argv[1]->ptr,
-                              (char*)c->argv[2]->ptr);
+        addReplyErrorFormat(c,"-NOGROUP No such key '%s' or consumer group '%s'",
+                            (char*)c->argv[1]->ptr,
+                            (char*)c->argv[2]->ptr);
         return;
     }
 
@@ -2721,23 +2726,23 @@ void xautoclaimCommand(client *c) {
     streamConsumer *consumer = NULL;
     long long attempts = count*10;
 
-    unsigned char startkey[sizeof(streamID)];
-    unsigned char endkey[sizeof(streamID)];
-    raxIterator ri;
-    mstime_t now = mstime();
+    addReplyArrayLen(c, 2);
 
+    unsigned char startkey[sizeof(streamID)];
     streamEncodeID(startkey,&startid);
-    streamEncodeID(endkey,&endid);
+    raxIterator ri;
     raxStart(&ri,group->pel);
     raxSeek(&ri,">=",startkey,sizeof(startkey));
     void *arraylenptr = addReplyDeferredLen(c);
     size_t arraylen = 0;
-    while (--attempts && count && raxNext(&ri) && memcmp(ri.key,endkey,ri.key_len) <= 0) {
+    mstime_t now = mstime();
+    while (attempts-- && count && raxNext(&ri)) {
         streamNACK *nack = ri.data;
 
         if (minidle) {
             mstime_t this_idle = now - nack->delivery_time;
-            if (this_idle < minidle) continue;
+            if (this_idle < minidle)
+                continue;
         }
 
         streamID id;
@@ -2745,20 +2750,29 @@ void xautoclaimCommand(client *c) {
 
         if (consumer == NULL)
             consumer = streamLookupConsumer(group,c->argv[3]->ptr,SLC_NONE,NULL);
+        if (nack->consumer != consumer) {
+            /* Remove the entry from the old consumer.
+             * Note that nack->consumer is NULL if we created the
+             * NACK above because of the FORCE option. */
+            if (nack->consumer)
+                raxRemove(nack->consumer->pel,ri.key,ri.key_len,NULL);
+        }
 
-        if (consumer != nack->consumer)
-            raxRemove(nack->consumer->pel,ri.key,ri.key_len,NULL);
         /* Update the consumer and idle time. */
-        nack->consumer = consumer;
         nack->delivery_time = now;
         nack->delivery_count++;
-        /* Add the entry in the new consumer local PEL. */
-        if (consumer != nack->consumer)
+
+        if (nack->consumer != consumer) {
+            /* Add the entry in the new consumer local PEL. */
             raxInsert(consumer->pel,ri.key,ri.key_len,nack,NULL);
+            nack->consumer = consumer;
+        }
+
         /* Send the reply for this entry. */
-        size_t emitted = streamReplyWithRange(c,o->ptr,&id,&id,1,0,
-                                NULL,NULL,STREAM_RWR_RAWENTRIES,NULL);
-        if (!emitted) addReplyNull(c);
+        size_t emitted = streamReplyWithRange(c,o->ptr,&id,&id,1,0,NULL,NULL,
+                                              STREAM_RWR_RAWENTRIES,NULL);
+        if (!emitted)
+            addReplyNull(c);
         arraylen++;
         count--;
 
@@ -2768,8 +2782,18 @@ void xautoclaimCommand(client *c) {
         decrRefCount(idstr);
         server.dirty++;
     }
-   
+
+    streamID endid;
+    if (raxEOF(&ri)) {
+        endid.ms = endid.seq = 0;
+    } else {
+        streamDecodeID(ri.key, &endid);
+    }
+    raxStop(&ri);
+
     setDeferredArrayLen(c,arraylenptr,arraylen);
+    addReplyStreamID(c, &endid);
+
     preventCommandPropagation(c);
 }
 

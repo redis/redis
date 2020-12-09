@@ -367,50 +367,94 @@ start_server {
 
         # Client 1 reads item 1 from the stream without acknowledgements.
         # Client 2 then claims pending item 1 from the PEL of client 1
-        set reply [
-            r XREADGROUP GROUP mygroup client1 count 1 STREAMS mystream >
-        ]
-        assert {[llength [lindex $reply 0 1 0 1]] == 2}
-        assert {[lindex $reply 0 1 0 1] eq {a 1}}
+        set reply [r XREADGROUP GROUP mygroup client1 count 1 STREAMS mystream >]
+        assert_equal [llength [lindex $reply 0 1 0 1]] 2
+        assert_equal [lindex $reply 0 1 0 1] {a 1}
         r debug sleep 0.2
-        set reply [
-            r XAUTOCLAIM mystream mygroup client2 10 - + 1
-        ]
-        assert {[llength $reply] == 1}
-        assert {[llength [lindex $reply 0 1]] == 2}
-        assert {[lindex $reply 0 1] eq {a 1}}
+        set reply [r XAUTOCLAIM mystream mygroup client2 10 - 1]
+        assert_equal [llength $reply] 2
+        assert_equal [llength [lindex $reply 0]] 1
+        assert_equal [llength [lindex $reply 0 0 1]] 2
+        assert_equal [lindex $reply 0 0 1] {a 1}
+        assert_equal [lindex $reply 1] $id1
 
         # Client 1 reads another 2 items from stream
         r XREADGROUP GROUP mygroup client1 count 2 STREAMS mystream >
+
+        # For min-idle-time
         r debug sleep 0.2
 
         # Delete item 2 from the stream. Now client 1 has PEL that contains
         # only item 3. Try to use client 2 to claim the deleted item 2
         # from the PEL of client 1, this should return nil
         r XDEL mystream $id2
-        set reply [
-            r XAUTOCLAIM mystream mygroup client2 10 - + 2
-        ]
+        set reply [r XAUTOCLAIM mystream mygroup client2 10 - 2]
         # id1 is self-claimed here but not id2 ('count' was set to 2)
-        assert {[llength $reply] == 2}
-        assert {[llength [lindex $reply 0 1]] == 2}
-        assert {[lindex $reply 0 1] eq {a 1}}
-        assert_equal "" [lindex $reply 1]
+        assert_equal [llength $reply] 2
+        assert_equal [llength [lindex $reply 0]] 2
+        assert_equal [llength [lindex $reply 0 0 1]] 2
+        assert_equal [lindex $reply 0 0 1] {a 1}
+        assert_equal [lindex $reply 0 1] ""
+        assert_equal [lindex $reply 1] $id2
 
         # Delete item 3 from the stream. Now client 1 has PEL that is empty.
         # Try to use client 2 to claim the deleted item 3 from the PEL
         # of client 1, this should return nil
         r debug sleep 0.2
         r XDEL mystream $id3
-        set reply [
-            r XAUTOCLAIM mystream mygroup client2 10 - + 3
-        ]
+        set reply [r XAUTOCLAIM mystream mygroup client2 10 - 3]
         # id1 is self-claimed here but not id2 and id3 ('count' was set to 3)
-        assert {[llength $reply] == 3}
-        assert {[llength [lindex $reply 0 1]] == 2}
-        assert {[lindex $reply 0 1] eq {a 1}}
-        assert_equal "" [lindex $reply 1]
-        assert_equal "" [lindex $reply 2]
+        assert_equal [llength $reply] 2
+        assert_equal [llength [lindex $reply 0]] 3
+        assert_equal [llength [lindex $reply 0 0 1]] 2
+        assert_equal [lindex $reply 0 0 1] {a 1}
+        assert_equal [lindex $reply 0 1] ""
+        assert_equal [lindex $reply 0 2] ""
+        assert_equal [lindex $reply 1] $id3
+    }
+
+    test {XAUTOCLAIM as an iterator} {
+        # Add 5 items into the stream, and create a consumer group
+        r del mystream
+        set id1 [r XADD mystream * a 1]
+        set id2 [r XADD mystream * b 2]
+        set id3 [r XADD mystream * c 3]
+        set id4 [r XADD mystream * d 4]
+        set id5 [r XADD mystream * e 5]
+        r XGROUP CREATE mystream mygroup 0
+
+        # Read 5 messages into client1
+        r XREADGROUP GROUP mygroup client1 count 90 STREAMS mystream >
+
+        # For min-idle-time
+        r debug sleep 0.2
+
+        # Claim 2 entries
+        set reply [r XAUTOCLAIM mystream mygroup client2 10 - 2]
+        assert_equal [llength $reply] 2
+        assert_equal [llength [lindex $reply 0]] 2
+        assert_equal [llength [lindex $reply 0 0 1]] 2
+        assert_equal [lindex $reply 0 0 1] {a 1}
+        set cursor [lindex $reply 1]
+        assert_equal $cursor $id2
+
+        # Claim 2 more entries
+        set reply [r XAUTOCLAIM mystream mygroup client2 10 ($cursor 2]
+        assert_equal [llength $reply] 2
+        assert_equal [llength [lindex $reply 0]] 2
+        assert_equal [llength [lindex $reply 0 0 1]] 2
+        assert_equal [lindex $reply 0 0 1] {c 3}
+        set cursor [lindex $reply 1]
+        assert_equal $cursor $id4
+
+        # Claim last entry
+        set reply [r XAUTOCLAIM mystream mygroup client2 10 ($cursor 2]
+        assert_equal [llength $reply] 2
+        assert_equal [llength [lindex $reply 0]] 1
+        assert_equal [llength [lindex $reply 0 0 1]] 2
+        assert_equal [lindex $reply 0 0 1] {e 5}
+        set cursor [lindex $reply 1]
+        assert_equal $cursor {0-0}
     }
 
     test {XINFO FULL output} {
