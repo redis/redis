@@ -2164,7 +2164,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* Clear the paused clients flag if needed. */
-    clientsArePaused(); /* Don't check return value, just use the side effect.*/
+    unpauseClients(0); /* Don't check return value, just use the side effect.*/
 
     /* Replication cron function -- used to reconnect to master,
      * detect transfer failures, start background RDB transfers and so forth. */
@@ -3040,7 +3040,7 @@ void initServer(void) {
     server.ready_keys = listCreate();
     server.clients_waiting_acks = listCreate();
     server.get_ack_from_slaves = 0;
-    server.clients_paused = 0;
+    server.client_pause_flags = 0;
     server.events_processed_while_blocked = 0;
     server.system_memory_size = zmalloc_get_memory_size();
     server.blocked_last_cron = 0;
@@ -4010,6 +4010,17 @@ int processCommand(client *c) {
     {
         rejectCommand(c, shared.slowscripterr);
         return C_OK;
+    }
+
+    /* If ther server is paused, block the client until
+     * the pause has ended. Replicas are never paused. */
+    if (!(c->flags & CLIENT_SLAVE) && 
+        ((server.client_pause_flags & CLIENT_PAUSE_ALL) ||
+        (server.client_pause_flags & CLIENT_PAUSE_RO && is_write_command)))
+    {
+        c->bpop.timeout = 0;
+        blockClient(c,BLOCKED_PAUSE);
+        return C_OK;       
     }
 
     /* Exec the command */

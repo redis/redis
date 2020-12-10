@@ -110,6 +110,13 @@ void processUnblockedClients(void) {
          * client is not blocked before to proceed, but things may change and
          * the code is conceptually more correct this way. */
         if (!(c->flags & CLIENT_BLOCKED)) {
+            serverLog(LL_WARNING, "??");
+            /* If we have a queued command, execute it now */
+            if (c->flags & CLIENT_PENDING_COMMAND) {
+                serverLog(LL_WARNING, "GOGO");
+                if (processCommandAndResetClient(c) == C_ERR) continue;
+            }
+            /* Otherwise, try to process more input from the buffer */
             if (c->querybuf && sdslen(c->querybuf) > 0) {
                 processInputBuffer(c);
             }
@@ -154,6 +161,9 @@ void unblockClient(client *c) {
     } else if (c->btype == BLOCKED_MODULE) {
         if (moduleClientIsBlockedOnKeys(c)) unblockClientWaitingData(c);
         unblockClientFromModule(c);
+    } else if (c->btype == BLOCKED_PAUSE) {
+        /* Mark this client to execute its command */
+        c->flags |= CLIENT_PENDING_COMMAND;
     } else {
         serverPanic("Unknown btype in unblockClient().");
     }

@@ -1960,7 +1960,7 @@ void commandProcessed(client *c) {
      * still be able to access the client argv and argc field.
      * The client will be reset in unblockClientFromModule(). */
     if (!(c->flags & CLIENT_BLOCKED) ||
-        c->btype != BLOCKED_MODULE)
+        c->btype != BLOCKED_MODULE || c->btype != BLOCKED_PAUSE)
     {
         resetClient(c);
     }
@@ -2010,9 +2010,6 @@ int processCommandAndResetClient(client *c) {
 void processInputBuffer(client *c) {
     /* Keep processing while there is something in the input buffer */
     while(c->qb_pos < sdslen(c->querybuf)) {
-        /* Return if clients are paused. */
-        if (!(c->flags & CLIENT_SLAVE) && clientsArePaused()) break;
-
         /* Immediately abort if the client is in the middle of something. */
         if (c->flags & CLIENT_BLOCKED) break;
 
@@ -2653,13 +2650,28 @@ NULL
             addReplyBulk(c,c->name);
         else
             addReplyNull(c);
-    } else if (!strcasecmp(c->argv[1]->ptr,"pause") && c->argc == 3) {
-        /* CLIENT PAUSE */
+    } else if (!strcasecmp(c->argv[1]->ptr,"unpause") && c->argc == 2) {
+        /* CLIENT UNPAUSE */
+        unpauseClients(1);
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"pause") && (c->argc == 3 ||
+                                                        c->argc == 4))
+    {
+        /* CLIENT PAUSE TIMEOUT [READONLY] */
         long long duration;
+        int type = CLIENT_PAUSE_ALL;
+        if (c->argc == 4) {
+            if (!strcasecmp(c->argv[3]->ptr,"readonly")) {
+                type = CLIENT_PAUSE_RO;
+            } else {
+                addReplyError(c,
+                    "CLIENT PAUSE option must be READONLY");         
+            }
+        }
 
         if (getTimeoutFromObjectOrReply(c,c->argv[2],&duration,
-                UNIT_MILLISECONDS) != C_OK) return;
-        pauseClients(duration);
+            UNIT_MILLISECONDS) != C_OK) return;
+        pauseClients(duration, type);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"tracking") && c->argc >= 3) {
         /* CLIENT TRACKING (on|off) [REDIRECT <id>] [BCAST] [PREFIX first]
@@ -3226,37 +3238,68 @@ void flushSlavesOutputBuffers(void) {
  * time left for the previous duration. However if the duration is smaller
  * than the time left for the previous pause, no change is made to the
  * left duration. */
-void pauseClients(mstime_t end) {
-    if (!server.clients_paused || end > server.clients_pause_end_time)
-        server.clients_pause_end_time = end;
-    server.clients_paused = 1;
+void pauseClients(mstime_t end, int type) {
+    mstime_t *current_end;
+
+    if (type == CLIENT_PAUSE_RO) {
+        current_end = &server.client_pause_ro_end_time;
+    } else if (type == CLIENT_PAUSE_ALL) {
+        current_end = &server.client_pause_end_time;
+    }
+
+    if (!(server.client_pause_flags & type) || end > *current_end) {
+        *current_end = end;
+    }
+
+    server.client_pause_flags |= type;
+}
+
+/* Unpause clients if either the time has elapsed or clients
+ * need to be forced to be unpaused. */
+void unpauseClients(int force) {
+    UNUSED(force);
+    listNode *ln;
+    listIter li;
+    client *c;
+    int initial_flags = server.client_pause_flags;
+
+    /* Check to see if any of the client pauses has ended. */
+    if (force || (server.client_pause_flags & CLIENT_PAUSE_ALL 
+        && server.client_pause_end_time < server.mstime))
+    {
+        server.client_pause_flags &= ~CLIENT_PAUSE_ALL;
+        serverLog(LL_WARNING, "unpausing all");
+    }
+
+    if (force || (server.client_pause_flags & CLIENT_PAUSE_RO
+        && server.client_pause_ro_end_time < server.mstime))
+    {
+        server.client_pause_flags &= ~CLIENT_PAUSE_RO;
+        serverLog(LL_WARNING, "unpausing ro %lld %lld",server.client_pause_ro_end_time, server.mstime);
+    }
+
+    /* Nothing was unblocked */
+    if (initial_flags == server.client_pause_flags) return;
+    serverLog(LL_WARNING, "UNPAUSING");
+
+    /* Put all the clients in the unblocked clients queue in order to
+     * force the re-processing of the input buffer if any. */
+    listRewind(server.clients,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        c = listNodeValue(ln);
+
+        /* Replicas are never blocked */
+        if (c->flags & CLIENT_BLOCKED && c->btype == BLOCKED_PAUSE) {
+            unblockClient(c);
+        }
+    }
 }
 
 /* Return non-zero if clients are currently paused. As a side effect the
  * function checks if the pause time was reached and clear it. */
 int clientsArePaused(void) {
-    if (server.clients_paused &&
-        server.clients_pause_end_time < server.mstime)
-    {
-        listNode *ln;
-        listIter li;
-        client *c;
-
-        server.clients_paused = 0;
-
-        /* Put all the clients in the unblocked clients queue in order to
-         * force the re-processing of the input buffer if any. */
-        listRewind(server.clients,&li);
-        while ((ln = listNext(&li)) != NULL) {
-            c = listNodeValue(ln);
-
-            /* Don't touch slaves and blocked clients.
-             * The latter pending requests will be processed when unblocked. */
-            if (c->flags & (CLIENT_SLAVE|CLIENT_BLOCKED)) continue;
-            queueClientForReprocessing(c);
-        }
-    }
-    return server.clients_paused;
+    unpauseClients(0);
+    return server.client_pause_flags;
 }
 
 /* This function is called by Redis in order to process a few events from

@@ -280,7 +280,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define BLOCKED_MODULE 3  /* Blocked by a loadable module. */
 #define BLOCKED_STREAM 4  /* XREAD. */
 #define BLOCKED_ZSET 5    /* BZPOP et al. */
-#define BLOCKED_NUM 6     /* Number of blocked states. */
+#define BLOCKED_PAUSE 6
+#define BLOCKED_NUM 7     /* Number of blocked states. */
 
 /* Client request types */
 #define PROTO_REQ_INLINE 1
@@ -435,6 +436,11 @@ typedef enum {
 #define PROPAGATE_NONE 0
 #define PROPAGATE_AOF 1
 #define PROPAGATE_REPL 2
+
+/* Client pause types */
+#define CLIENT_PAUSE_OFF 0
+#define CLIENT_PAUSE_RO (1<<0)
+#define CLIENT_PAUSE_ALL (1<<1)
 
 /* RDB active child save type. */
 #define RDB_CHILD_TYPE_NONE 0
@@ -1171,8 +1177,9 @@ struct redisServer {
     rax *clients_timeout_table; /* Radix tree for blocked clients timeouts. */
     long fixed_time_expire;     /* If > 0, expire keys against server.mstime. */
     rax *clients_index;         /* Active clients dictionary by client ID. */
-    int clients_paused;         /* True if clients are currently paused */
-    mstime_t clients_pause_end_time; /* Time when we undo clients_paused */
+    int client_pause_flags;     /* True if clients are currently paused */
+    mstime_t client_pause_end_time;    /* Time when we undo clients_paused */
+    mstime_t client_pause_ro_end_time; /* Time when we undo RO clients_paused */
     char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */
     dict *migrate_cached_sockets;/* MIGRATE cached sockets */
     redisAtomic uint64_t next_client_id; /* Next client unique ID. Incremental. */
@@ -1794,7 +1801,8 @@ char *getClientTypeName(int class);
 void flushSlavesOutputBuffers(void);
 void disconnectSlaves(void);
 int listenToPort(int port, int *fds, int *count);
-void pauseClients(mstime_t duration);
+void pauseClients(mstime_t duration, int type);
+void unpauseClients(int force);
 int clientsArePaused(void);
 void processEventsWhileBlocked(void);
 void loadingCron(void);
@@ -2111,6 +2119,7 @@ int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *lev
 size_t freeMemoryGetNotCountedMemory();
 int overMaxmemoryAfterAlloc(size_t moremem);
 int processCommand(client *c);
+int processCommandAndResetClient(client *c);
 void setupSignalHandlers(void);
 void removeSignalHandlers(void);
 struct redisCommand *lookupCommand(sds name);
