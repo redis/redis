@@ -18,5 +18,54 @@ tags "modules" {
             assert_equal {1 t} [r keyspace.is_key_loaded t]
             assert_equal {1 s} [r keyspace.is_key_loaded s]
         }
+
+        test {Nested multi due to RM_Call} {
+            r del multi
+            r del lua
+
+            r set x 1
+            r set x_copy 1
+            r keyspace.del_key_copy x
+            r keyspace.incr_case1 x
+            r keyspace.incr_case2 x
+            r keyspace.incr_case3 x
+            assert_equal {} [r get multi]
+            assert_equal {} [r get lua]
+            r get x
+        } {3}
+        
+        test {Nested multi due to RM_Call, with client MULTI} {
+            r del multi
+            r del lua
+
+            r set x 1
+            r set x_copy 1
+            r multi
+            r keyspace.del_key_copy x
+            r keyspace.incr_case1 x
+            r keyspace.incr_case2 x
+            r keyspace.incr_case3 x
+            r exec
+            assert_equal {1} [r get multi]
+            assert_equal {} [r get lua]
+            r get x
+        } {3}
+        
+        test {Nested multi due to RM_Call, with EVAL} {
+            r del multi
+            r del lua
+
+            r set x 1
+            r set x_copy 1
+            r eval {
+                redis.pcall('keyspace.del_key_copy', KEYS[1])
+                redis.pcall('keyspace.incr_case1', KEYS[1])
+                redis.pcall('keyspace.incr_case2', KEYS[1])
+                redis.pcall('keyspace.incr_case3', KEYS[1])
+            } 1 x
+            assert_equal {} [r get multi]
+            assert_equal {1} [r get lua]
+            r get x
+        } {3}
 	}
 }

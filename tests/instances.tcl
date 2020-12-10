@@ -155,7 +155,7 @@ proc log_crashes {} {
 
     set logs [glob */err.txt]
     foreach log $logs {
-        set res [find_valgrind_errors $log]
+        set res [find_valgrind_errors $log true]
         if {$res != ""} {
             puts $res
             incr ::failed
@@ -606,3 +606,16 @@ proc restart_instance {type id} {
     }
 }
 
+proc redis_deferring_client {type id} {
+    set port [get_instance_attrib $type $id port]
+    set host [get_instance_attrib $type $id host]
+    set client [redis $host $port 1 $::tls]
+    return $client
+}
+
+proc redis_client {type id} {
+    set port [get_instance_attrib $type $id port]
+    set host [get_instance_attrib $type $id host]
+    set client [redis $host $port 0 $::tls]
+    return $client
+}

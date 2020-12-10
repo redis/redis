@@ -41,6 +41,32 @@ static void datatype_free(void *value) {
     }
 }
 
+static void *datatype_copy(RedisModuleString *fromkey, RedisModuleString *tokey, const void *value) {
+    const DataType *old = value;
+
+    /* Answers to ultimate questions cannot be copied! */
+    if (old->intval == 42)
+        return NULL;
+
+    DataType *new = (DataType *) RedisModule_Alloc(sizeof(DataType));
+
+    new->intval = old->intval;
+    new->strval = RedisModule_CreateStringFromString(NULL, old->strval);
+
+    /* Breaking the rules here! We return a copy that also includes traces
+     * of fromkey/tokey to confirm we get what we expect.
+     */
+    size_t len;
+    const char *str = RedisModule_StringPtrLen(fromkey, &len);
+    RedisModule_StringAppendBuffer(NULL, new->strval, "/", 1);
+    RedisModule_StringAppendBuffer(NULL, new->strval, str, len);
+    RedisModule_StringAppendBuffer(NULL, new->strval, "/", 1);
+    str = RedisModule_StringPtrLen(tokey, &len);
+    RedisModule_StringAppendBuffer(NULL, new->strval, str, len);
+
+    return new;
+}
+
 static int datatype_set(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 4) {
         RedisModule_WrongArity(ctx);
@@ -97,9 +123,13 @@ static int datatype_get(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     DataType *dt = RedisModule_ModuleTypeGetValue(key);
     RedisModule_CloseKey(key);
 
-    RedisModule_ReplyWithArray(ctx, 2);
-    RedisModule_ReplyWithLongLong(ctx, dt->intval);
-    RedisModule_ReplyWithString(ctx, dt->strval);
+    if (!dt) {
+        RedisModule_ReplyWithNullArray(ctx);
+    } else {
+        RedisModule_ReplyWithArray(ctx, 2);
+        RedisModule_ReplyWithLongLong(ctx, dt->intval);
+        RedisModule_ReplyWithString(ctx, dt->strval);
+    }
     return REDISMODULE_OK;
 }
 
@@ -161,6 +191,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         .rdb_load = datatype_load,
         .rdb_save = datatype_save,
         .free = datatype_free,
+        .copy = datatype_copy
     };
 
     datatype = RedisModule_CreateDataType(ctx, "test___dt", 1, &datatype_methods);

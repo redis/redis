@@ -168,10 +168,7 @@ void *bioProcessBackgroundJobs(void *arg) {
 
     redisSetCpuAffinity(server.bio_cpulist);
 
-    /* Make the thread killable at any time, so that bioKillThreads()
-     * can work reliably. */
-    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
-    pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+    makeThreadKillable();
 
     pthread_mutex_lock(&bio_mutex[type]);
     /* Block SIGALRM so we are sure that only the main thread will
@@ -206,7 +203,7 @@ void *bioProcessBackgroundJobs(void *arg) {
             /* What we free changes depending on what arguments are set:
              * arg1 -> free the object at pointer.
              * arg2 & arg3 -> free two dictionaries (a Redis DB).
-             * only arg3 -> free the skiplist. */
+             * only arg3 -> free the radix tree. */
             if (job->arg1)
                 lazyfreeFreeObjectFromBioThread(job->arg1);
             else if (job->arg2 && job->arg3)

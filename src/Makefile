@@ -20,7 +20,7 @@ DEPENDENCY_TARGETS=hiredis linenoise lua hdr_histogram
 NODEPS:=clean distclean
 
 # Default settings
-STD=-std=c11 -pedantic -DREDIS_STATIC=''
+STD=-pedantic -DREDIS_STATIC=''
 ifneq (,$(findstring clang,$(CC)))
 ifneq (,$(findstring FreeBSD,$(uname_S)))
   STD+=-Wno-c11-extensions
@@ -28,6 +28,16 @@ endif
 endif
 WARN=-Wall -W -Wno-missing-field-initializers
 OPT=$(OPTIMIZATION)
+
+# Detect if the compiler supports C11 _Atomic
+C11_ATOMIC := $(shell sh -c 'echo "\#include <stdatomic.h>" > foo.c; \
+	$(CC) -std=c11 -c foo.c -o foo.o > /dev/null 2>&1; \
+	if [ -f foo.o ]; then echo "yes"; rm foo.o; fi; rm foo.c')
+ifeq ($(C11_ATOMIC),yes)
+	STD+=-std=c11
+else
+	STD+=-std=c99
+endif
 
 PREFIX?=/usr/local
 INSTALL_BIN=$(PREFIX)/bin
@@ -121,12 +131,21 @@ ifeq ($(uname_S),OpenBSD)
     	endif
 
 else
+ifeq ($(uname_S),NetBSD)
+	# NetBSD
+	FINAL_LIBS+= -lpthread
+	ifeq ($(USE_BACKTRACE),yes)
+	    FINAL_CFLAGS+= -DUSE_BACKTRACE -I/usr/pkg/include
+	    FINAL_LDFLAGS+= -L/usr/pkg/lib
+	    FINAL_LIBS+= -lexecinfo
+    	endif
+else
 ifeq ($(uname_S),FreeBSD)
 	# FreeBSD
 	FINAL_LIBS+= -lpthread -lexecinfo
 else
 ifeq ($(uname_S),DragonFly)
-	# FreeBSD
+	# DragonFly
 	FINAL_LIBS+= -lpthread -lexecinfo
 else
 ifeq ($(uname_S),OpenBSD)
@@ -137,9 +156,17 @@ ifeq ($(uname_S),NetBSD)
 	# NetBSD
 	FINAL_LIBS+= -lpthread -lexecinfo
 else
+ifeq ($(uname_S),Haiku)
+	# Haiku
+	FINAL_CFLAGS+= -DBSD_SOURCE
+	FINAL_LDFLAGS+= -lbsd -lnetwork
+	FINAL_LIBS+= -lpthread
+else
 	# All the other OSes (notably Linux)
 	FINAL_LDFLAGS+= -rdynamic
 	FINAL_LIBS+=-ldl -pthread -lrt
+endif
+endif
 endif
 endif
 endif
@@ -153,6 +180,8 @@ FINAL_CFLAGS+= -I../deps/hiredis -I../deps/linenoise -I../deps/lua/src -I../deps
 
 # Determine systemd support and/or build preference (defaulting to auto-detection)
 BUILD_WITH_SYSTEMD=no
+LIBSYSTEMD_LIBS=-lsystemd
+
 # If 'USE_SYSTEMD' in the environment is neither "no" nor "yes", try to
 # auto-detect libsystemd's presence and link accordingly.
 ifneq ($(USE_SYSTEMD),no)
@@ -161,17 +190,18 @@ ifneq ($(USE_SYSTEMD),no)
 # (unless a later check tells us otherwise)
 ifeq ($(LIBSYSTEMD_PKGCONFIG),0)
 	BUILD_WITH_SYSTEMD=yes
+	LIBSYSTEMD_LIBS=$(shell $(PKG_CONFIG) --libs libsystemd)
 endif
 endif
+
+# If 'USE_SYSTEMD' is set to "yes" use pkg-config if available or fall back to
+# default -lsystemd.
 ifeq ($(USE_SYSTEMD),yes)
-ifneq ($(LIBSYSTEMD_PKGCONFIG),0)
-$(error USE_SYSTEMD is set to "$(USE_SYSTEMD)", but $(PKG_CONFIG) cannot find libsystemd)
-endif
-# Force building with libsystemd
 	BUILD_WITH_SYSTEMD=yes
 endif
+
 ifeq ($(BUILD_WITH_SYSTEMD),yes)
-	FINAL_LIBS+=$(shell $(PKG_CONFIG) --libs libsystemd)
+	FINAL_LIBS+=$(LIBSYSTEMD_LIBS)
 	FINAL_CFLAGS+= -DHAVE_LIBSYSTEMD
 endif
 
@@ -226,15 +256,15 @@ QUIET_LINK = @printf '    %b %b\n' $(LINKCOLOR)LINK$(ENDCOLOR) $(BINCOLOR)$@$(EN
 QUIET_INSTALL = @printf '    %b %b\n' $(LINKCOLOR)INSTALL$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR) 1>&2;
 endif
 
-REDIS_SERVER_NAME=redis-server
-REDIS_SENTINEL_NAME=redis-sentinel
+REDIS_SERVER_NAME=redis-server$(PROG_SUFFIX)
+REDIS_SENTINEL_NAME=redis-sentinel$(PROG_SUFFIX)
 REDIS_SERVER_OBJ=adlist.o quicklist.o ae.o anet.o dict.o server.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o pubsub.o multi.o debug.o sort.o intset.o syncio.o cluster.o crc16.o endianconv.o slowlog.o scripting.o bio.o rio.o rand.o memtest.o crcspeed.o crc64.o bitops.o sentinel.o notify.o setproctitle.o blocked.o hyperloglog.o latency.o sparkline.o redis-check-rdb.o redis-check-aof.o geo.o lazyfree.o module.o evict.o expire.o geohash.o geohash_helper.o childinfo.o defrag.o siphash.o rax.o t_stream.o listpack.o localtime.o lolwut.o lolwut5.o lolwut6.o acl.o gopher.o tracking.o connection.o tls.o sha256.o timeout.o setcpuaffinity.o monotonic.o
-REDIS_CLI_NAME=redis-cli
-REDIS_CLI_OBJ=anet.o adlist.o dict.o redis-cli.o zmalloc.o release.o ae.o crcspeed.o crc64.o siphash.o crc16.o monotonic.o
-REDIS_BENCHMARK_NAME=redis-benchmark
-REDIS_BENCHMARK_OBJ=ae.o anet.o redis-benchmark.o adlist.o dict.o zmalloc.o siphash.o monotonic.o
-REDIS_CHECK_RDB_NAME=redis-check-rdb
-REDIS_CHECK_AOF_NAME=redis-check-aof
+REDIS_CLI_NAME=redis-cli$(PROG_SUFFIX)
+REDIS_CLI_OBJ=anet.o adlist.o dict.o redis-cli.o zmalloc.o release.o ae.o crcspeed.o crc64.o siphash.o crc16.o monotonic.o cli_common.o
+REDIS_BENCHMARK_NAME=redis-benchmark$(PROG_SUFFIX)
+REDIS_BENCHMARK_OBJ=ae.o anet.o redis-benchmark.o adlist.o dict.o zmalloc.o release.o crcspeed.o crc64.o siphash.o crc16.o monotonic.o cli_common.o
+REDIS_CHECK_RDB_NAME=redis-check-rdb$(PROG_SUFFIX)
+REDIS_CHECK_AOF_NAME=redis-check-aof$(PROG_SUFFIX)
 
 all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME)
 	@echo ""
@@ -342,10 +372,6 @@ lcov:
 	@geninfo -o redis.info .
 	@genhtml --legend -o lcov-html redis.info
 
-test-sds: sds.c sds.h
-	$(REDIS_CC) sds.c zmalloc.c -DSDS_TEST_MAIN $(FINAL_LIBS) -o /tmp/sds_test
-	/tmp/sds_test
-
 .PHONY: lcov
 
 bench: $(REDIS_BENCHMARK_NAME)
@@ -367,7 +393,7 @@ valgrind:
 	$(MAKE) OPTIMIZATION="-O0" MALLOC="libc"
 
 helgrind:
-	$(MAKE) OPTIMIZATION="-O0" MALLOC="libc" CFLAGS="-D__ATOMIC_VAR_FORCE_SYNC_MACROS"
+	$(MAKE) OPTIMIZATION="-O0" MALLOC="libc" CFLAGS="-D__ATOMIC_VAR_FORCE_SYNC_MACROS" REDIS_CFLAGS="-I/usr/local/include" REDIS_LDFLAGS="-L/usr/local/lib"
 
 src/help.h:
 	@../utils/generate-command-help.rb > help.h

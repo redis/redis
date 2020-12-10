@@ -1,7 +1,17 @@
 start_server {tags {"introspection"}} {
     test {CLIENT LIST} {
         r client list
-    } {*addr=*:* fd=* age=* idle=* flags=N db=9 sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* obl=0 oll=0 omem=0 events=r cmd=client*}
+    } {*addr=*:* fd=* age=* idle=* flags=N db=9 sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client*}
+
+    test {CLIENT LIST with IDs} {
+        set myid [r client id]
+        set cl [split [r client list id $myid] "\r\n"]
+        assert_match "id=$myid*" [lindex $cl 0]
+    }
+
+    test {CLIENT INFO} {
+        r client info
+    } {*addr=*:* fd=* age=* idle=* flags=N db=9 sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client*}
 
     test {MONITOR can log executed commands} {
         set rd [redis_deferring_client]
@@ -160,7 +170,7 @@ start_server {tags {"introspection"}} {
         # Rewrite entire configuration, restart and confirm the
         # server is able to parse it and start.
         assert_equal [r debug config-rewrite-force-all] "OK"
-        restart_server 0 0
+        restart_server 0 false false
         assert_equal [r ping] "PONG"
 
         # Verify no changes were introduced

@@ -15,3 +15,12 @@
    Memcheck:Value8
    fun:lzf_compress
 }
+
+{
+   <negative size allocatoin, see integration/corrupt-dump>
+   Memcheck:FishyValue
+   malloc(size)
+   fun:malloc
+   fun:ztrymalloc_usable
+   fun:ztrymalloc
+}

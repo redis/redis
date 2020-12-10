@@ -30,6 +30,9 @@
 #include "server.h"
 #include <math.h> /* isnan(), isinf() */
 
+/* Forward declarations */
+int getGenericCommand(client *c);
+
 /*-----------------------------------------------------------------------------
  * String Commands
  *----------------------------------------------------------------------------*/
@@ -44,9 +47,9 @@ static int checkStringLength(client *c, long long size) {
 
 /* The setGenericCommand() function implements the SET operation with different
  * options and variants. This function is called in order to implement the
- * following commands: SET, SETEX, PSETEX, SETNX.
+ * following commands: SET, SETEX, PSETEX, SETNX, GETSET.
  *
- * 'flags' changes the behavior of the command (NX or XX, see below).
+ * 'flags' changes the behavior of the command (NX, XX or GET, see below).
  *
  * 'expire' represents an expire to set in form of a Redis object as passed
  * by the user. It is interpreted according to the specified 'unit'.
@@ -64,6 +67,7 @@ static int checkStringLength(client *c, long long size) {
 #define OBJ_SET_EX (1<<2)          /* Set if time in seconds is given */
 #define OBJ_SET_PX (1<<3)          /* Set if time in ms in given */
 #define OBJ_SET_KEEPTTL (1<<4)     /* Set and keep the ttl */
+#define OBJ_SET_GET (1<<5)         /* Set if want to get key before set */
 
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
@@ -84,16 +88,23 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         addReply(c, abort_reply ? abort_reply : shared.null[c->resp]);
         return;
     }
+
+    if (flags & OBJ_SET_GET) {
+        if (getGenericCommand(c) == C_ERR) return;
+    }
+
     genericSetKey(c,c->db,key,val,flags & OBJ_SET_KEEPTTL,1);
     server.dirty++;
     if (expire) setExpire(c,c->db,key,mstime()+milliseconds);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
     if (expire) notifyKeyspaceEvent(NOTIFY_GENERIC,
         "expire",key,c->db->id);
-    addReply(c, ok_reply ? ok_reply : shared.ok);
+    if (!(flags & OBJ_SET_GET)) {
+        addReply(c, ok_reply ? ok_reply : shared.ok);
+    }
 }
 
-/* SET key value [NX] [XX] [KEEPTTL] [EX <seconds>] [PX <milliseconds>] */
+/* SET key value [NX] [XX] [KEEPTTL] [GET] [EX <seconds>] [PX <milliseconds>] */
 void setCommand(client *c) {
     int j;
     robj *expire = NULL;
@@ -106,7 +117,7 @@ void setCommand(client *c) {
 
         if ((a[0] == 'n' || a[0] == 'N') &&
             (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
-            !(flags & OBJ_SET_XX))
+            !(flags & OBJ_SET_XX) && !(flags & OBJ_SET_GET))
         {
             flags |= OBJ_SET_NX;
         } else if ((a[0] == 'x' || a[0] == 'X') &&
@@ -114,6 +125,11 @@ void setCommand(client *c) {
                    !(flags & OBJ_SET_NX))
         {
             flags |= OBJ_SET_XX;
+        } else if ((a[0] == 'g' || a[0] == 'G') &&
+                   (a[1] == 'e' || a[1] == 'E') &&
+                   (a[2] == 't' || a[2] == 'T') && a[3] == '\0' &&
+                   !(flags & OBJ_SET_NX)) {
+            flags |= OBJ_SET_GET;
         } else if (!strcasecmp(c->argv[j]->ptr,"KEEPTTL") &&
                    !(flags & OBJ_SET_EX) && !(flags & OBJ_SET_PX))
         {
@@ -144,6 +160,24 @@ void setCommand(client *c) {
 
     c->argv[2] = tryObjectEncoding(c->argv[2]);
     setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL);
+
+    /* Propagate without the GET argument */
+    if (flags & OBJ_SET_GET) {
+        int argc = 0;
+        robj **argv = zmalloc((c->argc-1)*sizeof(robj*));
+        for (j=0; j < c->argc; j++) {
+            char *a = c->argv[j]->ptr;
+            /* Skip GET which may be repeated multiple times. */
+            if (j >= 3 &&
+                (a[0] == 'g' || a[0] == 'G') &&
+                (a[1] == 'e' || a[1] == 'E') &&
+                (a[2] == 't' || a[2] == 'T') && a[3] == '\0')
+                continue;
+            argv[argc++] = c->argv[j];
+            incrRefCount(c->argv[j]);
+        }
+        replaceClientCommandVector(c, argc, argv);
+    }
 }
 
 void setnxCommand(client *c) {
@@ -185,6 +219,11 @@ void getsetCommand(client *c) {
     setKey(c,c->db,c->argv[1],c->argv[2]);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[1],c->db->id);
     server.dirty++;
+
+    /* Propagate as SET command */
+    robj *setcmd = createStringObject("SET",3);
+    rewriteClientCommandArgument(c,0,setcmd);
+    decrRefCount(setcmd);
 }
 
 void setrangeCommand(client *c) {

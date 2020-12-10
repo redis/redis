@@ -1,15 +1,14 @@
 proc cmdstat {cmd} {
-    if {[regexp "\r\ncmdstat_$cmd:(.*?)\r\n" [r info commandstats] _ value]} {
-        set _ $value
-    }
+    return [cmdrstat $cmd r]
 }
 
 start_server {tags {"introspection"}} {
-    test {TTL and TYPYE do not alter the last access time of a key} {
+    test {TTL, TYPE and EXISTS do not alter the last access time of a key} {
         r set foo bar
         after 3000
         r ttl foo
         r type foo
+        r exists foo
         assert {[r object idletime foo] >= 2}
     }
 

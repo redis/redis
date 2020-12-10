@@ -70,6 +70,37 @@ start_server {
         assert {[llength $pending] == 2}
     }
 
+    test {XPENDING only group} {
+        set pending [r XPENDING mystream mygroup]
+        assert {[llength $pending] == 4}
+    }
+
+    test {XPENDING with IDLE} {
+        after 20
+        set pending [r XPENDING mystream mygroup IDLE 99999999 - + 10 client-1]
+        assert {[llength $pending] == 0}
+        set pending [r XPENDING mystream mygroup IDLE 1 - + 10 client-1]
+        assert {[llength $pending] == 2}
+        set pending [r XPENDING mystream mygroup IDLE 99999999 - + 10]
+        assert {[llength $pending] == 0}
+        set pending [r XPENDING mystream mygroup IDLE 1 - + 10]
+        assert {[llength $pending] == 4}
+    }
+
+    test {XPENDING with exclusive range intervals works as expected} {
+        set pending [r XPENDING mystream mygroup - + 10]
+        assert {[llength $pending] == 4}
+        set startid [lindex [lindex $pending 0] 0]
+        set endid [lindex [lindex $pending 3] 0]
+        set expending [r XPENDING mystream mygroup ($startid ($endid 10]
+        assert {[llength $expending] == 2}
+        for {set j 0} {$j < 2} {incr j} {
+            set itemid [lindex [lindex $expending $j] 0]
+            assert {$itemid ne $startid}
+            assert {$itemid ne $endid}
+        }
+    }
+
     test {XACK is able to remove items from the client/group PEL} {
         set pending [r XPENDING mystream mygroup - + 10 client-1]
         set id1 [lindex $pending 0 0]
@@ -218,12 +249,23 @@ start_server {
         ]
         assert {[llength [lindex $reply 0 1 0 1]] == 2}
         assert {[lindex $reply 0 1 0 1] eq {a 1}}
+
+        # make sure the entry is present in both the gorup, and the right consumer
+        assert {[llength [r XPENDING mystream mygroup - + 10]] == 1}
+        assert {[llength [r XPENDING mystream mygroup - + 10 client1]] == 1}
+        assert {[llength [r XPENDING mystream mygroup - + 10 client2]] == 0}
+
         r debug sleep 0.2
         set reply [
             r XCLAIM mystream mygroup client2 10 $id1
         ]
         assert {[llength [lindex $reply 0 1]] == 2}
         assert {[lindex $reply 0 1] eq {a 1}}
+
+        # make sure the entry is present in both the gorup, and the right consumer
+        assert {[llength [r XPENDING mystream mygroup - + 10]] == 1}
+        assert {[llength [r XPENDING mystream mygroup - + 10 client1]] == 0}
+        assert {[llength [r XPENDING mystream mygroup - + 10 client2]] == 1}
 
         # Client 1 reads another 2 items from stream
         r XREADGROUP GROUP mygroup client1 count 2 STREAMS mystream >
@@ -294,6 +336,27 @@ start_server {
         assert {[lindex $reply 0 3] == 2}
     }
 
+    test {XCLAIM same consumer} {
+        # Add 3 items into the stream, and create a consumer group
+        r del mystream
+        set id1 [r XADD mystream * a 1]
+        set id2 [r XADD mystream * b 2]
+        set id3 [r XADD mystream * c 3]
+        r XGROUP CREATE mystream mygroup 0
+
+        set reply [r XREADGROUP GROUP mygroup client1 count 1 STREAMS mystream >]
+        assert {[llength [lindex $reply 0 1 0 1]] == 2}
+        assert {[lindex $reply 0 1 0 1] eq {a 1}}
+        r debug sleep 0.2
+        # re-claim with the same consumer that already has it
+        assert {[llength [r XCLAIM mystream mygroup client1 10 $id1]] == 1}
+
+        # make sure the entry is still in the PEL
+        set reply [r XPENDING mystream mygroup - + 10]
+        assert {[llength $reply] == 1}
+        assert {[lindex $reply 0 1] eq {client1}}
+    }
+
     test {XINFO FULL output} {
         r del x
         r XADD x 100 a 1
@@ -326,6 +389,102 @@ start_server {
         assert_equal [llength $reply] 12
         assert_equal [lindex $reply 1] 4
         assert_equal [lindex $reply 9] "{100-0 {a 1}}"
+    }
+
+    test {XGROUP CREATECONSUMER: create consumer if does not exist} {
+        r del mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        r XADD mystream * f v
+
+        set reply [r xinfo groups mystream]
+        set group_info [lindex $reply 0]
+        set n_consumers [lindex $group_info 3]
+        assert_equal $n_consumers 0 ;# consumers number in cg
+
+        # create consumer using XREADGROUP
+        r XREADGROUP GROUP mygroup Alice COUNT 1 STREAMS mystream >
+
+        set reply [r xinfo groups mystream]
+        set group_info [lindex $reply 0]
+        set n_consumers [lindex $group_info 3]
+        assert_equal $n_consumers 1 ;# consumers number in cg
+
+        set reply [r xinfo consumers mystream mygroup]
+        set consumer_info [lindex $reply 0]
+        assert_equal [lindex $consumer_info 1] "Alice" ;# consumer name
+
+        # create group using XGROUP CREATECONSUMER when Alice already exists
+        set created [r XGROUP CREATECONSUMER mystream mygroup Alice]
+        assert_equal $created 0
+
+        # create group using XGROUP CREATECONSUMER when Bob does not exist
+        set created [r XGROUP CREATECONSUMER mystream mygroup Bob]
+        assert_equal $created 1
+
+        set reply [r xinfo groups mystream]
+        set group_info [lindex $reply 0]
+        set n_consumers [lindex $group_info 3]
+        assert_equal $n_consumers 2 ;# consumers number in cg
+
+        set reply [r xinfo consumers mystream mygroup]
+        set consumer_info [lindex $reply 0]
+        assert_equal [lindex $consumer_info 1] "Alice" ;# consumer name
+        set consumer_info [lindex $reply 1]
+        assert_equal [lindex $consumer_info 1] "Bob" ;# consumer name
+    }
+
+    test {XGROUP CREATECONSUMER: group must exist} {
+        r del mystream
+        r XADD mystream * f v
+        assert_error "*NOGROUP*" {r XGROUP CREATECONSUMER mystream mygroup consumer}
+    }
+
+    start_server {tags {"stream"} overrides {appendonly yes aof-use-rdb-preamble no appendfsync always}} {
+        test {XREADGROUP with NOACK creates consumer} {
+            r del mystream
+            r XGROUP CREATE mystream mygroup $ MKSTREAM
+            r XADD mystream * f1 v1
+            r XREADGROUP GROUP mygroup Alice NOACK STREAMS mystream ">"
+            set rd [redis_deferring_client]
+            $rd XREADGROUP GROUP mygroup Bob BLOCK 0 NOACK STREAMS mystream ">"
+            r XADD mystream * f2 v2
+            set grpinfo [r xinfo groups mystream]
+
+            r debug loadaof
+            assert {[r xinfo groups mystream] == $grpinfo}
+            set reply [r xinfo consumers mystream mygroup]
+            set consumer_info [lindex $reply 0]
+            assert_equal [lindex $consumer_info 1] "Alice" ;# consumer name
+            set consumer_info [lindex $reply 1]
+            assert_equal [lindex $consumer_info 1] "Bob" ;# consumer name
+        }
+
+        test {Consumer without PEL is present in AOF after AOFRW} {
+            r del mystream
+            r XGROUP CREATE mystream mygroup $ MKSTREAM
+            r XADD mystream * f v
+            r XREADGROUP GROUP mygroup Alice NOACK STREAMS mystream ">"
+            set rd [redis_deferring_client]
+            $rd XREADGROUP GROUP mygroup Bob BLOCK 0 NOACK STREAMS mystream ">"
+            r XGROUP CREATECONSUMER mystream mygroup Charlie
+            set grpinfo [lindex [r xinfo groups mystream] 0]
+
+            r bgrewriteaof
+            waitForBgrewriteaof r
+            r debug loadaof
+
+            set curr_grpinfo [lindex [r xinfo groups mystream] 0]
+            assert {$curr_grpinfo == $grpinfo}
+            set n_consumers [lindex $grpinfo 3]
+
+            # Bob should be created only when there will be new data for this client
+            assert_equal $n_consumers 2
+            set reply [r xinfo consumers mystream mygroup]
+            set consumer_info [lindex $reply 0]
+            assert_equal [lindex $consumer_info 1] "Alice"
+            set consumer_info [lindex $reply 1]
+            assert_equal [lindex $consumer_info 1] "Charlie"
+        }
     }
 
     start_server {} {
