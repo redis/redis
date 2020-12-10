@@ -110,13 +110,12 @@ void processUnblockedClients(void) {
          * client is not blocked before to proceed, but things may change and
          * the code is conceptually more correct this way. */
         if (!(c->flags & CLIENT_BLOCKED)) {
-            serverLog(LL_WARNING, "??");
-            /* If we have a queued command, execute it now */
+            /* If we have a queued command, execute it now. */
             if (c->flags & CLIENT_PENDING_COMMAND) {
-                serverLog(LL_WARNING, "GOGO");
+                c->flags &= ~CLIENT_PENDING_COMMAND;
                 if (processCommandAndResetClient(c) == C_ERR) continue;
-            }
-            /* Otherwise, try to process more input from the buffer */
+            } 
+            /* Then process client if it has more data in it's buffer. */
             if (c->querybuf && sdslen(c->querybuf) > 0) {
                 processInputBuffer(c);
             }
