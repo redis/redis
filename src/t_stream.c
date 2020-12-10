@@ -2985,7 +2985,7 @@ void xinfoCommand(client *c) {
     if (!strcasecmp(c->argv[1]->ptr,"HELP")) {
         const char *help[] = {
 "CONSUMERS <key> <groupname>",
-"    Show consumer groups of group `groupname`.",
+"    Show consumers of <groupname>.",
 "GROUPS <key>",
 "    Show the stream consumer groups.",
 "STREAM <key> [FULL [COUNT <count>]",

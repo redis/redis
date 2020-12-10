@@ -1710,7 +1710,7 @@ void evalShaCommand(client *c) {
 void scriptCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-"DEBUG (yes|sync|no)",
+"DEBUG (YES|SYNC|NO)",
 "    Set the debug mode for subsequent scripts executed.",
 "EXISTS <sha1> [<sha1> ...]",
 "    Return information about the existence of the scripts in the script cache.",

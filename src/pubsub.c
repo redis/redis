@@ -456,10 +456,10 @@ void pubsubCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
 "CHANNELS [<pattern>]",
-"    Return the currently active channels matching a `pattern` (default: '*').",
+"    Return the currently active channels matching a <pattern> (default: '*').",
 "NUMPAT",
 "    Return number of subscriptions to patterns.",
-"NUMSUB [channel-1 .. channel-N]",
+"NUMSUB [<channel> ...]",
 "    Return the number of subscribers for the specified channels, excluding",
 "    pattern subscriptions(default: no channels).",
 NULL

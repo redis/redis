@@ -1258,16 +1258,16 @@ void objectCommand(client *c) {
         const char *help[] = {
 "ENCODING <key>",
 "    Return the kind of internal representation used in order to store the value",
-"    associated with a `key`.",
+"    associated with a <key>.",
 "FREQ <key>",
-"    Return the access frequency index of the `key`. The returned integer is",
+"    Return the access frequency index of the <key>. The returned integer is",
 "    proportional to the logarithm of the recent access frequency of the key.",
 "IDLETIME <key>",
-"    Return the idle time of the `key`, that is the approximated number of",
+"    Return the idle time of the <key>, that is the approximated number of",
 "    seconds elapsed since the last access to the key.",
 "REFCOUNT <key>",
 "    Return the number of references of the value associated with the specified",
-"    `key`.",
+"    <key>.",
 NULL
         };
         addReplyHelp(c, help);
@@ -1320,8 +1320,8 @@ void memoryCommand(client *c) {
 "STATS",
 "    Return information about the memory usage of the server.",
 "USAGE <key> [SAMPLES <count>]",
-"    Return memory in bytes used by `key` and its value. Nested values are",
-"    sampled up to `count` times (default: 5).",
+"    Return memory in bytes used by <key> and its value. Nested values are",
+"    sampled up to <count> times (default: 5).",
 NULL
         };
         addReplyHelp(c, help);

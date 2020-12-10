@@ -7914,8 +7914,8 @@ void moduleCommand(client *c) {
         const char *help[] = {
 "LIST",
 "    Return a list of loaded modules.",
-"LOAD <path> [arg ...]",
-"    Load a module library from `path`, passing to it any optional arguments.",
+"LOAD <path> [<arg> ...]",
+"    Load a module library from <path>, passing to it any optional arguments.",
 "UNLOAD <name>",
 "    Unload a module.",
 NULL

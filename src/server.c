@@ -4188,7 +4188,7 @@ void commandCommand(client *c) {
 "    Return the total number of commands in this Redis server.",
 "GETKEYS <full-command>",
 "    Return the keys from a full Redis command.",
-"INFO [command-name ...]",
+"INFO [<command-name> ...]",
 "    Return details about multiple Redis commands.",
 NULL
         };

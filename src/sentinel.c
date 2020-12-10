@@ -3126,7 +3126,7 @@ void sentinelCommand(client *c) {
 "    Show a list of Sentinel instances for this master and their state.",
 "SET <master-name> <option> <value>",
 "    Set configuration paramters for certain masters.",
-"SIMULATE-FAILURE (crash-after-election|crash-after-promotion|help)",
+"SIMULATE-FAILURE (CRASH-AFTER-ELECTION|CRASH-AFTER-PROMOTION|HELP)",
 "    Simulate a Sentinel crash.",
 NULL
         };

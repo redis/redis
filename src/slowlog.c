@@ -142,8 +142,8 @@ void slowlogReset(void) {
 void slowlogCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-"GET [count]",
-"    Return top `count` entries from the slowlog (default: 10). Entries are",
+"GET [<count>]",
+"    Return top <count> entries from the slowlog (default: 10). Entries are",
 "    made of:",
 "    id, timestamp, time in microseconds, arguments array, client IP and port,",
 "    client name",
