@@ -4012,11 +4012,17 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* If ther server is paused, block the client until
+    /* If the server is paused, block the client until
      * the pause has ended. Replicas are never paused. */
+    int is_readonly_command = (c->cmd->flags & CMD_READONLY) ||
+                              (c->cmd->proc == execCommand && !(c->mstate.cmd_inv_flags & CMD_READONLY));
+
     if (!(c->flags & CLIENT_SLAVE) && 
         ((server.client_pause_flags & CLIENT_PAUSE_ALL) ||
-        (server.client_pause_flags & CLIENT_PAUSE_RO && is_write_command)))
+        (server.client_pause_flags & CLIENT_PAUSE_RO && 
+            !(is_readonly_command || 
+              c->cmd->proc == clientCommand ||
+              c->cmd->proc == multiCommand))))
     {
         c->bpop.timeout = 0;
         blockClient(c,BLOCKED_PAUSE);

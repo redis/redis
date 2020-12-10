@@ -3245,6 +3245,8 @@ void pauseClients(mstime_t end, int type) {
         current_end = &server.client_pause_ro_end_time;
     } else if (type == CLIENT_PAUSE_ALL) {
         current_end = &server.client_pause_end_time;
+    } else {
+        serverPanic("Pause called with invalid type.");
     }
 
     if (!(server.client_pause_flags & type) || end > *current_end) {
