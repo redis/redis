@@ -122,6 +122,8 @@ start_server {tags {"introspection"}} {
                 tls-session-caching
                 tls-cert-file
                 tls-key-file
+                tls-client-cert-file
+                tls-client-key-file
                 tls-dh-params-file
                 tls-ca-cert-file
                 tls-ca-cert-dir
