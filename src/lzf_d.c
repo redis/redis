@@ -52,7 +52,7 @@
 #endif
 #endif
 
-#if defined(__GNUC__) && __GNUC__ >= 5
+#if defined(__GNUC__) && __GNUC__ >= 7
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
 #endif
@@ -65,9 +65,10 @@ lzf_decompress (const void *const in_data,  unsigned int in_len,
   u8 const *const in_end  = ip + in_len;
   u8       *const out_end = op + out_len;
 
-  do
+  while (ip < in_end)
     {
-      unsigned int ctrl = *ip++;
+      unsigned int ctrl;
+      ctrl = *ip++;
 
       if (ctrl < (1 << 5)) /* literal run */
         {
@@ -182,7 +183,6 @@ lzf_decompress (const void *const in_data,  unsigned int in_len,
 #endif
         }
     }
-  while (ip < in_end);
 
   return op - (u8 *)out_data;
 }

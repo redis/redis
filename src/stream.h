@@ -74,7 +74,7 @@ typedef struct streamConsumer {
                                    consumer not yet acknowledged. Keys are
                                    big endian message IDs, while values are
                                    the same streamNACK structure referenced
-                                   in the "pel" of the conumser group structure
+                                   in the "pel" of the consumer group structure
                                    itself, so the value is shared. */
 } streamConsumer;
 
@@ -96,6 +96,11 @@ typedef struct streamPropInfo {
 /* Prototypes of exported APIs. */
 struct client;
 
+/* Flags for streamLookupConsumer */
+#define SLC_NONE      0
+#define SLC_NOCREAT   (1<<0) /* Do not create the consumer if it doesn't exist */
+#define SLC_NOREFRESH (1<<1) /* Do not update consumer's seen-time */
+
 stream *streamNew(void);
 void freeStream(stream *s);
 unsigned long streamLength(const robj *subject);
@@ -105,12 +110,16 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields);
 void streamIteratorGetField(streamIterator *si, unsigned char **fieldptr, unsigned char **valueptr, int64_t *fieldlen, int64_t *valuelen);
 void streamIteratorStop(streamIterator *si);
 streamCG *streamLookupCG(stream *s, sds groupname);
-streamConsumer *streamLookupConsumer(streamCG *cg, sds name, int create);
+streamConsumer *streamLookupConsumer(streamCG *cg, sds name, int flags, int *created);
 streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id);
 streamNACK *streamCreateNACK(streamConsumer *consumer);
 void streamDecodeID(void *buf, streamID *id);
 int streamCompareID(streamID *a, streamID *b);
 void streamFreeNACK(streamNACK *na);
-void streamIncrID(streamID *id);
+int streamIncrID(streamID *id);
+int streamDecrID(streamID *id);
+void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds consumername);
+robj *streamDup(robj *o);
+int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep);
 
 #endif

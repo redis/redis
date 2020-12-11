@@ -111,6 +111,10 @@ static unsigned int zipmapDecodeLength(unsigned char *p) {
     return len;
 }
 
+static unsigned int zipmapGetEncodedLengthSize(unsigned char *p) {
+    return (*p < ZIPMAP_BIGLEN) ? 1: 5;
+}
+
 /* Encode the length 'l' writing it in 'p'. If p is NULL it just returns
  * the amount of bytes required to encode such a length. */
 static unsigned int zipmapEncodeLength(unsigned char *p, unsigned int len) {
@@ -133,7 +137,7 @@ static unsigned int zipmapEncodeLength(unsigned char *p, unsigned int len) {
  * zipmap. Returns NULL if the key is not found.
  *
  * If NULL is returned, and totlen is not NULL, it is set to the entire
- * size of the zimap, so that the calling function will be able to
+ * size of the zipmap, so that the calling function will be able to
  * reallocate the original zipmap to make room for more entries. */
 static unsigned char *zipmapLookupRaw(unsigned char *zm, unsigned char *key, unsigned int klen, unsigned int *totlen) {
     unsigned char *p = zm+1, *k = NULL;
@@ -368,6 +372,70 @@ size_t zipmapBlobLen(unsigned char *zm) {
     unsigned int totlen;
     zipmapLookupRaw(zm,NULL,0,&totlen);
     return totlen;
+}
+
+/* Validate the integrity of the data stracture.
+ * when `deep` is 0, only the integrity of the header is validated.
+ * when `deep` is 1, we scan all the entries one by one. */
+int zipmapValidateIntegrity(unsigned char *zm, size_t size, int deep) {
+#define OUT_OF_RANGE(p) ( \
+        (p) < zm + 2 || \
+        (p) > zm + size - 1)
+    unsigned int l, s, e;
+
+    /* check that we can actually read the header (or ZIPMAP_END). */
+    if (size < 2)
+        return 0;
+
+    /* the last byte must be the terminator. */
+    if (zm[size-1] != ZIPMAP_END)
+        return 0;
+
+    if (!deep)
+        return 1;
+
+    unsigned int count = 0;
+    unsigned char *p = zm + 1; /* skip the count */
+    while(*p != ZIPMAP_END) {
+        /* read the field name length encoding type */
+        s = zipmapGetEncodedLengthSize(p);
+        /* make sure the entry length doesn't rech outside the edge of the zipmap */
+        if (OUT_OF_RANGE(p+s))
+            return 0;
+
+        /* read the field name length */
+        l = zipmapDecodeLength(p);
+        p += s; /* skip the encoded field size */
+        p += l; /* skip the field */
+
+        /* make sure the entry doesn't rech outside the edge of the zipmap */
+        if (OUT_OF_RANGE(p))
+            return 0;
+
+        /* read the value length encoding type */
+        s = zipmapGetEncodedLengthSize(p);
+        /* make sure the entry length doesn't rech outside the edge of the zipmap */
+        if (OUT_OF_RANGE(p+s))
+            return 0;
+
+        /* read the value length */
+        l = zipmapDecodeLength(p);
+        p += s; /* skip the encoded value size*/
+        e = *p++; /* skip the encoded free space (always encoded in one byte) */
+        p += l+e; /* skip the value and free space */
+        count++;
+
+        /* make sure the entry doesn't rech outside the edge of the zipmap */
+        if (OUT_OF_RANGE(p))
+            return 0;
+    }
+
+    /* check that the count in the header is correct */
+    if (zm[0] != ZIPMAP_BIGLEN && zm[0] != count)
+        return 0;
+
+    return 1;
+#undef OUT_OF_RANGE
 }
 
 #ifdef REDIS_TEST

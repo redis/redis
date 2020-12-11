@@ -54,6 +54,7 @@
 #define HAVE_PROC_MAPS 1
 #define HAVE_PROC_SMAPS 1
 #define HAVE_PROC_SOMAXCONN 1
+#define HAVE_PROC_OOM_SCORE_ADJ 1
 #endif
 
 /* Test for task_info() */
@@ -63,8 +64,8 @@
 
 /* Test for backtrace() */
 #if defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__)) || \
-    defined(__FreeBSD__) || (defined(__OpenBSD__) && defined(USE_BACKTRACE))\
- || defined(__DragonFly__)
+    defined(__FreeBSD__) || ((defined(__OpenBSD__) || defined(__NetBSD__)) && defined(USE_BACKTRACE))\
+ || defined(__DragonFly__) || (defined(__UCLIBC__) && defined(__UCLIBC_HAS_BACKTRACE__))
 #define HAVE_BACKTRACE 1
 #endif
 
@@ -86,6 +87,7 @@
 #include <sys/feature_tests.h>
 #ifdef _DTRACE_VERSION
 #define HAVE_EVPORT 1
+#define HAVE_PSINFO 1
 #endif
 #endif
 
@@ -94,6 +96,20 @@
 #define redis_fsync fdatasync
 #else
 #define redis_fsync fsync
+#endif
+
+#if __GNUC__ >= 4
+#define redis_unreachable __builtin_unreachable
+#else
+#define redis_unreachable abort
+#endif
+
+#if __GNUC__ >= 3
+#define likely(x) __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#else
+#define likely(x) (x)
+#define unlikely(x) (x)
 #endif
 
 /* Define rdb_fsync_range to sync_file_range() on Linux, otherwise we use
@@ -121,6 +137,10 @@
  * Linux and osx. */
 #if (defined __NetBSD__ || defined __FreeBSD__ || defined __OpenBSD__)
 #define USE_SETPROCTITLE
+#endif
+
+#if defined(__HAIKU__)
+#define ESOCKTNOSUPPORT 0
 #endif
 
 #if ((defined __linux && defined(__GLIBC__)) || defined __APPLE__)
@@ -165,7 +185,7 @@ void setproctitle(const char *fmt, ...);
 #endif /* BYTE_ORDER */
 
 /* Sometimes after including an OS-specific header that defines the
- * endianess we end with __BYTE_ORDER but not with BYTE_ORDER that is what
+ * endianness we end with __BYTE_ORDER but not with BYTE_ORDER that is what
  * the Redis code uses. In this case let's define everything without the
  * underscores. */
 #ifndef BYTE_ORDER
@@ -224,6 +244,36 @@ void setproctitle(const char *fmt, ...);
 
 #if defined(__sparc__) || defined(__arm__)
 #define USE_ALIGNED_ACCESS
+#endif
+
+/* Define for redis_set_thread_title */
+#ifdef __linux__
+#define redis_set_thread_title(name) pthread_setname_np(pthread_self(), name)
+#else
+#if (defined __FreeBSD__ || defined __OpenBSD__)
+#include <pthread_np.h>
+#define redis_set_thread_title(name) pthread_set_name_np(pthread_self(), name)
+#elif defined __NetBSD__
+#include <pthread.h>
+#define redis_set_thread_title(name) pthread_setname_np(pthread_self(), "%s", name)
+#elif defined __HAIKU__
+#include <kernel/OS.h>
+#define redis_set_thread_title(name) rename_thread(find_thread(0), name)
+#else
+#if (defined __APPLE__ && defined(MAC_OS_X_VERSION_10_7))
+int pthread_setname_np(const char *name);
+#include <pthread.h>
+#define redis_set_thread_title(name) pthread_setname_np(name)
+#else
+#define redis_set_thread_title(name)
+#endif
+#endif
+#endif
+
+/* Check if we can use setcpuaffinity(). */
+#if (defined __linux || defined __NetBSD__ || defined __FreeBSD__ || defined __DragonFly__)
+#define USE_SETCPUAFFINITY
+void setcpuaffinity(const char *cpulist);
 #endif
 
 #endif

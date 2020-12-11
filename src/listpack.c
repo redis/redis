@@ -5,6 +5,7 @@
  *  https://github.com/antirez/listpack
  *
  * Copyright (c) 2017, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2020, Redis Labs, Inc
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -41,6 +42,7 @@
 
 #include "listpack.h"
 #include "listpack_malloc.h"
+#include "redisassert.h"
 
 #define LP_HDR_SIZE 6       /* 32 bit total len + 16 bit number of elements. */
 #define LP_HDR_NUMELE_UNKNOWN UINT16_MAX
@@ -113,6 +115,21 @@
     (p)[4] = (v)&0xff; \
     (p)[5] = ((v)>>8)&0xff; \
 } while(0)
+
+/* Validates that 'p' is not ouside the listpack.
+ * All function that return a pointer to an element in the listpack will assert
+ * that this element is valid, so it can be freely used.
+ * Generally functions such lpNext and lpDelete assume the input pointer is
+ * already validated (since it's the return value of another function). */
+#define ASSERT_INTEGRITY(lp, p) do { \
+    assert((p) >= (lp)+LP_HDR_SIZE && (p) < (lp)+lpGetTotalBytes((lp))); \
+} while (0)
+
+/* Similar to the above, but validates the entire element lenth rather than just
+ * it's pointer. */
+#define ASSERT_INTEGRITY_LEN(lp, p, len) do { \
+    assert((p) >= (lp)+LP_HDR_SIZE && (p)+(len) < (lp)+lpGetTotalBytes((lp))); \
+} while (0)
 
 /* Convert a string into a signed 64 bit integer.
  * The function returns 1 if the string could be parsed into a (non-overflowing)
@@ -367,9 +384,14 @@ void lpEncodeString(unsigned char *buf, unsigned char *s, uint32_t len) {
     }
 }
 
-/* Return the encoded length of the listpack element pointed by 'p'. If the
- * element encoding is wrong then 0 is returned. */
-uint32_t lpCurrentEncodedSize(unsigned char *p) {
+/* Return the encoded length of the listpack element pointed by 'p'.
+ * This includes the encoding byte, length bytes, and the element data itself.
+ * If the element encoding is wrong then 0 is returned.
+ * Note that this method may access additional bytes (in case of 12 and 32 bit
+ * str), so should only be called when we know 'p' was already validated by
+ * lpCurrentEncodedSizeBytes or ASSERT_INTEGRITY_LEN (possibly since 'p' is
+ * a return value of another function that validated its return. */
+uint32_t lpCurrentEncodedSizeUnsafe(unsigned char *p) {
     if (LP_ENCODING_IS_7BIT_UINT(p[0])) return 1;
     if (LP_ENCODING_IS_6BIT_STR(p[0])) return 1+LP_ENCODING_6BIT_STR_LEN(p);
     if (LP_ENCODING_IS_13BIT_INT(p[0])) return 2;
@@ -383,12 +405,30 @@ uint32_t lpCurrentEncodedSize(unsigned char *p) {
     return 0;
 }
 
+/* Return bytes needed to encode the length of the listpack element pointed by 'p'.
+ * This includes just the encodign byte, and the bytes needed to encode the length
+ * of the element (excluding the element data itself)
+ * If the element encoding is wrong then 0 is returned. */
+uint32_t lpCurrentEncodedSizeBytes(unsigned char *p) {
+    if (LP_ENCODING_IS_7BIT_UINT(p[0])) return 1;
+    if (LP_ENCODING_IS_6BIT_STR(p[0])) return 1;
+    if (LP_ENCODING_IS_13BIT_INT(p[0])) return 1;
+    if (LP_ENCODING_IS_16BIT_INT(p[0])) return 1;
+    if (LP_ENCODING_IS_24BIT_INT(p[0])) return 1;
+    if (LP_ENCODING_IS_32BIT_INT(p[0])) return 1;
+    if (LP_ENCODING_IS_64BIT_INT(p[0])) return 1;
+    if (LP_ENCODING_IS_12BIT_STR(p[0])) return 2;
+    if (LP_ENCODING_IS_32BIT_STR(p[0])) return 5;
+    if (p[0] == LP_EOF) return 1;
+    return 0;
+}
+
 /* Skip the current entry returning the next. It is invalid to call this
  * function if the current element is the EOF element at the end of the
  * listpack, however, while this function is used to implement lpNext(),
  * it does not return NULL when the EOF element is encountered. */
 unsigned char *lpSkip(unsigned char *p) {
-    unsigned long entrylen = lpCurrentEncodedSize(p);
+    unsigned long entrylen = lpCurrentEncodedSizeUnsafe(p);
     entrylen += lpEncodeBacklen(NULL,entrylen);
     p += entrylen;
     return p;
@@ -398,21 +438,25 @@ unsigned char *lpSkip(unsigned char *p) {
  * the pointer to the next element (the one on the right), or NULL if 'p'
  * already pointed to the last element of the listpack. */
 unsigned char *lpNext(unsigned char *lp, unsigned char *p) {
-    ((void) lp); /* lp is not used for now. However lpPrev() uses it. */
+    assert(p);
     p = lpSkip(p);
+    ASSERT_INTEGRITY(lp, p);
     if (p[0] == LP_EOF) return NULL;
     return p;
 }
 
 /* If 'p' points to an element of the listpack, calling lpPrev() will return
- * the pointer to the preivous element (the one on the left), or NULL if 'p'
+ * the pointer to the previous element (the one on the left), or NULL if 'p'
  * already pointed to the first element of the listpack. */
 unsigned char *lpPrev(unsigned char *lp, unsigned char *p) {
+    assert(p);
     if (p-lp == LP_HDR_SIZE) return NULL;
     p--; /* Seek the first backlen byte of the last element. */
     uint64_t prevlen = lpDecodeBacklen(p);
     prevlen += lpEncodeBacklen(NULL,prevlen);
-    return p-prevlen+1; /* Seek the first byte of the previous entry. */
+    p -= prevlen-1; /* Seek the first byte of the previous entry. */
+    ASSERT_INTEGRITY(lp, p);
+    return p;
 }
 
 /* Return a pointer to the first element of the listpack, or NULL if the
@@ -492,6 +536,7 @@ unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf) {
     int64_t val;
     uint64_t uval, negstart, negmax;
 
+    assert(p); /* assertion for valgrind (avoid NPD) */
     if (LP_ENCODING_IS_7BIT_UINT(p[0])) {
         negstart = UINT64_MAX; /* 7 bit ints are always positive. */
         negmax = 0;
@@ -570,8 +615,7 @@ unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf) {
 
 /* Insert, delete or replace the specified element 'ele' of length 'len' at
  * the specified position 'p', with 'p' being a listpack element pointer
- * obtained with lpFirst(), lpLast(), lpIndex(), lpNext(), lpPrev() or
- * lpSeek().
+ * obtained with lpFirst(), lpLast(), lpNext(), lpPrev() or lpSeek().
  *
  * The element is inserted before, after, or replaces the element pointed
  * by 'p' depending on the 'where' argument, that can be LP_BEFORE, LP_AFTER
@@ -610,6 +654,7 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, un
     if (where == LP_AFTER) {
         p = lpSkip(p);
         where = LP_BEFORE;
+        ASSERT_INTEGRITY(lp, p);
     }
 
     /* Store the offset of the element 'p', so that we can obtain its
@@ -639,8 +684,9 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, un
     uint64_t old_listpack_bytes = lpGetTotalBytes(lp);
     uint32_t replaced_len  = 0;
     if (where == LP_REPLACE) {
-        replaced_len = lpCurrentEncodedSize(p);
+        replaced_len = lpCurrentEncodedSizeUnsafe(p);
         replaced_len += lpEncodeBacklen(NULL,replaced_len);
+        ASSERT_INTEGRITY_LEN(lp, p, replaced_len);
     }
 
     uint64_t new_listpack_bytes = old_listpack_bytes + enclen + backlen_size
@@ -768,18 +814,18 @@ unsigned char *lpSeek(unsigned char *lp, long index) {
     if (numele != LP_HDR_NUMELE_UNKNOWN) {
         if (index < 0) index = (long)numele+index;
         if (index < 0) return NULL; /* Index still < 0 means out of range. */
-        if (index >= numele) return NULL; /* Out of range the other side. */
+        if (index >= (long)numele) return NULL; /* Out of range the other side. */
         /* We want to scan right-to-left if the element we are looking for
          * is past the half of the listpack. */
-        if (index > numele/2) {
+        if (index > (long)numele/2) {
             forward = 0;
-            /* Left to right scanning always expects a negative index. Convert
+            /* Right to left scanning always expects a negative index. Convert
              * our index to negative form. */
             index -= numele;
         }
     } else {
         /* If the listpack length is unspecified, for negative indexes we
-         * want to always scan left-to-right. */
+         * want to always scan right-to-left. */
         if (index < 0) forward = 0;
     }
 
@@ -801,3 +847,86 @@ unsigned char *lpSeek(unsigned char *lp, long index) {
     }
 }
 
+/* Validate the integrity of a single listpack entry and move to the next one.
+ * The input argument 'pp' is a reference to the current record and is advanced on exit.
+ * Returns 1 if valid, 0 if invalid. */
+int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes) {
+#define OUT_OF_RANGE(p) ( \
+        (p) < lp + LP_HDR_SIZE || \
+        (p) > lp + lpbytes - 1)
+    unsigned char *p = *pp;
+    if (!p)
+        return 0;
+
+    if (*p == LP_EOF) {
+        *pp = NULL;
+        return 1;
+    }
+
+    /* check that we can read the encoded size */
+    uint32_t lenbytes = lpCurrentEncodedSizeBytes(p);
+    if (!lenbytes)
+        return 0;
+
+    /* make sure the encoded entry length doesn't rech outside the edge of the listpack */
+    if (OUT_OF_RANGE(p + lenbytes))
+        return 0;
+
+    /* get the entry length and encoded backlen. */
+    unsigned long entrylen = lpCurrentEncodedSizeUnsafe(p);
+    unsigned long encodedBacklen = lpEncodeBacklen(NULL,entrylen);
+    entrylen += encodedBacklen;
+
+    /* make sure the entry doesn't rech outside the edge of the listpack */
+    if (OUT_OF_RANGE(p + entrylen))
+        return 0;
+
+    /* move to the next entry */
+    p += entrylen;
+
+    /* make sure the encoded length at the end patches the one at the beginning. */
+    uint64_t prevlen = lpDecodeBacklen(p-1);
+    if (prevlen + encodedBacklen != entrylen)
+        return 0;
+
+    *pp = p;
+    return 1;
+#undef OUT_OF_RANGE
+}
+
+/* Validate the integrity of the data stracture.
+ * when `deep` is 0, only the integrity of the header is validated.
+ * when `deep` is 1, we scan all the entries one by one. */
+int lpValidateIntegrity(unsigned char *lp, size_t size, int deep){
+    /* Check that we can actually read the header. (and EOF) */
+    if (size < LP_HDR_SIZE + 1)
+        return 0;
+
+    /* Check that the encoded size in the header must match the allocated size. */
+    size_t bytes = lpGetTotalBytes(lp);
+    if (bytes != size)
+        return 0;
+
+    /* The last byte must be the terminator. */
+    if (lp[size-1] != LP_EOF)
+        return 0;
+
+    if (!deep)
+        return 1;
+
+    /* Validate the invividual entries. */
+    uint32_t count = 0;
+    unsigned char *p = lpFirst(lp);
+    while(p) {
+        if (!lpValidateNext(lp, &p, bytes))
+            return 0;
+        count++;
+    }
+
+    /* Check that the count in the header is correct */
+    uint32_t numele = lpGetNumElements(lp);
+    if (numele != LP_HDR_NUMELE_UNKNOWN && numele != count)
+        return 0;
+
+    return 1;
+}

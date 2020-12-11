@@ -65,6 +65,8 @@ int linenoiseHistoryLoad(const char *filename);
 void linenoiseClearScreen(void);
 void linenoiseSetMultiLine(int ml);
 void linenoisePrintKeyCodes(void);
+void linenoiseMaskModeEnable(void);
+void linenoiseMaskModeDisable(void);
 
 #ifdef __cplusplus
 }

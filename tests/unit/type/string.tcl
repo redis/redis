@@ -394,6 +394,35 @@ start_server {tags {"string"}} {
         list $v1 $v2 [r get foo]
     } {{} OK 2}
 
+    test {Extended SET GET option} {
+        r del foo
+        r set foo bar
+        set old_value [r set foo bar2 GET]
+        set new_value [r get foo]
+        list $old_value $new_value
+    } {bar bar2}
+
+    test {Extended SET GET option with no previous value} {
+        r del foo
+        set old_value [r set foo bar GET]
+        set new_value [r get foo]
+        list $old_value $new_value
+    } {{} bar}
+
+    test {Extended SET GET with NX option should result in syntax err} {
+      catch {r set foo bar NX GET} err1
+      catch {r set foo bar NX GET} err2
+      list $err1 $err2
+    } {*syntax err* *syntax err*}
+
+    test {Extended SET GET with incorrect type should result in wrong type error} {
+      r del foo
+      r rpush foo waffle
+      catch {r set foo bar GET} err1
+      assert_equal "waffle" [r rpop foo]
+      set err1
+    } {*WRONGTYPE*}
+
     test {Extended SET EX option} {
         r del foo
         r set foo bar ex 10
@@ -419,4 +448,34 @@ start_server {tags {"string"}} {
         r set foo bar
         r getrange foo 0 4294967297
     } {bar}
+
+    set rna1 {CACCTTCCCAGGTAACAAACCAACCAACTTTCGATCTCTTGTAGATCTGTTCTCTAAACGAACTTTAAAATCTGTGTGGCTGTCACTCGGCTGCATGCTTAGTGCACTCACGCAGTATAATTAATAACTAATTACTGTCGTTGACAGGACACGAGTAACTCGTCTATCTTCTGCAGGCTGCTTACGGTTTCGTCCGTGTTGCAGCCGATCATCAGCACATCTAGGTTTCGTCCGGGTGTG}
+    set rna2 {ATTAAAGGTTTATACCTTCCCAGGTAACAAACCAACCAACTTTCGATCTCTTGTAGATCTGTTCTCTAAACGAACTTTAAAATCTGTGTGGCTGTCACTCGGCTGCATGCTTAGTGCACTCACGCAGTATAATTAATAACTAATTACTGTCGTTGACAGGACACGAGTAACTCGTCTATCTTCTGCAGGCTGCTTACGGTTTCGTCCGTGTTGCAGCCGATCATCAGCACATCTAGGTTT}
+    set rnalcs {ACCTTCCCAGGTAACAAACCAACCAACTTTCGATCTCTTGTAGATCTGTTCTCTAAACGAACTTTAAAATCTGTGTGGCTGTCACTCGGCTGCATGCTTAGTGCACTCACGCAGTATAATTAATAACTAATTACTGTCGTTGACAGGACACGAGTAACTCGTCTATCTTCTGCAGGCTGCTTACGGTTTCGTCCGTGTTGCAGCCGATCATCAGCACATCTAGGTTT}
+
+    test {STRALGO LCS string output with STRINGS option} {
+        r STRALGO LCS STRINGS $rna1 $rna2
+    } $rnalcs
+
+    test {STRALGO LCS len} {
+        r STRALGO LCS LEN STRINGS $rna1 $rna2
+    } [string length $rnalcs]
+
+    test {LCS with KEYS option} {
+        r set virus1 $rna1
+        r set virus2 $rna2
+        r STRALGO LCS KEYS virus1 virus2
+    } $rnalcs
+
+    test {LCS indexes} {
+        dict get [r STRALGO LCS IDX KEYS virus1 virus2] matches
+    } {{{238 238} {239 239}} {{236 236} {238 238}} {{229 230} {236 237}} {{224 224} {235 235}} {{1 222} {13 234}}}
+
+    test {LCS indexes with match len} {
+        dict get [r STRALGO LCS IDX KEYS virus1 virus2 WITHMATCHLEN] matches
+    } {{{238 238} {239 239} 1} {{236 236} {238 238} 1} {{229 230} {236 237} 2} {{224 224} {235 235} 1} {{1 222} {13 234} 222}}
+
+    test {LCS indexes with match len and minimum match len} {
+        dict get [r STRALGO LCS IDX KEYS virus1 virus2 WITHMATCHLEN MINMATCHLEN 5] matches
+    } {{{1 222} {13 234} 222}}
 }

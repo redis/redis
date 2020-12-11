@@ -64,7 +64,7 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
             dbSyncDelete(db,keyobj);
         notifyKeyspaceEvent(NOTIFY_EXPIRED,
             "expired",keyobj,db->id);
-        trackingInvalidateKey(keyobj);
+        signalModifiedKey(NULL, db, keyobj);
         decrRefCount(keyobj);
         server.stat_expiredkeys++;
         return 1;
@@ -97,7 +97,7 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
  * conditions:
  *
  * If type is ACTIVE_EXPIRE_CYCLE_FAST the function will try to run a
- * "fast" expire cycle that takes no longer than EXPIRE_FAST_CYCLE_DURATION
+ * "fast" expire cycle that takes no longer than ACTIVE_EXPIRE_CYCLE_FAST_DURATION
  * microseconds, and is not repeated again before the same amount of time.
  * The cycle will also refuse to run at all if the latest slow cycle did not
  * terminate because of a time limit condition.
@@ -414,7 +414,7 @@ void expireSlaveKeys(void) {
         else
             dictDelete(slaveKeysWithExpire,keyname);
 
-        /* Stop conditions: found 3 keys we cna't expire in a row or
+        /* Stop conditions: found 3 keys we can't expire in a row or
          * time limit was reached. */
         cycles++;
         if (noexpire > 3) break;
@@ -433,7 +433,8 @@ void rememberSlaveKeyWithExpire(redisDb *db, robj *key) {
             NULL,                       /* val dup */
             dictSdsKeyCompare,          /* key compare */
             dictSdsDestructor,          /* key destructor */
-            NULL                        /* val destructor */
+            NULL,                       /* val destructor */
+            NULL                        /* allow to expand */
         };
         slaveKeysWithExpire = dictCreate(&dt,NULL);
     }
@@ -466,7 +467,7 @@ size_t getSlaveKeyWithExpireCount(void) {
  *
  * Note: technically we should handle the case of a single DB being flushed
  * but it is not worth it since anyway race conditions using the same set
- * of key names in a wriatable slave and in its master will lead to
+ * of key names in a writable slave and in its master will lead to
  * inconsistencies. This is just a best-effort thing we do. */
 void flushSlaveKeysWithExpireList(void) {
     if (slaveKeysWithExpire) {
@@ -475,12 +476,22 @@ void flushSlaveKeysWithExpireList(void) {
     }
 }
 
+int checkAlreadyExpired(long long when) {
+    /* EXPIRE with negative TTL, or EXPIREAT with a timestamp into the past
+     * should never be executed as a DEL when load the AOF or in the context
+     * of a slave instance.
+     *
+     * Instead we add the already expired key to the database with expire time
+     * (possibly in the past) and wait for an explicit DEL from the master. */
+    return (when <= mstime() && !server.loading && !server.masterhost);
+}
+
 /*-----------------------------------------------------------------------------
  * Expires Commands
  *----------------------------------------------------------------------------*/
 
 /* This is the generic command implementation for EXPIRE, PEXPIRE, EXPIREAT
- * and PEXPIREAT. Because the commad second argument may be relative or absolute
+ * and PEXPIREAT. Because the command second argument may be relative or absolute
  * the "basetime" argument is used to signal what the base time is (either 0
  * for *AT variants of the command, or the current time for relative expires).
  *
@@ -502,13 +513,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         return;
     }
 
-    /* EXPIRE with negative TTL, or EXPIREAT with a timestamp into the past
-     * should never be executed as a DEL when load the AOF or in the context
-     * of a slave instance.
-     *
-     * Instead we take the other branch of the IF statement setting an expire
-     * (possibly in the past) and wait for an explicit DEL from the master. */
-    if (when <= mstime() && !server.loading && !server.masterhost) {
+    if (checkAlreadyExpired(when)) {
         robj *aux;
 
         int deleted = server.lazyfree_lazy_expire ? dbAsyncDelete(c->db,key) :
@@ -519,14 +524,14 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         /* Replicate/AOF this as an explicit DEL or UNLINK. */
         aux = server.lazyfree_lazy_expire ? shared.unlink : shared.del;
         rewriteClientCommandVector(c,2,aux,key);
-        signalModifiedKey(c->db,key);
+        signalModifiedKey(c,c->db,key);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
         addReply(c, shared.cone);
         return;
     } else {
         setExpire(c,c->db,key,when);
         addReply(c,shared.cone);
-        signalModifiedKey(c->db,key);
+        signalModifiedKey(c,c->db,key);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
         server.dirty++;
         return;
@@ -590,6 +595,8 @@ void pttlCommand(client *c) {
 void persistCommand(client *c) {
     if (lookupKeyWrite(c->db,c->argv[1])) {
         if (removeExpire(c->db,c->argv[1])) {
+            signalModifiedKey(c,c->db,c->argv[1]);
+            notifyKeyspaceEvent(NOTIFY_GENERIC,"persist",c->argv[1],c->db->id);
             addReply(c,shared.cone);
             server.dirty++;
         } else {

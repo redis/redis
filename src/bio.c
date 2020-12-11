@@ -86,7 +86,7 @@ struct bio_job {
 void *bioProcessBackgroundJobs(void *arg);
 void lazyfreeFreeObjectFromBioThread(robj *o);
 void lazyfreeFreeDatabaseFromBioThread(dict *ht1, dict *ht2);
-void lazyfreeFreeSlotsMapFromBioThread(zskiplist *sl);
+void lazyfreeFreeSlotsMapFromBioThread(rax *rt);
 
 /* Make sure we have enough stack to perform all the things we do in the
  * main thread. */
@@ -154,10 +154,21 @@ void *bioProcessBackgroundJobs(void *arg) {
         return NULL;
     }
 
-    /* Make the thread killable at any time, so that bioKillThreads()
-     * can work reliably. */
-    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
-    pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+    switch (type) {
+    case BIO_CLOSE_FILE:
+        redis_set_thread_title("bio_close_file");
+        break;
+    case BIO_AOF_FSYNC:
+        redis_set_thread_title("bio_aof_fsync");
+        break;
+    case BIO_LAZY_FREE:
+        redis_set_thread_title("bio_lazy_free");
+        break;
+    }
+
+    redisSetCpuAffinity(server.bio_cpulist);
+
+    makeThreadKillable();
 
     pthread_mutex_lock(&bio_mutex[type]);
     /* Block SIGALRM so we are sure that only the main thread will
@@ -192,7 +203,7 @@ void *bioProcessBackgroundJobs(void *arg) {
             /* What we free changes depending on what arguments are set:
              * arg1 -> free the object at pointer.
              * arg2 & arg3 -> free two dictionaries (a Redis DB).
-             * only arg3 -> free the skiplist. */
+             * only arg3 -> free the radix tree. */
             if (job->arg1)
                 lazyfreeFreeObjectFromBioThread(job->arg1);
             else if (job->arg2 && job->arg3)
@@ -254,10 +265,11 @@ void bioKillThreads(void) {
     int err, j;
 
     for (j = 0; j < BIO_NUM_OPS; j++) {
-        if (pthread_cancel(bio_threads[j]) == 0) {
+        if (bio_threads[j] == pthread_self()) continue;
+        if (bio_threads[j] && pthread_cancel(bio_threads[j]) == 0) {
             if ((err = pthread_join(bio_threads[j],NULL)) != 0) {
                 serverLog(LL_WARNING,
-                    "Bio thread for job type #%d can be joined: %s",
+                    "Bio thread for job type #%d can not be joined: %s",
                         j, strerror(err));
             } else {
                 serverLog(LL_WARNING,

@@ -115,7 +115,7 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst, int writeflag)
     if (fieldobj) {
         if (o->type != OBJ_HASH) goto noobj;
 
-        /* Retrieve value from hash by the field name. The returend object
+        /* Retrieve value from hash by the field name. The returned object
          * is a new object with refcount already incremented. */
         o = hashTypeGetValueObject(o, fieldobj->ptr);
     } else {
@@ -570,12 +570,12 @@ void sortCommand(client *c) {
             }
         }
         if (outputlen) {
-            setKey(c->db,storekey,sobj);
+            setKey(c,c->db,storekey,sobj);
             notifyKeyspaceEvent(NOTIFY_LIST,"sortstore",storekey,
                                 c->db->id);
             server.dirty += outputlen;
         } else if (dbDelete(c->db,storekey)) {
-            signalModifiedKey(c->db,storekey);
+            signalModifiedKey(c,c->db,storekey);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",storekey,c->db->id);
             server.dirty++;
         }

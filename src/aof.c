@@ -242,6 +242,7 @@ void stopAppendOnly(void) {
     server.aof_fd = -1;
     server.aof_selected_db = -1;
     server.aof_state = AOF_OFF;
+    server.aof_rewrite_scheduled = 0;
     killAppendOnlyChild();
 }
 
@@ -543,7 +544,7 @@ sds catAppendOnlyGenericCommand(sds dst, int argc, robj **argv) {
     return dst;
 }
 
-/* Create the sds representation of an PEXPIREAT command, using
+/* Create the sds representation of a PEXPIREAT command, using
  * 'seconds' as time to live and 'cmd' to understand what command
  * we are translating into a PEXPIREAT.
  *
@@ -610,19 +611,24 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
     } else if (cmd->proc == setCommand && argc > 3) {
         int i;
         robj *exarg = NULL, *pxarg = NULL;
-        /* Translate SET [EX seconds][PX milliseconds] to SET and PEXPIREAT */
-        buf = catAppendOnlyGenericCommand(buf,3,argv);
         for (i = 3; i < argc; i ++) {
             if (!strcasecmp(argv[i]->ptr, "ex")) exarg = argv[i+1];
             if (!strcasecmp(argv[i]->ptr, "px")) pxarg = argv[i+1];
         }
         serverAssert(!(exarg && pxarg));
-        if (exarg)
-            buf = catAppendOnlyExpireAtCommand(buf,server.expireCommand,argv[1],
-                                               exarg);
-        if (pxarg)
-            buf = catAppendOnlyExpireAtCommand(buf,server.pexpireCommand,argv[1],
-                                               pxarg);
+
+        if (exarg || pxarg) {
+            /* Translate SET [EX seconds][PX milliseconds] to SET and PEXPIREAT */
+            buf = catAppendOnlyGenericCommand(buf,3,argv);
+            if (exarg)
+                buf = catAppendOnlyExpireAtCommand(buf,server.expireCommand,argv[1],
+                                                   exarg);
+            if (pxarg)
+                buf = catAppendOnlyExpireAtCommand(buf,server.pexpireCommand,argv[1],
+                                                   pxarg);
+        } else {
+            buf = catAppendOnlyGenericCommand(buf,argc,argv);
+        }
     } else {
         /* All the other commands don't need translation or need the
          * same translation already operated in the command vector
@@ -663,8 +669,22 @@ struct client *createAOFClient(void) {
     c->querybuf_peak = 0;
     c->argc = 0;
     c->argv = NULL;
+    c->original_argc = 0;
+    c->original_argv = NULL;
+    c->argv_len_sum = 0;
     c->bufpos = 0;
-    c->flags = 0;
+
+    /*
+     * The AOF client should never be blocked (unlike master
+     * replication connection).
+     * This is because blocking the AOF client might cause
+     * deadlock (because potentially no one will unblock it).
+     * Also, if the AOF client will be blocked just for
+     * background processing there is a chance that the
+     * command execution order will be violated.
+     */
+    c->flags = CLIENT_DENY_BLOCKING;
+
     c->btype = BLOCKED_NONE;
     /* We set the fake client as a slave waiting for the synchronization
      * so that Redis will not try to send replies to this client. */
@@ -674,6 +694,7 @@ struct client *createAOFClient(void) {
     c->obuf_soft_limit_reached_time = 0;
     c->watched_keys = listCreate();
     c->peerid = NULL;
+    c->sockname = NULL;
     c->resp = 2;
     c->user = NULL;
     listSetFreeMethod(c->reply,freeClientReplyValue);
@@ -688,6 +709,7 @@ void freeFakeClientArgv(struct client *c) {
     for (j = 0; j < c->argc; j++)
         decrRefCount(c->argv[j]);
     zfree(c->argv);
+    c->argv_len_sum = 0;
 }
 
 void freeFakeClient(struct client *c) {
@@ -695,6 +717,7 @@ void freeFakeClient(struct client *c) {
     listRelease(c->reply);
     listRelease(c->watched_keys);
     freeClientMultiState(c);
+    freeClientOriginalArgv(c);
     zfree(c);
 }
 
@@ -781,18 +804,26 @@ int loadAppendOnlyFile(char *filename) {
         argc = atoi(buf+1);
         if (argc < 1) goto fmterr;
 
+        /* Load the next command in the AOF as our fake client
+         * argv. */
         argv = zmalloc(sizeof(robj*)*argc);
         fakeClient->argc = argc;
         fakeClient->argv = argv;
 
         for (j = 0; j < argc; j++) {
-            if (fgets(buf,sizeof(buf),fp) == NULL) {
+            /* Parse the argument len. */
+            char *readres = fgets(buf,sizeof(buf),fp);
+            if (readres == NULL || buf[0] != '$') {
                 fakeClient->argc = j; /* Free up to j-1. */
                 freeFakeClientArgv(fakeClient);
-                goto readerr;
+                if (readres == NULL)
+                    goto readerr;
+                else
+                    goto fmterr;
             }
-            if (buf[0] != '$') goto fmterr;
             len = strtol(buf+1,NULL,10);
+
+            /* Read it into a string object. */
             argsds = sdsnewlen(SDS_NOINIT,len);
             if (len && fread(argsds,len,1,fp) == 0) {
                 sdsfree(argsds);
@@ -801,10 +832,12 @@ int loadAppendOnlyFile(char *filename) {
                 goto readerr;
             }
             argv[j] = createObject(OBJ_STRING,argsds);
+
+            /* Discard CRLF. */
             if (fread(buf,2,1,fp) == 0) {
                 fakeClient->argc = j+1; /* Free up to j. */
                 freeFakeClientArgv(fakeClient);
-                goto readerr; /* discard CRLF */
+                goto readerr;
             }
         }
 
@@ -820,7 +853,7 @@ int loadAppendOnlyFile(char *filename) {
         if (cmd == server.multiCommand) valid_before_multi = valid_up_to;
 
         /* Run the command in the context of a fake client */
-        fakeClient->cmd = cmd;
+        fakeClient->cmd = fakeClient->lastcmd = cmd;
         if (fakeClient->flags & CLIENT_MULTI &&
             fakeClient->cmd->proc != execCommand)
         {
@@ -842,7 +875,7 @@ int loadAppendOnlyFile(char *filename) {
         fakeClient->cmd = NULL;
         if (server.aof_load_truncated) valid_up_to = ftello(fp);
         if (server.key_load_delay)
-            usleep(server.key_load_delay);
+            debugDelay(server.key_load_delay);
     }
 
     /* This point can only be reached when EOF is reached without errors.
@@ -943,15 +976,25 @@ int rewriteListObject(rio *r, robj *key, robj *o) {
             if (count == 0) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                     AOF_REWRITE_ITEMS_PER_CMD : items;
-                if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
-                if (rioWriteBulkString(r,"RPUSH",5) == 0) return 0;
-                if (rioWriteBulkObject(r,key) == 0) return 0;
+                if (!rioWriteBulkCount(r,'*',2+cmd_items) ||
+                    !rioWriteBulkString(r,"RPUSH",5) ||
+                    !rioWriteBulkObject(r,key)) 
+                {
+                    quicklistReleaseIterator(li);
+                    return 0;
+                }
             }
 
             if (entry.value) {
-                if (rioWriteBulkString(r,(char*)entry.value,entry.sz) == 0) return 0;
+                if (!rioWriteBulkString(r,(char*)entry.value,entry.sz)) {
+                    quicklistReleaseIterator(li);
+                    return 0;
+                }
             } else {
-                if (rioWriteBulkLongLong(r,entry.longval) == 0) return 0;
+                if (!rioWriteBulkLongLong(r,entry.longval)) {
+                    quicklistReleaseIterator(li);
+                    return 0;
+                }
             }
             if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
             items--;
@@ -977,11 +1020,14 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                     AOF_REWRITE_ITEMS_PER_CMD : items;
 
-                if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
-                if (rioWriteBulkString(r,"SADD",4) == 0) return 0;
-                if (rioWriteBulkObject(r,key) == 0) return 0;
+                if (!rioWriteBulkCount(r,'*',2+cmd_items) ||
+                    !rioWriteBulkString(r,"SADD",4) ||
+                    !rioWriteBulkObject(r,key)) 
+                {
+                    return 0;
+                }
             }
-            if (rioWriteBulkLongLong(r,llval) == 0) return 0;
+            if (!rioWriteBulkLongLong(r,llval)) return 0;
             if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
             items--;
         }
@@ -995,11 +1041,18 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                     AOF_REWRITE_ITEMS_PER_CMD : items;
 
-                if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
-                if (rioWriteBulkString(r,"SADD",4) == 0) return 0;
-                if (rioWriteBulkObject(r,key) == 0) return 0;
+                if (!rioWriteBulkCount(r,'*',2+cmd_items) ||
+                    !rioWriteBulkString(r,"SADD",4) ||
+                    !rioWriteBulkObject(r,key)) 
+                {
+                    dictReleaseIterator(di);
+                    return 0;
+                }
             }
-            if (rioWriteBulkString(r,ele,sdslen(ele)) == 0) return 0;
+            if (!rioWriteBulkString(r,ele,sdslen(ele))) {
+                dictReleaseIterator(di);
+                return 0;          
+            }
             if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
             items--;
         }
@@ -1036,15 +1089,18 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                     AOF_REWRITE_ITEMS_PER_CMD : items;
 
-                if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
-                if (rioWriteBulkString(r,"ZADD",4) == 0) return 0;
-                if (rioWriteBulkObject(r,key) == 0) return 0;
+                if (!rioWriteBulkCount(r,'*',2+cmd_items*2) ||
+                    !rioWriteBulkString(r,"ZADD",4) ||
+                    !rioWriteBulkObject(r,key)) 
+                {
+                    return 0;
+                }
             }
-            if (rioWriteBulkDouble(r,score) == 0) return 0;
+            if (!rioWriteBulkDouble(r,score)) return 0;
             if (vstr != NULL) {
-                if (rioWriteBulkString(r,(char*)vstr,vlen) == 0) return 0;
+                if (!rioWriteBulkString(r,(char*)vstr,vlen)) return 0;
             } else {
-                if (rioWriteBulkLongLong(r,vll) == 0) return 0;
+                if (!rioWriteBulkLongLong(r,vll)) return 0;
             }
             zzlNext(zl,&eptr,&sptr);
             if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
@@ -1063,12 +1119,20 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                     AOF_REWRITE_ITEMS_PER_CMD : items;
 
-                if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
-                if (rioWriteBulkString(r,"ZADD",4) == 0) return 0;
-                if (rioWriteBulkObject(r,key) == 0) return 0;
+                if (!rioWriteBulkCount(r,'*',2+cmd_items*2) ||
+                    !rioWriteBulkString(r,"ZADD",4) ||
+                    !rioWriteBulkObject(r,key)) 
+                {
+                    dictReleaseIterator(di);
+                    return 0;
+                }
             }
-            if (rioWriteBulkDouble(r,*score) == 0) return 0;
-            if (rioWriteBulkString(r,ele,sdslen(ele)) == 0) return 0;
+            if (!rioWriteBulkDouble(r,*score) ||
+                !rioWriteBulkString(r,ele,sdslen(ele)))
+            {
+                dictReleaseIterator(di);
+                return 0;
+            }
             if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
             items--;
         }
@@ -1117,13 +1181,21 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
             int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                 AOF_REWRITE_ITEMS_PER_CMD : items;
 
-            if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
-            if (rioWriteBulkString(r,"HMSET",5) == 0) return 0;
-            if (rioWriteBulkObject(r,key) == 0) return 0;
+            if (!rioWriteBulkCount(r,'*',2+cmd_items*2) ||
+                !rioWriteBulkString(r,"HMSET",5) ||
+                !rioWriteBulkObject(r,key)) 
+            {
+                hashTypeReleaseIterator(hi);
+                return 0;
+            }
         }
 
-        if (rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY) == 0) return 0;
-        if (rioWriteHashIteratorCursor(r, hi, OBJ_HASH_VALUE) == 0) return 0;
+        if (!rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY) ||
+            !rioWriteHashIteratorCursor(r, hi, OBJ_HASH_VALUE))
+        {
+            hashTypeReleaseIterator(hi);
+            return 0;           
+        }
         if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
         items--;
     }
@@ -1139,7 +1211,7 @@ int rioWriteBulkStreamID(rio *r,streamID *id) {
     int retval;
 
     sds replyid = sdscatfmt(sdsempty(),"%U-%U",id->ms,id->seq);
-    if ((retval = rioWriteBulkString(r,replyid,sdslen(replyid))) == 0) return 0;
+    retval = rioWriteBulkString(r,replyid,sdslen(replyid));
     sdsfree(replyid);
     return retval;
 }
@@ -1169,6 +1241,20 @@ int rioWriteStreamPendingEntry(rio *r, robj *key, const char *groupname, size_t 
     return 1;
 }
 
+/* Helper for rewriteStreamObject(): emit the XGROUP CREATECONSUMER is
+ * needed in order to create consumers that do not have any pending entries.
+ * All this in the context of the specified key and group. */
+int rioWriteStreamEmptyConsumer(rio *r, robj *key, const char *groupname, size_t groupname_len, streamConsumer *consumer) {
+    /* XGROUP CREATECONSUMER <key> <group> <consumer> */
+    if (rioWriteBulkCount(r,'*',5) == 0) return 0;
+    if (rioWriteBulkString(r,"XGROUP",6) == 0) return 0;
+    if (rioWriteBulkString(r,"CREATECONSUMER",14) == 0) return 0;
+    if (rioWriteBulkObject(r,key) == 0) return 0;
+    if (rioWriteBulkString(r,groupname,groupname_len) == 0) return 0;
+    if (rioWriteBulkString(r,consumer->name,sdslen(consumer->name)) == 0) return 0;
+    return 1;
+}
+
 /* Emit the commands needed to rebuild a stream object.
  * The function returns 0 on error, 1 on success. */
 int rewriteStreamObject(rio *r, robj *key, robj *o) {
@@ -1185,38 +1271,55 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
              * the ID, the second is an array of field-value pairs. */
 
             /* Emit the XADD <key> <id> ...fields... command. */
-            if (rioWriteBulkCount(r,'*',3+numfields*2) == 0) return 0;
-            if (rioWriteBulkString(r,"XADD",4) == 0) return 0;
-            if (rioWriteBulkObject(r,key) == 0) return 0;
-            if (rioWriteBulkStreamID(r,&id) == 0) return 0;
+            if (!rioWriteBulkCount(r,'*',3+numfields*2) || 
+                !rioWriteBulkString(r,"XADD",4) ||
+                !rioWriteBulkObject(r,key) ||
+                !rioWriteBulkStreamID(r,&id)) 
+            {
+                streamIteratorStop(&si);
+                return 0;
+            }
             while(numfields--) {
                 unsigned char *field, *value;
                 int64_t field_len, value_len;
                 streamIteratorGetField(&si,&field,&value,&field_len,&value_len);
-                if (rioWriteBulkString(r,(char*)field,field_len) == 0) return 0;
-                if (rioWriteBulkString(r,(char*)value,value_len) == 0) return 0;
+                if (!rioWriteBulkString(r,(char*)field,field_len) ||
+                    !rioWriteBulkString(r,(char*)value,value_len)) 
+                {
+                    streamIteratorStop(&si);
+                    return 0;                  
+                }
             }
         }
     } else {
         /* Use the XADD MAXLEN 0 trick to generate an empty stream if
          * the key we are serializing is an empty string, which is possible
          * for the Stream type. */
-        if (rioWriteBulkCount(r,'*',7) == 0) return 0;
-        if (rioWriteBulkString(r,"XADD",4) == 0) return 0;
-        if (rioWriteBulkObject(r,key) == 0) return 0;
-        if (rioWriteBulkString(r,"MAXLEN",6) == 0) return 0;
-        if (rioWriteBulkString(r,"0",1) == 0) return 0;
-        if (rioWriteBulkStreamID(r,&s->last_id) == 0) return 0;
-        if (rioWriteBulkString(r,"x",1) == 0) return 0;
-        if (rioWriteBulkString(r,"y",1) == 0) return 0;
+        id.ms = 0; id.seq = 1; 
+        if (!rioWriteBulkCount(r,'*',7) ||
+            !rioWriteBulkString(r,"XADD",4) ||
+            !rioWriteBulkObject(r,key) ||
+            !rioWriteBulkString(r,"MAXLEN",6) ||
+            !rioWriteBulkString(r,"0",1) ||
+            !rioWriteBulkStreamID(r,&id) ||
+            !rioWriteBulkString(r,"x",1) ||
+            !rioWriteBulkString(r,"y",1))
+        {
+            streamIteratorStop(&si);
+            return 0;     
+        }
     }
 
     /* Append XSETID after XADD, make sure lastid is correct,
      * in case of XDEL lastid. */
-    if (rioWriteBulkCount(r,'*',3) == 0) return 0;
-    if (rioWriteBulkString(r,"XSETID",6) == 0) return 0;
-    if (rioWriteBulkObject(r,key) == 0) return 0;
-    if (rioWriteBulkStreamID(r,&s->last_id) == 0) return 0;
+    if (!rioWriteBulkCount(r,'*',3) ||
+        !rioWriteBulkString(r,"XSETID",6) ||
+        !rioWriteBulkObject(r,key) ||
+        !rioWriteBulkStreamID(r,&s->last_id)) 
+    {
+        streamIteratorStop(&si);
+        return 0; 
+    }
 
 
     /* Create all the stream consumer groups. */
@@ -1227,21 +1330,35 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
         while(raxNext(&ri)) {
             streamCG *group = ri.data;
             /* Emit the XGROUP CREATE in order to create the group. */
-            if (rioWriteBulkCount(r,'*',5) == 0) return 0;
-            if (rioWriteBulkString(r,"XGROUP",6) == 0) return 0;
-            if (rioWriteBulkString(r,"CREATE",6) == 0) return 0;
-            if (rioWriteBulkObject(r,key) == 0) return 0;
-            if (rioWriteBulkString(r,(char*)ri.key,ri.key_len) == 0) return 0;
-            if (rioWriteBulkStreamID(r,&group->last_id) == 0) return 0;
+            if (!rioWriteBulkCount(r,'*',5) ||
+                !rioWriteBulkString(r,"XGROUP",6) ||
+                !rioWriteBulkString(r,"CREATE",6) ||
+                !rioWriteBulkObject(r,key) ||
+                !rioWriteBulkString(r,(char*)ri.key,ri.key_len) ||
+                !rioWriteBulkStreamID(r,&group->last_id)) 
+            {
+                raxStop(&ri);
+                streamIteratorStop(&si);
+                return 0;
+            }
 
             /* Generate XCLAIMs for each consumer that happens to
-             * have pending entries. Empty consumers have no semantical
-             * value so they are discarded. */
+             * have pending entries. Empty consumers would be generated with
+             * XGROUP CREATECONSUMER. */
             raxIterator ri_cons;
             raxStart(&ri_cons,group->consumers);
             raxSeek(&ri_cons,"^",NULL,0);
             while(raxNext(&ri_cons)) {
                 streamConsumer *consumer = ri_cons.data;
+                /* If there are no pending entries, just emit XGROUP CREATECONSUMER */
+                if (raxSize(consumer->pel) == 0) {
+                    if (rioWriteStreamEmptyConsumer(r,key,(char*)ri.key,
+                                                    ri.key_len,consumer) == 0)
+                    {
+                        return 0;
+                    }
+                    continue;
+                }
                 /* For the current consumer, iterate all the PEL entries
                  * to emit the XCLAIM protocol. */
                 raxIterator ri_pel;
@@ -1253,6 +1370,10 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                                                    ri.key_len,consumer,
                                                    ri_pel.key,nack) == 0)
                     {
+                        raxStop(&ri_pel);
+                        raxStop(&ri_cons);
+                        raxStop(&ri);
+                        streamIteratorStop(&si);
                         return 0;
                     }
                 }
@@ -1382,7 +1503,7 @@ werr:
  * are inserted using a single command. */
 int rewriteAppendOnlyFile(char *filename) {
     rio aof;
-    FILE *fp;
+    FILE *fp = NULL;
     char tmpfile[256];
     char byte;
 
@@ -1459,9 +1580,10 @@ int rewriteAppendOnlyFile(char *filename) {
         goto werr;
 
     /* Make sure data will not remain on the OS's output buffers */
-    if (fflush(fp) == EOF) goto werr;
-    if (fsync(fileno(fp)) == -1) goto werr;
-    if (fclose(fp) == EOF) goto werr;
+    if (fflush(fp)) goto werr;
+    if (fsync(fileno(fp))) goto werr;
+    if (fclose(fp)) { fp = NULL; goto werr; }
+    fp = NULL;
 
     /* Use RENAME to make sure the DB file is changed atomically only
      * if the generate DB file is ok. */
@@ -1477,7 +1599,7 @@ int rewriteAppendOnlyFile(char *filename) {
 
 werr:
     serverLog(LL_WARNING,"Write error writing append only file on disk: %s", strerror(errno));
-    fclose(fp);
+    if (fp) fclose(fp);
     unlink(tmpfile);
     stopSaving(0);
     return C_ERR;
@@ -1579,14 +1701,15 @@ int rewriteAppendOnlyFileBackground(void) {
     if (hasActiveChildProcess()) return C_ERR;
     if (aofCreatePipes() != C_OK) return C_ERR;
     openChildInfoPipe();
-    if ((childpid = redisFork()) == 0) {
+    if ((childpid = redisFork(CHILD_TYPE_AOF)) == 0) {
         char tmpfile[256];
 
         /* Child */
         redisSetProcTitle("redis-aof-rewrite");
+        redisSetCpuAffinity(server.aof_rewrite_cpulist);
         snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
         if (rewriteAppendOnlyFile(tmpfile) == C_OK) {
-            sendChildCOWInfo(CHILD_INFO_TYPE_AOF, "AOF rewrite");
+            sendChildCOWInfo(CHILD_TYPE_AOF, "AOF rewrite");
             exitFromChild(0);
         } else {
             exitFromChild(1);
@@ -1606,6 +1729,7 @@ int rewriteAppendOnlyFileBackground(void) {
         server.aof_rewrite_scheduled = 0;
         server.aof_rewrite_time_start = time(NULL);
         server.aof_child_pid = childpid;
+        updateDictResizePolicy();
         /* We set appendseldb to -1 in order to force the next call to the
          * feedAppendOnlyFile() to issue a SELECT command, so the differences
          * accumulated by the parent into server.aof_rewrite_buf will start
@@ -1635,10 +1759,10 @@ void aofRemoveTempFile(pid_t childpid) {
     char tmpfile[256];
 
     snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) childpid);
-    unlink(tmpfile);
+    bg_unlink(tmpfile);
 
     snprintf(tmpfile,256,"temp-rewriteaof-%d.aof", (int) childpid);
-    unlink(tmpfile);
+    bg_unlink(tmpfile);
 }
 
 /* Update the server.aof_current_size field explicitly using stat(2)
@@ -1787,14 +1911,15 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         serverLog(LL_VERBOSE,
             "Background AOF rewrite signal handler took %lldus", ustime()-now);
     } else if (!bysignal && exitcode != 0) {
-        /* SIGUSR1 is whitelisted, so we have a way to kill a child without
-         * tirggering an error condition. */
-        if (bysignal != SIGUSR1)
-            server.aof_lastbgrewrite_status = C_ERR;
+        server.aof_lastbgrewrite_status = C_ERR;
+
         serverLog(LL_WARNING,
             "Background AOF rewrite terminated with error");
     } else {
-        server.aof_lastbgrewrite_status = C_ERR;
+        /* SIGUSR1 is whitelisted, so we have a way to kill a child without
+         * triggering an error condition. */
+        if (bysignal != SIGUSR1)
+            server.aof_lastbgrewrite_status = C_ERR;
 
         serverLog(LL_WARNING,
             "Background AOF rewrite terminated by signal %d", bysignal);

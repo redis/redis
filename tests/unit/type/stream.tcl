@@ -102,6 +102,42 @@ start_server {
         }
     }
 
+    test {XADD with MAXLEN option and the '=' argument} {
+        r DEL mystream
+        for {set j 0} {$j < 1000} {incr j} {
+            if {rand() < 0.9} {
+                r XADD mystream MAXLEN = 5 * xitem $j
+            } else {
+                r XADD mystream MAXLEN = 5 * yitem $j
+            }
+        }
+        assert {[r XLEN mystream] == 5}
+    }
+
+    test {XADD with MAXLEN option and the '~' argument} {
+        r DEL mystream
+        for {set j 0} {$j < 1000} {incr j} {
+            if {rand() < 0.9} {
+                r XADD mystream MAXLEN ~ 555 * xitem $j
+            } else {
+                r XADD mystream MAXLEN ~ 555 * yitem $j
+            }
+        }
+        assert {[r XLEN mystream] == 600}
+    }
+
+    test {XADD with NOMKSTREAM option} {
+        r DEL mystream
+        assert_equal "" [r XADD mystream NOMKSTREAM * item 1 value a]
+        assert_equal 0 [r EXISTS mystream]
+        r XADD mystream * item 1 value a
+        r XADD mystream NOMKSTREAM * item 2 value b
+        assert_equal 2 [r XLEN mystream]
+        set items [r XRANGE mystream - +]
+        assert_equal [lindex $items 0 1] {item 1 value a}
+        assert_equal [lindex $items 1 1] {item 2 value b}
+    }
+
     test {XADD mass insertion and XLEN} {
         r DEL mystream
         r multi
@@ -156,6 +192,32 @@ start_server {
         assert {[r xrange mystream - +] == [lreverse [r xrevrange mystream + -]]}
     }
 
+    test {XRANGE exclusive ranges} {
+        set ids {0-1 0-18446744073709551615 1-0 42-0 42-42
+                 18446744073709551615-18446744073709551614
+                 18446744073709551615-18446744073709551615}
+        set total [llength $ids]
+        r multi
+        r DEL vipstream
+        foreach id $ids {
+            r XADD vipstream $id foo bar
+        }
+        r exec
+        assert {[llength [r xrange vipstream - +]] == $total}
+        assert {[llength [r xrange vipstream ([lindex $ids 0] +]] == $total-1}
+        assert {[llength [r xrange vipstream - ([lindex $ids $total-1]]] == $total-1}
+        assert {[llength [r xrange vipstream (0-1 (1-0]] == 1}
+        assert {[llength [r xrange vipstream (1-0 (42-42]] == 1}
+        catch {r xrange vipstream (- +} e
+        assert_match {ERR*} $e
+        catch {r xrange vipstream - (+} e
+        assert_match {ERR*} $e
+        catch {r xrange vipstream (18446744073709551615-18446744073709551615 +} e
+        assert_match {ERR*} $e
+        catch {r xrange vipstream - (0-0} e
+        assert_match {ERR*} $e
+    }
+
     test {XREAD with non empty stream} {
         set res [r XREAD COUNT 1 STREAMS mystream 0-0]
         assert {[lrange [lindex $res 0 1 0 1] 0 1] eq {item 0}}
@@ -189,6 +251,17 @@ start_server {
         set res [$rd read]
         assert {[lindex $res 0 0] eq {s2}}
         assert {[lindex $res 0 1 0 1] eq {old abcd1234}}
+    }
+
+    test {Blocking XREAD will not reply with an empty array} {
+        r del s1
+        r XADD s1 666 f v
+        r XADD s1 667 f2 v2
+        r XDEL s1 667
+        set rd [redis_deferring_client]
+        $rd XREAD BLOCK 10 STREAMS s1 666
+        after 20
+        assert {[$rd read] == {}} ;# before the fix, client didn't even block, but was served synchronously with {s1 {}}
     }
 
     test "XREAD: XADD + DEL should not awake client" {
@@ -355,6 +428,27 @@ start_server {
         r XADD x * f2 v2
         assert_equal [r XRANGE x - +] {{2577343934890-18446744073709551615 {f v}} {2577343934891-0 {f2 v2}}}
     }
+
+    test {XTRIM with MAXLEN option basic test} {
+        r DEL mystream
+        for {set j 0} {$j < 1000} {incr j} {
+            if {rand() < 0.9} {
+                r XADD mystream * xitem $j
+            } else {
+                r XADD mystream * yitem $j
+            }
+        }
+        r XTRIM mystream MAXLEN 666
+        assert {[r XLEN mystream] == 666}
+        r XTRIM mystream MAXLEN = 555
+        assert {[r XLEN mystream] == 555}
+        r XTRIM mystream MAXLEN ~ 444
+        assert {[r XLEN mystream] == 500}
+        r XTRIM mystream MAXLEN ~ 400
+        assert {[r XLEN mystream] == 400}
+    }
+
+    
 }
 
 start_server {tags {"stream"} overrides {appendonly yes}} {
@@ -403,7 +497,7 @@ start_server {tags {"stream"} overrides {appendonly yes stream-node-max-entries 
     }
 }
 
-start_server {tags {"xsetid"}} {
+start_server {tags {"stream xsetid"}} {
     test {XADD can CREATE an empty stream} {
         r XADD mystream MAXLEN 0 * a b
         assert {[dict get [r xinfo stream mystream] length] == 0}
@@ -448,5 +542,12 @@ start_server {tags {"stream"} overrides {appendonly yes aof-use-rdb-preamble no}
         r debug loadaof
         assert {[dict get [r xinfo stream mystream] length] == 1}
         assert {[dict get [r xinfo stream mystream] last-generated-id] == "2-2"}
+    }
+}
+
+start_server {tags {"stream"}} {
+    test {XGROUP HELP should not have unexpected options} {
+        catch {r XGROUP help xxx} e
+        assert_match "*Unknown subcommand or wrong number of arguments*" $e
     }
 }

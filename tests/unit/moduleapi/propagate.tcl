@@ -20,11 +20,44 @@ tags "modules" {
 
                 wait_for_condition 5000 10 {
                     ([$replica get timer] eq "10") && \
-                    ([$replica get thread] eq "10")
+                    ([$replica get a-from-thread] eq "10")
                 } else {
                     fail "The two counters don't match the expected value."
                 }
+
+                $master propagate-test-2
+                $master propagate-test-3
+                $master multi
+                $master propagate-test-2
+                $master propagate-test-3
+                $master exec
+                wait_for_ofs_sync $master $replica
+
+                assert_equal [s -1 unexpected_error_replies] 0
             }
+        }
+    }
+}
+
+tags "modules aof" {
+    test {Modules RM_Replicate replicates MULTI/EXEC correctly} {
+        start_server [list overrides [list loadmodule "$testmodule"]] {
+            # Enable the AOF
+            r config set appendonly yes
+            r config set auto-aof-rewrite-percentage 0 ; # Disable auto-rewrite.
+            waitForBgrewriteaof r
+
+            r propagate-test-2
+            r propagate-test-3
+            r multi
+            r propagate-test-2
+            r propagate-test-3
+            r exec
+
+            # Load the AOF
+            r debug loadaof
+
+            assert_equal [s 0 unexpected_error_replies] 0
         }
     }
 }
