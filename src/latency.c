@@ -53,7 +53,8 @@ dictType latencyTimeSeriesDictType = {
     NULL,                       /* val dup */
     dictStringKeyCompare,       /* key compare */
     dictVanillaFree,            /* key destructor */
-    dictVanillaFree             /* val destructor */
+    dictVanillaFree,            /* val destructor */
+    NULL                        /* allow to expand */
 };
 
 /* ------------------------- Utility functions ------------------------------ */

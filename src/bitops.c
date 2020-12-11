@@ -735,11 +735,22 @@ void bitopCommand(client *c) {
             output = (len[0] <= j) ? 0 : src[0][j];
             if (op == BITOP_NOT) output = ~output;
             for (i = 1; i < numkeys; i++) {
+                int skip = 0;
                 byte = (len[i] <= j) ? 0 : src[i][j];
                 switch(op) {
-                case BITOP_AND: output &= byte; break;
-                case BITOP_OR:  output |= byte; break;
+                case BITOP_AND:
+                    output &= byte;
+                    skip = (output == 0);
+                    break;
+                case BITOP_OR:
+                    output |= byte;
+                    skip = (output == 0xff);
+                    break;
                 case BITOP_XOR: output ^= byte; break;
+                }
+
+                if (skip) {
+                    break;
                 }
             }
             res[j] = output;

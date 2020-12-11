@@ -44,8 +44,8 @@ proc redis {{server 127.0.0.1} {port 6379} {defer 0} {tls 0} {tlsoptions {}}} {
         package require tls
         ::tls::init \
             -cafile "$::tlsdir/ca.crt" \
-            -certfile "$::tlsdir/redis.crt" \
-            -keyfile "$::tlsdir/redis.key" \
+            -certfile "$::tlsdir/client.crt" \
+            -keyfile "$::tlsdir/client.key" \
             {*}$tlsoptions
         set fd [::tls::socket $server $port]
     } else {
@@ -109,6 +109,7 @@ proc ::redis::__dispatch__raw__ {id method argv} {
         }
         ::redis::redis_write $fd $cmd
         if {[catch {flush $fd}]} {
+            catch {close $fd}
             set ::redis::fd($id) {}
             return -code error "I/O error reading reply"
         }
@@ -251,6 +252,7 @@ proc ::redis::redis_read_reply {id fd} {
         % {redis_read_map $id $fd}
         default {
             if {$type eq {}} {
+                catch {close $fd}
                 set ::redis::fd($id) {}
                 return -code error "I/O error reading reply"
             }

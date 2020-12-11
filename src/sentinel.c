@@ -46,6 +46,7 @@ extern char **environ;
 
 #ifdef USE_OPENSSL
 extern SSL_CTX *redis_tls_ctx;
+extern SSL_CTX *redis_tls_client_ctx;
 #endif
 
 #define REDIS_SENTINEL_PORT 26379
@@ -418,7 +419,8 @@ dictType instancesDictType = {
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
     NULL,                      /* key destructor */
-    dictInstancesValDestructor /* val destructor */
+    dictInstancesValDestructor,/* val destructor */
+    NULL                       /* allow to expand */
 };
 
 /* Instance runid (sds) -> votes (long casted to void*)
@@ -431,7 +433,8 @@ dictType leaderVotesDictType = {
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
     NULL,                      /* key destructor */
-    NULL                       /* val destructor */
+    NULL,                      /* val destructor */
+    NULL                       /* allow to expand */
 };
 
 /* Instance renamed commands table. */
@@ -441,7 +444,8 @@ dictType renamedCommandsDictType = {
     NULL,                      /* val dup */
     dictSdsKeyCaseCompare,     /* key compare */
     dictSdsDestructor,         /* key destructor */
-    dictSdsDestructor          /* val destructor */
+    dictSdsDestructor,         /* val destructor */
+    NULL                       /* allow to expand */
 };
 
 /* =========================== Initialization =============================== */
@@ -2074,7 +2078,7 @@ static int instanceLinkNegotiateTLS(redisAsyncContext *context) {
     (void) context;
 #else
     if (!redis_tls_ctx) return C_ERR;
-    SSL *ssl = SSL_new(redis_tls_ctx);
+    SSL *ssl = SSL_new(redis_tls_client_ctx ? redis_tls_client_ctx : redis_tls_ctx);
     if (!ssl) return C_ERR;
 
     if (redisInitiateSSL(&context->c, ssl) == REDIS_ERR) return C_ERR;

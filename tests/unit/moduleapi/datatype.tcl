@@ -41,4 +41,18 @@ start_server {tags {"modules"}} {
         catch {r datatype.swap key-a key-b} e
         set e
     } {*ERR*}
+
+    test {DataType: Copy command works for modules} {
+        # Test failed copies
+        r datatype.set answer-to-universe 42 AAA
+        catch {r copy answer-to-universe answer2} e
+        assert_match {*module key failed to copy*} $e
+
+        # Our module's data type copy function copies the int value as-is
+        # but appends /<from-key>/<to-key> to the string value so we can
+        # track passed arguments.
+        r datatype.set sourcekey 1234 AAA
+        r copy sourcekey targetkey
+        r datatype.get targetkey
+    } {1234 AAA/sourcekey/targetkey}
 }

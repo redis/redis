@@ -178,7 +178,16 @@ static int spt_copyargs(int argc, char *argv[]) {
 	return 0;
 } /* spt_copyargs() */
 
-
+/* Initialize and populate SPT to allow a future setproctitle()
+ * call.
+ *
+ * As setproctitle() basically needs to overwrite argv[0], we're
+ * trying to determine what is the largest contiguous block
+ * starting at argv[0] we can use for this purpose.
+ *
+ * As this range will overwrite some or all of the argv and environ
+ * strings, a deep copy of these two arrays is performed.
+ */
 void spt_init(int argc, char *argv[]) {
         char **envp = environ;
 	char *base, *end, *nul, *tmp;
@@ -187,24 +196,39 @@ void spt_init(int argc, char *argv[]) {
 	if (!(base = argv[0]))
 		return;
 
+	/* We start with end pointing at the end of argv[0] */
 	nul = &base[strlen(base)];
 	end = nul + 1;
 
+	/* Attempt to extend end as far as we can, while making sure
+	 * that the range between base and end is only allocated to
+	 * argv, or anything that immediately follows argv (presumably
+	 * envp).
+	 */
 	for (i = 0; i < argc || (i >= argc && argv[i]); i++) {
 		if (!argv[i] || argv[i] < end)
 			continue;
 
-		end = argv[i] + strlen(argv[i]) + 1;
+		if (end >= argv[i] && end <= argv[i] + strlen(argv[i]))
+			end = argv[i] + strlen(argv[i]) + 1;
 	}
 
+	/* In case the envp array was not an immediate extension to argv,
+	 * scan it explicitly.
+	 */
 	for (i = 0; envp[i]; i++) {
 		if (envp[i] < end)
 			continue;
 
-		end = envp[i] + strlen(envp[i]) + 1;
+		if (end >= envp[i] && end <= envp[i] + strlen(envp[i]))
+			end = envp[i] + strlen(envp[i]) + 1;
 	}
 	envc = i;
 
+	/* We're going to deep copy argv[], but argv[0] will still point to
+	 * the old memory for the purpose of updating the title so we need
+	 * to keep the original value elsewhere.
+	 */
 	if (!(SPT.arg0 = strdup(argv[0])))
 		goto syerr;
 
@@ -225,7 +249,7 @@ void spt_init(int argc, char *argv[]) {
 	setprogname(tmp);
 #endif
 
-
+    /* Now make a full deep copy of the environment and argv[] */
 	if ((error = spt_copyenv(envc, envp)))
 		goto error;
 
@@ -294,3 +318,14 @@ error:
 
 #endif /* __linux || __APPLE__ */
 #endif /* !HAVE_SETPROCTITLE */
+
+#ifdef SETPROCTITLE_TEST_MAIN
+int main(int argc, char *argv[]) {
+	spt_init(argc, argv);
+
+	printf("SPT.arg0: [%p] '%s'\n", SPT.arg0, SPT.arg0);
+	printf("SPT.base: [%p] '%s'\n", SPT.base, SPT.base);
+	printf("SPT.end: [%p] (%d bytes after base)'\n", SPT.end, (int) (SPT.end - SPT.base));
+	return 0;
+}
+#endif

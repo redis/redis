@@ -33,7 +33,7 @@ start_server {tags {"benchmark"}} {
                 puts [colorstr red "redis-benchmark non zero code. first line: $first_line"]
                 fail "redis-benchmark non zero code. first line: $first_line"
             }
-            # ping total calls are 2*issued commands per test due to PING_INLINE and PING_BULK
+            # ping total calls are 2*issued commands per test due to PING_INLINE and PING_MBULK
             assert_match  {*calls=200,*} [cmdstat ping]
             assert_match  {*calls=100,*} [cmdstat set]
             assert_match  {*calls=100,*} [cmdstat get]

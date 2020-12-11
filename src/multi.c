@@ -113,14 +113,28 @@ void discardCommand(client *c) {
     addReply(c,shared.ok);
 }
 
+void beforePropagateMultiOrExec(int multi) {
+    if (multi) {
+        /* Propagating MULTI */
+        serverAssert(!server.propagate_in_transaction);
+        server.propagate_in_transaction = 1;
+    } else {
+        /* Propagating EXEC */
+        serverAssert(server.propagate_in_transaction == 1);
+        server.propagate_in_transaction = 0;
+    }
+}
+
 /* Send a MULTI command to all the slaves and AOF file. Check the execCommand
  * implementation for more information. */
 void execCommandPropagateMulti(client *c) {
+    beforePropagateMultiOrExec(1);
     propagate(server.multiCommand,c->db->id,&shared.multi,1,
               PROPAGATE_AOF|PROPAGATE_REPL);
 }
 
 void execCommandPropagateExec(client *c) {
+    beforePropagateMultiOrExec(0);
     propagate(server.execCommand,c->db->id,&shared.exec,1,
               PROPAGATE_AOF|PROPAGATE_REPL);
 }
@@ -176,6 +190,9 @@ void execCommand(client *c) {
 
     /* Exec all the queued commands */
     unwatchAllKeys(c); /* Unwatch ASAP otherwise we'll waste CPU cycles */
+
+    server.in_exec = 1;
+
     orig_argv = c->argv;
     orig_argc = c->argc;
     orig_cmd = c->cmd;
@@ -198,18 +215,34 @@ void execCommand(client *c) {
             must_propagate = 1;
         }
 
-        int acl_keypos;
-        int acl_retval = ACLCheckCommandPerm(c,&acl_keypos);
+        /* ACL permissions are also checked at the time of execution in case
+         * they were changed after the commands were ququed. */
+        int acl_errpos;
+        int acl_retval = ACLCheckCommandPerm(c,&acl_errpos);
+        if (acl_retval == ACL_OK && c->cmd->proc == publishCommand)
+            acl_retval = ACLCheckPubsubPerm(c,1,1,0,&acl_errpos);
         if (acl_retval != ACL_OK) {
-            addACLLogEntry(c,acl_retval,acl_keypos,NULL);
+            char *reason;
+            switch (acl_retval) {
+            case ACL_DENIED_CMD:
+                reason = "no permission to execute the command or subcommand";
+                break;
+            case ACL_DENIED_KEY:
+                reason = "no permission to touch the specified keys";
+                break;
+            case ACL_DENIED_CHANNEL:
+                reason = "no permission to publish to the specified channel";
+                break;
+            default:
+                reason = "no permission";
+                break;
+            }
+            addACLLogEntry(c,acl_retval,acl_errpos,NULL);
             addReplyErrorFormat(c,
                 "-NOPERM ACLs rules changed between the moment the "
                 "transaction was accumulated and the EXEC call. "
                 "This command is no longer allowed for the "
-                "following reason: %s",
-                (acl_retval == ACL_DENIED_CMD) ?
-                "no permission to execute the command or subcommand" :
-                "no permission to touch the specified keys");
+                "following reason: %s", reason);
         } else {
             call(c,server.loading ? CMD_CALL_NONE : CMD_CALL_FULL);
             serverAssert((c->flags & CLIENT_BLOCKED) == 0);
@@ -235,6 +268,7 @@ void execCommand(client *c) {
     if (must_propagate) {
         int is_master = server.masterhost == NULL;
         server.dirty++;
+        beforePropagateMultiOrExec(0);
         /* If inside the MULTI/EXEC block this instance was suddenly
          * switched from master to slave (using the SLAVEOF command), the
          * initial MULTI was propagated into the replication backlog, but the
@@ -245,6 +279,8 @@ void execCommand(client *c) {
             feedReplicationBacklog(execcmd,strlen(execcmd));
         }
     }
+
+    server.in_exec = 0;
 
 handle_monitor:
     /* Send EXEC to clients waiting data from MONITOR. We do it here

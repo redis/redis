@@ -606,17 +606,31 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     }
 
     /* Check the ACLs. */
-    int acl_keypos;
-    int acl_retval = ACLCheckCommandPerm(c,&acl_keypos);
+    int acl_errpos;
+    int acl_retval = ACLCheckCommandPerm(c,&acl_errpos);
+    if (acl_retval == ACL_OK && c->cmd->proc == publishCommand)
+        acl_retval = ACLCheckPubsubPerm(c,1,1,0,&acl_errpos);
     if (acl_retval != ACL_OK) {
-        addACLLogEntry(c,acl_retval,acl_keypos,NULL);
-        if (acl_retval == ACL_DENIED_CMD)
+        addACLLogEntry(c,acl_retval,acl_errpos,NULL);
+        switch (acl_retval) {
+        case ACL_DENIED_CMD:
             luaPushError(lua, "The user executing the script can't run this "
                               "command or subcommand");
-        else
+            break;
+        case ACL_DENIED_KEY:
             luaPushError(lua, "The user executing the script can't access "
                               "at least one of the keys mentioned in the "
                               "command arguments");
+            break;
+        case ACL_DENIED_AUTH:
+            luaPushError(lua, "The user executing the script can't publish "
+                              "to the channel mentioned in the command");
+            break;
+        default:
+            luaPushError(lua, "The user executing the script is lacking the "
+                              "permissions for the command");
+            break;
+        }
         goto cleanup;
     }
 
@@ -1484,6 +1498,7 @@ void evalGenericCommand(client *c, int evalsha) {
     server.lua_replicate_commands = server.lua_always_replicate_commands;
     server.lua_multi_emitted = 0;
     server.lua_repl = PROPAGATE_AOF|PROPAGATE_REPL;
+    server.in_eval = 1;
 
     /* Get the number of arguments that are keys */
     if (getLongLongFromObjectOrReply(c,c->argv[2],&numkeys,NULL) != C_OK)
@@ -1664,6 +1679,8 @@ void evalGenericCommand(client *c, int evalsha) {
             forceCommandPropagation(c,PROPAGATE_REPL|PROPAGATE_AOF);
         }
     }
+
+    server.in_eval = 0;
 }
 
 void evalCommand(client *c) {

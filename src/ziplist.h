@@ -45,10 +45,13 @@ unsigned char *ziplistInsert(unsigned char *zl, unsigned char *p, unsigned char 
 unsigned char *ziplistDelete(unsigned char *zl, unsigned char **p);
 unsigned char *ziplistDeleteRange(unsigned char *zl, int index, unsigned int num);
 unsigned int ziplistCompare(unsigned char *p, unsigned char *s, unsigned int slen);
-unsigned char *ziplistFind(unsigned char *p, unsigned char *vstr, unsigned int vlen, unsigned int skip);
+unsigned char *ziplistFind(unsigned char *zl, unsigned char *p, unsigned char *vstr, unsigned int vlen, unsigned int skip);
 unsigned int ziplistLen(unsigned char *zl);
 size_t ziplistBlobLen(unsigned char *zl);
 void ziplistRepr(unsigned char *zl);
+typedef int (*ziplistValidateEntryCB)(unsigned char* p, void* userdata);
+int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
+                             ziplistValidateEntryCB entry_cb, void *cb_userdata);
 
 #ifdef REDIS_TEST
 int ziplistTest(int argc, char *argv[]);

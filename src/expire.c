@@ -433,7 +433,8 @@ void rememberSlaveKeyWithExpire(redisDb *db, robj *key) {
             NULL,                       /* val dup */
             dictSdsKeyCompare,          /* key compare */
             dictSdsDestructor,          /* key destructor */
-            NULL                        /* val destructor */
+            NULL,                       /* val destructor */
+            NULL                        /* allow to expand */
         };
         slaveKeysWithExpire = dictCreate(&dt,NULL);
     }

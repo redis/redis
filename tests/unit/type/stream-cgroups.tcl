@@ -70,6 +70,37 @@ start_server {
         assert {[llength $pending] == 2}
     }
 
+    test {XPENDING only group} {
+        set pending [r XPENDING mystream mygroup]
+        assert {[llength $pending] == 4}
+    }
+
+    test {XPENDING with IDLE} {
+        after 20
+        set pending [r XPENDING mystream mygroup IDLE 99999999 - + 10 client-1]
+        assert {[llength $pending] == 0}
+        set pending [r XPENDING mystream mygroup IDLE 1 - + 10 client-1]
+        assert {[llength $pending] == 2}
+        set pending [r XPENDING mystream mygroup IDLE 99999999 - + 10]
+        assert {[llength $pending] == 0}
+        set pending [r XPENDING mystream mygroup IDLE 1 - + 10]
+        assert {[llength $pending] == 4}
+    }
+
+    test {XPENDING with exclusive range intervals works as expected} {
+        set pending [r XPENDING mystream mygroup - + 10]
+        assert {[llength $pending] == 4}
+        set startid [lindex [lindex $pending 0] 0]
+        set endid [lindex [lindex $pending 3] 0]
+        set expending [r XPENDING mystream mygroup ($startid ($endid 10]
+        assert {[llength $expending] == 2}
+        for {set j 0} {$j < 2} {incr j} {
+            set itemid [lindex [lindex $expending $j] 0]
+            assert {$itemid ne $startid}
+            assert {$itemid ne $endid}
+        }
+    }
+
     test {XACK is able to remove items from the client/group PEL} {
         set pending [r XPENDING mystream mygroup - + 10 client-1]
         set id1 [lindex $pending 0 0]
@@ -218,12 +249,23 @@ start_server {
         ]
         assert {[llength [lindex $reply 0 1 0 1]] == 2}
         assert {[lindex $reply 0 1 0 1] eq {a 1}}
+
+        # make sure the entry is present in both the gorup, and the right consumer
+        assert {[llength [r XPENDING mystream mygroup - + 10]] == 1}
+        assert {[llength [r XPENDING mystream mygroup - + 10 client1]] == 1}
+        assert {[llength [r XPENDING mystream mygroup - + 10 client2]] == 0}
+
         r debug sleep 0.2
         set reply [
             r XCLAIM mystream mygroup client2 10 $id1
         ]
         assert {[llength [lindex $reply 0 1]] == 2}
         assert {[lindex $reply 0 1] eq {a 1}}
+
+        # make sure the entry is present in both the gorup, and the right consumer
+        assert {[llength [r XPENDING mystream mygroup - + 10]] == 1}
+        assert {[llength [r XPENDING mystream mygroup - + 10 client1]] == 0}
+        assert {[llength [r XPENDING mystream mygroup - + 10 client2]] == 1}
 
         # Client 1 reads another 2 items from stream
         r XREADGROUP GROUP mygroup client1 count 2 STREAMS mystream >
@@ -292,6 +334,27 @@ start_server {
         ]
         assert {[llength [lindex $reply 0]] == 4}
         assert {[lindex $reply 0 3] == 2}
+    }
+
+    test {XCLAIM same consumer} {
+        # Add 3 items into the stream, and create a consumer group
+        r del mystream
+        set id1 [r XADD mystream * a 1]
+        set id2 [r XADD mystream * b 2]
+        set id3 [r XADD mystream * c 3]
+        r XGROUP CREATE mystream mygroup 0
+
+        set reply [r XREADGROUP GROUP mygroup client1 count 1 STREAMS mystream >]
+        assert {[llength [lindex $reply 0 1 0 1]] == 2}
+        assert {[lindex $reply 0 1 0 1] eq {a 1}}
+        r debug sleep 0.2
+        # re-claim with the same consumer that already has it
+        assert {[llength [r XCLAIM mystream mygroup client1 10 $id1]] == 1}
+
+        # make sure the entry is still in the PEL
+        set reply [r XPENDING mystream mygroup - + 10]
+        assert {[llength $reply] == 1}
+        assert {[lindex $reply 0 1] eq {client1}}
     }
 
     test {XINFO FULL output} {

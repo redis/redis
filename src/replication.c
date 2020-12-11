@@ -1432,16 +1432,10 @@ static int useDisklessLoad() {
 }
 
 /* Helper function for readSyncBulkPayload() to make backups of the current
- * DBs before socket-loading the new ones. The backups may be restored later
- * or freed by disklessLoadRestoreBackups(). */
-redisDb *disklessLoadMakeBackups(void) {
-    redisDb *backups = zmalloc(sizeof(redisDb)*server.dbnum);
-    for (int i=0; i<server.dbnum; i++) {
-        backups[i] = server.db[i];
-        server.db[i].dict = dictCreate(&dbDictType,NULL);
-        server.db[i].expires = dictCreate(&keyptrDictType,NULL);
-    }
-    return backups;
+ * databases before socket-loading the new ones. The backups may be restored
+ * by disklessLoadRestoreBackup or freed by disklessLoadDiscardBackup later. */
+dbBackup *disklessLoadMakeBackup(void) {
+    return backupDb();
 }
 
 /* Helper function for readSyncBulkPayload(): when replica-side diskless
@@ -1449,30 +1443,15 @@ redisDb *disklessLoadMakeBackups(void) {
  * before loading the new ones from the socket.
  *
  * If the socket loading went wrong, we want to restore the old backups
- * into the server databases. This function does just that in the case
- * the 'restore' argument (the number of DBs to replace) is non-zero.
- *
- * When instead the loading succeeded we want just to free our old backups,
- * in that case the function will do just that when 'restore' is 0. */
-void disklessLoadRestoreBackups(redisDb *backup, int restore, int empty_db_flags)
-{
-    if (restore) {
-        /* Restore. */
-        emptyDbGeneric(server.db,-1,empty_db_flags,replicationEmptyDbCallback);
-        for (int i=0; i<server.dbnum; i++) {
-            dictRelease(server.db[i].dict);
-            dictRelease(server.db[i].expires);
-            server.db[i] = backup[i];
-        }
-    } else {
-        /* Delete (Pass EMPTYDB_BACKUP in order to avoid firing module events) . */
-        emptyDbGeneric(backup,-1,empty_db_flags|EMPTYDB_BACKUP,replicationEmptyDbCallback);
-        for (int i=0; i<server.dbnum; i++) {
-            dictRelease(backup[i].dict);
-            dictRelease(backup[i].expires);
-        }
-    }
-    zfree(backup);
+ * into the server databases. */
+void disklessLoadRestoreBackup(dbBackup *buckup) {
+    restoreDbBackup(buckup);
+}
+
+/* Helper function for readSyncBulkPayload() to discard our old backups
+ * when the loading succeeded. */
+void disklessLoadDiscardBackup(dbBackup *buckup, int flag) {
+    discardDbBackup(buckup, flag, replicationEmptyDbCallback);
 }
 
 /* Asynchronously read the SYNC payload we receive from a master */
@@ -1481,7 +1460,7 @@ void readSyncBulkPayload(connection *conn) {
     char buf[PROTO_IOBUF_LEN];
     ssize_t nread, readlen, nwritten;
     int use_diskless_load = useDisklessLoad();
-    redisDb *diskless_load_backup = NULL;
+    dbBackup *diskless_load_backup = NULL;
     int empty_db_flags = server.repl_slave_lazy_flush ? EMPTYDB_ASYNC :
                                                         EMPTYDB_NO_FLAGS;
     off_t left;
@@ -1662,11 +1641,11 @@ void readSyncBulkPayload(connection *conn) {
         server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB)
     {
         /* Create a backup of server.db[] and initialize to empty
-         * dictionaries */
-        diskless_load_backup = disklessLoadMakeBackups();
+         * dictionaries. */
+        diskless_load_backup = disklessLoadMakeBackup();
     }
     /* We call to emptyDb even in case of REPL_DISKLESS_LOAD_SWAPDB
-     * (Where disklessLoadMakeBackups left server.db empty) because we
+     * (Where disklessLoadMakeBackup left server.db empty) because we
      * want to execute all the auxiliary logic of emptyDb (Namely,
      * fire module events) */
     emptyDb(-1,empty_db_flags,replicationEmptyDbCallback);
@@ -1696,14 +1675,14 @@ void readSyncBulkPayload(connection *conn) {
                 "from socket");
             cancelReplicationHandshake(1);
             rioFreeConn(&rdb, NULL);
+
+            /* Remove the half-loaded data in case we started with
+             * an empty replica. */
+            emptyDb(-1,empty_db_flags,replicationEmptyDbCallback);
+
             if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
                 /* Restore the backed up databases. */
-                disklessLoadRestoreBackups(diskless_load_backup,1,
-                                           empty_db_flags);
-            } else {
-                /* Remove the half-loaded data in case we started with
-                 * an empty replica. */
-                emptyDb(-1,empty_db_flags,replicationEmptyDbCallback);
+                disklessLoadRestoreBackup(diskless_load_backup);
             }
 
             /* Note that there's no point in restarting the AOF on SYNC
@@ -1718,7 +1697,7 @@ void readSyncBulkPayload(connection *conn) {
             /* Delete the backup databases we created before starting to load
              * the new RDB. Now the RDB was loaded with success so the old
              * data is useless. */
-            disklessLoadRestoreBackups(diskless_load_backup,0,empty_db_flags);
+            disklessLoadDiscardBackup(diskless_load_backup, empty_db_flags);
         }
 
         /* Verify the end mark is correct. */

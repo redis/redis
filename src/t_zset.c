@@ -1604,6 +1604,55 @@ robj *zsetDup(robj *o) {
     return zobj;
 }
 
+/* callback for to check the ziplist doesn't have duplicate recoreds */
+static int _zsetZiplistValidateIntegrity(unsigned char *p, void *userdata) {
+    struct {
+        long count;
+        dict *fields;
+    } *data = userdata;
+
+    /* Even records are field names, add to dict and check that's not a dup */
+    if (((data->count) & 1) == 0) {
+        unsigned char *str;
+        unsigned int slen;
+        long long vll;
+        if (!ziplistGet(p, &str, &slen, &vll))
+            return 0;
+        sds field = str? sdsnewlen(str, slen): sdsfromlonglong(vll);;
+        if (dictAdd(data->fields, field, NULL) != DICT_OK) {
+            /* Duplicate, return an error */
+            sdsfree(field);
+            return 0;
+        }
+    }
+
+    (data->count)++;
+    return 1;
+}
+
+/* Validate the integrity of the data stracture.
+ * when `deep` is 0, only the integrity of the header is validated.
+ * when `deep` is 1, we scan all the entries one by one. */
+int zsetZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep) {
+    if (!deep)
+        return ziplistValidateIntegrity(zl, size, 0, NULL, NULL);
+
+    /* Keep track of the field names to locate duplicate ones */
+    struct {
+        long count;
+        dict *fields;
+    } data = {0, dictCreate(&hashDictType, NULL)};
+
+    int ret = ziplistValidateIntegrity(zl, size, 1, _zsetZiplistValidateIntegrity, &data);
+
+    /* make sure we have an even number of records. */
+    if (data.count & 1)
+        ret = 0;
+
+    dictRelease(data.fields);
+    return ret;
+}
+
 /*-----------------------------------------------------------------------------
  * Sorted set commands
  *----------------------------------------------------------------------------*/
@@ -1965,17 +2014,20 @@ void zuiInitIterator(zsetopsrc *op) {
             serverPanic("Unknown set encoding");
         }
     } else if (op->type == OBJ_ZSET) {
+        /* Sorted sets are traversed in reverse order to optimize for
+         * the insertion of the elements in a new list as in
+         * ZDIFF/ZINTER/ZUNION */
         iterzset *it = &op->iter.zset;
         if (op->encoding == OBJ_ENCODING_ZIPLIST) {
             it->zl.zl = op->subject->ptr;
-            it->zl.eptr = ziplistIndex(it->zl.zl,0);
+            it->zl.eptr = ziplistIndex(it->zl.zl,-2);
             if (it->zl.eptr != NULL) {
                 it->zl.sptr = ziplistNext(it->zl.zl,it->zl.eptr);
                 serverAssert(it->zl.sptr != NULL);
             }
         } else if (op->encoding == OBJ_ENCODING_SKIPLIST) {
             it->sl.zs = op->subject->ptr;
-            it->sl.node = it->sl.zs->zsl->header->level[0].forward;
+            it->sl.node = it->sl.zs->zsl->tail;
         } else {
             serverPanic("Unknown sorted set encoding");
         }
@@ -2082,16 +2134,16 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
             serverAssert(ziplistGet(it->zl.eptr,&val->estr,&val->elen,&val->ell));
             val->score = zzlGetScore(it->zl.sptr);
 
-            /* Move to next element. */
-            zzlNext(it->zl.zl,&it->zl.eptr,&it->zl.sptr);
+            /* Move to next element (going backwards, see zuiInitIterator). */
+            zzlPrev(it->zl.zl,&it->zl.eptr,&it->zl.sptr);
         } else if (op->encoding == OBJ_ENCODING_SKIPLIST) {
             if (it->sl.node == NULL)
                 return 0;
             val->ele = it->sl.node->ele;
             val->score = it->sl.node->score;
 
-            /* Move to next element. */
-            it->sl.node = it->sl.node->level[0].forward;
+            /* Move to next element. (going backwards, see zuiInitIterator) */
+            it->sl.node = it->sl.node->backward;
         } else {
             serverPanic("Unknown sorted set encoding");
         }
@@ -2436,7 +2488,8 @@ dictType setAccumulatorDictType = {
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
     NULL,                      /* key destructor */
-    NULL                       /* val destructor */
+    NULL,                      /* val destructor */
+    NULL                       /* allow to expand */
 };
 
 /* The zunionInterDiffGenericCommand() function is called in order to implement the

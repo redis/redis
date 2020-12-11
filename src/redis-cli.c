@@ -1304,7 +1304,8 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                       (!strcasecmp(argv[1],"nodes") ||
                        !strcasecmp(argv[1],"info"))) ||
         (argc >= 2 && !strcasecmp(command,"client") &&
-                       !strcasecmp(argv[1],"list")) ||
+                       (!strcasecmp(argv[1],"list") ||
+                        !strcasecmp(argv[1],"info"))) ||
         (argc == 3 && !strcasecmp(command,"latency") &&
                        !strcasecmp(argv[1],"graph")) ||
         (argc == 2 && !strcasecmp(command,"latency") &&
@@ -1363,9 +1364,16 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             /* Unset our default PUSH handler so this works in RESP2/RESP3 */
             redisSetPushCallback(context, NULL);
 
-            while (1) {
+            while (config.pubsub_mode) {
                 if (cliReadReply(output_raw) != REDIS_OK) exit(1);
+                if (config.last_cmd_type == REDIS_REPLY_ERROR) {
+                    if (config.push_output) {
+                        redisSetPushCallback(context, cliPushHandler);
+                    }
+                    config.pubsub_mode = 0;
+                }
             }
+            continue;
         }
 
         if (config.slave_mode) {
@@ -2287,7 +2295,8 @@ static dictType clusterManagerDictType = {
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
     NULL,                      /* key destructor */
-    dictSdsDestructor          /* val destructor */
+    dictSdsDestructor,         /* val destructor */
+    NULL                       /* allow to expand */
 };
 
 static dictType clusterManagerLinkDictType = {
@@ -2296,7 +2305,8 @@ static dictType clusterManagerLinkDictType = {
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
     dictSdsDestructor,         /* key destructor */
-    dictListDestructor         /* val destructor */
+    dictListDestructor,        /* val destructor */
+    NULL                       /* allow to expand */
 };
 
 typedef int clusterManagerCommandProc(int argc, char **argv);
@@ -7353,7 +7363,8 @@ static dictType typeinfoDictType = {
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
     NULL,                      /* key destructor (owned by the value)*/
-    type_free                  /* val destructor */
+    type_free,                 /* val destructor */
+    NULL                       /* allow to expand */
 };
 
 static void getKeyTypes(dict *types_dict, redisReply *keys, typeinfo **types) {

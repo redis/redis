@@ -76,12 +76,16 @@ unsigned long streamLength(const robj *subject) {
     return s->length;
 }
 
-/* Set 'id' to be its successor streamID */
-void streamIncrID(streamID *id) {
+/* Set 'id' to be its successor stream ID.
+ * If 'id' is the maximal possible id, it is wrapped around to 0-0 and a
+ * C_ERR is returned. */
+int streamIncrID(streamID *id) {
+    int ret = C_OK;
     if (id->seq == UINT64_MAX) {
         if (id->ms == UINT64_MAX) {
             /* Special case where 'id' is the last possible streamID... */
             id->ms = id->seq = 0;
+            ret = C_ERR;
         } else {
             id->ms++;
             id->seq = 0;
@@ -89,6 +93,27 @@ void streamIncrID(streamID *id) {
     } else {
         id->seq++;
     }
+    return ret;
+}
+
+/* Set 'id' to be its predecessor stream ID.
+ * If 'id' is the minimal possible id, it remains 0-0 and a C_ERR is
+ * returned. */
+int streamDecrID(streamID *id) {
+    int ret = C_OK;
+    if (id->seq == 0) {
+        if (id->ms == 0) {
+            /* Special case where 'id' is the first possible streamID... */
+            id->ms = id->seq = UINT64_MAX;
+            ret = C_ERR;
+        } else {
+            id->ms--;
+            id->seq = UINT64_MAX;
+        }
+    } else {
+        id->seq--;
+    }
+    return ret;
 }
 
 /* Generate the next stream item ID given the previous one. If the current
@@ -230,20 +255,32 @@ unsigned char *lpReplaceInteger(unsigned char *lp, unsigned char **pos, int64_t 
 
 /* This is a wrapper function for lpGet() to directly get an integer value
  * from the listpack (that may store numbers as a string), converting
- * the string if needed. */
-int64_t lpGetInteger(unsigned char *ele) {
+ * the string if needed.
+ * The 'valid" argument is an optional output parameter to get an indication
+ * if the record was valid, when this parameter is NULL, the function will
+ * fail with an assertion. */
+static inline int64_t lpGetIntegerIfValid(unsigned char *ele, int *valid) {
     int64_t v;
     unsigned char *e = lpGet(ele,&v,NULL);
-    if (e == NULL) return v;
+    if (e == NULL) {
+        if (valid)
+            *valid = 1;
+        return v;
+    }
     /* The following code path should never be used for how listpacks work:
      * they should always be able to store an int64_t value in integer
      * encoded form. However the implementation may change. */
     long long ll;
-    int retval = string2ll((char*)e,v,&ll);
-    serverAssert(retval != 0);
+    int ret = string2ll((char*)e,v,&ll);
+    if (valid)
+        *valid = ret;
+    else
+        serverAssert(ret != 0);
     v = ll;
     return v;
 }
+
+#define lpGetInteger(ele) lpGetIntegerIfValid(ele, NULL)
 
 /* Debugging function to log the full content of a listpack. Useful
  * for development and debugging. */
@@ -750,6 +787,7 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
                 *numfields = lpGetInteger(si->lp_ele);
                 si->lp_ele = lpNext(si->lp,si->lp_ele);
             }
+            serverAssert(*numfields>=0);
 
             /* If current >= start, and the entry is not marked as
              * deleted, emit it. */
@@ -1309,6 +1347,29 @@ int streamParseStrictIDOrReply(client *c, robj *o, streamID *id, uint64_t missin
     return streamGenericParseIDOrReply(c,o,id,missing_seq,1);
 }
 
+/* Helper for parsing a stream ID that is a range query interval. When the
+ * exclude argument is NULL, streamParseIDOrReply() is called and the interval
+ * is treated as close (inclusive). Otherwise, the exclude argument is set if 
+ * the interval is open (the "(" prefix) and streamParseStrictIDOrReply() is
+ * called in that case.
+ */
+int streamParseIntervalIDOrReply(client *c, robj *o, streamID *id, int *exclude, uint64_t missing_seq) {
+    char *p = o->ptr;
+    size_t len = sdslen(p);
+    int invalid = 0;
+    
+    if (exclude != NULL) *exclude = (len > 1 && p[0] == '(');
+    if (exclude != NULL && *exclude) {
+        robj *t = createStringObject(p+1,len-1);
+        invalid = (streamParseStrictIDOrReply(c,t,id,missing_seq) == C_ERR);
+        decrRefCount(t);
+    } else 
+        invalid = (streamParseIDOrReply(c,o,id,missing_seq) == C_ERR);
+    if (invalid)
+        return C_ERR;
+    return C_OK;
+}
+
 /* We propagate MAXLEN ~ <count> as MAXLEN = <resulting-len-of-stream>
  * otherwise trimming is no longer determinsitic on replicas / AOF. */
 void streamRewriteApproxMaxlen(client *c, stream *s, int maxlen_arg_idx) {
@@ -1433,7 +1494,13 @@ void xaddCommand(client *c) {
     signalKeyAsReady(c->db, c->argv[1], OBJ_STREAM);
 }
 
-/* XRANGE/XREVRANGE actual implementation. */
+/* XRANGE/XREVRANGE actual implementation.
+ * The 'start' and 'end' IDs are parsed as follows:
+ *   Incomplete 'start' has its sequence set to 0, and 'end' to UINT64_MAX.
+ *   "-" and "+"" mean the minimal and maximal ID values, respectively.
+ *   The "(" prefix means an open (exclusive) range, so XRANGE stream (1-0 (2-0
+ *   will match anything from 1-1 and 1-UINT64_MAX.
+ */
 void xrangeGenericCommand(client *c, int rev) {
     robj *o;
     stream *s;
@@ -1441,9 +1508,21 @@ void xrangeGenericCommand(client *c, int rev) {
     long long count = -1;
     robj *startarg = rev ? c->argv[3] : c->argv[2];
     robj *endarg = rev ? c->argv[2] : c->argv[3];
-
-    if (streamParseIDOrReply(c,startarg,&startid,0) == C_ERR) return;
-    if (streamParseIDOrReply(c,endarg,&endid,UINT64_MAX) == C_ERR) return;
+    int startex = 0, endex = 0;
+    
+    /* Parse start and end IDs. */
+    if (streamParseIntervalIDOrReply(c,startarg,&startid,&startex,0) != C_OK)
+        return;
+    if (startex && streamIncrID(&startid) != C_OK) {
+        addReplyError(c,"invalid start ID for the interval");
+        return;
+    }
+    if (streamParseIntervalIDOrReply(c,endarg,&endid,&endex,UINT64_MAX) != C_OK)
+        return;
+    if (endex && streamDecrID(&endid) != C_OK) {
+        addReplyError(c,"invalid end ID for the interval");
+        return;
+    }
 
     /* Parse the COUNT option if any. */
     if (c->argc > 4) {
@@ -2136,26 +2215,28 @@ cleanup:
     if (ids != static_ids) zfree(ids);
 }
 
-/* XPENDING <key> <group> [<start> <stop> <count> [<consumer>]]
+/* XPENDING <key> <group> [[IDLE <idle>] <start> <stop> <count> [<consumer>]]
  *
  * If start and stop are omitted, the command just outputs information about
  * the amount of pending messages for the key/group pair, together with
  * the minimum and maximum ID of pending messages.
  *
  * If start and stop are provided instead, the pending messages are returned
- * with informations about the current owner, number of deliveries and last
+ * with information about the current owner, number of deliveries and last
  * delivery time and so forth. */
 void xpendingCommand(client *c) {
     int justinfo = c->argc == 3; /* Without the range just outputs general
                                     informations about the PEL. */
     robj *key = c->argv[1];
     robj *groupname = c->argv[2];
-    robj *consumername = (c->argc == 7) ? c->argv[6] : NULL;
+    robj *consumername = NULL;
     streamID startid, endid;
-    long long count;
+    long long count = 0;
+    long long minidle = 0;
+    int startex = 0, endex = 0;
 
-    /* Start and stop, and the consumer, can be omitted. */
-    if (c->argc != 3 && c->argc != 6 && c->argc != 7) {
+    /* Start and stop, and the consumer, can be omitted. Also the IDLE modifier. */
+    if (c->argc != 3 && (c->argc < 6 || c->argc > 9)) {
         addReply(c,shared.syntaxerr);
         return;
     }
@@ -2163,13 +2244,43 @@ void xpendingCommand(client *c) {
     /* Parse start/end/count arguments ASAP if needed, in order to report
      * syntax errors before any other error. */
     if (c->argc >= 6) {
-        if (getLongLongFromObjectOrReply(c,c->argv[5],&count,NULL) == C_ERR)
+        int startidx = 3; /* Without IDLE */
+
+        if (!strcasecmp(c->argv[3]->ptr, "IDLE")) {
+            if (getLongLongFromObjectOrReply(c, c->argv[4], &minidle, NULL) == C_ERR)
+                return;
+            if (c->argc < 8) {
+                /* If IDLE was provided we must have at least 'start end count' */
+                addReply(c,shared.syntaxerr);
+                return;
+            }
+            /* Search for rest of arguments after 'IDLE <idle>' */
+            startidx += 2;
+        }
+
+        /* count argument. */
+        if (getLongLongFromObjectOrReply(c,c->argv[startidx+2],&count,NULL) == C_ERR)
             return;
         if (count < 0) count = 0;
-        if (streamParseIDOrReply(c,c->argv[3],&startid,0) == C_ERR)
+
+        /* start and end arguments. */
+        if (streamParseIntervalIDOrReply(c,c->argv[startidx],&startid,&startex,0) != C_OK)
             return;
-        if (streamParseIDOrReply(c,c->argv[4],&endid,UINT64_MAX) == C_ERR)
+        if (startex && streamIncrID(&startid) != C_OK) {
+            addReplyError(c,"invalid start ID for the interval");
             return;
+        }
+        if (streamParseIntervalIDOrReply(c,c->argv[startidx+1],&endid,&endex,UINT64_MAX) != C_OK)
+            return;
+        if (endex && streamDecrID(&endid) != C_OK) {
+            addReplyError(c,"invalid end ID for the interval");
+            return;
+        }
+
+        if (startidx+3 < c->argc) {
+            /* 'consumer' was provided */
+            consumername = c->argv[startidx+3];
+        }
     }
 
     /* Lookup the key and the group inside the stream. */
@@ -2228,9 +2339,7 @@ void xpendingCommand(client *c) {
             setDeferredArrayLen(c,arraylen_ptr,arraylen);
             raxStop(&ri);
         }
-    }
-    /* XPENDING <key> <group> <start> <stop> <count> [<consumer>] variant. */
-    else {
+    } else { /* <start>, <stop> and <count> provided, return actual pending entries (not just info) */
         streamConsumer *consumer = NULL;
         if (consumername) {
             consumer = streamLookupConsumer(group,
@@ -2261,6 +2370,11 @@ void xpendingCommand(client *c) {
 
         while(count && raxNext(&ri) && memcmp(ri.key,endkey,ri.key_len) <= 0) {
             streamNACK *nack = ri.data;
+
+            if (minidle) {
+                mstime_t this_idle = now - nack->delivery_time;
+                if (this_idle < minidle) continue;
+            }
 
             arraylen++;
             count--;
@@ -2495,20 +2609,20 @@ void xclaimCommand(client *c) {
              *
              * Note that the nack could be created by FORCE, in this
              * case there was no pre-existing entry and minidle should
-             * be ignored, but in that case nick->consumer is NULL. */
+             * be ignored, but in that case nack->consumer is NULL. */
             if (nack->consumer && minidle) {
                 mstime_t this_idle = now - nack->delivery_time;
                 if (this_idle < minidle) continue;
             }
-            /* Remove the entry from the old consumer.
-             * Note that nack->consumer is NULL if we created the
-             * NACK above because of the FORCE option. */
-            if (nack->consumer)
-                raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
-            /* Update the consumer and idle time. */
             if (consumer == NULL)
                 consumer = streamLookupConsumer(group,c->argv[3]->ptr,SLC_NONE,NULL);
-            nack->consumer = consumer;
+            if (nack->consumer != consumer) {
+                /* Remove the entry from the old consumer.
+                 * Note that nack->consumer is NULL if we created the
+                 * NACK above because of the FORCE option. */
+                if (nack->consumer)
+                    raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+            }
             nack->delivery_time = deliverytime;
             /* Set the delivery attempts counter if given, otherwise
              * autoincrement unless JUSTID option provided */
@@ -2517,8 +2631,11 @@ void xclaimCommand(client *c) {
             } else if (!justid) {
                 nack->delivery_count++;
             }
-            /* Add the entry in the new consumer local PEL. */
-            raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
+            if (nack->consumer != consumer) {
+                /* Add the entry in the new consumer local PEL. */
+                raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
+                nack->consumer = consumer;
+            }
             /* Send the reply for this entry. */
             if (justid) {
                 addReplyStreamID(c,&id);
@@ -2779,6 +2896,7 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
                     addReplyStreamID(c,&id);
 
                     /* Consumer name. */
+                    serverAssert(nack->consumer); /* assertion for valgrind (avoid NPD) */
                     addReplyBulkCBuffer(c,nack->consumer->name,
                                         sdslen(nack->consumer->name));
 
@@ -2948,4 +3066,91 @@ NULL
     } else {
         addReplySubcommandSyntaxError(c);
     }
+}
+
+/* Validate the integrity stream listpack entries stracture. Both in term of a
+ * valid listpack, but also that the stracture of the entires matches a valid
+ * stream. return 1 if valid 0 if not valid. */
+int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
+    int valid_record;
+    unsigned char *p, *next;
+
+    /* Since we don't want to run validation of all records twice, we'll
+     * run the listpack validation of just the header and do the rest here. */
+    if (!lpValidateIntegrity(lp, size, 0))
+        return 0;
+
+    /* In non-deep mode we just validated the listpack header (encoded size) */
+    if (!deep) return 1;
+
+    next = p = lpFirst(lp);
+    if (!lpValidateNext(lp, &next, size)) return 0;
+    if (!p) return 0;
+
+    /* entry count */
+    int64_t entry_count = lpGetIntegerIfValid(p, &valid_record);
+    if (!valid_record) return 0;
+    p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+
+    /* deleted */
+    lpGetIntegerIfValid(p, &valid_record);
+    if (!valid_record) return 0;
+    p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+
+    /* num-of-fields */
+    int64_t master_fields = lpGetIntegerIfValid(p, &valid_record);
+    if (!valid_record) return 0;
+    p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+
+    /* the field names */
+    for (int64_t j = 0; j < master_fields; j++) {
+        p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+    }
+
+    /* the zero master entry terminator. */
+    int64_t zero = lpGetIntegerIfValid(p, &valid_record);
+    if (!valid_record || zero != 0) return 0;
+    p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+
+    while (entry_count--) {
+        if (!p) return 0;
+        int64_t fields = master_fields, extra_fields = 3;
+        int64_t flags = lpGetIntegerIfValid(p, &valid_record);
+        if (!valid_record) return 0;
+        p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+
+        /* entry id */
+        p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+        p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+
+        if (!(flags & STREAM_ITEM_FLAG_SAMEFIELDS)) {
+            /* num-of-fields */
+            fields = lpGetIntegerIfValid(p, &valid_record);
+            if (!valid_record) return 0;
+            p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+
+            /* the field names */
+            for (int64_t j = 0; j < fields; j++) {
+                p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+            }
+
+            extra_fields += fields + 1;
+        }
+
+        /* the values */
+        for (int64_t j = 0; j < fields; j++) {
+            p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+        }
+
+        /* lp-count */
+        int64_t lp_count = lpGetIntegerIfValid(p, &valid_record);
+        if (!valid_record) return 0;
+        if (lp_count != fields + extra_fields) return 0;
+        p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+    }
+
+    if (next)
+        return 0;
+
+    return 1;
 }

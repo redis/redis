@@ -158,14 +158,13 @@ struct RedisModuleCtx {
 typedef struct RedisModuleCtx RedisModuleCtx;
 
 #define REDISMODULE_CTX_INIT {(void*)(unsigned long)&RM_GetApi, NULL, NULL, NULL, NULL, 0, 0, 0, NULL, 0, NULL, NULL, NULL, NULL, {0}}
-#define REDISMODULE_CTX_MULTI_EMITTED (1<<0)
-#define REDISMODULE_CTX_AUTO_MEMORY (1<<1)
-#define REDISMODULE_CTX_KEYS_POS_REQUEST (1<<2)
-#define REDISMODULE_CTX_BLOCKED_REPLY (1<<3)
-#define REDISMODULE_CTX_BLOCKED_TIMEOUT (1<<4)
-#define REDISMODULE_CTX_THREAD_SAFE (1<<5)
-#define REDISMODULE_CTX_BLOCKED_DISCONNECTED (1<<6)
-#define REDISMODULE_CTX_MODULE_COMMAND_CALL (1<<7)
+#define REDISMODULE_CTX_AUTO_MEMORY (1<<0)
+#define REDISMODULE_CTX_KEYS_POS_REQUEST (1<<1)
+#define REDISMODULE_CTX_BLOCKED_REPLY (1<<2)
+#define REDISMODULE_CTX_BLOCKED_TIMEOUT (1<<3)
+#define REDISMODULE_CTX_THREAD_SAFE (1<<4)
+#define REDISMODULE_CTX_BLOCKED_DISCONNECTED (1<<5)
+#define REDISMODULE_CTX_MODULE_COMMAND_CALL (1<<6)
 
 /* This represents a Redis key opened with RM_OpenKey(). */
 struct RedisModuleKey {
@@ -578,12 +577,15 @@ void moduleHandlePropagationAfterCommandCallback(RedisModuleCtx *ctx) {
 
     /* We don't need to do anything here if the context was never used
      * in order to propagate commands. */
-    if (!(ctx->flags & REDISMODULE_CTX_MULTI_EMITTED)) return;
+    if (!server.propagate_in_transaction) return;
 
-    if (c->flags & CLIENT_LUA) return;
+    /* If this command is executed from with Lua or MULTI/EXEC we do noy
+     * need to propagate EXEC */
+    if (server.in_eval || server.in_exec) return;
 
     /* Handle the replication of the final EXEC, since whatever a command
      * emits is always wrapped around MULTI/EXEC. */
+    beforePropagateMultiOrExec(0);
     alsoPropagate(server.execCommand,c->db->id,&shared.exec,1,
         PROPAGATE_AOF|PROPAGATE_REPL);
 
@@ -1610,9 +1612,9 @@ int RM_ReplyWithLongDouble(RedisModuleCtx *ctx, long double ld) {
 void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx) {
     /* Skip this if client explicitly wrap the command with MULTI, or if
      * the module command was called by a script. */
-    if (ctx->client->flags & (CLIENT_MULTI|CLIENT_LUA)) return;
+    if (server.lua_caller || server.in_exec) return;
     /* If we already emitted MULTI return ASAP. */
-    if (ctx->flags & REDISMODULE_CTX_MULTI_EMITTED) return;
+    if (server.propagate_in_transaction) return;
     /* If this is a thread safe context, we do not want to wrap commands
      * executed into MULTI/EXEC, they are executed as single commands
      * from an external client in essence. */
@@ -1625,7 +1627,6 @@ void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx) {
         redisOpArrayInit(&server.also_propagate);
     }
     execCommandPropagateMulti(ctx->client);
-    ctx->flags |= REDISMODULE_CTX_MULTI_EMITTED;
 }
 
 /* Replicate the specified command and arguments to slaves and AOF, as effect
@@ -1938,20 +1939,16 @@ int RM_GetSelectedDb(RedisModuleCtx *ctx) {
  *                                    background child process.
  */
 int RM_GetContextFlags(RedisModuleCtx *ctx) {
-
     int flags = 0;
+
     /* Client specific flags */
     if (ctx) {
         if (ctx->client) {
-            if (ctx->client->flags & CLIENT_LUA)
-             flags |= REDISMODULE_CTX_FLAGS_LUA;
-            if (ctx->client->flags & CLIENT_MULTI)
-             flags |= REDISMODULE_CTX_FLAGS_MULTI;
             if (ctx->client->flags & CLIENT_DENY_BLOCKING)
-             flags |= REDISMODULE_CTX_FLAGS_DENY_BLOCKING;
+                flags |= REDISMODULE_CTX_FLAGS_DENY_BLOCKING;
             /* Module command received from MASTER, is replicated. */
             if (ctx->client->flags & CLIENT_MASTER)
-             flags |= REDISMODULE_CTX_FLAGS_REPLICATED;
+                flags |= REDISMODULE_CTX_FLAGS_REPLICATED;
         }
 
         /* For DIRTY flags, we need the blocked client if used */
@@ -1960,6 +1957,12 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
             flags |= REDISMODULE_CTX_FLAGS_MULTI_DIRTY;
         }
     }
+
+    if (server.in_eval)
+        flags |= REDISMODULE_CTX_FLAGS_LUA;
+
+    if (server.in_exec)
+        flags |= REDISMODULE_CTX_FLAGS_MULTI;
 
     if (server.cluster_enabled)
         flags |= REDISMODULE_CTX_FLAGS_CLUSTER;
@@ -3636,6 +3639,24 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
     }
 }
 
+/* Create a copy of a module type value using the copy callback. If failed
+ * or not supported, produce an error reply and return NULL.
+ */
+robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, robj *value) {
+    moduleValue *mv = value->ptr;
+    moduleType *mt = mv->type;
+    if (!mt->copy) {
+        addReplyError(c, "not supported for this module key");
+        return NULL;
+    }
+    void *newval = mt->copy(fromkey, tokey, mv->value);
+    if (!newval) {
+        addReplyError(c, "module key failed to copy");
+        return NULL;
+    }
+    return createModuleObject(mt, newval);
+}
+
 /* Register a new data type exported by the module. The parameters are the
  * following. Please for in depth documentation check the modules API
  * documentation, especially https://redis.io/topics/modules-native-types.
@@ -3675,6 +3696,7 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
  *          .aux_save = myType_AuxRDBSaveCallBack,
  *          .free_effort = myType_FreeEffortCallBack
  *          .unlink = myType_UnlinkCallBack
+ *          .copy = myType_CopyCallback
  *      }
  *
  * * **rdb_load**: A callback function pointer that loads data from RDB files.
@@ -3694,10 +3716,13 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
  *   been removed from the DB by redis, and may soon be freed by a background thread. Note that 
  *   it won't be called on FLUSHALL/FLUSHDB (both sync and async), and the module can use the 
  *   RedisModuleEvent_FlushDB to hook into that.
+ * * **copy**: A callback function pointer that is used to make a copy of the specified key.
+ *   The module is expected to perform a deep copy of the specified value and return it.
+ *   In addition, hints about the names of the source and destination keys is provided.
+ *   A NULL return value is considered an error and the copy operation fails.
+ *   Note: if the target key exists and is being overwritten, the copy callback will be
+ *   called first, followed by a free callback to the value that is being replaced.
  * 
- * The **digest** and **mem_usage** methods should currently be omitted since
- * they are not yet implemented inside the Redis modules core.
- *
  * Note: the module name "AAAAAAAAA" is reserved and produces an error, it
  * happens to be pretty lame as well.
  *
@@ -3740,6 +3765,7 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
         struct {
             moduleTypeFreeEffortFunc free_effort;
             moduleTypeUnlinkFunc unlink;
+            moduleTypeCopyFunc copy;
         } v3;
     } *tms = (struct typemethods*) typemethods_ptr;
 
@@ -3760,6 +3786,7 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
     if (tms->version >= 3) {
         mt->free_effort = tms->v3.free_effort;
         mt->unlink = tms->v3.unlink;
+        mt->copy = tms->v3.copy;
     }
     memcpy(mt->name,name,sizeof(mt->name));
     listAddNodeTail(ctx->module->types,mt);
@@ -4497,8 +4524,8 @@ void unblockClientFromModule(client *c) {
  */
 RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms, RedisModuleString **keys, int numkeys, void *privdata) {
     client *c = ctx->client;
-    int islua = c->flags & CLIENT_LUA;
-    int ismulti = c->flags & CLIENT_MULTI;
+    int islua = server.in_eval;
+    int ismulti = server.in_exec;
 
     c->bpop.module_blocked_handle = zmalloc(sizeof(RedisModuleBlockedClient));
     RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
@@ -5469,8 +5496,11 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
         } else {
             /* We call ustime() again instead of using the cached 'now' so that
              * 'next_period' isn't affected by the time it took to execute
-             * previous calls to 'callback. */
-            next_period = (expiretime-ustime())/1000; /* Scale to milliseconds. */
+             * previous calls to 'callback.
+             * We need to cast 'expiretime' so that the compiler will not treat
+             * the difference as unsigned (Causing next_period to be huge) in
+             * case expiretime < ustime() */
+            next_period = ((long long)expiretime-ustime())/1000; /* Scale to milliseconds. */
             break;
         }
     }
@@ -5519,7 +5549,8 @@ RedisModuleTimerID RM_CreateTimer(RedisModuleCtx *ctx, mstime_t period, RedisMod
 
     /* We need to install the main event loop timer if it's not already
      * installed, or we may need to refresh its period if we just installed
-     * a timer that will expire sooner than any other else. */
+     * a timer that will expire sooner than any other else (i.e. the timer
+     * we just installed is the first timer in the Timers rax). */
     if (aeTimer != -1) {
         raxIterator ri;
         raxStart(&ri,Timers);
@@ -7548,7 +7579,8 @@ dictType moduleAPIDictType = {
     NULL,                      /* val dup */
     dictCStringKeyCompare,     /* key compare */
     NULL,                      /* key destructor */
-    NULL                       /* val destructor */
+    NULL,                      /* val destructor */
+    NULL                       /* allow to expand */
 };
 
 int moduleRegisterApi(const char *funcname, void *funcptr) {
