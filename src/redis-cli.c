@@ -310,7 +310,7 @@ static void cliRefreshPrompt(void) {
 
     /* Add TX if in transaction state*/
     if (config.in_multi)  
-        prompt = sdscatlen(prompt,"TX",2);
+        prompt = sdscatlen(prompt,"(TX)",4);
 
     /* Copy the prompt in the static buffer. */
     prompt = sdscatlen(prompt,"> ",2);
@@ -1400,7 +1400,6 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             {
                 config.dbnum = atoi(argv[1]);
                 cliRefreshPrompt();
-
             } else if (!strcasecmp(command,"auth") && (argc == 2 || argc == 3)) {
                 cliSelect();
             } else if (!strcasecmp(command,"multi") && argc == 1 &&
@@ -1409,7 +1408,6 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                 config.in_multi = 1;
                 config.pre_multi_dbnum = config.dbnum;
                 cliRefreshPrompt();
-
             } else if (!strcasecmp(command,"exec") && argc == 1 && config.in_multi) {
                 config.in_multi = 0;
                 if (config.last_cmd_type == REDIS_REPLY_ERROR) {
