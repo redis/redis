@@ -2546,6 +2546,8 @@ void geoaddCommand(client *c);
 void geohashCommand(client *c);
 void geoposCommand(client *c);
 void geodistCommand(client *c);
+void geosearchCommand(client *c);
+void geosearchstoreCommand(client *c);
 void pfselftestCommand(client *c);
 void pfaddCommand(client *c);
 void pfcountCommand(client *c);
