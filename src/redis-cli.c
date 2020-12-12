@@ -308,6 +308,10 @@ static void cliRefreshPrompt(void) {
     if (config.dbnum != 0)
         prompt = sdscatfmt(prompt,"[%i]",config.dbnum);
 
+    /* Add TX if in transaction state*/
+    if (config.in_multi)  
+        prompt = sdscatlen(prompt,"TX",2);
+
     /* Copy the prompt in the static buffer. */
     prompt = sdscatlen(prompt,"> ",2);
     snprintf(config.prompt,sizeof(config.prompt),"%s",prompt);
@@ -1326,10 +1330,6 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
         !strcasecmp(command,"psubscribe")) config.pubsub_mode = 1;
     if (!strcasecmp(command,"sync") ||
         !strcasecmp(command,"psync")) config.slave_mode = 1;
-    if (!strcasecmp(command,"multi") && argc == 1) {
-        config.in_multi = 1;
-        config.pre_multi_dbnum = config.dbnum;
-    }
 
     /* When the user manually calls SCRIPT DEBUG, setup the activation of
      * debugging mode on the next eval if needed. */
@@ -1395,22 +1395,34 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             return REDIS_ERR;
         } else {
             /* Store database number when SELECT was successfully executed. */
-            if (!strcasecmp(command,"select") && argc == 2 && config.last_cmd_type != REDIS_REPLY_ERROR) {
+            if (!strcasecmp(command,"select") && argc == 2 && 
+                config.last_cmd_type != REDIS_REPLY_ERROR) 
+            {
                 config.dbnum = atoi(argv[1]);
                 cliRefreshPrompt();
+
             } else if (!strcasecmp(command,"auth") && (argc == 2 || argc == 3)) {
                 cliSelect();
+            } else if (!strcasecmp(command,"multi") && argc == 1 &&
+                config.last_cmd_type != REDIS_REPLY_ERROR) 
+            {
+                config.in_multi = 1;
+                config.pre_multi_dbnum = config.dbnum;
+                cliRefreshPrompt();
+
             } else if (!strcasecmp(command,"exec") && argc == 1 && config.in_multi) {
                 config.in_multi = 0;
                 if (config.last_cmd_type == REDIS_REPLY_ERROR) {
                     config.dbnum = config.pre_multi_dbnum;
-                    cliRefreshPrompt();
                 }
-            } else if (!strcasecmp(command,"discard") && argc == 1 && config.last_cmd_type != REDIS_REPLY_ERROR) {
+                cliRefreshPrompt();
+            } else if (!strcasecmp(command,"discard") && argc == 1 && 
+                config.last_cmd_type != REDIS_REPLY_ERROR) 
+            {
                 config.in_multi = 0;
                 config.dbnum = config.pre_multi_dbnum;
                 cliRefreshPrompt();
-            }
+            } 
         }
         if (config.cluster_reissue_command){
             /* If we need to reissue the command, break to prevent a
