@@ -886,7 +886,7 @@ struct redisCommand redisCommandTable[] = {
 
     /* GEORADIUS has store options that may write. */
     {"georadius",georadiusCommand,-6,
-     "write @geo",
+     "write use-memory @geo",
      0,georadiusGetKeys,1,1,1,0,0,0},
 
     {"georadius_ro",georadiusroCommand,-6,
@@ -894,7 +894,7 @@ struct redisCommand redisCommandTable[] = {
      0,georadiusGetKeys,1,1,1,0,0,0},
 
     {"georadiusbymember",georadiusbymemberCommand,-5,
-     "write @geo",
+     "write use-memory @geo",
      0,georadiusGetKeys,1,1,1,0,0,0},
 
     {"georadiusbymember_ro",georadiusbymemberroCommand,-5,
