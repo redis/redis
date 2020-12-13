@@ -206,7 +206,7 @@ robj *listTypeDup(robj *o) {
             lobj->encoding = OBJ_ENCODING_QUICKLIST;
             break;
         default:
-            serverPanic("Wrong encoding.");
+            serverPanic("Unknown list encoding");
             break;
     }
     return lobj;
@@ -402,9 +402,8 @@ void listElementsRemoved(client *c, robj *key, int where, robj *o, long count) {
  * optional count may be provided as the third argument of the client's
  * command. */
 void popGenericCommand(client *c, int where) {
-    long count = 0, expected = 0, actual = 0, llen = 0;
+    long count = 0;
     robj *value;
-    void *rdl = NULL;
 
     /* Parse the optional count argument. */
     if (c->argc == 3) {
@@ -421,30 +420,44 @@ void popGenericCommand(client *c, int where) {
     if (o == NULL || checkType(c, o, OBJ_LIST))
         return;
 
-    llen = listTypeLength(o);
-    if (count) {
-        expected = (count > llen) ? llen : count;
-        rdl = addReplyDeferredLen(c);
-    } else {
-        expected = 1;
-    }
-
-    while (expected--) {
+    if (!count) {
+        /* Pop a single element. */
         value = listTypePop(o,where);
-        actual += 1;
-        if (value == NULL) {
-            addReplyNull(c);
-            break;
+        serverAssert(value != NULL);
+        addReplyBulk(c,value);
+        decrRefCount(value);
+        listElementsRemoved(c,c->argv[1],where,o,1);
+    } else {
+        /* Pop a range of elements. */
+        long llen = listTypeLength(o);
+        long rangelen = (count > llen) ? llen : count;
+        long delcount = rangelen;
+        long rangestart = (where == LIST_HEAD) ? 0 : llen - 1;
+        long delstart = (where == LIST_HEAD) ? 0 : llen - delcount;
+        int direction = (where == LIST_HEAD) ? LIST_TAIL : LIST_HEAD;
+
+        addReplyArrayLen(c,rangelen);
+        if (o->encoding == OBJ_ENCODING_QUICKLIST) {
+            listTypeIterator *iter = listTypeInitIterator(o,rangestart,direction);
+
+            while(rangelen--) {
+                listTypeEntry entry;
+                listTypeNext(iter, &entry);
+                quicklistEntry *qe = &entry.entry;
+                if (qe->value) {
+                    addReplyBulkCBuffer(c,qe->value,qe->sz);
+                } else {
+                    addReplyBulkLongLong(c,qe->longval);
+                }
+            }
+            listTypeReleaseIterator(iter);
+
+            quicklistDelRange(o->ptr,delstart,delcount);
+            listElementsRemoved(c,c->argv[1],where,o,delcount);
         } else {
-            addReplyBulk(c,value);
-            decrRefCount(value);
+            serverPanic("Unknown list encoding");
         }
     }
-
-    if (count) {
-        setDeferredArrayLen(c,rdl,actual);
-    }
-    listElementsRemoved(c,c->argv[1],where,o,actual);
 }
 
 /* LPOP <key> [count] */
@@ -499,7 +512,7 @@ void lrangeCommand(client *c) {
         }
         listTypeReleaseIterator(iter);
     } else {
-        serverPanic("List encoding is not QUICKLIST!");
+        serverPanic("Unknown list encoding");
     }
 }
 
