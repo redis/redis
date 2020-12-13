@@ -147,10 +147,12 @@ void enableBcastTrackingForPrefix(client *c, char *prefix, size_t plen) {
                 while(raxNext(&ri)) {
                     raxInsert(bcast_keys,sub_ri.key,sub_ri.key_len,NULL,NULL);
                 }
+                raxStop(&sub_ri);
                 removeClientFromBcastState(c,sub_bs,ri.key,ri.key_len);
                 raxRemove(c->client_tracking_prefixes,ri.key,ri.key_len,NULL);
             }
         }    
+        raxStop(&ri);
     }
 
     /* If this is the first client subscribing to such prefix, create
