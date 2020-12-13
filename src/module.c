@@ -7084,7 +7084,7 @@ int RM_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
         moduleForkInfo.done_handler = cb;
         moduleForkInfo.done_handler_user_data = user_data;
         updateDictResizePolicy();
-        serverLog(LL_VERBOSE, "Module fork started pid: %d ", childpid);
+        serverLog(LL_VERBOSE, "Module fork started pid: %ld ", (long) childpid);
     }
     return childpid;
 }
@@ -7134,8 +7134,8 @@ int RM_KillForkChild(int child_pid) {
 
 void ModuleForkDoneHandler(int exitcode, int bysignal) {
     serverLog(LL_NOTICE,
-        "Module fork exited pid: %d, retcode: %d, bysignal: %d",
-        server.module_child_pid, exitcode, bysignal);
+        "Module fork exited pid: %ld, retcode: %d, bysignal: %d",
+        (long) server.module_child_pid, exitcode, bysignal);
     if (moduleForkInfo.done_handler) {
         moduleForkInfo.done_handler(exitcode, bysignal,
             moduleForkInfo.done_handler_user_data);

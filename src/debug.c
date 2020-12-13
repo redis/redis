@@ -1757,7 +1757,7 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
         "Accessing address: %p", (void*)info->si_addr);
     }
     if (info->si_pid != -1) {
-        serverLog(LL_WARNING, "Killed by PID: %d, UID: %d", info->si_pid, info->si_uid);
+        serverLog(LL_WARNING, "Killed by PID: %ld, UID: %d", (long) info->si_pid, info->si_uid);
     }
 
 #ifdef HAVE_BACKTRACE

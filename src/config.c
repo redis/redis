@@ -1002,7 +1002,7 @@ void configGetCommand(client *c) {
     }
     if (stringmatch(pattern,"unixsocketperm",1)) {
         char buf[32];
-        snprintf(buf,sizeof(buf),"%o",server.unixsocketperm);
+        snprintf(buf,sizeof(buf),"%lo",(unsigned long) server.unixsocketperm);
         addReplyBulkCString(c,"unixsocketperm");
         addReplyBulkCString(c,buf);
         matches++;

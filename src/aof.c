@@ -1728,7 +1728,7 @@ int rewriteAppendOnlyFileBackground(void) {
             return C_ERR;
         }
         serverLog(LL_NOTICE,
-            "Background append only file rewriting started by pid %d",childpid);
+            "Background append only file rewriting started by pid %ld",(long) childpid);
         server.aof_rewrite_scheduled = 0;
         server.aof_rewrite_time_start = time(NULL);
         server.aof_child_pid = childpid;
