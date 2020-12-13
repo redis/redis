@@ -53,6 +53,11 @@ struct privdata {
     int dtor_counter;
 };
 
+struct pushCounters {
+    int nil;
+    int str;
+};
+
 #ifdef HIREDIS_TEST_SSL
 redisSSLContext *_ssl_ctx = NULL;
 #endif
@@ -677,11 +682,25 @@ static void test_blocking_connection_errors(void) {
 #endif
 }
 
-/* Dummy push handler */
-void push_handler(void *privdata, void *reply) {
-    int *counter = privdata;
+/* Test push handler */
+void push_handler(void *privdata, void *r) {
+    struct pushCounters *pcounts = privdata;
+    redisReply *reply = r, *payload;
+
+    assert(reply && reply->type == REDIS_REPLY_PUSH && reply->elements == 2);
+
+    payload = reply->element[1];
+    if (payload->type == REDIS_REPLY_ARRAY) {
+        payload = payload->element[0];
+    }
+
+    if (payload->type == REDIS_REPLY_STRING) {
+        pcounts->str++;
+    } else if (payload->type == REDIS_REPLY_NIL) {
+        pcounts->nil++;
+    }
+
     freeReplyObject(reply);
-    *counter += 1;
 }
 
 /* Dummy function just to test setting a callback with redisOptions */
@@ -691,16 +710,16 @@ void push_handler_async(redisAsyncContext *ac, void *reply) {
 }
 
 static void test_resp3_push_handler(redisContext *c) {
+    struct pushCounters pc = {0};
     redisPushFn *old = NULL;
     redisReply *reply;
     void *privdata;
-    int n = 0;
 
     /* Switch to RESP3 and turn on client tracking */
     send_hello(c, 3);
     send_client_tracking(c, "ON");
     privdata = c->privdata;
-    c->privdata = &n;
+    c->privdata = &pc;
 
     reply = redisCommand(c, "GET key:0");
     assert(reply != NULL);
@@ -717,7 +736,12 @@ static void test_resp3_push_handler(redisContext *c) {
     old = redisSetPushCallback(c, push_handler);
     test("We can set a custom RESP3 PUSH handler: ");
     reply = redisCommand(c, "SET key:0 val:0");
-    test_cond(reply != NULL && reply->type == REDIS_REPLY_STATUS && n == 1);
+    test_cond(reply != NULL && reply->type == REDIS_REPLY_STATUS && pc.str == 1);
+    freeReplyObject(reply);
+
+    test("We properly handle a NIL invalidation payload: ");
+    reply = redisCommand(c, "FLUSHDB");
+    test_cond(reply != NULL && reply->type == REDIS_REPLY_STATUS && pc.nil == 1);
     freeReplyObject(reply);
 
     /* Unset the push callback and generate an invalidate message making
