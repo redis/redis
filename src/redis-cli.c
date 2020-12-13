@@ -248,6 +248,7 @@ static struct config {
     int enable_ldb_on_eval; /* Handle manual SCRIPT DEBUG + EVAL commands. */
     int last_cmd_type;
     int verbose;
+    int set_errcode;
     clusterManagerCommand cluster_manager_command;
     int no_auth_warning;
     int resp3;
@@ -1266,6 +1267,12 @@ static int cliReadReply(int output_raw_strings) {
                 slot, config.hostip, config.hostport);
         config.cluster_reissue_command = 1;
         cliRefreshPrompt();
+    } else if (!config.interactive && config.set_errcode && 
+        reply->type == REDIS_REPLY_ERROR) 
+    {
+        fprintf(stderr,"%s\n",reply->str);
+        exit(1);
+        return REDIS_ERR; /* avoid compiler warning */
     }
 
     if (output) {
@@ -1559,6 +1566,8 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-D") && !lastarg) {
             sdsfree(config.cmd_delim);
             config.cmd_delim = sdsnew(argv[++i]);
+        } else if (!strcmp(argv[i],"-e")) {
+            config.set_errcode = 1;
         } else if (!strcmp(argv[i],"--verbose")) {
             config.verbose = 1;
         } else if (!strcmp(argv[i],"--cluster") && !lastarg) {
@@ -1777,6 +1786,7 @@ static void usage(void) {
 "  -d <delimiter>     Delimiter between response bulks for raw formatting (default: \\n).\n"
 "  -D <delimiter>     Delimiter between responses for raw formatting (default: \\n).\n"
 "  -c                 Enable cluster mode (follow -ASK and -MOVED redirections).\n"
+"  -e                 Return exit error code when command execution fails.\n"
 #ifdef USE_OPENSSL
 "  --tls              Establish a secure TLS connection.\n"
 "  --sni <host>       Server name indication for TLS.\n"
@@ -8127,6 +8137,7 @@ int main(int argc, char **argv) {
     config.enable_ldb_on_eval = 0;
     config.last_cmd_type = -1;
     config.verbose = 0;
+    config.set_errcode = 0;
     config.no_auth_warning = 0;
     config.cluster_manager_command.name = NULL;
     config.cluster_manager_command.argc = 0;
