@@ -56,6 +56,7 @@
 #include <sys/utsname.h>
 #include <locale.h>
 #include <sys/socket.h>
+#include <sys/resource.h>
 
 /* Our shared "common" objects */
 
@@ -4278,7 +4279,6 @@ sds genRedisInfoString(const char *section) {
     sds info = sdsempty();
     time_t uptime = server.unixtime-server.stat_starttime;
     int j;
-    struct rusage self_ru, c_ru;
     int allsections = 0, defsections = 0, everything = 0, modules = 0;
     int sections = 0;
 
@@ -4288,9 +4288,6 @@ sds genRedisInfoString(const char *section) {
     everything = strcasecmp(section,"everything") == 0;
     modules = strcasecmp(section,"modules") == 0;
     if (everything) allsections = 1;
-
-    getrusage(RUSAGE_SELF, &self_ru);
-    getrusage(RUSAGE_CHILDREN, &c_ru);
 
     /* Server */
     if (allsections || defsections || !strcasecmp(section,"server")) {
@@ -4337,6 +4334,7 @@ sds genRedisInfoString(const char *section) {
             "process_supervised:%s\r\n"
             "run_id:%s\r\n"
             "tcp_port:%i\r\n"
+            "server_time_usec:%I\r\n"
             "uptime_in_seconds:%I\r\n"
             "uptime_in_days:%I\r\n"
             "hz:%i\r\n"
@@ -4363,6 +4361,7 @@ sds genRedisInfoString(const char *section) {
             supervised,
             server.runid,
             server.port ? server.port : server.tls_port,
+            (int64_t)server.ustime,
             (int64_t)uptime,
             (int64_t)(uptime/(3600*24)),
             server.hz,
@@ -4850,6 +4849,10 @@ sds genRedisInfoString(const char *section) {
     /* CPU */
     if (allsections || defsections || !strcasecmp(section,"cpu")) {
         if (sections++) info = sdscat(info,"\r\n");
+
+        struct rusage self_ru, c_ru;
+        getrusage(RUSAGE_SELF, &self_ru);
+        getrusage(RUSAGE_CHILDREN, &c_ru);
         info = sdscatprintf(info,
         "# CPU\r\n"
         "used_cpu_sys:%ld.%06ld\r\n"
@@ -4860,6 +4863,15 @@ sds genRedisInfoString(const char *section) {
         (long)self_ru.ru_utime.tv_sec, (long)self_ru.ru_utime.tv_usec,
         (long)c_ru.ru_stime.tv_sec, (long)c_ru.ru_stime.tv_usec,
         (long)c_ru.ru_utime.tv_sec, (long)c_ru.ru_utime.tv_usec);
+#ifdef RUSAGE_THREAD
+        struct rusage m_ru;
+        getrusage(RUSAGE_THREAD, &m_ru);
+        info = sdscatprintf(info,
+            "used_cpu_sys_main_thread:%ld.%06ld\r\n"
+            "used_cpu_user_main_thread:%ld.%06ld\r\n",
+            (long)m_ru.ru_stime.tv_sec, (long)m_ru.ru_stime.tv_usec,
+            (long)m_ru.ru_utime.tv_sec, (long)m_ru.ru_utime.tv_usec);
+#endif  /* RUSAGE_THREAD */
     }
 
     /* Modules */
