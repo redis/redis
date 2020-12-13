@@ -237,7 +237,7 @@ start_server {tags {"scripting"}} {
                    cjson.decode(
                     "[0.0, -5e3, -1, 0.3e-3, 1023.2, 0e10]"), " ")
         } 0
-    } {0 -5000 -1 0.0003 1023.2 0}
+    } {0 -5000.0 -1.0 0.0003 1023.2 0.0}
 
     test {EVAL - JSON string decoding} {
         r eval {local decoded = cjson.decode('{"keya": "a", "keyb": "b"}')
@@ -295,7 +295,7 @@ start_server {tags {"scripting"}} {
                 assert(re.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x == nil)
                 return {h, re.x.x.x.x.x.x.x.x.y == re.y, re.y == 5}
         } 0
-    } {82a17905a17881a17882a17905a17881a17882a17905a17881a17882a17905a17881a17882a17905a17881a17882a17905a17881a17882a17905a17881a17882a17905a17881a178c0 1 1}
+    } {82a17881a17882a17881a17882a17881a17882a17881a17882a17881a17882a17881a17882a17881a17882a17881a178c0a17905a17905a17905a17905a17905a17905a17905a17905 1 1}
 
     test {EVAL - Numerical sanity check from bitop} {
         r eval {assert(0x7fffffff == 2147483647, "broken hex literals");
@@ -404,12 +404,6 @@ start_server {tags {"scripting"}} {
         lappend res [r eval $decr_if_gt 1 foo 2]
         set res
     } {4 3 2 2 2}
-
-    test {Scripting engine resets PRNG at every script execution} {
-        set rand1 [r eval {return tostring(math.random())} 0]
-        set rand2 [r eval {return tostring(math.random())} 0]
-        assert_equal $rand1 $rand2
-    }
 
     test {Scripting engine PRNG can be seeded correctly} {
         set rand1 [r eval {
