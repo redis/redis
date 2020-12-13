@@ -1215,6 +1215,7 @@ struct redisServer {
     size_t stat_peak_memory;        /* Max used memory record */
     long long stat_fork_time;       /* Time needed to perform latest fork() */
     double stat_fork_rate;          /* Fork rate in GB/sec. */
+    long long stat_total_forks;     /* Total count of fork. */
     long long stat_rejected_conn;   /* Clients rejected because of maxclients */
     long long stat_sync_full;       /* Number of full resyncs with slaves. */
     long long stat_sync_partial_ok; /* Number of accepted PSYNC requests. */

@@ -2925,6 +2925,7 @@ void resetServerStats(void) {
     server.stat_active_defrag_scanned = 0;
     server.stat_fork_time = 0;
     server.stat_fork_rate = 0;
+    server.stat_total_forks = 0;
     server.stat_rejected_conn = 0;
     server.stat_sync_full = 0;
     server.stat_sync_partial_ok = 0;
@@ -4654,6 +4655,7 @@ sds genRedisInfoString(const char *section) {
             "pubsub_channels:%ld\r\n"
             "pubsub_patterns:%lu\r\n"
             "latest_fork_usec:%lld\r\n"
+            "total_forks:%lld\r\n"
             "migrate_cached_sockets:%ld\r\n"
             "slave_expires_tracked_keys:%zu\r\n"
             "active_defrag_hits:%lld\r\n"
@@ -4690,6 +4692,7 @@ sds genRedisInfoString(const char *section) {
             dictSize(server.pubsub_channels),
             listLength(server.pubsub_patterns),
             server.stat_fork_time,
+            server.stat_total_forks,
             dictSize(server.migrate_cached_sockets),
             getSlaveKeyWithExpireCount(),
             server.stat_active_defrag_hits,
@@ -5188,6 +5191,7 @@ int redisFork(int purpose) {
         closeClildUnusedResourceAfterFork();
     } else {
         /* Parent */
+        server.stat_total_forks++;
         server.stat_fork_time = ustime()-start;
         server.stat_fork_rate = (double) zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024); /* GB per second. */
         latencyAddSampleIfNeeded("fork",server.stat_fork_time/1000);
