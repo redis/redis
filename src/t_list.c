@@ -404,7 +404,7 @@ void listElementsRemoved(client *c, robj *key, int where, robj *o, long count) {
 void popGenericCommand(client *c, int where) {
     long count = 0, expected = 0, actual = 0, llen = 0;
     robj *value;
-    void *rdl;
+    void *rdl = NULL;
 
     /* Parse the optional count argument. */
     if (c->argc == 3) {
