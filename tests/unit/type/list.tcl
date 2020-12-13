@@ -123,6 +123,17 @@ start_server {
     test {R/LPOP against empty list} {
         r lpop non-existing-list
     } {}
+    
+    test {R/LPOP with the optional count argument} {
+        assert_equal 7 [r lpush listcount aa bb cc dd ee ff gg]
+        assert_equal {} [r lpop listcount 0]
+        assert_equal {gg} [r lpop listcount 1]
+        assert_equal {ff ee} [r lpop listcount 2]
+        assert_equal {aa bb} [r rpop listcount 2]
+        assert_equal {cc} [r rpop listcount 1]
+        assert_equal {dd} [r rpop listcount 123]
+        assert_error "*ERR*range*" {r lpop forbarqaz -123}
+    }
 
     test {Variadic RPUSH/LPUSH} {
         r del mylist

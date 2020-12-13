@@ -385,7 +385,7 @@ void lsetCommand(client *c) {
     }
 }
 
-void listElementsRemoved(client *c, robj *key, int where, robj *o) {
+void listElementsRemoved(client *c, robj *key, int where, robj *o, long count) {
     char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
 
     notifyKeyspaceEvent(NOTIFY_LIST, event, key, c->db->id);
@@ -394,28 +394,65 @@ void listElementsRemoved(client *c, robj *key, int where, robj *o) {
         dbDelete(c->db, key);
     }
     signalModifiedKey(c, c->db, key);
-    server.dirty++;
+    server.dirty += count;
 }
 
+/* Implements the generic list pop operation for LPOP/RPOP.
+ * The where argument specifies which end of the list is operated on. An
+ * optional count may be provided as the third argument of the client's
+ * command. */
 void popGenericCommand(client *c, int where) {
+    long count = 0, expected = 0, actual = 0, llen = 0;
+    robj *value;
+    void *rdl;
+
+    /* Parse the optional count argument. */
+    if (c->argc == 3) {
+        if (getPositiveLongFromObjectOrReply(c,c->argv[2],&count,NULL) != C_OK) 
+            return;
+        if (count == 0) {
+            /* Fast exit path. */
+            addReplyNullArray(c);
+            return;
+        }
+    }
+
     robj *o = lookupKeyWriteOrReply(c, c->argv[1], shared.null[c->resp]);
     if (o == NULL || checkType(c, o, OBJ_LIST))
         return;
 
-    robj *value = listTypePop(o, where);
-    if (value == NULL) {
-        addReplyNull(c);
+    llen = listTypeLength(o);
+    if (count) {
+        expected = (count > llen) ? llen : count;
+        rdl = addReplyDeferredLen(c);
     } else {
-        addReplyBulk(c,value);
-        decrRefCount(value);
-        listElementsRemoved(c,c->argv[1],where,o);
+        expected = 1;
     }
+
+    while (expected--) {
+        value = listTypePop(o,where);
+        actual += 1;
+        if (value == NULL) {
+            addReplyNull(c);
+            break;
+        } else {
+            addReplyBulk(c,value);
+            decrRefCount(value);
+        }
+    }
+
+    if (count) {
+        setDeferredArrayLen(c,rdl,actual);
+    }
+    listElementsRemoved(c,c->argv[1],where,o,actual);
 }
 
+/* LPOP <key> [count] */
 void lpopCommand(client *c) {
     popGenericCommand(c,LIST_HEAD);
 }
 
+/* RPOP <key> [count] */
 void rpopCommand(client *c) {
     popGenericCommand(c,LIST_TAIL);
 }
@@ -893,7 +930,7 @@ void blockingPopGenericCommand(client *c, int where) {
                     addReplyBulk(c,c->argv[j]);
                     addReplyBulk(c,value);
                     decrRefCount(value);
-                    listElementsRemoved(c,c->argv[j],where,o);
+                    listElementsRemoved(c,c->argv[j],where,o,1);
 
                     /* Replicate it as an [LR]POP instead of B[LR]POP. */
                     rewriteClientCommandVector(c,2,
