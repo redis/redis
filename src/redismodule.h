@@ -225,6 +225,7 @@ typedef struct RedisModuleEvent {
 } RedisModuleEvent;
 
 struct RedisModuleCtx;
+struct RedisModuleDefragCtx;
 typedef void (*RedisModuleEventCallback)(struct RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data);
 
 static const RedisModuleEvent
@@ -479,6 +480,7 @@ typedef struct RedisModuleCommandFilter RedisModuleCommandFilter;
 typedef struct RedisModuleInfoCtx RedisModuleInfoCtx;
 typedef struct RedisModuleServerInfoData RedisModuleServerInfoData;
 typedef struct RedisModuleScanCursor RedisModuleScanCursor;
+typedef struct RedisModuleDefragCtx RedisModuleDefragCtx;
 typedef struct RedisModuleUser RedisModuleUser;
 
 typedef int (*RedisModuleCmdFunc)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -495,6 +497,7 @@ typedef void (*RedisModuleTypeFreeFunc)(void *value);
 typedef size_t (*RedisModuleTypeFreeEffortFunc)(RedisModuleString *key, const void *value);
 typedef void (*RedisModuleTypeUnlinkFunc)(RedisModuleString *key, const void *value);
 typedef void *(*RedisModuleTypeCopyFunc)(RedisModuleString *fromkey, RedisModuleString *tokey, const void *value);
+typedef int (*RedisModuleTypeDefragFunc)(RedisModuleDefragCtx *ctx, RedisModuleString *key, void **value);
 typedef void (*RedisModuleClusterMessageReceiver)(RedisModuleCtx *ctx, const char *sender_id, uint8_t type, const unsigned char *payload, uint32_t len);
 typedef void (*RedisModuleTimerProc)(RedisModuleCtx *ctx, void *data);
 typedef void (*RedisModuleCommandFilterFunc) (RedisModuleCommandFilterCtx *filter);
@@ -503,6 +506,7 @@ typedef void (*RedisModuleInfoFunc)(RedisModuleInfoCtx *ctx, int for_crash_repor
 typedef void (*RedisModuleScanCB)(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key, void *privdata);
 typedef void (*RedisModuleScanKeyCB)(RedisModuleKey *key, RedisModuleString *field, RedisModuleString *value, void *privdata);
 typedef void (*RedisModuleUserChangedFunc) (uint64_t client_id, void *privdata);
+typedef int (*RedisModuleDefragFunc)(RedisModuleDefragCtx *ctx);
 
 typedef struct RedisModuleTypeMethods {
     uint64_t version;
@@ -518,6 +522,7 @@ typedef struct RedisModuleTypeMethods {
     RedisModuleTypeFreeEffortFunc free_effort;
     RedisModuleTypeUnlinkFunc unlink;
     RedisModuleTypeCopyFunc copy;
+    RedisModuleTypeDefragFunc defrag;
 } RedisModuleTypeMethods;
 
 #define REDISMODULE_GET_API(name) \
@@ -776,6 +781,12 @@ REDISMODULE_API int (*RedisModule_AuthenticateClientWithUser)(RedisModuleCtx *ct
 REDISMODULE_API int (*RedisModule_DeauthenticateAndCloseClient)(RedisModuleCtx *ctx, uint64_t client_id) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_GetClientCertificate)(RedisModuleCtx *ctx, uint64_t id) REDISMODULE_ATTR;
 REDISMODULE_API int *(*RedisModule_GetCommandKeys)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int *num_keys) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_RegisterDefragFunc)(RedisModuleCtx *ctx, RedisModuleDefragFunc func) REDISMODULE_ATTR;
+REDISMODULE_API void *(*RedisModule_DefragAlloc)(RedisModuleDefragCtx *ctx, void *ptr) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleString *(*RedisModule_DefragRedisModuleString)(RedisModuleDefragCtx *ctx, RedisModuleString *str) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_DefragShouldStop)(RedisModuleDefragCtx *ctx) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_DefragCursorSet)(RedisModuleDefragCtx *ctx, unsigned long cursor) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_DefragCursorGet)(RedisModuleDefragCtx *ctx, unsigned long *cursor) REDISMODULE_ATTR;
 #endif
 
 #define RedisModule_IsAOFClient(id) ((id) == CLIENT_ID_AOF)
@@ -1025,6 +1036,12 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(AuthenticateClientWithUser);
     REDISMODULE_GET_API(GetClientCertificate);
     REDISMODULE_GET_API(GetCommandKeys);
+    REDISMODULE_GET_API(RegisterDefragFunc);
+    REDISMODULE_GET_API(DefragAlloc);
+    REDISMODULE_GET_API(DefragRedisModuleString);
+    REDISMODULE_GET_API(DefragShouldStop);
+    REDISMODULE_GET_API(DefragCursorSet);
+    REDISMODULE_GET_API(DefragCursorGet);
 #endif
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;

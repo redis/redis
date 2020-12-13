@@ -46,11 +46,15 @@ proc warnings_from_file {filename} {
     join $result "\n"
 }
 
-# Return value for INFO property
-proc status {r property} {
-    if {[regexp "\r\n$property:(.*?)\r\n" [{*}$r info] _ value]} {
+proc getInfoProperty {infostr property} {
+    if {[regexp "\r\n$property:(.*?)\r\n" $infostr _ value]} {
         set _ $value
     }
+}
+
+# Return value for INFO property
+proc status {r property} {
+    set _ [getInfoProperty [{*}$r info] $property]
 }
 
 proc waitForBgsave r {
