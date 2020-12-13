@@ -306,7 +306,20 @@ start_server {tags {"tracking"}} {
         set ping_reply [$rd read]
         assert {$inv_msg eq {invalidate key1}}
         assert {$ping_reply eq {PONG}}
-    } 
+    }
+
+    test {BCAST with multiple prefixes de-duplicate and don't send duplicate invalidations} {
+        $rd HELLO 3
+        $rd read ; # Consume the HELLO reply
+        $rd CLIENT TRACKING on BCAST PREFIX FOOBARBAZ PREFIX FOO PREFIX FOOBAR PREFIX FOOBARBAZ
+        $rd read ; # Consume the TRACKING reply
+        $rd_sg SET FOO BAR
+        set inv_msg [$rd read]
+        $rd PING
+        set ping_reply [$rd read]
+        assert {$inv_msg eq {invalidate FOO}}
+        assert {$ping_reply eq {PONG}}
+    }
 
     test {Tracking gets notification on tracking table key eviction} {
         $rd_redirection HELLO 2

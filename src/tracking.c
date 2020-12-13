@@ -58,6 +58,18 @@ typedef struct bcastState {
                        prefix. */
 } bcastState;
 
+static void removeClientFromBcastState(client *c, bcastState *bs, unsigned char *key, size_t len) {
+    raxRemove(bs->clients,(unsigned char*)&c,sizeof(c),NULL);
+    /* Was it the last client? Remove the prefix from the
+     * table. */
+    if (raxSize(bs->clients) == 0) {
+        raxFree(bs->clients);
+        raxFree(bs->keys);
+        zfree(bs);
+        raxRemove(PrefixTable,key,len,NULL);
+    }
+}
+
 /* Remove the tracking state from the client 'c'. Note that there is not much
  * to do for us here, if not to decrement the counter of the clients in
  * tracking mode, because we just store the ID of the client in the tracking
@@ -74,15 +86,7 @@ void disableTracking(client *c) {
         while(raxNext(&ri)) {
             bcastState *bs = raxFind(PrefixTable,ri.key,ri.key_len);
             serverAssert(bs != raxNotFound);
-            raxRemove(bs->clients,(unsigned char*)&c,sizeof(c),NULL);
-            /* Was it the last client? Remove the prefix from the
-             * table. */
-            if (raxSize(bs->clients) == 0) {
-                raxFree(bs->clients);
-                raxFree(bs->keys);
-                zfree(bs);
-                raxRemove(PrefixTable,ri.key,ri.key_len,NULL);
-            }
+            removeClientFromBcastState(c, bs, ri.key,ri.key_len);
         }
         raxStop(&ri);
         raxFree(c->client_tracking_prefixes);
@@ -103,11 +107,57 @@ void disableTracking(client *c) {
  * already registered for the specified prefix, no operation is performed. */
 void enableBcastTrackingForPrefix(client *c, char *prefix, size_t plen) {
     bcastState *bs = raxFind(PrefixTable,(unsigned char*)prefix,plen);
+    rax *bcast_keys = (bs != raxNotFound) ? bs->keys : NULL;
+
+    /* Attempt to deduplicate existing prefixes with the new prefix. We will
+     * loop over all the existing prefixes and check for duplicates. There
+     * are two possible cases where we need to deduplicate. 
+     * Case 1: 
+     * The new prefix would fall under an existing prefix. In this
+     * case we do nothing since we are already tracking all keys that
+     * would be covered by the new prefix.
+     *
+     * Case 2:
+     * The new prefix contains existing prefixes. In this case we
+     * we need to merge all of keys from those existinst sub-prefixes and
+     * add them to the bcast state for the new prefix. We need to do this
+     * to make sure we invalidate all keys that we have witnessed. */
+    if (c->client_tracking_prefixes) {
+        raxIterator ri;
+        raxStart(&ri, c->client_tracking_prefixes);
+        raxSeek(&ri,"^",NULL,0);
+        while(raxNext(&ri)) {
+            size_t min_length = plen < ri.key_len ? plen : ri.key_len;
+            if (memcmp(ri.key,prefix,min_length) != 0) {
+                continue;
+            }
+
+            if (ri.key_len <= plen) {
+                /* Case 1 */
+                return;
+            } else {
+                /* Case 2 */
+                if (!bcast_keys) bcast_keys = raxNew();
+                bcastState *sub_bs = raxFind(PrefixTable,(unsigned char*)ri.key,ri.key_len);
+                serverAssert(sub_bs != raxNotFound);
+
+                raxIterator sub_ri;
+                raxStart(&sub_ri,sub_bs->keys);
+                raxSeek(&sub_ri,"^",NULL,0);
+                while(raxNext(&ri)) {
+                    raxInsert(bcast_keys,sub_ri.key,sub_ri.key_len,NULL,NULL);
+                }
+                removeClientFromBcastState(c,sub_bs,ri.key,ri.key_len);
+                raxRemove(c->client_tracking_prefixes,ri.key,ri.key_len,NULL);
+            }
+        }    
+    }
+
     /* If this is the first client subscribing to such prefix, create
      * the prefix in the table. */
     if (bs == raxNotFound) {
         bs = zmalloc(sizeof(*bs));
-        bs->keys = raxNew();
+        bs->keys = bcast_keys ? bcast_keys : raxNew();
         bs->clients = raxNew();
         raxInsert(PrefixTable,(unsigned char*)prefix,plen,bs,NULL);
     }
