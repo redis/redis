@@ -375,7 +375,7 @@ typedef struct tls_connection {
     listNode *pending_list_node;
 } tls_connection;
 
-static connection *createTLSConnection(bool client_side) {
+static connection *createTLSConnection(int client_side) {
     SSL_CTX *ctx = redis_tls_ctx;
     if (client_side && redis_tls_client_ctx)
         ctx = redis_tls_client_ctx;
@@ -387,7 +387,7 @@ static connection *createTLSConnection(bool client_side) {
 }
 
 connection *connCreateTLS(void) {
-    return createTLSConnection(true);
+    return createTLSConnection(1);
 }
 
 /* Fetch the latest OpenSSL error and store it in the connection */
@@ -408,7 +408,7 @@ static void updateTLSError(tls_connection *conn) {
  * is not in an error state.
  */
 connection *connCreateAcceptedTLS(int fd, int require_auth) {
-    tls_connection *conn = (tls_connection *) createTLSConnection(false);
+    tls_connection *conn = (tls_connection *) createTLSConnection(0);
     conn->c.fd = fd;
     conn->c.state = CONN_STATE_ACCEPTING;
 
