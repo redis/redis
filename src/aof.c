@@ -1355,6 +1355,9 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                     if (rioWriteStreamEmptyConsumer(r,key,(char*)ri.key,
                                                     ri.key_len,consumer) == 0)
                     {
+                        raxStop(&ri_cons);
+                        raxStop(&ri);
+                        streamIteratorStop(&si);
                         return 0;
                     }
                     continue;
