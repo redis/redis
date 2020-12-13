@@ -1432,7 +1432,7 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
                 strerror(errno));
             return C_ERR;
         }
-        serverLog(LL_NOTICE,"Background saving started by pid %d",childpid);
+        serverLog(LL_NOTICE,"Background saving started by pid %ld",(long) childpid);
         server.rdb_save_time_start = time(NULL);
         server.rdb_child_pid = childpid;
         server.rdb_child_type = RDB_CHILD_TYPE_DISK;
@@ -2826,8 +2826,8 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
             server.rdb_pipe_numconns_writing = 0;
             closeChildInfoPipe();
         } else {
-            serverLog(LL_NOTICE,"Background RDB transfer started by pid %d",
-                childpid);
+            serverLog(LL_NOTICE,"Background RDB transfer started by pid %ld",
+                (long) childpid);
             server.rdb_save_time_start = time(NULL);
             server.rdb_child_pid = childpid;
             server.rdb_child_type = RDB_CHILD_TYPE_SOCKET;

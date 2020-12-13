@@ -346,7 +346,7 @@ size_t zmalloc_get_rss(void) {
     int fd, count;
     char *p, *x;
 
-    snprintf(filename,256,"/proc/%d/stat",getpid());
+    snprintf(filename,256,"/proc/%ld/stat",(long) getpid());
     if ((fd = open(filename,O_RDONLY)) == -1) return 0;
     if (read(fd,buf,4096) <= 0) {
         close(fd);
@@ -438,7 +438,7 @@ size_t zmalloc_get_rss(void) {
     char filename[256];
     int fd;
 
-    snprintf(filename,256,"/proc/%d/psinfo",getpid());
+    snprintf(filename,256,"/proc/%ld/psinfo",(long) getpid());
 
     if ((fd = open(filename,O_RDONLY)) == -1) return 0;
     if (ioctl(fd, PIOCPSINFO, &info) == -1) {
