@@ -215,9 +215,10 @@ typedef uint64_t RedisModuleTimerID;
 #define REDISMODULE_EVENT_MODULE_CHANGE 9
 #define REDISMODULE_EVENT_LOADING_PROGRESS 10
 #define REDISMODULE_EVENT_SWAPDB 11
+#define REDISMODULE_EVENT_REPL_BACKUP 12
 
 /* Next event flag, should be updated if a new event added. */
-#define _REDISMODULE_EVENT_NEXT 12
+#define _REDISMODULE_EVENT_NEXT 13
 
 typedef struct RedisModuleEvent {
     uint64_t id;        /* REDISMODULE_EVENT_... defines. */
@@ -276,6 +277,10 @@ static const RedisModuleEvent
     RedisModuleEvent_SwapDB = {
         REDISMODULE_EVENT_SWAPDB,
         1
+    },
+    RedisModuleEvent_ReplBackup = {
+        REDISMODULE_EVENT_REPL_BACKUP,
+        1
     };
 
 /* Those are values that are used for the 'subevent' callback argument. */
@@ -317,10 +322,14 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_MODULE_UNLOADED 1
 #define _REDISMODULE_SUBEVENT_MODULE_NEXT 2
 
-
 #define REDISMODULE_SUBEVENT_LOADING_PROGRESS_RDB 0
 #define REDISMODULE_SUBEVENT_LOADING_PROGRESS_AOF 1
 #define _REDISMODULE_SUBEVENT_LOADING_PROGRESS_NEXT 2
+
+#define REDISMODULE_SUBEVENT_REPL_BACKUP_CREATE 0
+#define REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE 1
+#define REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD 2
+#define _REDISMODULE_SUBEVENT_REPL_BACKUP_NEXT 3
 
 #define _REDISMODULE_SUBEVENT_SHUTDOWN_NEXT 0
 #define _REDISMODULE_SUBEVENT_CRON_LOOP_NEXT 0

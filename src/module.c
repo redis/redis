@@ -7350,7 +7350,7 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *
  *      RedisModuleEvent_SwapDB
  *
- *          This event is called when a swap db command has been successfully 
+ *          This event is called when a SWAPDB command has been successfully
  *          Executed. 
  *          For this event call currently there is no subevents available.
  *
@@ -7360,6 +7360,18 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *             int32_t dbnum_first;    // Swap Db first dbnum 
  *             int32_t dbnum_second;   // Swap Db second dbnum 
  *
+ *      RedisModuleEvent_ReplBackup
+ *
+ *          Called when diskless-repl-load config is set to swapdb,
+ *          And redis needs to backup the the current database for the
+ *          possibility to be restored later. A module with global data and
+ *          maybe with aux_load and aux_save callbacks may need to use this
+ *          notification to backup / restore / discard its globals.
+ *          The following sub events are available:
+ *
+ *              REDISMODULE_SUBEVENT_REPL_BACKUP_CREATE
+ *              REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE
+ *              REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD
  *
  *
  * The function returns REDISMODULE_OK if the module was successfully subscribed
@@ -7432,6 +7444,8 @@ int RM_IsSubEventSupported(RedisModuleEvent event, int64_t subevent) {
         return subevent < _REDISMODULE_SUBEVENT_LOADING_PROGRESS_NEXT;
     case REDISMODULE_EVENT_SWAPDB:
         return subevent < _REDISMODULE_SUBEVENT_SWAPDB_NEXT;
+    case REDISMODULE_EVENT_REPL_BACKUP:
+        return subevent < _REDISMODULE_SUBEVENT_REPL_BACKUP_NEXT;
     default:
         break;
     }
