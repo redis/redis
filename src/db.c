@@ -604,6 +604,10 @@ void flushAllDataAndResetRDB(int flags) {
         rdbSave(server.rdb_filename,rsiptr);
         server.dirty = saved_dirty;
     }
+
+    /* Without that extra dirty++, when db was already empty, FLUSHALL will
+     * not be replicated nor put into the AOF. */
+    server.dirty++;
 #if defined(USE_JEMALLOC)
     /* jemalloc 5 doesn't release pages back to the OS when there's no traffic.
      * for large databases, flushdb blocks for long anyway, so a bit more won't
