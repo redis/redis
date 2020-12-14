@@ -1,16 +1,220 @@
-Hello! This file is just a placeholder, since this is the "unstable" branch
-of Redis, the place where all the development happens.
+================================================================================
+Redis 6.2 RC1   Released Mon Dec 14 11:50:00 IST 2020
+================================================================================
 
-There is no release notes for this branch, it gets forked into another branch
-every time there is a partial feature freeze in order to eventually create
-a new stable release.
+Upgrade urgency LOW: This is the first RC of Redis 6.2.
 
-Usually "unstable" is stable enough for you to use it in development environments
-however you should never use it in production environments. It is possible
-to download the latest stable release here:
+Introduction to the Redis 6.2 release
+=====================================
 
-    http://download.redis.io/releases/redis-stable.tar.gz
+This release is the first significant Redis release managed by the core team
+under the new project governance model.
 
-More information is available at http://redis.io
+Redis 6.2 includes many new commands and improvements, but no big features. It
+mainly makes Redis more complete and addresses issues that have been requested
+by many users frequently or for a long time.
 
-Happy hacking!
+Many of these changes were not eligible for 6.0.x for several reasons:
+
+1. They are not backward compatible, which is always the case with new or
+   extended commands (that cannot be replicated to an older replica).
+2. They require a longer release-candidate test cycle.
+
+
+Here is a comprehensive list of changes in this release compared to 6.0.9,
+each one includes the PR number that added it, so you can get more details
+at https://github.com/redis/redis/pull/<number>
+
+New commands / args:
+* Add SMISMEMBER command that checks multiple members (#7615)
+* Add ZMSCORE command that returns an array of scores (#7593)
+* Add LMOVE and BLMOVE commands that pop and push arbitrarily (#6929)
+* Add RESET command that resets client connection state(#7982)
+* Add COPY command that copies keys (#7953)
+* Add ZDIFF and ZDIFFSTORE commands (#7961)
+* Add ZINTER and ZUNION commands (#7794)
+* Add GEOSEARCH/GEOSEARCHSTORE commands for bounding box spatial queries (#8094)
+* Add GET parameter to SET command, for more powerful GETSET (#7852)
+* Add exclusive range query to XPENDING (#8130)
+* Add exclusive range query to X[REV]RANGE (#8072)
+* Add GT and LT options to ZADD for conditional score updates (#7818)
+* Add CLIENT INFO and CLIENT LIST for specific ids (#8113)
+* Add IDLE argument to XPENDING command (#7972)
+* Add local address to CLIENT LIST, and a CLIENT KILL filter. (#7913)
+* Add NOMKSTREAM option to XADD command (#7910)
+* Add command introspection to Sentinel (#7940)
+* Add SENTINEL MYID subcommand (#7858)
+
+New features:
+* Dump payload sanitization: prevent corrupt payload causing crashes (#7807)
+  Has flags to enable full O(N) validation (disabled by default).
+* ACL patterns for Pub/Sub channels (#7993)
+* Support ACL for Sentinel mode (#7888)
+* Support getting configuration from both stdin and file at the same time (#7893)
+  Lets you avoid storing secrets on the disk.
+
+New features in CLI tools:
+* redis-cli RESP3 push support (#7609)
+* redis-cli cluster import support source and target that require auth (#7994)
+* redis-cli URIs able to provide user name in addition to password (#8048)
+* redis-cli/redis-benchmark allow specifying the prefered ciphers/ciphersuites (#8005)
+* redis-cli add -e option to exit with code when command execution fails (#8136)
+
+Command behavior changes:
+* EXISTS should not alter LRU (#8016)
+  In Redis 5.0 and 6.0 it would have touched the LRU/LFU of the key.
+* OBJECT should not reveal logically expired keys (#8016)
+  Will now behave the same TYPE or any other non-DEBUG command.
+* Improve db id range check for SELECT and MOVE (#8085)
+  Changes the error message text on a wrong db index.
+* Modify AUTH / HELLO error message (#7648)
+  Changes the error message text when the user isn't found or is disabled.
+* BITOPS length limited to proto_max_bulk_len rather than 512MB (#8096)
+  The limit is now configurable like in SETRANGE, and APPEND.
+* GEORADIUS[BYMEMBER] can fail with -OOM if Redis is over the memory limit (#8107)
+
+Other behavior changes:
+* Optionally (default) fail to start if requested bind address is not available (#7936)
+  If you rely on Redis starting successfully even if one of the bind addresses
+  is not available, you'll need to tune the new config.
+* Limit the main db dictionaries expansion to prevent key eviction (#7954)
+  In the past big dictionary rehashing could result in massive data eviction.
+  Now this rehashing is delayed (up to a limit), which can result in performance
+  loss due to hash collisions.
+* CONFIG REWRITE is atomic and safer, but requires write access to the config file's folder (#7824, #8051)
+  This change was already present in 6.0.9, but was missing from the release
+  notes.
+* A new incremental eviction mechanism that reduces latency on eviction spikes (#7653)
+  In pathological cases this can cause memory to grow uncontrolled and may require
+  specific tuning.
+* Not resetting "save" config when Redis is started with command line arguments. (#7092)
+  In case you provide command line arguments without "save" and count on it
+  being disabled, Now the defaults "save" config will kick in.
+* Update memory metrics for INFO during loading (#7690)
+* When "supervised" config is enabled, it takes precedence over "daemonize". (#8036)
+* Assertion and panic, print crash log without generating SIGSEGV (#7585)
+* Added crash log report on SIGABRT, instead of silently exiting (#8004)
+* Disable THP (Transparent Huge Pages) if enabled (#7381)
+  If you deliberately enabled it, you'll need to config Redis to keep it.
+
+Bug fixes:
+* Handle output buffer limits for module blocked clients (#8141)
+  Could result in a module sending reply to a blocked client to go beyond the
+  limit.
+* Fix setproctitle related crashes. (#8150, #8088)
+  Caused various crashes on startup, mainly on Apple M1 chips or under
+  instrumentation.
+* A module doing RM_Call could cause replicas to get nested MULTI (#8097).
+* Backup/restore cluster mode keys to slots map for repl-diskless-load=swapdb (#8108)
+  In cluster mode with repl-diskless-load, when loading failed, slot map
+  wouldn't have been restored.
+* Fix oom-score-adj-values range, and bug when used in config file (#8046)
+  Enabling setting this in the config file in a line after enabling it, would
+  have been buggy.
+* Reset average ttl when empty databases (#8106)
+  Just causing misleading metric in INFO
+* Disable rehash when Redis has child process (#8007)
+  This could have caused excessive CoW during BGSAVE, replication or AOFRW.
+* Further improved ACL algorithm for picking categories (#7966)
+  Output of ACL GETUSER is now more similar to the one provided by ACL SETUSER.
+* Fix bug with module GIL being released prematurely (#8061)
+  Could in theory (and rarely) cause multi-threaded modules to corrupt memory.
+* Fix cluster redirect for module command with no firstkey. (#7539)
+* Reduce effect of client tracking causing feedback loop in key eviction (#8100)
+* Kill disk-based fork child when all replicas drop and 'save' is not enabled (#7819)
+* Rewritten commands (modified for propagation) are logged as their original command (#8006)
+* Fix cluster access to unaligned memory (SIGBUS on old ARM) #7958
+* If diskless repl child is killed, make sure to reap the child pid (#7742)
+* Broadcast a PONG message when slot's migration is over, may reduce MOVED responses (#7571)
+
+Other improvements:
+* TLS Support in redis-benchmark (#7959)
+* Accelerate diskless master connections, and general re-connections (#6271)
+* Run active defrag while blocked / loading (#7726)
+* Performance and memory reporting improvement - sds take control of its internal fragmentation (#7875)
+* Speedup cluster failover. (#7948)
+
+Platform / toolchain support related improvements:
+* Optionally (not by default) use H/W Monotonic clock for faster time sampling (#7644)
+* Remove the requirements for C11 and _Atomic supporting compiler (#7707)
+  This would allow to more easily build and use Redis on older systems and
+  compilers again.
+* Fix crash log registers output on ARM. (#8020)
+* Raspberry build fix. (#8095)
+* Setting process title support for Haiku. (#8060)
+* DragonFlyBSD RSS memory sampling support. (#8023)
+
+New configuration options:
+* Enable configuring OpenSSL using the standard openssl.cnf (#8143)
+* oom-score-adj-values can config can now take absolute values (besides relative ones) (#8046)
+* TLS: Add different client cert support. (#8076)
+* Note that a few other changes listed above added their config options.
+
+Info fields and introspection changes:
+* Add INFO fields to track diskless and disk-based replication progress (#7981)
+* Add INFO field for main thread cpu time, and scrape system time. (#8132)
+* Add total_forks to INFO STATS (#8155)
+* Add maxclients and cluster_connections to INFO CLIENTS (#7979)
+* Add tracking bcast flag and client redirection in client list (#7995)
+* Fixed INFO client_recent_max_input_buffer includes argv array (#8065, see #7874)
+* Note that a few other changes listed above added their info fields.
+
+Module API changes:
+* Add CTX_FLAGS_DENY_BLOCKING as a unified the way to know if blocking is allowed (#8025)
+* Add data type callbacks for lazy free effort, and unlink (#7912)
+* Add data type callback for COPY command (#8112)
+* Add callbacks for defrag support. (#8149)
+* Add module event for repl-diskless-load swapdb (#8153)
+
+Module related fixes:
+* Moved RMAPI_FUNC_SUPPORTED so that it's usable (#8037)
+* Improve timer accuracy (#7987)
+* Allow '\0' inside of result of RM_CreateStringPrintf (#6260)
+
+
+Thanks to all the users and developers who made this release possible.
+We'll follow up with more RC releases, until the code looks production ready
+and we don't get reports of serious issues for a while.
+
+A special thank you for the amount of work put into this release by:
+- Wang Yuan
+- Felipe Machado
+- Filipe Oliveira
+- Tatsuya Arisawa
+- Yang Bodong
+- Jim Brunner
+- Wen Hui
+- Guy Benoish
+- Chen Yang
+- Nitai Caro
+- Meir Shpilraien
+- Madelyn Olson
+- maohuazhu
+- Valentino Geron
+- Tyson Andre
+- Michael Grunder
+- alexronke-channeladvisor
+- sundb
+- WuYunlong
+- Yoav Steinberg
+- Uri Shachar
+- Nykolas Laurentino de Lima
+- David CARLIER
+
+
+Migrating from 6.0 to 6.2
+=========================
+
+Redis 6.2 is mostly a strict superset of 6.0, you should not have any problem
+upgrading your application from 6.0 to 6.2. However there are some small changes
+of behavior listed above, please make sure you are not badly affected by any of
+them.
+
+Specifically these sections:
+* Command behavior changes
+* Other behavior changes
+
+--------------------------------------------------------------------------------
+
+Cheers,
+The Redis team
