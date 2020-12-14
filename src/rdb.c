@@ -1659,7 +1659,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
             if (dictAdd(zs->dict,sdsele,&znode->score) != DICT_OK) {
                 rdbReportCorruptRDB("Duplicate zset fields detected");
                 decrRefCount(o);
-                sdsfree(sdsele);
+                /* no need to free 'sdsele', will be released by zslFree together with 'o' */
                 return NULL;
             }
         }
