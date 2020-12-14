@@ -4219,7 +4219,7 @@ sds clusterGenNodeDescription(clusterNode *node) {
  * it will cost much time and block server to generate all nodes description,
  * so we can gnerate all firstly and complexity of this function is similar
  * to generate one node slots info in clusterGenNodeDescription(). */
-void GenNodesSlotsInfo(void) {
+void genNodesSlotsInfo(void) {
     clusterNode *n = NULL;
     int start = -1;
 
@@ -4247,7 +4247,7 @@ void GenNodesSlotsInfo(void) {
     }
 }
 
-void ReleaseNodesSlotsInfo(void) {
+void releaseNodesSlotsInfo(void) {
     dictIterator *di;
     dictEntry *de;
 
@@ -4280,7 +4280,7 @@ sds clusterGenNodesDescription(int filter) {
     dictEntry *de;
 
     /* Gnerate all nodes slots info firstly. */
-    GenNodesSlotsInfo();
+    genNodesSlotsInfo();
 
     di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
@@ -4294,7 +4294,7 @@ sds clusterGenNodesDescription(int filter) {
     }
     dictReleaseIterator(di);
 
-    ReleaseNodesSlotsInfo();
+    releaseNodesSlotsInfo();
     return ci;
 }
 
