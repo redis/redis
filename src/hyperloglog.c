@@ -1189,7 +1189,6 @@ void pfaddCommand(client *c) {
          * is guaranteed to return bytes initialized to zero. */
         o = createHLLObject();
         dbAdd(c->db,c->argv[1],o);
-        updated++;
     } else {
         if (isHLLObjectOrReply(c,o) != C_OK) return;
         o = dbUnshareStringValue(c->db,c->argv[1],o);
@@ -1211,7 +1210,7 @@ void pfaddCommand(client *c) {
     if (updated) {
         signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
-        server.dirty++;
+        server.dirty += updated;
         HLL_INVALIDATE_CACHE(hdr);
     }
     addReply(c, updated ? shared.cone : shared.czero);
