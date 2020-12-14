@@ -591,7 +591,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
                 }
                 frommember = 1;
                 i++;
-            } else if (!strcasecmp(arg, "fromloc") &&
+            } else if (!strcasecmp(arg, "fromlonlat") &&
                        (i+2) < remaining &&
                        flags & GEOSEARCH &&
                        !frommember)
@@ -635,12 +635,16 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
     }
 
     if ((flags & GEOSEARCH) && !(frommember || fromloc)) {
-        addReplyErrorFormat(c, "exactly one of FROMMEMBER or FROMLOC can be specified for %s", (char *)c->argv[0]->ptr);
+        addReplyErrorFormat(c,
+            "exactly one of FROMMEMBER or FROMLONLAT can be specified for %s",
+            (char *)c->argv[0]->ptr);
         return;
     }
 
     if ((flags & GEOSEARCH) && !(byradius || bybox)) {
-        addReplyErrorFormat(c, "exactly one of BYRADIUS and BYBOX can be specified for %s", (char *)c->argv[0]->ptr);
+        addReplyErrorFormat(c,
+            "exactly one of BYRADIUS and BYBOX can be specified for %s",
+            (char *)c->argv[0]->ptr);
         return;
     }
 
