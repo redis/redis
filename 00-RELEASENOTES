@@ -16,7 +16,7 @@ by many users frequently or for a long time.
 
 Many of these changes were not eligible for 6.0.x for several reasons:
 
-1. They are not backwards compatible, which is always the case with new or
+1. They are not backward compatible, which is always the case with new or
    extended commands (that cannot be replicated to an older replica).
 2. They require a longer release-candidate test cycle.
 
@@ -62,7 +62,7 @@ New features in CLI tools:
 
 Command behavior changes:
 * EXISTS should not alter LRU (#8016)
-  In redis 5.0 and 6.0 it would have touched the LRU/LFU of the key.
+  In Redis 5.0 and 6.0 it would have touched the LRU/LFU of the key.
 * OBJECT should not reveal logically expired keys (#8016)
   Will now behave the same TYPE or any other non-DEBUG command.
 * Improve db id range check for SELECT and MOVE (#8085)
