@@ -95,31 +95,31 @@ start_server {tags {"geo"}} {
     } {{central park n/q/r} 4545 {union square}}
 
     test {GEOSEARCH simple (sorted)} {
-        r geosearch nyc fromloc -73.9798091 40.7598464 bybox 6 6 km asc
+        r geosearch nyc fromlonlat -73.9798091 40.7598464 bybox 6 6 km asc
     } {{central park n/q/r} 4545 {union square} {lic market}}
 
-    test {GEOSEARCH FROMLOC and FROMMEMBER cannot exist at the same time} {
-        catch {r geosearch nyc fromloc -73.9798091 40.7598464 frommember xxx bybox 6 6 km asc} e
+    test {GEOSEARCH FROMLONLAT and FROMMEMBER cannot exist at the same time} {
+        catch {r geosearch nyc fromlonlat -73.9798091 40.7598464 frommember xxx bybox 6 6 km asc} e
         set e
     } {ERR*syntax*}
 
-    test {GEOSEARCH FROMLOC and FROMMEMBER one must exist} {
+    test {GEOSEARCH FROMLONLAT and FROMMEMBER one must exist} {
         catch {r geosearch nyc bybox 3 3 km asc desc withhash withdist withcoord} e
         set e
-    } {ERR*exactly one of FROMMEMBER or FROMLOC*}
+    } {ERR*exactly one of FROMMEMBER or FROMLONLAT*}
 
     test {GEOSEARCH BYRADIUS and BYBOX cannot exist at the same time} {
-        catch {r geosearch nyc fromloc -73.9798091 40.7598464 byradius 3 km bybox 3 3 km asc} e
+        catch {r geosearch nyc fromlonlat -73.9798091 40.7598464 byradius 3 km bybox 3 3 km asc} e
         set e
     } {ERR*syntax*}
 
     test {GEOSEARCH BYRADIUS and BYBOX one must exist} {
-        catch {r geosearch nyc fromloc -73.9798091 40.7598464 asc desc withhash withdist withcoord} e
+        catch {r geosearch nyc fromlonlat -73.9798091 40.7598464 asc desc withhash withdist withcoord} e
         set e
     } {ERR*exactly one of BYRADIUS and BYBOX*}
 
     test {GEOSEARCH with STOREDIST option} {
-        catch {r geosearch nyc fromloc -73.9798091 40.7598464 bybox 6 6 km asc storedist} e
+        catch {r geosearch nyc fromlonlat -73.9798091 40.7598464 bybox 6 6 km asc storedist} e
         set e
     } {ERR*syntax*}
 
@@ -128,7 +128,7 @@ start_server {tags {"geo"}} {
     } {{{central park n/q/r} 0.7750} {4545 2.3651} {{union square} 2.7697}}
 
     test {GEOSEARCH withdist (sorted)} {
-        r geosearch nyc fromloc -73.9798091 40.7598464 bybox 6 6 km withdist asc
+        r geosearch nyc fromlonlat -73.9798091 40.7598464 bybox 6 6 km withdist asc
     } {{{central park n/q/r} 0.7750} {4545 2.3651} {{union square} 2.7697} {{lic market} 3.1991}}
 
     test {GEORADIUS with COUNT} {
@@ -163,7 +163,7 @@ start_server {tags {"geo"}} {
         r geoadd Sicily 12.758489 38.788135 "edge1"   17.241510 38.788135 "eage2"
         set ret1 [r georadius Sicily 15 37 200 km asc]
         assert_equal $ret1 {Catania Palermo}
-        set ret2 [r geosearch Sicily fromloc 15 37 bybox 400 400 km asc]
+        set ret2 [r geosearch Sicily fromlonlat 15 37 bybox 400 400 km asc]
         assert_equal $ret2 {Catania Palermo eage2 edge1}
     }
 
@@ -173,12 +173,12 @@ start_server {tags {"geo"}} {
         r geoadd Sicily 12.75 36.50 "test2"
         r geoadd Sicily 13.00 36.50 "test3"
         # box height=2km width=400km
-        set ret1 [r geosearch Sicily fromloc 15 37 bybox 2 400 km]
+        set ret1 [r geosearch Sicily fromlonlat 15 37 bybox 2 400 km]
         assert_equal $ret1 {test1}
 
         # Add a western Hemisphere point
         r geoadd Sicily -1 37.00 "test3"
-        set ret2 [r geosearch Sicily fromloc 15 37 bybox 2 3000 km asc]
+        set ret2 [r geosearch Sicily fromlonlat 15 37 bybox 2 3000 km asc]
         assert_equal $ret2 {test1 test3}
     }
 
@@ -241,7 +241,7 @@ start_server {tags {"geo"}} {
     } {*ERR*syntax*}
 
     test {GEOSEARCHSTORE STORE option: syntax error} {
-        catch {r geosearchstore abc points fromloc 13.361389 38.115556 byradius 50 km store abc} e
+        catch {r geosearchstore abc points fromlonlat 13.361389 38.115556 byradius 50 km store abc} e
         set e
     } {*ERR*syntax*}
 
@@ -266,7 +266,7 @@ start_server {tags {"geo"}} {
     }
 
     test {GEOSEARCHSTORE STORE option: plain usage} {
-        r geosearchstore points2 points fromloc 13.361389 38.115556 byradius 500 km
+        r geosearchstore points2 points fromlonlat 13.361389 38.115556 byradius 500 km
         assert_equal [r zrange points 0 -1] [r zrange points2 0 -1]
     }
 
@@ -282,7 +282,7 @@ start_server {tags {"geo"}} {
     }
 
     test {GEOSEARCHSTORE STOREDIST option: plain usage} {
-        r geosearchstore points2 points fromloc 13.361389 38.115556 byradius 500 km storedist
+        r geosearchstore points2 points fromlonlat 13.361389 38.115556 byradius 500 km storedist
         set res [r zrange points2 0 -1 withscores]
         assert {[lindex $res 1] < 1}
         assert {[lindex $res 3] > 166}
