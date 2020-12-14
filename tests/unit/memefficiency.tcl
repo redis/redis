@@ -63,7 +63,7 @@ start_server {tags {"defrag"} overrides {appendonly yes auto-aof-rewrite-percent
             r config set maxmemory 110mb ;# prevent further eviction (not to fail the digest test)
             set digest [r debug digest]
             catch {r config set activedefrag yes} e
-            if {![string match {DISABLED*} $e]} {
+            if {[r config get activedefrag] eq "activedefrag yes"} {
                 # Wait for the active defrag to start working (decision once a
                 # second).
                 wait_for_condition 50 100 {
@@ -236,7 +236,7 @@ start_server {tags {"defrag"} overrides {appendonly yes auto-aof-rewrite-percent
 
             set digest [r debug digest]
             catch {r config set activedefrag yes} e
-            if {![string match {DISABLED*} $e]} {
+            if {[r config get activedefrag] eq "activedefrag yes"} {
                 # wait for the active defrag to start working (decision once a second)
                 wait_for_condition 50 100 {
                     [s active_defrag_running] ne 0
@@ -332,7 +332,7 @@ start_server {tags {"defrag"} overrides {appendonly yes auto-aof-rewrite-percent
 
             set digest [r debug digest]
             catch {r config set activedefrag yes} e
-            if {![string match {DISABLED*} $e]} {
+            if {[r config get activedefrag] eq "activedefrag yes"} {
                 # wait for the active defrag to start working (decision once a second)
                 wait_for_condition 50 100 {
                     [s active_defrag_running] ne 0
@@ -452,7 +452,7 @@ start_server {tags {"defrag"} overrides {appendonly yes auto-aof-rewrite-percent
 
                 set digest [r debug digest]
                 catch {r config set activedefrag yes} e
-                if {![string match {DISABLED*} $e]} {
+                if {[r config get activedefrag] eq "activedefrag yes"} {
                     # wait for the active defrag to start working (decision once a second)
                     wait_for_condition 50 100 {
                         [s active_defrag_running] ne 0
