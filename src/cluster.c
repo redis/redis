@@ -4214,11 +4214,11 @@ sds clusterGenNodeDescription(clusterNode *node) {
     return ci;
 }
 
-/* Gnerate all nodes slots topology info. Generating one node slots info is
+/* Generate all nodes slots topology info. Generating one node slots info is
  * costly in clusterGenNodeDescription(), if there are many nodes in cluster,
- * it will cost much time and block server to generate all nodes description,
- * so we can gnerate all firstly and complexity of this function is similar
- * to generate one node slots info in clusterGenNodeDescription(). */
+ * it will cost much time and block server to separately generate every node
+ * slots info. We have all slots topology of cluster, so we can generate all
+ * nodes slots info by only iterating slots topology once. */
 void genNodesSlotsInfo(void) {
     clusterNode *n = NULL;
     int start = -1;
