@@ -17,7 +17,7 @@ by many users frequently or for a long time.
 Many of these changes were not eligible for 6.0.x for several reasons:
 
 1. They are not backwards compatible, which is always the case with new or
-   extended commands (which cannot be replicated to an older replica).
+   extended commands (that cannot be replicated to an older replica).
 2. They require a longer release-candidate test cycle.
 
 
@@ -48,7 +48,7 @@ New commands / args:
 New features:
 * Dump payload sanitization: prevent corrupt payload causing crashes (#7807)
   Has flags to enable full O(N) validation (disabled by default).
-* ACL patterns for publish and subscribe channels (#7993)
+* ACL patterns for Pub/Sub channels (#7993)
 * Support ACL for Sentinel mode (#7888)
 * Support getting configuration from both stdin and file at the same time (#7893)
   Lets you avoid storing secrets on the disk.
@@ -180,7 +180,7 @@ A special thank you for the amount of work put into this release by:
 - Wang Yuan
 - Felipe Machado
 - Filipe Oliveira
-- swamp0407
+- Tatsuya Arisawa
 - Yang Bodong
 - Jim Brunner
 - Wen Hui
@@ -216,5 +216,5 @@ Specifically these sections:
 
 --------------------------------------------------------------------------------
 
-Enjoy
-
+Cheers,
+The Redis team
