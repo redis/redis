@@ -1189,6 +1189,7 @@ void pfaddCommand(client *c) {
          * is guaranteed to return bytes initialized to zero. */
         o = createHLLObject();
         dbAdd(c->db,c->argv[1],o);
+        updated++;
     } else {
         if (isHLLObjectOrReply(c,o) != C_OK) return;
         o = dbUnshareStringValue(c->db,c->argv[1],o);
