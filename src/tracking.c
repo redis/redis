@@ -134,6 +134,7 @@ void enableBcastTrackingForPrefix(client *c, char *prefix, size_t plen) {
 
             if (ri.key_len <= plen) {
                 /* Case 1 */
+                raxStop(&ri);
                 return;
             } else {
                 /* Case 2 */
