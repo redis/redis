@@ -115,8 +115,13 @@ else
 ifeq ($(uname_S),Darwin)
 	# Darwin
 	FINAL_LIBS+= -ldl
+ifeq ($(uname_M),arm64)
+	OPENSSL_CFLAGS=-I/opt/homebrew/opt/openssl/include
+	OPENSSL_LDFLAGS=-L/opt/homebrew/opt/openssl/lib
+else
 	OPENSSL_CFLAGS=-I/usr/local/opt/openssl/include
 	OPENSSL_LDFLAGS=-L/usr/local/opt/openssl/lib
+endif
 else
 ifeq ($(uname_S),AIX)
         # AIX
