@@ -74,20 +74,14 @@ static list *bio_jobs[BIO_NUM_OPS];
  * the sensible operation. This data is also useful for reporting. */
 static unsigned long long bio_pending[BIO_NUM_OPS];
 
-struct lazy_free_job {
-    lazy_free_fn *fn; /* Function that will free the provided arguments */
-    void *args[1]; /* List of arguments to be passed to the free function */
-};
-
 /* This structure represents a background Job. It is only used locally to this
  * file as the API does not expose the internals at all. */
 struct bio_job {
     time_t time; /* Time at which the job was created. */
-    /* Job specific arguments pointers.*/
-    union {
-        int fd;
-        struct lazy_free_job free;
-    } type;
+    /* Job specific arguments.*/
+    int fd; /* Fd for file based background jobs */
+    lazy_free_fn *free_fn; /* Function that will free the provided arguments */
+    void *free_args[]; /* List of arguments to be passed to the free function */
 };
 
 void *bioProcessBackgroundJobs(void *arg);
@@ -145,12 +139,12 @@ void bioCreateLazyFreeJob(lazy_free_fn free_fn, int arg_count, ...) {
     va_list valist;
     /* Allocate memory for the job structure and all required
      * arguments */
-    struct bio_job *job = zmalloc(sizeof(*job) + sizeof(void *) * (arg_count - 1));
-    job->type.free.fn = free_fn;
+    struct bio_job *job = zmalloc(sizeof(*job) + sizeof(void *) * (arg_count));
+    job->free_fn = free_fn;
 
     va_start(valist, arg_count);
     for (int i = 0; i < arg_count; i++) {
-        job->type.free.args[i] = va_arg(valist, void *);
+        job->free_args[i] = va_arg(valist, void *);
     }
     va_end(valist);
     bioSubmitJob(BIO_LAZY_FREE, job);
@@ -158,14 +152,14 @@ void bioCreateLazyFreeJob(lazy_free_fn free_fn, int arg_count, ...) {
 
 void bioCreateCloseJob(int fd) {
     struct bio_job *job = zmalloc(sizeof(*job));
-    job->type.fd = fd;
+    job->fd = fd;
 
     bioSubmitJob(BIO_CLOSE_FILE, job);
 }
 
 void bioCreateFsyncJob(int fd) {
     struct bio_job *job = zmalloc(sizeof(*job));
-    job->type.fd = fd;
+    job->fd = fd;
 
     bioSubmitJob(BIO_AOF_FSYNC, job);
 }
@@ -224,11 +218,11 @@ void *bioProcessBackgroundJobs(void *arg) {
 
         /* Process the job accordingly to its type. */
         if (type == BIO_CLOSE_FILE) {
-            close(job->type.fd);
+            close(job->fd);
         } else if (type == BIO_AOF_FSYNC) {
-            redis_fsync(job->type.fd);
+            redis_fsync(job->fd);
         } else if (type == BIO_LAZY_FREE) {
-            job->type.free.fn(job->type.free.args);
+            job->free_fn(job->free_args);
         } else {
             serverPanic("Wrong job type in bioProcessBackgroundJobs().");
         }
