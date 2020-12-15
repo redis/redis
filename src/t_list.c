@@ -508,7 +508,7 @@ void ltrimCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }
     signalModifiedKey(c,c->db,c->argv[1]);
-    server.dirty++;
+    server.dirty += (ltrim + rtrim);
     addReply(c,shared.ok);
 }
 

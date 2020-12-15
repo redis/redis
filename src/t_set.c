@@ -476,7 +476,7 @@ void spopWithCountCommand(client *c) {
 
     /* Generate an SPOP keyspace notification */
     notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
-    server.dirty += count;
+    server.dirty += (count >= size) ? size : count;
 
     /* CASE 1:
      * The number of requested elements is greater than or equal to
@@ -492,7 +492,6 @@ void spopWithCountCommand(client *c) {
         /* Propagate this command as a DEL operation */
         rewriteClientCommandVector(c,2,shared.del,c->argv[1]);
         signalModifiedKey(c,c->db,c->argv[1]);
-        server.dirty++;
         return;
     }
 
@@ -594,7 +593,6 @@ void spopWithCountCommand(client *c) {
     decrRefCount(propargv[0]);
     preventCommandPropagation(c);
     signalModifiedKey(c,c->db,c->argv[1]);
-    server.dirty++;
 }
 
 void spopCommand(client *c) {
