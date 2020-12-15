@@ -154,7 +154,7 @@ void execCommandAbort(client *c, sds error) {
      * already, and didn't send any of the queued commands, now we'll just send
      * EXEC so it is clear that the transaction is over. */
     if (listLength(server.monitors) && !server.loading)
-        replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
+        replicationFeedMonitors(c, c->db->id, c->argv, c->argc);
 }
 
 void execCommand(client *c) {
@@ -289,7 +289,7 @@ handle_monitor:
      * Instead EXEC is flagged as CMD_SKIP_MONITOR in the command
      * table, and we do it here with correct ordering. */
     if (listLength(server.monitors) && !server.loading)
-        replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
+        replicationFeedMonitors(c, c->db->id, c->argv, c->argc);
 }
 
 /* ===================== WATCH (CAS alike for MULTI/EXEC) ===================

@@ -1923,9 +1923,9 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout);
 ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout);
 
 /* Replication */
-void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc);
-void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t buflen);
-void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc);
+void replicationFeedSlaves(int dictid, robj **argv, int argc);
+void replicationFeedSlavesFromMasterStream(char *buf, size_t buflen);
+void replicationFeedMonitors(client *c, int dictid, robj **argv, int argc);
 void updateSlavesWaitingBgsave(int bgsaveerr, int type);
 void replicationCron(void);
 void replicationStartPendingFork(void);

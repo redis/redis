@@ -205,9 +205,10 @@ void feedReplicationBacklogWithObject(robj *o) {
  * the commands received by our clients in order to create the replication
  * stream. Instead if the instance is a slave and has sub-slaves attached,
  * we use replicationFeedSlavesFromMasterStream() */
-void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
+void replicationFeedSlaves(int dictid, robj **argv, int argc) {
     listNode *ln;
     listIter li;
+    list *slaves = server.slaves;
     int j, len;
     char llstr[LONG_STR_SIZE];
 
@@ -344,7 +345,7 @@ void showLatestBacklog(void) {
 /* This function is used in order to proxy what we receive from our master
  * to our sub-slaves. */
 #include <ctype.h>
-void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t buflen) {
+void replicationFeedSlavesFromMasterStream(char *buf, size_t buflen) {
     listNode *ln;
     listIter li;
 
@@ -359,7 +360,7 @@ void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t bufle
     }
 
     if (server.repl_backlog) feedReplicationBacklog(buf,buflen);
-    listRewind(slaves,&li);
+    listRewind(server.slaves, &li);
     while((ln = listNext(&li))) {
         client *slave = ln->value;
 
@@ -369,7 +370,7 @@ void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t bufle
     }
 }
 
-void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc) {
+void replicationFeedMonitors(client *c, int dictid, robj **argv, int argc) {
     listNode *ln;
     listIter li;
     int j;
@@ -400,7 +401,7 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
     cmdrepr = sdscatlen(cmdrepr,"\r\n",2);
     cmdobj = createObject(OBJ_STRING,cmdrepr);
 
-    listRewind(monitors,&li);
+    listRewind(server.monitors, &li);
     while((ln = listNext(&li))) {
         client *monitor = ln->value;
         addReply(monitor,cmdobj);
@@ -3209,8 +3210,7 @@ void replicationCron(void) {
 
         if (!manual_failover_in_progress) {
             ping_argv[0] = createStringObject("PING",4);
-            replicationFeedSlaves(server.slaves, server.slaveseldb,
-                ping_argv, 1);
+            replicationFeedSlaves(server.slaveseldb, ping_argv, 1);
             decrRefCount(ping_argv[0]);
         }
     }
