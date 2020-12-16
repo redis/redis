@@ -629,7 +629,7 @@ int getDoubleFromObject(const robj *o, double *target) {
             serverPanic("Unknown string encoding");
         }
     }
-    *target = value;
+    if (target) *target = value;
     return C_OK;
 }
 
@@ -643,7 +643,7 @@ int getDoubleFromObjectOrReply(client *c, robj *o, double *target, const char *m
         }
         return C_ERR;
     }
-    *target = value;
+    if (target) *target = value;
     return C_OK;
 }
 
@@ -663,7 +663,7 @@ int getLongDoubleFromObject(robj *o, long double *target) {
             serverPanic("Unknown string encoding");
         }
     }
-    *target = value;
+    if (target) *target = value;
     return C_OK;
 }
 
@@ -677,7 +677,7 @@ int getLongDoubleFromObjectOrReply(client *c, robj *o, long double *target, cons
         }
         return C_ERR;
     }
-    *target = value;
+    if (target) *target = value;
     return C_OK;
 }
 
@@ -710,7 +710,7 @@ int getLongLongFromObjectOrReply(client *c, robj *o, long long *target, const ch
         }
         return C_ERR;
     }
-    *target = value;
+    if (target) *target = value;
     return C_OK;
 }
 
@@ -726,7 +726,7 @@ int getLongFromObjectOrReply(client *c, robj *o, long *target, const char *msg) 
         }
         return C_ERR;
     }
-    *target = value;
+    if (target) *target = value;
     return C_OK;
 }
 
@@ -753,7 +753,7 @@ int getIntFromObjectOrReply(client *c, robj *o, int *target, const char *msg) {
     if (getRangeLongFromObjectOrReply(c, o, INT_MIN, INT_MAX, &value, msg) != C_OK)
         return C_ERR;
 
-    *target = value;
+    if (target) *target = value;
     return C_OK;
 }
 
