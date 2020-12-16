@@ -58,18 +58,6 @@ typedef struct bcastState {
                        prefix. */
 } bcastState;
 
-static void removeClientFromBcastState(client *c, bcastState *bs, unsigned char *key, size_t len) {
-    raxRemove(bs->clients,(unsigned char*)&c,sizeof(c),NULL);
-    /* Was it the last client? Remove the prefix from the
-     * table. */
-    if (raxSize(bs->clients) == 0) {
-        raxFree(bs->clients);
-        raxFree(bs->keys);
-        zfree(bs);
-        raxRemove(PrefixTable,key,len,NULL);
-    }
-}
-
 /* Remove the tracking state from the client 'c'. Note that there is not much
  * to do for us here, if not to decrement the counter of the clients in
  * tracking mode, because we just store the ID of the client in the tracking
@@ -86,7 +74,15 @@ void disableTracking(client *c) {
         while(raxNext(&ri)) {
             bcastState *bs = raxFind(PrefixTable,ri.key,ri.key_len);
             serverAssert(bs != raxNotFound);
-            removeClientFromBcastState(c, bs, ri.key,ri.key_len);
+            raxRemove(bs->clients,(unsigned char*)&c,sizeof(c),NULL);
+            /* Was it the last client? Remove the prefix from the
+             * table. */
+            if (raxSize(bs->clients) == 0) {
+                raxFree(bs->clients);
+                raxFree(bs->keys);
+                zfree(bs);
+                raxRemove(PrefixTable,ri.key,ri.key_len,NULL);
+            }
         }
         raxStop(&ri);
         raxFree(c->client_tracking_prefixes);

@@ -308,7 +308,7 @@ start_server {tags {"tracking"}} {
         assert {$ping_reply eq {PONG}}
     }
 
-    test {BCAST with collisions throw errors} {
+    test {BCAST with prefix collisions throw errors} {
         set r [redis_client] 
         catch {$r CLIENT TRACKING ON BCAST PREFIX FOOBAR PREFIX FOO} output
         assert_match {ERR Prefix 'FOOBAR'*} $output
@@ -316,12 +316,12 @@ start_server {tags {"tracking"}} {
         catch {$r CLIENT TRACKING ON BCAST PREFIX FOOBAR PREFIX FOO} output
         assert_match {ERR Prefix 'FOOBAR'*} $output
 
-        $r CLIENT TRACKING ON BCAST PREFIX FOO
+        $r CLIENT TRACKING ON BCAST PREFIX FOO PREFIX BAR
         catch {$r CLIENT TRACKING ON BCAST PREFIX FO} output
         assert_match {ERR Prefix 'FO'*} $output
 
-        catch {$r CLIENT TRACKING ON BCAST PREFIX FOOB} output
-        assert_match {ERR Prefix 'FOOB'*} $output
+        catch {$r CLIENT TRACKING ON BCAST PREFIX BARB} output
+        assert_match {ERR Prefix 'BARB'*} $output
 
         $r CLIENT TRACKING OFF
     }
