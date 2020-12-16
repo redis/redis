@@ -4214,12 +4214,11 @@ sds clusterGenNodeDescription(clusterNode *node) {
     return ci;
 }
 
-/* Generate all nodes slots topology info. Generating one node slots info is
- * costly in clusterGenNodeDescription(), if there are many nodes in cluster,
- * it will cost much time and block server to separately generate every node
- * slots info. We have all slots topology of cluster, so we can generate all
- * nodes slots info by only iterating slots topology once. */
-void genNodesSlotsInfo(void) {
+/* Generate the slot topology for all nodes and store the string representation
+ * in the slots_info struct on the node. This is used to improve the efficiency
+ * of clusterGenNodesDescription() because it removes looping of the slot space
+ * for generating the slot info for each node individually. */
+void genNodesSlotsInfo(int filter) {
     clusterNode *n = NULL;
     int start = -1;
 
@@ -4235,31 +4234,18 @@ void genNodesSlotsInfo(void) {
         /* Generate slots info when occur different node with start
          * or end of slot. */
         if (i == CLUSTER_SLOTS || n != server.cluster->slots[i]) {
-            if (n->slots_info == NULL) n->slots_info = sdsempty();
-            if (start == i - 1) {
-                n->slots_info = sdscatfmt(n->slots_info," %i",start);
-            } else {
-                n->slots_info = sdscatfmt(n->slots_info," %i-%i",start,i-1);
+            if (!(n->flags & filter)) {
+                if (n->slots_info == NULL) n->slots_info = sdsempty();
+                if (start == i-1) {
+                    n->slots_info = sdscatfmt(n->slots_info," %i",start);
+                } else {
+                    n->slots_info = sdscatfmt(n->slots_info," %i-%i",start,i-1);
+                }
             }
             n = server.cluster->slots[i];
             start = i;
         }
     }
-}
-
-void releaseNodesSlotsInfo(void) {
-    dictIterator *di;
-    dictEntry *de;
-
-    di = dictGetSafeIterator(server.cluster->nodes);
-    while ((de = dictNext(di)) != NULL) {
-        clusterNode *node = dictGetVal(de);
-        if (node->slots_info) {
-            sdsfree(node->slots_info);
-            node->slots_info = NULL;
-        }
-    }
-    dictReleaseIterator(di);
 }
 
 /* Generate a csv-alike representation of the nodes we are aware of,
@@ -4279,8 +4265,8 @@ sds clusterGenNodesDescription(int filter) {
     dictIterator *di;
     dictEntry *de;
 
-    /* Gnerate all nodes slots info firstly. */
-    genNodesSlotsInfo();
+    /* Generate all nodes slots info firstly. */
+    genNodesSlotsInfo(filter);
 
     di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
@@ -4291,10 +4277,14 @@ sds clusterGenNodesDescription(int filter) {
         ci = sdscatsds(ci,ni);
         sdsfree(ni);
         ci = sdscatlen(ci,"\n",1);
+
+        /* Release slots info. */
+        if (node->slots_info) {
+            sdsfree(node->slots_info);
+            node->slots_info = NULL;
+        }
     }
     dictReleaseIterator(di);
-
-    releaseNodesSlotsInfo();
     return ci;
 }
 
