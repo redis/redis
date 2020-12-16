@@ -213,22 +213,20 @@ void aof_background_fsync(int fd) {
 void killAppendOnlyChild(void) {
     int statloc;
     /* No AOFRW child? return. */
-    if (server.aof_child_pid == -1) return;
+    if (server.child_type != CHILD_TYPE_AOF) return;
     /* Kill AOFRW child, wait for child exit. */
     serverLog(LL_NOTICE,"Killing running AOF rewrite child: %ld",
-        (long) server.aof_child_pid);
-    if (kill(server.aof_child_pid,SIGUSR1) != -1) {
-        while(wait3(&statloc,0,NULL) != server.aof_child_pid);
+        (long) server.child_pid);
+    if (kill(server.child_pid,SIGUSR1) != -1) {
+        while(wait3(&statloc,0,NULL) != server.child_pid);
     }
     /* Reset the buffer accumulating changes while the child saves. */
     aofRewriteBufferReset();
-    aofRemoveTempFile(server.aof_child_pid);
-    server.aof_child_pid = -1;
+    aofRemoveTempFile(server.child_pid);
+    resetChildState();
     server.aof_rewrite_time_start = -1;
     /* Close pipes used for IPC between the two processes. */
     aofClosePipes();
-    closeChildInfoPipe();
-    updateDictResizePolicy();
 }
 
 /* Called when the user switches from "appendonly yes" to "appendonly no"
@@ -265,14 +263,14 @@ int startAppendOnly(void) {
             strerror(errno));
         return C_ERR;
     }
-    if (hasActiveChildProcess() && server.aof_child_pid == -1) {
+    if (hasActiveChildProcess() && server.child_type != CHILD_TYPE_AOF) {
         server.aof_rewrite_scheduled = 1;
         serverLog(LL_WARNING,"AOF was enabled but there is already another background operation. An AOF background was scheduled to start when possible.");
     } else {
         /* If there is a pending AOF rewrite, we need to switch it off and
          * start a new one: the old one cannot be reused because it is not
          * accumulating the AOF buffer. */
-        if (server.aof_child_pid != -1) {
+        if (server.child_type == CHILD_TYPE_AOF) {
             serverLog(LL_WARNING,"AOF was enabled but there is already an AOF rewriting in background. Stopping background AOF and starting a rewrite now.");
             killAppendOnlyChild();
         }
@@ -646,7 +644,7 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
      * accumulate the differences between the child DB and the current one
      * in a buffer, so that when the child process will do its work we
      * can append the differences to the new append only file. */
-    if (server.aof_child_pid != -1)
+    if (server.child_type == CHILD_TYPE_AOF)
         aofRewriteBufferAppend((unsigned char*)buf,sdslen(buf));
 
     sdsfree(buf);
@@ -1703,7 +1701,6 @@ int rewriteAppendOnlyFileBackground(void) {
 
     if (hasActiveChildProcess()) return C_ERR;
     if (aofCreatePipes() != C_OK) return C_ERR;
-    openChildInfoPipe();
     if ((childpid = redisFork(CHILD_TYPE_AOF)) == 0) {
         char tmpfile[256];
 
@@ -1720,7 +1717,6 @@ int rewriteAppendOnlyFileBackground(void) {
     } else {
         /* Parent */
         if (childpid == -1) {
-            closeChildInfoPipe();
             serverLog(LL_WARNING,
                 "Can't rewrite append only file in background: fork: %s",
                 strerror(errno));
@@ -1731,8 +1727,7 @@ int rewriteAppendOnlyFileBackground(void) {
             "Background append only file rewriting started by pid %ld",(long) childpid);
         server.aof_rewrite_scheduled = 0;
         server.aof_rewrite_time_start = time(NULL);
-        server.aof_child_pid = childpid;
-        updateDictResizePolicy();
+
         /* We set appendseldb to -1 in order to force the next call to the
          * feedAppendOnlyFile() to issue a SELECT command, so the differences
          * accumulated by the parent into server.aof_rewrite_buf will start
@@ -1745,7 +1740,7 @@ int rewriteAppendOnlyFileBackground(void) {
 }
 
 void bgrewriteaofCommand(client *c) {
-    if (server.aof_child_pid != -1) {
+    if (server.child_type == CHILD_TYPE_AOF) {
         addReplyError(c,"Background append only file rewriting already in progress");
     } else if (hasActiveChildProcess()) {
         server.aof_rewrite_scheduled = 1;
@@ -1803,7 +1798,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
          * rewritten AOF. */
         latencyStartMonitor(latency);
         snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof",
-            (int)server.aof_child_pid);
+            (int)server.child_pid);
         newfd = open(tmpfile,O_WRONLY|O_APPEND);
         if (newfd == -1) {
             serverLog(LL_WARNING,
@@ -1931,8 +1926,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 cleanup:
     aofClosePipes();
     aofRewriteBufferReset();
-    aofRemoveTempFile(server.aof_child_pid);
-    server.aof_child_pid = -1;
+    aofRemoveTempFile(server.child_pid);
     server.aof_rewrite_time_last = time(NULL)-server.aof_rewrite_time_start;
     server.aof_rewrite_time_start = -1;
     /* Schedule a new rewrite if we are waiting for it to switch the AOF ON. */

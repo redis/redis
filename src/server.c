@@ -1559,12 +1559,32 @@ void updateDictResizePolicy(void) {
         dictDisableResize();
 }
 
+const char *strChildType(int type) {
+    switch(type) {
+        case CHILD_TYPE_RDB: return "RDB";
+        case CHILD_TYPE_AOF: return "AOF";
+        case CHILD_TYPE_LDB: return "LDB";
+        case CHILD_TYPE_MODULE: return "MODULE";
+        default: return "Unknown";
+    }
+}
+
 /* Return true if there are active children processes doing RDB saving,
  * AOF rewriting, or some side process spawned by a loaded module. */
 int hasActiveChildProcess() {
-    return server.rdb_child_pid != -1 ||
-           server.aof_child_pid != -1 ||
-           server.module_child_pid != -1;
+    return server.child_pid != -1;
+}
+
+void resetChildState() {
+    server.child_type = CHILD_TYPE_NONE;
+    server.child_pid = -1;
+    updateDictResizePolicy();
+    closeChildInfoPipe();
+}
+
+/* Return if child type is mutual exclusive with other fork children */
+int isMutuallyExclusiveChildType(int type) {
+    return type == CHILD_TYPE_RDB || type == CHILD_TYPE_AOF || type == CHILD_TYPE_MODULE;
 }
 
 /* Return true if this instance has persistence completely turned off:
@@ -1886,29 +1906,30 @@ void checkChildrenDone(void) {
 
         if (pid == -1) {
             serverLog(LL_WARNING,"wait3() returned an error: %s. "
-                "rdb_child_pid = %d, aof_child_pid = %d, module_child_pid = %d",
+                "child_type: %s, child_pid = %d",
                 strerror(errno),
-                (int) server.rdb_child_pid,
-                (int) server.aof_child_pid,
-                (int) server.module_child_pid);
-        } else if (pid == server.rdb_child_pid) {
-            backgroundSaveDoneHandler(exitcode,bysignal);
+                strChildType(server.child_type),
+                (int) server.child_pid);
+        } else if (pid == server.child_pid) {
+            if (server.child_type == CHILD_TYPE_RDB) {
+                backgroundSaveDoneHandler(exitcode, bysignal);
+            } else if (server.child_type == CHILD_TYPE_AOF) {
+                backgroundRewriteDoneHandler(exitcode, bysignal);
+            } else if (server.child_type == CHILD_TYPE_MODULE) {
+                ModuleForkDoneHandler(exitcode, bysignal);
+            } else {
+                serverPanic("Unknown child type %d for child pid %d", server.child_type, server.child_pid);
+                exit(1);
+            }
             if (!bysignal && exitcode == 0) receiveChildInfo();
-        } else if (pid == server.aof_child_pid) {
-            backgroundRewriteDoneHandler(exitcode,bysignal);
-            if (!bysignal && exitcode == 0) receiveChildInfo();
-        } else if (pid == server.module_child_pid) {
-            ModuleForkDoneHandler(exitcode,bysignal);
-            if (!bysignal && exitcode == 0) receiveChildInfo();
+            resetChildState();
         } else {
             if (!ldbRemoveChild(pid)) {
                 serverLog(LL_WARNING,
-                    "Warning, detected child with unmatched pid: %ld",
-                    (long)pid);
+                          "Warning, detected child with unmatched pid: %ld",
+                          (long) pid);
             }
         }
-        updateDictResizePolicy();
-        closeChildInfoPipe();
 
         /* start any pending forks immediately. */
         replicationStartPendingFork();
@@ -3087,9 +3108,8 @@ void initServer(void) {
     server.in_eval = 0;
     server.in_exec = 0;
     server.propagate_in_transaction = 0;
-    server.rdb_child_pid = -1;
-    server.aof_child_pid = -1;
-    server.module_child_pid = -1;
+    server.child_pid = -1;
+    server.child_type = CHILD_TYPE_NONE;
     server.rdb_child_type = RDB_CHILD_TYPE_NONE;
     server.rdb_pipe_conns = NULL;
     server.rdb_pipe_numconns = 0;
@@ -4056,25 +4076,28 @@ int prepareForShutdown(int flags) {
     /* Kill the saving child if there is a background saving in progress.
        We want to avoid race conditions, for instance our saving child may
        overwrite the synchronous saving did by SHUTDOWN. */
-    if (server.rdb_child_pid != -1) {
+    if (server.child_type == CHILD_TYPE_RDB) {
         serverLog(LL_WARNING,"There is a child saving an .rdb. Killing it!");
-        /* Note that, in killRDBChild, we call rdbRemoveTempFile that will
-         * do close fd(in order to unlink file actully) in background thread.
+        killRDBChild();
+        /* Note that, in killRDBChild normally has backgroundSaveDoneHandler
+         * doing it's cleanup, but in this case this code will not be reached,
+         * so we need to call rdbRemoveTempFile which will close fd(in order
+         * to unlink file actully) in background thread.
          * The temp rdb file fd may won't be closed when redis exits quickly,
          * but OS will close this fd when process exits. */
-        killRDBChild();
+        rdbRemoveTempFile(server.child_pid, 0);
     }
 
     /* Kill module child if there is one. */
-    if (server.module_child_pid != -1) {
+    if (server.child_type == CHILD_TYPE_MODULE) {
         serverLog(LL_WARNING,"There is a module fork child. Killing it!");
-        TerminateModuleForkChild(server.module_child_pid,0);
+        TerminateModuleForkChild(server.child_pid,0);
     }
 
     if (server.aof_state != AOF_OFF) {
         /* Kill the AOF saving child as the AOF we already have may be longer
          * but contains the full dataset anyway. */
-        if (server.aof_child_pid != -1) {
+        if (server.child_type == CHILD_TYPE_AOF) {
             /* If we have AOF enabled but haven't written the AOF yet, don't
              * shutdown or else the dataset will be lost. */
             if (server.aof_state == AOF_WAIT_REWRITE) {
@@ -4613,23 +4636,23 @@ sds genRedisInfoString(const char *section) {
             "module_fork_last_cow_size:%zu\r\n",
             server.loading,
             server.dirty,
-            server.rdb_child_pid != -1,
+            server.child_type == CHILD_TYPE_RDB,
             (intmax_t)server.lastsave,
             (server.lastbgsave_status == C_OK) ? "ok" : "err",
             (intmax_t)server.rdb_save_time_last,
-            (intmax_t)((server.rdb_child_pid == -1) ?
+            (intmax_t)((server.child_type != CHILD_TYPE_RDB) ?
                 -1 : time(NULL)-server.rdb_save_time_start),
             server.stat_rdb_cow_bytes,
             server.aof_state != AOF_OFF,
-            server.aof_child_pid != -1,
+            server.child_type == CHILD_TYPE_AOF,
             server.aof_rewrite_scheduled,
             (intmax_t)server.aof_rewrite_time_last,
-            (intmax_t)((server.aof_child_pid == -1) ?
+            (intmax_t)((server.child_type != CHILD_TYPE_AOF) ?
                 -1 : time(NULL)-server.aof_rewrite_time_start),
             (server.aof_lastbgrewrite_status == C_OK) ? "ok" : "err",
             (server.aof_last_write_status == C_OK) ? "ok" : "err",
             server.stat_aof_cow_bytes,
-            server.module_child_pid != -1,
+            server.child_type == CHILD_TYPE_MODULE,
             server.stat_module_cow_bytes);
 
         if (server.aof_enabled) {
@@ -5289,6 +5312,13 @@ void closeClildUnusedResourceAfterFork() {
 
 /* purpose is one of CHILD_TYPE_ types */
 int redisFork(int purpose) {
+    if (isMutuallyExclusiveChildType(purpose)) {
+        if (hasActiveChildProcess())
+            return -1;
+
+        openChildInfoPipe();
+    }
+
     int childpid;
     long long start = ustime();
     if ((childpid = fork()) == 0) {
@@ -5304,8 +5334,23 @@ int redisFork(int purpose) {
         server.stat_fork_rate = (double) zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024); /* GB per second. */
         latencyAddSampleIfNeeded("fork",server.stat_fork_time/1000);
         if (childpid == -1) {
+            if (isMutuallyExclusiveChildType(purpose)) closeChildInfoPipe();
             return -1;
         }
+
+        /* The child_pid and child_type are only for mutual exclusive children.
+         * other child types should handle and store their pid's in dedicated variables.
+         *
+         * Today, we allows CHILD_TYPE_LDB to run in parallel with the other fork types:
+         * - it isn't used for production, so it will not make the server to be less efficient
+         * - used for debugging, and we don't want to block it from running while other
+         *   forks are running (like RDB and AOF) */
+        if (isMutuallyExclusiveChildType(purpose)) {
+            server.child_pid = childpid;
+            server.child_type = purpose;
+        }
+
+        updateDictResizePolicy();
     }
     return childpid;
 }

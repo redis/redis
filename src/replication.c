@@ -786,7 +786,7 @@ void syncCommand(client *c) {
     }
 
     /* CASE 1: BGSAVE is in progress, with disk target. */
-    if (server.rdb_child_pid != -1 &&
+    if (server.child_type == CHILD_TYPE_RDB &&
         server.rdb_child_type == RDB_CHILD_TYPE_DISK)
     {
         /* Ok a background save is in progress. Let's check if it is a good
@@ -816,7 +816,7 @@ void syncCommand(client *c) {
         }
 
     /* CASE 2: BGSAVE is in progress, with socket target. */
-    } else if (server.rdb_child_pid != -1 &&
+    } else if (server.child_type == CHILD_TYPE_RDB &&
                server.rdb_child_type == RDB_CHILD_TYPE_SOCKET)
     {
         /* There is an RDB child process but it is writing directly to
@@ -914,7 +914,7 @@ void replconfCommand(client *c) {
              * There's a chance the ACK got to us before we detected that the
              * bgsave is done (since that depends on cron ticks), so run a
              * quick check first (instead of waiting for the next ACK. */
-            if (server.rdb_child_pid != -1 && c->replstate == SLAVE_STATE_WAIT_BGSAVE_END)
+            if (server.child_type == CHILD_TYPE_RDB && c->replstate == SLAVE_STATE_WAIT_BGSAVE_END)
                 checkChildrenDone();
             if (c->repl_put_online_on_ack && c->replstate == SLAVE_STATE_ONLINE)
                 putSlaveOnline(c);
@@ -1721,13 +1721,13 @@ void readSyncBulkPayload(connection *conn) {
         connRecvTimeout(conn,0);
     } else {
         /* Ensure background save doesn't overwrite synced data */
-        if (server.rdb_child_pid != -1) {
+        if (server.child_type == CHILD_TYPE_RDB) {
             serverLog(LL_NOTICE,
                 "Replica is about to load the RDB file received from the "
                 "master, but there is a pending RDB child running. "
                 "Killing process %ld and removing its temp file to avoid "
                 "any race",
-                    (long) server.rdb_child_pid);
+                (long) server.child_pid);
             killRDBChild();
         }
 

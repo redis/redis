@@ -7065,23 +7065,16 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
  */
 int RM_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
     pid_t childpid;
-    if (hasActiveChildProcess()) {
-        return -1;
-    }
 
-    openChildInfoPipe();
     if ((childpid = redisFork(CHILD_TYPE_MODULE)) == 0) {
         /* Child */
         redisSetProcTitle("redis-module-fork");
     } else if (childpid == -1) {
-        closeChildInfoPipe();
         serverLog(LL_WARNING,"Can't fork for module: %s", strerror(errno));
     } else {
         /* Parent */
-        server.module_child_pid = childpid;
         moduleForkInfo.done_handler = cb;
         moduleForkInfo.done_handler_user_data = user_data;
-        updateDictResizePolicy();
         serverLog(LL_VERBOSE, "Module fork started pid: %ld ", (long) childpid);
     }
     return childpid;
@@ -7101,22 +7094,20 @@ int RM_ExitFromChild(int retcode) {
  * child or the pid does not match, return C_ERR without doing anything. */
 int TerminateModuleForkChild(int child_pid, int wait) {
     /* Module child should be active and pid should match. */
-    if (server.module_child_pid == -1 ||
-        server.module_child_pid != child_pid) return C_ERR;
+    if (server.child_type != CHILD_TYPE_MODULE ||
+        server.child_pid != child_pid) return C_ERR;
 
     int statloc;
     serverLog(LL_VERBOSE,"Killing running module fork child: %ld",
-        (long) server.module_child_pid);
-    if (kill(server.module_child_pid,SIGUSR1) != -1 && wait) {
-        while(wait4(server.module_child_pid,&statloc,0,NULL) !=
-              server.module_child_pid);
+        (long) server.child_pid);
+    if (kill(server.child_pid,SIGUSR1) != -1 && wait) {
+        while(wait4(server.child_pid,&statloc,0,NULL) !=
+              server.child_pid);
     }
     /* Reset the buffer accumulating changes while the child saves. */
-    server.module_child_pid = -1;
+    resetChildState();
     moduleForkInfo.done_handler = NULL;
     moduleForkInfo.done_handler_user_data = NULL;
-    closeChildInfoPipe();
-    updateDictResizePolicy();
     return C_OK;
 }
 
@@ -7133,12 +7124,12 @@ int RM_KillForkChild(int child_pid) {
 void ModuleForkDoneHandler(int exitcode, int bysignal) {
     serverLog(LL_NOTICE,
         "Module fork exited pid: %ld, retcode: %d, bysignal: %d",
-        (long) server.module_child_pid, exitcode, bysignal);
+        (long) server.child_pid, exitcode, bysignal);
     if (moduleForkInfo.done_handler) {
         moduleForkInfo.done_handler(exitcode, bysignal,
             moduleForkInfo.done_handler_user_data);
     }
-    server.module_child_pid = -1;
+
     moduleForkInfo.done_handler = NULL;
     moduleForkInfo.done_handler_user_data = NULL;
 }
