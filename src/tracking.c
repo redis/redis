@@ -114,18 +114,19 @@ int findPrefixCollisions(client *c, robj **prefixes, size_t numprefix) {
         /* Check input list has no overlap with existing prefixes. */
         if (c->client_tracking_prefixes) {
             raxIterator ri;
-            raxStart(&ri, c->client_tracking_prefixes);
+            raxStart(&ri,c->client_tracking_prefixes);
             raxSeek(&ri,"^",NULL,0);
             while(raxNext(&ri)) {
                 if(stringCheckPrefix(ri.key,ri.key_len,
-                        prefixes[i]->ptr, sdslen(prefixes[i]->ptr))) {
+                        prefixes[i]->ptr,sdslen(prefixes[i]->ptr))) {
+                    raxStop(&ri);
                     return i;
                 }
             }
             raxStop(&ri);
         }
         /* Check input has no overlap with itself. */
-        for (size_t j = i+1; j < numprefix; j++) {
+        for (size_t j = i + 1; j < numprefix; j++) {
             if (stringCheckPrefix(prefixes[i]->ptr,sdslen(prefixes[i]->ptr),
                     prefixes[j]->ptr,sdslen(prefixes[j]->ptr))) {
                 return i;
