@@ -2706,7 +2706,7 @@ NULL
                     addReplyErrorFormat(c,
                     "Prefix '%s' overlaps with one of the existing prefixes "
                     "associated with this client or one of the other "
-                    "provided prefixes.", prefix[collision_idx]->ptr);
+                    "provided prefixes.", (char *)prefix[collision_idx]->ptr);
                     zfree(prefix);
                     return;
                 }
