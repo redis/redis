@@ -2700,6 +2700,18 @@ NULL
                 return;
             }
 
+            if (options & CLIENT_TRACKING_BCAST) {
+                int collision_idx = findPrefixCollisions(c,prefix,numprefix);
+                if (collision_idx != -1) {
+                    addReplyErrorFormat(c,
+                    "Prefix '%s' overlaps with one of the existing prefixes "
+                    "associated with this client or one of the other "
+                    "provided prefixes.", prefix[collision_idx]->ptr);
+                    zfree(prefix);
+                    return;
+                }
+            }
+
             enableTracking(c,redir,options,prefix,numprefix);
         } else if (!strcasecmp(c->argv[2]->ptr,"off")) {
             disableTracking(c);

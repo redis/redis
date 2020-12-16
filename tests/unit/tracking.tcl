@@ -308,30 +308,22 @@ start_server {tags {"tracking"}} {
         assert {$ping_reply eq {PONG}}
     }
 
-    test {BCAST with multiple prefixes de-duplicate and don't send multiple invalidations} {
-        $rd HELLO 3
-        $rd read
+    test {BCAST with collisions throw errors} {
+        set r [redis_client] 
+        catch {$r CLIENT TRACKING ON BCAST PREFIX FOOBAR PREFIX FOO} output
+        assert_match {ERR Prefix 'FOOBAR'*} $output
 
-        # Call tracking with various levels of nesting, this should all deduplicate
-        # to just FOO
-        $rd CLIENT TRACKING on BCAST PREFIX FOOBARBAZ PREFIX FOO PREFIX FOOBAR PREFIX FOOBARBAZ
-        assert {[$rd read] eq "OK"}
-        $rd_sg SET FOO BAR
-        set inv_msg [$rd read]
-        assert {$inv_msg eq "invalidate FOO"}
-        $rd PING
-        assert {[$rd read] eq "PONG"}
+        catch {$r CLIENT TRACKING ON BCAST PREFIX FOOBAR PREFIX FOO} output
+        assert_match {ERR Prefix 'FOOBAR'*} $output
 
-        # Calling BCAST without any arguments will move everything to the root
-        $rd CLIENT TRACKING on BCAST PREFIX A PREFIX B PREFIX C
-        assert {[$rd read] eq "OK"}
-        $rd CLIENT TRACKING on BCAST
-        assert {[$rd read] eq "OK"}
-        $rd_sg SET BAR FOO
-        set inv_msg [$rd read]
-        assert {$inv_msg eq "invalidate BAR"}
-        $rd PING
-        assert {[$rd read] eq "PONG"}
+        $r CLIENT TRACKING ON BCAST PREFIX FOO
+        catch {$r CLIENT TRACKING ON BCAST PREFIX FO} output
+        assert_match {ERR Prefix 'FO'*} $output
+
+        catch {$r CLIENT TRACKING ON BCAST PREFIX FOOB} output
+        assert_match {ERR Prefix 'FOOB'*} $output
+
+        $r CLIENT TRACKING OFF
     }
 
     test {Tracking gets notification on tracking table key eviction} {

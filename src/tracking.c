@@ -103,64 +103,51 @@ void disableTracking(client *c) {
     }
 }
 
+static int stringCheckPrefix(unsigned char *s1, size_t s1_len, unsigned char *s2, size_t s2_len) {
+    size_t min_length = s1_len < s2_len ? s1_len : s2_len;
+    return memcmp(s1,s2,min_length) == 0;   
+}
+
+/* Check if any of the provided prefixes collide with one another or
+ * with an existing prefix. A collision is defined as two prefixes
+ * that will emit a invalidation for overlapping subsets of keys. If
+ * a prefix is found, the index of the conflicting prefix is returned,
+ * otherwise -1 is returned. */
+int findPrefixCollisions(client *c, robj **prefixes, size_t numprefix) {
+    for (size_t i = 0; i < numprefix; i++) {
+        /* Check input list has no overlap with existing prefixes. */
+        if (c->client_tracking_prefixes) {
+            raxIterator ri;
+            raxStart(&ri, c->client_tracking_prefixes);
+            raxSeek(&ri,"^",NULL,0);
+            while(raxNext(&ri)) {
+                if(stringCheckPrefix(ri.key,ri.key_len,
+                        prefixes[i]->ptr, sdslen(prefixes[i]->ptr))) {
+                    return i;
+                }
+            }
+            raxStop(&ri);
+        }
+        /* Check input has no overlap with itself. */
+        for (size_t j = i+1; j < numprefix; j++) {
+            if (stringCheckPrefix(prefixes[i]->ptr,sdslen(prefixes[i]->ptr),
+                    prefixes[j]->ptr,sdslen(prefixes[j]->ptr))) {
+                return i;
+            }
+        }
+    }
+    return -1;
+}
+
 /* Set the client 'c' to track the prefix 'prefix'. If the client 'c' is
  * already registered for the specified prefix, no operation is performed. */
 void enableBcastTrackingForPrefix(client *c, char *prefix, size_t plen) {
     bcastState *bs = raxFind(PrefixTable,(unsigned char*)prefix,plen);
-    rax *bcast_keys = (bs != raxNotFound) ? bs->keys : NULL;
-
-    /* Attempt to deduplicate existing prefixes with the new prefix. We will
-     * loop over all the existing prefixes and check for duplicates. There
-     * are two possible cases where we need to deduplicate. 
-     * Case 1: 
-     * The new prefix would fall under an existing prefix. In this
-     * case we do nothing since we are already tracking all keys that
-     * would be covered by the new prefix.
-     *
-     * Case 2:
-     * The new prefix contains existing prefixes. In this case we
-     * we need to merge all of keys from those existinst sub-prefixes and
-     * add them to the bcast state for the new prefix. We need to do this
-     * to make sure we invalidate all keys that we have witnessed. */
-    if (c->client_tracking_prefixes) {
-        raxIterator ri;
-        raxStart(&ri, c->client_tracking_prefixes);
-        raxSeek(&ri,"^",NULL,0);
-        while(raxNext(&ri)) {
-            size_t min_length = plen < ri.key_len ? plen : ri.key_len;
-            if (memcmp(ri.key,prefix,min_length) != 0) {
-                continue;
-            }
-
-            if (ri.key_len <= plen) {
-                /* Case 1 */
-                raxStop(&ri);
-                return;
-            } else {
-                /* Case 2 */
-                if (!bcast_keys) bcast_keys = raxNew();
-                bcastState *sub_bs = raxFind(PrefixTable,(unsigned char*)ri.key,ri.key_len);
-                serverAssert(sub_bs != raxNotFound);
-
-                raxIterator sub_ri;
-                raxStart(&sub_ri,sub_bs->keys);
-                raxSeek(&sub_ri,"^",NULL,0);
-                while(raxNext(&ri)) {
-                    raxInsert(bcast_keys,sub_ri.key,sub_ri.key_len,NULL,NULL);
-                }
-                raxStop(&sub_ri);
-                removeClientFromBcastState(c,sub_bs,ri.key,ri.key_len);
-                raxRemove(c->client_tracking_prefixes,ri.key,ri.key_len,NULL);
-            }
-        }    
-        raxStop(&ri);
-    }
-
     /* If this is the first client subscribing to such prefix, create
      * the prefix in the table. */
     if (bs == raxNotFound) {
         bs = zmalloc(sizeof(*bs));
-        bs->keys = bcast_keys ? bcast_keys : raxNew();
+        bs->keys = raxNew();
         bs->clients = raxNew();
         raxInsert(PrefixTable,(unsigned char*)prefix,plen,bs,NULL);
     }
