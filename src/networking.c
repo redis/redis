@@ -1851,7 +1851,7 @@ int processMultibulkBuffer(client *c) {
                     c->qb_pos = 0;
                     /* Hint the sds library about the amount of bytes this string is
                      * going to contain. */
-                    c->querybuf = sdsMakeRoomFor(c->querybuf,ll+2);
+                    c->querybuf = sdsMakeRoomFor(c->querybuf,ll+2-sdslen(c->querybuf));
                 }
             }
             c->bulklen = ll;
