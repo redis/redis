@@ -5578,7 +5578,7 @@ static int clusterManagerCommandCreate(int argc, char **argv) {
         if (last > CLUSTER_MANAGER_SLOTS || i == (masters_count - 1))
             last = CLUSTER_MANAGER_SLOTS - 1;
         if (last < first) last = first;
-        printf("Master[%d] -> Slots %lu - %lu\n", i, first, last);
+        printf("Master[%d] -> Slots %ld - %ld\n", i, first, last);
         master->slots_count = 0;
         for (j = first; j <= last; j++) {
             master->slots[j] = 1;

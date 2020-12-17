@@ -1135,10 +1135,10 @@ size_t _dictGetStatsHt(char *buf, size_t bufsize, dictht *ht, int tableid) {
     /* Generate human readable stats. */
     l += snprintf(buf+l,bufsize-l,
         "Hash table %d stats (%s):\n"
-        " table size: %ld\n"
-        " number of elements: %ld\n"
-        " different slots: %ld\n"
-        " max chain length: %ld\n"
+        " table size: %lu\n"
+        " number of elements: %lu\n"
+        " different slots: %lu\n"
+        " max chain length: %lu\n"
         " avg chain length (counted): %.02f\n"
         " avg chain length (computed): %.02f\n"
         " Chain length distribution:\n",
