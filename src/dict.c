@@ -127,6 +127,10 @@ int _dictInit(dict *d, dictType *type,
     d->privdata = privDataPtr;
     d->rehashidx = -1;
     d->iterators = 0;
+
+    d->metasize = (type->dictEntryMetadataBytes == NULL)
+            ? 0 : type->dictEntryMetadataBytes(d->privdata);
+
     return DICT_OK;
 }
 
@@ -334,7 +338,10 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
      * system it is more likely that recently added entries are accessed
      * more frequently. */
     ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
-    entry = zmalloc(sizeof(*entry));
+    entry = zmalloc(sizeof(dictEntry) + d->metasize);
+    if (d->metasize > 0) {
+        memset(dictMetadata(entry), 0, d->metasize);
+    }
     entry->next = ht->table[index];
     ht->table[index] = entry;
     ht->used++;

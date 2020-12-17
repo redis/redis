@@ -53,6 +53,7 @@ typedef struct dictEntry {
         double d;
     } v;
     struct dictEntry *next;
+    char metadata[];
 } dictEntry;
 
 typedef struct dictType {
@@ -63,6 +64,9 @@ typedef struct dictType {
     void (*keyDestructor)(void *privdata, void *key);
     void (*valDestructor)(void *privdata, void *obj);
     int (*expandAllowed)(size_t moreMem, double usedRatio);
+    /* Allow a dictEntry to carry extra caller-defined metadata.  The
+     * extra memory is initialied to 0 when a dictEntry is allocated. */
+    uint16_t (*dictEntryMetadataBytes)(void *privdata);
 } dictType;
 
 /* This is our hash table structure. Every dictionary has two of this as we
@@ -80,6 +84,7 @@ typedef struct dict {
     dictht ht[2];
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */
     unsigned long iterators; /* number of iterators currently running */
+    uint16_t metasize; /* size of metadata on dictEntry allocations */
 } dict;
 
 /* If safe is set to 1 this is a safe iterator, that means, you can call
@@ -137,6 +142,9 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
     (((d)->type->keyCompare) ? \
         (d)->type->keyCompare((d)->privdata, key1, key2) : \
         (key1) == (key2))
+
+#define dictMetadata(entry) \
+    ((void*)&(entry)->metadata)
 
 #define dictHashKey(d, key) (d)->type->hashFunction(key)
 #define dictGetKey(he) ((he)->key)
