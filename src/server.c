@@ -283,6 +283,14 @@ struct redisCommand redisCommandTable[] = {
      "write use-memory fast @list",
      0,NULL,1,1,1,0,0,0},
 
+    {"rpushnx",rpushnxCommand,-3,
+     "write use-memory fast @list",
+     0,NULL,1,1,1,0,0,0},
+
+    {"lpushnx",lpushnxCommand,-3,
+     "write use-memory fast @list",
+     0,NULL,1,1,1,0,0,0},
+
     {"linsert",linsertCommand,5,
      "write use-memory @list",
      0,NULL,1,1,1,0,0,0},
