@@ -53,6 +53,7 @@ typedef struct dictEntry {
         double d;
     } v;
     struct dictEntry *next;
+    void *metadata[];
 } dictEntry;
 
 typedef struct dict dict;
@@ -65,6 +66,9 @@ typedef struct dictType {
     void (*keyDestructor)(dict *d, void *key);
     void (*valDestructor)(dict *d, void *obj);
     int (*expandAllowed)(size_t moreMem, double usedRatio);
+    /* Allow a dictEntry to carry extra caller-defined metadata.  The
+     * extra memory is initialized to 0 when a dictEntry is allocated. */
+    size_t (*dictEntryMetadataBytes)(dict *d);
 } dictType;
 
 #define DICTHT_SIZE(exp) ((exp) == -1 ? 0 : (unsigned long)1<<(exp))
@@ -139,6 +143,10 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
     (((d)->type->keyCompare) ? \
         (d)->type->keyCompare((d), key1, key2) : \
         (key1) == (key2))
+
+#define dictMetadata(entry) (&(entry)->metadata)
+#define dictMetadataSize(d) ((d)->type->dictEntryMetadataBytes \
+                             ? (d)->type->dictEntryMetadataBytes(d) : 0)
 
 #define dictHashKey(d, key) (d)->type->hashFunction(key)
 #define dictGetKey(he) ((he)->key)

@@ -1384,6 +1384,14 @@ int dictExpandAllowed(size_t moreMem, double usedRatio) {
     }
 }
 
+/* Returns the size of the DB dict entry metadata in bytes. In cluster mode, the
+ * metadata is used for constructing a doubly linked list of the dict entries
+ * belonging to the same cluster slot. */
+size_t dictEntryMetadataSize(dict *d) {
+    UNUSED(d);
+    return server.cluster_enabled ? sizeof(void*) * 2 : 0;
+}
+
 /* Generic hash table type where keys are Redis Objects, Values
  * dummy pointers. */
 dictType objectKeyPointerValueDictType = {

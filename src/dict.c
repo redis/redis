@@ -338,7 +338,11 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
      * system it is more likely that recently added entries are accessed
      * more frequently. */
     htidx = dictIsRehashing(d) ? 1 : 0;
-    entry = zmalloc(sizeof(*entry));
+    size_t metasize = dictMetadataSize(d);
+    entry = zmalloc(sizeof(*entry) + metasize);
+    if (metasize > 0) {
+        memset(dictMetadata(entry), 0, metasize);
+    }
     entry->next = d->ht_table[htidx][index];
     d->ht_table[htidx][index] = entry;
     d->ht_used[htidx]++;
