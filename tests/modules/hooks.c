@@ -266,11 +266,21 @@ void swapDbCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void 
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+#define VerifySubEventSupported(e, s) \
+    if (!RedisModule_IsSubEventSupported(e, s)) { \
+        return REDISMODULE_ERR; \
+    }
+
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
     if (RedisModule_Init(ctx,"testhook",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    /* Example on how to check if a server sub event is supported */
+    if (!RedisModule_IsSubEventSupported(RedisModuleEvent_ReplicationRoleChanged, REDISMODULE_EVENT_REPLROLECHANGED_NOW_MASTER)) {
+        return REDISMODULE_ERR;
+    }
 
     /* replication related hooks */
     RedisModule_SubscribeToServerEvent(ctx,
@@ -297,6 +307,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         RedisModuleEvent_Shutdown, shutdownCallback);
     RedisModule_SubscribeToServerEvent(ctx,
         RedisModuleEvent_CronLoop, cronLoopCallback);
+
     RedisModule_SubscribeToServerEvent(ctx,
         RedisModuleEvent_ModuleChange, moduleChangeCallback);
     RedisModule_SubscribeToServerEvent(ctx,

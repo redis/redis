@@ -62,6 +62,7 @@ typedef struct dictType {
     int (*keyCompare)(void *privdata, const void *key1, const void *key2);
     void (*keyDestructor)(void *privdata, void *key);
     void (*valDestructor)(void *privdata, void *obj);
+    int (*expandAllowed)(size_t moreMem, double usedRatio);
 } dictType;
 
 /* This is our hash table structure. Every dictionary has two of this as we
@@ -150,6 +151,7 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 /* API */
 dict *dictCreate(dictType *type, void *privDataPtr);
 int dictExpand(dict *d, unsigned long size);
+int dictTryExpand(dict *d, unsigned long size);
 int dictAdd(dict *d, void *key, void *val);
 dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing);
 dictEntry *dictAddOrFind(dict *d, void *key);

@@ -57,7 +57,7 @@ int RDBGeneratedByReplication = 0;
  * IP address and its listening port which is more clear for the user, for
  * example: "Closing connection with replica 10.1.2.3:6380". */
 char *replicationGetSlaveName(client *c) {
-    static char buf[NET_PEER_ID_LEN];
+    static char buf[NET_ADDR_STR_LEN];
     char ip[NET_IP_STR_LEN];
 
     ip[0] = '\0';
@@ -826,18 +826,16 @@ void syncCommand(client *c) {
 
     /* CASE 3: There is no BGSAVE is progress. */
     } else {
-        if (server.repl_diskless_sync && (c->slave_capa & SLAVE_CAPA_EOF)) {
+        if (server.repl_diskless_sync && (c->slave_capa & SLAVE_CAPA_EOF) &&
+            server.repl_diskless_sync_delay)
+        {
             /* Diskless replication RDB child is created inside
              * replicationCron() since we want to delay its start a
              * few seconds to wait for more slaves to arrive. */
-            if (server.repl_diskless_sync_delay)
-                serverLog(LL_NOTICE,"Delay next BGSAVE for diskless SYNC");
-            else
-                startBgsaveForReplication(c->slave_capa);
+            serverLog(LL_NOTICE,"Delay next BGSAVE for diskless SYNC");
         } else {
-            /* Target is disk (or the slave is not capable of supporting
-             * diskless replication) and we don't have a BGSAVE in progress,
-             * let's start one. */
+            /* We don't have a BGSAVE in progress, let's start one. Diskless
+             * or disk-based mode is determined by replica's capacity. */
             if (!hasActiveChildProcess()) {
                 startBgsaveForReplication(c->slave_capa);
             } else {
@@ -1372,7 +1370,20 @@ void replicationCreateMasterClient(connection *conn, int dbid) {
     server.master = createClient(conn);
     if (conn)
         connSetReadHandler(server.master->conn, readQueryFromClient);
+
+    /**
+     * Important note:
+     * The CLIENT_DENY_BLOCKING flag is not, and should not, be set here.
+     * For commands like BLPOP, it makes no sense to block the master
+     * connection, and such blocking attempt will probably cause deadlock and
+     * break the replication. We consider such a thing as a bug because
+     * commands as BLPOP should never be sent on the replication link.
+     * A possible use-case for blocking the replication link is if a module wants
+     * to pass the execution to a background thread and unblock after the
+     * execution is done. This is the reason why we allow blocking the replication
+     * connection. */
     server.master->flags |= CLIENT_MASTER;
+
     server.master->authenticated = 1;
     server.master->reploff = server.master_initial_offset;
     server.master->read_reploff = server.master->reploff;
@@ -1421,16 +1432,10 @@ static int useDisklessLoad() {
 }
 
 /* Helper function for readSyncBulkPayload() to make backups of the current
- * DBs before socket-loading the new ones. The backups may be restored later
- * or freed by disklessLoadRestoreBackups(). */
-redisDb *disklessLoadMakeBackups(void) {
-    redisDb *backups = zmalloc(sizeof(redisDb)*server.dbnum);
-    for (int i=0; i<server.dbnum; i++) {
-        backups[i] = server.db[i];
-        server.db[i].dict = dictCreate(&dbDictType,NULL);
-        server.db[i].expires = dictCreate(&keyptrDictType,NULL);
-    }
-    return backups;
+ * databases before socket-loading the new ones. The backups may be restored
+ * by disklessLoadRestoreBackup or freed by disklessLoadDiscardBackup later. */
+dbBackup *disklessLoadMakeBackup(void) {
+    return backupDb();
 }
 
 /* Helper function for readSyncBulkPayload(): when replica-side diskless
@@ -1438,30 +1443,15 @@ redisDb *disklessLoadMakeBackups(void) {
  * before loading the new ones from the socket.
  *
  * If the socket loading went wrong, we want to restore the old backups
- * into the server databases. This function does just that in the case
- * the 'restore' argument (the number of DBs to replace) is non-zero.
- *
- * When instead the loading succeeded we want just to free our old backups,
- * in that case the function will do just that when 'restore' is 0. */
-void disklessLoadRestoreBackups(redisDb *backup, int restore, int empty_db_flags)
-{
-    if (restore) {
-        /* Restore. */
-        emptyDbGeneric(server.db,-1,empty_db_flags,replicationEmptyDbCallback);
-        for (int i=0; i<server.dbnum; i++) {
-            dictRelease(server.db[i].dict);
-            dictRelease(server.db[i].expires);
-            server.db[i] = backup[i];
-        }
-    } else {
-        /* Delete (Pass EMPTYDB_BACKUP in order to avoid firing module events) . */
-        emptyDbGeneric(backup,-1,empty_db_flags|EMPTYDB_BACKUP,replicationEmptyDbCallback);
-        for (int i=0; i<server.dbnum; i++) {
-            dictRelease(backup[i].dict);
-            dictRelease(backup[i].expires);
-        }
-    }
-    zfree(backup);
+ * into the server databases. */
+void disklessLoadRestoreBackup(dbBackup *buckup) {
+    restoreDbBackup(buckup);
+}
+
+/* Helper function for readSyncBulkPayload() to discard our old backups
+ * when the loading succeeded. */
+void disklessLoadDiscardBackup(dbBackup *buckup, int flag) {
+    discardDbBackup(buckup, flag, replicationEmptyDbCallback);
 }
 
 /* Asynchronously read the SYNC payload we receive from a master */
@@ -1470,7 +1460,7 @@ void readSyncBulkPayload(connection *conn) {
     char buf[PROTO_IOBUF_LEN];
     ssize_t nread, readlen, nwritten;
     int use_diskless_load = useDisklessLoad();
-    redisDb *diskless_load_backup = NULL;
+    dbBackup *diskless_load_backup = NULL;
     int empty_db_flags = server.repl_slave_lazy_flush ? EMPTYDB_ASYNC :
                                                         EMPTYDB_NO_FLAGS;
     off_t left;
@@ -1651,11 +1641,11 @@ void readSyncBulkPayload(connection *conn) {
         server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB)
     {
         /* Create a backup of server.db[] and initialize to empty
-         * dictionaries */
-        diskless_load_backup = disklessLoadMakeBackups();
+         * dictionaries. */
+        diskless_load_backup = disklessLoadMakeBackup();
     }
     /* We call to emptyDb even in case of REPL_DISKLESS_LOAD_SWAPDB
-     * (Where disklessLoadMakeBackups left server.db empty) because we
+     * (Where disklessLoadMakeBackup left server.db empty) because we
      * want to execute all the auxiliary logic of emptyDb (Namely,
      * fire module events) */
     emptyDb(-1,empty_db_flags,replicationEmptyDbCallback);
@@ -1685,14 +1675,14 @@ void readSyncBulkPayload(connection *conn) {
                 "from socket");
             cancelReplicationHandshake(1);
             rioFreeConn(&rdb, NULL);
+
+            /* Remove the half-loaded data in case we started with
+             * an empty replica. */
+            emptyDb(-1,empty_db_flags,replicationEmptyDbCallback);
+
             if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
                 /* Restore the backed up databases. */
-                disklessLoadRestoreBackups(diskless_load_backup,1,
-                                           empty_db_flags);
-            } else {
-                /* Remove the half-loaded data in case we started with
-                 * an empty replica. */
-                emptyDb(-1,empty_db_flags,replicationEmptyDbCallback);
+                disklessLoadRestoreBackup(diskless_load_backup);
             }
 
             /* Note that there's no point in restarting the AOF on SYNC
@@ -1707,7 +1697,7 @@ void readSyncBulkPayload(connection *conn) {
             /* Delete the backup databases we created before starting to load
              * the new RDB. Now the RDB was loaded with success so the old
              * data is useless. */
-            disklessLoadRestoreBackups(diskless_load_backup,0,empty_db_flags);
+            disklessLoadDiscardBackup(diskless_load_backup, empty_db_flags);
         }
 
         /* Verify the end mark is correct. */
@@ -1845,6 +1835,7 @@ error:
  */
 #define SYNC_CMD_READ (1<<0)
 #define SYNC_CMD_WRITE (1<<1)
+#define SYNC_CMD_WRITE_SDS (1<<2)
 #define SYNC_CMD_FULL (SYNC_CMD_READ|SYNC_CMD_WRITE)
 char *sendSynchronousCommand(int flags, connection *conn, ...) {
 
@@ -1862,8 +1853,13 @@ char *sendSynchronousCommand(int flags, connection *conn, ...) {
         while(1) {
             arg = va_arg(ap, char*);
             if (arg == NULL) break;
-
-            cmdargs = sdscatprintf(cmdargs,"$%zu\r\n%s\r\n",strlen(arg),arg);
+            if (flags & SYNC_CMD_WRITE_SDS) {
+                cmdargs = sdscatprintf(cmdargs,"$%zu\r\n", sdslen((sds)arg));
+                cmdargs = sdscatsds(cmdargs, (sds)arg);
+                cmdargs = sdscat(cmdargs, "\r\n");
+            } else {
+                cmdargs = sdscatprintf(cmdargs,"$%zu\r\n%s\r\n",strlen(arg),arg);
+            }
             argslen++;
         }
 
@@ -2176,14 +2172,18 @@ void syncWithMaster(connection *conn) {
 
     /* AUTH with the master if required. */
     if (server.repl_state == REPL_STATE_SEND_AUTH) {
-        if (server.masteruser && server.masterauth) {
-            err = sendSynchronousCommand(SYNC_CMD_WRITE,conn,"AUTH",
-                                         server.masteruser,server.masterauth,NULL);
-            if (err) goto write_error;
-            server.repl_state = REPL_STATE_RECEIVE_AUTH;
-            return;
-        } else if (server.masterauth) {
-            err = sendSynchronousCommand(SYNC_CMD_WRITE,conn,"AUTH",server.masterauth,NULL);
+        if (server.masterauth) {
+            sds auth = sdsnew("AUTH");
+            if (server.masteruser) {
+                sds masteruser = sdsnew(server.masteruser);
+                err = sendSynchronousCommand(SYNC_CMD_WRITE | SYNC_CMD_WRITE_SDS, conn, auth,
+                                             masteruser, server.masterauth, NULL);
+                sdsfree(masteruser);
+            } else {
+                err = sendSynchronousCommand(SYNC_CMD_WRITE | SYNC_CMD_WRITE_SDS, conn, auth,
+                                             server.masterauth, NULL);
+            }
+            sdsfree(auth);
             if (err) goto write_error;
             server.repl_state = REPL_STATE_RECEIVE_AUTH;
             return;
@@ -2444,7 +2444,7 @@ void replicationAbortSyncTransfer(void) {
     undoConnectWithMaster();
     if (server.repl_transfer_fd!=-1) {
         close(server.repl_transfer_fd);
-        unlink(server.repl_transfer_tmpfile);
+        bg_unlink(server.repl_transfer_tmpfile);
         zfree(server.repl_transfer_tmpfile);
         server.repl_transfer_tmpfile = NULL;
         server.repl_transfer_fd = -1;
@@ -2791,6 +2791,11 @@ void replicationCacheMaster(client *c) {
     if (c->peerid) {
         sdsfree(c->peerid);
         c->peerid = NULL;
+    }
+    /* Invalidate the Sock Name cache. */
+    if (c->sockname) {
+        sdsfree(c->sockname);
+        c->sockname = NULL;
     }
 
     /* Caching the master happens instead of the actual freeClient() call,

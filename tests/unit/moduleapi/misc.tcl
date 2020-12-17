@@ -16,6 +16,11 @@ start_server {tags {"modules"}} {
         assert { [string match "*cmdstat_module*" $info] }
     }
 
+    test {test redis version} {
+        set version [s redis_version]
+        assert_equal $version [r test.redisversion]
+    }
+
     test {test long double conversions} {
         set ld [r test.ld_conversion]
         assert {[string match $ld "0.00000000000000001"]}
@@ -85,5 +90,20 @@ start_server {tags {"modules"}} {
         r client tracking on
         set info [r test.clientinfo]
         assert { [dict get $info flags] == "${ssl_flag}::tracking::" }
+    }
+
+    test {test module getclientcert api} {
+        set cert [r test.getclientcert]
+
+        if {$::tls} {
+            assert {$cert != ""}
+        } else {
+            assert {$cert == ""}
+        }
+    }
+
+    test {test detached thread safe cnotext} {
+        r test.log_tsctx "info" "Test message"
+        verify_log_message 0 "*<misc> Test message*" 0
     }
 }

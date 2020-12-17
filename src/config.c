@@ -104,6 +104,28 @@ configEnum tls_auth_clients_enum[] = {
     {"optional", TLS_CLIENT_AUTH_OPTIONAL},
     {NULL, 0}
 };
+
+configEnum oom_score_adj_enum[] = {
+    {"no", OOM_SCORE_ADJ_NO},
+    {"yes", OOM_SCORE_RELATIVE},
+    {"relative", OOM_SCORE_RELATIVE},
+    {"absolute", OOM_SCORE_ADJ_ABSOLUTE},
+    {NULL, 0}
+};
+
+configEnum acl_pubsub_default_enum[] = {
+    {"allchannels", USER_FLAG_ALLCHANNELS},
+    {"resetchannels", 0},
+    {NULL, 0}
+};
+
+configEnum sanitize_dump_payload_enum[] = {
+    {"no", SANITIZE_DUMP_NO},
+    {"yes", SANITIZE_DUMP_YES},
+    {"clients", SANITIZE_DUMP_CLIENTS},
+    {NULL, 0}
+};
+
 /* Output buffer limits presets. */
 clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUNT] = {
     {0, 0, 0}, /* normal */
@@ -143,6 +165,15 @@ typedef struct stringConfigData {
     int convert_empty_to_null; /* Boolean indicating if empty strings should
                                   be stored as a NULL value. */
 } stringConfigData;
+
+typedef struct sdsConfigData {
+    sds *config; /* Pointer to the server config this value is stored in. */
+    const char *default_value; /* Default value of the config on rewrite. */
+    int (*is_valid_fn)(sds val, char **err); /* Optional function to check validity of new value (generic doc above) */
+    int (*update_fn)(sds val, sds prev, char **err); /* Optional function to apply new value at runtime (generic doc above) */
+    int convert_empty_to_null; /* Boolean indicating if empty SDS strings should
+                                  be stored as a NULL value. */
+} sdsConfigData;
 
 typedef struct enumConfigData {
     int *config; /* The pointer to the server config this value is stored in */
@@ -190,6 +221,7 @@ typedef struct numericConfigData {
 typedef union typeData {
     boolConfigData yesno;
     stringConfigData string;
+    sdsConfigData sds;
     enumConfigData enumd;
     numericConfigData numeric;
 } typeData;
@@ -293,7 +325,7 @@ void queueLoadModule(sds path, sds *argv, int argc) {
  * server.oom_score_adj_values if valid.
  */
 
-static int updateOOMScoreAdjValues(sds *args, char **err) {
+static int updateOOMScoreAdjValues(sds *args, char **err, int apply) {
     int i;
     int values[CONFIG_OOM_COUNT];
 
@@ -301,8 +333,8 @@ static int updateOOMScoreAdjValues(sds *args, char **err) {
         char *eptr;
         long long val = strtoll(args[i], &eptr, 10);
 
-        if (*eptr != '\0' || val < -1000 || val > 1000) {
-            if (err) *err = "Invalid oom-score-adj-values, elements must be between -1000 and 1000.";
+        if (*eptr != '\0' || val < -2000 || val > 2000) {
+            if (err) *err = "Invalid oom-score-adj-values, elements must be between -2000 and 2000.";
             return C_ERR;
         }
 
@@ -326,6 +358,10 @@ static int updateOOMScoreAdjValues(sds *args, char **err) {
         old_values[i] = server.oom_score_adj_values[i];
         server.oom_score_adj_values[i] = values[i];
     }
+    
+    /* When parsing the config file, we want to apply only when all is done. */
+    if (!apply)
+        return C_OK;
 
     /* Update */
     if (setOOMScoreAdj(-1) == C_ERR) {
@@ -467,7 +503,7 @@ void loadServerConfigFromString(char *config) {
                 fclose(logfp);
             }
         } else if (!strcasecmp(argv[0],"include") && argc == 2) {
-            loadServerConfig(argv[1],NULL);
+            loadServerConfig(argv[1], 0, NULL);
         } else if ((!strcasecmp(argv[0],"client-query-buffer-limit")) && argc == 2) {
              server.client_max_querybuf_len = memtoll(argv[1],NULL);
         } else if ((!strcasecmp(argv[0],"slaveof") ||
@@ -486,7 +522,7 @@ void loadServerConfigFromString(char *config) {
             }
             server.repl_state = REPL_STATE_CONNECT;
         } else if (!strcasecmp(argv[0],"requirepass") && argc == 2) {
-            if (strlen(argv[1]) > CONFIG_AUTHPASS_MAX_LEN) {
+            if (sdslen(argv[1]) > CONFIG_AUTHPASS_MAX_LEN) {
                 err = "Password is longer than CONFIG_AUTHPASS_MAX_LEN";
                 goto loaderr;
             }
@@ -495,11 +531,16 @@ void loadServerConfigFromString(char *config) {
              * additionally is to remember the cleartext password in this
              * case, for backward compatibility with Redis <= 5. */
             ACLSetUser(DefaultUser,"resetpass",-1);
-            sds aclop = sdscatprintf(sdsempty(),">%s",argv[1]);
-            ACLSetUser(DefaultUser,aclop,sdslen(aclop));
-            sdsfree(aclop);
             sdsfree(server.requirepass);
-            server.requirepass = sdsnew(argv[1]);
+            server.requirepass = NULL;
+            if (sdslen(argv[1])) {
+                sds aclop = sdscatlen(sdsnew(">"), argv[1], sdslen(argv[1]));
+                ACLSetUser(DefaultUser,aclop,sdslen(aclop));
+                sdsfree(aclop);
+                server.requirepass = sdsdup(argv[1]);
+            } else {
+                ACLSetUser(DefaultUser,"nopass",-1);
+            }
         } else if (!strcasecmp(argv[0],"list-max-ziplist-entries") && argc == 2){
             /* DEAD OPTION */
         } else if (!strcasecmp(argv[0],"list-max-ziplist-value") && argc == 2) {
@@ -554,7 +595,7 @@ void loadServerConfigFromString(char *config) {
             server.client_obuf_limits[class].soft_limit_bytes = soft;
             server.client_obuf_limits[class].soft_limit_seconds = soft_seconds;
         } else if (!strcasecmp(argv[0],"oom-score-adj-values") && argc == 1 + CONFIG_OOM_COUNT) {
-            if (updateOOMScoreAdjValues(&argv[1], &err) == C_ERR) goto loaderr;
+            if (updateOOMScoreAdjValues(&argv[1], &err, 0) == C_ERR) goto loaderr;
         } else if (!strcasecmp(argv[0],"notify-keyspace-events") && argc == 2) {
             int flags = keyspaceEventsStringToFlags(argv[1]);
 
@@ -619,28 +660,31 @@ loaderr:
  * Both filename and options can be NULL, in such a case are considered
  * empty. This way loadServerConfig can be used to just load a file or
  * just load a string. */
-void loadServerConfig(char *filename, char *options) {
+void loadServerConfig(char *filename, char config_from_stdin, char *options) {
     sds config = sdsempty();
     char buf[CONFIG_MAX_LINE+1];
+    FILE *fp;
 
     /* Load the file content */
     if (filename) {
-        FILE *fp;
-
-        if (filename[0] == '-' && filename[1] == '\0') {
-            fp = stdin;
-        } else {
-            if ((fp = fopen(filename,"r")) == NULL) {
-                serverLog(LL_WARNING,
+        if ((fp = fopen(filename,"r")) == NULL) {
+            serverLog(LL_WARNING,
                     "Fatal error, can't open config file '%s': %s",
                     filename, strerror(errno));
-                exit(1);
-            }
+            exit(1);
         }
         while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
             config = sdscat(config,buf);
-        if (fp != stdin) fclose(fp);
+        fclose(fp);
     }
+    /* Append content from stdin */
+    if (config_from_stdin) {
+        serverLog(LL_WARNING,"Reading config from stdin");
+        fp = stdin;
+        while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
+            config = sdscat(config,buf);
+    }
+
     /* Append the additional options */
     if (options) {
         config = sdscat(config,"\n");
@@ -714,11 +758,16 @@ void configSetCommand(client *c) {
          * additionally is to remember the cleartext password in this
          * case, for backward compatibility with Redis <= 5. */
         ACLSetUser(DefaultUser,"resetpass",-1);
-        sds aclop = sdscatprintf(sdsempty(),">%s",(char*)o->ptr);
-        ACLSetUser(DefaultUser,aclop,sdslen(aclop));
-        sdsfree(aclop);
         sdsfree(server.requirepass);
-        server.requirepass = sdsnew(o->ptr);
+        server.requirepass = NULL;
+        if (sdslen(o->ptr)) {
+            sds aclop = sdscatlen(sdsnew(">"), o->ptr, sdslen(o->ptr));
+            ACLSetUser(DefaultUser,aclop,sdslen(aclop));
+            sdsfree(aclop);
+            server.requirepass = sdsdup(o->ptr);
+        } else {
+            ACLSetUser(DefaultUser,"nopass",-1);
+        }
     } config_set_special_field("save") {
         int vlen, j;
         sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
@@ -809,7 +858,7 @@ void configSetCommand(client *c) {
         int success = 1;
 
         sds *v = sdssplitlen(o->ptr, sdslen(o->ptr), " ", 1, &vlen);
-        if (vlen != CONFIG_OOM_COUNT || updateOOMScoreAdjValues(v, &errstr) == C_ERR)
+        if (vlen != CONFIG_OOM_COUNT || updateOOMScoreAdjValues(v, &errstr, 1) == C_ERR)
             success = 0;
 
         sdsfreesplitres(v, vlen);
@@ -963,7 +1012,7 @@ void configGetCommand(client *c) {
     }
     if (stringmatch(pattern,"unixsocketperm",1)) {
         char buf[32];
-        snprintf(buf,sizeof(buf),"%o",server.unixsocketperm);
+        snprintf(buf,sizeof(buf),"%lo",(unsigned long) server.unixsocketperm);
         addReplyBulkCString(c,"unixsocketperm");
         addReplyBulkCString(c,buf);
         matches++;
@@ -1053,7 +1102,8 @@ dictType optionToLineDictType = {
     NULL,                       /* val dup */
     dictSdsKeyCaseCompare,      /* key compare */
     dictSdsDestructor,          /* key destructor */
-    dictListDestructor          /* val destructor */
+    dictListDestructor,         /* val destructor */
+    NULL                        /* allow to expand */
 };
 
 dictType optionSetDictType = {
@@ -1062,7 +1112,8 @@ dictType optionSetDictType = {
     NULL,                       /* val dup */
     dictSdsKeyCaseCompare,      /* key compare */
     dictSdsDestructor,          /* key destructor */
-    NULL                        /* val destructor */
+    NULL,                       /* val destructor */
+    NULL                        /* allow to expand */
 };
 
 /* The config rewrite state. */
@@ -1289,6 +1340,28 @@ void rewriteConfigStringOption(struct rewriteConfigState *state, const char *opt
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
+/* Rewrite a SDS string option. */
+void rewriteConfigSdsOption(struct rewriteConfigState *state, const char *option, sds value, const sds defvalue) {
+    int force = 1;
+    sds line;
+
+    /* If there is no value set, we don't want the SDS option
+     * to be present in the configuration at all. */
+    if (value == NULL) {
+        rewriteConfigMarkAsProcessed(state, option);
+        return;
+    }
+
+    /* Set force to zero if the value is set to its default. */
+    if (defvalue && sdscmp(value, defvalue) == 0) force = 0;
+
+    line = sdsnew(option);
+    line = sdscatlen(line, " ", 1);
+    line = sdscatrepr(line, value, sdslen(value));
+
+    rewriteConfigRewriteLine(state, option, line, force);
+}
+
 /* Rewrite a numerical (long long range) option. */
 void rewriteConfigNumericalOption(struct rewriteConfigState *state, const char *option, long long value, long long defvalue) {
     int force = value != defvalue;
@@ -1321,6 +1394,12 @@ void rewriteConfigEnumOption(struct rewriteConfigState *state, const char *optio
 void rewriteConfigSaveOption(struct rewriteConfigState *state) {
     int j;
     sds line;
+
+    /* In Sentinel mode we don't need to rewrite the save parameters */
+    if (server.sentinel_mode) {
+        rewriteConfigMarkAsProcessed(state,"save");
+        return;
+    }
 
     /* Note that if there are no save parameters at all, all the current
      * config line with "save" will be detected as orphaned and deleted,
@@ -1597,7 +1676,7 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
          written_bytes = write(fd, content + offset, sdslen(content) - offset);
          if (written_bytes <= 0) {
              if (errno == EINTR) continue; /* FD is blocking, no other retryable errors */
-             serverLog(LL_WARNING, "Failed after writing (%ld) bytes to tmp config file (%s)", offset, strerror(errno));
+             serverLog(LL_WARNING, "Failed after writing (%zd) bytes to tmp config file (%s)", offset, strerror(errno));
              goto cleanup;
          }
          offset+=written_bytes;
@@ -1755,22 +1834,14 @@ static void boolConfigRewrite(typeData data, const char *name, struct rewriteCon
 
 /* String Configs */
 static void stringConfigInit(typeData data) {
-    if (data.string.convert_empty_to_null) {
-        *data.string.config = data.string.default_value ? zstrdup(data.string.default_value) : NULL;
-    } else {
-        *data.string.config = zstrdup(data.string.default_value);
-    }
+    *data.string.config = (data.string.convert_empty_to_null && !data.string.default_value) ? NULL : zstrdup(data.string.default_value);
 }
 
 static int stringConfigSet(typeData data, sds value, int update, char **err) {
     if (data.string.is_valid_fn && !data.string.is_valid_fn(value, err))
         return 0;
     char *prev = *data.string.config;
-    if (data.string.convert_empty_to_null) {
-        *data.string.config = value[0] ? zstrdup(value) : NULL;
-    } else {
-        *data.string.config = zstrdup(value);
-    }
+    *data.string.config = (data.string.convert_empty_to_null && !value[0]) ? NULL : zstrdup(value);
     if (update && data.string.update_fn && !data.string.update_fn(*data.string.config, prev, err)) {
         zfree(*data.string.config);
         *data.string.config = prev;
@@ -1788,6 +1859,38 @@ static void stringConfigRewrite(typeData data, const char *name, struct rewriteC
     rewriteConfigStringOption(state, name,*(data.string.config), data.string.default_value);
 }
 
+/* SDS Configs */
+static void sdsConfigInit(typeData data) {
+    *data.sds.config = (data.sds.convert_empty_to_null && !data.sds.default_value) ? NULL: sdsnew(data.sds.default_value);
+}
+
+static int sdsConfigSet(typeData data, sds value, int update, char **err) {
+    if (data.sds.is_valid_fn && !data.sds.is_valid_fn(value, err))
+        return 0;
+    sds prev = *data.sds.config;
+    *data.sds.config = (data.sds.convert_empty_to_null && (sdslen(value) == 0)) ? NULL : sdsdup(value);
+    if (update && data.sds.update_fn && !data.sds.update_fn(*data.sds.config, prev, err)) {
+        sdsfree(*data.sds.config);
+        *data.sds.config = prev;
+        return 0;
+    }
+    sdsfree(prev);
+    return 1;
+}
+
+static void sdsConfigGet(client *c, typeData data) {
+    if (*data.sds.config) {
+        addReplyBulkSds(c, sdsdup(*data.sds.config));
+    } else {
+        addReplyBulkCString(c, "");
+    }
+}
+
+static void sdsConfigRewrite(typeData data, const char *name, struct rewriteConfigState *state) {
+    rewriteConfigSdsOption(state, name, *(data.sds.config), data.sds.default_value ? sdsnew(data.sds.default_value) : NULL);
+}
+
+
 #define ALLOW_EMPTY_STRING 0
 #define EMPTY_STRING_IS_NULL 1
 
@@ -1795,6 +1898,18 @@ static void stringConfigRewrite(typeData data, const char *name, struct rewriteC
     embedCommonConfig(name, alias, modifiable) \
     embedConfigInterface(stringConfigInit, stringConfigSet, stringConfigGet, stringConfigRewrite) \
     .data.string = { \
+        .config = &(config_addr), \
+        .default_value = (default), \
+        .is_valid_fn = (is_valid), \
+        .update_fn = (update), \
+        .convert_empty_to_null = (empty_to_null), \
+    } \
+}
+
+#define createSDSConfig(name, alias, modifiable, empty_to_null, config_addr, default, is_valid, update) { \
+    embedCommonConfig(name, alias, modifiable) \
+    embedConfigInterface(sdsConfigInit, sdsConfigSet, sdsConfigGet, sdsConfigRewrite) \
+    .data.sds = { \
         .config = &(config_addr), \
         .default_value = (default), \
         .is_valid_fn = (is_valid), \
@@ -2294,7 +2409,7 @@ standardConfig configs[] = {
     createBoolConfig("crash-log-enabled", NULL, MODIFIABLE_CONFIG, server.crashlog_enabled, 1, NULL, updateSighandlerEnabled),
     createBoolConfig("crash-memcheck-enabled", NULL, MODIFIABLE_CONFIG, server.memcheck_enabled, 1, NULL, NULL),
     createBoolConfig("use-exit-on-panic", NULL, MODIFIABLE_CONFIG, server.use_exit_on_panic, 0, NULL, NULL),
-    createBoolConfig("oom-score-adj", NULL, MODIFIABLE_CONFIG, server.oom_score_adj, 0, NULL, updateOOMScoreAdj),
+    createBoolConfig("disable-thp", NULL, MODIFIABLE_CONFIG, server.disable_thp, 1, NULL, NULL),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
@@ -2302,7 +2417,6 @@ standardConfig configs[] = {
     createStringConfig("pidfile", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.pidfile, NULL, NULL, NULL),
     createStringConfig("replica-announce-ip", "slave-announce-ip", MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.slave_announce_ip, NULL, NULL, NULL),
     createStringConfig("masteruser", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.masteruser, NULL, NULL, NULL),
-    createStringConfig("masterauth", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.masterauth, NULL, NULL, NULL),
     createStringConfig("cluster-announce-ip", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_ip, NULL, NULL, NULL),
     createStringConfig("syslog-ident", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.syslog_ident, "redis", NULL, NULL),
     createStringConfig("dbfilename", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.rdb_filename, "dump.rdb", isValidDBfilename, NULL),
@@ -2312,6 +2426,9 @@ standardConfig configs[] = {
     createStringConfig("aof_rewrite_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.aof_rewrite_cpulist, NULL, NULL, NULL),
     createStringConfig("bgsave_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.bgsave_cpulist, NULL, NULL, NULL),
 
+    /* SDS Configs */
+    createSDSConfig("masterauth", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.masterauth, NULL, NULL, NULL),
+
     /* Enum Configs */
     createEnumConfig("supervised", NULL, IMMUTABLE_CONFIG, supervised_mode_enum, server.supervised_mode, SUPERVISED_NONE, NULL, NULL),
     createEnumConfig("syslog-facility", NULL, IMMUTABLE_CONFIG, syslog_facility_enum, server.syslog_facility, LOG_LOCAL0, NULL, NULL),
@@ -2319,6 +2436,9 @@ standardConfig configs[] = {
     createEnumConfig("loglevel", NULL, MODIFIABLE_CONFIG, loglevel_enum, server.verbosity, LL_NOTICE, NULL, NULL),
     createEnumConfig("maxmemory-policy", NULL, MODIFIABLE_CONFIG, maxmemory_policy_enum, server.maxmemory_policy, MAXMEMORY_NO_EVICTION, NULL, NULL),
     createEnumConfig("appendfsync", NULL, MODIFIABLE_CONFIG, aof_fsync_enum, server.aof_fsync, AOF_FSYNC_EVERYSEC, NULL, NULL),
+    createEnumConfig("oom-score-adj", NULL, MODIFIABLE_CONFIG, oom_score_adj_enum, server.oom_score_adj, OOM_SCORE_ADJ_NO, NULL, updateOOMScoreAdj),
+    createEnumConfig("acl-pubsub-default", NULL, MODIFIABLE_CONFIG, acl_pubsub_default_enum, server.acl_pubusub_default, USER_FLAG_ALLCHANNELS, NULL, NULL),
+    createEnumConfig("sanitize-dump-payload", NULL, MODIFIABLE_CONFIG, sanitize_dump_payload_enum, server.sanitize_dump_payload, SANITIZE_DUMP_NO, NULL, NULL),
 
     /* Integer configs */
     createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),
@@ -2400,6 +2520,8 @@ standardConfig configs[] = {
     createBoolConfig("tls-session-caching", NULL, MODIFIABLE_CONFIG, server.tls_ctx_config.session_caching, 1, NULL, updateTlsCfgBool),
     createStringConfig("tls-cert-file", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.cert_file, NULL, NULL, updateTlsCfg),
     createStringConfig("tls-key-file", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.key_file, NULL, NULL, updateTlsCfg),
+    createStringConfig("tls-client-cert-file", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.client_cert_file, NULL, NULL, updateTlsCfg),
+    createStringConfig("tls-client-key-file", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.client_key_file, NULL, NULL, updateTlsCfg),
     createStringConfig("tls-dh-params-file", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.dh_params_file, NULL, NULL, updateTlsCfg),
     createStringConfig("tls-ca-cert-file", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ca_cert_file, NULL, NULL, updateTlsCfg),
     createStringConfig("tls-ca-cert-dir", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ca_cert_dir, NULL, NULL, updateTlsCfg),

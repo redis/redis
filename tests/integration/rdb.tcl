@@ -49,13 +49,22 @@ start_server [list overrides [list "dir" $server_path] keep_persistence true] {
             }
         }
         r xgroup create stream mygroup 0
-        r xreadgroup GROUP mygroup Alice COUNT 1 STREAMS stream >
+        set records [r xreadgroup GROUP mygroup Alice COUNT 2 STREAMS stream >]
+        r xack stream mygroup [lindex [lindex [lindex [lindex $records 0] 1] 0] 0]
         set digest [r debug digest]
+        r config set sanitize-dump-payload no
         r debug reload
         set newdigest [r debug digest]
         assert {$digest eq $newdigest}
-        r del stream
     }
+    test {Test RDB stream encoding - sanitize dump} {
+        r config set sanitize-dump-payload yes
+        r debug reload
+        set newdigest [r debug digest]
+        assert {$digest eq $newdigest}
+    }
+    # delete the stream, maybe valgrind will find something
+    r del stream
 }
 
 # Helper function to start a server and kill it, just to check the error
@@ -155,7 +164,7 @@ test {client freed during loading} {
         # 100mb of rdb, 100k keys will load in more than 1 second
         r debug populate 100000 key 1000
 
-        restart_server 0 false
+        restart_server 0 false false
 
         # make sure it's still loading
         assert_equal [s loading] 1

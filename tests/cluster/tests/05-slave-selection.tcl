@@ -163,7 +163,7 @@ test "New Master down consecutively" {
         wait_for_condition 1000 50 {
             [master_detected $instances]
         } else {
-            failover "No failover detected when master $master_id fails"
+            fail "No failover detected when master $master_id fails"
         }
 
         assert_cluster_state ok

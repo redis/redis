@@ -172,6 +172,7 @@ void rdbCheckSetupSignals(void) {
     sigaction(SIGBUS, &act, NULL);
     sigaction(SIGFPE, &act, NULL);
     sigaction(SIGILL, &act, NULL);
+    sigaction(SIGABRT, &act, NULL);
 }
 
 /* Check the specified RDB file. Return 0 if the RDB looks sane, otherwise
@@ -371,6 +372,7 @@ int redis_check_rdb_main(int argc, char **argv, FILE *fp) {
     if (shared.integers[0] == NULL)
         createSharedObjects();
     server.loading_process_events_interval_bytes = 0;
+    server.sanitize_dump_payload = SANITIZE_DUMP_YES;
     rdbCheckMode = 1;
     rdbCheckInfo("Checking RDB file %s", argv[1]);
     rdbCheckSetupSignals();

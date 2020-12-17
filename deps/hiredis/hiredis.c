@@ -257,7 +257,8 @@ static void *createNilObject(const redisReadTask *task) {
         parent = task->parent->obj;
         assert(parent->type == REDIS_REPLY_ARRAY ||
                parent->type == REDIS_REPLY_MAP ||
-               parent->type == REDIS_REPLY_SET);
+               parent->type == REDIS_REPLY_SET ||
+               parent->type == REDIS_REPLY_PUSH);
         parent->element[task->idx] = r;
     }
     return r;

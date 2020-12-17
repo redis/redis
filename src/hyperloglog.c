@@ -1211,7 +1211,7 @@ void pfaddCommand(client *c) {
     if (updated) {
         signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
-        server.dirty++;
+        server.dirty += updated;
         HLL_INVALIDATE_CACHE(hdr);
     }
     addReply(c, updated ? shared.cone : shared.czero);

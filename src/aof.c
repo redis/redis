@@ -669,9 +669,22 @@ struct client *createAOFClient(void) {
     c->querybuf_peak = 0;
     c->argc = 0;
     c->argv = NULL;
+    c->original_argc = 0;
+    c->original_argv = NULL;
     c->argv_len_sum = 0;
     c->bufpos = 0;
-    c->flags = 0;
+
+    /*
+     * The AOF client should never be blocked (unlike master
+     * replication connection).
+     * This is because blocking the AOF client might cause
+     * deadlock (because potentially no one will unblock it).
+     * Also, if the AOF client will be blocked just for
+     * background processing there is a chance that the
+     * command execution order will be violated.
+     */
+    c->flags = CLIENT_DENY_BLOCKING;
+
     c->btype = BLOCKED_NONE;
     /* We set the fake client as a slave waiting for the synchronization
      * so that Redis will not try to send replies to this client. */
@@ -681,6 +694,7 @@ struct client *createAOFClient(void) {
     c->obuf_soft_limit_reached_time = 0;
     c->watched_keys = listCreate();
     c->peerid = NULL;
+    c->sockname = NULL;
     c->resp = 2;
     c->user = NULL;
     listSetFreeMethod(c->reply,freeClientReplyValue);
@@ -703,6 +717,7 @@ void freeFakeClient(struct client *c) {
     listRelease(c->reply);
     listRelease(c->watched_keys);
     freeClientMultiState(c);
+    freeClientOriginalArgv(c);
     zfree(c);
 }
 
@@ -961,15 +976,25 @@ int rewriteListObject(rio *r, robj *key, robj *o) {
             if (count == 0) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                     AOF_REWRITE_ITEMS_PER_CMD : items;
-                if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
-                if (rioWriteBulkString(r,"RPUSH",5) == 0) return 0;
-                if (rioWriteBulkObject(r,key) == 0) return 0;
+                if (!rioWriteBulkCount(r,'*',2+cmd_items) ||
+                    !rioWriteBulkString(r,"RPUSH",5) ||
+                    !rioWriteBulkObject(r,key)) 
+                {
+                    quicklistReleaseIterator(li);
+                    return 0;
+                }
             }
 
             if (entry.value) {
-                if (rioWriteBulkString(r,(char*)entry.value,entry.sz) == 0) return 0;
+                if (!rioWriteBulkString(r,(char*)entry.value,entry.sz)) {
+                    quicklistReleaseIterator(li);
+                    return 0;
+                }
             } else {
-                if (rioWriteBulkLongLong(r,entry.longval) == 0) return 0;
+                if (!rioWriteBulkLongLong(r,entry.longval)) {
+                    quicklistReleaseIterator(li);
+                    return 0;
+                }
             }
             if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
             items--;
@@ -995,11 +1020,14 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                     AOF_REWRITE_ITEMS_PER_CMD : items;
 
-                if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
-                if (rioWriteBulkString(r,"SADD",4) == 0) return 0;
-                if (rioWriteBulkObject(r,key) == 0) return 0;
+                if (!rioWriteBulkCount(r,'*',2+cmd_items) ||
+                    !rioWriteBulkString(r,"SADD",4) ||
+                    !rioWriteBulkObject(r,key)) 
+                {
+                    return 0;
+                }
             }
-            if (rioWriteBulkLongLong(r,llval) == 0) return 0;
+            if (!rioWriteBulkLongLong(r,llval)) return 0;
             if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
             items--;
         }
@@ -1013,11 +1041,18 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                     AOF_REWRITE_ITEMS_PER_CMD : items;
 
-                if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
-                if (rioWriteBulkString(r,"SADD",4) == 0) return 0;
-                if (rioWriteBulkObject(r,key) == 0) return 0;
+                if (!rioWriteBulkCount(r,'*',2+cmd_items) ||
+                    !rioWriteBulkString(r,"SADD",4) ||
+                    !rioWriteBulkObject(r,key)) 
+                {
+                    dictReleaseIterator(di);
+                    return 0;
+                }
             }
-            if (rioWriteBulkString(r,ele,sdslen(ele)) == 0) return 0;
+            if (!rioWriteBulkString(r,ele,sdslen(ele))) {
+                dictReleaseIterator(di);
+                return 0;          
+            }
             if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
             items--;
         }
@@ -1054,15 +1089,18 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                     AOF_REWRITE_ITEMS_PER_CMD : items;
 
-                if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
-                if (rioWriteBulkString(r,"ZADD",4) == 0) return 0;
-                if (rioWriteBulkObject(r,key) == 0) return 0;
+                if (!rioWriteBulkCount(r,'*',2+cmd_items*2) ||
+                    !rioWriteBulkString(r,"ZADD",4) ||
+                    !rioWriteBulkObject(r,key)) 
+                {
+                    return 0;
+                }
             }
-            if (rioWriteBulkDouble(r,score) == 0) return 0;
+            if (!rioWriteBulkDouble(r,score)) return 0;
             if (vstr != NULL) {
-                if (rioWriteBulkString(r,(char*)vstr,vlen) == 0) return 0;
+                if (!rioWriteBulkString(r,(char*)vstr,vlen)) return 0;
             } else {
-                if (rioWriteBulkLongLong(r,vll) == 0) return 0;
+                if (!rioWriteBulkLongLong(r,vll)) return 0;
             }
             zzlNext(zl,&eptr,&sptr);
             if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
@@ -1081,12 +1119,20 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                     AOF_REWRITE_ITEMS_PER_CMD : items;
 
-                if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
-                if (rioWriteBulkString(r,"ZADD",4) == 0) return 0;
-                if (rioWriteBulkObject(r,key) == 0) return 0;
+                if (!rioWriteBulkCount(r,'*',2+cmd_items*2) ||
+                    !rioWriteBulkString(r,"ZADD",4) ||
+                    !rioWriteBulkObject(r,key)) 
+                {
+                    dictReleaseIterator(di);
+                    return 0;
+                }
             }
-            if (rioWriteBulkDouble(r,*score) == 0) return 0;
-            if (rioWriteBulkString(r,ele,sdslen(ele)) == 0) return 0;
+            if (!rioWriteBulkDouble(r,*score) ||
+                !rioWriteBulkString(r,ele,sdslen(ele)))
+            {
+                dictReleaseIterator(di);
+                return 0;
+            }
             if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
             items--;
         }
@@ -1135,13 +1181,21 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
             int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                 AOF_REWRITE_ITEMS_PER_CMD : items;
 
-            if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
-            if (rioWriteBulkString(r,"HMSET",5) == 0) return 0;
-            if (rioWriteBulkObject(r,key) == 0) return 0;
+            if (!rioWriteBulkCount(r,'*',2+cmd_items*2) ||
+                !rioWriteBulkString(r,"HMSET",5) ||
+                !rioWriteBulkObject(r,key)) 
+            {
+                hashTypeReleaseIterator(hi);
+                return 0;
+            }
         }
 
-        if (rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY) == 0) return 0;
-        if (rioWriteHashIteratorCursor(r, hi, OBJ_HASH_VALUE) == 0) return 0;
+        if (!rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY) ||
+            !rioWriteHashIteratorCursor(r, hi, OBJ_HASH_VALUE))
+        {
+            hashTypeReleaseIterator(hi);
+            return 0;           
+        }
         if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
         items--;
     }
@@ -1301,6 +1355,9 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                     if (rioWriteStreamEmptyConsumer(r,key,(char*)ri.key,
                                                     ri.key_len,consumer) == 0)
                     {
+                        raxStop(&ri_cons);
+                        raxStop(&ri);
+                        streamIteratorStop(&si);
                         return 0;
                     }
                     continue;
@@ -1449,7 +1506,7 @@ werr:
  * are inserted using a single command. */
 int rewriteAppendOnlyFile(char *filename) {
     rio aof;
-    FILE *fp;
+    FILE *fp = NULL;
     char tmpfile[256];
     char byte;
 
@@ -1526,9 +1583,10 @@ int rewriteAppendOnlyFile(char *filename) {
         goto werr;
 
     /* Make sure data will not remain on the OS's output buffers */
-    if (fflush(fp) == EOF) goto werr;
-    if (fsync(fileno(fp)) == -1) goto werr;
-    if (fclose(fp) == EOF) goto werr;
+    if (fflush(fp)) goto werr;
+    if (fsync(fileno(fp))) goto werr;
+    if (fclose(fp)) { fp = NULL; goto werr; }
+    fp = NULL;
 
     /* Use RENAME to make sure the DB file is changed atomically only
      * if the generate DB file is ok. */
@@ -1544,7 +1602,7 @@ int rewriteAppendOnlyFile(char *filename) {
 
 werr:
     serverLog(LL_WARNING,"Write error writing append only file on disk: %s", strerror(errno));
-    fclose(fp);
+    if (fp) fclose(fp);
     unlink(tmpfile);
     stopSaving(0);
     return C_ERR;
@@ -1670,10 +1728,11 @@ int rewriteAppendOnlyFileBackground(void) {
             return C_ERR;
         }
         serverLog(LL_NOTICE,
-            "Background append only file rewriting started by pid %d",childpid);
+            "Background append only file rewriting started by pid %ld",(long) childpid);
         server.aof_rewrite_scheduled = 0;
         server.aof_rewrite_time_start = time(NULL);
         server.aof_child_pid = childpid;
+        updateDictResizePolicy();
         /* We set appendseldb to -1 in order to force the next call to the
          * feedAppendOnlyFile() to issue a SELECT command, so the differences
          * accumulated by the parent into server.aof_rewrite_buf will start
@@ -1703,10 +1762,10 @@ void aofRemoveTempFile(pid_t childpid) {
     char tmpfile[256];
 
     snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) childpid);
-    unlink(tmpfile);
+    bg_unlink(tmpfile);
 
     snprintf(tmpfile,256,"temp-rewriteaof-%d.aof", (int) childpid);
-    unlink(tmpfile);
+    bg_unlink(tmpfile);
 }
 
 /* Update the server.aof_current_size field explicitly using stat(2)

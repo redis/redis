@@ -97,6 +97,16 @@ void linkClient(client *c) {
     raxInsert(server.clients_index,(unsigned char*)&id,sizeof(id),c,NULL);
 }
 
+/* Initialize client authentication state.
+ */
+static void clientSetDefaultAuth(client *c) {
+    /* If the default user does not require authentication, the user is
+     * directly authenticated. */
+    c->user = DefaultUser;
+    c->authenticated = (c->user->flags & USER_FLAG_NOPASS) &&
+                       !(c->user->flags & USER_FLAG_DISABLED);
+}
+
 client *createClient(connection *conn) {
     client *c = zmalloc(sizeof(client));
 
@@ -129,17 +139,15 @@ client *createClient(connection *conn) {
     c->argc = 0;
     c->argv = NULL;
     c->argv_len_sum = 0;
+    c->original_argc = 0;
+    c->original_argv = NULL;
     c->cmd = c->lastcmd = NULL;
-    c->user = DefaultUser;
     c->multibulklen = 0;
     c->bulklen = -1;
     c->sentlen = 0;
     c->flags = 0;
     c->ctime = c->lastinteraction = server.unixtime;
-    /* If the default user does not require authentication, the user is
-     * directly authenticated. */
-    c->authenticated = (c->user->flags & USER_FLAG_NOPASS) &&
-                       !(c->user->flags & USER_FLAG_DISABLED);
+    clientSetDefaultAuth(c);
     c->replstate = REPL_STATE_NONE;
     c->repl_put_online_on_ack = 0;
     c->reploff = 0;
@@ -168,6 +176,7 @@ client *createClient(connection *conn) {
     c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType,NULL);
     c->pubsub_patterns = listCreate();
     c->peerid = NULL;
+    c->sockname = NULL;
     c->client_list_node = NULL;
     c->client_tracking_redirection = 0;
     c->client_tracking_prefixes = NULL;
@@ -261,6 +270,9 @@ int prepareClientToWrite(client *c) {
  * Low level functions to add more data to output buffers.
  * -------------------------------------------------------------------------- */
 
+/* Attempts to add the reply to the static buffer in the client struct.
+ * Returns C_ERR if the buffer is full, or the reply list is not empty,
+ * in which case the reply must be added to the reply list. */
 int _addReplyToBuffer(client *c, const char *s, size_t len) {
     size_t available = sizeof(c->buf)-c->bufpos;
 
@@ -278,6 +290,8 @@ int _addReplyToBuffer(client *c, const char *s, size_t len) {
     return C_OK;
 }
 
+/* Adds the reply to the reply linked list.
+ * Note: some edits to this function need to be relayed to AddReplyFromClient. */
 void _addReplyProtoToList(client *c, const char *s, size_t len) {
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
 
@@ -665,6 +679,7 @@ void addReplyLongLong(client *c, long long ll) {
 }
 
 void addReplyAggregateLen(client *c, long length, int prefix) {
+    serverAssert(length >= 0);
     if (prefix == '*' && length < OBJ_SHARED_BULKHDR_LEN)
         addReply(c,shared.mbulkhdr[length]);
     else
@@ -838,14 +853,40 @@ void addReplySubcommandSyntaxError(client *c) {
 /* Append 'src' client output buffers into 'dst' client output buffers. 
  * This function clears the output buffers of 'src' */
 void AddReplyFromClient(client *dst, client *src) {
+    /* If the source client contains a partial response due to client output
+     * buffer limits, propagate that to the dest rather than copy a partial
+     * reply. We don't wanna run the risk of copying partial response in case
+     * for some reason the output limits don't reach the same decision (maybe
+     * they changed) */
+    if (src->flags & CLIENT_CLOSE_ASAP) {
+        sds client = catClientInfoString(sdsempty(),dst);
+        freeClientAsync(dst);
+        serverLog(LL_WARNING,"Client %s scheduled to be closed ASAP for overcoming of output buffer limits.", client);
+        sdsfree(client);
+        return;
+    }
+
+    /* First add the static buffer (either into the static buffer or reply list) */
+    addReplyProto(dst,src->buf, src->bufpos);
+
+    /* We need to check with prepareClientToWrite again (after addReplyProto)
+     * since addReplyProto may have changed something (like CLIENT_CLOSE_ASAP) */
     if (prepareClientToWrite(dst) != C_OK)
         return;
-    addReplyProto(dst,src->buf, src->bufpos);
+
+    /* We're bypassing _addReplyProtoToList, so we need to add the pre/post
+     * checks in it. */
+    if (dst->flags & CLIENT_CLOSE_AFTER_REPLY) return;
+
+    /* Concatenate the reply list into the dest */
     if (listLength(src->reply))
         listJoin(dst->reply,src->reply);
     dst->reply_bytes += src->reply_bytes;
     src->reply_bytes = 0;
     src->bufpos = 0;
+
+    /* Check output buffer limits */
+    asyncCloseClientOnOutputBufferLimitReached(dst);
 }
 
 /* Copy 'src' client output buffers into 'dst' client output buffers.
@@ -1058,6 +1099,17 @@ void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 }
 
+void freeClientOriginalArgv(client *c) {
+    /* We didn't rewrite this client */
+    if (!c->original_argv) return;
+
+    for (int j = 0; j < c->original_argc; j++)
+        decrRefCount(c->original_argv[j]);
+    zfree(c->original_argv);
+    c->original_argv = NULL;
+    c->original_argc = 0;
+}
+
 static void freeClientArgv(client *c) {
     int j;
     for (j = 0; j < c->argc; j++)
@@ -1239,6 +1291,7 @@ void freeClient(client *c) {
     /* Free data structures. */
     listRelease(c->reply);
     freeClientArgv(c);
+    freeClientOriginalArgv(c);
 
     /* Unlink the client: this will close the socket, remove the I/O
      * handlers, and remove references of the client from different
@@ -1300,6 +1353,7 @@ void freeClient(client *c) {
     c->argv_len_sum = 0;
     freeClientMultiState(c);
     sdsfree(c->peerid);
+    sdsfree(c->sockname);
     zfree(c);
 }
 
@@ -2079,25 +2133,25 @@ void getClientsMaxBuffers(unsigned long *longest_output_list,
     *biggest_input_buffer = bib;
 }
 
-/* A Redis "Peer ID" is a colon separated ip:port pair.
+/* A Redis "Address String" is a colon separated ip:port pair.
  * For IPv4 it's in the form x.y.z.k:port, example: "127.0.0.1:1234".
  * For IPv6 addresses we use [] around the IP part, like in "[::1]:1234".
  * For Unix sockets we use path:0, like in "/tmp/redis:0".
  *
- * A Peer ID always fits inside a buffer of NET_PEER_ID_LEN bytes, including
- * the null term.
+ * An Address String always fits inside a buffer of NET_ADDR_STR_LEN bytes,
+ * including the null term.
  *
- * On failure the function still populates 'peerid' with the "?:0" string
- * in case you want to relax error checking or need to display something
- * anyway (see anetPeerToString implementation for more info). */
-void genClientPeerId(client *client, char *peerid,
-                            size_t peerid_len) {
+ * On failure the function still populates 'addr' with the "?:0" string in case
+ * you want to relax error checking or need to display something anyway (see
+ * anetFdToString implementation for more info). */
+void genClientAddrString(client *client, char *addr,
+                         size_t addr_len, int fd_to_str_type) {
     if (client->flags & CLIENT_UNIX_SOCKET) {
         /* Unix socket client. */
-        snprintf(peerid,peerid_len,"%s:0",server.unixsocket);
+        snprintf(addr,addr_len,"%s:0",server.unixsocket);
     } else {
         /* TCP client. */
-        connFormatPeer(client->conn,peerid,peerid_len);
+        connFormatFdAddr(client->conn,addr,addr_len,fd_to_str_type);
     }
 }
 
@@ -2106,13 +2160,27 @@ void genClientPeerId(client *client, char *peerid,
  * The Peer ID never changes during the life of the client, however it
  * is expensive to compute. */
 char *getClientPeerId(client *c) {
-    char peerid[NET_PEER_ID_LEN];
+    char peerid[NET_ADDR_STR_LEN];
 
     if (c->peerid == NULL) {
-        genClientPeerId(c,peerid,sizeof(peerid));
+        genClientAddrString(c,peerid,sizeof(peerid),FD_TO_PEER_NAME);
         c->peerid = sdsnew(peerid);
     }
     return c->peerid;
+}
+
+/* This function returns the client bound socket name, by creating and caching
+ * it if client->sockname is NULL, otherwise returning the cached value.
+ * The Socket Name never changes during the life of the client, however it
+ * is expensive to compute. */
+char *getClientSockname(client *c) {
+    char sockname[NET_ADDR_STR_LEN];
+
+    if (c->sockname == NULL) {
+        genClientAddrString(c,sockname,sizeof(sockname),FD_TO_SOCK_NAME);
+        c->sockname = sdsnew(sockname);
+    }
+    return c->sockname;
 }
 
 /* Concatenate a string representing the state of a client in a human
@@ -2133,6 +2201,7 @@ sds catClientInfoString(sds s, client *client) {
     if (client->flags & CLIENT_BLOCKED) *p++ = 'b';
     if (client->flags & CLIENT_TRACKING) *p++ = 't';
     if (client->flags & CLIENT_TRACKING_BROKEN_REDIR) *p++ = 'R';
+    if (client->flags & CLIENT_TRACKING_BCAST) *p++ = 'B';
     if (client->flags & CLIENT_DIRTY_CAS) *p++ = 'd';
     if (client->flags & CLIENT_CLOSE_AFTER_REPLY) *p++ = 'c';
     if (client->flags & CLIENT_UNBLOCKED) *p++ = 'u';
@@ -2162,9 +2231,10 @@ sds catClientInfoString(sds s, client *client) {
         total_mem += zmalloc_size(client->argv);
 
     return sdscatfmt(s,
-        "id=%U addr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s",
+        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I",
         (unsigned long long) client->id,
         getClientPeerId(client),
+        getClientSockname(client),
         connGetInfo(client->conn, conninfo, sizeof(conninfo)),
         client->name ? (char*)client->name->ptr : "",
         (long long)(server.unixtime - client->ctime),
@@ -2183,7 +2253,8 @@ sds catClientInfoString(sds s, client *client) {
         (unsigned long long) total_mem,
         events,
         client->lastcmd ? client->lastcmd->name : "NULL",
-        client->user ? client->user->name : "(superuser)");
+        client->user ? client->user->name : "(superuser)",
+        (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1);
 }
 
 sds getAllClientsInfoString(int type) {
@@ -2240,6 +2311,50 @@ int clientSetNameOrReply(client *c, robj *name) {
     return C_OK;
 }
 
+/* Reset the client state to resemble a newly connected client.
+ */
+void resetCommand(client *c) {
+    listNode *ln;
+
+    /* MONITOR clients are also marked with CLIENT_SLAVE, we need to
+     * distinguish between the two.
+     */
+    if (c->flags & CLIENT_MONITOR) {
+        ln = listSearchKey(server.monitors,c);
+        serverAssert(ln != NULL);
+        listDelNode(server.monitors,ln);
+
+        c->flags &= ~(CLIENT_MONITOR|CLIENT_SLAVE);
+    }
+
+    if (c->flags & (CLIENT_SLAVE|CLIENT_MASTER|CLIENT_MODULE)) {
+        addReplyError(c,"can only reset normal client connections");
+        return;
+    }
+
+    if (c->flags & CLIENT_TRACKING) disableTracking(c);
+    selectDb(c,0);
+    c->resp = 2;
+
+    clientSetDefaultAuth(c);
+    moduleNotifyUserChanged(c);
+    discardTransaction(c);
+
+    pubsubUnsubscribeAllChannels(c,0);
+    pubsubUnsubscribeAllPatterns(c,0);
+
+    if (c->name) {
+        decrRefCount(c->name);
+        c->name = NULL;
+    }
+
+    /* Selectively clear state flags not covered above */
+    c->flags &= ~(CLIENT_ASKING|CLIENT_READONLY|CLIENT_PUBSUB|
+            CLIENT_REPLY_OFF|CLIENT_REPLY_SKIP_NEXT);
+
+    addReplyStatus(c,"RESET");
+}
+
 void clientCommand(client *c) {
     listNode *ln;
     listIter li;
@@ -2247,15 +2362,18 @@ void clientCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
 "ID                     -- Return the ID of the current connection.",
+"INFO                   -- Return information about the current client connection.",
 "GETNAME                -- Return the name of the current connection.",
 "KILL <ip:port>         -- Kill connection made from <ip:port>.",
 "KILL <option> <value> [option value ...] -- Kill connections. Options are:",
 "     ADDR <ip:port>                      -- Kill connection made from <ip:port>",
+"     LADDR <ip:port>                     -- Kill connection made to <ip:port>",
 "     TYPE (normal|master|replica|pubsub) -- Kill connections by type.",
 "     USER <username>   -- Kill connections authenticated with such user.",
 "     SKIPME (yes|no)   -- Skip killing current connection (default: yes).",
 "LIST [options ...]     -- Return information about client connections. Options:",
 "     TYPE (normal|master|replica|pubsub) -- Return clients of specified type.",
+"     ID id [id ...]                      -- Return clients of specified IDs only.",
 "PAUSE <timeout>        -- Suspend all Redis clients for <timout> milliseconds.",
 "REPLY (on|off|skip)    -- Control the replies sent to the current connection.",
 "SETNAME <name>         -- Assign the name <name> to the current connection.",
@@ -2269,21 +2387,46 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"id") && c->argc == 2) {
         /* CLIENT ID */
         addReplyLongLong(c,c->id);
+    } else if (!strcasecmp(c->argv[1]->ptr,"info") && c->argc == 2) {
+        /* CLIENT INFO */
+        sds o = catClientInfoString(sdsempty(), c);
+        o = sdscatlen(o,"\n",1);
+        addReplyVerbatim(c,o,sdslen(o),"txt");
+        sdsfree(o);
     } else if (!strcasecmp(c->argv[1]->ptr,"list")) {
         /* CLIENT LIST */
         int type = -1;
+        sds o = NULL;
         if (c->argc == 4 && !strcasecmp(c->argv[2]->ptr,"type")) {
             type = getClientTypeByName(c->argv[3]->ptr);
             if (type == -1) {
                 addReplyErrorFormat(c,"Unknown client type '%s'",
                     (char*) c->argv[3]->ptr);
                 return;
-             }
+            }
+        } else if (c->argc > 3 && !strcasecmp(c->argv[2]->ptr,"id")) {
+            int j;
+            o = sdsempty();
+            for (j = 3; j < c->argc; j++) {
+                long long cid;
+                if (getLongLongFromObjectOrReply(c, c->argv[j], &cid,
+                            "Invalid client ID")) {
+                    sdsfree(o);
+                    return;
+                }
+                client *cl = lookupClientByID(cid);
+                if (cl) {
+                    o = catClientInfoString(o, cl);
+                    o = sdscatlen(o, "\n", 1);
+                }
+            }
         } else if (c->argc != 2) {
             addReply(c,shared.syntaxerr);
             return;
         }
-        sds o = getAllClientsInfoString(type);
+
+        if (!o)
+            o = getAllClientsInfoString(type);
         addReplyVerbatim(c,o,sdslen(o),"txt");
         sdsfree(o);
     } else if (!strcasecmp(c->argv[1]->ptr,"reply") && c->argc == 3) {
@@ -2304,6 +2447,7 @@ NULL
         /* CLIENT KILL <ip:port>
          * CLIENT KILL <option> [value] ... <option> [value] */
         char *addr = NULL;
+        char *laddr = NULL;
         user *user = NULL;
         int type = -1;
         uint64_t id = 0;
@@ -2336,6 +2480,8 @@ NULL
                     }
                 } else if (!strcasecmp(c->argv[i]->ptr,"addr") && moreargs) {
                     addr = c->argv[i+1]->ptr;
+                } else if (!strcasecmp(c->argv[i]->ptr,"laddr") && moreargs) {
+                    laddr = c->argv[i+1]->ptr;
                 } else if (!strcasecmp(c->argv[i]->ptr,"user") && moreargs) {
                     user = ACLGetUserByName(c->argv[i+1]->ptr,
                                             sdslen(c->argv[i+1]->ptr));
@@ -2369,6 +2515,7 @@ NULL
         while ((ln = listNext(&li)) != NULL) {
             client *client = listNodeValue(ln);
             if (addr && strcmp(getClientPeerId(client),addr) != 0) continue;
+            if (laddr && strcmp(getClientSockname(client),laddr) != 0) continue;
             if (type != -1 && getClientType(client) != type) continue;
             if (id != 0 && client->id != id) continue;
             if (user && client->user != user) continue;
@@ -2693,6 +2840,19 @@ void securityWarningCommand(client *c) {
     freeClientAsync(c);
 }
 
+/* Keep track of the original command arguments so that we can generate
+ * an accurate slowlog entry after the command has been executed. */
+static void retainOriginalCommandVector(client *c) {
+    /* We already rewrote this command, so don't rewrite it again */
+    if (c->original_argv) return;
+    c->original_argc = c->argc;
+    c->original_argv = zmalloc(sizeof(robj*)*(c->argc));
+    for (int j = 0; j < c->argc; j++) {
+        c->original_argv[j] = c->argv[j];
+        incrRefCount(c->argv[j]);
+    }
+}
+
 /* Rewrite the command vector of the client. All the new objects ref count
  * is incremented. The old command vector is freed, and the old objects
  * ref count is decremented. */
@@ -2710,26 +2870,14 @@ void rewriteClientCommandVector(client *c, int argc, ...) {
         argv[j] = a;
         incrRefCount(a);
     }
-    /* We free the objects in the original vector at the end, so we are
-     * sure that if the same objects are reused in the new vector the
-     * refcount gets incremented before it gets decremented. */
-    for (j = 0; j < c->argc; j++) decrRefCount(c->argv[j]);
-    zfree(c->argv);
-    /* Replace argv and argc with our new versions. */
-    c->argv = argv;
-    c->argc = argc;
-    c->argv_len_sum = 0;
-    for (j = 0; j < c->argc; j++)
-        if (c->argv[j])
-            c->argv_len_sum += getStringObjectLen(c->argv[j]);
-    c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
-    serverAssertWithInfo(c,NULL,c->cmd != NULL);
+    replaceClientCommandVector(c, argc, argv);
     va_end(ap);
 }
 
 /* Completely replace the client command vector with the provided one. */
 void replaceClientCommandVector(client *c, int argc, robj **argv) {
     int j;
+    retainOriginalCommandVector(c);
     freeClientArgv(c);
     zfree(c->argv);
     c->argv = argv;
@@ -2755,7 +2903,7 @@ void replaceClientCommandVector(client *c, int argc, robj **argv) {
  *    free the no longer used objects on c->argv. */
 void rewriteClientCommandArgument(client *c, int i, robj *newval) {
     robj *oldval;
-
+    retainOriginalCommandVector(c);
     if (i >= c->argc) {
         c->argv = zrealloc(c->argv,sizeof(robj*)*(i+1));
         c->argc = i+1;

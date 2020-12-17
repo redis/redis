@@ -140,9 +140,39 @@ start_server {tags {"scripting"}} {
         } {*execution time*}
     }
 
-    test {EVAL - Scripts can't run certain commands} {
+    test {EVAL - Scripts can't run blpop command} {
         set e {}
         catch {r eval {return redis.pcall('blpop','x',0)} 0} e
+        set e
+    } {*not allowed*}
+
+    test {EVAL - Scripts can't run brpop command} {
+        set e {}
+        catch {r eval {return redis.pcall('brpop','empty_list',0)} 0} e
+        set e
+    } {*not allowed*}
+
+    test {EVAL - Scripts can't run brpoplpush command} {
+        set e {}
+        catch {r eval {return redis.pcall('brpoplpush','empty_list1', 'empty_list2',0)} 0} e
+        set e
+    } {*not allowed*}
+
+    test {EVAL - Scripts can't run blmove command} {
+        set e {}
+        catch {r eval {return redis.pcall('blmove','empty_list1', 'empty_list2', 'LEFT', 'LEFT', 0)} 0} e
+        set e
+    } {*not allowed*}
+
+    test {EVAL - Scripts can't run bzpopmin command} {
+        set e {}
+        catch {r eval {return redis.pcall('bzpopmin','empty_zset', 0)} 0} e
+        set e
+    } {*not allowed*}
+
+    test {EVAL - Scripts can't run bzpopmax command} {
+        set e {}
+        catch {r eval {return redis.pcall('bzpopmax','empty_zset', 0)} 0} e
         set e
     } {*not allowed*}
 

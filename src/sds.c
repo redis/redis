@@ -100,7 +100,7 @@ static inline size_t sdsTypeMaxSize(char type) {
  * You can print the string with printf() as there is an implicit \0 at the
  * end of the string. However the string is binary safe and can contain
  * \0 characters in the middle, as the length is stored in the sds header. */
-sds sdsnewlen(const void *init, size_t initlen) {
+sds _sdsnewlen(const void *init, size_t initlen, int trymalloc) {
     void *sh;
     sds s;
     char type = sdsReqType(initlen);
@@ -111,7 +111,9 @@ sds sdsnewlen(const void *init, size_t initlen) {
     unsigned char *fp; /* flags pointer. */
     size_t usable;
 
-    sh = s_malloc_usable(hdrlen+initlen+1, &usable);
+    sh = trymalloc?
+        s_trymalloc_usable(hdrlen+initlen+1, &usable) :
+        s_malloc_usable(hdrlen+initlen+1, &usable);
     if (sh == NULL) return NULL;
     if (init==SDS_NOINIT)
         init = NULL;
@@ -160,6 +162,14 @@ sds sdsnewlen(const void *init, size_t initlen) {
         memcpy(s, init, initlen);
     s[initlen] = '\0';
     return s;
+}
+
+sds sdsnewlen(const void *init, size_t initlen) {
+    return _sdsnewlen(init, initlen, 0);
+}
+
+sds sdstrynewlen(const void *init, size_t initlen) {
+    return _sdsnewlen(init, initlen, 1);
 }
 
 /* Create an empty (zero length) sds string. Even in this case the string
@@ -545,6 +555,7 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
     va_list cpy;
     char staticbuf[1024], *buf = staticbuf, *t;
     size_t buflen = strlen(fmt)*2;
+    int bufstrlen;
 
     /* We try to start using a static buffer for speed.
      * If not possible we revert to heap allocation. */
@@ -555,16 +566,19 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
         buflen = sizeof(staticbuf);
     }
 
-    /* Try with buffers two times bigger every time we fail to
+    /* Alloc enough space for buffer and \0 after failing to
      * fit the string in the current buffer size. */
     while(1) {
-        buf[buflen-2] = '\0';
         va_copy(cpy,ap);
-        vsnprintf(buf, buflen, fmt, cpy);
+        bufstrlen = vsnprintf(buf, buflen, fmt, cpy);
         va_end(cpy);
-        if (buf[buflen-2] != '\0') {
+        if (bufstrlen < 0) {
             if (buf != staticbuf) s_free(buf);
-            buflen *= 2;
+            return NULL;
+        }
+        if (((size_t)bufstrlen) >= buflen) {
+            if (buf != staticbuf) s_free(buf);
+            buflen = ((size_t)bufstrlen) + 1;
             buf = s_malloc(buflen);
             if (buf == NULL) return NULL;
             continue;
@@ -573,7 +587,7 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
     }
 
     /* Finally concat the obtained string to the SDS string and return it. */
-    t = sdscat(s, buf);
+    t = sdscatlen(s, buf, bufstrlen);
     if (buf != staticbuf) s_free(buf);
     return t;
 }
@@ -1181,6 +1195,22 @@ int sdsTest(int argc, char **argv) {
         x = sdscatprintf(sdsempty(),"%d",123);
         test_cond("sdscatprintf() seems working in the base case",
             sdslen(x) == 3 && memcmp(x,"123\0",4) == 0)
+
+        sdsfree(x);
+        x = sdscatprintf(sdsempty(),"a%cb",0);
+        test_cond("sdscatprintf() seems working with \\0 inside of result",
+            sdslen(x) == 3 && memcmp(x,"a\0""b\0",4) == 0)
+
+        {
+            sdsfree(x);
+            char etalon[1024*1024];
+            for (size_t i = 0; i < sizeof(etalon); i++) {
+                etalon[i] = '0';
+            }
+            x = sdscatprintf(sdsempty(),"%0*d",(int)sizeof(etalon),0);
+            test_cond("sdscatprintf() can print 1MB",
+                sdslen(x) == sizeof(etalon) && memcmp(x,etalon,sizeof(etalon)) == 0)
+        }
 
         sdsfree(x);
         x = sdsnew("--");
