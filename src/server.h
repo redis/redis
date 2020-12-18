@@ -1178,6 +1178,7 @@ struct redisServer {
     long fixed_time_expire;     /* If > 0, expire keys against server.mstime. */
     rax *clients_index;         /* Active clients dictionary by client ID. */
     int client_pause_flags;     /* True if clients are currently paused */
+    list *paused_clients;       /* List of pause clients */
     mstime_t client_pause_end_time;    /* Time when we undo clients_paused */
     mstime_t client_pause_ro_end_time; /* Time when we undo RO clients_paused */
     char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */

@@ -3270,30 +3270,23 @@ void unpauseClients(int force) {
         && server.client_pause_end_time < server.mstime))
     {
         server.client_pause_flags &= ~CLIENT_PAUSE_ALL;
-        serverLog(LL_WARNING, "unpausing all");
     }
 
     if (force || (server.client_pause_flags & CLIENT_PAUSE_RO
         && server.client_pause_ro_end_time < server.mstime))
     {
         server.client_pause_flags &= ~CLIENT_PAUSE_RO;
-        serverLog(LL_WARNING, "unpausing ro %lld %lld",server.client_pause_ro_end_time, server.mstime);
     }
 
     /* Nothing was unblocked */
     if (initial_flags == server.client_pause_flags) return;
-    serverLog(LL_WARNING, "UNPAUSING");
 
     /* Put all the clients in the unblocked clients queue in order to
      * force the re-processing of the input buffer if any. */
-    listRewind(server.clients,&li);
+    listRewind(server.paused_clients,&li);
     while ((ln = listNext(&li)) != NULL) {
         c = listNodeValue(ln);
-
-        /* Replicas are never blocked */
-        if (c->flags & CLIENT_BLOCKED && c->btype == BLOCKED_PAUSE) {
-            unblockClient(c);
-        }
+        unblockClient(c);
     }
 }
 

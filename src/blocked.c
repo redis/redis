@@ -89,6 +89,9 @@ void blockClient(client *c, int btype) {
     server.blocked_clients++;
     server.blocked_clients_by_type[btype]++;
     addClientToTimeoutTable(c);
+    if (btype == BLOCKED_PAUSE) {
+        listAddNodeTail(server.paused_clients, c);
+    }
 }
 
 /* This function is called in the beforeSleep() function of the event loop

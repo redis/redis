@@ -3041,6 +3041,7 @@ void initServer(void) {
     server.clients_waiting_acks = listCreate();
     server.get_ack_from_slaves = 0;
     server.client_pause_flags = 0;
+    server.paused_clients = listCreate();
     server.events_processed_while_blocked = 0;
     server.system_memory_size = zmalloc_get_memory_size();
     server.blocked_last_cron = 0;
@@ -4014,15 +4015,9 @@ int processCommand(client *c) {
 
     /* If the server is paused, block the client until
      * the pause has ended. Replicas are never paused. */
-    int is_readonly_command = (c->cmd->flags & CMD_READONLY) ||
-                              (c->cmd->proc == execCommand && !(c->mstate.cmd_inv_flags & CMD_READONLY));
-
     if (!(c->flags & CLIENT_SLAVE) && 
         ((server.client_pause_flags & CLIENT_PAUSE_ALL) ||
-        (server.client_pause_flags & CLIENT_PAUSE_RO && 
-            !(is_readonly_command || 
-              c->cmd->proc == clientCommand ||
-              c->cmd->proc == multiCommand))))
+        (server.client_pause_flags & CLIENT_PAUSE_RO && !is_write_command)))
     {
         c->bpop.timeout = 0;
         blockClient(c,BLOCKED_PAUSE);
