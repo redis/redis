@@ -4017,7 +4017,7 @@ int processCommand(client *c) {
      * the pause has ended. Replicas are never paused. */
     if (!(c->flags & CLIENT_SLAVE) && 
         ((server.client_pause_flags & CLIENT_PAUSE_ALL) ||
-        (server.client_pause_flags & CLIENT_PAUSE_RO && !is_write_command)))
+        (server.client_pause_flags & CLIENT_PAUSE_RO && is_write_command)))
     {
         c->bpop.timeout = 0;
         blockClient(c,BLOCKED_PAUSE);
