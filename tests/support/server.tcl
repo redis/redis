@@ -50,11 +50,18 @@ proc kill_server config {
                 tags {"leaks"} {
                     test "Check for memory leaks (pid $pid)" {
                         set output {0 leaks}
-                        catch {exec leaks $pid} output
-                        if {[string match {*process does not exist*} $output] ||
-                            [string match {*cannot examine*} $output]} {
-                            # In a few tests we kill the server process.
-                            set output "0 leaks"
+                        catch {exec leaks $pid} output option
+                        set details [dict get $option -errorcode]
+                        if {[lindex $details 0] eq "CHILDSTATUS"} {
+                              set status [lindex $details 2]
+                              # The leaks command exits with one of the following values:
+                              #     0     No leaks were detected.
+                              #     1     One or more leaks were detected.
+                              #     >1    An error occurred.
+                              if {$status > 1} {
+                                  # In a few tests we kill the server process.
+                                  set output "0 leaks"
+                              }
                         }
                         set output
                     } {*0 leaks*}
