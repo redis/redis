@@ -385,9 +385,9 @@ void lsetCommand(client *c) {
     }
 }
 
-/* A helper for replying with a list's range as a multi-bulk. For backward
-* compatibility, start needs to be less than end. The direction affects how
-* elements are iterated. */
+/* A helper for replying with a list's range as a multi-bulk. Note that start
+ * needs to be less than end, otherwise an empty array is returned. The
+ * direction argument affects howelements are iterated. */
 void addListRangeReply(client *c, robj *o, long start, long end, int direction) {
     long rangelen, llen = listTypeLength(o);
 
@@ -408,11 +408,8 @@ void addListRangeReply(client *c, robj *o, long start, long end, int direction) 
     /* Return the result in form of a multi-bulk reply */
     addReplyArrayLen(c,rangelen);
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-        listTypeIterator *iter = listTypeInitIterator(o,
-                                                      (direction == LIST_TAIL)
-                                                      ? start
-                                                      : end,
-                                                      direction);
+        int from = (direction == LIST_TAIL) ? start : end;
+        listTypeIterator *iter = listTypeInitIterator(o,from,direction);
 
         while(rangelen--) {
             listTypeEntry entry;
@@ -472,7 +469,7 @@ void popGenericCommand(client *c, int where) {
 
     if (!count) {
         /* Pop a single element. This is POP's original behavior that replies
-        * with a bulk string. */
+         * with a bulk string. */
         value = listTypePop(o,where);
         serverAssert(value != NULL);
         addReplyBulk(c,value);
@@ -480,21 +477,16 @@ void popGenericCommand(client *c, int where) {
         listElementsRemoved(c,c->argv[1],where,o,1);
     } else {
         /* Pop a range of elements. An addition to the original POP command,
-        *  which replies with a multi-bulk. */
-        int direction = (where == LIST_HEAD) ? LIST_TAIL : LIST_HEAD;
+         *  which replies with a multi-bulk. */
         long llen = listTypeLength(o);
         long rangelen = (count > llen) ? llen : count;
-        long rangestart = (direction == LIST_TAIL) ? 0 : -rangelen;
-        long rangeend = (direction == LIST_TAIL)
-                        ? rangelen - 1
-                        : -1;
-        if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-            addListRangeReply(c,o,rangestart,rangeend,direction);
-            quicklistDelRange(o->ptr,rangestart,rangelen);
-            listElementsRemoved(c,c->argv[1],where,o,rangelen);
-        } else {
-            serverPanic("Unknown list encoding");
-        }
+        long rangestart = (where == LIST_HEAD) ? 0 : -rangelen;
+        long rangeend = (where == LIST_HEAD) ? rangelen - 1 : -1;
+        int direction = (where == LIST_HEAD) ? LIST_TAIL : LIST_HEAD;
+
+        addListRangeReply(c,o,rangestart,rangeend,direction);
+        quicklistDelRange(o->ptr,rangestart,rangelen);
+        listElementsRemoved(c,c->argv[1],where,o,rangelen);
     }
 }
 
