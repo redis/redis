@@ -385,6 +385,52 @@ void lsetCommand(client *c) {
     }
 }
 
+/* A helper for replying with a list's range as a multi-bulk. For backward
+* compatibility, start needs to be less than end. The direction affects how
+* elements are iterated. */
+void addListRangeReply(client *c, robj *o, long start, long end, int direction) {
+    long rangelen, llen = listTypeLength(o);
+
+    /* Convert negative indexes. */
+    if (start < 0) start = llen+start;
+    if (end < 0) end = llen+end;
+    if (start < 0) start = 0;
+
+    /* Invariant: start >= 0, so this test will be true when end < 0.
+     * The range is empty when start > end or start >= length. */
+    if (start > end || start >= llen) {
+        addReply(c,shared.emptyarray);
+        return;
+    }
+    if (end >= llen) end = llen-1;
+    rangelen = (end-start)+1;
+
+    /* Return the result in form of a multi-bulk reply */
+    addReplyArrayLen(c,rangelen);
+    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
+        listTypeIterator *iter = listTypeInitIterator(o,
+                                                      (direction == LIST_TAIL)
+                                                      ? start
+                                                      : end,
+                                                      direction);
+
+        while(rangelen--) {
+            listTypeEntry entry;
+            listTypeNext(iter, &entry);
+            quicklistEntry *qe = &entry.entry;
+            if (qe->value) {
+                addReplyBulkCBuffer(c,qe->value,qe->sz);
+            } else {
+                addReplyBulkLongLong(c,qe->longval);
+            }
+        }
+        listTypeReleaseIterator(iter);
+    } else {
+        serverPanic("Unknown list encoding");
+    }
+}
+
+/* A housekeeping helper for list elements popping tasks. */
 void listElementsRemoved(client *c, robj *key, int where, robj *o, long count) {
     char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
 
@@ -405,8 +451,12 @@ void popGenericCommand(client *c, int where) {
     long count = 0;
     robj *value;
 
-    /* Parse the optional count argument. */
-    if (c->argc == 3) {
+    if (c->argc > 3) {
+        addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
+                            c->cmd->name);
+        return;
+    } else if (c->argc == 3) {
+        /* Parse the optional count argument. */
         if (getPositiveLongFromObjectOrReply(c,c->argv[2],&count,NULL) != C_OK) 
             return;
         if (count == 0) {
@@ -421,39 +471,27 @@ void popGenericCommand(client *c, int where) {
         return;
 
     if (!count) {
-        /* Pop a single element. */
+        /* Pop a single element. This is POP's original behavior that replies
+        * with a bulk string. */
         value = listTypePop(o,where);
         serverAssert(value != NULL);
         addReplyBulk(c,value);
         decrRefCount(value);
         listElementsRemoved(c,c->argv[1],where,o,1);
     } else {
-        /* Pop a range of elements. */
+        /* Pop a range of elements. An addition to the original POP command,
+        *  which replies with a multi-bulk. */
+        int direction = (where == LIST_HEAD) ? LIST_TAIL : LIST_HEAD;
         long llen = listTypeLength(o);
         long rangelen = (count > llen) ? llen : count;
-        long delcount = rangelen;
-        long rangestart = (where == LIST_HEAD) ? 0 : llen - 1;
-        long delstart = (where == LIST_HEAD) ? 0 : llen - delcount;
-        int direction = (where == LIST_HEAD) ? LIST_TAIL : LIST_HEAD;
-
-        addReplyArrayLen(c,rangelen);
+        long rangestart = (direction == LIST_TAIL) ? 0 : -rangelen;
+        long rangeend = (direction == LIST_TAIL)
+                        ? rangelen - 1
+                        : -1;
         if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-            listTypeIterator *iter = listTypeInitIterator(o,rangestart,direction);
-
-            while(rangelen--) {
-                listTypeEntry entry;
-                listTypeNext(iter, &entry);
-                quicklistEntry *qe = &entry.entry;
-                if (qe->value) {
-                    addReplyBulkCBuffer(c,qe->value,qe->sz);
-                } else {
-                    addReplyBulkLongLong(c,qe->longval);
-                }
-            }
-            listTypeReleaseIterator(iter);
-
-            quicklistDelRange(o->ptr,delstart,delcount);
-            listElementsRemoved(c,c->argv[1],where,o,delcount);
+            addListRangeReply(c,o,rangestart,rangeend,direction);
+            quicklistDelRange(o->ptr,rangestart,rangelen);
+            listElementsRemoved(c,c->argv[1],where,o,rangelen);
         } else {
             serverPanic("Unknown list encoding");
         }
@@ -472,48 +510,15 @@ void rpopCommand(client *c) {
 
 void lrangeCommand(client *c) {
     robj *o;
-    long start, end, llen, rangelen;
+    long start, end;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != C_OK) ||
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != C_OK)) return;
 
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyarray)) == NULL
          || checkType(c,o,OBJ_LIST)) return;
-    llen = listTypeLength(o);
 
-    /* convert negative indexes */
-    if (start < 0) start = llen+start;
-    if (end < 0) end = llen+end;
-    if (start < 0) start = 0;
-
-    /* Invariant: start >= 0, so this test will be true when end < 0.
-     * The range is empty when start > end or start >= length. */
-    if (start > end || start >= llen) {
-        addReply(c,shared.emptyarray);
-        return;
-    }
-    if (end >= llen) end = llen-1;
-    rangelen = (end-start)+1;
-
-    /* Return the result in form of a multi-bulk reply */
-    addReplyArrayLen(c,rangelen);
-    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-        listTypeIterator *iter = listTypeInitIterator(o, start, LIST_TAIL);
-
-        while(rangelen--) {
-            listTypeEntry entry;
-            listTypeNext(iter, &entry);
-            quicklistEntry *qe = &entry.entry;
-            if (qe->value) {
-                addReplyBulkCBuffer(c,qe->value,qe->sz);
-            } else {
-                addReplyBulkLongLong(c,qe->longval);
-            }
-        }
-        listTypeReleaseIterator(iter);
-    } else {
-        serverPanic("Unknown list encoding");
-    }
+    addListRangeReply(c,o,start,end,LIST_TAIL);
 }
 
 void ltrimCommand(client *c) {

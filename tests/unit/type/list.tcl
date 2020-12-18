@@ -958,6 +958,12 @@ start_server {
         assert_equal {} [r lrange nosuchkey 0 1]
     }
 
+    test {LRANGE with start > end yields an empty array for backward compatibility} {
+        create_list mylist "1 2 3"
+        assert_equal {} [r lrange mylist 1 0]
+        assert_equal {} [r lrange mylist -1 -2]
+    }
+
     foreach {type large} [array get largevalue] {
         proc trim_list {type min max} {
             upvar 1 large large
