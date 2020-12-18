@@ -4218,7 +4218,7 @@ sds clusterGenNodeDescription(clusterNode *node) {
  * in the slots_info struct on the node. This is used to improve the efficiency
  * of clusterGenNodesDescription() because it removes looping of the slot space
  * for generating the slot info for each node individually. */
-void genNodesSlotsInfo(int filter) {
+void clusterGenNodesSlotsInfo(int filter) {
     clusterNode *n = NULL;
     int start = -1;
 
@@ -4242,6 +4242,7 @@ void genNodesSlotsInfo(int filter) {
                     n->slots_info = sdscatfmt(n->slots_info," %i-%i",start,i-1);
                 }
             }
+            if (i == CLUSTER_SLOTS) break;
             n = server.cluster->slots[i];
             start = i;
         }
@@ -4266,7 +4267,7 @@ sds clusterGenNodesDescription(int filter) {
     dictEntry *de;
 
     /* Generate all nodes slots info firstly. */
-    genNodesSlotsInfo(filter);
+    clusterGenNodesSlotsInfo(filter);
 
     di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
