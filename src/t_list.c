@@ -216,6 +216,7 @@ robj *listTypeDup(robj *o) {
  * List Commands
  *----------------------------------------------------------------------------*/
 
+/* Implements LPUSH/RPUSH. */
 void pushGenericCommand(client *c, int where) {
     int j, pushed = 0;
     robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
@@ -244,14 +245,17 @@ void pushGenericCommand(client *c, int where) {
     server.dirty += pushed;
 }
 
+/* LPUSH <key> <element> [<element> ...] */
 void lpushCommand(client *c) {
     pushGenericCommand(c,LIST_HEAD);
 }
 
+/* RPUSH <key> <element> [<element> ...] */
 void rpushCommand(client *c) {
     pushGenericCommand(c,LIST_TAIL);
 }
 
+/* Implements LPUSHX/RPUSHX. */
 void pushxGenericCommand(client *c, int where) {
     int j, pushed = 0;
     robj *subject;
@@ -274,14 +278,17 @@ void pushxGenericCommand(client *c, int where) {
     server.dirty += pushed;
 }
 
+/* LPUSHX <key> <element> [<element> ...] */
 void lpushxCommand(client *c) {
     pushxGenericCommand(c,LIST_HEAD);
 }
 
+/* RPUSH <key> <element> [<element> ...] */
 void rpushxCommand(client *c) {
     pushxGenericCommand(c,LIST_TAIL);
 }
 
+/* LINSERT <key> (BEFORE|AFTER) <pivot> <element> */
 void linsertCommand(client *c) {
     int where;
     robj *subject;
@@ -326,12 +333,14 @@ void linsertCommand(client *c) {
     addReplyLongLong(c,listTypeLength(subject));
 }
 
+/* LLEN <key> */
 void llenCommand(client *c) {
     robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.czero);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
     addReplyLongLong(c,listTypeLength(o));
 }
 
+/* LINDEX <key> <index> */
 void lindexCommand(client *c) {
     robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
@@ -359,6 +368,7 @@ void lindexCommand(client *c) {
     }
 }
 
+/* LSET <key> <index> <element> */
 void lsetCommand(client *c) {
     robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
@@ -385,10 +395,12 @@ void lsetCommand(client *c) {
     }
 }
 
-/* A helper for replying with a list's range as a multi-bulk. Note that start
- * needs to be less than end, otherwise an empty array is returned. The
- * direction argument affects howelements are iterated. */
-void addListRangeReply(client *c, robj *o, long start, long end, int direction) {
+/* A helper for replying with a list's range between the inclusive start and end
+ * indexes as multi-bulk, with support for negative indexes. Note that start
+ * must be less than end or an empty array is returned. When the reverse
+ * argument is set to a non-zero value, the reply is reversed so that elements
+ * are returned from end to start. */
+void addListRangeReply(client *c, robj *o, long start, long end, int reverse) {
     long rangelen, llen = listTypeLength(o);
 
     /* Convert negative indexes. */
@@ -408,7 +420,8 @@ void addListRangeReply(client *c, robj *o, long start, long end, int direction) 
     /* Return the result in form of a multi-bulk reply */
     addReplyArrayLen(c,rangelen);
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-        int from = (direction == LIST_TAIL) ? start : end;
+        int from = reverse ? end : start;
+        int direction = reverse ? LIST_HEAD : LIST_TAIL;
         listTypeIterator *iter = listTypeInitIterator(o,from,direction);
 
         while(rangelen--) {
@@ -482,9 +495,9 @@ void popGenericCommand(client *c, int where) {
         long rangelen = (count > llen) ? llen : count;
         long rangestart = (where == LIST_HEAD) ? 0 : -rangelen;
         long rangeend = (where == LIST_HEAD) ? rangelen - 1 : -1;
-        int direction = (where == LIST_HEAD) ? LIST_TAIL : LIST_HEAD;
+        int reverse = (where == LIST_HEAD) ? 0 : 1;
 
-        addListRangeReply(c,o,rangestart,rangeend,direction);
+        addListRangeReply(c,o,rangestart,rangeend,reverse);
         quicklistDelRange(o->ptr,rangestart,rangelen);
         listElementsRemoved(c,c->argv[1],where,o,rangelen);
     }
@@ -500,6 +513,7 @@ void rpopCommand(client *c) {
     popGenericCommand(c,LIST_TAIL);
 }
 
+/* LRANGE <key> <start> <stop> */
 void lrangeCommand(client *c) {
     robj *o;
     long start, end;
@@ -510,9 +524,10 @@ void lrangeCommand(client *c) {
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyarray)) == NULL
          || checkType(c,o,OBJ_LIST)) return;
 
-    addListRangeReply(c,o,start,end,LIST_TAIL);
+    addListRangeReply(c,o,start,end,0);
 }
 
+/* LTRIM <key> <start> <stop> */
 void ltrimCommand(client *c) {
     robj *o;
     long start, end, llen, ltrim, rtrim;
@@ -676,6 +691,7 @@ void lposCommand(client *c) {
     }
 }
 
+/* LREM <key> <count> <element> */
 void lremCommand(client *c) {
     robj *subject, *obj;
     obj = c->argv[3];
@@ -808,6 +824,7 @@ void lmoveGenericCommand(client *c, int wherefrom, int whereto) {
     }
 }
 
+/* LMOVE <source> <destination> (LEFT|RIGHT) (LEFT|RIGHT) */
 void lmoveCommand(client *c) {
     int wherefrom, whereto;
     if (getListPositionFromObjectOrReply(c,c->argv[3],&wherefrom)
@@ -964,10 +981,12 @@ void blockingPopGenericCommand(client *c, int where) {
     blockForKeys(c,BLOCKED_LIST,c->argv + 1,c->argc - 2,timeout,NULL,&pos,NULL);
 }
 
+/* BLPOP <key> [<key> ...] <timeout> */
 void blpopCommand(client *c) {
     blockingPopGenericCommand(c,LIST_HEAD);
 }
 
+/* BLPOP <key> [<key> ...] <timeout> */
 void brpopCommand(client *c) {
     blockingPopGenericCommand(c,LIST_TAIL);
 }
@@ -994,6 +1013,7 @@ void blmoveGenericCommand(client *c, int wherefrom, int whereto, mstime_t timeou
     }
 }
 
+/* BLMOVE <source> <destination> (LEFT|RIGHT) (LEFT|RIGHT) <timeout> */
 void blmoveCommand(client *c) {
     mstime_t timeout;
     int wherefrom, whereto;
@@ -1006,6 +1026,7 @@ void blmoveCommand(client *c) {
     blmoveGenericCommand(c,wherefrom,whereto,timeout);
 }
 
+/* BRPOPLPUSH <source> <destination> <timeout> */
 void brpoplpushCommand(client *c) {
     mstime_t timeout;
     if (getTimeoutFromObjectOrReply(c,c->argv[3],&timeout,UNIT_SECONDS)
