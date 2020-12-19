@@ -163,6 +163,10 @@ struct redisServer server; /* Server global state */
  *              delay its execution as long as the kernel scheduler is giving
  *              us time. Note that commands that may trigger a DEL as a side
  *              effect (like SET) are not fast commands.
+ * 
+ * can-replicate:  Command may produce replication traffic, and should be avoided
+ *              during client pause. This flag is automatically applied to all
+ *              write commands as well.
  *
  * The following additional flags are only used in order to put commands
  * in a specific ACL category. Commands can have multiple ACL categories.
@@ -884,11 +888,11 @@ struct redisCommand redisCommandTable[] = {
     /* EVAL can modify the dataset, however it is not flagged as a write
      * command since we do the check while running commands from Lua. */
     {"eval",evalCommand,-3,
-     "no-script @scripting",
+     "no-script can-replicate @scripting",
      0,evalGetKeys,0,0,0,0,0,0},
 
     {"evalsha",evalShaCommand,-3,
-     "no-script @scripting",
+     "no-script can-replicate @scripting",
      0,evalGetKeys,0,0,0,0,0,0},
 
     {"slowlog",slowlogCommand,-2,
@@ -977,7 +981,7 @@ struct redisCommand redisCommandTable[] = {
      * we claim that the representation, even if accessible, is an internal
      * affair, and the command is semantically read only. */
     {"pfcount",pfcountCommand,-2,
-     "read-only @hyperloglog",
+     "read-only can-replicate @hyperloglog",
      0,NULL,1,-1,1,0,0,0},
 
     {"pfmerge",pfmergeCommand,-2,
@@ -3281,6 +3285,8 @@ int populateCommandTableParseFlags(struct redisCommand *c, char *strflags) {
             c->flags |= CMD_FAST | CMD_CATEGORY_FAST;
         } else if (!strcasecmp(flag,"no-auth")) {
             c->flags |= CMD_NO_AUTH;
+        } else if (!strcasecmp(flag,"can-replicate")) {
+            c->flags |= CMD_CAN_REPLICATE;
         } else {
             /* Parse ACL categories here if the flag name starts with @. */
             uint64_t catflag;
@@ -3815,6 +3821,8 @@ int processCommand(client *c) {
                                (c->cmd->proc == execCommand && (c->mstate.cmd_inv_flags & CMD_STALE));
     int is_denyloading_command = !(c->cmd->flags & CMD_LOADING) ||
                                  (c->cmd->proc == execCommand && (c->mstate.cmd_inv_flags & CMD_LOADING));
+    int is_can_replicate_command = (c->cmd->flags & CMD_CAN_REPLICATE) ||
+                                   (c->cmd->flags & CMD_WRITE) || (c->cmd->proc == execCommand);
 
     /* Check if the user is authenticated. This check is skipped in case
      * the default user is flagged as "nopass" and is active. */
@@ -4017,7 +4025,7 @@ int processCommand(client *c) {
      * the pause has ended. Replicas are never paused. */
     if (!(c->flags & CLIENT_SLAVE) && 
         ((server.client_pause_flags & CLIENT_PAUSE_ALL) ||
-        (server.client_pause_flags & CLIENT_PAUSE_RO && is_write_command)))
+        (server.client_pause_flags & CLIENT_PAUSE_RO && is_can_replicate_command)))
     {
         c->bpop.timeout = 0;
         blockClient(c,BLOCKED_PAUSE);

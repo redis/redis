@@ -91,6 +91,7 @@ void blockClient(client *c, int btype) {
     addClientToTimeoutTable(c);
     if (btype == BLOCKED_PAUSE) {
         listAddNodeTail(server.paused_clients, c);
+        c->paused_list_node = listLast(server.paused_clients);
     }
 }
 
@@ -166,6 +167,7 @@ void unblockClient(client *c) {
     } else if (c->btype == BLOCKED_PAUSE) {
         /* Mark this client to execute its command */
         c->flags |= CLIENT_PENDING_COMMAND;
+        listDelNode(server.paused_clients,c->paused_list_node);
     } else {
         serverPanic("Unknown btype in unblockClient().");
     }

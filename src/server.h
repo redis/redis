@@ -181,33 +181,34 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_ASKING (1ULL<<13)          /* "cluster-asking" flag */
 #define CMD_FAST (1ULL<<14)            /* "fast" flag */
 #define CMD_NO_AUTH (1ULL<<15)         /* "no-auth" flag */
+#define CMD_CAN_REPLICATE (1ULL<<16)   /* "can-replicate" flag */
 
 /* Command flags used by the module system. */
-#define CMD_MODULE_GETKEYS (1ULL<<16)  /* Use the modules getkeys interface. */
-#define CMD_MODULE_NO_CLUSTER (1ULL<<17) /* Deny on Redis Cluster. */
+#define CMD_MODULE_GETKEYS (1ULL<<17)  /* Use the modules getkeys interface. */
+#define CMD_MODULE_NO_CLUSTER (1ULL<<18) /* Deny on Redis Cluster. */
 
 /* Command flags that describe ACLs categories. */
-#define CMD_CATEGORY_KEYSPACE (1ULL<<18)
-#define CMD_CATEGORY_READ (1ULL<<19)
-#define CMD_CATEGORY_WRITE (1ULL<<20)
-#define CMD_CATEGORY_SET (1ULL<<21)
-#define CMD_CATEGORY_SORTEDSET (1ULL<<22)
-#define CMD_CATEGORY_LIST (1ULL<<23)
-#define CMD_CATEGORY_HASH (1ULL<<24)
-#define CMD_CATEGORY_STRING (1ULL<<25)
-#define CMD_CATEGORY_BITMAP (1ULL<<26)
-#define CMD_CATEGORY_HYPERLOGLOG (1ULL<<27)
-#define CMD_CATEGORY_GEO (1ULL<<28)
-#define CMD_CATEGORY_STREAM (1ULL<<29)
-#define CMD_CATEGORY_PUBSUB (1ULL<<30)
-#define CMD_CATEGORY_ADMIN (1ULL<<31)
-#define CMD_CATEGORY_FAST (1ULL<<32)
-#define CMD_CATEGORY_SLOW (1ULL<<33)
-#define CMD_CATEGORY_BLOCKING (1ULL<<34)
-#define CMD_CATEGORY_DANGEROUS (1ULL<<35)
-#define CMD_CATEGORY_CONNECTION (1ULL<<36)
-#define CMD_CATEGORY_TRANSACTION (1ULL<<37)
-#define CMD_CATEGORY_SCRIPTING (1ULL<<38)
+#define CMD_CATEGORY_KEYSPACE (1ULL<<19)
+#define CMD_CATEGORY_READ (1ULL<<20)
+#define CMD_CATEGORY_WRITE (1ULL<<21)
+#define CMD_CATEGORY_SET (1ULL<<22)
+#define CMD_CATEGORY_SORTEDSET (1ULL<<23)
+#define CMD_CATEGORY_LIST (1ULL<<24)
+#define CMD_CATEGORY_HASH (1ULL<<25)
+#define CMD_CATEGORY_STRING (1ULL<<26)
+#define CMD_CATEGORY_BITMAP (1ULL<<27)
+#define CMD_CATEGORY_HYPERLOGLOG (1ULL<<28)
+#define CMD_CATEGORY_GEO (1ULL<<29)
+#define CMD_CATEGORY_STREAM (1ULL<<30)
+#define CMD_CATEGORY_PUBSUB (1ULL<<31)
+#define CMD_CATEGORY_ADMIN (1ULL<<32)
+#define CMD_CATEGORY_FAST (1ULL<<33)
+#define CMD_CATEGORY_SLOW (1ULL<<34)
+#define CMD_CATEGORY_BLOCKING (1ULL<<35)
+#define CMD_CATEGORY_DANGEROUS (1ULL<<36)
+#define CMD_CATEGORY_CONNECTION (1ULL<<37)
+#define CMD_CATEGORY_TRANSACTION (1ULL<<38)
+#define CMD_CATEGORY_SCRIPTING (1ULL<<39)
 
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */
@@ -899,6 +900,7 @@ typedef struct client {
     sds peerid;             /* Cached peer ID. */
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */
+    listNode *paused_list_node; /* list node within the pause list */
     RedisModuleUserChangedFunc auth_callback; /* Module callback to execute
                                                * when the authenticated user
                                                * changes. */
