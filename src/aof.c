@@ -1425,6 +1425,8 @@ int rewriteAppendOnlyFileRio(rio *aof) {
     dictEntry *de;
     size_t processed = 0;
     int j;
+    long key_count = 0;
+    long long cow_updated_time = 0;
 
     for (j = 0; j < server.dbnum; j++) {
         char selectcmd[] = "*2\r\n$6\r\nSELECT\r\n";
@@ -1484,6 +1486,19 @@ int rewriteAppendOnlyFileRio(rio *aof) {
                 processed = aof->processed_bytes;
                 aofReadDiffFromParent();
             }
+
+            /* Update COW info every 1 second (approximately).
+             * in order to avoid calling mstime() on each iteration, we will
+             * check the diff every 1024 keys */
+            if ((key_count & 1023) == 0) {
+                key_count = 0;
+                long long now = mstime();
+                if (now - cow_updated_time >= 1000) {
+                    sendChildCOWInfo(CHILD_TYPE_AOF, 0, "AOF rewrite");
+                    cow_updated_time = now;
+                }
+            }
+            key_count++;
         }
         dictReleaseIterator(di);
         di = NULL;
@@ -1577,8 +1592,31 @@ int rewriteAppendOnlyFile(char *filename) {
     serverLog(LL_NOTICE,
         "Concatenating %.2f MB of AOF diff received from parent.",
         (double) sdslen(server.aof_child_diff) / (1024*1024));
-    if (rioWrite(&aof,server.aof_child_diff,sdslen(server.aof_child_diff)) == 0)
-        goto werr;
+
+    /* Now we write the entire AOF buffer we received from the parent
+     * via the pipe during the life of this fork child.
+     * once a second, we'll take a break and send updated COW info to the parent */
+    size_t bytes_to_write = sdslen(server.aof_child_diff);
+    const char *buf = server.aof_child_diff;
+    long long cow_updated_time = mstime();
+
+    while (bytes_to_write) {
+        /* We write the AOF buffer in chunk of 8MB so that we can check the time in between them */
+        size_t chunk_size = bytes_to_write < (8<<20) ? bytes_to_write : (8<<20);
+
+        if (rioWrite(&aof,buf,chunk_size) == 0)
+            goto werr;
+
+        bytes_to_write -= chunk_size;
+        buf += chunk_size;
+
+        /* Update COW info */
+        long long now = mstime();
+        if (now - cow_updated_time >= 1000) {
+            sendChildCOWInfo(CHILD_TYPE_AOF, 0, "AOF rewrite");
+            cow_updated_time = now;
+        }
+    }
 
     /* Make sure data will not remain on the OS's output buffers */
     if (fflush(fp)) goto werr;
@@ -1709,7 +1747,7 @@ int rewriteAppendOnlyFileBackground(void) {
         redisSetCpuAffinity(server.aof_rewrite_cpulist);
         snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
         if (rewriteAppendOnlyFile(tmpfile) == C_OK) {
-            sendChildCOWInfo(CHILD_TYPE_AOF, "AOF rewrite");
+            sendChildCOWInfo(CHILD_TYPE_AOF, 1, "AOF rewrite");
             exitFromChild(0);
         } else {
             exitFromChild(1);

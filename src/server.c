@@ -1578,6 +1578,7 @@ int hasActiveChildProcess() {
 void resetChildState() {
     server.child_type = CHILD_TYPE_NONE;
     server.child_pid = -1;
+    server.stat_current_cow_bytes = 0;
     updateDictResizePolicy();
     closeChildInfoPipe();
 }
@@ -2098,6 +2099,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Check if a background saving or AOF rewrite in progress terminated. */
     if (hasActiveChildProcess() || ldbPendingChildren())
     {
+        run_with_period(1000) receiveChildInfo();
         checkChildrenDone();
     } else {
         /* If there is not a background saving/rewrite in progress check if
@@ -3119,7 +3121,7 @@ void initServer(void) {
     server.rdb_bgsave_scheduled = 0;
     server.child_info_pipe[0] = -1;
     server.child_info_pipe[1] = -1;
-    server.child_info_data.magic = 0;
+    server.child_info_nread = 0;
     aofRewriteBufferReset();
     server.aof_buf = sdsempty();
     server.lastsave = time(NULL); /* At startup we consider the DB saved. */
@@ -3131,6 +3133,7 @@ void initServer(void) {
     /* A few stats we don't want to reset: server startup time, and peak mem. */
     server.stat_starttime = time(NULL);
     server.stat_peak_memory = 0;
+    server.stat_current_cow_bytes = 0;
     server.stat_rdb_cow_bytes = 0;
     server.stat_aof_cow_bytes = 0;
     server.stat_module_cow_bytes = 0;
@@ -4617,6 +4620,7 @@ sds genRedisInfoString(const char *section) {
         info = sdscatprintf(info,
             "# Persistence\r\n"
             "loading:%d\r\n"
+            "current_cow_size:%zu\r\n"
             "rdb_changes_since_last_save:%lld\r\n"
             "rdb_bgsave_in_progress:%d\r\n"
             "rdb_last_save_time:%jd\r\n"
@@ -4635,6 +4639,7 @@ sds genRedisInfoString(const char *section) {
             "module_fork_in_progress:%d\r\n"
             "module_fork_last_cow_size:%zu\r\n",
             server.loading,
+            server.stat_current_cow_bytes,
             server.dirty,
             server.child_type == CHILD_TYPE_RDB,
             (intmax_t)server.lastsave,
@@ -5342,12 +5347,13 @@ int redisFork(int purpose) {
          * other child types should handle and store their pid's in dedicated variables.
          *
          * Today, we allows CHILD_TYPE_LDB to run in parallel with the other fork types:
-         * - it isn't used for production, so it will not make the server to be less efficient
+         * - it isn't used for production, so it will not make the server be less efficient
          * - used for debugging, and we don't want to block it from running while other
          *   forks are running (like RDB and AOF) */
         if (isMutuallyExclusiveChildType(purpose)) {
             server.child_pid = childpid;
             server.child_type = purpose;
+            server.stat_current_cow_bytes = 0;
         }
 
         updateDictResizePolicy();
@@ -5355,17 +5361,16 @@ int redisFork(int purpose) {
     return childpid;
 }
 
-void sendChildCOWInfo(int ptype, char *pname) {
+void sendChildCOWInfo(int ptype, int on_exit, char *pname) {
     size_t private_dirty = zmalloc_get_private_dirty(-1);
 
     if (private_dirty) {
-        serverLog(LL_NOTICE,
+        serverLog(on_exit ? LL_NOTICE : LL_VERBOSE,
             "%s: %zu MB of memory used by copy-on-write",
-            pname, private_dirty/(1024*1024));
+            pname, private_dirty);
     }
 
-    server.child_info_data.cow_size = private_dirty;
-    sendChildInfo(ptype);
+    sendChildInfo(ptype, on_exit, private_dirty);
 }
 
 void memtest(size_t megabytes, int passes);

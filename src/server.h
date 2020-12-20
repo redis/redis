@@ -1098,7 +1098,6 @@ struct clusterState;
 #undef hz
 #endif
 
-#define CHILD_INFO_MAGIC 0xC17DDA7A12345678LL
 #define CHILD_TYPE_NONE 0
 #define CHILD_TYPE_RDB 1
 #define CHILD_TYPE_AOF 2
@@ -1228,6 +1227,7 @@ struct redisServer {
     struct malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
     redisAtomic long long stat_net_input_bytes; /* Bytes read from network. */
     redisAtomic long long stat_net_output_bytes; /* Bytes written to network. */
+    size_t stat_current_cow_bytes;  /* Copy on write bytes while child is active. */
     size_t stat_rdb_cow_bytes;      /* Copy on write bytes during RDB saving. */
     size_t stat_aof_cow_bytes;      /* Copy on write bytes during AOF rewrite. */
     size_t stat_module_cow_bytes;   /* Copy on write bytes during module fork. */
@@ -1342,11 +1342,7 @@ struct redisServer {
                                      * value means fractions of microsecons (on average). */
     /* Pipe and data structures for child -> parent info sharing. */
     int child_info_pipe[2];         /* Pipe used to write the child_info_data. */
-    struct {
-        int process_type;           /* AOF or RDB child? */
-        size_t cow_size;            /* Copy on write size. */
-        unsigned long long magic;   /* Magic value to make sure data is valid. */
-    } child_info_data;
+    int child_info_nread;           /* Num of bytes of the last read from pipe */
     /* Propagation of commands in AOF / replication */
     redisOpArray also_propagate;    /* Additional command to propagate. */
     /* Logging */
@@ -2000,15 +1996,16 @@ void restartAOFAfterSYNC();
 /* Child info */
 void openChildInfoPipe(void);
 void closeChildInfoPipe(void);
-void sendChildInfo(int process_type);
+void sendChildInfo(int process_type, int on_exit, size_t cow_size);
 void receiveChildInfo(void);
+void receiveLastChildInfo(void);
 
 /* Fork helpers */
 int redisFork(int type);
 int hasActiveChildProcess();
 void resetChildState();
 int isMutuallyExclusiveChildType(int type);
-void sendChildCOWInfo(int ptype, char *pname);
+void sendChildCOWInfo(int ptype, int on_exit, char *pname);
 
 /* acl.c -- Authentication related prototypes. */
 extern rax *Users;
