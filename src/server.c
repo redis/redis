@@ -164,9 +164,9 @@ struct redisServer server; /* Server global state */
  *              us time. Note that commands that may trigger a DEL as a side
  *              effect (like SET) are not fast commands.
  * 
- * can-replicate:  Command may produce replication traffic, and should be avoided
- *              during client pause. This flag is automatically applied to all
- *              write commands as well.
+ * can-replicate: Command may produce replication traffic but has it's own
+ *                explicit checks to make sure it's not called on a replcia.
+ *                This is only used for client pause to allow non-write commands.
  *
  * The following additional flags are only used in order to put commands
  * in a specific ACL category. Commands can have multiple ACL categories.
@@ -4025,7 +4025,7 @@ int processCommand(client *c) {
      * the pause has ended. Replicas are never paused. */
     if (!(c->flags & CLIENT_SLAVE) && 
         ((server.client_pause_flags & CLIENT_PAUSE_ALL) ||
-        (server.client_pause_flags & CLIENT_PAUSE_RO && is_can_replicate_command)))
+        (server.client_pause_flags & CLIENT_PAUSE_WRITE && is_can_replicate_command)))
     {
         c->bpop.timeout = 0;
         blockClient(c,BLOCKED_PAUSE);

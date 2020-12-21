@@ -2434,8 +2434,10 @@ void clientCommand(client *c) {
 "    Return information about client connections. Options:",
 "    * TYPE (NORMAL|MASTER|REPLICA|PUBSUB)",
 "      Return clients of specified type.",
-"PAUSE <timeout>",
-"    Suspend all clients for <timout> milliseconds.",
+"UNPAUSE",
+"    Stop the current client pause, resuming traffic."
+"PAUSE <timeout> [WRITE]",
+"    Suspend all, or just write, clients for <timout> milliseconds.",
 "REPLY (ON|OFF|SKIP)",
 "    Control the replies sent to the current connection.",
 "SETNAME <name>",
@@ -2658,15 +2660,15 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"pause") && (c->argc == 3 ||
                                                         c->argc == 4))
     {
-        /* CLIENT PAUSE TIMEOUT [READONLY] */
+        /* CLIENT PAUSE TIMEOUT [WRITE] */
         long long duration;
         int type = CLIENT_PAUSE_ALL;
         if (c->argc == 4) {
-            if (!strcasecmp(c->argv[3]->ptr,"readonly")) {
-                type = CLIENT_PAUSE_RO;
+            if (!strcasecmp(c->argv[3]->ptr,"write")) {
+                type = CLIENT_PAUSE_WRITE;
             } else {
                 addReplyError(c,
-                    "CLIENT PAUSE option must be READONLY");         
+                    "CLIENT PAUSE option must be WRITE");         
             }
         }
 
@@ -3242,8 +3244,8 @@ void flushSlavesOutputBuffers(void) {
 void pauseClients(mstime_t end, int type) {
     mstime_t *current_end;
 
-    if (type == CLIENT_PAUSE_RO) {
-        current_end = &server.client_pause_ro_end_time;
+    if (type == CLIENT_PAUSE_WRITE) {
+        current_end = &server.client_pause_write_end_time;
     } else if (type == CLIENT_PAUSE_ALL) {
         current_end = &server.client_pause_end_time;
     } else {
@@ -3260,7 +3262,6 @@ void pauseClients(mstime_t end, int type) {
 /* Unpause clients if either the time has elapsed or clients
  * need to be forced to be unpaused. */
 void unpauseClients(int force) {
-    UNUSED(force);
     listNode *ln;
     listIter li;
     client *c;
@@ -3273,10 +3274,10 @@ void unpauseClients(int force) {
         server.client_pause_flags &= ~CLIENT_PAUSE_ALL;
     }
 
-    if (force || (server.client_pause_flags & CLIENT_PAUSE_RO
-        && server.client_pause_ro_end_time < server.mstime))
+    if (force || (server.client_pause_flags & CLIENT_PAUSE_WRITE
+        && server.client_pause_write_end_time < server.mstime))
     {
-        server.client_pause_flags &= ~CLIENT_PAUSE_RO;
+        server.client_pause_flags &= ~CLIENT_PAUSE_WRITE;
     }
 
     /* Nothing was unblocked */

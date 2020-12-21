@@ -440,7 +440,7 @@ typedef enum {
 
 /* Client pause types */
 #define CLIENT_PAUSE_OFF 0
-#define CLIENT_PAUSE_RO (1<<0)
+#define CLIENT_PAUSE_WRITE (1<<0)
 #define CLIENT_PAUSE_ALL (1<<1)
 
 /* RDB active child save type. */
@@ -1182,7 +1182,7 @@ struct redisServer {
     int client_pause_flags;     /* True if clients are currently paused */
     list *paused_clients;       /* List of pause clients */
     mstime_t client_pause_end_time;    /* Time when we undo clients_paused */
-    mstime_t client_pause_ro_end_time; /* Time when we undo RO clients_paused */
+    mstime_t client_pause_write_end_time; /* Time when we undo RO clients_paused */
     char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */
     dict *migrate_cached_sockets;/* MIGRATE cached sockets */
     redisAtomic uint64_t next_client_id; /* Next client unique ID. Incremental. */
