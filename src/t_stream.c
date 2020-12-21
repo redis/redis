@@ -2680,7 +2680,7 @@ cleanup:
 void xautoclaimCommand(client *c) {
     streamCG *group = NULL;
     robj *o = lookupKeyRead(c->db,c->argv[1]);
-    long long minidle; /* Minimum idle time argument. */
+    long long minidle; /* Minimum idle time argument, in milliseconds. */
     long long count; /* Maximum entries to claim. */
     streamID startid;
     int startex;
