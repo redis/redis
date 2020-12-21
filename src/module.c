@@ -1629,7 +1629,7 @@ void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx) {
         ctx->saved_oparray = server.also_propagate;
         redisOpArrayInit(&server.also_propagate);
     }
-    execCommandPropagateMulti(ctx->client);
+    execCommandPropagateMulti(ctx->client->db->id);
 }
 
 /* Replicate the specified command and arguments to slaves and AOF, as effect

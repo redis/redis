@@ -5763,7 +5763,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
              * cluster is down. */
             if (error_code) *error_code = CLUSTER_REDIR_DOWN_STATE;
             return NULL;
-        } else if (!(cmd->flags & CMD_READONLY) && !(cmd->proc == evalCommand)
+        } else if ((cmd->flags & CMD_WRITE) && !(cmd->proc == evalCommand)
                 && !(cmd->proc == evalShaCommand))
         {
             /* The cluster is configured to allow read only commands
@@ -5812,11 +5812,10 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     /* Handle the read-only client case reading from a slave: if this
      * node is a slave and the request is about a hash slot our master
      * is serving, we can reply without redirection. */
-    int is_readonly_command = (c->cmd->flags & CMD_READONLY) ||
-                              (c->cmd->proc == execCommand && !(c->mstate.cmd_inv_flags & CMD_READONLY));
+    int is_write_command = (c->cmd->flags & CMD_WRITE) ||
+                           (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_WRITE));
     if (c->flags & CLIENT_READONLY &&
-        (is_readonly_command || cmd->proc == evalCommand ||
-         cmd->proc == evalShaCommand) &&
+        (!is_write_command || cmd->proc == evalCommand || cmd->proc == evalShaCommand) &&
         nodeIsSlave(myself) &&
         myself->slaveof == n)
     {
@@ -5901,7 +5900,7 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
             /* if the client is read-only and attempting to access key that our
              * replica can handle, allow it. */
             if ((c->flags & CLIENT_READONLY) &&
-                (c->lastcmd->flags & CMD_READONLY) &&
+                !(c->lastcmd->flags & CMD_WRITE) &&
                 nodeIsSlave(myself) && myself->slaveof == node)
             {
                 node = myself;
