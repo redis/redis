@@ -53,12 +53,14 @@ proc kill_server config {
                         catch {exec leaks $pid} output option
                         # In a few tests we kill the server process, so leaks will not find it.
                         # It'll exits with exit code >1 on error, so we ignore these.
-                        set details [dict get $option -errorcode]
-                        if {[lindex $details 0] eq "CHILDSTATUS"} {
-                              set status [lindex $details 2]
-                              if {$status > 1} {
-                                  set output "0 leaks"
-                              }
+                        if {[dict exists $option -errorcode]} {
+                            set details [dict get $option -errorcode]
+                            if {[lindex $details 0] eq "CHILDSTATUS"} {
+                                  set status [lindex $details 2]
+                                  if {$status > 1} {
+                                      set output "0 leaks"
+                                  }
+                            }
                         }
                         set output
                     } {*0 leaks*}
