@@ -153,7 +153,7 @@ void setCommand(client *c) {
             expire = next;
             j++;
         } else {
-            addReply(c,shared.syntaxerr);
+            addReplyErrorObject(c,shared.syntaxerr);
             return;
         }
     }
@@ -528,7 +528,7 @@ void stralgoCommand(client *c) {
     if (!strcasecmp(c->argv[1]->ptr,"lcs")) {
         stralgoLCS(c);
     } else {
-        addReply(c,shared.syntaxerr);
+        addReplyErrorObject(c,shared.syntaxerr);
     }
 }
 
@@ -589,7 +589,7 @@ void stralgoLCS(client *c) {
             b = objb->ptr;
             j += 2;
         } else {
-            addReply(c,shared.syntaxerr);
+            addReplyErrorObject(c,shared.syntaxerr);
             goto cleanup;
         }
     }

@@ -294,7 +294,7 @@ void linsertCommand(client *c) {
     } else if (strcasecmp(c->argv[2]->ptr,"before") == 0) {
         where = LIST_HEAD;
     } else {
-        addReply(c,shared.syntaxerr);
+        addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
 
@@ -373,7 +373,7 @@ void lsetCommand(client *c) {
         int replaced = quicklistReplaceAtIndex(ql, index,
                                                value->ptr, sdslen(value->ptr));
         if (!replaced) {
-            addReply(c,shared.outofrangeerr);
+            addReplyErrorObject(c,shared.outofrangeerr);
         } else {
             addReply(c,shared.ok);
             signalModifiedKey(c,c->db,c->argv[1]);
@@ -566,7 +566,7 @@ void lposCommand(client *c) {
                 return;
             }
         } else {
-            addReply(c,shared.syntaxerr);
+            addReplyErrorObject(c,shared.syntaxerr);
             return;
         }
     }
@@ -698,7 +698,7 @@ int getListPositionFromObjectOrReply(client *c, robj *arg, int *position) {
     } else if (strcasecmp(arg->ptr,"left") == 0) {
         *position = LIST_HEAD;
     } else {
-        addReply(c,shared.syntaxerr);
+        addReplyErrorObject(c,shared.syntaxerr);
         return C_ERR;
     }
     return C_OK;
