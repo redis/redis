@@ -59,6 +59,10 @@
 #include <sys/socket.h>
 #include <sys/resource.h>
 
+#ifdef __linux__
+#include <sys/mman.h>
+#endif
+
 /* Our shared "common" objects */
 
 struct sharedObjectsStruct shared;
@@ -5077,6 +5081,88 @@ void linuxMemoryWarnings(void) {
         serverLog(LL_WARNING,"WARNING you have Transparent Huge Pages (THP) support enabled in your kernel. This will create latency and memory usage issues with Redis. To fix this issue run the command 'echo madvise > /sys/kernel/mm/transparent_hugepage/enabled' as root, and add it to your /etc/rc.local in order to retain the setting after a reboot. Redis must be restarted after THP is disabled (set to 'madvise' or 'never').");
     }
 }
+
+static int smapsGetSharedDirty(pid_t pid, unsigned long addr) {
+    int ret, in_mapping = 0, val = -1;
+    unsigned long from, to;
+    char buf[64];
+    FILE *f;
+
+    ret = snprintf(buf, sizeof(buf), "/proc/%d/smaps", pid);
+    serverAssert((unsigned int)ret < sizeof(buf));
+
+    f = fopen(buf, "r");
+    serverAssert(f);
+
+    while (1) {
+        if (!fgets(buf, sizeof(buf), f))
+            break;
+
+        ret = sscanf(buf, "%lx-%lx", &from, &to);
+        if (ret == 2)
+            in_mapping = from <= addr && addr < to;
+
+        if (in_mapping && !memcmp(buf, "Shared_Dirty:", 13)) {
+            ret = sscanf(buf, "%*s %d", &val);
+            serverAssert(ret == 1);
+            break;
+        }
+    }
+
+    fclose(f);
+    return val;
+}
+
+void linuxMadvFreeForkBugCheck(void) {
+    int ret, pipefd[2];
+    pid_t pid;
+    char *p, buf;
+
+    p = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    serverAssert(p != MAP_FAILED);
+
+    *(volatile char*)p = 0;
+
+#ifdef MADV_FREE
+    ret = madvise(p, 4096, MADV_FREE);
+#else
+    ret = madvise(p, 4096, 8);
+#endif
+
+    serverAssert(!ret);
+
+    *(volatile char*)p = 0;
+
+    ret = pipe(pipefd);
+    serverAssert(!ret);
+
+    pid = fork();
+    serverAssert(pid >= 0);
+
+    if (!pid) {
+        ret = read(pipefd[0], &buf, 1);
+        serverAssert(ret == 1);
+
+        exit(0);
+    } else {
+        if (!smapsGetSharedDirty(pid, (unsigned long)p))
+            serverLog(LL_WARNING,"WARNING Your kernel has a bug that could lead to data corruption during background save. Please upgrade to the latest stable kernel.");
+
+        ret = write(pipefd[1], &buf, 1);
+        serverAssert(ret == 1);
+
+        serverAssert(waitpid(pid, NULL, 0) == pid);
+    }
+
+    ret = close(pipefd[0]);
+    serverAssert(!ret);
+
+    ret = close(pipefd[1]);
+    serverAssert(!ret);
+
+    ret = munmap(p, 4096);
+    serverAssert(!ret);
+}
 #endif /* __linux__ */
 
 void createPidFile(void) {
@@ -5653,6 +5739,7 @@ int main(int argc, char **argv) {
         serverLog(LL_WARNING,"Server initialized");
     #ifdef __linux__
         linuxMemoryWarnings();
+        linuxMadvFreeForkBugCheck();
     #endif
         moduleInitModulesSystemLast();
         moduleLoadFromQueue();
