@@ -975,9 +975,12 @@ struct redisCommand redisCommandTable[] = {
      "write use-memory @hyperloglog",
      0,NULL,1,-1,1,0,0,0},
 
+    /* Unlike PFCOUNT that is considered as a read-only command (although
+     * it changes a bit), PFDEBUG may change the entire key when converting
+     * from sparse to dense representation */
     {"pfdebug",pfdebugCommand,-3,
-     "admin write",
-     0,NULL,0,0,0,0,0,0},
+     "admin write use-memory @hyperloglog",
+     0,NULL,2,2,1,0,0,0},
 
     {"xadd",xaddCommand,-5,
      "write use-memory fast random @stream",
