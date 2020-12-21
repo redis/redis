@@ -729,10 +729,6 @@ void lmoveGenericCommand(client *c, int wherefrom, int whereto) {
         if (checkType(c,dobj,OBJ_LIST)) return;
         value = listTypePop(sobj,wherefrom);
         serverAssert(value); /* assertion for valgrind (avoid NPD) */
-        /* We saved touched key, and protect it, since lmoveHandlePush
-         * may change the client command argument vector (it does not
-         * currently). */
-        incrRefCount(touchedkey);
         lmoveHandlePush(c,c->argv[2],dobj,value,whereto);
 
         /* listTypePop returns an object with its refcount incremented */
@@ -749,7 +745,6 @@ void lmoveGenericCommand(client *c, int wherefrom, int whereto) {
                                 touchedkey,c->db->id);
         }
         signalModifiedKey(c,c->db,touchedkey);
-        decrRefCount(touchedkey);
         server.dirty++;
         if (c->cmd->proc == blmoveCommand) {
             rewriteClientCommandVector(c,5,shared.lmove,
