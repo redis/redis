@@ -922,3 +922,158 @@ void hscanCommand(client *c) {
         checkType(c,o,OBJ_HASH)) return;
     scanGenericCommand(c,o,cursor);
 }
+
+#define HRANDMEMBER_SUB_STRATEGY_MUL 3
+
+void hrandmemberWithCountCommand(client *c, long l) {
+    unsigned long entryCount, hashSize;
+    int uniq = 1;
+    hashTypeIterator *hi;
+    robj *hash;
+    dict *d;
+    double randomDouble;
+    double threshold;
+    unsigned long index = 0;
+
+    if ((hash = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))
+        == NULL || checkType(c,hash,OBJ_HASH)) return;
+
+    if(l >= 0) {
+        entryCount = (unsigned long) l;
+    } else {
+        entryCount = -l;
+        uniq = 0;
+    }
+
+    hashSize = hashTypeLength(hash);
+    if(entryCount > hashSize)
+        entryCount = hashSize;
+    addReplyMapLen(c, entryCount);
+    hi = hashTypeInitIterator(hash);
+
+    if(hash->encoding == OBJ_ENCODING_ZIPLIST) {
+        while (hashTypeNext(hi) != C_ERR && entryCount != 0) {
+            randomDouble = ((double)rand()) / RAND_MAX;
+            threshold = ((double)entryCount) / (hashSize - index);
+            if(randomDouble < threshold){
+                entryCount--;
+                addHashIteratorCursorToReply(c, hi, OBJ_HASH_KEY);
+                addHashIteratorCursorToReply(c, hi, OBJ_HASH_VALUE);
+            }
+        
+            index ++;
+        }
+    } else {       
+        // copy of srandmember
+        if(!uniq) {
+            while(entryCount--) {
+                sds key, value;
+                
+                dictEntry *de = dictGetRandomKey(hash->ptr);
+                key = dictGetKey(de);
+                value = dictGetVal(de);
+                addReplyBulkCBuffer(c,key,sdslen(key));
+                addReplyBulkCBuffer(c,value,sdslen(value));
+            }
+            return;
+        }
+
+        if(entryCount >= hashSize) {
+
+            while (hashTypeNext(hi) != C_ERR) {
+                addHashIteratorCursorToReply(c, hi, OBJ_HASH_KEY);
+                addHashIteratorCursorToReply(c, hi, OBJ_HASH_VALUE);
+            }
+            return;
+        }
+        
+        static dictType dt = {
+            dictSdsHash,                /* hash function */
+            NULL,                       /* key dup */
+            NULL,                       /* val dup */
+            dictSdsKeyCompare,          /* key compare */
+            NULL,                       /* key destructor */
+            NULL,                       /* val destructor */
+            NULL                        /* allow to expand */
+        };
+        d = dictCreate(&dt,NULL);
+        
+        if(entryCount * HRANDMEMBER_SUB_STRATEGY_MUL > hashSize) {
+
+            /* Add all the elements into the temporary dictionary. */
+            while((hashTypeNext(hi)) != C_ERR) {
+                int ret = DICT_ERR;
+                sds key, value;
+
+                key = hashTypeCurrentFromHashTable(hi,OBJ_HASH_KEY);
+                value = hashTypeCurrentFromHashTable(hi,OBJ_HASH_VALUE);
+                ret = dictAdd(d, key, value);
+
+                serverAssert(ret == DICT_OK);
+            }
+            serverAssert(dictSize(d) == hashSize);
+
+            /* Remove random elements to reach the right count. */
+            while(hashSize > entryCount) {
+                dictEntry *de;
+
+                de = dictGetRandomKey(d);
+                dictDelete(d,dictGetKey(de));
+                hashSize--;
+            }
+        }
+
+        else {
+            unsigned long added = 0;
+            sds sdsKey, sdsVal;
+
+            while(added < entryCount) {
+                dictEntry *de = dictGetRandomKey(hash->ptr);
+                sdsKey = dictGetKey(de);
+                sdsVal = dictGetVal(de);
+
+                /* Try to add the object to the dictionary. If it already exists
+                * free it, otherwise increment the number of objects we have
+                * in the result dictionary. */
+                if (dictAdd(d,sdsKey,sdsVal) == DICT_OK){
+                    added++;
+                }
+            }
+        }
+
+        {
+            dictIterator *di;
+            dictEntry *de;
+            di = dictGetIterator(d);
+            while((de = dictNext(di)) != NULL) {
+                sds key = dictGetKey(de);
+                sds value = dictGetVal(de);
+                addReplyBulkCBuffer(c,key,sdslen(key));
+                addReplyBulkCBuffer(c,value,sdslen(value));
+            }
+
+            dictReleaseIterator(di);
+            dictRelease(d);
+        }
+
+        
+    }
+
+
+    hashTypeReleaseIterator(hi);
+}
+
+void hrandmemberCommand(client *c) {
+    long l;
+
+    if (c->argc == 3) {
+        if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != C_OK) return;
+        hrandmemberWithCountCommand(c, l);
+        return;
+    } else if (c->argc > 3) {
+        addReply(c,shared.syntaxerr);
+        return;
+    }
+
+    hrandmemberWithCountCommand(c, 1);
+}
