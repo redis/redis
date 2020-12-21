@@ -587,6 +587,10 @@ struct redisCommand redisCommandTable[] = {
      "read-only fast @hash",
      0,NULL,1,1,1,0,0,0},
 
+    {"hrandmember",hrandmemberCommand,-2,
+     "read-only random @hash",
+     0,NULL,1,1,1,0,0,0},
+
     {"hscan",hscanCommand,-3,
      "read-only random @hash",
      0,NULL,1,1,1,0,0,0},
