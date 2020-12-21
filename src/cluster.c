@@ -650,6 +650,14 @@ static void clusterConnAcceptHandler(connection *conn) {
         return;
     }
 
+    /* Register read handler */
+    if (connSetReadHandler(conn, clusterReadHandler) != C_OK) {
+        serverLog(LL_VERBOSE,
+                "Error registering read handler on cluster connection: %s", connGetLastError(conn));
+        connClose(conn);
+        return;
+    }
+
     /* Create a link object we use to handle the connection.
      * It gets passed to the readable handler when data is available.
      * Initially the link->node pointer is set to NULL as we don't know
@@ -658,9 +666,6 @@ static void clusterConnAcceptHandler(connection *conn) {
     link = createClusterLink(NULL);
     link->conn = conn;
     connSetPrivateData(conn, link);
-
-    /* Register read handler */
-    connSetReadHandler(conn, clusterReadHandler);
 }
 
 #define MAX_CLUSTER_ACCEPTS_PER_CALL 1000

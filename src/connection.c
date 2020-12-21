@@ -112,9 +112,12 @@ static int connSocketConnect(connection *conn, const char *addr, int port, const
     conn->state = CONN_STATE_CONNECTING;
 
     conn->conn_handler = connect_handler;
-    aeCreateFileEvent(server.el, conn->fd, AE_WRITABLE,
-            conn->type->ae_handler, conn);
-
+    if (aeCreateFileEvent(server.el, conn->fd, AE_WRITABLE,
+        conn->type->ae_handler, conn) == AE_ERR)
+    {
+        conn->last_errno = errno;
+        return C_ERR;
+    }
     return C_OK;
 }
 
@@ -228,7 +231,11 @@ static int connSocketSetWriteHandler(connection *conn, ConnectionCallbackFunc fu
         aeDeleteFileEvent(server.el,conn->fd,AE_WRITABLE);
     else
         if (aeCreateFileEvent(server.el,conn->fd,AE_WRITABLE,
-                    conn->type->ae_handler,conn) == AE_ERR) return C_ERR;
+                    conn->type->ae_handler,conn) == AE_ERR)
+        {
+            conn->last_errno = errno;
+            return C_ERR;
+        } 
     return C_OK;
 }
 
@@ -243,7 +250,11 @@ static int connSocketSetReadHandler(connection *conn, ConnectionCallbackFunc fun
         aeDeleteFileEvent(server.el,conn->fd,AE_READABLE);
     else
         if (aeCreateFileEvent(server.el,conn->fd,
-                    AE_READABLE,conn->type->ae_handler,conn) == AE_ERR) return C_ERR;
+                    AE_READABLE,conn->type->ae_handler,conn) == AE_ERR)
+        {
+            conn->last_errno = errno;
+            return C_ERR;
+        }
     return C_OK;
 }
 
