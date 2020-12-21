@@ -69,7 +69,7 @@ static const size_t optimization_level[] = {4096, 8192, 16384, 32768, 65536};
         printf("%s:%s:%d:\t", __FILE__, __FUNCTION__, __LINE__);               \
         printf(__VA_ARGS__);                                                   \
         printf("\n");                                                          \
-    } while (0);
+    } while (0)
 #endif
 
 /* Bookmarks forward declarations */
