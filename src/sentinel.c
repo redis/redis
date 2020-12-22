@@ -3579,6 +3579,7 @@ void sentinelSetCommand(client *c) {
                     "Reconfiguration of scripts path is denied for "
                     "security reasons. Check the deny-scripts-reconfig "
                     "configuration directive in your Sentinel configuration");
+                if (changes) sentinelFlushConfig();
                 return;
             }
 
@@ -3599,6 +3600,7 @@ void sentinelSetCommand(client *c) {
                     "Reconfiguration of scripts path is denied for "
                     "security reasons. Check the deny-scripts-reconfig "
                     "configuration directive in your Sentinel configuration");
+                if (changes) sentinelFlushConfig();
                 return;
             }
 
