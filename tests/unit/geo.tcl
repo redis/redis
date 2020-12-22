@@ -400,4 +400,8 @@ start_server {tags {"geo"}} {
         }
         set test_result
     } {OK}
+
+    test {GEOADD update with diff longitude and latitude} {
+        r geoadd nyc -73.9454966 30.747533 "lic market"
+    } {1}
 }

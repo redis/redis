@@ -439,11 +439,12 @@ void geoaddCommand(client *c) {
     }
 
     int elements = (c->argc - 2) / 3;
-    int argc = 2+elements*2; /* ZADD key score ele ... */
+    int argc = 3+elements*2; /* ZADD key CH score ele ... */
     robj **argv = zcalloc(argc*sizeof(robj*));
     argv[0] = createRawStringObject("zadd",4);
     argv[1] = c->argv[1]; /* key */
     incrRefCount(argv[1]);
+    argv[2] = createRawStringObject("ch",2);
 
     /* Create the argument vector to call ZADD in order to add all
      * the score,value pairs to the requested zset, where score is actually
@@ -465,8 +466,8 @@ void geoaddCommand(client *c) {
         GeoHashFix52Bits bits = geohashAlign52Bits(hash);
         robj *score = createObject(OBJ_STRING, sdsfromlonglong(bits));
         robj *val = c->argv[2 + i * 3 + 2];
-        argv[2+i*2] = score;
-        argv[3+i*2] = val;
+        argv[3+i*2] = score;
+        argv[4+i*2] = val;
         incrRefCount(val);
     }
 
