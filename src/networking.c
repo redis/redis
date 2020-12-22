@@ -259,8 +259,14 @@ int prepareClientToWrite(client *c) {
     if (!c->conn) return C_ERR; /* Fake client for AOF loading. */
 
     /* Schedule the client to write the output buffers to the socket, unless
-     * it should already be setup to do so (it has already pending data). */
-    if (!clientHasPendingReplies(c)) clientInstallWriteHandler(c);
+     * it should already be setup to do so (it has already pending data).
+     *
+     * If CLIENT_PENDING_READ is set, we're in an IO thread and should
+     * not install a write handler. Instead, it will be done by
+     * handleClientsWithPendingReadsUsingThreads() upon return.
+     */
+    if (!clientHasPendingReplies(c) && !(c->flags & CLIENT_PENDING_READ))
+            clientInstallWriteHandler(c);
 
     /* Authorize the caller to queue in the output buffer of this client. */
     return C_OK;
@@ -3509,6 +3515,12 @@ int handleClientsWithPendingReadsUsingThreads(void) {
             }
         }
         processInputBuffer(c);
+
+        /* We may have pending replies if a thread readQueryFromClient() produced
+         * replies and did not install a write handler (it can't).
+         */
+        if (!(c->flags & CLIENT_PENDING_WRITE) && clientHasPendingReplies(c))
+            clientInstallWriteHandler(c);
     }
 
     /* Update processed count on server */
