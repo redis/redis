@@ -1861,8 +1861,8 @@ void touchWatchedKeysOnFlush(int dbid);
 void discardTransaction(client *c);
 void flagTransaction(client *c);
 void execCommandAbort(client *c, sds error);
-void execCommandPropagateMulti(client *c);
-void execCommandPropagateExec(client *c);
+void execCommandPropagateMulti(int dbid);
+void execCommandPropagateExec(int dbid);
 void beforePropagateMultiOrExec(int multi);
 
 /* Redis object implementation */

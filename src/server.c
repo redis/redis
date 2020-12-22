@@ -115,9 +115,9 @@ struct redisServer server; /* Server global state */
  *
  * write:       Write command (may modify the key space).
  *
- * read-only:   All the non special commands just reading from keys without
- *              changing the content, or returning other information like
- *              the TIME command. Special commands such administrative commands
+ * read-only:   Commands just reading from keys without changing the content.
+ *              Note that commands that don't read from the keyspace such as
+ *              TIME, SELECT, INFO, administrative commands, and connection
  *              or transaction related commands (multi, exec, discard, ...)
  *              are not flagged as read-only commands, since they affect the
  *              server or the connection in other ways.
@@ -685,7 +685,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"echo",echoCommand,2,
-     "read-only fast @connection",
+     "fast @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"save",saveCommand,1,
@@ -705,7 +705,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"lastsave",lastsaveCommand,1,
-     "read-only random fast ok-loading ok-stale @admin @dangerous",
+     "random fast ok-loading ok-stale @admin @dangerous",
      0,NULL,0,0,0,0,0,0},
 
     {"type",typeCommand,2,
@@ -781,7 +781,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"role",roleCommand,1,
-     "ok-loading ok-stale no-script fast read-only @dangerous",
+     "ok-loading ok-stale no-script fast @dangerous",
      0,NULL,0,0,0,0,0,0},
 
     {"debug",debugCommand,-2,
@@ -891,7 +891,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"time",timeCommand,1,
-     "read-only random fast ok-loading ok-stale",
+     "random fast ok-loading ok-stale",
      0,NULL,0,0,0,0,0,0},
 
     {"bitop",bitopCommand,-4,
@@ -3377,6 +3377,14 @@ struct redisCommand *lookupCommandOrOriginal(sds name) {
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
                int flags)
 {
+    /* Propagate a MULTI request once we encounter the first command which
+     * is a write command.
+     * This way we'll deliver the MULTI/..../EXEC block as a whole and
+     * both the AOF and the replication link will have the same consistency
+     * and atomicity guarantees. */
+    if (server.in_exec && !server.propagate_in_transaction)
+        execCommandPropagateMulti(dbid);
+
     if (server.aof_state != AOF_OFF && flags & PROPAGATE_AOF)
         feedAppendOnlyFile(cmd,dbid,argv,argc);
     if (flags & PROPAGATE_REPL)
@@ -3607,7 +3615,7 @@ void call(client *c, int flags) {
                 !(c->flags & CLIENT_MULTI) &&
                 !(flags & CMD_CALL_NOWRAP))
             {
-                execCommandPropagateMulti(c);
+                execCommandPropagateMulti(c->db->id);
                 multi_emitted = 1;
             }
 
@@ -3622,7 +3630,7 @@ void call(client *c, int flags) {
             }
 
             if (multi_emitted) {
-                execCommandPropagateExec(c);
+                execCommandPropagateExec(c->db->id);
             }
         }
         redisOpArrayFree(&server.also_propagate);
