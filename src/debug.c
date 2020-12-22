@@ -1808,7 +1808,7 @@ void bugReportEnd(int killViaSignal, int sig) {
 );
 
     /* free(messages); Don't call free() with possibly corrupted memory. */
-    if (server.daemonize && server.supervised == 0) unlink(server.pidfile);
+    if (server.daemonize && server.supervised == 0 && server.pidfile) unlink(server.pidfile);
 
     if (!killViaSignal) {
         if (server.use_exit_on_panic)
