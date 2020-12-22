@@ -25,6 +25,12 @@ if (LIBEVENT)
     TARGET_LINK_LIBRARIES(example-libevent hiredis event)
 ENDIF()
 
+FIND_PATH(LIBHV hv/hv.h)
+IF (LIBHV)
+    ADD_EXECUTABLE(example-libhv example-libhv.c)
+    TARGET_LINK_LIBRARIES(example-libhv hiredis hv)
+ENDIF()
+
 FIND_PATH(LIBUV uv.h)
 IF (LIBUV)
     ADD_EXECUTABLE(example-libuv example-libuv.c)
