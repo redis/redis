@@ -5200,6 +5200,10 @@ void closeClildUnusedResourceAfterFork() {
     closeListeningSockets(0);
     if (server.cluster_enabled && server.cluster_config_file_lock_fd != -1)
         close(server.cluster_config_file_lock_fd);  /* don't care if this fails */
+
+    /* Clear server.pidfile, this is the parent pidfile which should not
+     * be touched (or deleted) by the child (on exit / crash) */
+    server.pidfile = NULL;
 }
 
 /* purpose is one of CHILD_TYPE_ types */
@@ -5212,11 +5216,6 @@ int redisFork(int purpose) {
         setOOMScoreAdj(CONFIG_OOM_BGCHILD);
         setupChildSignalHandlers();
         closeClildUnusedResourceAfterFork();
-
-        /* reset the pidfile, this is the parent pidfile which should not
-         * be touched by the child
-         */
-        server.pidfile = NULL;
     } else {
         /* Parent */
         server.stat_total_forks++;
