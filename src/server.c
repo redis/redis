@@ -5212,6 +5212,11 @@ int redisFork(int purpose) {
         setOOMScoreAdj(CONFIG_OOM_BGCHILD);
         setupChildSignalHandlers();
         closeClildUnusedResourceAfterFork();
+
+        /* reset the pidfile, this is the parent pidfile which should not
+         * be touched by the child
+         */
+        server.pidfile = NULL;
     } else {
         /* Parent */
         server.stat_total_forks++;
