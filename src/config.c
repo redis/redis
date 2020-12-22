@@ -915,7 +915,7 @@ badfmt: /* Bad format errors */
         addReplyBulkCString(c,_var ? _var : ""); \
         matches++; \
     } \
-} while(0);
+} while(0)
 
 #define config_get_bool_field(_name,_var) do { \
     if (stringmatch(pattern,_name,1)) { \
@@ -923,7 +923,7 @@ badfmt: /* Bad format errors */
         addReplyBulkCString(c,_var ? "yes" : "no"); \
         matches++; \
     } \
-} while(0);
+} while(0)
 
 #define config_get_numerical_field(_name,_var) do { \
     if (stringmatch(pattern,_name,1)) { \
@@ -932,8 +932,7 @@ badfmt: /* Bad format errors */
         addReplyBulkCString(c,buf); \
         matches++; \
     } \
-} while(0);
-
+} while(0)
 
 void configGetCommand(client *c) {
     robj *o = c->argv[2];
