@@ -3800,7 +3800,7 @@ int processCommand(client *c) {
      * condition, to avoid mixing the propagation of scripts with the
      * propagation of DELs due to eviction. */
     if (server.maxmemory && !server.lua_timedout) {
-        int out_of_memory = (performEvictions() == EVICT_FAIL);
+        int out_of_memory = (evictionInProgress() || performEvictions() == EVICT_FAIL);
         /* performEvictions may flush slave output buffers. This may result
          * in a slave, that may be the active client, to be freed. */
         if (server.current_client == NULL) return C_ERR;

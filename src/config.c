@@ -2265,7 +2265,10 @@ static int updateMaxmemory(long long val, long long prev, char **err) {
         if ((unsigned long long)val < used) {
             serverLog(LL_WARNING,"WARNING: the new maxmemory value set via CONFIG SET (%llu) is smaller than the current memory usage (%zu). This will result in key eviction and/or the inability to accept new write commands depending on the maxmemory-policy.", server.maxmemory, used);
         }
-        performEvictions();
+
+        if (!evictionInProgress()) {
+            performEvictions();
+        }
     }
     return 1;
 }

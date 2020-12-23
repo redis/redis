@@ -2356,6 +2356,7 @@ unsigned long LFUDecrAndReturn(robj *o);
 #define EVICT_OK 0
 #define EVICT_RUNNING 1
 #define EVICT_FAIL 2
+int evictionInProgress();
 int performEvictions(void);
 
 

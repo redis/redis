@@ -485,6 +485,11 @@ static unsigned long evictionTimeLimitUs() {
     return ULONG_MAX;   /* No limit to eviction time */
 }
 
+/* Return true if an eviction is currently already in progress. */
+int evictionInProgress() {
+    return isEvictionProcRunning;
+}
+
 /* Check that memory usage is within the current "maxmemory" limit.  If over
  * "maxmemory", attempt to free memory by evicting data (if it's safe to do so).
  *
