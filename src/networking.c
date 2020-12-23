@@ -405,6 +405,32 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
 
 /* Do some actions after an error reply was sent (Log if needed, updates stats, etc.) */
 void afterErrorReply(client *c, const char *s, size_t len) {
+    /* Update per command error stats.
+     * If the command was rejected no need to flag it
+     * as a failed count also. */
+    if (c->cmd) {
+        if (c->cmd->flags & CMD_ERR_REJECTED) {
+            c->cmd->rejected_calls++;
+        } else {
+            c->cmd->failed_calls++;
+        }
+    }
+    /* Increment the error stats
+     * If the string already starts with "-..." then the error prefix
+     * is provided by the caller ( we limit the search to 32 chars). Otherwise we use "-ERR". */
+    if (s[0] != '-') {
+        incrementError("ERR", 3);
+    } else {
+        char* spaceloc = memchr(s, ' ', len < 32 ? len : 32);
+        if (spaceloc) {
+            const size_t errEndPos = (size_t)(spaceloc - s);
+            incrementError(s+1, errEndPos-1);
+        /* Fallback to ERR if we can retrieve the error prefix */
+        } else {
+            incrementError("ERR", 3);
+        }
+    }
+
     /* Sometimes it could be normal that a slave replies to a master with
      * an error and this function gets called. Actually the error will never
      * be sent because addReply*() against master clients has no effect...

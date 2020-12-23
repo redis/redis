@@ -2982,6 +2982,7 @@ void initServer(void) {
     server.in_fork_child = CHILD_TYPE_NONE;
     server.main_thread_id = pthread_self();
     server.current_client = NULL;
+    server.errors = raxNew();
     server.fixed_time_expire = 0;
     server.clients = listCreate();
     server.clients_index = raxNew();
@@ -3288,9 +3289,16 @@ void resetCommandTableStats(void) {
         c = (struct redisCommand *) dictGetVal(de);
         c->microseconds = 0;
         c->calls = 0;
+        c->rejected_calls = 0;
+        c->failed_calls = 0;
     }
     dictReleaseIterator(di);
 
+}
+
+void resetErrorTableStats(void) {
+    raxFree(server.errors);
+    server.errors = raxNew();
 }
 
 /* ========================== Redis OP Array API ============================ */
@@ -3667,16 +3675,22 @@ void call(client *c, int flags) {
  * Note: 'reply' is expected to end with \r\n */
 void rejectCommand(client *c, robj *reply) {
     flagTransaction(c);
+    if (c->cmd)
+        c->cmd->flags |= CMD_ERR_REJECTED;
     if (c->cmd && c->cmd->proc == execCommand) {
         execCommandAbort(c, reply->ptr);
     } else {
         /* using addReplyError* rather than addReply so that the error can be logged. */
         addReplyErrorObject(c, reply);
     }
+    if (c->cmd)
+        c->cmd->flags &= ~CMD_ERR_REJECTED;
 }
 
 void rejectCommandFormat(client *c, const char *fmt, ...) {
     flagTransaction(c);
+    if (c->cmd) 
+        c->cmd->flags |= CMD_ERR_REJECTED;
     va_list ap;
     va_start(ap,fmt);
     sds s = sdscatvprintf(sdsempty(),fmt,ap);
@@ -3690,6 +3704,8 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
         addReplyErrorSds(c, s);
     }
     sdsfree(s);
+    if (c->cmd) 
+        c->cmd->flags &= ~CMD_ERR_REJECTED;
 }
 
 /* Returns 1 for commands that may have key names in their arguments, but have
@@ -3959,6 +3975,18 @@ int processCommand(client *c) {
             handleClientsBlockedOnKeys();
     }
     return C_OK;
+}
+
+/* ====================== Error lookup and execution ===================== */
+
+void incrementError(const char* fullerr, size_t namelen) {
+    struct redisError *error = raxFind(server.errors,(unsigned char*)fullerr,namelen);
+    if (error == raxNotFound) {
+        error = zmalloc(sizeof(*error));
+        error->count = 0;
+        raxInsert(server.errors,(unsigned char*)fullerr,namelen,error,NULL);
+    }
+    if (error) error->count++;
 }
 
 /*================================== Shutdown =============================== */
@@ -4904,13 +4932,33 @@ sds genRedisInfoString(const char *section) {
         di = dictGetSafeIterator(server.commands);
         while((de = dictNext(di)) != NULL) {
             c = (struct redisCommand *) dictGetVal(de);
-            if (!c->calls) continue;
+            if (!c->calls && !c->failed_calls &&!c->rejected_calls) 
+                continue;
             info = sdscatprintf(info,
-                "cmdstat_%s:calls=%lld,usec=%lld,usec_per_call=%.2f\r\n",
+                "cmdstat_%s:calls=%lld,usec=%lld,usec_per_call=%.2f"
+                ",rejected_calls=%lld,failed_calls=%lld\r\n",
                 c->name, c->calls, c->microseconds,
-                (c->calls == 0) ? 0 : ((float)c->microseconds/c->calls));
+                (c->calls == 0) ? 0 : ((float)c->microseconds/c->calls),
+                c->rejected_calls, c->failed_calls);
         }
         dictReleaseIterator(di);
+    }
+    /* Error statistics */
+    if (allsections || defsections || !strcasecmp(section,"errorstats")) {
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscat(info, "# Errorstats\r\n");
+        raxIterator ri;
+        raxStart(&ri,server.errors);
+        raxSeek(&ri,"^",NULL,0);
+        struct redisError *e;
+        while(raxNext(&ri)) {
+            e = (struct redisError *) ri.data;
+            if (!e->count) continue;
+            info = sdscatprintf(info,
+                "errorstat_%.*s:count=%lld\r\n",
+                (int)ri.key_len, ri.key, e->count);
+        }
+        raxStop(&ri);
     }
 
     /* Cluster */
