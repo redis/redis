@@ -33,6 +33,16 @@ start_server {tags {"info"}} {
             assert_match {} [errorstat NOGROUP]
         }
 
+        test {errorstats: rejected call unknown command} {
+            r config resetstat
+            assert_match {} [errorstat ERR]
+            catch {r asdf} e
+            assert_match {ERR unknown*} $e
+            assert_match {*count=1*} [errorstat ERR]
+            r config resetstat
+            assert_match {} [errorstat ERR]
+        }
+
         test {errorstats: rejected call due to wrong arity} {
             r config resetstat
             assert_match {} [errorstat ERR]
