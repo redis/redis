@@ -3295,7 +3295,9 @@ void unpauseClients(int force) {
 /* Return non-zero if clients are currently paused. As a side effect the
  * function checks if the pause time was reached and clear it. */
 int clientsArePaused(void) {
-    unpauseClients(0);
+    if (server.client_pause_flags != CLIENT_PAUSE_OFF) {
+        unpauseClients(0);
+    }
     return server.client_pause_flags;
 }
 

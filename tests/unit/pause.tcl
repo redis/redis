@@ -36,16 +36,54 @@ start_server {tags {"pause"}} {
         } else {
             fail "Clients are not blocked"
         }
+
+        # Test that publish, which adds the message to the replication
+        # stream is blocked.
+        set rd2 [redis_deferring_client]
+        $rd2 publish foo bar
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {2}
+        } else {
+            fail "Clients are not blocked"
+        }
+
+        # Test that SCRIPT LOAD, which is replicated. 
+        set rd3 [redis_deferring_client]
+        $rd3 script load "return 1"
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {3}
+        } else {
+            fail "Clients are not blocked"
+        }
+
         r client unpause 
         assert_match "1" [$rd read]
+        assert_match "0" [$rd2 read]
+        assert_match "*" [$rd3 read]
     }
 
-    test "Test mutli-execs are blocked by pause RO" {
+    test "Test read/admin mutli-execs are not blocked by pause RO" {
+        r SET FOO BAR
         r client PAUSE 100000000 WRITE
         set rd [redis_deferring_client]
         $rd MULTI
         assert_equal [$rd read] "OK"
         $rd PING
+        assert_equal [$rd read] "QUEUED"
+        $rd GET FOO
+        assert_equal [$rd read] "QUEUED"
+        $rd EXEC
+        assert_equal [s 0 blocked_clients] 0
+        r client unpause 
+        assert_match "PONG BAR" [$rd read]
+    }
+
+    test "Test write mutli-execs are blocked by pause RO" {
+        set rd [redis_deferring_client]
+        $rd MULTI
+        assert_equal [$rd read] "OK"
+        $rd SET FOO BAR
+        r client PAUSE 100000000 WRITE
         assert_equal [$rd read] "QUEUED"
         $rd EXEC
         wait_for_condition 50 100 {
@@ -54,7 +92,7 @@ start_server {tags {"pause"}} {
             fail "Clients are not blocked"
         }
         r client unpause 
-        assert_match "PONG" [$rd read]
+        assert_match "OK" [$rd read]
     }
 
     test "Test scripts are blocked by pause RO" {

@@ -168,6 +168,7 @@ void unblockClient(client *c) {
         /* Mark this client to execute its command */
         c->flags |= CLIENT_PENDING_COMMAND;
         listDelNode(server.paused_clients,c->paused_list_node);
+        c->paused_list_node = NULL;
     } else {
         serverPanic("Unknown btype in unblockClient().");
     }
