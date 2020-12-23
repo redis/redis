@@ -105,11 +105,11 @@ static int stringCheckPrefix(unsigned char *s1, size_t s1_len, unsigned char *s2
 }
 
 /* Check if any of the provided prefixes collide with one another or
- * with an existing prefix. A collision is defined as two prefixes
- * that will emit a invalidation for overlapping subsets of keys. If
- * a prefix is found, the index of the conflicting prefix is returned,
- * otherwise -1 is returned. */
-int findPrefixCollisions(client *c, robj **prefixes, size_t numprefix) {
+ * with an existing prefix for the client. A collision is defined as two 
+ * prefixes that will emit an invalidation for the same key. If no prefix 
+ * collision is found, 1 is return, otherwise 0 is returned and the client 
+ * has an error emitted describing the error. */
+int checkPrefixCollisionsOrReply(client *c, robj **prefixes, size_t numprefix) {
     for (size_t i = 0; i < numprefix; i++) {
         /* Check input list has no overlap with existing prefixes. */
         if (c->client_tracking_prefixes) {
@@ -119,8 +119,14 @@ int findPrefixCollisions(client *c, robj **prefixes, size_t numprefix) {
             while(raxNext(&ri)) {
                 if(stringCheckPrefix(ri.key,ri.key_len,
                         prefixes[i]->ptr,sdslen(prefixes[i]->ptr))) {
+                    sds collision = sdsnewlen(ri.key,ri.key_len);
+                    addReplyErrorFormat(c,
+                        "Prefix '%s' overlaps with an existing prefix '%s'. "
+                        "Prefixes for a single client must not overlap.",
+                        prefixes[i]->ptr,(unsigned char *)collision);
+                    sdsfree(collision);
                     raxStop(&ri);
-                    return i;
+                    return 0;
                 }
             }
             raxStop(&ri);
@@ -129,6 +135,10 @@ int findPrefixCollisions(client *c, robj **prefixes, size_t numprefix) {
         for (size_t j = i + 1; j < numprefix; j++) {
             if (stringCheckPrefix(prefixes[i]->ptr,sdslen(prefixes[i]->ptr),
                     prefixes[j]->ptr,sdslen(prefixes[j]->ptr))) {
+                addReplyErrorFormat(c,
+                    "Prefix '%s' overlaps with another provided prefix '%s'. "
+                    "Prefixes for a single client must not overlap.",
+                    prefixes[i]->ptr,prefixes[j]->ptr);
                 return i;
             }
         }

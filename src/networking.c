@@ -2701,12 +2701,7 @@ NULL
             }
 
             if (options & CLIENT_TRACKING_BCAST) {
-                int collision_idx = findPrefixCollisions(c,prefix,numprefix);
-                if (collision_idx != -1) {
-                    addReplyErrorFormat(c,
-                    "Prefix '%s' overlaps with one of the existing prefixes "
-                    "associated with this client or one of the other "
-                    "provided prefixes.", (char *)prefix[collision_idx]->ptr);
+                if (!checkPrefixCollisionsOrReply(c,prefix,numprefix)) {
                     zfree(prefix);
                     return;
                 }

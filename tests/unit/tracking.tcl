@@ -311,17 +311,17 @@ start_server {tags {"tracking"}} {
     test {BCAST with prefix collisions throw errors} {
         set r [redis_client] 
         catch {$r CLIENT TRACKING ON BCAST PREFIX FOOBAR PREFIX FOO} output
-        assert_match {ERR Prefix 'FOOBAR'*} $output
+        assert_match {ERR Prefix 'FOOBAR'*'FOO'*} $output
 
-        catch {$r CLIENT TRACKING ON BCAST PREFIX FOOBAR PREFIX FOO} output
-        assert_match {ERR Prefix 'FOOBAR'*} $output
+        catch {$r CLIENT TRACKING ON BCAST PREFIX FOO PREFIX FOOBAR} output
+        assert_match {ERR Prefix 'FOO'*'FOOBAR'*} $output
 
         $r CLIENT TRACKING ON BCAST PREFIX FOO PREFIX BAR
         catch {$r CLIENT TRACKING ON BCAST PREFIX FO} output
-        assert_match {ERR Prefix 'FO'*} $output
+        assert_match {ERR Prefix 'FO'*'FOO'*} $output
 
         catch {$r CLIENT TRACKING ON BCAST PREFIX BARB} output
-        assert_match {ERR Prefix 'BARB'*} $output
+        assert_match {ERR Prefix 'BARB'*'BAR'*} $output
 
         $r CLIENT TRACKING OFF
     }
