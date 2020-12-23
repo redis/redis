@@ -625,17 +625,17 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
  * 2) The 'approx' option is true and the head node had not enough elements
  *    to be deleted, leaving the stream with a number of elements >= maxlen.
  */
-int64_t streamTrimByLength(stream *s, size_t maxlen, int approx, int64_t maxnodes) {
+int64_t streamTrimByLength(stream *s, size_t maxlen, int approx, int64_t limit) {
     if (s->length <= maxlen) return 0;
 
     raxIterator ri;
     raxStart(&ri,s->rax);
     raxSeek(&ri,"^",NULL,0);
 
-    int64_t deleted = 0, deleted_nodes = 0;
+    int64_t deleted = 0;
     while(s->length > maxlen && raxNext(&ri)) {
         /* Check if we exceeded the amount of work we could do */
-        if (maxnodes && deleted_nodes >= maxnodes) break;
+        if (limit && deleted >= limit) break;
 
         unsigned char *lp = ri.data, *p = lpFirst(lp);
         int64_t entries = lpGetInteger(p);
@@ -648,7 +648,6 @@ int64_t streamTrimByLength(stream *s, size_t maxlen, int approx, int64_t maxnode
             raxSeek(&ri,">=",ri.key,ri.key_len);
             s->length -= entries;
             deleted += entries;
-            deleted_nodes++;
             continue;
         }
 
@@ -736,23 +735,23 @@ int64_t streamTrimByLength(stream *s, size_t maxlen, int approx, int64_t maxnode
  * 2) The 'approx' option is true and the head node had not enough elements
  *    to be deleted.
  *
- * 'maxnodes is the maximum number of rax nodes to delete The purpose is to
+ * 'limit' is the maximum number of entries to delete. The purpose is to
  * prevent this function from taking to long.
- * If 'maxnodes' is 0 then we do not limit the number of deleted nodes.
- * Much like the 'approx', if 'maxnodes' is smaller than the number of nodes
- * the should be deleted, there is a chance we will still have entries with
+ * If 'limit' is 0 then we do not limit the number of deleted entries.
+ * Much like the 'approx', if 'limit' is smaller than the number of entries
+ * that should be trimmed, there is a chance we will still have entries with
  * IDs < 'id'.
  */
-int64_t streamTrimByID(stream *s, streamID *id, int approx, int64_t maxnodes)
+int64_t streamTrimByID(stream *s, streamID *id, int approx, int64_t limit)
 {
-    int64_t deleted = 0, deleted_nodes = 0;
+    int64_t deleted = 0;
 
     raxIterator ri;
     raxStart(&ri, s->rax);
     raxSeek(&ri, "^", NULL, 0);
     while (raxNext(&ri)) {
         /* Check if we exceeded the amount of work we could do */
-        if (maxnodes && deleted_nodes >= maxnodes) break;
+        if (limit && deleted >= limit) break;
 
         unsigned char *lp = ri.data, *p = lpFirst(lp);
         int64_t entries = lpGetInteger(p);
@@ -772,7 +771,6 @@ int64_t streamTrimByID(stream *s, streamID *id, int approx, int64_t maxnodes)
             raxSeek(&ri, ">=", ri.key, ri.key_len);
             s->length -= entries;
             deleted += entries;
-            deleted_nodes++;
             continue;
         }
 
@@ -884,8 +882,8 @@ typedef struct {
     int trim_strategy; /* TRIM_STRATEGY_* */
     int approx; /* If 1 only delete whole radix tree nodes, so
                  * the trim argument is not applied verbatim. */
-    long long maxnodes; /* Maximum amount of node to trim. If 0 no limitation
-                         * on the amount of trimming work is enforced. */
+    long long limit; /* Maximum amount of entries to trim. If 0, no limitation
+                      * on the amount of trimming work is enforced. */
     /* TRIM_STRATEGY_MAXLEN options */
     long long maxlen; /* After trimming, leave stream at this length . */
     int maxlen_arg_idx; /* Index of the count in MAXLEN, for rewriting. */
@@ -898,19 +896,18 @@ typedef struct {
  *
  * See streamAddTrimArgs for more details about the arguments handled.
  *
- * Note about maxnodes: If it was not provided by the caller we set
- * it to 100, and that's to prevent the trimming from taking too long,
+ * Note about 'limit': If it was not provided by the caller we set
+ * it to 1000, and that's to prevent the trimming from taking too long,
  * on the expense of not deleting entries that should be trimmed.
  *
  * For example, a user wants to trim all entries that are older than 10s
  * If accuracy is more important than performance, the arguments should be:
- *      MAXAGE = 10000 MAXNODES = 0
+ *      MAXAGE 10000 LIMIT 0
  * If performance is more important than accuracy (for example, 10.5s old
  * entries may stay) the arguments should be:
  *      MAXAGE ~ 10000
  *
- * This functions returns the position of the first 'field' argument
- * (relevant only to XADD).
+ * This function returns the position of the ID argument (relevant only to XADD).
  * On error -1 is returned and a reply is sent. */
 static int streamParseAddOrTrimArguments(client *c, streamAddTrimArgs *args, int xadd) {
     /* Initialize arguments to defaults */
@@ -919,7 +916,7 @@ static int streamParseAddOrTrimArguments(client *c, streamAddTrimArgs *args, int
     /* Parse options. */
     int i = 2; /* This is the first argument position where we could
                   find an option, or the ID. */
-    int maxnodes_given = 0;
+    int limit_given = 0;
     for (; i < c->argc; i++) {
         int moreargs = (c->argc-1) - i; /* Number of additional arguments. */
         char *opt = c->argv[i]->ptr;
@@ -977,15 +974,15 @@ static int streamParseAddOrTrimArguments(client *c, streamAddTrimArgs *args, int
             i++;
             args->trim_strategy = TRIM_STRATEGY_MINID;
             args->minid_arg_idx = i;
-        } else if (!strcasecmp(opt,"maxnodes") && moreargs) {
-            if (getLongLongFromObjectOrReply(c,c->argv[i+1],&args->maxnodes,NULL) != C_OK)
+        } else if (!strcasecmp(opt,"limit") && moreargs) {
+            if (getLongLongFromObjectOrReply(c,c->argv[i+1],&args->limit,NULL) != C_OK)
                 return -1;
 
-            if (args->maxnodes < 0) {
-                addReplyError(c,"The MAXNODES argument must be >= 0.");
+            if (args->limit < 0) {
+                addReplyError(c,"The LIMIT argument must be >= 0.");
                 return -1;
             }
-            maxnodes_given = 1;
+            limit_given = 1;
             i++;
         } else if (xadd && !strcasecmp(opt,"nomkstream")) {
             args->no_mkstream = 1;
@@ -1006,8 +1003,8 @@ static int streamParseAddOrTrimArguments(client *c, streamAddTrimArgs *args, int
         return -1;
     }
 
-    if (args->maxnodes && args->trim_strategy == TRIM_STRATEGY_NONE) {
-        addReplyError(c,"MAXNODES without trim options");
+    if (args->limit && args->trim_strategy == TRIM_STRATEGY_NONE) {
+        addReplyError(c,"LIMIT without trim options");
         return -1;
     }
 
@@ -1015,28 +1012,28 @@ static int streamParseAddOrTrimArguments(client *c, streamAddTrimArgs *args, int
         /* If command cam from master or from AOF we must not enforce maxnodes
          * (The maxlen/minid argument was re-written to make sure there's no
          * inconsistency). */
-        args->maxnodes = 0;
-    } else if (!maxnodes_given) {
+        args->limit = 0;
+    } else if (!limit_given) {
         /* In order to prevent from trimming to do too much work and cause
          * latency spikes we limit the amount of work it can do */
-        args->maxnodes = 100;
+        args->limit = 100 * server.stream_node_max_entries; /* Maximum 100 rax nodes. */
     }
 
-    return i+1;
+    return i;
 }
 
 /* Trim a stream using one of the TRIM_STRATEGY_* strategies. */
 int64_t streamTrim(client *c, stream *s, streamAddTrimArgs *args, int xadd) {
-    /* In case our trimming was limited (by maxnodes or by ~) we must
+    /* In case our trimming was limited (by LIMIT or by ~) we must
      * re-write the relevant trim argument to make sure there will be
      * not be inconsistencies in AOF loading or in the replica */
-    int rewrite_arg = args->approx || args->maxnodes;
+    int rewrite_arg = args->approx || args->limit;
     int64_t deleted = 0;
 
     if (args->trim_strategy == TRIM_STRATEGY_MAXLEN) {
         deleted = streamTrimByLength(s, args->maxlen,
                                      args->approx,
-                                     args->maxnodes);
+                                     args->limit);
         if (rewrite_arg) {
             streamRewriteMaxlen(c,s,args->maxlen_arg_idx,
                                 args->approx);
@@ -1044,7 +1041,7 @@ int64_t streamTrim(client *c, stream *s, streamAddTrimArgs *args, int xadd) {
     } else if (args->trim_strategy == TRIM_STRATEGY_MINID) {
          deleted = streamTrimByID(s, &args->minid,
                                   args->approx,
-                                  args->maxnodes);
+                                  args->limit);
         if (rewrite_arg) {
             streamRewriteMinID(c,s,args->minid_arg_idx,
                                args->approx);
@@ -1830,13 +1827,14 @@ void streamRewriteMinID(client *c, stream *s, int minid_arg_idx, int approx) {
     streamRewriteTrimArgument(c, minid_obj, minid_arg_idx, approx);
 }
 
-/* XADD key [MAXLEN [~|=] <count> | MINID [~|=] <id>| MAXAGE [~|=] <ms> [MAXNODES <maxnodes>]] [NOMKSTREAM] <ID or *> [field value] [field value] ... */
+/* XADD key [MAXLEN [~|=] <count> | MINID [~|=] <id>| MAXAGE [~|=] <ms> [LIMIT <entries>]] [NOMKSTREAM] <ID or *> [field value] [field value] ... */
 void xaddCommand(client *c) {
     /* Parse options. */
     streamAddTrimArgs parsed_args;
-    int field_pos = streamParseAddOrTrimArguments(c, &parsed_args, 1);
-    if (field_pos < 0)
+    int idpos = streamParseAddOrTrimArguments(c, &parsed_args, 1);
+    if (idpos < 0)
         return; /* streamParseAddOrTrimArguments already replied. */
+    int field_pos = idpos+1; /* The ID is always one argument before the first field */
 
     /* Check arity. */
     if ((c->argc - field_pos) < 2 || ((c->argc-field_pos) % 2) == 1) {
@@ -1888,7 +1886,6 @@ void xaddCommand(client *c) {
 
     /* Let's rewrite the ID argument with the one actually generated for
      * AOF/replication propagation. */
-    int idpos = field_pos-1;  /* The ID is always one argument before the first field */
     robj *idarg = createObjectFromStreamID(&id);
     rewriteClientCommandArgument(c,idpos,idarg);
     decrRefCount(idarg);
@@ -3128,11 +3125,12 @@ cleanup:
  *
  * Other options:
  *
- * MAXNODES <maxnodes>      -- The maximum number of rax nodes to trim.
+ * LIMIT <entries>          -- The maximum number of entries to trim.
  *                             0 means unlimited. Unless specified it is set
- *                             to a default of 100, and that's in order to keep
- *                             the trimming time sane. We prefer to avoid trimming
- *                             entries that should be trimmed over latency.
+ *                             to a default of 100*server.stream_node_max_entries,
+ *                             and that's in order to keep the trimming time sane.
+ *                             We prefer to avoid trimming entries that should be
+ *                             trimmed over latency.
  */
 void xtrimCommand(client *c) {
     robj *o;
