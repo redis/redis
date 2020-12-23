@@ -84,6 +84,10 @@ typedef long long ustime_t; /* microsecond time type. */
 #include "endianconv.h"
 #include "crc64.h"
 
+/* min/max */
+#define min(a, b) (a) < (b) ? a : b
+#define max(a, b) (a) > (b) ? a : b
+
 /* Error codes */
 #define C_OK                    0
 #define C_ERR                   -1
@@ -192,6 +196,11 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_FAST (1ULL<<14)            /* "fast" flag */
 #define CMD_NO_AUTH (1ULL<<15)         /* "no-auth" flag */
 #define CMD_MAY_REPLICATE (1ULL<<16)   /* "may-replicate" flag */
+
+/* Key argument flags. Please check the command table defined in the server.c file
+ * for more information about the meaning of every flag. */
+#define CMD_KEY_WRITE (1ULL<<0)        /* "write" flag */
+#define CMD_KEY_READ (1ULL<<1)         /* "read" flag */
 
 /* Command flags used by the module system. */
 #define CMD_MODULE_GETKEYS (1ULL<<17)  /* Use the modules getkeys interface. */
@@ -1695,27 +1704,68 @@ typedef struct {
 } getKeysResult;
 #define GETKEYS_RESULT_INIT { {0}, NULL, 0, MAX_KEYS_BUFFER }
 
+#define KSPEC_INVALID   0 /* Must be 0 */
+#define KSPEC_RANGE     1
+#define KSPEC_KEYNUM    2
+#define KSPEC_KEYWORD   3
+typedef struct {
+    /* Declarative data */
+    int type;
+    char *sflags;
+    union {
+        struct {
+            int firstkey;
+            int lastkey;
+            int keystep;
+        } range;
+        struct {
+            int keynumidx;
+            int firstkey;
+            int keystep;
+        } keynum;
+        struct {
+            const char *keyword;
+            int keycount;
+            int keystep;
+        } keyword;
+    };
+
+    /* Runtime data */
+    uint64_t flags;
+} keysSpec;
+
+/* Number of static key specs */
+#define STATIC_KEYS_SPECS_NUM 4
+
 typedef void redisCommandProc(client *c);
 typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 struct redisCommand {
+    /* Declarative data */
     char *name;
     redisCommandProc *proc;
     int arity;
     char *sflags;   /* Flags as string representation, one char per flag. */
-    uint64_t flags; /* The actual flags, obtained from the 'sflags' field. */
+    keysSpec keys_specs_static[STATIC_KEYS_SPECS_NUM];
     /* Use a function to determine keys arguments in a command line.
      * Used for Redis Cluster redirect. */
     redisGetKeysProc *getkeys_proc;
+
+    /* Runtime data */
+    uint64_t flags; /* The actual flags, obtained from the 'sflags' field. */
     /* What keys should be loaded in background when calling this command? */
-    int firstkey; /* The first argument that's a key (0 = no keys) */
-    int lastkey;  /* The last argument that's a key */
-    int keystep;  /* The step between first and last key */
     long long microseconds, calls, rejected_calls, failed_calls;
     int id;     /* Command ID. This is a progressive ID starting from 0 that
                    is assigned at runtime, and is used in order to check
                    ACLs. A connection is able to execute a given command if
                    the user associated to the connection has this command
                    bit set in the bitmap of allowed commands. */
+    keysSpec *keys_specs;
+    keysSpec legacy_range_key_spec; /* The legacy (first,last,step) key spec is
+                                     * still maintained (if applicable) so that
+                                     * we can still support the reply format of
+                                     * COMMAND INFO and COMMAND GETKEYS */
+    int keys_specs_num;
+    int keys_specs_max;
 };
 
 struct redisError {
@@ -1804,6 +1854,9 @@ extern dict *modules;
 /*-----------------------------------------------------------------------------
  * Functions prototypes
  *----------------------------------------------------------------------------*/
+
+/* Key arguments specs */
+int populateCommandLegacyRangeSpec(struct redisCommand *c);
 
 /* Modules */
 void moduleInitModulesSystem(void);
@@ -2781,7 +2834,7 @@ void serverLogHexDump(int level, char *descr, void *value, size_t len);
 int memtest_preserving_test(unsigned long *m, size_t bytes, int passes);
 void mixDigest(unsigned char *digest, void *ptr, size_t len);
 void xorDigest(unsigned char *digest, void *ptr, size_t len);
-int populateCommandTableParseFlags(struct redisCommand *c, char *strflags);
+int populateSingleCommand(struct redisCommand *c, char *strflags);
 void debugDelay(int usec);
 void killIOThreads(void);
 void killThreads(void);

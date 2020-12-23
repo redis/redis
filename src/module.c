@@ -791,6 +791,25 @@ int64_t commandFlagsFromString(char *s) {
     return flags;
 }
 
+/* Helper for RM_CreateCommand(). Turns a string representing keys spec
+ * flags into the keys spec flags used by the Redis core.
+ *
+ * It returns the set of flags, or -1 if unknown flags are found. */
+int64_t commandKeySpecsFlagsFromString(char *s) {
+    int count, j;
+    int64_t flags = 0;
+    sds *tokens = sdssplitlen(s,strlen(s)," ",1,&count);
+    for (j = 0; j < count; j++) {
+        char *t = tokens[j];
+        if (!strcasecmp(t,"write")) flags |= CMD_KEY_WRITE;
+        else if (!strcasecmp(t,"read")) flags |= CMD_KEY_READ;
+        else break;
+    }
+    sdsfreesplitres(tokens,count);
+    if (j != count) return -1; /* Some token not processed correctly. */
+    return flags;
+}
+
 /* Register a new command in the Redis server, that will be handled by
  * calling the function pointer 'cmdfunc' using the RedisModule calling
  * convention. The function returns REDISMODULE_ERR if the specified command
@@ -898,9 +917,21 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     cp->rediscmd->arity = -1;
     cp->rediscmd->flags = flags | CMD_MODULE;
     cp->rediscmd->getkeys_proc = (redisGetKeysProc*)(unsigned long)cp;
-    cp->rediscmd->firstkey = firstkey;
-    cp->rediscmd->lastkey = lastkey;
-    cp->rediscmd->keystep = keystep;
+    cp->rediscmd->keys_specs_max = STATIC_KEYS_SPECS_NUM;
+    cp->rediscmd->keys_specs = cp->rediscmd->keys_specs_static;
+    if (firstkey != 0) {
+        cp->rediscmd->keys_specs_num = 1;
+        cp->rediscmd->keys_specs[0].type = KSPEC_RANGE;
+        cp->rediscmd->keys_specs[0].range.firstkey = firstkey;
+        cp->rediscmd->keys_specs[0].range.lastkey = lastkey;
+        cp->rediscmd->keys_specs[0].range.keystep = keystep;
+
+        /* Copy the default range to legacy_range_key_spec */
+        cp->rediscmd->legacy_range_key_spec = cp->rediscmd->keys_specs[0];
+    } else {
+        cp->rediscmd->keys_specs_num = 0;
+        cp->rediscmd->legacy_range_key_spec.type = KSPEC_INVALID;
+    }
     cp->rediscmd->microseconds = 0;
     cp->rediscmd->calls = 0;
     cp->rediscmd->rejected_calls = 0;
@@ -909,6 +940,87 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     dictAdd(server.orig_commands,sdsdup(cmdname),cp->rediscmd);
     cp->rediscmd->id = ACLGetCommandID(cmdname); /* ID used for ACL. */
     return REDISMODULE_OK;
+}
+
+
+void extendKeySpecsIfNeeded(struct redisCommand *cmd) {
+    /* We extend even if keys_specs_num == keys_specs_max because
+     * this function is called prior to adding a new spec */
+    if (cmd->keys_specs_num < cmd->keys_specs_max)
+        return;
+
+    cmd->keys_specs_max++;
+
+    if (cmd->keys_specs == cmd->keys_specs_static) {
+        cmd->keys_specs = zmalloc(sizeof(keysSpec) * cmd->keys_specs_max);
+        memcpy(cmd->keys_specs, cmd->keys_specs_static, sizeof(keysSpec) * cmd->keys_specs_num);
+    } else {
+        cmd->keys_specs = zrealloc(cmd->keys_specs, sizeof(keysSpec) * cmd->keys_specs_max);
+    }
+}
+
+int moduleAddCommandKeySpec(RedisModuleCtx *ctx, const char *name, const char *specflags, keysSpec *spec) {
+    int64_t flags = specflags ? commandKeySpecsFlagsFromString((char*)specflags) : 0;
+    if (flags == -1)
+        return REDISMODULE_ERR;
+
+    struct redisCommand *cmd = lookupCommandByCString(name);
+
+    if (cmd == NULL)
+        return REDISMODULE_ERR;
+
+    if (!(cmd->flags & CMD_MODULE))
+        return REDISMODULE_ERR;
+
+    RedisModuleCommandProxy *cp = (RedisModuleCommandProxy*)(unsigned long)cmd->getkeys_proc;
+    if (cp->module != ctx->module)
+        return REDISMODULE_ERR;
+
+    extendKeySpecsIfNeeded(cmd);
+
+    cmd->keys_specs[cmd->keys_specs_num] = *spec; /* Set the spec */
+    cmd->keys_specs[cmd->keys_specs_num].flags = flags; /* Set the flags */
+    cmd->keys_specs_num++;
+
+    /* Refresh legacy range */
+    populateCommandLegacyRangeSpec(cmd);
+    return REDISMODULE_OK;
+}
+
+/* Add a "range" key arguments spec to a command.
+ * Returns REDISMODULE_OK */
+int RM_AddCommandKeySpecRange(RedisModuleCtx *ctx, const char *name, const char *specflags, int firstkey, int lastkey, int keystep) {
+    keysSpec spec;
+    spec.type = KSPEC_RANGE;
+    spec.range.firstkey = firstkey;
+    spec.range.lastkey = lastkey;
+    spec.range.keystep = keystep;
+
+    return moduleAddCommandKeySpec(ctx, name, specflags, &spec);
+}
+
+/* Add a "keyword" key arguments spec to a command.
+ * Returns REDISMODULE_OK */
+int RM_AddCommandKeySpecKeyword(RedisModuleCtx *ctx, const char *name, const char *specflags, const char *keyword, int keycount, int keystep) {
+    keysSpec spec;
+    spec.type = KSPEC_KEYWORD;
+    spec.keyword.keyword = keyword;
+    spec.keyword.keycount = keycount;
+    spec.keyword.keystep = keystep;
+
+    return moduleAddCommandKeySpec(ctx, name, specflags, &spec);
+}
+
+/* Add a "keynum" key arguments spec to a command.
+ * Returns REDISMODULE_OK */
+int RM_AddCommandKeySpecKeynum(RedisModuleCtx *ctx, const char *name, const char *specflags, int keynumidx, int firstkey, int keystep) {
+    keysSpec spec;
+    spec.type = KSPEC_KEYNUM;
+    spec.keynum.keynumidx = keynumidx;
+    spec.keynum.firstkey = firstkey;
+    spec.keynum.keystep = keystep;
+
+    return moduleAddCommandKeySpec(ctx, name, specflags, &spec);
 }
 
 /* --------------------------------------------------------------------------
@@ -8774,6 +8886,8 @@ void moduleUnregisterCommands(struct RedisModule *module) {
                 (void*)(unsigned long)cmd->getkeys_proc;
             sds cmdname = cp->rediscmd->name;
             if (cp->module == module) {
+                if (cp->rediscmd->keys_specs != cp->rediscmd->keys_specs_static)
+                    zfree(cp->rediscmd->keys_specs);
                 dictDelete(server.commands,cmdname);
                 dictDelete(server.orig_commands,cmdname);
                 sdsfree(cmdname);
@@ -9257,7 +9371,7 @@ int *RM_GetCommandKeys(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, 
     }
 
     /* Bail out if command has no keys */
-    if (cmd->getkeys_proc == NULL && cmd->firstkey == 0) {
+    if (cmd->getkeys_proc == NULL && cmd->keys_specs_num == 0) {
         errno = 0;
         return NULL;
     }
@@ -9809,4 +9923,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(DefragShouldStop);
     REGISTER_API(DefragCursorSet);
     REGISTER_API(DefragCursorGet);
+    REGISTER_API(AddCommandKeySpecRange);
+    REGISTER_API(AddCommandKeySpecKeyword);
+    REGISTER_API(AddCommandKeySpecKeynum);
 }

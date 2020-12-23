@@ -1589,23 +1589,28 @@ int *getKeysPrepareResult(getKeysResult *result, int numkeys) {
 }
 
 /* The base case is to use the keys position as given in the command table
- * (firstkey, lastkey, step). */
-int getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result) {
-    int j, i = 0, last, *keys;
+ * (firstkey, lastkey, step).
+ * This function works only on command with the legacy_range_key_spec,
+ * all other commands should be handled by getkeys_proc. */
+int getKeysUsingLegacyRangeSpec(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    int j, i = 0, last, first, step, *keys;
     UNUSED(argv);
 
-    if (cmd->firstkey == 0) {
+    if (cmd->legacy_range_key_spec.type == KSPEC_INVALID) {
         result->numkeys = 0;
         return 0;
     }
 
-    last = cmd->lastkey;
+    first = cmd->legacy_range_key_spec.range.firstkey;
+    last = cmd->legacy_range_key_spec.range.lastkey;
+    step = cmd->legacy_range_key_spec.range.keystep;
+
     if (last < 0) last = argc+last;
 
-    int count = ((last - cmd->firstkey)+1);
+    int count = ((last - first)+1);
     keys = getKeysPrepareResult(result, count);
 
-    for (j = cmd->firstkey; j <= last; j += cmd->keystep) {
+    for (j = first; j <= last; j += step) {
         if (j >= argc) {
             /* Modules commands, and standard commands with a not fixed number
              * of arguments (negative arity parameter) do not have dispatch
@@ -1643,7 +1648,7 @@ int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysR
     } else if (!(cmd->flags & CMD_MODULE) && cmd->getkeys_proc) {
         return cmd->getkeys_proc(cmd,argv,argc,result);
     } else {
-        return getKeysUsingCommandTable(cmd,argv,argc,result);
+        return getKeysUsingLegacyRangeSpec(cmd,argv,argc,result);
     }
 }
 
