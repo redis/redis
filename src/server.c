@@ -4046,6 +4046,7 @@ void closeClildUnusedResourceAfterFork() {
 
     /* Clear server.pidfile, this is the parent pidfile which should not
      * be touched (or deleted) by the child (on exit / crash) */
+    zfree(server.pidfile);
     server.pidfile = NULL;
 }
 
