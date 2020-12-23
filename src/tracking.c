@@ -117,8 +117,9 @@ int checkPrefixCollisionsOrReply(client *c, robj **prefixes, size_t numprefix) {
             raxStart(&ri,c->client_tracking_prefixes);
             raxSeek(&ri,"^",NULL,0);
             while(raxNext(&ri)) {
-                if(stringCheckPrefix(ri.key,ri.key_len,
-                        prefixes[i]->ptr,sdslen(prefixes[i]->ptr))) {
+                if (stringCheckPrefix(ri.key,ri.key_len,
+                    prefixes[i]->ptr,sdslen(prefixes[i]->ptr))) 
+                {
                     sds collision = sdsnewlen(ri.key,ri.key_len);
                     addReplyErrorFormat(c,
                         "Prefix '%s' overlaps with an existing prefix '%s'. "
@@ -134,7 +135,8 @@ int checkPrefixCollisionsOrReply(client *c, robj **prefixes, size_t numprefix) {
         /* Check input has no overlap with itself. */
         for (size_t j = i + 1; j < numprefix; j++) {
             if (stringCheckPrefix(prefixes[i]->ptr,sdslen(prefixes[i]->ptr),
-                    prefixes[j]->ptr,sdslen(prefixes[j]->ptr))) {
+                prefixes[j]->ptr,sdslen(prefixes[j]->ptr)))
+            {
                 addReplyErrorFormat(c,
                     "Prefix '%s' overlaps with another provided prefix '%s'. "
                     "Prefixes for a single client must not overlap.",
