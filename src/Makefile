@@ -115,8 +115,18 @@ else
 ifeq ($(uname_S),Darwin)
 	# Darwin
 	FINAL_LIBS+= -ldl
+	# Homebrew's OpenSSL is not linked to /usr/local to avoid
+	# conflicts with the system's LibreSSL installation so it
+	# must be referenced explicitly during build.
+ifeq ($(uname_M),arm64)
+	# Homebrew arm64 uses /opt/homebrew as HOMEBREW_PREFIX
+	OPENSSL_CFLAGS=-I/opt/homebrew/opt/openssl/include
+	OPENSSL_LDFLAGS=-L/opt/homebrew/opt/openssl/lib
+else
+	# Homebrew x86/ppc uses /usr/local as HOMEBREW_PREFIX
 	OPENSSL_CFLAGS=-I/usr/local/opt/openssl/include
 	OPENSSL_LDFLAGS=-L/usr/local/opt/openssl/lib
+endif
 else
 ifeq ($(uname_S),AIX)
         # AIX
