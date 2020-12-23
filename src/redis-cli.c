@@ -60,6 +60,7 @@
 #include "help.h"
 #include "anet.h"
 #include "ae.h"
+#include "mt19937-64.h"
 
 #define UNUSED(V) ((void) V)
 
@@ -8066,6 +8067,7 @@ static sds askPassword() {
 
 int main(int argc, char **argv) {
     int firstarg;
+    struct timeval tv;
 
     config.hostip = sdsnew("127.0.0.1");
     config.hostport = 6379;
@@ -8150,6 +8152,9 @@ int main(int argc, char **argv) {
         SSL_library_init();
     }
 #endif
+
+    gettimeofday(&tv, NULL);
+    init_genrand64(((long long) tv.tv_sec * 1000000 + tv.tv_usec) ^ getpid());
 
     /* Cluster Manager mode */
     if (CLUSTER_MANAGER_MODE()) {

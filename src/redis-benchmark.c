@@ -50,6 +50,7 @@
 #include "zmalloc.h"
 #include "atomicvar.h"
 #include "crc16_slottable.h"
+#include "mt19937-64.h"
 
 #define UNUSED(V) ((void) V)
 #define RANDPTR_INITIAL_SIZE 8
@@ -1523,7 +1524,8 @@ int main(int argc, const char **argv) {
 
     client c;
 
-    srandom(time(NULL));
+    srandom(time(NULL) ^ getpid());
+    init_genrand64(ustime() ^ getpid());
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
 
