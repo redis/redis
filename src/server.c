@@ -3445,7 +3445,7 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
     /* Clients must be paused when propagating, but you can cause diverge
      * with a multi-exec. */
     if (!clientsArePaused()) {
-        serverLog(LL_WARNING, "Commands '%s' propagated to replicas " 
+        serverLog(LL_WARNING, "Command '%s' propagated to replicas " 
             "during client pause, when the dataset should be constant. "
             "Propagating data during client pause can result in data "
             "loss when performing failovers.", cmd->name);
@@ -3497,6 +3497,7 @@ void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
  * Redis command implementation in order to to force the propagation of a
  * specific command execution into AOF / Replication. */
 void forceCommandPropagation(client *c, int flags) {
+    serverAssert(c->cmd->flags & (CMD_WRITE | CMD_CAN_REPLICATE));
     if (flags & PROPAGATE_REPL) c->flags |= CLIENT_FORCE_REPL;
     if (flags & PROPAGATE_AOF) c->flags |= CLIENT_FORCE_AOF;
 }
