@@ -124,7 +124,8 @@ int checkPrefixCollisionsOrReply(client *c, robj **prefixes, size_t numprefix) {
                     addReplyErrorFormat(c,
                         "Prefix '%s' overlaps with an existing prefix '%s'. "
                         "Prefixes for a single client must not overlap.",
-                        prefixes[i]->ptr,(unsigned char *)collision);
+                        (unsigned char *)prefixes[i]->ptr,
+                        (unsigned char *)collision);
                     sdsfree(collision);
                     raxStop(&ri);
                     return 0;
@@ -140,7 +141,8 @@ int checkPrefixCollisionsOrReply(client *c, robj **prefixes, size_t numprefix) {
                 addReplyErrorFormat(c,
                     "Prefix '%s' overlaps with another provided prefix '%s'. "
                     "Prefixes for a single client must not overlap.",
-                    prefixes[i]->ptr,prefixes[j]->ptr);
+                    (unsigned char *)prefixes[i]->ptr,
+                    (unsigned char *)prefixes[j]->ptr);
                 return i;
             }
         }
