@@ -2705,10 +2705,18 @@ NULL
         if (c->flags & CLIENT_TRACKING_OPTIN) {
             addReplyBulkCString(c,"optin");
             numflags++;
+            if (c->flags & CLIENT_TRACKING_CACHING) {
+                addReplyBulkCString(c,"caching-yes");
+                numflags++;        
+            }
         }
         if (c->flags & CLIENT_TRACKING_OPTOUT) {
             addReplyBulkCString(c,"optout");
             numflags++;
+            if (c->flags & CLIENT_TRACKING_CACHING) {
+                addReplyBulkCString(c,"caching-no");
+                numflags++;        
+            }
         }
         if (c->flags & CLIENT_TRACKING_NOLOOP) {
             addReplyBulkCString(c,"noloop");
@@ -2741,26 +2749,6 @@ NULL
             raxStop(&ri);
         } else {
             addReplyArrayLen(c,0);
-        }
-
-        /* Opt mode */
-        addReplyBulkCString(c,"opt-mode");
-        if (c->flags & CLIENT_TRACKING_OPTIN) {
-            addReplyBulkCString(c,"optin");
-        } else if (c->flags & CLIENT_TRACKING_OPTOUT) {
-            addReplyBulkCString(c,"optout");
-        } else {
-            addReplyNull(c);
-        }
-
-        /* Caching */
-        addReplyBulkCString(c,"caching");
-        if (c->flags & CLIENT_TRACKING_OPTIN) {
-            addReplyBulkCString(c,c->flags & CLIENT_TRACKING_CACHING ? "yes" : "no");
-        } else if (c->flags & CLIENT_TRACKING_OPTOUT) {
-            addReplyBulkCString(c,c->flags & CLIENT_TRACKING_CACHING ? "no" : "yes");
-        } else {
-            addReplyNull(c);
         }
     } else {
         addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try CLIENT HELP", (char*)c->argv[1]->ptr);
