@@ -2769,6 +2769,11 @@ void helloCommand(client *c) {
         return;
     }
 
+    if (!ver && next_arg < c->argc) {
+        addReplyError(c,"Authentication needs to provide an protocol version");
+        return;
+    }
+
     for (int j = next_arg; j < c->argc; j++) {
         int moreargs = (c->argc-1) - j;
         const char *opt = c->argv[j]->ptr;
