@@ -856,7 +856,7 @@ void addReplySubcommandSyntaxError(client *c) {
     sdsfree(cmd);
 }
 
-/* Append 'src' client output buffers into 'dst' client output buffers. 
+/* Append 'src' client output buffers into 'dst' client output buffers.
  * This function clears the output buffers of 'src' */
 void AddReplyFromClient(client *dst, client *src) {
     /* If the source client contains a partial response due to client output
@@ -2380,7 +2380,7 @@ void clientCommand(client *c) {
 "LIST [options ...]     -- Return information about client connections. Options:",
 "     TYPE (normal|master|replica|pubsub) -- Return clients of specified type.",
 "     ID id [id ...]                      -- Return clients of specified IDs only.",
-"PAUSE <timeout>        -- Suspend all Redis clients for <timout> milliseconds.",
+"PAUSE <timeout>        -- Suspend all Redis clients for <timeout> milliseconds.",
 "REPLY (on|off|skip)    -- Control the replies sent to the current connection.",
 "SETNAME <name>         -- Assign the name <name> to the current connection.",
 "UNBLOCK <clientid> [TIMEOUT|ERROR] -- Unblock the specified blocked client.",
