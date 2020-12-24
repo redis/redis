@@ -69,6 +69,9 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
         return -1;
     }
     state->epfd = epoll_create1(EPOLL_CLOEXEC);
+    /* epoll_create1() may fail either because it's not implemented (in an old kernel)
+	 * or it doesn't recognize/understand the EPOLL_CLOEXEC flag, in which case we ought to
+	 * fall back to the conventional epoll_create(). */
     if (state->epfd == -1) {
         state->epfd = epoll_create(1024); /* 1024 is just a hint for the kernel */
         if (state->epfd == -1) {
