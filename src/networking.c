@@ -2796,7 +2796,7 @@ void helloCommand(client *c) {
     }
 
     /* Let's switch to the specified RESP mode. */
-    if (!!ver) c->resp = ver;
+    if (ver) c->resp = ver;
     addReplyMapLen(c,6 + !server.sentinel_mode);
 
     addReplyBulkCString(c,"server");
