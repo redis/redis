@@ -438,14 +438,14 @@ int zipStorePrevEntryLengthLarge(unsigned char *p, unsigned int len) {
         memcpy(p+1,&u32,sizeof(u32));
         memrev32ifbe(p+1);
     }
-    return 5;
+    return 1 + sizeof(uint32_t);
 }
 
 /* Encode the length of the previous entry and write it to "p". Return the
  * number of bytes needed to encode this length if "p" is NULL. */
 unsigned int zipStorePrevEntryLength(unsigned char *p, unsigned int len) {
     if (p == NULL) {
-        return (len < ZIP_BIG_PREVLEN) ? 1 : 5;
+        return (len < ZIP_BIG_PREVLEN) ? 1 : sizeof(uint32_t) + 1;
     } else {
         if (len < ZIP_BIG_PREVLEN) {
             p[0] = len;
