@@ -2768,7 +2768,7 @@ void helloCommand(client *c) {
         return;
     }
 
-    for (int j = ver == 0 ? 1 : 2; j < c->argc; j++) {
+    for (int j = !ver ? 1 : 2; j < c->argc; j++) {
         int moreargs = (c->argc-1) - j;
         const char *opt = c->argv[j]->ptr;
         if (!strcasecmp(opt,"AUTH") && moreargs >= 2) {
@@ -2796,7 +2796,7 @@ void helloCommand(client *c) {
     }
 
     /* Let's switch to the specified RESP mode. */
-    if (ver != 0) c->resp = ver;
+    if (!!ver) c->resp = ver;
     addReplyMapLen(c,6 + !server.sentinel_mode);
 
     addReplyBulkCString(c,"server");
