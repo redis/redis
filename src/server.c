@@ -3516,12 +3516,25 @@ void call(client *c, int flags) {
 
     /* Call the command. */
     dirty = server.dirty;
+    const long long prev_err_count = server.stat_total_error_replies;
     updateCachedTime(0);
     start = server.ustime;
     c->cmd->proc(c);
     duration = ustime()-start;
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
+
+    /* Update failed command calls if required */
+    if ((server.stat_total_error_replies - prev_err_count)>0) {
+        real_cmd->failed_calls++;
+        /* If we're within a MULTI context or LUA or RM_Call
+         * we don't propagate the error uppwards */
+        if ( c->flags & CLIENT_MULTI ||
+             c->flags & CLIENT_LUA ||
+             c->flags & CLIENT_MODULE ) {
+            server.stat_total_error_replies=prev_err_count;
+        }
+    }
 
     /* After executing command, we will close the client after writing entire
      * reply if it is set 'CLIENT_CLOSE_AFTER_COMMAND' flag. */
@@ -3720,8 +3733,6 @@ static int cmdHasMovableKeys(struct redisCommand *cmd) {
  * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
 int processCommand(client *c) {
     moduleCallCommandFilters(c);
-
-    const long long previousErrCount = server.stat_total_error_replies;
 
     /* The QUIT command is handled separately. Normal command procs will
      * go through checking for replication and QUIT will cause trouble
@@ -3972,10 +3983,6 @@ int processCommand(client *c) {
             handleClientsBlockedOnKeys();
     }
 
-    /* Update failed command calls if required */
-    if (previousErrCount < server.stat_total_error_replies) {
-        c->cmd->failed_calls++;
-    }
     return C_OK;
 }
 

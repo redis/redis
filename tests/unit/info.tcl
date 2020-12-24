@@ -20,6 +20,46 @@ start_server {tags {"info"}} {
             assert_match {} [errorstat ERR]
         }
 
+        test {errorstats: failed call within MULTI/EXEC} {
+            r config resetstat
+            assert_match {} [errorstat ERR]
+            r multi
+            r set a b
+            r auth a
+            catch {r exec} e
+            assert_match {ERR AUTH*} $e
+            assert_match {*count=1*} [errorstat ERR]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat set]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat exec]
+            r config resetstat
+            assert_match {} [errorstat ERR]
+
+            # MULTI/EXEC command errors should still be pinpointed to him
+            catch {r exec} e
+            assert_match {ERR EXEC without MULTI} $e
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat exec]
+            assert_match {*count=1*} [errorstat ERR]
+        }
+
+        test {errorstats: failed call within LUA} {
+            r config resetstat
+            assert_match {} [errorstat ERR]
+            catch {r eval {return redis.pcall('XGROUP', 'CREATECONSUMER', 's1', 'mygroup', 'consumer')} 0} e
+            assert_match {ERR The XGROUP subcommand requires the key to exist*} $e
+            assert_match {*count=1*} [errorstat ERR]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat xgroup]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat eval]
+            r config resetstat
+            assert_match {} [errorstat ERR]
+
+            # EVAL command errors should still be pinpointed to him
+            catch {r eval a} e
+            assert_match {ERR wrong*} $e
+            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0} [cmdstat eval]
+            assert_match {*count=1*} [errorstat ERR]
+        }
+
         test {errorstats: failed call NOGROUP error} {
             r config resetstat
             assert_match {} [errorstat NOGROUP]
