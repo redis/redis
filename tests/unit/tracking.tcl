@@ -407,10 +407,6 @@ start_server {tags {"tracking"}} {
         assert_equal {-1} $redirect
         set prefixes [dict get $res prefixes]
         assert_equal {} $prefixes
-        set opt [dict get $res opt-mode]
-        assert_equal {} $opt
-        set caching [dict get $res caching]
-        assert_equal {} $caching
     }
 
     test {CLIENT TRACKINGINFO provides reasonable results when tracking on} {
@@ -422,10 +418,6 @@ start_server {tags {"tracking"}} {
         assert_equal {0} $redirect
         set prefixes [dict get $res prefixes]
         assert_equal {} $prefixes
-        set opt [dict get $res opt-mode]
-        assert_equal {} $opt
-        set caching [dict get $res caching]
-        assert_equal {} $caching
     }
 
     test {CLIENT TRACKINGINFO provides reasonable results when tracking on with options} {
@@ -437,10 +429,6 @@ start_server {tags {"tracking"}} {
         assert_equal $redir_id $redirect
         set prefixes [dict get $res prefixes]
         assert_equal {} $prefixes
-        set opt [dict get $res opt-mode]
-        assert_equal {} $opt
-        set caching [dict get $res caching]
-        assert_equal {} $caching
     }
 
     test {CLIENT TRACKINGINFO provides reasonable results when tracking optin} {
@@ -453,15 +441,11 @@ start_server {tags {"tracking"}} {
         assert_equal {0} $redirect
         set prefixes [dict get $res prefixes]
         assert_equal {} $prefixes
-        set opt [dict get $res opt-mode]
-        assert_equal {optin} $opt
-        set caching [dict get $res caching]
-        assert_equal {no} $caching
 
         r CLIENT CACHING yes
         set res [r client trackinginfo]
-        set caching [dict get $res caching]
-        assert_equal {yes} $caching
+        set flags [dict get $res flags]
+        assert_equal {on optin caching-yes} $flags
     }
 
     test {CLIENT TRACKINGINFO provides reasonable results when tracking optout} {
@@ -474,15 +458,11 @@ start_server {tags {"tracking"}} {
         assert_equal {0} $redirect
         set prefixes [dict get $res prefixes]
         assert_equal {} $prefixes
-        set opt [dict get $res opt-mode]
-        assert_equal {optout} $opt
-        set caching [dict get $res caching]
-        assert_equal {yes} $caching
 
         r CLIENT CACHING no
         set res [r client trackinginfo]
-        set caching [dict get $res caching]
-        assert_equal {no} $caching
+        set flags [dict get $res flags]
+        assert_equal {on optout caching-no} $flags
     }
 
     test {CLIENT TRACKINGINFO provides reasonable results when tracking bcast mode} {
@@ -495,10 +475,6 @@ start_server {tags {"tracking"}} {
         assert_equal {0} $redirect
         set prefixes [lsort [dict get $res prefixes]]
         assert_equal {bar foo} $prefixes
-        set opt [dict get $res opt-mode]
-        assert_equal {} $opt
-        set caching [dict get $res caching]
-        assert_equal {} $caching
     }
 
     $rd_redirection close
