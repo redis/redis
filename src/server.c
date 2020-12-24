@@ -2949,6 +2949,7 @@ void resetServerStats(void) {
     atomicSet(server.stat_net_input_bytes, 0);
     atomicSet(server.stat_net_output_bytes, 0);
     server.stat_unexpected_error_replies = 0;
+    server.stat_total_error_replies = 0;
     server.stat_dump_payload_sanitizations = 0;
     server.aof_delayed_fsync = 0;
     server.blocked_last_cron = 0;
@@ -3675,22 +3676,18 @@ void call(client *c, int flags) {
  * Note: 'reply' is expected to end with \r\n */
 void rejectCommand(client *c, robj *reply) {
     flagTransaction(c);
-    if (c->cmd)
-        c->cmd->flags |= CMD_ERR_REJECTED;
+    if (c->cmd) c->cmd->rejected_calls++;
     if (c->cmd && c->cmd->proc == execCommand) {
         execCommandAbort(c, reply->ptr);
     } else {
         /* using addReplyError* rather than addReply so that the error can be logged. */
         addReplyErrorObject(c, reply);
     }
-    if (c->cmd)
-        c->cmd->flags &= ~CMD_ERR_REJECTED;
 }
 
 void rejectCommandFormat(client *c, const char *fmt, ...) {
+    if (c->cmd) c->cmd->rejected_calls++;
     flagTransaction(c);
-    if (c->cmd) 
-        c->cmd->flags |= CMD_ERR_REJECTED;
     va_list ap;
     va_start(ap,fmt);
     sds s = sdscatvprintf(sdsempty(),fmt,ap);
@@ -3704,8 +3701,6 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
         addReplyErrorSds(c, s);
     }
     sdsfree(s);
-    if (c->cmd) 
-        c->cmd->flags &= ~CMD_ERR_REJECTED;
 }
 
 /* Returns 1 for commands that may have key names in their arguments, but have
@@ -3725,6 +3720,8 @@ static int cmdHasMovableKeys(struct redisCommand *cmd) {
  * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
 int processCommand(client *c) {
     moduleCallCommandFilters(c);
+
+    const long long previousErrCount = server.stat_total_error_replies;
 
     /* The QUIT command is handled separately. Normal command procs will
      * go through checking for replication and QUIT will cause trouble
@@ -3973,6 +3970,11 @@ int processCommand(client *c) {
         c->woff = server.master_repl_offset;
         if (listLength(server.ready_keys))
             handleClientsBlockedOnKeys();
+    }
+
+    /* Update failed command calls if required */
+    if (previousErrCount < server.stat_total_error_replies) {
+        c->cmd->failed_calls++;
     }
     return C_OK;
 }

@@ -405,16 +405,8 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
 
 /* Do some actions after an error reply was sent (Log if needed, updates stats, etc.) */
 void afterErrorReply(client *c, const char *s, size_t len) {
-    /* Update per command error stats.
-     * If the command was rejected no need to flag it
-     * as a failed count also. */
-    if (c->cmd) {
-        if (c->cmd->flags & CMD_ERR_REJECTED) {
-            c->cmd->rejected_calls++;
-        } else {
-            c->cmd->failed_calls++;
-        }
-    }
+    /* Increment the global error counter */
+    server.stat_total_error_replies++;
     /* Increment the error stats
      * If the string already starts with "-..." then the error prefix
      * is provided by the caller ( we limit the search to 32 chars). Otherwise we use "-ERR". */
@@ -425,7 +417,7 @@ void afterErrorReply(client *c, const char *s, size_t len) {
         if (spaceloc) {
             const size_t errEndPos = (size_t)(spaceloc - s);
             incrementError(s+1, errEndPos-1);
-        /* Fallback to ERR if we can retrieve the error prefix */
+        /* Fallback to ERR if we can't retrieve the error prefix */
         } else {
             incrementError("ERR", 3);
         }
