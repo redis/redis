@@ -2758,7 +2758,7 @@ NULL
     }
 }
 
-/* HELLO [protocol-version] [AUTH <user> <password>] [SETNAME <name>] */
+/* HELLO [<protocol-version> [AUTH <user> <password>] [SETNAME <name>] ] */
 void helloCommand(client *c) {
     long long ver = 0;
     int next_arg = 1;
