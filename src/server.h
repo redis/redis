@@ -1384,6 +1384,7 @@ struct redisServer {
     int repl_diskless_load;         /* Slave parse RDB directly from the socket.
                                      * see REPL_DISKLESS_LOAD_* enum */
     int repl_diskless_sync_delay;   /* Delay to start a diskless repl BGSAVE. */
+    time_t last_feed_slaves;        /* Last time of feeding slaves. */
     /* Replication (slave) */
     char *masteruser;               /* AUTH with this user and masterauth with master */
     sds masterauth;                 /* AUTH with this password with master */

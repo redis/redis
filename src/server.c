@@ -2572,6 +2572,7 @@ void initServerConfig(void) {
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
     server.master_repl_offset = 0;
+    server.last_feed_slaves = 0;
 
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;

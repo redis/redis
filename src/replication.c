@@ -225,6 +225,9 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     /* We can't have slaves attached and no backlog. */
     serverAssert(!(listLength(slaves) != 0 && server.repl_backlog == NULL));
 
+    /* Update the time of sending synchronization stream to slaves. */
+    server.last_feed_slaves = server.unixtime;
+
     /* Send SELECT command to every slave if needed. */
     if (server.slaveseldb != dictid) {
         robj *selectcmd;
@@ -3204,9 +3207,13 @@ void replicationCron(void) {
     listNode *ln;
     robj *ping_argv[1];
 
-    /* First, send PING according to ping_slave_period. */
+    /* First, send PING according to ping_slave_period. The reason why master
+     * sends PING is to update interaction time in slaves, so master needn't
+     * send PING to slaves if already sent other synchronization stream in the
+     * past repl_ping_slave_period time. */
     if ((replication_cron_loops % server.repl_ping_slave_period) == 0 &&
-        listLength(server.slaves))
+        listLength(server.slaves) && server.masterhost == NULL &&
+        server.unixtime >= server.last_feed_slaves + server.repl_ping_slave_period)
     {
         /* Note that we don't send the PING if the clients are paused during
          * a Redis Cluster manual failover: the PING we send will otherwise
