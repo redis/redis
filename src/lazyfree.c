@@ -6,6 +6,49 @@
 static redisAtomic size_t lazyfree_objects = 0;
 static redisAtomic size_t lazyfreed_objects = 0;
 
+/* Release objects from the lazyfree thread. It's just decrRefCount()
+ * updating the count of objects to release. */
+void lazyfreeFreeObject(void *args[]) {
+    robj *o = (robj *) args[0];
+    decrRefCount(o);
+    atomicDecr(lazyfree_objects,1);
+    atomicIncr(lazyfreed_objects,1);
+}
+
+/* Release a database from the lazyfree thread. The 'db' pointer is the
+ * database which was substituted with a fresh one in the main thread
+ * when the database was logically deleted. */
+void lazyfreeFreeDatabase(void *args[]) {
+    dict *ht1 = (dict *) args[0];
+    dict *ht2 = (dict *) args[1];
+
+    size_t numkeys = dictSize(ht1);
+    dictRelease(ht1);
+    dictRelease(ht2);
+    atomicDecr(lazyfree_objects,numkeys);
+    atomicIncr(lazyfreed_objects,numkeys);
+}
+
+/* Release the skiplist mapping Redis Cluster keys to slots in the
+ * lazyfree thread. */
+void lazyfreeFreeSlotsMap(void *args[]) {
+    rax *rt = args[0];
+    size_t len = rt->numele;
+    raxFree(rt);
+    atomicDecr(lazyfree_objects,len);
+    atomicIncr(lazyfreed_objects,len);
+}
+
+/* Release the rax mapping Redis Cluster keys to slots in the
+ * lazyfree thread. */
+void lazyFreeTrackingTable(void *args[]) {
+    rax *rt = args[0];
+    size_t len = rt->numele;
+    raxFree(rt);
+    atomicDecr(lazyfree_objects,len);
+    atomicIncr(lazyfreed_objects,len);
+}
+
 /* Return the number of currently pending objects to free. */
 size_t lazyfreeGetPendingObjectsCount(void) {
     size_t aux;
@@ -120,7 +163,7 @@ int dbAsyncDelete(redisDb *db, robj *key) {
          * equivalent to just calling decrRefCount(). */
         if (free_effort > LAZYFREE_THRESHOLD && val->refcount == 1) {
             atomicIncr(lazyfree_objects,1);
-            bioCreateBackgroundJob(BIO_LAZY_FREE,val,NULL,NULL);
+            bioCreateLazyFreeJob(lazyfreeFreeObject,1, val);
             dictSetVal(db->dict,de,NULL);
         }
     }
@@ -141,7 +184,7 @@ void freeObjAsync(robj *key, robj *obj) {
     size_t free_effort = lazyfreeGetFreeEffort(key,obj);
     if (free_effort > LAZYFREE_THRESHOLD && obj->refcount == 1) {
         atomicIncr(lazyfree_objects,1);
-        bioCreateBackgroundJob(BIO_LAZY_FREE,obj,NULL,NULL);
+        bioCreateLazyFreeJob(lazyfreeFreeObject,1,obj);
     } else {
         decrRefCount(obj);
     }
@@ -155,39 +198,17 @@ void emptyDbAsync(redisDb *db) {
     db->dict = dictCreate(&dbDictType,NULL);
     db->expires = dictCreate(&dbExpiresDictType,NULL);
     atomicIncr(lazyfree_objects,dictSize(oldht1));
-    bioCreateBackgroundJob(BIO_LAZY_FREE,NULL,oldht1,oldht2);
+    bioCreateLazyFreeJob(lazyfreeFreeDatabase,2,oldht1,oldht2);
 }
 
 /* Release the radix tree mapping Redis Cluster keys to slots asynchronously. */
 void freeSlotsToKeysMapAsync(rax *rt) {
     atomicIncr(lazyfree_objects,rt->numele);
-    bioCreateBackgroundJob(BIO_LAZY_FREE,NULL,NULL,rt);
+    bioCreateLazyFreeJob(lazyfreeFreeSlotsMap,1,rt);
 }
 
-/* Release objects from the lazyfree thread. It's just decrRefCount()
- * updating the count of objects to release. */
-void lazyfreeFreeObjectFromBioThread(robj *o) {
-    decrRefCount(o);
-    atomicDecr(lazyfree_objects,1);
-    atomicIncr(lazyfreed_objects,1);
-}
-
-/* Release a database from the lazyfree thread. The 'db' pointer is the
- * database which was substituted with a fresh one in the main thread
- * when the database was logically deleted. */
-void lazyfreeFreeDatabaseFromBioThread(dict *ht1, dict *ht2) {
-    size_t numkeys = dictSize(ht1);
-    dictRelease(ht1);
-    dictRelease(ht2);
-    atomicDecr(lazyfree_objects,numkeys);
-    atomicIncr(lazyfreed_objects,numkeys);
-}
-
-/* Release the radix tree mapping Redis Cluster keys to slots in the
- * lazyfree thread. */
-void lazyfreeFreeSlotsMapFromBioThread(rax *rt) {
-    size_t len = rt->numele;
-    raxFree(rt);
-    atomicDecr(lazyfree_objects,len);
-    atomicIncr(lazyfreed_objects,len);
+/* Free an object, if the object is huge enough, free it in async way. */
+void freeTrackingRadixTreeAsync(rax *tracking) {
+    atomicIncr(lazyfree_objects,tracking->numele);
+    bioCreateLazyFreeJob(lazyFreeTrackingTable,1,tracking);
 }

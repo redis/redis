@@ -433,7 +433,7 @@ long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
     /* Make sure the WATCHed keys are affected by the FLUSH* commands.
      * Note that we need to call the function while the keys are still
      * there. */
-    signalFlushedDb(dbnum);
+    signalFlushedDb(dbnum, async);
 
     /* Empty redis database structure. */
     removed = emptyDbStructure(server.db, dbnum, async, callback);
@@ -572,9 +572,9 @@ void signalModifiedKey(client *c, redisDb *db, robj *key) {
     trackingInvalidateKey(c,key);
 }
 
-void signalFlushedDb(int dbid) {
+void signalFlushedDb(int dbid, int async) {
     touchWatchedKeysOnFlush(dbid);
-    trackingInvalidateKeysOnFlush(dbid);
+    trackingInvalidateKeysOnFlush(async);
 }
 
 /*-----------------------------------------------------------------------------
