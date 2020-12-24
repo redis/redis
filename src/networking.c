@@ -2770,7 +2770,7 @@ void helloCommand(client *c) {
     }
 
     if (!ver && next_arg < c->argc) {
-        addReplyError(c,"Authentication needs to provide an protocol version");
+        addReplyError(c,"Need to provide an protocol version for other arguments");
         return;
     }
 
