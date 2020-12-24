@@ -2769,7 +2769,7 @@ void helloCommand(client *c) {
         return;
     }
 
-    for (int j = !ver ? 1 : 2; j < c->argc; j++) {
+    for (int j = next_arg; j < c->argc; j++) {
         int moreargs = (c->argc-1) - j;
         const char *opt = c->argv[j]->ptr;
         if (!strcasecmp(opt,"AUTH") && moreargs >= 2) {
