@@ -2763,7 +2763,7 @@ void helloCommand(client *c) {
     long long ver = 0;
     int next_arg = 1;
 
-    if (c->argc >= 2 && getLongLongFromObject(c->argv[1],&ver) == C_OK &&
+    if (c->argc >= 2 && getLongLongFromObject(c->argv[next_arg++],&ver) == C_OK &&
             (ver < 2 || ver > 3)) {
         addReplyError(c,"-NOPROTO unsupported protocol version");
         return;
