@@ -30,11 +30,34 @@
 
 
 #include <sys/epoll.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
 
 typedef struct aeApiState {
     int epfd;
     struct epoll_event *events;
 } aeApiState;
+
+static int cloexecFcntl(int fd) {
+    int r;
+    int flags;
+
+    do
+        r = fcntl(fd, F_GETFD);
+    while (r == -1 && errno == EINTR);
+
+    if (r == -1 || (r & FD_CLOEXEC))
+        return r;
+
+    flags = r | FD_CLOEXEC;
+
+    do
+        r = fcntl(fd, F_SETFD, flags);
+    while (r == -1 && errno == EINTR);
+
+    return r;
+}
 
 static int aeApiCreate(aeEventLoop *eventLoop) {
     aeApiState *state = zmalloc(sizeof(aeApiState));
@@ -45,11 +68,15 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
         zfree(state);
         return -1;
     }
-    state->epfd = epoll_create(1024); /* 1024 is just a hint for the kernel */
+    state->epfd = epoll_create1(EPOLL_CLOEXEC);
     if (state->epfd == -1) {
-        zfree(state->events);
-        zfree(state);
-        return -1;
+        state->epfd = epoll_create(1024); /* 1024 is just a hint for the kernel */
+        if (state->epfd == -1) {
+            zfree(state->events);
+            zfree(state);
+            return -1;
+        }
+        cloexecFcntl(state->epfd);
     }
     eventLoop->apidata = state;
     return 0;
