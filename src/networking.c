@@ -2690,7 +2690,7 @@ NULL
             addReplyLongLong(c,-1);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"trackinginfo") && c->argc == 2) {
-        addReplyMapLen(c,5);
+        addReplyMapLen(c,3);
 
         /* Flags */
         addReplyBulkCString(c,"flags");
