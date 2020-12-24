@@ -4714,6 +4714,7 @@ sds genRedisInfoString(const char *section) {
             "tracking_total_items:%lld\r\n"
             "tracking_total_prefixes:%lld\r\n"
             "unexpected_error_replies:%lld\r\n"
+            "total_error_replies:%lld\r\n"
             "dump_payload_sanitizations:%lld\r\n"
             "total_reads_processed:%lld\r\n"
             "total_writes_processed:%lld\r\n"
@@ -4751,6 +4752,7 @@ sds genRedisInfoString(const char *section) {
             (unsigned long long) trackingGetTotalItems(),
             (unsigned long long) trackingGetTotalPrefixes(),
             server.stat_unexpected_error_replies,
+            server.stat_total_error_replies,
             server.stat_dump_payload_sanitizations,
             stat_total_reads_processed,
             stat_total_writes_processed,
