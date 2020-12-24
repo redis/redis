@@ -1857,7 +1857,7 @@ void initClientMultiState(client *c);
 void freeClientMultiState(client *c);
 void queueMultiCommand(client *c);
 void touchWatchedKey(redisDb *db, robj *key);
-void touchWatchedKeysOnFlush(int dbid);
+void touchWatchedKeysOnDirty(long dbid, long *optionDb);
 void discardTransaction(client *c);
 void flagTransaction(client *c);
 void execCommandAbort(client *c, sds error);
