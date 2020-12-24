@@ -417,8 +417,8 @@ void afterErrorReply(client *c, const char *s, size_t len) {
         if (spaceloc) {
             const size_t errEndPos = (size_t)(spaceloc - s);
             incrementError(s+1, errEndPos-1);
-        /* Fallback to ERR if we can't retrieve the error prefix */
         } else {
+            /* Fallback to ERR if we can't retrieve the error prefix */
             incrementError("ERR", 3);
         }
     }
