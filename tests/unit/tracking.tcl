@@ -146,13 +146,13 @@ start_server {tags {"tracking"}} {
         assert {[lindex $reply 2] eq {proto 3}}
 
         set reply [r HELLO 2]
-        assert {[lindex $reply 2] eq {proto 2}}
+        assert {[lindex $reply 6] eq 2}
 
         set reply [r HELLO]
-        assert {[lindex $reply 2] eq {proto 2}}
+        assert {[lindex $reply 6] eq 2}
 
         set reply [r HELLO]
-        assert {[lindex $reply 2] eq {proto 2}}
+        assert {[lindex $reply 6] eq 2}
     }
 
     test {RESP3 based basic invalidation} {
