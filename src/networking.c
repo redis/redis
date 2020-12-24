@@ -2765,7 +2765,7 @@ void helloCommand(client *c) {
 
     if (c->argc >= 2) {
         if (getLongLongFromObjectOrReply(c, c->argv[next_arg++], &ver,
-	    "The second argument should the protocol version if provided") != C_OK) {
+	    "Protocol version is not an integer or out of range") != C_OK) {
             return;
 	}
 
