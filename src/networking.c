@@ -2758,18 +2758,17 @@ NULL
     }
 }
 
-/* HELLO <protocol-version> [AUTH <user> <password>] [SETNAME <name>] */
+/* HELLO [protocol-version] [AUTH <user> <password>] [SETNAME <name>] */
 void helloCommand(client *c) {
-    long long ver;
+    long long ver = 0;
 
-    if (getLongLongFromObject(c->argv[1],&ver) != C_OK ||
-        (ver != 0 && ver < 2) || ver > 3)
-    {
+    if (c->argc >= 2 && getLongLongFromObject(c->argv[1],&ver) == C_OK &&
+            (ver < 2 || ver > 3)) {
         addReplyError(c,"-NOPROTO unsupported protocol version");
         return;
     }
 
-    for (int j = 2; j < c->argc; j++) {
+    for (int j = ver == 0 ? 1 : 2; j < c->argc; j++) {
         int moreargs = (c->argc-1) - j;
         const char *opt = c->argv[j]->ptr;
         if (!strcasecmp(opt,"AUTH") && moreargs >= 2) {

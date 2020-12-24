@@ -869,7 +869,7 @@ struct redisCommand redisCommandTable[] = {
      "admin no-script random ok-loading ok-stale @connection",
      0,NULL,0,0,0,0,0,0},
 
-    {"hello",helloCommand,-2,
+    {"hello",helloCommand,-1,
      "no-auth no-script fast no-monitor ok-loading ok-stale no-slowlog @connection",
      0,NULL,0,0,0,0,0,0},
 
