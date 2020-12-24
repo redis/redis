@@ -2763,15 +2763,16 @@ void helloCommand(client *c) {
     long long ver = 0;
     int next_arg = 1;
 
-    if (c->argc >= 2 && getLongLongFromObject(c->argv[next_arg++],&ver) == C_OK &&
-            (ver < 2 || ver > 3)) {
-        addReplyError(c,"-NOPROTO unsupported protocol version");
-        return;
-    }
+    if (c->argc >= 2) {
+        if (getLongLongFromObjectOrReply(c, c->argv[next_arg++], &ver,
+	    "The second argument should the protocol version if provided") != C_OK) {
+            return;
+	}
 
-    if (!ver && next_arg < c->argc) {
-        addReplyError(c,"Need to provide an protocol version for other arguments");
-        return;
+        if (ver < 2 || ver > 3) {
+            addReplyError(c,"-NOPROTO unsupported protocol version");
+            return;
+        }
     }
 
     for (int j = next_arg; j < c->argc; j++) {
