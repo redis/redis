@@ -749,7 +749,7 @@ struct commandHelp {
     9,
     "4.0.0" },
     { "MONITOR",
-    "-",
+    "[SIZE threshold] [LIMIT maxnum]",
     "Listen for all requests received by the server in real time",
     9,
     "1.0.0" },
