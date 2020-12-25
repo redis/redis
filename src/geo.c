@@ -620,7 +620,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
                 bybox = 1;
                 i += 3;
             } else {
-                addReply(c, shared.syntaxerr);
+                addReplyErrorObject(c,shared.syntaxerr);
                 return;
             }
         }
