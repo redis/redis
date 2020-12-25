@@ -20,7 +20,7 @@ static inline malloc_mutex_t *
 mutex_pool_mutex(mutex_pool_t *pool, uintptr_t key) {
 	size_t hash_result[2];
 	hash(&key, sizeof(key), 0xd50dcc1b, hash_result);
-	return &pool->mutexes[hash_result[0] % MUTEX_POOL_SIZE];
+	return &pool->mutexes[hash_result[0] & (MUTEX_POOL_SIZE - 1)];
 }
 
 static inline void

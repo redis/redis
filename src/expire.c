@@ -418,7 +418,7 @@ void expireSlaveKeys(void) {
          * time limit was reached. */
         cycles++;
         if (noexpire > 3) break;
-        if ((cycles % 64) == 0 && mstime()-start > 1) break;
+        if ((cycles & 63) == 0 && mstime()-start > 1) break;
         if (dictSize(slaveKeysWithExpire) == 0) break;
     }
 }
