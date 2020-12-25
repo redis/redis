@@ -30,7 +30,6 @@
 
 
 #include <sys/epoll.h>
-#include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
 
@@ -68,19 +67,13 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
         zfree(state);
         return -1;
     }
-    state->epfd = epoll_create1(EPOLL_CLOEXEC);
-    /* epoll_create1() may fail either because it's not implemented (in an old kernel)
-     * or it doesn't recognize/understand the EPOLL_CLOEXEC flag, in which case we ought to
-     * fall back to the conventional epoll_create(). */
+    state->epfd = epoll_create(1024); /* 1024 is just a hint for the kernel */
     if (state->epfd == -1) {
-        state->epfd = epoll_create(1024); /* 1024 is just a hint for the kernel */
-        if (state->epfd == -1) {
-            zfree(state->events);
-            zfree(state);
-            return -1;
-        }
-        cloexecFcntl(state->epfd);
+        zfree(state->events);
+        zfree(state);
+        return -1;
     }
+    cloexecFcntl(state->epfd);
     eventLoop->apidata = state;
     return 0;
 }
