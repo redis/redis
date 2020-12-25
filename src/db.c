@@ -1208,7 +1208,7 @@ void copyCommand(client *c) {
             selectDb(c,srcid); /* Back to the source DB */
             j++; /* Consume additional arg. */
         } else {
-            addReply(c, shared.syntaxerr);
+            addReplyErrorObject(c,shared.syntaxerr);
             return;
         }
     }
