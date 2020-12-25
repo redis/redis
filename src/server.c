@@ -288,11 +288,11 @@ struct redisCommand redisCommandTable[] = {
      "write use-memory @list",
      0,NULL,1,1,1,0,0,0},
 
-    {"rpop",rpopCommand,2,
+    {"rpop",rpopCommand,-2,
      "write fast @list",
      0,NULL,1,1,1,0,0,0},
 
-    {"lpop",lpopCommand,2,
+    {"lpop",lpopCommand,-2,
      "write fast @list",
      0,NULL,1,1,1,0,0,0},
 
