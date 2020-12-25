@@ -2765,9 +2765,9 @@ void helloCommand(client *c) {
 
     if (c->argc >= 2) {
         if (getLongLongFromObjectOrReply(c, c->argv[next_arg++], &ver,
-	    "Protocol version is not an integer or out of range") != C_OK) {
+            "Protocol version is not an integer or out of range") != C_OK) {
             return;
-	}
+        }
 
         if (ver < 2 || ver > 3) {
             addReplyError(c,"-NOPROTO unsupported protocol version");
