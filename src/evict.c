@@ -650,7 +650,7 @@ int performEvictions(void) {
             decrRefCount(keyobj);
             keys_freed++;
 
-            if (keys_freed & 15 == 0) {
+            if ((keys_freed & 15) == 0) {
                 /* When the memory to free starts to be big enough, we may
                  * start spending so much time here that is impossible to
                  * deliver data to the replicas fast enough, so we force the
