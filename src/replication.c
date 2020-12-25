@@ -2643,6 +2643,14 @@ void replicaofCommand(client *c) {
         return;
     }
 
+    if (c->flags & (CLIENT_SLAVE|CLIENT_MASTER)) {
+        /* If a client is already a replica or master they cannot run this command,
+         * because it involves flushing all replicas and master (including this
+         * client). */
+        addReplyError(c, "Command is not valid when client is a replica or master.");
+        return;
+    }
+
     /* The special host/port combination "NO" "ONE" turns the instance
      * into a master. Otherwise the new master address is set. */
     if (!strcasecmp(c->argv[1]->ptr,"no") &&
@@ -2656,15 +2664,6 @@ void replicaofCommand(client *c) {
         }
     } else {
         long port;
-
-        if (c->flags & CLIENT_SLAVE)
-        {
-            /* If a client is already a replica they cannot run this command,
-             * because it involves flushing all replicas (including this
-             * client) */
-            addReplyError(c, "Command is not valid when client is a replica.");
-            return;
-        }
 
         if ((getLongFromObjectOrReply(c, c->argv[2], &port, NULL) != C_OK))
             return;
