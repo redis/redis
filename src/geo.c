@@ -428,32 +428,56 @@ static int sort_gp_desc(const void *a, const void *b) {
  * Commands
  * ==================================================================== */
 
-/* GEOADD key long lat name [long2 lat2 name2 ... longN latN nameN] */
+/* GEOADD key [CH] [NX|XX] long lat name [long2 lat2 name2 ... longN latN nameN] */
 void geoaddCommand(client *c) {
-    /* Check arguments number for sanity. */
-    if ((c->argc - 2) % 3 != 0) {
+    int options, longidx=2;
+    int i;
+    int xx=0,nx=0;
+    int ns=0; /* not support */
+    char *opt;
+
+    /* We need check the options and locate the longidx. */
+    for (i = 0; i < c->argc-2; i++) {
+        opt = c->argv[longidx]->ptr;
+        if (!strcasecmp(opt, "ch")) {}
+        else if (!strcasecmp(opt, "xx")) xx=1;
+        else if (!strcasecmp(opt, "nx")) nx=1;
+        else if (!strcasecmp(opt, "gt") || !strcasecmp(opt, "lt") ||
+                !strcasecmp(opt, "incr")) {
+            ns=1;
+            break;
+        }
+        else break;
+        longidx++;
+    }
+
+    if ((c->argc - longidx) % 3 || ns || (xx && nx)) {
         /* Need an odd number of arguments if we got this far... */
-        addReplyError(c, "syntax error. Try GEOADD key [x1] [y1] [name1] "
+        addReplyError(c, "syntax error. Try GEOADD key [CH] [NX|XX] [x1] [y1] [name1] "
                          "[x2] [y2] [name2] ... ");
         return;
     }
 
-    int elements = (c->argc - 2) / 3;
-    int argc = 3+elements*2; /* ZADD key CH score ele ... */
+    /* Calloc the vector to call ZADD. */
+    int elements = (c->argc - longidx) / 3;
+    int argc = longidx+elements*2; /* ZADD key [CH] [NX|XX] score ele ... */
     robj **argv = zcalloc(argc*sizeof(robj*));
     argv[0] = createRawStringObject("zadd",4);
     argv[1] = c->argv[1]; /* key */
     incrRefCount(argv[1]);
-    argv[2] = createRawStringObject("ch",2);
+    options = longidx-2;
+    for (i = 0; i < options; i++) {
+        argv[2+i] = c->argv[2+i];
+        incrRefCount(argv[2+i]);
+    }
 
     /* Create the argument vector to call ZADD in order to add all
      * the score,value pairs to the requested zset, where score is actually
      * an encoded version of lat,long. */
-    int i;
     for (i = 0; i < elements; i++) {
         double xy[2];
 
-        if (extractLongLatOrReply(c, (c->argv+2)+(i*3),xy) == C_ERR) {
+        if (extractLongLatOrReply(c, (c->argv+longidx)+(i*3),xy) == C_ERR) {
             for (i = 0; i < argc; i++)
                 if (argv[i]) decrRefCount(argv[i]);
             zfree(argv);
@@ -465,9 +489,9 @@ void geoaddCommand(client *c) {
         geohashEncodeWGS84(xy[0], xy[1], GEO_STEP_MAX, &hash);
         GeoHashFix52Bits bits = geohashAlign52Bits(hash);
         robj *score = createObject(OBJ_STRING, sdsfromlonglong(bits));
-        robj *val = c->argv[2 + i * 3 + 2];
-        argv[3+i*2] = score;
-        argv[4+i*2] = val;
+        robj *val = c->argv[longidx + i * 3 + 2];
+        argv[longidx+i*2] = score;
+        argv[longidx+1+i*2] = val;
         incrRefCount(val);
     }
 

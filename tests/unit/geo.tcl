@@ -74,6 +74,28 @@ start_server {tags {"geo"}} {
         r geoadd nyc -73.9454966 40.747533 "lic market"
     } {0}
 
+    test {GEOADD update with CH option} {
+        assert_equal 1 [r geoadd nyc CH 40.747533 -73.9454966 "lic market"]
+        lassign [lindex [r geopos nyc "lic market"] 0] x1 y1
+        assert {abs($x1) - 40.747 < 0.001}
+        assert {abs($y1) - 73.945 < 0.001}
+    } {}
+
+    test {GEOADD update with CH NX option} {
+        r geoadd nyc CH NX -73.9454966 40.747533 "lic market"
+    } {0}
+
+    test {GEOADD update with CH XX option} {
+        r geoadd nyc CH XX -73.9454966 40.747533 "lic market"
+    } {1}
+
+    test {GEOADD update with invalid option} {
+        catch {
+            r geoadd nyc ch xx lt nx gt -73.9454966 40.747533 "lic market"
+        } err
+        set err
+    } {ERR*}
+
     test {GEOADD invalid coordinates} {
         catch {
             r geoadd nyc -73.9454966 40.747533 "lic market" \
@@ -400,8 +422,4 @@ start_server {tags {"geo"}} {
         }
         set test_result
     } {OK}
-
-    test {GEOADD update with diff longitude and latitude} {
-        r geoadd nyc -73.9454966 30.747533 "lic market"
-    } {1}
 }
