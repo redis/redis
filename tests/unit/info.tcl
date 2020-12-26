@@ -6,16 +6,22 @@ proc errorstat {cmd} {
     return [errorrstat $cmd r]
 }
 
+proc serverstat {cmd} {
+    return [statsrstat $cmd r]
+}
+
 start_server {tags {"info"}} {
     start_server {} {
 
         test {errorstats: failed call authentication error} {
             r config resetstat
             assert_match {} [errorstat ERR]
+            assert_match {0} [serverstat total_error_replies]
             catch {r auth k} e
             assert_match {ERR AUTH*} $e
             assert_match {*count=1*} [errorstat ERR]
             assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
+            assert_match {1} [serverstat total_error_replies]
             r config resetstat
             assert_match {} [errorstat ERR]
         }
@@ -23,6 +29,7 @@ start_server {tags {"info"}} {
         test {errorstats: failed call within MULTI/EXEC} {
             r config resetstat
             assert_match {} [errorstat ERR]
+            assert_match {0} [serverstat total_error_replies]
             r multi
             r set a b
             r auth a
@@ -32,6 +39,7 @@ start_server {tags {"info"}} {
             assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat set]
             assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
             assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat exec]
+            assert_match {1} [serverstat total_error_replies]
             r config resetstat
             assert_match {} [errorstat ERR]
 
@@ -74,10 +82,12 @@ start_server {tags {"info"}} {
 
         test {errorstats: rejected call unknown command} {
             r config resetstat
+            assert_match {0} [serverstat total_error_replies]
             assert_match {} [errorstat ERR]
             catch {r asdf} e
             assert_match {ERR unknown*} $e
             assert_match {*count=1*} [errorstat ERR]
+            assert_match {1} [serverstat total_error_replies]
             r config resetstat
             assert_match {} [errorstat ERR]
         }
