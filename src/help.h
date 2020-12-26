@@ -444,7 +444,7 @@ struct commandHelp {
     9,
     "1.0.0" },
     { "GEOADD",
-    "key [CH] [NX|XX] longitude latitude member [longitude latitude member ...]",
+    "key longitude latitude member [longitude latitude member ...]",
     "Add one or more geospatial items in the geospatial index represented using a sorted set",
     13,
     "3.2.0" },

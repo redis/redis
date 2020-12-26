@@ -430,7 +430,7 @@ static int sort_gp_desc(const void *a, const void *b) {
 
 /* GEOADD key [CH] [NX|XX] long lat name [long2 lat2 name2 ... longN latN nameN] */
 void geoaddCommand(client *c) {
-    int xx = 0, nx = 0, ch = 0, longidx = 2;
+    int xx = 0, nx = 0, longidx = 2;
     int i;
 
     /* Parse options. At the end 'longidx' is set to the argument position
@@ -438,8 +438,8 @@ void geoaddCommand(client *c) {
     while(longidx < c->argc) {
         char *opt = c->argv[longidx]->ptr;
         if (!strcasecmp(opt,"nx")) nx = 1;
-        else if (!strcasecmp(opt,"xx")) xx = 1
-        else if (!strcasecmp(opt,"ch")) ch = 1;
+        else if (!strcasecmp(opt,"xx")) xx = 1;
+        else if (!strcasecmp(opt,"ch")) {}
         else break;
         longidx++;
     }
@@ -457,10 +457,9 @@ void geoaddCommand(client *c) {
     argv[0] = createRawStringObject("zadd",4);
     argv[1] = c->argv[1]; /* key */
     incrRefCount(argv[1]);
-    int options = longidx - 2;
-    for (i = 0; i < options; i++) {
-        argv[2+i] = c->argv[2+i];
-        incrRefCount(argv[2+i]);
+    for (i = 2; i < longidx; i++) {
+        argv[i] = c->argv[i];
+        incrRefCount(argv[i]);
     }
 
     /* Create the argument vector to call ZADD in order to add all
