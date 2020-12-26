@@ -550,7 +550,7 @@ int performEvictions(void) {
             struct evictionPoolEntry *pool = EvictionPoolLRU;
 
             while(bestkey == NULL) {
-                unsigned long total_keys = 0, keys;
+                int no_evict_key = 1;
 
                 /* We don't want to make local-db choices when expiring keys,
                  * so to start populate the eviction pool sampling keys from
@@ -559,12 +559,12 @@ int performEvictions(void) {
                     db = server.db+i;
                     dict = (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) ?
                             db->dict : db->expires;
-                    if ((keys = dictSize(dict)) != 0) {
+                    if (dictSize(dict) != 0) {
                         evictionPoolPopulate(i, dict, db->dict, pool);
-                        total_keys += keys;
+                        no_evict_key = 0;
                     }
                 }
-                if (!total_keys) break; /* No keys to evict. */
+                if (!no_evict_key) break; /* No keys to evict. */
 
                 /* Go backward from best to worst element to evict. */
                 for (k = EVPOOL_SIZE-1; k >= 0; k--) {
