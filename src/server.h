@@ -1017,7 +1017,7 @@ struct redisMemOverhead {
     size_t lua_caches;
     size_t overhead_total;
     size_t dataset;
-    size_t total_keys;
+    long long total_keys;
     size_t bytes_per_key;
     float dataset_perc;
     float peak_perc;
