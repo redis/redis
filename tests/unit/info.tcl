@@ -45,8 +45,7 @@ start_server {tags {"info"}} {
         test {errorstats: failed call within LUA} {
             r config resetstat
             assert_match {} [errorstat ERR]
-            catch {r eval {return redis.pcall('XGROUP', 'CREATECONSUMER', 's1', 'mygroup', 'consumer')} 0} e
-            assert_match {ERR The XGROUP subcommand requires the key to exist*} $e
+            catch {r eval {redis.pcall('XGROUP', 'CREATECONSUMER', 's1', 'mygroup', 'consumer') return } 0} e
             assert_match {*count=1*} [errorstat ERR]
             assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat xgroup]
             assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat eval]
