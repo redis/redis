@@ -194,8 +194,8 @@ void sortCommand(client *c) {
     unsigned int outputlen = 0;
     int desc = 0, alpha = 0;
     long limit_start = 0, limit_count = -1, start, end;
-    long vectorlen;
-    int j, dontsort = 0;
+    long j, vectorlen;
+    int dontsort = 0;
     int getop = 0; /* GET operation counter */
     int int_conversion_error = 0;
     int syntax_error = 0;
@@ -408,7 +408,7 @@ void sortCommand(client *c) {
         zskiplist *zsl = zs->zsl;
         zskiplistNode *ln;
         sds sdsele;
-        int rangelen = vectorlen;
+        long rangelen = vectorlen;
 
         /* Check if starting point is trivial, before doing log(N) lookup. */
         if (desc) {
