@@ -3496,6 +3496,7 @@ void call(client *c, int flags) {
     ustime_t start, duration;
     int client_old_flags = c->flags;
     struct redisCommand *real_cmd = c->cmd;
+    static long long prev_err_count;
 
     server.fixed_time_expire++;
 
@@ -3516,7 +3517,7 @@ void call(client *c, int flags) {
 
     /* Call the command. */
     dirty = server.dirty;
-    const long long prev_err_count = server.stat_total_error_replies;
+    prev_err_count = server.stat_total_error_replies;
     updateCachedTime(0);
     start = server.ustime;
     c->cmd->proc(c);
@@ -3527,13 +3528,6 @@ void call(client *c, int flags) {
     /* Update failed command calls if required */
     if ((server.stat_total_error_replies - prev_err_count)>0) {
         real_cmd->failed_calls++;
-        /* If we're within a MULTI context or LUA or RM_Call
-         * we don't propagate the error uppwards */
-        if ( c->flags & CLIENT_MULTI ||
-             c->flags & CLIENT_LUA ||
-             c->flags & CLIENT_MODULE ) {
-            server.stat_total_error_replies=prev_err_count;
-        }
     }
 
     /* After executing command, we will close the client after writing entire
@@ -3674,6 +3668,7 @@ void call(client *c, int flags) {
 
     server.fixed_time_expire--;
     server.stat_numcommands++;
+    prev_err_count = server.stat_total_error_replies;
 
     /* Record peak memory after each command and before the eviction that runs
      * before the next command. */

@@ -82,6 +82,22 @@ start_server {tags {"info"}} {
             assert_match {} [errorstat ERR]
         }
 
+        test {errorstats: rejected call within MULTI/EXEC} {
+            r config resetstat
+            assert_match {} [errorstat ERR]
+            r multi
+            catch {r set} e
+            assert_match {ERR wrong number of arguments*} $e
+            catch {r exec} e
+            assert_match {EXECABORT*} $e
+            assert_match {*count=1*} [errorstat ERR]
+            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0} [cmdstat set]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat multi]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat exec]
+            r config resetstat
+            assert_match {} [errorstat ERR]
+        }
+
         test {errorstats: rejected call due to wrong arity} {
             r config resetstat
             assert_match {} [errorstat ERR]
