@@ -194,7 +194,8 @@ void sortCommand(client *c) {
     unsigned int outputlen = 0;
     int desc = 0, alpha = 0;
     long limit_start = 0, limit_count = -1, start, end;
-    int j, dontsort = 0, vectorlen;
+    long vectorlen;
+    int j, dontsort = 0;
     int getop = 0; /* GET operation counter */
     int int_conversion_error = 0;
     int syntax_error = 0;
