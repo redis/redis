@@ -430,42 +430,34 @@ static int sort_gp_desc(const void *a, const void *b) {
 
 /* GEOADD key [CH] [NX|XX] long lat name [long2 lat2 name2 ... longN latN nameN] */
 void geoaddCommand(client *c) {
-    int options, longidx=2;
+    int xx = 0, nx = 0, ch = 0, longidx = 2;
     int i;
-    int xx=0,nx=0;
-    int ns=0; /* not support */
-    char *opt;
 
-    /* We need check the options and locate the longidx. */
-    for (i = 0; i < c->argc-2; i++) {
-        opt = c->argv[longidx]->ptr;
-        if (!strcasecmp(opt, "ch")) {}
-        else if (!strcasecmp(opt, "xx")) xx=1;
-        else if (!strcasecmp(opt, "nx")) nx=1;
-        else if (!strcasecmp(opt, "gt") || !strcasecmp(opt, "lt") ||
-                !strcasecmp(opt, "incr")) {
-            ns=1;
-            break;
-        }
+    /* Parse options. At the end 'longidx' is set to the argument position
+     * of the longitude of the first element. */
+    while(longidx < c->argc) {
+        char *opt = c->argv[longidx]->ptr;
+        if (!strcasecmp(opt,"nx")) nx = 1;
+        else if (!strcasecmp(opt,"xx")) xx = 1
+        else if (!strcasecmp(opt,"ch")) ch = 1;
         else break;
         longidx++;
     }
 
-    if ((c->argc - longidx) % 3 || ns || (xx && nx)) {
+    if ((c->argc - longidx) % 3 || (xx && nx)) {
         /* Need an odd number of arguments if we got this far... */
-        addReplyError(c, "syntax error. Try GEOADD key [CH] [NX|XX] [x1] [y1] [name1] "
-                         "[x2] [y2] [name2] ... ");
+            addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
 
-    /* Calloc the vector to call ZADD. */
+    /* Set up the vector for calling ZADD. */
     int elements = (c->argc - longidx) / 3;
     int argc = longidx+elements*2; /* ZADD key [CH] [NX|XX] score ele ... */
     robj **argv = zcalloc(argc*sizeof(robj*));
     argv[0] = createRawStringObject("zadd",4);
     argv[1] = c->argv[1]; /* key */
     incrRefCount(argv[1]);
-    options = longidx-2;
+    int options = longidx - 2;
     for (i = 0; i < options; i++) {
         argv[2+i] = c->argv[2+i];
         incrRefCount(argv[2+i]);
