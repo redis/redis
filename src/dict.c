@@ -702,7 +702,7 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
     unsigned long maxsteps;
 
     if (dictSize(d) < count) count = dictSize(d);
-    maxsteps = count*10;
+    maxsteps = (unsigned long)count*10;
 
     /* Try to do a rehashing work proportional to 'count'. */
     for (j = 0; j < count; j++) {
