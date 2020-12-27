@@ -3525,7 +3525,10 @@ void call(client *c, int flags) {
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
 
-    /* Update failed command calls if required */
+    /* Update failed command calls if required.
+     * We leverage a static variable (prev_err_count) to retain
+     * the counter across nested function calls and avoid logging
+     * the same error twice. */
     if ((server.stat_total_error_replies - prev_err_count)>0) {
         real_cmd->failed_calls++;
     }
