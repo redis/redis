@@ -433,7 +433,7 @@ long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
     /* Make sure the WATCHed keys are affected by the FLUSH* commands.
      * Note that we need to call the function while the keys are still
      * there. */
-    signalFlushedDb(dbnum);
+    signalFlushedDb(dbnum, async);
 
     /* Empty redis database structure. */
     removed = emptyDbStructure(server.db, dbnum, async, callback);
@@ -477,6 +477,10 @@ dbBackup *backupDb(void) {
             sizeof(server.cluster->slots_keys_count));
     }
 
+    moduleFireServerEvent(REDISMODULE_EVENT_REPL_BACKUP,
+                          REDISMODULE_SUBEVENT_REPL_BACKUP_CREATE,
+                          NULL);
+
     return backup;
 }
 
@@ -498,6 +502,10 @@ void discardDbBackup(dbBackup *buckup, int flags, void(callback)(void*)) {
     /* Release buckup. */
     zfree(buckup->dbarray);
     zfree(buckup);
+
+    moduleFireServerEvent(REDISMODULE_EVENT_REPL_BACKUP,
+                          REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD,
+                          NULL);
 }
 
 /* Restore the previously created backup (discarding what currently resides
@@ -526,6 +534,10 @@ void restoreDbBackup(dbBackup *buckup) {
     /* Release buckup. */
     zfree(buckup->dbarray);
     zfree(buckup);
+
+    moduleFireServerEvent(REDISMODULE_EVENT_REPL_BACKUP,
+                          REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE,
+                          NULL);
 }
 
 int selectDb(client *c, int id) {
@@ -560,9 +572,9 @@ void signalModifiedKey(client *c, redisDb *db, robj *key) {
     trackingInvalidateKey(c,key);
 }
 
-void signalFlushedDb(int dbid) {
+void signalFlushedDb(int dbid, int async) {
     touchWatchedKeysOnFlush(dbid);
-    trackingInvalidateKeysOnFlush(dbid);
+    trackingInvalidateKeysOnFlush(async);
 }
 
 /*-----------------------------------------------------------------------------
@@ -581,7 +593,7 @@ int getFlushCommandFlags(client *c, int *flags) {
     /* Parse the optional ASYNC option. */
     if (c->argc > 1) {
         if (c->argc > 2 || strcasecmp(c->argv[1]->ptr,"async")) {
-            addReply(c,shared.syntaxerr);
+            addReplyErrorObject(c,shared.syntaxerr);
             return C_ERR;
         }
         *flags = EMPTYDB_ASYNC;
@@ -604,6 +616,9 @@ void flushAllDataAndResetRDB(int flags) {
         rdbSave(server.rdb_filename,rsiptr);
         server.dirty = saved_dirty;
     }
+
+    /* Without that extra dirty++, when db was already empty, FLUSHALL will
+     * not be replicated nor put into the AOF. */
     server.dirty++;
 #if defined(USE_JEMALLOC)
     /* jemalloc 5 doesn't release pages back to the OS when there's no traffic.
@@ -827,7 +842,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             }
 
             if (count < 1) {
-                addReply(c,shared.syntaxerr);
+                addReplyErrorObject(c,shared.syntaxerr);
                 goto cleanup;
             }
 
@@ -846,7 +861,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             typename = c->argv[i+1]->ptr;
             i+= 2;
         } else {
-            addReply(c,shared.syntaxerr);
+            addReplyErrorObject(c,shared.syntaxerr);
             goto cleanup;
         }
     }
@@ -1035,7 +1050,7 @@ void shutdownCommand(client *c) {
     int flags = 0;
 
     if (c->argc > 2) {
-        addReply(c,shared.syntaxerr);
+        addReplyErrorObject(c,shared.syntaxerr);
         return;
     } else if (c->argc == 2) {
         if (!strcasecmp(c->argv[1]->ptr,"nosave")) {
@@ -1043,7 +1058,7 @@ void shutdownCommand(client *c) {
         } else if (!strcasecmp(c->argv[1]->ptr,"save")) {
             flags |= SHUTDOWN_SAVE;
         } else {
-            addReply(c,shared.syntaxerr);
+            addReplyErrorObject(c,shared.syntaxerr);
             return;
         }
     }
@@ -1129,7 +1144,7 @@ void moveCommand(client *c) {
     /* If the user is moving using as target the same
      * DB as the source DB it is probably an error. */
     if (src == dst) {
-        addReply(c,shared.sameobjecterr);
+        addReplyErrorObject(c,shared.sameobjecterr);
         return;
     }
 
@@ -1193,7 +1208,7 @@ void copyCommand(client *c) {
             selectDb(c,srcid); /* Back to the source DB */
             j++; /* Consume additional arg. */
         } else {
-            addReply(c, shared.syntaxerr);
+            addReplyErrorObject(c,shared.syntaxerr);
             return;
         }
     }
@@ -1209,7 +1224,7 @@ void copyCommand(client *c) {
     robj *key = c->argv[1];
     robj *newkey = c->argv[2];
     if (src == dst && (sdscmp(key->ptr, newkey->ptr) == 0)) {
-        addReply(c,shared.sameobjecterr);
+        addReplyErrorObject(c,shared.sameobjecterr);
         return;
     }
 

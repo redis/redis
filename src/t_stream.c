@@ -1534,7 +1534,7 @@ void xrangeGenericCommand(client *c, int rev) {
                 if (count < 0) count = 0;
                 j++; /* Consume additional arg. */
             } else {
-                addReply(c,shared.syntaxerr);
+                addReplyErrorObject(c,shared.syntaxerr);
                 return;
             }
         }
@@ -1643,14 +1643,14 @@ void xreadCommand(client *c) {
             }
             noack = 1;
         } else {
-            addReply(c,shared.syntaxerr);
+            addReplyErrorObject(c,shared.syntaxerr);
             return;
         }
     }
 
     /* STREAMS option is mandatory. */
     if (streams_arg == 0) {
-        addReply(c,shared.syntaxerr);
+        addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
 
@@ -2083,8 +2083,7 @@ NULL
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",
                                 c->argv[2],c->db->id);
         } else {
-            addReplySds(c,
-                sdsnew("-BUSYGROUP Consumer Group name already exists\r\n"));
+            addReplyError(c,"-BUSYGROUP Consumer Group name already exists");
         }
     } else if (!strcasecmp(opt,"SETID") && c->argc == 5) {
         streamID id;
@@ -2242,7 +2241,7 @@ void xpendingCommand(client *c) {
 
     /* Start and stop, and the consumer, can be omitted. Also the IDLE modifier. */
     if (c->argc != 3 && (c->argc < 6 || c->argc > 9)) {
-        addReply(c,shared.syntaxerr);
+        addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
 
@@ -2256,7 +2255,7 @@ void xpendingCommand(client *c) {
                 return;
             if (c->argc < 8) {
                 /* If IDLE was provided we must have at least 'start end count' */
-                addReply(c,shared.syntaxerr);
+                addReplyErrorObject(c,shared.syntaxerr);
                 return;
             }
             /* Search for rest of arguments after 'IDLE <idle>' */
@@ -2763,7 +2762,7 @@ void xtrimCommand(client *c) {
             i++;
             maxlen_arg_idx = i;
         } else {
-            addReply(c,shared.syntaxerr);
+            addReplyErrorObject(c,shared.syntaxerr);
             return;
         }
     }

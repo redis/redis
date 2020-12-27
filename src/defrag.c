@@ -794,6 +794,20 @@ long defragStream(redisDb *db, dictEntry *kde) {
     return defragged;
 }
 
+/* Defrag a module key. This is either done immediately or scheduled
+ * for later. Returns then number of pointers defragged.
+ */
+long defragModule(redisDb *db, dictEntry *kde) {
+    robj *obj = dictGetVal(kde);
+    serverAssert(obj->type == OBJ_MODULE);
+    long defragged = 0;
+
+    if (!moduleDefragValue(dictGetKey(kde), obj, &defragged))
+        defragLater(db, kde);
+
+    return defragged;
+}
+
 /* for each key we scan in the main dict, this function will attempt to defrag
  * all the various pointers it has. Returns a stat of how many pointers were
  * moved. */
@@ -865,8 +879,7 @@ long defragKey(redisDb *db, dictEntry *de) {
     } else if (ob->type == OBJ_STREAM) {
         defragged += defragStream(db, de);
     } else if (ob->type == OBJ_MODULE) {
-        /* Currently defragmenting modules private data types
-         * is not supported. */
+        defragged += defragModule(db, de);
     } else {
         serverPanic("Unknown object type");
     }
@@ -928,6 +941,7 @@ long defragOtherGlobals() {
      * that remain static for a long time */
     defragged += activeDefragSdsDict(server.lua_scripts, DEFRAG_SDS_DICT_VAL_IS_STROB);
     defragged += activeDefragSdsListAndDict(server.repl_scriptcache_fifo, server.repl_scriptcache_dict, DEFRAG_SDS_DICT_NO_VAL);
+    defragged += moduleDefragGlobals();
     return defragged;
 }
 
@@ -946,6 +960,8 @@ int defragLaterItem(dictEntry *de, unsigned long *cursor, long long endtime) {
             server.stat_active_defrag_hits += scanLaterHash(ob, cursor);
         } else if (ob->type == OBJ_STREAM) {
             return scanLaterStraemListpacks(ob, cursor, endtime, &server.stat_active_defrag_hits);
+        } else if (ob->type == OBJ_MODULE) {
+            return moduleLateDefrag(dictGetKey(de), ob, cursor, endtime, &server.stat_active_defrag_hits);
         } else {
             *cursor = 0; /* object type may have changed since we schedule it for later */
         }
@@ -1182,6 +1198,17 @@ void activeDefragCycle(void) {
 
 void activeDefragCycle(void) {
     /* Not implemented yet. */
+}
+
+void *activeDefragAlloc(void *ptr) {
+    UNUSED(ptr);
+    return NULL;
+}
+
+robj *activeDefragStringOb(robj *ob, long *defragged) {
+    UNUSED(ob);
+    UNUSED(defragged);
+    return NULL;
 }
 
 #endif

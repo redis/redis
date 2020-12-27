@@ -206,7 +206,7 @@ int aofFsyncInProgress(void) {
 /* Starts a background task that performs fsync() against the specified
  * file descriptor (the one of the AOF file) in another thread. */
 void aof_background_fsync(int fd) {
-    bioCreateBackgroundJob(BIO_AOF_FSYNC,(void*)(long)fd,NULL,NULL);
+    bioCreateFsyncJob(fd);
 }
 
 /* Kills an AOFRW child process if exists */
@@ -1355,6 +1355,9 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                     if (rioWriteStreamEmptyConsumer(r,key,(char*)ri.key,
                                                     ri.key_len,consumer) == 0)
                     {
+                        raxStop(&ri_cons);
+                        raxStop(&ri);
+                        streamIteratorStop(&si);
                         return 0;
                     }
                     continue;
@@ -1725,7 +1728,7 @@ int rewriteAppendOnlyFileBackground(void) {
             return C_ERR;
         }
         serverLog(LL_NOTICE,
-            "Background append only file rewriting started by pid %d",childpid);
+            "Background append only file rewriting started by pid %ld",(long) childpid);
         server.aof_rewrite_scheduled = 0;
         server.aof_rewrite_time_start = time(NULL);
         server.aof_child_pid = childpid;
@@ -1906,7 +1909,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             server.aof_state = AOF_ON;
 
         /* Asynchronously close the overwritten AOF. */
-        if (oldfd != -1) bioCreateBackgroundJob(BIO_CLOSE_FILE,(void*)(long)oldfd,NULL,NULL);
+        if (oldfd != -1) bioCreateCloseJob(oldfd);
 
         serverLog(LL_VERBOSE,
             "Background AOF rewrite signal handler took %lldus", ustime()-now);

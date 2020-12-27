@@ -200,9 +200,9 @@ void disconnectAllBlockedClients(void) {
         client *c = listNodeValue(ln);
 
         if (c->flags & CLIENT_BLOCKED) {
-            addReplySds(c,sdsnew(
+            addReplyError(c,
                 "-UNBLOCKED force unblock from blocking operation, "
-                "instance state changed (master -> replica?)\r\n"));
+                "instance state changed (master -> replica?)");
             unblockClient(c);
             c->flags |= CLIENT_CLOSE_AFTER_REPLY;
         }

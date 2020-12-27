@@ -62,6 +62,7 @@
 #include "anet.h"
 #include "ae.h"
 #include "cli_common.h"
+#include "mt19937-64.h"
 
 #define UNUSED(V) ((void) V)
 
@@ -248,9 +249,12 @@ static struct config {
     int enable_ldb_on_eval; /* Handle manual SCRIPT DEBUG + EVAL commands. */
     int last_cmd_type;
     int verbose;
+    int set_errcode;
     clusterManagerCommand cluster_manager_command;
     int no_auth_warning;
     int resp3;
+    int in_multi;
+    int pre_multi_dbnum;
 } config;
 
 /* User preferences. */
@@ -305,6 +309,10 @@ static void cliRefreshPrompt(void) {
     /* Add [dbnum] if needed */
     if (config.dbnum != 0)
         prompt = sdscatfmt(prompt,"[%i]",config.dbnum);
+
+    /* Add TX if in transaction state*/
+    if (config.in_multi)  
+        prompt = sdscatlen(prompt,"(TX)",4);
 
     /* Copy the prompt in the static buffer. */
     prompt = sdscatlen(prompt,"> ",2);
@@ -1266,6 +1274,12 @@ static int cliReadReply(int output_raw_strings) {
                 slot, config.hostip, config.hostport);
         config.cluster_reissue_command = 1;
         cliRefreshPrompt();
+    } else if (!config.interactive && config.set_errcode && 
+        reply->type == REDIS_REPLY_ERROR) 
+    {
+        fprintf(stderr,"%s\n",reply->str);
+        exit(1);
+        return REDIS_ERR; /* avoid compiler warning */
     }
 
     if (output) {
@@ -1389,13 +1403,32 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             return REDIS_ERR;
         } else {
             /* Store database number when SELECT was successfully executed. */
-            if (!strcasecmp(command,"select") && argc == 2 && config.last_cmd_type != REDIS_REPLY_ERROR) {
+            if (!strcasecmp(command,"select") && argc == 2 && 
+                config.last_cmd_type != REDIS_REPLY_ERROR) 
+            {
                 config.dbnum = atoi(argv[1]);
                 cliRefreshPrompt();
-            } else if (!strcasecmp(command,"auth") && (argc == 2 || argc == 3))
-            {
+            } else if (!strcasecmp(command,"auth") && (argc == 2 || argc == 3)) {
                 cliSelect();
-            }
+            } else if (!strcasecmp(command,"multi") && argc == 1 &&
+                config.last_cmd_type != REDIS_REPLY_ERROR) 
+            {
+                config.in_multi = 1;
+                config.pre_multi_dbnum = config.dbnum;
+                cliRefreshPrompt();
+            } else if (!strcasecmp(command,"exec") && argc == 1 && config.in_multi) {
+                config.in_multi = 0;
+                if (config.last_cmd_type == REDIS_REPLY_ERROR) {
+                    config.dbnum = config.pre_multi_dbnum;
+                }
+                cliRefreshPrompt();
+            } else if (!strcasecmp(command,"discard") && argc == 1 && 
+                config.last_cmd_type != REDIS_REPLY_ERROR) 
+            {
+                config.in_multi = 0;
+                config.dbnum = config.pre_multi_dbnum;
+                cliRefreshPrompt();
+            } 
         }
         if (config.cluster_reissue_command){
             /* If we need to reissue the command, break to prevent a
@@ -1559,6 +1592,8 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-D") && !lastarg) {
             sdsfree(config.cmd_delim);
             config.cmd_delim = sdsnew(argv[++i]);
+        } else if (!strcmp(argv[i],"-e")) {
+            config.set_errcode = 1;
         } else if (!strcmp(argv[i],"--verbose")) {
             config.verbose = 1;
         } else if (!strcmp(argv[i],"--cluster") && !lastarg) {
@@ -1777,6 +1812,7 @@ static void usage(void) {
 "  -d <delimiter>     Delimiter between response bulks for raw formatting (default: \\n).\n"
 "  -D <delimiter>     Delimiter between responses for raw formatting (default: \\n).\n"
 "  -c                 Enable cluster mode (follow -ASK and -MOVED redirections).\n"
+"  -e                 Return exit error code when command execution fails.\n"
 #ifdef USE_OPENSSL
 "  --tls              Establish a secure TLS connection.\n"
 "  --sni <host>       Server name indication for TLS.\n"
@@ -5543,7 +5579,7 @@ static int clusterManagerCommandCreate(int argc, char **argv) {
         if (last > CLUSTER_MANAGER_SLOTS || i == (masters_count - 1))
             last = CLUSTER_MANAGER_SLOTS - 1;
         if (last < first) last = first;
-        printf("Master[%d] -> Slots %lu - %lu\n", i, first, last);
+        printf("Master[%d] -> Slots %ld - %ld\n", i, first, last);
         master->slots_count = 0;
         for (j = first; j <= last; j++) {
             master->slots[j] = 1;
@@ -8088,6 +8124,7 @@ static sds askPassword(const char *msg) {
 
 int main(int argc, char **argv) {
     int firstarg;
+    struct timeval tv;
 
     config.hostip = sdsnew("127.0.0.1");
     config.hostport = 6379;
@@ -8127,7 +8164,9 @@ int main(int argc, char **argv) {
     config.enable_ldb_on_eval = 0;
     config.last_cmd_type = -1;
     config.verbose = 0;
+    config.set_errcode = 0;
     config.no_auth_warning = 0;
+    config.in_multi = 0;
     config.cluster_manager_command.name = NULL;
     config.cluster_manager_command.argc = 0;
     config.cluster_manager_command.argv = NULL;
@@ -8181,6 +8220,9 @@ int main(int argc, char **argv) {
         cliSecureInit();
     }
 #endif
+
+    gettimeofday(&tv, NULL);
+    init_genrand64(((long long) tv.tv_sec * 1000000 + tv.tv_usec) ^ getpid());
 
     /* Cluster Manager mode */
     if (CLUSTER_MANAGER_MODE()) {

@@ -602,8 +602,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set ::tls 1
         ::tls::init \
             -cafile "$::tlsdir/ca.crt" \
-            -certfile "$::tlsdir/redis.crt" \
-            -keyfile "$::tlsdir/redis.key"
+            -certfile "$::tlsdir/client.crt" \
+            -keyfile "$::tlsdir/client.key"
     } elseif {$opt eq {--host}} {
         set ::external 1
         set ::host $arg

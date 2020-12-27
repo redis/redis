@@ -1,6 +1,7 @@
 #!/bin/sh
 TCL_VERSIONS="8.5 8.6"
 TCLSH=""
+[ -z "$MAKE" ] && MAKE=make
 
 for VERSION in $TCL_VERSIONS; do
 	TCL=`which tclsh$VERSION 2>/dev/null` && TCLSH=$TCL
@@ -12,7 +13,7 @@ then
     exit 1
 fi
 
-make -C tests/modules && \
+$MAKE -C tests/modules && \
 $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/commandfilter \
 --single unit/moduleapi/fork \
@@ -29,4 +30,5 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/blockedclient \
 --single unit/moduleapi/getkeys \
 --single unit/moduleapi/test_lazyfree \
+--single unit/moduleapi/defrag \
 "${@}"

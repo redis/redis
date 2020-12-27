@@ -13,6 +13,45 @@ RedisModuleType *testrdb_type = NULL;
 RedisModuleString *before_str = NULL;
 RedisModuleString *after_str = NULL;
 
+void replBackupCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void *data)
+{
+    REDISMODULE_NOT_USED(e);
+    REDISMODULE_NOT_USED(data);
+    static RedisModuleString *before_str_backup = NULL;
+    static RedisModuleString *after_str_backup = NULL;
+
+    switch (sub) {
+    case REDISMODULE_SUBEVENT_REPL_BACKUP_CREATE:
+        assert(before_str_backup == NULL);
+        assert(after_str_backup == NULL);
+        before_str_backup = before_str;
+        after_str_backup = after_str;
+        before_str = NULL;
+        after_str = NULL;
+        break;
+    case REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE:
+        if (before_str)
+            RedisModule_FreeString(ctx, before_str);
+        if (after_str)
+            RedisModule_FreeString(ctx, after_str);
+        before_str = before_str_backup;
+        after_str = after_str_backup;
+        before_str_backup = NULL;
+        after_str_backup = NULL;
+        break;
+    case REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD:
+        if (before_str_backup)
+            RedisModule_FreeString(ctx, before_str_backup);
+        if (after_str_backup)
+            RedisModule_FreeString(ctx, after_str_backup);
+        before_str_backup = NULL;
+        after_str_backup = NULL;
+        break;
+    default:
+        assert(0);
+    }
+}
+
 void *testrdb_type_load(RedisModuleIO *rdb, int encver) {
     int count = RedisModule_LoadSigned(rdb);
     RedisModuleString *str = RedisModule_LoadString(rdb);
@@ -246,6 +285,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"testrdb.get.key", testrdb_get_key,"",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
+
+    RedisModule_SubscribeToServerEvent(ctx,
+        RedisModuleEvent_ReplBackup, replBackupCallback);
 
     return REDISMODULE_OK;
 }

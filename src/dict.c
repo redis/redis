@@ -646,13 +646,13 @@ dictEntry *dictGetRandomKey(dict *d)
         do {
             /* We are sure there are no elements in indexes from 0
              * to rehashidx-1 */
-            h = d->rehashidx + (random() % (dictSlots(d) - d->rehashidx));
+            h = d->rehashidx + (randomULong() % (dictSlots(d) - d->rehashidx));
             he = (h >= d->ht[0].size) ? d->ht[1].table[h - d->ht[0].size] :
                                       d->ht[0].table[h];
         } while(he == NULL);
     } else {
         do {
-            h = random() & d->ht[0].sizemask;
+            h = randomULong() & d->ht[0].sizemask;
             he = d->ht[0].table[h];
         } while(he == NULL);
     }
@@ -718,7 +718,7 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
         maxsizemask = d->ht[1].sizemask;
 
     /* Pick a random point inside the larger table. */
-    unsigned long i = random() & maxsizemask;
+    unsigned long i = randomULong() & maxsizemask;
     unsigned long emptylen = 0; /* Continuous empty entries so far. */
     while(stored < count && maxsteps--) {
         for (j = 0; j < tables; j++) {
@@ -743,7 +743,7 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
             if (he == NULL) {
                 emptylen++;
                 if (emptylen >= 5 && emptylen > count) {
-                    i = random() & maxsizemask;
+                    i = randomULong() & maxsizemask;
                     emptylen = 0;
                 }
             } else {
@@ -1135,10 +1135,10 @@ size_t _dictGetStatsHt(char *buf, size_t bufsize, dictht *ht, int tableid) {
     /* Generate human readable stats. */
     l += snprintf(buf+l,bufsize-l,
         "Hash table %d stats (%s):\n"
-        " table size: %ld\n"
-        " number of elements: %ld\n"
-        " different slots: %ld\n"
-        " max chain length: %ld\n"
+        " table size: %lu\n"
+        " number of elements: %lu\n"
+        " different slots: %lu\n"
+        " max chain length: %lu\n"
         " avg chain length (counted): %.02f\n"
         " avg chain length (computed): %.02f\n"
         " Chain length distribution:\n",
@@ -1215,7 +1215,7 @@ dictType BenchmarkDictType = {
 #define end_benchmark(msg) do { \
     elapsed = timeInMilliseconds()-start; \
     printf(msg ": %ld items in %lld ms\n", count, elapsed); \
-} while(0);
+} while(0)
 
 /* dict-benchmark [count] */
 int main(int argc, char **argv) {
@@ -1269,6 +1269,13 @@ int main(int argc, char **argv) {
         sdsfree(key);
     }
     end_benchmark("Random access of existing elements");
+
+    start_benchmark();
+    for (j = 0; j < count; j++) {
+        dictEntry *de = dictGetRandomKey(dict);
+        assert(de != NULL);
+    }
+    end_benchmark("Accessing random keys");
 
     start_benchmark();
     for (j = 0; j < count; j++) {

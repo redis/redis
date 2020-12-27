@@ -46,6 +46,7 @@ extern char **environ;
 
 #ifdef USE_OPENSSL
 extern SSL_CTX *redis_tls_ctx;
+extern SSL_CTX *redis_tls_client_ctx;
 #endif
 
 #define REDIS_SENTINEL_PORT 26379
@@ -468,7 +469,7 @@ struct redisCommand sentinelcmds[] = {
     {"client",clientCommand,-2,"admin random @connection",0,NULL,0,0,0,0,0},
     {"shutdown",shutdownCommand,-1,"admin",0,NULL,0,0,0,0,0},
     {"auth",authCommand,-2,"no-auth fast @connection",0,NULL,0,0,0,0,0},
-    {"hello",helloCommand,-2,"no-auth fast @connection",0,NULL,0,0,0,0,0},
+    {"hello",helloCommand,-1,"no-auth fast @connection",0,NULL,0,0,0,0,0},
     {"acl",aclCommand,-2,"admin",0,NULL,0,0,0,0,0,0},
     {"command",commandCommand,-1, "random @connection", 0,NULL,0,0,0,0,0,0}
 };
@@ -2077,7 +2078,7 @@ static int instanceLinkNegotiateTLS(redisAsyncContext *context) {
     (void) context;
 #else
     if (!redis_tls_ctx) return C_ERR;
-    SSL *ssl = SSL_new(redis_tls_ctx);
+    SSL *ssl = SSL_new(redis_tls_client_ctx ? redis_tls_client_ctx : redis_tls_ctx);
     if (!ssl) return C_ERR;
 
     if (redisInitiateSSL(&context->c, ssl) == REDIS_ERR) return C_ERR;
@@ -3465,7 +3466,7 @@ numargserr:
 /* SENTINEL INFO [section] */
 void sentinelInfoCommand(client *c) {
     if (c->argc > 2) {
-        addReply(c,shared.syntaxerr);
+        addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
 
@@ -3598,14 +3599,13 @@ void sentinelSetCommand(client *c) {
                     "Reconfiguration of scripts path is denied for "
                     "security reasons. Check the deny-scripts-reconfig "
                     "configuration directive in your Sentinel configuration");
-                return;
+                goto seterr;
             }
 
             if (strlen(value) && access(value,X_OK) == -1) {
                 addReplyError(c,
                     "Notification script seems non existing or non executable");
-                if (changes) sentinelFlushConfig();
-                return;
+                goto seterr;
             }
             sdsfree(ri->notification_script);
             ri->notification_script = strlen(value) ? sdsnew(value) : NULL;
@@ -3618,15 +3618,14 @@ void sentinelSetCommand(client *c) {
                     "Reconfiguration of scripts path is denied for "
                     "security reasons. Check the deny-scripts-reconfig "
                     "configuration directive in your Sentinel configuration");
-                return;
+                goto seterr;
             }
 
             if (strlen(value) && access(value,X_OK) == -1) {
                 addReplyError(c,
                     "Client reconfiguration script seems non existing or "
                     "non executable");
-                if (changes) sentinelFlushConfig();
-                return;
+                goto seterr;
             }
             sdsfree(ri->client_reconfig_script);
             ri->client_reconfig_script = strlen(value) ? sdsnew(value) : NULL;
@@ -3676,8 +3675,7 @@ void sentinelSetCommand(client *c) {
         } else {
             addReplyErrorFormat(c,"Unknown option or number of arguments for "
                                   "SENTINEL SET '%s'", option);
-            if (changes) sentinelFlushConfig();
-            return;
+            goto seterr;
         }
 
         /* Log the event. */
@@ -3703,9 +3701,11 @@ void sentinelSetCommand(client *c) {
     return;
 
 badfmt: /* Bad format errors */
-    if (changes) sentinelFlushConfig();
     addReplyErrorFormat(c,"Invalid argument '%s' for SENTINEL SET '%s'",
         (char*)c->argv[badarg]->ptr,option);
+seterr:
+    if (changes) sentinelFlushConfig();
+    return;
 }
 
 /* Our fake PUBLISH command: it is actually useful only to receive hello messages

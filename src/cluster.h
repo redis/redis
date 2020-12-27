@@ -40,7 +40,7 @@ typedef struct clusterLink {
     sds sndbuf;                 /* Packet send buffer */
     char *rcvbuf;               /* Packet reception buffer */
     size_t rcvbuf_len;          /* Used size of rcvbuf */
-    size_t rcvbuf_alloc;        /* Used size of rcvbuf */
+    size_t rcvbuf_alloc;        /* Allocated size of rcvbuf */
     struct clusterNode *node;   /* Node related to this link if any, or NULL */
 } clusterLink;
 
