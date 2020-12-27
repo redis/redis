@@ -469,7 +469,7 @@ struct redisCommand sentinelcmds[] = {
     {"client",clientCommand,-2,"admin random @connection",0,NULL,0,0,0,0,0},
     {"shutdown",shutdownCommand,-1,"admin",0,NULL,0,0,0,0,0},
     {"auth",authCommand,-2,"no-auth fast @connection",0,NULL,0,0,0,0,0},
-    {"hello",helloCommand,-2,"no-auth fast @connection",0,NULL,0,0,0,0,0},
+    {"hello",helloCommand,-1,"no-auth fast @connection",0,NULL,0,0,0,0,0},
     {"acl",aclCommand,-2,"admin",0,NULL,0,0,0,0,0,0},
     {"command",commandCommand,-1, "random @connection", 0,NULL,0,0,0,0,0,0}
 };

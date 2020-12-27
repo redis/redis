@@ -2820,18 +2820,24 @@ NULL
     }
 }
 
-/* HELLO <protocol-version> [AUTH <user> <password>] [SETNAME <name>] */
+/* HELLO [<protocol-version> [AUTH <user> <password>] [SETNAME <name>] ] */
 void helloCommand(client *c) {
-    long long ver;
+    long long ver = 0;
+    int next_arg = 1;
 
-    if (getLongLongFromObject(c->argv[1],&ver) != C_OK ||
-        ver < 2 || ver > 3)
-    {
-        addReplyError(c,"-NOPROTO unsupported protocol version");
-        return;
+    if (c->argc >= 2) {
+        if (getLongLongFromObjectOrReply(c, c->argv[next_arg++], &ver,
+            "Protocol version is not an integer or out of range") != C_OK) {
+            return;
+        }
+
+        if (ver < 2 || ver > 3) {
+            addReplyError(c,"-NOPROTO unsupported protocol version");
+            return;
+        }
     }
 
-    for (int j = 2; j < c->argc; j++) {
+    for (int j = next_arg; j < c->argc; j++) {
         int moreargs = (c->argc-1) - j;
         const char *opt = c->argv[j]->ptr;
         if (!strcasecmp(opt,"AUTH") && moreargs >= 2) {
@@ -2859,7 +2865,7 @@ void helloCommand(client *c) {
     }
 
     /* Let's switch to the specified RESP mode. */
-    c->resp = ver;
+    if (ver) c->resp = ver;
     addReplyMapLen(c,6 + !server.sentinel_mode);
 
     addReplyBulkCString(c,"server");
@@ -2869,7 +2875,7 @@ void helloCommand(client *c) {
     addReplyBulkCString(c,REDIS_VERSION);
 
     addReplyBulkCString(c,"proto");
-    addReplyLongLong(c,ver);
+    addReplyLongLong(c,c->resp);
 
     addReplyBulkCString(c,"id");
     addReplyLongLong(c,c->id);
