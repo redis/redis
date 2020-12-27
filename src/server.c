@@ -3689,10 +3689,11 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
     sdsmapchars(s, "\r\n", "  ",  2);
     if (c->cmd && c->cmd->proc == execCommand) {
         execCommandAbort(c, s);
+        sdsfree(s);
     } else {
+        /* The following frees 's'. */
         addReplyErrorSds(c, s);
     }
-    sdsfree(s);
 }
 
 /* Returns 1 for commands that may have key names in their arguments, but have

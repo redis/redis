@@ -366,10 +366,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
         lua_gettable(lua,-2);
         t = lua_type(lua,-1);
         if (t == LUA_TSTRING) {
-            sds err = sdsnew(lua_tostring(lua,-1));
-            sdsmapchars(err,"\r\n","  ",2);
-            addReplyErrorSds(c,sdscatprintf(sdsempty(),"-%s",err));
-            sdsfree(err);
+            addReplyErrorFormat(c,"-%s",lua_tostring(lua,-1));
             lua_pop(lua,2);
             return;
         }

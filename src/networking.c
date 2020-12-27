@@ -458,9 +458,11 @@ void addReplyError(client *c, const char *err) {
 }
 
 /* See addReplyErrorLength for expectations from the input string. */
+/* As a side effect the SDS string is freed. */
 void addReplyErrorSds(client *c, sds err) {
     addReplyErrorLength(c,err,sdslen(err));
     afterErrorReply(c,err,sdslen(err));
+    sdsfree(err);
 }
 
 /* See addReplyErrorLength for expectations from the formatted string.
