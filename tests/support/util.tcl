@@ -555,12 +555,6 @@ proc get_child_pid {idx} {
     return $child_pid
 }
 
-proc statsrstat {key r} {
-    if {[regexp "\r\n$key:(.*?)\r\n" [$r info stats] _ value]} {
-        set _ $value
-    }
-}
-
 proc cmdrstat {cmd r} {
     if {[regexp "\r\ncmdstat_$cmd:(.*?)\r\n" [$r info commandstats] _ value]} {
         set _ $value
