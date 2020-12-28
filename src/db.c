@@ -582,7 +582,7 @@ void signalFlushedDb(int dbid, int async) {
     }
 
     for (int j = startdb; j <= enddb; j++) {
-        touchWatchedKeysOnDirty(j, NULL);
+        touchAllWatchedKeysInDb(&server.db[j], NULL);
     }
 
     trackingInvalidateKeysOnFlush(async);
@@ -1347,9 +1347,9 @@ int dbSwapDatabases(long id1, long id2) {
      * Also the swapdb should make transaction fail if there is any
      * client watching keys */
     scanDatabaseForReadyLists(db1);
-    touchWatchedKeysOnDirty(id1, &id2);
+    touchAllWatchedKeysInDb(db1, db2);
     scanDatabaseForReadyLists(db2);
-    touchWatchedKeysOnDirty(id2, &id1);
+    touchAllWatchedKeysInDb(db2, db1);
     return C_OK;
 }
 

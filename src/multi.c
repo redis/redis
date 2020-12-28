@@ -378,18 +378,17 @@ void touchWatchedKey(redisDb *db, robj *key) {
  * It may happen in the following situations:
  * FLUSHDB, FLUSHALL, SWAPDB
  *
- * optionDb: for SWAPDB, the WATCH should be invalidated if
+ * replaced_with: for SWAPDB, the WATCH should be invalidated if
  * the key exists in either of them, and skipped only if it
- * doesn't exist in either. */
-void touchWatchedKeysOnDirty(long dbid, long *optionDb) {
+ * doesn't exist in both. */
+void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
     listIter li;
     listNode *ln;
     dictEntry *de;
 
-    redisDb *db = &server.db[dbid];
-    if (dictSize(db->watched_keys) == 0) return;
+    if (dictSize(emptied->watched_keys) == 0) return;
 
-    dictIterator *di = dictGetSafeIterator(db->watched_keys);
+    dictIterator *di = dictGetSafeIterator(emptied->watched_keys);
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
         list *clients = dictGetVal(de);
@@ -397,15 +396,10 @@ void touchWatchedKeysOnDirty(long dbid, long *optionDb) {
         listRewind(clients,&li);
         while((ln = listNext(&li))) {
             client *c = listNodeValue(ln);
-            if (optionDb) {
-                if ((dictFind(db->dict, key->ptr) != NULL) ||
-                    (dictFind(server.db[*optionDb].dict, key->ptr) != NULL)) {
-                    c->flags |= CLIENT_DIRTY_CAS;
-                }
-            } else {
-                if (dictFind(db->dict, key->ptr) != NULL) {
-                    c->flags |= CLIENT_DIRTY_CAS;
-                }
+            if (dictFind(emptied->dict, key->ptr)) {
+                c->flags |= CLIENT_DIRTY_CAS;
+            } else if (replaced_with && dictFind(replaced_with->dict, key->ptr)) {
+                c->flags |= CLIENT_DIRTY_CAS;
             }
         }
     }

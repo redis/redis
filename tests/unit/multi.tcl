@@ -121,18 +121,6 @@ start_server {tags {"multi"}} {
         r exec
     } {}
 
-    test {EXEC fail on WATCHed key modified (swapdb)} {
-        r select 0
-        r set k 1
-        r select 1
-        r set k 2
-        r watch k
-        r swapdb 0 1
-        r multi
-        r get k
-        r exec
-    } {}
-
     test {After successful EXEC key is no longer watched} {
         r set x 30
         r watch x
