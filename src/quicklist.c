@@ -66,7 +66,7 @@ static const size_t optimization_level[] = {4096, 8192, 16384, 32768, 65536};
 #else
 #define D(...)                                                                 \
     do {                                                                       \
-        printf("%s:%s:%d:\t", __FILE__, __FUNCTION__, __LINE__);               \
+        printf("%s:%s:%d:\t", __FILE__, __func__, __LINE__);               \
         printf(__VA_ARGS__);                                                   \
         printf("\n");                                                          \
     } while (0)
@@ -1508,7 +1508,7 @@ void quicklistBookmarksClear(quicklist *ql) {
 #include <stdint.h>
 #include <sys/time.h>
 
-#define assert(_e)                                                             \
+#define quicklistAssert(_e)                                                             \
     do {                                                                       \
         if (!(_e)) {                                                           \
             printf("\n\n=== ASSERTION FAILED ===\n");                          \
@@ -1529,7 +1529,7 @@ void quicklistBookmarksClear(quicklist *ql) {
 
 #define ERR(x, ...)                                                            \
     do {                                                                       \
-        printf("%s:%s:%d:\t", __FILE__, __FUNCTION__, __LINE__);               \
+        printf("%s:%s:%d:\t", __FILE__, __func__, __LINE__);               \
         printf("ERROR! " x "\n", __VA_ARGS__);                                 \
         err++;                                                                 \
     } while (0)
@@ -1614,7 +1614,7 @@ static int _ql_verify(quicklist *ql, uint32_t len, uint32_t count,
 
     ql_info(ql);
     if (len != ql->len) {
-        yell("quicklist length wrong: expected %d, got %u", len, ql->len);
+        yell("quicklist length wrong: expected %d, got %lu", len, ql->len);
         errors++;
     }
 
@@ -1670,7 +1670,7 @@ static int _ql_verify(quicklist *ql, uint32_t len, uint32_t count,
                 if (node->encoding != QUICKLIST_NODE_ENCODING_RAW) {
                     yell("Incorrect compression: node %d is "
                          "compressed at depth %d ((%u, %u); total "
-                         "nodes: %u; size: %u; recompress: %d)",
+                         "nodes: %lu; size: %u; recompress: %d)",
                          at, ql->compress, low_raw, high_raw, ql->len, node->sz,
                          node->recompress);
                     errors++;
@@ -1680,7 +1680,7 @@ static int _ql_verify(quicklist *ql, uint32_t len, uint32_t count,
                     !node->attempted_compress) {
                     yell("Incorrect non-compression: node %d is NOT "
                          "compressed at depth %d ((%u, %u); total "
-                         "nodes: %u; size: %u; recompress: %d; attempted: %d)",
+                         "nodes: %lu; size: %u; recompress: %d; attempted: %d)",
                          at, ql->compress, low_raw, high_raw, ql->len, node->sz,
                          node->recompress, node->attempted_compress);
                     errors++;
@@ -1858,8 +1858,8 @@ int quicklistTest(int argc, char *argv[]) {
             long long lv;
             ql_info(ql);
             quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv);
-            assert(data != NULL);
-            assert(sz == 32);
+            quicklistAssert(data != NULL);
+            quicklistAssert(sz == 32);
             if (strcmp(populate, (char *)data))
                 ERR("Pop'd value (%.*s) didn't equal original value (%s)", sz,
                     data, populate);
@@ -1876,8 +1876,8 @@ int quicklistTest(int argc, char *argv[]) {
             long long lv;
             ql_info(ql);
             quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv);
-            assert(data == NULL);
-            assert(lv == 55513);
+            quicklistAssert(data == NULL);
+            quicklistAssert(lv == 55513);
             ql_verify(ql, 0, 0, 0, 0);
             quicklistRelease(ql);
         }
@@ -1892,9 +1892,9 @@ int quicklistTest(int argc, char *argv[]) {
                 unsigned int sz;
                 long long lv;
                 int ret = quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv);
-                assert(ret == 1);
-                assert(data != NULL);
-                assert(sz == 32);
+                quicklistAssert(ret == 1);
+                quicklistAssert(data != NULL);
+                quicklistAssert(sz == 32);
                 if (strcmp(genstr("hello", 499 - i), (char *)data))
                     ERR("Pop'd value (%.*s) didn't equal original value (%s)",
                         sz, data, genstr("hello", 499 - i));
@@ -1914,16 +1914,16 @@ int quicklistTest(int argc, char *argv[]) {
                 long long lv;
                 int ret = quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv);
                 if (i < 500) {
-                    assert(ret == 1);
-                    assert(data != NULL);
-                    assert(sz == 32);
+                    quicklistAssert(ret == 1);
+                    quicklistAssert(data != NULL);
+                    quicklistAssert(sz == 32);
                     if (strcmp(genstr("hello", 499 - i), (char *)data))
                         ERR("Pop'd value (%.*s) didn't equal original value "
                             "(%s)",
                             sz, data, genstr("hello", 499 - i));
                     zfree(data);
                 } else {
-                    assert(ret == 0);
+                    quicklistAssert(ret == 0);
                 }
             }
             ql_verify(ql, 0, 0, 0, 0);
@@ -2706,7 +2706,7 @@ int quicklistTest(int argc, char *argv[]) {
                             if (node->encoding != QUICKLIST_NODE_ENCODING_RAW) {
                                 ERR("Incorrect compression: node %d is "
                                     "compressed at depth %d ((%u, %u); total "
-                                    "nodes: %u; size: %u)",
+                                    "nodes: %lu; size: %u)",
                                     at, depth, low_raw, high_raw, ql->len,
                                     node->sz);
                             }
@@ -2714,7 +2714,7 @@ int quicklistTest(int argc, char *argv[]) {
                             if (node->encoding != QUICKLIST_NODE_ENCODING_LZF) {
                                 ERR("Incorrect non-compression: node %d is NOT "
                                     "compressed at depth %d ((%u, %u); total "
-                                    "nodes: %u; size: %u; attempted: %d)",
+                                    "nodes: %lu; size: %u; attempted: %d)",
                                     at, depth, low_raw, high_raw, ql->len,
                                     node->sz, node->attempted_compress);
                             }
@@ -2741,23 +2741,23 @@ int quicklistTest(int argc, char *argv[]) {
         quicklistPushTail(ql, "3", 1);
         quicklistPushTail(ql, "4", 1);
         quicklistPushTail(ql, "5", 1);
-        assert(ql->len==5);
+        quicklistAssert(ql->len==5);
         /* add two bookmarks, one pointing to the node before the last. */
-        assert(quicklistBookmarkCreate(&ql, "_dummy", ql->head->next));
-        assert(quicklistBookmarkCreate(&ql, "_test", ql->tail->prev));
+        quicklistAssert(quicklistBookmarkCreate(&ql, "_dummy", ql->head->next));
+        quicklistAssert(quicklistBookmarkCreate(&ql, "_test", ql->tail->prev));
         /* test that the bookmark returns the right node, delete it and see that the bookmark points to the last node */
-        assert(quicklistBookmarkFind(ql, "_test") == ql->tail->prev);
-        assert(quicklistDelRange(ql, -2, 1));
-        assert(quicklistBookmarkFind(ql, "_test") == ql->tail);
+        quicklistAssert(quicklistBookmarkFind(ql, "_test") == ql->tail->prev);
+        quicklistAssert(quicklistDelRange(ql, -2, 1));
+        quicklistAssert(quicklistBookmarkFind(ql, "_test") == ql->tail);
         /* delete the last node, and see that the bookmark was deleted. */
-        assert(quicklistDelRange(ql, -1, 1));
-        assert(quicklistBookmarkFind(ql, "_test") == NULL);
+        quicklistAssert(quicklistDelRange(ql, -1, 1));
+        quicklistAssert(quicklistBookmarkFind(ql, "_test") == NULL);
         /* test that other bookmarks aren't affected */
-        assert(quicklistBookmarkFind(ql, "_dummy") == ql->head->next);
-        assert(quicklistBookmarkFind(ql, "_missing") == NULL);
-        assert(ql->len==3);
+        quicklistAssert(quicklistBookmarkFind(ql, "_dummy") == ql->head->next);
+        quicklistAssert(quicklistBookmarkFind(ql, "_missing") == NULL);
+        quicklistAssert(ql->len==3);
         quicklistBookmarksClear(ql); /* for coverage */
-        assert(quicklistBookmarkFind(ql, "_dummy") == NULL);
+        quicklistAssert(quicklistBookmarkFind(ql, "_dummy") == NULL);
         quicklistRelease(ql);
     }
 
@@ -2766,19 +2766,19 @@ int quicklistTest(int argc, char *argv[]) {
         quicklist *ql = quicklistNew(1, 0);
         quicklistPushHead(ql, "1", 1);
         for (i=0; i<QL_MAX_BM; i++)
-            assert(quicklistBookmarkCreate(&ql, genstr("",i), ql->head));
+            quicklistAssert(quicklistBookmarkCreate(&ql, genstr("",i), ql->head));
         /* when all bookmarks are used, creation fails */
-        assert(!quicklistBookmarkCreate(&ql, "_test", ql->head));
+        quicklistAssert(!quicklistBookmarkCreate(&ql, "_test", ql->head));
         /* delete one and see that we can now create another */
-        assert(quicklistBookmarkDelete(ql, "0"));
-        assert(quicklistBookmarkCreate(&ql, "_test", ql->head));
+        quicklistAssert(quicklistBookmarkDelete(ql, "0"));
+        quicklistAssert(quicklistBookmarkCreate(&ql, "_test", ql->head));
         /* delete one and see that the rest survive */
-        assert(quicklistBookmarkDelete(ql, "_test"));
+        quicklistAssert(quicklistBookmarkDelete(ql, "_test"));
         for (i=1; i<QL_MAX_BM; i++)
-            assert(quicklistBookmarkFind(ql, genstr("",i)) == ql->head);
+            quicklistAssert(quicklistBookmarkFind(ql, genstr("",i)) == ql->head);
         /* make sure the deleted ones are indeed gone */
-        assert(!quicklistBookmarkFind(ql, "0"));
-        assert(!quicklistBookmarkFind(ql, "_test"));
+        quicklistAssert(!quicklistBookmarkFind(ql, "0"));
+        quicklistAssert(!quicklistBookmarkFind(ql, "_test"));
         quicklistRelease(ql);
     }
 
