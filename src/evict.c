@@ -564,7 +564,7 @@ int performEvictions(void) {
                         no_evict_key = 0;
                     }
                 }
-                if (!no_evict_key) break; /* No keys to evict. */
+                if (no_evict_key) break; /* No keys to evict. */
 
                 /* Go backward from best to worst element to evict. */
                 for (k = EVPOOL_SIZE-1; k >= 0; k--) {
