@@ -249,7 +249,7 @@ int geoAppendIfWithinShape(geoArray *ga, GeoShape *shape, double score, sds memb
  * using multiple queries to the sorted set, that we later need to sort
  * via qsort. Similarly we need to be able to reject points outside the search
  * radius area ASAP in order to allocate and process more points than needed. */
-int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geoArray *ga) {
+int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geoArray *ga, unsigned long limit) {
     /* minex 0 = include min in range; maxex 1 = exclude max in range */
     /* That's: min <= val < max */
     zrangespec range = { .min = min, .max = max, .minex = 0, .maxex = 1 };
@@ -283,6 +283,7 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
                                       sdsnewlen(vstr,vlen);
             if (geoAppendIfWithinShape(ga,shape,score,member)
                 == C_ERR) sdsfree(member);
+            if (ga->used && limit && ga->used >= limit) break;
             zzlNext(zl, &eptr, &sptr);
         }
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
@@ -304,6 +305,7 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
             ele = sdsdup(ele);
             if (geoAppendIfWithinShape(ga,shape,ln->score,ele)
                 == C_ERR) sdsfree(ele);
+            if (ga->used && limit && ga->used >= limit) break;
             ln = ln->level[0].forward;
         }
     }
@@ -342,15 +344,15 @@ void scoresOfGeoHashBox(GeoHashBits hash, GeoHashFix52Bits *min, GeoHashFix52Bit
 /* Obtain all members between the min/max of this geohash bounding box.
  * Populate a geoArray of GeoPoints by calling geoGetPointsInRange().
  * Return the number of points added to the array. */
-int membersOfGeoHashBox(robj *zobj, GeoHashBits hash, geoArray *ga, GeoShape *shape) {
+int membersOfGeoHashBox(robj *zobj, GeoHashBits hash, geoArray *ga, GeoShape *shape, unsigned long limit) {
     GeoHashFix52Bits min, max;
 
     scoresOfGeoHashBox(hash,&min,&max);
-    return geoGetPointsInRange(zobj, min, max, shape, ga);
+    return geoGetPointsInRange(zobj, min, max, shape, ga, limit);
 }
 
 /* Search all eight neighbors + self geohash box */
-int membersOfAllNeighbors(robj *zobj, GeoHashRadius n, GeoShape *shape, geoArray *ga) {
+int membersOfAllNeighbors(robj *zobj, GeoHashRadius n, GeoShape *shape, geoArray *ga, unsigned long limit) {
     GeoHashBits neighbors[9];
     unsigned int i, count = 0, last_processed = 0;
     int debugmsg = 0;
@@ -401,7 +403,8 @@ int membersOfAllNeighbors(robj *zobj, GeoHashRadius n, GeoShape *shape, geoArray
                 D("Skipping processing of %d, same as previous\n",i);
             continue;
         }
-        count += membersOfGeoHashBox(zobj, neighbors[i], ga, shape);
+        if (ga->used && limit && ga->used >= limit) break;
+        count += membersOfGeoHashBox(zobj, neighbors[i], ga, shape, limit);
         last_processed = i;
     }
     return count;
@@ -537,6 +540,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
     int frommember = 0, fromloc = 0, byradius = 0, bybox = 0;
     int sort = SORT_NONE;
     long long count = 0;
+    unsigned long limit = 0;
     if (c->argc > base_args) {
         int remaining = c->argc - base_args;
         for (int i = 0; i < remaining; i++) {
@@ -554,9 +558,11 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
             } else if (!strcasecmp(arg, "count") && (i+1) < remaining) {
                 if (getLongLongFromObjectOrReply(c, c->argv[base_args+i+1],
                     &count, NULL) != C_OK) return;
-                if (count <= 0) {
-                    addReplyError(c,"COUNT must be > 0");
+                if (count == 0) {
+                    addReplyError(c,"COUNT must be greater than 0 or less than 0");
                     return;
+                } else if (count < 0) {
+                    limit = -count;
                 }
                 i++;
             } else if (!strcasecmp(arg, "store") &&
@@ -657,7 +663,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
 
     /* Search the zset for all matching points */
     geoArray *ga = geoArrayCreate();
-    membersOfAllNeighbors(zobj, georadius, &shape, ga);
+    membersOfAllNeighbors(zobj, georadius, &shape, ga, limit);
 
     /* If no matching results, the user gets an empty reply. */
     if (ga->used == 0 && storekey == NULL) {
@@ -667,8 +673,8 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
     }
 
     long result_length = ga->used;
-    long returned_items = (count == 0 || result_length < count) ?
-                          result_length : count;
+    long returned_items = (count == 0 || result_length < llabs(count)) ?
+                          result_length : llabs(count);
     long option_length = 0;
 
     /* Process [optional] requested sorting */
