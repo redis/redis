@@ -1282,14 +1282,14 @@ void scriptingInit(int setup) {
 
 /* Release resources related to Lua scripting.
  * This function is used in order to reset the scripting environment. */
-void scriptingRelease(void) {
-    dictRelease(server.lua_scripts);
+void scriptingRelease(int async) {
+    async ? freeLuaScriptsAsync(server.lua_scripts) : dictRelease(server.lua_scripts);
     server.lua_scripts_mem = 0;
     lua_close(server.lua);
 }
 
-void scriptingReset(void) {
-    scriptingRelease();
+void scriptingReset(int async) {
+    scriptingRelease(async);
     scriptingInit(0);
 }
 
@@ -1713,6 +1713,9 @@ void scriptCommand(client *c) {
 "    Return information about the existence of the scripts in the script cache.",
 "FLUSH",
 "    Flush the Lua scripts cache. Very dangerous on replicas.",
+"    SCRIPT FLUSH: Determine sync or async according to the value of lazyfree-lazy-user-flush.",
+"    SCRIPT FLUSH ASYNC: Always flushes the cache in an async manner.",
+"    SCRIPT FLUSH SYNC: Always flushes the cache in a sync manner.",
 "KILL",
 "    Kill the currently executing Lua script.",
 "LOAD <script>",
@@ -1720,8 +1723,19 @@ void scriptCommand(client *c) {
 NULL
         };
         addReplyHelp(c, help);
-    } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"flush")) {
-        scriptingReset();
+    } else if (c->argc >= 2 && !strcasecmp(c->argv[1]->ptr,"flush")) {
+        int async = 0;
+        if (c->argc == 3 && !strcasecmp(c->argv[2]->ptr,"sync")) {
+            async = 0;
+        } else if (c->argc == 3 && !strcasecmp(c->argv[2]->ptr,"async")) {
+            async = 1;
+        } else if (c->argc == 2) {
+            async = server.lazyfree_lazy_user_flush ? 1 : 0;
+        } else {
+            addReplyError(c,"SCRIPT FLUSH only support SYNC|ASYNC option");
+            return;
+        }
+        scriptingReset(async);
         addReply(c,shared.ok);
         replicationScriptCacheFlush();
         server.dirty++; /* Propagating this command is a good idea. */

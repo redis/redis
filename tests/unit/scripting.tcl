@@ -330,6 +330,15 @@ start_server {tags {"scripting"}} {
         set e
     } {NOSCRIPT*}
 
+    test {SCRIPTING FLUSH ASYNC} {
+        for {set j 0} {$j < 100} {incr j} {
+            r script load "return $j"
+        }
+        assert { [string match "*number_of_cached_scripts:100*" [r info Memory]] }
+        r script flush async
+        assert { [string match "*number_of_cached_scripts:0*" [r info Memory]] }
+    }
+
     test {SCRIPT EXISTS - can detect already defined scripts?} {
         r eval "return 1+1" 0
         r script exists a27e7e8a43702b7046d4f6a7ccf5b60cef6b9bd9 a27e7e8a43702b7046d4f6a7ccf5b60cef6b9bda
