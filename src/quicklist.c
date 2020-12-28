@@ -1000,7 +1000,7 @@ int quicklistDelRange(quicklist *quicklist, const long start,
              * can just delete the entire node without ziplist math. */
             delete_entire_node = 1;
             del = node->count;
-        } else if (entry.offset >= 0 && extent >= node->count) {
+        } else if (entry.offset >= 0 && extent >= node->count - entry.offset) {
             /* If deleting more nodes after this one, calculate delete based
              * on size of current node. */
             del = node->count - entry.offset;
