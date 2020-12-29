@@ -1830,12 +1830,12 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
 
     /* sentinel unique ID. */
     line = sdscatprintf(sdsempty(), "sentinel myid %s", sentinel.myid);
-    rewriteConfigRewriteLine(state,"sentinel",line,1);
+    rewriteConfigRewriteLine(state,"sentinel myid",line,1);
 
     /* sentinel deny-scripts-reconfig. */
     line = sdscatprintf(sdsempty(), "sentinel deny-scripts-reconfig %s",
         sentinel.deny_scripts_reconfig ? "yes" : "no");
-    rewriteConfigRewriteLine(state,"sentinel",line,
+    rewriteConfigRewriteLine(state,"sentinel deny-scripts-reconfig",line,
         sentinel.deny_scripts_reconfig != SENTINEL_DEFAULT_DENY_SCRIPTS_RECONFIG);
 
     /* For every master emit a "sentinel monitor" config entry. */
@@ -1850,14 +1850,14 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
         line = sdscatprintf(sdsempty(),"sentinel monitor %s %s %d %d",
             master->name, master_addr->ip, master_addr->port,
             master->quorum);
-        rewriteConfigRewriteLine(state,"sentinel",line,1);
+        rewriteConfigRewriteLine(state,"sentinel monitor",line,1);
 
         /* sentinel down-after-milliseconds */
         if (master->down_after_period != SENTINEL_DEFAULT_DOWN_AFTER) {
             line = sdscatprintf(sdsempty(),
                 "sentinel down-after-milliseconds %s %ld",
                 master->name, (long) master->down_after_period);
-            rewriteConfigRewriteLine(state,"sentinel",line,1);
+            rewriteConfigRewriteLine(state,"sentinel down-after-milliseconds",line,1);
         }
 
         /* sentinel failover-timeout */
@@ -1865,7 +1865,7 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
             line = sdscatprintf(sdsempty(),
                 "sentinel failover-timeout %s %ld",
                 master->name, (long) master->failover_timeout);
-            rewriteConfigRewriteLine(state,"sentinel",line,1);
+            rewriteConfigRewriteLine(state,"sentinel failover-timeout",line,1);
         }
 
         /* sentinel parallel-syncs */
@@ -1873,7 +1873,7 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
             line = sdscatprintf(sdsempty(),
                 "sentinel parallel-syncs %s %d",
                 master->name, master->parallel_syncs);
-            rewriteConfigRewriteLine(state,"sentinel",line,1);
+            rewriteConfigRewriteLine(state,"sentinel parallel-syncs",line,1);
         }
 
         /* sentinel notification-script */
@@ -1881,7 +1881,7 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
             line = sdscatprintf(sdsempty(),
                 "sentinel notification-script %s %s",
                 master->name, master->notification_script);
-            rewriteConfigRewriteLine(state,"sentinel",line,1);
+            rewriteConfigRewriteLine(state,"sentinel notification-script",line,1);
         }
 
         /* sentinel client-reconfig-script */
@@ -1889,7 +1889,7 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
             line = sdscatprintf(sdsempty(),
                 "sentinel client-reconfig-script %s %s",
                 master->name, master->client_reconfig_script);
-            rewriteConfigRewriteLine(state,"sentinel",line,1);
+            rewriteConfigRewriteLine(state,"sentinel client-reconfig-script",line,1);
         }
 
         /* sentinel auth-pass & auth-user */
@@ -1897,27 +1897,27 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
             line = sdscatprintf(sdsempty(),
                 "sentinel auth-pass %s %s",
                 master->name, master->auth_pass);
-            rewriteConfigRewriteLine(state,"sentinel",line,1);
+            rewriteConfigRewriteLine(state,"sentinel auth-pass",line,1);
         }
 
         if (master->auth_user) {
             line = sdscatprintf(sdsempty(),
                 "sentinel auth-user %s %s",
                 master->name, master->auth_user);
-            rewriteConfigRewriteLine(state,"sentinel",line,1);
+            rewriteConfigRewriteLine(state,"sentinel auth-user",line,1);
         }
 
         /* sentinel config-epoch */
         line = sdscatprintf(sdsempty(),
             "sentinel config-epoch %s %llu",
             master->name, (unsigned long long) master->config_epoch);
-        rewriteConfigRewriteLine(state,"sentinel",line,1);
+        rewriteConfigRewriteLine(state,"sentinel config-epoch",line,1);
 
         /* sentinel leader-epoch */
         line = sdscatprintf(sdsempty(),
             "sentinel leader-epoch %s %llu",
             master->name, (unsigned long long) master->leader_epoch);
-        rewriteConfigRewriteLine(state,"sentinel",line,1);
+        rewriteConfigRewriteLine(state,"sentinel leader-epoch",line,1);
 
         /* sentinel known-slave */
         di2 = dictGetIterator(master->slaves);
@@ -1937,7 +1937,7 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
             line = sdscatprintf(sdsempty(),
                 "sentinel known-replica %s %s %d",
                 master->name, slave_addr->ip, slave_addr->port);
-            rewriteConfigRewriteLine(state,"sentinel",line,1);
+            rewriteConfigRewriteLine(state,"sentinel known-replica",line,1);
         }
         dictReleaseIterator(di2);
 
@@ -1949,7 +1949,7 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
             line = sdscatprintf(sdsempty(),
                 "sentinel known-sentinel %s %s %d %s",
                 master->name, ri->addr->ip, ri->addr->port, ri->runid);
-            rewriteConfigRewriteLine(state,"sentinel",line,1);
+            rewriteConfigRewriteLine(state,"sentinel known-sentinel",line,1);
         }
         dictReleaseIterator(di2);
 
@@ -1961,7 +1961,7 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
             line = sdscatprintf(sdsempty(),
                 "sentinel rename-command %s %s %s",
                 master->name, oldname, newname);
-            rewriteConfigRewriteLine(state,"sentinel",line,1);
+            rewriteConfigRewriteLine(state,"sentinel rename-command",line,1);
         }
         dictReleaseIterator(di2);
     }
@@ -1969,32 +1969,32 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
     /* sentinel current-epoch is a global state valid for all the masters. */
     line = sdscatprintf(sdsempty(),
         "sentinel current-epoch %llu", (unsigned long long) sentinel.current_epoch);
-    rewriteConfigRewriteLine(state,"sentinel",line,1);
+    rewriteConfigRewriteLine(state,"sentinel current-epoch",line,1);
 
     /* sentinel announce-ip. */
     if (sentinel.announce_ip) {
         line = sdsnew("sentinel announce-ip ");
         line = sdscatrepr(line, sentinel.announce_ip, sdslen(sentinel.announce_ip));
-        rewriteConfigRewriteLine(state,"sentinel",line,1);
+        rewriteConfigRewriteLine(state,"sentinel announce-ip",line,1);
     }
 
     /* sentinel announce-port. */
     if (sentinel.announce_port) {
         line = sdscatprintf(sdsempty(),"sentinel announce-port %d",
                             sentinel.announce_port);
-        rewriteConfigRewriteLine(state,"sentinel",line,1);
+        rewriteConfigRewriteLine(state,"sentinel announce-port",line,1);
     }
 
     /* sentinel sentinel-user. */
     if (sentinel.sentinel_auth_user) {
         line = sdscatprintf(sdsempty(), "sentinel sentinel-user %s", sentinel.sentinel_auth_user);
-        rewriteConfigRewriteLine(state,"sentinel",line,1);
+        rewriteConfigRewriteLine(state,"sentinel sentinel-user",line,1);
     }
 
     /* sentinel sentinel-pass. */
     if (sentinel.sentinel_auth_pass) {
         line = sdscatprintf(sdsempty(), "sentinel sentinel-pass %s", sentinel.sentinel_auth_pass);
-        rewriteConfigRewriteLine(state,"sentinel",line,1);
+        rewriteConfigRewriteLine(state,"sentinel sentinel-pass",line,1);
     }
 
 
