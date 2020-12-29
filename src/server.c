@@ -3529,7 +3529,7 @@ void call(client *c, int flags) {
      * We leverage a static variable (prev_err_count) to retain
      * the counter across nested function calls and avoid logging
      * the same error twice. */
-    if ((server.stat_total_error_replies - prev_err_count)>0) {
+    if ((server.stat_total_error_replies - prev_err_count) > 0) {
         real_cmd->failed_calls++;
     }
 
@@ -3986,14 +3986,14 @@ int processCommand(client *c) {
 
 /* ====================== Error lookup and execution ===================== */
 
-void incrementError(const char* fullerr, size_t namelen) {
+void incrementErrorCount(const char* fullerr, size_t namelen) {
     struct redisError *error = raxFind(server.errors,(unsigned char*)fullerr,namelen);
     if (error == raxNotFound) {
         error = zmalloc(sizeof(*error));
         error->count = 0;
         raxInsert(server.errors,(unsigned char*)fullerr,namelen,error,NULL);
     }
-    if (error) error->count++;
+    error->count++;
 }
 
 /*================================== Shutdown =============================== */
@@ -4941,7 +4941,7 @@ sds genRedisInfoString(const char *section) {
         di = dictGetSafeIterator(server.commands);
         while((de = dictNext(di)) != NULL) {
             c = (struct redisCommand *) dictGetVal(de);
-            if (!c->calls && !c->failed_calls &&!c->rejected_calls) 
+            if (!c->calls && !c->failed_calls && !c->rejected_calls)
                 continue;
             info = sdscatprintf(info,
                 "cmdstat_%s:calls=%lld,usec=%lld,usec_per_call=%.2f"
@@ -4962,7 +4962,6 @@ sds genRedisInfoString(const char *section) {
         struct redisError *e;
         while(raxNext(&ri)) {
             e = (struct redisError *) ri.data;
-            if (!e->count) continue;
             info = sdscatprintf(info,
                 "errorstat_%.*s:count=%lld\r\n",
                 (int)ri.key_len, ri.key, e->count);
