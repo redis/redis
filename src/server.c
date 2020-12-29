@@ -3986,7 +3986,7 @@ int processCommand(client *c) {
 
 /* ====================== Error lookup and execution ===================== */
 
-void incrementErrorCount(const char* fullerr, size_t namelen) {
+void incrementErrorCount(const char *fullerr, size_t namelen) {
     struct redisError *error = raxFind(server.errors,(unsigned char*)fullerr,namelen);
     if (error == raxNotFound) {
         error = zmalloc(sizeof(*error));
