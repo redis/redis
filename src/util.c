@@ -749,9 +749,8 @@ sds getAbsolutePath(char *filename) {
  * Gets the proper timezone in a more portable fashion
  * i.e timezone variables are linux specific.
  */
-
 unsigned long getTimeZone(void) {
-#ifdef __linux__
+#if defined(__linux__) || defined(__sun)
     return timezone;
 #else
     struct timeval tv;

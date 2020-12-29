@@ -102,6 +102,42 @@ start_server {
         }
     }
 
+    test {XADD with MAXLEN option and the '=' argument} {
+        r DEL mystream
+        for {set j 0} {$j < 1000} {incr j} {
+            if {rand() < 0.9} {
+                r XADD mystream MAXLEN = 5 * xitem $j
+            } else {
+                r XADD mystream MAXLEN = 5 * yitem $j
+            }
+        }
+        assert {[r XLEN mystream] == 5}
+    }
+
+    test {XADD with MAXLEN option and the '~' argument} {
+        r DEL mystream
+        for {set j 0} {$j < 1000} {incr j} {
+            if {rand() < 0.9} {
+                r XADD mystream MAXLEN ~ 555 * xitem $j
+            } else {
+                r XADD mystream MAXLEN ~ 555 * yitem $j
+            }
+        }
+        assert {[r XLEN mystream] == 600}
+    }
+
+    test {XADD with NOMKSTREAM option} {
+        r DEL mystream
+        assert_equal "" [r XADD mystream NOMKSTREAM * item 1 value a]
+        assert_equal 0 [r EXISTS mystream]
+        r XADD mystream * item 1 value a
+        r XADD mystream NOMKSTREAM * item 2 value b
+        assert_equal 2 [r XLEN mystream]
+        set items [r XRANGE mystream - +]
+        assert_equal [lindex $items 0 1] {item 1 value a}
+        assert_equal [lindex $items 1 1] {item 2 value b}
+    }
+
     test {XADD mass insertion and XLEN} {
         r DEL mystream
         r multi
@@ -154,6 +190,32 @@ start_server {
 
     test {XREVRANGE returns the reverse of XRANGE} {
         assert {[r xrange mystream - +] == [lreverse [r xrevrange mystream + -]]}
+    }
+
+    test {XRANGE exclusive ranges} {
+        set ids {0-1 0-18446744073709551615 1-0 42-0 42-42
+                 18446744073709551615-18446744073709551614
+                 18446744073709551615-18446744073709551615}
+        set total [llength $ids]
+        r multi
+        r DEL vipstream
+        foreach id $ids {
+            r XADD vipstream $id foo bar
+        }
+        r exec
+        assert {[llength [r xrange vipstream - +]] == $total}
+        assert {[llength [r xrange vipstream ([lindex $ids 0] +]] == $total-1}
+        assert {[llength [r xrange vipstream - ([lindex $ids $total-1]]] == $total-1}
+        assert {[llength [r xrange vipstream (0-1 (1-0]] == 1}
+        assert {[llength [r xrange vipstream (1-0 (42-42]] == 1}
+        catch {r xrange vipstream (- +} e
+        assert_match {ERR*} $e
+        catch {r xrange vipstream - (+} e
+        assert_match {ERR*} $e
+        catch {r xrange vipstream (18446744073709551615-18446744073709551615 +} e
+        assert_match {ERR*} $e
+        catch {r xrange vipstream - (0-0} e
+        assert_match {ERR*} $e
     }
 
     test {XREAD with non empty stream} {
@@ -366,6 +428,27 @@ start_server {
         r XADD x * f2 v2
         assert_equal [r XRANGE x - +] {{2577343934890-18446744073709551615 {f v}} {2577343934891-0 {f2 v2}}}
     }
+
+    test {XTRIM with MAXLEN option basic test} {
+        r DEL mystream
+        for {set j 0} {$j < 1000} {incr j} {
+            if {rand() < 0.9} {
+                r XADD mystream * xitem $j
+            } else {
+                r XADD mystream * yitem $j
+            }
+        }
+        r XTRIM mystream MAXLEN 666
+        assert {[r XLEN mystream] == 666}
+        r XTRIM mystream MAXLEN = 555
+        assert {[r XLEN mystream] == 555}
+        r XTRIM mystream MAXLEN ~ 444
+        assert {[r XLEN mystream] == 500}
+        r XTRIM mystream MAXLEN ~ 400
+        assert {[r XLEN mystream] == 400}
+    }
+
+    
 }
 
 start_server {tags {"stream"} overrides {appendonly yes}} {

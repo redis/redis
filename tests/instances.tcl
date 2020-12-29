@@ -76,8 +76,10 @@ proc spawn_instance {type base_port count {conf {}}} {
             puts $cfg "tls-replication yes"
             puts $cfg "tls-cluster yes"
             puts $cfg "port 0"
-            puts $cfg [format "tls-cert-file %s/../../tls/redis.crt" [pwd]]
-            puts $cfg [format "tls-key-file %s/../../tls/redis.key" [pwd]]
+            puts $cfg [format "tls-cert-file %s/../../tls/server.crt" [pwd]]
+            puts $cfg [format "tls-key-file %s/../../tls/server.key" [pwd]]
+            puts $cfg [format "tls-client-cert-file %s/../../tls/client.crt" [pwd]]
+            puts $cfg [format "tls-client-key-file %s/../../tls/client.key" [pwd]]
             puts $cfg [format "tls-dh-params-file %s/../../tls/redis.dh" [pwd]]
             puts $cfg [format "tls-ca-cert-file %s/../../tls/ca.crt" [pwd]]
             puts $cfg "loglevel debug"
@@ -155,7 +157,7 @@ proc log_crashes {} {
 
     set logs [glob */err.txt]
     foreach log $logs {
-        set res [find_valgrind_errors $log]
+        set res [find_valgrind_errors $log true]
         if {$res != ""} {
             puts $res
             incr ::failed
@@ -234,8 +236,8 @@ proc parse_options {} {
             package require tls 1.6
             ::tls::init \
                 -cafile "$::tlsdir/ca.crt" \
-                -certfile "$::tlsdir/redis.crt" \
-                -keyfile "$::tlsdir/redis.key"
+                -certfile "$::tlsdir/client.crt" \
+                -keyfile "$::tlsdir/client.key"
             set ::tls 1
         } elseif {$opt eq "--help"} {
             puts "--single <pattern>      Only runs tests specified by pattern."
@@ -606,3 +608,16 @@ proc restart_instance {type id} {
     }
 }
 
+proc redis_deferring_client {type id} {
+    set port [get_instance_attrib $type $id port]
+    set host [get_instance_attrib $type $id host]
+    set client [redis $host $port 1 $::tls]
+    return $client
+}
+
+proc redis_client {type id} {
+    set port [get_instance_attrib $type $id port]
+    set host [get_instance_attrib $type $id host]
+    set client [redis $host $port 0 $::tls]
+    return $client
+}

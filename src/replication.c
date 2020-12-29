@@ -57,7 +57,7 @@ int RDBGeneratedByReplication = 0;
  * IP address and its listening port which is more clear for the user, for
  * example: "Closing connection with replica 10.1.2.3:6380". */
 char *replicationGetSlaveName(client *c) {
-    static char buf[NET_PEER_ID_LEN];
+    static char buf[NET_ADDR_STR_LEN];
     char ip[NET_IP_STR_LEN];
 
     ip[0] = '\0';
@@ -102,7 +102,7 @@ int bg_unlink(const char *filename) {
             errno = old_errno;
             return -1;
         }
-        bioCreateBackgroundJob(BIO_CLOSE_FILE,(void*)(long)fd,NULL,NULL);
+        bioCreateCloseJob(fd);
         return 0; /* Success. */
     }
 }
@@ -715,7 +715,7 @@ void syncCommand(client *c) {
     /* Refuse SYNC requests if we are a slave but the link with our master
      * is not ok... */
     if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED) {
-        addReplySds(c,sdsnew("-NOMASTERLINK Can't SYNC while not connected with my master\r\n"));
+        addReplyError(c,"-NOMASTERLINK Can't SYNC while not connected with my master");
         return;
     }
 
@@ -826,18 +826,16 @@ void syncCommand(client *c) {
 
     /* CASE 3: There is no BGSAVE is progress. */
     } else {
-        if (server.repl_diskless_sync && (c->slave_capa & SLAVE_CAPA_EOF)) {
+        if (server.repl_diskless_sync && (c->slave_capa & SLAVE_CAPA_EOF) &&
+            server.repl_diskless_sync_delay)
+        {
             /* Diskless replication RDB child is created inside
              * replicationCron() since we want to delay its start a
              * few seconds to wait for more slaves to arrive. */
-            if (server.repl_diskless_sync_delay)
-                serverLog(LL_NOTICE,"Delay next BGSAVE for diskless SYNC");
-            else
-                startBgsaveForReplication(c->slave_capa);
+            serverLog(LL_NOTICE,"Delay next BGSAVE for diskless SYNC");
         } else {
-            /* Target is disk (or the slave is not capable of supporting
-             * diskless replication) and we don't have a BGSAVE in progress,
-             * let's start one. */
+            /* We don't have a BGSAVE in progress, let's start one. Diskless
+             * or disk-based mode is determined by replica's capacity. */
             if (!hasActiveChildProcess()) {
                 startBgsaveForReplication(c->slave_capa);
             } else {
@@ -868,7 +866,7 @@ void replconfCommand(client *c) {
     if ((c->argc % 2) == 0) {
         /* Number of arguments must be odd to make sure that every
          * option has a corresponding value. */
-        addReply(c,shared.syntaxerr);
+        addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
 
@@ -1336,8 +1334,8 @@ void shiftReplicationId(void) {
 /* Returns 1 if the given replication state is a handshake state,
  * 0 otherwise. */
 int slaveIsInHandshakeState(void) {
-    return server.repl_state >= REPL_STATE_RECEIVE_PONG &&
-           server.repl_state <= REPL_STATE_RECEIVE_PSYNC;
+    return server.repl_state >= REPL_STATE_RECEIVE_PING_REPLY &&
+           server.repl_state <= REPL_STATE_RECEIVE_PSYNC_REPLY;
 }
 
 /* Avoid the master to detect the slave is timing out while loading the
@@ -1372,7 +1370,20 @@ void replicationCreateMasterClient(connection *conn, int dbid) {
     server.master = createClient(conn);
     if (conn)
         connSetReadHandler(server.master->conn, readQueryFromClient);
+
+    /**
+     * Important note:
+     * The CLIENT_DENY_BLOCKING flag is not, and should not, be set here.
+     * For commands like BLPOP, it makes no sense to block the master
+     * connection, and such blocking attempt will probably cause deadlock and
+     * break the replication. We consider such a thing as a bug because
+     * commands as BLPOP should never be sent on the replication link.
+     * A possible use-case for blocking the replication link is if a module wants
+     * to pass the execution to a background thread and unblock after the
+     * execution is done. This is the reason why we allow blocking the replication
+     * connection. */
     server.master->flags |= CLIENT_MASTER;
+
     server.master->authenticated = 1;
     server.master->reploff = server.master_initial_offset;
     server.master->read_reploff = server.master->reploff;
@@ -1421,16 +1432,10 @@ static int useDisklessLoad() {
 }
 
 /* Helper function for readSyncBulkPayload() to make backups of the current
- * DBs before socket-loading the new ones. The backups may be restored later
- * or freed by disklessLoadRestoreBackups(). */
-redisDb *disklessLoadMakeBackups(void) {
-    redisDb *backups = zmalloc(sizeof(redisDb)*server.dbnum);
-    for (int i=0; i<server.dbnum; i++) {
-        backups[i] = server.db[i];
-        server.db[i].dict = dictCreate(&dbDictType,NULL);
-        server.db[i].expires = dictCreate(&keyptrDictType,NULL);
-    }
-    return backups;
+ * databases before socket-loading the new ones. The backups may be restored
+ * by disklessLoadRestoreBackup or freed by disklessLoadDiscardBackup later. */
+dbBackup *disklessLoadMakeBackup(void) {
+    return backupDb();
 }
 
 /* Helper function for readSyncBulkPayload(): when replica-side diskless
@@ -1438,30 +1443,15 @@ redisDb *disklessLoadMakeBackups(void) {
  * before loading the new ones from the socket.
  *
  * If the socket loading went wrong, we want to restore the old backups
- * into the server databases. This function does just that in the case
- * the 'restore' argument (the number of DBs to replace) is non-zero.
- *
- * When instead the loading succeeded we want just to free our old backups,
- * in that case the function will do just that when 'restore' is 0. */
-void disklessLoadRestoreBackups(redisDb *backup, int restore, int empty_db_flags)
-{
-    if (restore) {
-        /* Restore. */
-        emptyDbGeneric(server.db,-1,empty_db_flags,replicationEmptyDbCallback);
-        for (int i=0; i<server.dbnum; i++) {
-            dictRelease(server.db[i].dict);
-            dictRelease(server.db[i].expires);
-            server.db[i] = backup[i];
-        }
-    } else {
-        /* Delete (Pass EMPTYDB_BACKUP in order to avoid firing module events) . */
-        emptyDbGeneric(backup,-1,empty_db_flags|EMPTYDB_BACKUP,replicationEmptyDbCallback);
-        for (int i=0; i<server.dbnum; i++) {
-            dictRelease(backup[i].dict);
-            dictRelease(backup[i].expires);
-        }
-    }
-    zfree(backup);
+ * into the server databases. */
+void disklessLoadRestoreBackup(dbBackup *buckup) {
+    restoreDbBackup(buckup);
+}
+
+/* Helper function for readSyncBulkPayload() to discard our old backups
+ * when the loading succeeded. */
+void disklessLoadDiscardBackup(dbBackup *buckup, int flag) {
+    discardDbBackup(buckup, flag, replicationEmptyDbCallback);
 }
 
 /* Asynchronously read the SYNC payload we receive from a master */
@@ -1470,7 +1460,7 @@ void readSyncBulkPayload(connection *conn) {
     char buf[PROTO_IOBUF_LEN];
     ssize_t nread, readlen, nwritten;
     int use_diskless_load = useDisklessLoad();
-    redisDb *diskless_load_backup = NULL;
+    dbBackup *diskless_load_backup = NULL;
     int empty_db_flags = server.repl_slave_lazy_flush ? EMPTYDB_ASYNC :
                                                         EMPTYDB_NO_FLAGS;
     off_t left;
@@ -1651,11 +1641,11 @@ void readSyncBulkPayload(connection *conn) {
         server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB)
     {
         /* Create a backup of server.db[] and initialize to empty
-         * dictionaries */
-        diskless_load_backup = disklessLoadMakeBackups();
+         * dictionaries. */
+        diskless_load_backup = disklessLoadMakeBackup();
     }
     /* We call to emptyDb even in case of REPL_DISKLESS_LOAD_SWAPDB
-     * (Where disklessLoadMakeBackups left server.db empty) because we
+     * (Where disklessLoadMakeBackup left server.db empty) because we
      * want to execute all the auxiliary logic of emptyDb (Namely,
      * fire module events) */
     emptyDb(-1,empty_db_flags,replicationEmptyDbCallback);
@@ -1685,14 +1675,14 @@ void readSyncBulkPayload(connection *conn) {
                 "from socket");
             cancelReplicationHandshake(1);
             rioFreeConn(&rdb, NULL);
+
+            /* Remove the half-loaded data in case we started with
+             * an empty replica. */
+            emptyDb(-1,empty_db_flags,replicationEmptyDbCallback);
+
             if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
                 /* Restore the backed up databases. */
-                disklessLoadRestoreBackups(diskless_load_backup,1,
-                                           empty_db_flags);
-            } else {
-                /* Remove the half-loaded data in case we started with
-                 * an empty replica. */
-                emptyDb(-1,empty_db_flags,replicationEmptyDbCallback);
+                disklessLoadRestoreBackup(diskless_load_backup);
             }
 
             /* Note that there's no point in restarting the AOF on SYNC
@@ -1707,7 +1697,7 @@ void readSyncBulkPayload(connection *conn) {
             /* Delete the backup databases we created before starting to load
              * the new RDB. Now the RDB was loaded with success so the old
              * data is useless. */
-            disklessLoadRestoreBackups(diskless_load_backup,0,empty_db_flags);
+            disklessLoadDiscardBackup(diskless_load_backup, empty_db_flags);
         }
 
         /* Verify the end mark is correct. */
@@ -1739,6 +1729,17 @@ void readSyncBulkPayload(connection *conn) {
             killRDBChild();
         }
 
+        /* Make sure the new file (also used for persistence) is fully synced
+         * (not covered by earlier calls to rdb_fsync_range). */
+        if (fsync(server.repl_transfer_fd) == -1) {
+            serverLog(LL_WARNING,
+                "Failed trying to sync the temp DB to disk in "
+                "MASTER <-> REPLICA synchronization: %s",
+                strerror(errno));
+            cancelReplicationHandshake(1);
+            return;
+        }
+
         /* Rename rdb like renaming rewrite aof asynchronously. */
         int old_rdb_fd = open(server.rdb_filename,O_RDONLY|O_NONBLOCK);
         if (rename(server.repl_transfer_tmpfile,server.rdb_filename) == -1) {
@@ -1751,7 +1752,7 @@ void readSyncBulkPayload(connection *conn) {
             return;
         }
         /* Close old rdb asynchronously. */
-        if (old_rdb_fd != -1) bioCreateBackgroundJob(BIO_CLOSE_FILE,(void*)(long)old_rdb_fd,NULL,NULL);
+        if (old_rdb_fd != -1) bioCreateCloseJob(old_rdb_fd);
 
         if (rdbLoad(server.rdb_filename,&rsi,RDBFLAGS_REPLICATION) != C_OK) {
             serverLog(LL_WARNING,
@@ -1826,66 +1827,94 @@ error:
     return;
 }
 
-/* Send a synchronous command to the master. Used to send AUTH and
- * REPLCONF commands before starting the replication with SYNC.
+char *receiveSynchronousResponse(connection *conn) {
+    char buf[256];
+    /* Read the reply from the server. */
+    if (connSyncReadLine(conn,buf,sizeof(buf),server.repl_syncio_timeout*1000) == -1)
+    {
+        return sdscatprintf(sdsempty(),"-Reading from master: %s",
+                strerror(errno));
+    }
+    server.repl_transfer_lastio = server.unixtime;
+    return sdsnew(buf);
+}
+
+/* Send a pre-formatted multi-bulk command to the connection. */
+char* sendCommandRaw(connection *conn, sds cmd) {
+    if (connSyncWrite(conn,cmd,sdslen(cmd),server.repl_syncio_timeout*1000) == -1) {
+        return sdscatprintf(sdsempty(),"-Writing to master: %s",
+                connGetLastError(conn));
+    }
+    return NULL;
+}
+
+/* Compose a multi-bulk command and send it to the connection.
+ * Used to send AUTH and REPLCONF commands to the master before starting the
+ * replication.
+ *
+ * Takes a list of char* arguments, terminated by a NULL argument.
  *
  * The command returns an sds string representing the result of the
  * operation. On error the first byte is a "-".
  */
-#define SYNC_CMD_READ (1<<0)
-#define SYNC_CMD_WRITE (1<<1)
-#define SYNC_CMD_FULL (SYNC_CMD_READ|SYNC_CMD_WRITE)
-char *sendSynchronousCommand(int flags, connection *conn, ...) {
+char *sendCommand(connection *conn, ...) {
+    va_list ap;
+    sds cmd = sdsempty();
+    sds cmdargs = sdsempty();
+    size_t argslen = 0;
+    char *arg;
 
     /* Create the command to send to the master, we use redis binary
      * protocol to make sure correct arguments are sent. This function
      * is not safe for all binary data. */
-    if (flags & SYNC_CMD_WRITE) {
-        char *arg;
-        va_list ap;
-        sds cmd = sdsempty();
-        sds cmdargs = sdsempty();
-        size_t argslen = 0;
-        va_start(ap,conn);
-
-        while(1) {
-            arg = va_arg(ap, char*);
-            if (arg == NULL) break;
-
-            cmdargs = sdscatprintf(cmdargs,"$%zu\r\n%s\r\n",strlen(arg),arg);
-            argslen++;
-        }
-
-        va_end(ap);
-
-        cmd = sdscatprintf(cmd,"*%zu\r\n",argslen);
-        cmd = sdscatsds(cmd,cmdargs);
-        sdsfree(cmdargs);
-
-        /* Transfer command to the server. */
-        if (connSyncWrite(conn,cmd,sdslen(cmd),server.repl_syncio_timeout*1000)
-            == -1)
-        {
-            sdsfree(cmd);
-            return sdscatprintf(sdsempty(),"-Writing to master: %s",
-                    connGetLastError(conn));
-        }
-        sdsfree(cmd);
+    va_start(ap,conn);
+    while(1) {
+        arg = va_arg(ap, char*);
+        if (arg == NULL) break;
+        cmdargs = sdscatprintf(cmdargs,"$%zu\r\n%s\r\n",strlen(arg),arg);
+        argslen++;
     }
 
-    /* Read the reply from the server. */
-    if (flags & SYNC_CMD_READ) {
-        char buf[256];
+    cmd = sdscatprintf(cmd,"*%zu\r\n",argslen);
+    cmd = sdscatsds(cmd,cmdargs);
+    sdsfree(cmdargs);
 
-        if (connSyncReadLine(conn,buf,sizeof(buf),server.repl_syncio_timeout*1000)
-            == -1)
-        {
-            return sdscatprintf(sdsempty(),"-Reading from master: %s",
-                    strerror(errno));
-        }
-        server.repl_transfer_lastio = server.unixtime;
-        return sdsnew(buf);
+    va_end(ap);
+    char* err = sendCommandRaw(conn, cmd);
+    sdsfree(cmd);
+    if(err)
+        return err;
+    return NULL;
+}
+
+/* Compose a multi-bulk command and send it to the connection. 
+ * Used to send AUTH and REPLCONF commands to the master before starting the
+ * replication.
+ *
+ * argv_lens is optional, when NULL, strlen is used.
+ *
+ * The command returns an sds string representing the result of the
+ * operation. On error the first byte is a "-".
+ */
+char *sendCommandArgv(connection *conn, int argc, char **argv, size_t *argv_lens) {
+    sds cmd = sdsempty();
+    char *arg;
+    int i;
+
+    /* Create the command to send to the master. */
+    cmd = sdscatfmt(cmd,"*%i\r\n",argc);
+    for (i=0; i<argc; i++) {
+        int len;
+        arg = argv[i];
+        len = argv_lens ? argv_lens[i] : strlen(arg);
+        cmd = sdscatfmt(cmd,"$%i\r\n",len);
+        cmd = sdscatlen(cmd,arg,len);
+        cmd = sdscatlen(cmd,"\r\n",2);
     }
+    char* err = sendCommandRaw(conn, cmd);
+    sdsfree(cmd);
+    if (err)
+        return err;
     return NULL;
 }
 
@@ -1968,7 +1997,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
         }
 
         /* Issue the PSYNC command */
-        reply = sendSynchronousCommand(SYNC_CMD_WRITE,conn,"PSYNC",psync_replid,psync_offset,NULL);
+        reply = sendCommand(conn,"PSYNC",psync_replid,psync_offset,NULL);
         if (reply != NULL) {
             serverLog(LL_WARNING,"Unable to send PSYNC to master: %s",reply);
             sdsfree(reply);
@@ -1979,7 +2008,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
     }
 
     /* Reading half */
-    reply = sendSynchronousCommand(SYNC_CMD_READ,conn,NULL);
+    reply = receiveSynchronousResponse(conn);
     if (sdslen(reply) == 0) {
         /* The master may send empty newlines after it receives PSYNC
          * and before to reply, just to keep the connection alive. */
@@ -2130,17 +2159,17 @@ void syncWithMaster(connection *conn) {
          * registered and we can wait for the PONG reply. */
         connSetReadHandler(conn, syncWithMaster);
         connSetWriteHandler(conn, NULL);
-        server.repl_state = REPL_STATE_RECEIVE_PONG;
+        server.repl_state = REPL_STATE_RECEIVE_PING_REPLY;
         /* Send the PING, don't check for errors at all, we have the timeout
          * that will take care about this. */
-        err = sendSynchronousCommand(SYNC_CMD_WRITE,conn,"PING",NULL);
+        err = sendCommand(conn,"PING",NULL);
         if (err) goto write_error;
         return;
     }
 
     /* Receive the PONG command. */
-    if (server.repl_state == REPL_STATE_RECEIVE_PONG) {
-        err = sendSynchronousCommand(SYNC_CMD_READ,conn,NULL);
+    if (server.repl_state == REPL_STATE_RECEIVE_PING_REPLY) {
+        err = receiveSynchronousResponse(conn);
 
         /* We accept only two replies as valid, a positive +PONG reply
          * (we just check for "+") or an authentication error.
@@ -2160,59 +2189,88 @@ void syncWithMaster(connection *conn) {
                 "Master replied to PING, replication can continue...");
         }
         sdsfree(err);
-        server.repl_state = REPL_STATE_SEND_AUTH;
+        err = NULL;
+        server.repl_state = REPL_STATE_SEND_HANDSHAKE;
     }
 
-    /* AUTH with the master if required. */
-    if (server.repl_state == REPL_STATE_SEND_AUTH) {
-        if (server.masteruser && server.masterauth) {
-            err = sendSynchronousCommand(SYNC_CMD_WRITE,conn,"AUTH",
-                                         server.masteruser,server.masterauth,NULL);
+    if (server.repl_state == REPL_STATE_SEND_HANDSHAKE) {
+        /* AUTH with the master if required. */
+        if (server.masterauth) {
+            char *args[3] = {"AUTH",NULL,NULL};
+            size_t lens[3] = {4,0,0};
+            int argc = 1;
+            if (server.masteruser) {
+                args[argc] = server.masteruser;
+                lens[argc] = strlen(server.masteruser);
+                argc++;
+            }
+            args[argc] = server.masterauth;
+            lens[argc] = sdslen(server.masterauth);
+            argc++;
+            err = sendCommandArgv(conn, argc, args, lens);
             if (err) goto write_error;
-            server.repl_state = REPL_STATE_RECEIVE_AUTH;
-            return;
-        } else if (server.masterauth) {
-            err = sendSynchronousCommand(SYNC_CMD_WRITE,conn,"AUTH",server.masterauth,NULL);
-            if (err) goto write_error;
-            server.repl_state = REPL_STATE_RECEIVE_AUTH;
-            return;
-        } else {
-            server.repl_state = REPL_STATE_SEND_PORT;
         }
+
+        /* Set the slave port, so that Master's INFO command can list the
+         * slave listening port correctly. */
+        {
+            int port;
+            if (server.slave_announce_port)
+                port = server.slave_announce_port;
+            else if (server.tls_replication && server.tls_port)
+                port = server.tls_port;
+            else
+                port = server.port;
+            sds portstr = sdsfromlonglong(port);
+            err = sendCommand(conn,"REPLCONF",
+                    "listening-port",portstr, NULL);
+            sdsfree(portstr);
+            if (err) goto write_error;
+        }
+
+        /* Set the slave ip, so that Master's INFO command can list the
+         * slave IP address port correctly in case of port forwarding or NAT.
+         * Skip REPLCONF ip-address if there is no slave-announce-ip option set. */
+        if (server.slave_announce_ip) {
+            err = sendCommand(conn,"REPLCONF",
+                    "ip-address",server.slave_announce_ip, NULL);
+            if (err) goto write_error;
+        }
+
+        /* Inform the master of our (slave) capabilities.
+         *
+         * EOF: supports EOF-style RDB transfer for diskless replication.
+         * PSYNC2: supports PSYNC v2, so understands +CONTINUE <new repl ID>.
+         *
+         * The master will ignore capabilities it does not understand. */
+        err = sendCommand(conn,"REPLCONF",
+                "capa","eof","capa","psync2",NULL);
+        if (err) goto write_error;
+
+        server.repl_state = REPL_STATE_RECEIVE_AUTH_REPLY;
+        return;
     }
+
+    if (server.repl_state == REPL_STATE_RECEIVE_AUTH_REPLY && !server.masterauth)
+        server.repl_state = REPL_STATE_RECEIVE_PORT_REPLY;
 
     /* Receive AUTH reply. */
-    if (server.repl_state == REPL_STATE_RECEIVE_AUTH) {
-        err = sendSynchronousCommand(SYNC_CMD_READ,conn,NULL);
+    if (server.repl_state == REPL_STATE_RECEIVE_AUTH_REPLY) {
+        err = receiveSynchronousResponse(conn);
         if (err[0] == '-') {
             serverLog(LL_WARNING,"Unable to AUTH to MASTER: %s",err);
             sdsfree(err);
             goto error;
         }
         sdsfree(err);
-        server.repl_state = REPL_STATE_SEND_PORT;
-    }
-
-    /* Set the slave port, so that Master's INFO command can list the
-     * slave listening port correctly. */
-    if (server.repl_state == REPL_STATE_SEND_PORT) {
-        int port;
-        if (server.slave_announce_port) port = server.slave_announce_port;
-        else if (server.tls_replication && server.tls_port) port = server.tls_port;
-        else port = server.port;
-        sds portstr = sdsfromlonglong(port);
-        err = sendSynchronousCommand(SYNC_CMD_WRITE,conn,"REPLCONF",
-                "listening-port",portstr, NULL);
-        sdsfree(portstr);
-        if (err) goto write_error;
-        sdsfree(err);
-        server.repl_state = REPL_STATE_RECEIVE_PORT;
+        err = NULL;
+        server.repl_state = REPL_STATE_RECEIVE_PORT_REPLY;
         return;
     }
 
     /* Receive REPLCONF listening-port reply. */
-    if (server.repl_state == REPL_STATE_RECEIVE_PORT) {
-        err = sendSynchronousCommand(SYNC_CMD_READ,conn,NULL);
+    if (server.repl_state == REPL_STATE_RECEIVE_PORT_REPLY) {
+        err = receiveSynchronousResponse(conn);
         /* Ignore the error if any, not all the Redis versions support
          * REPLCONF listening-port. */
         if (err[0] == '-') {
@@ -2220,30 +2278,16 @@ void syncWithMaster(connection *conn) {
                                 "REPLCONF listening-port: %s", err);
         }
         sdsfree(err);
-        server.repl_state = REPL_STATE_SEND_IP;
-    }
-
-    /* Skip REPLCONF ip-address if there is no slave-announce-ip option set. */
-    if (server.repl_state == REPL_STATE_SEND_IP &&
-        server.slave_announce_ip == NULL)
-    {
-            server.repl_state = REPL_STATE_SEND_CAPA;
-    }
-
-    /* Set the slave ip, so that Master's INFO command can list the
-     * slave IP address port correctly in case of port forwarding or NAT. */
-    if (server.repl_state == REPL_STATE_SEND_IP) {
-        err = sendSynchronousCommand(SYNC_CMD_WRITE,conn,"REPLCONF",
-                "ip-address",server.slave_announce_ip, NULL);
-        if (err) goto write_error;
-        sdsfree(err);
-        server.repl_state = REPL_STATE_RECEIVE_IP;
+        server.repl_state = REPL_STATE_RECEIVE_IP_REPLY;
         return;
     }
 
+    if (server.repl_state == REPL_STATE_RECEIVE_IP_REPLY && !server.slave_announce_ip)
+        server.repl_state = REPL_STATE_RECEIVE_CAPA_REPLY;
+
     /* Receive REPLCONF ip-address reply. */
-    if (server.repl_state == REPL_STATE_RECEIVE_IP) {
-        err = sendSynchronousCommand(SYNC_CMD_READ,conn,NULL);
+    if (server.repl_state == REPL_STATE_RECEIVE_IP_REPLY) {
+        err = receiveSynchronousResponse(conn);
         /* Ignore the error if any, not all the Redis versions support
          * REPLCONF listening-port. */
         if (err[0] == '-') {
@@ -2251,27 +2295,13 @@ void syncWithMaster(connection *conn) {
                                 "REPLCONF ip-address: %s", err);
         }
         sdsfree(err);
-        server.repl_state = REPL_STATE_SEND_CAPA;
-    }
-
-    /* Inform the master of our (slave) capabilities.
-     *
-     * EOF: supports EOF-style RDB transfer for diskless replication.
-     * PSYNC2: supports PSYNC v2, so understands +CONTINUE <new repl ID>.
-     *
-     * The master will ignore capabilities it does not understand. */
-    if (server.repl_state == REPL_STATE_SEND_CAPA) {
-        err = sendSynchronousCommand(SYNC_CMD_WRITE,conn,"REPLCONF",
-                "capa","eof","capa","psync2",NULL);
-        if (err) goto write_error;
-        sdsfree(err);
-        server.repl_state = REPL_STATE_RECEIVE_CAPA;
+        server.repl_state = REPL_STATE_RECEIVE_CAPA_REPLY;
         return;
     }
 
     /* Receive CAPA reply. */
-    if (server.repl_state == REPL_STATE_RECEIVE_CAPA) {
-        err = sendSynchronousCommand(SYNC_CMD_READ,conn,NULL);
+    if (server.repl_state == REPL_STATE_RECEIVE_CAPA_REPLY) {
+        err = receiveSynchronousResponse(conn);
         /* Ignore the error if any, not all the Redis versions support
          * REPLCONF capa. */
         if (err[0] == '-') {
@@ -2279,6 +2309,7 @@ void syncWithMaster(connection *conn) {
                                   "REPLCONF capa: %s", err);
         }
         sdsfree(err);
+        err = NULL;
         server.repl_state = REPL_STATE_SEND_PSYNC;
     }
 
@@ -2292,12 +2323,12 @@ void syncWithMaster(connection *conn) {
             err = sdsnew("Write error sending the PSYNC command.");
             goto write_error;
         }
-        server.repl_state = REPL_STATE_RECEIVE_PSYNC;
+        server.repl_state = REPL_STATE_RECEIVE_PSYNC_REPLY;
         return;
     }
 
     /* If reached this point, we should be in REPL_STATE_RECEIVE_PSYNC. */
-    if (server.repl_state != REPL_STATE_RECEIVE_PSYNC) {
+    if (server.repl_state != REPL_STATE_RECEIVE_PSYNC_REPLY) {
         serverLog(LL_WARNING,"syncWithMaster(): state machine error, "
                              "state should be RECEIVE_PSYNC but is %d",
                              server.repl_state);
@@ -2392,7 +2423,7 @@ error:
     server.repl_state = REPL_STATE_CONNECT;
     return;
 
-write_error: /* Handle sendSynchronousCommand(SYNC_CMD_WRITE) errors. */
+write_error: /* Handle sendCommand() errors. */
     serverLog(LL_WARNING,"Sending command to master in replication handshake: %s", err);
     sdsfree(err);
     goto error;
@@ -2433,7 +2464,7 @@ void replicationAbortSyncTransfer(void) {
     undoConnectWithMaster();
     if (server.repl_transfer_fd!=-1) {
         close(server.repl_transfer_fd);
-        unlink(server.repl_transfer_tmpfile);
+        bg_unlink(server.repl_transfer_tmpfile);
         zfree(server.repl_transfer_tmpfile);
         server.repl_transfer_tmpfile = NULL;
         server.repl_transfer_fd = -1;
@@ -2780,6 +2811,11 @@ void replicationCacheMaster(client *c) {
     if (c->peerid) {
         sdsfree(c->peerid);
         c->peerid = NULL;
+    }
+    /* Invalidate the Sock Name cache. */
+    if (c->sockname) {
+        sdsfree(c->sockname);
+        c->sockname = NULL;
     }
 
     /* Caching the master happens instead of the actual freeClient() call,

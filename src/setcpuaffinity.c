@@ -36,6 +36,10 @@
 #include <sys/param.h>
 #include <sys/cpuset.h>
 #endif
+#ifdef __DragonFly__
+#include <pthread.h>
+#include <pthread_np.h>
+#endif
 #ifdef __NetBSD__
 #include <pthread.h>
 #include <sched.h>
@@ -72,7 +76,7 @@ void setcpuaffinity(const char *cpulist) {
 #ifdef __linux__
     cpu_set_t cpuset;
 #endif
-#ifdef __FreeBSD__
+#if defined (__FreeBSD__) || defined(__DragonFly__)
     cpuset_t cpuset;
 #endif
 #ifdef __NetBSD__
@@ -138,6 +142,9 @@ void setcpuaffinity(const char *cpulist) {
 #endif
 #ifdef __FreeBSD__
     cpuset_setaffinity(CPU_LEVEL_WHICH, CPU_WHICH_TID, -1, sizeof(cpuset), &cpuset);
+#endif
+#ifdef __DragonFly__
+    pthread_setaffinity_np(pthread_self(), sizeof(cpuset), &cpuset);
 #endif
 #ifdef __NetBSD__
     pthread_setaffinity_np(pthread_self(), cpuset_size(cpuset), cpuset);

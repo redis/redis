@@ -99,6 +99,8 @@ start_server {tags {"obuf-limits"}} {
         assert_equal {} [read $fd]
     }
 
+    # Note: This test assumes that what's written with one write, will be read by redis in one read.
+    # this assumption is wrong, but seem to work empirically (for now)
     test {No response for multi commands in pipeline if client output buffer limit is enforced} {
         r config set client-output-buffer-limit {normal 100000 0 0}
         set value [string repeat "x" 10000]
@@ -107,20 +109,26 @@ start_server {tags {"obuf-limits"}} {
         set rd2 [redis_deferring_client]
         $rd2 client setname multicommands
         assert_equal "OK" [$rd2 read]
-        # Let redis sleep 2s firstly
-        $rd1 debug sleep 2
+
+        # Let redis sleep 1s firstly
+        $rd1 debug sleep 1
         $rd1 flush
         after 100
 
+        # Create a pipeline of commands that will be processed in one socket read.
+        # It is important to use one write, in TLS mode independant writes seem
+        # to wait for response from the server.
         # Total size should be less than OS socket buffer, redis can
         # execute all commands in this pipeline when it wakes up.
+        set buf ""
         for {set i 0} {$i < 15} {incr i} {
-            $rd2 set $i $i
-            $rd2 get $i
-            $rd2 del $i
+            append buf "set $i $i\r\n"
+            append buf "get $i\r\n"
+            append buf "del $i\r\n"
             # One bigkey is 10k, total response size must be more than 100k
-            $rd2 get bigkey
+            append buf "get bigkey\r\n"
         }
+        $rd2 write $buf
         $rd2 flush
         after 100
 

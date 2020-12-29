@@ -171,9 +171,14 @@ void trackingRememberKeys(client *c) {
     uint64_t caching_given = c->flags & CLIENT_TRACKING_CACHING;
     if ((optin && !caching_given) || (optout && caching_given)) return;
 
-    int numkeys;
-    int *keys = getKeysFromCommand(c->cmd,c->argv,c->argc,&numkeys);
-    if (keys == NULL) return;
+    getKeysResult result = GETKEYS_RESULT_INIT;
+    int numkeys = getKeysFromCommand(c->cmd,c->argv,c->argc,&result);
+    if (!numkeys) {
+        getKeysFreeResult(&result);
+        return;
+    }
+
+    int *keys = result.keys;
 
     for(int j = 0; j < numkeys; j++) {
         int idx = keys[j];
@@ -188,7 +193,7 @@ void trackingRememberKeys(client *c) {
         if (raxTryInsert(ids,(unsigned char*)&c->id,sizeof(c->id),NULL,NULL))
             TrackingTableTotalItems++;
     }
-    getKeysFreeResult(keys);
+    getKeysFreeResult(&result);
 }
 
 /* Given a key name, this function sends an invalidation message in the
@@ -345,19 +350,22 @@ void trackingInvalidateKey(client *c, robj *keyobj) {
 }
 
 /* This function is called when one or all the Redis databases are
- * flushed (dbid == -1 in case of FLUSHALL). Caching keys are not
- * specific for each DB but are global: currently what we do is send a
- * special notification to clients with tracking enabled, sending a
- * RESP NULL, which means, "all the keys", in order to avoid flooding
- * clients with many invalidation messages for all the keys they may
- * hold.
+ * flushed. Caching keys are not specific for each DB but are global: 
+ * currently what we do is send a special notification to clients with 
+ * tracking enabled, sending a RESP NULL, which means, "all the keys", 
+ * in order to avoid flooding clients with many invalidation messages 
+ * for all the keys they may hold.
  */
-void freeTrackingRadixTree(void *rt) {
+void freeTrackingRadixTreeCallback(void *rt) {
     raxFree(rt);
 }
 
+void freeTrackingRadixTree(rax *rt) {
+    raxFreeWithCallback(rt,freeTrackingRadixTreeCallback);
+}
+
 /* A RESP NULL is sent to indicate that all keys are invalid */
-void trackingInvalidateKeysOnFlush(int dbid) {
+void trackingInvalidateKeysOnFlush(int async) {
     if (server.tracking_clients) {
         listNode *ln;
         listIter li;
@@ -371,8 +379,12 @@ void trackingInvalidateKeysOnFlush(int dbid) {
     }
 
     /* In case of FLUSHALL, reclaim all the memory used by tracking. */
-    if (dbid == -1 && TrackingTable) {
-        raxFreeWithCallback(TrackingTable,freeTrackingRadixTree);
+    if (TrackingTable) {
+        if (async) {
+            freeTrackingRadixTreeAsync(TrackingTable);
+        } else {
+            freeTrackingRadixTree(TrackingTable);
+        }
         TrackingTable = raxNew();
         TrackingTableTotalItems = 0;
     }

@@ -93,5 +93,26 @@ start_server {tags {"tls"}} {
             r CONFIG SET tls-protocols ""
             r CONFIG SET tls-ciphers "DEFAULT"
         }
+
+        test {TLS: Verify tls-cert-file is also used as a client cert if none specified} {
+            set master [srv 0 client]
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
+
+            # Use a non-restricted client/server cert for the replica
+            set redis_crt [format "%s/tests/tls/redis.crt" [pwd]]
+            set redis_key [format "%s/tests/tls/redis.key" [pwd]]
+
+            start_server [list overrides [list tls-cert-file $redis_crt tls-key-file $redis_key] \
+                               omit [list tls-client-cert-file tls-client-key-file]] {
+                set replica [srv 0 client]
+                $replica replicaof $master_host $master_port
+                wait_for_condition 30 100 {
+                    [string match {*master_link_status:up*} [$replica info replication]]
+                } else {
+                    fail "Can't authenticate to master using just tls-cert-file!"
+                }
+            }
+        }
     }
 }

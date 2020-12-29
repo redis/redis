@@ -30,20 +30,28 @@ start_server {tags {"shutdown"}} {
         for {set i 0} {$i < 20} {incr i} {
             r set $i $i
         }
-        # It will cost 2s(20 * 100ms) to dump rdb
+        # It will cost 2s (20 * 100ms) to dump rdb
         r config set rdb-key-save-delay 100000
         
         set pid [s process_id]
         set temp_rdb [file join [lindex [r config get dir] 1] temp-${pid}.rdb]
 
+        # trigger a shutdown which will save an rdb
         exec kill -SIGINT $pid
-        after 100
-        # Temp rdb must be existed
-        assert {[file exists $temp_rdb]}
+        # Wait for creation of temp rdb
+        wait_for_condition 50 10 {
+            [file exists $temp_rdb]
+        } else {
+            fail "Can't trigger rdb save on shutdown"
+        }
 
-        # Temp rdb file must be deleted
+        # Insist on immediate shutdown, temp rdb file must be deleted
         exec kill -SIGINT $pid
-        after 100
-        assert {![file exists $temp_rdb]}
+        # wait for the rdb file to be deleted
+        wait_for_condition 50 10 {
+            ![file exists $temp_rdb]
+        } else {
+            fail "Can't trigger rdb save on shutdown"
+        }
     }
 }
