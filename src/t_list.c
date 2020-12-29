@@ -249,22 +249,22 @@ void pushGenericCommand(client *c, int where, int xx) {
 
 /* LPUSH <key> <element> [<element> ...] */
 void lpushCommand(client *c) {
-    pushGenericCommand(c,LIST_HEAD, 0);
+    pushGenericCommand(c, LIST_HEAD, 0);
 }
 
 /* RPUSH <key> <element> [<element> ...] */
 void rpushCommand(client *c) {
-    pushGenericCommand(c,LIST_TAIL, 0);
+    pushGenericCommand(c, LIST_TAIL, 0);
 }
 
 /* LPUSHX <key> <element> [<element> ...] */
 void lpushxCommand(client *c) {
-    pushGenericCommand(c,LIST_HEAD, 1);
+    pushGenericCommand(c, LIST_HEAD, 1);
 }
 
 /* RPUSH <key> <element> [<element> ...] */
 void rpushxCommand(client *c) {
-    pushGenericCommand(c,LIST_TAIL, 1);
+    pushGenericCommand(c, LIST_TAIL, 1);
 }
 
 /* LINSERT <key> (BEFORE|AFTER) <pivot> <element> */
