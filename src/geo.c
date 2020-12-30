@@ -435,7 +435,7 @@ void geoaddCommand(client *c) {
 
     /* Parse options. At the end 'longidx' is set to the argument position
      * of the longitude of the first element. */
-    while(longidx < c->argc) {
+    while (longidx < c->argc) {
         char *opt = c->argv[longidx]->ptr;
         if (!strcasecmp(opt,"nx")) nx = 1;
         else if (!strcasecmp(opt,"xx")) xx = 1;
@@ -455,9 +455,7 @@ void geoaddCommand(client *c) {
     int argc = longidx+elements*2; /* ZADD key [CH] [NX|XX] score ele ... */
     robj **argv = zcalloc(argc*sizeof(robj*));
     argv[0] = createRawStringObject("zadd",4);
-    argv[1] = c->argv[1]; /* key */
-    incrRefCount(argv[1]);
-    for (i = 2; i < longidx; i++) {
+    for (i = 1; i < longidx; i++) {
         argv[i] = c->argv[i];
         incrRefCount(argv[i]);
     }
