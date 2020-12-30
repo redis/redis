@@ -2810,7 +2810,7 @@ typedef void (*zrangeResultEmitCBufferFunction)(
 typedef void (*zrangeResultEmitLongLongFunction)(
     zrange_result_handler *c, long long ll, double score);
 
-void zrangeGenericCommand (zrange_result_handler *handler, int argc_start,
+void zrangeGenericCommand (zrange_result_handler *handler, int argc_start, int store,
                            zrange_type rangetype, zrange_direction direction);
 
 struct zrange_result_handler {
@@ -2819,7 +2819,6 @@ struct zrange_result_handler {
     robj                                *dstkey;
     robj                                *dstobj;
     void                                *userdata;
-    int                                  touched;
     int                                  withscores;
     int                                  should_emit_array_length;
     zrangeResultBeginFunction            beginResultEmission;
@@ -2902,16 +2901,17 @@ static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
 static void zrangeResultFinalizeStore(zrange_result_handler *handler,
     size_t result_count)
 {
+    int deleted = 0;
     if (dbDelete(handler->client->db, handler->dstkey)) {
         signalModifiedKey(handler->client, handler->client->db, handler->dstkey);
-        handler->touched = 1;
+        deleted = 1;
         ++server.dirty;
     }
     dbAdd(handler->client->db, handler->dstkey, handler->dstobj);
 
     if (0 < result_count) {
         addReplyLongLong(handler->client, result_count);
-        if (!handler->touched) {
+        if (!deleted) {
             signalModifiedKey(handler->client, handler->client->db, handler->dstkey);
         }
         notifyKeyspaceEvent(NOTIFY_ZSET, "zrangestore", handler->dstkey,
@@ -2919,7 +2919,7 @@ static void zrangeResultFinalizeStore(zrange_result_handler *handler,
         ++server.dirty;
     } else {
         addReply(handler->client, shared.czero);
-        if (handler->touched) {
+        if (deleted) {
             notifyKeyspaceEvent(NOTIFY_GENERIC, "del", handler->dstkey,
                 handler->client->db->id);
         }
@@ -2961,13 +2961,7 @@ static void zrangeResultHandlerDestinationKeySet (zrange_result_handler *handler
     handler->dstkey = dstkey;
 }
 
-
-
-/*
- * As result handler is local, with these argument changes, this shouldn't
- * be exportable... but neither should a lot of other Redis functions...
- * so should this and its siblings be made static?
- */
+/* This command implements ZRANGE, ZREVRANGE. */
 void genericZrangebyrankCommand(zrange_result_handler *handler,
     robj *zobj, long start, long end, int withscores, int reverse) {
 
@@ -2982,19 +2976,17 @@ void genericZrangebyrankCommand(zrange_result_handler *handler,
     if (end < 0) end = llen+end;
     if (start < 0) start = 0;
 
+    handler->beginResultEmission(handler);
+
     /* Invariant: start >= 0, so this test will be true when end < 0.
      * The range is empty when start > end or start >= length. */
     if (start > end || start >= llen) {
-        addReply(c,shared.emptyarray);
+        handler->finalizeResultEmission(handler, 0);
         return;
     }
     if (end >= llen) end = llen-1;
     rangelen = (end-start)+1;
     result_cardinality = rangelen;
-
-    /* Return the result in form of a multi-bulk reply. RESP3 clients
-     * will receive sub arrays with score->element, while RESP2 returned
-     * a flat array. */
 
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl = zobj->ptr;
@@ -3011,8 +3003,6 @@ void genericZrangebyrankCommand(zrange_result_handler *handler,
 
         serverAssertWithInfo(c,zobj,eptr != NULL);
         sptr = ziplistNext(zl,eptr);
-
-        handler->beginResultEmission(handler);
 
         while (rangelen--) {
             serverAssertWithInfo(c,zobj,eptr != NULL && sptr != NULL);
@@ -3049,8 +3039,6 @@ void genericZrangebyrankCommand(zrange_result_handler *handler,
                 ln = zslGetElementByRank(zsl,start+1);
         }
 
-        handler->beginResultEmission(handler);
-
         while(rangelen--) {
             serverAssertWithInfo(c,zobj,ln != NULL);
             sds ele = ln->ele;
@@ -3070,14 +3058,14 @@ void genericZrangebyrankCommand(zrange_result_handler *handler,
 void zrangeCommand(client *c) {
     zrange_result_handler handler;
     zrangeResultHandlerInit(&handler, c, ZRANGE_CONSUMER_TYPE_CLIENT);
-    zrangeGenericCommand(&handler, 1, ZRANGE_AUTO, ZRANGE_DIRECTION_AUTO);
+    zrangeGenericCommand(&handler, 1, 0, ZRANGE_AUTO, ZRANGE_DIRECTION_AUTO);
 }
 
 /* ZREVRANGE <key> <min> <max> [WITHSCORES] */
 void zrevrangeCommand(client *c) {
     zrange_result_handler handler;
     zrangeResultHandlerInit(&handler, c, ZRANGE_CONSUMER_TYPE_CLIENT);
-    zrangeGenericCommand(&handler, 1, ZRANGE_RANK, ZRANGE_DIRECTION_REVERSE);
+    zrangeGenericCommand(&handler, 1, 0, ZRANGE_RANK, ZRANGE_DIRECTION_REVERSE);
 }
 
 /* This command implements ZRANGEBYSCORE, ZREVRANGEBYSCORE. */
@@ -3088,9 +3076,11 @@ void genericZrangebyscoreCommand(zrange_result_handler *handler,
     client *c = handler->client;
     unsigned long rangelen = 0;
 
+    handler->beginResultEmission(handler);
+
     /* For invalid offset, return directly. */
     if (offset > 0 && offset >= (long)zsetLength(zobj)) {
-        addReply(c,shared.emptyarray);
+        handler->finalizeResultEmission(handler, 0);
         return;
     }
 
@@ -3109,17 +3099,9 @@ void genericZrangebyscoreCommand(zrange_result_handler *handler,
             eptr = zzlFirstInRange(zl,range);
         }
 
-        /* No "first" element in the specified interval. */
-        if (eptr == NULL) {
-            addReply(c,shared.emptyarray);
-            return;
-        }
-
         /* Get score pointer for the first element. */
-        serverAssertWithInfo(c,zobj,eptr != NULL);
-        sptr = ziplistNext(zl,eptr);
-
-        handler->beginResultEmission(handler);
+        if (eptr)
+            sptr = ziplistNext(zl,eptr);
 
         /* If there is an offset, just traverse the number of elements without
          * checking the score because that is done in the next loop. */
@@ -3173,14 +3155,6 @@ void genericZrangebyscoreCommand(zrange_result_handler *handler,
             ln = zslFirstInRange(zsl,range);
         }
 
-        /* No "first" element in the specified interval. */
-        if (ln == NULL) {
-            addReply(c,shared.emptyarray);
-            return;
-        }
-
-        handler->beginResultEmission(handler);
-
         /* If there is an offset, just traverse the number of elements without
          * checking the score because that is done in the next loop. */
         while (ln && offset--) {
@@ -3221,14 +3195,14 @@ void genericZrangebyscoreCommand(zrange_result_handler *handler,
 void zrangebyscoreCommand(client *c) {
     zrange_result_handler handler;
     zrangeResultHandlerInit(&handler, c, ZRANGE_CONSUMER_TYPE_CLIENT);
-    zrangeGenericCommand(&handler, 1, ZRANGE_SCORE, ZRANGE_DIRECTION_FORWARD);
+    zrangeGenericCommand(&handler, 1, 0, ZRANGE_SCORE, ZRANGE_DIRECTION_FORWARD);
 }
 
 /* ZREVRANGEBYSCORE <key> <min> <max> [WITHSCORES] [LIMIT offset count] */
 void zrevrangebyscoreCommand(client *c) {
     zrange_result_handler handler;
     zrangeResultHandlerInit(&handler, c, ZRANGE_CONSUMER_TYPE_CLIENT);
-    zrangeGenericCommand(&handler, 1, ZRANGE_SCORE, ZRANGE_DIRECTION_REVERSE);
+    zrangeGenericCommand(&handler, 1, 0, ZRANGE_SCORE, ZRANGE_DIRECTION_REVERSE);
 }
 
 void zcountCommand(client *c) {
@@ -3395,6 +3369,8 @@ void genericZrangebylexCommand(zrange_result_handler *handler,
     client *c = handler->client;
     unsigned long rangelen = 0;
 
+    handler->beginResultEmission(handler);
+
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl = zobj->ptr;
         unsigned char *eptr, *sptr;
@@ -3409,17 +3385,9 @@ void genericZrangebylexCommand(zrange_result_handler *handler,
             eptr = zzlFirstInLexRange(zl,range);
         }
 
-        /* No "first" element in the specified interval. */
-        if (eptr == NULL) {
-            addReply(c,shared.emptyarray);
-            return;
-        }
-
         /* Get score pointer for the first element. */
-        serverAssertWithInfo(c,zobj,eptr != NULL);
-        sptr = ziplistNext(zl,eptr);
-
-        handler->beginResultEmission(handler);
+        if (eptr)
+            sptr = ziplistNext(zl,eptr);
 
         /* If there is an offset, just traverse the number of elements without
          * checking the score because that is done in the next loop. */
@@ -3469,14 +3437,6 @@ void genericZrangebylexCommand(zrange_result_handler *handler,
             ln = zslFirstInLexRange(zsl,range);
         }
 
-        /* No "first" element in the specified interval. */
-        if (ln == NULL) {
-            addReply(c,shared.emptyarray);
-            return;
-        }
-
-        handler->beginResultEmission(handler);
-
         /* If there is an offset, just traverse the number of elements without
          * checking the score because that is done in the next loop. */
         while (ln && offset--) {
@@ -3516,27 +3476,27 @@ void genericZrangebylexCommand(zrange_result_handler *handler,
 void zrangebylexCommand(client *c) {
     zrange_result_handler handler;
     zrangeResultHandlerInit(&handler, c, ZRANGE_CONSUMER_TYPE_CLIENT);
-    zrangeGenericCommand(&handler, 1, ZRANGE_LEX, ZRANGE_DIRECTION_FORWARD);
+    zrangeGenericCommand(&handler, 1, 0, ZRANGE_LEX, ZRANGE_DIRECTION_FORWARD);
 }
 
 /* ZREVRANGEBYLEX <key> <min> <max> [LIMIT offset count] */
 void zrevrangebylexCommand(client *c) {
     zrange_result_handler handler;
     zrangeResultHandlerInit(&handler, c, ZRANGE_CONSUMER_TYPE_CLIENT);
-    zrangeGenericCommand(&handler, 1, ZRANGE_LEX, ZRANGE_DIRECTION_REVERSE);
+    zrangeGenericCommand(&handler, 1, 0, ZRANGE_LEX, ZRANGE_DIRECTION_REVERSE);
 }
 
 /**
  * This function handles ZRANGE and ZRANGESTORE, and also the deprecated
  * Z[REV]RANGE[BYPOS|BYLEX] commands.
  *
- * The simple ZRANGE and ZRANGESTORE ca take _AUTO in rangetype and direction,
+ * The simple ZRANGE and ZRANGESTORE can take _AUTO in rangetype and direction,
  * other command pass explicit value.
  *
  * The argc_start points to the src key argument, so following syntax is like:
  * <src> <min> <max> [BYSCORE | BYLEX] [REV] [WITHSCORES] [LIMIT offset count]
  */
-void zrangeGenericCommand(zrange_result_handler *handler, int argc_start,
+void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int store,
                           zrange_type rangetype, zrange_direction direction)
 {
     client *c = handler->client;
@@ -3557,7 +3517,7 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start,
     /* Step 1: Skip the <src> <min> <max> args and parse remaining optional arguments. */
     for (int j=argc_start + 3; j < c->argc; j++) {
         int leftargs = c->argc-j-1;
-        if (!strcasecmp(c->argv[j]->ptr,"withscores")) {
+        if (!store && !strcasecmp(c->argv[j]->ptr,"withscores")) {
             opt_withscores = 1;
         } else if (!strcasecmp(c->argv[j]->ptr,"limit") && leftargs >= 2) {
             if ((getLongFromObjectOrReply(c, c->argv[j+1], &opt_offset, NULL) != C_OK) ||
@@ -3636,7 +3596,7 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start,
         break;
     }
 
-    if (opt_withscores) {
+    if (opt_withscores || store) {
         zrangeResultHandlerScoreEmissionEnable(handler);
     }
 
@@ -3651,11 +3611,11 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start,
     case ZRANGE_AUTO:
     case ZRANGE_RANK:
         genericZrangebyrankCommand(handler, zobj, opt_start, opt_end,
-            opt_withscores, direction == ZRANGE_DIRECTION_REVERSE);
+            opt_withscores || store, direction == ZRANGE_DIRECTION_REVERSE);
         break;
 
     case ZRANGE_SCORE:
-        genericZrangebyscoreCommand(handler, &range, zobj, opt_withscores,
+        genericZrangebyscoreCommand(handler, &range, zobj, opt_withscores || store,
             opt_offset, opt_limit, direction == ZRANGE_DIRECTION_REVERSE);
         break;
 
@@ -3681,7 +3641,7 @@ void zrangestoreCommand (client *c) {
 
     zrangeResultHandlerInit(&handler, c, ZRANGE_CONSUMER_TYPE_INTERNAL);
     zrangeResultHandlerDestinationKeySet(&handler, dstkey);
-    zrangeGenericCommand(&handler, 2, ZRANGE_AUTO, ZRANGE_DIRECTION_AUTO);
+    zrangeGenericCommand(&handler, 2, 1, ZRANGE_AUTO, ZRANGE_DIRECTION_AUTO);
 }
 
 void zcardCommand(client *c) {

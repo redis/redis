@@ -1476,22 +1476,16 @@ start_server {tags {"zset"}} {
     test {ZRANGESTORE basic} {
         r flushall
         r zadd z1 1 a 2 b 3 c 4 d
-        set res [r zrangestore z2 z1 0 -1 withscores]
+        set res [r zrangestore z2 z1 0 -1]
         assert_equal $res 4
         r zrange z2 0 -1 withscores
     } {a 1 b 2 c 3 d 4}
 
     test {ZRANGESTORE range} {
-        set res [r zrangestore z2 z1 1 2 withscores]
-        assert_equal $res 2
-        r zrange z2 0 -1 withscores
-    } {b 2 c 3}
-
-    test {ZRANGESTORE no-withscores} {
         set res [r zrangestore z2 z1 1 2]
         assert_equal $res 2
         r zrange z2 0 -1 withscores
-    } {b 0 c 0}
+    } {b 2 c 3}
 
     test {ZRANGESTORE BYLEX} {
         r zadd zlex 0 a 0 b 0 c 0 d
@@ -1501,19 +1495,19 @@ start_server {tags {"zset"}} {
     } {b 0 c 0}
 
     test {ZRANGESTORE BYSCORE} {
-        set res [r zrangestore z2 z1 1 2 BYSCORE WITHSCORES]
+        set res [r zrangestore z2 z1 1 2 BYSCORE]
         assert_equal $res 2
         r zrange z2 0 -1 withscores
     } {a 1 b 2}
 
     test {ZRANGESTORE BYSCORE LIMIT} {
-        set res [r zrangestore z2 z1 0 5 BYSCORE LIMIT 0 2 WITHSCORES]
+        set res [r zrangestore z2 z1 0 5 BYSCORE LIMIT 0 2]
         assert_equal $res 2
         r zrange z2 0 -1 withscores
     } {a 1 b 2}
 
     test {ZRANGESTORE BYSCORE REV LIMIT} {
-        set res [r zrangestore z2 z1 5 0 BYSCORE REV LIMIT 0 2 WITHSCORES]
+        set res [r zrangestore z2 z1 5 0 BYSCORE REV LIMIT 0 2]
         assert_equal $res 2
         r zrange z2 0 -1 withscores
     } {c 3 d 4}
@@ -1522,6 +1516,24 @@ start_server {tags {"zset"}} {
         r zrange z1 5 0 BYSCORE REV LIMIT 0 2 WITHSCORES
     } {d 4 c 3}
 
+    test {ZRANGESTORE - empty range} {
+        set res [r zrangestore z2 z1 5 6]
+        assert_equal $res 0
+        r zrange z2 0 -1
+    } {}
+
+    test {ZRANGESTORE BYLEX - empty range} {
+        set res [r zrangestore z2 zlex \[f \[g BYLEX]
+        assert_equal $res 0
+        r zrange z2 0 -1
+    } {}
+
+    test {ZRANGESTORE BYSCORE - empty range} {
+        set res [r zrangestore z2 z1 5 6 BYSCORE]
+        assert_equal $res 0
+        r zrange z2 0 -1
+    } {}
+
     test {ZRANGE BYLEX} {
         r zrange zlex \[b \[c BYLEX
     } {b c}
@@ -1529,7 +1541,7 @@ start_server {tags {"zset"}} {
     test {ZRANGESTORE invalid syntax} {
         catch {r zrangestore z2 z1 0 -1 limit 1 2} err
         assert_match "*syntax*" $err
-        catch {r zrangestore z2 z1 0 -1 BYLEX WITHSCORES} err
+        catch {r zrangestore z2 z1 0 -1 WITHSCORES} err
         assert_match "*syntax*" $err
     }
 
