@@ -2681,9 +2681,14 @@ void xautoclaimCommand(client *c) {
     streamCG *group = NULL;
     robj *o = lookupKeyRead(c->db,c->argv[1]);
     long long minidle; /* Minimum idle time argument, in milliseconds. */
-    long long count; /* Maximum entries to claim. */
+    long long count = 10; /* Maximum entries to claim. */
     streamID startid;
     int startex;
+
+    if (c->argc != 6 && c->argc != 8) {
+        addReplyErrorObject(c,shared.syntaxerr);
+        return;
+    }
 
     /* Parse idle/start/end/count arguments ASAP if needed, in order to report
      * syntax errors before any other error. */
@@ -2698,9 +2703,18 @@ void xautoclaimCommand(client *c) {
         return;
     }
 
-    if (getLongLongFromObjectOrReply(c,c->argv[6],&count,NULL) != C_OK)
-        return;
-    if (count < 0) count = 0;
+    if (c->argc == 8) {
+        if (strcasecmp(c->argv[6]->ptr,"count")) {
+            addReplyErrorObject(c,shared.syntaxerr);
+            return;
+        }
+        if (getLongLongFromObjectOrReply(c,c->argv[7],&count,NULL) != C_OK)
+            return;
+        if (count < 0) {
+            addReplyErrorObject(c,shared.syntaxerr);
+            return;
+        }
+    }
 
     if (o) {
         if (checkType(c,o,OBJ_STREAM))

@@ -1027,7 +1027,7 @@ struct redisCommand redisCommandTable[] = {
      "write random fast @stream",
      0,NULL,1,1,1,0,0,0},
 
-    {"xautoclaim",xautoclaimCommand,7,
+    {"xautoclaim",xautoclaimCommand,-6,
      "write random fast @stream",
      0,NULL,1,1,1,0,0,0},
 
