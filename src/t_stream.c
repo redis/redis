@@ -2661,7 +2661,7 @@ cleanup:
     if (ids != static_ids) zfree(ids);
 }
 
-/* XAUTOCLAIM <key> <group> <consumer> <min-idle-time> <start> COUNT <count>
+/* XAUTOCLAIM <key> <group> <consumer> <min-idle-time> <start> [COUNT <count>]
  *
  * Gets ownership of one or multiple messages in the Pending Entries List
  * of a given stream consumer group.
@@ -2698,7 +2698,7 @@ void xautoclaimCommand(client *c) {
         return;
     }
 
-    int j = 6; /* options start at argv[2] */
+    int j = 6; /* options start at argv[6] */
     while(j < c->argc) {
         int leftargs = c->argc-j-1;
         if (!strcasecmp(c->argv[j]->ptr,"count") && leftargs) {
