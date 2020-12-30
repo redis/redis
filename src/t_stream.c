@@ -2661,7 +2661,7 @@ cleanup:
     if (ids != static_ids) zfree(ids);
 }
 
-/* XAUTOCLAIM <key> <group> <consumer> <min-idle-time> <start> <count>
+/* XAUTOCLAIM <key> <group> <consumer> <min-idle-time> <start> COUNT <count>
  *
  * Gets ownership of one or multiple messages in the Pending Entries List
  * of a given stream consumer group.
@@ -2681,14 +2681,9 @@ void xautoclaimCommand(client *c) {
     streamCG *group = NULL;
     robj *o = lookupKeyRead(c->db,c->argv[1]);
     long long minidle; /* Minimum idle time argument, in milliseconds. */
-    long long count = 10; /* Maximum entries to claim. */
+    long count = 10; /* Maximum entries to claim. */
     streamID startid;
     int startex;
-
-    if (c->argc != 6 && c->argc != 8) {
-        addReplyErrorObject(c,shared.syntaxerr);
-        return;
-    }
 
     /* Parse idle/start/end/count arguments ASAP if needed, in order to report
      * syntax errors before any other error. */
@@ -2703,17 +2698,18 @@ void xautoclaimCommand(client *c) {
         return;
     }
 
-    if (c->argc == 8) {
-        if (strcasecmp(c->argv[6]->ptr,"count")) {
+    int j = 6; /* options start at argv[2] */
+    while(j < c->argc) {
+        int leftargs = c->argc-j-1;
+        if (!strcasecmp(c->argv[j]->ptr,"count") && leftargs) {
+            if (getPositiveLongFromObjectOrReply(c,c->argv[j+1],&count,NULL) != C_OK)
+                return;
+            j++;
+        } else {
             addReplyErrorObject(c,shared.syntaxerr);
             return;
         }
-        if (getLongLongFromObjectOrReply(c,c->argv[7],&count,NULL) != C_OK)
-            return;
-        if (count < 0) {
-            addReplyErrorObject(c,shared.syntaxerr);
-            return;
-        }
+        j++;
     }
 
     if (o) {
