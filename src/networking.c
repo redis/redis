@@ -259,8 +259,14 @@ int prepareClientToWrite(client *c) {
     if (!c->conn) return C_ERR; /* Fake client for AOF loading. */
 
     /* Schedule the client to write the output buffers to the socket, unless
-     * it should already be setup to do so (it has already pending data). */
-    if (!clientHasPendingReplies(c)) clientInstallWriteHandler(c);
+     * it should already be setup to do so (it has already pending data).
+     *
+     * If CLIENT_PENDING_READ is set, we're in an IO thread and should
+     * not install a write handler. Instead, it will be done by
+     * handleClientsWithPendingReadsUsingThreads() upon return.
+     */
+    if (!clientHasPendingReplies(c) && !(c->flags & CLIENT_PENDING_READ))
+            clientInstallWriteHandler(c);
 
     /* Authorize the caller to queue in the output buffer of this client. */
     return C_OK;
@@ -452,9 +458,11 @@ void addReplyError(client *c, const char *err) {
 }
 
 /* See addReplyErrorLength for expectations from the input string. */
+/* As a side effect the SDS string is freed. */
 void addReplyErrorSds(client *c, sds err) {
     addReplyErrorLength(c,err,sdslen(err));
     afterErrorReply(c,err,sdslen(err));
+    sdsfree(err);
 }
 
 /* See addReplyErrorLength for expectations from the formatted string.
@@ -850,7 +858,7 @@ void addReplySubcommandSyntaxError(client *c) {
     sdsfree(cmd);
 }
 
-/* Append 'src' client output buffers into 'dst' client output buffers. 
+/* Append 'src' client output buffers into 'dst' client output buffers.
  * This function clears the output buffers of 'src' */
 void AddReplyFromClient(client *dst, client *src) {
     /* If the source client contains a partial response due to client output
@@ -2374,13 +2382,14 @@ void clientCommand(client *c) {
 "LIST [options ...]     -- Return information about client connections. Options:",
 "     TYPE (normal|master|replica|pubsub) -- Return clients of specified type.",
 "     ID id [id ...]                      -- Return clients of specified IDs only.",
-"PAUSE <timeout>        -- Suspend all Redis clients for <timout> milliseconds.",
+"PAUSE <timeout>        -- Suspend all Redis clients for <timeout> milliseconds.",
 "REPLY (on|off|skip)    -- Control the replies sent to the current connection.",
 "SETNAME <name>         -- Assign the name <name> to the current connection.",
 "UNBLOCK <clientid> [TIMEOUT|ERROR] -- Unblock the specified blocked client.",
-"TRACKING (on|off) [REDIRECT <id>] [BCAST] [PREFIX first] [PREFIX second] [OPTIN] [OPTOUT]... -- Enable client keys tracking for client side caching.",
+"TRACKING (on|off) [REDIRECT <id>] [BCAST] [PREFIX first] [PREFIX second] [OPTIN] [OPTOUT] [NOLOOP]... -- Enable client keys tracking for client side caching.",
 "CACHING  (yes|no)      -- Enable/Disable tracking of the keys for next command in OPTIN/OPTOUT mode.",
 "GETREDIR               -- Return the client ID we are redirecting to when tracking is enabled.",
+"TRACKINGINFO           -- Return information about current client's tracking status.",
 NULL
         };
         addReplyHelp(c, help);
@@ -2421,7 +2430,7 @@ NULL
                 }
             }
         } else if (c->argc != 2) {
-            addReply(c,shared.syntaxerr);
+            addReplyErrorObject(c,shared.syntaxerr);
             return;
         }
 
@@ -2440,7 +2449,7 @@ NULL
             if (!(c->flags & CLIENT_REPLY_OFF))
                 c->flags |= CLIENT_REPLY_SKIP_NEXT;
         } else {
-            addReply(c,shared.syntaxerr);
+            addReplyErrorObject(c,shared.syntaxerr);
             return;
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"kill")) {
@@ -2496,17 +2505,17 @@ NULL
                     } else if (!strcasecmp(c->argv[i+1]->ptr,"no")) {
                         skipme = 0;
                     } else {
-                        addReply(c,shared.syntaxerr);
+                        addReplyErrorObject(c,shared.syntaxerr);
                         return;
                     }
                 } else {
-                    addReply(c,shared.syntaxerr);
+                    addReplyErrorObject(c,shared.syntaxerr);
                     return;
                 }
                 i += 2;
             }
         } else {
-            addReply(c,shared.syntaxerr);
+            addReplyErrorObject(c,shared.syntaxerr);
             return;
         }
 
@@ -2643,7 +2652,7 @@ NULL
                 prefix[numprefix++] = c->argv[j];
             } else {
                 zfree(prefix);
-                addReply(c,shared.syntaxerr);
+                addReplyErrorObject(c,shared.syntaxerr);
                 return;
             }
         }
@@ -2705,7 +2714,7 @@ NULL
             disableTracking(c);
         } else {
             zfree(prefix);
-            addReply(c,shared.syntaxerr);
+            addReplyErrorObject(c,shared.syntaxerr);
             return;
         }
         zfree(prefix);
@@ -2734,7 +2743,7 @@ NULL
                 return;
             }
         } else {
-            addReply(c,shared.syntaxerr);
+            addReplyErrorObject(c,shared.syntaxerr);
             return;
         }
 
@@ -2747,23 +2756,90 @@ NULL
         } else {
             addReplyLongLong(c,-1);
         }
+    } else if (!strcasecmp(c->argv[1]->ptr,"trackinginfo") && c->argc == 2) {
+        addReplyMapLen(c,3);
+
+        /* Flags */
+        addReplyBulkCString(c,"flags");
+        void *arraylen_ptr = addReplyDeferredLen(c);
+        int numflags = 0;
+        addReplyBulkCString(c,c->flags & CLIENT_TRACKING ? "on" : "off");
+        numflags++;
+        if (c->flags & CLIENT_TRACKING_BCAST) {
+            addReplyBulkCString(c,"bcast");
+            numflags++;
+        }
+        if (c->flags & CLIENT_TRACKING_OPTIN) {
+            addReplyBulkCString(c,"optin");
+            numflags++;
+            if (c->flags & CLIENT_TRACKING_CACHING) {
+                addReplyBulkCString(c,"caching-yes");
+                numflags++;        
+            }
+        }
+        if (c->flags & CLIENT_TRACKING_OPTOUT) {
+            addReplyBulkCString(c,"optout");
+            numflags++;
+            if (c->flags & CLIENT_TRACKING_CACHING) {
+                addReplyBulkCString(c,"caching-no");
+                numflags++;        
+            }
+        }
+        if (c->flags & CLIENT_TRACKING_NOLOOP) {
+            addReplyBulkCString(c,"noloop");
+            numflags++;
+        }
+        if (c->flags & CLIENT_TRACKING_BROKEN_REDIR) {
+            addReplyBulkCString(c,"broken_redirect");
+            numflags++;
+        }
+        setDeferredSetLen(c,arraylen_ptr,numflags);
+
+        /* Redirect */
+        addReplyBulkCString(c,"redirect");
+        if (c->flags & CLIENT_TRACKING) {
+            addReplyLongLong(c,c->client_tracking_redirection);
+        } else {
+            addReplyLongLong(c,-1);
+        }
+
+        /* Prefixes */
+        addReplyBulkCString(c,"prefixes");
+        if (c->client_tracking_prefixes) {
+            addReplyArrayLen(c,raxSize(c->client_tracking_prefixes));
+            raxIterator ri;
+            raxStart(&ri,c->client_tracking_prefixes);
+            raxSeek(&ri,"^",NULL,0);
+            while(raxNext(&ri)) {
+                addReplyBulkCBuffer(c,ri.key,ri.key_len);
+            }
+            raxStop(&ri);
+        } else {
+            addReplyArrayLen(c,0);
+        }
     } else {
         addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try CLIENT HELP", (char*)c->argv[1]->ptr);
     }
 }
 
-/* HELLO <protocol-version> [AUTH <user> <password>] [SETNAME <name>] */
+/* HELLO [<protocol-version> [AUTH <user> <password>] [SETNAME <name>] ] */
 void helloCommand(client *c) {
-    long long ver;
+    long long ver = 0;
+    int next_arg = 1;
 
-    if (getLongLongFromObject(c->argv[1],&ver) != C_OK ||
-        ver < 2 || ver > 3)
-    {
-        addReplyError(c,"-NOPROTO unsupported protocol version");
-        return;
+    if (c->argc >= 2) {
+        if (getLongLongFromObjectOrReply(c, c->argv[next_arg++], &ver,
+            "Protocol version is not an integer or out of range") != C_OK) {
+            return;
+        }
+
+        if (ver < 2 || ver > 3) {
+            addReplyError(c,"-NOPROTO unsupported protocol version");
+            return;
+        }
     }
 
-    for (int j = 2; j < c->argc; j++) {
+    for (int j = next_arg; j < c->argc; j++) {
         int moreargs = (c->argc-1) - j;
         const char *opt = c->argv[j]->ptr;
         if (!strcasecmp(opt,"AUTH") && moreargs >= 2) {
@@ -2791,7 +2867,7 @@ void helloCommand(client *c) {
     }
 
     /* Let's switch to the specified RESP mode. */
-    c->resp = ver;
+    if (ver) c->resp = ver;
     addReplyMapLen(c,6 + !server.sentinel_mode);
 
     addReplyBulkCString(c,"server");
@@ -2801,7 +2877,7 @@ void helloCommand(client *c) {
     addReplyBulkCString(c,REDIS_VERSION);
 
     addReplyBulkCString(c,"proto");
-    addReplyLongLong(c,ver);
+    addReplyLongLong(c,c->resp);
 
     addReplyBulkCString(c,"id");
     addReplyLongLong(c,c->id);
@@ -3509,6 +3585,12 @@ int handleClientsWithPendingReadsUsingThreads(void) {
             }
         }
         processInputBuffer(c);
+
+        /* We may have pending replies if a thread readQueryFromClient() produced
+         * replies and did not install a write handler (it can't).
+         */
+        if (!(c->flags & CLIENT_PENDING_WRITE) && clientHasPendingReplies(c))
+            clientInstallWriteHandler(c);
     }
 
     /* Update processed count on server */

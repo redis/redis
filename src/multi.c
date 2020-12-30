@@ -127,15 +127,15 @@ void beforePropagateMultiOrExec(int multi) {
 
 /* Send a MULTI command to all the slaves and AOF file. Check the execCommand
  * implementation for more information. */
-void execCommandPropagateMulti(client *c) {
+void execCommandPropagateMulti(int dbid) {
     beforePropagateMultiOrExec(1);
-    propagate(server.multiCommand,c->db->id,&shared.multi,1,
+    propagate(server.multiCommand,dbid,&shared.multi,1,
               PROPAGATE_AOF|PROPAGATE_REPL);
 }
 
-void execCommandPropagateExec(client *c) {
+void execCommandPropagateExec(int dbid) {
     beforePropagateMultiOrExec(0);
-    propagate(server.execCommand,c->db->id,&shared.exec,1,
+    propagate(server.execCommand,dbid,&shared.exec,1,
               PROPAGATE_AOF|PROPAGATE_REPL);
 }
 
@@ -162,7 +162,6 @@ void execCommand(client *c) {
     robj **orig_argv;
     int orig_argc;
     struct redisCommand *orig_cmd;
-    int must_propagate = 0; /* Need to propagate MULTI/EXEC to AOF / slaves? */
     int was_master = server.masterhost == NULL;
 
     if (!(c->flags & CLIENT_MULTI)) {
@@ -201,19 +200,6 @@ void execCommand(client *c) {
         c->argc = c->mstate.commands[j].argc;
         c->argv = c->mstate.commands[j].argv;
         c->cmd = c->mstate.commands[j].cmd;
-
-        /* Propagate a MULTI request once we encounter the first command which
-         * is not readonly nor an administrative one.
-         * This way we'll deliver the MULTI/..../EXEC block as a whole and
-         * both the AOF and the replication link will have the same consistency
-         * and atomicity guarantees. */
-        if (!must_propagate &&
-            !server.loading &&
-            !(c->cmd->flags & (CMD_READONLY|CMD_ADMIN)))
-        {
-            execCommandPropagateMulti(c);
-            must_propagate = 1;
-        }
 
         /* ACL permissions are also checked at the time of execution in case
          * they were changed after the commands were ququed. */
@@ -265,7 +251,7 @@ void execCommand(client *c) {
 
     /* Make sure the EXEC command will be propagated as well if MULTI
      * was already propagated. */
-    if (must_propagate) {
+    if (server.propagate_in_transaction) {
         int is_master = server.masterhost == NULL;
         server.dirty++;
         beforePropagateMultiOrExec(0);

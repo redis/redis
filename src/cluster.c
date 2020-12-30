@@ -4820,7 +4820,7 @@ NULL
                 takeover = 1;
                 force = 1; /* Takeover also implies force. */
             } else {
-                addReply(c,shared.syntaxerr);
+                addReplyErrorObject(c,shared.syntaxerr);
                 return;
             }
         }
@@ -4911,7 +4911,7 @@ NULL
             } else if (!strcasecmp(c->argv[2]->ptr,"soft")) {
                 hard = 0;
             } else {
-                addReply(c,shared.syntaxerr);
+                addReplyErrorObject(c,shared.syntaxerr);
                 return;
             }
         }
@@ -5049,7 +5049,7 @@ void restoreCommand(client *c) {
             }
             j++; /* Consume additional arg. */
         } else {
-            addReply(c,shared.syntaxerr);
+            addReplyErrorObject(c,shared.syntaxerr);
             return;
         }
     }
@@ -5057,7 +5057,7 @@ void restoreCommand(client *c) {
     /* Make sure this key does not already exist here... */
     robj *key = c->argv[1];
     if (!replace && lookupKeyWrite(c->db,key) != NULL) {
-        addReply(c,shared.busykeyerr);
+        addReplyErrorObject(c,shared.busykeyerr);
         return;
     }
 
@@ -5170,8 +5170,7 @@ migrateCachedSocket* migrateGetSocket(client *c, robj *host, robj *port, long ti
     conn = server.tls_cluster ? connCreateTLS() : connCreateSocket();
     if (connBlockingConnect(conn, c->argv[1]->ptr, atoi(c->argv[2]->ptr), timeout)
             != C_OK) {
-        addReplySds(c,
-            sdsnew("-IOERR error or timeout connecting to the client\r\n"));
+        addReplyError(c,"-IOERR error or timeout connecting to the client");
         connClose(conn);
         sdsfree(name);
         return NULL;
@@ -5259,14 +5258,14 @@ void migrateCommand(client *c) {
             replace = 1;
         } else if (!strcasecmp(c->argv[j]->ptr,"auth")) {
             if (!moreargs) {
-                addReply(c,shared.syntaxerr);
+                addReplyErrorObject(c,shared.syntaxerr);
                 return;
             }
             j++;
             password = c->argv[j]->ptr;
         } else if (!strcasecmp(c->argv[j]->ptr,"auth2")) {
             if (moreargs < 2) {
-                addReply(c,shared.syntaxerr);
+                addReplyErrorObject(c,shared.syntaxerr);
                 return;
             }
             username = c->argv[++j]->ptr;
@@ -5282,7 +5281,7 @@ void migrateCommand(client *c) {
             num_keys = c->argc - j - 1;
             break; /* All the remaining args are keys. */
         } else {
-            addReply(c,shared.syntaxerr);
+            addReplyErrorObject(c,shared.syntaxerr);
             return;
         }
     }
@@ -5763,7 +5762,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
              * cluster is down. */
             if (error_code) *error_code = CLUSTER_REDIR_DOWN_STATE;
             return NULL;
-        } else if (!(cmd->flags & CMD_READONLY) && !(cmd->proc == evalCommand)
+        } else if ((cmd->flags & CMD_WRITE) && !(cmd->proc == evalCommand)
                 && !(cmd->proc == evalShaCommand))
         {
             /* The cluster is configured to allow read only commands
@@ -5812,11 +5811,10 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     /* Handle the read-only client case reading from a slave: if this
      * node is a slave and the request is about a hash slot our master
      * is serving, we can reply without redirection. */
-    int is_readonly_command = (c->cmd->flags & CMD_READONLY) ||
-                              (c->cmd->proc == execCommand && !(c->mstate.cmd_inv_flags & CMD_READONLY));
+    int is_write_command = (c->cmd->flags & CMD_WRITE) ||
+                           (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_WRITE));
     if (c->flags & CLIENT_READONLY &&
-        (is_readonly_command || cmd->proc == evalCommand ||
-         cmd->proc == evalShaCommand) &&
+        (!is_write_command || cmd->proc == evalCommand || cmd->proc == evalShaCommand) &&
         nodeIsSlave(myself) &&
         myself->slaveof == n)
     {
@@ -5838,23 +5836,23 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
  * be set to the hash slot that caused the redirection. */
 void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code) {
     if (error_code == CLUSTER_REDIR_CROSS_SLOT) {
-        addReplySds(c,sdsnew("-CROSSSLOT Keys in request don't hash to the same slot\r\n"));
+        addReplyError(c,"-CROSSSLOT Keys in request don't hash to the same slot");
     } else if (error_code == CLUSTER_REDIR_UNSTABLE) {
         /* The request spawns multiple keys in the same slot,
          * but the slot is not "stable" currently as there is
          * a migration or import in progress. */
-        addReplySds(c,sdsnew("-TRYAGAIN Multiple keys request during rehashing of slot\r\n"));
+        addReplyError(c,"-TRYAGAIN Multiple keys request during rehashing of slot");
     } else if (error_code == CLUSTER_REDIR_DOWN_STATE) {
-        addReplySds(c,sdsnew("-CLUSTERDOWN The cluster is down\r\n"));
+        addReplyError(c,"-CLUSTERDOWN The cluster is down");
     } else if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) {
-        addReplySds(c,sdsnew("-CLUSTERDOWN The cluster is down and only accepts read commands\r\n"));
+        addReplyError(c,"-CLUSTERDOWN The cluster is down and only accepts read commands");
     } else if (error_code == CLUSTER_REDIR_DOWN_UNBOUND) {
-        addReplySds(c,sdsnew("-CLUSTERDOWN Hash slot not served\r\n"));
+        addReplyError(c,"-CLUSTERDOWN Hash slot not served");
     } else if (error_code == CLUSTER_REDIR_MOVED ||
                error_code == CLUSTER_REDIR_ASK)
     {
-        addReplySds(c,sdscatprintf(sdsempty(),
-            "-%s %d %s:%d\r\n",
+        addReplyErrorSds(c,sdscatprintf(sdsempty(),
+            "-%s %d %s:%d",
             (error_code == CLUSTER_REDIR_ASK) ? "ASK" : "MOVED",
             hashslot,n->ip,n->port));
     } else {
@@ -5901,7 +5899,7 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
             /* if the client is read-only and attempting to access key that our
              * replica can handle, allow it. */
             if ((c->flags & CLIENT_READONLY) &&
-                (c->lastcmd->flags & CMD_READONLY) &&
+                !(c->lastcmd->flags & CMD_WRITE) &&
                 nodeIsSlave(myself) && myself->slaveof == node)
             {
                 node = myself;

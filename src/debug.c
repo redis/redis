@@ -474,7 +474,7 @@ NULL
             rdbSaveInfo rsi, *rsiptr;
             rsiptr = rdbPopulateSaveInfo(&rsi);
             if (rdbSave(server.rdb_filename,rsiptr) != C_OK) {
-                addReply(c,shared.err);
+                addReplyErrorObject(c,shared.err);
                 return;
             }
         }
@@ -500,7 +500,7 @@ NULL
         int ret = loadAppendOnlyFile(server.aof_filename);
         unprotectClient(c);
         if (ret != C_OK) {
-            addReply(c,shared.err);
+            addReplyErrorObject(c,shared.err);
             return;
         }
         server.dirty = 0; /* Prevent AOF / replication */
@@ -512,7 +512,7 @@ NULL
         char *strenc;
 
         if ((de = dictFind(c->db->dict,c->argv[2]->ptr)) == NULL) {
-            addReply(c,shared.nokeyerr);
+            addReplyErrorObject(c,shared.nokeyerr);
             return;
         }
         val = dictGetVal(de);
@@ -564,7 +564,7 @@ NULL
         sds key;
 
         if ((de = dictFind(c->db->dict,c->argv[2]->ptr)) == NULL) {
-            addReply(c,shared.nokeyerr);
+            addReplyErrorObject(c,shared.nokeyerr);
             return;
         }
         val = dictGetVal(de);
@@ -1808,7 +1808,7 @@ void bugReportEnd(int killViaSignal, int sig) {
 );
 
     /* free(messages); Don't call free() with possibly corrupted memory. */
-    if (server.daemonize && server.supervised == 0) unlink(server.pidfile);
+    if (server.daemonize && server.supervised == 0 && server.pidfile) unlink(server.pidfile);
 
     if (!killViaSignal) {
         if (server.use_exit_on_panic)

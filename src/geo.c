@@ -100,8 +100,8 @@ int extractLongLatOrReply(client *c, robj **argv, double *xy) {
     }
     if (xy[0] < GEO_LONG_MIN || xy[0] > GEO_LONG_MAX ||
         xy[1] < GEO_LAT_MIN  || xy[1] > GEO_LAT_MAX) {
-        addReplySds(c, sdscatprintf(sdsempty(),
-            "-ERR invalid longitude,latitude pair %f,%f\r\n",xy[0],xy[1]));
+        addReplyErrorFormat(c,
+            "-ERR invalid longitude,latitude pair %f,%f\r\n",xy[0],xy[1]);
         return C_ERR;
     }
     return C_OK;
@@ -636,7 +636,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
                 bybox = 1;
                 i += 3;
             } else {
-                addReply(c, shared.syntaxerr);
+                addReplyErrorObject(c,shared.syntaxerr);
                 return;
             }
         }
@@ -918,7 +918,7 @@ void geodistCommand(client *c) {
         to_meter = extractUnitOrReply(c,c->argv[4]);
         if (to_meter < 0) return;
     } else if (c->argc > 5) {
-        addReply(c,shared.syntaxerr);
+        addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
 
