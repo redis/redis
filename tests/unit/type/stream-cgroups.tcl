@@ -402,7 +402,7 @@ start_server {
         # of consumer 1, this should return nil
         after 200
         r XDEL mystream $id3
-        set reply [r XAUTOCLAIM mystream mygroup consumer2 10]
+        set reply [r XAUTOCLAIM mystream mygroup consumer2 10 -]
         # id1 is self-claimed here but not id2 and id3 ('count' is default 10)
         assert_equal [llength $reply] 2
         assert_equal [llength [lindex $reply 0]] 3
@@ -410,7 +410,7 @@ start_server {
         assert_equal [lindex $reply 0 0 1] {a 1}
         assert_equal [lindex $reply 0 1] ""
         assert_equal [lindex $reply 0 2] ""
-        assert_equal [lindex $reply 1] $id3
+        assert_equal [lindex $reply 1] "0-0"
     }
 
     test {XAUTOCLAIM as an iterator} {
