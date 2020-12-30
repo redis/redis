@@ -1007,7 +1007,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
      *
      * We compute what is the best bet with the current input here. */
     if (op == SET_OP_DIFF && sets[0]) {
-        long long algo_one_work = 0, algo_two_work = 0;
+        unsigned long long algo_one_work = 0, algo_two_work = 0;
 
         for (j = 0; j < setnum; j++) {
             if (sets[j] == NULL) continue;

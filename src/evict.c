@@ -512,7 +512,7 @@ static unsigned long evictionTimeLimitUs() {
 int performEvictions(void) {
     if (!isSafeToPerformEvictions()) return EVICT_OK;
 
-    long keys_freed = 0;
+    unsigned long keys_freed = 0;
     size_t mem_reported, mem_tofree;
     long long mem_freed; /* May be negative */
     mstime_t latency, eviction_latency;

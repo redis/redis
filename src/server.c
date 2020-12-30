@@ -1500,7 +1500,7 @@ dictType replScriptCacheDictType = {
 };
 
 int htNeedsResize(dict *dict) {
-    long long size, used;
+    unsigned long size, used;
 
     size = dictSlots(dict);
     used = dictSize(dict);
@@ -2029,13 +2029,13 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     if (server.verbosity <= LL_VERBOSE) {
         run_with_period(5000) {
             for (j = 0; j < server.dbnum; j++) {
-                long long size, used, vkeys;
+                unsigned long size, used, vkeys;
 
                 size = dictSlots(server.db[j].dict);
                 used = dictSize(server.db[j].dict);
                 vkeys = dictSize(server.db[j].expires);
                 if (used || vkeys) {
-                    serverLog(LL_VERBOSE,"DB %d: %lld keys (%lld volatile) in %lld slots HT.",j,used,vkeys,size);
+                    serverLog(LL_VERBOSE,"DB %d: %lu keys (%lu volatile) in %lu slots HT.",j,used,vkeys,size);
                 }
             }
         }
@@ -4930,13 +4930,13 @@ sds genRedisInfoString(const char *section) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Keyspace\r\n");
         for (j = 0; j < server.dbnum; j++) {
-            long long keys, vkeys;
+            unsigned long keys, vkeys;
 
             keys = dictSize(server.db[j].dict);
             vkeys = dictSize(server.db[j].expires);
             if (keys || vkeys) {
                 info = sdscatprintf(info,
-                    "db%d:keys=%lld,expires=%lld,avg_ttl=%lld\r\n",
+                    "db%d:keys=%lu,expires=%lu,avg_ttl=%lld\r\n",
                     j, keys, vkeys, server.db[j].avg_ttl);
             }
         }

@@ -2445,8 +2445,8 @@ static int zsetChooseDiffAlgorithm(zsetopsrc *src, long setnum) {
      * result set.
      *
      * We compute what is the best bet with the current input here. */
-    long long algo_one_work = 0;
-    long long algo_two_work = 0;
+    unsigned long long algo_one_work = 0;
+    unsigned long long algo_two_work = 0;
 
     for (j = 0; j < setnum; j++) {
         /* If any other set is equal to the first set, there is nothing to be
