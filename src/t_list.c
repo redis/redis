@@ -216,76 +216,55 @@ robj *listTypeDup(robj *o) {
  * List Commands
  *----------------------------------------------------------------------------*/
 
-/* Implements LPUSH/RPUSH. */
-void pushGenericCommand(client *c, int where) {
-    int j, pushed = 0;
-    robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
+/* Implements LPUSH/RPUSH/LPUSHX/RPUSHX. 
+ * 'xx': push if key exists. */
+void pushGenericCommand(client *c, int where, int xx) {
+    int j;
 
-    if (checkType(c,lobj,OBJ_LIST)) {
-        return;
+    robj *lobj = lookupKeyWrite(c->db, c->argv[1]);
+    if (checkType(c,lobj,OBJ_LIST)) return;
+    if (!lobj) {
+        if (xx) {
+            addReply(c, shared.czero);
+            return;
+        }
+
+        lobj = createQuicklistObject();
+        quicklistSetOptions(lobj->ptr, server.list_max_ziplist_size,
+                            server.list_compress_depth);
+        dbAdd(c->db,c->argv[1],lobj);
     }
 
     for (j = 2; j < c->argc; j++) {
-        if (!lobj) {
-            lobj = createQuicklistObject();
-            quicklistSetOptions(lobj->ptr, server.list_max_ziplist_size,
-                                server.list_compress_depth);
-            dbAdd(c->db,c->argv[1],lobj);
-        }
         listTypePush(lobj,c->argv[j],where);
-        pushed++;
+        server.dirty++;
     }
-    addReplyLongLong(c, (lobj ? listTypeLength(lobj) : 0));
-    if (pushed) {
-        char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
 
-        signalModifiedKey(c,c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
-    }
-    server.dirty += pushed;
+    addReplyLongLong(c, listTypeLength(lobj));
+
+    char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
+    signalModifiedKey(c,c->db,c->argv[1]);
+    notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
 }
 
 /* LPUSH <key> <element> [<element> ...] */
 void lpushCommand(client *c) {
-    pushGenericCommand(c,LIST_HEAD);
+    pushGenericCommand(c,LIST_HEAD,0);
 }
 
 /* RPUSH <key> <element> [<element> ...] */
 void rpushCommand(client *c) {
-    pushGenericCommand(c,LIST_TAIL);
-}
-
-/* Implements LPUSHX/RPUSHX. */
-void pushxGenericCommand(client *c, int where) {
-    int j, pushed = 0;
-    robj *subject;
-
-    if ((subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,subject,OBJ_LIST)) return;
-
-    for (j = 2; j < c->argc; j++) {
-        listTypePush(subject,c->argv[j],where);
-        pushed++;
-    }
-
-    addReplyLongLong(c,listTypeLength(subject));
-
-    if (pushed) {
-        char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
-        signalModifiedKey(c,c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
-    }
-    server.dirty += pushed;
+    pushGenericCommand(c,LIST_TAIL,0);
 }
 
 /* LPUSHX <key> <element> [<element> ...] */
 void lpushxCommand(client *c) {
-    pushxGenericCommand(c,LIST_HEAD);
+    pushGenericCommand(c,LIST_HEAD,1);
 }
 
 /* RPUSH <key> <element> [<element> ...] */
 void rpushxCommand(client *c) {
-    pushxGenericCommand(c,LIST_TAIL);
+    pushGenericCommand(c,LIST_TAIL,1);
 }
 
 /* LINSERT <key> (BEFORE|AFTER) <pivot> <element> */
