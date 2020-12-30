@@ -1717,7 +1717,7 @@ void loadSentinelConfigFromQueue(void) {
     int linenum = 0;
     sds line = NULL;
 
-    /* loading from moonitor config queue to avoid dependency issues */
+    /* loading from monitor config queue first to avoid dependency issues */
     listRewind(server.sentinel_config->monitor_cfg,&li);
     while((ln = listNext(&li))) {
         struct sentinelLoadQueueEntry *entry = ln->value;
@@ -1746,6 +1746,7 @@ void loadSentinelConfigFromQueue(void) {
     listRelease(server.sentinel_config->monitor_cfg);
     listRelease(server.sentinel_config->aux_cfg);
     zfree(server.sentinel_config);
+    server.sentinel_config = NULL;
     return;
 
 loaderr:
@@ -2087,6 +2088,26 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
 
 
     dictReleaseIterator(di);
+
+    /* mark rewrite as done for the optional configs */
+    rewriteConfigMarkAsProcessed(state,"sentinel monitor");
+    rewriteConfigMarkAsProcessed(state,"sentinel down-after-milliseconds");
+    rewriteConfigMarkAsProcessed(state,"sentinel failover-timeout");
+    rewriteConfigMarkAsProcessed(state,"sentinel parallel-syncs");
+    rewriteConfigMarkAsProcessed(state,"sentinel notification-script");
+    rewriteConfigMarkAsProcessed(state,"sentinel client-reconfig-script");
+    rewriteConfigMarkAsProcessed(state,"sentinel auth-pass");
+    rewriteConfigMarkAsProcessed(state,"sentinel auth-user");
+    rewriteConfigMarkAsProcessed(state,"sentinel config-epoch");
+    rewriteConfigMarkAsProcessed(state,"sentinel leader-epoch");
+    rewriteConfigMarkAsProcessed(state,"sentinel known-replica");
+    rewriteConfigMarkAsProcessed(state,"sentinel known-sentinel");
+    rewriteConfigMarkAsProcessed(state,"sentinel rename-command");
+    rewriteConfigMarkAsProcessed(state,"sentinel announce-ip");
+    rewriteConfigMarkAsProcessed(state,"sentinel announce-port");
+    rewriteConfigMarkAsProcessed(state,"sentinel sentinel-user");
+    rewriteConfigMarkAsProcessed(state,"sentinel sentinel-pass");
+    
 }
 
 /* This function uses the config rewriting Redis engine in order to persist

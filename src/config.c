@@ -1221,7 +1221,7 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
             argv[0] = alt;
         }
         /* If this is sentinel config, we use sentinel <sentinel-config> as option 
-            avoid messing up the sequence. */
+            to avoid messing up the sequence. */
         if (server.sentinel_mode && argc > 1 && !strcasecmp(argv[0],"sentinel")) {
             sds sentinelOption = sdsempty();
             sentinelOption = sdscatfmt(sentinelOption,"%S %S",argv[0],argv[1]);
