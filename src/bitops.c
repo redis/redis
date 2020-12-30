@@ -611,7 +611,7 @@ void bitopCommand(client *c) {
     else if((opname[0] == 'n' || opname[0] == 'N') && !strcasecmp(opname,"not"))
         op = BITOP_NOT;
     else {
-        addReply(c,shared.syntaxerr);
+        addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
 
@@ -813,7 +813,7 @@ void bitcountCommand(client *c) {
         end = strlen-1;
     } else {
         /* Syntax error. */
-        addReply(c,shared.syntaxerr);
+        addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
 
@@ -878,7 +878,7 @@ void bitposCommand(client *c) {
         end = strlen-1;
     } else {
         /* Syntax error. */
-        addReply(c,shared.syntaxerr);
+        addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
 
@@ -970,7 +970,7 @@ void bitfieldGeneric(client *c, int flags) {
             }
             continue;
         } else {
-            addReply(c,shared.syntaxerr);
+            addReplyErrorObject(c,shared.syntaxerr);
             zfree(ops);
             return;
         }
