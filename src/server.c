@@ -5913,6 +5913,7 @@ int main(int argc, char **argv) {
             }
         }
     } else {
+        loadSentinelConfigFromQueue();
         ACLLoadUsersAtStartup();
         InitServerLast();
         sentinelIsRunning();

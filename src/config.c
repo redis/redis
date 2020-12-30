@@ -624,8 +624,7 @@ void loadServerConfigFromString(char *config) {
                     err = "sentinel directive while not in sentinel mode";
                     goto loaderr;
                 }
-                err = sentinelHandleConfiguration(argv+1,argc-1);
-                if (err) goto loaderr;
+                queueSentinelConfig(argv+1,argc-1,linenum,lines[i]);
             }
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;

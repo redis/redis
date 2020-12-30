@@ -481,6 +481,8 @@ void initSentinelConfig(void) {
     server.protected_mode = 0; /* Sentinel must be exposed. */
 }
 
+void freeSentinelLoadQueueEntry(void *item);
+
 /* Perform the Sentinel mode initialization. */
 void initSentinel(void) {
     unsigned int j;
@@ -520,6 +522,11 @@ void initSentinel(void) {
     sentinel.sentinel_auth_pass = NULL;
     sentinel.sentinel_auth_user = NULL;
     memset(sentinel.myid,0,sizeof(sentinel.myid));
+    server.sentinel_config = zmalloc(sizeof(struct sentinelConfig));
+    server.sentinel_config->monitor_cfg = listCreate();
+    server.sentinel_config->aux_cfg = listCreate();
+    listSetFreeMethod(server.sentinel_config->monitor_cfg,freeSentinelLoadQueueEntry);
+    listSetFreeMethod(server.sentinel_config->aux_cfg,freeSentinelLoadQueueEntry);
 }
 
 /* This function gets called when the server is in Sentinel mode, started,
@@ -1667,6 +1674,87 @@ char *sentinelCheckCreateInstanceErrors(int role) {
     default:
         return "Unknown Error for creating instances.";
     }
+}
+
+/* free method for sentinelLoadQueueEntry when release the list */
+void freeSentinelLoadQueueEntry(void *item) {
+    struct sentinelLoadQueueEntry *entry = item;
+    sdsfreesplitres(entry->argv,entry->argc);
+    sdsfree(entry->line);
+    zfree(entry);
+}
+
+/*  This function is used for queuing sentinel configuration, the main 
+    purpose of this function is to delay parsing the sentinel config option
+    in order to avoid the dependency issue from the config. */
+void queueSentinelConfig(sds *argv, int argc, int linenum, sds line) {
+    int i;
+    struct sentinelLoadQueueEntry *entry;
+
+    entry = zmalloc(sizeof(struct sentinelLoadQueueEntry));
+    entry->argv = zmalloc(sizeof(char*)*argc);
+    entry->argc = argc;
+    entry->linenum = linenum;
+    entry->line = sdsdup(line);
+    for (i = 0; i < argc; i++) {
+        entry->argv[i] = sdsdup(argv[i]);
+    }
+    /*  put the line with monitor subconfig in a separate list, in order to
+        parsing it first when loading */
+    if (!strcasecmp(argv[0],"monitor")) {
+        listAddNodeTail(server.sentinel_config->monitor_cfg,entry);
+    } else {
+        listAddNodeTail(server.sentinel_config->aux_cfg,entry);
+    }
+}
+
+/* This function is used for loading the sentinel configuration from monitor_cfg
+    and aux_cfg list */
+void loadSentinelConfigFromQueue(void) {
+    char *err = NULL;
+    listIter li;
+    listNode *ln;
+    int linenum = 0;
+    sds line = NULL;
+
+    /* loading from moonitor config queue to avoid dependency issues */
+    listRewind(server.sentinel_config->monitor_cfg,&li);
+    while((ln = listNext(&li))) {
+        struct sentinelLoadQueueEntry *entry = ln->value;
+        err = sentinelHandleConfiguration(entry->argv,entry->argc);
+        if (err) {
+            linenum = entry->linenum;
+            line = entry->line;
+            goto loaderr;
+        }
+
+    }
+
+    /* loading from the auxiliary config queue */
+    listRewind(server.sentinel_config->aux_cfg,&li);
+    while((ln = listNext(&li))) {
+        struct sentinelLoadQueueEntry *entry = ln->value;
+        err = sentinelHandleConfiguration(entry->argv,entry->argc);
+        if (err) {
+            linenum = entry->linenum;
+            line = entry->line;
+            goto loaderr;
+        }
+    }
+
+    /* release these two queues since we will not use it anymore */
+    listRelease(server.sentinel_config->monitor_cfg);
+    listRelease(server.sentinel_config->aux_cfg);
+    zfree(server.sentinel_config);
+    return;
+
+loaderr:
+    fprintf(stderr, "\n*** FATAL CONFIG FILE ERROR (Redis %s) ***\n",
+        REDIS_VERSION);
+    fprintf(stderr, "Reading the configuration file, at line %d\n", linenum);
+    fprintf(stderr, ">>> '%s'\n", line);
+    fprintf(stderr, "%s\n", err);
+    exit(1);
 }
 
 char *sentinelHandleConfiguration(char **argv, int argc) {
