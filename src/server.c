@@ -2952,6 +2952,7 @@ void resetServerStats(void) {
     atomicSet(server.stat_net_input_bytes, 0);
     atomicSet(server.stat_net_output_bytes, 0);
     server.stat_unexpected_error_replies = 0;
+    server.stat_total_error_replies = 0;
     server.stat_dump_payload_sanitizations = 0;
     server.aof_delayed_fsync = 0;
     server.blocked_last_cron = 0;
@@ -2985,6 +2986,7 @@ void initServer(void) {
     server.in_fork_child = CHILD_TYPE_NONE;
     server.main_thread_id = pthread_self();
     server.current_client = NULL;
+    server.errors = raxNew();
     server.fixed_time_expire = 0;
     server.clients = listCreate();
     server.clients_index = raxNew();
@@ -3291,9 +3293,16 @@ void resetCommandTableStats(void) {
         c = (struct redisCommand *) dictGetVal(de);
         c->microseconds = 0;
         c->calls = 0;
+        c->rejected_calls = 0;
+        c->failed_calls = 0;
     }
     dictReleaseIterator(di);
 
+}
+
+void resetErrorTableStats(void) {
+    raxFree(server.errors);
+    server.errors = raxNew();
 }
 
 /* ========================== Redis OP Array API ============================ */
@@ -3490,6 +3499,7 @@ void call(client *c, int flags) {
     ustime_t start, duration;
     int client_old_flags = c->flags;
     struct redisCommand *real_cmd = c->cmd;
+    static long long prev_err_count;
 
     server.fixed_time_expire++;
 
@@ -3510,12 +3520,21 @@ void call(client *c, int flags) {
 
     /* Call the command. */
     dirty = server.dirty;
+    prev_err_count = server.stat_total_error_replies;
     updateCachedTime(0);
     start = server.ustime;
     c->cmd->proc(c);
     duration = ustime()-start;
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
+
+    /* Update failed command calls if required.
+     * We leverage a static variable (prev_err_count) to retain
+     * the counter across nested function calls and avoid logging
+     * the same error twice. */
+    if ((server.stat_total_error_replies - prev_err_count) > 0) {
+        real_cmd->failed_calls++;
+    }
 
     /* After executing command, we will close the client after writing entire
      * reply if it is set 'CLIENT_CLOSE_AFTER_COMMAND' flag. */
@@ -3655,6 +3674,7 @@ void call(client *c, int flags) {
 
     server.fixed_time_expire--;
     server.stat_numcommands++;
+    prev_err_count = server.stat_total_error_replies;
 
     /* Record peak memory after each command and before the eviction that runs
      * before the next command. */
@@ -3670,6 +3690,7 @@ void call(client *c, int flags) {
  * Note: 'reply' is expected to end with \r\n */
 void rejectCommand(client *c, robj *reply) {
     flagTransaction(c);
+    if (c->cmd) c->cmd->rejected_calls++;
     if (c->cmd && c->cmd->proc == execCommand) {
         execCommandAbort(c, reply->ptr);
     } else {
@@ -3679,6 +3700,7 @@ void rejectCommand(client *c, robj *reply) {
 }
 
 void rejectCommandFormat(client *c, const char *fmt, ...) {
+    if (c->cmd) c->cmd->rejected_calls++;
     flagTransaction(c);
     va_list ap;
     va_start(ap,fmt);
@@ -3805,6 +3827,7 @@ int processCommand(client *c) {
                 flagTransaction(c);
             }
             clusterRedirectClient(c,n,hashslot,error_code);
+            c->cmd->rejected_calls++;
             return C_OK;
         }
     }
@@ -3962,7 +3985,20 @@ int processCommand(client *c) {
         if (listLength(server.ready_keys))
             handleClientsBlockedOnKeys();
     }
+
     return C_OK;
+}
+
+/* ====================== Error lookup and execution ===================== */
+
+void incrementErrorCount(const char *fullerr, size_t namelen) {
+    struct redisError *error = raxFind(server.errors,(unsigned char*)fullerr,namelen);
+    if (error == raxNotFound) {
+        error = zmalloc(sizeof(*error));
+        error->count = 0;
+        raxInsert(server.errors,(unsigned char*)fullerr,namelen,error,NULL);
+    }
+    error->count++;
 }
 
 /*================================== Shutdown =============================== */
@@ -4681,6 +4717,7 @@ sds genRedisInfoString(const char *section) {
             "tracking_total_items:%lld\r\n"
             "tracking_total_prefixes:%lld\r\n"
             "unexpected_error_replies:%lld\r\n"
+            "total_error_replies:%lld\r\n"
             "dump_payload_sanitizations:%lld\r\n"
             "total_reads_processed:%lld\r\n"
             "total_writes_processed:%lld\r\n"
@@ -4718,6 +4755,7 @@ sds genRedisInfoString(const char *section) {
             (unsigned long long) trackingGetTotalItems(),
             (unsigned long long) trackingGetTotalPrefixes(),
             server.stat_unexpected_error_replies,
+            server.stat_total_error_replies,
             server.stat_dump_payload_sanitizations,
             stat_total_reads_processed,
             stat_total_writes_processed,
@@ -4908,13 +4946,32 @@ sds genRedisInfoString(const char *section) {
         di = dictGetSafeIterator(server.commands);
         while((de = dictNext(di)) != NULL) {
             c = (struct redisCommand *) dictGetVal(de);
-            if (!c->calls) continue;
+            if (!c->calls && !c->failed_calls && !c->rejected_calls)
+                continue;
             info = sdscatprintf(info,
-                "cmdstat_%s:calls=%lld,usec=%lld,usec_per_call=%.2f\r\n",
+                "cmdstat_%s:calls=%lld,usec=%lld,usec_per_call=%.2f"
+                ",rejected_calls=%lld,failed_calls=%lld\r\n",
                 c->name, c->calls, c->microseconds,
-                (c->calls == 0) ? 0 : ((float)c->microseconds/c->calls));
+                (c->calls == 0) ? 0 : ((float)c->microseconds/c->calls),
+                c->rejected_calls, c->failed_calls);
         }
         dictReleaseIterator(di);
+    }
+    /* Error statistics */
+    if (allsections || defsections || !strcasecmp(section,"errorstats")) {
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscat(info, "# Errorstats\r\n");
+        raxIterator ri;
+        raxStart(&ri,server.errors);
+        raxSeek(&ri,"^",NULL,0);
+        struct redisError *e;
+        while(raxNext(&ri)) {
+            e = (struct redisError *) ri.data;
+            info = sdscatprintf(info,
+                "errorstat_%.*s:count=%lld\r\n",
+                (int)ri.key_len, ri.key, e->count);
+        }
+        raxStop(&ri);
     }
 
     /* Cluster */
