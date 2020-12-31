@@ -5835,26 +5835,31 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
  * node we want to mention in the redirection. Moreover hashslot should
  * be set to the hash slot that caused the redirection. */
 void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code) {
+    addReplyErrorSds(c, clusterRedirectError(n, hashslot, error_code));
+}
+
+/* Convert cluster redirect error code to error string. */
+sds clusterRedirectError(clusterNode *n, int hashslot, int error_code) {
     if (error_code == CLUSTER_REDIR_CROSS_SLOT) {
-        addReplyError(c,"-CROSSSLOT Keys in request don't hash to the same slot");
+        return sdsnew("-CROSSSLOT Keys in request don't hash to the same slot");
     } else if (error_code == CLUSTER_REDIR_UNSTABLE) {
         /* The request spawns multiple keys in the same slot,
          * but the slot is not "stable" currently as there is
          * a migration or import in progress. */
-        addReplyError(c,"-TRYAGAIN Multiple keys request during rehashing of slot");
+        return sdsnew("-TRYAGAIN Multiple keys request during rehashing of slot");
     } else if (error_code == CLUSTER_REDIR_DOWN_STATE) {
-        addReplyError(c,"-CLUSTERDOWN The cluster is down");
+        return sdsnew("-CLUSTERDOWN The cluster is down");
     } else if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) {
-        addReplyError(c,"-CLUSTERDOWN The cluster is down and only accepts read commands");
+        return sdsnew("-CLUSTERDOWN The cluster is down and only accepts read commands");
     } else if (error_code == CLUSTER_REDIR_DOWN_UNBOUND) {
-        addReplyError(c,"-CLUSTERDOWN Hash slot not served");
+        return sdsnew("-CLUSTERDOWN Hash slot not served");
     } else if (error_code == CLUSTER_REDIR_MOVED ||
                error_code == CLUSTER_REDIR_ASK)
     {
-        addReplyErrorSds(c,sdscatprintf(sdsempty(),
+        return sdscatprintf(sdsempty(),
             "-%s %d %s:%d",
             (error_code == CLUSTER_REDIR_ASK) ? "ASK" : "MOVED",
-            hashslot,n->ip,n->port));
+            hashslot,n->ip,n->port);
     } else {
         serverPanic("getNodeByQuery() unknown error.");
     }
