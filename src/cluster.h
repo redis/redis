@@ -285,6 +285,7 @@ typedef struct {
 /* ---------------------- API exported outside cluster.c -------------------- */
 clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
 int clusterRedirectBlockedClientIfNeeded(client *c);
+sds clusterRedirectError(clusterNode *n, int hashslot, int error_code);
 void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code);
 unsigned long getClusterConnectionsCount(void);
 

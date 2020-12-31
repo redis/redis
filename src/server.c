@@ -3678,6 +3678,17 @@ void rejectCommand(client *c, robj *reply) {
     }
 }
 
+void rejectCommandSds(client *c, sds reply) {
+    flagTransaction(c);
+    if (c->cmd && c->cmd->proc == execCommand) {
+        execCommandAbort(c, reply);
+        sdsfree(reply);
+    } else {
+        /* The following frees 's'. */
+        addReplyErrorSds(c, reply);
+    }
+}
+
 void rejectCommandFormat(client *c, const char *fmt, ...) {
     flagTransaction(c);
     va_list ap;
@@ -3799,12 +3810,7 @@ int processCommand(client *c) {
         clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,
                                         &hashslot,&error_code);
         if (n == NULL || n != server.cluster->myself) {
-            if (c->cmd->proc == execCommand) {
-                discardTransaction(c);
-            } else {
-                flagTransaction(c);
-            }
-            clusterRedirectClient(c,n,hashslot,error_code);
+            rejectCommandSds(c, clusterRedirectError(n,hashslot,error_code));
             return C_OK;
         }
     }
