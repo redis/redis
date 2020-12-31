@@ -929,14 +929,26 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
          * (The maxlen/minid argument was re-written to make sure there's no
          * inconsistency). */
         args->limit = 0;
-    } else if (!limit_given) {
-        /* In order to prevent from trimming to do too much work and cause
-         * latency spikes we limit the amount of work it can do */
-        args->limit = 100 * server.stream_node_max_entries; /* Maximum 100 rax nodes. */
-    } else if (!args->approx_trim) {
-        /* Not AOF/replica and LIMIT was provided without ~ */
-        addReplyError(c,"LIMIT without ~ option is illegal");
-        return -1;
+    } else {
+        /* We need to set the limit (only if we got '~') */
+        if (limit_given) {
+            if (!args->approx_trim) {
+                /* LIMIT was provided without ~ */
+                addReplyError(c,"LIMIT without ~ option is illegal");
+                return -1;
+            }
+        } else {
+            /* User didn't provide LIMIT, we must set it. */
+
+            if (args->approx_trim) {
+                /* In order to prevent from trimming to do too much work and cause
+                 * latency spikes we limit the amount of work it can do */
+                args->limit = 100 * server.stream_node_max_entries; /* Maximum 100 rax nodes. */
+            } else {
+                /* No LIMIT for exact trimming */
+                args->limit = 0;
+            }
+        }
     }
 
     return i;
