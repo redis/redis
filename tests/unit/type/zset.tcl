@@ -1488,11 +1488,10 @@ start_server {tags {"zset"}} {
     } {b 2 c 3}
 
     test {ZRANGESTORE BYLEX} {
-        r zadd zlex 0 a 0 b 0 c 0 d
-        set res [r zrangestore z2 zlex \[b \[c BYLEX]
+        set res [r zrangestore z2 z1 \[b \[c BYLEX]
         assert_equal $res 2
         r zrange z2 0 -1 withscores
-    } {b 0 c 0}
+    } {b 2 c 3}
 
     test {ZRANGESTORE BYSCORE} {
         set res [r zrangestore z2 z1 1 2 BYSCORE]
@@ -1523,7 +1522,7 @@ start_server {tags {"zset"}} {
     } {}
 
     test {ZRANGESTORE BYLEX - empty range} {
-        set res [r zrangestore z2 zlex \[f \[g BYLEX]
+        set res [r zrangestore z2 z1 \[f \[g BYLEX]
         assert_equal $res 0
         r zrange z2 0 -1
     } {}
@@ -1535,7 +1534,7 @@ start_server {tags {"zset"}} {
     } {}
 
     test {ZRANGE BYLEX} {
-        r zrange zlex \[b \[c BYLEX
+        r zrange z1 \[b \[c BYLEX
     } {b c}
 
     test {ZRANGESTORE invalid syntax} {
