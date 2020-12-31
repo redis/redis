@@ -3827,6 +3827,7 @@ int processCommand(client *c) {
                 flagTransaction(c);
             }
             clusterRedirectClient(c,n,hashslot,error_code);
+            c->cmd->rejected_calls++;
             return C_OK;
         }
     }
