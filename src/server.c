@@ -1212,7 +1212,7 @@ void dictListDestructor(void *privdata, void *val)
 int dictSdsKeyCompare(void *privdata, const void *key1,
         const void *key2)
 {
-    int l1,l2;
+    size_t l1,l2;
     DICT_NOTUSED(privdata);
 
     l1 = sdslen((sds)key1);
