@@ -1,5 +1,6 @@
-cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
-project(redis VERSION 4.0)
+cmake_minimum_required(VERSION 3.7 FATAL_ERROR)
+
+project(redis VERSION 3.7)
 set(CMAKE_BUILD_TYPE "Debug")
 get_filename_component(REDIS_ROOT "${CMAKE_CURRENT_SOURCE_DIR}" ABSOLUTE)
 
