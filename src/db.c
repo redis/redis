@@ -375,7 +375,7 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
 unsigned long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
                            void(callback)(void*))
 {
-    long long removed = 0;
+    unsigned long long removed = 0;
     int startdb, enddb;
 
     if (dbnum == -1) {
