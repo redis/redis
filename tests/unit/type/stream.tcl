@@ -494,6 +494,37 @@ start_server {
         assert {[r xlen mystream] == 62}
         r config set stream-node-max-entries 100
     }
+
+    test {XTRIM with ~ is limited} {
+        r del mystream
+        r config set stream-node-max-entries 1
+        for {set j 0} {$j < 102} {incr j} {
+            r XADD mystream * xitem v
+        }
+        r XTRIM mystream MAXLEN ~ 1
+        assert {[r xlen mystream] == 2}
+        r config set stream-node-max-entries 100
+    }
+
+    test {XTRIM without ~ is not limited} {
+        r del mystream
+        r config set stream-node-max-entries 1
+        for {set j 0} {$j < 102} {incr j} {
+            r XADD mystream * xitem v
+        }
+        r XTRIM mystream MAXLEN 1
+        assert {[r xlen mystream] == 1}
+        r config set stream-node-max-entries 100
+    }
+
+    test {XTRIM without ~ and with LIMIT} {
+        r del mystream
+        r config set stream-node-max-entries 1
+        for {set j 0} {$j < 102} {incr j} {
+            r XADD mystream * xitem v
+        }
+        assert_error ERR* {r XTRIM mystream MAXLEN 1 LIMIT 30}
+    }
 }
 
 start_server {tags {"stream"} overrides {appendonly yes}} {
