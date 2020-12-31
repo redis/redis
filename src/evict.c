@@ -226,7 +226,7 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
          * because allocating and deallocating this object is costly
          * (according to the profiler, not my fantasy. Remember:
          * premature optimization bla bla bla. */
-        int klen = sdslen(key);
+        size_t klen = sdslen(key);
         if (klen > EVPOOL_CACHED_SDS_SIZE) {
             pool[k].key = sdsdup(key);
         } else {
