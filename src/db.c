@@ -372,7 +372,7 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
  * The dbnum can be -1 if all the DBs should be emptied, or the specified
  * DB index if we want to empty only a single database.
  * The function returns the number of keys removed from the database(s). */
-long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
+unsigned long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
                            void(callback)(void*))
 {
     long long removed = 0;
@@ -413,16 +413,16 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
  * and the function to return ASAP.
  *
  * On success the function returns the number of keys removed from the
- * database(s). Otherwise -1 is returned in the specific case the
+ * database(s). Otherwise 0 is returned in the specific case the
  * DB number is out of range, and errno is set to EINVAL. */
-long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
+unsigned long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
     int async = (flags & EMPTYDB_ASYNC);
     RedisModuleFlushInfoV1 fi = {REDISMODULE_FLUSHINFO_VERSION,!async,dbnum};
-    long long removed = 0;
+    unsigned long long removed = 0;
 
     if (dbnum < -1 || dbnum >= server.dbnum) {
         errno = EINVAL;
-        return -1;
+        return 0;
     }
 
     /* Fire the flushdb modules event. */
@@ -547,8 +547,8 @@ int selectDb(client *c, int id) {
     return C_OK;
 }
 
-long long dbTotalServerKeyCount() {
-    long long total = 0;
+unsigned long long dbTotalServerKeyCount() {
+    unsigned long long total = 0;
     int j;
     for (j = 0; j < server.dbnum; j++) {
         total += dictSize(server.db[j].dict);

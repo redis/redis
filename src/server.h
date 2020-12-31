@@ -2249,10 +2249,10 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);
 
 #define EMPTYDB_NO_FLAGS 0      /* No flags. */
 #define EMPTYDB_ASYNC (1<<0)    /* Reclaim memory in another thread. */
-long long emptyDb(int dbnum, int flags, void(callback)(void*));
-long long emptyDbStructure(redisDb *dbarray, int dbnum, int async, void(callback)(void*));
+unsigned long long emptyDb(int dbnum, int flags, void(callback)(void*));
+unsigned long long emptyDbStructure(redisDb *dbarray, int dbnum, int async, void(callback)(void*));
 void flushAllDataAndResetRDB(int flags);
-long long dbTotalServerKeyCount();
+unsigned long long dbTotalServerKeyCount();
 dbBackup *backupDb(void);
 void restoreDbBackup(dbBackup *buckup);
 void discardDbBackup(dbBackup *buckup, int flags, void(callback)(void*));
