@@ -1518,20 +1518,20 @@ start_server {tags {"zset"}} {
     test {ZRANGESTORE - empty range} {
         set res [r zrangestore z2 z1 5 6]
         assert_equal $res 0
-        r zrange z2 0 -1
-    } {}
+        r exists z2
+    } {0}
 
     test {ZRANGESTORE BYLEX - empty range} {
         set res [r zrangestore z2 z1 \[f \[g BYLEX]
         assert_equal $res 0
-        r zrange z2 0 -1
-    } {}
+        r exists z2
+    } {0}
 
     test {ZRANGESTORE BYSCORE - empty range} {
         set res [r zrangestore z2 z1 5 6 BYSCORE]
         assert_equal $res 0
-        r zrange z2 0 -1
-    } {}
+        r exists z2
+    } {0}
 
     test {ZRANGE BYLEX} {
         r zrange z1 \[b \[c BYLEX

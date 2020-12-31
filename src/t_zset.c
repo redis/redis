@@ -2903,32 +2903,22 @@ static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
     serverAssert(retval);
 }
 
-static void zrangeResultFinalizeStore(zrange_result_handler *handler,
-    size_t result_count)
+static void zrangeResultFinalizeStore(zrange_result_handler *handler, size_t result_count)
 {
-    int deleted = 0;
-    if (dbDelete(handler->client->db, handler->dstkey)) {
-        signalModifiedKey(handler->client, handler->client->db, handler->dstkey);
-        deleted = 1;
-        ++server.dirty;
-    }
-    dbAdd(handler->client->db, handler->dstkey, handler->dstobj);
-
-    if (0 < result_count) {
+    if (result_count) {
+        setKey(handler->client, handler->client->db, handler->dstkey, handler->dstobj);
         addReplyLongLong(handler->client, result_count);
-        if (!deleted) {
-            signalModifiedKey(handler->client, handler->client->db, handler->dstkey);
-        }
-        notifyKeyspaceEvent(NOTIFY_ZSET, "zrangestore", handler->dstkey,
-            handler->client->db->id);
-        ++server.dirty;
+        notifyKeyspaceEvent(NOTIFY_ZSET, "zrangestore", handler->dstkey, handler->client->db->id);
+        server.dirty++;
     } else {
         addReply(handler->client, shared.czero);
-        if (deleted) {
-            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", handler->dstkey,
-                handler->client->db->id);
+        if (dbDelete(handler->client->db, handler->dstkey)) {
+            signalModifiedKey(handler->client, handler->client->db, handler->dstkey);
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", handler->dstkey, handler->client->db->id);
+            server.dirty++;
         }
     }
+    decrRefCount(handler->dstobj);
 }
 
 /* Initialize the consumer interface type with the requested type. */
