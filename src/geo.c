@@ -539,8 +539,8 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
     int withdist = 0, withhash = 0, withcoords = 0;
     int frommember = 0, fromloc = 0, byradius = 0, bybox = 0;
     int sort = SORT_NONE;
-    long long count = 0;
-    unsigned long limit = 0;
+    long long count = 0;  /* Max number of results to return. 0 means unlimited. */
+    unsigned long limit = 0; /* Do a limited search, stop as soon as enough results were found. */
     if (c->argc > base_args) {
         int remaining = c->argc - base_args;
         for (int i = 0; i < remaining; i++) {
@@ -562,7 +562,9 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
                     addReplyError(c,"COUNT must be greater than 0 or less than 0");
                     return;
                 } else if (count < 0) {
+                    /* Negative count meant a limited search. */
                     limit = -count;
+                    count = 0;
                 }
                 i++;
             } else if (!strcasecmp(arg, "store") &&
@@ -654,8 +656,10 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
         return;
     }
 
-    /* COUNT without ordering does not make much sense, force ASC
-     * ordering if COUNT was specified but no sorting was requested. */
+    /* COUNT without ordering does not make much sense (we need to
+     * sort in order to return the closest N entries),
+     * force ASC ordering if COUNT was specified but no sorting was
+     * requested. Note that this is not needed for negative COUNT. */
     if (count != 0 && sort == SORT_NONE) sort = SORT_ASC;
 
     /* Get all neighbor geohash boxes for our radius search */
@@ -673,8 +677,8 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
     }
 
     long result_length = ga->used;
-    long returned_items = (count == 0 || result_length < llabs(count)) ?
-                          result_length : llabs(count);
+    long returned_items = (count == 0 || result_length < count) ?
+                          result_length : count;
     long option_length = 0;
 
     /* Process [optional] requested sorting */
