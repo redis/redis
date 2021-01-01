@@ -3048,7 +3048,7 @@ void genericZrangebyrankCommand(zrange_result_handler *handler,
     handler->finalizeResultEmission(handler, result_cardinality);
 }
 
-/* ZRANGESTORE <dst> <src> <min> <max> [BYSCORE | BYLEX] [REV] [WITHSCORES] [LIMIT offset count] */
+/* ZRANGESTORE <dst> <src> <min> <max> [BYSCORE | BYLEX] [REV] [LIMIT offset count] */
 void zrangestoreCommand (client *c) {
     robj *dstkey = c->argv[1];
     zrange_result_handler handler;
