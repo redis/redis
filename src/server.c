@@ -3301,7 +3301,7 @@ void resetCommandTableStats(void) {
 }
 
 void resetErrorTableStats(void) {
-    raxFree(server.errors);
+    raxFreeWithCallback(server.errors, zfree);
     server.errors = raxNew();
 }
 
