@@ -1493,7 +1493,7 @@ void logCurrentClient(void) {
     }
     /* Check if the first argument, usually a key, is found inside the
      * selected DB, and if so print info about the associated object. */
-    if (cc->argc >= 1) {
+    if (cc->argc > 1) {
         robj *val, *key;
         dictEntry *de;
 
