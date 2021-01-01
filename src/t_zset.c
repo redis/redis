@@ -3555,10 +3555,12 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
         rangetype = ZRANGE_RANK;
 
     /* Check for conflicting arguments. */
-    if ((opt_limit != -1 && rangetype == ZRANGE_RANK) ||
-        (opt_withscores && rangetype == ZRANGE_LEX))
-    {
-        addReplyErrorObject(c,shared.syntaxerr);
+    if (opt_limit != -1 && rangetype == ZRANGE_RANK) {
+        addReplyError(c,"syntax error, LIMIT is only supported in combination with either BYSCORE or BYLEX");
+        return;
+    }
+    if (opt_withscores && rangetype == ZRANGE_LEX) {
+        addReplyError(c,"syntax error, WITHSCORES not supported in combination with BYLEX");
         return;
     }
 
