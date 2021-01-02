@@ -5058,6 +5058,21 @@ void monitorCommand(client *c) {
 
 /* =================================== Main! ================================ */
 
+int CheckIgnoreWarning(const char *warning) {
+    int argc, j;
+    sds *argv = sdssplitargs(server.ignore_warnings, &argc);
+    if (argv == NULL)
+        return 0;
+
+    for (j = 0; j < argc; j++) {
+        char *flag = argv[j];
+        if (!strcasecmp(flag, warning))
+            break;
+    }
+    sdsfreesplitres(argv,argc);
+    return j < argc;
+}
+
 #ifdef __linux__
 int linuxOvercommitMemoryValue(void) {
     FILE *fp = fopen("/proc/sys/vm/overcommit_memory","r");
@@ -5082,6 +5097,10 @@ void linuxMemoryWarnings(void) {
     }
 }
 
+#ifdef __arm__
+
+/* Get size in kilobytes of the Shared_Dirty pages of the specified pid for the
+ * memory map corresponding to the provided address, or -1 on error. */
 static int smapsGetSharedDirty(pid_t pid, unsigned long addr) {
     int ret, in_mapping = 0, val = -1;
     unsigned long from, to;
@@ -5113,56 +5132,71 @@ static int smapsGetSharedDirty(pid_t pid, unsigned long addr) {
     return val;
 }
 
-void linuxMadvFreeForkBugCheck(void) {
+/* Older arm64 Linux kernels have a bug that could lead to data corruption
+ * during background save in certain scenarios. This function checks if the
+ * kernel is affected.
+ * The bug was fixed in this commit: ff1712f953e27f0b0718762ec17d0adb15c9fd0b
+ * titled: "arm64: pgtable: Ensure dirty bit is preserved across pte_wrprotect()"
+ * Return 1 if the kernel seems to be affected, and 0 otherwise. */
+int linuxMadvFreeForkBugCheck(void) {
     int ret, pipefd[2];
     pid_t pid;
-    char *p, buf;
+    char *p, bug_found = 0;
 
+    /* Create a memory map that's in our full control (not one used by the allocator. */
     p = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
     serverAssert(p != MAP_FAILED);
-
+    /* Write to the page once to make it resident */
     *(volatile char*)p = 0;
 
-#ifdef MADV_FREE
-    ret = madvise(p, 4096, MADV_FREE);
-#else
-    ret = madvise(p, 4096, 8);
+    /* Tell the kernel that this page is free to be reclaimed. */
+#ifndef MADV_FREE
+#define MADV_FREE 8
 #endif
-
+    ret = madvise(p, 4096, MADV_FREE);
     serverAssert(!ret);
 
+    /* Write to the page after being marked for freeing, this is suppose to take
+     * ownership of that page again. */
     *(volatile char*)p = 0;
 
+    /* Create a pipe for the child to return the info to the parent. */
     ret = pipe(pipefd);
     serverAssert(!ret);
 
+    /* fork the process */
     pid = fork();
     serverAssert(pid >= 0);
-
     if (!pid) {
-        ret = read(pipefd[0], &buf, 1);
+        /* Child: check if the page is marked as dirty, expecing 4 (kb).
+         * A value of 0 means the kernel is affected by the bug. */
+        if (!smapsGetSharedDirty(getpid(), (unsigned long)p))
+            bug_found = 1;
+
+        ret = write(pipefd[1], &bug_found, 1);
         serverAssert(ret == 1);
 
         exit(0);
     } else {
-        if (!smapsGetSharedDirty(pid, (unsigned long)p))
-            serverLog(LL_WARNING,"WARNING Your kernel has a bug that could lead to data corruption during background save. Please upgrade to the latest stable kernel.");
-
-        ret = write(pipefd[1], &buf, 1);
+        /* Read the result from the child */
+        ret = read(pipefd[0], &bug_found, 1);
         serverAssert(ret == 1);
 
+        /* Reap the child pid */
         serverAssert(waitpid(pid, NULL, 0) == pid);
     }
 
+    /* Cleanup */
     ret = close(pipefd[0]);
     serverAssert(!ret);
-
     ret = close(pipefd[1]);
     serverAssert(!ret);
-
     ret = munmap(p, 4096);
     serverAssert(!ret);
+
+    return bug_found;
 }
+#endif /* __arm__ */
 #endif /* __linux__ */
 
 void createPidFile(void) {
@@ -5739,8 +5773,14 @@ int main(int argc, char **argv) {
         serverLog(LL_WARNING,"Server initialized");
     #ifdef __linux__
         linuxMemoryWarnings();
-        linuxMadvFreeForkBugCheck();
-    #endif
+    #if defined (__arm__)
+        if (linuxMadvFreeForkBugCheck()) {
+            serverLog(LL_WARNING,"WARNING Your kernel has a bug that could lead to data corruption during background save. Please upgrade to the latest stable kernel.");
+            if (!CheckIgnoreWarning("ARM64-COW-BUG"))
+                exit(1);
+        }
+    #endif /* __arm__ */
+    #endif /* __linux__ */
         moduleInitModulesSystemLast();
         moduleLoadFromQueue();
         ACLLoadUsersAtStartup();
