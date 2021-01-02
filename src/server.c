@@ -5776,8 +5776,10 @@ int main(int argc, char **argv) {
     #if defined (__arm__)
         if (linuxMadvFreeForkBugCheck()) {
             serverLog(LL_WARNING,"WARNING Your kernel has a bug that could lead to data corruption during background save. Please upgrade to the latest stable kernel.");
-            if (!CheckIgnoreWarning("ARM64-COW-BUG"))
+            if (!CheckIgnoreWarning("ARM64-COW-BUG")) {
+                serverLog(LL_WARNING,"Reids will now exit to prevent data corruption. note that it is possible to suppress this warning by setting the follwoing config: ignore-warnings ARM64-COW-BUG");
                 exit(1);
+            }
         }
     #endif /* __arm__ */
     #endif /* __linux__ */
