@@ -260,20 +260,27 @@ list *listDup(list *orig)
     copy->free = orig->free;
     copy->match = orig->match;
     listRewind(orig, &iter);
-    while((node = listNext(&iter)) != NULL) {
-        void *value;
 
-        if (copy->dup) {
+    void *value;
+    if (copy->dup){
+        while((node = listNext(&iter)) != NULL) {
             value = copy->dup(node->value);
             if (value == NULL) {
                 listRelease(copy);
                 return NULL;
             }
-        } else
+            if (listAddNodeTail(copy, value) == NULL) {
+                listRelease(copy);
+                return NULL;
+            }
+        }
+    } else {
+        while((node = listNext(&iter)) != NULL) {
             value = node->value;
-        if (listAddNodeTail(copy, value) == NULL) {
-            listRelease(copy);
-            return NULL;
+            if (listAddNodeTail(copy, value) == NULL) {
+                listRelease(copy);
+                return NULL;
+            }
         }
     }
     return copy;
@@ -294,17 +301,12 @@ listNode *listSearchKey(list *list, void *key)
     listNode *node;
 
     listRewind(list, &iter);
-    while((node = listNext(&iter)) != NULL) {
-        if (list->match) {
-            if (list->match(node->value, key)) {
-                return node;
-            }
-        } else {
-            if (key == node->value) {
-                return node;
-            }
-        }
-    }
+
+    if (list->match)
+        while((node = listNext(&iter)) != NULL) if (list->match(node->value, key)) return node;
+    else
+        while((node = listNext(&iter)) != NULL) if (key == node->value) return node;
+
     return NULL;
 }
 
