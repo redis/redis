@@ -74,6 +74,49 @@ start_server {tags {"geo"}} {
         r geoadd nyc -73.9454966 40.747533 "lic market"
     } {0}
 
+    test {GEOADD update with CH option} {
+        assert_equal 1 [r geoadd nyc CH 40.747533 -73.9454966 "lic market"]
+        lassign [lindex [r geopos nyc "lic market"] 0] x1 y1
+        assert {abs($x1) - 40.747 < 0.001}
+        assert {abs($y1) - 73.945 < 0.001}
+    } {}
+
+    test {GEOADD update with NX option} {
+        assert_equal 0 [r geoadd nyc NX -73.9454966 40.747533 "lic market"]
+        lassign [lindex [r geopos nyc "lic market"] 0] x1 y1
+        assert {abs($x1) - 40.747 < 0.001}
+        assert {abs($y1) - 73.945 < 0.001}
+    } {}
+
+    test {GEOADD update with XX option} {
+        assert_equal 0 [r geoadd nyc XX -83.9454966 40.747533 "lic market"]
+        lassign [lindex [r geopos nyc "lic market"] 0] x1 y1
+        assert {abs($x1) - 83.945 < 0.001}
+        assert {abs($y1) - 40.747 < 0.001}
+    } {}
+
+    test {GEOADD update with CH NX option} {
+        r geoadd nyc CH NX -73.9454966 40.747533 "lic market"
+    } {0}
+
+    test {GEOADD update with CH XX option} {
+        r geoadd nyc CH XX -73.9454966 40.747533 "lic market"
+    } {1}
+
+    test {GEOADD update with XX NX option will return syntax error} {
+        catch {
+            r geoadd nyc xx nx -73.9454966 40.747533 "lic market"
+        } err
+        set err
+    } {ERR*syntax*}
+
+    test {GEOADD update with invalid option} {
+        catch {
+            r geoadd nyc ch xx foo -73.9454966 40.747533 "lic market"
+        } err
+        set err
+    } {ERR*syntax*}
+
     test {GEOADD invalid coordinates} {
         catch {
             r geoadd nyc -73.9454966 40.747533 "lic market" \
