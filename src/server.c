@@ -2955,7 +2955,6 @@ void resetServerStats(void) {
     server.stat_total_error_replies = 0;
     server.stat_dump_payload_sanitizations = 0;
     server.aof_delayed_fsync = 0;
-    server.blocked_last_cron = 0;
 }
 
 /* Make the thread killable at any time, so that kill threads functions
@@ -3004,6 +3003,7 @@ void initServer(void) {
     server.clients_paused = 0;
     server.events_processed_while_blocked = 0;
     server.system_memory_size = zmalloc_get_memory_size();
+    server.blocked_last_cron = 0;
 
     if ((server.tls_port || server.tls_replication || server.tls_cluster)
                 && tlsConfigure(&server.tls_ctx_config) == C_ERR) {

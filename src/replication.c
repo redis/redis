@@ -1690,7 +1690,6 @@ void readSyncBulkPayload(connection *conn) {
              * gets promoted. */
             return;
         }
-        stopLoading(1);
 
         /* RDB loading succeeded if we reach this point. */
         if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
@@ -1705,12 +1704,15 @@ void readSyncBulkPayload(connection *conn) {
             if (!rioRead(&rdb,buf,CONFIG_RUN_ID_SIZE) ||
                 memcmp(buf,eofmark,CONFIG_RUN_ID_SIZE) != 0)
             {
+                stopLoading(0);
                 serverLog(LL_WARNING,"Replication stream EOF marker is broken");
                 cancelReplicationHandshake(1);
                 rioFreeConn(&rdb, NULL);
                 return;
             }
         }
+
+        stopLoading(1);
 
         /* Cleanup and restore the socket to the original state to continue
          * with the normal replication. */
