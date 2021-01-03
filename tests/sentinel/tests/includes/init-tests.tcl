@@ -1,6 +1,6 @@
 # Initialization tests -- most units will start including this.
 
-test "(init) Restart killed instances" {
+proc restart_killed_instances {} {
     foreach type {redis sentinel} {
         foreach_${type}_id id {
             if {[get_instance_attrib $type $id pid] == -1} {
@@ -10,6 +10,10 @@ test "(init) Restart killed instances" {
             }
         }
     }
+}
+
+test "(init) Restart killed instances" {
+    restart_killed_instances
 }
 
 test "(init) Remove old master entry from sentinels" {

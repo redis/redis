@@ -241,12 +241,8 @@ int anetGenericResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len,
     return ANET_OK;
 }
 
-int anetResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len) {
-    return anetGenericResolve(err,host,ipbuf,ipbuf_len,ANET_NONE);
-}
-
-int anetResolveIP(char *err, char *host, char *ipbuf, size_t ipbuf_len) {
-    return anetGenericResolve(err,host,ipbuf,ipbuf_len,ANET_IP_ONLY);
+int anetResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len, int flags) {
+    return anetGenericResolve(err,host,ipbuf,ipbuf_len,flags);
 }
 
 static int anetSetReuseAddr(char *err, int fd) {
