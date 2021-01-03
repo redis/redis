@@ -7132,7 +7132,9 @@ static void getRDB(clusterManagerNode *node) {
     } else {
         fprintf(stderr,"Transfer finished with success.\n");
     }
-    redisFree(s); /* Close the file descriptor ASAP as fsync() may take time. */
+    redisFree(s); /* Close the connection ASAP as fsync() may take time. */
+    if (node)
+        node->context = NULL;
     fsync(fd);
     close(fd);
     fprintf(stderr,"Transfer finished with success.\n");
