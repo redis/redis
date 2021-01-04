@@ -5101,16 +5101,13 @@ void linuxMemoryWarnings(void) {
 
 /* Get size in kilobytes of the Shared_Dirty pages of the calling process for the
  * memory map corresponding to the provided address, or -1 on error. */
-static int smapsGetSharedDirty(pid_t pid, unsigned long addr) {
+static int smapsGetSharedDirty(unsigned long addr) {
     int ret, in_mapping = 0, val = -1;
     unsigned long from, to;
     char buf[64];
     FILE *f;
 
-    ret = snprintf(buf, sizeof(buf), "/proc/%d/smaps", pid);
-    serverAssert((unsigned int)ret < sizeof(buf));
-
-    f = fopen(buf, "r");
+    f = fopen("/proc/self/smaps", "r");
     serverAssert(f);
 
     while (1) {
@@ -5170,7 +5167,7 @@ int linuxMadvFreeForkBugCheck(void) {
     if (!pid) {
         /* Child: check if the page is marked as dirty, expecing 4 (kB).
          * A value of 0 means the kernel is affected by the bug. */
-        if (!smapsGetSharedDirty(getpid(), (unsigned long)p))
+        if (!smapsGetSharedDirty((unsigned long)q))
             bug_found = 1;
 
         ret = write(pipefd[1], &bug_found, 1);
