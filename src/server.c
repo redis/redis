@@ -5097,7 +5097,7 @@ void linuxMemoryWarnings(void) {
     }
 }
 
-#ifdef __arm__
+#ifdef __arm64__
 
 /* Get size in kilobytes of the Shared_Dirty pages of the specified pid for the
  * memory map corresponding to the provided address, or -1 on error. */
@@ -5196,7 +5196,7 @@ int linuxMadvFreeForkBugCheck(void) {
 
     return bug_found;
 }
-#endif /* __arm__ */
+#endif /* __arm64__ */
 #endif /* __linux__ */
 
 void createPidFile(void) {
@@ -5773,7 +5773,7 @@ int main(int argc, char **argv) {
         serverLog(LL_WARNING,"Server initialized");
     #ifdef __linux__
         linuxMemoryWarnings();
-    #if defined (__arm__)
+    #if defined (__arm64__)
         if (linuxMadvFreeForkBugCheck()) {
             serverLog(LL_WARNING,"WARNING Your kernel has a bug that could lead to data corruption during background save. Please upgrade to the latest stable kernel.");
             if (!CheckIgnoreWarning("ARM64-COW-BUG")) {
@@ -5781,7 +5781,7 @@ int main(int argc, char **argv) {
                 exit(1);
             }
         }
-    #endif /* __arm__ */
+    #endif /* __arm64__ */
     #endif /* __linux__ */
         moduleInitModulesSystemLast();
         moduleLoadFromQueue();
