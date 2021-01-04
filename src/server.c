@@ -5099,7 +5099,7 @@ void linuxMemoryWarnings(void) {
 
 #ifdef __arm64__
 
-/* Get size in kilobytes of the Shared_Dirty pages of the specified pid for the
+/* Get size in kilobytes of the Shared_Dirty pages of the calling process for the
  * memory map corresponding to the provided address, or -1 on error. */
 static int smapsGetSharedDirty(pid_t pid, unsigned long addr) {
     int ret, in_mapping = 0, val = -1;
@@ -5135,7 +5135,7 @@ static int smapsGetSharedDirty(pid_t pid, unsigned long addr) {
 /* Older arm64 Linux kernels have a bug that could lead to data corruption
  * during background save in certain scenarios. This function checks if the
  * kernel is affected.
- * The bug was fixed in this commit: ff1712f953e27f0b0718762ec17d0adb15c9fd0b
+ * The bug was fixed in commit ff1712f953e27f0b0718762ec17d0adb15c9fd0b
  * titled: "arm64: pgtable: Ensure dirty bit is preserved across pte_wrprotect()"
  * Return 1 if the kernel seems to be affected, and 0 otherwise. */
 int linuxMadvFreeForkBugCheck(void) {
@@ -5143,7 +5143,7 @@ int linuxMadvFreeForkBugCheck(void) {
     pid_t pid;
     char *p, bug_found = 0;
 
-    /* Create a memory map that's in our full control (not one used by the allocator. */
+    /* Create a memory map that's in our full control (not one used by the allocator). */
     p = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
     serverAssert(p != MAP_FAILED);
     /* Write to the page once to make it resident */
@@ -5156,7 +5156,7 @@ int linuxMadvFreeForkBugCheck(void) {
     ret = madvise(p, 4096, MADV_FREE);
     serverAssert(!ret);
 
-    /* Write to the page after being marked for freeing, this is suppose to take
+    /* Write to the page after being marked for freeing, this is supposed to take
      * ownership of that page again. */
     *(volatile char*)p = 0;
 
@@ -5164,11 +5164,11 @@ int linuxMadvFreeForkBugCheck(void) {
     ret = pipe(pipefd);
     serverAssert(!ret);
 
-    /* fork the process */
+    /* Fork the process. */
     pid = fork();
     serverAssert(pid >= 0);
     if (!pid) {
-        /* Child: check if the page is marked as dirty, expecing 4 (kb).
+        /* Child: check if the page is marked as dirty, expecing 4 (kB).
          * A value of 0 means the kernel is affected by the bug. */
         if (!smapsGetSharedDirty(getpid(), (unsigned long)p))
             bug_found = 1;
@@ -5178,11 +5178,11 @@ int linuxMadvFreeForkBugCheck(void) {
 
         exit(0);
     } else {
-        /* Read the result from the child */
+        /* Read the result from the child. */
         ret = read(pipefd[0], &bug_found, 1);
         serverAssert(ret == 1);
 
-        /* Reap the child pid */
+        /* Reap the child pid. */
         serverAssert(waitpid(pid, NULL, 0) == pid);
     }
 
@@ -5777,7 +5777,7 @@ int main(int argc, char **argv) {
         if (linuxMadvFreeForkBugCheck()) {
             serverLog(LL_WARNING,"WARNING Your kernel has a bug that could lead to data corruption during background save. Please upgrade to the latest stable kernel.");
             if (!CheckIgnoreWarning("ARM64-COW-BUG")) {
-                serverLog(LL_WARNING,"Reids will now exit to prevent data corruption. note that it is possible to suppress this warning by setting the follwoing config: ignore-warnings ARM64-COW-BUG");
+                serverLog(LL_WARNING,"Redis will now exit to prevent data corruption. Note that it is possible to suppress this warning by setting the following config: ignore-warnings ARM64-COW-BUG");
                 exit(1);
             }
         }
