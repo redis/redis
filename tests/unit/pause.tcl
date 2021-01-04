@@ -134,6 +134,35 @@ start_server {tags {"pause"}} {
         r client unpause
     }
 
+    test "Test both active and passive expiries are skipped during client pause" {
+        set expired_keys [s 0 expired_keys]
+        r multi
+        r set foo bar PX 10
+        r set bar foo PX 10
+        r client PAUSE 100000000 WRITE
+        r exec
+
+        # Wait for keys to evict
+        set retry 10
+        while {$retry} {
+            incr retry -1
+            after 10
+            # The values are equal when they're both logically
+            # expired.
+            if {[string equal [r get foo] [r get bar]] == 0} break
+        }
+
+        # No keys should actually have been expired
+        assert_match $expired_keys [s 0 expired_keys]
+
+        r client unpause
+        r get foo
+        r get bar
+
+        # Now that clients have been unpaused, expires should go through
+        assert_match [expr $expired_keys + 2] [s 0 expired_keys]
+    }
+
     # Make sure we unpause at the end
     r client unpause
 }

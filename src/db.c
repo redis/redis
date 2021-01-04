@@ -1520,6 +1520,12 @@ int expireIfNeeded(redisDb *db, robj *key) {
      * we think the key is expired at this time. */
     if (server.masterhost != NULL) return 1;
 
+    /* If clients are paused, we keep the current dataset constant,
+     * but return to the client what we believe is the wrong state. Typically,
+     * at the end of the pause we will properly expire the key OR we will
+     * have failed over and the new primary will sent us the expirey. */
+    if (clientsArePaused()) return 1;
+
     /* Delete the key */
     server.stat_expiredkeys++;
     propagateExpire(db,key,server.lazyfree_lazy_expire);
@@ -1529,6 +1535,10 @@ int expireIfNeeded(redisDb *db, robj *key) {
                                                dbSyncDelete(db,key);
     if (retval) signalModifiedKey(NULL,db,key);
     return retval;
+}
+
+int expireKey(robj *key) {
+    
 }
 
 /* -----------------------------------------------------------------------------
