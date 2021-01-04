@@ -28,6 +28,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "file_opt_unix.h"
+
 #include <fcntl.h>
 #include <errno.h>
 
