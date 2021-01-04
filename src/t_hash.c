@@ -925,9 +925,8 @@ void hscanCommand(client *c) {
 
 #define HRANDMEMBER_SUB_STRATEGY_MUL 3
 
-void hrandmemberWithCountCommand(client *c, long l) {
-    unsigned long entryCount, hashSize;
-    int uniq = 1;
+void hrandmemberWithCountCommand(client *c, long entryCount) {
+    unsigned long hashSize;
     hashTypeIterator *hi;
     robj *hash;
     dict *d;
@@ -938,19 +937,17 @@ void hrandmemberWithCountCommand(client *c, long l) {
     if ((hash = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))
         == NULL || checkType(c,hash,OBJ_HASH)) return;
 
-    if(l >= 0) {
-        entryCount = (unsigned long) l;
-    } else {
-        entryCount = -l;
-        uniq = 0;
-    }
-
     hashSize = hashTypeLength(hash);
     if(entryCount > hashSize)
         entryCount = hashSize;
     addReplyMapLen(c, entryCount);
     hi = hashTypeInitIterator(hash);
 
+    /* if the encoding is ziplist, to only iterate once, every time
+     * we try to pick a member, the probability we pick it is the 
+     * quotient of the count left we want to pick and the count still
+     * we haven't visited in the dict, this way, we could make every member
+     * be equally picked.*/
     if(hash->encoding == OBJ_ENCODING_ZIPLIST) {
         while (hashTypeNext(hi) != C_ERR && entryCount != 0) {
             randomDouble = ((double)rand()) / RAND_MAX;
@@ -960,33 +957,19 @@ void hrandmemberWithCountCommand(client *c, long l) {
                 addHashIteratorCursorToReply(c, hi, OBJ_HASH_KEY);
                 addHashIteratorCursorToReply(c, hi, OBJ_HASH_VALUE);
             }
-        
-            index ++;
+            index++;
         }
-    } else {       
-        // copy of srandmember
-        if(!uniq) {
-            while(entryCount--) {
-                sds key, value;
-                
-                dictEntry *de = dictGetRandomKey(hash->ptr);
-                key = dictGetKey(de);
-                value = dictGetVal(de);
-                addReplyBulkCBuffer(c,key,sdslen(key));
-                addReplyBulkCBuffer(c,value,sdslen(value));
-            }
-            return;
-        }
-
+    } else { 
+        /* if request count is more than we have, return all entries*/      
         if(entryCount >= hashSize) {
-
             while (hashTypeNext(hi) != C_ERR) {
                 addHashIteratorCursorToReply(c, hi, OBJ_HASH_KEY);
                 addHashIteratorCursorToReply(c, hi, OBJ_HASH_VALUE);
             }
             return;
-        }
-        
+        }  
+
+        /* else we need a temporary dict to support our operations */
         static dictType dt = {
             dictSdsHash,                /* hash function */
             NULL,                       /* key dup */
@@ -996,10 +979,18 @@ void hrandmemberWithCountCommand(client *c, long l) {
             NULL,                       /* val destructor */
             NULL                        /* allow to expand */
         };
-        d = dictCreate(&dt,NULL);
-        
-        if(entryCount * HRANDMEMBER_SUB_STRATEGY_MUL > hashSize) {
+        d = dictCreate(&dt,NULL);    
 
+        /* CASE 2:
+         * The number of elements inside the dict is not greater than
+         * SRANDMEMBER_SUB_STRATEGY_MUL times the number of requested elements.
+         * In this case we create a dict from scratch with all the elements, and
+         * subtract random elements to reach the requested number of elements.
+         *
+         * This is done because if the number of requested elements is just
+         * a bit less than the number of elements in the set, the natural approach
+         * used into CASE 3 is highly inefficient. */
+        if(entryCount * HRANDMEMBER_SUB_STRATEGY_MUL > hashSize) {
             /* Add all the elements into the temporary dictionary. */
             while((hashTypeNext(hi)) != C_ERR) {
                 int ret = DICT_ERR;
@@ -1021,8 +1012,13 @@ void hrandmemberWithCountCommand(client *c, long l) {
                 dictDelete(d,dictGetKey(de));
                 hashSize--;
             }
-        }
-
+        } 
+        
+        
+        /* CASE 3: We have a big set compared to the requested number of elements.
+         * In this case we can simply get random elements from the hash and add
+         * to the temporary dict, trying to eventually get enough unique elements
+         * to reach the specified count. */
         else {
             unsigned long added = 0;
             sds sdsKey, sdsVal;
@@ -1041,6 +1037,7 @@ void hrandmemberWithCountCommand(client *c, long l) {
             }
         }
 
+        /* CASE 2 & 3: send the result to the user. */
         {
             dictIterator *di;
             dictEntry *de;
@@ -1051,29 +1048,24 @@ void hrandmemberWithCountCommand(client *c, long l) {
                 addReplyBulkCBuffer(c,key,sdslen(key));
                 addReplyBulkCBuffer(c,value,sdslen(value));
             }
-
             dictReleaseIterator(di);
             dictRelease(d);
         }
-
-        
     }
-
-
     hashTypeReleaseIterator(hi);
 }
 
 void hrandmemberCommand(client *c) {
-    long l;
+    long l = 1;
 
-    if (c->argc == 3) {
-        if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != C_OK) return;
-        hrandmemberWithCountCommand(c, l);
-        return;
-    } else if (c->argc > 3) {
+    if(c->argc > 3) {
         addReply(c,shared.syntaxerr);
         return;
     }
+    if (c->argc == 3) {
+        if (getPositiveLongFromObjectOrReply(c,c->argv[2],&l,NULL) != C_OK) 
+            return;
+    }
 
-    hrandmemberWithCountCommand(c, 1);
+    hrandmemberWithCountCommand(c, l);
 }
