@@ -2187,12 +2187,16 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
 
 void blockingOperationStarts() {
-    updateCachedTime(0);
-    server.blocked_last_cron = server.mstime;
+    if(!server.blocking_op_nesting++){
+        updateCachedTime(0);
+        server.blocked_last_cron = server.mstime;
+    }
 }
 
 void blockingOperationEnds() {
-    server.blocked_last_cron = 0;
+    if(!(--server.blocking_op_nesting)){
+        server.blocked_last_cron = 0;
+    }
 }
 
 /* This function fill in the role of serverCron during RDB or AOF loading, and
