@@ -58,7 +58,6 @@ void* activeDefragAlloc(void *ptr) {
     void *newptr;
     if(!je_get_defrag_hint(ptr)) {
         server.stat_active_defrag_misses++;
-        size = zmalloc_size(ptr);
         return NULL;
     }
     /* move this allocation to a new allocation.
