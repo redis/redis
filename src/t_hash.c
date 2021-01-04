@@ -925,8 +925,8 @@ void hscanCommand(client *c) {
 
 #define HRANDMEMBER_SUB_STRATEGY_MUL 3
 
-void hrandmemberWithCountCommand(client *c, long entryCount) {
-    unsigned long hashSize;
+void hrandmemberWithCountCommand(client *c, long l) {
+    unsigned long entryCount, hashSize;
     hashTypeIterator *hi;
     robj *hash;
     dict *d;
@@ -938,6 +938,7 @@ void hrandmemberWithCountCommand(client *c, long entryCount) {
         == NULL || checkType(c,hash,OBJ_HASH)) return;
 
     hashSize = hashTypeLength(hash);
+    entryCount = (unsigned long) l;
     if(entryCount > hashSize)
         entryCount = hashSize;
     addReplyMapLen(c, entryCount);

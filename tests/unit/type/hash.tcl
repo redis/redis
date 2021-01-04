@@ -73,38 +73,9 @@ start_server {tags {"hash"}} {
 
             # We'll stress different parts of the code, see the implementation
             # of HRANDMEMBER for more information, but basically there are
-            # four different code paths.
-            #
-            # PATH 1: Use negative count.
-            #
-            # 1) Check that it returns repeated elements.
-            set res [r hrandmember myhash 100]
-            # assert_equal [llength $res] 200
-            # If not asked, decide not to implement this feature.
+            # three different code paths.
 
-            # 2) Check that all the elements actually belong to the
-            # original set.
-            foreach {key val} $res {
-                assert {[dict exists $myhash $key]}
-            }
-
-            # 3) Check that eventually all the elements are returned.
-            unset -nocomplain auxset
-            set iterations 1000
-            while {$iterations != 0} {
-                incr iterations -1
-                set res [r hrandmember myhash -10]
-                foreach {key val} $res {
-                    dict append auxset $key $val
-                }
-                if {[lsort [dict keys $myhash]] eq
-                    [lsort [dict keys $auxset]]} {
-                    break;
-                }
-            }
-            assert {$iterations != 0}
-
-            # PATH 2: positive count (unique behavior) with requested size
+            # PATH 1: positive count (unique behavior) with requested size
             # equal or greater than set size.
             foreach size {50 100} {
                 set res [r hrandmember myhash $size]
@@ -112,11 +83,11 @@ start_server {tags {"hash"}} {
                 assert_equal [lsort [dict keys $res]] [lsort [dict keys $myhash]]
             }
 
-            # PATH 3: Ask almost as elements as there are in the set.
+            # PATH 2: Ask almost as elements as there are in the set.
             # In this case the implementation will duplicate the original
             # set and will remove random elements up to the requested size.
             #
-            # PATH 4: Ask a number of elements definitely smaller than
+            # PATH 3: Ask a number of elements definitely smaller than
             # the set size.
             #
             # We can test both the code paths just changing the size but
@@ -137,7 +108,7 @@ start_server {tags {"hash"}} {
                 set iterations 1000
                 while {$iterations != 0} {
                     incr iterations -1
-                    set res [r hrandmember myhash -10]
+                    set res [r hrandmember myhash 10]
                     foreach {key value} $res {
                         dict append auxset $key $value
                     }
