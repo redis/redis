@@ -29,34 +29,14 @@
  */
 
 
+#include "file_opt_unix.h"
+
 #include <sys/epoll.h>
-#include <fcntl.h>
-#include <errno.h>
 
 typedef struct aeApiState {
     int epfd;
     struct epoll_event *events;
 } aeApiState;
-
-static int cloexecFcntl(int fd) {
-    int r;
-    int flags;
-
-    do
-        r = fcntl(fd, F_GETFD);
-    while (r == -1 && errno == EINTR);
-
-    if (r == -1 || (r & FD_CLOEXEC))
-        return r;
-
-    flags = r | FD_CLOEXEC;
-
-    do
-        r = fcntl(fd, F_SETFD, flags);
-    while (r == -1 && errno == EINTR);
-
-    return r;
-}
 
 static int aeApiCreate(aeEventLoop *eventLoop) {
     aeApiState *state = zmalloc(sizeof(aeApiState));

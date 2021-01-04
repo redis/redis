@@ -501,7 +501,3 @@ void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep
 void aeSetAfterSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *aftersleep) {
     eventLoop->aftersleep = aftersleep;
 }
-
-int aeCloexecFcntl(int fd) {
-    return cloexecFcntl(fd);
-}
