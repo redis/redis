@@ -2187,12 +2187,16 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
 
 void blockingOperationStarts() {
-    updateCachedTime(0);
-    server.blocked_last_cron = server.mstime;
+    if(!server.blocking_op_nesting++){
+        updateCachedTime(0);
+        server.blocked_last_cron = server.mstime;
+    }
 }
 
 void blockingOperationEnds() {
-    server.blocked_last_cron = 0;
+    if(!(--server.blocking_op_nesting)){
+        server.blocked_last_cron = 0;
+    }
 }
 
 /* This function fill in the role of serverCron during RDB or AOF loading, and
@@ -3004,6 +3008,7 @@ void initServer(void) {
     server.events_processed_while_blocked = 0;
     server.system_memory_size = zmalloc_get_memory_size();
     server.blocked_last_cron = 0;
+    server.blocking_op_nesting = 0;
 
     if ((server.tls_port || server.tls_replication || server.tls_cluster)
                 && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
