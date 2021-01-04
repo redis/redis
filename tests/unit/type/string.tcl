@@ -102,6 +102,75 @@ start_server {tags {"string"}} {
         assert_equal 20 [r get x]
     }
 
+    test "GETEX EX option" {
+        r del foo
+        r set foo bar
+        r getex foo ex 10
+        set ttl [r ttl foo]
+        assert {$ttl <= 10 && $ttl > 5}
+    }
+
+    test "GETEX PX option" {
+        r del foo
+        r set foo bar
+        r getex foo px 10000
+        set pttl [r pttl foo]
+        assert {$pttl <= 10000 && $pttl > 5000}
+    }
+
+    test "GETEX EXAT option" {
+        r del foo
+        r set foo bar
+        r getex foo exat [expr [clock seconds] + 10]
+        set ttl [r ttl foo]
+        assert {$ttl <= 10 && $ttl > 5}
+    }
+
+    test "GETEX PXAT option" {
+        r del foo
+        r set foo bar
+        r getex foo pxat [expr [clock milliseconds] + 10000]
+        set pttl [r pttl foo]
+        assert {$pttl <= 10000 && $pttl > 5000}
+    }
+
+    test "GETEX DEL option" {
+        r del foo
+        r set foo bar
+        assert_equal bar [r getex foo del]
+        assert_equal {} [r getex foo del]
+    }
+
+    test "GETEX PERSIST option" {
+        r del foo
+        r set foo bar ex 10
+        set ttl [r ttl foo]
+        assert {$ttl <= 10 && $ttl > 5}
+        r getex foo persist
+        assert_equal -1 [r ttl foo]
+    }
+
+    test "GETEX KEEPTTL option" {
+        r del foo
+        r set foo bar ex 10
+        set ttl [r ttl foo]
+        assert {$ttl <= 10 && $ttl > 5}
+        r getex foo keepttl
+        assert {$ttl <= 10 && $ttl > 5}
+    }
+
+    test "GETEX syntax errors" {
+        set ex {}
+        catch {r getex foo non-existant-option} ex
+        set ex
+    } {*syntax*}
+
+    test "GETEX no optional argument" {
+         set ex {}
+         catch {r getex foo} ex
+         set ex
+     } {*wrong number of arguments*}
+
     test {MGET} {
         r flushdb
         r set foo BAR
@@ -437,6 +506,19 @@ start_server {tags {"string"}} {
         assert {$ttl <= 10 && $ttl > 5}
     }
 
+    test "Extended SET EXAT option" {
+        r del foo
+        r set foo bar exat [expr [clock seconds] + 10]
+        set ttl [r ttl foo]
+        assert {$ttl <= 10 && $ttl > 5}
+    }
+
+    test "Extended SET PXAT option" {
+        r del foo
+        r set foo bar pxat [expr [clock milliseconds] + 10000]
+        set ttl [r ttl foo]
+        assert {$ttl <= 10 && $ttl > 5}
+    }
     test {Extended SET using multiple options at once} {
         r set foo val
         assert {[r set foo bar xx px 10000] eq {OK}}

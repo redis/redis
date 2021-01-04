@@ -581,8 +581,6 @@ sds catAppendOnlyExpireAtCommand(sds buf, struct redisCommand *cmd, robj *key, r
 
 void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int argc) {
     sds buf = sdsempty();
-    robj *tmpargv[3];
-
     /* The DB this command was targeting is not the same as the last command
      * we appended. To issue a SELECT command is needed. */
     if (dictid != server.aof_selected_db) {
@@ -598,35 +596,6 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
         cmd->proc == expireatCommand) {
         /* Translate EXPIRE/PEXPIRE/EXPIREAT into PEXPIREAT */
         buf = catAppendOnlyExpireAtCommand(buf,cmd,argv[1],argv[2]);
-    } else if (cmd->proc == setexCommand || cmd->proc == psetexCommand) {
-        /* Translate SETEX/PSETEX to SET and PEXPIREAT */
-        tmpargv[0] = createStringObject("SET",3);
-        tmpargv[1] = argv[1];
-        tmpargv[2] = argv[3];
-        buf = catAppendOnlyGenericCommand(buf,3,tmpargv);
-        decrRefCount(tmpargv[0]);
-        buf = catAppendOnlyExpireAtCommand(buf,cmd,argv[1],argv[2]);
-    } else if (cmd->proc == setCommand && argc > 3) {
-        int i;
-        robj *exarg = NULL, *pxarg = NULL;
-        for (i = 3; i < argc; i ++) {
-            if (!strcasecmp(argv[i]->ptr, "ex")) exarg = argv[i+1];
-            if (!strcasecmp(argv[i]->ptr, "px")) pxarg = argv[i+1];
-        }
-        serverAssert(!(exarg && pxarg));
-
-        if (exarg || pxarg) {
-            /* Translate SET [EX seconds][PX milliseconds] to SET and PEXPIREAT */
-            buf = catAppendOnlyGenericCommand(buf,3,argv);
-            if (exarg)
-                buf = catAppendOnlyExpireAtCommand(buf,server.expireCommand,argv[1],
-                                                   exarg);
-            if (pxarg)
-                buf = catAppendOnlyExpireAtCommand(buf,server.pexpireCommand,argv[1],
-                                                   pxarg);
-        } else {
-            buf = catAppendOnlyGenericCommand(buf,argc,argv);
-        }
     } else {
         /* All the other commands don't need translation or need the
          * same translation already operated in the command vector
