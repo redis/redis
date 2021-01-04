@@ -5138,24 +5138,33 @@ static int smapsGetSharedDirty(unsigned long addr) {
 int linuxMadvFreeForkBugCheck(void) {
     int ret, pipefd[2];
     pid_t pid;
-    char *p, bug_found = 0;
+    char *p, *q, bug_found = 0;
+    const long map_size = 3 * 4096;
 
     /* Create a memory map that's in our full control (not one used by the allocator). */
-    p = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    p = mmap(NULL, map_size, PROT_READ, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
     serverAssert(p != MAP_FAILED);
+
+    q = p + 4096;
+
+    /* Split the memory map in 3 pages by setting their protection as RO|RW|RO to prevent
+     * Linux from merging this memory map with adjacent VMAs. */
+    ret = mprotect(q, 4096, PROT_READ | PROT_WRITE);
+    serverAssert(!ret);
+
     /* Write to the page once to make it resident */
-    *(volatile char*)p = 0;
+    *(volatile char*)q = 0;
 
     /* Tell the kernel that this page is free to be reclaimed. */
 #ifndef MADV_FREE
 #define MADV_FREE 8
 #endif
-    ret = madvise(p, 4096, MADV_FREE);
+    ret = madvise(q, 4096, MADV_FREE);
     serverAssert(!ret);
 
     /* Write to the page after being marked for freeing, this is supposed to take
      * ownership of that page again. */
-    *(volatile char*)p = 0;
+    *(volatile char*)q = 0;
 
     /* Create a pipe for the child to return the info to the parent. */
     ret = pipe(pipefd);
@@ -5188,7 +5197,7 @@ int linuxMadvFreeForkBugCheck(void) {
     serverAssert(!ret);
     ret = close(pipefd[1]);
     serverAssert(!ret);
-    ret = munmap(p, 4096);
+    ret = munmap(p, map_size);
     serverAssert(!ret);
 
     return bug_found;
