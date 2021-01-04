@@ -373,10 +373,11 @@ start_server {
         after 200
         set reply [r XAUTOCLAIM mystream mygroup consumer2 10 - COUNT 1]
         assert_equal [llength $reply] 2
-        assert_equal [llength [lindex $reply 0]] 1
-        assert_equal [llength [lindex $reply 0 0 1]] 2
-        assert_equal [lindex $reply 0 0 1] {a 1}
-        assert_equal [lindex $reply 1] $id1
+        assert_equal [lindex $reply 0] $id1
+        assert_equal [llength [lindex $reply 1]] 1
+        assert_equal [llength [lindex $reply 1 0]] 2
+        assert_equal [llength [lindex $reply 1 0 1]] 2
+        assert_equal [lindex $reply 1 0 1] {a 1}
 
         # Consumer 1 reads another 2 items from stream
         r XREADGROUP GROUP mygroup consumer1 count 2 STREAMS mystream >
@@ -391,26 +392,30 @@ start_server {
         set reply [r XAUTOCLAIM mystream mygroup consumer2 10 - COUNT 2]
         # id1 is self-claimed here but not id2 ('count' was set to 2)
         assert_equal [llength $reply] 2
-        assert_equal [llength [lindex $reply 0]] 2
-        assert_equal [llength [lindex $reply 0 0 1]] 2
-        assert_equal [lindex $reply 0 0 1] {a 1}
-        assert_equal [lindex $reply 0 1] ""
-        assert_equal [lindex $reply 1] $id2
+        assert_equal [lindex $reply 0] $id2
+        assert_equal [llength [lindex $reply 1]] 2
+        assert_equal [llength [lindex $reply 1 0]] 2
+        assert_equal [llength [lindex $reply 1 0 1]] 2
+        assert_equal [lindex $reply 1 0 1] {a 1}
+        assert_equal [lindex $reply 1 1] ""
 
         # Delete item 3 from the stream. Now consumer 1 has PEL that is empty.
         # Try to use consumer 2 to claim the deleted item 3 from the PEL
         # of consumer 1, this should return nil
         after 200
         r XDEL mystream $id3
-        set reply [r XAUTOCLAIM mystream mygroup consumer2 10 -]
-        # id1 is self-claimed here but not id2 and id3 ('count' is default 10)
+        set reply [r XAUTOCLAIM mystream mygroup consumer2 10 - JUSTID]
+        # id1 is self-claimed here but not id2 and id3 ('count' is default 100)
+
+        # we also test the JUSTID modifier here. note that, when using JUSTID,
+        # deleted entries are returned in reply (consistent with XCLAIM).
+
         assert_equal [llength $reply] 2
-        assert_equal [llength [lindex $reply 0]] 3
-        assert_equal [llength [lindex $reply 0 0 1]] 2
-        assert_equal [lindex $reply 0 0 1] {a 1}
-        assert_equal [lindex $reply 0 1] ""
-        assert_equal [lindex $reply 0 2] ""
-        assert_equal [lindex $reply 1] "0-0"
+        assert_equal [lindex $reply 0] "0-0"
+        assert_equal [llength [lindex $reply 1]] 3
+        assert_equal [lindex $reply 1 0] $id1
+        assert_equal [lindex $reply 1 1] $id2
+        assert_equal [lindex $reply 1 2] $id3
     }
 
     test {XAUTOCLAIM as an iterator} {
@@ -432,29 +437,29 @@ start_server {
         # Claim 2 entries
         set reply [r XAUTOCLAIM mystream mygroup consumer2 10 - COUNT 2]
         assert_equal [llength $reply] 2
-        assert_equal [llength [lindex $reply 0]] 2
-        assert_equal [llength [lindex $reply 0 0 1]] 2
-        assert_equal [lindex $reply 0 0 1] {a 1}
-        set cursor [lindex $reply 1]
+        set cursor [lindex $reply 0]
         assert_equal $cursor $id2
+        assert_equal [llength [lindex $reply 1]] 2
+        assert_equal [llength [lindex $reply 1 0 1]] 2
+        assert_equal [lindex $reply 1 0 1] {a 1}
 
         # Claim 2 more entries
         set reply [r XAUTOCLAIM mystream mygroup consumer2 10 ($cursor COUNT 2]
         assert_equal [llength $reply] 2
-        assert_equal [llength [lindex $reply 0]] 2
-        assert_equal [llength [lindex $reply 0 0 1]] 2
-        assert_equal [lindex $reply 0 0 1] {c 3}
-        set cursor [lindex $reply 1]
+        set cursor [lindex $reply 0]
         assert_equal $cursor $id4
+        assert_equal [llength [lindex $reply 1]] 2
+        assert_equal [llength [lindex $reply 1 0 1]] 2
+        assert_equal [lindex $reply 1 0 1] {c 3}
 
         # Claim last entry
         set reply [r XAUTOCLAIM mystream mygroup consumer2 10 ($cursor COUNT 2]
         assert_equal [llength $reply] 2
-        assert_equal [llength [lindex $reply 0]] 1
-        assert_equal [llength [lindex $reply 0 0 1]] 2
-        assert_equal [lindex $reply 0 0 1] {e 5}
-        set cursor [lindex $reply 1]
+        set cursor [lindex $reply 0]
         assert_equal $cursor {0-0}
+        assert_equal [llength [lindex $reply 1]] 1
+        assert_equal [llength [lindex $reply 1 0 1]] 2
+        assert_equal [lindex $reply 1 0 1] {e 5}
     }
 
     test {XINFO FULL output} {

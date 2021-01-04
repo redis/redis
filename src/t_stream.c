@@ -960,6 +960,11 @@ void addReplyStreamID(client *c, streamID *id) {
     addReplyBulkSds(c,replyid);
 }
 
+void setDeferredReplyStreamID(client *c, void *dr, streamID *id) {
+    sds replyid = sdscatfmt(sdsempty(),"%U-%U",id->ms,id->seq);
+    setDeferredReplyBulkSds(c, dr, replyid);
+}
+
 /* Similar to the above function, but just creates an object, usually useful
  * for replication purposes to create arguments. */
 robj *createObjectFromStreamID(streamID *id) {
@@ -2681,9 +2686,10 @@ void xautoclaimCommand(client *c) {
     streamCG *group = NULL;
     robj *o = lookupKeyRead(c->db,c->argv[1]);
     long long minidle; /* Minimum idle time argument, in milliseconds. */
-    long count = 10; /* Maximum entries to claim. */
+    long count = 100; /* Maximum entries to claim. */
     streamID startid;
     int startex;
+    int justid = 0;
 
     /* Parse idle/start/end/count arguments ASAP if needed, in order to report
      * syntax errors before any other error. */
@@ -2700,11 +2706,18 @@ void xautoclaimCommand(client *c) {
 
     int j = 6; /* options start at argv[6] */
     while(j < c->argc) {
-        int leftargs = c->argc-j-1;
-        if (!strcasecmp(c->argv[j]->ptr,"count") && leftargs) {
+        int moreargs = (c->argc-1) - j; /* Number of additional arguments. */
+        char *opt = c->argv[j]->ptr;
+        if (!strcasecmp(opt,"COUNT") && moreargs) {
             if (getPositiveLongFromObjectOrReply(c,c->argv[j+1],&count,NULL) != C_OK)
                 return;
+            if (count == 0) {
+                addReplyError(c,"COUNT must be > 0");
+                return;
+            }
             j++;
+        } else if (!strcasecmp(opt,"JUSTID")) {
+            justid = 1;
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
             return;
@@ -2727,23 +2740,19 @@ void xautoclaimCommand(client *c) {
         return;
     }
 
-    if (count == 0) {
-        addReplyNullArray(c);
-        return;
-    }
-
     /* Do the actual claiming. */
     streamConsumer *consumer = NULL;
     long long attempts = count*10;
 
     addReplyArrayLen(c, 2);
+    void *endidptr = addReplyDeferredLen(c);
+    void *arraylenptr = addReplyDeferredLen(c);
 
     unsigned char startkey[sizeof(streamID)];
     streamEncodeID(startkey,&startid);
     raxIterator ri;
     raxStart(&ri,group->pel);
     raxSeek(&ri,">=",startkey,sizeof(startkey));
-    void *arraylenptr = addReplyDeferredLen(c);
     size_t arraylen = 0;
     mstime_t now = mstime();
     while (attempts-- && count && raxNext(&ri)) {
@@ -2779,10 +2788,15 @@ void xautoclaimCommand(client *c) {
         }
 
         /* Send the reply for this entry. */
-        size_t emitted = streamReplyWithRange(c,o->ptr,&id,&id,1,0,NULL,NULL,
-                                              STREAM_RWR_RAWENTRIES,NULL);
-        if (!emitted)
-            addReplyNull(c);
+        if (justid) {
+            addReplyStreamID(c,&id);
+        } else {
+            size_t emitted =
+                streamReplyWithRange(c,o->ptr,&id,&id,1,0,NULL,NULL,
+                                     STREAM_RWR_RAWENTRIES,NULL);
+            if (!emitted)
+                addReplyNull(c);
+        }
         arraylen++;
         count--;
 
@@ -2802,7 +2816,7 @@ void xautoclaimCommand(client *c) {
     raxStop(&ri);
 
     setDeferredArrayLen(c,arraylenptr,arraylen);
-    addReplyStreamID(c, &endid);
+    setDeferredReplyStreamID(c,endidptr,&endid);
 
     preventCommandPropagation(c);
 }
