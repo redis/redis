@@ -1981,19 +1981,9 @@ uint64_t streamDelConsumer(streamCG *cg, sds name) {
 /* XGROUP CREATE <key> <groupname> <id or $> [MKSTREAM]
  * XGROUP SETID <key> <groupname> <id or $>
  * XGROUP DESTROY <key> <groupname>
- * CREATECONSUMER <key> <groupname> <consumer>
+ * XGROUP CREATECONSUMER <key> <groupname> <consumer>
  * XGROUP DELCONSUMER <key> <groupname> <consumername> */
 void xgroupCommand(client *c) {
-    const char *help[] = {
-"CREATE         <key> <groupname> <id or $> [opt] -- Create a new consumer group.",
-"               option MKSTREAM: create the empty stream if it does not exist.",
-"SETID          <key> <groupname> <id or $>  -- Set the current group ID.",
-"DESTROY        <key> <groupname>            -- Remove the specified group.",
-"CREATECONSUMER <key> <groupname> <consumer> -- Create new consumer in the specified group.",
-"DELCONSUMER    <key> <groupname> <consumer> -- Remove the specified consumer.",
-"HELP                                        -- Prints this help.",
-NULL
-    };
     stream *s = NULL;
     sds grpname = NULL;
     streamCG *cg = NULL;
@@ -2047,7 +2037,24 @@ NULL
     }
 
     /* Dispatch the different subcommands. */
-    if (!strcasecmp(opt,"CREATE") && (c->argc == 5 || c->argc == 6)) {
+    if (c->argc == 2 && !strcasecmp(opt,"HELP")) {
+        const char *help[] = {
+"CREATE <key> <groupname> <id|$> [option]",
+"    Create a new consumer group. Options are:",
+"    * MKSTREAM",
+"      Create the empty stream if it does not exist.",
+"CREATECONSUMER <key> <groupname> <consumer>",
+"    Create a new consumer in the specified group.",
+"DELCONSUMER <key> <groupname> <consumer>",
+"    Remove the specified consumer.",
+"DESTROY <key> <groupname>"
+"    Remove the specified group.",
+"SETID <key> <groupname> <id|$>",
+"    Set the current group ID.",
+NULL
+        };
+        addReplyHelp(c, help);
+    } else if (!strcasecmp(opt,"CREATE") && (c->argc == 5 || c->argc == 6)) {
         streamID id;
         if (!strcmp(c->argv[4]->ptr,"$")) {
             if (s) {
@@ -2119,8 +2126,6 @@ NULL
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-delconsumer",
                             c->argv[2],c->db->id);
-    } else if (c->argc == 2 && !strcasecmp(opt,"HELP")) {
-        addReplyHelp(c, help);
     } else {
         addReplySubcommandSyntaxError(c);
     }
@@ -2971,27 +2976,25 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
  * XINFO STREAM <key> [FULL [COUNT <count>]]
  * XINFO HELP. */
 void xinfoCommand(client *c) {
-    const char *help[] = {
-"CONSUMERS <key> <groupname>         -- Show consumer groups of group <groupname>.",
-"GROUPS <key>                        -- Show the stream consumer groups.",
-"STREAM <key> [FULL [COUNT <count>]] -- Show information about the stream.",
-"                                       FULL will return the full state of the stream,",
-"                                            including all entries, groups, consumers and PELs.",
-"                                            It's possible to show only the first stream/PEL entries",
-"                                            by using the COUNT modifier (Default is 10)",
-"HELP                                -- Print this help.",
-NULL
-    };
     stream *s = NULL;
     char *opt;
     robj *key;
 
     /* HELP is special. Handle it ASAP. */
     if (!strcasecmp(c->argv[1]->ptr,"HELP")) {
+        const char *help[] = {
+"CONSUMERS <key> <groupname>",
+"    Show consumers of <groupname>.",
+"GROUPS <key>",
+"    Show the stream consumer groups.",
+"STREAM <key> [FULL [COUNT <count>]",
+"    Show information about the stream.",
+NULL
+        };
         addReplyHelp(c, help);
         return;
     } else if (c->argc < 3) {
-        addReplyError(c,"syntax error, try 'XINFO HELP'");
+        addReplySubcommandSyntaxError(c);
         return;
     }
 

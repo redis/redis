@@ -855,12 +855,16 @@ void addReplyHelp(client *c, const char **help) {
 
     sdstoupper(cmd);
     addReplyStatusFormat(c,
-        "%s <subcommand> arg arg ... arg. Subcommands are:",cmd);
+        "%s <subcommand> [<arg> [value] [opt] ...]. Subcommands are:",cmd);
     sdsfree(cmd);
 
     while (help[blen]) addReplyStatus(c,help[blen++]);
 
-    blen++;  /* Account for the header line(s). */
+    addReplyStatus(c,"HELP");
+    addReplyStatus(c,"    Prints this help.");
+
+    blen += 1;  /* Account for the header. */
+    blen += 2;  /* Account for the footer. */
     setDeferredArrayLen(c,blenp,blen);
 }
 
@@ -2387,27 +2391,45 @@ void clientCommand(client *c) {
 
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-"ID                     -- Return the ID of the current connection.",
-"INFO                   -- Return information about the current client connection.",
-"GETNAME                -- Return the name of the current connection.",
-"KILL <ip:port>         -- Kill connection made from <ip:port>.",
-"KILL <option> <value> [option value ...] -- Kill connections. Options are:",
-"     ADDR <ip:port>                      -- Kill connection made from <ip:port>",
-"     LADDR <ip:port>                     -- Kill connection made to <ip:port>",
-"     TYPE (normal|master|replica|pubsub) -- Kill connections by type.",
-"     USER <username>   -- Kill connections authenticated with such user.",
-"     SKIPME (yes|no)   -- Skip killing current connection (default: yes).",
-"LIST [options ...]     -- Return information about client connections. Options:",
-"     TYPE (normal|master|replica|pubsub) -- Return clients of specified type.",
-"     ID id [id ...]                      -- Return clients of specified IDs only.",
-"PAUSE <timeout>        -- Suspend all Redis clients for <timeout> milliseconds.",
-"REPLY (on|off|skip)    -- Control the replies sent to the current connection.",
-"SETNAME <name>         -- Assign the name <name> to the current connection.",
-"UNBLOCK <clientid> [TIMEOUT|ERROR] -- Unblock the specified blocked client.",
-"TRACKING (on|off) [REDIRECT <id>] [BCAST] [PREFIX first] [PREFIX second] [OPTIN] [OPTOUT] [NOLOOP]... -- Enable client keys tracking for client side caching.",
-"CACHING  (yes|no)      -- Enable/Disable tracking of the keys for next command in OPTIN/OPTOUT mode.",
-"GETREDIR               -- Return the client ID we are redirecting to when tracking is enabled.",
-"TRACKINGINFO           -- Return information about current client's tracking status.",
+"CACHING (YES|NO)",
+"    Enable/disable tracking of the keys for next command in OPTIN/OPTOUT modes.",
+"GETREDIR",
+"    Return the client ID we are redirecting to when tracking is enabled.",
+"GETNAME",
+"    Return the name of the current connection.",
+"ID",
+"    Return the ID of the current connection.",
+"INFO",
+"    Return information about the current client connection.",
+"KILL <ip:port>",
+"    Kill connection made from <ip:port>.",
+"KILL <option> <value> [<option> <value> [...]]",
+"    Kill connections. Options are:",
+"    * ADDR <ip:port>",
+"      Kill connection made from <ip:port>",
+"    * TYPE (normal|master|replica|pubsub)",
+"      Kill connections by type.",
+"    * USER <username>",
+"      Kill connections authenticated by <username>.",
+"    * SKIPME (YES|NO)",
+"      Skip killing current connection (default: yes).",
+"LIST [options ...]",
+"    Return information about client connections. Options:",
+"    * TYPE (NORMAL|MASTER|REPLICA|PUBSUB)",
+"      Return clients of specified type.",
+"PAUSE <timeout>",
+"    Suspend all clients for <timout> milliseconds.",
+"REPLY (ON|OFF|SKIP)",
+"    Control the replies sent to the current connection.",
+"SETNAME <name>",
+"    Assign the name <name> to the current connection.",
+"UNBLOCK <clientid> [TIMEOUT|ERROR]",
+"    Unblock the specified blocked client.",
+"TRACKING (ON|OFF) [REDIRECT <id>] [BCAST] [PREFIX <prefix> [...]]",
+"         [OPTIN] [OPTOUT]",
+"    Control server assisted client side caching.",
+"TRACKINGINFO",
+"    Report tracking status for the current connection.",
 NULL
         };
         addReplyHelp(c, help);
@@ -2836,7 +2858,7 @@ NULL
             addReplyArrayLen(c,0);
         }
     } else {
-        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try CLIENT HELP", (char*)c->argv[1]->ptr);
+        addReplySubcommandSyntaxError(c);
     }
 }
 

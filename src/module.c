@@ -7936,14 +7936,21 @@ sds genModulesInfoString(sds info) {
 
 /* Redis MODULE command.
  *
- * MODULE LOAD <path> [args...] */
+ * MODULE LIST
+ * MODULE LOAD <path> [args...]
+ * MODULE UNLOAD <name>
+ */
 void moduleCommand(client *c) {
     char *subcmd = c->argv[1]->ptr;
+
     if (c->argc == 2 && !strcasecmp(subcmd,"help")) {
         const char *help[] = {
-"LIST -- Return a list of loaded modules.",
-"LOAD <path> [arg ...] -- Load a module library from <path>.",
-"UNLOAD <name> -- Unload a module.",
+"LIST",
+"    Return a list of loaded modules.",
+"LOAD <path> [<arg> ...]",
+"    Load a module library from <path>, passing to it any optional arguments.",
+"UNLOAD <name>",
+"    Unload a module.",
 NULL
         };
         addReplyHelp(c, help);

@@ -2233,6 +2233,7 @@ void whileBlockedCron() {
         activeDefragCycle();
 
         server.blocked_last_cron += hz_ms;
+
         /* Increment cronloop so that run_with_period works. */
         server.cronloops++;
     }
@@ -4248,10 +4249,14 @@ void commandCommand(client *c) {
 
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-"(no subcommand) -- Return details about all Redis commands.",
-"COUNT -- Return the total number of commands in this Redis server.",
-"GETKEYS <full-command> -- Return the keys from a full Redis command.",
-"INFO [command-name ...] -- Return details about multiple Redis commands.",
+"(no subcommand)",
+"    Return details about all Redis commands.",
+"COUNT",
+"    Return the total number of commands in this Redis server.",
+"GETKEYS <full-command>",
+"    Return the keys from a full Redis command.",
+"INFO [<command-name> ...]",
+"    Return details about multiple Redis commands.",
 NULL
         };
         addReplyHelp(c, help);
@@ -5365,7 +5370,7 @@ void loadDataFromDisk(void) {
 void redisOutOfMemoryHandler(size_t allocation_size) {
     serverLog(LL_WARNING,"Out Of Memory allocating %zu bytes!",
         allocation_size);
-    serverPanic("Redis aborting for OUT OF MEMORY. Allocating %zu bytes!", 
+    serverPanic("Redis aborting for OUT OF MEMORY. Allocating %zu bytes!",
         allocation_size);
 }
 

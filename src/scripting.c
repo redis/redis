@@ -691,11 +691,11 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,&error_code) !=
                            server.cluster->myself)
         {
-            if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) { 
+            if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) {
                 luaPushError(lua,
                     "Lua script attempted to execute a write command while the "
                     "cluster is down and readonly");
-            } else if (error_code == CLUSTER_REDIR_DOWN_STATE) { 
+            } else if (error_code == CLUSTER_REDIR_DOWN_STATE) {
                 luaPushError(lua,
                     "Lua script attempted to execute a command while the "
                     "cluster is down");
@@ -1707,11 +1707,16 @@ void evalShaCommand(client *c) {
 void scriptCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-"DEBUG (yes|sync|no) -- Set the debug mode for subsequent scripts executed.",
-"EXISTS <sha1> [<sha1> ...] -- Return information about the existence of the scripts in the script cache.",
-"FLUSH -- Flush the Lua scripts cache. Very dangerous on replicas.",
-"KILL -- Kill the currently executing Lua script.",
-"LOAD <script> -- Load a script into the scripts cache, without executing it.",
+"DEBUG (YES|SYNC|NO)",
+"    Set the debug mode for subsequent scripts executed.",
+"EXISTS <sha1> [<sha1> ...]",
+"    Return information about the existence of the scripts in the script cache.",
+"FLUSH",
+"    Flush the Lua scripts cache. Very dangerous on replicas.",
+"KILL",
+"    Kill the currently executing Lua script.",
+"LOAD <script>",
+"    Load a script into the scripts cache without executing it.",
 NULL
         };
         addReplyHelp(c, help);
@@ -1762,7 +1767,7 @@ NULL
             addReply(c,shared.ok);
             c->flags |= CLIENT_LUA_DEBUG_SYNC;
         } else {
-            addReplyError(c,"Use SCRIPT DEBUG yes/sync/no");
+            addReplyError(c,"Use SCRIPT DEBUG YES/SYNC/NO");
             return;
         }
     } else {

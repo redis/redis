@@ -2546,12 +2546,17 @@ void configCommand(client *c) {
 
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-"GET <pattern> -- Return parameters matching the glob-like <pattern> and their values.",
-"SET <parameter> <value> -- Set parameter to value.",
-"RESETSTAT -- Reset statistics reported by INFO.",
-"REWRITE -- Rewrite the configuration file.",
+"GET <pattern>",
+"    Return parameters matching the glob-like <pattern> and their values.",
+"SET <directive> <value>",
+"    Set the configuration <directive> to <value>.",
+"RESETSTAT",
+"    Reset statistics reported by the INFO command.",
+"REWRITE",
+"    Rewrite the configuration file.",
 NULL
         };
+
         addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"set") && c->argc == 4) {
         configSetCommand(c);

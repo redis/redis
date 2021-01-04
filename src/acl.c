@@ -174,15 +174,15 @@ sds ACLHashPassword(unsigned char *cleartext, size_t len) {
     return sdsnewlen(hex,HASH_PASSWORD_LEN);
 }
 
-/* Given a hash and the hash length, returns C_OK if it is a valid password 
+/* Given a hash and the hash length, returns C_OK if it is a valid password
  * hash, or C_ERR otherwise. */
 int ACLCheckPasswordHash(unsigned char *hash, int hashlen) {
     if (hashlen != HASH_PASSWORD_LEN) {
-        return C_ERR;      
+        return C_ERR;
     }
- 
+
     /* Password hashes can only be characters that represent
-     * hexadecimal values, which are numbers and lowercase 
+     * hexadecimal values, which are numbers and lowercase
      * characters 'a' through 'f'. */
     for(int i = 0; i < HASH_PASSWORD_LEN; i++) {
         char c = hash[i];
@@ -2184,18 +2184,30 @@ void aclCommand(client *c) {
         }
     } else if (c->argc == 2 && !strcasecmp(sub,"help")) {
         const char *help[] = {
-"LOAD                             -- Reload users from the ACL file.",
-"SAVE                             -- Save the current config to the ACL file.",
-"LIST                             -- Show user details in config file format.",
-"USERS                            -- List all the registered usernames.",
-"SETUSER <username> [attribs ...] -- Create or modify a user.",
-"GETUSER <username>               -- Get the user details.",
-"DELUSER <username> [...]         -- Delete a list of users.",
-"CAT                              -- List available categories.",
-"CAT <category>                   -- List commands inside category.",
-"GENPASS [<bits>]                 -- Generate a secure user password.",
-"WHOAMI                           -- Return the current connection username.",
-"LOG [<count> | RESET]            -- Show the ACL log entries.",
+"CAT [<category>]",
+"    List all commands that belong to <category>, or all command categories",
+"    when no category is specified.",
+"DELUSER <username> [<username> ...]",
+"    Delete a list of users.",
+"GETUSER <username>",
+"    Get the user's details.",
+"GENPASS [<bits>]",
+"    Generate a secure 256-bit user password. The optional `bits` argument can",
+"    be used to specify a different size.",
+"LIST",
+"    Show users details in config file format.",
+"LOAD",
+"    Reload users from the ACL file.",
+"LOG [<count> | RESET]",
+"    Show the ACL log entries.",
+"SAVE",
+"    Save the current config to the ACL file.",
+"SETUSER <username> <attribute> [<attribute> ...]",
+"    Create or modify a user with the specified attributes.",
+"USERS",
+"    List all the registered usernames.",
+"WHOAMI",
+"    Return the current connection username.",
 NULL
         };
         addReplyHelp(c,help);
