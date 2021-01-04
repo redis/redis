@@ -196,6 +196,29 @@ start_server {tags {"multi"}} {
         r exec
     } {PONG}
 
+    test {SWAPDB is able to touch the watched keys that exist} {
+        r flushall
+        r select 0
+        r set x 30
+        r watch x ;# make sure x (set to 30) doesn't change (SWAPDB will "delete" it)
+        r swapdb 0 1
+        r multi
+        r ping
+        r exec
+    } {}
+
+    test {SWAPDB is able to touch the watched keys that do not exist} {
+        r flushall
+        r select 1
+        r set x 30
+        r select 0
+        r watch x ;# make sure the key x (currently missing) doesn't change (SWAPDB will create it)
+        r swapdb 0 1
+        r multi
+        r ping
+        r exec
+    } {}
+
     test {WATCH is able to remember the DB a key belongs to} {
         r select 5
         r set x 30
