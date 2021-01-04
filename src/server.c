@@ -5202,8 +5202,6 @@ void setupChildSignalHandlers(void) {
  * parent restarts it can bind/lock despite the child possibly still running. */
 void closeClildUnusedResourceAfterFork() {
     closeListeningSockets(0);
-    if (server.cluster_enabled && server.cluster_config_file_lock_fd != -1)
-        close(server.cluster_config_file_lock_fd);  /* don't care if this fails */
 
     /* Clear server.pidfile, this is the parent pidfile which should not
      * be touched (or deleted) by the child (on exit / crash) */

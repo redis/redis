@@ -32,11 +32,33 @@
 #include <sys/types.h>
 #include <sys/event.h>
 #include <sys/time.h>
+#include <fcntl.h>  /* O_CLOEXEC */
+#include <errno.h>
 
 typedef struct aeApiState {
     int kqfd;
     struct kevent *events;
 } aeApiState;
+
+int cloexecFcntl(int fd) {
+    int r;
+    int flags;
+
+    do
+        r = fcntl(fd, F_GETFD);
+    while (r == -1 && errno == EINTR);
+
+    if (r == -1 || (r & FD_CLOEXEC))
+        return r;
+
+    flags = r | FD_CLOEXEC;
+
+    do
+        r = fcntl(fd, F_SETFD, flags);
+    while (r == -1 && errno == EINTR);
+
+    return r;
+}
 
 static int aeApiCreate(aeEventLoop *eventLoop) {
     aeApiState *state = zmalloc(sizeof(aeApiState));
@@ -53,6 +75,7 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
         zfree(state);
         return -1;
     }
+    cloexecFcntl(state->kqfd);
     eventLoop->apidata = state;
     return 0;
 }
