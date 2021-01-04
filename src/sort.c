@@ -270,7 +270,7 @@ void sortCommand(client *c) {
     }
 
     /* Lookup the key to sort. It must be of the right types */
-    if (storekey)
+    if (!storekey)
         sortval = lookupKeyRead(c->db,c->argv[1]);
     else
         sortval = lookupKeyWrite(c->db,c->argv[1]);
