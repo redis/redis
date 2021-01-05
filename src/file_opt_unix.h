@@ -28,4 +28,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifndef FILE_OPT_UNIX_H
+#define FILE_OPT_UNIX_H
+
 int cloexecFcntl(int fd);
+
+#endif

@@ -29,8 +29,6 @@
  */
 
 
-#include "file_opt_unix.h"
-
 #include <sys/types.h>
 #include <sys/event.h>
 #include <sys/time.h>
@@ -55,7 +53,6 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
         zfree(state);
         return -1;
     }
-    cloexecFcntl(state->kqfd);
     eventLoop->apidata = state;
     return 0;
 }

@@ -63,9 +63,6 @@ static int evport_debug = 0;
  * and only until we enter aeApiPoll again (at which point we restore the
  * in-kernel association).
  */
-
-#include "file_opt_unix.h"
-
 #define MAX_EVENT_BATCHSZ 512
 
 typedef struct aeApiState {
@@ -85,7 +82,6 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
         zfree(state);
         return -1;
     }
-    cloexecFcntl(state->portfd);
 
     state->npending = 0;
 
