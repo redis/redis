@@ -1537,10 +1537,6 @@ int expireIfNeeded(redisDb *db, robj *key) {
     return retval;
 }
 
-int expireKey(robj *key) {
-    
-}
-
 /* -----------------------------------------------------------------------------
  * API to get key arguments from commands
  * ---------------------------------------------------------------------------*/

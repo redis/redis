@@ -2168,7 +2168,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* Clear the paused clients flag if needed. */
-    unpauseClients(0); /* Don't check return value, just use the side effect.*/
+    unpauseClients(0);
 
     /* Replication cron function -- used to reconnect to master,
      * detect transfer failures, start background RDB transfers and so forth. */
@@ -3442,8 +3442,9 @@ struct redisCommand *lookupCommandOrOriginal(sds name) {
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
                int flags)
 {
-    /* Clients must be paused when propagating, but you can cause diverge
-     * with a multi-exec. */
+    /* This should be unreachable while clients are paused, but modules or
+     * a multi-exec with client pause + write can reach here, so log a warning
+     * instead of a serverAssert() to record the misuse. */
     if (!clientsArePaused()) {
         serverLog(LL_WARNING, "Command '%s' propagated to replicas " 
             "during client pause, when the dataset should be constant. "

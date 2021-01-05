@@ -281,7 +281,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define BLOCKED_MODULE 3  /* Blocked by a loadable module. */
 #define BLOCKED_STREAM 4  /* XREAD. */
 #define BLOCKED_ZSET 5    /* BZPOP et al. */
-#define BLOCKED_PAUSE 6
+#define BLOCKED_PAUSE 6   /* Blocked by CLIENT PAUSE */
 #define BLOCKED_NUM 7     /* Number of blocked states. */
 
 /* Client request types */
