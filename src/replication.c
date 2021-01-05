@@ -1368,8 +1368,10 @@ void replicationEmptyDbCallback(void *privdata) {
  * at server.master, starting from the specified file descriptor. */
 void replicationCreateMasterClient(connection *conn, int dbid) {
     server.master = createClient(conn);
-    if (conn)
-        connSetReadHandler(server.master->conn, readQueryFromClient);
+    /* CreateClient should never fail here, since we've already
+     * been using the connection on the eventloop OR no connection
+     * was passed in. */
+    serverAssert(server.master);
 
     /**
      * Important note:
