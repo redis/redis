@@ -410,9 +410,9 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
             lua_pushnil(lua); /* Use nil to start iteration. */
             while (lua_next(lua,-2)) {
                 /* Stack now: table, key, value */
-                luaReplyToRedisReply(c, lua); /* Return value. */
-                lua_pushvalue(lua,-1);        /* Dup key before consuming. */
+                lua_pushvalue(lua,-2);        /* Dup key before consuming. */
                 luaReplyToRedisReply(c, lua); /* Return key. */
+                luaReplyToRedisReply(c, lua); /* Return value. */
                 /* Stack now: table, key. */
                 maplen++;
             }
