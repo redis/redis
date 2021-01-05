@@ -506,6 +506,10 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
 
     if (unit == UNIT_SECONDS) when *= 1000;
     when += basetime;
+    if (when <= 0) {
+        addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
+        return;
+    }
 
     /* No key, return zero. */
     if (lookupKeyWrite(c->db,key) == NULL) {
