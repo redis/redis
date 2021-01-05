@@ -2666,7 +2666,7 @@ cleanup:
     if (ids != static_ids) zfree(ids);
 }
 
-/* XAUTOCLAIM <key> <group> <consumer> <min-idle-time> <start> [COUNT <count>]
+/* XAUTOCLAIM <key> <group> <consumer> <min-idle-time> <start> [COUNT <count>] [JUSTID]
  *
  * Gets ownership of one or multiple messages in the Pending Entries List
  * of a given stream consumer group.
