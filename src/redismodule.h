@@ -216,6 +216,7 @@ typedef uint64_t RedisModuleTimerID;
 #define REDISMODULE_EVENT_LOADING_PROGRESS 10
 #define REDISMODULE_EVENT_SWAPDB 11
 #define REDISMODULE_EVENT_REPL_BACKUP 12
+#define REDISMODULE_EVENT_FORK_CHILD 13
 
 /* Next event flag, should be updated if a new event added. */
 #define _REDISMODULE_EVENT_NEXT 13
@@ -281,6 +282,10 @@ static const RedisModuleEvent
     RedisModuleEvent_ReplBackup = {
         REDISMODULE_EVENT_REPL_BACKUP,
         1
+    },
+    RedisModuleEvent_ForkChild = {
+        REDISMODULE_EVENT_FORK_CHILD,
+        1
     };
 
 /* Those are values that are used for the 'subevent' callback argument. */
@@ -330,6 +335,10 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE 1
 #define REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD 2
 #define _REDISMODULE_SUBEVENT_REPL_BACKUP_NEXT 3
+
+#define REDISMODULE_SUBEVENT_FORK_CHILD_BORN 0
+#define REDISMODULE_SUBEVENT_FORK_CHILD_DIED 1
+#define _REDISMODULE_SUBEVENT_FORK_CHILD_NEXT 2
 
 #define _REDISMODULE_SUBEVENT_SHUTDOWN_NEXT 0
 #define _REDISMODULE_SUBEVENT_CRON_LOOP_NEXT 0

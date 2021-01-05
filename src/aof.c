@@ -227,6 +227,9 @@ void killAppendOnlyChild(void) {
     server.aof_rewrite_time_start = -1;
     /* Close pipes used for IPC between the two processes. */
     aofClosePipes();
+    moduleFireServerEvent(REDISMODULE_EVENT_FORK_CHILD,
+                          REDISMODULE_SUBEVENT_FORK_CHILD_DIED,
+                          NULL);
 }
 
 /* Called when the user switches from "appendonly yes" to "appendonly no"
@@ -1765,6 +1768,9 @@ int rewriteAppendOnlyFileBackground(void) {
             "Background append only file rewriting started by pid %ld",(long) childpid);
         server.aof_rewrite_scheduled = 0;
         server.aof_rewrite_time_start = time(NULL);
+        moduleFireServerEvent(REDISMODULE_EVENT_FORK_CHILD,
+                              REDISMODULE_SUBEVENT_FORK_CHILD_BORN,
+                              NULL);
 
         /* We set appendseldb to -1 in order to force the next call to the
          * feedAppendOnlyFile() to issue a SELECT command, so the differences
@@ -1962,6 +1968,10 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
     }
 
 cleanup:
+    updateDictResizePolicy();
+    moduleFireServerEvent(REDISMODULE_EVENT_FORK_CHILD,
+                          REDISMODULE_SUBEVENT_FORK_CHILD_DIED,
+                          NULL);
     aofClosePipes();
     aofRewriteBufferReset();
     aofRemoveTempFile(server.child_pid);
