@@ -29,7 +29,7 @@
  */
 
 #include "server.h"
-#include "file_opt_unix.h"
+#include "fileopt_unix.h"
 #include "hiredis.h"
 #ifdef USE_OPENSSL
 #include "openssl/ssl.h"
