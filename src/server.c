@@ -35,6 +35,7 @@
 #include "latency.h"
 #include "atomicvar.h"
 #include "mt19937-64.h"
+#include "fileopt_unix.h"
 
 #include <time.h>
 #include <signal.h>
@@ -2906,6 +2907,7 @@ int listenToPort(int port, int *fds, int *count) {
             return C_ERR;
         }
         anetNonBlock(NULL,fds[*count]);
+        cloexecFcntl(fds[*count]);
         (*count)++;
     }
     return C_OK;
@@ -3040,6 +3042,7 @@ void initServer(void) {
             exit(1);
         }
         anetNonBlock(NULL,server.sofd);
+        cloexecFcntl(server.sofd);
     }
 
     /* Abort if there are no listening sockets at all. */
