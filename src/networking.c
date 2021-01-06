@@ -559,13 +559,9 @@ void *addReplyDeferredLen(client *c) {
     return listLast(c->reply);
 }
 
-/* Populate the length object and try gluing it to the next chunk. */
-void setDeferredAggregateLen(client *c, void *node, long length, char prefix) {
-    serverAssert(length >= 0);
+void setDeferredReply(client *c, void *node, const char *s, size_t length) {
     listNode *ln = (listNode*)node;
     clientReplyBlock *next;
-    char lenstr[128];
-    size_t lenstr_len = sprintf(lenstr, "%c%ld\r\n", prefix, length);
 
     /* Abort when *node is NULL: when the client should not accept writes
      * we return NULL in addReplyDeferredLen() */
@@ -583,23 +579,37 @@ void setDeferredAggregateLen(client *c, void *node, long length, char prefix) {
      * - It has enough room already allocated
      * - And not too large (avoid large memmove) */
     if (ln->next != NULL && (next = listNodeValue(ln->next)) &&
-        next->size - next->used >= lenstr_len &&
-        next->used < PROTO_REPLY_CHUNK_BYTES * 4) {
-        memmove(next->buf + lenstr_len, next->buf, next->used);
-        memcpy(next->buf, lenstr, lenstr_len);
-        next->used += lenstr_len;
+        next->size - next->used >= length &&
+        next->used < PROTO_REPLY_CHUNK_BYTES * 4)
+    {
+        memmove(next->buf + length, next->buf, next->used);
+        memcpy(next->buf, s, length);
+        next->used += length;
         listDelNode(c->reply,ln);
     } else {
         /* Create a new node */
-        clientReplyBlock *buf = zmalloc(lenstr_len + sizeof(clientReplyBlock));
+        clientReplyBlock *buf = zmalloc(length + sizeof(clientReplyBlock));
         /* Take over the allocation's internal fragmentation */
         buf->size = zmalloc_usable_size(buf) - sizeof(clientReplyBlock);
-        buf->used = lenstr_len;
-        memcpy(buf->buf, lenstr, lenstr_len);
+        buf->used = length;
+        memcpy(buf->buf, s, length);
         listNodeValue(ln) = buf;
         c->reply_bytes += buf->size;
     }
     asyncCloseClientOnOutputBufferLimitReached(c);
+}
+
+/* Populate the length object and try gluing it to the next chunk. */
+void setDeferredAggregateLen(client *c, void *node, long length, char prefix) {
+    serverAssert(length >= 0);
+
+    /* Abort when *node is NULL: when the client should not accept writes
+     * we return NULL in addReplyDeferredLen() */
+    if (node == NULL) return;
+
+    char lenstr[128];
+    size_t lenstr_len = sprintf(lenstr, "%c%ld\r\n", prefix, length);
+    setDeferredReply(c, node, lenstr, lenstr_len);
 }
 
 void setDeferredArrayLen(client *c, void *node, long length) {
@@ -795,6 +805,14 @@ void addReplyBulkSds(client *c, sds s)  {
     addReplyLongLongWithPrefix(c,sdslen(s),'$');
     addReplySds(c,s);
     addReply(c,shared.crlf);
+}
+
+/* Set sds to a deferred reply (for symmetry with addReplyBulkSds it also frees the sds) */
+void setDeferredReplyBulkSds(client *c, void *node, sds s) {
+    sds reply = sdscatprintf(sdsempty(), "$%d\r\n%s\r\n", (unsigned)sdslen(s), s);
+    setDeferredReply(c, node, reply, sdslen(reply));
+    sdsfree(reply);
+    sdsfree(s);
 }
 
 /* Add a C null term string as bulk reply */
