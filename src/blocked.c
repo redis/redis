@@ -92,6 +92,8 @@ void blockClient(client *c, int btype) {
     if (btype == BLOCKED_PAUSE) {
         listAddNodeTail(server.paused_clients, c);
         c->paused_list_node = listLast(server.paused_clients);
+        /* Mark this client to execute its command */
+        c->flags |= CLIENT_PENDING_COMMAND;
     }
 }
 
@@ -115,10 +117,9 @@ void processUnblockedClients(void) {
          * the code is conceptually more correct this way. */
         if (!(c->flags & CLIENT_BLOCKED)) {
             /* If we have a queued command, execute it now. */
-            if (c->flags & CLIENT_PENDING_COMMAND) {
-                c->flags &= ~CLIENT_PENDING_COMMAND;
-                if (processCommandAndResetClient(c) == C_ERR) continue;
-            } 
+            if (processPendingCommandsAndResetClient(c) == C_ERR) {
+                continue;
+            }
             /* Then process client if it has more data in it's buffer. */
             if (c->querybuf && sdslen(c->querybuf) > 0) {
                 processInputBuffer(c);
@@ -165,8 +166,6 @@ void unblockClient(client *c) {
         if (moduleClientIsBlockedOnKeys(c)) unblockClientWaitingData(c);
         unblockClientFromModule(c);
     } else if (c->btype == BLOCKED_PAUSE) {
-        /* Mark this client to execute its command */
-        c->flags |= CLIENT_PENDING_COMMAND;
         listDelNode(server.paused_clients,c->paused_list_node);
         c->paused_list_node = NULL;
     } else {

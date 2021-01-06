@@ -142,25 +142,47 @@ start_server {tags {"pause"}} {
         r client PAUSE 100000000 WRITE
         r exec
 
-        # Wait for keys to evict
-        set retry 10
-        while {$retry} {
-            incr retry -1
-            after 10
-            # The values are equal when they're both logically
-            # expired.
-            if {[string equal [r get foo] [r get bar]] == 0} break
+        wait_for_condition 10 100 {
+            [r get foo] eq [r get bar]
+        } else {
+            fail "Keys were never logically expired"
         }
 
         # No keys should actually have been expired
         assert_match $expired_keys [s 0 expired_keys]
 
         r client unpause
+
+        # Force the keys to expire
         r get foo
         r get bar
 
         # Now that clients have been unpaused, expires should go through
-        assert_match [expr $expired_keys + 2] [s 0 expired_keys]
+        assert_match [expr $expired_keys + 2] [s 0 expired_keys]   
+    }
+
+    test "Test that client pause starts at the end of a transaction" {
+        r MULTI
+        r SET FOO1 BAR
+        r client PAUSE 100000000 WRITE
+        r SET FOO2 BAR
+        r exec
+
+        set rd [redis_deferring_client]
+        $rd SET FOO3 BAR
+        
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {1}
+        } else {
+            fail "Clients are not blocked"
+        }
+
+        assert_match "BAR" [r GET FOO1]
+        assert_match "BAR" [r GET FOO2]
+        assert_match "" [r GET FOO3]
+
+        r client unpause 
+        assert_match "OK" [$rd read]
     }
 
     # Make sure we unpause at the end

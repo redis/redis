@@ -1524,7 +1524,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
      * but return to the client what we believe is the wrong state. Typically,
      * at the end of the pause we will properly expire the key OR we will
      * have failed over and the new primary will sent us the expirey. */
-    if (clientsArePaused()) return 1;
+    if (checkClientPauseTimeoutAndReturnIfPaused()) return 1;
 
     /* Delete the key */
     server.stat_expiredkeys++;
