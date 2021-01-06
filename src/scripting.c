@@ -1283,7 +1283,10 @@ void scriptingInit(int setup) {
 /* Release resources related to Lua scripting.
  * This function is used in order to reset the scripting environment. */
 void scriptingRelease(int async) {
-    async ? freeLuaScriptsAsync(server.lua_scripts) : dictRelease(server.lua_scripts);
+    if (async)
+        freeLuaScriptsAsync(server.lua_scripts);
+    else
+        dictRelease(server.lua_scripts);
     server.lua_scripts_mem = 0;
     lua_close(server.lua);
 }
