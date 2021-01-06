@@ -186,3 +186,19 @@ jobs:
     - name: cluster tests
       run: ./runtest-cluster
 
+  test-freebsd:
+    runs-on: macos-latest
+    if: github.repository == 'redis/redis'
+    timeout-minutes: 14400
+    steps:
+    - uses: actions/checkout@v2
+    - name: test
+      uses: vmactions/freebsd-vm@v0.1.0
+      with:
+        usesh: true
+        run: |
+          make REDIS_CFLAGS='-Werror'
+          ./runtest --accurate --verbose --no-latency
+          ./runtest-moduleapi --verbose
+          ./runtest-sentinel
+          ./runtest-cluster
