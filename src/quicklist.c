@@ -31,9 +31,11 @@
 #include <string.h> /* for memcpy */
 #include "quicklist.h"
 #include "zmalloc.h"
+#include "config.h"
 #include "ziplist.h"
 #include "util.h" /* for ll2string */
 #include "lzf.h"
+#include "redisassert.h"
 
 #if defined(REDIS_TEST) || defined(REDIS_TEST_VERBOSE)
 #include <stdio.h> /* for printf (debug printing), snprintf (genstr) */
@@ -67,8 +69,14 @@ static const size_t optimization_level[] = {4096, 8192, 16384, 32768, 65536};
         printf("%s:%s:%d:\t", __FILE__, __FUNCTION__, __LINE__);               \
         printf(__VA_ARGS__);                                                   \
         printf("\n");                                                          \
-    } while (0);
+    } while (0)
 #endif
+
+/* Bookmarks forward declarations */
+#define QL_MAX_BM ((1 << QL_BM_BITS)-1)
+quicklistBookmark *_quicklistBookmarkFindByName(quicklist *ql, const char *name);
+quicklistBookmark *_quicklistBookmarkFindByNode(quicklist *ql, quicklistNode *node);
+void _quicklistBookmarkDelete(quicklist *ql, quicklistBookmark *bm);
 
 /* Simple way to give quicklistEntry structs default values with one call. */
 #define initEntry(e)                                                           \
@@ -81,14 +89,6 @@ static const size_t optimization_level[] = {4096, 8192, 16384, 32768, 65536};
         (e)->sz = 0;                                                           \
     } while (0)
 
-#if __GNUC__ >= 3
-#define likely(x) __builtin_expect(!!(x), 1)
-#define unlikely(x) __builtin_expect(!!(x), 0)
-#else
-#define likely(x) (x)
-#define unlikely(x) (x)
-#endif
-
 /* Create a new quicklist.
  * Free with quicklistRelease(). */
 quicklist *quicklistCreate(void) {
@@ -100,10 +100,11 @@ quicklist *quicklistCreate(void) {
     quicklist->count = 0;
     quicklist->compress = 0;
     quicklist->fill = -2;
+    quicklist->bookmark_count = 0;
     return quicklist;
 }
 
-#define COMPRESS_MAX (1 << 16)
+#define COMPRESS_MAX ((1 << QL_COMP_BITS)-1)
 void quicklistSetCompressDepth(quicklist *quicklist, int compress) {
     if (compress > COMPRESS_MAX) {
         compress = COMPRESS_MAX;
@@ -113,7 +114,7 @@ void quicklistSetCompressDepth(quicklist *quicklist, int compress) {
     quicklist->compress = compress;
 }
 
-#define FILL_MAX (1 << 15)
+#define FILL_MAX ((1 << (QL_FILL_BITS-1))-1)
 void quicklistSetFill(quicklist *quicklist, int fill) {
     if (fill > FILL_MAX) {
         fill = FILL_MAX;
@@ -169,6 +170,7 @@ void quicklistRelease(quicklist *quicklist) {
         quicklist->len--;
         current = next;
     }
+    quicklistBookmarksClear(quicklist);
     zfree(quicklist);
 }
 
@@ -578,6 +580,15 @@ quicklist *quicklistCreateFromZiplist(int fill, int compress,
 
 REDIS_STATIC void __quicklistDelNode(quicklist *quicklist,
                                      quicklistNode *node) {
+    /* Update the bookmark if any */
+    quicklistBookmark *bm = _quicklistBookmarkFindByNode(quicklist, node);
+    if (bm) {
+        bm->node = node->next;
+        /* if the bookmark was to the last node, delete it. */
+        if (!bm->node)
+            _quicklistBookmarkDelete(quicklist, bm);
+    }
+
     if (node->next)
         node->next->prev = node->prev;
     if (node->prev)
@@ -780,16 +791,16 @@ REDIS_STATIC void _quicklistMergeNodes(quicklist *quicklist,
  * The 'after' argument controls which quicklistNode gets returned.
  * If 'after'==1, returned node has elements after 'offset'.
  *                input node keeps elements up to 'offset', including 'offset'.
- * If 'after'==0, returned node has elements up to 'offset', including 'offset'.
- *                input node keeps elements after 'offset'.
+ * If 'after'==0, returned node has elements up to 'offset'.
+ *                input node keeps elements after 'offset', including 'offset'.
  *
- * If 'after'==1, returned node will have elements _after_ 'offset'.
+ * Or in other words:
+ * If 'after'==1, returned node will have elements after 'offset'.
  *                The returned node will have elements [OFFSET+1, END].
  *                The input node keeps elements [0, OFFSET].
- *
- * If 'after'==0, returned node will keep elements up to and including 'offset'.
- *                The returned node will have elements [0, OFFSET].
- *                The input node keeps elements [OFFSET+1, END].
+ * If 'after'==0, returned node will keep elements up to but not including 'offset'.
+ *                The returned node will have elements [0, OFFSET-1].
+ *                The input node keeps elements [OFFSET, END].
  *
  * The input node keeps all elements not taken by the returned node.
  *
@@ -804,7 +815,7 @@ REDIS_STATIC quicklistNode *_quicklistSplitNode(quicklistNode *node, int offset,
     /* Copy original ziplist so we can split it */
     memcpy(new_node->zl, node->zl, zl_sz);
 
-    /* -1 here means "continue deleting until the list ends" */
+    /* Ranges to be trimmed: -1 here means "continue deleting until the list ends" */
     int orig_start = after ? offset + 1 : 0;
     int orig_extent = after ? -1 : offset;
     int new_start = after ? 0 : offset;
@@ -1272,7 +1283,8 @@ int quicklistIndex(const quicklist *quicklist, const long long idx,
 
     quicklistDecompressNodeForUse(entry->node);
     entry->zi = ziplistIndex(entry->node->zl, entry->offset);
-    ziplistGet(entry->zi, &entry->value, &entry->sz, &entry->longval);
+    if (!ziplistGet(entry->zi, &entry->value, &entry->sz, &entry->longval))
+        assert(0); /* This can happen on corrupt ziplist with fake entry count. */
     /* The caller will use our result, so we don't re-compress here.
      * The caller can recompress or delete the node as needed. */
     return 1;
@@ -1408,6 +1420,87 @@ void quicklistPush(quicklist *quicklist, void *value, const size_t sz,
     } else if (where == QUICKLIST_TAIL) {
         quicklistPushTail(quicklist, value, sz);
     }
+}
+
+/* Create or update a bookmark in the list which will be updated to the next node
+ * automatically when the one referenced gets deleted.
+ * Returns 1 on success (creation of new bookmark or override of an existing one).
+ * Returns 0 on failure (reached the maximum supported number of bookmarks).
+ * NOTE: use short simple names, so that string compare on find is quick.
+ * NOTE: bookmakrk creation may re-allocate the quicklist, so the input pointer
+         may change and it's the caller responsibilty to update the reference.
+ */
+int quicklistBookmarkCreate(quicklist **ql_ref, const char *name, quicklistNode *node) {
+    quicklist *ql = *ql_ref;
+    if (ql->bookmark_count >= QL_MAX_BM)
+        return 0;
+    quicklistBookmark *bm = _quicklistBookmarkFindByName(ql, name);
+    if (bm) {
+        bm->node = node;
+        return 1;
+    }
+    ql = zrealloc(ql, sizeof(quicklist) + (ql->bookmark_count+1) * sizeof(quicklistBookmark));
+    *ql_ref = ql;
+    ql->bookmarks[ql->bookmark_count].node = node;
+    ql->bookmarks[ql->bookmark_count].name = zstrdup(name);
+    ql->bookmark_count++;
+    return 1;
+}
+
+/* Find the quicklist node referenced by a named bookmark.
+ * When the bookmarked node is deleted the bookmark is updated to the next node,
+ * and if that's the last node, the bookmark is deleted (so find returns NULL). */
+quicklistNode *quicklistBookmarkFind(quicklist *ql, const char *name) {
+    quicklistBookmark *bm = _quicklistBookmarkFindByName(ql, name);
+    if (!bm) return NULL;
+    return bm->node;
+}
+
+/* Delete a named bookmark.
+ * returns 0 if bookmark was not found, and 1 if deleted.
+ * Note that the bookmark memory is not freed yet, and is kept for future use. */
+int quicklistBookmarkDelete(quicklist *ql, const char *name) {
+    quicklistBookmark *bm = _quicklistBookmarkFindByName(ql, name);
+    if (!bm)
+        return 0;
+    _quicklistBookmarkDelete(ql, bm);
+    return 1;
+}
+
+quicklistBookmark *_quicklistBookmarkFindByName(quicklist *ql, const char *name) {
+    unsigned i;
+    for (i=0; i<ql->bookmark_count; i++) {
+        if (!strcmp(ql->bookmarks[i].name, name)) {
+            return &ql->bookmarks[i];
+        }
+    }
+    return NULL;
+}
+
+quicklistBookmark *_quicklistBookmarkFindByNode(quicklist *ql, quicklistNode *node) {
+    unsigned i;
+    for (i=0; i<ql->bookmark_count; i++) {
+        if (ql->bookmarks[i].node == node) {
+            return &ql->bookmarks[i];
+        }
+    }
+    return NULL;
+}
+
+void _quicklistBookmarkDelete(quicklist *ql, quicklistBookmark *bm) {
+    int index = bm - ql->bookmarks;
+    zfree(bm->name);
+    ql->bookmark_count--;
+    memmove(bm, bm+1, (ql->bookmark_count - index)* sizeof(*bm));
+    /* NOTE: We do not shrink (realloc) the quicklist yet (to avoid resonance,
+     * it may be re-used later (a call to realloc may NOP). */
+}
+
+void quicklistBookmarksClear(quicklist *ql) {
+    while (ql->bookmark_count)
+        zfree(ql->bookmarks[--ql->bookmark_count].name);
+    /* NOTE: We do not shrink (realloc) the quick list. main use case for this
+     * function is just before releasing the allocation. */
 }
 
 /* The rest of this file is test cases and test helpers. */
@@ -2640,6 +2733,54 @@ int quicklistTest(int argc, char *argv[]) {
                (float)runtime[i] / 1000);
     printf("Compressions: %0.2f seconds.\n", (float)(stop - start) / 1000);
     printf("\n");
+
+    TEST("bookmark get updated to next item") {
+        quicklist *ql = quicklistNew(1, 0);
+        quicklistPushTail(ql, "1", 1);
+        quicklistPushTail(ql, "2", 1);
+        quicklistPushTail(ql, "3", 1);
+        quicklistPushTail(ql, "4", 1);
+        quicklistPushTail(ql, "5", 1);
+        assert(ql->len==5);
+        /* add two bookmarks, one pointing to the node before the last. */
+        assert(quicklistBookmarkCreate(&ql, "_dummy", ql->head->next));
+        assert(quicklistBookmarkCreate(&ql, "_test", ql->tail->prev));
+        /* test that the bookmark returns the right node, delete it and see that the bookmark points to the last node */
+        assert(quicklistBookmarkFind(ql, "_test") == ql->tail->prev);
+        assert(quicklistDelRange(ql, -2, 1));
+        assert(quicklistBookmarkFind(ql, "_test") == ql->tail);
+        /* delete the last node, and see that the bookmark was deleted. */
+        assert(quicklistDelRange(ql, -1, 1));
+        assert(quicklistBookmarkFind(ql, "_test") == NULL);
+        /* test that other bookmarks aren't affected */
+        assert(quicklistBookmarkFind(ql, "_dummy") == ql->head->next);
+        assert(quicklistBookmarkFind(ql, "_missing") == NULL);
+        assert(ql->len==3);
+        quicklistBookmarksClear(ql); /* for coverage */
+        assert(quicklistBookmarkFind(ql, "_dummy") == NULL);
+        quicklistRelease(ql);
+    }
+
+    TEST("bookmark limit") {
+        int i;
+        quicklist *ql = quicklistNew(1, 0);
+        quicklistPushHead(ql, "1", 1);
+        for (i=0; i<QL_MAX_BM; i++)
+            assert(quicklistBookmarkCreate(&ql, genstr("",i), ql->head));
+        /* when all bookmarks are used, creation fails */
+        assert(!quicklistBookmarkCreate(&ql, "_test", ql->head));
+        /* delete one and see that we can now create another */
+        assert(quicklistBookmarkDelete(ql, "0"));
+        assert(quicklistBookmarkCreate(&ql, "_test", ql->head));
+        /* delete one and see that the rest survive */
+        assert(quicklistBookmarkDelete(ql, "_test"));
+        for (i=1; i<QL_MAX_BM; i++)
+            assert(quicklistBookmarkFind(ql, genstr("",i)) == ql->head);
+        /* make sure the deleted ones are indeed gone */
+        assert(!quicklistBookmarkFind(ql, "0"));
+        assert(!quicklistBookmarkFind(ql, "_test"));
+        quicklistRelease(ql);
+    }
 
     if (!err)
         printf("ALL TESTS PASSED!\n");

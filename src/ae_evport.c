@@ -67,7 +67,7 @@ static int evport_debug = 0;
 
 typedef struct aeApiState {
     int     portfd;                             /* event port */
-    int     npending;                           /* # of pending fds */
+    uint_t  npending;                           /* # of pending fds */
     int     pending_fds[MAX_EVENT_BATCHSZ];     /* pending fds */
     int     pending_masks[MAX_EVENT_BATCHSZ];   /* pending fds' masks */
 } aeApiState;
@@ -95,6 +95,8 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
 }
 
 static int aeApiResize(aeEventLoop *eventLoop, int setsize) {
+    (void) eventLoop;
+    (void) setsize;
     /* Nothing to resize here. */
     return 0;
 }
@@ -107,7 +109,7 @@ static void aeApiFree(aeEventLoop *eventLoop) {
 }
 
 static int aeApiLookupPending(aeApiState *state, int fd) {
-    int i;
+    uint_t i;
 
     for (i = 0; i < state->npending; i++) {
         if (state->pending_fds[i] == fd)
@@ -232,7 +234,7 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask) {
         /*
          * ENOMEM is a potentially transient condition, but the kernel won't
          * generally return it unless things are really bad.  EAGAIN indicates
-         * we've reached an resource limit, for which it doesn't make sense to
+         * we've reached a resource limit, for which it doesn't make sense to
          * retry (counter-intuitively).  All other errors indicate a bug.  In any
          * of these cases, the best we can do is to abort.
          */
@@ -243,7 +245,7 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask) {
 static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     aeApiState *state = eventLoop->apidata;
     struct timespec timeout, *tsp;
-    int mask, i;
+    uint_t mask, i;
     uint_t nevents;
     port_event_t event[MAX_EVENT_BATCHSZ];
 

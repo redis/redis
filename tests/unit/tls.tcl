@@ -21,30 +21,22 @@ start_server {tags {"tls"}} {
             catch {$s PING} e
             assert_match {PONG} $e
 
+            r CONFIG SET tls-auth-clients optional
+
+            set s [redis [srv 0 host] [srv 0 port]]
+            ::tls::import [$s channel]
+            catch {$s PING} e
+            assert_match {PONG} $e
+
             r CONFIG SET tls-auth-clients yes
+
+            set s [redis [srv 0 host] [srv 0 port]]
+            ::tls::import [$s channel]
+            catch {$s PING} e
+            assert_match {*error*} $e
         }
 
         test {TLS: Verify tls-protocols behaves as expected} {
-            r CONFIG SET tls-protocols TLSv1
-
-            set s [redis [srv 0 host] [srv 0 port] 0 1 {-tls1 0}]
-            catch {$s PING} e
-            assert_match {*I/O error*} $e
-
-            set s [redis [srv 0 host] [srv 0 port] 0 1 {-tls1 1}]
-            catch {$s PING} e
-            assert_match {PONG} $e
-
-            r CONFIG SET tls-protocols TLSv1.1
-
-            set s [redis [srv 0 host] [srv 0 port] 0 1 {-tls1.1 0}]
-            catch {$s PING} e
-            assert_match {*I/O error*} $e
-
-            set s [redis [srv 0 host] [srv 0 port] 0 1 {-tls1.1 1}]
-            catch {$s PING} e
-            assert_match {PONG} $e
-
             r CONFIG SET tls-protocols TLSv1.2
 
             set s [redis [srv 0 host] [srv 0 port] 0 1 {-tls1.2 0}]
@@ -100,6 +92,27 @@ start_server {tags {"tls"}} {
 
             r CONFIG SET tls-protocols ""
             r CONFIG SET tls-ciphers "DEFAULT"
+        }
+
+        test {TLS: Verify tls-cert-file is also used as a client cert if none specified} {
+            set master [srv 0 client]
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
+
+            # Use a non-restricted client/server cert for the replica
+            set redis_crt [format "%s/tests/tls/redis.crt" [pwd]]
+            set redis_key [format "%s/tests/tls/redis.key" [pwd]]
+
+            start_server [list overrides [list tls-cert-file $redis_crt tls-key-file $redis_key] \
+                               omit [list tls-client-cert-file tls-client-key-file]] {
+                set replica [srv 0 client]
+                $replica replicaof $master_host $master_port
+                wait_for_condition 30 100 {
+                    [string match {*master_link_status:up*} [$replica info replication]]
+                } else {
+                    fail "Can't authenticate to master using just tls-cert-file!"
+                }
+            }
         }
     }
 }

@@ -24,10 +24,10 @@ set ::redis_cluster::plain_commands {
     get set setnx setex psetex append strlen exists setbit getbit
     setrange getrange substr incr decr rpush lpush rpushx lpushx
     linsert rpop lpop brpop llen lindex lset lrange ltrim lrem
-    sadd srem sismember scard spop srandmember smembers sscan zadd
+    sadd srem sismember smismember scard spop srandmember smembers sscan zadd
     zincrby zrem zremrangebyscore zremrangebyrank zremrangebylex zrange
     zrangebyscore zrevrangebyscore zrangebylex zrevrangebylex zcount
-    zlexcount zrevrange zcard zscore zrank zrevrank zscan hset hsetnx
+    zlexcount zrevrange zcard zscore zmscore zrank zrevrank zscan hset hsetnx
     hget hmset hmget hincrby hincrbyfloat hdel hlen hkeys hvals
     hgetall hexists hscan incrby decrby incrbyfloat getset move
     expire expireat pexpire pexpireat type ttl pttl persist restore
@@ -286,8 +286,29 @@ proc ::redis_cluster::crc16 {s} {
 # Hash a single key returning the slot it belongs to, Implemented hash
 # tags as described in the Redis Cluster specification.
 proc ::redis_cluster::hash {key} {
-    # TODO: Handle hash slots.
-    expr {[::redis_cluster::crc16 $key] & 16383}
+    set keylen [string length $key]
+    set s {}
+    set e {}
+    for {set s 0} {$s < $keylen} {incr s} {
+        if {[string index $key $s] eq "\{"} break
+    }
+
+    if {[expr {$s == $keylen}]} {
+        set res [expr {[crc16 $key] & 16383}]
+        return $res
+    }
+
+    for {set e [expr {$s+1}]} {$e < $keylen} {incr e} {
+        if {[string index $key $e] == "\}"} break
+    }
+
+    if {$e == $keylen || $e == [expr {$s+1}]} {
+        set res [expr {[crc16 $key] & 16383}]
+        return $res
+    }
+
+    set key_sub [string range $key [expr {$s+1}] [expr {$e-1}]]
+    return [expr {[crc16 $key_sub] & 16383}]
 }
 
 # Return the slot the specified keys hash to.

@@ -90,6 +90,25 @@ typedef struct {
     GeoHashBits south_west;
 } GeoHashNeighbors;
 
+#define CIRCULAR_TYPE 1
+#define RECTANGLE_TYPE 2
+typedef struct {
+    int type; /* search type */
+    double xy[2]; /* search center point, xy[0]: lon, xy[1]: lat */
+    double conversion; /* km: 1000 */
+    double bounds[4]; /* bounds[0]: min_lon, bounds[1]: min_lat
+                       * bounds[2]: max_lon, bounds[3]: max_lat */
+    union {
+        /* CIRCULAR_TYPE */
+        double radius;
+        /* RECTANGLE_TYPE */
+        struct {
+            double height;
+            double width;
+        } r;
+    } t;
+} GeoShape;
+
 /*
  * 0:success
  * -1:failed

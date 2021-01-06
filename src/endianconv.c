@@ -8,7 +8,7 @@
  * to be backward compatible are still in big endian) because most of the
  * production environments are little endian, and we have a lot of conversions
  * in a few places because ziplists, intsets, zipmaps, need to be endian-neutral
- * even in memory, since they are serialied on RDB files directly with a single
+ * even in memory, since they are serialized on RDB files directly with a single
  * write(2) without other additional steps.
  *
  * ----------------------------------------------------------------------------

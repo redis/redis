@@ -3326,12 +3326,10 @@ jemalloc_postfork_child(void) {
 /******************************************************************************/
 
 /* Helps the application decide if a pointer is worth re-allocating in order to reduce fragmentation.
- * returns 0 if the allocation is in the currently active run,
- * or when it is not causing any frag issue (large or huge bin)
- * returns the bin utilization and run utilization both in fixed point 16:16.
+ * returns 1 if the allocation should be moved, and 0 if the allocation be kept.
  * If the application decides to re-allocate it should use MALLOCX_TCACHE_NONE when doing so. */
 JEMALLOC_EXPORT int JEMALLOC_NOTHROW
-get_defrag_hint(void* ptr, int *bin_util, int *run_util) {
+get_defrag_hint(void* ptr) {
 	assert(ptr != NULL);
-	return iget_defrag_hint(TSDN_NULL, ptr, bin_util, run_util);
+	return iget_defrag_hint(TSDN_NULL, ptr);
 }

@@ -21,7 +21,7 @@ proc get_cluster_nodes id {
             pong_recv [lindex $args 5] \
             config_epoch [lindex $args 6] \
             linkstate [lindex $args 7] \
-            slots [lrange $args 8 -1] \
+            slots [lrange $args 8 end] \
         ]
         lappend nodes $node
     }

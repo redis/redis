@@ -34,7 +34,10 @@ void disconnectCallback(const redisAsyncContext *c, int status) {
 }
 
 int main (int argc, char **argv) {
+#ifndef _WIN32
     signal(SIGPIPE, SIG_IGN);
+#endif
+
     struct event_base *base = event_base_new();
     if (argc < 5) {
         fprintf(stderr,
@@ -52,13 +55,25 @@ int main (int argc, char **argv) {
     const char *certKey = argv[5];
     const char *caCert = argc > 5 ? argv[6] : NULL;
 
+    redisSSLContext *ssl;
+    redisSSLContextError ssl_error;
+
+    redisInitOpenSSL();
+
+    ssl = redisCreateSSLContext(caCert, NULL,
+            cert, certKey, NULL, &ssl_error);
+    if (!ssl) {
+        printf("Error: %s\n", redisSSLContextGetError(ssl_error));
+        return 1;
+    }
+
     redisAsyncContext *c = redisAsyncConnect(hostname, port);
     if (c->err) {
         /* Let *c leak for now... */
         printf("Error: %s\n", c->errstr);
         return 1;
     }
-    if (redisSecureConnection(&c->c, caCert, cert, certKey, "sni") != REDIS_OK) {
+    if (redisInitiateSSLWithContext(&c->c, ssl) != REDIS_OK) {
         printf("SSL Error!\n");
         exit(1);
     }
@@ -69,5 +84,7 @@ int main (int argc, char **argv) {
     redisAsyncCommand(c, NULL, NULL, "SET key %b", value, nvalue);
     redisAsyncCommand(c, getCallback, (char*)"end-1", "GET key");
     event_base_dispatch(base);
+
+    redisFreeSSLContext(ssl);
     return 0;
 }

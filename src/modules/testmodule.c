@@ -220,7 +220,7 @@ int TestNotifications(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     } else {
         rep = RedisModule_CallReplyStringPtr(r, &sz);
         if (sz != 1 || *rep != '1') {
-            FAIL("Got reply '%.*s'. expected '1'", sz, rep);
+            FAIL("Got reply '%.*s'. expected '1'", (int)sz, rep);
         }
     }
     /* For l we expect nothing since we didn't subscribe to list events */
@@ -235,7 +235,7 @@ int TestNotifications(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     } else {
         rep = RedisModule_CallReplyStringPtr(r, &sz);
         if (sz != 1 || *rep != '2') {
-            FAIL("Got reply '%.*s'. expected '2'", sz, rep);
+            FAIL("Got reply '%.*s'. expected '2'", (int)sz, rep);
         }
     }
 
@@ -364,7 +364,7 @@ int TestAssertIntegerReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply, lon
     do { \
         RedisModule_Log(ctx,"warning","Testing %s", name); \
         reply = RedisModule_Call(ctx,name,__VA_ARGS__); \
-    } while (0);
+    } while (0)
 
 /* TEST.IT -- Run all the tests. */
 int TestIt(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

@@ -1,5 +1,4 @@
 language: c
-sudo: false
 compiler:
   - gcc
   - clang
@@ -8,17 +7,34 @@ os:
   - linux
   - osx
 
+dist: bionic
+
 branches:
   only:
     - staging
     - trying
     - master
+    - /^release\/.*$/
+
+install:
+    - if [ "$BITS" == "64" ]; then
+        wget https://github.com/redis/redis/archive/6.0.6.tar.gz;
+        tar -xzvf 6.0.6.tar.gz;
+        pushd redis-6.0.6 && BUILD_TLS=yes make && export PATH=$PWD/src:$PATH && popd;
+      fi
 
 before_script:
-    - if [ "$TRAVIS_OS_NAME" == "osx" ] ; then brew update; brew install redis; fi
+    - if [ "$TRAVIS_OS_NAME" == "osx" ]; then
+        curl -O https://distfiles.macports.org/MacPorts/MacPorts-2.6.2-10.13-HighSierra.pkg;
+        sudo installer -pkg MacPorts-2.6.2-10.13-HighSierra.pkg -target /;
+        export PATH=$PATH:/opt/local/bin && sudo port -v selfupdate;
+        sudo port -N install openssl redis;
+      fi;
 
 addons:
   apt:
+    sources:
+    - sourceline: 'ppa:chris-lea/redis-server'
     packages:
     - libc6-dbg
     - libc6-dev
@@ -27,14 +43,20 @@ addons:
     - libc6-dbg:i386
     - gcc-multilib
     - g++-multilib
+    - libssl-dev
+    - libssl-dev:i386
     - valgrind
+    - redis
 
 env:
   - BITS="32"
   - BITS="64"
 
 script:
-  - EXTRA_CMAKE_OPTS="-DENABLE_EXAMPLES:BOOL=ON -DHIREDIS_SSL:BOOL=ON";
+  - EXTRA_CMAKE_OPTS="-DENABLE_EXAMPLES:BOOL=ON -DENABLE_SSL:BOOL=ON";
+    if [ "$BITS" == "64" ]; then
+      EXTRA_CMAKE_OPTS="$EXTRA_CMAKE_OPTS -DENABLE_SSL_TESTS:BOOL=ON";
+    fi;
     if [ "$TRAVIS_OS_NAME" == "osx" ]; then
       if [ "$BITS" == "32" ]; then
         CFLAGS="-m32 -Werror";
@@ -58,12 +80,24 @@ script:
       fi;
     fi;
     export CFLAGS CXXFLAGS LDFLAGS TEST_PREFIX EXTRA_CMAKE_OPTS
+  - make && make clean;
+    if [ "$TRAVIS_OS_NAME" == "osx" ]; then
+      if [ "$BITS" == "64" ]; then
+        OPENSSL_PREFIX="$(ls -d /usr/local/Cellar/openssl@1.1/*)" USE_SSL=1 make;
+      fi;
+    else
+      USE_SSL=1 make;
+    fi;
   - mkdir build/ && cd build/
   - cmake .. ${EXTRA_CMAKE_OPTS}
   - make VERBOSE=1
-  - ctest -V
+  - if [ "$BITS" == "64" ]; then
+      TEST_SSL=1 SKIPS_AS_FAILS=1 ctest -V;
+    else
+      SKIPS_AS_FAILS=1 ctest -V;
+    fi;
 
-matrix:
+jobs:
   include:
     # Windows MinGW cross compile on Linux
     - os: linux
@@ -89,9 +123,9 @@ matrix:
         - eval "${MATRIX_EVAL}"
       install:
         - choco install ninja
+        - choco install -y memurai-developer
       script:
         - mkdir build && cd build
-        - cmd.exe /C '"C:\Program Files (x86)\Microsoft Visual Studio\2017\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" amd64 &&
-          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release &&
-          ninja -v'
-        - ctest -V
+        - cmd.exe //C 'C:\Program Files (x86)\Microsoft Visual Studio\2017\BuildTools\VC\Auxiliary\Build\vcvarsall.bat' amd64 '&&'
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_EXAMPLES=ON '&&' ninja -v
+        - ./hiredis-test.exe
