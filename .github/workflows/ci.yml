@@ -79,10 +79,10 @@ jobs:
       uses: vmactions/freebsd-vm@v0.1.0
       with:
         usesh: true
-        prepare: pkg install -y gmake
+        prepare: pkg install -y gmake lang/tcl85
         run: |
           gmake
+          MAKE=gmake ./runtest-moduleapi --verbose
           ./runtest --accurate --verbose --no-latency
           ./runtest-sentinel
           ./runtest-cluster
-          ./runtest-moduleapi --verbose
