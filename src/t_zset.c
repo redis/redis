@@ -2885,7 +2885,6 @@ static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
     double newscore;
     int retflags = 0;
     sds ele = sdsnewlen(value, value_length_in_bytes);
-    if (!handler->withscores) score = 0;
     int retval = zsetAdd(handler->dstobj, score, ele, &retflags, &newscore);
     sdsfree(ele);
     serverAssert(retval);
@@ -2897,7 +2896,6 @@ static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
     double newscore;
     int retflags = 0;
     sds ele = sdsfromlonglong(value);
-    if (!handler->withscores) score = 0;
     int retval = zsetAdd(handler->dstobj, score, ele, &retflags, &newscore);
     sdsfree(ele);
     serverAssert(retval);
@@ -3116,7 +3114,7 @@ void genericZrangebyscoreCommand(zrange_result_handler *handler,
         }
 
         while (eptr && limit--) {
-            double score =  zzlGetScore(sptr);
+            double score = zzlGetScore(sptr);
 
             /* Abort when the node is no longer in range. */
             if (reverse) {
