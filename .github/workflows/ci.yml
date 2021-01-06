@@ -66,4 +66,5 @@ jobs:
     - name: make
       uses: vmactions/freebsd-vm@v0.1.0
       with:
+        usesh: true
         run: make REDIS_CFLAGS='-Werror'
