@@ -817,7 +817,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     int i, j;
     list *keys = listCreate();
     listNode *node, *nextnode;
-    long count = 10;
+    unsigned long count = 10;
     sds pat = NULL;
     sds typename = NULL;
     int patlen = 0, use_pattern = 0;
@@ -835,17 +835,19 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     while (i < c->argc) {
         j = c->argc - i;
         if (!strcasecmp(c->argv[i]->ptr, "count") && j >= 2) {
-            if (getLongFromObjectOrReply(c, c->argv[i+1], &count, NULL)
+            long l;
+            if (getLongFromObjectOrReply(c, c->argv[i+1], &l, NULL)
                 != C_OK)
             {
                 goto cleanup;
             }
 
-            if (count < 1) {
+            if (l < 1) {
                 addReplyErrorObject(c,shared.syntaxerr);
                 goto cleanup;
             }
 
+            count = l;
             i += 2;
         } else if (!strcasecmp(c->argv[i]->ptr, "match") && j >= 2) {
             pat = c->argv[i+1]->ptr;
@@ -895,7 +897,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
          * COUNT, so if the hash table is in a pathological state (very
          * sparsely populated) we avoid to block too much time at the cost
          * of returning no or very few elements. */
-        long maxiterations = count*10;
+        unsigned long long maxiterations = (unsigned long long)count*10;
 
         /* We pass two pointers to the callback: the list to which it will
          * add new elements, and the object containing the dictionary so that
@@ -906,7 +908,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             cursor = dictScan(ht, cursor, scanCallback, NULL, privdata);
         } while (cursor &&
               maxiterations-- &&
-              listLength(keys) < (unsigned long)count);
+              listLength(keys) < count);
     } else if (o->type == OBJ_SET) {
         int pos = 0;
         int64_t ll;
