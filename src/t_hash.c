@@ -598,6 +598,26 @@ int hashZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep) {
     return ret;
 }
 
+void hashTypeRandomElement(robj *hashobj, sds *sdskey, sds *sdsvalue) {
+    if (hashobj->encoding == OBJ_ENCODING_HT) {
+        dictEntry *de = dictGetFairRandomKey(hashobj->ptr);
+        *sdskey = sdsnew((const char *)dictGetKey(de));
+        *sdsvalue = sdsnew((const char *)dictGetVal(de));
+    } else if (hashobj->encoding == OBJ_ENCODING_ZIPLIST) {
+        unsigned char *key, *value;
+        unsigned int klen, vlen;
+        long long klval, vlval;
+
+        ziplistRandom(hashobj->ptr, &key, &klen, &klval,
+                      &value, &vlen, &vlval);
+        *sdskey = key ? sdsnewlen(key, klen) : sdsfromlonglong(klval);
+        *sdsvalue = value ? sdsnewlen(value, vlen) : sdsfromlonglong(vlval);
+    } else {
+        serverPanic("Unknown hash encoding");
+    }
+}
+
+
 /*-----------------------------------------------------------------------------
  * Hash type commands
  *----------------------------------------------------------------------------*/
@@ -923,144 +943,138 @@ void hscanCommand(client *c) {
     scanGenericCommand(c,o,cursor);
 }
 
+/* How many times bigger should be the set compared to the requested size
+ * for us to don't use the "remove elements" strategy? Read later in the
+ * implementation for more info. */
 #define HRANDMEMBER_SUB_STRATEGY_MUL 3
 
 void hrandmemberWithCountCommand(client *c, long l) {
-    unsigned long entryCount, hashSize;
+    unsigned long count, size;
     int uniq = 1;
     hashTypeIterator *hi;
     robj *hash;
     dict *d;
-    double randomDouble;
-    double threshold;
-    unsigned long index = 0;
 
     if ((hash = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))
         == NULL || checkType(c,hash,OBJ_HASH)) return;
+    size = hashTypeLength(hash);
 
     if(l >= 0) {
-        entryCount = (unsigned long) l;
+        count = (unsigned long) l;
     } else {
-        entryCount = -l;
+        count = -l;
         uniq = 0;
     }
 
-    hashSize = hashTypeLength(hash);
-    if(entryCount > hashSize)
-        entryCount = hashSize;
-    addReplyMapLen(c, entryCount);
-    hi = hashTypeInitIterator(hash);
-
-    if(hash->encoding == OBJ_ENCODING_ZIPLIST) {
-        while (hashTypeNext(hi) != C_ERR && entryCount != 0) {
-            randomDouble = ((double)rand()) / RAND_MAX;
-            threshold = ((double)entryCount) / (hashSize - index);
-            if(randomDouble < threshold){
-                entryCount--;
-                addHashIteratorCursorToReply(c, hi, OBJ_HASH_KEY);
-                addHashIteratorCursorToReply(c, hi, OBJ_HASH_VALUE);
-            }
-        
-            index ++;
-        }
-    } else {       
-        // copy of srandmember
-        if(!uniq) {
-            while(entryCount--) {
-                sds key, value;
-                
-                dictEntry *de = dictGetRandomKey(hash->ptr);
-                key = dictGetKey(de);
-                value = dictGetVal(de);
-                addReplyBulkCBuffer(c,key,sdslen(key));
-                addReplyBulkCBuffer(c,value,sdslen(value));
-            }
-            return;
-        }
-
-        if(entryCount >= hashSize) {
-
-            while (hashTypeNext(hi) != C_ERR) {
-                addHashIteratorCursorToReply(c, hi, OBJ_HASH_KEY);
-                addHashIteratorCursorToReply(c, hi, OBJ_HASH_VALUE);
-            }
-            return;
-        }
-        
-        static dictType dt = {
-            dictSdsHash,                /* hash function */
-            NULL,                       /* key dup */
-            NULL,                       /* val dup */
-            dictSdsKeyCompare,          /* key compare */
-            NULL,                       /* key destructor */
-            NULL,                       /* val destructor */
-            NULL                        /* allow to expand */
-        };
-        d = dictCreate(&dt,NULL);
-        
-        if(entryCount * HRANDMEMBER_SUB_STRATEGY_MUL > hashSize) {
-
-            /* Add all the elements into the temporary dictionary. */
-            while((hashTypeNext(hi)) != C_ERR) {
-                int ret = DICT_ERR;
-                sds key, value;
-
-                key = hashTypeCurrentFromHashTable(hi,OBJ_HASH_KEY);
-                value = hashTypeCurrentFromHashTable(hi,OBJ_HASH_VALUE);
-                ret = dictAdd(d, key, value);
-
-                serverAssert(ret == DICT_OK);
-            }
-            serverAssert(dictSize(d) == hashSize);
-
-            /* Remove random elements to reach the right count. */
-            while(hashSize > entryCount) {
-                dictEntry *de;
-
-                de = dictGetRandomKey(d);
-                dictDelete(d,dictGetKey(de));
-                hashSize--;
-            }
-        }
-
-        else {
-            unsigned long added = 0;
-            sds sdsKey, sdsVal;
-
-            while(added < entryCount) {
-                dictEntry *de = dictGetRandomKey(hash->ptr);
-                sdsKey = dictGetKey(de);
-                sdsVal = dictGetVal(de);
-
-                /* Try to add the object to the dictionary. If it already exists
-                * free it, otherwise increment the number of objects we have
-                * in the result dictionary. */
-                if (dictAdd(d,sdsKey,sdsVal) == DICT_OK){
-                    added++;
-                }
-            }
-        }
-
-        {
-            dictIterator *di;
-            dictEntry *de;
-            di = dictGetIterator(d);
-            while((de = dictNext(di)) != NULL) {
-                sds key = dictGetKey(de);
-                sds value = dictGetVal(de);
-                addReplyBulkCBuffer(c,key,sdslen(key));
-                addReplyBulkCBuffer(c,value,sdslen(value));
-            }
-
-            dictReleaseIterator(di);
-            dictRelease(d);
-        }
-
-        
+    /* If entryCount is zero, serve it ASAP to avoid special cases later. */
+    if (count == 0) {
+        addReply(c,shared.emptyset[c->resp]);
+        return;
     }
 
+    /* CASE 1: The count was negative, so the extraction method is just:
+     * "return N random elements" sampling the whole set every time.
+     * This case is trivial and can be served without auxiliary data
+     * structures. */
+    if (!uniq) {
+        addReplyMapLen(c, count);
+        sds key, value;
+        while(count--) {
+            hashTypeRandomElement(hash, &key, &value);
+            addReplyBulkCBuffer(c, key, sdslen(key));
+            addReplyBulkCBuffer(c, value, sdslen(value));
+            sdsfree(key);
+            sdsfree(value);
+        }
+        return;
+    }
 
-    hashTypeReleaseIterator(hi);
+    /* CASE 2:
+    * The number of requested elements is greater than the number of
+    * elements inside the set: simply return the whole set. */
+    if(count >= size) {
+        addReplyMapLen(c, size);
+        hi = hashTypeInitIterator(hash);
+        while (hashTypeNext(hi) != C_ERR) {
+            addHashIteratorCursorToReply(c, hi, OBJ_HASH_KEY);
+            addHashIteratorCursorToReply(c, hi, OBJ_HASH_VALUE);
+        }
+        hashTypeReleaseIterator(hi);
+        return;
+    }
+
+    d = dictCreate(&hashDictType, NULL);
+    hi = hashTypeInitIterator(hash);
+    addReplyMapLen(c, count);
+
+    /* CASE 3:
+     * The number of elements inside the set is not greater than
+     * HRANDMEMBER_SUB_STRATEGY_MUL times the number of requested elements.
+     * In this case we create a set from scratch with all the elements, and
+     * subtract random elements to reach the requested number of elements.
+     *
+     * This is done because if the number of requested elements is just
+     * a bit less than the number of elements in the set, the natural approach
+     * used into CASE 4 is highly inefficient. */
+    if(count*HRANDMEMBER_SUB_STRATEGY_MUL > size) {
+        /* Add all the elements into the temporary dictionary. */
+        while((hashTypeNext(hi)) != C_ERR) {
+            int ret = DICT_ERR;
+            sds key, value;
+
+            key = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_KEY);
+            value = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
+            ret = dictAdd(d, key, value);
+
+            serverAssert(ret == DICT_OK);
+        }
+        serverAssert(dictSize(d) == size);
+
+        /* Remove random elements to reach the right count. */
+        while(size > count) {
+            dictEntry *de;
+
+            de = dictGetRandomKey(d);
+            dictDelete(d,dictGetKey(de));
+            size--;
+        }
+    }
+
+    /* CASE 4: We have a big set compared to the requested number of elements.
+     * In this case we can simply get random elements from the set and add
+     * to the temporary set, trying to eventually get enough unique elements
+     * to reach the specified count. */
+    else {
+        unsigned long added = 0;
+        sds key, value;
+
+        while(added < count) {
+            hashTypeRandomElement(hash, &key, &value);
+
+            /* Try to add the object to the dictionary. If it already exists
+            * free it, otherwise increment the number of objects we have
+            * in the result dictionary. */
+            if (dictAdd(d,key,value) == DICT_OK){
+                added++;
+            }
+        }
+    }
+
+    {
+        dictIterator *di;
+        dictEntry *de;
+        di = dictGetIterator(d);
+        while ((de = dictNext(di)) != NULL) {
+            sds key = dictGetKey(de);
+            sds value = dictGetVal(de);
+            addReplyBulkCBuffer(c, key, sdslen(key));
+            addReplyBulkCBuffer(c, value, sdslen(value));
+        }
+
+        hashTypeReleaseIterator(hi);
+        dictReleaseIterator(di);
+        dictRelease(d);
+    }
 }
 
 void hrandmemberCommand(client *c) {

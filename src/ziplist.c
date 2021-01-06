@@ -1498,6 +1498,23 @@ int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
     return 1;
 }
 
+void ziplistRandom(unsigned char *zl,  unsigned char **key, unsigned int *klen, long long *klval,
+                   unsigned char **value, unsigned int *vallen, long long *vlval) {
+    int ret;
+    unsigned char *p;
+    unsigned int len = ziplistLen(zl);
+
+    /* Generate even numbers, because ziplist saved K-V pair */
+    int r = (rand() % (len/2)) * 2;
+    p = ziplistIndex(zl, r);
+    ret = ziplistGet(p, key, klen, klval);
+    assert(ret != 0);
+
+    p = ziplistNext(zl, p);
+    ret = ziplistGet(p, value, vallen, vlval);
+    assert(ret != 0);
+}
+
 #ifdef REDIS_TEST
 #include <sys/time.h>
 #include "adlist.h"
