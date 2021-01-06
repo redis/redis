@@ -2680,11 +2680,11 @@ NULL
         if (c->argc == 4) {
             if (!strcasecmp(c->argv[3]->ptr,"write")) {
                 type = CLIENT_PAUSE_WRITE;
-            if (!strcasecmp(c->argv[3]->ptr,"all")) {
+            } else if (!strcasecmp(c->argv[3]->ptr,"all")) {
                 type = CLIENT_PAUSE_ALL;
             } else {
                 addReplyError(c,
-                    "CLIENT PAUSE option must be WRITE or ALL");  
+                    "CLIENT PAUSE mode must be WRITE or ALL");  
                 return;       
             }
         }
