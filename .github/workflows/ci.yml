@@ -67,5 +67,5 @@ jobs:
       uses: vmactions/freebsd-vm@v0.1.0
       with:
         usesh: true
-        prepare: pkg install gmake
+        prepare: pkg install -y gmake
         run: gmake REDIS_CFLAGS='-Werror'
