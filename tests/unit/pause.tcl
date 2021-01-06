@@ -7,6 +7,7 @@ start_server {tags {"pause"}} {
         $rd INFO
         assert_equal [s 0 blocked_clients] 0
         r client unpause
+        $rd close
     }
 
     test "Test write commands are paused by RO" {
@@ -22,6 +23,7 @@ start_server {tags {"pause"}} {
 
         r client unpause
         assert_match "OK" [$rd read]
+        $rd close
     }
 
     test "Test special commands are paused by RO" {
@@ -60,6 +62,9 @@ start_server {tags {"pause"}} {
         assert_match "1" [$rd read]
         assert_match "0" [$rd2 read]
         assert_match "*" [$rd3 read]
+        $rd close
+        $rd2 close
+        $rd3 close
     }
 
     test "Test read/admin mutli-execs are not blocked by pause RO" {
@@ -76,6 +81,7 @@ start_server {tags {"pause"}} {
         assert_equal [s 0 blocked_clients] 0
         r client unpause 
         assert_match "PONG BAR" [$rd read]
+        $rd close
     }
 
     test "Test write mutli-execs are blocked by pause RO" {
@@ -93,6 +99,7 @@ start_server {tags {"pause"}} {
         }
         r client unpause 
         assert_match "OK" [$rd read]
+        $rd close
     }
 
     test "Test scripts are blocked by pause RO" {
@@ -107,6 +114,7 @@ start_server {tags {"pause"}} {
         }
         r client unpause 
         assert_match "1" [$rd read]
+        $rd close
     }
 
     test "Test multiple clients can be queued up and unblocked" {
@@ -124,6 +132,7 @@ start_server {tags {"pause"}} {
         r client unpause
         foreach client $clients {
             assert_match "OK" [$client read]
+            $client close
         }
     }
 
@@ -143,7 +152,7 @@ start_server {tags {"pause"}} {
         r exec
 
         wait_for_condition 10 100 {
-            [r get foo] eq [r get bar]
+            [r get foo] == {} && [r get bar] == {}
         } else {
             fail "Keys were never logically expired"
         }
@@ -183,6 +192,7 @@ start_server {tags {"pause"}} {
 
         r client unpause 
         assert_match "OK" [$rd read]
+        $rd close
     }
 
     # Make sure we unpause at the end
