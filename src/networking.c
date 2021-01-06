@@ -2450,7 +2450,7 @@ void clientCommand(client *c) {
 "      Return clients of specified type.",
 "UNPAUSE",
 "    Stop the current client pause, resuming traffic.",
-"PAUSE <timeout> [WRITE]",
+"PAUSE <timeout> [WRITE|ALL]",
 "    Suspend all, or just write, clients for <timout> milliseconds.",
 "REPLY (ON|OFF|SKIP)",
 "    Control the replies sent to the current connection.",
@@ -2674,15 +2674,17 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"pause") && (c->argc == 3 ||
                                                         c->argc == 4))
     {
-        /* CLIENT PAUSE TIMEOUT [WRITE] */
+        /* CLIENT PAUSE TIMEOUT [WRITE|ALL] */
         long long duration;
         int type = CLIENT_PAUSE_ALL;
         if (c->argc == 4) {
             if (!strcasecmp(c->argv[3]->ptr,"write")) {
                 type = CLIENT_PAUSE_WRITE;
+            if (!strcasecmp(c->argv[3]->ptr,"all")) {
+                type = CLIENT_PAUSE_ALL;
             } else {
                 addReplyError(c,
-                    "CLIENT PAUSE option must be WRITE");  
+                    "CLIENT PAUSE option must be WRITE or ALL");  
                 return;       
             }
         }
@@ -3239,32 +3241,32 @@ void flushSlavesOutputBuffers(void) {
     }
 }
 
-/* Pause clients up to the specified unixtime (in ms). While clients
- * are paused no command is processed from clients, so the data set can't
- * change during that time.
+/* Pause clients up to the specified unixtime (in ms) for a given type of
+ * commands.
  *
- * However while this function pauses normal and Pub/Sub clients, slaves are
- * still served, so this function can be used on server upgrades where it is
- * required that slaves process the latest bytes from the replication stream
- * before being turned to masters.
- *
+ * A main use case of this function is to allow pausing replication traffic
+ * so that a failover without data loss to occur. Replicas will continue to receive
+ * traffic to faciliate this functionality.
+ * 
  * This function is also internally used by Redis Cluster for the manual
  * failover procedure implemented by CLUSTER FAILOVER.
  *
  * The function always succeed, even if there is already a pause in progress.
- * In such a case, the pause is extended if the duration is more than the
- * time left for the previous duration. However if the duration is smaller
- * than the time left for the previous pause, no change is made to the
- * left duration. */
-void pauseClients(mstime_t end, int type) {
-    if (type >= server.client_pause_type) {
+ * In such a case, the duration is set to the maximum and new end time and the
+ * type is set to the more restrictive type of pause. */
+void pauseClients(mstime_t end, pause_type type) {
+    if (type > server.client_pause_type) {
         server.client_pause_type = type;
     }
 
     if (end > server.client_pause_end_time) {
         server.client_pause_end_time = end;
     }
-    
+
+    /* We allow write commands that were queued
+     * up before and after to execute. We need
+     * to track this state so that we don't assert
+     * in propagate(). */
     if (server.in_exec) {
         server.client_pause_in_transaction = 1;
     }
@@ -3278,8 +3280,7 @@ void unpauseClients(void) {
     
     server.client_pause_type = CLIENT_PAUSE_OFF;
 
-    /* Put all the clients in the unblocked clients queue in order to
-     * force the re-processing of the input buffer if any. */
+    /* Unblock all of the clients so they are reprocessed. */
     listRewind(server.paused_clients,&li);
     while ((ln = listNext(&li)) != NULL) {
         c = listNodeValue(ln);
@@ -3287,13 +3288,14 @@ void unpauseClients(void) {
     }
 }
 
-/* Returns 1 if clients are paused and 0 otherwise. */ 
+/* Returns true if clients are paused and false otherwise. */ 
 int areClientsPaused(void) {
     return server.client_pause_type != CLIENT_PAUSE_OFF;
 }
 
 /* Checks if the current client pause has elapsed and unpause clients
- * if it has. Returns true if clients are paused and false otherwise. */
+ * if it has. Also returns true if clients are now paused and false 
+ * otherwise. */
 int checkClientPauseTimeoutAndReturnIfPaused(void) {
     if (server.client_pause_end_time < server.mstime) {
         unpauseClients();

@@ -164,11 +164,12 @@ struct redisServer server; /* Server global state */
  *              us time. Note that commands that may trigger a DEL as a side
  *              effect (like SET) are not fast commands.
  * 
- * may-replicate: Command may produce replication traffic but has it's own
- *                explicit checks to make sure it's not called on a replcia.
- *                Examples include PUBLISH, which replicates pubsub messages,
- *                and EVAL, which may execute write commands which are replicated 
- *                or may just execute read commands.
+ * may-replicate: Command may produce replication traffic, but should be 
+ *                allowed under circumstances where write commands are disallowed. 
+ *                Examples include PUBLISH, which replicates pubsub messages,and 
+ *                EVAL, which may execute write commands, which are replicated, 
+ *                or may just execute read commands. A command can not be marked 
+ *                both "write" and "may-replicate"
  *
  * The following additional flags are only used in order to put commands
  * in a specific ACL category. Commands can have multiple ACL categories.
@@ -3452,9 +3453,9 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
      * and atomicity guarantees. */
     if (server.in_exec && !server.propagate_in_transaction)
         execCommandPropagateMulti(dbid);
-    /* This needs to be unreachable since data should be fixed during client
-     * pause, otherwise data may be lossed if a failover is happening. */
-    serverLog(LL_WARNING, "%s %d %d", cmd->name, areClientsPaused(), server.client_pause_in_transaction);
+
+    /* This needs to be unreachable since the dataset should be fixed during 
+     * client pause, otherwise data may be lossed during a failover. */
     serverAssert(!(areClientsPaused() && !server.client_pause_in_transaction));
 
     if (server.aof_state != AOF_OFF && flags & PROPAGATE_AOF)
