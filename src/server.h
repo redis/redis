@@ -1136,6 +1136,7 @@ struct redisServer {
     int in_eval;                /* Are we inside EVAL? */
     int in_exec;                /* Are we inside EXEC? */
     int propagate_in_transaction;  /* Make sure we don't propagate nested MULTI/EXEC */
+    char *ignore_warnings;      /* Config: warnings that should be ignored. */
     /* Modules */
     dict *moduleapi;            /* Exported core APIs dictionary for modules. */
     dict *sharedapi;            /* Like moduleapi but containing the APIs that
