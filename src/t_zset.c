@@ -2815,7 +2815,7 @@ void zrangeGenericCommand (zrange_result_handler *handler, int argc_start, int s
 
 /* Interface struct for ZRANGE/ZRANGESTORE generic implementation.
  * There is one implementation of this interface that sends a RESP reply to clients.
- * ANd one implementation that stores the range result into a zset object. */
+ * and one implementation that stores the range result into a zset object. */
 struct zrange_result_handler {
     zrange_consumer_type                 type;
     client                              *client;
