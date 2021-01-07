@@ -1592,6 +1592,9 @@ void resetChildState() {
     server.stat_current_cow_bytes = 0;
     updateDictResizePolicy();
     closeChildInfoPipe();
+    moduleFireServerEvent(REDISMODULE_EVENT_FORK_CHILD,
+                          REDISMODULE_SUBEVENT_FORK_CHILD_DIED,
+                          NULL);
 }
 
 /* Return if child type is mutual exclusive with other fork children */
@@ -5525,6 +5528,9 @@ int redisFork(int purpose) {
         }
 
         updateDictResizePolicy();
+        moduleFireServerEvent(REDISMODULE_EVENT_FORK_CHILD,
+                              REDISMODULE_SUBEVENT_FORK_CHILD_BORN,
+                              NULL);
     }
     return childpid;
 }

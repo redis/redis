@@ -1452,9 +1452,6 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
         serverLog(LL_NOTICE,"Background saving started by pid %ld",(long) childpid);
         server.rdb_save_time_start = time(NULL);
         server.rdb_child_type = RDB_CHILD_TYPE_DISK;
-        moduleFireServerEvent(REDISMODULE_EVENT_FORK_CHILD,
-                              REDISMODULE_SUBEVENT_FORK_CHILD_BORN,
-                              NULL);
         return C_OK;
     }
     return C_OK; /* unreached */
@@ -2727,10 +2724,6 @@ void backgroundSaveDoneHandler(int exitcode, int bysignal) {
     server.rdb_child_type = RDB_CHILD_TYPE_NONE;
     server.rdb_save_time_last = time(NULL)-server.rdb_save_time_start;
     server.rdb_save_time_start = -1;
-    updateDictResizePolicy();
-    moduleFireServerEvent(REDISMODULE_EVENT_FORK_CHILD,
-                          REDISMODULE_SUBEVENT_FORK_CHILD_DIED,
-                          NULL);
     /* Possibly there are slaves waiting for a BGSAVE in order to be served
      * (the first stage of SYNC is a bulk transfer of dump.rdb) */
     updateSlavesWaitingBgsave((!bysignal && exitcode == 0) ? C_OK : C_ERR, type);
@@ -2852,9 +2845,6 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
                 (long) childpid);
             server.rdb_save_time_start = time(NULL);
             server.rdb_child_type = RDB_CHILD_TYPE_SOCKET;
-            moduleFireServerEvent(REDISMODULE_EVENT_FORK_CHILD,
-                                  REDISMODULE_SUBEVENT_FORK_CHILD_BORN,
-                                  NULL);
             close(rdb_pipe_write); /* close write in parent so that it can detect the close on the child. */
             if (aeCreateFileEvent(server.el, server.rdb_pipe_read, AE_READABLE, rdbPipeReadHandler,NULL) == AE_ERR) {
                 serverPanic("Unrecoverable error creating server.rdb_pipe_read file event.");

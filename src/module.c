@@ -7090,9 +7090,6 @@ int RM_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
         /* Parent */
         moduleForkInfo.done_handler = cb;
         moduleForkInfo.done_handler_user_data = user_data;
-        moduleFireServerEvent(REDISMODULE_EVENT_FORK_CHILD,
-                              REDISMODULE_SUBEVENT_FORK_CHILD_BORN,
-                              NULL);
         serverLog(LL_VERBOSE, "Module fork started pid: %ld ", (long) childpid);
     }
     return childpid;
@@ -7132,9 +7129,6 @@ int TerminateModuleForkChild(int child_pid, int wait) {
     resetChildState();
     moduleForkInfo.done_handler = NULL;
     moduleForkInfo.done_handler_user_data = NULL;
-    moduleFireServerEvent(REDISMODULE_EVENT_FORK_CHILD,
-                          REDISMODULE_SUBEVENT_FORK_CHILD_DIED,
-                          NULL);
     return C_OK;
 }
 
@@ -7159,10 +7153,6 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
 
     moduleForkInfo.done_handler = NULL;
     moduleForkInfo.done_handler_user_data = NULL;
-    updateDictResizePolicy();
-    moduleFireServerEvent(REDISMODULE_EVENT_FORK_CHILD,
-                          REDISMODULE_SUBEVENT_FORK_CHILD_DIED,
-                          NULL);
 }
 
 /* --------------------------------------------------------------------------
