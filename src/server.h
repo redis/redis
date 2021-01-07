@@ -1090,6 +1090,7 @@ struct redisServer {
     int sentinel_mode;          /* True if this instance is a Sentinel. */
     size_t initial_memory_usage; /* Bytes used after initialization. */
     int always_show_logo;       /* Show logo even for non-stdout logging. */
+    char *ignore_warnings;      /* Config: warnings that should be ignored. */
     /* Modules */
     dict *moduleapi;            /* Exported core APIs dictionary for modules. */
     dict *sharedapi;            /* Like moduleapi but containing the APIs that
