@@ -5058,7 +5058,7 @@ void monitorCommand(client *c) {
 
 /* =================================== Main! ================================ */
 
-int CheckIgnoreWarning(const char *warning) {
+int checkIgnoreWarning(const char *warning) {
     int argc, j;
     sds *argv = sdssplitargs(server.ignore_warnings, &argc);
     if (argv == NULL)
@@ -5782,7 +5782,7 @@ int main(int argc, char **argv) {
     #if defined (__arm64__)
         if (linuxMadvFreeForkBugCheck()) {
             serverLog(LL_WARNING,"WARNING Your kernel has a bug that could lead to data corruption during background save. Please upgrade to the latest stable kernel.");
-            if (!CheckIgnoreWarning("ARM64-COW-BUG")) {
+            if (!checkIgnoreWarning("ARM64-COW-BUG")) {
                 serverLog(LL_WARNING,"Redis will now exit to prevent data corruption. Note that it is possible to suppress this warning by setting the following config: ignore-warnings ARM64-COW-BUG");
                 exit(1);
             }
