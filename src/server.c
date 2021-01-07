@@ -547,6 +547,10 @@ struct redisCommand redisCommandTable[] = {
      "write no-script fast @sortedset @blocking",
      0,NULL,1,-2,1,0,0,0},
 
+    {"zrandmember",zrandmemberCommand,-2,
+     "read-only random @sortedset",
+     0,NULL,1,1,1,0,0,0},
+
     {"hset",hsetCommand,-4,
      "write use-memory fast @hash",
      0,NULL,1,1,1,0,0,0},

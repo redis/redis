@@ -6,6 +6,21 @@ start_server {tags {"zset"}} {
         }
     }
 
+    foreach {type contents} "ziplist {1 a 2 b 3 c} skiplist {1 a 2 b 3 c[randstring 70 90 compr]}" {
+        test "ZRANDMEMBER - $type" {
+            create_zset myzset $contents;
+            assert_encoding $type myzset
+            unset -nocomplain myzset
+            array set myzset {}
+            for {set i 0} {$i < 100} {incr i} {
+                lassign [r zrandmember myzset] key val
+                set myzset($key) $val
+                set myzset($val) $key
+            }
+            assert_equal [lsort $contents] [lsort [array names myzset]]
+        }
+    }
+
     proc basics {encoding} {
         if {$encoding == "ziplist"} {
             r config set zset-max-ziplist-entries 128
