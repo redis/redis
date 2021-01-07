@@ -294,6 +294,9 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"syslog-ident") && argc == 2) {
             if (server.syslog_ident) zfree(server.syslog_ident);
             server.syslog_ident = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"ignore-warnings") && argc == 2) {
+            if (server.ignore_warnings) zfree(server.ignore_warnings);
+            server.ignore_warnings = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"syslog-facility") && argc == 2) {
             server.syslog_facility =
                 configEnumGetValue(syslog_facility_enum,argv[1]);
@@ -2135,6 +2138,7 @@ int rewriteConfig(char *path) {
     rewriteConfigStringOption(state,"logfile",server.logfile,CONFIG_DEFAULT_LOGFILE);
     rewriteConfigYesNoOption(state,"syslog-enabled",server.syslog_enabled,CONFIG_DEFAULT_SYSLOG_ENABLED);
     rewriteConfigStringOption(state,"syslog-ident",server.syslog_ident,CONFIG_DEFAULT_SYSLOG_IDENT);
+    rewriteConfigStringOption(state,"ignore-warnings",server.ignore_warnings,CONFIG_DEFAULT_IGNORE_WARNINGS);
     rewriteConfigSyslogfacilityOption(state);
     rewriteConfigSaveOption(state);
     rewriteConfigNumericalOption(state,"databases",server.dbnum,CONFIG_DEFAULT_DBNUM);
