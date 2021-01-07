@@ -841,7 +841,7 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
             break;
         } else if (!strcasecmp(opt,"maxlen") && moreargs) {
             if (args->trim_strategy != TRIM_STRATEGY_NONE) {
-                addReplyError(c,"Cannot trim by both MAXLEN and MINID");
+                addReplyError(c,"syntax error, MAXLEN and MINID options at the same time are not compatible");
                 return -1;
             }
             args->approx_trim = 0;
@@ -865,7 +865,7 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
             args->trim_strategy_arg_idx = i;
         } else if (!strcasecmp(opt,"minid") && moreargs) {
             if (args->trim_strategy != TRIM_STRATEGY_NONE) {
-                addReplyError(c,"Cannot trim by both MAXLEN and MINID");
+                addReplyError(c,"syntax error, MAXLEN and MINID options at the same time are not compatible");
                 return -1;
             }
             args->approx_trim = 0;
@@ -915,12 +915,12 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
     }
 
     if (args->limit && args->trim_strategy == TRIM_STRATEGY_NONE) {
-        addReplyError(c,"LIMIT without trim options");
+        addReplyError(c,"syntax error, LIMIT cannot be used without specifying a trimming strategy");
         return -1;
     }
 
     if (!xadd && args->trim_strategy == TRIM_STRATEGY_NONE) {
-        addReplyError(c,"XTRIM called without an option to trim the stream");
+        addReplyErrorObject(c,"syntax error, XTRIM must be called with a trimming strategy");
         return -1;
     }
 
@@ -934,7 +934,7 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
         if (limit_given) {
             if (!args->approx_trim) {
                 /* LIMIT was provided without ~ */
-                addReplyError(c,"LIMIT without ~ option is illegal");
+                addReplyError(c,"syntax error, LIMIT cannot be used without the special ~ option");
                 return -1;
             }
         } else {
