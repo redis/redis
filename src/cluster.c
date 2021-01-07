@@ -962,11 +962,13 @@ void freeClusterNode(clusterNode *n) {
 
 /* Add a node to the nodes hash table */
 int clusterAddNode(clusterNode *node) {
-    int retval;
+    sds nodename = sdsnewlen(node->name,CLUSTER_NAMELEN);
+    if (dictAdd(server.cluster->nodes, nodename, node) == C_ERR) {
+        sdsfree(nodename);
+        return C_ERR;
+    }
 
-    retval = dictAdd(server.cluster->nodes,
-            sdsnewlen(node->name,CLUSTER_NAMELEN), node);
-    return (retval == DICT_OK) ? C_OK : C_ERR;
+    return C_OK;
 }
 
 /* Remove a node from the cluster. The function performs the high level
