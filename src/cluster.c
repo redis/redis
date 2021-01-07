@@ -963,7 +963,7 @@ void freeClusterNode(clusterNode *n) {
 /* Add a node to the nodes hash table */
 int clusterAddNode(clusterNode *node) {
     sds nodename = sdsnewlen(node->name,CLUSTER_NAMELEN);
-    if (dictAdd(server.cluster->nodes, nodename, node) == C_ERR) {
+    if (dictAdd(server.cluster->nodes, nodename, node) == DICT_ERR) {
         sdsfree(nodename);
         return C_ERR;
     }
