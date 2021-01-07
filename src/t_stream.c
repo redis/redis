@@ -920,7 +920,7 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
     }
 
     if (!xadd && args->trim_strategy == TRIM_STRATEGY_NONE) {
-        addReplyErrorObject(c,"syntax error, XTRIM must be called with a trimming strategy");
+        addReplyError(c,"syntax error, XTRIM must be called with a trimming strategy");
         return -1;
     }
 
