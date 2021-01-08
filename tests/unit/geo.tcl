@@ -146,7 +146,7 @@ start_server {tags {"geo"}} {
     test {GEORADIUS with ANY but no COUNT} {
         catch {r georadius nyc -73.9798091 40.7598464 10 km ANY ASC} e
         set e
-    } {ERR*ANY must exist with COUNT option*}
+    } {ERR*ANY*requires*COUNT*}
 
     test {GEORADIUS with COUNT but missing integer argument} {
         catch {r georadius nyc -73.9798091 40.7598464 10 km COUNT} e
