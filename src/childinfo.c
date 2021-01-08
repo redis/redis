@@ -127,21 +127,9 @@ void receiveChildInfo(void) {
     int process_type;
     int on_exit;
     size_t cow_size;
-    if (readChildInfo(&process_type, &on_exit, &cow_size)) {
-        updateChildInfo(process_type, on_exit, cow_size);
-    }
-}
 
-/* Receive last COW data from child. */
-void receiveLastChildInfo(void) {
-    if (server.child_info_pipe[0] == -1) return;
-
-    /* Drain the pipe and update child info */
-    int process_type;
-    int on_exit;
-    size_t cow_size;
-
-    while (readChildInfo(&process_type, &on_exit, &cow_size) > 0) {
+    /* Drain the pipe and update child info so that we get the final message. */
+    while (readChildInfo(&process_type, &on_exit, &cow_size)) {
         updateChildInfo(process_type, on_exit, cow_size);
     }
 }

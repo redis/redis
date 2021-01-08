@@ -199,6 +199,10 @@ test {client freed during loading} {
     }
 }
 
+# Our COW metrics (Private_Dirty) work only on Linux
+set system_name [string tolower [exec uname -s]]
+if {$system_name eq {linux}} {
+
 start_server {overrides {save ""}} {
     test {Test child sending COW info} {
         # make sure that rdb_last_cow_size and current_cow_size are zero (the test using new server),
@@ -209,6 +213,7 @@ start_server {overrides {save ""}} {
         # using a 200us delay, the bgsave is empirically taking about 10 seconds.
         # we need it to take more than some 5 seconds, since redis only report COW once a second.
         r config set rdb-key-save-delay 200
+        r config set loglevel debug
 
         # populate the db with 10k keys of 4k each
         set rd [redis_deferring_client 0]
@@ -247,8 +252,9 @@ start_server {overrides {save ""}} {
             } else {
                 if {$::verbose} {
                     puts "COW info on fail: [s current_cow_size]"
+                    puts [exec tail -n 100 < [srv 0 stdout]]
                 }
-                fail "COW info didn't report"
+                fail "COW info wasn't reported"
             }
 
             # for no accurate, stop after 2 iterations
@@ -265,11 +271,21 @@ start_server {overrides {save ""}} {
         }
 
         # make sure we saw report of current_cow_size
+        if {$iteration < 2 && $::verbose} {
+            puts [exec tail -n 100 < [srv 0 stdout]]
+        }
         assert_morethan_equal $iteration 2
 
-        # if bgsave completed, check that rdb_last_cow_size value is at least as last rdb_active_cow_size.
+        # if bgsave completed, check that rdb_last_cow_size (fork exit report)
+        # is at least 90% of last rdb_active_cow_size.
         if { [s rdb_bgsave_in_progress] == 0 } {
-            assert_morethan_equal [s rdb_last_cow_size] $cow_size
+            set final_cow [s rdb_last_cow_size]
+            set cow_size [expr $cow_size * 0.9]
+            if {$final_cow < $cow_size && $::verbose} {
+                puts [exec tail -n 100 < [srv 0 stdout]]
+            }
+            assert_morethan_equal $final_cow $cow_size
         }
     }
 }
+} ;# system_name
