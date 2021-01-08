@@ -963,6 +963,7 @@ void freeClusterNode(clusterNode *n) {
 /* Add a node to the nodes hash table */
 void clusterAddNode(clusterNode *node) {
     int retval;
+
     retval = dictAdd(server.cluster->nodes,
             sdsnewlen(node->name,CLUSTER_NAMELEN), node);
     serverAssert(retval == DICT_OK);
