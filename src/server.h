@@ -2013,7 +2013,6 @@ void openChildInfoPipe(void);
 void closeChildInfoPipe(void);
 void sendChildInfo(int process_type, int on_exit, size_t cow_size);
 void receiveChildInfo(void);
-void receiveLastChildInfo(void);
 
 /* Fork helpers */
 int redisFork(int type);
