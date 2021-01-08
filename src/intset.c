@@ -358,12 +358,6 @@ static long long usec(void) {
     return (((long long)tv.tv_sec)*1000000)+tv.tv_usec;
 }
 
-#define intsetAssert(_e) ((_e)?(void)0:(_assert(#_e,__FILE__,__LINE__),exit(1)))
-static void _assert(char *estr, char *file, int line) {
-    printf("\n\n=== ASSERTION FAILED ===\n");
-    printf("==> %s:%d '%s' is not true\n",file,line,estr);
-}
-
 static intset *createSet(int bits, int size) {
     uint64_t mask = (1<<bits)-1;
     uint64_t value;
@@ -386,13 +380,13 @@ static void checkConsistency(intset *is) {
 
         if (encoding == INTSET_ENC_INT16) {
             int16_t *i16 = (int16_t*)is->contents;
-            intsetAssert(i16[i] < i16[i+1]);
+            assert(i16[i] < i16[i+1]);
         } else if (encoding == INTSET_ENC_INT32) {
             int32_t *i32 = (int32_t*)is->contents;
-            intsetAssert(i32[i] < i32[i+1]);
+            assert(i32[i] < i32[i+1]);
         } else {
             int64_t *i64 = (int64_t*)is->contents;
-            intsetAssert(i64[i] < i64[i+1]);
+            assert(i64[i] < i64[i+1]);
         }
     }
 }
@@ -408,27 +402,27 @@ int intsetTest(int argc, char **argv) {
     UNUSED(argv);
 
     printf("Value encodings: "); {
-        intsetAssert(_intsetValueEncoding(-32768) == INTSET_ENC_INT16);
-        intsetAssert(_intsetValueEncoding(+32767) == INTSET_ENC_INT16);
-        intsetAssert(_intsetValueEncoding(-32769) == INTSET_ENC_INT32);
-        intsetAssert(_intsetValueEncoding(+32768) == INTSET_ENC_INT32);
-        intsetAssert(_intsetValueEncoding(-2147483648) == INTSET_ENC_INT32);
-        intsetAssert(_intsetValueEncoding(+2147483647) == INTSET_ENC_INT32);
-        intsetAssert(_intsetValueEncoding(-2147483649) == INTSET_ENC_INT64);
-        intsetAssert(_intsetValueEncoding(+2147483648) == INTSET_ENC_INT64);
-        intsetAssert(_intsetValueEncoding(-9223372036854775808ull) ==
+        assert(_intsetValueEncoding(-32768) == INTSET_ENC_INT16);
+        assert(_intsetValueEncoding(+32767) == INTSET_ENC_INT16);
+        assert(_intsetValueEncoding(-32769) == INTSET_ENC_INT32);
+        assert(_intsetValueEncoding(+32768) == INTSET_ENC_INT32);
+        assert(_intsetValueEncoding(-2147483648) == INTSET_ENC_INT32);
+        assert(_intsetValueEncoding(+2147483647) == INTSET_ENC_INT32);
+        assert(_intsetValueEncoding(-2147483649) == INTSET_ENC_INT64);
+        assert(_intsetValueEncoding(+2147483648) == INTSET_ENC_INT64);
+        assert(_intsetValueEncoding(-9223372036854775808ull) ==
                     INTSET_ENC_INT64);
-        intsetAssert(_intsetValueEncoding(+9223372036854775807ull) ==
+        assert(_intsetValueEncoding(+9223372036854775807ull) ==
                     INTSET_ENC_INT64);
         ok();
     }
 
     printf("Basic adding: "); {
         is = intsetNew();
-        is = intsetAdd(is,5,&success); intsetAssert(success);
-        is = intsetAdd(is,6,&success); intsetAssert(success);
-        is = intsetAdd(is,4,&success); intsetAssert(success);
-        is = intsetAdd(is,4,&success); intsetAssert(!success);
+        is = intsetAdd(is,5,&success); assert(success);
+        is = intsetAdd(is,6,&success); assert(success);
+        is = intsetAdd(is,4,&success); assert(success);
+        is = intsetAdd(is,4,&success); assert(!success);
         ok();
     }
 
@@ -439,7 +433,7 @@ int intsetTest(int argc, char **argv) {
             is = intsetAdd(is,rand()%0x800,&success);
             if (success) inserts++;
         }
-        intsetAssert(intrev32ifbe(is->length) == inserts);
+        assert(intrev32ifbe(is->length) == inserts);
         checkConsistency(is);
         ok();
     }
@@ -447,20 +441,20 @@ int intsetTest(int argc, char **argv) {
     printf("Upgrade from int16 to int32: "); {
         is = intsetNew();
         is = intsetAdd(is,32,NULL);
-        intsetAssert(intrev32ifbe(is->encoding) == INTSET_ENC_INT16);
+        assert(intrev32ifbe(is->encoding) == INTSET_ENC_INT16);
         is = intsetAdd(is,65535,NULL);
-        intsetAssert(intrev32ifbe(is->encoding) == INTSET_ENC_INT32);
-        intsetAssert(intsetFind(is,32));
-        intsetAssert(intsetFind(is,65535));
+        assert(intrev32ifbe(is->encoding) == INTSET_ENC_INT32);
+        assert(intsetFind(is,32));
+        assert(intsetFind(is,65535));
         checkConsistency(is);
 
         is = intsetNew();
         is = intsetAdd(is,32,NULL);
-        intsetAssert(intrev32ifbe(is->encoding) == INTSET_ENC_INT16);
+        assert(intrev32ifbe(is->encoding) == INTSET_ENC_INT16);
         is = intsetAdd(is,-65535,NULL);
-        intsetAssert(intrev32ifbe(is->encoding) == INTSET_ENC_INT32);
-        intsetAssert(intsetFind(is,32));
-        intsetAssert(intsetFind(is,-65535));
+        assert(intrev32ifbe(is->encoding) == INTSET_ENC_INT32);
+        assert(intsetFind(is,32));
+        assert(intsetFind(is,-65535));
         checkConsistency(is);
         ok();
     }
@@ -468,20 +462,20 @@ int intsetTest(int argc, char **argv) {
     printf("Upgrade from int16 to int64: "); {
         is = intsetNew();
         is = intsetAdd(is,32,NULL);
-        intsetAssert(intrev32ifbe(is->encoding) == INTSET_ENC_INT16);
+        assert(intrev32ifbe(is->encoding) == INTSET_ENC_INT16);
         is = intsetAdd(is,4294967295,NULL);
-        intsetAssert(intrev32ifbe(is->encoding) == INTSET_ENC_INT64);
-        intsetAssert(intsetFind(is,32));
-        intsetAssert(intsetFind(is,4294967295));
+        assert(intrev32ifbe(is->encoding) == INTSET_ENC_INT64);
+        assert(intsetFind(is,32));
+        assert(intsetFind(is,4294967295));
         checkConsistency(is);
 
         is = intsetNew();
         is = intsetAdd(is,32,NULL);
-        intsetAssert(intrev32ifbe(is->encoding) == INTSET_ENC_INT16);
+        assert(intrev32ifbe(is->encoding) == INTSET_ENC_INT16);
         is = intsetAdd(is,-4294967295,NULL);
-        intsetAssert(intrev32ifbe(is->encoding) == INTSET_ENC_INT64);
-        intsetAssert(intsetFind(is,32));
-        intsetAssert(intsetFind(is,-4294967295));
+        assert(intrev32ifbe(is->encoding) == INTSET_ENC_INT64);
+        assert(intsetFind(is,32));
+        assert(intsetFind(is,-4294967295));
         checkConsistency(is);
         ok();
     }
@@ -489,20 +483,20 @@ int intsetTest(int argc, char **argv) {
     printf("Upgrade from int32 to int64: "); {
         is = intsetNew();
         is = intsetAdd(is,65535,NULL);
-        intsetAssert(intrev32ifbe(is->encoding) == INTSET_ENC_INT32);
+        assert(intrev32ifbe(is->encoding) == INTSET_ENC_INT32);
         is = intsetAdd(is,4294967295,NULL);
-        intsetAssert(intrev32ifbe(is->encoding) == INTSET_ENC_INT64);
-        intsetAssert(intsetFind(is,65535));
-        intsetAssert(intsetFind(is,4294967295));
+        assert(intrev32ifbe(is->encoding) == INTSET_ENC_INT64);
+        assert(intsetFind(is,65535));
+        assert(intsetFind(is,4294967295));
         checkConsistency(is);
 
         is = intsetNew();
         is = intsetAdd(is,65535,NULL);
-        intsetAssert(intrev32ifbe(is->encoding) == INTSET_ENC_INT32);
+        assert(intrev32ifbe(is->encoding) == INTSET_ENC_INT32);
         is = intsetAdd(is,-4294967295,NULL);
-        intsetAssert(intrev32ifbe(is->encoding) == INTSET_ENC_INT64);
-        intsetAssert(intsetFind(is,65535));
-        intsetAssert(intsetFind(is,-4294967295));
+        assert(intrev32ifbe(is->encoding) == INTSET_ENC_INT64);
+        assert(intsetFind(is,65535));
+        assert(intsetFind(is,-4294967295));
         checkConsistency(is);
         ok();
     }
@@ -526,11 +520,11 @@ int intsetTest(int argc, char **argv) {
         for (i = 0; i < 0xffff; i++) {
             v1 = rand() % 0xfff;
             is = intsetAdd(is,v1,NULL);
-            intsetAssert(intsetFind(is,v1));
+            assert(intsetFind(is,v1));
 
             v2 = rand() % 0xfff;
             is = intsetRemove(is,v2,NULL);
-            intsetAssert(!intsetFind(is,v2));
+            assert(!intsetFind(is,v2));
         }
         checkConsistency(is);
         ok();

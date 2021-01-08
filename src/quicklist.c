@@ -1508,15 +1508,6 @@ void quicklistBookmarksClear(quicklist *ql) {
 #include <stdint.h>
 #include <sys/time.h>
 
-#define quicklistAssert(_e)                                                             \
-    do {                                                                       \
-        if (!(_e)) {                                                           \
-            printf("\n\n=== ASSERTION FAILED ===\n");                          \
-            printf("==> %s:%d '%s' is not true\n", __FILE__, __LINE__, #_e);   \
-            err++;                                                             \
-        }                                                                      \
-    } while (0)
-
 #define yell(str, ...) printf("ERROR! " str "\n\n", __VA_ARGS__)
 
 #define OK printf("\tOK\n")
@@ -1858,8 +1849,8 @@ int quicklistTest(int argc, char *argv[]) {
             long long lv;
             ql_info(ql);
             quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv);
-            quicklistAssert(data != NULL);
-            quicklistAssert(sz == 32);
+            assert(data != NULL);
+            assert(sz == 32);
             if (strcmp(populate, (char *)data))
                 ERR("Pop'd value (%.*s) didn't equal original value (%s)", sz,
                     data, populate);
@@ -1876,8 +1867,8 @@ int quicklistTest(int argc, char *argv[]) {
             long long lv;
             ql_info(ql);
             quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv);
-            quicklistAssert(data == NULL);
-            quicklistAssert(lv == 55513);
+            assert(data == NULL);
+            assert(lv == 55513);
             ql_verify(ql, 0, 0, 0, 0);
             quicklistRelease(ql);
         }
@@ -1892,9 +1883,9 @@ int quicklistTest(int argc, char *argv[]) {
                 unsigned int sz;
                 long long lv;
                 int ret = quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv);
-                quicklistAssert(ret == 1);
-                quicklistAssert(data != NULL);
-                quicklistAssert(sz == 32);
+                assert(ret == 1);
+                assert(data != NULL);
+                assert(sz == 32);
                 if (strcmp(genstr("hello", 499 - i), (char *)data))
                     ERR("Pop'd value (%.*s) didn't equal original value (%s)",
                         sz, data, genstr("hello", 499 - i));
@@ -1914,16 +1905,16 @@ int quicklistTest(int argc, char *argv[]) {
                 long long lv;
                 int ret = quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv);
                 if (i < 500) {
-                    quicklistAssert(ret == 1);
-                    quicklistAssert(data != NULL);
-                    quicklistAssert(sz == 32);
+                    assert(ret == 1);
+                    assert(data != NULL);
+                    assert(sz == 32);
                     if (strcmp(genstr("hello", 499 - i), (char *)data))
                         ERR("Pop'd value (%.*s) didn't equal original value "
                             "(%s)",
                             sz, data, genstr("hello", 499 - i));
                     zfree(data);
                 } else {
-                    quicklistAssert(ret == 0);
+                    assert(ret == 0);
                 }
             }
             ql_verify(ql, 0, 0, 0, 0);
@@ -2741,23 +2732,23 @@ int quicklistTest(int argc, char *argv[]) {
         quicklistPushTail(ql, "3", 1);
         quicklistPushTail(ql, "4", 1);
         quicklistPushTail(ql, "5", 1);
-        quicklistAssert(ql->len==5);
+        assert(ql->len==5);
         /* add two bookmarks, one pointing to the node before the last. */
-        quicklistAssert(quicklistBookmarkCreate(&ql, "_dummy", ql->head->next));
-        quicklistAssert(quicklistBookmarkCreate(&ql, "_test", ql->tail->prev));
+        assert(quicklistBookmarkCreate(&ql, "_dummy", ql->head->next));
+        assert(quicklistBookmarkCreate(&ql, "_test", ql->tail->prev));
         /* test that the bookmark returns the right node, delete it and see that the bookmark points to the last node */
-        quicklistAssert(quicklistBookmarkFind(ql, "_test") == ql->tail->prev);
-        quicklistAssert(quicklistDelRange(ql, -2, 1));
-        quicklistAssert(quicklistBookmarkFind(ql, "_test") == ql->tail);
+        assert(quicklistBookmarkFind(ql, "_test") == ql->tail->prev);
+        assert(quicklistDelRange(ql, -2, 1));
+        assert(quicklistBookmarkFind(ql, "_test") == ql->tail);
         /* delete the last node, and see that the bookmark was deleted. */
-        quicklistAssert(quicklistDelRange(ql, -1, 1));
-        quicklistAssert(quicklistBookmarkFind(ql, "_test") == NULL);
+        assert(quicklistDelRange(ql, -1, 1));
+        assert(quicklistBookmarkFind(ql, "_test") == NULL);
         /* test that other bookmarks aren't affected */
-        quicklistAssert(quicklistBookmarkFind(ql, "_dummy") == ql->head->next);
-        quicklistAssert(quicklistBookmarkFind(ql, "_missing") == NULL);
-        quicklistAssert(ql->len==3);
+        assert(quicklistBookmarkFind(ql, "_dummy") == ql->head->next);
+        assert(quicklistBookmarkFind(ql, "_missing") == NULL);
+        assert(ql->len==3);
         quicklistBookmarksClear(ql); /* for coverage */
-        quicklistAssert(quicklistBookmarkFind(ql, "_dummy") == NULL);
+        assert(quicklistBookmarkFind(ql, "_dummy") == NULL);
         quicklistRelease(ql);
     }
 
@@ -2766,19 +2757,19 @@ int quicklistTest(int argc, char *argv[]) {
         quicklist *ql = quicklistNew(1, 0);
         quicklistPushHead(ql, "1", 1);
         for (i=0; i<QL_MAX_BM; i++)
-            quicklistAssert(quicklistBookmarkCreate(&ql, genstr("",i), ql->head));
+            assert(quicklistBookmarkCreate(&ql, genstr("",i), ql->head));
         /* when all bookmarks are used, creation fails */
-        quicklistAssert(!quicklistBookmarkCreate(&ql, "_test", ql->head));
+        assert(!quicklistBookmarkCreate(&ql, "_test", ql->head));
         /* delete one and see that we can now create another */
-        quicklistAssert(quicklistBookmarkDelete(ql, "0"));
-        quicklistAssert(quicklistBookmarkCreate(&ql, "_test", ql->head));
+        assert(quicklistBookmarkDelete(ql, "0"));
+        assert(quicklistBookmarkCreate(&ql, "_test", ql->head));
         /* delete one and see that the rest survive */
-        quicklistAssert(quicklistBookmarkDelete(ql, "_test"));
+        assert(quicklistBookmarkDelete(ql, "_test"));
         for (i=1; i<QL_MAX_BM; i++)
-            quicklistAssert(quicklistBookmarkFind(ql, genstr("",i)) == ql->head);
+            assert(quicklistBookmarkFind(ql, genstr("",i)) == ql->head);
         /* make sure the deleted ones are indeed gone */
-        quicklistAssert(!quicklistBookmarkFind(ql, "0"));
-        quicklistAssert(!quicklistBookmarkFind(ql, "_test"));
+        assert(!quicklistBookmarkFind(ql, "0"));
+        assert(!quicklistBookmarkFind(ql, "_test"));
         quicklistRelease(ql);
     }
 
