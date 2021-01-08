@@ -135,9 +135,18 @@ start_server {tags {"geo"}} {
         r georadius nyc -73.9798091 40.7598464 10 km COUNT 3
     } {{central park n/q/r} 4545 {union square}}
 
-    test {GEORADIUS with negative COUNT} {
-        r georadius nyc -73.9798091 40.7598464 10 km COUNT -3 ASC
+    test {GEORADIUS with ANY not sorted by default} {
+        r georadius nyc -73.9798091 40.7598464 10 km COUNT 3 ANY
+    } {{wtc one} {union square} {central park n/q/r}}
+
+    test {GEORADIUS with ANY sorted by ASC} {
+        r georadius nyc -73.9798091 40.7598464 10 km COUNT 3 ANY ASC
     } {{central park n/q/r} {union square} {wtc one}}
+
+    test {GEORADIUS with ANY but no COUNT} {
+        catch {r georadius nyc -73.9798091 40.7598464 10 km ANY ASC} e
+        set e
+    } {ERR*ANY must exist with COUNT option*}
 
     test {GEORADIUS with COUNT but missing integer argument} {
         catch {r georadius nyc -73.9798091 40.7598464 10 km COUNT} e

@@ -539,6 +539,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
     int withdist = 0, withhash = 0, withcoords = 0;
     int frommember = 0, fromloc = 0, byradius = 0, bybox = 0;
     int sort = SORT_NONE;
+    int any = 0; /* any=1 meant a limited search. */
     long long count = 0;  /* Max number of results to return. 0 means unlimited. */
     unsigned long limit = 0; /* Do a limited search, stop as soon as enough results were found. */
     if (c->argc > base_args) {
@@ -551,20 +552,18 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
                 withhash = 1;
             } else if (!strcasecmp(arg, "withcoord")) {
                 withcoords = 1;
+            } else if (!strcasecmp(arg, "any")) {
+                any = 1;
             } else if (!strcasecmp(arg, "asc")) {
                 sort = SORT_ASC;
             } else if (!strcasecmp(arg, "desc")) {
                 sort = SORT_DESC;
             } else if (!strcasecmp(arg, "count") && (i+1) < remaining) {
                 if (getLongLongFromObjectOrReply(c, c->argv[base_args+i+1],
-                    &count, NULL) != C_OK) return;
-                if (count == 0) {
-                    addReplyError(c,"COUNT must be greater than 0 or less than 0");
+                                                 &count, NULL) != C_OK) return;
+                if (count <= 0) {
+                    addReplyError(c,"COUNT must be > 0");
                     return;
-                } else if (count < 0) {
-                    /* Negative count meant a limited search. */
-                    limit = -count;
-                    count = 0;
                 }
                 i++;
             } else if (!strcasecmp(arg, "store") &&
@@ -656,11 +655,21 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
         return;
     }
 
+    if (any) {
+        if (count == 0) {
+            addReplyErrorFormat(c,
+                "ANY must exist with COUNT option for %s",
+                (char *)c->argv[0]->ptr);
+            return;
+        }
+        limit = count;
+    }
+
     /* COUNT without ordering does not make much sense (we need to
      * sort in order to return the closest N entries),
      * force ASC ordering if COUNT was specified but no sorting was
-     * requested. Note that this is not needed for negative COUNT. */
-    if (count != 0 && sort == SORT_NONE) sort = SORT_ASC;
+     * requested. Note that this is not needed for ANY option. */
+    if (count != 0 && sort == SORT_NONE && !any) sort = SORT_ASC;
 
     /* Get all neighbor geohash boxes for our radius search */
     GeoHashRadius georadius = geohashCalculateAreasByShapeWGS84(&shape);
