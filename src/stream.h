@@ -74,7 +74,7 @@ typedef struct streamConsumer {
                                    consumer not yet acknowledged. Keys are
                                    big endian message IDs, while values are
                                    the same streamNACK structure referenced
-                                   in the "pel" of the conumser group structure
+                                   in the "pel" of the consumer group structure
                                    itself, so the value is shared. */
 } streamConsumer;
 

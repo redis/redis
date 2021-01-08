@@ -22,7 +22,11 @@ TEST_MODULES = \
     blockonkeys.so \
     scan.so \
     datatype.so \
-    auth.so
+    auth.so \
+    keyspace_events.so \
+    blockedclient.so \
+    getkeys.so
+
 
 .PHONY: all
 

@@ -12,7 +12,7 @@ tags "modules" {
 
     test {modules global are lost without aux} {
         set server_path [tmpdir "server.module-testrdb"]
-        start_server [list overrides [list loadmodule "$testmodule" "dir" $server_path]] {
+        start_server [list overrides [list loadmodule "$testmodule" "dir" $server_path] keep_persistence true] {
             r testrdb.set.before global1
             assert_equal "global1" [r testrdb.get.before]
         }
@@ -23,7 +23,7 @@ tags "modules" {
 
     test {modules are able to persist globals before and after} {
         set server_path [tmpdir "server.module-testrdb"]
-        start_server [list overrides [list loadmodule "$testmodule 2" "dir" $server_path]] {
+        start_server [list overrides [list loadmodule "$testmodule 2" "dir" $server_path] keep_persistence true] {
             r testrdb.set.before global1
             r testrdb.set.after global2
             assert_equal "global1" [r testrdb.get.before]
@@ -38,7 +38,7 @@ tags "modules" {
 
     test {modules are able to persist globals just after} {
         set server_path [tmpdir "server.module-testrdb"]
-        start_server [list overrides [list loadmodule "$testmodule 1" "dir" $server_path]] {
+        start_server [list overrides [list loadmodule "$testmodule 1" "dir" $server_path] keep_persistence true] {
             r testrdb.set.after global2
             assert_equal "global2" [r testrdb.get.after]
         }
@@ -77,30 +77,30 @@ tags "modules" {
                     for {set i 0} {$i < $attempts} {incr i} {
                         # wait for the replica to start reading the rdb
                         # using the log file since the replica only responds to INFO once in 2mb
-                        wait_for_log_message -1 "*Loading DB in memory*" $loglines 2000 1
+                        set res [wait_for_log_messages -1 {"*Loading DB in memory*"} $loglines 2000 1]
+                        set loglines [lindex $res 1]
 
                         # add some additional random sleep so that we kill the master on a different place each time
-                        after [expr {int(rand()*100)}]
+                        after [expr {int(rand()*50)}]
 
                         # kill the replica connection on the master
                         set killed [$master client kill type replica]
 
-                        if {[catch {
-                            set res [wait_for_log_message -1 "*Internal error in RDB*" $loglines 100 10]
-                            if {$::verbose} {
-                                puts $res
-                            }
-                        }]} {
-                            puts "failed triggering short read"
+                        set res [wait_for_log_messages -1 {"*Internal error in RDB*" "*Finished with success*" "*Successful partial resynchronization*"} $loglines 1000 1]
+                        if {$::verbose} { puts $res }
+                        set log_text [lindex $res 0]
+                        set loglines [lindex $res 1]
+                        if {![string match "*Internal error in RDB*" $log_text]} {
                             # force the replica to try another full sync
+                            $master multi
                             $master client kill type replica
                             $master set asdf asdf
                             # the side effect of resizing the backlog is that it is flushed (16k is the min size)
                             $master config set repl-backlog-size [expr {16384 + $i}]
+                            $master exec
                         }
                         # wait for loading to stop (fail)
-                        set loglines [count_log_lines -1]
-                        wait_for_condition 100 10 {
+                        wait_for_condition 1000 1 {
                             [s -1 loading] eq 0
                         } else {
                             fail "Replica didn't disconnect"

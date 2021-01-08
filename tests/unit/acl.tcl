@@ -135,6 +135,20 @@ start_server {tags {"acl"}} {
         assert_match {*+acl*} $cmdstr
     }
 
+    # A regression test make sure that as long as there is a simple
+    # category defining the commands, that it will be used as is.
+    test {ACL GETUSER provides reasonable results} {
+        # Test for future commands where allowed
+        r ACL setuser additive reset +@all -@write
+        set cmdstr [dict get [r ACL getuser additive] commands]
+        assert_match {+@all -@write} $cmdstr
+
+        # Test for future commands are disallowed
+        r ACL setuser subtractive reset -@all +@read
+        set cmdstr [dict get [r ACL getuser subtractive] commands]
+        assert_match {-@all +@read} $cmdstr
+    }
+
     test {ACL #5998 regression: memory leaks adding / removing subcommands} {
         r AUTH default ""
         r ACL setuser newuser reset -debug +debug|a +debug|b +debug|c
@@ -260,4 +274,60 @@ start_server {tags {"acl"}} {
         catch {r ACL help xxx} e
         assert_match "*Unknown subcommand or wrong number of arguments*" $e
     }
+
+    test {Delete a user that the client doesn't use} {
+        r ACL setuser not_used on >passwd
+        assert {[r ACL deluser not_used] == 1}
+        # The client is not closed
+        assert {[r ping] eq {PONG}}
+    }
+
+    test {Delete a user that the client is using} {
+        r ACL setuser using on +acl >passwd
+        r AUTH using passwd
+        # The client will receive reply normally
+        assert {[r ACL deluser using] == 1}
+        # The client is closed
+        catch {[r ping]} e
+        assert_match "*I/O error*" $e
+    }
+}
+
+set server_path [tmpdir "server.acl"]
+exec cp -f tests/assets/user.acl $server_path
+start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"]] {
+    # user alice on allcommands allkeys >alice
+    # user bob on -@all +@set +acl ~set* >bob
+
+    test "Alice: can excute all command" {
+        r AUTH alice alice
+        assert_equal "alice" [r acl whoami]
+        r SET key value
+    }
+
+    test "Bob: just excute @set and acl command" {
+        r AUTH bob bob
+        assert_equal "bob" [r acl whoami]
+        assert_equal "3" [r sadd set 1 2 3]
+        catch {r SET key value} e
+        set e
+    } {*NOPERM*}
+
+    test "ACL load and save" {
+        r ACL setuser eve +get allkeys >eve on
+        r ACL save
+
+        # ACL load will free user and kill clients
+        r ACL load
+        catch {r ACL LIST} e
+        assert_match {*I/O error*} $e
+
+        reconnect
+        r AUTH alice alice
+        r SET key value
+        r AUTH eve eve
+        r GET key
+        catch {r SET key value} e
+        set e
+    } {*NOPERM*}
 }

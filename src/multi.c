@@ -87,7 +87,7 @@ void discardTransaction(client *c) {
     unwatchAllKeys(c);
 }
 
-/* Flag the transacation as DIRTY_EXEC so that EXEC will fail.
+/* Flag the transaction as DIRTY_EXEC so that EXEC will fail.
  * Should be called every time there is an error while queueing a command. */
 void flagTransaction(client *c) {
     if (c->flags & CLIENT_MULTI)
@@ -127,7 +127,8 @@ void execCommandPropagateExec(client *c) {
 /* Aborts a transaction, with a specific error message.
  * The transaction is always aboarted with -EXECABORT so that the client knows
  * the server exited the multi state, but the actual reason for the abort is
- * included too. */
+ * included too.
+ * Note: 'error' may or may not end with \r\n. see addReplyErrorFormat. */
 void execCommandAbort(client *c, sds error) {
     discardTransaction(c);
 

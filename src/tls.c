@@ -37,6 +37,7 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/rand.h>
+#include <openssl/pem.h>
 
 #define REDIS_TLS_PROTO_TLSv1       (1<<0)
 #define REDIS_TLS_PROTO_TLSv1_1     (1<<1)
@@ -167,8 +168,9 @@ int tlsConfigure(redisTLSContextConfig *ctx_config) {
         goto error;
     }
 
-    if (!ctx_config->ca_cert_file && !ctx_config->ca_cert_dir) {
-        serverLog(LL_WARNING, "Either tls-ca-cert-file or tls-ca-cert-dir must be configured!");
+    if (((server.tls_auth_clients != TLS_CLIENT_AUTH_NO) || server.tls_cluster || server.tls_replication) &&
+            !ctx_config->ca_cert_file && !ctx_config->ca_cert_dir) {
+        serverLog(LL_WARNING, "Either tls-ca-cert-file or tls-ca-cert-dir must be specified when tls-cluster, tls-replication or tls-auth-clients are enabled!");
         goto error;
     }
 
@@ -235,7 +237,8 @@ int tlsConfigure(redisTLSContextConfig *ctx_config) {
         goto error;
     }
     
-    if (SSL_CTX_load_verify_locations(ctx, ctx_config->ca_cert_file, ctx_config->ca_cert_dir) <= 0) {
+    if ((ctx_config->ca_cert_file || ctx_config->ca_cert_dir) &&
+        SSL_CTX_load_verify_locations(ctx, ctx_config->ca_cert_file, ctx_config->ca_cert_dir) <= 0) {
         ERR_error_string_n(ERR_get_error(), errbuf, sizeof(errbuf));
         serverLog(LL_WARNING, "Failed to configure CA certificate(s) file/directory: %s", errbuf);
         goto error;
@@ -337,13 +340,44 @@ connection *connCreateTLS(void) {
     return (connection *) conn;
 }
 
+/* Fetch the latest OpenSSL error and store it in the connection */
+static void updateTLSError(tls_connection *conn) {
+    conn->c.last_errno = 0;
+    if (conn->ssl_error) zfree(conn->ssl_error);
+    conn->ssl_error = zmalloc(512);
+    ERR_error_string_n(ERR_get_error(), conn->ssl_error, 512);
+}
+
+/* Create a new TLS connection that is already associated with
+ * an accepted underlying file descriptor.
+ *
+ * The socket is not ready for I/O until connAccept() was called and
+ * invoked the connection-level accept handler.
+ *
+ * Callers should use connGetState() and verify the created connection
+ * is not in an error state.
+ */
 connection *connCreateAcceptedTLS(int fd, int require_auth) {
     tls_connection *conn = (tls_connection *) connCreateTLS();
     conn->c.fd = fd;
     conn->c.state = CONN_STATE_ACCEPTING;
 
-    if (!require_auth) {
-        SSL_set_verify(conn->ssl, SSL_VERIFY_NONE, NULL);
+    if (!conn->ssl) {
+        updateTLSError(conn);
+        conn->c.state = CONN_STATE_ERROR;
+        return (connection *) conn;
+    }
+
+    switch (require_auth) {
+        case TLS_CLIENT_AUTH_NO:
+            SSL_set_verify(conn->ssl, SSL_VERIFY_NONE, NULL);
+            break;
+        case TLS_CLIENT_AUTH_OPTIONAL:
+            SSL_set_verify(conn->ssl, SSL_VERIFY_PEER, NULL);
+            break;
+        default: /* TLS_CLIENT_AUTH_YES, also fall-secure */
+            SSL_set_verify(conn->ssl, SSL_VERIFY_PEER|SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
+            break;
     }
 
     SSL_set_fd(conn->ssl, conn->c.fd);
@@ -376,10 +410,7 @@ static int handleSSLReturnCode(tls_connection *conn, int ret_value, WantIOType *
                 break;
             default:
                 /* Error! */
-                conn->c.last_errno = 0;
-                if (conn->ssl_error) zfree(conn->ssl_error);
-                conn->ssl_error = zmalloc(512);
-                ERR_error_string_n(ERR_get_error(), conn->ssl_error, 512);
+                updateTLSError(conn);
                 break;
         }
 
@@ -426,7 +457,7 @@ void updateSSLEvent(tls_connection *conn) {
 }
 
 static void tlsHandleEvent(tls_connection *conn, int mask) {
-    int ret;
+    int ret, conn_error;
 
     TLSCONN_DEBUG("tlsEventHandler(): fd=%d, state=%d, mask=%d, r=%d, w=%d, flags=%d",
             fd, conn->c.state, mask, conn->c.read_handler != NULL, conn->c.write_handler != NULL,
@@ -436,8 +467,9 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
 
     switch (conn->c.state) {
         case CONN_STATE_CONNECTING:
-            if (connGetSocketError((connection *) conn)) {
-                conn->c.last_errno = errno;
+            conn_error = connGetSocketError((connection *) conn);
+            if (conn_error) {
+                conn->c.last_errno = conn_error;
                 conn->c.state = CONN_STATE_ERROR;
             } else {
                 if (!(conn->flags & TLS_CONN_FLAG_FD_SET)) {
@@ -795,6 +827,12 @@ exit:
     return nread;
 }
 
+static int connTLSGetType(connection *conn_) {
+    (void) conn_;
+
+    return CONN_TYPE_TLS;
+}
+
 ConnectionType CT_TLS = {
     .ae_handler = tlsEventHandler,
     .accept = connTLSAccept,
@@ -809,6 +847,7 @@ ConnectionType CT_TLS = {
     .sync_write = connTLSSyncWrite,
     .sync_read = connTLSSyncRead,
     .sync_readline = connTLSSyncReadLine,
+    .get_type = connTLSGetType
 };
 
 int tlsHasPendingData() {
@@ -828,6 +867,30 @@ int tlsProcessPendingData() {
         tlsHandleEvent(conn, AE_READABLE);
     }
     return processed;
+}
+
+/* Fetch the peer certificate used for authentication on the specified
+ * connection and return it as a PEM-encoded sds.
+ */
+sds connTLSGetPeerCert(connection *conn_) {
+    tls_connection *conn = (tls_connection *) conn_;
+    if (conn_->type->get_type(conn_) != CONN_TYPE_TLS || !conn->ssl) return NULL;
+
+    X509 *cert = SSL_get_peer_certificate(conn->ssl);
+    if (!cert) return NULL;
+
+    BIO *bio = BIO_new(BIO_s_mem());
+    if (bio == NULL || !PEM_write_bio_X509(bio, cert)) {
+        if (bio != NULL) BIO_free(bio);
+        return NULL;
+    }
+
+    const char *bio_ptr;
+    long long bio_len = BIO_get_mem_data(bio, &bio_ptr);
+    sds cert_pem = sdsnewlen(bio_ptr, bio_len);
+    BIO_free(bio);
+
+    return cert_pem;
 }
 
 #else   /* USE_OPENSSL */
@@ -857,6 +920,11 @@ int tlsHasPendingData() {
 
 int tlsProcessPendingData() {
     return 0;
+}
+
+sds connTLSGetPeerCert(connection *conn_) {
+    (void) conn_;
+    return NULL;
 }
 
 #endif
