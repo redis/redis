@@ -66,7 +66,7 @@ static const size_t optimization_level[] = {4096, 8192, 16384, 32768, 65536};
 #else
 #define D(...)                                                                 \
     do {                                                                       \
-        printf("%s:%s:%d:\t", __FILE__, __func__, __LINE__);               \
+        printf("%s:%s:%d:\t", __FILE__, __func__, __LINE__);                   \
         printf(__VA_ARGS__);                                                   \
         printf("\n");                                                          \
     } while (0)
@@ -1520,7 +1520,7 @@ void quicklistBookmarksClear(quicklist *ql) {
 
 #define ERR(x, ...)                                                            \
     do {                                                                       \
-        printf("%s:%s:%d:\t", __FILE__, __func__, __LINE__);               \
+        printf("%s:%s:%d:\t", __FILE__, __func__, __LINE__);                   \
         printf("ERROR! " x "\n", __VA_ARGS__);                                 \
         err++;                                                                 \
     } while (0)
