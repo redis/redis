@@ -489,12 +489,12 @@ void geoaddCommand(client *c) {
 #define GEOSEARCHSTORE (1<<4)   /* GEOSEARCHSTORE just accept STOREDIST option */
 
 /* GEORADIUS key x y radius unit [WITHDIST] [WITHHASH] [WITHCOORD] [ASC|DESC]
- *                               [COUNT count] [STORE key] [STOREDIST key]
+ *                               [COUNT count [ANY]] [STORE key] [STOREDIST key]
  * GEORADIUSBYMEMBER key member radius unit ... options ...
  * GEOSEARCH key [FROMMEMBER member] [FROMLONLAT long lat] [BYRADIUS radius unit]
- *               [BYBOX width height unit] [WITHCORD] [WITHDIST] [WITHASH] [COUNT count] [ASC|DESC]
+ *               [BYBOX width height unit] [WITHCORD] [WITHDIST] [WITHASH] [COUNT count [ANY]] [ASC|DESC]
  * GEOSEARCHSTORE dest_key src_key [FROMMEMBER member] [FROMLONLAT long lat] [BYRADIUS radius unit]
- *               [BYBOX width height unit] [WITHCORD] [WITHDIST] [WITHASH] [COUNT count] [ASC|DESC] [STOREDIST]
+ *               [BYBOX width height unit] [WITHCORD] [WITHDIST] [WITHASH] [COUNT count [ANY]] [ASC|DESC] [STOREDIST]
  *  */
 void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
     robj *storekey = NULL;
@@ -539,9 +539,8 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
     int withdist = 0, withhash = 0, withcoords = 0;
     int frommember = 0, fromloc = 0, byradius = 0, bybox = 0;
     int sort = SORT_NONE;
-    int any = 0; /* any=1 meant a limited search. */
+    int any = 0; /* any=1 means a limited search, stop as soon as enough results were found. */
     long long count = 0;  /* Max number of results to return. 0 means unlimited. */
-    unsigned long limit = 0; /* Do a limited search, stop as soon as enough results were found. */
     if (c->argc > base_args) {
         int remaining = c->argc - base_args;
         for (int i = 0; i < remaining; i++) {
@@ -655,14 +654,9 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
         return;
     }
 
-    if (any) {
-        if (count == 0) {
-            addReplyErrorFormat(c,
-                "ANY must exist with COUNT option for %s",
-                (char *)c->argv[0]->ptr);
-            return;
-        }
-        limit = count;
+    if (any && !count) {
+        addReplyErrorFormat(c, "the ANY argument requires COUNT argument");
+        return;
     }
 
     /* COUNT without ordering does not make much sense (we need to
@@ -676,7 +670,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
 
     /* Search the zset for all matching points */
     geoArray *ga = geoArrayCreate();
-    membersOfAllNeighbors(zobj, georadius, &shape, ga, limit);
+    membersOfAllNeighbors(zobj, georadius, &shape, ga, any ? count : 0);
 
     /* If no matching results, the user gets an empty reply. */
     if (ga->used == 0 && storekey == NULL) {
