@@ -2800,6 +2800,13 @@ NULL
                 return;
             }
 
+            if (options & CLIENT_TRACKING_BCAST) {
+                if (!checkPrefixCollisionsOrReply(c,prefix,numprefix)) {
+                    zfree(prefix);
+                    return;
+                }
+            }
+
             enableTracking(c,redir,options,prefix,numprefix);
         } else if (!strcasecmp(c->argv[2]->ptr,"off")) {
             disableTracking(c);

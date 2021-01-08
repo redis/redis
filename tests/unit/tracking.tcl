@@ -323,7 +323,25 @@ start_server {tags {"tracking"}} {
         set ping_reply [$rd read]
         assert {$inv_msg eq {invalidate key1}}
         assert {$ping_reply eq {PONG}}
-    } 
+    }
+
+    test {BCAST with prefix collisions throw errors} {
+        set r [redis_client] 
+        catch {$r CLIENT TRACKING ON BCAST PREFIX FOOBAR PREFIX FOO} output
+        assert_match {ERR Prefix 'FOOBAR'*'FOO'*} $output
+
+        catch {$r CLIENT TRACKING ON BCAST PREFIX FOO PREFIX FOOBAR} output
+        assert_match {ERR Prefix 'FOO'*'FOOBAR'*} $output
+
+        $r CLIENT TRACKING ON BCAST PREFIX FOO PREFIX BAR
+        catch {$r CLIENT TRACKING ON BCAST PREFIX FO} output
+        assert_match {ERR Prefix 'FO'*'FOO'*} $output
+
+        catch {$r CLIENT TRACKING ON BCAST PREFIX BARB} output
+        assert_match {ERR Prefix 'BARB'*'BAR'*} $output
+
+        $r CLIENT TRACKING OFF
+    }
 
     test {Tracking gets notification on tracking table key eviction} {
         $rd_redirection HELLO 2
