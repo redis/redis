@@ -747,6 +747,7 @@ int64_t commandFlagsFromString(char *s) {
         else if (!strcasecmp(t,"no-slowlog")) flags |= CMD_SKIP_SLOWLOG;
         else if (!strcasecmp(t,"fast")) flags |= CMD_FAST;
         else if (!strcasecmp(t,"no-auth")) flags |= CMD_NO_AUTH;
+        else if (!strcasecmp(t,"may-replicate")) flags |= CMD_MAY_REPLICATE;
         else if (!strcasecmp(t,"getkeys-api")) flags |= CMD_MODULE_GETKEYS;
         else if (!strcasecmp(t,"no-cluster")) flags |= CMD_MODULE_NO_CLUSTER;
         else break;
@@ -813,6 +814,8 @@ int64_t commandFlagsFromString(char *s) {
  * * **"no-auth"**:    This command can be run by an un-authenticated client.
  *                     Normally this is used by a command that is used
  *                     to authenticate a client. 
+ * * **"may-replicate"**: This command may generate replication traffic, even
+ *                        though it's not a write command.  
  */
 int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
     int64_t flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
@@ -2042,7 +2045,7 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
  * periodically in timer callbacks or other periodic callbacks.
  */
 int RM_AvoidReplicaTraffic() {
-    return clientsArePaused();
+    return checkClientPauseTimeoutAndReturnIfPaused();
 }
 
 /* Change the currently selected DB. Returns an error if the id

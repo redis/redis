@@ -178,6 +178,7 @@ client *createClient(connection *conn) {
     c->peerid = NULL;
     c->sockname = NULL;
     c->client_list_node = NULL;
+    c->paused_list_node = NULL;
     c->client_tracking_redirection = 0;
     c->client_tracking_prefixes = NULL;
     c->client_cron_last_memory_usage = 0;
@@ -1960,7 +1961,7 @@ void commandProcessed(client *c) {
      * still be able to access the client argv and argc field.
      * The client will be reset in unblockClientFromModule(). */
     if (!(c->flags & CLIENT_BLOCKED) ||
-        c->btype != BLOCKED_MODULE)
+        (c->btype != BLOCKED_MODULE && c->btype != BLOCKED_PAUSE))
     {
         resetClient(c);
     }
@@ -2003,6 +2004,20 @@ int processCommandAndResetClient(client *c) {
     return deadclient ? C_ERR : C_OK;
 }
 
+
+/* This function will execute any fully parsed commands pending on
+ * the client. Returns C_ERR if the client is no longer valid after executing
+ * the command, and C_OK for all other cases. */
+int processPendingCommandsAndResetClient(client *c) {
+    if (c->flags & CLIENT_PENDING_COMMAND) {
+        c->flags &= ~CLIENT_PENDING_COMMAND;
+        if (processCommandAndResetClient(c) == C_ERR) {
+            return C_ERR;
+        }
+    }
+    return C_OK;
+}
+
 /* This function is called every time, in the client structure 'c', there is
  * more query buffer to process, because we read more data from the socket
  * or because a client was blocked and later reactivated, so there could be
@@ -2010,9 +2025,6 @@ int processCommandAndResetClient(client *c) {
 void processInputBuffer(client *c) {
     /* Keep processing while there is something in the input buffer */
     while(c->qb_pos < sdslen(c->querybuf)) {
-        /* Return if clients are paused. */
-        if (!(c->flags & CLIENT_SLAVE) && clientsArePaused()) break;
-
         /* Immediately abort if the client is in the middle of something. */
         if (c->flags & CLIENT_BLOCKED) break;
 
@@ -2436,8 +2448,10 @@ void clientCommand(client *c) {
 "    Return information about client connections. Options:",
 "    * TYPE (NORMAL|MASTER|REPLICA|PUBSUB)",
 "      Return clients of specified type.",
-"PAUSE <timeout>",
-"    Suspend all clients for <timout> milliseconds.",
+"UNPAUSE",
+"    Stop the current client pause, resuming traffic.",
+"PAUSE <timeout> [WRITE|ALL]",
+"    Suspend all, or just write, clients for <timout> milliseconds.",
 "REPLY (ON|OFF|SKIP)",
 "    Control the replies sent to the current connection.",
 "SETNAME <name>",
@@ -2653,13 +2667,31 @@ NULL
             addReplyBulk(c,c->name);
         else
             addReplyNull(c);
-    } else if (!strcasecmp(c->argv[1]->ptr,"pause") && c->argc == 3) {
-        /* CLIENT PAUSE */
+    } else if (!strcasecmp(c->argv[1]->ptr,"unpause") && c->argc == 2) {
+        /* CLIENT UNPAUSE */
+        unpauseClients();
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"pause") && (c->argc == 3 ||
+                                                        c->argc == 4))
+    {
+        /* CLIENT PAUSE TIMEOUT [WRITE|ALL] */
         long long duration;
+        int type = CLIENT_PAUSE_ALL;
+        if (c->argc == 4) {
+            if (!strcasecmp(c->argv[3]->ptr,"write")) {
+                type = CLIENT_PAUSE_WRITE;
+            } else if (!strcasecmp(c->argv[3]->ptr,"all")) {
+                type = CLIENT_PAUSE_ALL;
+            } else {
+                addReplyError(c,
+                    "CLIENT PAUSE mode must be WRITE or ALL");  
+                return;       
+            }
+        }
 
         if (getTimeoutFromObjectOrReply(c,c->argv[2],&duration,
-                UNIT_MILLISECONDS) != C_OK) return;
-        pauseClients(duration);
+            UNIT_MILLISECONDS) != C_OK) return;
+        pauseClients(duration, type);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"tracking") && c->argc >= 3) {
         /* CLIENT TRACKING (on|off) [REDIRECT <id>] [BCAST] [PREFIX first]
@@ -3209,54 +3241,66 @@ void flushSlavesOutputBuffers(void) {
     }
 }
 
-/* Pause clients up to the specified unixtime (in ms). While clients
- * are paused no command is processed from clients, so the data set can't
- * change during that time.
+/* Pause clients up to the specified unixtime (in ms) for a given type of
+ * commands.
  *
- * However while this function pauses normal and Pub/Sub clients, slaves are
- * still served, so this function can be used on server upgrades where it is
- * required that slaves process the latest bytes from the replication stream
- * before being turned to masters.
- *
+ * A main use case of this function is to allow pausing replication traffic
+ * so that a failover without data loss to occur. Replicas will continue to receive
+ * traffic to faciliate this functionality.
+ * 
  * This function is also internally used by Redis Cluster for the manual
  * failover procedure implemented by CLUSTER FAILOVER.
  *
  * The function always succeed, even if there is already a pause in progress.
- * In such a case, the pause is extended if the duration is more than the
- * time left for the previous duration. However if the duration is smaller
- * than the time left for the previous pause, no change is made to the
- * left duration. */
-void pauseClients(mstime_t end) {
-    if (!server.clients_paused || end > server.clients_pause_end_time)
-        server.clients_pause_end_time = end;
-    server.clients_paused = 1;
+ * In such a case, the duration is set to the maximum and new end time and the
+ * type is set to the more restrictive type of pause. */
+void pauseClients(mstime_t end, pause_type type) {
+    if (type > server.client_pause_type) {
+        server.client_pause_type = type;
+    }
+
+    if (end > server.client_pause_end_time) {
+        server.client_pause_end_time = end;
+    }
+
+    /* We allow write commands that were queued
+     * up before and after to execute. We need
+     * to track this state so that we don't assert
+     * in propagate(). */
+    if (server.in_exec) {
+        server.client_pause_in_transaction = 1;
+    }
 }
 
-/* Return non-zero if clients are currently paused. As a side effect the
- * function checks if the pause time was reached and clear it. */
-int clientsArePaused(void) {
-    if (server.clients_paused &&
-        server.clients_pause_end_time < server.mstime)
-    {
-        listNode *ln;
-        listIter li;
-        client *c;
+/* Unpause clients and queue them for reprocessing. */
+void unpauseClients(void) {
+    listNode *ln;
+    listIter li;
+    client *c;
+    
+    server.client_pause_type = CLIENT_PAUSE_OFF;
 
-        server.clients_paused = 0;
-
-        /* Put all the clients in the unblocked clients queue in order to
-         * force the re-processing of the input buffer if any. */
-        listRewind(server.clients,&li);
-        while ((ln = listNext(&li)) != NULL) {
-            c = listNodeValue(ln);
-
-            /* Don't touch slaves and blocked clients.
-             * The latter pending requests will be processed when unblocked. */
-            if (c->flags & (CLIENT_SLAVE|CLIENT_BLOCKED)) continue;
-            queueClientForReprocessing(c);
-        }
+    /* Unblock all of the clients so they are reprocessed. */
+    listRewind(server.paused_clients,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        c = listNodeValue(ln);
+        unblockClient(c);
     }
-    return server.clients_paused;
+}
+
+/* Returns true if clients are paused and false otherwise. */ 
+int areClientsPaused(void) {
+    return server.client_pause_type != CLIENT_PAUSE_OFF;
+}
+
+/* Checks if the current client pause has elapsed and unpause clients
+ * if it has. Also returns true if clients are now paused and false 
+ * otherwise. */
+int checkClientPauseTimeoutAndReturnIfPaused(void) {
+    if (server.client_pause_end_time < server.mstime) {
+        unpauseClients();
+    }
+    return areClientsPaused();
 }
 
 /* This function is called by Redis in order to process a few events from
@@ -3634,15 +3678,13 @@ int handleClientsWithPendingReadsUsingThreads(void) {
         c->flags &= ~CLIENT_PENDING_READ;
         listDelNode(server.clients_pending_read,ln);
 
-        if (c->flags & CLIENT_PENDING_COMMAND) {
-            c->flags &= ~CLIENT_PENDING_COMMAND;
-            if (processCommandAndResetClient(c) == C_ERR) {
-                /* If the client is no longer valid, we avoid
-                 * processing the client later. So we just go
-                 * to the next. */
-                continue;
-            }
+        if (processPendingCommandsAndResetClient(c) == C_ERR) {
+            /* If the client is no longer valid, we avoid
+             * processing the client later. So we just go
+             * to the next. */
+            continue;
         }
+
         processInputBuffer(c);
 
         /* We may have pending replies if a thread readQueryFromClient() produced

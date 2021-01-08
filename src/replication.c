@@ -3237,7 +3237,7 @@ void replicationCron(void) {
         int manual_failover_in_progress =
             server.cluster_enabled &&
             server.cluster->mf_end &&
-            clientsArePaused();
+            checkClientPauseTimeoutAndReturnIfPaused();
 
         if (!manual_failover_in_progress) {
             ping_argv[0] = createStringObject("PING",4);

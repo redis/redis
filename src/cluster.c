@@ -2164,7 +2164,7 @@ int clusterProcessPacket(clusterLink *link) {
         resetManualFailover();
         server.cluster->mf_end = now + CLUSTER_MF_TIMEOUT;
         server.cluster->mf_slave = sender;
-        pauseClients(now+(CLUSTER_MF_TIMEOUT*CLUSTER_MF_PAUSE_MULT));
+        pauseClients(now+(CLUSTER_MF_TIMEOUT*CLUSTER_MF_PAUSE_MULT),CLIENT_PAUSE_WRITE);
         serverLog(LL_WARNING,"Manual failover requested by replica %.40s.",
             sender->name);
         /* We need to send a ping message to the replica, as it would carry
@@ -3421,9 +3421,8 @@ void clusterHandleSlaveMigration(int max_slaves) {
  * The function can be used both to initialize the manual failover state at
  * startup or to abort a manual failover in progress. */
 void resetManualFailover(void) {
-    if (server.cluster->mf_end && clientsArePaused()) {
-        server.clients_pause_end_time = 0;
-        clientsArePaused(); /* Just use the side effect of the function. */
+    if (server.cluster->mf_end) {
+        checkClientPauseTimeoutAndReturnIfPaused();
     }
     server.cluster->mf_end = 0; /* No manual failover in progress. */
     server.cluster->mf_can_start = 0;

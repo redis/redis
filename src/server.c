@@ -163,6 +163,13 @@ struct redisServer server; /* Server global state */
  *              delay its execution as long as the kernel scheduler is giving
  *              us time. Note that commands that may trigger a DEL as a side
  *              effect (like SET) are not fast commands.
+ * 
+ * may-replicate: Command may produce replication traffic, but should be 
+ *                allowed under circumstances where write commands are disallowed. 
+ *                Examples include PUBLISH, which replicates pubsub messages,and 
+ *                EVAL, which may execute write commands, which are replicated, 
+ *                or may just execute read commands. A command can not be marked 
+ *                both "write" and "may-replicate"
  *
  * The following additional flags are only used in order to put commands
  * in a specific ACL category. Commands can have multiple ACL categories.
@@ -818,7 +825,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"publish",publishCommand,3,
-     "pub-sub ok-loading ok-stale fast",
+     "pub-sub ok-loading ok-stale fast may-replicate",
      0,NULL,0,0,0,0,0,0},
 
     {"pubsub",pubsubCommand,-2,
@@ -884,11 +891,11 @@ struct redisCommand redisCommandTable[] = {
     /* EVAL can modify the dataset, however it is not flagged as a write
      * command since we do the check while running commands from Lua. */
     {"eval",evalCommand,-3,
-     "no-script @scripting",
+     "no-script may-replicate @scripting",
      0,evalGetKeys,0,0,0,0,0,0},
 
     {"evalsha",evalShaCommand,-3,
-     "no-script @scripting",
+     "no-script may-replicate @scripting",
      0,evalGetKeys,0,0,0,0,0,0},
 
     {"slowlog",slowlogCommand,-2,
@@ -896,7 +903,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"script",scriptCommand,-2,
-     "no-script @scripting",
+     "no-script may-replicate @scripting",
      0,NULL,0,0,0,0,0,0},
 
     {"time",timeCommand,1,
@@ -977,7 +984,7 @@ struct redisCommand redisCommandTable[] = {
      * we claim that the representation, even if accessible, is an internal
      * affair, and the command is semantically read only. */
     {"pfcount",pfcountCommand,-2,
-     "read-only @hyperloglog",
+     "read-only may-replicate @hyperloglog",
      0,NULL,1,-1,1,0,0,0},
 
     {"pfmerge",pfmergeCommand,-2,
@@ -2163,8 +2170,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             flushAppendOnlyFile(0);
     }
 
-    /* Clear the paused clients flag if needed. */
-    clientsArePaused(); /* Don't check return value, just use the side effect.*/
+    /* Clear the paused clients state if needed. */
+    checkClientPauseTimeoutAndReturnIfPaused();
 
     /* Replication cron function -- used to reconnect to master,
      * detect transfer failures, start background RDB transfers and so forth. */
@@ -2361,8 +2368,12 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * during the previous event loop iteration. Note that we do this after
      * processUnblockedClients(), so if there are multiple pipelined WAITs
      * and the just unblocked WAIT gets blocked again, we don't have to wait
-     * a server cron cycle in absence of other event loop events. See #6623. */
-    if (server.get_ack_from_slaves) {
+     * a server cron cycle in absence of other event loop events. See #6623.
+     * 
+     * We also don't send the ACKs while clients are paused, since it can
+     * increment the replication backlog, they'll be sent after the pause
+     * if we are still the master. */
+    if (server.get_ack_from_slaves && !checkClientPauseTimeoutAndReturnIfPaused()) {
         robj *argv[3];
 
         argv[0] = createStringObject("REPLCONF",8);
@@ -3040,7 +3051,8 @@ void initServer(void) {
     server.ready_keys = listCreate();
     server.clients_waiting_acks = listCreate();
     server.get_ack_from_slaves = 0;
-    server.clients_paused = 0;
+    server.client_pause_type = 0;
+    server.paused_clients = listCreate();
     server.events_processed_while_blocked = 0;
     server.system_memory_size = zmalloc_get_memory_size();
     server.blocked_last_cron = 0;
@@ -3114,6 +3126,7 @@ void initServer(void) {
     server.in_eval = 0;
     server.in_exec = 0;
     server.propagate_in_transaction = 0;
+    server.client_pause_in_transaction = 0;
     server.child_pid = -1;
     server.child_type = CHILD_TYPE_NONE;
     server.rdb_child_type = RDB_CHILD_TYPE_NONE;
@@ -3280,6 +3293,8 @@ int populateCommandTableParseFlags(struct redisCommand *c, char *strflags) {
             c->flags |= CMD_FAST | CMD_CATEGORY_FAST;
         } else if (!strcasecmp(flag,"no-auth")) {
             c->flags |= CMD_NO_AUTH;
+        } else if (!strcasecmp(flag,"may-replicate")) {
+            c->flags |= CMD_MAY_REPLICATE;
         } else {
             /* Parse ACL categories here if the flag name starts with @. */
             uint64_t catflag;
@@ -3439,6 +3454,10 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
     if (server.in_exec && !server.propagate_in_transaction)
         execCommandPropagateMulti(dbid);
 
+    /* This needs to be unreachable since the dataset should be fixed during 
+     * client pause, otherwise data may be lossed during a failover. */
+    serverAssert(!(areClientsPaused() && !server.client_pause_in_transaction));
+
     if (server.aof_state != AOF_OFF && flags & PROPAGATE_AOF)
         feedAppendOnlyFile(cmd,dbid,argv,argc);
     if (flags & PROPAGATE_REPL)
@@ -3477,6 +3496,7 @@ void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
  * Redis command implementation in order to to force the propagation of a
  * specific command execution into AOF / Replication. */
 void forceCommandPropagation(client *c, int flags) {
+    serverAssert(c->cmd->flags & (CMD_WRITE | CMD_MAY_REPLICATE));
     if (flags & PROPAGATE_REPL) c->flags |= CLIENT_FORCE_REPL;
     if (flags & PROPAGATE_AOF) c->flags |= CLIENT_FORCE_AOF;
 }
@@ -3701,6 +3721,12 @@ void call(client *c, int flags) {
     }
     server.also_propagate = prev_also_propagate;
 
+    /* Client pause takes effect after a transaction has finished. This needs
+     * to be located after everything is propagated. */
+    if (!server.in_exec && server.client_pause_in_transaction) {
+        server.client_pause_in_transaction = 0;
+    }
+
     /* If the client has keys tracking enabled for client side caching,
      * make sure to remember the keys it fetched via this command. */
     if (c->cmd->flags & CMD_READONLY) {
@@ -3814,6 +3840,8 @@ int processCommand(client *c) {
                                (c->cmd->proc == execCommand && (c->mstate.cmd_inv_flags & CMD_STALE));
     int is_denyloading_command = !(c->cmd->flags & CMD_LOADING) ||
                                  (c->cmd->proc == execCommand && (c->mstate.cmd_inv_flags & CMD_LOADING));
+    int is_may_replicate_command = (c->cmd->flags & (CMD_WRITE | CMD_MAY_REPLICATE)) ||
+                                   (c->cmd->proc == execCommand && (c->mstate.cmd_flags & (CMD_WRITE | CMD_MAY_REPLICATE)));
 
     /* Check if the user is authenticated. This check is skipped in case
      * the default user is flagged as "nopass" and is active. */
@@ -4010,6 +4038,17 @@ int processCommand(client *c) {
     {
         rejectCommand(c, shared.slowscripterr);
         return C_OK;
+    }
+
+    /* If the server is paused, block the client until
+     * the pause has ended. Replicas are never paused. */
+    if (!(c->flags & CLIENT_SLAVE) && 
+        ((server.client_pause_type & CLIENT_PAUSE_ALL) ||
+        (server.client_pause_type & CLIENT_PAUSE_WRITE && is_may_replicate_command)))
+    {
+        c->bpop.timeout = 0;
+        blockClient(c,BLOCKED_PAUSE);
+        return C_OK;       
     }
 
     /* Exec the command */
@@ -4266,6 +4305,7 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
         flagcount += addReplyCommandFlag(c,cmd,CMD_ASKING, "asking");
         flagcount += addReplyCommandFlag(c,cmd,CMD_FAST, "fast");
         flagcount += addReplyCommandFlag(c,cmd,CMD_NO_AUTH, "no_auth");
+        flagcount += addReplyCommandFlag(c,cmd,CMD_MAY_REPLICATE, "may_replicate");
         if (cmdHasMovableKeys(cmd)) {
             addReplyStatus(c, "movablekeys");
             flagcount += 1;

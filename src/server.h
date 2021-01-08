@@ -181,33 +181,34 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_ASKING (1ULL<<13)          /* "cluster-asking" flag */
 #define CMD_FAST (1ULL<<14)            /* "fast" flag */
 #define CMD_NO_AUTH (1ULL<<15)         /* "no-auth" flag */
+#define CMD_MAY_REPLICATE (1ULL<<16)   /* "may-replicate" flag */
 
 /* Command flags used by the module system. */
-#define CMD_MODULE_GETKEYS (1ULL<<16)  /* Use the modules getkeys interface. */
-#define CMD_MODULE_NO_CLUSTER (1ULL<<17) /* Deny on Redis Cluster. */
+#define CMD_MODULE_GETKEYS (1ULL<<17)  /* Use the modules getkeys interface. */
+#define CMD_MODULE_NO_CLUSTER (1ULL<<18) /* Deny on Redis Cluster. */
 
 /* Command flags that describe ACLs categories. */
-#define CMD_CATEGORY_KEYSPACE (1ULL<<18)
-#define CMD_CATEGORY_READ (1ULL<<19)
-#define CMD_CATEGORY_WRITE (1ULL<<20)
-#define CMD_CATEGORY_SET (1ULL<<21)
-#define CMD_CATEGORY_SORTEDSET (1ULL<<22)
-#define CMD_CATEGORY_LIST (1ULL<<23)
-#define CMD_CATEGORY_HASH (1ULL<<24)
-#define CMD_CATEGORY_STRING (1ULL<<25)
-#define CMD_CATEGORY_BITMAP (1ULL<<26)
-#define CMD_CATEGORY_HYPERLOGLOG (1ULL<<27)
-#define CMD_CATEGORY_GEO (1ULL<<28)
-#define CMD_CATEGORY_STREAM (1ULL<<29)
-#define CMD_CATEGORY_PUBSUB (1ULL<<30)
-#define CMD_CATEGORY_ADMIN (1ULL<<31)
-#define CMD_CATEGORY_FAST (1ULL<<32)
-#define CMD_CATEGORY_SLOW (1ULL<<33)
-#define CMD_CATEGORY_BLOCKING (1ULL<<34)
-#define CMD_CATEGORY_DANGEROUS (1ULL<<35)
-#define CMD_CATEGORY_CONNECTION (1ULL<<36)
-#define CMD_CATEGORY_TRANSACTION (1ULL<<37)
-#define CMD_CATEGORY_SCRIPTING (1ULL<<38)
+#define CMD_CATEGORY_KEYSPACE (1ULL<<19)
+#define CMD_CATEGORY_READ (1ULL<<20)
+#define CMD_CATEGORY_WRITE (1ULL<<21)
+#define CMD_CATEGORY_SET (1ULL<<22)
+#define CMD_CATEGORY_SORTEDSET (1ULL<<23)
+#define CMD_CATEGORY_LIST (1ULL<<24)
+#define CMD_CATEGORY_HASH (1ULL<<25)
+#define CMD_CATEGORY_STRING (1ULL<<26)
+#define CMD_CATEGORY_BITMAP (1ULL<<27)
+#define CMD_CATEGORY_HYPERLOGLOG (1ULL<<28)
+#define CMD_CATEGORY_GEO (1ULL<<29)
+#define CMD_CATEGORY_STREAM (1ULL<<30)
+#define CMD_CATEGORY_PUBSUB (1ULL<<31)
+#define CMD_CATEGORY_ADMIN (1ULL<<32)
+#define CMD_CATEGORY_FAST (1ULL<<33)
+#define CMD_CATEGORY_SLOW (1ULL<<34)
+#define CMD_CATEGORY_BLOCKING (1ULL<<35)
+#define CMD_CATEGORY_DANGEROUS (1ULL<<36)
+#define CMD_CATEGORY_CONNECTION (1ULL<<37)
+#define CMD_CATEGORY_TRANSACTION (1ULL<<38)
+#define CMD_CATEGORY_SCRIPTING (1ULL<<39)
 
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */
@@ -250,10 +251,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_PENDING_READ (1<<29) /* The client has pending reads and was put
                                        in the list of clients we can read
                                        from. */
-#define CLIENT_PENDING_COMMAND (1<<30) /* Used in threaded I/O to signal after
-                                          we return single threaded that the
-                                          client has already pending commands
-                                          to be executed. */
+#define CLIENT_PENDING_COMMAND (1<<30) /* Indicates the client has a fully
+                                        * parsed command ready for execution. */
 #define CLIENT_TRACKING (1ULL<<31) /* Client enabled keys tracking in order to
                                    perform client side caching. */
 #define CLIENT_TRACKING_BROKEN_REDIR (1ULL<<32) /* Target client is invalid. */
@@ -280,7 +279,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define BLOCKED_MODULE 3  /* Blocked by a loadable module. */
 #define BLOCKED_STREAM 4  /* XREAD. */
 #define BLOCKED_ZSET 5    /* BZPOP et al. */
-#define BLOCKED_NUM 6     /* Number of blocked states. */
+#define BLOCKED_PAUSE 6   /* Blocked by CLIENT PAUSE */
+#define BLOCKED_NUM 7     /* Number of blocked states. */
 
 /* Client request types */
 #define PROTO_REQ_INLINE 1
@@ -435,6 +435,14 @@ typedef enum {
 #define PROPAGATE_NONE 0
 #define PROPAGATE_AOF 1
 #define PROPAGATE_REPL 2
+
+/* Client pause types, larger types are more restrictive
+ * pause types than smaller pause types. */
+typedef enum {
+    CLIENT_PAUSE_OFF = 0, /* Pause no commands */
+    CLIENT_PAUSE_WRITE,   /* Pause write commands */
+    CLIENT_PAUSE_ALL      /* Pause all commands */
+} pause_type;
 
 /* RDB active child save type. */
 #define RDB_CHILD_TYPE_NONE 0
@@ -893,6 +901,7 @@ typedef struct client {
     sds peerid;             /* Cached peer ID. */
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */
+    listNode *paused_list_node; /* list node within the pause list */
     RedisModuleUserChangedFunc auth_callback; /* Module callback to execute
                                                * when the authenticated user
                                                * changes. */
@@ -1137,6 +1146,7 @@ struct redisServer {
     int in_exec;                /* Are we inside EXEC? */
     int propagate_in_transaction;  /* Make sure we don't propagate nested MULTI/EXEC */
     char *ignore_warnings;      /* Config: warnings that should be ignored. */
+    int client_pause_in_transaction; /* Was a client pause executed during this Exec? */
     /* Modules */
     dict *moduleapi;            /* Exported core APIs dictionary for modules. */
     dict *sharedapi;            /* Like moduleapi but containing the APIs that
@@ -1171,8 +1181,9 @@ struct redisServer {
     rax *clients_timeout_table; /* Radix tree for blocked clients timeouts. */
     long fixed_time_expire;     /* If > 0, expire keys against server.mstime. */
     rax *clients_index;         /* Active clients dictionary by client ID. */
-    int clients_paused;         /* True if clients are currently paused */
-    mstime_t clients_pause_end_time; /* Time when we undo clients_paused */
+    pause_type client_pause_type;      /* True if clients are currently paused */
+    list *paused_clients;       /* List of pause clients */
+    mstime_t client_pause_end_time;    /* Time when we undo clients_paused */
     char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */
     dict *migrate_cached_sockets;/* MIGRATE cached sockets */
     redisAtomic uint64_t next_client_id; /* Next client unique ID. Incremental. */
@@ -1794,8 +1805,10 @@ char *getClientTypeName(int class);
 void flushSlavesOutputBuffers(void);
 void disconnectSlaves(void);
 int listenToPort(int port, int *fds, int *count);
-void pauseClients(mstime_t duration);
-int clientsArePaused(void);
+void pauseClients(mstime_t duration, pause_type type);
+void unpauseClients(void);
+int areClientsPaused(void);
+int checkClientPauseTimeoutAndReturnIfPaused(void);
 void processEventsWhileBlocked(void);
 void loadingCron(void);
 void whileBlockedCron();
@@ -2111,6 +2124,7 @@ int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *lev
 size_t freeMemoryGetNotCountedMemory();
 int overMaxmemoryAfterAlloc(size_t moremem);
 int processCommand(client *c);
+int processPendingCommandsAndResetClient(client *c);
 void setupSignalHandlers(void);
 void removeSignalHandlers(void);
 struct redisCommand *lookupCommand(sds name);
