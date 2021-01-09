@@ -214,6 +214,13 @@ void disconnectAllBlockedClients(void) {
         client *c = listNodeValue(ln);
 
         if (c->flags & CLIENT_BLOCKED) {
+            /* PAUSED clients are an exception, when they'll be unblocked, the
+             * command processing will start from scratch, and the command will
+             * be either executed or rejected. (unlike LIST blocked clients for
+             * which the command is already in progress in a way. */
+            if (c->btype == BLOCKED_PAUSE)
+                continue;
+
             addReplyError(c,
                 "-UNBLOCKED force unblock from blocking operation, "
                 "instance state changed (master -> replica?)");
