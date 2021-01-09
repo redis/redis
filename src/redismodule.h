@@ -77,6 +77,8 @@ typedef struct RedisModuleStreamID {
 
 /* Stream API flags. */
 #define REDISMODULE_STREAM_NONE 0
+#define REDISMODULE_STREAM_AUTOID (1<<0)
+#define REDISMODULE_STREAM_NOMKSTREAM (1<<1)
 
 /* Context Flags: Info about the current context returned by
  * RM_GetContextFlags(). */
@@ -640,6 +642,7 @@ REDISMODULE_API int (*RedisModule_HashSet)(RedisModuleKey *key, int flags, ...) 
 REDISMODULE_API int (*RedisModule_HashGet)(RedisModuleKey *key, int flags, ...) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_StreamParseID)(RedisModuleString *id_str, RedisModuleStreamID *id_parsed) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_StreamFormatID)(RedisModuleCtx *ctx, RedisModuleStreamID *id) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_StreamAdd)(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisModuleString **argv, int64_t numfields) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_IsKeysPositionRequest)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_KeyAtPos)(RedisModuleCtx *ctx, int pos) REDISMODULE_ATTR;
 REDISMODULE_API unsigned long long (*RedisModule_GetClientId)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
@@ -900,6 +903,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(HashGet);
     REDISMODULE_GET_API(StreamParseID);
     REDISMODULE_GET_API(StreamFormatID);
+    REDISMODULE_GET_API(StreamAdd);
     REDISMODULE_GET_API(IsKeysPositionRequest);
     REDISMODULE_GET_API(KeyAtPos);
     REDISMODULE_GET_API(GetClientId);

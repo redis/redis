@@ -509,6 +509,9 @@ int moduleCreateEmptyKey(RedisModuleKey *key, int type) {
     case REDISMODULE_KEYTYPE_HASH:
         obj = createHashObject();
         break;
+    case REDISMODULE_KEYTYPE_STREAM:
+        obj = createStreamObject();
+        break;
     default: return REDISMODULE_ERR;
     }
     dbAdd(key->db,key->key,obj);
@@ -3085,6 +3088,69 @@ RedisModuleString *RM_StreamFormatID(RedisModuleCtx *ctx, RedisModuleStreamID *i
     RedisModuleString *o = createObjectFromStreamID(&streamid);
     if (ctx != NULL) autoMemoryAdd(ctx, REDISMODULE_AM_STRING, o);
     return o;
+}
+
+/* Adds an entry to a stream. Like XADD without trimming.
+ *
+ * - `key`: The key where the stream is (or will be) stored
+ * - `flags`: A bit field of
+ *   - `REDISMODULE_STREAM_AUTOID`: Assign a stream ID automatically, like `*`
+ *     in the XADD command.
+ *   - `REDISMODULE_STREAM_NOMKSTREAM`: Don't create the stream if it doesn't
+ *     exist.
+ * - `id`: If the `AUTOID` flag is set, this is where the assigned ID is
+ *   returned. Can be NULL if `AUTOID` is set, if you don't care to receive the
+ *   ID. If `AUTOID` is not set, this is the requested ID.
+ * - `argv`: A pointer to an array of size `numfields * 2` containing the
+ *   fields and values.
+ * - `numfields`: The number of field-value pairs in `argv`.
+ *
+ * Returns REDISMODULE_OK if an entry has been added. Returns REDISMODULE_ERR if
+ * the key is not opened for writing, if the key has a type other than stream,
+ * if the key doesn't exist in case the flag `NOMKSTREAM` is set, if unknown
+ * flags are given or when attempting to create an entry with an id which is not
+ * allowed.
+ */
+int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisModuleString **argv, long numfields) {
+    /* Validate args */
+    if (flags & ~(REDISMODULE_STREAM_AUTOID |
+                  REDISMODULE_STREAM_NOMKSTREAM))
+        return REDISMODULE_ERR; /* unknown flags */
+    if (!(key->mode & REDISMODULE_WRITE))
+        return REDISMODULE_ERR;
+    if (key->value && key->value->type != OBJ_STREAM)
+        return REDISMODULE_ERR;
+    if (key->value == NULL && (flags & REDISMODULE_STREAM_NOMKSTREAM))
+        return REDISMODULE_ERR;
+    if (!(flags & REDISMODULE_STREAM_AUTOID) &&
+        (id == NULL || (id->ms == 0 && id->seq == 0)))
+        return REDISMODULE_ERR;
+
+    /* Create key if necessery */
+    if (key->value == NULL) {
+        moduleCreateEmptyKey(key, REDISMODULE_KEYTYPE_STREAM);
+    }
+
+    stream *s = key->value->ptr;
+    streamID added_id;
+    streamID use_id;
+    streamID *use_id_ptr = NULL;
+    if (!(flags & REDISMODULE_STREAM_AUTOID)) {
+        use_id.ms = id->ms;
+        use_id.seq = id->seq;
+        use_id_ptr = &use_id;
+    }
+    if (streamAppendItem(s, argv, numfields, &added_id, use_id_ptr) == C_ERR) {
+        /* Current last ID is greater than or equal to 'use_id' */
+        return REDISMODULE_ERR;
+    }
+
+    if (id != NULL) {
+        id->ms = added_id.ms;
+        id->seq = added_id.seq;
+    }
+
+    return REDISMODULE_OK;
 }
 
 /* --------------------------------------------------------------------------
@@ -8531,6 +8597,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(HashGet);
     REGISTER_API(StreamParseID);
     REGISTER_API(StreamFormatID);
+    REGISTER_API(StreamAdd);
     REGISTER_API(IsKeysPositionRequest);
     REGISTER_API(KeyAtPos);
     REGISTER_API(GetClientId);

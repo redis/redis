@@ -123,5 +123,6 @@ robj *streamDup(robj *o);
 int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep);
 int streamParseID(robj *o, streamID *id);
 robj *createObjectFromStreamID(streamID *id);
+int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_id, streamID *use_id);
 
 #endif
