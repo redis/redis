@@ -3049,6 +3049,45 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
 }
 
 /* --------------------------------------------------------------------------
+ * Key API for the stream type.
+ * -------------------------------------------------------------------------- */
+
+/* Parses a stream ID. Returns REDISMODULE_OK and updates `id_parsed` on success
+ * and returns REDISMODULE_ERR on syntax error. The special IDs "+" and "-" are
+ * allowed.
+ *
+ * RedisModuleStreamID is a struct with two 64-bit fields, which is used in
+ * stream functions and defined as
+ *
+ *     typedef struct RedisModuleStreamID {
+ *         uint64_t ms;
+ *         uint64_t seq;
+ *     } RedisModuleStreamID;
+ */
+int RM_StreamParseID(RedisModuleString *id_str, RedisModuleStreamID *id_parsed) {
+    streamID id;
+    if (streamParseID(id_str, &id) == C_OK) {
+        id_parsed->ms = id.ms;
+        id_parsed->seq = id.seq;
+        return REDISMODULE_OK;
+    } else {
+        return REDISMODULE_ERR;
+    }
+}
+
+/* Formats a stream ID as a string. The returned string must be freed with
+ * RedisModule_FreeString(), unless automatic memory is enabled.
+ *
+ * The passed context `ctx` may be NULL if necessary. See the
+ * RedisModule_CreateString() documentation for more info. */
+RedisModuleString *RM_StreamFormatID(RedisModuleCtx *ctx, RedisModuleStreamID *id) {
+    streamID streamid = {id->ms, id->seq};
+    RedisModuleString *o = createObjectFromStreamID(&streamid);
+    if (ctx != NULL) autoMemoryAdd(ctx, REDISMODULE_AM_STRING, o);
+    return o;
+}
+
+/* --------------------------------------------------------------------------
  * Redis <-> Modules generic Call() API
  * -------------------------------------------------------------------------- */
 
@@ -8490,6 +8529,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ZsetRangeEndReached);
     REGISTER_API(HashSet);
     REGISTER_API(HashGet);
+    REGISTER_API(StreamParseID);
+    REGISTER_API(StreamFormatID);
     REGISTER_API(IsKeysPositionRequest);
     REGISTER_API(KeyAtPos);
     REGISTER_API(GetClientId);

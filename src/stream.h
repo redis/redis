@@ -121,5 +121,7 @@ int streamDecrID(streamID *id);
 void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds consumername);
 robj *streamDup(robj *o);
 int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep);
+int streamParseID(robj *o, streamID *id);
+robj *createObjectFromStreamID(streamID *id);
 
 #endif

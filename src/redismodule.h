@@ -69,6 +69,15 @@
 #define REDISMODULE_HASH_CFIELDS    (1<<2)
 #define REDISMODULE_HASH_EXISTS     (1<<3)
 
+/* StreamID type. */
+typedef struct RedisModuleStreamID {
+    uint64_t ms;
+    uint64_t seq;
+} RedisModuleStreamID;
+
+/* Stream API flags. */
+#define REDISMODULE_STREAM_NONE 0
+
 /* Context Flags: Info about the current context returned by
  * RM_GetContextFlags(). */
 
@@ -629,6 +638,8 @@ REDISMODULE_API int (*RedisModule_ZsetRangePrev)(RedisModuleKey *key) REDISMODUL
 REDISMODULE_API int (*RedisModule_ZsetRangeEndReached)(RedisModuleKey *key) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_HashSet)(RedisModuleKey *key, int flags, ...) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_HashGet)(RedisModuleKey *key, int flags, ...) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_StreamParseID)(RedisModuleString *id_str, RedisModuleStreamID *id_parsed) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleString * (*RedisModule_StreamFormatID)(RedisModuleCtx *ctx, RedisModuleStreamID *id) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_IsKeysPositionRequest)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_KeyAtPos)(RedisModuleCtx *ctx, int pos) REDISMODULE_ATTR;
 REDISMODULE_API unsigned long long (*RedisModule_GetClientId)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
@@ -887,6 +898,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ZsetRangeEndReached);
     REDISMODULE_GET_API(HashSet);
     REDISMODULE_GET_API(HashGet);
+    REDISMODULE_GET_API(StreamParseID);
+    REDISMODULE_GET_API(StreamFormatID);
     REDISMODULE_GET_API(IsKeysPositionRequest);
     REDISMODULE_GET_API(KeyAtPos);
     REDISMODULE_GET_API(GetClientId);

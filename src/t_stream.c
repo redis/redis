@@ -1661,6 +1661,11 @@ invalid:
     return C_ERR;
 }
 
+/* Wrapper for streamGenericParseIDOrReply() used by module API. */
+int streamParseID(robj *o, streamID *id) {
+    return streamGenericParseIDOrReply(NULL, o, id, 0, 0);
+}
+
 /* Wrapper for streamGenericParseIDOrReply() with 'strict' argument set to
  * 0, to be used when - and + are acceptable IDs. */
 int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq) {
