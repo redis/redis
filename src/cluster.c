@@ -47,7 +47,7 @@
 clusterNode *myself = NULL;
 
 clusterNode *createClusterNode(char *nodename, int flags);
-int clusterAddNode(clusterNode *node);
+void clusterAddNode(clusterNode *node);
 void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void clusterReadHandler(connection *conn);
 void clusterSendPing(clusterLink *link, int type);
@@ -961,12 +961,12 @@ void freeClusterNode(clusterNode *n) {
 }
 
 /* Add a node to the nodes hash table */
-int clusterAddNode(clusterNode *node) {
+void clusterAddNode(clusterNode *node) {
     int retval;
 
     retval = dictAdd(server.cluster->nodes,
             sdsnewlen(node->name,CLUSTER_NAMELEN), node);
-    return (retval == DICT_OK) ? C_OK : C_ERR;
+    serverAssert(retval == DICT_OK);
 }
 
 /* Remove a node from the cluster. The function performs the high level
