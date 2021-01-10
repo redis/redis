@@ -84,28 +84,41 @@ start_server {tags {"hash"}} {
     } {0 newval1 1 0 newval2 1 1 1}
 
     test {HSETNX target key missing - small hash} {
-        r hsetnx smallhash __123123123__ foo
+        assert_equal 1 [r hsetnx smallhash __123123123__ foo]
         r hget smallhash __123123123__
     } {foo}
 
     test {HSETNX target key exists - small hash} {
-        r hsetnx smallhash __123123123__ bar
+        assert_equal 0 [r hsetnx smallhash __123123123__ bar]
         set result [r hget smallhash __123123123__]
         r hdel smallhash __123123123__
         set _ $result
     } {foo}
 
     test {HSETNX target key missing - big hash} {
-        r hsetnx bighash __123123123__ foo
+        assert_equal 1 [r hsetnx bighash __123123123__ foo]
         r hget bighash __123123123__
     } {foo}
 
     test {HSETNX target key exists - big hash} {
-        r hsetnx bighash __123123123__ bar
+        assert_equal 0 [r hsetnx bighash __123123123__ bar]
         set result [r hget bighash __123123123__]
         r hdel bighash __123123123__
         set _ $result
     } {foo}
+
+    test {HSETNX target key missing - with multi fields} {
+        assert_equal 2 [r hsetnx mfhash foo1 bar1 foo2 bar2]
+        r hmget mfhash foo1 foo2
+    } {bar1 bar2}
+
+    test {HSETNX target key exists - with multi fields} {
+        assert_equal 0 [r hsetnx mfhash foo1 bar11 foo2 bar22]
+        assert_equal {bar1 bar2} [r hmget mfhash foo1 foo2]
+        r hdel mfhash foo1
+        assert_equal 1 [r hsetnx mfhash foo1 bar11 foo2 bar22]
+        r hmget mfhash foo1 foo2
+    } {bar11 bar2}
 
     test {HMSET wrong number of args} {
         catch {r hmset smallhash key1 val1 key2} err

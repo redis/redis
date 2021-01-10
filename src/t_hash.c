@@ -604,18 +604,29 @@ int hashZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep) {
 
 void hsetnxCommand(client *c) {
     robj *o;
-    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
-    hashTypeTryConversion(o,c->argv,2,3);
+    int i, created = 0;
 
-    if (hashTypeExists(o, c->argv[2]->ptr)) {
-        addReply(c, shared.czero);
-    } else {
-        hashTypeSet(o,c->argv[2]->ptr,c->argv[3]->ptr,HASH_SET_COPY);
-        addReply(c, shared.cone);
+    if ((c->argc % 2) == 1) {
+        addReplyErrorFormat(c,"wrong number of arguments for '%s' command",c->cmd->name);
+        return;
+    }
+
+    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
+
+    for (i = 2; i < c->argc; i += 2) {
+        if (!hashTypeExists(o,c->argv[i]->ptr)) {
+            hashTypeTryConversion(o,c->argv,i,i+1);
+            hashTypeSet(o,c->argv[i]->ptr,c->argv[i+1]->ptr,HASH_SET_COPY);
+            created++;
+        }
+    }
+
+    if (created > 0) {
         signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
-        server.dirty++;
+        server.dirty += created;
     }
+    addReplyLongLong(c, created);
 }
 
 void hsetCommand(client *c) {
