@@ -1126,6 +1126,35 @@ int sentinelTryConnectionSharing(sentinelRedisInstance *ri) {
     return C_ERR;
 }
 
+/* Drop all connections to other sentinels. Returns then number of connections
+ * dropped.*/
+int sentinelDropConnections(void) {
+    dictIterator *di;
+    dictEntry *de;
+    int dropped = 0;
+
+    di = dictGetIterator(sentinel.masters);
+    while ((de = dictNext(di)) != NULL) {
+        dictIterator *sdi;
+        dictEntry *sde;
+
+        sentinelRedisInstance *ri = dictGetVal(de);
+        sdi = dictGetIterator(ri->sentinels);
+        while ((sde = dictNext(sdi)) != NULL) {
+            sentinelRedisInstance *si = dictGetVal(sde);
+            if (!si->link->disconnected) {
+                instanceLinkCloseConnection(si->link, si->link->pc);
+                instanceLinkCloseConnection(si->link, si->link->cc);
+                dropped++;
+            }
+        }
+        dictReleaseIterator(sdi);
+    }
+    dictReleaseIterator(di);
+
+    return dropped;
+}
+
 /* When we detect a Sentinel to switch address (reporting a different IP/port
  * pair in Hello messages), let's update all the matching Sentinels in the
  * context of other masters as well and disconnect the links, so that everybody
@@ -2898,6 +2927,7 @@ void sentinelConfigSetCommand(client *c) {
     robj *o = c->argv[3];
     robj *val = c->argv[4];
     long long numval;
+    int drop_conns = 0;
 
     if (!strcasecmp(o->ptr, "resolve-hostnames")) {
         if ((numval = yesnotoi(val->ptr)) == -1) goto badfmt;
@@ -2916,9 +2946,11 @@ void sentinelConfigSetCommand(client *c) {
     } else if (!strcasecmp(o->ptr, "sentinel-user")) {
         sdsfree(sentinel.sentinel_auth_user);
         sentinel.sentinel_auth_user = sdsnew(val->ptr);
+        drop_conns = 1;
     } else if (!strcasecmp(o->ptr, "sentinel-pass")) {
         sdsfree(sentinel.sentinel_auth_pass);
         sentinel.sentinel_auth_pass = sdsnew(val->ptr);
+        drop_conns = 1;
     } else {
         addReplyErrorFormat(c, "Invalid argument '%s' to SENTINEL CONFIG SET",
                             (char *) o->ptr);
@@ -2927,6 +2959,11 @@ void sentinelConfigSetCommand(client *c) {
 
     sentinelFlushConfig();
     addReply(c, shared.ok);
+
+    /* Drop Sentinel connections to initiate a reconnect if needed. */
+    if (drop_conns)
+        sentinelDropConnections();
+
     return;
 
 badfmt:
