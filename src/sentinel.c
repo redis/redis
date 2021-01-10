@@ -1580,8 +1580,7 @@ int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *hos
 
         if (sentinelAddrIsEqual(slave->addr,newaddr)) continue;
         slaves = zrealloc(slaves,sizeof(sentinelAddr*)*(numslaves+1));
-        slaves[numslaves++] = createSentinelAddr(slave->addr->hostname,
-                                                 slave->addr->port);
+        slaves[numslaves++] = dupSentinelAddr(slave->addr);
     }
     dictReleaseIterator(di);
 
@@ -1590,8 +1589,7 @@ int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *hos
      * the old master. */
     if (!sentinelAddrIsEqual(newaddr,master->addr)) {
         slaves = zrealloc(slaves,sizeof(sentinelAddr*)*(numslaves+1));
-        slaves[numslaves++] = createSentinelAddr(master->addr->hostname,
-                                                 master->addr->port);
+        slaves[numslaves++] = dupSentinelAddr(master->addr);
     }
 
     /* Reset and switch address. */
@@ -2101,7 +2099,7 @@ void sentinelSendAuthIfNeeded(sentinelRedisInstance *ri, redisAsyncContext *c) {
         auth_user = ri->master->auth_user;
     } else if (ri->flags & SRI_SENTINEL) {
         /* If sentinel_auth_user is NULL, AUTH will use default user
-           with sentinel_auth_pass to autenticate */
+           with sentinel_auth_pass to authenticate */
         if (sentinel.sentinel_auth_pass) {
             auth_pass = sentinel.sentinel_auth_pass;
             auth_user = sentinel.sentinel_auth_user;
@@ -4230,51 +4228,51 @@ int sentinelSendSlaveOf(sentinelRedisInstance *ri, const sentinelAddr *addr) {
     }
 
     /* In order to send SLAVEOF in a safe way, we send a transaction performing
-    * the following tasks:
-    * 1) Reconfigure the instance according to the specified host/port params.
-    * 2) Rewrite the configuration.
-    * 3) Disconnect all clients (but this one sending the command) in order
-    *    to trigger the ask-master-on-reconnection protocol for connected
-    *    clients.
-    *
-    * Note that we don't check the replies returned by commands, since we
-    * will observe instead the effects in the next INFO output. */
+     * the following tasks:
+     * 1) Reconfigure the instance according to the specified host/port params.
+     * 2) Rewrite the configuration.
+     * 3) Disconnect all clients (but this one sending the command) in order
+     *    to trigger the ask-master-on-reconnection protocol for connected
+     *    clients.
+     *
+     * Note that we don't check the replies returned by commands, since we
+     * will observe instead the effects in the next INFO output. */
     retval = redisAsyncCommand(ri->link->cc,
-                               sentinelDiscardReplyCallback, ri, "%s",
-                               sentinelInstanceMapCommand(ri,"MULTI"));
+        sentinelDiscardReplyCallback, ri, "%s",
+        sentinelInstanceMapCommand(ri,"MULTI"));
     if (retval == C_ERR) return retval;
     ri->link->pending_commands++;
 
     retval = redisAsyncCommand(ri->link->cc,
-                               sentinelDiscardReplyCallback, ri, "%s %s %s",
-                               sentinelInstanceMapCommand(ri,"SLAVEOF"),
-                               host, portstr);
+        sentinelDiscardReplyCallback, ri, "%s %s %s",
+        sentinelInstanceMapCommand(ri,"SLAVEOF"),
+        host, portstr);
     if (retval == C_ERR) return retval;
     ri->link->pending_commands++;
 
     retval = redisAsyncCommand(ri->link->cc,
-                               sentinelDiscardReplyCallback, ri, "%s REWRITE",
-                               sentinelInstanceMapCommand(ri,"CONFIG"));
+        sentinelDiscardReplyCallback, ri, "%s REWRITE",
+        sentinelInstanceMapCommand(ri,"CONFIG"));
     if (retval == C_ERR) return retval;
     ri->link->pending_commands++;
 
     /* CLIENT KILL TYPE <type> is only supported starting from Redis 2.8.12,
-    * however sending it to an instance not understanding this command is not
-    * an issue because CLIENT is variadic command, so Redis will not
-    * recognized as a syntax error, and the transaction will not fail (but
-    * only the unsupported command will fail). */
+     * however sending it to an instance not understanding this command is not
+     * an issue because CLIENT is variadic command, so Redis will not
+     * recognized as a syntax error, and the transaction will not fail (but
+     * only the unsupported command will fail). */
     for (int type = 0; type < 2; type++) {
         retval = redisAsyncCommand(ri->link->cc,
-                                   sentinelDiscardReplyCallback, ri, "%s KILL TYPE %s",
-                                   sentinelInstanceMapCommand(ri,"CLIENT"),
-                                   type == 0 ? "normal" : "pubsub");
+            sentinelDiscardReplyCallback, ri, "%s KILL TYPE %s",
+            sentinelInstanceMapCommand(ri,"CLIENT"),
+            type == 0 ? "normal" : "pubsub");
         if (retval == C_ERR) return retval;
         ri->link->pending_commands++;
     }
 
     retval = redisAsyncCommand(ri->link->cc,
-                               sentinelDiscardReplyCallback, ri, "%s",
-                               sentinelInstanceMapCommand(ri,"EXEC"));
+        sentinelDiscardReplyCallback, ri, "%s",
+        sentinelInstanceMapCommand(ri,"EXEC"));
     if (retval == C_ERR) return retval;
     ri->link->pending_commands++;
 
