@@ -12,6 +12,78 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 6.0.10     Released Tue Jan 12 16:20:20 IST 2021
+================================================================================
+
+Upgrade urgency MODERATE: several bugs with moderate impact are fixed,
+Here is a comprehensive list of changes in this release compared to 6.0.9.
+
+Command behavior changes:
+* SWAPDB invalidates WATCHed keys (#8239)
+* SORT command behaves differently when used on a writable replica (#8283)
+* EXISTS should not alter LRU (#8016)
+  In Redis 5.0 and 6.0 it would have touched the LRU/LFU of the key.
+* OBJECT should not reveal logically expired keys (#8016)
+  Will now behave the same TYPE or any other non-DEBUG command.
+* GEORADIUS[BYMEMBER] can fail with -OOM if Redis is over the memory limit (#8107)
+
+Other behavior changes:
+* Sentinel: Fix missing updates to the config file after SENTINEL SET command (#8229)
+* CONFIG REWRITE is atomic and safer, but requires write access to the config file's folder (#7824, #8051)
+  This change was already present in 6.0.9, but was missing from the release notes.
+
+Bug fixes with compatibility implications (bugs introduced in Redis 6.0):
+* Fix RDB CRC64 checksum on big-endian systems (#8270)
+  If you're using big-endian please consider the compatibility implications with
+  RESTORE, replication and persistence.
+* Fix wrong order of key/value in Lua's map response (#8266)
+  If your scripts use redis.setresp() or return a map (new in Redis 6.0), please
+  consider the implications.
+
+Bug fixes:
+* Fix an issue where a forked process deletes the parent's pidfile (#8231)
+* Fix crashes when enabling io-threads-do-reads (#8230)
+* Fix a crash in redis-cli after executing cluster backup (#8267)
+* Handle output buffer limits for module blocked clients (#8141)
+  Could result in a module sending reply to a blocked client to go beyond the limit.
+* Fix setproctitle related crashes. (#8150, #8088)
+  Caused various crashes on startup, mainly on Apple M1 chips or under instrumentation.
+* Backup/restore cluster mode keys to slots map for repl-diskless-load=swapdb (#8108)
+  In cluster mode with repl-diskless-load, when loading failed, slot map wouldn't
+  have been restored.
+* Fix oom-score-adj-values range, and bug when used in config file (#8046)
+  Enabling setting this in the config file in a line after enabling it, would
+  have been buggy.
+* Reset average ttl when empty databases (#8106)
+  Just causing misleading metric in INFO
+* Disable rehash when Redis has child process (#8007)
+  This could have caused excessive CoW during BGSAVE, replication or AOFRW.
+* Further improved ACL algorithm for picking categories (#7966)
+  Output of ACL GETUSER is now more similar to the one provided by ACL SETUSER.
+* Fix bug with module GIL being released prematurely (#8061)
+  Could in theory (and rarely) cause multi-threaded modules to corrupt memory.
+* Reduce effect of client tracking causing feedback loop in key eviction (#8100)
+* Fix cluster access to unaligned memory (SIGBUS on old ARM) (#7958)
+* Fix saving of strings larger than 2GB into RDB files (#8306)
+
+Additional improvements:
+* Avoid wasteful transient memory allocation in certain cases (#8286, #5954)
+
+Platform / toolchain support related improvements:
+* Fix crash log registers output on ARM. (#8020)
+* Add a check for an ARM64 Linux kernel bug (#8224)
+  Due to the potential severity of this issue, Redis will print log warning on startup.
+* Raspberry build fix. (#8095)
+
+New configuration options:
+* oom-score-adj-values config can now take absolute values (besides relative ones) (#8046)
+
+Module related fixes:
+* Moved RMAPI_FUNC_SUPPORTED so that it's usable (#8037)
+* Improve timer accuracy (#7987)
+* Allow '\0' inside of result of RM_CreateStringPrintf (#6260)
+
+================================================================================
 Redis 6.0.9     Released Mon Oct 26 10:37:47 IST 2020
 ================================================================================
 
