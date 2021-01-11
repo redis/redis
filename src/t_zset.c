@@ -3004,7 +3004,8 @@ void genericZrangebyrankCommand(zrange_result_handler *handler,
             serverAssertWithInfo(c,zobj,eptr != NULL && sptr != NULL);
             serverAssertWithInfo(c,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
 
-            if (handler->withscores || handler->store) /* don't bother to extract the score if it's gonna be ignored. */
+            /* don't bother to extract the score if it's gonna be ignored. */
+            if (handler->withscores || handler->store)
                 score = zzlGetScore(sptr);
 
             if (vstr == NULL) {
@@ -3400,7 +3401,8 @@ void genericZrangebylexCommand(zrange_result_handler *handler,
 
         while (eptr && limit--) {
             double score = 0;
-            if (handler->withscores || handler->store) /* don't bother to extract the score if it's gonna be ignored. */
+            /* don't bother to extract the score if it's gonna be ignored. */
+            if (handler->withscores || handler->store)
                 score = zzlGetScore(sptr);
 
             /* Abort when the node is no longer in range. */
