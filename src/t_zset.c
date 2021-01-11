@@ -2810,7 +2810,7 @@ typedef void (*zrangeResultEmitCBufferFunction)(
 typedef void (*zrangeResultEmitLongLongFunction)(
     zrange_result_handler *c, long long ll, double score);
 
-void zrangeGenericCommand (zrange_result_handler *handler, int argc_start,
+void zrangeGenericCommand(zrange_result_handler *handler, int argc_start,
                            zrange_type rangetype, zrange_direction direction);
 
 /* Interface struct for ZRANGE/ZRANGESTORE generic implementation.
