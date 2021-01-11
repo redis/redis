@@ -54,6 +54,7 @@ int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
                              ziplistValidateEntryCB entry_cb, void *cb_userdata);
 void ziplistRandom(unsigned char *zl,  unsigned char **key, unsigned int *klen, long long *klval,
                    unsigned char **value, unsigned int *vallen, long long *vlval);
+void ziplistRandomCount(unsigned char *zl, int count, char **kvs);
 
 #ifdef REDIS_TEST
 int ziplistTest(int argc, char *argv[]);

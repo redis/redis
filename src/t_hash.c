@@ -598,6 +598,8 @@ int hashZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep) {
     return ret;
 }
 
+/* Return random element from a non empty hash.
+ * sdskey and sdsvalue need to be called free.*/
 void hashTypeRandomElement(robj *hashobj, sds *sdskey, sds *sdsvalue) {
     if (hashobj->encoding == OBJ_ENCODING_HT) {
         dictEntry *de = dictGetFairRandomKey(hashobj->ptr);
@@ -943,7 +945,7 @@ void hscanCommand(client *c) {
     scanGenericCommand(c,o,cursor);
 }
 
-/* How many times bigger should be the set compared to the requested size
+/* How many times bigger should be the hash compared to the requested size
  * for us to don't use the "remove elements" strategy? Read later in the
  * implementation for more info. */
 #define HRANDMEMBER_SUB_STRATEGY_MUL 3
@@ -966,7 +968,6 @@ void hrandmemberWithCountCommand(client *c, long l) {
         uniq = 0;
     }
 
-    /* If entryCount is zero, serve it ASAP to avoid special cases later. */
     if (count == 0) {
         addReply(c,shared.emptyset[c->resp]);
         return;
@@ -978,20 +979,32 @@ void hrandmemberWithCountCommand(client *c, long l) {
      * structures. */
     if (!uniq) {
         addReplyMapLen(c, count);
-        sds key, value;
-        while(count--) {
-            hashTypeRandomElement(hash, &key, &value);
-            addReplyBulkCBuffer(c, key, sdslen(key));
-            addReplyBulkCBuffer(c, value, sdslen(value));
-            sdsfree(key);
-            sdsfree(value);
+        if (hash->encoding == OBJ_ENCODING_HT) {
+            sds key, value;
+            while (count--) {
+                dictEntry *de = dictGetRandomKey(hash->ptr);
+                key = dictGetKey(de);
+                value = dictGetVal(de);
+                addReplyBulkCBuffer(c, key, sdslen(key));
+                addReplyBulkCBuffer(c, value, sdslen(value));
+            }
+        } else if (hash->encoding == OBJ_ENCODING_ZIPLIST) {
+            char **kvs = zmalloc(sizeof(char *)*count*2);
+
+            ziplistRandomCount(hash->ptr, count, kvs);
+            for (unsigned long i = 0; i < count*2; i+=2) {
+                addReplyBulkCBuffer(c, kvs[i], strlen(kvs[i]));
+                addReplyBulkCBuffer(c, kvs[i+1], strlen(kvs[i+1]));
+            }
+            for (unsigned long i = 0; i < count*2; ++i) zfree(kvs[i]);
+            zfree(kvs);
         }
         return;
     }
 
     /* CASE 2:
     * The number of requested elements is greater than the number of
-    * elements inside the set: simply return the whole set. */
+    * elements inside the hash: simply return the whole hash. */
     if(count >= size) {
         addReplyMapLen(c, size);
         hi = hashTypeInitIterator(hash);
@@ -1008,13 +1021,13 @@ void hrandmemberWithCountCommand(client *c, long l) {
     addReplyMapLen(c, count);
 
     /* CASE 3:
-     * The number of elements inside the set is not greater than
+     * The number of elements inside the hash is not greater than
      * HRANDMEMBER_SUB_STRATEGY_MUL times the number of requested elements.
-     * In this case we create a set from scratch with all the elements, and
+     * In this case we create a hash from scratch with all the elements, and
      * subtract random elements to reach the requested number of elements.
      *
      * This is done because if the number of requested elements is just
-     * a bit less than the number of elements in the set, the natural approach
+     * a bit less than the number of elements in the hash, the natural approach
      * used into CASE 4 is highly inefficient. */
     if(count*HRANDMEMBER_SUB_STRATEGY_MUL > size) {
         /* Add all the elements into the temporary dictionary. */
@@ -1040,9 +1053,9 @@ void hrandmemberWithCountCommand(client *c, long l) {
         }
     }
 
-    /* CASE 4: We have a big set compared to the requested number of elements.
-     * In this case we can simply get random elements from the set and add
-     * to the temporary set, trying to eventually get enough unique elements
+    /* CASE 4: We have a big hash compared to the requested number of elements.
+     * In this case we can simply get random elements from the hash and add
+     * to the temporary hash, trying to eventually get enough unique elements
      * to reach the specified count. */
     else {
         unsigned long added = 0;
@@ -1056,6 +1069,9 @@ void hrandmemberWithCountCommand(client *c, long l) {
             * in the result dictionary. */
             if (dictAdd(d,key,value) == DICT_OK){
                 added++;
+            } else {
+                sdsfree(key);
+                sdsfree(value);
             }
         }
     }

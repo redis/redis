@@ -1653,6 +1653,8 @@ int zsetZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep) {
     return ret;
 }
 
+/* Return random element from a non empty zset.
+ * sdskey need to be called free.*/
 void zsetTypeRandomElement(robj *zsetobj, sds *sdskey, double *score) {
     if (zsetobj->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = zsetobj->ptr;
@@ -3923,7 +3925,7 @@ void bzpopmaxCommand(client *c) {
     blockingGenericZpopCommand(c,ZSET_MAX);
 }
 
-/* How many times bigger should be the set compared to the requested size
+/* How many times bigger should be the zset compared to the requested size
  * for us to don't use the "remove elements" strategy? Read later in the
  * implementation for more info. */
 #define ZRANDMEMBER_SUB_STRATEGY_MUL 3
@@ -3931,15 +3933,15 @@ void bzpopmaxCommand(client *c) {
 void zrandmemberWithCountCommand(client *c, long l) {
     unsigned long count, size;
     int uniq = 1;
-    robj *zset;
+    robj *zsetobj;
     dict *d;
     double score;
     sds key, sdsscore;
     char buf[128];
 
-    if ((zset = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))
-        == NULL || checkType(c,zset,OBJ_ZSET)) return;
-    size = zsetLength(zset);
+    if ((zsetobj = lookupKeyReadOrReply(c, c->argv[1], shared.null[c->resp]))
+        == NULL || checkType(c, zsetobj, OBJ_ZSET)) return;
+    size = zsetLength(zsetobj);
 
     if(l >= 0) {
         count = (unsigned long) l;
@@ -3948,7 +3950,6 @@ void zrandmemberWithCountCommand(client *c, long l) {
         uniq = 0;
     }
 
-    /* If entryCount is zero, serve it ASAP to avoid special cases later. */
     if (count == 0) {
         addReply(c,shared.emptyset[c->resp]);
         return;
@@ -3960,26 +3961,39 @@ void zrandmemberWithCountCommand(client *c, long l) {
      * structures. */
     if (!uniq) {
         addReplyMapLen(c, count);
-        while(count--) {
-            zsetTypeRandomElement(zset, &key, &score);
-            addReplyBulkCBuffer(c, key, sdslen(key));
-            addReplyDouble(c, score);
-            sdsfree(key);
+        if (zsetobj->encoding == OBJ_ENCODING_SKIPLIST) {
+            zset *zs = zsetobj->ptr;
+            while (count--) {
+                dictEntry *de = dictGetFairRandomKey(zs->dict);
+                key = dictGetKey(de);
+                score = *(double*)dictGetVal(de);
+                addReplyBulkCBuffer(c, key, sdslen(key));
+                addReplyDouble(c, score);
+            }
+        } else if (zsetobj->encoding == OBJ_ENCODING_ZIPLIST) {
+            char **kvs = zmalloc(sizeof(char *)*count*2);
+
+            ziplistRandomCount(zsetobj->ptr, count, kvs);
+            for (unsigned long i = 0; i < count*2; i+=2) {
+                addReplyBulkCBuffer(c, kvs[i], strlen(kvs[i]));
+                addReplyBulkCBuffer(c, kvs[i+1], strlen(kvs[i+1]));
+            }
+            for (unsigned long i = 0; i < count*2; ++i) zfree(kvs[i]);
+            zfree(kvs);
         }
         return;
     }
 
     zsetopsrc src;
     zsetopval zval;
-    memset(&zval, 0, sizeof(zval));
-    src.subject = zset;
-    src.type = zset->type;
-    src.encoding = zset->encoding;
+    src.subject = zsetobj;
+    src.type = zsetobj->type;
+    src.encoding = zsetobj->encoding;
     zuiInitIterator(&src);
 
     /* CASE 2:
     * The number of requested elements is greater than the number of
-    * elements inside the set: simply return the whole set. */
+    * elements inside the zset: simply return the whole zset. */
     if (count >= size) {
         addReplyMapLen(c, size);
         while (zuiNext(&src, &zval)) {
@@ -3995,9 +4009,9 @@ void zrandmemberWithCountCommand(client *c, long l) {
     addReplyMapLen(c, count);
 
     /* CASE 3:
-     * The number of elements inside the set is not greater than
-     * HRANDMEMBER_SUB_STRATEGY_MUL times the number of requested elements.
-     * In this case we create a set from scratch with all the elements, and
+     * The number of elements inside the zset is not greater than
+     * ZRANDMEMBER_SUB_STRATEGY_MUL times the number of requested elements.
+     * In this case we create a dict from scratch with all the elements, and
      * subtract random elements to reach the requested number of elements.
      *
      * This is done because if the number of requested elements is just
@@ -4026,15 +4040,15 @@ void zrandmemberWithCountCommand(client *c, long l) {
         }
     }
 
-    /* CASE 4: We have a big set compared to the requested number of elements.
-     * In this case we can simply get random elements from the set and add
+    /* CASE 4: We have a big zset compared to the requested number of elements.
+     * In this case we can simply get random elements from the zset and add
      * to the temporary set, trying to eventually get enough unique elements
      * to reach the specified count. */
     else {
         unsigned long added = 0;
 
         while(added < count) {
-            zsetTypeRandomElement(zset, &key, &score);
+            zsetTypeRandomElement(zsetobj, &key, &score);
             size_t len = d2string(buf, sizeof(buf), score);
             sdsscore = sdsnewlen(buf, len);
 
@@ -4043,6 +4057,8 @@ void zrandmemberWithCountCommand(client *c, long l) {
             * in the result dictionary. */
             if (dictAdd(d,key,sdsscore) == DICT_OK){
                 added++;
+            } else {
+                sdsfree(key);
             }
         }
     }
