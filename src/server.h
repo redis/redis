@@ -441,6 +441,7 @@ typedef enum {
 typedef enum {
     CLIENT_PAUSE_OFF = 0, /* Pause no commands */
     CLIENT_PAUSE_WRITE,   /* Pause write commands */
+    CLIENT_PAUSE_DEBUG,   /* Pause all commands except for debug commands */
     CLIENT_PAUSE_ALL      /* Pause all commands */
 } pause_type;
 

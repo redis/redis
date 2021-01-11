@@ -33,23 +33,25 @@ start_server {} {
     }
 
     test {WAIT should not acknowledge 1 additional copy if slave is blocked} {
-        set cmd [rediscli $slave_host $slave_port "debug sleep 5"]
-        exec {*}$cmd > /dev/null 2> /dev/null &
-        after 1000 ;# Give redis-cli the time to execute the command.
+        $slave debug pause
         $master set foo 0
         $master incr foo
         $master incr foo
         $master incr foo
-        assert {[$master wait 1 3000] == 0}
+        assert {[$master wait 1 1000] == 0}
+        $slave debug unpause
+        assert {[$master wait 1 1000] == 1}
     }
 
     test {WAIT implicitly blocks on client pause since ACKs aren't sent} {
+        $slave debug pause
         $master multi
         $master incr foo
         $master client pause 10000 write
         $master exec
         assert {[$master wait 1 1000] == 0}
         $master client unpause
+        $slave debug unpause
         assert {[$master wait 1 1000] == 1}
     }
 }}
