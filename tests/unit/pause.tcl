@@ -1,4 +1,4 @@
-start_server {tags {"pause"}} {
+start_server {tags {"pause network"}} {
     test "Test read commands are not blocked by client pause" {
         r client PAUSE 100000000 WRITE
         set rd [redis_deferring_client]
