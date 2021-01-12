@@ -713,7 +713,9 @@ void syncCommand(client *c) {
     if (c->flags & CLIENT_SLAVE) return;
 
     /* Check if this is a failover request to a replica with the same replid and
-     * become a master if so */
+     * become a master if so. Use cached_master since if this is a failover
+     * request then the master will have disconnected from us and server.master
+     * will be NULL. */
     if (server.masterhost && server.cached_master && (c->argc > 3) &&
             !strcasecmp(c->argv[0]->ptr,"psync") &&
             !strcasecmp(c->argv[3]->ptr, "failover") &&
