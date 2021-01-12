@@ -1455,6 +1455,11 @@ sentinelRedisInstance *getSentinelRedisInstanceByAddrAndRunID(dict *instances, c
     sentinelAddr *ri_addr = NULL;
 
     serverAssert(addr || runid);   /* User must pass at least one search param. */
+    if (addr != NULL) {
+        /* Resolve addr, we use the IP as a key even if a hostname is used */
+        ri_addr = createSentinelAddr(addr, port);
+        if (!ri_addr) return NULL;
+    }
     di = dictGetIterator(instances);
     if (addr != NULL) {
         /* Resolve addr, we use the IP as a key even if a hostname is used */
@@ -4874,4 +4879,3 @@ void sentinelTimer(void) {
      * election because of split brain voting). */
     server.hz = CONFIG_DEFAULT_HZ + rand() % CONFIG_DEFAULT_HZ;
 }
-
