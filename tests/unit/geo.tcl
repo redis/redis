@@ -74,6 +74,49 @@ start_server {tags {"geo"}} {
         r geoadd nyc -73.9454966 40.747533 "lic market"
     } {0}
 
+    test {GEOADD update with CH option} {
+        assert_equal 1 [r geoadd nyc CH 40.747533 -73.9454966 "lic market"]
+        lassign [lindex [r geopos nyc "lic market"] 0] x1 y1
+        assert {abs($x1) - 40.747 < 0.001}
+        assert {abs($y1) - 73.945 < 0.001}
+    } {}
+
+    test {GEOADD update with NX option} {
+        assert_equal 0 [r geoadd nyc NX -73.9454966 40.747533 "lic market"]
+        lassign [lindex [r geopos nyc "lic market"] 0] x1 y1
+        assert {abs($x1) - 40.747 < 0.001}
+        assert {abs($y1) - 73.945 < 0.001}
+    } {}
+
+    test {GEOADD update with XX option} {
+        assert_equal 0 [r geoadd nyc XX -83.9454966 40.747533 "lic market"]
+        lassign [lindex [r geopos nyc "lic market"] 0] x1 y1
+        assert {abs($x1) - 83.945 < 0.001}
+        assert {abs($y1) - 40.747 < 0.001}
+    } {}
+
+    test {GEOADD update with CH NX option} {
+        r geoadd nyc CH NX -73.9454966 40.747533 "lic market"
+    } {0}
+
+    test {GEOADD update with CH XX option} {
+        r geoadd nyc CH XX -73.9454966 40.747533 "lic market"
+    } {1}
+
+    test {GEOADD update with XX NX option will return syntax error} {
+        catch {
+            r geoadd nyc xx nx -73.9454966 40.747533 "lic market"
+        } err
+        set err
+    } {ERR*syntax*}
+
+    test {GEOADD update with invalid option} {
+        catch {
+            r geoadd nyc ch xx foo -73.9454966 40.747533 "lic market"
+        } err
+        set err
+    } {ERR*syntax*}
+
     test {GEOADD invalid coordinates} {
         catch {
             r geoadd nyc -73.9454966 40.747533 "lic market" \
@@ -134,6 +177,19 @@ start_server {tags {"geo"}} {
     test {GEORADIUS with COUNT} {
         r georadius nyc -73.9798091 40.7598464 10 km COUNT 3
     } {{central park n/q/r} 4545 {union square}}
+
+    test {GEORADIUS with ANY not sorted by default} {
+        r georadius nyc -73.9798091 40.7598464 10 km COUNT 3 ANY
+    } {{wtc one} {union square} {central park n/q/r}}
+
+    test {GEORADIUS with ANY sorted by ASC} {
+        r georadius nyc -73.9798091 40.7598464 10 km COUNT 3 ANY ASC
+    } {{central park n/q/r} {union square} {wtc one}}
+
+    test {GEORADIUS with ANY but no COUNT} {
+        catch {r georadius nyc -73.9798091 40.7598464 10 km ANY ASC} e
+        set e
+    } {ERR*ANY*requires*COUNT*}
 
     test {GEORADIUS with COUNT but missing integer argument} {
         catch {r georadius nyc -73.9798091 40.7598464 10 km COUNT} e

@@ -364,7 +364,7 @@ int TestAssertIntegerReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply, lon
     do { \
         RedisModule_Log(ctx,"warning","Testing %s", name); \
         reply = RedisModule_Call(ctx,name,__VA_ARGS__); \
-    } while (0);
+    } while (0)
 
 /* TEST.IT -- Run all the tests. */
 int TestIt(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

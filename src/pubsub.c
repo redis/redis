@@ -455,9 +455,13 @@ void publishCommand(client *c) {
 void pubsubCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-"CHANNELS [<pattern>] -- Return the currently active channels matching a pattern (default: all).",
-"NUMPAT -- Return number of subscriptions to patterns.",
-"NUMSUB [channel-1 .. channel-N] -- Returns the number of subscribers for the specified channels (excluding patterns, default: none).",
+"CHANNELS [<pattern>]",
+"    Return the currently active channels matching a <pattern> (default: '*').",
+"NUMPAT",
+"    Return number of subscriptions to patterns.",
+"NUMSUB [<channel> ...]",
+"    Return the number of subscribers for the specified channels, excluding",
+"    pattern subscriptions(default: no channels).",
 NULL
         };
         addReplyHelp(c, help);

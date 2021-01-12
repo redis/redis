@@ -42,4 +42,14 @@ start_server {} {
         $master incr foo
         assert {[$master wait 1 3000] == 0}
     }
+
+    test {WAIT implicitly blocks on client pause since ACKs aren't sent} {
+        $master multi
+        $master incr foo
+        $master client pause 10000 write
+        $master exec
+        assert {[$master wait 1 1000] == 0}
+        $master client unpause
+        assert {[$master wait 1 1000] == 1}
+    }
 }}

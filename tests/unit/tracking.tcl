@@ -132,7 +132,24 @@ start_server {tags {"tracking"}} {
 
     test {HELLO 3 reply is correct} {
         set reply [r HELLO 3]
-        assert {[lindex $reply 2] eq {proto 3}}
+        assert_equal [dict get $reply proto] 3
+    }
+
+    test {HELLO without protover} {
+        set reply [r HELLO 3]
+        assert_equal [dict get $reply proto] 3
+
+        set reply [r HELLO]
+        assert_equal [dict get $reply proto] 3
+
+        set reply [r HELLO 2]
+        assert_equal [dict get $reply proto] 2
+
+        set reply [r HELLO]
+        assert_equal [dict get $reply proto] 2
+
+        # restore RESP3 for next test
+        r HELLO 3
     }
 
     test {RESP3 based basic invalidation} {
@@ -306,7 +323,25 @@ start_server {tags {"tracking"}} {
         set ping_reply [$rd read]
         assert {$inv_msg eq {invalidate key1}}
         assert {$ping_reply eq {PONG}}
-    } 
+    }
+
+    test {BCAST with prefix collisions throw errors} {
+        set r [redis_client] 
+        catch {$r CLIENT TRACKING ON BCAST PREFIX FOOBAR PREFIX FOO} output
+        assert_match {ERR Prefix 'FOOBAR'*'FOO'*} $output
+
+        catch {$r CLIENT TRACKING ON BCAST PREFIX FOO PREFIX FOOBAR} output
+        assert_match {ERR Prefix 'FOO'*'FOOBAR'*} $output
+
+        $r CLIENT TRACKING ON BCAST PREFIX FOO PREFIX BAR
+        catch {$r CLIENT TRACKING ON BCAST PREFIX FO} output
+        assert_match {ERR Prefix 'FO'*'FOO'*} $output
+
+        catch {$r CLIENT TRACKING ON BCAST PREFIX BARB} output
+        assert_match {ERR Prefix 'BARB'*'BAR'*} $output
+
+        $r CLIENT TRACKING OFF
+    }
 
     test {Tracking gets notification on tracking table key eviction} {
         $rd_redirection HELLO 2
@@ -396,6 +431,85 @@ start_server {tags {"tracking"}} {
         assert {$total_items == 2}
         assert {$total_keys == 2}
         assert {$total_prefixes == 1}
+    }
+
+    test {CLIENT TRACKINGINFO provides reasonable results when tracking off} {
+        r CLIENT TRACKING off
+        set res [r client trackinginfo]
+        set flags [dict get $res flags]
+        assert_equal {off} $flags
+        set redirect [dict get $res redirect]
+        assert_equal {-1} $redirect
+        set prefixes [dict get $res prefixes]
+        assert_equal {} $prefixes
+    }
+
+    test {CLIENT TRACKINGINFO provides reasonable results when tracking on} {
+        r CLIENT TRACKING on
+        set res [r client trackinginfo]
+        set flags [dict get $res flags]
+        assert_equal {on} $flags
+        set redirect [dict get $res redirect]
+        assert_equal {0} $redirect
+        set prefixes [dict get $res prefixes]
+        assert_equal {} $prefixes
+    }
+
+    test {CLIENT TRACKINGINFO provides reasonable results when tracking on with options} {
+        r CLIENT TRACKING on REDIRECT $redir_id noloop
+        set res [r client trackinginfo]
+        set flags [dict get $res flags]
+        assert_equal {on noloop} $flags
+        set redirect [dict get $res redirect]
+        assert_equal $redir_id $redirect
+        set prefixes [dict get $res prefixes]
+        assert_equal {} $prefixes
+    }
+
+    test {CLIENT TRACKINGINFO provides reasonable results when tracking optin} {
+        r CLIENT TRACKING off
+        r CLIENT TRACKING on optin
+        set res [r client trackinginfo]
+        set flags [dict get $res flags]
+        assert_equal {on optin} $flags
+        set redirect [dict get $res redirect]
+        assert_equal {0} $redirect
+        set prefixes [dict get $res prefixes]
+        assert_equal {} $prefixes
+
+        r CLIENT CACHING yes
+        set res [r client trackinginfo]
+        set flags [dict get $res flags]
+        assert_equal {on optin caching-yes} $flags
+    }
+
+    test {CLIENT TRACKINGINFO provides reasonable results when tracking optout} {
+        r CLIENT TRACKING off
+        r CLIENT TRACKING on optout
+        set res [r client trackinginfo]
+        set flags [dict get $res flags]
+        assert_equal {on optout} $flags
+        set redirect [dict get $res redirect]
+        assert_equal {0} $redirect
+        set prefixes [dict get $res prefixes]
+        assert_equal {} $prefixes
+
+        r CLIENT CACHING no
+        set res [r client trackinginfo]
+        set flags [dict get $res flags]
+        assert_equal {on optout caching-no} $flags
+    }
+
+    test {CLIENT TRACKINGINFO provides reasonable results when tracking bcast mode} {
+        r CLIENT TRACKING off
+        r CLIENT TRACKING on BCAST PREFIX foo PREFIX bar
+        set res [r client trackinginfo]
+        set flags [dict get $res flags]
+        assert_equal {on bcast} $flags
+        set redirect [dict get $res redirect]
+        assert_equal {0} $redirect
+        set prefixes [lsort [dict get $res prefixes]]
+        assert_equal {bar foo} $prefixes
     }
 
     $rd_redirection close
