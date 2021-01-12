@@ -57,6 +57,11 @@ proc CI {n field} {
     get_info_field [R $n cluster info] $field
 }
 
+# Return the value of the specified INFO field.
+proc s {n field} {
+    get_info_field [R $n info] $field
+}
+
 # Assuming nodes are reest, this function performs slots allocation.
 # Only the first 'n' nodes are used.
 proc cluster_allocate_slots {n} {
