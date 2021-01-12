@@ -1,6 +1,7 @@
 #include "redismodule.h"
 
 #include <string.h>
+#include <strings.h>
 #include <assert.h>
 #include <unistd.h>
 
@@ -123,6 +124,68 @@ int stream_range(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
 }
 
+/*
+ * STREAM.TRIM key (MAXLEN (=|~) length | MINID (=|~) id)
+ */
+int stream_trim(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 5) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+    /* Parse args */
+    int trim_by_id = 0; /* 0 = maxlen, 1 = minid */
+    long long maxlen;
+    RedisModuleStreamID minid;
+    size_t arg_len;
+    const char *arg = RedisModule_StringPtrLen(argv[2], &arg_len);
+    if (!strcasecmp(arg, "minid")) {
+        trim_by_id = 1;
+        if (RedisModule_StreamParseID(argv[4], &minid) != REDISMODULE_OK) {
+            RedisModule_ReplyWithError(ctx, "ERR Invalid stream ID");
+            return REDISMODULE_OK;
+        }
+    } else if (!strcasecmp(arg, "maxlen")) {
+        if (RedisModule_StringToLongLong(argv[4], &maxlen) == REDISMODULE_ERR) {
+            RedisModule_ReplyWithError(ctx, "ERR Maxlen must be a number");
+            return REDISMODULE_OK;
+        }
+    } else {
+        RedisModule_ReplyWithError(ctx, "ERR Invalid arguments");
+        return REDISMODULE_OK;
+    }
+
+    /* Approx or exact */
+    int flags;
+    arg = RedisModule_StringPtrLen(argv[3], &arg_len);
+    if (arg_len == 1 && arg[0] == '~') {
+        flags = REDISMODULE_STREAM_APPROX;
+    } else if (arg_len == 1 && arg[0] == '=') {
+        flags = 0;
+    } else {
+        RedisModule_ReplyWithError(ctx, "ERR Invalid approx-or-exact mark");
+        return REDISMODULE_OK;
+    }
+
+    /* Trim */
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_WRITE);
+    long long trimmed;
+    if (trim_by_id) {
+        trimmed = RedisModule_StreamTrimByID(key, flags, &minid);
+    } else {
+        trimmed = RedisModule_StreamTrimByLength(key, flags, maxlen);
+    }
+
+    /* Return result */
+    if (trimmed < 0) {
+        RedisModule_ReplyWithError(ctx, "ERR Trimming failed");
+    } else {
+        RedisModule_ReplyWithLongLong(ctx, trimmed);
+    }
+    RedisModule_CloseKey(key);
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -136,6 +199,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                                   1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx, "stream.range", stream_range, "",
+                                  1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "stream.trim", stream_trim, "",
                                   1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 

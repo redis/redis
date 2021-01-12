@@ -818,6 +818,28 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
     return deleted;
 }
 
+/* Trims a stream by length. Returns the number of deleted items. */
+int64_t streamTrimByLength(stream *s, long long maxlen, int approx) {
+    streamAddTrimArgs args = {
+        .trim_strategy = TRIM_STRATEGY_MAXLEN,
+        .approx_trim = approx,
+        .limit = approx ? 100 * server.stream_node_max_entries : 0,
+        .maxlen = maxlen
+    };
+    return streamTrim(s, &args);
+}
+
+/* Trims a stream by minimum ID. Returns the number of deleted items. */
+int64_t streamTrimByID(stream *s, streamID minid, int approx) {
+    streamAddTrimArgs args = {
+        .trim_strategy = TRIM_STRATEGY_MINID,
+        .approx_trim = approx,
+        .limit = approx ? 100 * server.stream_node_max_entries : 0,
+        .minid = minid
+    };
+    return streamTrim(s, &args);
+}
+
 /* Parse the arguements of XADD/XTRIM.
  *
  * See streamAddTrimArgs for more details about the arguments handled.

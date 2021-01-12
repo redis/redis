@@ -87,6 +87,7 @@ typedef struct RedisModuleStreamID {
 #define REDISMODULE_STREAM_NOMKSTREAM (1<<1)
 #define REDISMODULE_STREAM_EXCLUSIVE (1<<2)
 #define REDISMODULE_STREAM_REVERSE (1<<3)
+#define REDISMODULE_STREAM_APPROX (1<<4)
 
 /* Context Flags: Info about the current context returned by
  * RM_GetContextFlags(). */
@@ -654,6 +655,8 @@ REDISMODULE_API int (*RedisModule_StreamAdd)(RedisModuleKey *key, int flags, Red
 REDISMODULE_API int (*RedisModule_StreamIteratorStart)(RedisModuleKey *key, int flags, RedisModuleStreamID *minid, RedisModuleStreamID *maxid) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_StreamIteratorStop)(RedisModuleKey *key) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_StreamIteratorNext)(RedisModuleKey *key, long maxnumfields, RedisModuleStreamID *id, RedisModuleString **fieldsvalues, long *numfields) REDISMODULE_ATTR;
+REDISMODULE_API long long (*RedisModule_StreamTrimByLength)(RedisModuleKey *key, int flags, long long length) REDISMODULE_ATTR;
+REDISMODULE_API long long (*RedisModule_StreamTrimByID)(RedisModuleKey *key, int flags, RedisModuleStreamID *id) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_IsKeysPositionRequest)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_KeyAtPos)(RedisModuleCtx *ctx, int pos) REDISMODULE_ATTR;
 REDISMODULE_API unsigned long long (*RedisModule_GetClientId)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
@@ -918,6 +921,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(StreamIteratorStart);
     REDISMODULE_GET_API(StreamIteratorStop);
     REDISMODULE_GET_API(StreamIteratorNext);
+    REDISMODULE_GET_API(StreamTrimByLength);
+    REDISMODULE_GET_API(StreamTrimByID);
     REDISMODULE_GET_API(IsKeysPositionRequest);
     REDISMODULE_GET_API(KeyAtPos);
     REDISMODULE_GET_API(GetClientId);

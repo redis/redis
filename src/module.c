@@ -3266,6 +3266,49 @@ int RM_StreamIteratorNext(RedisModuleKey *key, long maxnumfields, RedisModuleStr
     }
 }
 
+/* Trim a stream by length, similar to XTRIM with MAXLEN.
+ *
+ * - `key`: Key opened for writing.
+ * - `flags`: A bitfield of
+ *   - `REDISMODULE_STREAM_APPROX`: Trim less if it improves performance, like
+ *     XTRIM with `~`.
+ * - `length`: The number of stream items to keep after trimming.
+ *
+ * Returns the number of entries deleted.
+ *
+ * If the key is not pointing to a stream, if it isn't opened for writing or if
+ * unknown flags are given, -1 is returned.
+ */
+long long RM_StreamTrimByLength(RedisModuleKey *key, int flags, long long length) {
+    if (flags & ~(REDISMODULE_STREAM_APPROX)) return -1; /* unknown flags */
+    if (!key || !key->value || key->value->type != OBJ_STREAM) return -1;
+    if (!(key->mode & REDISMODULE_WRITE)) return -1;
+    int approx = flags & REDISMODULE_STREAM_APPROX ? 1 : 0;
+    return streamTrimByLength((stream *)key->value->ptr, length, approx);
+}
+
+/* Trim a stream by ID, similar to XTRIM with MINID.
+ *
+ * - `key`: Key opened for writing.
+ * - `flags`: A bitfield of
+ *   - `REDISMODULE_STREAM_APPROX`: Trim less if it improves performance, like
+ *     XTRIM with `~`.
+ * - `id`: The smallest stream ID to keep after trimming.
+ *
+ * Returns the number of entries deleted.
+ *
+ * If the key is not pointing to a stream, if it isn't opened for writing or if
+ * unknown flags are given, -1 is returned.
+ */
+long long RM_StreamTrimByID(RedisModuleKey *key, int flags, RedisModuleStreamID *id) {
+    if (flags & ~(REDISMODULE_STREAM_APPROX)) return -1; /* unknown flags */
+    if (!key || !key->value || key->value->type != OBJ_STREAM) return -1;
+    if (!(key->mode & REDISMODULE_WRITE)) return -1;
+    int approx = flags & REDISMODULE_STREAM_APPROX ? 1 : 0;
+    streamID minid = (streamID){id->ms, id->seq};
+    return streamTrimByID((stream *)key->value->ptr, minid, approx);
+}
+
 /* --------------------------------------------------------------------------
  * Redis <-> Modules generic Call() API
  * -------------------------------------------------------------------------- */
@@ -8714,6 +8757,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(StreamIteratorStart);
     REGISTER_API(StreamIteratorStop);
     REGISTER_API(StreamIteratorNext);
+    REGISTER_API(StreamTrimByLength);
+    REGISTER_API(StreamTrimByID);
     REGISTER_API(IsKeysPositionRequest);
     REGISTER_API(KeyAtPos);
     REGISTER_API(GetClientId);

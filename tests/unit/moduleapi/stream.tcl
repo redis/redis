@@ -50,4 +50,58 @@ start_server {tags {"modules"}} {
         assert_equal $result3 "{$streamid2 {item 2 value b}}"
         assert_equal $result3 [list [list $streamid2 {item 2 value b}]]
     }
+
+    test {Module stream trim by length} {
+        r del mystream
+        # exact maxlen
+        r xadd mystream * item 1 value a
+        r xadd mystream * item 2 value b
+        r xadd mystream * item 3 value c
+        assert_equal 3 [r xlen mystream]
+        assert_equal 0 [r stream.trim mystream maxlen = 5]
+        assert_equal 3 [r xlen mystream]
+        assert_equal 2 [r stream.trim mystream maxlen = 1]
+        assert_equal 1 [r xlen mystream]
+        assert_equal 1 [r stream.trim mystream maxlen = 0]
+        # check that there is no limit for exact maxlen
+        r stream.addn mystream 20000 item x value y
+        assert_equal 20000 [r stream.trim mystream maxlen = 0]
+        # approx maxlen (100 items per node implies default limit 10K items)
+        r stream.addn mystream 20000 item x value y
+        assert_equal 20000 [r xlen mystream]
+        assert_equal 10000 [r stream.trim mystream maxlen ~ 2]
+        assert_equal 9900  [r stream.trim mystream maxlen ~ 2]
+        assert_equal 0     [r stream.trim mystream maxlen ~ 2]
+        assert_equal 100   [r xlen mystream]
+        assert_equal 100   [r stream.trim mystream maxlen ~ 0]
+        assert_equal 0     [r xlen mystream]
+    }
+
+    test {Module stream trim by ID} {
+        r del mystream
+        # exact minid
+        r xadd mystream * item 1 value a
+        r xadd mystream * item 2 value b
+        set minid [r xadd mystream * item 3 value c]
+        assert_equal 3 [r xlen mystream]
+        assert_equal 0 [r stream.trim mystream minid = -]
+        assert_equal 3 [r xlen mystream]
+        assert_equal 2 [r stream.trim mystream minid = $minid]
+        assert_equal 1 [r xlen mystream]
+        assert_equal 1 [r stream.trim mystream minid = +]
+        # check that there is no limit for exact minid
+        r stream.addn mystream 20000 item x value y
+        assert_equal 20000 [r stream.trim mystream minid = +]
+        # approx minid (100 items per node implies default limit 10K items)
+        r stream.addn mystream 19980 item x value y
+        set minid [r xadd mystream * item x value y]
+        r stream.addn mystream 19 item x value y
+        assert_equal 20000 [r xlen mystream]
+        assert_equal 10000 [r stream.trim mystream minid ~ $minid]
+        assert_equal 9900  [r stream.trim mystream minid ~ $minid]
+        assert_equal 0     [r stream.trim mystream minid ~ $minid]
+        assert_equal 100   [r xlen mystream]
+        assert_equal 100   [r stream.trim mystream minid ~ +]
+        assert_equal 0     [r xlen mystream]
+    }
 }
