@@ -3558,7 +3558,11 @@ void failoverCron(void) {
         }
     }
 
-    /* If offsets are equal and we havn't started failover yet, do so */
+    /* Failover has started but timeout has not yet expired. */
+    if (server.masterhost) return;
+
+    /* Failover has NOT started, check if offsets are equal and start failover
+     * if so. */
     if (server.target_replica_host) {
         client *replica = findReplica(server.target_replica_host,
             server.target_replica_port);
@@ -3591,6 +3595,7 @@ void failoverCron(void) {
                  * replication time to complete. */
                 replicationSetMaster(replicaip, replica->slave_listening_port);
                 server.failover_end_time = now + FAILOVERTO_TIMEOUT;
+                break;
             }
         }
     }
