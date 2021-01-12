@@ -75,10 +75,18 @@ typedef struct RedisModuleStreamID {
     uint64_t seq;
 } RedisModuleStreamID;
 
+/* StreamID MIN and MAX to be used like "-" and "+". */
+#define REDISMODULE_STREAMID_MIN \
+    ((struct RedisModuleStreamID){0, 0})
+#define REDISMODULE_STREAMID_MAX \
+    ((struct RedisModuleStreamID){UINT64_MAX, UINT64_MAX})
+
 /* Stream API flags. */
 #define REDISMODULE_STREAM_NONE 0
 #define REDISMODULE_STREAM_AUTOID (1<<0)
 #define REDISMODULE_STREAM_NOMKSTREAM (1<<1)
+#define REDISMODULE_STREAM_EXCLUSIVE (1<<2)
+#define REDISMODULE_STREAM_REVERSE (1<<3)
 
 /* Context Flags: Info about the current context returned by
  * RM_GetContextFlags(). */
@@ -643,6 +651,9 @@ REDISMODULE_API int (*RedisModule_HashGet)(RedisModuleKey *key, int flags, ...) 
 REDISMODULE_API int (*RedisModule_StreamParseID)(RedisModuleString *id_str, RedisModuleStreamID *id_parsed) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_StreamFormatID)(RedisModuleCtx *ctx, RedisModuleStreamID *id) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_StreamAdd)(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisModuleString **argv, int64_t numfields) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_StreamIteratorStart)(RedisModuleKey *key, int flags, RedisModuleStreamID *minid, RedisModuleStreamID *maxid) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_StreamIteratorStop)(RedisModuleKey *key) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_StreamIteratorNext)(RedisModuleKey *key, long maxnumfields, RedisModuleStreamID *id, RedisModuleString **fieldsvalues, long *numfields) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_IsKeysPositionRequest)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_KeyAtPos)(RedisModuleCtx *ctx, int pos) REDISMODULE_ATTR;
 REDISMODULE_API unsigned long long (*RedisModule_GetClientId)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
@@ -904,6 +915,9 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(StreamParseID);
     REDISMODULE_GET_API(StreamFormatID);
     REDISMODULE_GET_API(StreamAdd);
+    REDISMODULE_GET_API(StreamIteratorStart);
+    REDISMODULE_GET_API(StreamIteratorStop);
+    REDISMODULE_GET_API(StreamIteratorNext);
     REDISMODULE_GET_API(IsKeysPositionRequest);
     REDISMODULE_GET_API(KeyAtPos);
     REDISMODULE_GET_API(GetClientId);

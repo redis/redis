@@ -3153,6 +3153,119 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
     return REDISMODULE_OK;
 }
 
+/* Sets up a stream iterator.
+ *
+ * - `key`: The stream key opened for reading using RedisModule_OpenKey().
+ * - `flags`:
+ *   - `REDISMODULE_STREAM_EXCLUSIVE`: Don't include minid and maxid in the
+ *     iterated range.
+ *   - `REDISMODULE_STREAM_REVERSE`: Iterate in reverse order, starting from
+ *     maxid.
+ * - `minid`: Lower bound of the iterated range. May be REDISMODULE_STREAM_MIN.
+ * - `maxid`: Upper bound of the iterated range. May be REDISMODULE_STREAM_MAX.
+ *
+ * Returns REDISMODULE_OK on success and REDISMODULE_ERR if the key doesn't
+ * refer to a stream or if invalid arguments were given.
+ *
+ * The stream items are retrieved using RedisModule_StreamIteratorNext(). The
+ * iterator must be freed by callling RedisModule_StreamIteratorStop().
+ */
+int RM_StreamIteratorStart(RedisModuleKey *key, int flags, RedisModuleStreamID *minid, RedisModuleStreamID *maxid) {
+    /* check args */
+    if (flags & ~(REDISMODULE_STREAM_EXCLUSIVE |
+                  REDISMODULE_STREAM_REVERSE)) {
+        return REDISMODULE_ERR; /* invalid flags */
+    }
+    if (!key || !key->value || key->value->type != OBJ_STREAM) {
+        return REDISMODULE_ERR; /* not a stream */
+    }
+
+    /* define range */
+    streamID min_id = minid ? (streamID){minid->ms, minid->seq}
+                            : (streamID){0, 0};
+    streamID max_id = maxid ? (streamID){maxid->ms, maxid->seq}
+                            : (streamID){UINT64_MAX, UINT64_MAX};
+    if (flags & REDISMODULE_STREAM_EXCLUSIVE) {
+        if (streamIncrID(&min_id) != C_OK ||
+            streamDecrID(&max_id) != C_OK)
+            /* bad range */
+            return REDISMODULE_ERR;
+    }
+
+    /* create iterator */
+    stream *s = key->value->ptr;
+    int rev = flags & REDISMODULE_STREAM_REVERSE;
+    streamIterator *si = zmalloc(sizeof(*si));
+    streamIteratorStart(si, s, &min_id, &max_id, rev);
+    key->iter = si;
+    return REDISMODULE_OK;
+}
+
+/* Stops a stream iterator created using RedisModule_StreamIteratorStart() and
+ * reclaims its memory.
+ *
+ * Returns REDISMODULE_OK on success and REDISMODULE_ERR if the key isn't
+ * refering to a stream or if no stream iterator has been started on the key. */
+int RM_StreamIteratorStop(RedisModuleKey *key) {
+    if (!key || !key->value || key->value->type != OBJ_STREAM || !key->iter) {
+        return REDISMODULE_ERR;
+    }
+    zfree(key->iter);
+    key->iter = NULL;
+    return REDISMODULE_OK;
+}
+
+/* Gets an item from a stream.
+ *
+ * - `key`: Key for which a stream iterator has been started using
+ *   RedisModule_StreamIteratorStart().
+ * - `maxnumfields`: The maximum number of fields to return in `fieldsvalues`.
+ * - `id`: The stream ID returned.
+ * - `fieldsvalues`: Pointer to an array where fields and values are returned in
+ *   the following order: (field 1, value 1, field 2, value 2, ...). The array
+ *   must have space for `2 * maxnumfields` elements. The strings returned are
+ *   freed automatically when the callback finishes if automatic memory
+ *   management has been enabled.
+ * - `numfields`: The number of fields returned.
+ *
+ * Returns REDISMODULE_OK if an item was found or REDISMODULE_ERR if there are
+ * no more items. REDISMODULE_ERR is also returned if no stream iterator has
+ * been started for the key.
+ */
+int RM_StreamIteratorNext(RedisModuleKey *key, long maxnumfields, RedisModuleStreamID *id, RedisModuleString **fieldsvalues, long *numfields) {
+    if (!key || !key->value || key->value->type != OBJ_STREAM || !key->iter) {
+        return REDISMODULE_ERR;
+    }
+    streamIterator *si = key->iter;
+    int64_t num;
+    streamID streamid;
+    if (streamIteratorGetID(si, &streamid, &num)) {
+        id->ms = streamid.ms;
+        id->seq = streamid.seq;
+        if (num > maxnumfields) num = maxnumfields;
+        *numfields = num;
+        int64_t i = 0;
+        while (num--) {
+            unsigned char *field, *value;
+            int64_t field_len, value_len;
+            streamIteratorGetField(si, &field, &value, &field_len, &value_len);
+            robj *field_obj = createRawStringObject((char *)field, field_len);
+            robj *value_obj = createRawStringObject((char *)value, value_len);
+            fieldsvalues[i++] = field_obj;
+            fieldsvalues[i++] = value_obj;
+            autoMemoryAdd(key->ctx, REDISMODULE_AM_STRING, field_obj);
+            autoMemoryAdd(key->ctx, REDISMODULE_AM_STRING, value_obj);
+        }
+        return REDISMODULE_OK;
+    } else {
+        /* No entry found. */
+        id->ms = 0;
+        id->seq = 0;
+        *numfields = 0;
+        return REDISMODULE_ERR;
+    }
+}
+
 /* --------------------------------------------------------------------------
  * Redis <-> Modules generic Call() API
  * -------------------------------------------------------------------------- */
@@ -8598,6 +8711,9 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(StreamParseID);
     REGISTER_API(StreamFormatID);
     REGISTER_API(StreamAdd);
+    REGISTER_API(StreamIteratorStart);
+    REGISTER_API(StreamIteratorStop);
+    REGISTER_API(StreamIteratorNext);
     REGISTER_API(IsKeysPositionRequest);
     REGISTER_API(KeyAtPos);
     REGISTER_API(GetClientId);

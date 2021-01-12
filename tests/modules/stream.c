@@ -61,6 +61,68 @@ int stream_addn(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
 }
 
+/* STREAM.RANGE key start-id end-id
+ *
+ * Returns an array of stream items. Each item is an array on the form
+ * [stream-id, [field1, value1, field2, value2, ...]].
+ */
+int stream_range(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 4) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+    RedisModuleStreamID startid, endid;
+    if (RedisModule_StreamParseID(argv[2], &startid) != REDISMODULE_OK ||
+        RedisModule_StreamParseID(argv[3], &endid) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "Invalid stream ID");
+        return REDISMODULE_OK;
+    }
+
+    /* If startid > endid, we swap and do reverse iteration. */
+    int flags = 0;
+    if (startid.ms > endid.ms ||
+        (startid.ms == endid.ms && startid.seq > endid.seq)) {
+        RedisModuleStreamID tmp = startid;
+        startid = endid;
+        endid = tmp;
+        flags |= REDISMODULE_STREAM_REVERSE;
+    }
+
+    /* Open key and start iterator. */
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
+    if (RedisModule_StreamIteratorStart(key, flags,
+                                        &startid, &endid) != REDISMODULE_OK) {
+        /* Key is not a stream, etc. */
+        RedisModule_ReplyWithError(ctx, "ERR StreamIteratorStart failed");
+        RedisModule_CloseKey(key);
+        return REDISMODULE_OK;
+    }
+
+    /* Return array. */
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    RedisModule_AutoMemory(ctx);
+    RedisModuleString *fields_and_values[200];
+    RedisModuleStreamID id;
+    long numfields;
+    long len = 0;
+    while (RedisModule_StreamIteratorNext(key, 100, &id,
+                                          fields_and_values,
+                                          &numfields) == REDISMODULE_OK) {
+        RedisModule_ReplyWithArray(ctx, 2);
+        RedisModule_ReplyWithString(ctx, RedisModule_StreamFormatID(ctx, &id));
+        RedisModule_ReplyWithArray(ctx, numfields * 2);
+        for (long i = 0; i < numfields * 2; i++) {
+            RedisModule_ReplyWithString(ctx, fields_and_values[i]);
+        }
+        len++;
+    }
+    RedisModule_ReplySetArrayLength(ctx, len);
+    RedisModule_StreamIteratorStop(key);
+    RedisModule_CloseKey(key);
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -71,6 +133,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                                   1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx, "stream.addn", stream_addn, "",
+                                  1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "stream.range", stream_range, "",
                                   1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
