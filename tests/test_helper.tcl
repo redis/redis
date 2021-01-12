@@ -74,6 +74,7 @@ set ::all_tests {
     unit/tracking
     unit/oom-score-adj
     unit/shutdown
+    integration/failoverto
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
