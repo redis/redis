@@ -2181,14 +2181,19 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * detect transfer failures, start background RDB transfers and so forth. */
     run_with_period(1000) replicationCron();
 
-    /* If Redis is trying to failover then run a job to check if failover can be
+    /* Replication cron function -- used to reconnect to master,
+     * detect transfer failures, start background RDB transfers and so forth. 
+     * 
+     * If Redis is trying to failover then run a job to check if failover can be
      * completed. Also run replicationCron in this faster loop so if this node
      * starts sync with a master the sync handshake progresses quickly. */
-    run_with_period(20) {
-        if (server.failover_end_time) {
+    if (server.failover_end_time) {
+        run_with_period(20) {
             replicationCron();
             failoverCron();
         }
+    } else {
+        run_with_period(1000) replicationCron();
     }
 
     /* Run the Redis Cluster cron. */
