@@ -325,7 +325,7 @@ REDIS_STATIC void __quicklistCompress(const quicklist *quicklist,
     if (!in_depth)
         quicklistCompressNode(node);
 
-    if (depth > 2) {
+    if (depth > 2 && quicklist->len > (unsigned int)(quicklist->compress * 2)) {
         /* At this point, forward and reverse are one node beyond depth */
         quicklistCompressNode(forward);
         quicklistCompressNode(reverse);
@@ -380,10 +380,11 @@ REDIS_STATIC void __quicklistInsertNode(quicklist *quicklist,
         quicklist->head = quicklist->tail = new_node;
     }
 
+    /* Update len first, so in __quicklistCompress we know exactly len */
+    quicklist->len++;
+
     if (old_node)
         quicklistCompress(quicklist, old_node);
-
-    quicklist->len++;
 }
 
 /* Wrappers for node inserting around existing node. */
@@ -602,15 +603,16 @@ REDIS_STATIC void __quicklistDelNode(quicklist *quicklist,
         quicklist->head = node->next;
     }
 
+    /* Update len first, so in __quicklistCompress we know exactly len */
+    quicklist->len--;
+    quicklist->count -= node->count;
+
     /* If we deleted a node within our compress depth, we
      * now have compressed nodes needing to be decompressed. */
     __quicklistCompress(quicklist, NULL);
 
-    quicklist->count -= node->count;
-
     zfree(node->zl);
     zfree(node);
-    quicklist->len--;
 }
 
 /* Delete one entry from list given the node for the entry and a pointer
