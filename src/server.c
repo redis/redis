@@ -4044,7 +4044,6 @@ int processCommand(client *c) {
      * the pause has ended. Replicas are never paused. */
     if (!(c->flags & CLIENT_SLAVE) && 
         ((server.client_pause_type == CLIENT_PAUSE_ALL) ||
-        (server.client_pause_type == CLIENT_PAUSE_DEBUG && c->cmd->proc != debugCommand) ||
         (server.client_pause_type == CLIENT_PAUSE_WRITE && is_may_replicate_command)))
     {
         c->bpop.timeout = 0;

@@ -457,10 +457,6 @@ void debugCommand(client *c) {
 "    Enables or disables checksum checks for RDB files and RESTORE's payload.",
 "SLEEP <seconds>",
 "    Stop the server for <seconds>. Decimals allowed.",
-"DEBUG PAUSE",
-"    Pause all commands except debug commands.",
-"DEBUG UNPAUSE",
-"    Unpause all the clients from the debug pause.",
 "STRINGMATCH-TEST",
 "    Run a fuzz tester against the stringmatchlen() function.",
 "STRUCTSIZE",
@@ -770,12 +766,6 @@ NULL
         tv.tv_sec = utime / 1000000;
         tv.tv_nsec = (utime % 1000000) * 1000;
         nanosleep(&tv, NULL);
-        addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"unpause") && c->argc == 2) {
-        unpauseClients();
-        addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"pause") && c->argc == 2) {
-        pauseClients(LLONG_MAX, CLIENT_PAUSE_DEBUG);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"set-active-expire") &&
                c->argc == 3)

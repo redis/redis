@@ -5,6 +5,7 @@ start_server {} {
     set slave [srv 0 client]
     set slave_host [srv 0 host]
     set slave_port [srv 0 port]
+    set slave_pid [srv 0 pid]
     set master [srv -1 client]
     set master_host [srv -1 host]
     set master_port [srv -1 port]
@@ -33,25 +34,25 @@ start_server {} {
     }
 
     test {WAIT should not acknowledge 1 additional copy if slave is blocked} {
-        $slave debug pause
+        exec kill -SIGSTOP $slave_pid
         $master set foo 0
         $master incr foo
         $master incr foo
         $master incr foo
         assert {[$master wait 1 1000] == 0}
-        $slave debug unpause
+        exec kill -SIGCONT $slave_pid
         assert {[$master wait 1 1000] == 1}
     }
 
     test {WAIT implicitly blocks on client pause since ACKs aren't sent} {
-        $slave debug pause
+        exec kill -SIGSTOP $slave_pid
         $master multi
         $master incr foo
         $master client pause 10000 write
         $master exec
         assert {[$master wait 1 1000] == 0}
         $master client unpause
-        $slave debug unpause
+        exec kill -SIGCONT $slave_pid
         assert {[$master wait 1 1000] == 1}
     }
 }}
