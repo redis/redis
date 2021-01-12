@@ -1,8 +1,84 @@
 ================================================================================
+Redis 6.2 RC2   Released Tue Jan 12 16:17:20 IST 2021
+================================================================================
+
+Upgrade urgency LOW: This is the second Release Candidate of Redis 6.2.
+
+IMPORTANT: If you're running Redis on ARM64 or a big-endian system, upgrade may
+have significant implications. Please be sure to read the notes below.
+
+Here is a comprehensive list of changes in this release compared to 6.2 RC1,
+each one includes the PR number that added it, so you can get more details
+at https://github.com/redis/redis/pull/<number>
+
+New commands / args:
+* Add the REV, BYLEX and BYSCORE arguments to ZRANGE, and the ZRANGESTORE command (#7844)
+* Add the XAUTOCLAIM command (#7973)
+* Add the MINID trimming strategy and the LIMIT argument to XADD and XTRIM (#8169)
+* Add the ANY argument to GEOSEARCH and GEORADIUS (#8259)
+* Add the CH, NX, XX arguments to GEOADD (#8227)
+* Add the COUNT argument to LPOP and RPOP (#8179)
+* Add the WRITE argument to CLIENT PAUSE for pausing write commands exclusively (#8170)
+* Change the proto-ver argument of HELLO to optional (#7377)
+* Add the CLIENT TRACKINGINFO subcommand (#7309)
+
+Command behavior changes:
+* CLIENT TRACKING yields an error when given overlapping BCAST prefixes (#8176)
+* SWAPDB invalidates WATCHed keys (#8239)
+* SORT command behaves differently when used on a writable replica (#8283)
+
+Other behavior changes:
+* Avoid propagating MULTI/EXEC for read-only transactions (#8216)
+* Remove the read-only flag from TIME, ECHO, ROLE, LASTSAVE (#8216)
+* Fix the command flags of PFDEBUG (#8222)
+* Tracking clients will no longer receive unnecessary key invalidation messages after FLUSHDB (#8039)
+* Sentinel: Fix missing updates to the config file after SENTINEL SET command (#8229)
+
+Bug fixes with compatibility implications (bugs introduced in Redis 6.0):
+* Fix RDB CRC64 checksum on big-endian systems (#8270)
+  If you're using big-endian please consider the compatibility implications with
+  RESTORE, replication and persistence.
+* Fix wrong order of key/value in Lua's map response (#8266)
+  If your scripts use redis.setresp() or return a map (new in Redis 6.0), please
+  consider the implications.
+
+Bug fixes that are only applicable to previous releases of Redis 6.2:
+* Resolve rare assertions in active defragmentation while loading (#8284, #8281)
+
+Bug fixes:
+* Fix the selection of a random element from large hash tables (#8133)
+* Fix an issue where a forked process deletes the parent's pidfile (#8231)
+* Fix crashes when enabling io-threads-do-reads (#8230)
+* Fix a crash in redis-cli after executing cluster backup (#8267)
+* Fix redis-benchmark to use an IP address for the first cluster node (#8154)
+* Fix saving of strings larger than 2GB into RDB files (#8306)
+
+Additional improvements:
+* Improve replication handshake time (#8214)
+* Release client tracking table memory asynchronously in cases where the DB is also freed asynchronously (#8039)
+* Avoid wasteful transient memory allocation in certain cases (#8286, #5954)
+* Handle binary string values by the 'requirepass' and 'masterauth' configs (#8200)
+
+Platform and deployment-related changes:
+* Install redis-check-rdb and redis-check-aof as symlinks to redis-server (#5745)
+* Add a check for an ARM64 Linux kernel bug (#8224)
+  Due to the potential severity of this issue, Redis will refuse to run on
+  affected platforms by default.
+
+Info fields and introspection changes:
+* Add the errorstats section to the INFO command (#8217)
+* Add the failed_calls and rejected_calls fields INFO's commandstats section (#8217)
+* Report child copy-on-write metrics continuously (#8264)
+
+Module API changes:
+* Add the RedisModule_SendChildCOWInfo API (#8264)
+* Add the may-replicate command flag (#8170)
+
+================================================================================
 Redis 6.2 RC1   Released Mon Dec 14 11:50:00 IST 2020
 ================================================================================
 
-Upgrade urgency LOW: This is the first RC of Redis 6.2.
+Upgrade urgency LOW: This is the first Release Candidate of Redis 6.2.
 
 Introduction to the Redis 6.2 release
 =====================================
@@ -29,7 +105,7 @@ New commands / args:
 * Add SMISMEMBER command that checks multiple members (#7615)
 * Add ZMSCORE command that returns an array of scores (#7593)
 * Add LMOVE and BLMOVE commands that pop and push arbitrarily (#6929)
-* Add RESET command that resets client connection state(#7982)
+* Add RESET command that resets client connection state (#7982)
 * Add COPY command that copies keys (#7953)
 * Add ZDIFF and ZDIFFSTORE commands (#7961)
 * Add ZINTER and ZUNION commands (#7794)
@@ -146,7 +222,7 @@ Platform / toolchain support related improvements:
 
 New configuration options:
 * Enable configuring OpenSSL using the standard openssl.cnf (#8143)
-* oom-score-adj-values can config can now take absolute values (besides relative ones) (#8046)
+* oom-score-adj-values config can now take absolute values (besides relative ones) (#8046)
 * TLS: Add different client cert support. (#8076)
 * Note that a few other changes listed above added their config options.
 
@@ -177,30 +253,41 @@ We'll follow up with more RC releases, until the code looks production ready
 and we don't get reports of serious issues for a while.
 
 A special thank you for the amount of work put into this release by:
+- Oran Agra
+- Yossi Gottlieb
+- Itamar Haber
+- Guy Benoish
+- Filipe Oliveira
+- Madelyn Olson
 - Wang Yuan
 - Felipe Machado
-- Filipe Oliveira
-- Tatsuya Arisawa
 - Yang Bodong
+- Tatsuya Arisawa
+- Jonah H. Harris
 - Jim Brunner
+- Yaacov Hazan
 - Wen Hui
-- Guy Benoish
 - Chen Yang
 - Nitai Caro
 - Meir Shpilraien
-- Madelyn Olson
 - maohuazhu
 - Valentino Geron
+- Qu Chen
+- sundb
+- George Prekas
+- Zhao Zhao
 - Tyson Andre
 - Michael Grunder
 - alexronke-channeladvisor
-- sundb
-- WuYunlong
+- Wu Yunlong
+- Wei Kukey
 - Yoav Steinberg
 - Uri Shachar
+- Greg Femec
 - Nykolas Laurentino de Lima
+- xhe
+- zhenwei pi
 - David CARLIER
-
 
 Migrating from 6.0 to 6.2
 =========================

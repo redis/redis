@@ -61,7 +61,7 @@ void raxDebugShowNode(const char *msg, raxNode *n);
 #ifdef RAX_DEBUG_MSG
 #define debugf(...)                                                            \
     if (raxDebugMsg) {                                                         \
-        printf("%s:%s:%d:\t", __FILE__, __FUNCTION__, __LINE__);               \
+        printf("%s:%s:%d:\t", __FILE__, __func__, __LINE__);                   \
         printf(__VA_ARGS__);                                                   \
         fflush(stdout);                                                        \
     }
@@ -1892,7 +1892,7 @@ void raxShow(rax *rax) {
 /* Used by debugnode() macro to show info about a given node. */
 void raxDebugShowNode(const char *msg, raxNode *n) {
     if (raxDebugMsg == 0) return;
-    printf("%s: %p [%.*s] key:%d size:%d children:",
+    printf("%s: %p [%.*s] key:%u size:%u children:",
         msg, (void*)n, (int)n->size, (char*)n->data, n->iskey, n->size);
     int numcld = n->iscompr ? 1 : n->size;
     raxNode **cldptr = raxNodeLastChildPtr(n) - (numcld-1);

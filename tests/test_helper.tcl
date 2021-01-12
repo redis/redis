@@ -18,6 +18,7 @@ set ::all_tests {
     unit/protocol
     unit/keyspace
     unit/scan
+    unit/info
     unit/type/string
     unit/type/incr
     unit/type/list

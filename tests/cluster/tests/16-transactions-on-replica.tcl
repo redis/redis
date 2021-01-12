@@ -15,6 +15,7 @@ set replica [Rn 1]
 
 test "Cant read from replica without READONLY" {
     $primary SET a 1
+    wait_for_ofs_sync $primary $replica
     catch {$replica GET a} err
     assert {[string range $err 0 4] eq {MOVED}}
 }
@@ -28,6 +29,7 @@ test "Can preform HSET primary and HGET from replica" {
     $primary HSET h a 1
     $primary HSET h b 2
     $primary HSET h c 3
+    wait_for_ofs_sync $primary $replica
     assert {[$replica HGET h a] eq {1}}
     assert {[$replica HGET h b] eq {2}}
     assert {[$replica HGET h c] eq {3}}

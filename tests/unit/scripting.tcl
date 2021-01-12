@@ -563,6 +563,30 @@ start_server {tags {"scripting"}} {
         } e
         set e
     } {*wrong number*}
+
+    test {Script with RESP3 map} {
+        set expected_dict [dict create field value]
+        set expected_list [list field value]
+
+        # Sanity test for RESP3 without scripts
+        r HELLO 3
+        r hset hash field value
+        set res [r hgetall hash]
+        assert_equal $res $expected_dict
+
+        # Test RESP3 client with script in both RESP2 and RESP3 modes
+        set res [r eval {redis.setresp(3); return redis.call('hgetall', KEYS[1])} 1 hash]
+        assert_equal $res $expected_dict
+        set res [r eval {redis.setresp(2); return redis.call('hgetall', KEYS[1])} 1 hash]
+        assert_equal $res $expected_list
+
+        # Test RESP2 client with script in both RESP2 and RESP3 modes
+        r HELLO 2
+        set res [r eval {redis.setresp(3); return redis.call('hgetall', KEYS[1])} 1 hash]
+        assert_equal $res $expected_list
+        set res [r eval {redis.setresp(2); return redis.call('hgetall', KEYS[1])} 1 hash]
+        assert_equal $res $expected_list
+    }
 }
 
 # Start a new server since the last test in this stanza will kill the

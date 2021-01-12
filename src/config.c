@@ -166,6 +166,15 @@ typedef struct stringConfigData {
                                   be stored as a NULL value. */
 } stringConfigData;
 
+typedef struct sdsConfigData {
+    sds *config; /* Pointer to the server config this value is stored in. */
+    const char *default_value; /* Default value of the config on rewrite. */
+    int (*is_valid_fn)(sds val, char **err); /* Optional function to check validity of new value (generic doc above) */
+    int (*update_fn)(sds val, sds prev, char **err); /* Optional function to apply new value at runtime (generic doc above) */
+    int convert_empty_to_null; /* Boolean indicating if empty SDS strings should
+                                  be stored as a NULL value. */
+} sdsConfigData;
+
 typedef struct enumConfigData {
     int *config; /* The pointer to the server config this value is stored in */
     configEnum *enum_value; /* The underlying enum type this data represents */
@@ -212,6 +221,7 @@ typedef struct numericConfigData {
 typedef union typeData {
     boolConfigData yesno;
     stringConfigData string;
+    sdsConfigData sds;
     enumConfigData enumd;
     numericConfigData numeric;
 } typeData;
@@ -512,7 +522,7 @@ void loadServerConfigFromString(char *config) {
             }
             server.repl_state = REPL_STATE_CONNECT;
         } else if (!strcasecmp(argv[0],"requirepass") && argc == 2) {
-            if (strlen(argv[1]) > CONFIG_AUTHPASS_MAX_LEN) {
+            if (sdslen(argv[1]) > CONFIG_AUTHPASS_MAX_LEN) {
                 err = "Password is longer than CONFIG_AUTHPASS_MAX_LEN";
                 goto loaderr;
             }
@@ -524,10 +534,10 @@ void loadServerConfigFromString(char *config) {
             sdsfree(server.requirepass);
             server.requirepass = NULL;
             if (sdslen(argv[1])) {
-                sds aclop = sdscatprintf(sdsempty(),">%s",argv[1]);
+                sds aclop = sdscatlen(sdsnew(">"), argv[1], sdslen(argv[1]));
                 ACLSetUser(DefaultUser,aclop,sdslen(aclop));
                 sdsfree(aclop);
-                server.requirepass = sdsnew(argv[1]);
+                server.requirepass = sdsdup(argv[1]);
             } else {
                 ACLSetUser(DefaultUser,"nopass",-1);
             }
@@ -751,10 +761,10 @@ void configSetCommand(client *c) {
         sdsfree(server.requirepass);
         server.requirepass = NULL;
         if (sdslen(o->ptr)) {
-            sds aclop = sdscatprintf(sdsempty(),">%s",(char*)o->ptr);
+            sds aclop = sdscatlen(sdsnew(">"), o->ptr, sdslen(o->ptr));
             ACLSetUser(DefaultUser,aclop,sdslen(aclop));
             sdsfree(aclop);
-            server.requirepass = sdsnew(o->ptr);
+            server.requirepass = sdsdup(o->ptr);
         } else {
             ACLSetUser(DefaultUser,"nopass",-1);
         }
@@ -905,7 +915,7 @@ badfmt: /* Bad format errors */
         addReplyBulkCString(c,_var ? _var : ""); \
         matches++; \
     } \
-} while(0);
+} while(0)
 
 #define config_get_bool_field(_name,_var) do { \
     if (stringmatch(pattern,_name,1)) { \
@@ -913,7 +923,7 @@ badfmt: /* Bad format errors */
         addReplyBulkCString(c,_var ? "yes" : "no"); \
         matches++; \
     } \
-} while(0);
+} while(0)
 
 #define config_get_numerical_field(_name,_var) do { \
     if (stringmatch(pattern,_name,1)) { \
@@ -922,8 +932,7 @@ badfmt: /* Bad format errors */
         addReplyBulkCString(c,buf); \
         matches++; \
     } \
-} while(0);
-
+} while(0)
 
 void configGetCommand(client *c) {
     robj *o = c->argv[2];
@@ -1328,6 +1337,28 @@ void rewriteConfigStringOption(struct rewriteConfigState *state, const char *opt
     line = sdscatrepr(line, value, strlen(value));
 
     rewriteConfigRewriteLine(state,option,line,force);
+}
+
+/* Rewrite a SDS string option. */
+void rewriteConfigSdsOption(struct rewriteConfigState *state, const char *option, sds value, const sds defvalue) {
+    int force = 1;
+    sds line;
+
+    /* If there is no value set, we don't want the SDS option
+     * to be present in the configuration at all. */
+    if (value == NULL) {
+        rewriteConfigMarkAsProcessed(state, option);
+        return;
+    }
+
+    /* Set force to zero if the value is set to its default. */
+    if (defvalue && sdscmp(value, defvalue) == 0) force = 0;
+
+    line = sdsnew(option);
+    line = sdscatlen(line, " ", 1);
+    line = sdscatrepr(line, value, sdslen(value));
+
+    rewriteConfigRewriteLine(state, option, line, force);
 }
 
 /* Rewrite a numerical (long long range) option. */
@@ -1802,22 +1833,14 @@ static void boolConfigRewrite(typeData data, const char *name, struct rewriteCon
 
 /* String Configs */
 static void stringConfigInit(typeData data) {
-    if (data.string.convert_empty_to_null) {
-        *data.string.config = data.string.default_value ? zstrdup(data.string.default_value) : NULL;
-    } else {
-        *data.string.config = zstrdup(data.string.default_value);
-    }
+    *data.string.config = (data.string.convert_empty_to_null && !data.string.default_value) ? NULL : zstrdup(data.string.default_value);
 }
 
 static int stringConfigSet(typeData data, sds value, int update, char **err) {
     if (data.string.is_valid_fn && !data.string.is_valid_fn(value, err))
         return 0;
     char *prev = *data.string.config;
-    if (data.string.convert_empty_to_null) {
-        *data.string.config = value[0] ? zstrdup(value) : NULL;
-    } else {
-        *data.string.config = zstrdup(value);
-    }
+    *data.string.config = (data.string.convert_empty_to_null && !value[0]) ? NULL : zstrdup(value);
     if (update && data.string.update_fn && !data.string.update_fn(*data.string.config, prev, err)) {
         zfree(*data.string.config);
         *data.string.config = prev;
@@ -1835,6 +1858,38 @@ static void stringConfigRewrite(typeData data, const char *name, struct rewriteC
     rewriteConfigStringOption(state, name,*(data.string.config), data.string.default_value);
 }
 
+/* SDS Configs */
+static void sdsConfigInit(typeData data) {
+    *data.sds.config = (data.sds.convert_empty_to_null && !data.sds.default_value) ? NULL: sdsnew(data.sds.default_value);
+}
+
+static int sdsConfigSet(typeData data, sds value, int update, char **err) {
+    if (data.sds.is_valid_fn && !data.sds.is_valid_fn(value, err))
+        return 0;
+    sds prev = *data.sds.config;
+    *data.sds.config = (data.sds.convert_empty_to_null && (sdslen(value) == 0)) ? NULL : sdsdup(value);
+    if (update && data.sds.update_fn && !data.sds.update_fn(*data.sds.config, prev, err)) {
+        sdsfree(*data.sds.config);
+        *data.sds.config = prev;
+        return 0;
+    }
+    sdsfree(prev);
+    return 1;
+}
+
+static void sdsConfigGet(client *c, typeData data) {
+    if (*data.sds.config) {
+        addReplyBulkSds(c, sdsdup(*data.sds.config));
+    } else {
+        addReplyBulkCString(c, "");
+    }
+}
+
+static void sdsConfigRewrite(typeData data, const char *name, struct rewriteConfigState *state) {
+    rewriteConfigSdsOption(state, name, *(data.sds.config), data.sds.default_value ? sdsnew(data.sds.default_value) : NULL);
+}
+
+
 #define ALLOW_EMPTY_STRING 0
 #define EMPTY_STRING_IS_NULL 1
 
@@ -1842,6 +1897,18 @@ static void stringConfigRewrite(typeData data, const char *name, struct rewriteC
     embedCommonConfig(name, alias, modifiable) \
     embedConfigInterface(stringConfigInit, stringConfigSet, stringConfigGet, stringConfigRewrite) \
     .data.string = { \
+        .config = &(config_addr), \
+        .default_value = (default), \
+        .is_valid_fn = (is_valid), \
+        .update_fn = (update), \
+        .convert_empty_to_null = (empty_to_null), \
+    } \
+}
+
+#define createSDSConfig(name, alias, modifiable, empty_to_null, config_addr, default, is_valid, update) { \
+    embedCommonConfig(name, alias, modifiable) \
+    embedConfigInterface(sdsConfigInit, sdsConfigSet, sdsConfigGet, sdsConfigRewrite) \
+    .data.sds = { \
         .config = &(config_addr), \
         .default_value = (default), \
         .is_valid_fn = (is_valid), \
@@ -2349,7 +2416,6 @@ standardConfig configs[] = {
     createStringConfig("pidfile", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.pidfile, NULL, NULL, NULL),
     createStringConfig("replica-announce-ip", "slave-announce-ip", MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.slave_announce_ip, NULL, NULL, NULL),
     createStringConfig("masteruser", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.masteruser, NULL, NULL, NULL),
-    createStringConfig("masterauth", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.masterauth, NULL, NULL, NULL),
     createStringConfig("cluster-announce-ip", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_ip, NULL, NULL, NULL),
     createStringConfig("syslog-ident", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.syslog_ident, "redis", NULL, NULL),
     createStringConfig("dbfilename", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.rdb_filename, "dump.rdb", isValidDBfilename, NULL),
@@ -2358,6 +2424,10 @@ standardConfig configs[] = {
     createStringConfig("bio_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.bio_cpulist, NULL, NULL, NULL),
     createStringConfig("aof_rewrite_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.aof_rewrite_cpulist, NULL, NULL, NULL),
     createStringConfig("bgsave_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.bgsave_cpulist, NULL, NULL, NULL),
+    createStringConfig("ignore-warnings", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.ignore_warnings, "", NULL, NULL),
+
+    /* SDS Configs */
+    createSDSConfig("masterauth", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.masterauth, NULL, NULL, NULL),
 
     /* Enum Configs */
     createEnumConfig("supervised", NULL, IMMUTABLE_CONFIG, supervised_mode_enum, server.supervised_mode, SUPERVISED_NONE, NULL, NULL),
@@ -2477,12 +2547,17 @@ void configCommand(client *c) {
 
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-"GET <pattern> -- Return parameters matching the glob-like <pattern> and their values.",
-"SET <parameter> <value> -- Set parameter to value.",
-"RESETSTAT -- Reset statistics reported by INFO.",
-"REWRITE -- Rewrite the configuration file.",
+"GET <pattern>",
+"    Return parameters matching the glob-like <pattern> and their values.",
+"SET <directive> <value>",
+"    Set the configuration <directive> to <value>.",
+"RESETSTAT",
+"    Reset statistics reported by the INFO command.",
+"REWRITE",
+"    Rewrite the configuration file.",
 NULL
         };
+
         addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"set") && c->argc == 4) {
         configSetCommand(c);
@@ -2491,6 +2566,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"resetstat") && c->argc == 2) {
         resetServerStats();
         resetCommandTableStats();
+        resetErrorTableStats();
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"rewrite") && c->argc == 2) {
         if (server.configfile == NULL) {

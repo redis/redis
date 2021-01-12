@@ -561,6 +561,12 @@ proc cmdrstat {cmd r} {
     }
 }
 
+proc errorrstat {cmd r} {
+    if {[regexp "\r\nerrorstat_$cmd:(.*?)\r\n" [$r info errorstats] _ value]} {
+        set _ $value
+    }
+}
+
 proc generate_fuzzy_traffic_on_key {key duration} {
     # Commands per type, blocking commands removed
     # TODO: extract these from help.h or elsewhere, and improve to include other types
