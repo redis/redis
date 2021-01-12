@@ -196,6 +196,29 @@ start_server {tags {"multi"}} {
         r exec
     } {PONG}
 
+    test {SWAPDB is able to touch the watched keys that exist} {
+        r flushall
+        r select 0
+        r set x 30
+        r watch x ;# make sure x (set to 30) doesn't change (SWAPDB will "delete" it)
+        r swapdb 0 1
+        r multi
+        r ping
+        r exec
+    } {}
+
+    test {SWAPDB is able to touch the watched keys that do not exist} {
+        r flushall
+        r select 1
+        r set x 30
+        r select 0
+        r watch x ;# make sure the key x (currently missing) doesn't change (SWAPDB will create it)
+        r swapdb 0 1
+        r multi
+        r ping
+        r exec
+    } {}
+
     test {WATCH is able to remember the DB a key belongs to} {
         r select 5
         r set x 30
@@ -299,10 +322,14 @@ start_server {tags {"multi"}} {
         r multi
         r del foo
         r exec
+
+        # add another command so that when we see it we know multi-exec wasn't
+        # propagated
+        r incr foo
+
         assert_replication_stream $repl {
             {select *}
-            {multi}
-            {exec}
+            {incr foo}
         }
         close_replication_stream $repl
     }
@@ -521,4 +548,83 @@ start_server {tags {"multi"}} {
 
         list $m $res
     } {OK {{} {} {} {} {} {} {} {}}}
+
+    test {MULTI propagation of PUBLISH} {
+        set repl [attach_to_replication_stream]
+
+        # make sure that PUBLISH inside MULTI is propagated in a transaction
+        r multi
+        r publish bla bla
+        r exec
+
+        assert_replication_stream $repl {
+            {select *}
+            {multi}
+            {publish bla bla}
+            {exec}
+        }
+        close_replication_stream $repl
+    }
+
+    test {MULTI propagation of SCRIPT LOAD} {
+        set repl [attach_to_replication_stream]
+
+        # make sure that SCRIPT LOAD inside MULTI is propagated in a transaction
+        r multi
+        r script load {redis.call('set', KEYS[1], 'foo')}
+        set res [r exec]
+        set sha [lindex $res 0]
+
+        assert_replication_stream $repl {
+            {select *}
+            {multi}
+            {script load *}
+            {exec}
+        }
+        close_replication_stream $repl
+    }
+
+    test {MULTI propagation of SCRIPT LOAD} {
+        set repl [attach_to_replication_stream]
+
+        # make sure that EVAL inside MULTI is propagated in a transaction
+        r config set lua-replicate-commands no
+        r multi
+        r eval {redis.call('set', KEYS[1], 'bar')} 1 bar
+        r exec
+
+        assert_replication_stream $repl {
+            {select *}
+            {multi}
+            {eval *}
+            {exec}
+        }
+        close_replication_stream $repl
+    }
+
+    tags {"stream"} {
+        test {MULTI propagation of XREADGROUP} {
+            # stream is a special case because it calls propagate() directly for XREADGROUP
+            set repl [attach_to_replication_stream]
+
+            r XADD mystream * foo bar
+            r XGROUP CREATE mystream mygroup 0
+
+            # make sure the XCALIM (propagated by XREADGROUP) is indeed inside MULTI/EXEC
+            r multi
+            r XREADGROUP GROUP mygroup consumer1 STREAMS mystream ">"
+            r exec
+
+            assert_replication_stream $repl {
+                {select *}
+                {xadd *}
+                {xgroup CREATE *}
+                {multi}
+                {xclaim *}
+                {exec}
+            }
+            close_replication_stream $repl
+        }
+    }
+
 }
