@@ -4,16 +4,18 @@
 # Convert the C comment to markdown
 def markdown(s)
     s = s.gsub(/\*\/$/,"")
-    s = s.gsub(/^ \* {0,1}/,"")
-    s = s.gsub(/^\/\* /,"")
+    s = s.gsub(/^ ?\* ?/,"")
+    s = s.gsub(/^\/\*\*? ?/,"")
     s.chop! while s[-1] == "\n" || s[-1] == " "
     lines = s.split("\n")
     newlines = []
+    # Backquote function, macro and type names, except if already backquoted and
+    # in code blocks indented by 4 spaces.
     lines.each{|l|
-        if l[0] != ' '
-            l = l.gsub(/RM_[A-z()]+/){|x| "`#{x}`"}
-            l = l.gsub(/RedisModule_[A-z()]+/){|x| "`#{x}`"}
-            l = l.gsub(/REDISMODULE_[A-z]+/){|x| "`#{x}`"}
+        if not l.start_with?('    ')
+            l = l.gsub(/(?<!`)RM_[A-z()]+/){|x| "`#{x}`"}
+            l = l.gsub(/(?<!`)RedisModule[A-z()]+/){|x| "`#{x}`"}
+            l = l.gsub(/(?<!`)REDISMODULE_[A-z]+/){|x| "`#{x}`"}
         end
         newlines << l
     }
@@ -41,6 +43,7 @@ def docufy(src,i)
 end
 
 puts "# Modules API reference\n\n"
+puts "<!-- This file is generated from module.c using gendoc.rb -->\n\n"
 src = File.open("../module.c").to_a
 src.each_with_index{|line,i|
     if line =~ /RM_/ && line[0] != ' ' && line[0] != '#' && line[0] != '/'
