@@ -3607,10 +3607,15 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
     }
 
     /* Step 3: Lookup the key and get the range. */
-    if (((zobj = lookupKeyReadOrReply(c, key, shared.emptyarray)) == NULL)
-        || checkType(c, zobj, OBJ_ZSET)) {
+    zobj = handler->dstkey ?
+        lookupKeyWrite(c->db,key) :
+        lookupKeyRead(c->db,key);
+    if (zobj == NULL) {
+        addReply(c,shared.emptyarray);
         goto cleanup;
     }
+
+    if (checkType(c,zobj,OBJ_ZSET)) goto cleanup;
 
     /* Step 4: Pass this to the command-specific handler. */
     switch (rangetype) {
