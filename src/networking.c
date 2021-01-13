@@ -1707,7 +1707,7 @@ int processInlineBuffer(client *c) {
     }
 
     /* Handle the \r\n case. */
-    if (newline && newline != c->querybuf+c->qb_pos && *(newline-1) == '\r')
+    if (newline != c->querybuf+c->qb_pos && *(newline-1) == '\r')
         newline--, linefeed_chars++;
 
     /* Split the input buffer up to the \r\n */

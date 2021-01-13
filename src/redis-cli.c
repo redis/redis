@@ -5301,7 +5301,7 @@ static clusterManagerNode *clusterNodeForResharding(char *id,
         clusterManagerLogErr(invalid_node_msg, id);
         *raise_err = 1;
         return NULL;
-    } else if (node != NULL && target != NULL) {
+    } else if (target != NULL) {
         if (!strcmp(node->name, target->name)) {
             clusterManagerLogErr( "*** It is not possible to use "
                                   "the target node as "
