@@ -1601,9 +1601,9 @@ int getKeysUsingLegacyRangeSpec(struct redisCommand *cmd, robj **argv, int argc,
         return 0;
     }
 
-    first = cmd->legacy_range_key_spec.range.firstkey;
-    last = cmd->legacy_range_key_spec.range.lastkey;
-    step = cmd->legacy_range_key_spec.range.keystep;
+    first = cmd->legacy_range_key_spec.u.range.firstkey;
+    last = cmd->legacy_range_key_spec.u.range.lastkey;
+    step = cmd->legacy_range_key_spec.u.range.keystep;
 
     if (last < 0) last = argc+last;
 

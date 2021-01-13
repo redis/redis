@@ -922,9 +922,9 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     if (firstkey != 0) {
         cp->rediscmd->keys_specs_num = 1;
         cp->rediscmd->keys_specs[0].type = KSPEC_RANGE;
-        cp->rediscmd->keys_specs[0].range.firstkey = firstkey;
-        cp->rediscmd->keys_specs[0].range.lastkey = lastkey;
-        cp->rediscmd->keys_specs[0].range.keystep = keystep;
+        cp->rediscmd->keys_specs[0].u.range.firstkey = firstkey;
+        cp->rediscmd->keys_specs[0].u.range.lastkey = lastkey;
+        cp->rediscmd->keys_specs[0].u.range.keystep = keystep;
 
         /* Copy the default range to legacy_range_key_spec */
         cp->rediscmd->legacy_range_key_spec = cp->rediscmd->keys_specs[0];
@@ -992,9 +992,9 @@ int moduleAddCommandKeySpec(RedisModuleCtx *ctx, const char *name, const char *s
 int RM_AddCommandKeySpecRange(RedisModuleCtx *ctx, const char *name, const char *specflags, int firstkey, int lastkey, int keystep) {
     keysSpec spec;
     spec.type = KSPEC_RANGE;
-    spec.range.firstkey = firstkey;
-    spec.range.lastkey = lastkey;
-    spec.range.keystep = keystep;
+    spec.u.range.firstkey = firstkey;
+    spec.u.range.lastkey = lastkey;
+    spec.u.range.keystep = keystep;
 
     return moduleAddCommandKeySpec(ctx, name, specflags, &spec);
 }
@@ -1004,9 +1004,9 @@ int RM_AddCommandKeySpecRange(RedisModuleCtx *ctx, const char *name, const char 
 int RM_AddCommandKeySpecKeyword(RedisModuleCtx *ctx, const char *name, const char *specflags, const char *keyword, int keycount, int keystep) {
     keysSpec spec;
     spec.type = KSPEC_KEYWORD;
-    spec.keyword.keyword = keyword;
-    spec.keyword.keycount = keycount;
-    spec.keyword.keystep = keystep;
+    spec.u.keyword.keyword = keyword;
+    spec.u.keyword.keycount = keycount;
+    spec.u.keyword.keystep = keystep;
 
     return moduleAddCommandKeySpec(ctx, name, specflags, &spec);
 }
@@ -1016,9 +1016,9 @@ int RM_AddCommandKeySpecKeyword(RedisModuleCtx *ctx, const char *name, const cha
 int RM_AddCommandKeySpecKeynum(RedisModuleCtx *ctx, const char *name, const char *specflags, int keynumidx, int firstkey, int keystep) {
     keysSpec spec;
     spec.type = KSPEC_KEYNUM;
-    spec.keynum.keynumidx = keynumidx;
-    spec.keynum.firstkey = firstkey;
-    spec.keynum.keystep = keystep;
+    spec.u.keynum.keynumidx = keynumidx;
+    spec.u.keynum.firstkey = firstkey;
+    spec.u.keynum.keystep = keystep;
 
     return moduleAddCommandKeySpec(ctx, name, specflags, &spec);
 }

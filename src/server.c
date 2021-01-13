@@ -199,7 +199,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"get",getCommand,2,
      "read-only fast @string",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"getex",getexCommand,-2,
      "write fast @string",
@@ -213,200 +213,200 @@ struct redisCommand redisCommandTable[] = {
      * implicit DEL of a large key. */
     {"set",setCommand,-3,
      "write use-memory @string",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"setnx",setnxCommand,3,
      "write use-memory fast @string",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"setex",setexCommand,4,
      "write use-memory @string",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"psetex",psetexCommand,4,
      "write use-memory @string",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"append",appendCommand,3,
      "write use-memory fast @string",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"strlen",strlenCommand,2,
      "read-only fast @string",
-    {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+    {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"del",delCommand,-2,
      "write @keyspace",
-     {{KSPEC_RANGE,"write",.range={1,-1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,-1,1}}}},
 
     {"unlink",unlinkCommand,-2,
      "write fast @keyspace",
-     {{KSPEC_RANGE,"write",.range={1,-1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,-1,1}}}},
 
     {"exists",existsCommand,-2,
      "read-only fast @keyspace",
-     {{KSPEC_RANGE,"read",.range={1,-1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,-1,1}}}},
 
     {"setbit",setbitCommand,4,
      "write use-memory @bitmap",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"getbit",getbitCommand,3,
      "read-only fast @bitmap",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"bitfield",bitfieldCommand,-2,
      "write use-memory @bitmap",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"bitfield_ro",bitfieldroCommand,-2,
      "read-only fast @bitmap",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"setrange",setrangeCommand,4,
      "write use-memory @string",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"getrange",getrangeCommand,4,
      "read-only @string",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"substr",getrangeCommand,4,
      "read-only @string",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"incr",incrCommand,2,
      "write use-memory fast @string",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"decr",decrCommand,2,
      "write use-memory fast @string",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"mget",mgetCommand,-2,
      "read-only fast @string",
-     {{KSPEC_RANGE,"read",.range={1,-1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,-1,1}}}},
 
     {"rpush",rpushCommand,-3,
      "write use-memory fast @list",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"lpush",lpushCommand,-3,
      "write use-memory fast @list",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"rpushx",rpushxCommand,-3,
      "write use-memory fast @list",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"lpushx",lpushxCommand,-3,
      "write use-memory fast @list",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"linsert",linsertCommand,5,
      "write use-memory @list",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"rpop",rpopCommand,-2,
      "write fast @list",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"lpop",lpopCommand,-2,
      "write fast @list",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"brpop",brpopCommand,-3,
      "write no-script @list @blocking",
-     {{KSPEC_RANGE,"write",.range={1,-2,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,-2,1}}}},
 
     {"brpoplpush",brpoplpushCommand,4,
      "write use-memory no-script @list @blocking",
-     {{KSPEC_RANGE,"read write",.range={1,1,1}},
-      {KSPEC_RANGE,"write",.range={2,2,1}}}},
+     {{KSPEC_RANGE,"read write",.u.range={1,1,1}},
+      {KSPEC_RANGE,"write",.u.range={2,2,1}}}},
 
     {"blmove",blmoveCommand,6,
      "write use-memory no-script @list @blocking",
-     {{KSPEC_RANGE,"read write",.range={1,1,1}},
-      {KSPEC_RANGE,"write",.range={2,2,1}}}},
+     {{KSPEC_RANGE,"read write",.u.range={1,1,1}},
+      {KSPEC_RANGE,"write",.u.range={2,2,1}}}},
 
     {"blpop",blpopCommand,-3,
      "write no-script @list @blocking",
-     {{KSPEC_RANGE,"write",.range={1,-2,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,-2,1}}}},
 
     {"llen",llenCommand,2,
      "read-only fast @list",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"lindex",lindexCommand,3,
      "read-only @list",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"lset",lsetCommand,4,
      "write use-memory @list",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"lrange",lrangeCommand,4,
      "read-only @list",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"ltrim",ltrimCommand,4,
      "write @list",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"lpos",lposCommand,-3,
      "read-only @list",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"lrem",lremCommand,4,
      "write @list",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"rpoplpush",rpoplpushCommand,3,
      "write use-memory @list",
-     {{KSPEC_RANGE,"read write",.range={1,1,1}},
-      {KSPEC_RANGE,"write",.range={2,2,1}}}},
+     {{KSPEC_RANGE,"read write",.u.range={1,1,1}},
+      {KSPEC_RANGE,"write",.u.range={2,2,1}}}},
 
     {"lmove",lmoveCommand,5,
      "write use-memory @list",
-     {{KSPEC_RANGE,"read write",.range={1,1,1}},
-      {KSPEC_RANGE,"write",.range={2,2,1}}}},
+     {{KSPEC_RANGE,"read write",.u.range={1,1,1}},
+      {KSPEC_RANGE,"write",.u.range={2,2,1}}}},
 
     {"sadd",saddCommand,-3,
      "write use-memory fast @set",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"srem",sremCommand,-3,
      "write fast @set",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"smove",smoveCommand,4,
      "write fast @set",
-     {{KSPEC_RANGE,"read write",.range={1,1,1}},
-      {KSPEC_RANGE,"write",.range={2,2,1}}}},
+     {{KSPEC_RANGE,"read write",.u.range={1,1,1}},
+      {KSPEC_RANGE,"write",.u.range={2,2,1}}}},
 
     {"sismember",sismemberCommand,3,
      "read-only fast @set",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"smismember",smismemberCommand,-3,
      "read-only fast @set",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"scard",scardCommand,2,
      "read-only fast @set",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"spop",spopCommand,-2,
      "write random fast @set",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"srandmember",srandmemberCommand,-2,
      "read-only random @set",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"sinter",sinterCommand,-2,
      "read-only to-sort @set",
-     {{KSPEC_RANGE,"read",.range={1,-1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,-1,1}}}},
 
     {"sintercard",sinterCardCommand,-2,
      "read-only @set",
@@ -414,85 +414,85 @@ struct redisCommand redisCommandTable[] = {
 
     {"sinterstore",sinterstoreCommand,-3,
      "write use-memory @set",
-     {{KSPEC_RANGE,"write",.range={1,1,1}},
-      {KSPEC_RANGE,"read",.range={2,-1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}},
+      {KSPEC_RANGE,"read",.u.range={2,-1,1}}}},
 
     {"sunion",sunionCommand,-2,
      "read-only to-sort @set",
-     {{KSPEC_RANGE,"read",.range={1,-1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,-1,1}}}},
 
     {"sunionstore",sunionstoreCommand,-3,
      "write use-memory @set",
-     {{KSPEC_RANGE,"write",.range={1,1,1}},
-      {KSPEC_RANGE,"read",.range={2,-1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}},
+      {KSPEC_RANGE,"read",.u.range={2,-1,1}}}},
 
     {"sdiff",sdiffCommand,-2,
      "read-only to-sort @set",
-     {{KSPEC_RANGE,"read",.range={1,-1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,-1,1}}}},
 
     {"sdiffstore",sdiffstoreCommand,-3,
      "write use-memory @set",
-     {{KSPEC_RANGE,"write",.range={1,1,1}},
-      {KSPEC_RANGE,"read",.range={2,-1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}},
+      {KSPEC_RANGE,"read",.u.range={2,-1,1}}}},
 
     {"smembers",sinterCommand,2,
      "read-only to-sort @set",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"sscan",sscanCommand,-3,
      "read-only random @set",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"zadd",zaddCommand,-4,
      "write use-memory fast @sortedset",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"zincrby",zincrbyCommand,4,
      "write use-memory fast @sortedset",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"zrem",zremCommand,-3,
      "write fast @sortedset",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"zremrangebyscore",zremrangebyscoreCommand,4,
      "write @sortedset",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"zremrangebyrank",zremrangebyrankCommand,4,
      "write @sortedset",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"zremrangebylex",zremrangebylexCommand,4,
      "write @sortedset",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"zunionstore",zunionstoreCommand,-4,
      "write use-memory @sortedset",
-     {{KSPEC_RANGE,"write",.range={1,1,1}},
-      {KSPEC_KEYNUM,"read",.keynum={2,3,1}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}},
+      {KSPEC_KEYNUM,"read",.u.keynum={2,3,1}}},
      zunionInterDiffStoreGetKeys},
 
     {"zinterstore",zinterstoreCommand,-4,
      "write use-memory @sortedset",
-     {{KSPEC_RANGE,"write",.range={1,1,1}},
-      {KSPEC_KEYNUM,"read",.keynum={2,3,1}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}},
+      {KSPEC_KEYNUM,"read",.u.keynum={2,3,1}}},
      zunionInterDiffStoreGetKeys},
 
     {"zdiffstore",zdiffstoreCommand,-4,
      "write use-memory @sortedset",
-     {{KSPEC_RANGE,"write",.range={1,1,1}},
-      {KSPEC_KEYNUM,"read",.keynum={2,3,1}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}},
+      {KSPEC_KEYNUM,"read",.u.keynum={2,3,1}}},
      zunionInterDiffStoreGetKeys},
 
     {"zunion",zunionCommand,-3,
      "read-only @sortedset",
-     {{KSPEC_KEYNUM,"read",.keynum={1,2,1}}},
+     {{KSPEC_KEYNUM,"read",.u.keynum={1,2,1}}},
      zunionInterDiffGetKeys},
 
     {"zinter",zinterCommand,-3,
      "read-only @sortedset",
-     {{KSPEC_KEYNUM,"read",.keynum={1,2,1}}},
+     {{KSPEC_KEYNUM,"read",.u.keynum={1,2,1}}},
      zunionInterDiffGetKeys},
 
     {"zintercard",zinterCardCommand,-3,
@@ -502,85 +502,85 @@ struct redisCommand redisCommandTable[] = {
 
     {"zdiff",zdiffCommand,-3,
      "read-only @sortedset",
-     {{KSPEC_KEYNUM,"read",.keynum={1,2,1}}},
+     {{KSPEC_KEYNUM,"read",.u.keynum={1,2,1}}},
      zunionInterDiffGetKeys},
 
     {"zrange",zrangeCommand,-4,
      "read-only @sortedset",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"zrangestore",zrangestoreCommand,-5,
      "write use-memory @sortedset",
-     {{KSPEC_RANGE,"write",.range={1,1,1}},
-      {KSPEC_RANGE,"read",.range={2,2,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}},
+      {KSPEC_RANGE,"read",.u.range={2,2,1}}}},
 
     {"zrangebyscore",zrangebyscoreCommand,-4,
      "read-only @sortedset",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"zrevrangebyscore",zrevrangebyscoreCommand,-4,
      "read-only @sortedset",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"zrangebylex",zrangebylexCommand,-4,
      "read-only @sortedset",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"zrevrangebylex",zrevrangebylexCommand,-4,
      "read-only @sortedset",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"zcount",zcountCommand,4,
      "read-only fast @sortedset",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"zlexcount",zlexcountCommand,4,
      "read-only fast @sortedset",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"zrevrange",zrevrangeCommand,-4,
      "read-only @sortedset",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"zcard",zcardCommand,2,
      "read-only fast @sortedset",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"zscore",zscoreCommand,3,
      "read-only fast @sortedset",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"zmscore",zmscoreCommand,-3,
      "read-only fast @sortedset",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"zrank",zrankCommand,3,
      "read-only fast @sortedset",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"zrevrank",zrevrankCommand,3,
      "read-only fast @sortedset",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"zscan",zscanCommand,-3,
      "read-only random @sortedset",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"zpopmin",zpopminCommand,-2,
      "write fast @sortedset",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"zpopmax",zpopmaxCommand,-2,
      "write fast @sortedset",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"bzpopmin",bzpopminCommand,-3,
      "write no-script fast @sortedset @blocking",
-     {{KSPEC_RANGE,"write",.range={1,-2,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,-2,1}}}},
 
     {"bzpopmax",bzpopmaxCommand,-3,
      "write no-script fast @sortedset @blocking",
-     {{KSPEC_RANGE,"write",.range={1,-2,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,-2,1}}}},
 
     {"zrandmember",zrandmemberCommand,-2,
      "read-only random @sortedset",
@@ -588,59 +588,59 @@ struct redisCommand redisCommandTable[] = {
 
     {"hset",hsetCommand,-4,
      "write use-memory fast @hash",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"hsetnx",hsetnxCommand,4,
      "write use-memory fast @hash",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"hget",hgetCommand,3,
      "read-only fast @hash",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"hmset",hsetCommand,-4,
      "write use-memory fast @hash",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"hmget",hmgetCommand,-3,
      "read-only fast @hash",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"hincrby",hincrbyCommand,4,
      "write use-memory fast @hash",
-     {{KSPEC_RANGE,"read write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read write",.u.range={1,1,1}}}},
 
     {"hincrbyfloat",hincrbyfloatCommand,4,
      "write use-memory fast @hash",
-     {{KSPEC_RANGE,"read write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read write",.u.range={1,1,1}}}},
 
     {"hdel",hdelCommand,-3,
      "write fast @hash",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"hlen",hlenCommand,2,
      "read-only fast @hash",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"hstrlen",hstrlenCommand,3,
      "read-only fast @hash",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"hkeys",hkeysCommand,2,
      "read-only to-sort @hash",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"hvals",hvalsCommand,2,
      "read-only to-sort @hash",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"hgetall",hgetallCommand,2,
      "read-only random @hash",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"hexists",hexistsCommand,3,
      "read-only fast @hash",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"hrandfield",hrandfieldCommand,-2,
      "read-only random @hash",
@@ -648,31 +648,31 @@ struct redisCommand redisCommandTable[] = {
 
     {"hscan",hscanCommand,-3,
      "read-only random @hash",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"incrby",incrbyCommand,3,
      "write use-memory fast @string",
-     {{KSPEC_RANGE,"read write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read write",.u.range={1,1,1}}}},
 
     {"decrby",decrbyCommand,3,
      "write use-memory fast @string",
-     {{KSPEC_RANGE,"read write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read write",.u.range={1,1,1}}}},
 
     {"incrbyfloat",incrbyfloatCommand,3,
      "write use-memory fast @string",
-     {{KSPEC_RANGE,"read write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read write",.u.range={1,1,1}}}},
 
     {"getset",getsetCommand,3,
      "write use-memory fast @string",
-     {{KSPEC_RANGE,"read write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read write",.u.range={1,1,1}}}},
 
     {"mset",msetCommand,-3,
      "write use-memory @string",
-     {{KSPEC_RANGE,"write",.range={1,-1,2}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,-1,2}}}},
 
     {"msetnx",msetnxCommand,-3,
      "write use-memory @string",
-     {{KSPEC_RANGE,"write",.range={1,-1,2}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,-1,2}}}},
 
     {"randomkey",randomkeyCommand,1,
      "read-only random @keyspace"},
@@ -685,38 +685,38 @@ struct redisCommand redisCommandTable[] = {
 
     {"move",moveCommand,3,
      "write fast @keyspace",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"copy",copyCommand,-3,
      "write use-memory @keyspace",
-     {{KSPEC_RANGE,"read",.range={1,1,1}},
-      {KSPEC_RANGE,"write",.range={2,2,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}},
+      {KSPEC_RANGE,"write",.u.range={2,2,1}}}},
 
     /* Like for SET, we can't mark RENAME as a fast command because
      * overwriting the target key may result in an implicit slow DEL. */
     {"rename",renameCommand,3,
      "write @keyspace",
-     {{KSPEC_RANGE,"write",.range={1,2,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,2,1}}}},
 
     {"renamenx",renamenxCommand,3,
      "write fast @keyspace",
-     {{KSPEC_RANGE,"write",.range={1,2,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,2,1}}}},
 
     {"expire",expireCommand,-3,
      "write fast @keyspace",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"expireat",expireatCommand,-3,
      "write fast @keyspace",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"pexpire",pexpireCommand,-3,
      "write fast @keyspace",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"pexpireat",pexpireatCommand,-3,
      "write fast @keyspace",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"keys",keysCommand,2,
      "read-only to-sort @keyspace @dangerous"},
@@ -756,7 +756,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"type",typeCommand,2,
      "read-only fast @keyspace",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"multi",multiCommand,1,
      "no-script fast ok-loading ok-stale @transaction"},
@@ -784,8 +784,8 @@ struct redisCommand redisCommandTable[] = {
 
     {"sort",sortCommand,-2,
      "write use-memory @list @set @sortedset @dangerous",
-     {{KSPEC_RANGE,"read",.range={1,1,1}},
-      {KSPEC_KEYWORD,"write",.keyword={"STORE",1,1}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}},
+      {KSPEC_KEYWORD,"write",.u.keyword={"STORE",1,1}}},
      sortGetKeys},
 
     {"sort_ro",sortroCommand,-2,
@@ -800,15 +800,15 @@ struct redisCommand redisCommandTable[] = {
 
     {"ttl",ttlCommand,2,
      "read-only fast random @keyspace",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"touch",touchCommand,-2,
      "read-only fast @keyspace",
-     {{KSPEC_RANGE,"",.range={1,-1,1}}}},
+     {{KSPEC_RANGE,"",.u.range={1,-1,1}}}},
 
     {"pttl",pttlCommand,2,
      "read-only fast random @keyspace",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"expiretime",expiretimeCommand,2,
      "read-only fast random @keyspace",
@@ -820,7 +820,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"persist",persistCommand,2,
      "write fast @keyspace",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"slaveof",replicaofCommand,3,
      "admin no-script ok-stale"},
@@ -857,7 +857,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"watch",watchCommand,-2,
      "no-script fast ok-loading ok-stale @transaction",
-     {{KSPEC_RANGE,"",.range={1,-1,1}}}},
+     {{KSPEC_RANGE,"",.u.range={1,-1,1}}}},
 
     {"unwatch",unwatchCommand,1,
      "no-script fast ok-loading ok-stale @transaction"},
@@ -867,16 +867,16 @@ struct redisCommand redisCommandTable[] = {
 
     {"restore",restoreCommand,-4,
      "write use-memory @keyspace @dangerous",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"restore-asking",restoreCommand,-4,
      "write use-memory cluster-asking @keyspace @dangerous",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"migrate",migrateCommand,-6,
      "write random @keyspace @dangerous",
-     {{KSPEC_RANGE,"write",.range={3,1,1}},
-      {KSPEC_KEYWORD,"write",.keyword={"KEYS",-1,1}}},
+     {{KSPEC_RANGE,"write",.u.range={3,1,1}},
+      {KSPEC_KEYWORD,"write",.u.keyword={"KEYS",-1,1}}},
      migrateGetKeys},
 
     {"asking",askingCommand,1,
@@ -890,15 +890,15 @@ struct redisCommand redisCommandTable[] = {
 
     {"dump",dumpCommand,2,
      "read-only random @keyspace",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"object",objectCommand,-2,
      "read-only random @keyspace",
-     {{KSPEC_RANGE,"read",.range={2,2,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={2,2,1}}}},
 
     {"memory",memoryCommand,-2,
      "random read-only",
-     {{KSPEC_KEYWORD,"write",.keyword={"USAGE",1,1}}},
+     {{KSPEC_KEYWORD,"write",.u.keyword={"USAGE",1,1}}},
      memoryGetKeys},
 
     {"client",clientCommand,-2,
@@ -915,22 +915,22 @@ struct redisCommand redisCommandTable[] = {
       */
     {"eval",evalCommand,-3,
      "no-script no-monitor may-replicate @scripting",
-     {{KSPEC_KEYNUM,"",.keynum={2,3,1}}},
+     {{KSPEC_KEYNUM,"",.u.keynum={2,3,1}}},
      evalGetKeys},
 
     {"eval_ro",evalRoCommand,-3,
      "no-script no-monitor @scripting",
-     {{KSPEC_KEYNUM,"",.keynum={2,3,1}}},
+     {{KSPEC_KEYNUM,"",.u.keynum={2,3,1}}},
      evalGetKeys},
 
     {"evalsha",evalShaCommand,-3,
      "no-script no-monitor may-replicate @scripting",
-     {{KSPEC_KEYNUM,"",.keynum={2,3,1}}},
+     {{KSPEC_KEYNUM,"",.u.keynum={2,3,1}}},
      evalGetKeys},
 
     {"evalsha_ro",evalShaRoCommand,-3,
      "no-script no-monitor @scripting",
-     {{KSPEC_KEYNUM,"",.keynum={2,3,1}}},
+     {{KSPEC_KEYNUM,"",.u.keynum={2,3,1}}},
      evalGetKeys},
 
     {"slowlog",slowlogCommand,-2,
@@ -944,14 +944,14 @@ struct redisCommand redisCommandTable[] = {
 
     {"bitop",bitopCommand,-4,
      "write use-memory @bitmap",
-     {{KSPEC_RANGE,"write",.range={2,1,1}},
-      {KSPEC_RANGE,"read",.range={3,-1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={2,1,1}},
+      {KSPEC_RANGE,"read",.u.range={3,-1,1}}}},
 
     {"bitcount",bitcountCommand,-2,
-     "read-only @bitmap",{{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     "read-only @bitmap",{{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"bitpos",bitposCommand,-3,
-     "read-only @bitmap",{{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     "read-only @bitmap",{{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"wait",waitCommand,3,
      "no-script @connection"},
@@ -961,57 +961,57 @@ struct redisCommand redisCommandTable[] = {
 
     {"geoadd",geoaddCommand,-5,
      "write use-memory @geo",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     /* GEORADIUS has store options that may write. */
     {"georadius",georadiusCommand,-6,
      "write use-memory @geo",
-     {{KSPEC_RANGE,"read",.range={1,1,1}},
-      {KSPEC_KEYWORD,"write",.keyword={"STORE",1,1}},
-      {KSPEC_KEYWORD,"write",.keyword={"STOREDIST",1,1}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}},
+      {KSPEC_KEYWORD,"write",.u.keyword={"STORE",1,1}},
+      {KSPEC_KEYWORD,"write",.u.keyword={"STOREDIST",1,1}}},
      georadiusGetKeys},
 
     {"georadius_ro",georadiusroCommand,-6,
      "read-only @geo",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"georadiusbymember",georadiusbymemberCommand,-5,"write use-memory @geo",
-     {{KSPEC_RANGE,"read",.range={1,1,1}},
-      {KSPEC_KEYWORD,"write",.keyword={"STORE",1,1}},
-      {KSPEC_KEYWORD,"write",.keyword={"STOREDIST",1,1}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}},
+      {KSPEC_KEYWORD,"write",.u.keyword={"STORE",1,1}},
+      {KSPEC_KEYWORD,"write",.u.keyword={"STOREDIST",1,1}}},
      georadiusGetKeys},
 
     {"georadiusbymember_ro",georadiusbymemberroCommand,-5,
      "read-only @geo",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"geohash",geohashCommand,-2,
      "read-only @geo",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"geopos",geoposCommand,-2,
      "read-only @geo",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"geodist",geodistCommand,-4,
      "read-only @geo",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"geosearch",geosearchCommand,-7,
      "read-only @geo",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"geosearchstore",geosearchstoreCommand,-8,
      "write use-memory @geo",
-     {{KSPEC_RANGE,"write",.range={1,1,1}},
-      {KSPEC_RANGE,"read write",.range={2,2,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}},
+      {KSPEC_RANGE,"read write",.u.range={2,2,1}}}},
 
     {"pfselftest",pfselftestCommand,1,
      "admin @hyperloglog"},
 
     {"pfadd",pfaddCommand,-2,
      "write use-memory fast @hyperloglog",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     /* Technically speaking PFCOUNT may change the key since it changes the
      * final bytes in the HyperLogLog representation. However in this case
@@ -1019,80 +1019,80 @@ struct redisCommand redisCommandTable[] = {
      * affair, and the command is semantically read only. */
     {"pfcount",pfcountCommand,-2,
      "read-only may-replicate @hyperloglog",
-     {{KSPEC_RANGE,"read",.range={1,-1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,-1,1}}}},
 
     {"pfmerge",pfmergeCommand,-2,
      "write use-memory @hyperloglog",
-     {{KSPEC_RANGE,"write",.range={1,-1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,-1,1}}}},
 
     /* Unlike PFCOUNT that is considered as a read-only command (although
      * it changes a bit), PFDEBUG may change the entire key when converting
      * from sparse to dense representation */
     {"pfdebug",pfdebugCommand,-3,
      "admin write use-memory @hyperloglog",
-     {{KSPEC_RANGE,"read",.range={2,2,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={2,2,1}}}},
 
     {"xadd",xaddCommand,-5,
      "write use-memory fast random @stream",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"xrange",xrangeCommand,-4,
      "read-only @stream",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"xrevrange",xrevrangeCommand,-4,
      "read-only @stream",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"xlen",xlenCommand,2,
      "read-only fast @stream",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"xread",xreadCommand,-4,
      "read-only @stream @blocking",
-     {{KSPEC_KEYWORD,"read",.keyword={"STREAMS",-1,-2}}},
+     {{KSPEC_KEYWORD,"read",.u.keyword={"STREAMS",-1,-2}}},
      xreadGetKeys},
 
     {"xreadgroup",xreadCommand,-7,
      "write @stream @blocking",
-     {{KSPEC_KEYWORD,"read",.keyword={"STREAMS",-1,-2}}},
+     {{KSPEC_KEYWORD,"read",.u.keyword={"STREAMS",-1,-2}}},
      xreadGetKeys},
 
     {"xgroup",xgroupCommand,-2,
      "write use-memory @stream",
-     {{KSPEC_RANGE,"write",.range={2,2,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={2,2,1}}}},
 
     {"xsetid",xsetidCommand,3,
      "write use-memory fast @stream",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"xack",xackCommand,-4,
      "write fast random @stream",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"xpending",xpendingCommand,-3,
      "read-only random @stream",
-     {{KSPEC_RANGE,"read",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={1,1,1}}}},
 
     {"xclaim",xclaimCommand,-6,
      "write random fast @stream",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"xautoclaim",xautoclaimCommand,-6,
      "write random fast @stream",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"xinfo",xinfoCommand,-2,
      "read-only random @stream",
-     {{KSPEC_RANGE,"read",.range={2,2,1}}}},
+     {{KSPEC_RANGE,"read",.u.range={2,2,1}}}},
 
     {"xdel",xdelCommand,-3,
      "write fast @stream",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"xtrim",xtrimCommand,-4,
      "write random @stream",
-     {{KSPEC_RANGE,"write",.range={1,1,1}}}},
+     {{KSPEC_RANGE,"write",.u.range={1,1,1}}}},
 
     {"post",securityWarningCommand,-1,
      "ok-loading ok-stale read-only"},
@@ -1111,7 +1111,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"stralgo",stralgoCommand,-2,
      "read-only @string",
-     {{KSPEC_KEYWORD,"read",.keyword={"KEYS",2,1}}},
+     {{KSPEC_KEYWORD,"read",.u.keyword={"KEYS",2,1}}},
      lcsGetKeys},
 
     {"reset",resetCommand,1,
@@ -3399,13 +3399,13 @@ int populateCommandLegacyRangeSpec(struct redisCommand *c) {
     for (int i = 0; i < c->keys_specs_num; i++) {
         if (c->keys_specs[i].type != KSPEC_RANGE)
             break;
-        if (c->keys_specs[i].range.keystep != 1)
+        if (c->keys_specs[i].u.range.keystep != 1)
             return C_ERR;
-        if (prev_lastkey && prev_lastkey != c->keys_specs[i].range.firstkey-1)
+        if (prev_lastkey && prev_lastkey != c->keys_specs[i].u.range.firstkey-1)
             return C_ERR;
-        firstkey = min(firstkey, c->keys_specs[i].range.firstkey);
+        firstkey = min(firstkey, c->keys_specs[i].u.range.firstkey);
         /* For lastkey we use unsigned comparison to handle negative values correctly */
-        lastkey = max((unsigned)lastkey, (unsigned)c->keys_specs[i].range.lastkey);
+        lastkey = max((unsigned)lastkey, (unsigned)c->keys_specs[i].u.range.lastkey);
     }
 
     if (firstkey == INT_MAX)
@@ -3415,9 +3415,9 @@ int populateCommandLegacyRangeSpec(struct redisCommand *c) {
     serverAssert(lastkey != 0);
 
     c->legacy_range_key_spec.type = KSPEC_RANGE;
-    c->legacy_range_key_spec.range.firstkey = firstkey;
-    c->legacy_range_key_spec.range.lastkey = lastkey;
-    c->legacy_range_key_spec.range.keystep = 1;
+    c->legacy_range_key_spec.u.range.firstkey = firstkey;
+    c->legacy_range_key_spec.u.range.lastkey = lastkey;
+    c->legacy_range_key_spec.u.range.keystep = 1;
     return C_OK;
 }
 
@@ -4612,25 +4612,25 @@ void addReplyCommandKeyArgs(client *c, struct redisCommand *cmd) {
                 addReplyArrayLen(c, 2);
                 addReplyBulkCString(c, "range");
                 addReplyArrayLen(c, 3);
-                addReplyLongLong(c, cmd->keys_specs[i].range.firstkey);
-                addReplyLongLong(c, cmd->keys_specs[i].range.lastkey);
-                addReplyLongLong(c, cmd->keys_specs[i].range.keystep);
+                addReplyLongLong(c, cmd->keys_specs[i].u.range.firstkey);
+                addReplyLongLong(c, cmd->keys_specs[i].u.range.lastkey);
+                addReplyLongLong(c, cmd->keys_specs[i].u.range.keystep);
                 break;
             case KSPEC_KEYNUM:
                 addReplyArrayLen(c, 2);
                 addReplyBulkCString(c, "keynum");
                 addReplyArrayLen(c, 3);
-                addReplyLongLong(c, cmd->keys_specs[i].keynum.keynumidx);
-                addReplyLongLong(c, cmd->keys_specs[i].keynum.firstkey);
-                addReplyLongLong(c, cmd->keys_specs[i].keynum.keystep);
+                addReplyLongLong(c, cmd->keys_specs[i].u.keynum.keynumidx);
+                addReplyLongLong(c, cmd->keys_specs[i].u.keynum.firstkey);
+                addReplyLongLong(c, cmd->keys_specs[i].u.keynum.keystep);
                 break;
             case KSPEC_KEYWORD:
                 addReplyArrayLen(c, 2);
                 addReplyBulkCString(c, "keyword");
                 addReplyArrayLen(c, 3);
-                addReplyBulkCString(c, cmd->keys_specs[i].keyword.keyword);
-                addReplyLongLong(c, cmd->keys_specs[i].keyword.keycount);
-                addReplyLongLong(c, cmd->keys_specs[i].keyword.keystep);
+                addReplyBulkCString(c, cmd->keys_specs[i].u.keyword.keyword);
+                addReplyLongLong(c, cmd->keys_specs[i].u.keyword.keycount);
+                addReplyLongLong(c, cmd->keys_specs[i].u.keyword.keystep);
                 break;
         }
         speccount++;
@@ -4645,9 +4645,9 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
     } else {
         int firstkey = 0, lastkey = 0, keystep = 0;
         if (cmd->legacy_range_key_spec.type != KSPEC_INVALID) {
-            firstkey = cmd->legacy_range_key_spec.range.firstkey;
-            lastkey = cmd->legacy_range_key_spec.range.lastkey;
-            keystep = cmd->legacy_range_key_spec.range.keystep;
+            firstkey = cmd->legacy_range_key_spec.u.range.firstkey;
+            lastkey = cmd->legacy_range_key_spec.u.range.lastkey;
+            keystep = cmd->legacy_range_key_spec.u.range.keystep;
         }
         /* We are adding: command name, arg count, flags, first, last, offset, categories, key args */
         addReplyArrayLen(c, 8);
