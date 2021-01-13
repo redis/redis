@@ -718,8 +718,8 @@ void syncCommand(client *c) {
      * will be NULL. */
     if (server.masterhost && server.cached_master && (c->argc > 3) &&
             !strcasecmp(c->argv[0]->ptr,"psync") &&
-            !strcasecmp(c->argv[3]->ptr, "failover") &&
-            !strcasecmp(c->argv[1]->ptr, server.cached_master->replid)) {
+            !strcasecmp(c->argv[3]->ptr,"failover") &&
+            !strcasecmp(c->argv[1]->ptr,server.cached_master->replid)) {
         replicationUnsetMaster();
         sds client = catClientInfoString(sdsempty(),c);
         serverLog(LL_NOTICE,
@@ -3444,7 +3444,6 @@ static client *findReplica(char *host, int port) {
     return NULL;
 }
 
-/* Implements the FAILOVERTO command */
 /* FAILOVERTO HOST PORT [TIMEOUT <timeout>] */
 void failovertoCommand(client *c) {
     if (server.cluster_enabled) {
@@ -3467,20 +3466,21 @@ void failovertoCommand(client *c) {
     /* Check for optional timeout argument */
     for (int j = 3; j < c->argc; j++) {
         int more_args = j < c->argc;
-        if (!strcasecmp(c->argv[j]->ptr,"timeout")) {
+        if (!strcasecmp(c->argv[j]->ptr, "timeout")) {
             j++;
             if (more_args && getLongFromObjectOrReply(c, c->argv[j],
                         &timeout_in_ms, NULL) != C_OK) return;
         } else {
-            addReplyError(c, "This should be a syntax error.");
+            addReplyErrorObject(c, shared.syntaxerr);
             return;
         }
     }
 
     /* The special host/port combination "ANY" "ONE" allows failover to any
      * replica. Otherwise the target replica info is set. */
-    if (strcasecmp(c->argv[1]->ptr,"any") ||
-            strcasecmp(c->argv[2]->ptr,"one")) {
+    if (strcasecmp(c->argv[1]->ptr, "any") ||
+        strcasecmp(c->argv[2]->ptr, "one"))
+    {
         long port;
         if (getLongFromObjectOrReply(c, c->argv[2], &port, NULL) != C_OK)
             return;
