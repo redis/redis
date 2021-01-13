@@ -96,6 +96,31 @@ start_server {tags {"failoverto"}} {
             assert_match *master* [$replica role]
         }
 
+        test {failoverto with a force works} {
+            reset_replication $replica $replica_pid $primary $primary_host $primary_port
+            exec kill -SIGSTOP $replica_pid
+            $primary failoverto $replica_host $replica_port TIMEOUT 10 FORCE
+
+            # Wait for primary to find the replica and start handoff
+            wait_for_condition 50 20 {
+                [string match *slave* [$primary role]]
+            } else {
+                fail "Primary never attempted to hand off to a replica"
+            }
+
+            exec kill -SIGCONT $replica_pid
+
+            # Wait for failover to end
+            wait_for_condition 50 100 {
+                [string match *master_failover_in_progress:0* [$primary info replication]]
+            } else {
+                fail "Failover from primary to replica did not finish"
+            }
+
+            assert_match *slave* [$primary role]
+            assert_match *master* [$replica role]
+        }
+
         test {failoverto aborts if replica never catches up} {
             reset_replication $replica $replica_pid $primary $primary_host $primary_port
 
@@ -146,8 +171,8 @@ start_server {tags {"failoverto"}} {
                 fail "Primary never attempted to hand off to a replica"
             }
 
-            # Wait for failover to end, we add 5 seconds here
-            wait_for_condition 50 100 {
+            # Wait for failover to end, we add 5 seconds here.
+            wait_for_condition 50 200 {
                 [s 0 master_failover_in_progress] == 0
             } else {
                 fail "Failover from primary to replica did not finish"

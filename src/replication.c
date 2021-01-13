@@ -3463,29 +3463,45 @@ void failovertoCommand(client *c) {
     }
 
     long timeout_in_ms = FAILOVERTO_TIMEOUT;
-    /* Check for optional timeout argument */
-    for (int j = 3; j < c->argc; j++) {
-        int more_args = j < c->argc;
-        if (!strcasecmp(c->argv[j]->ptr, "timeout")) {
-            j++;
-            if (more_args && getLongFromObjectOrReply(c, c->argv[j],
-                        &timeout_in_ms, NULL) != C_OK) return;
-        } else {
-            addReplyErrorObject(c, shared.syntaxerr);
-            return;
-        }
-    }
+    int force_flag = 0;
+    long port = 0;
+    char *host = NULL;
 
     /* The special host/port combination "ANY" "ONE" allows failover to any
      * replica. Otherwise the target replica info is set. */
     if (strcasecmp(c->argv[1]->ptr, "any") ||
         strcasecmp(c->argv[2]->ptr, "one"))
     {
-        long port;
         if (getLongFromObjectOrReply(c, c->argv[2], &port, NULL) != C_OK)
             return;
+        host = c->argv[1]->ptr;
+    }
 
-        client *replica = findReplica((char *) c->argv[1]->ptr, port);
+    /* Check for optional arguments */
+    for (int j = 3; j < c->argc; j++) {
+        int more_args = j + 1 < c->argc;
+        if (!strcasecmp(c->argv[j]->ptr, "timeout") && more_args)
+        {
+            j++;
+            if (getLongFromObjectOrReply(c, c->argv[j],
+                        &timeout_in_ms, NULL) != C_OK) return;
+        } else if (!strcasecmp(c->argv[j]->ptr, "force") && !force_flag) {
+            if (host) {
+                force_flag = 1;
+            } else {
+                addReplyError(c,"FAILOVERTO cannot failover to \"any one\" with "
+                            "force flag.");
+                return;  
+            }
+        } else {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return;
+        }
+    }
+
+    /* If a replica address was provided, validate that it is connected. */
+    if (host) {
+        client *replica = findReplica(host, port);
 
         if (replica == NULL) {
             addReplyError(c,"FAILOVERTO requested destination is not "
@@ -3499,23 +3515,13 @@ void failovertoCommand(client *c) {
             return;
         }
 
-        server.target_replica_host = zstrdup(c->argv[1]->ptr);
+        server.target_replica_host = zstrdup(host);
         server.target_replica_port = port;
-    }
-
-    /* Check for optional FORCE argument, ignore invalid argument */
-    if ((c->argc > 4) && !strcasecmp(c->argv[4]->ptr, "force")) {
-        if (server.target_replica_host) {
-            server.force_failover = 1;
-        } else {
-            addReplyError(c,"FAILOVERTO cannot failover to \"any one\" with "
-                            "force flag.");
-            return;
-        }
     }
 
     mstime_t now = mstime();
     server.failover_end_time = now + timeout_in_ms;
+    server.force_failover = force_flag;
     /* Cluster failover pauses for timeout_in_ms*2 so do it here too, we will
      * unpause early in failoverCron if failover times out. */
     pauseClients(now + (timeout_in_ms*2),CLIENT_PAUSE_WRITE);
