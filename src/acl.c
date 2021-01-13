@@ -2253,7 +2253,7 @@ void authCommand(client *c) {
             return;
         }
 
-        username = createStringObject("default",7);
+        username = shared.default_username; 
         password = c->argv[1];
     } else {
         username = c->argv[1];
@@ -2265,9 +2265,5 @@ void authCommand(client *c) {
     } else {
         addReplyError(c,"-WRONGPASS invalid username-password pair or user is disabled.");
     }
-
-    /* Free the "default" string object we created for the two
-     * arguments form. */
-    if (c->argc == 2) decrRefCount(username);
 }
 

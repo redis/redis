@@ -499,7 +499,7 @@ void spopWithCountCommand(client *c) {
      * Prepare our replication argument vector. Also send the array length
      * which is common to both the code paths. */
     robj *propargv[3];
-    propargv[0] = createStringObject("SREM",4);
+    propargv[0] = shared.srem;
     propargv[1] = c->argv[1];
     addReplySetLen(c,count);
 
@@ -590,13 +590,12 @@ void spopWithCountCommand(client *c) {
      * dirty counter. We don't want to propagate an SPOP command since
      * we propagated the command as a set of SREMs operations using
      * the alsoPropagate() API. */
-    decrRefCount(propargv[0]);
     preventCommandPropagation(c);
     signalModifiedKey(c,c->db,c->argv[1]);
 }
 
 void spopCommand(client *c) {
-    robj *set, *ele, *aux;
+    robj *set, *ele;
     sds sdsele;
     int64_t llele;
     int encoding;
@@ -629,9 +628,7 @@ void spopCommand(client *c) {
     notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
 
     /* Replicate/AOF this command as an SREM operation */
-    aux = createStringObject("SREM",4);
-    rewriteClientCommandVector(c,3,aux,c->argv[1],ele);
-    decrRefCount(aux);
+    rewriteClientCommandVector(c,3,shared.srem,c->argv[1],ele);
 
     /* Add the element to the reply */
     addReplyBulk(c,ele);
