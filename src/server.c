@@ -4999,6 +4999,7 @@ sds genRedisInfoString(const char *section) {
             }
         }
         info = sdscatprintf(info,
+            "master_failover_in_progress:%d\r\n"
             "master_replid:%s\r\n"
             "master_replid2:%s\r\n"
             "master_repl_offset:%lld\r\n"
@@ -5007,6 +5008,7 @@ sds genRedisInfoString(const char *section) {
             "repl_backlog_size:%lld\r\n"
             "repl_backlog_first_byte_offset:%lld\r\n"
             "repl_backlog_histlen:%lld\r\n",
+            server.failover_end_time != 0,
             server.replid,
             server.replid2,
             server.master_repl_offset,

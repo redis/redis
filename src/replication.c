@@ -3445,6 +3445,7 @@ static client *findReplica(char *host, int port) {
 }
 
 /* Implements the FAILOVERTO command */
+/* FAILOVERTO HOST PORT [TIMEOUT <timeout>] */
 void failovertoCommand(client *c) {
     if (server.cluster_enabled) {
         addReplyError(c,"FAILOVERTO not allowed in cluster mode. "
@@ -3464,9 +3465,16 @@ void failovertoCommand(client *c) {
 
     long timeout_in_ms = FAILOVERTO_TIMEOUT;
     /* Check for optional timeout argument */
-    if (c->argc > 3) {
-        if (getLongFromObjectOrReply(c, c->argv[3],
-                    &timeout_in_ms, NULL) != C_OK) return;
+    for (int j = 3; j < c->argc; j++) {
+        int more_args = j < c->argc;
+        if (!strcasecmp(c->argv[j]->ptr,"timeout")) {
+            j++;
+            if (more_args && getLongFromObjectOrReply(c, c->argv[j],
+                        &timeout_in_ms, NULL) != C_OK) return;
+        } else {
+            addReplyError(c, "This should be a syntax error.");
+            return;
+        }
     }
 
     /* The special host/port combination "ANY" "ONE" allows failover to any
