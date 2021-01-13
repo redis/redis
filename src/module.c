@@ -747,6 +747,7 @@ int64_t commandFlagsFromString(char *s) {
         else if (!strcasecmp(t,"no-slowlog")) flags |= CMD_SKIP_SLOWLOG;
         else if (!strcasecmp(t,"fast")) flags |= CMD_FAST;
         else if (!strcasecmp(t,"no-auth")) flags |= CMD_NO_AUTH;
+        else if (!strcasecmp(t,"may-replicate")) flags |= CMD_MAY_REPLICATE;
         else if (!strcasecmp(t,"getkeys-api")) flags |= CMD_MODULE_GETKEYS;
         else if (!strcasecmp(t,"no-cluster")) flags |= CMD_MODULE_NO_CLUSTER;
         else break;
@@ -813,6 +814,8 @@ int64_t commandFlagsFromString(char *s) {
  * * **"no-auth"**:    This command can be run by an un-authenticated client.
  *                     Normally this is used by a command that is used
  *                     to authenticate a client. 
+ * * **"may-replicate"**: This command may generate replication traffic, even
+ *                        though it's not a write command.  
  */
 int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
     int64_t flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
@@ -2042,7 +2045,7 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
  * periodically in timer callbacks or other periodic callbacks.
  */
 int RM_AvoidReplicaTraffic() {
-    return clientsArePaused();
+    return checkClientPauseTimeoutAndReturnIfPaused();
 }
 
 /* Change the currently selected DB. Returns an error if the id
@@ -7065,33 +7068,32 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
  */
 int RM_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
     pid_t childpid;
-    if (hasActiveChildProcess()) {
-        return -1;
-    }
 
-    openChildInfoPipe();
     if ((childpid = redisFork(CHILD_TYPE_MODULE)) == 0) {
         /* Child */
         redisSetProcTitle("redis-module-fork");
     } else if (childpid == -1) {
-        closeChildInfoPipe();
         serverLog(LL_WARNING,"Can't fork for module: %s", strerror(errno));
     } else {
         /* Parent */
-        server.module_child_pid = childpid;
         moduleForkInfo.done_handler = cb;
         moduleForkInfo.done_handler_user_data = user_data;
-        updateDictResizePolicy();
         serverLog(LL_VERBOSE, "Module fork started pid: %ld ", (long) childpid);
     }
     return childpid;
+}
+
+/* The module is advised to call this function from the fork child once in a while,
+ * so that it can report COW memory to the parent which will be reported in INFO */
+void RM_SendChildCOWInfo(void) {
+    sendChildCOWInfo(CHILD_TYPE_MODULE, 0, "Module fork");
 }
 
 /* Call from the child process when you want to terminate it.
  * retcode will be provided to the done handler executed on the parent process.
  */
 int RM_ExitFromChild(int retcode) {
-    sendChildCOWInfo(CHILD_TYPE_MODULE, "Module fork");
+    sendChildCOWInfo(CHILD_TYPE_MODULE, 1, "Module fork");
     exitFromChild(retcode);
     return REDISMODULE_OK;
 }
@@ -7101,22 +7103,20 @@ int RM_ExitFromChild(int retcode) {
  * child or the pid does not match, return C_ERR without doing anything. */
 int TerminateModuleForkChild(int child_pid, int wait) {
     /* Module child should be active and pid should match. */
-    if (server.module_child_pid == -1 ||
-        server.module_child_pid != child_pid) return C_ERR;
+    if (server.child_type != CHILD_TYPE_MODULE ||
+        server.child_pid != child_pid) return C_ERR;
 
     int statloc;
     serverLog(LL_VERBOSE,"Killing running module fork child: %ld",
-        (long) server.module_child_pid);
-    if (kill(server.module_child_pid,SIGUSR1) != -1 && wait) {
-        while(wait4(server.module_child_pid,&statloc,0,NULL) !=
-              server.module_child_pid);
+        (long) server.child_pid);
+    if (kill(server.child_pid,SIGUSR1) != -1 && wait) {
+        while(wait4(server.child_pid,&statloc,0,NULL) !=
+              server.child_pid);
     }
     /* Reset the buffer accumulating changes while the child saves. */
-    server.module_child_pid = -1;
+    resetChildState();
     moduleForkInfo.done_handler = NULL;
     moduleForkInfo.done_handler_user_data = NULL;
-    closeChildInfoPipe();
-    updateDictResizePolicy();
     return C_OK;
 }
 
@@ -7133,12 +7133,12 @@ int RM_KillForkChild(int child_pid) {
 void ModuleForkDoneHandler(int exitcode, int bysignal) {
     serverLog(LL_NOTICE,
         "Module fork exited pid: %ld, retcode: %d, bysignal: %d",
-        (long) server.module_child_pid, exitcode, bysignal);
+        (long) server.child_pid, exitcode, bysignal);
     if (moduleForkInfo.done_handler) {
         moduleForkInfo.done_handler(exitcode, bysignal,
             moduleForkInfo.done_handler_user_data);
     }
-    server.module_child_pid = -1;
+
     moduleForkInfo.done_handler = NULL;
     moduleForkInfo.done_handler_user_data = NULL;
 }
@@ -8599,6 +8599,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CommandFilterArgReplace);
     REGISTER_API(CommandFilterArgDelete);
     REGISTER_API(Fork);
+    REGISTER_API(SendChildCOWInfo);
     REGISTER_API(ExitFromChild);
     REGISTER_API(KillForkChild);
     REGISTER_API(RegisterInfoFunc);

@@ -462,7 +462,7 @@ static int isSafeToPerformEvictions(void) {
     /* When clients are paused the dataset should be static not just from the
      * POV of clients not being able to write, but also from the POV of
      * expires and evictions of keys not being performed. */
-    if (clientsArePaused()) return 0;
+    if (checkClientPauseTimeoutAndReturnIfPaused()) return 0;
 
     return 1;
 }
