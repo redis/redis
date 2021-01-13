@@ -1647,7 +1647,7 @@ robj *streamTypeLookupWriteOrCreate(client *c, robj *key, int no_create) {
  * treated as an invalid ID.
  *
  * If 'c' is set to NULL, no reply is sent to the client. */
-int streamGenericParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq, int strict) {
+int streamGenericParseIDOrReply(client *c, const robj *o, streamID *id, uint64_t missing_seq, int strict) {
     char buf[128];
     if (sdslen(o->ptr) > sizeof(buf)-1) goto invalid;
     memcpy(buf,o->ptr,sdslen(o->ptr)+1);
@@ -1684,7 +1684,7 @@ invalid:
 }
 
 /* Wrapper for streamGenericParseIDOrReply() used by module API. */
-int streamParseID(robj *o, streamID *id) {
+int streamParseID(const robj *o, streamID *id) {
     return streamGenericParseIDOrReply(NULL, o, id, 0, 0);
 }
 

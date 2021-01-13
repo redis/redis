@@ -1116,6 +1116,18 @@ RedisModuleString *RM_CreateStringFromString(RedisModuleCtx *ctx, const RedisMod
     return o;
 }
 
+/* Creates a string from a stream ID. The returned string must be released with
+ * RedisModule_FreeString(), unless automatic memory is enabled.
+ *
+ * The passed context `ctx` may be NULL if necessary. See the
+ * RedisModule_CreateString() documentation for more info. */
+RedisModuleString *RM_CreateStringFromStreamID(RedisModuleCtx *ctx, const RedisModuleStreamID *id) {
+    streamID streamid = {id->ms, id->seq};
+    RedisModuleString *o = createObjectFromStreamID(&streamid);
+    if (ctx != NULL) autoMemoryAdd(ctx, REDISMODULE_AM_STRING, o);
+    return o;
+}
+
 /* Free a module string object obtained with one of the Redis modules API calls
  * that return new string objects.
  *
@@ -1271,6 +1283,30 @@ int RM_StringToDouble(const RedisModuleString *str, double *d) {
 int RM_StringToLongDouble(const RedisModuleString *str, long double *ld) {
     int retval = string2ld(str->ptr,sdslen(str->ptr),ld);
     return retval ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
+/* Convert the string into a stream ID, storing it at `*id`.
+ * Returns REDISMODULE_OK on success and returns REDISMODULE_ERR if the string
+ * is not a valid string representation of a stream ID. The special IDs "+" and
+ * "-" are allowed.
+ *
+ * RedisModuleStreamID is a struct with two 64-bit fields, which is used in
+ * stream functions and defined as
+ *
+ *     typedef struct RedisModuleStreamID {
+ *         uint64_t ms;
+ *         uint64_t seq;
+ *     } RedisModuleStreamID;
+ */
+int RM_StringToStreamID(const RedisModuleString *str, RedisModuleStreamID *id) {
+    streamID streamid;
+    if (streamParseID(str, &streamid) == C_OK) {
+        id->ms = streamid.ms;
+        id->seq = streamid.seq;
+        return REDISMODULE_OK;
+    } else {
+        return REDISMODULE_ERR;
+    }
 }
 
 /* Compare two string objects, returning -1, 0 or 1 respectively if
@@ -3055,41 +3091,6 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
  * Key API for the stream type.
  * -------------------------------------------------------------------------- */
 
-/* Parses a stream ID. Returns REDISMODULE_OK and updates `id_parsed` on success
- * and returns REDISMODULE_ERR on syntax error. The special IDs "+" and "-" are
- * allowed.
- *
- * RedisModuleStreamID is a struct with two 64-bit fields, which is used in
- * stream functions and defined as
- *
- *     typedef struct RedisModuleStreamID {
- *         uint64_t ms;
- *         uint64_t seq;
- *     } RedisModuleStreamID;
- */
-int RM_StreamParseID(RedisModuleString *id_str, RedisModuleStreamID *id_parsed) {
-    streamID id;
-    if (streamParseID(id_str, &id) == C_OK) {
-        id_parsed->ms = id.ms;
-        id_parsed->seq = id.seq;
-        return REDISMODULE_OK;
-    } else {
-        return REDISMODULE_ERR;
-    }
-}
-
-/* Formats a stream ID as a string. The returned string must be freed with
- * RedisModule_FreeString(), unless automatic memory is enabled.
- *
- * The passed context `ctx` may be NULL if necessary. See the
- * RedisModule_CreateString() documentation for more info. */
-RedisModuleString *RM_StreamFormatID(RedisModuleCtx *ctx, RedisModuleStreamID *id) {
-    streamID streamid = {id->ms, id->seq};
-    RedisModuleString *o = createObjectFromStreamID(&streamid);
-    if (ctx != NULL) autoMemoryAdd(ctx, REDISMODULE_AM_STRING, o);
-    return o;
-}
-
 /* Adds an entry to a stream. Like XADD without trimming.
  *
  * - `key`: The key where the stream is (or will be) stored
@@ -3157,12 +3158,13 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
  *
  * - `key`: The stream key opened for reading using RedisModule_OpenKey().
  * - `flags`:
- *   - `REDISMODULE_STREAM_EXCLUSIVE`: Don't include minid and maxid in the
+ *   - `REDISMODULE_STREAM_EXCLUSIVE`: Don't include `start` and `end` in the
  *     iterated range.
  *   - `REDISMODULE_STREAM_REVERSE`: Iterate in reverse order, starting from
- *     maxid.
- * - `minid`: Lower bound of the iterated range. May be REDISMODULE_STREAM_MIN.
- * - `maxid`: Upper bound of the iterated range. May be REDISMODULE_STREAM_MAX.
+ *     the `end` of the range.
+ * - `start`: The lower bound of the range. Use NULL for the beginning of the
+ *   stream.
+ * - `end`: The upper bound of the range. Use NULL for the end of the stream.
  *
  * Returns REDISMODULE_OK on success and REDISMODULE_ERR if the key doesn't
  * refer to a stream or if invalid arguments were given.
@@ -3170,7 +3172,7 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
  * The stream items are retrieved using RedisModule_StreamIteratorNext(). The
  * iterator must be freed by callling RedisModule_StreamIteratorStop().
  */
-int RM_StreamIteratorStart(RedisModuleKey *key, int flags, RedisModuleStreamID *minid, RedisModuleStreamID *maxid) {
+int RM_StreamIteratorStart(RedisModuleKey *key, int flags, RedisModuleStreamID *start, RedisModuleStreamID *end) {
     /* check args */
     if (flags & ~(REDISMODULE_STREAM_EXCLUSIVE |
                   REDISMODULE_STREAM_REVERSE)) {
@@ -3180,23 +3182,20 @@ int RM_StreamIteratorStart(RedisModuleKey *key, int flags, RedisModuleStreamID *
         return REDISMODULE_ERR; /* not a stream */
     }
 
-    /* define range */
-    streamID min_id = minid ? (streamID){minid->ms, minid->seq}
-                            : (streamID){0, 0};
-    streamID max_id = maxid ? (streamID){maxid->ms, maxid->seq}
-                            : (streamID){UINT64_MAX, UINT64_MAX};
+    /* define range for streamIteratorStart() */
+    streamID lower, upper;
+    if (start) lower = (streamID){start->ms, start->seq};
+    if (end)   upper = (streamID){end->ms,   end->seq};
     if (flags & REDISMODULE_STREAM_EXCLUSIVE) {
-        if (streamIncrID(&min_id) != C_OK ||
-            streamDecrID(&max_id) != C_OK)
-            /* bad range */
-            return REDISMODULE_ERR;
+        if (start && streamIncrID(&lower) != C_OK) return REDISMODULE_ERR;
+        if (end   && streamDecrID(&upper) != C_OK) return REDISMODULE_ERR;
     }
 
     /* create iterator */
     stream *s = key->value->ptr;
     int rev = flags & REDISMODULE_STREAM_REVERSE;
     streamIterator *si = zmalloc(sizeof(*si));
-    streamIteratorStart(si, s, &min_id, &max_id, rev);
+    streamIteratorStart(si, s, start ? &lower : NULL, end ? &upper : NULL, rev);
     key->iter = si;
     return REDISMODULE_OK;
 }
@@ -8706,6 +8705,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(StringToLongLong);
     REGISTER_API(StringToDouble);
     REGISTER_API(StringToLongDouble);
+    REGISTER_API(StringToStreamID);
     REGISTER_API(Call);
     REGISTER_API(CallReplyProto);
     REGISTER_API(FreeCallReply);
@@ -8720,6 +8720,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CreateStringFromDouble);
     REGISTER_API(CreateStringFromLongDouble);
     REGISTER_API(CreateStringFromString);
+    REGISTER_API(CreateStringFromStreamID);
     REGISTER_API(CreateStringPrintf);
     REGISTER_API(FreeString);
     REGISTER_API(StringPtrLen);
@@ -8751,8 +8752,6 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ZsetRangeEndReached);
     REGISTER_API(HashSet);
     REGISTER_API(HashGet);
-    REGISTER_API(StreamParseID);
-    REGISTER_API(StreamFormatID);
     REGISTER_API(StreamAdd);
     REGISTER_API(StreamIteratorStart);
     REGISTER_API(StreamIteratorStop);

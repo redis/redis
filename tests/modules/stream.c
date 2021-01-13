@@ -21,7 +21,7 @@ int stream_add(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModuleStreamID id;
     if (RedisModule_StreamAdd(key, REDISMODULE_STREAM_AUTOID, &id,
                               &argv[2], (argc-2)/2) == REDISMODULE_OK) {
-        RedisModuleString *id_str = RedisModule_StreamFormatID(ctx, &id);
+        RedisModuleString *id_str = RedisModule_CreateStringFromStreamID(ctx, &id);
         RedisModule_ReplyWithString(ctx, id_str);
         RedisModule_FreeString(ctx, id_str);
     } else {
@@ -74,13 +74,13 @@ int stream_range(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
 
     RedisModuleStreamID startid, endid;
-    if (RedisModule_StreamParseID(argv[2], &startid) != REDISMODULE_OK ||
-        RedisModule_StreamParseID(argv[3], &endid) != REDISMODULE_OK) {
+    if (RedisModule_StringToStreamID(argv[2], &startid) != REDISMODULE_OK ||
+        RedisModule_StringToStreamID(argv[3], &endid) != REDISMODULE_OK) {
         RedisModule_ReplyWithError(ctx, "Invalid stream ID");
         return REDISMODULE_OK;
     }
 
-    /* If startid > endid, we swap and do reverse iteration. */
+    /* If startid > endid, we swap and set the reverse flag. */
     int flags = 0;
     if (startid.ms > endid.ms ||
         (startid.ms == endid.ms && startid.seq > endid.seq)) {
@@ -111,7 +111,8 @@ int stream_range(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                                           fields_and_values,
                                           &numfields) == REDISMODULE_OK) {
         RedisModule_ReplyWithArray(ctx, 2);
-        RedisModule_ReplyWithString(ctx, RedisModule_StreamFormatID(ctx, &id));
+        RedisModuleString *id_str = RedisModule_CreateStringFromStreamID(ctx, &id);
+        RedisModule_ReplyWithString(ctx, id_str);
         RedisModule_ReplyWithArray(ctx, numfields * 2);
         for (long i = 0; i < numfields * 2; i++) {
             RedisModule_ReplyWithString(ctx, fields_and_values[i]);
@@ -141,7 +142,7 @@ int stream_trim(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     const char *arg = RedisModule_StringPtrLen(argv[2], &arg_len);
     if (!strcasecmp(arg, "minid")) {
         trim_by_id = 1;
-        if (RedisModule_StreamParseID(argv[4], &minid) != REDISMODULE_OK) {
+        if (RedisModule_StringToStreamID(argv[4], &minid) != REDISMODULE_OK) {
             RedisModule_ReplyWithError(ctx, "ERR Invalid stream ID");
             return REDISMODULE_OK;
         }

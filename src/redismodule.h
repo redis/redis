@@ -75,12 +75,6 @@ typedef struct RedisModuleStreamID {
     uint64_t seq;
 } RedisModuleStreamID;
 
-/* StreamID MIN and MAX to be used like "-" and "+". */
-#define REDISMODULE_STREAMID_MIN \
-    ((struct RedisModuleStreamID){0, 0})
-#define REDISMODULE_STREAMID_MAX \
-    ((struct RedisModuleStreamID){UINT64_MAX, UINT64_MAX})
-
 /* Stream API flags. */
 #define REDISMODULE_STREAM_NONE 0
 #define REDISMODULE_STREAM_AUTOID (1<<0)
@@ -598,6 +592,7 @@ REDISMODULE_API RedisModuleString * (*RedisModule_CreateStringFromLongLong)(Redi
 REDISMODULE_API RedisModuleString * (*RedisModule_CreateStringFromDouble)(RedisModuleCtx *ctx, double d) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_CreateStringFromLongDouble)(RedisModuleCtx *ctx, long double ld, int humanfriendly) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_CreateStringFromString)(RedisModuleCtx *ctx, const RedisModuleString *str) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleString * (*RedisModule_CreateStringFromStreamID)(RedisModuleCtx *ctx, const RedisModuleStreamID *id) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_CreateStringPrintf)(RedisModuleCtx *ctx, const char *fmt, ...) REDISMODULE_ATTR_PRINTF(2,3) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_FreeString)(RedisModuleCtx *ctx, RedisModuleString *str) REDISMODULE_ATTR;
 REDISMODULE_API const char * (*RedisModule_StringPtrLen)(const RedisModuleString *str, size_t *len) REDISMODULE_ATTR;
@@ -619,6 +614,7 @@ REDISMODULE_API int (*RedisModule_ReplyWithCallReply)(RedisModuleCtx *ctx, Redis
 REDISMODULE_API int (*RedisModule_StringToLongLong)(const RedisModuleString *str, long long *ll) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_StringToDouble)(const RedisModuleString *str, double *d) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_StringToLongDouble)(const RedisModuleString *str, long double *d) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_StringToStreamID)(const RedisModuleString *str, RedisModuleStreamID *id) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_AutoMemory)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_Replicate)(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplicateVerbatim)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
@@ -649,10 +645,8 @@ REDISMODULE_API int (*RedisModule_ZsetRangePrev)(RedisModuleKey *key) REDISMODUL
 REDISMODULE_API int (*RedisModule_ZsetRangeEndReached)(RedisModuleKey *key) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_HashSet)(RedisModuleKey *key, int flags, ...) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_HashGet)(RedisModuleKey *key, int flags, ...) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_StreamParseID)(RedisModuleString *id_str, RedisModuleStreamID *id_parsed) REDISMODULE_ATTR;
-REDISMODULE_API RedisModuleString * (*RedisModule_StreamFormatID)(RedisModuleCtx *ctx, RedisModuleStreamID *id) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_StreamAdd)(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisModuleString **argv, int64_t numfields) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_StreamIteratorStart)(RedisModuleKey *key, int flags, RedisModuleStreamID *minid, RedisModuleStreamID *maxid) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_StreamIteratorStart)(RedisModuleKey *key, int flags, RedisModuleStreamID *startid, RedisModuleStreamID *endid) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_StreamIteratorStop)(RedisModuleKey *key) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_StreamIteratorNext)(RedisModuleKey *key, long maxnumfields, RedisModuleStreamID *id, RedisModuleString **fieldsvalues, long *numfields) REDISMODULE_ATTR;
 REDISMODULE_API long long (*RedisModule_StreamTrimByLength)(RedisModuleKey *key, int flags, long long length) REDISMODULE_ATTR;
@@ -870,6 +864,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(StringToLongLong);
     REDISMODULE_GET_API(StringToDouble);
     REDISMODULE_GET_API(StringToLongDouble);
+    REDISMODULE_GET_API(StringToStreamID);
     REDISMODULE_GET_API(Call);
     REDISMODULE_GET_API(CallReplyProto);
     REDISMODULE_GET_API(FreeCallReply);
@@ -884,6 +879,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(CreateStringFromDouble);
     REDISMODULE_GET_API(CreateStringFromLongDouble);
     REDISMODULE_GET_API(CreateStringFromString);
+    REDISMODULE_GET_API(CreateStringFromStreamID);
     REDISMODULE_GET_API(CreateStringPrintf);
     REDISMODULE_GET_API(FreeString);
     REDISMODULE_GET_API(StringPtrLen);
@@ -915,8 +911,6 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ZsetRangeEndReached);
     REDISMODULE_GET_API(HashSet);
     REDISMODULE_GET_API(HashGet);
-    REDISMODULE_GET_API(StreamParseID);
-    REDISMODULE_GET_API(StreamFormatID);
     REDISMODULE_GET_API(StreamAdd);
     REDISMODULE_GET_API(StreamIteratorStart);
     REDISMODULE_GET_API(StreamIteratorStop);
