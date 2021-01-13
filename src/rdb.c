@@ -1922,6 +1922,19 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
     while(1) {
         robj *key, *val;
 
+        /* Check repl state whether change, There is a risk that the Master node
+         * change during our loading the RDB in cluster mode, When it actually
+         * happens, clusterSetMaster will be calld, it close server.repl_transfer_fd
+         * and free server.repl_transfer_tmpfile. after rdbLoad successful finish, the
+         * same operation was done a second time, Causes double free problems.
+         *
+         * When a new master is specified, we should stop load the old RDB and sync
+         * new Master ASAP. */
+        if (rsi->repl_load && server.repl_state != REPL_STATE_TRANSFER) {
+          serverLog(LL_WARNING, "Repl state changed, Stop load the RDB");
+          return C_ERR;
+        }
+
         /* Read type. */
         if ((type = rdbLoadType(rdb)) == -1) goto eoferr;
 

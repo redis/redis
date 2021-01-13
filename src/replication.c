@@ -1324,6 +1324,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         aeDeleteFileEvent(server.el,server.repl_transfer_s,AE_READABLE);
         serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Loading DB in memory");
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
+        rsi.repl_load = 1;
         if (rdbLoad(server.rdb_filename,&rsi) != C_OK) {
             serverLog(LL_WARNING,"Failed trying to load the MASTER synchronization DB from disk");
             cancelReplicationHandshake();
@@ -1335,6 +1336,8 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         /* Final setup of the connected slave <- master link */
         zfree(server.repl_transfer_tmpfile);
         close(server.repl_transfer_fd);
+        server.repl_transfer_fd = -1;
+        server.repl_transfer_tmpfile = NULL;
         replicationCreateMasterClient(server.repl_transfer_s,rsi.repl_stream_db);
         server.repl_state = REPL_STATE_CONNECTED;
         server.repl_down_since = 0;
@@ -1964,6 +1967,8 @@ void replicationAbortSyncTransfer(void) {
     close(server.repl_transfer_fd);
     unlink(server.repl_transfer_tmpfile);
     zfree(server.repl_transfer_tmpfile);
+    server.repl_transfer_fd = -1;
+    server.repl_transfer_tmpfile = NULL;
 }
 
 /* This function aborts a non blocking replication attempt if there is one
