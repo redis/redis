@@ -1335,6 +1335,8 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         /* Final setup of the connected slave <- master link */
         zfree(server.repl_transfer_tmpfile);
         close(server.repl_transfer_fd);
+        server.repl_transfer_fd = -1;
+        server.repl_transfer_tmpfile = NULL
         replicationCreateMasterClient(server.repl_transfer_s,rsi.repl_stream_db);
         server.repl_state = REPL_STATE_CONNECTED;
         server.repl_down_since = 0;
@@ -1964,6 +1966,8 @@ void replicationAbortSyncTransfer(void) {
     close(server.repl_transfer_fd);
     unlink(server.repl_transfer_tmpfile);
     zfree(server.repl_transfer_tmpfile);
+    server.repl_transfer_fd = -1;
+    server.repl_transfer_tmpfile = NULL
 }
 
 /* This function aborts a non blocking replication attempt if there is one
