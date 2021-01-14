@@ -10,7 +10,7 @@ set ::tlsdir "../../tls"
 
 proc main {} {
     parse_options
-    spawn_instance sentinel $::sentinel_base_port $::instances_count
+    spawn_instance sentinel $::sentinel_base_port $::instances_count [list "sentinel deny-scripts-reconfig no"]
     spawn_instance redis $::redis_base_port $::instances_count
     run_tests
     cleanup
