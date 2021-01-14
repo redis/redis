@@ -2399,7 +2399,7 @@ RedisModuleString *RM_ListPop(RedisModuleKey *key, int where) {
 
 /* Conversion from/to public flags of the Modules API and our private flags,
  * so that we have everything decoupled. */
-int RM_ZsetAddFlagsToCoreFlags(int flags) {
+int moduleZsetAddFlagsToCoreFlags(int flags) {
     int retflags = 0;
     if (flags & REDISMODULE_ZADD_XX) retflags |= ZADD_XX;
     if (flags & REDISMODULE_ZADD_NX) retflags |= ZADD_NX;
@@ -2409,7 +2409,7 @@ int RM_ZsetAddFlagsToCoreFlags(int flags) {
 }
 
 /* See previous function comment. */
-int RM_ZsetAddFlagsFromCoreFlags(int flags) {
+int moduleZsetAddFlagsFromCoreFlags(int flags) {
     int retflags = 0;
     if (flags & ZADD_ADDED) retflags |= REDISMODULE_ZADD_ADDED;
     if (flags & ZADD_UPDATED) retflags |= REDISMODULE_ZADD_UPDATED;
@@ -2454,12 +2454,12 @@ int RM_ZsetAdd(RedisModuleKey *key, double score, RedisModuleString *ele, int *f
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
     if (key->value && key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
     if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_ZSET);
-    if (flagsptr) flags = RM_ZsetAddFlagsToCoreFlags(*flagsptr);
+    if (flagsptr) flags = moduleZsetAddFlagsToCoreFlags(*flagsptr);
     if (zsetAdd(key->value,score,ele->ptr,&flags,NULL) == 0) {
         if (flagsptr) *flagsptr = 0;
         return REDISMODULE_ERR;
     }
-    if (flagsptr) *flagsptr = RM_ZsetAddFlagsFromCoreFlags(flags);
+    if (flagsptr) *flagsptr = moduleZsetAddFlagsFromCoreFlags(flags);
     return REDISMODULE_OK;
 }
 
@@ -2481,7 +2481,7 @@ int RM_ZsetIncrby(RedisModuleKey *key, double score, RedisModuleString *ele, int
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
     if (key->value && key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
     if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_ZSET);
-    if (flagsptr) flags = RM_ZsetAddFlagsToCoreFlags(*flagsptr);
+    if (flagsptr) flags = moduleZsetAddFlagsToCoreFlags(*flagsptr);
     flags |= ZADD_INCR;
     if (zsetAdd(key->value,score,ele->ptr,&flags,newscore) == 0) {
         if (flagsptr) *flagsptr = 0;
@@ -2492,7 +2492,7 @@ int RM_ZsetIncrby(RedisModuleKey *key, double score, RedisModuleString *ele, int
         *flagsptr = 0;
         return REDISMODULE_ERR;
     }
-    if (flagsptr) *flagsptr = RM_ZsetAddFlagsFromCoreFlags(flags);
+    if (flagsptr) *flagsptr = moduleZsetAddFlagsFromCoreFlags(flags);
     return REDISMODULE_OK;
 }
 
@@ -3163,9 +3163,8 @@ void moduleParseCallReply_Array(RedisModuleCallReply *reply) {
     reply->type = REDISMODULE_REPLY_ARRAY;
 }
 
-/* Free a Call reply and all the nested replies it contains if it's an
- * array. */
-void RM_FreeCallReply_Rec(RedisModuleCallReply *reply, int freenested){
+/* Recursive free reply function. */
+void moduleFreeCallReplyRec(RedisModuleCallReply *reply, int freenested){
     /* Don't free nested replies by default: the user must always free the
      * toplevel reply. However be gentle and don't crash if the module
      * misuses the API. */
@@ -3175,7 +3174,7 @@ void RM_FreeCallReply_Rec(RedisModuleCallReply *reply, int freenested){
         if (reply->type == REDISMODULE_REPLY_ARRAY) {
             size_t j;
             for (j = 0; j < reply->len; j++)
-                RM_FreeCallReply_Rec(reply->val.array+j,1);
+                moduleFreeCallReplyRec(reply->val.array+j,1);
             zfree(reply->val.array);
         }
     }
@@ -3190,13 +3189,14 @@ void RM_FreeCallReply_Rec(RedisModuleCallReply *reply, int freenested){
     }
 }
 
-/* Wrapper for the recursive free reply function. This is needed in order
- * to have the first level function to return on nested replies, but only
- * if called by the module API. */
+/* Free a Call reply and all the nested replies it contains if it's an
+ * array. */
 void RM_FreeCallReply(RedisModuleCallReply *reply) {
-
+    /* This is a wrapper for the recursive free reply function. This is needed
+     * in order to have the first level function to return on nested replies,
+     * but only if called by the module API. */
     RedisModuleCtx *ctx = reply->ctx;
-    RM_FreeCallReply_Rec(reply,0);
+    moduleFreeCallReplyRec(reply,0);
     autoMemoryFreed(ctx,REDISMODULE_AM_REPLY,reply);
 }
 
@@ -4386,7 +4386,7 @@ const RedisModuleString *RM_GetKeyNameFromModuleKey(RedisModuleKey *key) {
  *      RM_LogIOError()
  *
  */
-void RM_LogRaw(RedisModule *module, const char *levelstr, const char *fmt, va_list ap) {
+void moduleLogRaw(RedisModule *module, const char *levelstr, const char *fmt, va_list ap) {
     char msg[LOG_MAX_LEN];
     size_t name_len;
     int level;
@@ -4425,7 +4425,7 @@ void RM_LogRaw(RedisModule *module, const char *levelstr, const char *fmt, va_li
 void RM_Log(RedisModuleCtx *ctx, const char *levelstr, const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
-    RM_LogRaw(ctx? ctx->module: NULL,levelstr,fmt,ap);
+    moduleLogRaw(ctx? ctx->module: NULL,levelstr,fmt,ap);
     va_end(ap);
 }
 
@@ -4437,7 +4437,7 @@ void RM_Log(RedisModuleCtx *ctx, const char *levelstr, const char *fmt, ...) {
 void RM_LogIOError(RedisModuleIO *io, const char *levelstr, const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
-    RM_LogRaw(io->type->module,levelstr,fmt,ap);
+    moduleLogRaw(io->type->module,levelstr,fmt,ap);
     va_end(ap);
 }
 
