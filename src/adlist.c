@@ -85,7 +85,7 @@ void listRelease(list *list)
  *
  * On error, NULL is returned and no operation is performed (i.e. the
  * list remains unaltered).
- * On success the 'list' pointer you pass to the function is returned. */
+ * On success the node pointer which added is returned. */
 listNode *listAddNodeHead(list *list, void *value)
 {
     listNode *node;
@@ -111,7 +111,7 @@ listNode *listAddNodeHead(list *list, void *value)
  *
  * On error, NULL is returned and no operation is performed (i.e. the
  * list remains unaltered).
- * On success the 'list' pointer you pass to the function is returned. */
+ * On success the node pointer which added is returned. */
 listNode *listAddNodeTail(list *list, void *value)
 {
     listNode *node;
