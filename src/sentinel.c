@@ -474,6 +474,20 @@ struct redisCommand sentinelcmds[] = {
     {"command",commandCommand,-1, "random @connection", 0,NULL,0,0,0,0,0,0}
 };
 
+/* this array is used for sentinel config lookup, which need to be loaded
+ * before monitoring masters config to avoid dependency issues */
+const char *preMonitorCfgName[] = { 
+    "announce-ip",
+    "announce-port",
+    "deny-scripts-reconfig",
+    "sentinel-user",
+    "sentinel-pass",
+    "current-epoch",
+    "myid",
+    "resolve-hostnames",
+    "announce-hostnames"
+};
+
 /* This function overwrites a few normal Redis config default with Sentinel
  * specific defaults. */
 void initSentinelConfig(void) {
@@ -524,9 +538,11 @@ void initSentinel(void) {
     memset(sentinel.myid,0,sizeof(sentinel.myid));
     server.sentinel_config = zmalloc(sizeof(struct sentinelConfig));
     server.sentinel_config->monitor_cfg = listCreate();
-    server.sentinel_config->aux_cfg = listCreate();
+    server.sentinel_config->pre_monitor_cfg = listCreate();
+    server.sentinel_config->post_monitor_cfg = listCreate();
     listSetFreeMethod(server.sentinel_config->monitor_cfg,freeSentinelLoadQueueEntry);
-    listSetFreeMethod(server.sentinel_config->aux_cfg,freeSentinelLoadQueueEntry);
+    listSetFreeMethod(server.sentinel_config->pre_monitor_cfg,freeSentinelLoadQueueEntry);
+    listSetFreeMethod(server.sentinel_config->post_monitor_cfg,freeSentinelLoadQueueEntry);
 }
 
 /* This function gets called when the server is in Sentinel mode, started,
@@ -1676,6 +1692,15 @@ char *sentinelCheckCreateInstanceErrors(int role) {
     }
 }
 
+/* Search config name in pre monitor config name array, return 1 if found,
+ * 0 if not found. */
+int searchPreMonitorCfgName(const char *name) {
+    for (unsigned int i = 0; i < sizeof(preMonitorCfgName)/sizeof(preMonitorCfgName[0]); i++) {
+        if (!strcasecmp(preMonitorCfgName[i],name)) return 1;
+    }
+    return 0;
+}
+
 /* free method for sentinelLoadQueueEntry when release the list */
 void freeSentinelLoadQueueEntry(void *item) {
     struct sentinelLoadQueueEntry *entry = item;
@@ -1684,9 +1709,9 @@ void freeSentinelLoadQueueEntry(void *item) {
     zfree(entry);
 }
 
-/*  This function is used for queuing sentinel configuration, the main 
-    purpose of this function is to delay parsing the sentinel config option
-    in order to avoid the dependency issue from the config. */
+/* This function is used for queuing sentinel configuration, the main
+ * purpose of this function is to delay parsing the sentinel config option
+ * in order to avoid the dependency issue from the config. */
 void queueSentinelConfig(sds *argv, int argc, int linenum, sds line) {
     int i;
     struct sentinelLoadQueueEntry *entry;
@@ -1699,17 +1724,20 @@ void queueSentinelConfig(sds *argv, int argc, int linenum, sds line) {
     for (i = 0; i < argc; i++) {
         entry->argv[i] = sdsdup(argv[i]);
     }
-    /*  put the line with monitor subconfig in a separate list, in order to
-        parsing it first when loading */
+    /*  Separate config lines with pre monitor config, monitor config and
+     *  post monitor config, in order to parsing config dependencies
+     *  correctly. */
     if (!strcasecmp(argv[0],"monitor")) {
         listAddNodeTail(server.sentinel_config->monitor_cfg,entry);
-    } else {
-        listAddNodeTail(server.sentinel_config->aux_cfg,entry);
+    } else if (searchPreMonitorCfgName(argv[0])) {
+        listAddNodeTail(server.sentinel_config->pre_monitor_cfg,entry);
+    } else{
+        listAddNodeTail(server.sentinel_config->post_monitor_cfg,entry);
     }
 }
 
-/* This function is used for loading the sentinel configuration from monitor_cfg
-    and aux_cfg list */
+/* This function is used for loading the sentinel configuration from
+ * pre_monitor_cfg, monitor_cfg and post_monitor_cfg list */
 void loadSentinelConfigFromQueue(void) {
     char *err = NULL;
     listIter li;
@@ -1717,7 +1745,19 @@ void loadSentinelConfigFromQueue(void) {
     int linenum = 0;
     sds line = NULL;
 
-    /* loading from monitor config queue first to avoid dependency issues */
+    /* loading from pre monitor config queue first to avoid dependency issues */
+    listRewind(server.sentinel_config->pre_monitor_cfg,&li);
+    while((ln = listNext(&li))) {
+        struct sentinelLoadQueueEntry *entry = ln->value;
+        err = sentinelHandleConfiguration(entry->argv,entry->argc);
+        if (err) {
+            linenum = entry->linenum;
+            line = entry->line;
+            goto loaderr;
+        }
+    }
+
+    /* loading from monitor config queue */
     listRewind(server.sentinel_config->monitor_cfg,&li);
     while((ln = listNext(&li))) {
         struct sentinelLoadQueueEntry *entry = ln->value;
@@ -1727,11 +1767,10 @@ void loadSentinelConfigFromQueue(void) {
             line = entry->line;
             goto loaderr;
         }
-
     }
 
-    /* loading from the auxiliary config queue */
-    listRewind(server.sentinel_config->aux_cfg,&li);
+    /* loading from the post monitor config queue */
+    listRewind(server.sentinel_config->post_monitor_cfg,&li);
     while((ln = listNext(&li))) {
         struct sentinelLoadQueueEntry *entry = ln->value;
         err = sentinelHandleConfiguration(entry->argv,entry->argc);
@@ -1743,8 +1782,9 @@ void loadSentinelConfigFromQueue(void) {
     }
 
     /* release these two queues since we will not use it anymore */
+    listRelease(server.sentinel_config->pre_monitor_cfg);
     listRelease(server.sentinel_config->monitor_cfg);
-    listRelease(server.sentinel_config->aux_cfg);
+    listRelease(server.sentinel_config->post_monitor_cfg);
     zfree(server.sentinel_config);
     server.sentinel_config = NULL;
     return;

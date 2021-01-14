@@ -950,8 +950,9 @@ struct sentinelLoadQueueEntry {
 };
 
 struct sentinelConfig {
+    list *pre_monitor_cfg;
     list *monitor_cfg;
-    list *aux_cfg;
+    list *post_monitor_cfg;
 };
 
 struct sharedObjectsStruct {
