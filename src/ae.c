@@ -31,6 +31,7 @@
  */
 
 #include "ae.h"
+#include "anet.h"
 
 #include <stdio.h>
 #include <sys/time.h>
@@ -44,7 +45,6 @@
 
 #include "zmalloc.h"
 #include "config.h"
-#include "fileopt_unix.h"
 
 /* Include the best multiplexing layer supported by this system.
  * The following should be ordered by performances, descending. */

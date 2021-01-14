@@ -89,6 +89,26 @@ int anetBlock(char *err, int fd) {
     return anetSetBlock(err,fd,0);
 }
 
+int anetCloexec(int fd) {
+    int r;
+    int flags;
+
+    do
+        r = fcntl(fd, F_GETFD);
+    while (r == -1 && errno == EINTR);
+
+    if (r == -1 || (r & FD_CLOEXEC))
+        return r;
+
+    flags = r | FD_CLOEXEC;
+
+    do
+        r = fcntl(fd, F_SETFD, flags);
+    while (r == -1 && errno == EINTR);
+
+    return r;
+}
+
 /* Set TCP keep alive option to detect dead peers. The interval option
  * is only used for Linux as we are using Linux-specific APIs to set
  * the probe send time, interval, and count. */

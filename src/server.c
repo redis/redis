@@ -35,7 +35,6 @@
 #include "latency.h"
 #include "atomicvar.h"
 #include "mt19937-64.h"
-#include "fileopt_unix.h"
 
 #include <time.h>
 #include <signal.h>
@@ -2907,7 +2906,7 @@ int listenToPort(int port, int *fds, int *count) {
             return C_ERR;
         }
         anetNonBlock(NULL,fds[*count]);
-        cloexecFcntl(fds[*count]);
+        anetCloexec(fds[*count]);
         (*count)++;
     }
     return C_OK;
@@ -3042,7 +3041,7 @@ void initServer(void) {
             exit(1);
         }
         anetNonBlock(NULL,server.sofd);
-        cloexecFcntl(server.sofd);
+        anetCloexec(server.sofd);
     }
 
     /* Abort if there are no listening sockets at all. */
@@ -5205,7 +5204,6 @@ void setupChildSignalHandlers(void) {
  * parent restarts it can bind/lock despite the child possibly still running. */
 void closeChildUnusedResourceAfterFork() {
     closeListeningSockets(0);
-
     if (server.cluster_enabled && server.cluster_config_file_lock_fd != -1) 
         close(server.cluster_config_file_lock_fd);  /* don't care if this fails */ 
 

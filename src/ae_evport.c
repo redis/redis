@@ -82,7 +82,7 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
         zfree(state);
         return -1;
     }
-    cloexecFcntl(state->portfd);
+    anetCloexec(state->portfd);
 
     state->npending = 0;
 

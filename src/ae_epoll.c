@@ -51,7 +51,7 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
         zfree(state);
         return -1;
     }
-    cloexecFcntl(state->epfd);
+    anetCloexec(state->epfd);
     eventLoop->apidata = state;
     return 0;
 }
