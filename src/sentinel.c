@@ -1523,14 +1523,17 @@ int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *ip,
     newaddr = createSentinelAddr(ip,port);
     if (newaddr == NULL) return C_ERR;
 
-    /* Make a list of slaves to add back after the reset.
-     * Don't include the one having the address we are switching to. */
+    /* There can be only 0 or 1 slave that has the newaddr.
+     * and It can add old master 1 more slave. 
+     * so It allocates dictSize(master->slaves) + 1          */
+    slaves = zmalloc(sizeof(sentinelAddr*)*(dictSize(master->slaves) + 1));
+    
+    /* Don't include the one having the address we are switching to. */
     di = dictGetIterator(master->slaves);
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *slave = dictGetVal(de);
 
         if (sentinelAddrIsEqual(slave->addr,newaddr)) continue;
-        slaves = zrealloc(slaves,sizeof(sentinelAddr*)*(numslaves+1));
         slaves[numslaves++] = createSentinelAddr(slave->addr->ip,
                                                  slave->addr->port);
     }
@@ -1540,7 +1543,6 @@ int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *ip,
      * as a slave as well, so that we'll be able to sense / reconfigure
      * the old master. */
     if (!sentinelAddrIsEqual(newaddr,master->addr)) {
-        slaves = zrealloc(slaves,sizeof(sentinelAddr*)*(numslaves+1));
         slaves[numslaves++] = createSentinelAddr(master->addr->ip,
                                                  master->addr->port);
     }
