@@ -1642,6 +1642,24 @@ char *sentinelInstanceMapCommand(sentinelRedisInstance *ri, char *command) {
 }
 
 /* ============================ Config handling ============================= */
+
+/* generalise handling create instance error. role == 0 for master, role == 1 for
+   slave, role == 2 for sentinel */
+char *sentinelCheckCreateInstanceErrors(int role) {
+    switch(errno) {
+    case EBUSY:
+        if (role == 0) return "Duplicated master name.";
+        else if (role == 1) return "duplicated hostname and port for replica.";
+        else return "duplicated runid for sentinel.";
+    case ENOENT:
+        return "Can't resolve instance hostname.";
+    case EINVAL:
+        return "Invalid port number.";
+    default:
+        return "Unknown Error for creating instances.";
+    }
+}
+
 char *sentinelHandleConfiguration(char **argv, int argc) {
     sentinelRedisInstance *ri;
 
@@ -1653,11 +1671,7 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
         if (createSentinelRedisInstance(argv[1],SRI_MASTER,argv[2],
                                         atoi(argv[3]),quorum,NULL) == NULL)
         {
-            switch(errno) {
-            case EBUSY: return "Duplicated master name.";
-            case ENOENT: return "Can't resolve master instance hostname.";
-            case EINVAL: return "Invalid port number";
-            }
+            return sentinelCheckCreateInstanceErrors(0);
         }
     } else if (!strcasecmp(argv[0],"down-after-milliseconds") && argc == 3) {
         /* down-after-milliseconds <name> <milliseconds> */
@@ -1739,7 +1753,7 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
         if ((slave = createSentinelRedisInstance(NULL,SRI_SLAVE,argv[2],
                     atoi(argv[3]), ri->quorum, ri)) == NULL)
         {
-            return "Wrong hostname or port for replica.";
+            return sentinelCheckCreateInstanceErrors(1);
         }
     } else if (!strcasecmp(argv[0],"known-sentinel") &&
                (argc == 4 || argc == 5)) {
@@ -1752,7 +1766,7 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
             if ((si = createSentinelRedisInstance(argv[4],SRI_SENTINEL,argv[2],
                         atoi(argv[3]), ri->quorum, ri)) == NULL)
             {
-                return "Wrong hostname or port for sentinel.";
+                return sentinelCheckCreateInstanceErrors(2);
             }
             si->runid = sdsnew(argv[4]);
             sentinelTryConnectionSharing(si);
