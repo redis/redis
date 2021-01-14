@@ -615,8 +615,7 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
             if ((mask & AE_READABLE)) {
                 if (SSL_pending(conn->ssl) > 0) {
                     if (!conn->pending_list_node) {
-                        listAddNodeTail(pending_list, conn);
-                        conn->pending_list_node = listLast(pending_list);
+                        conn->pending_list_node = listAddNodeTail(pending_list, conn);
                     }
                 } else if (conn->pending_list_node) {
                     listDelNode(pending_list, conn->pending_list_node);

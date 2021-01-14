@@ -86,7 +86,7 @@ void listRelease(list *list)
  * On error, NULL is returned and no operation is performed (i.e. the
  * list remains unaltered).
  * On success the 'list' pointer you pass to the function is returned. */
-list *listAddNodeHead(list *list, void *value)
+listNode *listAddNodeHead(list *list, void *value)
 {
     listNode *node;
 
@@ -103,7 +103,7 @@ list *listAddNodeHead(list *list, void *value)
         list->head = node;
     }
     list->len++;
-    return list;
+    return node;
 }
 
 /* Add a new node to the list, to tail, containing the specified 'value'
@@ -112,7 +112,7 @@ list *listAddNodeHead(list *list, void *value)
  * On error, NULL is returned and no operation is performed (i.e. the
  * list remains unaltered).
  * On success the 'list' pointer you pass to the function is returned. */
-list *listAddNodeTail(list *list, void *value)
+listNode *listAddNodeTail(list *list, void *value)
 {
     listNode *node;
 
@@ -129,10 +129,10 @@ list *listAddNodeTail(list *list, void *value)
         list->tail = node;
     }
     list->len++;
-    return list;
+    return node;
 }
 
-list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
+listNode *listInsertNode(list *list, listNode *old_node, void *value, int after) {
     listNode *node;
 
     if ((node = zmalloc(sizeof(*node))) == NULL)
@@ -158,7 +158,7 @@ list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
         node->next->prev = node;
     }
     list->len++;
-    return list;
+    return node;
 }
 
 /* Remove the specified node from the specified list.

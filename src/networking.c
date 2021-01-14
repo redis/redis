@@ -88,11 +88,10 @@ int listMatchObjects(void *a, void *b) {
 /* This function links the client to the global linked list of clients.
  * unlinkClient() does the opposite, among other things. */
 void linkClient(client *c) {
-    listAddNodeTail(server.clients,c);
     /* Note that we remember the linked list node where the client is stored,
      * this way removing the client in unlinkClient() will not require
      * a linear scan, but just a constant time operation. */
-    c->client_list_node = listLast(server.clients);
+    c->client_list_node = listAddNodeTail(server.clients,c);
     uint64_t id = htonu64(c->id);
     raxInsert(server.clients_index,(unsigned char*)&id,sizeof(id),c,NULL);
 }
@@ -556,8 +555,7 @@ void *addReplyDeferredLen(client *c) {
      * event loop setDeferredAggregateLen() will be called. */
     if (prepareClientToWrite(c) != C_OK) return NULL;
     trimReplyUnusedTailSpace(c);
-    listAddNodeTail(c->reply,NULL); /* NULL is our placeholder. */
-    return listLast(c->reply);
+    return listAddNodeTail(c->reply,NULL); /* NULL is our placeholder. */
 }
 
 void setDeferredReply(client *c, void *node, const char *s, size_t length) {

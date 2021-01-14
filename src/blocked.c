@@ -90,8 +90,7 @@ void blockClient(client *c, int btype) {
     server.blocked_clients_by_type[btype]++;
     addClientToTimeoutTable(c);
     if (btype == BLOCKED_PAUSE) {
-        listAddNodeTail(server.paused_clients, c);
-        c->paused_list_node = listLast(server.paused_clients);
+        c->paused_list_node = listAddNodeTail(server.paused_clients, c);
         /* Mark this client to execute its command */
         c->flags |= CLIENT_PENDING_COMMAND;
     }
@@ -620,8 +619,7 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
         } else {
             l = dictGetVal(de);
         }
-        listAddNodeTail(l,c);
-        bki->listnode = listLast(l);
+        bki->listnode = listAddNodeTail(l,c);
     }
     blockClient(c,btype);
 }
