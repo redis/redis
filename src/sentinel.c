@@ -2101,7 +2101,6 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
     /* Commands connection. */
     if (link->cc == NULL) {
         link->cc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,NET_FIRST_BIND_ADDR);
-        anetCloexec(link->cc->c.fd);
         if (!link->cc->err && server.tls_replication &&
                 (instanceLinkNegotiateTLS(link->cc) == C_ERR)) {
             sentinelEvent(LL_DEBUG,"-cmd-link-reconnection",ri,"%@ #Failed to initialize TLS");
@@ -2111,6 +2110,7 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
                 link->cc->errstr);
             instanceLinkCloseConnection(link,link->cc);
         } else {
+            anetCloexec(link->cc->c.fd);
             link->pending_commands = 0;
             link->cc_conn_time = mstime();
             link->cc->data = link;
@@ -2129,7 +2129,6 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
     /* Pub / Sub */
     if ((ri->flags & (SRI_MASTER|SRI_SLAVE)) && link->pc == NULL) {
         link->pc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,NET_FIRST_BIND_ADDR);
-        anetCloexec(link->pc->c.fd);
         if (!link->pc->err && server.tls_replication &&
                 (instanceLinkNegotiateTLS(link->pc) == C_ERR)) {
             sentinelEvent(LL_DEBUG,"-pubsub-link-reconnection",ri,"%@ #Failed to initialize TLS");
@@ -2139,7 +2138,7 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
             instanceLinkCloseConnection(link,link->pc);
         } else {
             int retval;
-
+            anetCloexec(link->pc->c.fd);
             link->pc_conn_time = mstime();
             link->pc->data = link;
             redisAeAttach(server.el,link->pc);
@@ -4606,6 +4605,33 @@ void sentinelHandleDictOfRedisInstances(dict *instances) {
     }
     if (switch_to_promoted)
         sentinelFailoverSwitchToPromotedSlave(switch_to_promoted);
+    dictReleaseIterator(di);
+}
+
+/* Release all connections to monitored master/replica nodes and other sentinels. */
+void sentinelReleaseInstanceConnections(dict *instances) {
+    dictIterator *di;
+    dictEntry *de;
+
+    if (instances == NULL) {
+        instances = sentinel.masters;
+    } 
+
+    di = dictGetIterator(instances);
+    while((de = dictNext(di)) != NULL) {
+        sentinelRedisInstance *ri = dictGetVal(de);
+        if (ri->link->cc != NULL) {
+            instanceLinkCloseConnection(ri->link,ri->link->cc);
+        }
+        if (ri->link->pc != NULL) {
+            instanceLinkCloseConnection(ri->link,ri->link->pc);
+        }
+
+        if (ri->flags & SRI_MASTER) {
+            sentinelReleaseInstanceConnections(ri->slaves);
+            sentinelReleaseInstanceConnections(ri->sentinels);
+        }
+    }
     dictReleaseIterator(di);
 }
 

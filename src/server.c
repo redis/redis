@@ -4078,6 +4078,15 @@ int prepareForShutdown(int flags) {
 
     /* Close the listening sockets. Apparently this allows faster restarts. */
     closeListeningSockets(1);
+
+    /* Close the module pipes to avoid fd leaks. */
+    closeModuleBlockedPipe();
+
+    /* Close all connections to master/replica nodes and sentinels. */
+    if (server.sentinel_mode) {
+        sentinelReleaseInstanceConnections(NULL);
+    }
+
     serverLog(LL_WARNING,"%s is now ready to exit, bye bye...",
         server.sentinel_mode ? "Sentinel" : "Redis");
     return C_OK;

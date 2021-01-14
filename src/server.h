@@ -1673,6 +1673,7 @@ extern dictType modulesDictType;
 
 /* Modules */
 void moduleInitModulesSystem(void);
+void closeModuleBlockedPipe(void);
 void moduleInitModulesSystemLast(void);
 int moduleLoad(const char *path, void **argv, int argc);
 void moduleLoadFromQueue(void);
@@ -2310,6 +2311,7 @@ void initSentinel(void);
 void sentinelTimer(void);
 char *sentinelHandleConfiguration(char **argv, int argc);
 void sentinelIsRunning(void);
+void sentinelReleaseInstanceConnections(dict *instances);
 
 /* redis-check-rdb & aof */
 int redis_check_rdb(char *rdbfilename, FILE *fp);

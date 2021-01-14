@@ -7661,6 +7661,11 @@ void moduleInitModulesSystem(void) {
     anetNonBlock(NULL,server.module_blocked_pipe[0]);
     anetNonBlock(NULL,server.module_blocked_pipe[1]);
 
+    /* Enable close-on-exec flag on pipes in case of the fork-exec system calls in
+     * sentinels or redis servers. */
+    anetCloexec(server.module_blocked_pipe[0]);
+    anetCloexec(server.module_blocked_pipe[1]);
+
     /* Create the timers radix tree. */
     Timers = raxNew();
 
@@ -7670,6 +7675,18 @@ void moduleInitModulesSystem(void) {
     /* Our thread-safe contexts GIL must start with already locked:
      * it is just unlocked when it's safe. */
     pthread_mutex_lock(&moduleGIL);
+}
+
+/* Close the pipes opened by moduleInitModulesSystem(). */
+void closeModuleBlockedPipe(void) {
+    if (server.module_blocked_pipe[0] != -1 ||
+        server.module_blocked_pipe[1] != -1)
+    {
+        close(server.module_blocked_pipe[0]);
+        close(server.module_blocked_pipe[1]);
+        server.module_blocked_pipe[0] = -1;
+        server.module_blocked_pipe[1] = -1;
+    }
 }
 
 /* Load all the modules in the server.loadmodule_queue list, which is
