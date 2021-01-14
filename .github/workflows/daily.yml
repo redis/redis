@@ -112,9 +112,6 @@ jobs:
       run: |
         sudo apt-get install tcl8.5 tcl-tls
         ./runtest --config io-threads 4 --config io-threads-do-reads yes --accurate --verbose --tags network
-    - name: sentinel tests
-      run: |
-        ./runtest-sentinel --config io-threads 4 --config io-threads-do-reads yes
     - name: cluster tests
       run: |
         ./runtest-cluster --config io-threads 4 --config io-threads-do-reads yes
