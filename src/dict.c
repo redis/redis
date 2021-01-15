@@ -1191,7 +1191,7 @@ dictEntry *dictGetFairRandomKey(dict *d) {
 }
 
 /* Function to reverse bits. Algorithm from:
- * http://graphics.stanford.edu/~seander/bithacks.html#ReverseParallel */
+ * https://graphics.stanford.edu/~seander/bithacks.html#ReverseParallel */
 static unsigned long rev(unsigned long v) {
     unsigned long s = CHAR_BIT * sizeof(v); // bit size; must be power of 2
     unsigned long mask = ~0UL;

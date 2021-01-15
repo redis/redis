@@ -77,7 +77,7 @@ void memtest_progress_start(char *title, int pass) {
     /* Fill with dots. */
     for (j = 0; j < ws.ws_col*(ws.ws_row-2); j++) printf(".");
     printf("Please keep the test running several minutes per GB of memory.\n");
-    printf("Also check http://www.memtest86.com/ and http://pyropus.ca/software/memtester/");
+    printf("Also check https://www.memtest86.com/ and http://pyropus.ca/software/memtester/");
     printf("\x1b[H\x1b[2K");          /* Cursor home, clear current line.  */
     printf("%s [%d]\n", title, pass); /* Print title. */
     progress_printed = 0;
@@ -371,7 +371,7 @@ void memtest(size_t megabytes, int passes) {
     memtest_alloc_and_test(megabytes,passes);
     printf("\nYour memory passed this test.\n");
     printf("Please if you are still in doubt use the following two tools:\n");
-    printf("1) memtest86: http://www.memtest86.com/\n");
+    printf("1) memtest86: https://www.memtest86.com/\n");
     printf("2) memtester: http://pyropus.ca/software/memtester/\n");
     exit(0);
 }

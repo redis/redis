@@ -783,7 +783,7 @@ size_t zmalloc_get_private_dirty(long pid) {
  *
  * Note that this function:
  * 1) Was released under the following CC attribution license:
- *    http://creativecommons.org/licenses/by/3.0/deed.en_US.
+ *    https://creativecommons.org/licenses/by/3.0/deed.en_US.
  * 2) Was originally implemented by David Robert Nadeau.
  * 3) Was modified for Redis by Matt Stancliff.
  * 4) This note exists in order to comply with the original license.
