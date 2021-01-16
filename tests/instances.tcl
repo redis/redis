@@ -395,6 +395,7 @@ proc run_tests {} {
     if { [file exists $sentinel_fd_leaks_file] } {
         file delete $sentinel_fd_leaks_file
     }
+
     set tests [lsort [glob ../tests/*]]
     foreach test $tests {
         if {$::run_matching ne {} && [string match $::run_matching $test] == 0} {

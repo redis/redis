@@ -4084,7 +4084,7 @@ int prepareForShutdown(int flags) {
 
     /* Close all connections to master/replica nodes and sentinels. */
     if (server.sentinel_mode) {
-        sentinelReleaseInstanceConnections(NULL);
+        sentinelReleaseInstanceConnections(NULL, 1);
     }
 
     serverLog(LL_WARNING,"%s is now ready to exit, bye bye...",

@@ -2311,7 +2311,7 @@ void initSentinel(void);
 void sentinelTimer(void);
 char *sentinelHandleConfiguration(char **argv, int argc);
 void sentinelIsRunning(void);
-void sentinelReleaseInstanceConnections(dict *instances);
+void sentinelReleaseInstanceConnections(dict *instances, int master);
 
 /* redis-check-rdb & aof */
 int redis_check_rdb(char *rdbfilename, FILE *fp);
