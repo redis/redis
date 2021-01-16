@@ -391,6 +391,10 @@ proc check_leaks instance_types {
 
 # Execute all the units inside the 'tests' directory.
 proc run_tests {} {
+    set sentinel_fd_leaks_file "sentinel_fd_leaks"
+    if { [file exists $sentinel_fd_leaks_file] } {
+        file delete $sentinel_fd_leaks_file
+    }
     set tests [lsort [glob ../tests/*]]
     foreach test $tests {
         if {$::run_matching ne {} && [string match $::run_matching $test] == 0} {
@@ -405,10 +409,10 @@ proc run_tests {} {
 
 # Print a message and exists with 0 / 1 according to zero or more failures.
 proc end_tests {} {
-    set sentinel_fd_leaks_file "sentinel/tests/sentinel_fd_leaks"
+    set sentinel_fd_leaks_file "sentinel_fd_leaks"
     if { [file exists $sentinel_fd_leaks_file] } {
-        puts "WARNING: sentinel test(s) failed, there are leaked fds in sentinel, 
-        see tests/sentinel/tests/sentinel_fd_leaks file for details."
+        puts [ format "WARNING: sentinel test(s) failed, there are leaked fds in sentinel, 
+        see output: %s for details." $sentinel_fd_leaks_file]
         exit 1
     }
 
