@@ -405,7 +405,14 @@ proc run_tests {} {
 
 # Print a message and exists with 0 / 1 according to zero or more failures.
 proc end_tests {} {
-    if {$::failed == 0} {
+    set sentinel_fd_leaks_file "sentinel/tests/sentinel_fd_leaks"
+    if { [file exists $sentinel_fd_leaks_file] } {
+        puts "WARNING: sentinel test(s) failed, there are leaked fds in sentinel, 
+        see tests/sentinel/tests/sentinel_fd_leaks file for details."
+        exit 1
+    }
+
+    if {$::failed == 0 } {
         puts "GOOD! No errors."
         exit 0
     } else {

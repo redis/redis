@@ -1,15 +1,15 @@
 #!/bin/sh
 
-leaked_fd_count=`ls /proc/self/fd | grep -vE '0|1|2' | wc -l`
+leaked_fd_count=`ls /proc/self/fd | grep -vE '0|1|2|3' | wc -l`
+
+sentinel_fd_leaks_file="../sentinel_fd_leaks"
 
 if [ $leaked_fd_count -gt 0 ]
 then
-    echo -e '\nthere are leaked fds in sentinel, please fix it:'
+    # echo -e '\nwarning: there are leaked fds in sentinel, please fix it:'
     # echo 'Process ID:' $$
-    ls -l /proc/self/fd
     # lsof -p $$
-    exit 1
-else
-    echo 'fd leaks test passes.'
+    ls -l /proc/self/fd
+    ls -l /proc/self/fd | cat >> $sentinel_fd_leaks_file
 fi
     
