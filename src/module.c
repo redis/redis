@@ -4644,20 +4644,8 @@ void moduleHandleBlockedClients(void) {
             ctx.blocked_client = bc;
             const ustime_t start = server.ustime;
             bc->reply_callback(&ctx,(void**)c->argv,c->argc);
-            const ustime_t reply_duration = ustime()-start;
-            c->duration += reply_duration;
-            /* Log the command into the Slow log if needed. */
-            if (!(c->cmd->flags & CMD_SKIP_SLOWLOG)) {
-                const char *latency_event = (c->cmd->flags & CMD_FAST) ?
-                                    "fast-command" : "command";
-                const ustime_t total_cmd_duration = c->duration + c->background_duration;
-                slowlogPushEntryIfNeeded(c,c->argv,c->argc,total_cmd_duration);
-                /* Log the reply duration either as fast-command or as command event. */
-                latencyAddSampleIfNeeded(latency_event,reply_duration/1000);
-            }
-
-            /* Populate the per-command statistics that we show in INFO commandstats. */
-            c->cmd->microseconds += (reply_duration + c->background_duration);
+            const ustime_t reply_us = ustime()-start;
+            updateStatsOnUnblock(c, c->background_duration, reply_us);
             moduleFreeContext(&ctx);
         }
 
