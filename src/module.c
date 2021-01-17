@@ -4844,6 +4844,7 @@ void moduleHandleBlockedClients(void) {
          * was blocked on keys (RM_BlockClientOnKeys()), because we already
          * called such callback in moduleTryServeClientBlockedOnKey() when
          * the key was signaled as ready. */
+        ustime_t reply_us = 0;
         if (c && !bc->blocked_on_keys && bc->reply_callback) {
             RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
             ctx.flags |= REDISMODULE_CTX_BLOCKED_REPLY;
@@ -4854,10 +4855,14 @@ void moduleHandleBlockedClients(void) {
             ctx.blocked_client = bc;
             const ustime_t start = server.ustime;
             bc->reply_callback(&ctx,(void**)c->argv,c->argc);
-            const ustime_t reply_us = ustime()-start;
-            updateStatsOnUnblock(c, c->background_duration, reply_us);
+            reply_us = ustime()-start;
             moduleFreeContext(&ctx);
         }
+        /* Update stats now that we've finished the blocking operation.
+         * This needs to be out of the reply callback above given that a
+         * module might not define any callback and still do blocking ops.
+         */
+        updateStatsOnUnblock(c, c->background_duration, reply_us);
 
         /* Free privdata if any. */
         if (bc->privdata && bc->free_privdata) {
