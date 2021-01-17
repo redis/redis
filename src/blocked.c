@@ -109,7 +109,7 @@ void updateStatsOnUnblock(client *c, ustime_t blocked_us, ustime_t reply_us){
     if (!(c->lastcmd->flags & CMD_SKIP_SLOWLOG)) {
         const char *latency_event = (c->lastcmd->flags & CMD_FAST) ?
                                     "fast-command" : "command";
-        slowlogPushEntryIfNeeded(c->lastcmd,c->argv,c->argc,total_cmd_duration);
+        slowlogPushEntryIfNeeded(c,c->argv,c->argc,total_cmd_duration);
         /* Log the reply duration event. */
         latencyAddSampleIfNeeded(latency_event,reply_us/1000);
     }
