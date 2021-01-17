@@ -96,18 +96,18 @@ int anetCloexec(int fd) {
     int r;
     int flags;
 
-    do
+    do {
         r = fcntl(fd, F_GETFD);
-    while (r == -1 && errno == EINTR);
+    } while (r == -1 && errno == EINTR);
 
     if (r == -1 || (r & FD_CLOEXEC))
         return r;
 
     flags = r | FD_CLOEXEC;
 
-    do
+    do {
         r = fcntl(fd, F_SETFD, flags);
-    while (r == -1 && errno == EINTR);
+    } while (r == -1 && errno == EINTR);
 
     return r;
 }

@@ -4608,34 +4608,6 @@ void sentinelHandleDictOfRedisInstances(dict *instances) {
     dictReleaseIterator(di);
 }
 
-/* Close all connections to monitored master/replica nodes and other sentinels
- * before shutting down the server. */
-void sentinelReleaseInstanceConnections(dict *instances, int master) {
-    dictIterator *di;
-    dictEntry *de;
-
-    if (master == 1) {
-        instances = sentinel.masters;
-    } 
-
-    di = dictGetIterator(instances);
-    while((de = dictNext(di)) != NULL) {
-        sentinelRedisInstance *ri = dictGetVal(de);
-        if (ri->link->cc != NULL) {
-            instanceLinkCloseConnection(ri->link, ri->link->cc);
-        }
-        if (ri->link->pc != NULL) {
-            instanceLinkCloseConnection(ri->link, ri->link->pc);
-        }
-
-        if (ri->flags & SRI_MASTER) {
-            sentinelReleaseInstanceConnections(ri->slaves, 0);
-            sentinelReleaseInstanceConnections(ri->sentinels, 0);
-        }
-    }
-    dictReleaseIterator(di);
-}
-
 /* This function checks if we need to enter the TITL mode.
  *
  * The TILT mode is entered if we detect that between two invocations of the

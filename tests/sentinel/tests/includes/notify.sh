@@ -1,6 +1,6 @@
 #!/bin/sh
 
-leaked_fd_count=`ls /proc/self/fd | grep -vE '0|1|2|3' | wc -l`
+leaked_fd_count=`ls /proc/self/fd | grep -vE '^[0|1|2|3]$' | wc -l`
 
 sentinel_fd_leaks_file="../sentinel_fd_leaks"
 
