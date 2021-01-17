@@ -429,6 +429,7 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
                                                         consumer->name);
                     }
                 }
+
                 const ustime_t start_us = server.ustime;
                 /* Emit the two elements sub-array consisting of
                  * the name of the stream and the data we
