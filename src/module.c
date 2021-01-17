@@ -4862,7 +4862,9 @@ void moduleHandleBlockedClients(void) {
          * This needs to be out of the reply callback above given that a
          * module might not define any callback and still do blocking ops.
          */
-        updateStatsOnUnblock(c, c->background_duration, reply_us);
+        if (c && !bc->blocked_on_keys) {
+            updateStatsOnUnblock(c, c->background_duration, reply_us);
+        }
 
         /* Free privdata if any. */
         if (bc->privdata && bc->free_privdata) {
