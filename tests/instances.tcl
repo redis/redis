@@ -412,10 +412,10 @@ proc run_tests {} {
 proc end_tests {} {
     set sentinel_fd_leaks_file "sentinel_fd_leaks"
     if { [file exists $sentinel_fd_leaks_file] } {
-        set current_dir [pwd]
         puts [colorstr red "WARNING: sentinel test(s) failed, there are leaked fds in sentinel:"] 
         exec cat $sentinel_fd_leaks_file
-        puts [colorstr red "see output file: $current_dir/$sentinel_fd_leaks_file for more details."]
+        # set current_dir [pwd]
+        # puts [colorstr red "see output file: $current_dir/$sentinel_fd_leaks_file for more details."]
         exit 1
     }
 

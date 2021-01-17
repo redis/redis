@@ -1673,7 +1673,6 @@ extern dictType modulesDictType;
 
 /* Modules */
 void moduleInitModulesSystem(void);
-void closeModuleBlockedPipe(void);
 void moduleInitModulesSystemLast(void);
 int moduleLoad(const char *path, void **argv, int argc);
 void moduleLoadFromQueue(void);
