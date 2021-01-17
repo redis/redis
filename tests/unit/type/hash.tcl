@@ -302,7 +302,7 @@ start_server {tags {"hash"}} {
         r hset smallhash str " 11"
         r hset bighash str " 11"
         catch {r hincrby smallhash str 1} smallerr
-        catch {r hincrby smallhash str 1} bigerr
+        catch {r hincrby bighash str 1} bigerr
         set rv {}
         lappend rv [string match "ERR*not an integer*" $smallerr]
         lappend rv [string match "ERR*not an integer*" $bigerr]
@@ -312,7 +312,7 @@ start_server {tags {"hash"}} {
         r hset smallhash str "11 "
         r hset bighash str "11 "
         catch {r hincrby smallhash str 1} smallerr
-        catch {r hincrby smallhash str 1} bigerr
+        catch {r hincrby bighash str 1} bigerr
         set rv {}
         lappend rv [string match "ERR*not an integer*" $smallerr]
         lappend rv [string match "ERR*not an integer*" $bigerr]
@@ -374,7 +374,7 @@ start_server {tags {"hash"}} {
         r hset smallhash str " 11"
         r hset bighash str " 11"
         catch {r hincrbyfloat smallhash str 1} smallerr
-        catch {r hincrbyfloat smallhash str 1} bigerr
+        catch {r hincrbyfloat bighash str 1} bigerr
         set rv {}
         lappend rv [string match "ERR*not*float*" $smallerr]
         lappend rv [string match "ERR*not*float*" $bigerr]
@@ -384,7 +384,7 @@ start_server {tags {"hash"}} {
         r hset smallhash str "11 "
         r hset bighash str "11 "
         catch {r hincrbyfloat smallhash str 1} smallerr
-        catch {r hincrbyfloat smallhash str 1} bigerr
+        catch {r hincrbyfloat bighash str 1} bigerr
         set rv {}
         lappend rv [string match "ERR*not*float*" $smallerr]
         lappend rv [string match "ERR*not*float*" $bigerr]
@@ -540,4 +540,55 @@ start_server {tags {"hash"}} {
             assert {[r hincrbyfloat myhash float -0.1] eq {1.9}}
         }
     }
+
+    test {Hash ziplist of various encodings} {
+        r del k
+        r config set hash-max-ziplist-entries 1000000000
+        r config set hash-max-ziplist-value 1000000000
+        r hset k ZIP_INT_8B 127
+        r hset k ZIP_INT_16B 32767
+        r hset k ZIP_INT_32B 2147483647
+        r hset k ZIP_INT_64B 9223372036854775808
+        r hset k ZIP_INT_IMM_MIN 0
+        r hset k ZIP_INT_IMM_MAX 12
+        r hset k ZIP_STR_06B [string repeat x 31]
+        r hset k ZIP_STR_14B [string repeat x 8191]
+        r hset k ZIP_STR_32B [string repeat x 65535]
+        set k [r hgetall k]
+        set dump [r dump k]
+
+        # will be converted to dict at RESTORE
+        r config set hash-max-ziplist-entries 2
+        r config set sanitize-dump-payload no
+        r restore kk 0 $dump
+        set kk [r hgetall kk]
+
+        # make sure the values are right
+        assert_equal [lsort $k] [lsort $kk]
+        assert_equal [dict get $k ZIP_STR_06B] [string repeat x 31]
+        set k [dict remove $k ZIP_STR_06B]
+        assert_equal [dict get $k ZIP_STR_14B] [string repeat x 8191]
+        set k [dict remove $k ZIP_STR_14B]
+        assert_equal [dict get $k ZIP_STR_32B] [string repeat x 65535]
+        set k [dict remove $k ZIP_STR_32B]
+        set _ $k
+    } {ZIP_INT_8B 127 ZIP_INT_16B 32767 ZIP_INT_32B 2147483647 ZIP_INT_64B 9223372036854775808 ZIP_INT_IMM_MIN 0 ZIP_INT_IMM_MAX 12}
+
+    test {Hash ziplist of various encodings - sanitize dump} {
+        r config set sanitize-dump-payload yes
+        r restore kk 0 $dump replace
+        set k [r hgetall k]
+        set kk [r hgetall kk]
+
+        # make sure the values are right
+        assert_equal [lsort $k] [lsort $kk]
+        assert_equal [dict get $k ZIP_STR_06B] [string repeat x 31]
+        set k [dict remove $k ZIP_STR_06B]
+        assert_equal [dict get $k ZIP_STR_14B] [string repeat x 8191]
+        set k [dict remove $k ZIP_STR_14B]
+        assert_equal [dict get $k ZIP_STR_32B] [string repeat x 65535]
+        set k [dict remove $k ZIP_STR_32B]
+        set _ $k
+    } {ZIP_INT_8B 127 ZIP_INT_16B 32767 ZIP_INT_32B 2147483647 ZIP_INT_64B 9223372036854775808 ZIP_INT_IMM_MIN 0 ZIP_INT_IMM_MAX 12}
+
 }

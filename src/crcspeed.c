@@ -35,7 +35,8 @@ void crcspeed64little_init(crcfn64 crcfn, uint64_t table[8][256]) {
 
     /* generate CRCs for all single byte sequences */
     for (int n = 0; n < 256; n++) {
-        table[0][n] = crcfn(0, &n, 1);
+        unsigned char v = n;
+        table[0][n] = crcfn(0, &v, 1);
     }
 
     /* generate nested CRC table for future slice-by-8 lookup */
@@ -84,7 +85,7 @@ static inline uint64_t rev8(uint64_t a) {
 /* This function is called once to initialize the CRC table for use on a
    big-endian architecture. */
 void crcspeed64big_init(crcfn64 fn, uint64_t big_table[8][256]) {
-    /* Create the little endian table then reverse all the entires. */
+    /* Create the little endian table then reverse all the entries. */
     crcspeed64little_init(fn, big_table);
     for (int k = 0; k < 8; k++) {
         for (int n = 0; n < 256; n++) {
@@ -94,7 +95,7 @@ void crcspeed64big_init(crcfn64 fn, uint64_t big_table[8][256]) {
 }
 
 void crcspeed16big_init(crcfn16 fn, uint16_t big_table[8][256]) {
-    /* Create the little endian table then reverse all the entires. */
+    /* Create the little endian table then reverse all the entries. */
     crcspeed16little_init(fn, big_table);
     for (int k = 0; k < 8; k++) {
         for (int n = 0; n < 256; n++) {

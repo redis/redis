@@ -34,8 +34,9 @@
 #include "zmalloc.h"
 
 /* Create a new list. The created list can be freed with
- * AlFreeList(), but private value of every node need to be freed
- * by the user before to call AlFreeList().
+ * listRelease(), but private value of every node need to be freed
+ * by the user before to call listRelease(), or by setting a free method using
+ * listSetFreeMethod.
  *
  * On error, NULL is returned. Otherwise the pointer to the new list. */
 list *listCreate(void)
@@ -217,8 +218,8 @@ void listRewindTail(list *list, listIter *li) {
  * listDelNode(), but not to remove other elements.
  *
  * The function returns a pointer to the next element of the list,
- * or NULL if there are no more elements, so the classical usage patter
- * is:
+ * or NULL if there are no more elements, so the classical usage
+ * pattern is:
  *
  * iter = listGetIterator(list,<direction>);
  * while ((node = listNext(iter)) != NULL) {
@@ -359,15 +360,16 @@ void listRotateHeadToTail(list *list) {
 /* Add all the elements of the list 'o' at the end of the
  * list 'l'. The list 'other' remains empty but otherwise valid. */
 void listJoin(list *l, list *o) {
-    if (o->head)
-        o->head->prev = l->tail;
+    if (o->len == 0) return;
+
+    o->head->prev = l->tail;
 
     if (l->tail)
         l->tail->next = o->head;
     else
         l->head = o->head;
 
-    if (o->tail) l->tail = o->tail;
+    l->tail = o->tail;
     l->len += o->len;
 
     /* Setup other as an empty list. */

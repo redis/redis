@@ -36,7 +36,7 @@
 
 /* Count number of bits set in the binary array pointed by 's' and long
  * 'count' bytes. The implementation of this function is required to
- * work with a input string length up to 512 MB. */
+ * work with an input string length up to 512 MB or more (server.proto_max_bulk_len) */
 size_t redisPopcount(void *s, long count) {
     size_t bits = 0;
     unsigned char *p = s;
@@ -107,7 +107,7 @@ long redisBitpos(void *s, unsigned long count, int bit) {
     int found;
 
     /* Process whole words first, seeking for first word that is not
-     * all ones or all zeros respectively if we are lookig for zeros
+     * all ones or all zeros respectively if we are looking for zeros
      * or ones. This is much faster with large strings having contiguous
      * blocks of 1 or 0 bits compared to the vanilla bit per bit processing.
      *
@@ -405,7 +405,7 @@ void printBits(unsigned char *p, unsigned long count) {
 
 /* This helper function used by GETBIT / SETBIT parses the bit offset argument
  * making sure an error is returned if it is negative or if it overflows
- * Redis 512 MB limit for the string value.
+ * Redis 512 MB limit for the string value or more (server.proto_max_bulk_len).
  *
  * If the 'hash' argument is true, and 'bits is positive, then the command
  * will also parse bit offsets prefixed by "#". In such a case the offset
@@ -428,8 +428,8 @@ int getBitOffsetFromArgument(client *c, robj *o, size_t *offset, int hash, int b
     /* Adjust the offset by 'bits' for #<offset> form. */
     if (usehash) loffset *= bits;
 
-    /* Limit offset to 512MB in bytes */
-    if ((loffset < 0) || ((unsigned long long)loffset >> 3) >= (512*1024*1024))
+    /* Limit offset to server.proto_max_bulk_len (512MB in bytes by default) */
+    if ((loffset < 0) || (loffset >> 3) >= server.proto_max_bulk_len)
     {
         addReplyError(c,err);
         return C_ERR;
@@ -480,12 +480,12 @@ int getBitfieldTypeFromArgument(client *c, robj *o, int *sign, int *bits) {
 robj *lookupStringForBitCommand(client *c, size_t maxbit) {
     size_t byte = maxbit >> 3;
     robj *o = lookupKeyWrite(c->db,c->argv[1]);
+    if (checkType(c,o,OBJ_STRING)) return NULL;
 
     if (o == NULL) {
         o = createObject(OBJ_STRING,sdsnewlen(NULL, byte+1));
         dbAdd(c->db,c->argv[1],o);
     } else {
-        if (checkType(c,o,OBJ_STRING)) return NULL;
         o = dbUnshareStringValue(c->db,c->argv[1],o);
         o->ptr = sdsgrowzero(o->ptr,byte+1);
     }
@@ -496,7 +496,7 @@ robj *lookupStringForBitCommand(client *c, size_t maxbit) {
  * in 'len'. The user is required to pass (likely stack allocated) buffer
  * 'llbuf' of at least LONG_STR_SIZE bytes. Such a buffer is used in the case
  * the object is integer encoded in order to provide the representation
- * without usign heap allocation.
+ * without using heap allocation.
  *
  * The function returns the pointer to the object array of bytes representing
  * the string it contains, that may be a pointer to 'llbuf' or to the
@@ -611,7 +611,7 @@ void bitopCommand(client *c) {
     else if((opname[0] == 'n' || opname[0] == 'N') && !strcasecmp(opname,"not"))
         op = BITOP_NOT;
     else {
-        addReply(c,shared.syntaxerr);
+        addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
 
@@ -735,11 +735,22 @@ void bitopCommand(client *c) {
             output = (len[0] <= j) ? 0 : src[0][j];
             if (op == BITOP_NOT) output = ~output;
             for (i = 1; i < numkeys; i++) {
+                int skip = 0;
                 byte = (len[i] <= j) ? 0 : src[i][j];
                 switch(op) {
-                case BITOP_AND: output &= byte; break;
-                case BITOP_OR:  output |= byte; break;
+                case BITOP_AND:
+                    output &= byte;
+                    skip = (output == 0);
+                    break;
+                case BITOP_OR:
+                    output |= byte;
+                    skip = (output == 0xff);
+                    break;
                 case BITOP_XOR: output ^= byte; break;
+                }
+
+                if (skip) {
+                    break;
                 }
             }
             res[j] = output;
@@ -759,11 +770,12 @@ void bitopCommand(client *c) {
         setKey(c,c->db,targetkey,o);
         notifyKeyspaceEvent(NOTIFY_STRING,"set",targetkey,c->db->id);
         decrRefCount(o);
+        server.dirty++;
     } else if (dbDelete(c->db,targetkey)) {
         signalModifiedKey(c,c->db,targetkey);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",targetkey,c->db->id);
+        server.dirty++;
     }
-    server.dirty++;
     addReplyLongLong(c,maxlen); /* Return the output string length in bytes. */
 }
 
@@ -801,7 +813,7 @@ void bitcountCommand(client *c) {
         end = strlen-1;
     } else {
         /* Syntax error. */
-        addReply(c,shared.syntaxerr);
+        addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
 
@@ -866,7 +878,7 @@ void bitposCommand(client *c) {
         end = strlen-1;
     } else {
         /* Syntax error. */
-        addReply(c,shared.syntaxerr);
+        addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
 
@@ -958,7 +970,7 @@ void bitfieldGeneric(client *c, int flags) {
             }
             continue;
         } else {
-            addReply(c,shared.syntaxerr);
+            addReplyErrorObject(c,shared.syntaxerr);
             zfree(ops);
             return;
         }

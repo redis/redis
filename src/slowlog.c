@@ -75,7 +75,7 @@ slowlogEntry *slowlogCreateEntry(client *c, robj **argv, int argc, long long dur
             } else if (argv[j]->refcount == OBJ_SHARED_REFCOUNT) {
                 se->argv[j] = argv[j];
             } else {
-                /* Here we need to dupliacate the string objects composing the
+                /* Here we need to duplicate the string objects composing the
                  * argument vector of the command, because those may otherwise
                  * end shared with string objects stored into keys. Having
                  * shared objects between any part of Redis, and the data
@@ -142,11 +142,15 @@ void slowlogReset(void) {
 void slowlogCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-"GET [count] -- Return top entries from the slowlog (default: 10)."
-"    Entries are made of:",
-"    id, timestamp, time in microseconds, arguments array, client IP and port, client name",
-"LEN -- Return the length of the slowlog.",
-"RESET -- Reset the slowlog.",
+"GET [<count>]",
+"    Return top <count> entries from the slowlog (default: 10). Entries are",
+"    made of:",
+"    id, timestamp, time in microseconds, arguments array, client IP and port,",
+"    client name",
+"LEN",
+"    Return the length of the slowlog.",
+"RESET",
+"    Reset the slowlog.",
 NULL
         };
         addReplyHelp(c, help);

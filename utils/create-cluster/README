@@ -1,4 +1,4 @@
-Create-custer is a small script used to easily start a big number of Redis
+create-cluster is a small script used to easily start a big number of Redis
 instances configured to run in cluster mode. Its main goal is to allow manual
 testing in a condition which is not easy to replicate with the Redis cluster
 unit tests, for example when a lot of instances are needed in order to trigger

@@ -115,7 +115,7 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst, int writeflag)
     if (fieldobj) {
         if (o->type != OBJ_HASH) goto noobj;
 
-        /* Retrieve value from hash by the field name. The returend object
+        /* Retrieve value from hash by the field name. The returned object
          * is a new object with refcount already incremented. */
         o = hashTypeGetValueObject(o, fieldobj->ptr);
     } else {
@@ -256,7 +256,7 @@ void sortCommand(client *c) {
             getop++;
             j++;
         } else {
-            addReply(c,shared.syntaxerr);
+            addReplyErrorObject(c,shared.syntaxerr);
             syntax_error++;
             break;
         }
@@ -270,7 +270,7 @@ void sortCommand(client *c) {
     }
 
     /* Lookup the key to sort. It must be of the right types */
-    if (storekey)
+    if (!storekey)
         sortval = lookupKeyRead(c->db,c->argv[1]);
     else
         sortval = lookupKeyWrite(c->db,c->argv[1]);
@@ -279,7 +279,7 @@ void sortCommand(client *c) {
                    sortval->type != OBJ_ZSET)
     {
         listRelease(operations);
-        addReply(c,shared.wrongtypeerr);
+        addReplyErrorObject(c,shared.wrongtypeerr);
         return;
     }
 

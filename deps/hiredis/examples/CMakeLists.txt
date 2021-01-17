@@ -44,3 +44,6 @@ ENDIF()
 
 ADD_EXECUTABLE(example example.c)
 TARGET_LINK_LIBRARIES(example hiredis)
+
+ADD_EXECUTABLE(example-push example-push.c)
+TARGET_LINK_LIBRARIES(example-push hiredis)
