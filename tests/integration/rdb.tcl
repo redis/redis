@@ -1,3 +1,5 @@
+tags {"rdb"} {
+
 set server_path [tmpdir "server.rdb-encoding-test"]
 
 # Copy RDB with different encodings in server path
@@ -289,3 +291,5 @@ start_server {overrides {save ""}} {
     }
 }
 } ;# system_name
+
+} ;# tags
