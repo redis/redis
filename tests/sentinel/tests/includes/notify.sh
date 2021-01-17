@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# fd 3 is meant to catch the actual access to /proc/pid/fd, 
+# in case there's an fd leak by the sentinel,
+# it can take 3, but then the access to /proc will take another fd, and we'll catch that.
 leaked_fd_count=`ls /proc/self/fd | grep -vE '^[0|1|2|3]$' | wc -l`
 
 sentinel_fd_leaks_file="../sentinel_fd_leaks"
