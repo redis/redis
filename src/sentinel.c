@@ -1126,7 +1126,7 @@ int sentinelTryConnectionSharing(sentinelRedisInstance *ri) {
     return C_ERR;
 }
 
-/* Drop all connections to other sentinels. Returns then number of connections
+/* Drop all connections to other sentinels. Returns the number of connections
  * dropped.*/
 int sentinelDropConnections(void) {
     dictIterator *di;
@@ -1387,10 +1387,10 @@ sentinelRedisInstance *sentinelRedisInstanceLookupSlave(
 
     serverAssert(ri->flags & SRI_MASTER);
 
-    /* Make sure the address specified is an IP, as in the case of
-     * slave-announce-ip <hostname> it could also be a name.
+    /* We need to handle a slave_addr that is potentially a hostname.
+     * If that is the case, depending on configuration we either resolve
+     * it and use the IP addres or fail.
      */
-
     addr = createSentinelAddr(slave_addr, port);
     if (!addr) return NULL;
 
@@ -1461,11 +1461,6 @@ sentinelRedisInstance *getSentinelRedisInstanceByAddrAndRunID(dict *instances, c
         if (!ri_addr) return NULL;
     }
     di = dictGetIterator(instances);
-    if (addr != NULL) {
-        /* Resolve addr, we use the IP as a key even if a hostname is used */
-        ri_addr = createSentinelAddr(addr, port);
-        if (!ri_addr) return NULL;
-    }
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
 
