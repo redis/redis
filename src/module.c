@@ -3145,6 +3145,7 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
         /* Current last ID is greater than or equal to 'use_id' */
         return REDISMODULE_ERR;
     }
+    signalKeyAsReady(key->db, key->key, OBJ_STREAM);
 
     if (id != NULL) {
         id->ms = added_id.ms;

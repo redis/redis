@@ -21,6 +21,34 @@ start_server {tags {"modules"}} {
         assert_equal $e "ERR StreamAdd failed"
     }
 
+    test {Module stream add unblocks blocking xread} {
+        r del mystream
+
+        # Blocking XREAD on an empty key
+        set rd1 [redis_deferring_client]
+        $rd1 XREAD BLOCK 3000 STREAMS mystream $
+        # wait until client is actually blocked
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {1}
+        } else {
+            fail "Client is not blocked"
+        }
+        set id [r stream.add mystream field 1 value a]
+        assert_equal "{mystream {{$id {field 1 value a}}}}" [$rd1 read]
+
+        # Blocking XREAD on an existing stream
+        set rd2 [redis_deferring_client]
+        $rd2 XREAD BLOCK 3000 STREAMS mystream $
+        # wait until client is actually blocked
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {1}
+        } else {
+            fail "Client is not blocked"
+        }
+        set id [r stream.add mystream field 2 value b]
+        assert_equal "{mystream {{$id {field 2 value b}}}}" [$rd2 read]
+    }
+
     test {Module stream add benchmark (1M stream add)} {
         set n 1000000
         r del mystream
