@@ -5115,9 +5115,18 @@ static int clusterManagerFixMultipleSlotOwners(int slot, list *owners) {
         clusterManagerDelSlot(n, slot, 1);
         if (!clusterManagerSetSlot(n, owner, slot, "node", NULL)) return 0;
         if (count > 0) {
+            //the source node should set importing flag before moveslot
+            success = clusterManagerSetSlot(n, owner,slot,
+                                        "importing", NULL);
+            if (!success) break;
+
             int opts = CLUSTER_MANAGER_OPT_VERBOSE |
                        CLUSTER_MANAGER_OPT_COLD;
             success = clusterManagerMoveSlot(n, owner, slot, opts, NULL);
+            if (!success) break;
+
+            //close the improting flag
+            success = clusterManagerClearSlotStatus(n, slot);
             if (!success) break;
         }
     }
