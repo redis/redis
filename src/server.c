@@ -4043,8 +4043,8 @@ int processCommand(client *c) {
     /* If the server is paused, block the client until
      * the pause has ended. Replicas are never paused. */
     if (!(c->flags & CLIENT_SLAVE) && 
-        ((server.client_pause_type & CLIENT_PAUSE_ALL) ||
-        (server.client_pause_type & CLIENT_PAUSE_WRITE && is_may_replicate_command)))
+        ((server.client_pause_type == CLIENT_PAUSE_ALL) ||
+        (server.client_pause_type == CLIENT_PAUSE_WRITE && is_may_replicate_command)))
     {
         c->bpop.timeout = 0;
         blockClient(c,BLOCKED_PAUSE);
@@ -5533,7 +5533,7 @@ void sendChildCOWInfo(int ptype, int on_exit, char *pname) {
     if (private_dirty) {
         serverLog(on_exit ? LL_NOTICE : LL_VERBOSE,
             "%s: %zu MB of memory used by copy-on-write",
-            pname, private_dirty);
+            pname, private_dirty/(1024*1024));
     }
 
     sendChildInfo(ptype, on_exit, private_dirty);

@@ -2543,7 +2543,9 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     /* read keys to be used for input */
     src = zcalloc(sizeof(zsetopsrc) * setnum);
     for (i = 0, j = numkeysIndex+1; i < setnum; i++, j++) {
-        robj *obj = lookupKeyWrite(c->db,c->argv[j]);
+        robj *obj = dstkey ?
+            lookupKeyWrite(c->db,c->argv[j]) :
+            lookupKeyRead(c->db,c->argv[j]);
         if (obj != NULL) {
             if (obj->type != OBJ_ZSET && obj->type != OBJ_SET) {
                 zfree(src);
@@ -3605,10 +3607,15 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
     }
 
     /* Step 3: Lookup the key and get the range. */
-    if (((zobj = lookupKeyReadOrReply(c, key, shared.emptyarray)) == NULL)
-        || checkType(c, zobj, OBJ_ZSET)) {
+    zobj = handler->dstkey ?
+        lookupKeyWrite(c->db,key) :
+        lookupKeyRead(c->db,key);
+    if (zobj == NULL) {
+        addReply(c,shared.emptyarray);
         goto cleanup;
     }
+
+    if (checkType(c,zobj,OBJ_ZSET)) goto cleanup;
 
     /* Step 4: Pass this to the command-specific handler. */
     switch (rangetype) {

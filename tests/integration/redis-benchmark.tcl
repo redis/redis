@@ -5,7 +5,7 @@ proc cmdstat {cmd} {
     return [cmdrstat $cmd r]
 }
 
-start_server {tags {"benchmark"}} {
+start_server {tags {"benchmark network"}} {
     start_server {} {
         set master_host [srv 0 host]
         set master_port [srv 0 port]
