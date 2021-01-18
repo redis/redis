@@ -63,6 +63,7 @@
 #include "server.h"
 #include "slowlog.h"
 #include "latency.h"
+#include "monotonic.h"
 
 int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb *db, robj *value, int wherefrom, int whereto);
 int getListPositionFromObjectOrReply(client *c, robj *arg, int *position);
@@ -102,16 +103,14 @@ void blockClient(client *c, int btype) {
 /* This function is called after a client has finished a blocking operation
  * in order to update the total command duration, log the command into
  * the Slow log if needed, and log the reply duration event if needed. */
-void updateStatsOnUnblock(client *c, ustime_t blocked_us, ustime_t reply_us){
+void updateStatsOnUnblock(client *c, time_t blocked_us, time_t reply_us){
     const ustime_t total_cmd_duration = c->duration + blocked_us + reply_us;
     c->lastcmd->microseconds += total_cmd_duration;
     /* Log the command into the Slow log if needed. */
     if (!(c->lastcmd->flags & CMD_SKIP_SLOWLOG)) {
-        const char *latency_event = (c->lastcmd->flags & CMD_FAST) ?
-                                    "fast-command" : "command";
         slowlogPushEntryIfNeeded(c,c->argv,c->argc,total_cmd_duration);
         /* Log the reply duration event. */
-        latencyAddSampleIfNeeded(latency_event,reply_us/1000);
+        latencyAddSampleIfNeeded("command-unblocking",reply_us/1000);
     }
 }
 
@@ -282,7 +281,8 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
                 if (dstkey) incrRefCount(dstkey);
                 unblockClient(receiver);
 
-                const ustime_t start = server.ustime;
+                monotime replyTimer;
+                elapsedStart(&replyTimer);
                 if (serveClientBlockedOnList(receiver,
                     rl->key,dstkey,rl->db,value,
                     wherefrom, whereto) == C_ERR)
@@ -291,8 +291,7 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
                      * to also undo the POP operation. */
                     listTypePush(o,value,wherefrom);
                 }
-                const ustime_t reply_us = ustime()-start;
-                updateStatsOnUnblock(receiver, 0, reply_us);
+                updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
 
                 if (dstkey) decrRefCount(dstkey);
                 decrRefCount(value);
@@ -337,10 +336,10 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
                          receiver->lastcmd->proc == bzpopminCommand)
                          ? ZSET_MIN : ZSET_MAX;
             unblockClient(receiver);
-            const ustime_t start = server.ustime;
+            monotime replyTimer;
+            elapsedStart(&replyTimer);
             genericZpopCommand(receiver,&rl->key,1,where,1,NULL);
-            const ustime_t reply_us = ustime()-start;
-            updateStatsOnUnblock(receiver, 0, reply_us);
+            updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
             zcard--;
 
             /* Replicate the command. */
@@ -430,7 +429,8 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
                     }
                 }
 
-                const ustime_t start_us = server.ustime;
+                monotime replyTimer;
+                elapsedStart(&replyTimer);
                 /* Emit the two elements sub-array consisting of
                  * the name of the stream and the data we
                  * extracted from it. Wrapped in a single-item
@@ -450,8 +450,7 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
                 streamReplyWithRange(receiver,s,&start,NULL,
                                      receiver->bpop.xread_count,
                                      0, group, consumer, noack, &pi);
-                const ustime_t reply_us = ustime()-start_us;
-                updateStatsOnUnblock(receiver, 0, reply_us);
+                updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
 
                 /* Note that after we unblock the client, 'gt'
                  * and other receiver->bpop stuff are no longer
@@ -498,7 +497,10 @@ void serveClientsBlockedOnKeyByModule(readyList *rl) {
              * different modules with different triggers to consider if a key
              * is ready or not. This means we can't exit the loop but need
              * to continue after the first failure. */
+            monotime replyTimer;
+            elapsedStart(&replyTimer);
             if (!moduleTryServeClientBlockedOnKey(receiver, rl->key)) continue;
+            updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
 
             moduleUnblockClient(receiver);
         }
