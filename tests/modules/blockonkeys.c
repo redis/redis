@@ -298,6 +298,76 @@ int fsl_getall(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
 }
 
+/* Callback for blockonkeys_popall */
+int blockonkeys_popall_reply_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argc);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_WRITE);
+    if (RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_LIST) {
+        RedisModuleString *elem;
+        long len = 0;
+        RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+        while ((elem = RedisModule_ListPop(key, REDISMODULE_LIST_HEAD)) != NULL) {
+            len++;
+            RedisModule_ReplyWithString(ctx, elem);
+            RedisModule_FreeString(ctx, elem);
+        }
+        RedisModule_ReplySetArrayLength(ctx, len);
+    } else {
+        RedisModule_ReplyWithError(ctx, "ERR Not a list");
+    }
+    RedisModule_CloseKey(key);
+    return REDISMODULE_OK;
+}
+
+int blockonkeys_popall_timeout_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    return RedisModule_ReplyWithError(ctx, "ERR Timeout");
+}
+
+/* BLOCKONKEYS.POPALL key
+ *
+ * Blocks on an empty key for up to 3 seconds. When unblocked by a list
+ * operation like LPUSH, all the elements are popped and returned. Fails with an
+ * error on timeout. */
+int blockonkeys_popall(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2)
+        return RedisModule_WrongArity(ctx);
+
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
+    if (RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_EMPTY) {
+        RedisModule_BlockClientOnKeys(ctx, blockonkeys_popall_reply_callback,
+                                      blockonkeys_popall_timeout_callback,
+                                      NULL, 3000, &argv[1], 1, NULL);
+    } else {
+        RedisModule_ReplyWithError(ctx, "ERR Key not empty");
+    }
+    RedisModule_CloseKey(key);
+    return REDISMODULE_OK;
+}
+
+/* A module equivalent of LPUSH */
+int blockonkeys_lpush(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc < 3)
+        return RedisModule_WrongArity(ctx);
+
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_WRITE);
+    if (RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_EMPTY &&
+        RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_LIST) {
+        RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+    } else {
+        for (int i = 2; i < argc; i++) {
+            if (RedisModule_ListPush(key, REDISMODULE_LIST_HEAD,
+                                     argv[i]) != REDISMODULE_OK) {
+                RedisModule_CloseKey(key);
+                return RedisModule_ReplyWithError(ctx, "ERR Push failed");
+            }
+        }
+    }
+    RedisModule_CloseKey(key);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -332,6 +402,14 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"fsl.getall",fsl_getall,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "blockonkeys.popall", blockonkeys_popall,
+                                  "", 1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "blockonkeys.lpush", blockonkeys_lpush,
+                                  "", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

@@ -684,10 +684,14 @@ static int getBlockedTypeByType(int type) {
 void signalKeyAsReady(redisDb *db, robj *key, int type) {
     readyList *rl;
 
-    /* If no clients are blocked on this type, just return */
+    /* If no clients are blocked on this type, and if no module is blocking
+     * since we don't know which type modules are waiting for, just return. */
     int btype = getBlockedTypeByType(type);
-    if (btype == BLOCKED_NONE || !server.blocked_clients_by_type[btype])
+    if (btype == BLOCKED_NONE ||
+        (!server.blocked_clients_by_type[btype] &&
+         !server.blocked_clients_by_type[BLOCKED_MODULE])) {
         return;
+    }
 
     /* No clients blocking for this key? No need to queue it. */
     if (dictFind(db->blocking_keys,key) == NULL) return;
