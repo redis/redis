@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
-#include <unistd.h>
+#include <time.h>
 
 #define UNUSED(x) (void)(x)
 
@@ -36,7 +36,10 @@ void *HelloBlock_ThreadMain(void *arg) {
     long long delay = (unsigned long)targ[1];
     RedisModule_Free(targ);
 
-    sleep(delay);
+    struct timespec ts;
+    ts.tv_sec = delay / 1000;
+    ts.tv_nsec = (delay % 1000) * 1000000;
+    nanosleep(&ts, NULL);
     int *r = RedisModule_Alloc(sizeof(int));
     *r = rand();
     RedisModule_UnblockClient(bc,r);
@@ -48,7 +51,7 @@ void HelloBlock_Disconnected(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc) 
         (void*)bc);
 }
 
-/* BLOCK.DEBUG <delay> <timeout> -- Block for <count> seconds, then reply with
+/* BLOCK.DEBUG <delay_ms> <timeout_ms> -- Block for <count> milliseconds, then reply with
  * a random number. Timeout is the command timeout, so that you can test
  * what happens when the delay is greater than the timeout. */
 int HelloBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -63,7 +66,6 @@ int HelloBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     if (RedisModule_StringToLongLong(argv[2],&timeout) != REDISMODULE_OK) {
         return RedisModule_ReplyWithError(ctx,"ERR invalid count");
     }
-    timeout=timeout*1000;
 
     pthread_t tid;
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,HelloBlock_Reply,HelloBlock_Timeout,HelloBlock_FreeData,timeout);

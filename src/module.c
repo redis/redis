@@ -4650,7 +4650,7 @@ int moduleTryServeClientBlockedOnKey(client *c, robj *key) {
  * client, but instead produce a specific error reply.
  */
 RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms) {
-    if (ctx->client) ctx->client->background_start_time = server.ustime;
+    if (ctx->client) elapsedStart(&(ctx->client->backgroud_timer));
     return moduleBlockClient(ctx,reply_callback,timeout_callback,free_privdata,timeout_ms, NULL,0,NULL);
 }
 
@@ -4779,7 +4779,7 @@ int RM_UnblockClient(RedisModuleBlockedClient *bc, void *privdata) {
         if (bc->unblocked) return REDISMODULE_OK;
         if (bc->client) moduleBlockedClientTimedOut(bc->client);
     } else {
-        if (bc->client) bc->client->background_duration = ustime()-bc->client->background_start_time;
+        if (bc->client) bc->client->background_duration = elapsedUs(bc->client->backgroud_timer);
     }
     moduleUnblockClientByHandle(bc,privdata);
     return REDISMODULE_OK;
