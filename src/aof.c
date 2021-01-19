@@ -596,11 +596,36 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
         cmd->proc == expireatCommand) {
         /* Translate EXPIRE/PEXPIRE/EXPIREAT into PEXPIREAT */
         buf = catAppendOnlyExpireAtCommand(buf,cmd,argv[1],argv[2]);
+    } else if (cmd->proc == setCommand && argc > 3) {
+        robj *pxarg = NULL;
+
+        if (!strcasecmp(argv[3]->ptr, "px")) {
+            pxarg = argv[4];
+        }
+        /* For AOF we convert SET key value PX milliseconds to SET key value PXAT millisecond-timestamp */
+        if (pxarg) {
+            robj *millisecond = getDecodedObject(pxarg);
+            long long when = strtoll(millisecond->ptr,NULL,10);
+            when += mstime();
+
+            decrRefCount(millisecond);
+
+            robj *newargs[5];
+            newargs[0] = argv[0];
+            newargs[1] = argv[1];
+            newargs[2] = argv[2];
+            newargs[3] = shared.pxat;
+            newargs[4] = createStringObjectFromLongLong(when);
+            buf = catAppendOnlyGenericCommand(buf,5,newargs);
+            decrRefCount(newargs[4]);
+        } else {
+            buf = catAppendOnlyGenericCommand(buf,argc,argv);
+        }
     } else {
-        /* All the other commands don't need translation or need the
-         * same translation already operated in the command vector
-         * for the replication itself. */
-        buf = catAppendOnlyGenericCommand(buf,argc,argv);
+            /* All the other commands don't need translation or need the
+             * same translation already operated in the command vector
+             * for the replication itself. */
+            buf = catAppendOnlyGenericCommand(buf,argc,argv);
     }
 
     /* Append to the AOF buffer. This will be flushed on disk just before

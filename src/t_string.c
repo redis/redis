@@ -31,7 +31,7 @@
 #include <math.h> /* isnan(), isinf() */
 
 /* Forward declarations */
-int getGenericCommand(client *c, int flags, robj *expire, int unit);
+int getGenericCommand(client *c);
 
 /*-----------------------------------------------------------------------------
  * String Commands
@@ -94,23 +94,28 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     }
 
     if (flags & OBJ_SET_GET) {
-        if (getGenericCommand(c, OBJ_NO_FLAGS, NULL, 0) == C_ERR) return;
+        if (getGenericCommand(c) == C_ERR) return;
     }
 
     genericSetKey(c,c->db,key, val,flags & OBJ_KEEPTTL,1);
     server.dirty++;
-    if (expire && ((flags & OBJ_PX) || (flags & OBJ_EX))) {
-        milliseconds += mstime();
-    }
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
     if (expire) {
-        setExpire(c, c->db, key, milliseconds);
+        robj *exp = shared.pxat;
+
+        if ((flags & OBJ_PX) || (flags & OBJ_EX)) {
+            setExpire(c,c->db,key,milliseconds + mstime());
+            exp = shared.px;
+        } else {
+            setExpire(c,c->db,key,milliseconds);
+        }
         notifyKeyspaceEvent(NOTIFY_GENERIC,
                             "expire", key, c->db->id);
 
-        // Propagate as SET Key Value PXAT millisecond-timestamp
+        /* Propagate as SET Key Value PXAT millisecond-timestamp if there is EXAT/PXAT or
+         * propagate as SET Key Value PX millisecond if there is EX/PX flag. */
         robj* millisecondObj = createStringObjectFromLongLong(milliseconds);
-        rewriteClientCommandVector(c, 5, shared.set, key, val, shared.pxat, millisecondObj);
+        rewriteClientCommandVector(c,5,shared.set,key,val,exp,millisecondObj);
         decrRefCount(millisecondObj);
     }
     if (!(flags & OBJ_SET_GET)) {
@@ -124,6 +129,14 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
  * Get specific commands - PERSIST/DEL
  * Set specific commands - XX/NX/GET
  * Common commands - EX/EXAT/PX/PXAT/KEEPTTL
+ *
+ * Function takes pointers to client, flags, unit, pointer to pointer of expire obj if needed
+ * to be determined and command_type which can be COMMAND_GET or COMMAND_SET.
+ *
+ * If there are any syntax violations C_ERR is returned else C_OK is returned.
+ *
+ * Input flags are updated upon parsing the arguments. Unit and expire are updated if there are any
+ * EX/EXAT/PX/PXAT arguments. Unit is updated to millisecond if PX/PXAT is set.
  */
 
 #define COMMAND_GET 0
@@ -154,7 +167,7 @@ int parseExtendedStringArgumentsOrReply(client *c, int *flags, int *unit, robj *
             *flags |= OBJ_SET_GET;
         } else if (!strcasecmp(opt, "KEEPTTL") && !(*flags & OBJ_PERSIST) &&
             !(*flags & OBJ_EX) && !(*flags & OBJ_EXAT) &&
-            !(*flags & OBJ_PX) && !(*flags & OBJ_PXAT))
+            !(*flags & OBJ_PX) && !(*flags & OBJ_PXAT) && (command_type == COMMAND_SET))
         {
             *flags |= OBJ_KEEPTTL;
         } else if (!strcasecmp(opt,"PERSIST") && (command_type == COMMAND_GET) &&
@@ -221,7 +234,8 @@ int parseExtendedStringArgumentsOrReply(client *c, int *flags, int *unit, robj *
     return C_OK;
 }
 
-/* SET key value [NX] [XX] [KEEPTTL] [GET] [EX <seconds>] [PX <milliseconds>] [EXAT <seconds-timestamp>][PXAT <milliseconds-timestamp>] */
+/* SET key value [NX] [XX] [KEEPTTL] [GET] [EX <seconds>] [PX <milliseconds>]
+ *     [EXAT <seconds-timestamp>][PXAT <milliseconds-timestamp>] */
 void setCommand(client *c) {
     int j;
     robj *expire = NULL;
@@ -236,7 +250,7 @@ void setCommand(client *c) {
     setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL);
 
     /* Propagate without the GET argument */
-    if (flags & OBJ_SET_GET) {
+    if ((flags & OBJ_SET_GET) && !expire) {
         int argc = 0;
         robj **argv = zmalloc((c->argc-1)*sizeof(robj*));
         for (j=0; j < c->argc; j++) {
@@ -269,7 +283,21 @@ void psetexCommand(client *c) {
     setGenericCommand(c,OBJ_PX,c->argv[1],c->argv[3],c->argv[2],UNIT_MILLISECONDS,NULL,NULL);
 }
 
-int getGenericCommand(client *c, int flags, robj *expire, int unit) {
+int getGenericCommand(client *c) {
+    robj *o;
+
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL)
+        return C_OK;
+
+    if (checkType(c,o,OBJ_STRING)) {
+        return C_ERR;
+    }
+
+    addReplyBulk(c,o);
+    return C_OK;
+}
+
+int getexGenericCommand(client *c, int flags, robj *expire, int unit) {
     robj *o;
 
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL)
@@ -295,14 +323,34 @@ int getGenericCommand(client *c, int flags, robj *expire, int unit) {
     /* We need to do this before we expire the key or delete it */
     addReplyBulk(c,o);
 
-    if (expire) {
+    /* When PXAT/EXAT absolute timestamp is specified, there can be a chance that timestamp
+     * has already elapsed so delete the key in that case. */
+    if ((flags & OBJ_PXAT) || (flags & OBJ_EXAT)) {
+        if (checkAlreadyExpired(milliseconds)) {
+            flags = OBJ_DEL;
+        }
+    }
+
+    if (flags & OBJ_DEL) {
+        int deleted = server.lazyfree_lazy_user_del ? dbAsyncDelete(c->db, c->argv[1]) :
+                      dbSyncDelete(c->db, c->argv[1]);
+        serverAssert(deleted);
+
+        rewriteClientCommandVector(c, 2, shared.del, c->argv[1]);
+        signalModifiedKey(c, c->db, c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_GENERIC,
+                            "del", c->argv[1], c->db->id);
+        server.dirty++;
+    } else if (expire) {
+        robj *exp = shared.pexpireat;
         if ((flags & OBJ_PX) || (flags & OBJ_EX)) {
             milliseconds += mstime();
+            exp = shared.pexpire;
         }
 
         setExpire(c, c->db, c->argv[1], milliseconds);
         robj* millisecondObj = createStringObjectFromLongLong(milliseconds);
-        rewriteClientCommandVector(c, 3, shared.pexpireat, c->argv[1], millisecondObj);
+        rewriteClientCommandVector(c,3,exp,c->argv[1],millisecondObj);
         decrRefCount(millisecondObj);
         signalModifiedKey(c, c->db, c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,
@@ -316,41 +364,33 @@ int getGenericCommand(client *c, int flags, robj *expire, int unit) {
                                 "persist", c->argv[1], c->db->id);
             server.dirty++;
         }
-    } else if (flags & OBJ_DEL) {
-        int deleted = server.lazyfree_lazy_user_del ? dbAsyncDelete(c->db, c->argv[1]) :
-                      dbSyncDelete(c->db, c->argv[1]);
-        serverAssert(deleted);
-
-        rewriteClientCommandVector(c, 2, shared.del, c->argv[1]);
-        signalModifiedKey(c, c->db, c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_GENERIC,
-                            "del", c->argv[1], c->db->id);
-        server.dirty++;
     }
+
     return C_OK;
 }
 
 void getCommand(client *c) {
-    getGenericCommand(c,OBJ_NO_FLAGS,NULL,0);
+    getGenericCommand(c);
 }
 
 /*
- * GETEX <key> [KEEPTTL][PERSIST][DEL][EX seconds][PX milliseconds]
+ * GETEX <key> [PERSIST][DEL][EX seconds][PX milliseconds]
  * [EXAT seconds-timestamp][PXAT milliseconds-timestamp]
  *
  * The getexCommand() function implements extended options and variants of the GET command. Unlike GET
  * command this command is not read-only.
  *
- * Only one of the options can be used at a given time.
+ * The default behavior when no options are specified is same as GET and does not alter any TTL.
  *
- * 1. KEEPTTL is the default behavior and does not alter any TTL.
- * 2. PERSIST removes any TTL associated with the key.
- * 3. DEL deletes the key after the return.
- * 4. EX Set expiry TTL in seconds.
- * 5. PX Set expiry TTL in milliseconds.
- * 6. EXAT Same like EX instead of specifying the number of seconds representing the TTL
+ * Only one of the below options can be used at a given time.
+ *
+ * 1. PERSIST removes any TTL associated with the key.
+ * 2. DEL deletes the key after the return.
+ * 3. EX Set expiry TTL in seconds.
+ * 4. PX Set expiry TTL in milliseconds.
+ * 5. EXAT Same like EX instead of specifying the number of seconds representing the TTL
  *      (time to live), it takes an absolute Unix timestamp
- * 7. PXAT Same like PX instead of specifying the number of milliseconds representing the TTL
+ * 6. PXAT Same like PX instead of specifying the number of milliseconds representing the TTL
  *      (time to live), it takes an absolute Unix timestamp
  *
  * Command would either return the bulk string, error or nil.
@@ -364,11 +404,11 @@ void getexCommand(client *c) {
         return;
     }
 
-    getGenericCommand(c,flags,expire,unit);
+    getexGenericCommand(c,flags,expire,unit);
 }
 
 void getsetCommand(client *c) {
-    if (getGenericCommand(c, OBJ_NO_FLAGS, NULL, 0) == C_ERR) return;
+    if (getGenericCommand(c) == C_ERR) return;
     c->argv[2] = tryObjectEncoding(c->argv[2]);
     setKey(c,c->db,c->argv[1],c->argv[2]);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[1],c->db->id);

@@ -106,32 +106,28 @@ start_server {tags {"string"}} {
         r del foo
         r set foo bar
         r getex foo ex 10
-        set ttl [r ttl foo]
-        assert {$ttl <= 10 && $ttl > 5}
+        assert_range [r ttl foo] 5 10
     }
 
     test "GETEX PX option" {
         r del foo
         r set foo bar
         r getex foo px 10000
-        set pttl [r pttl foo]
-        assert {$pttl <= 10000 && $pttl > 5000}
+        assert_range [r pttl foo] 5000 10000
     }
 
     test "GETEX EXAT option" {
         r del foo
         r set foo bar
         r getex foo exat [expr [clock seconds] + 10]
-        set ttl [r ttl foo]
-        assert {$ttl <= 10 && $ttl > 5}
+        assert_range [r ttl foo] 5 10
     }
 
     test "GETEX PXAT option" {
         r del foo
         r set foo bar
         r getex foo pxat [expr [clock milliseconds] + 10000]
-        set pttl [r pttl foo]
-        assert {$pttl <= 10000 && $pttl > 5000}
+        assert_range [r pttl foo] 5000 10000
     }
 
     test "GETEX DEL option" {
@@ -144,30 +140,27 @@ start_server {tags {"string"}} {
     test "GETEX PERSIST option" {
         r del foo
         r set foo bar ex 10
-        set ttl [r ttl foo]
-        assert {$ttl <= 10 && $ttl > 5}
+        assert_range [r ttl foo] 5 10
         r getex foo persist
         assert_equal -1 [r ttl foo]
     }
 
-    test "GETEX KEEPTTL option" {
+    test "GETEX no option" {
         r del foo
-        r set foo bar ex 10
-        set ttl [r ttl foo]
-        assert {$ttl <= 10 && $ttl > 5}
-        r getex foo keepttl
-        assert {$ttl <= 10 && $ttl > 5}
+        r set foo bar
+        r getex foo
+        assert_equal bar [r getex foo]
     }
 
     test "GETEX syntax errors" {
         set ex {}
-        catch {r getex foo non-existant-option} ex
+        catch {r getex foo non-existent-option} ex
         set ex
     } {*syntax*}
 
-    test "GETEX no optional argument" {
+    test "GETEX no arguments" {
          set ex {}
-         catch {r getex foo} ex
+         catch {r getex} ex
          set ex
      } {*wrong number of arguments*}
 
@@ -509,15 +502,13 @@ start_server {tags {"string"}} {
     test "Extended SET EXAT option" {
         r del foo
         r set foo bar exat [expr [clock seconds] + 10]
-        set ttl [r ttl foo]
-        assert {$ttl <= 10 && $ttl > 5}
+        assert_range [r ttl foo] 5 10
     }
 
     test "Extended SET PXAT option" {
         r del foo
         r set foo bar pxat [expr [clock milliseconds] + 10000]
-        set ttl [r ttl foo]
-        assert {$ttl <= 10 && $ttl > 5}
+        assert_range [r ttl foo] 5 10
     }
     test {Extended SET using multiple options at once} {
         r set foo val
