@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
 
-OS=`uname -s`
-if [ ${OS} == "Linux" ]
-then
-    exit 0
-fi
-
 # fd 3 is meant to catch the actual access to /proc/pid/fd, 
 # in case there's an fd leak by the sentinel,
 # it can take 3, but then the access to /proc will take another fd, and we'll catch that.
