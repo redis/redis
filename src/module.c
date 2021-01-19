@@ -7670,6 +7670,11 @@ void moduleInitModulesSystem(void) {
     anetNonBlock(NULL,server.module_blocked_pipe[0]);
     anetNonBlock(NULL,server.module_blocked_pipe[1]);
 
+    /* Enable close-on-exec flag on pipes in case of the fork-exec system calls in
+     * sentinels or redis servers. */
+    anetCloexec(server.module_blocked_pipe[0]);
+    anetCloexec(server.module_blocked_pipe[1]);
+
     /* Create the timers radix tree. */
     Timers = raxNew();
 

@@ -2957,6 +2957,7 @@ int listenToPort(int port, int *fds, int *count) {
             return C_ERR;
         }
         anetNonBlock(NULL,fds[*count]);
+        anetCloexec(fds[*count]);
         (*count)++;
     }
     return C_OK;
@@ -3095,6 +3096,7 @@ void initServer(void) {
             exit(1);
         }
         anetNonBlock(NULL,server.sofd);
+        anetCloexec(server.sofd);
     }
 
     /* Abort if there are no listening sockets at all. */
@@ -5470,7 +5472,7 @@ void setupChildSignalHandlers(void) {
  * of the parent process, e.g. fd(socket or flock) etc.
  * should close the resources not used by the child process, so that if the
  * parent restarts it can bind/lock despite the child possibly still running. */
-void closeClildUnusedResourceAfterFork() {
+void closeChildUnusedResourceAfterFork() {
     closeListeningSockets(0);
     if (server.cluster_enabled && server.cluster_config_file_lock_fd != -1)
         close(server.cluster_config_file_lock_fd);  /* don't care if this fails */
@@ -5497,7 +5499,7 @@ int redisFork(int purpose) {
         server.in_fork_child = purpose;
         setOOMScoreAdj(CONFIG_OOM_BGCHILD);
         setupChildSignalHandlers();
-        closeClildUnusedResourceAfterFork();
+        closeChildUnusedResourceAfterFork();
     } else {
         /* Parent */
         server.stat_total_forks++;
