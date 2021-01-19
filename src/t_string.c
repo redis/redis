@@ -211,9 +211,12 @@ int setcasObjectCompare(robj *oldval, robj *chkval) {
 void setcasCommand(client *c) {
     robj *old = lookupKeyWrite(c->db,c->argv[1]);
 
-    if (old != NULL && !setcasObjectCompare(old, c->argv[2])) {
-        addReply(c, shared.null[c->resp]);
-        return;
+    if (old != NULL) {
+        c->argv[2] = tryObjectEncoding(c->argv[2]);
+        if (!setcasObjectCompare(old, c->argv[2])) {
+            addReply(c, shared.null[c->resp]);
+            return;
+        }
     }
 
     c->argv[3] = tryObjectEncoding(c->argv[3]);
