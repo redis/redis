@@ -21,6 +21,3 @@ then
 else
     echo "OS: expected Linux, but got ${OS}."
 fi
-
-
-    
