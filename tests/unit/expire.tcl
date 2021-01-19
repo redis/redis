@@ -209,7 +209,7 @@ start_server {tags {"expire"}} {
         set e
     } {*not an integer*}
 
-    test {EXPIRE and SET EX/PX option, TTL should not be reseted after loadaof} {
+    test {EXPIRE and SET EX/PX option, TTL should not be reset after loadaof} {
         # This test makes sure that expire times are propagated as absolute
         # times to the AOF file and not as relative time, so that when the AOF
         # is reloaded the TTLs are not being shifted forward to the future.
