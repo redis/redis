@@ -3245,7 +3245,6 @@ void processEventsWhileBlocked(void) {
  * Threaded I/O
  * ========================================================================== */
 
-
 #define IO_THREADS_MAX_NUM 128
 #define IO_THREADS_OP_READ 0
 #define IO_THREADS_OP_WRITE 1
@@ -3296,7 +3295,6 @@ void *IOThreadMain(void *myid) {
 
         serverAssert(getIOPendingCount(id) != 0);
 
-
         /* Process: note that the main thread will never touch our list
          * before we drop the pending count to 0. */
         listIter li;
@@ -3314,7 +3312,6 @@ void *IOThreadMain(void *myid) {
         }
         listEmpty(io_threads_list[id]);
         setIOPendingCount(id, 0);
-
     }
 }
 
@@ -3421,7 +3418,6 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     /* Start threads if needed. */
     if (!server.io_threads_active) startThreadedIO();
 
-
     /* Distribute the clients across N different lists. */
     listIter li;
     listNode *ln;
@@ -3517,7 +3513,6 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     if (!server.io_threads_active || !server.io_threads_do_reads) return 0;
     int processed = listLength(server.clients_pending_read);
     if (processed == 0) return 0;
-
 
     /* Distribute the clients across N different lists. */
     listIter li;
