@@ -3348,7 +3348,9 @@ fmterr:
  *
  * * **cmdname**: The Redis command to call.
  * * **fmt**: A format specifier string for the command's arguments. Each
- *   of the arguments should be specified by a valid type specification:
+ *   of the arguments should be specified by a valid type specification. The
+ *   format specifier can also contain the modifiers `!`, `A` and `R` which
+ *   don't have a corresponding argument.
  *
  *     * `b` -- The argument is a buffer and is immediately followed by another
  *              argument that is the buffer's length.
@@ -3356,9 +3358,6 @@ fmterr:
  *     * `l` -- The argument is long long integer.
  *     * `s` -- The argument is a RedisModuleString.
  *     * `v` -- The argument(s) is a vector of RedisModuleString.
- *
- *     The format specifier can also include modifiers:
- *
  *     * `!` -- Sends the Redis command and its arguments to replicas and AOF.
  *     * `A` -- Suppress AOF propagation, send only to replicas (requires `!`).
  *     * `R` -- Suppress replicas propagation, send only to AOF (requires `!`).
@@ -3744,7 +3743,7 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, robj *value) {
  *   a time limit and provides cursor support is used only for keys that are determined
  *   to have significant internal complexity. To determine this, the defrag mechanism
  *   uses the free_effort callback and the 'active-defrag-max-scan-fields' config directive.
- *   NOTE: The value is passed as a void** and the function is expected to update the
+ *   NOTE: The value is passed as a `void**` and the function is expected to update the
  *   pointer if the top-level value pointer is defragmented and consequentially changes.
  *
  * Note: the module name "AAAAAAAAA" is reserved and produces an error, it
@@ -8286,7 +8285,7 @@ int RM_DefragCursorSet(RedisModuleDefragCtx *ctx, unsigned long cursor) {
 /* Fetch a cursor value that has been previously stored using RM_DefragCursorSet().
  *
  * If not called for a late defrag operation, REDISMODULE_ERR will be returned and
- * the cursor should be ignored. See DM_DefragCursorSet() for more details on
+ * the cursor should be ignored. See RM_DefragCursorSet() for more details on
  * defrag cursors.
  */
 int RM_DefragCursorGet(RedisModuleDefragCtx *ctx, unsigned long *cursor) {
