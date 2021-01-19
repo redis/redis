@@ -3170,8 +3170,29 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
  * Returns REDISMODULE_OK on success and REDISMODULE_ERR if the key doesn't
  * refer to a stream or if invalid arguments were given.
  *
- * The stream items are retrieved using RedisModule_StreamIteratorNext(). The
- * iterator must be freed by callling RedisModule_StreamIteratorStop().
+ * The stream items are retrieved using RedisModule_StreamIteratorNextID() and
+ * for each stream ID, the fields and values are retrieved using
+ * RedisModule_StreamIteratorNextField(). The iterator must be freed by calling
+ * RedisModule_StreamIteratorStop().
+ *
+ * Example (error handling omitted):
+ *
+ *     RedisModule_StreamIteratorStart(key, 0, startid_ptr, endid_ptr);
+ *     RedisModuleStreamID id;
+ *     long numfields;
+ *     while (RedisModule_StreamIteratorNextID(key, &id, &numfields) ==
+ *            REDISMODULE_OK) {
+ *         for (long i = 0; i < numfields; i++) {
+ *             RedisModuleString *field, *value;
+ *             RedisModule_StreamIteratorNextField(key, &field, &value);
+ *             //
+ *             // ... Do stuff ...
+ *             //
+ *             RedisModule_Free(field);
+ *             RedisModule_Free(value);
+ *         }
+ *     }
+ *     RedisModule_StreamIteratorStop(key);
  */
 int RM_StreamIteratorStart(RedisModuleKey *key, int flags, RedisModuleStreamID *start, RedisModuleStreamID *end) {
     /* check args */
@@ -3181,6 +3202,9 @@ int RM_StreamIteratorStart(RedisModuleKey *key, int flags, RedisModuleStreamID *
     }
     if (!key || !key->value || key->value->type != OBJ_STREAM) {
         return REDISMODULE_ERR; /* not a stream */
+    }
+    if (key->iter) {
+        return REDISMODULE_ERR; /* iterator already started */
     }
 
     /* define range for streamIteratorStart() */
@@ -3215,24 +3239,23 @@ int RM_StreamIteratorStop(RedisModuleKey *key) {
     return REDISMODULE_OK;
 }
 
-/* Gets an item from a stream.
+/* Finds the next stream entry and returns its stream ID and the number of
+ * fields.
  *
  * - `key`: Key for which a stream iterator has been started using
  *   RedisModule_StreamIteratorStart().
- * - `maxnumfields`: The maximum number of fields to return in `fieldsvalues`.
- * - `id`: The stream ID returned.
- * - `fieldsvalues`: Pointer to an array where fields and values are returned in
- *   the following order: (field 1, value 1, field 2, value 2, ...). The array
- *   must have space for `2 * maxnumfields` elements. The strings returned are
- *   freed automatically when the callback finishes if automatic memory
- *   management has been enabled.
- * - `numfields`: The number of fields returned.
+ * - `id`: The stream ID returned. NULL if you don't care.
+ * - `numfields`: The number of fields in the found stream entry. NULL if you
+ *   don't care.
  *
  * Returns REDISMODULE_OK if an item was found or REDISMODULE_ERR if there are
  * no more items. REDISMODULE_ERR is also returned if no stream iterator has
  * been started for the key.
+ *
+ * Use RedisModule_StreamIteratorNextField() to retrieve the fields and values.
+ * See the example at RedisModule_StreamIteratorStart().
  */
-int RM_StreamIteratorNext(RedisModuleKey *key, long maxnumfields, RedisModuleStreamID *id, RedisModuleString **fieldsvalues, long *numfields) {
+int RM_StreamIteratorNextID(RedisModuleKey *key, RedisModuleStreamID *id, long *numfields) {
     if (!key || !key->value || key->value->type != OBJ_STREAM || !key->iter) {
         return REDISMODULE_ERR;
     }
@@ -3240,30 +3263,58 @@ int RM_StreamIteratorNext(RedisModuleKey *key, long maxnumfields, RedisModuleStr
     int64_t num;
     streamID streamid;
     if (streamIteratorGetID(si, &streamid, &num)) {
-        id->ms = streamid.ms;
-        id->seq = streamid.seq;
-        if (num > maxnumfields) num = maxnumfields;
-        *numfields = num;
-        int64_t i = 0;
-        while (num--) {
-            unsigned char *field, *value;
-            int64_t field_len, value_len;
-            streamIteratorGetField(si, &field, &value, &field_len, &value_len);
-            robj *field_obj = createRawStringObject((char *)field, field_len);
-            robj *value_obj = createRawStringObject((char *)value, value_len);
-            fieldsvalues[i++] = field_obj;
-            fieldsvalues[i++] = value_obj;
-            autoMemoryAdd(key->ctx, REDISMODULE_AM_STRING, field_obj);
-            autoMemoryAdd(key->ctx, REDISMODULE_AM_STRING, value_obj);
+        if (id) {
+            id->ms = streamid.ms;
+            id->seq = streamid.seq;
         }
+        if (numfields) *numfields = num;
         return REDISMODULE_OK;
     } else {
         /* No entry found. */
-        id->ms = 0;
-        id->seq = 0;
-        *numfields = 0;
+        if (id) {
+            id->ms = 0;
+            id->seq = 0;
+        }
+        if (numfields) *numfields = 0;
         return REDISMODULE_ERR;
     }
+}
+
+/* Retrieves the next field of the current stream ID and its corresponding value
+ * in a stream iteration. This function should be called directly after calling
+ * RedisModule_StreamIteratorNextID() and not more than `numfields` times. If
+ * called more times than the number of fields, the behaviour is undefined.
+ *
+ * - `key`: Key where a stream iterator has been started.
+ * - `field_ptr`: This is where the field is returned.
+ * - `value_ptr`: This is where the value is returned.
+ *
+ * Returns REDISMODULE_OK and points `field` and `value` to freshly allocated
+ * RedisModuleString objects. The string objects are freed automatically when
+ * the callback finishes if automatic memory is enabled.
+ *
+ * If the key is not a stream with a stream iterator started, REDISMODULE_ERR is
+ * returned.
+ *
+ * See the example at RedisModule_StreamIteratorStart().
+ */
+int RM_StreamIteratorNextField(RedisModuleKey *key, RedisModuleString **field_ptr, RedisModuleString **value_ptr) {
+    if (!key || !key->iter || key->value->type != OBJ_STREAM) {
+        return REDISMODULE_ERR;
+    }
+    streamIterator *si = key->iter;
+    unsigned char *field, *value;
+    int64_t field_len, value_len;
+    streamIteratorGetField(si, &field, &value, &field_len, &value_len);
+    if (field_ptr) {
+        *field_ptr = createRawStringObject((char *)field, field_len);
+        autoMemoryAdd(key->ctx, REDISMODULE_AM_STRING, *field_ptr);
+    }
+    if (value_ptr) {
+        *value_ptr = createRawStringObject((char *)value, value_len);
+        autoMemoryAdd(key->ctx, REDISMODULE_AM_STRING, *value_ptr);
+    }
+    return REDISMODULE_OK;
 }
 
 /* Trim a stream by length, similar to XTRIM with MAXLEN.
@@ -8756,7 +8807,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(StreamAdd);
     REGISTER_API(StreamIteratorStart);
     REGISTER_API(StreamIteratorStop);
-    REGISTER_API(StreamIteratorNext);
+    REGISTER_API(StreamIteratorNextID);
+    REGISTER_API(StreamIteratorNextField);
     REGISTER_API(StreamTrimByLength);
     REGISTER_API(StreamTrimByID);
     REGISTER_API(IsKeysPositionRequest);

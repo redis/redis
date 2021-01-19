@@ -103,19 +103,20 @@ int stream_range(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     /* Return array. */
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
     RedisModule_AutoMemory(ctx);
-    RedisModuleString *fields_and_values[200];
     RedisModuleStreamID id;
     long numfields;
     long len = 0;
-    while (RedisModule_StreamIteratorNext(key, 100, &id,
-                                          fields_and_values,
-                                          &numfields) == REDISMODULE_OK) {
+    while (RedisModule_StreamIteratorNextID(key, &id,
+                                            &numfields) == REDISMODULE_OK) {
         RedisModule_ReplyWithArray(ctx, 2);
         RedisModuleString *id_str = RedisModule_CreateStringFromStreamID(ctx, &id);
         RedisModule_ReplyWithString(ctx, id_str);
         RedisModule_ReplyWithArray(ctx, numfields * 2);
-        for (long i = 0; i < numfields * 2; i++) {
-            RedisModule_ReplyWithString(ctx, fields_and_values[i]);
+        for (long i = 0; i < numfields; i++) {
+            RedisModuleString *field, *value;
+            RedisModule_StreamIteratorNextField(key, &field, &value);
+            RedisModule_ReplyWithString(ctx, field);
+            RedisModule_ReplyWithString(ctx, value);
         }
         len++;
     }
