@@ -222,12 +222,16 @@ start_server {tags {"expire"}} {
         r set foo4 bar
         r expire foo3 100
         r pexpire foo4 100000
+        r setex foo5 100 bar
+        r psetex foo6 100000 bar
         after 2000
         r debug loadaof
         assert_range [r ttl foo1] 90 98
         assert_range [r ttl foo2] 90 98
         assert_range [r ttl foo3] 90 98
         assert_range [r ttl foo4] 90 98
+        assert_range [r ttl foo5] 90 98
+        assert_range [r ttl foo6] 90 98
     }
 
     test {EXPIRE relative and absolute propagation to replicas} {
@@ -245,17 +249,29 @@ start_server {tags {"expire"}} {
 
         set repl [attach_to_replication_stream]
         r set foo1 bar ex 100
+        r set foo1 bar px 100000
+        r setex foo1 100 bar
+        r psetex foo1 100000 bar
         r set foo2 bar
         r expire foo2 100
+        r pexpire foo2 100000
         r set foo3 bar
         r expireat foo3 [expr [clock seconds]+100]
+        r pexpireat foo3 [expr [clock seconds]*1000+100000]
+        r expireat foo3 [expr [clock seconds]-100]
         assert_replication_stream $repl {
             {select *}
             {set foo1 bar ex 100}
+            {set foo1 bar px 100000}
+            {setex foo1 100 bar}
+            {psetex foo1 100000 bar}
             {set foo2 bar}
             {expire foo2 100}
+            {pexpire foo2 100000}
             {set foo3 bar}
             {expireat foo3 *}
+            {pexpireat foo3 *}
+            {del foo3}
         }
     }
 
