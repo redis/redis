@@ -185,4 +185,34 @@ start_server {tags {"modules"}} {
         r fsl.push k 34
         assert_equal {34} [$rd read]
     }
+
+    test {Module client blocked on keys woken up by LPUSH} {
+        r del k
+        set rd [redis_deferring_client]
+        $rd blockonkeys.popall k
+        # wait until client is actually blocked
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {1}
+        } else {
+            fail "Client is not blocked"
+        }
+        r lpush k 42 squirrel banana
+        assert_equal {banana squirrel 42} [$rd read]
+        $rd close
+    }
+
+    test {Module client unblocks BLPOP} {
+        r del k
+        set rd [redis_deferring_client]
+        $rd blpop k 3
+        # wait until client is actually blocked
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {1}
+        } else {
+            fail "Client is not blocked"
+        }
+        r blockonkeys.lpush k 42
+        assert_equal {k 42} [$rd read]
+        $rd close
+    }
 }
