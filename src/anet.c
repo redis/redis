@@ -71,9 +71,8 @@ int anetSetBlock(char *err, int fd, int non_block) {
 
     /* Check if this flag has been set or unset, if so, 
      * then there is no need to call fcntl to set/unset it again. */
-    if (!!(flags & O_NONBLOCK) == !!non_block) {
+    if (!!(flags & O_NONBLOCK) == !!non_block)
         return ANET_OK;
-    }
 
     if (non_block)
         flags |= O_NONBLOCK;
