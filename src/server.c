@@ -3585,7 +3585,7 @@ void call(client *c, int flags) {
     updateCachedTime(0);
     elapsedStart(&call_timer);
     c->cmd->proc(c);
-    const time_t duration = elapsedUs(call_timer);
+    const long duration = elapsedUs(call_timer);
     c->duration = duration;
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
