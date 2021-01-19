@@ -2404,6 +2404,7 @@ void setCommand(client *c);
 void setnxCommand(client *c);
 void setexCommand(client *c);
 void psetexCommand(client *c);
+void setcasCommand(client *c);
 void getCommand(client *c);
 void delCommand(client *c);
 void unlinkCommand(client *c);
