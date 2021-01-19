@@ -196,9 +196,9 @@ start_server {tags {"modules"}} {
         } else {
             fail "Client is not blocked"
         }
-        r lpush k 42
-        assert_equal {42} [$rd read]
-    $rd close
+        r lpush k 42 squirrel banana
+        assert_equal {banana squirrel 42} [$rd read]
+        $rd close
     }
 
     test {Module client unblocks BLPOP} {
@@ -213,6 +213,6 @@ start_server {tags {"modules"}} {
         }
         r blockonkeys.lpush k 42
         assert_equal {k 42} [$rd read]
-    $rd close
+        $rd close
     }
 }
