@@ -224,7 +224,6 @@ start_server {tags {"expire"}} {
         r pexpire foo4 100000
         after 2000
         r debug loadaof
-        set ttl
         assert_range [r ttl foo1] 90 98
         assert_range [r ttl foo2] 90 98
         assert_range [r ttl foo3] 90 98
