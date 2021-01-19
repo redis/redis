@@ -198,6 +198,7 @@ start_server {tags {"modules"}} {
         }
         r lpush k 42
         assert_equal {42} [$rd read]
+    $rd close
     }
 
     test {Module client unblocks BLPOP} {
@@ -212,5 +213,6 @@ start_server {tags {"modules"}} {
         }
         r blockonkeys.lpush k 42
         assert_equal {k 42} [$rd read]
+    $rd close
     }
 }
