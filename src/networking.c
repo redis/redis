@@ -3355,8 +3355,6 @@ void processEventsWhileBlocked(void) {
  * Threaded I/O
  * ========================================================================== */
 
-int tio_debug = 0;
-
 #define IO_THREADS_MAX_NUM 128
 #define IO_THREADS_OP_READ 0
 #define IO_THREADS_OP_WRITE 1
@@ -3407,8 +3405,6 @@ void *IOThreadMain(void *myid) {
 
         serverAssert(getIOPendingCount(id) != 0);
 
-        if (tio_debug) printf("[%ld] %d to handle\n", id, (int)listLength(io_threads_list[id]));
-
         /* Process: note that the main thread will never touch our list
          * before we drop the pending count to 0. */
         listIter li;
@@ -3426,8 +3422,6 @@ void *IOThreadMain(void *myid) {
         }
         listEmpty(io_threads_list[id]);
         setIOPendingCount(id, 0);
-
-        if (tio_debug) printf("[%ld] Done\n", id);
     }
 }
 
@@ -3482,8 +3476,6 @@ void killIOThreads(void) {
 }
 
 void startThreadedIO(void) {
-    if (tio_debug) { printf("S"); fflush(stdout); }
-    if (tio_debug) printf("--- STARTING THREADED IO ---\n");
     serverAssert(server.io_threads_active == 0);
     for (int j = 1; j < server.io_threads_num; j++)
         pthread_mutex_unlock(&io_threads_mutex[j]);
@@ -3494,10 +3486,6 @@ void stopThreadedIO(void) {
     /* We may have still clients with pending reads when this function
      * is called: handle them before stopping the threads. */
     handleClientsWithPendingReadsUsingThreads();
-    if (tio_debug) { printf("E"); fflush(stdout); }
-    if (tio_debug) printf("--- STOPPING THREADED IO [R%d] [W%d] ---\n",
-        (int) listLength(server.clients_pending_read),
-        (int) listLength(server.clients_pending_write));
     serverAssert(server.io_threads_active == 1);
     for (int j = 1; j < server.io_threads_num; j++)
         pthread_mutex_lock(&io_threads_mutex[j]);
@@ -3539,8 +3527,6 @@ int handleClientsWithPendingWritesUsingThreads(void) {
 
     /* Start threads if needed. */
     if (!server.io_threads_active) startThreadedIO();
-
-    if (tio_debug) printf("%d TOTAL WRITE pending clients\n", processed);
 
     /* Distribute the clients across N different lists. */
     listIter li;
@@ -3586,7 +3572,6 @@ int handleClientsWithPendingWritesUsingThreads(void) {
             pending += getIOPendingCount(j);
         if (pending == 0) break;
     }
-    if (tio_debug) printf("I/O WRITE All threads finshed\n");
 
     /* Run the list of clients again to install the write handler where
      * needed. */
@@ -3639,8 +3624,6 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     int processed = listLength(server.clients_pending_read);
     if (processed == 0) return 0;
 
-    if (tio_debug) printf("%d TOTAL READ pending clients\n", processed);
-
     /* Distribute the clients across N different lists. */
     listIter li;
     listNode *ln;
@@ -3676,7 +3659,6 @@ int handleClientsWithPendingReadsUsingThreads(void) {
             pending += getIOPendingCount(j);
         if (pending == 0) break;
     }
-    if (tio_debug) printf("I/O READ All threads finshed\n");
 
     /* Run the list of clients again to process the new buffers. */
     while(listLength(server.clients_pending_read)) {
