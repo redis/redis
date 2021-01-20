@@ -60,7 +60,7 @@ int string2d(const char *s, size_t slen, double *dp);
 int d2string(char *buf, size_t len, double value);
 int ld2string(char *buf, size_t len, long double value, ld2string_mode mode);
 sds getAbsolutePath(char *filename);
-unsigned long getTimeZone(void);
+long getTimeZone(void);
 int pathIsBaseName(char *path);
 
 #ifdef REDIS_TEST

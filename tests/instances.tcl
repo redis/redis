@@ -24,6 +24,7 @@ set ::simulate_error 0
 set ::failed 0
 set ::sentinel_instances {}
 set ::redis_instances {}
+set ::global_config {}
 set ::sentinel_base_port 20000
 set ::redis_base_port 30000
 set ::redis_port_count 1024
@@ -91,6 +92,9 @@ proc spawn_instance {type base_port count {conf {}}} {
         # Add additional config files
         foreach directive $conf {
             puts $cfg $directive
+        }
+        dict for {name val} $::global_config {
+            puts $cfg "$name $val"
         }
         close $cfg
 
@@ -239,6 +243,10 @@ proc parse_options {} {
                 -certfile "$::tlsdir/client.crt" \
                 -keyfile "$::tlsdir/client.key"
             set ::tls 1
+        } elseif {$opt eq {--config}} {
+            set val2 [lindex $::argv [expr $j+2]]
+            dict set ::global_config $val $val2
+            incr j 2
         } elseif {$opt eq "--help"} {
             puts "--single <pattern>      Only runs tests specified by pattern."
             puts "--dont-clean            Keep log files on exit."
@@ -246,6 +254,7 @@ proc parse_options {} {
             puts "--fail                  Simulate a test failure."
             puts "--valgrind              Run with valgrind."
             puts "--tls                   Run tests in TLS mode."
+            puts "--config <k> <v>        Extra config argument(s)."
             puts "--help                  Shows this help."
             exit 0
         } else {

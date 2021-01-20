@@ -5533,7 +5533,7 @@ void sendChildCOWInfo(int ptype, int on_exit, char *pname) {
     if (private_dirty) {
         serverLog(on_exit ? LL_NOTICE : LL_VERBOSE,
             "%s: %zu MB of memory used by copy-on-write",
-            pname, private_dirty);
+            pname, private_dirty/(1024*1024));
     }
 
     sendChildInfo(ptype, on_exit, private_dirty);

@@ -1,4 +1,4 @@
-start_server {tags {"repl"}} {
+start_server {tags {"repl network"}} {
     start_server {} {
 
         set master [srv -1 client]
