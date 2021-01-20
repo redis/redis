@@ -69,20 +69,3 @@ jobs:
         usesh: true
         prepare: pkg install -y gmake
         run: gmake
-
-  test-freebsd:
-    runs-on: macos-latest
-    timeout-minutes: 14400
-    steps:
-    - uses: actions/checkout@v2
-    - name: test
-      uses: vmactions/freebsd-vm@v0.1.0
-      with:
-        usesh: true
-        prepare: pkg install -y gmake lang/tcl85
-        run: |
-          gmake
-          MAKE=gmake ./runtest-moduleapi --verbose
-          ./runtest --accurate --verbose --no-latency
-          ./runtest-sentinel
-          ./runtest-cluster
