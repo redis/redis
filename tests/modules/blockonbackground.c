@@ -33,6 +33,7 @@ void HelloBlock_FreeData(RedisModuleCtx *ctx, void *privdata) {
 void *HelloBlock_ThreadMain(void *arg) {
     void **targ = arg;
     RedisModuleBlockedClient *bc = targ[0];
+    RedisModule_MeasureTimeStart(bc);
     long long delay = (unsigned long)targ[1];
     RedisModule_Free(targ);
 
@@ -42,6 +43,7 @@ void *HelloBlock_ThreadMain(void *arg) {
     nanosleep(&ts, NULL);
     int *r = RedisModule_Alloc(sizeof(int));
     *r = rand();
+    RedisModule_MeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc,r);
     return NULL;
 }

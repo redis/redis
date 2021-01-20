@@ -871,8 +871,6 @@ typedef struct client {
                                buffer or object being sent. */
     time_t ctime;           /* Client creation time. */
     time_t duration;        /* Current command duration. Used for measuring latency of blocking/non-blocking cmds */
-    monotime backgroud_timer; /* Timer tracking thestart of background work, used for blocking command doing background work */
-    uint64_t background_duration; /* Current command background time duration. Used for measuring latency of blocking/non-blocking cmds */
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
     time_t obuf_soft_limit_reached_time;
     uint64_t flags;         /* Client flags: CLIENT_* macros. */
