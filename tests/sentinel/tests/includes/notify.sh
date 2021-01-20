@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
-OS=`uname -s`	
-if [ ${OS} != "Linux" ]	
-then	
-    exit 0	
+OS=`uname -s`
+if [ ${OS} != "Linux" ]
+then
+    exit 0
 fi
 
 # fd 3 is meant to catch the actual access to /proc/pid/fd, 
