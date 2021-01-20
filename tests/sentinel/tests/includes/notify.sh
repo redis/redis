@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 OS=`uname -s`
-if [ ${OS} == "Linux" ]
+if [ ${OS} != "Linux" ]
 then
     exit 0
 fi
