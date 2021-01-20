@@ -216,7 +216,7 @@ jobs:
         prepare: pkg install -y gmake lang/tcl85
         run: |
           gmake
-          MAKE=gmake ./runtest-moduleapi --verbose
           ./runtest --accurate --verbose --no-latency
+          MAKE=gmake ./runtest-moduleapi --verbose
           ./runtest-sentinel
           ./runtest-cluster
