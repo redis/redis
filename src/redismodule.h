@@ -645,6 +645,7 @@ REDISMODULE_API int (*RedisModule_ZsetRangeEndReached)(RedisModuleKey *key) REDI
 REDISMODULE_API int (*RedisModule_HashSet)(RedisModuleKey *key, int flags, ...) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_HashGet)(RedisModuleKey *key, int flags, ...) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_StreamAdd)(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisModuleString **argv, int64_t numfields) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_StreamDelete)(RedisModuleKey *key, RedisModuleStreamID *id) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_StreamIteratorStart)(RedisModuleKey *key, int flags, RedisModuleStreamID *startid, RedisModuleStreamID *endid) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_StreamIteratorStop)(RedisModuleKey *key) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_StreamIteratorNextID)(RedisModuleKey *key, RedisModuleStreamID *id, long *numfields) REDISMODULE_ATTR;
@@ -912,6 +913,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(HashSet);
     REDISMODULE_GET_API(HashGet);
     REDISMODULE_GET_API(StreamAdd);
+    REDISMODULE_GET_API(StreamDelete);
     REDISMODULE_GET_API(StreamIteratorStart);
     REDISMODULE_GET_API(StreamIteratorStop);
     REDISMODULE_GET_API(StreamIteratorNextID);

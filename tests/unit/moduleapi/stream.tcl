@@ -3,7 +3,7 @@ set testmodule [file normalize tests/modules/stream.so]
 start_server {tags {"modules"}} {
     r module load $testmodule
 
-    test {Module stream add} {
+    test {Module stream add and delete} {
         r del mystream
         # add to empty key
         set streamid1 [r stream.add mystream item 1 value a]
@@ -14,11 +14,16 @@ start_server {tags {"modules"}} {
         set items [r XRANGE mystream - +]
         assert_equal $items \
             "{$streamid1 {item 1 value a}} {$streamid2 {item 2 value b}}"
-        # check error condition
+        # delete one of them and try deleting non-existing ID
+        assert_equal OK [r stream.delete mystream $streamid1]
+        assert_error "ERR StreamDelete*" {r stream.delete mystream 123-456}
+        assert_error "Invalid stream ID*" {r stream.delete mystream foo}
+        assert_equal "{$streamid2 {item 2 value b}}" [r XRANGE mystream - +]
+        # check error condition: wrong type
         r del mystream
         r set mystream mystring
-        catch {r stream.add mystream item 1 value a} e
-        assert_equal $e "ERR StreamAdd failed"
+        assert_error "ERR StreamAdd*" {r stream.add mystream item 1 value a}
+        assert_error "ERR StreamDelete*" {r stream.delete mystream 123-456}
     }
 
     test {Module stream add unblocks blocking xread} {

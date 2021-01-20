@@ -3149,6 +3149,30 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
     return REDISMODULE_OK;
 }
 
+/* Deletes an entry from a stream.
+ *
+ * - `key`: A key opened for writing, with no stream iterator started.
+ * - `id`: The stream ID of the entry to delete.
+ *
+ * Returns REDISMODULE_OK on success and REDISMODULE_ERR if the key is not
+ * opened for writing or if a stream iterator has been started on the key or
+ * if no entry with the given stream ID exists.
+ */
+int RM_StreamDelete(RedisModuleKey *key, RedisModuleStreamID *id) {
+    if (!key || !id)
+        return REDISMODULE_ERR;
+    if (!key->value || key->value->type != OBJ_STREAM)
+        return REDISMODULE_ERR;
+    if (!(key->mode & REDISMODULE_WRITE))
+        return REDISMODULE_ERR;
+    if (key->iter != NULL)
+        return REDISMODULE_ERR; /* Deleting might mess up an iterator */
+    stream *s = key->value->ptr;
+    streamID streamid = {id->ms, id->seq};
+    return streamDeleteItem(s, &streamid) ? REDISMODULE_OK :
+                                            REDISMODULE_ERR;
+}
+
 /* Sets up a stream iterator.
  *
  * - `key`: The stream key opened for reading using RedisModule_OpenKey().
@@ -8799,6 +8823,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(HashSet);
     REGISTER_API(HashGet);
     REGISTER_API(StreamAdd);
+    REGISTER_API(StreamDelete);
     REGISTER_API(StreamIteratorStart);
     REGISTER_API(StreamIteratorStop);
     REGISTER_API(StreamIteratorNextID);

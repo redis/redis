@@ -62,6 +62,23 @@ int stream_addn(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
 }
 
+/* STREAM.DELETE key stream-id */
+int stream_delete(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 3) return RedisModule_WrongArity(ctx);
+    RedisModuleStreamID id;
+    if (RedisModule_StringToStreamID(argv[2], &id) != REDISMODULE_OK) {
+        return RedisModule_ReplyWithError(ctx, "Invalid stream ID");
+    }
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_WRITE);
+    if (RedisModule_StreamDelete(key, &id) == REDISMODULE_OK) {
+        RedisModule_ReplyWithSimpleString(ctx, "OK");
+    } else {
+        RedisModule_ReplyWithError(ctx, "ERR StreamDelete failed");
+    }
+    RedisModule_CloseKey(key);
+    return REDISMODULE_OK;
+}
+
 /* STREAM.RANGE key start-id end-id
  *
  * Returns an array of stream items. Each item is an array on the form
@@ -198,6 +215,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                                   1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx, "stream.addn", stream_addn, "",
+                                  1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "stream.delete", stream_delete, "",
                                   1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx, "stream.range", stream_range, "",
