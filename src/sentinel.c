@@ -536,13 +536,7 @@ void initSentinel(void) {
     sentinel.sentinel_auth_pass = NULL;
     sentinel.sentinel_auth_user = NULL;
     memset(sentinel.myid,0,sizeof(sentinel.myid));
-    server.sentinel_config = zmalloc(sizeof(struct sentinelConfig));
-    server.sentinel_config->monitor_cfg = listCreate();
-    server.sentinel_config->pre_monitor_cfg = listCreate();
-    server.sentinel_config->post_monitor_cfg = listCreate();
-    listSetFreeMethod(server.sentinel_config->monitor_cfg,freeSentinelLoadQueueEntry);
-    listSetFreeMethod(server.sentinel_config->pre_monitor_cfg,freeSentinelLoadQueueEntry);
-    listSetFreeMethod(server.sentinel_config->post_monitor_cfg,freeSentinelLoadQueueEntry);
+    server.sentinel_config = NULL;
 }
 
 /* This function gets called when the server is in Sentinel mode, started,
@@ -1692,6 +1686,28 @@ char *sentinelCheckCreateInstanceErrors(int role) {
     }
 }
 
+/* init function for server.sentinel_config */
+void initializeSentinelConfig() {
+    server.sentinel_config = zmalloc(sizeof(struct sentinelConfig));
+    server.sentinel_config->monitor_cfg = listCreate();
+    server.sentinel_config->pre_monitor_cfg = listCreate();
+    server.sentinel_config->post_monitor_cfg = listCreate();
+    listSetFreeMethod(server.sentinel_config->monitor_cfg,freeSentinelLoadQueueEntry);
+    listSetFreeMethod(server.sentinel_config->pre_monitor_cfg,freeSentinelLoadQueueEntry);
+    listSetFreeMethod(server.sentinel_config->post_monitor_cfg,freeSentinelLoadQueueEntry);
+}
+
+/* destroy function for server.sentinel_config */
+void freeSentinelConfig() {
+    /* release these three config queues since we will not use it anymore */
+    listRelease(server.sentinel_config->pre_monitor_cfg);
+    listRelease(server.sentinel_config->monitor_cfg);
+    listRelease(server.sentinel_config->post_monitor_cfg);
+    zfree(server.sentinel_config);
+    server.sentinel_config = NULL;
+    
+}
+
 /* Search config name in pre monitor config name array, return 1 if found,
  * 0 if not found. */
 int searchPreMonitorCfgName(const char *name) {
@@ -1715,6 +1731,9 @@ void freeSentinelLoadQueueEntry(void *item) {
 void queueSentinelConfig(sds *argv, int argc, int linenum, sds line) {
     int i;
     struct sentinelLoadQueueEntry *entry;
+
+    /* initialize sentinel_config for the first call */
+    if (server.sentinel_config == NULL) initializeSentinelConfig();
 
     entry = zmalloc(sizeof(struct sentinelLoadQueueEntry));
     entry->argv = zmalloc(sizeof(char*)*argc);
@@ -1744,6 +1763,9 @@ void loadSentinelConfigFromQueue(void) {
     listNode *ln;
     int linenum = 0;
     sds line = NULL;
+
+    /* if there is no sentinel_config entry, we can return immediately */
+    if (server.sentinel_config == NULL) return;
 
     /* loading from pre monitor config queue first to avoid dependency issues */
     listRewind(server.sentinel_config->pre_monitor_cfg,&li);
@@ -1781,12 +1803,8 @@ void loadSentinelConfigFromQueue(void) {
         }
     }
 
-    /* release these two queues since we will not use it anymore */
-    listRelease(server.sentinel_config->pre_monitor_cfg);
-    listRelease(server.sentinel_config->monitor_cfg);
-    listRelease(server.sentinel_config->post_monitor_cfg);
-    zfree(server.sentinel_config);
-    server.sentinel_config = NULL;
+    /* free sentinel_config when config loading is finished */
+    freeSentinelConfig();
     return;
 
 loaderr:
