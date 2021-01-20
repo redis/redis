@@ -19,7 +19,7 @@ int stream_add(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_WRITE);
     RedisModuleStreamID id;
-    if (RedisModule_StreamAdd(key, REDISMODULE_STREAM_AUTOID, &id,
+    if (RedisModule_StreamAdd(key, REDISMODULE_STREAM_ADD_AUTOID, &id,
                               &argv[2], (argc-2)/2) == REDISMODULE_OK) {
         RedisModuleString *id_str = RedisModule_CreateStringFromStreamID(ctx, &id);
         RedisModule_ReplyWithString(ctx, id_str);
@@ -28,7 +28,6 @@ int stream_add(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         RedisModule_ReplyWithError(ctx, "ERR StreamAdd failed");
     }
     RedisModule_CloseKey(key);
-    /* RedisModule_SignalKeyAsReady(ctx, argv[1]); */
     return REDISMODULE_OK;
 }
 
@@ -52,13 +51,12 @@ int stream_addn(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_WRITE);
     for (i = 0; i < n; i++) {
-        if (RedisModule_StreamAdd(key, REDISMODULE_STREAM_AUTOID, NULL,
+        if (RedisModule_StreamAdd(key, REDISMODULE_STREAM_ADD_AUTOID, NULL,
                                   &argv[3], (argc-3)/2) == REDISMODULE_ERR)
             break;
     }
     RedisModule_ReplyWithLongLong(ctx, i);
     RedisModule_CloseKey(key);
-    /* if (i > 0) RedisModule_SignalKeyAsReady(ctx, argv[1]); */
     return REDISMODULE_OK;
 }
 
@@ -104,7 +102,7 @@ int stream_range(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         RedisModuleStreamID tmp = startid;
         startid = endid;
         endid = tmp;
-        flags |= REDISMODULE_STREAM_REVERSE;
+        flags |= REDISMODULE_STREAM_ITERATOR_REVERSE;
     }
 
     /* Open key and start iterator. */
@@ -178,7 +176,7 @@ int stream_trim(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     int flags;
     arg = RedisModule_StringPtrLen(argv[3], &arg_len);
     if (arg_len == 1 && arg[0] == '~') {
-        flags = REDISMODULE_STREAM_APPROX;
+        flags = REDISMODULE_STREAM_TRIM_APPROX;
     } else if (arg_len == 1 && arg[0] == '=') {
         flags = 0;
     } else {

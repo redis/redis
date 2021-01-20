@@ -3095,8 +3095,8 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
  *
  * - `key`: The key where the stream is (or will be) stored
  * - `flags`: A bit field of
- *   - `REDISMODULE_STREAM_AUTOID`: Assign a stream ID automatically, like `*`
- *     in the XADD command.
+ *   - `REDISMODULE_STREAM_ADD_AUTOID`: Assign a stream ID automatically, like
+ *     `*` in the XADD command.
  * - `id`: If the `AUTOID` flag is set, this is where the assigned ID is
  *   returned. Can be NULL if `AUTOID` is set, if you don't care to receive the
  *   ID. If `AUTOID` is not set, this is the requested ID.
@@ -3111,13 +3111,13 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
  */
 int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisModuleString **argv, long numfields) {
     /* Validate args */
-    if (flags & ~(REDISMODULE_STREAM_AUTOID))
+    if (flags & ~(REDISMODULE_STREAM_ADD_AUTOID))
         return REDISMODULE_ERR; /* unknown flags */
     if (!(key->mode & REDISMODULE_WRITE))
         return REDISMODULE_ERR;
     if (key->value && key->value->type != OBJ_STREAM)
         return REDISMODULE_ERR;
-    if (!(flags & REDISMODULE_STREAM_AUTOID) &&
+    if (!(flags & REDISMODULE_STREAM_ADD_AUTOID) &&
         (id == NULL || (id->ms == 0 && id->seq == 0)))
         return REDISMODULE_ERR;
 
@@ -3130,7 +3130,7 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
     streamID added_id;
     streamID use_id;
     streamID *use_id_ptr = NULL;
-    if (!(flags & REDISMODULE_STREAM_AUTOID)) {
+    if (!(flags & REDISMODULE_STREAM_ADD_AUTOID)) {
         use_id.ms = id->ms;
         use_id.seq = id->seq;
         use_id_ptr = &use_id;
@@ -3177,10 +3177,10 @@ int RM_StreamDelete(RedisModuleKey *key, RedisModuleStreamID *id) {
  *
  * - `key`: The stream key opened for reading using RedisModule_OpenKey().
  * - `flags`:
- *   - `REDISMODULE_STREAM_EXCLUSIVE`: Don't include `start` and `end` in the
- *     iterated range.
- *   - `REDISMODULE_STREAM_REVERSE`: Iterate in reverse order, starting from
- *     the `end` of the range.
+ *   - `REDISMODULE_STREAM_ITERATOR_EXCLUSIVE`: Don't include `start` and `end`
+ *     in the iterated range.
+ *   - `REDISMODULE_STREAM_ITERATOR_REVERSE`: Iterate in reverse order, starting
+ *     from the `end` of the range.
  * - `start`: The lower bound of the range. Use NULL for the beginning of the
  *   stream.
  * - `end`: The upper bound of the range. Use NULL for the end of the stream.
@@ -3214,8 +3214,8 @@ int RM_StreamDelete(RedisModuleKey *key, RedisModuleStreamID *id) {
  */
 int RM_StreamIteratorStart(RedisModuleKey *key, int flags, RedisModuleStreamID *start, RedisModuleStreamID *end) {
     /* check args */
-    if (flags & ~(REDISMODULE_STREAM_EXCLUSIVE |
-                  REDISMODULE_STREAM_REVERSE)) {
+    if (flags & ~(REDISMODULE_STREAM_ITERATOR_EXCLUSIVE |
+                  REDISMODULE_STREAM_ITERATOR_REVERSE)) {
         return REDISMODULE_ERR; /* invalid flags */
     }
     if (!key || !key->value || key->value->type != OBJ_STREAM) {
@@ -3229,14 +3229,14 @@ int RM_StreamIteratorStart(RedisModuleKey *key, int flags, RedisModuleStreamID *
     streamID lower, upper;
     if (start) lower = (streamID){start->ms, start->seq};
     if (end)   upper = (streamID){end->ms,   end->seq};
-    if (flags & REDISMODULE_STREAM_EXCLUSIVE) {
+    if (flags & REDISMODULE_STREAM_ITERATOR_EXCLUSIVE) {
         if (start && streamIncrID(&lower) != C_OK) return REDISMODULE_ERR;
         if (end   && streamDecrID(&upper) != C_OK) return REDISMODULE_ERR;
     }
 
     /* create iterator */
     stream *s = key->value->ptr;
-    int rev = flags & REDISMODULE_STREAM_REVERSE;
+    int rev = flags & REDISMODULE_STREAM_ITERATOR_REVERSE;
     streamIterator *si = zmalloc(sizeof(*si));
     streamIteratorStart(si, s, start ? &lower : NULL, end ? &upper : NULL, rev);
     key->iter = si;
@@ -3339,8 +3339,8 @@ int RM_StreamIteratorNextField(RedisModuleKey *key, RedisModuleString **field_pt
  *
  * - `key`: Key opened for writing.
  * - `flags`: A bitfield of
- *   - `REDISMODULE_STREAM_APPROX`: Trim less if it improves performance, like
- *     XTRIM with `~`.
+ *   - `REDISMODULE_STREAM_TRIM_APPROX`: Trim less if it improves performance,
+ *     like XTRIM with `~`.
  * - `length`: The number of stream items to keep after trimming.
  *
  * Returns the number of entries deleted.
@@ -3349,10 +3349,10 @@ int RM_StreamIteratorNextField(RedisModuleKey *key, RedisModuleString **field_pt
  * unknown flags are given, -1 is returned.
  */
 long long RM_StreamTrimByLength(RedisModuleKey *key, int flags, long long length) {
-    if (flags & ~(REDISMODULE_STREAM_APPROX)) return -1; /* unknown flags */
+    if (flags & ~(REDISMODULE_STREAM_TRIM_APPROX)) return -1; /* unknown flags */
     if (!key || !key->value || key->value->type != OBJ_STREAM) return -1;
     if (!(key->mode & REDISMODULE_WRITE)) return -1;
-    int approx = flags & REDISMODULE_STREAM_APPROX ? 1 : 0;
+    int approx = flags & REDISMODULE_STREAM_TRIM_APPROX ? 1 : 0;
     return streamTrimByLength((stream *)key->value->ptr, length, approx);
 }
 
@@ -3360,8 +3360,8 @@ long long RM_StreamTrimByLength(RedisModuleKey *key, int flags, long long length
  *
  * - `key`: Key opened for writing.
  * - `flags`: A bitfield of
- *   - `REDISMODULE_STREAM_APPROX`: Trim less if it improves performance, like
- *     XTRIM with `~`.
+ *   - `REDISMODULE_STREAM_TRIM_APPROX`: Trim less if it improves performance,
+ *     like XTRIM with `~`.
  * - `id`: The smallest stream ID to keep after trimming.
  *
  * Returns the number of entries deleted.
@@ -3370,10 +3370,10 @@ long long RM_StreamTrimByLength(RedisModuleKey *key, int flags, long long length
  * unknown flags are given, -1 is returned.
  */
 long long RM_StreamTrimByID(RedisModuleKey *key, int flags, RedisModuleStreamID *id) {
-    if (flags & ~(REDISMODULE_STREAM_APPROX)) return -1; /* unknown flags */
+    if (flags & ~(REDISMODULE_STREAM_TRIM_APPROX)) return -1; /* unknown flags */
     if (!key || !key->value || key->value->type != OBJ_STREAM) return -1;
     if (!(key->mode & REDISMODULE_WRITE)) return -1;
-    int approx = flags & REDISMODULE_STREAM_APPROX ? 1 : 0;
+    int approx = flags & REDISMODULE_STREAM_TRIM_APPROX ? 1 : 0;
     streamID minid = (streamID){id->ms, id->seq};
     return streamTrimByID((stream *)key->value->ptr, minid, approx);
 }

@@ -75,12 +75,13 @@ typedef struct RedisModuleStreamID {
     uint64_t seq;
 } RedisModuleStreamID;
 
-/* Stream API flags. */
-#define REDISMODULE_STREAM_NONE 0
-#define REDISMODULE_STREAM_AUTOID (1<<0)
-#define REDISMODULE_STREAM_EXCLUSIVE (1<<1)
-#define REDISMODULE_STREAM_REVERSE (1<<2)
-#define REDISMODULE_STREAM_APPROX (1<<3)
+/* StreamAdd() flags. */
+#define REDISMODULE_STREAM_ADD_AUTOID (1<<0)
+/* StreamIteratorStart() flags. */
+#define REDISMODULE_STREAM_ITERATOR_EXCLUSIVE (1<<0)
+#define REDISMODULE_STREAM_ITERATOR_REVERSE (1<<1)
+/* StreamIteratorTrim*() flags. */
+#define REDISMODULE_STREAM_TRIM_APPROX (1<<0)
 
 /* Context Flags: Info about the current context returned by
  * RM_GetContextFlags(). */
