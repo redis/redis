@@ -213,9 +213,10 @@ jobs:
       uses: vmactions/freebsd-vm@v0.1.0
       with:
         usesh: true
+        prepare: pkg install -y gmake lang/tcl85
         run: |
-          make REDIS_CFLAGS='-Werror'
+          gmake
+          MAKE=gmake ./runtest-moduleapi --verbose
           ./runtest --accurate --verbose --no-latency
-          ./runtest-moduleapi --verbose
           ./runtest-sentinel
           ./runtest-cluster
