@@ -1086,7 +1086,7 @@ struct redisCommand redisCommandTable[] = {
      "no-script ok-stale ok-loading fast @connection",
      0,NULL,0,0,0,0,0,0},
 
-    {"failoverto",failovertoCommand,-3,
+    {"failover",failoverCommand,-2,
      "admin no-script ok-stale",
      0,NULL,0,0,0,0,0,0}
 };
@@ -2178,17 +2178,13 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     checkClientPauseTimeoutAndReturnIfPaused();
 
     /* Replication cron function -- used to reconnect to master,
-     * detect transfer failures, start background RDB transfers and so forth. */
-    run_with_period(1000) replicationCron();
-
-    /* Replication cron function -- used to reconnect to master,
      * detect transfer failures, start background RDB transfers and so forth. 
      * 
      * If Redis is trying to failover then run a job to check if failover can be
      * completed. Also run replicationCron in this faster loop so if this node
      * starts sync with a master the sync handshake progresses quickly. */
-    if (server.failover_end_time) {
-        run_with_period(20) {
+    if (server.failover_state == FAILOVER_WAIT_FOR_SYNC) {
+        run_with_period(100) {
             replicationCron();
             failoverCron();
         }
@@ -4999,7 +4995,7 @@ sds genRedisInfoString(const char *section) {
             }
         }
         info = sdscatprintf(info,
-            "master_failover_in_progress:%d\r\n"
+            "master_failover_state:%s\r\n"
             "master_replid:%s\r\n"
             "master_replid2:%s\r\n"
             "master_repl_offset:%lld\r\n"
@@ -5008,7 +5004,7 @@ sds genRedisInfoString(const char *section) {
             "repl_backlog_size:%lld\r\n"
             "repl_backlog_first_byte_offset:%lld\r\n"
             "repl_backlog_histlen:%lld\r\n",
-            server.failover_end_time != 0,
+            getFailoverStateString(),
             server.replid,
             server.replid2,
             server.master_repl_offset,
