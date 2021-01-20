@@ -168,7 +168,7 @@ start_server {tags {"modules"}} {
         assert_error "*unblocked*" {$rd read}
     }
 
-    test {Module client blocked on keys does not wake up on wrong type} {
+    test {Module client re-blocked on keys after woke up on wrong type} {
         r del k
         set rd [redis_deferring_client]
         $rd fsl.bpop k 0
@@ -184,6 +184,7 @@ start_server {tags {"modules"}} {
         r del k
         r fsl.push k 34
         assert_equal {34} [$rd read]
+        assert_equal {1} [r get fsl_wrong_type] ;# first lpush caused one wrong-type wake-up
     }
 
     test {Module client blocked on keys woken up by LPUSH} {
