@@ -427,11 +427,11 @@ struct redisCommand redisCommandTable[] = {
 
     {"zunionstore",zunionstoreCommand,-4,
      "write use-memory @sortedset",
-     0,zunionInterGetKeys,0,0,0,0,0,0},
+     0,zunionInterGetKeys,1,1,1,0,0,0},
 
     {"zinterstore",zinterstoreCommand,-4,
      "write use-memory @sortedset",
-     0,zunionInterGetKeys,0,0,0,0,0,0},
+     0,zunionInterGetKeys,1,1,1,0,0,0},
 
     {"zrange",zrangeCommand,-4,
      "read-only @sortedset",
@@ -891,7 +891,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"georadius_ro",georadiusroCommand,-6,
      "read-only @geo",
-     0,georadiusGetKeys,1,1,1,0,0,0},
+     0,NULL,1,1,1,0,0,0},
 
     {"georadiusbymember",georadiusbymemberCommand,-5,
      "write use-memory @geo",
@@ -899,7 +899,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"georadiusbymember_ro",georadiusbymemberroCommand,-5,
      "read-only @geo",
-     0,georadiusGetKeys,1,1,1,0,0,0},
+     0,NULL,1,1,1,0,0,0},
 
     {"geohash",geohashCommand,-2,
      "read-only @geo",
@@ -955,11 +955,11 @@ struct redisCommand redisCommandTable[] = {
 
     {"xread",xreadCommand,-4,
      "read-only @stream @blocking",
-     0,xreadGetKeys,1,1,1,0,0,0},
+     0,xreadGetKeys,0,0,0,0,0,0},
 
     {"xreadgroup",xreadCommand,-7,
      "write @stream @blocking",
-     0,xreadGetKeys,1,1,1,0,0,0},
+     0,xreadGetKeys,0,0,0,0,0,0},
 
     {"xgroup",xgroupCommand,-2,
      "write use-memory @stream",
