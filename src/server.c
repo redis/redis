@@ -5314,6 +5314,12 @@ int main(int argc, char **argv) {
     gettimeofday(&tv,NULL);
     crc64_init();
 
+    /* Store umask value. Because umask(2) only offers a set-and-get API we have
+     * to reset it and restore it back. We do this early to avoid a potential
+     * race condition with threads that could be creating files or directories.
+     */
+    umask(server.umask = umask(0777));
+
     uint8_t hashseed[16];
     getRandomBytes(hashseed,sizeof(hashseed));
     dictSetHashFunctionSeed(hashseed);
