@@ -89,7 +89,7 @@ size_t lazyfreeGetFreedObjectsCount(void) {
 size_t lazyfreeGetFreeEffort(robj *key, robj *obj) {
     if (obj->type == OBJ_STRING) {
         return sdslen(obj->ptr);
-    } if (obj->type == OBJ_LIST) {
+    } else if (obj->type == OBJ_LIST) {
         quicklist *ql = obj->ptr;
         return ql->len;
     } else if (obj->type == OBJ_SET && obj->encoding == OBJ_ENCODING_HT) {
