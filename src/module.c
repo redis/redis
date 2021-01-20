@@ -478,8 +478,8 @@ void *RM_PoolAlloc(RedisModuleCtx *ctx, size_t bytes) {
  * Helpers for modules API implementation
  * -------------------------------------------------------------------------- */
 
-/* Create an empty key of the specified type. 'kp' must point to a key object
- * opened for writing where the .value member is set to NULL because the
+/* Create an empty key of the specified type. `key` must point to a key object
+ * opened for writing where the `.value` member is set to NULL because the
  * key was found to be non existing.
  *
  * On success REDISMODULE_OK is returned and the key is populated with
@@ -1322,7 +1322,7 @@ int RM_StringAppendBuffer(RedisModuleCtx *ctx, RedisModuleString *str, const cha
  * -------------------------------------------------------------------------- */
 
 /* Send an error about the number of arguments given to the command,
- * citing the command name in the error message.
+ * citing the command name in the error message. Returns REDISMODULE_OK.
  *
  * Example:
  *
@@ -1394,7 +1394,7 @@ int RM_ReplyWithError(RedisModuleCtx *ctx, const char *err) {
     return REDISMODULE_OK;
 }
 
-/* Reply with a simple string (+... \r\n in RESP protocol). This replies
+/* Reply with a simple string (`+... \r\n` in RESP protocol). This replies
  * are suitable only when sending a small non-binary string with small
  * overhead, like "OK" or similar replies.
  *
@@ -3348,20 +3348,19 @@ fmterr:
  *
  * * **cmdname**: The Redis command to call.
  * * **fmt**: A format specifier string for the command's arguments. Each
- *   of the arguments should be specified by a valid type specification:
+ *   of the arguments should be specified by a valid type specification. The
+ *   format specifier can also contain the modifiers `!`, `A` and `R` which
+ *   don't have a corresponding argument.
  *
- *   * b: The argument is a buffer and is immediately followed by another
- *        argument that is the buffer's length.
- *   * c: The argument is a pointer to a plain C string (null-terminated).
- *   * l: The argument is long long integer.
- *   * s: The argument is a RedisModuleString.
- *   * v: The argument(s) is a vector of RedisModuleString.
- *
- *   The format specifier can also include modifiers:
- *
- *   * !: Sends the Redis command and its arguments to replicas and AOF.
- *   * A: Suppress AOF propagation, send only to replicas (requires `!`).
- *   * R: Suppress replicas propagation, send only to AOF (requires `!`).
+ *     * `b` -- The argument is a buffer and is immediately followed by another
+ *              argument that is the buffer's length.
+ *     * `c` -- The argument is a pointer to a plain C string (null-terminated).
+ *     * `l` -- The argument is long long integer.
+ *     * `s` -- The argument is a RedisModuleString.
+ *     * `v` -- The argument(s) is a vector of RedisModuleString.
+ *     * `!` -- Sends the Redis command and its arguments to replicas and AOF.
+ *     * `A` -- Suppress AOF propagation, send only to replicas (requires `!`).
+ *     * `R` -- Suppress replicas propagation, send only to AOF (requires `!`).
  * * **...**: The actual arguments to the Redis command.
  *
  * On success a RedisModuleCallReply object is returned, otherwise
@@ -3685,27 +3684,28 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, robj *value) {
  *   still load old data produced by an older version if the rdb_load
  *   callback is able to check the encver value and act accordingly.
  *   The encver must be a positive value between 0 and 1023.
+ *
  * * **typemethods_ptr** is a pointer to a RedisModuleTypeMethods structure
  *   that should be populated with the methods callbacks and structure
  *   version, like in the following example:
  *
- *       RedisModuleTypeMethods tm = {
- *          .version = REDISMODULE_TYPE_METHOD_VERSION,
- *          .rdb_load = myType_RDBLoadCallBack,
- *          .rdb_save = myType_RDBSaveCallBack,
- *          .aof_rewrite = myType_AOFRewriteCallBack,
- *          .free = myType_FreeCallBack,
+ *         RedisModuleTypeMethods tm = {
+ *             .version = REDISMODULE_TYPE_METHOD_VERSION,
+ *             .rdb_load = myType_RDBLoadCallBack,
+ *             .rdb_save = myType_RDBSaveCallBack,
+ *             .aof_rewrite = myType_AOFRewriteCallBack,
+ *             .free = myType_FreeCallBack,
  *
- *          // Optional fields
- *          .digest = myType_DigestCallBack,
- *          .mem_usage = myType_MemUsageCallBack,
- *          .aux_load = myType_AuxRDBLoadCallBack,
- *          .aux_save = myType_AuxRDBSaveCallBack,
- *          .free_effort = myType_FreeEffortCallBack,
- *          .unlink = myType_UnlinkCallBack,
- *          .copy = myType_CopyCallback,
- *          .defrag = myType_DefragCallback
- *       }
+ *             // Optional fields
+ *             .digest = myType_DigestCallBack,
+ *             .mem_usage = myType_MemUsageCallBack,
+ *             .aux_load = myType_AuxRDBLoadCallBack,
+ *             .aux_save = myType_AuxRDBSaveCallBack,
+ *             .free_effort = myType_FreeEffortCallBack,
+ *             .unlink = myType_UnlinkCallBack,
+ *             .copy = myType_CopyCallback,
+ *             .defrag = myType_DefragCallback
+ *         }
  *
  * * **rdb_load**: A callback function pointer that loads data from RDB files.
  * * **rdb_save**: A callback function pointer that saves data to RDB files.
@@ -3743,7 +3743,7 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, robj *value) {
  *   a time limit and provides cursor support is used only for keys that are determined
  *   to have significant internal complexity. To determine this, the defrag mechanism
  *   uses the free_effort callback and the 'active-defrag-max-scan-fields' config directive.
- *   NOTE: The value is passed as a void** and the function is expected to update the
+ *   NOTE: The value is passed as a `void**` and the function is expected to update the
  *   pointer if the top-level value pointer is defragmented and consequentially changes.
  *
  * Note: the module name "AAAAAAAAA" is reserved and produces an error, it
@@ -3903,7 +3903,7 @@ int moduleAllDatatypesHandleErrors() {
 }
 
 /* Returns true if any previous IO API failed.
- * for Load* APIs the REDISMODULE_OPTIONS_HANDLE_IO_ERRORS flag must be set with
+ * for `Load*` APIs the REDISMODULE_OPTIONS_HANDLE_IO_ERRORS flag must be set with
  * RedisModule_SetModuleOptions first. */
 int RM_IsIOError(RedisModuleIO *io) {
     return io->error;
@@ -3929,7 +3929,7 @@ saveerr:
 }
 
 /* Load an unsigned 64 bit value from the RDB file. This function should only
- * be called in the context of the rdb_load method of modules implementing
+ * be called in the context of the `rdb_load` method of modules implementing
  * new data types. */
 uint64_t RM_LoadUnsigned(RedisModuleIO *io) {
     if (io->error) return 0;
@@ -4245,7 +4245,6 @@ void RM_DigestEndSequence(RedisModuleDigest *md) {
  * If this is NOT done, Redis will handle corrupted (or just truncated) serialized
  * data by producing an error message and terminating the process.
  */
-
 void *RM_LoadDataTypeFromString(const RedisModuleString *str, const moduleType *mt) {
     rio payload;
     RedisModuleIO io;
@@ -4273,7 +4272,6 @@ void *RM_LoadDataTypeFromString(const RedisModuleString *str, const moduleType *
  * implement in order to allow a module to arbitrarily serialize/de-serialize
  * keys, similar to how the Redis 'DUMP' and 'RESTORE' commands are implemented.
  */
-
 RedisModuleString *RM_SaveDataTypeToString(RedisModuleCtx *ctx, void *data, const moduleType *mt) {
     rio payload;
     RedisModuleIO io;
@@ -4371,7 +4369,7 @@ const RedisModuleString *RM_GetKeyNameFromIO(RedisModuleIO *io) {
     return io->key;
 }
 
-/* Returns a RedisModuleString with the name of the key from RedisModuleKey */
+/* Returns a RedisModuleString with the name of the key from RedisModuleKey. */
 const RedisModuleString *RM_GetKeyNameFromModuleKey(RedisModuleKey *key) {
     return key ? key->key : NULL;
 }
@@ -4442,6 +4440,9 @@ void RM_LogIOError(RedisModuleIO *io, const char *levelstr, const char *fmt, ...
 }
 
 /* Redis-like assert function.
+ *
+ * The macro `RedisModule_Assert(expression)` is recommended, rather than
+ * calling this function directly.
  *
  * A failed assertion will shut down the server and produce logging information
  * that looks identical to information generated by Redis itself.
@@ -4676,7 +4677,7 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
  * key, or a client in queue before this one can be served, modifying the key
  * as well and making it empty again. So when a client is blocked with
  * RedisModule_BlockClientOnKeys() the reply callback is not called after
- * RM_UnblockCLient() is called, but every time a key is signaled as ready:
+ * RM_UnblockClient() is called, but every time a key is signaled as ready:
  * if the reply callback can serve the client, it returns REDISMODULE_OK
  * and the client is unblocked, otherwise it will return REDISMODULE_ERR
  * and we'll try again later.
@@ -7189,199 +7190,197 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *
  * * RedisModuleEvent_ReplicationRoleChanged:
  *
- *   This event is called when the instance switches from master
- *   to replica or the other way around, however the event is
- *   also called when the replica remains a replica but starts to
- *   replicate with a different master.
+ *     This event is called when the instance switches from master
+ *     to replica or the other way around, however the event is
+ *     also called when the replica remains a replica but starts to
+ *     replicate with a different master.
  *
- *   The following sub events are available:
+ *     The following sub events are available:
  *
- *   * REDISMODULE_SUBEVENT_REPLROLECHANGED_NOW_MASTER
- *   * REDISMODULE_SUBEVENT_REPLROLECHANGED_NOW_REPLICA
+ *     * `REDISMODULE_SUBEVENT_REPLROLECHANGED_NOW_MASTER`
+ *     * `REDISMODULE_SUBEVENT_REPLROLECHANGED_NOW_REPLICA`
  *
- *   The 'data' field can be casted by the callback to a
- *   RedisModuleReplicationInfo structure with the following fields:
+ *     The 'data' field can be casted by the callback to a
+ *     `RedisModuleReplicationInfo` structure with the following fields:
  *
- *       int master; // true if master, false if replica
- *       char *masterhost; // master instance hostname for NOW_REPLICA
- *       int masterport; // master instance port for NOW_REPLICA
- *       char *replid1; // Main replication ID
- *       char *replid2; // Secondary replication ID
- *       uint64_t repl1_offset; // Main replication offset
- *       uint64_t repl2_offset; // Offset of replid2 validity
+ *         int master; // true if master, false if replica
+ *         char *masterhost; // master instance hostname for NOW_REPLICA
+ *         int masterport; // master instance port for NOW_REPLICA
+ *         char *replid1; // Main replication ID
+ *         char *replid2; // Secondary replication ID
+ *         uint64_t repl1_offset; // Main replication offset
+ *         uint64_t repl2_offset; // Offset of replid2 validity
  *
  * * RedisModuleEvent_Persistence
  *
- *   This event is called when RDB saving or AOF rewriting starts
- *   and ends. The following sub events are available:
+ *     This event is called when RDB saving or AOF rewriting starts
+ *     and ends. The following sub events are available:
  *
- *   * REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START
- *   * REDISMODULE_SUBEVENT_PERSISTENCE_AOF_START
- *   * REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START
- *   * REDISMODULE_SUBEVENT_PERSISTENCE_ENDED
- *   * REDISMODULE_SUBEVENT_PERSISTENCE_FAILED
+ *     * `REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START`
+ *     * `REDISMODULE_SUBEVENT_PERSISTENCE_AOF_START`
+ *     * `REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START`
+ *     * `REDISMODULE_SUBEVENT_PERSISTENCE_ENDED`
+ *     * `REDISMODULE_SUBEVENT_PERSISTENCE_FAILED`
  *
- *   The above events are triggered not just when the user calls the
- *   relevant commands like BGSAVE, but also when a saving operation
- *   or AOF rewriting occurs because of internal server triggers.
- *   The SYNC_RDB_START sub events are happening in the forground due to
- *   SAVE command, FLUSHALL, or server shutdown, and the other RDB and
- *   AOF sub events are executed in a background fork child, so any
- *   action the module takes can only affect the generated AOF or RDB,
- *   but will not be reflected in the parent process and affect connected
- *   clients and commands. Also note that the AOF_START sub event may end
- *   up saving RDB content in case of an AOF with rdb-preamble.
+ *     The above events are triggered not just when the user calls the
+ *     relevant commands like BGSAVE, but also when a saving operation
+ *     or AOF rewriting occurs because of internal server triggers.
+ *     The SYNC_RDB_START sub events are happening in the forground due to
+ *     SAVE command, FLUSHALL, or server shutdown, and the other RDB and
+ *     AOF sub events are executed in a background fork child, so any
+ *     action the module takes can only affect the generated AOF or RDB,
+ *     but will not be reflected in the parent process and affect connected
+ *     clients and commands. Also note that the AOF_START sub event may end
+ *     up saving RDB content in case of an AOF with rdb-preamble.
  *
  * * RedisModuleEvent_FlushDB
  *
- *   The FLUSHALL, FLUSHDB or an internal flush (for instance
- *   because of replication, after the replica synchronization)
- *   happened. The following sub events are available:
+ *     The FLUSHALL, FLUSHDB or an internal flush (for instance
+ *     because of replication, after the replica synchronization)
+ *     happened. The following sub events are available:
  *
- *   * REDISMODULE_SUBEVENT_FLUSHDB_START
- *   * REDISMODULE_SUBEVENT_FLUSHDB_END
+ *     * `REDISMODULE_SUBEVENT_FLUSHDB_START`
+ *     * `REDISMODULE_SUBEVENT_FLUSHDB_END`
  *
- *   The data pointer can be casted to a RedisModuleFlushInfo
- *   structure with the following fields:
+ *     The data pointer can be casted to a RedisModuleFlushInfo
+ *     structure with the following fields:
  *
- *       int32_t async;  // True if the flush is done in a thread.
- *                       // See for instance FLUSHALL ASYNC.
- *                       // In this case the END callback is invoked
- *                       // immediately after the database is put
- *                       // in the free list of the thread.
- *       int32_t dbnum;  // Flushed database number, -1 for all the DBs
- *                       // in the case of the FLUSHALL operation.
+ *         int32_t async;  // True if the flush is done in a thread.
+ *                         // See for instance FLUSHALL ASYNC.
+ *                         // In this case the END callback is invoked
+ *                         // immediately after the database is put
+ *                         // in the free list of the thread.
+ *         int32_t dbnum;  // Flushed database number, -1 for all the DBs
+ *                         // in the case of the FLUSHALL operation.
  *
- *   The start event is called *before* the operation is initated, thus
- *   allowing the callback to call DBSIZE or other operation on the
- *   yet-to-free keyspace.
+ *     The start event is called *before* the operation is initated, thus
+ *     allowing the callback to call DBSIZE or other operation on the
+ *     yet-to-free keyspace.
  *
  * * RedisModuleEvent_Loading
  *
- *   Called on loading operations: at startup when the server is
- *   started, but also after a first synchronization when the
- *   replica is loading the RDB file from the master.
- *   The following sub events are available:
+ *     Called on loading operations: at startup when the server is
+ *     started, but also after a first synchronization when the
+ *     replica is loading the RDB file from the master.
+ *     The following sub events are available:
  *
- *   * REDISMODULE_SUBEVENT_LOADING_RDB_START
- *   * REDISMODULE_SUBEVENT_LOADING_AOF_START
- *   * REDISMODULE_SUBEVENT_LOADING_REPL_START
- *   * REDISMODULE_SUBEVENT_LOADING_ENDED
- *   * REDISMODULE_SUBEVENT_LOADING_FAILED
+ *     * `REDISMODULE_SUBEVENT_LOADING_RDB_START`
+ *     * `REDISMODULE_SUBEVENT_LOADING_AOF_START`
+ *     * `REDISMODULE_SUBEVENT_LOADING_REPL_START`
+ *     * `REDISMODULE_SUBEVENT_LOADING_ENDED`
+ *     * `REDISMODULE_SUBEVENT_LOADING_FAILED`
  *
- *   Note that AOF loading may start with an RDB data in case of
- *   rdb-preamble, in which case you'll only receive an AOF_START event.
- *
+ *     Note that AOF loading may start with an RDB data in case of
+ *     rdb-preamble, in which case you'll only receive an AOF_START event.
  *
  * * RedisModuleEvent_ClientChange
  *
- *   Called when a client connects or disconnects.
- *   The data pointer can be casted to a RedisModuleClientInfo
- *   structure, documented in RedisModule_GetClientInfoById().
- *   The following sub events are available:
+ *     Called when a client connects or disconnects.
+ *     The data pointer can be casted to a RedisModuleClientInfo
+ *     structure, documented in RedisModule_GetClientInfoById().
+ *     The following sub events are available:
  *
- *   * REDISMODULE_SUBEVENT_CLIENT_CHANGE_CONNECTED
- *   * REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED
+ *     * `REDISMODULE_SUBEVENT_CLIENT_CHANGE_CONNECTED`
+ *     * `REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED`
  *
  * * RedisModuleEvent_Shutdown
  *
- *   The server is shutting down. No subevents are available.
+ *     The server is shutting down. No subevents are available.
  *
  * * RedisModuleEvent_ReplicaChange
  *
- *   This event is called when the instance (that can be both a
- *   master or a replica) get a new online replica, or lose a
- *   replica since it gets disconnected.
- *   The following sub events are available:
+ *     This event is called when the instance (that can be both a
+ *     master or a replica) get a new online replica, or lose a
+ *     replica since it gets disconnected.
+ *     The following sub events are available:
  *
- *   * REDISMODULE_SUBEVENT_REPLICA_CHANGE_ONLINE
- *   * REDISMODULE_SUBEVENT_REPLICA_CHANGE_OFFLINE
+ *     * `REDISMODULE_SUBEVENT_REPLICA_CHANGE_ONLINE`
+ *     * `REDISMODULE_SUBEVENT_REPLICA_CHANGE_OFFLINE`
  *
- *   No additional information is available so far: future versions
- *   of Redis will have an API in order to enumerate the replicas
- *   connected and their state.
+ *     No additional information is available so far: future versions
+ *     of Redis will have an API in order to enumerate the replicas
+ *     connected and their state.
  *
  * * RedisModuleEvent_CronLoop
  *
- *   This event is called every time Redis calls the serverCron()
- *   function in order to do certain bookkeeping. Modules that are
- *   required to do operations from time to time may use this callback.
- *   Normally Redis calls this function 10 times per second, but
- *   this changes depending on the "hz" configuration.
- *   No sub events are available.
+ *     This event is called every time Redis calls the serverCron()
+ *     function in order to do certain bookkeeping. Modules that are
+ *     required to do operations from time to time may use this callback.
+ *     Normally Redis calls this function 10 times per second, but
+ *     this changes depending on the "hz" configuration.
+ *     No sub events are available.
  *
- *   The data pointer can be casted to a RedisModuleCronLoop
- *   structure with the following fields:
+ *     The data pointer can be casted to a RedisModuleCronLoop
+ *     structure with the following fields:
  *
- *       int32_t hz;  // Approximate number of events per second.
+ *         int32_t hz;  // Approximate number of events per second.
  *
  * * RedisModuleEvent_MasterLinkChange
  *
- *   This is called for replicas in order to notify when the
- *   replication link becomes functional (up) with our master,
- *   or when it goes down. Note that the link is not considered
- *   up when we just connected to the master, but only if the
- *   replication is happening correctly.
- *   The following sub events are available:
+ *     This is called for replicas in order to notify when the
+ *     replication link becomes functional (up) with our master,
+ *     or when it goes down. Note that the link is not considered
+ *     up when we just connected to the master, but only if the
+ *     replication is happening correctly.
+ *     The following sub events are available:
  *
- *   * REDISMODULE_SUBEVENT_MASTER_LINK_UP
- *   * REDISMODULE_SUBEVENT_MASTER_LINK_DOWN
+ *     * `REDISMODULE_SUBEVENT_MASTER_LINK_UP`
+ *     * `REDISMODULE_SUBEVENT_MASTER_LINK_DOWN`
  *
  * * RedisModuleEvent_ModuleChange
  *
- *   This event is called when a new module is loaded or one is unloaded.
- *   The following sub events are available:
+ *     This event is called when a new module is loaded or one is unloaded.
+ *     The following sub events are available:
  *
- *   * REDISMODULE_SUBEVENT_MODULE_LOADED
- *   * REDISMODULE_SUBEVENT_MODULE_UNLOADED
+ *     * `REDISMODULE_SUBEVENT_MODULE_LOADED`
+ *     * `REDISMODULE_SUBEVENT_MODULE_UNLOADED`
  *
- *   The data pointer can be casted to a RedisModuleModuleChange
- *   structure with the following fields:
+ *     The data pointer can be casted to a RedisModuleModuleChange
+ *     structure with the following fields:
  *
- *       const char* module_name;  // Name of module loaded or unloaded.
- *       int32_t module_version;  // Module version.
+ *         const char* module_name;  // Name of module loaded or unloaded.
+ *         int32_t module_version;  // Module version.
  *
  * * RedisModuleEvent_LoadingProgress
  *
- *   This event is called repeatedly called while an RDB or AOF file
- *   is being loaded.
- *   The following sub events are availble:
+ *     This event is called repeatedly called while an RDB or AOF file
+ *     is being loaded.
+ *     The following sub events are availble:
  *
- *   * REDISMODULE_SUBEVENT_LOADING_PROGRESS_RDB
- *   * REDISMODULE_SUBEVENT_LOADING_PROGRESS_AOF
+ *     * `REDISMODULE_SUBEVENT_LOADING_PROGRESS_RDB`
+ *     * `REDISMODULE_SUBEVENT_LOADING_PROGRESS_AOF`
  *
- *   The data pointer can be casted to a RedisModuleLoadingProgress
- *   structure with the following fields:
+ *     The data pointer can be casted to a RedisModuleLoadingProgress
+ *     structure with the following fields:
  *
- *       int32_t hz;  // Approximate number of events per second.
- *       int32_t progress;  // Approximate progress between 0 and 1024,
- *                             or -1 if unknown.
+ *         int32_t hz;  // Approximate number of events per second.
+ *         int32_t progress;  // Approximate progress between 0 and 1024,
+ *                            // or -1 if unknown.
  *
  * * RedisModuleEvent_SwapDB
  *
- *   This event is called when a SWAPDB command has been successfully
- *   Executed.
- *   For this event call currently there is no subevents available.
+ *     This event is called when a SWAPDB command has been successfully
+ *     Executed.
+ *     For this event call currently there is no subevents available.
  *
- *   The data pointer can be casted to a RedisModuleSwapDbInfo
- *   structure with the following fields:
+ *     The data pointer can be casted to a RedisModuleSwapDbInfo
+ *     structure with the following fields:
  *
- *       int32_t dbnum_first;    // Swap Db first dbnum
- *       int32_t dbnum_second;   // Swap Db second dbnum
+ *         int32_t dbnum_first;    // Swap Db first dbnum
+ *         int32_t dbnum_second;   // Swap Db second dbnum
  *
  * * RedisModuleEvent_ReplBackup
  *
- *   Called when diskless-repl-load config is set to swapdb,
- *   And redis needs to backup the the current database for the
- *   possibility to be restored later. A module with global data and
- *   maybe with aux_load and aux_save callbacks may need to use this
- *   notification to backup / restore / discard its globals.
- *   The following sub events are available:
+ *     Called when diskless-repl-load config is set to swapdb,
+ *     And redis needs to backup the the current database for the
+ *     possibility to be restored later. A module with global data and
+ *     maybe with aux_load and aux_save callbacks may need to use this
+ *     notification to backup / restore / discard its globals.
+ *     The following sub events are available:
  *
- *   * REDISMODULE_SUBEVENT_REPL_BACKUP_CREATE
- *   * REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE
- *   * REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD
- *
+ *     * `REDISMODULE_SUBEVENT_REPL_BACKUP_CREATE`
+ *     * `REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE`
+ *     * `REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD`
  *
  * The function returns REDISMODULE_OK if the module was successfully subscribed
  * for the specified event. If the API is called from a wrong context or unsupported event
@@ -8291,7 +8290,7 @@ int RM_DefragCursorSet(RedisModuleDefragCtx *ctx, unsigned long cursor) {
 /* Fetch a cursor value that has been previously stored using RM_DefragCursorSet().
  *
  * If not called for a late defrag operation, REDISMODULE_ERR will be returned and
- * the cursor should be ignored. See DM_DefragCursorSet() for more details on
+ * the cursor should be ignored. See RM_DefragCursorSet() for more details on
  * defrag cursors.
  */
 int RM_DefragCursorGet(RedisModuleDefragCtx *ctx, unsigned long *cursor) {
