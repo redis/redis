@@ -4684,7 +4684,7 @@ sds genRedisInfoString(const char *section) {
             "aof_last_cow_size:%zu\r\n"
             "module_fork_in_progress:%d\r\n"
             "module_fork_last_cow_size:%zu\r\n",
-            server.loading,
+            (int)server.loading,
             server.stat_current_cow_bytes,
             server.dirty,
             server.child_type == CHILD_TYPE_RDB,
