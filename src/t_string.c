@@ -119,7 +119,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
          * it again to SET with PXAT for the AOF.
          *
          * Additional care is required while modifying the argument order. AOF relies on the
-         * exp argument being at index 3.
+         * exp argument being at index 3. (see feedAppendOnlyFile)
          * */
         robj *millisecondObj = createStringObjectFromLongLong(milliseconds);
         rewriteClientCommandVector(c,5,shared.set,key,val,exp,millisecondObj);
@@ -129,7 +129,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         addReply(c, ok_reply ? ok_reply : shared.ok);
     }
 
-    /* Propagate without the GET argument */
+    /* Propagate without the GET argument (Isn't needed if we had expire since in that case we completely re-written the command argv) */
     if ((flags & OBJ_SET_GET) && !expire) {
         int argc = 0;
         int j;
@@ -337,6 +337,8 @@ int getexGenericCommand(client *c, int flags, robj *expire, int unit) {
         }
     }
 
+    /* This command is never propagated as is. It is either propagated as PEXPIRE[AT], DEL, or PERSIST.
+     * This why it doesn't need special handling in feedAppendOnlyFile to convert relative expire time to absolute one. */
     if (flags & OBJ_DEL) {
         int deleted = server.lazyfree_lazy_user_del ? dbAsyncDelete(c->db, c->argv[1]) :
                       dbSyncDelete(c->db, c->argv[1]);

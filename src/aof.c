@@ -598,11 +598,8 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
         buf = catAppendOnlyExpireAtCommand(buf,cmd,argv[1],argv[2]);
     } else if (cmd->proc == setCommand && argc > 3) {
         robj *pxarg = NULL;
-        /* When SET is used with EX/PX argument we propagate them with PX millisecond argument. This is
-         * done so that replication will still use relative time as specified.
-         *
-         * We rely on the index being 3 for PX. Since this is propagated from SET.
-         * */
+        /* When SET is used with EX/PX argument setGenericCommand propagates them with PX millisecond argument.
+         * So since the command arguments are re-written there, we can rely here on the index of PX being 3. */
         if (!strcasecmp(argv[3]->ptr, "px")) {
             pxarg = argv[4];
         }

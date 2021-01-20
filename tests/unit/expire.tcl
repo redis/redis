@@ -343,14 +343,17 @@ start_server {tags {"expire"}} {
        r ttl foo
     } {-1}
 
-    test {GETEX use of PERSIST option propagate as PERSIST command to replica} {
+    test {GETEX propagate as to replica as PERSIST, DEL, or nothing} {
        set repl [attach_to_replication_stream]
        r set foo bar EX 100
        r getex foo PERSIST
+       r getex foo
+       r getex foo exat [expr [clock seconds]-100]
        assert_replication_stream $repl {
            {select *}
            {set foo bar PX 100000}
            {persist foo}
+           {del foo}
         }
     }
 }
