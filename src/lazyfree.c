@@ -87,7 +87,9 @@ size_t lazyfreeGetFreedObjectsCount(void) {
  * For lists the function returns the number of elements in the quicklist
  * representing the list. */
 size_t lazyfreeGetFreeEffort(robj *key, robj *obj) {
-    if (obj->type == OBJ_LIST) {
+    if (obj->type == OBJ_STRING) {
+        return sdslen(obj->ptr);
+    } if (obj->type == OBJ_LIST) {
         quicklist *ql = obj->ptr;
         return ql->len;
     } else if (obj->type == OBJ_SET && obj->encoding == OBJ_ENCODING_HT) {
