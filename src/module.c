@@ -3097,8 +3097,6 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
  * - `flags`: A bit field of
  *   - `REDISMODULE_STREAM_AUTOID`: Assign a stream ID automatically, like `*`
  *     in the XADD command.
- *   - `REDISMODULE_STREAM_NOMKSTREAM`: Don't create the stream if it doesn't
- *     exist.
  * - `id`: If the `AUTOID` flag is set, this is where the assigned ID is
  *   returned. Can be NULL if `AUTOID` is set, if you don't care to receive the
  *   ID. If `AUTOID` is not set, this is the requested ID.
@@ -3108,20 +3106,16 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
  *
  * Returns REDISMODULE_OK if an entry has been added. Returns REDISMODULE_ERR if
  * the key is not opened for writing, if the key has a type other than stream,
- * if the key doesn't exist in case the flag `NOMKSTREAM` is set, if unknown
- * flags are given or when attempting to create an entry with an id which is not
- * allowed.
+ * if unknown flags are given or when attempting to create an entry with an id
+ * which is not allowed.
  */
 int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisModuleString **argv, long numfields) {
     /* Validate args */
-    if (flags & ~(REDISMODULE_STREAM_AUTOID |
-                  REDISMODULE_STREAM_NOMKSTREAM))
+    if (flags & ~(REDISMODULE_STREAM_AUTOID))
         return REDISMODULE_ERR; /* unknown flags */
     if (!(key->mode & REDISMODULE_WRITE))
         return REDISMODULE_ERR;
     if (key->value && key->value->type != OBJ_STREAM)
-        return REDISMODULE_ERR;
-    if (key->value == NULL && (flags & REDISMODULE_STREAM_NOMKSTREAM))
         return REDISMODULE_ERR;
     if (!(flags & REDISMODULE_STREAM_AUTOID) &&
         (id == NULL || (id->ms == 0 && id->seq == 0)))

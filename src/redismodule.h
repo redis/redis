@@ -78,10 +78,9 @@ typedef struct RedisModuleStreamID {
 /* Stream API flags. */
 #define REDISMODULE_STREAM_NONE 0
 #define REDISMODULE_STREAM_AUTOID (1<<0)
-#define REDISMODULE_STREAM_NOMKSTREAM (1<<1)
-#define REDISMODULE_STREAM_EXCLUSIVE (1<<2)
-#define REDISMODULE_STREAM_REVERSE (1<<3)
-#define REDISMODULE_STREAM_APPROX (1<<4)
+#define REDISMODULE_STREAM_EXCLUSIVE (1<<1)
+#define REDISMODULE_STREAM_REVERSE (1<<2)
+#define REDISMODULE_STREAM_APPROX (1<<3)
 
 /* Context Flags: Info about the current context returned by
  * RM_GetContextFlags(). */
