@@ -15,6 +15,6 @@ start_server {tags {"modules"}} {
 
     test "Module key specs: Complex specs, case 2" {
         set reply [r command info kspec.complex2]
-        assert_equal $reply {{kspec.complex2 -1 movablekeys 0 0 0 {} {{read {keyword {KEYS 1 1}}} {read {range {1 1 1}}} {write {range {2 2 1}}} {write {keynum {3 4 1}}} {read {keyword {MOREKEYS 1 1}}}}}}
+        assert_equal $reply {{kspec.complex2 -1 movablekeys 1 2 1 {} {{read {keyword {KEYS 1 1}}} {read {range {1 1 1}}} {write {range {2 2 1}}} {write {keynum {3 4 1}}} {read {keyword {MOREKEYS 1 1}}}}}}
     }
 }

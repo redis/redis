@@ -3398,7 +3398,7 @@ int populateCommandLegacyRangeSpec(struct redisCommand *c) {
     int prev_lastkey = 0;
     for (int i = 0; i < c->keys_specs_num; i++) {
         if (c->keys_specs[i].type != KSPEC_RANGE)
-            break;
+            continue;
         if (c->keys_specs[i].u.range.keystep != 1)
             return C_ERR;
         if (prev_lastkey && prev_lastkey != c->keys_specs[i].u.range.firstkey-1)
@@ -4601,8 +4601,7 @@ void addReplyFlagsForKeyArgs(client *c, int flags) {
 }
 
 void addReplyCommandKeyArgs(client *c, struct redisCommand *cmd) {
-    int speccount = 0;
-    void *speclen = addReplyDeferredLen(c);
+    addReplyArrayLen(c, cmd->keys_specs_num);
     for (int i = 0; i < cmd->keys_specs_num; i++) {
         addReplyArrayLen(c, 2);
         addReplyFlagsForKeyArgs(c,cmd->keys_specs[i].flags);
@@ -4633,9 +4632,7 @@ void addReplyCommandKeyArgs(client *c, struct redisCommand *cmd) {
                 addReplyLongLong(c, cmd->keys_specs[i].u.keyword.keystep);
                 break;
         }
-        speccount++;
     }
-    setDeferredSetLen(c,speclen,speccount);
 }
 
 /* Output the representation of a Redis command. Used by the COMMAND command. */
