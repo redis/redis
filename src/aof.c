@@ -598,11 +598,17 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
         buf = catAppendOnlyExpireAtCommand(buf,cmd,argv[1],argv[2]);
     } else if (cmd->proc == setCommand && argc > 3) {
         robj *pxarg = NULL;
-
+        /* When SET is used with EX/PX argument we propagate them with PX millisecond argument. This is
+         * done so that replication will still use relative time as specified.
+         *
+         * We rely on the index being 3 for PX. Since this is propagated from SET.
+         * */
         if (!strcasecmp(argv[3]->ptr, "px")) {
             pxarg = argv[4];
         }
-        /* For AOF we convert SET key value PX milliseconds to SET key value PXAT millisecond-timestamp */
+        /* For AOF we convert SET key value relative time in milliseconds to SET key value absolute time in
+         * millisecond. Whenever the condition is true it implies that original SET has been transformed
+         * to SET PX with millisecond time argument so we do not need to worry about unit here.*/
         if (pxarg) {
             robj *millisecond = getDecodedObject(pxarg);
             long long when = strtoll(millisecond->ptr,NULL,10);
@@ -622,10 +628,10 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
             buf = catAppendOnlyGenericCommand(buf,argc,argv);
         }
     } else {
-            /* All the other commands don't need translation or need the
-             * same translation already operated in the command vector
-             * for the replication itself. */
-            buf = catAppendOnlyGenericCommand(buf,argc,argv);
+        /* All the other commands don't need translation or need the
+         * same translation already operated in the command vector
+         * for the replication itself. */
+        buf = catAppendOnlyGenericCommand(buf,argc,argv);
     }
 
     /* Append to the AOF buffer. This will be flushed on disk just before

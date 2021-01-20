@@ -113,15 +113,44 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
                             "expire", key, c->db->id);
 
         /* Propagate as SET Key Value PXAT millisecond-timestamp if there is EXAT/PXAT or
-         * propagate as SET Key Value PX millisecond if there is EX/PX flag. */
-        robj* millisecondObj = createStringObjectFromLongLong(milliseconds);
+         * propagate as SET Key Value PX millisecond if there is EX/PX flag.
+         *
+         * Additionally when we propagate the SET with PX (relative millisecond) we translate
+         * it again to SET with PXAT for the AOF.
+         *
+         * Additional care is required while modifying the argument order. AOF relies on the
+         * exp argument being at index 3.
+         * */
+        robj *millisecondObj = createStringObjectFromLongLong(milliseconds);
         rewriteClientCommandVector(c,5,shared.set,key,val,exp,millisecondObj);
         decrRefCount(millisecondObj);
     }
     if (!(flags & OBJ_SET_GET)) {
         addReply(c, ok_reply ? ok_reply : shared.ok);
     }
+
+    /* Propagate without the GET argument */
+    if ((flags & OBJ_SET_GET) && !expire) {
+        int argc = 0;
+        int j;
+        robj **argv = zmalloc((c->argc-1)*sizeof(robj*));
+        for (j=0; j < c->argc; j++) {
+            char *a = c->argv[j]->ptr;
+            /* Skip GET which may be repeated multiple times. */
+            if (j >= 3 &&
+                (a[0] == 'g' || a[0] == 'G') &&
+                (a[1] == 'e' || a[1] == 'E') &&
+                (a[2] == 't' || a[2] == 'T') && a[3] == '\0')
+                continue;
+            argv[argc++] = c->argv[j];
+            incrRefCount(c->argv[j]);
+        }
+        replaceClientCommandVector(c, argc, argv);
+    }
 }
+
+#define COMMAND_GET 0
+#define COMMAND_SET 1
 /*
  * The parseExtendedStringArgumentsOrReply() function performs the common validation for extended
  * string arguments used in SET and GET command.
@@ -138,10 +167,6 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
  * Input flags are updated upon parsing the arguments. Unit and expire are updated if there are any
  * EX/EXAT/PX/PXAT arguments. Unit is updated to millisecond if PX/PXAT is set.
  */
-
-#define COMMAND_GET 0
-#define COMMAND_SET 1
-
 int parseExtendedStringArgumentsOrReply(client *c, int *flags, int *unit, robj **expire, int command_type) {
 
     int j = command_type == COMMAND_GET ? 2 : 3;
@@ -237,7 +262,6 @@ int parseExtendedStringArgumentsOrReply(client *c, int *flags, int *unit, robj *
 /* SET key value [NX] [XX] [KEEPTTL] [GET] [EX <seconds>] [PX <milliseconds>]
  *     [EXAT <seconds-timestamp>][PXAT <milliseconds-timestamp>] */
 void setCommand(client *c) {
-    int j;
     robj *expire = NULL;
     int unit = UNIT_SECONDS;
     int flags = OBJ_NO_FLAGS;
@@ -248,24 +272,6 @@ void setCommand(client *c) {
 
     c->argv[2] = tryObjectEncoding(c->argv[2]);
     setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL);
-
-    /* Propagate without the GET argument */
-    if ((flags & OBJ_SET_GET) && !expire) {
-        int argc = 0;
-        robj **argv = zmalloc((c->argc-1)*sizeof(robj*));
-        for (j=0; j < c->argc; j++) {
-            char *a = c->argv[j]->ptr;
-            /* Skip GET which may be repeated multiple times. */
-            if (j >= 3 &&
-                (a[0] == 'g' || a[0] == 'G') &&
-                (a[1] == 'e' || a[1] == 'E') &&
-                (a[2] == 't' || a[2] == 'T') && a[3] == '\0')
-                continue;
-            argv[argc++] = c->argv[j];
-            incrRefCount(c->argv[j]);
-        }
-        replaceClientCommandVector(c, argc, argv);
-    }
 }
 
 void setnxCommand(client *c) {
@@ -344,11 +350,12 @@ int getexGenericCommand(client *c, int flags, robj *expire, int unit) {
     } else if (expire) {
         robj *exp = shared.pexpireat;
         if ((flags & OBJ_PX) || (flags & OBJ_EX)) {
-            milliseconds += mstime();
+            setExpire(c,c->db,c->argv[1],milliseconds + mstime());
             exp = shared.pexpire;
+        } else {
+            setExpire(c,c->db,c->argv[1],milliseconds);
         }
 
-        setExpire(c, c->db, c->argv[1], milliseconds);
         robj* millisecondObj = createStringObjectFromLongLong(milliseconds);
         rewriteClientCommandVector(c,3,exp,c->argv[1],millisecondObj);
         decrRefCount(millisecondObj);

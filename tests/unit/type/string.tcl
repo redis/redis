@@ -164,6 +164,38 @@ start_server {tags {"string"}} {
          set ex
      } {*wrong number of arguments*}
 
+    test {GETEX use of DEL option should delete after loadaof} {
+        r config set appendonly yes
+        r set foo bar EX 100
+        r getex foo DEL
+        after 2000
+        r debug loadaof
+        r getex foo
+    } {}
+
+    test {GETEX use of DEL option propagate as DEL command to replica} {
+        set repl [attach_to_replication_stream]
+        r set foo bar
+        r getex foo DEL
+        assert_replication_stream $repl {
+            {select *}
+            {set foo bar}
+            {del foo}
+        }
+    }
+
+    test {GETEX without argument does not propagate to replica} {
+        set repl [attach_to_replication_stream]
+        r set foo bar
+        r getex foo
+        r del foo
+        assert_replication_stream $repl {
+            {select *}
+            {set foo bar}
+            {del foo}
+        }
+    }
+
     test {MGET} {
         r flushdb
         r set foo BAR
