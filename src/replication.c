@@ -3528,17 +3528,18 @@ void abortFailover(const char *err) {
  * 4) The master will send a PSYNC FAILOVER request to target replica, which
  * if accepted will cause the replica to become the new master and start a sync.
  * 
- * Failover abort is the only way to abort a failover command, as replicaof
+ * FAILOVER ABORT is the only way to abort a failover command, as replicaof
  * will be disabled. This may be needed if the failover is unable to progress. 
  * 
- * The special value of ANY ONE designates that any replica can failed over
- * to as long as its offset has caught up. 
+ * The special values for <HOST> <IP> of ANY ONE designates that any replica
+ * can be failed over to as long as its offset has caught up. 
  * 
  * FORCE flag indicates that even if the target replica is not caught up,
- * failover to it anyway. This must be specified with a timeout.
+ * failover to it anyway. This must be specified with a timeout. 
  * 
  * TIMEOUT <timeout> indicates how long should the primary wait for 
- * a replica to sync up before aborting.
+ * a replica to sync up before aborting. If not specified, the failover
+ * will wait forever.
  */
 void failoverCommand(client *c) {
     if (server.cluster_enabled) {
