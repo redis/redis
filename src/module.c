@@ -3104,22 +3104,33 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
  *   fields and values.
  * - `numfields`: The number of field-value pairs in `argv`.
  *
- * Returns REDISMODULE_OK if an entry has been added. Returns REDISMODULE_ERR if
- * the key is not opened for writing, if the key has a type other than stream,
- * if unknown flags are given or when attempting to create an entry with an id
- * which is not allowed.
+ * Returns REDISMODULE_OK if an entry has been added. On failure,
+ * REDISMODULE_ERR is returned and `errno` is set as follows:
+ *
+ * - EINVAL if called with invalid arguments
+ * - ENOTSUP if the key refers to a value of a type other than stream
+ * - EBADF if the key was not opened for writing
+ * - EDOM if the given ID was 0-0 or not greater than all other IDs in the
+ *   stream (only if the AUTOID flag is unset)
  */
 int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisModuleString **argv, long numfields) {
     /* Validate args */
-    if (flags & ~(REDISMODULE_STREAM_ADD_AUTOID))
-        return REDISMODULE_ERR; /* unknown flags */
-    if (!(key->mode & REDISMODULE_WRITE))
+    if (!key || (numfields != 0 && !argv) || /* invalid key or argv */
+        (flags & ~(REDISMODULE_STREAM_ADD_AUTOID)) || /* invalid flags */
+        (!(flags & REDISMODULE_STREAM_ADD_AUTOID) && !id)) { /* id required */
+        errno = EINVAL;
         return REDISMODULE_ERR;
-    if (key->value && key->value->type != OBJ_STREAM)
+    } else if (key->value && key->value->type != OBJ_STREAM) {
+        errno = ENOTSUP; /* wrong type */
         return REDISMODULE_ERR;
-    if (!(flags & REDISMODULE_STREAM_ADD_AUTOID) &&
-        (id == NULL || (id->ms == 0 && id->seq == 0)))
+    } else if (!(key->mode & REDISMODULE_WRITE)) {
+        errno = EBADF; /* key not open for writing */
         return REDISMODULE_ERR;
+    } else if (!(flags & REDISMODULE_STREAM_ADD_AUTOID) &&
+               id->ms == 0 && id->seq == 0) {
+        errno = EDOM; /* ID out of range */
+        return REDISMODULE_ERR;
+    }
 
     /* Create key if necessery */
     if (key->value == NULL) {
@@ -3136,7 +3147,8 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
         use_id_ptr = &use_id;
     }
     if (streamAppendItem(s, argv, numfields, &added_id, use_id_ptr) == C_ERR) {
-        /* Current last ID is greater than or equal to 'use_id' */
+        /* ID not greater than all existing IDs in the stream */
+        errno = EDOM;
         return REDISMODULE_ERR;
     }
     signalKeyAsReady(key->db, key->key, OBJ_STREAM);
@@ -3154,23 +3166,36 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
  * - `key`: A key opened for writing, with no stream iterator started.
  * - `id`: The stream ID of the entry to delete.
  *
- * Returns REDISMODULE_OK on success and REDISMODULE_ERR if the key is not
- * opened for writing or if a stream iterator has been started on the key or
- * if no entry with the given stream ID exists.
+ * Returns REDISMODULE_OK on success. On failure, REDISMODULE_ERR is returned
+ * and `errno` is set as follows:
+ *
+ * - EINVAL if called with invalid arguments
+ * - ENOTSUP if the key refers to a value of a type other than stream or if the
+ *   key is empty
+ * - EBADF if the key was not opened for writing or if a stream iterator is
+ *   associated with the key
+ * - ENOENT if no entry with the given stream ID exists
  */
 int RM_StreamDelete(RedisModuleKey *key, RedisModuleStreamID *id) {
-    if (!key || !id)
+    if (!key || !id) {
+        errno = EINVAL;
         return REDISMODULE_ERR;
-    if (!key->value || key->value->type != OBJ_STREAM)
+    } else if (!key->value || key->value->type != OBJ_STREAM) {
+        errno = ENOTSUP; /* wrong type */
         return REDISMODULE_ERR;
-    if (!(key->mode & REDISMODULE_WRITE))
+    } else if (!(key->mode & REDISMODULE_WRITE) ||
+               key->iter != NULL) {
+        errno = EBADF; /* key not opened for writing or iterator started */
         return REDISMODULE_ERR;
-    if (key->iter != NULL)
-        return REDISMODULE_ERR; /* Deleting might mess up an iterator */
+    }
     stream *s = key->value->ptr;
     streamID streamid = {id->ms, id->seq};
-    return streamDeleteItem(s, &streamid) ? REDISMODULE_OK :
-                                            REDISMODULE_ERR;
+    if (streamDeleteItem(s, &streamid)) {
+        return REDISMODULE_OK;
+    } else {
+        errno = ENOENT; /* no entry with this id */
+        return REDISMODULE_ERR;
+    }
 }
 
 /* Sets up a stream iterator.
@@ -3185,10 +3210,20 @@ int RM_StreamDelete(RedisModuleKey *key, RedisModuleStreamID *id) {
  *   stream.
  * - `end`: The upper bound of the range. Use NULL for the end of the stream.
  *
+ * Returns REDISMODULE_OK on success. On failure, REDISMODULE_ERR is returned
+ * and `errno` is set as follows:
+ *
+ * - EINVAL if called with invalid arguments
+ * - ENOTSUP if the key refers to a value of a type other than stream or if the
+ *   key is empty
+ * - EBADF if the key was not opened for writing or if a stream iterator is
+ *   already associated with the key
+ * - EDOM if `start` or `end` is outside the valid range
+ *
  * Returns REDISMODULE_OK on success and REDISMODULE_ERR if the key doesn't
  * refer to a stream or if invalid arguments were given.
  *
- * The stream items are retrieved using RedisModule_StreamIteratorNextID() and
+ * The stream IDs are retrieved using RedisModule_StreamIteratorNextID() and
  * for each stream ID, the fields and values are retrieved using
  * RedisModule_StreamIteratorNextField(). The iterator must be freed by calling
  * RedisModule_StreamIteratorStop().
@@ -3214,15 +3249,17 @@ int RM_StreamDelete(RedisModuleKey *key, RedisModuleStreamID *id) {
  */
 int RM_StreamIteratorStart(RedisModuleKey *key, int flags, RedisModuleStreamID *start, RedisModuleStreamID *end) {
     /* check args */
-    if (flags & ~(REDISMODULE_STREAM_ITERATOR_EXCLUSIVE |
-                  REDISMODULE_STREAM_ITERATOR_REVERSE)) {
-        return REDISMODULE_ERR; /* invalid flags */
-    }
-    if (!key || !key->value || key->value->type != OBJ_STREAM) {
+    if (!key ||
+        (flags & ~(REDISMODULE_STREAM_ITERATOR_EXCLUSIVE |
+                   REDISMODULE_STREAM_ITERATOR_REVERSE))) {
+        errno = EINVAL; /* key missing or invalid flags */
+        return REDISMODULE_ERR;
+    } else if (!key->value || key->value->type != OBJ_STREAM) {
+        errno = ENOTSUP;
         return REDISMODULE_ERR; /* not a stream */
-    }
-    if (key->iter) {
-        return REDISMODULE_ERR; /* iterator already started */
+    } else if (key->iter) {
+        errno = EBADF; /* iterator already started */
+        return REDISMODULE_ERR;
     }
 
     /* define range for streamIteratorStart() */
@@ -3230,8 +3267,11 @@ int RM_StreamIteratorStart(RedisModuleKey *key, int flags, RedisModuleStreamID *
     if (start) lower = (streamID){start->ms, start->seq};
     if (end)   upper = (streamID){end->ms,   end->seq};
     if (flags & REDISMODULE_STREAM_ITERATOR_EXCLUSIVE) {
-        if (start && streamIncrID(&lower) != C_OK) return REDISMODULE_ERR;
-        if (end   && streamDecrID(&upper) != C_OK) return REDISMODULE_ERR;
+        if ((start && streamIncrID(&lower) != C_OK) ||
+            (end   && streamDecrID(&upper) != C_OK)) {
+            errno = EDOM; /* end is 0-0 or start is MAX-MAX? */
+            return REDISMODULE_ERR;
+        }
     }
 
     /* create iterator */
@@ -3246,10 +3286,24 @@ int RM_StreamIteratorStart(RedisModuleKey *key, int flags, RedisModuleStreamID *
 /* Stops a stream iterator created using RedisModule_StreamIteratorStart() and
  * reclaims its memory.
  *
- * Returns REDISMODULE_OK on success and REDISMODULE_ERR if the key isn't
- * refering to a stream or if no stream iterator has been started on the key. */
+ * Returns REDISMODULE_OK on success. On failure, REDISMODULE_ERR is returned
+ * and `errno` is set as follows:
+ *
+ * - EINVAL if called with a NULL key
+ * - ENOTSUP if the key refers to a value of a type other than stream or if the
+ *   key is empty
+ * - EBADF if the key was not opened for writing or if no stream iterator is
+ *   associated with the key
+ */
 int RM_StreamIteratorStop(RedisModuleKey *key) {
-    if (!key || !key->value || key->value->type != OBJ_STREAM || !key->iter) {
+    if (!key) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    } else if (!key->value || key->value->type != OBJ_STREAM) {
+        errno = ENOTSUP;
+        return REDISMODULE_ERR;
+    } else if (!key->iter) {
+        errno = EBADF;
         return REDISMODULE_ERR;
     }
     zfree(key->iter);
@@ -3266,15 +3320,27 @@ int RM_StreamIteratorStop(RedisModuleKey *key) {
  * - `numfields`: The number of fields in the found stream entry. NULL if you
  *   don't care.
  *
- * Returns REDISMODULE_OK if an item was found or REDISMODULE_ERR if there are
- * no more items. REDISMODULE_ERR is also returned if no stream iterator has
- * been started for the key.
+ * Returns REDISMODULE_OK and sets `*id` and `*numfields` if an entry was found.
+ * On failure, REDISMODULE_ERR is returned and `errno` is set as follows:
+ *
+ * - EINVAL if called with a NULL key
+ * - ENOTSUP if the key refers to a value of a type other than stream or if the
+ *   key is empty
+ * - EBADF if no stream iterator is associated with the key
+ * - ENOENT if there are no more entries in the range of the iterator
  *
  * Use RedisModule_StreamIteratorNextField() to retrieve the fields and values.
  * See the example at RedisModule_StreamIteratorStart().
  */
 int RM_StreamIteratorNextID(RedisModuleKey *key, RedisModuleStreamID *id, long *numfields) {
-    if (!key || !key->value || key->value->type != OBJ_STREAM || !key->iter) {
+    if (!key) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    } else if (!key->value || key->value->type != OBJ_STREAM) {
+        errno = ENOTSUP;
+        return REDISMODULE_ERR;
+    } else if (!key->iter) {
+        errno = EBADF;
         return REDISMODULE_ERR;
     }
     streamIterator *si = key->iter;
@@ -3307,17 +3373,30 @@ int RM_StreamIteratorNextID(RedisModuleKey *key, RedisModuleStreamID *id, long *
  * - `field_ptr`: This is where the field is returned.
  * - `value_ptr`: This is where the value is returned.
  *
- * Returns REDISMODULE_OK and points `field` and `value` to freshly allocated
- * RedisModuleString objects. The string objects are freed automatically when
- * the callback finishes if automatic memory is enabled.
+ * Returns REDISMODULE_OK and points `*field_ptr` and `*value_ptr` to freshly
+ * allocated RedisModuleString objects. The string objects are freed
+ * automatically when the callback finishes if automatic memory is enabled. On
+ * failure, REDISMODULE_ERR is returned and `errno` is set as follows:
  *
- * If the key is not a stream with a stream iterator started, REDISMODULE_ERR is
- * returned.
+ * - EINVAL if called with a NULL key
+ * - ENOTSUP if the key refers to a value of a type other than stream or if the
+ *   key is empty
+ * - EBADF if no stream iterator is associated with the key
  *
  * See the example at RedisModule_StreamIteratorStart().
+ *
+ * Known issues: No error is returned if called more times than the number of
+ * fields.
  */
 int RM_StreamIteratorNextField(RedisModuleKey *key, RedisModuleString **field_ptr, RedisModuleString **value_ptr) {
-    if (!key || !key->iter || key->value->type != OBJ_STREAM) {
+    if (!key) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    } else if (!key->value || key->value->type != OBJ_STREAM) {
+        errno = ENOTSUP;
+        return REDISMODULE_ERR;
+    } else if (!key->iter) {
+        errno = EBADF;
         return REDISMODULE_ERR;
     }
     streamIterator *si = key->iter;
@@ -3341,17 +3420,26 @@ int RM_StreamIteratorNextField(RedisModuleKey *key, RedisModuleString **field_pt
  * - `flags`: A bitfield of
  *   - `REDISMODULE_STREAM_TRIM_APPROX`: Trim less if it improves performance,
  *     like XTRIM with `~`.
- * - `length`: The number of stream items to keep after trimming.
+ * - `length`: The number of stream entries to keep after trimming.
  *
- * Returns the number of entries deleted.
+ * Returns the number of entries deleted. On failure, a negative value is
+ * returned and `errno` is set as follows:
  *
- * If the key is not pointing to a stream, if it isn't opened for writing or if
- * unknown flags are given, -1 is returned.
+ * - EINVAL if called with invalid arguments
+ * - ENOTSUP if the key is empty or of a type other than stream
+ * - EBADF if the key is not opened for writing
  */
 long long RM_StreamTrimByLength(RedisModuleKey *key, int flags, long long length) {
-    if (flags & ~(REDISMODULE_STREAM_TRIM_APPROX)) return -1; /* unknown flags */
-    if (!key || !key->value || key->value->type != OBJ_STREAM) return -1;
-    if (!(key->mode & REDISMODULE_WRITE)) return -1;
+    if (!key || (flags & ~(REDISMODULE_STREAM_TRIM_APPROX)) || length < 0) {
+        errno = EINVAL;
+        return -1;
+    } else if (!key->value || key->value->type != OBJ_STREAM) {
+        errno = ENOTSUP;
+        return -1;
+    } else if (!(key->mode & REDISMODULE_WRITE)) {
+        errno = EBADF;
+        return -1;
+    }
     int approx = flags & REDISMODULE_STREAM_TRIM_APPROX ? 1 : 0;
     return streamTrimByLength((stream *)key->value->ptr, length, approx);
 }
@@ -3364,15 +3452,24 @@ long long RM_StreamTrimByLength(RedisModuleKey *key, int flags, long long length
  *     like XTRIM with `~`.
  * - `id`: The smallest stream ID to keep after trimming.
  *
- * Returns the number of entries deleted.
+ * Returns the number of entries deleted. On failure, a negative value is
+ * returned and `errno` is set as follows:
  *
- * If the key is not pointing to a stream, if it isn't opened for writing or if
- * unknown flags are given, -1 is returned.
+ * - EINVAL if called with invalid arguments
+ * - ENOTSUP if the key is empty or of a type other than stream
+ * - EBADF if the key is not opened for writing
  */
 long long RM_StreamTrimByID(RedisModuleKey *key, int flags, RedisModuleStreamID *id) {
-    if (flags & ~(REDISMODULE_STREAM_TRIM_APPROX)) return -1; /* unknown flags */
-    if (!key || !key->value || key->value->type != OBJ_STREAM) return -1;
-    if (!(key->mode & REDISMODULE_WRITE)) return -1;
+    if (!key || (flags & ~(REDISMODULE_STREAM_TRIM_APPROX)) || !id) {
+        errno = EINVAL;
+        return -1;
+    } else if (!key->value || key->value->type != OBJ_STREAM) {
+        errno = ENOTSUP;
+        return -1;
+    } else if (!(key->mode & REDISMODULE_WRITE)) {
+        errno = EBADF;
+        return -1;
+    }
     int approx = flags & REDISMODULE_STREAM_TRIM_APPROX ? 1 : 0;
     streamID minid = (streamID){id->ms, id->seq};
     return streamTrimByID((stream *)key->value->ptr, minid, approx);
