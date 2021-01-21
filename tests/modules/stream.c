@@ -82,6 +82,10 @@ int stream_delete(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
  *
  * Returns an array of stream items. Each item is an array on the form
  * [stream-id, [field1, value1, field2, value2, ...]].
+ *
+ * A funny side-effect used for testing RM_StreamIteratorDelete() is that if any
+ * entry has a field named "selfdestruct", the stream entry is deleted. It is
+ * however included in the results of this command.
  */
 int stream_range(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 4) {
@@ -107,7 +111,8 @@ int stream_range(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
 
     /* Open key and start iterator. */
-    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
+    int openflags = REDISMODULE_READ | REDISMODULE_WRITE;
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], openflags);
     if (RedisModule_StreamIteratorStart(key, flags,
                                         &startid, &endid) != REDISMODULE_OK) {
         /* Key is not a stream, etc. */
@@ -115,6 +120,16 @@ int stream_range(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         RedisModule_CloseKey(key);
         return REDISMODULE_OK;
     }
+
+    /* Check error handling: Delete current entry when no current entry. */
+    assert(RedisModule_StreamIteratorDelete(key) ==
+           REDISMODULE_ERR);
+    assert(errno == ENOENT);
+
+    /* Check error handling: Fetch fields when no current entry. */
+    assert(RedisModule_StreamIteratorNextField(key, NULL, NULL) ==
+           REDISMODULE_ERR);
+    assert(errno == ENOENT);
 
     /* Return array. */
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
@@ -128,12 +143,20 @@ int stream_range(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         RedisModuleString *id_str = RedisModule_CreateStringFromStreamID(ctx, &id);
         RedisModule_ReplyWithString(ctx, id_str);
         RedisModule_ReplyWithArray(ctx, numfields * 2);
+        int delete = 0;
         RedisModuleString *field, *value;
         for (long i = 0; i < numfields; i++) {
             assert(RedisModule_StreamIteratorNextField(key, &field, &value) ==
                    REDISMODULE_OK);
             RedisModule_ReplyWithString(ctx, field);
             RedisModule_ReplyWithString(ctx, value);
+            /* check if this is a "selfdestruct" field */
+            size_t field_len;
+            const char *field_str = RedisModule_StringPtrLen(field, &field_len);
+            if (!strncmp(field_str, "selfdestruct", field_len)) delete = 1;
+        }
+        if (delete) {
+            assert(RedisModule_StreamIteratorDelete(key) == REDISMODULE_OK);
         }
         /* check error handling: no more fields to fetch */
         assert(RedisModule_StreamIteratorNextField(key, &field, &value) ==

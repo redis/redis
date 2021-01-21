@@ -191,6 +191,7 @@ struct RedisModuleKey {
         } zset;
         struct {
             /* Stream, use only if value->type == OBJ_STREAM */
+            streamID currentid;    /* Current entry while iterating. */
             int64_t numfieldsleft; /* Fields left to fetch for current entry. */
             int signalready;       /* Flag that signalKeyAsReady() is needed. */
         } stream;
@@ -3201,6 +3202,9 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
  * - EBADF if the key was not opened for writing or if a stream iterator is
  *   associated with the key
  * - ENOENT if no entry with the given stream ID exists
+ *
+ * See also RM_StreamIteratorDelete() for deleting the current entry while
+ * iterating using a stream iterator.
  */
 int RM_StreamDelete(RedisModuleKey *key, RedisModuleStreamID *id) {
     if (!key || !id) {
@@ -3306,6 +3310,8 @@ int RM_StreamIteratorStart(RedisModuleKey *key, int flags, RedisModuleStreamID *
     streamIterator *si = zmalloc(sizeof(*si));
     streamIteratorStart(si, s, start ? &lower : NULL, end ? &upper : NULL, rev);
     key->iter = si;
+    key->u.stream.currentid.ms = 0; /* for RM_StreamIteratorDelete() */
+    key->u.stream.currentid.seq = 0;
     key->u.stream.numfieldsleft = 0; /* for RM_StreamIteratorNextField() */
     return REDISMODULE_OK;
 }
@@ -3371,19 +3377,20 @@ int RM_StreamIteratorNextID(RedisModuleKey *key, RedisModuleStreamID *id, long *
         return REDISMODULE_ERR;
     }
     streamIterator *si = key->iter;
-    int64_t num;
-    streamID streamid;
-    if (streamIteratorGetID(si, &streamid, &num)) {
-        key->u.stream.numfieldsleft = num;
+    int64_t *num_ptr = &key->u.stream.numfieldsleft;
+    streamID *streamid_ptr = &key->u.stream.currentid;
+    if (streamIteratorGetID(si, streamid_ptr, num_ptr)) {
         if (id) {
-            id->ms = streamid.ms;
-            id->seq = streamid.seq;
+            id->ms = streamid_ptr->ms;
+            id->seq = streamid_ptr->seq;
         }
-        if (numfields) *numfields = num;
+        if (numfields) *numfields = *num_ptr;
         return REDISMODULE_OK;
     } else {
         /* No entry found. */
-        key->u.stream.numfieldsleft = 0;
+        key->u.stream.currentid.ms = 0; /* for RM_StreamIteratorDelete() */
+        key->u.stream.currentid.seq = 0;
+        key->u.stream.numfieldsleft = 0; /* for RM_StreamIteratorNextField() */
         if (id) {
             id->ms = 0;
             id->seq = 0;
@@ -3441,6 +3448,42 @@ int RM_StreamIteratorNextField(RedisModuleKey *key, RedisModuleString **field_pt
         autoMemoryAdd(key->ctx, REDISMODULE_AM_STRING, *value_ptr);
     }
     key->u.stream.numfieldsleft--;
+    return REDISMODULE_OK;
+}
+
+/* Deletes the current stream entry while iterating.
+ *
+ * This function can be called after RM_StreamIteratorNextID() or after any
+ * calls to RM_StreamIteratorNextField().
+ *
+ * Returns REDISMODULE_OK on success. On failure, REDISMODULE_ERR is returned
+ * and `errno` is set as follows:
+ *
+ * - EINVAL if key is NULL
+ * - ENOTSUP if the key is empty or is of another type than stream
+ * - EBADF if the key is not opened for writing, if no iterator has been started
+ * - ENOENT if the iterator has no current stream entry
+ */
+int RM_StreamIteratorDelete(RedisModuleKey *key) {
+    if (!key) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    } else if (!key->value || key->value->type != OBJ_STREAM) {
+        errno = ENOTSUP;
+        return REDISMODULE_ERR;
+    } else if (!(key->mode & REDISMODULE_WRITE) || !key->iter) {
+        errno = EBADF;
+        return REDISMODULE_ERR;
+    } else if (key->u.stream.currentid.ms == 0 &&
+               key->u.stream.currentid.seq == 0) {
+        errno = ENOENT;
+        return REDISMODULE_ERR;
+    }
+    streamIterator *si = key->iter;
+    streamIteratorRemoveEntry(si, &key->u.stream.currentid);
+    key->u.stream.currentid.ms = 0; /* Make sure repeated Delete() fails */
+    key->u.stream.currentid.seq = 0;
+    key->u.stream.numfieldsleft = 0; /* Make sure NextField() fails */
     return REDISMODULE_OK;
 }
 
@@ -8955,6 +8998,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(StreamIteratorStop);
     REGISTER_API(StreamIteratorNextID);
     REGISTER_API(StreamIteratorNextField);
+    REGISTER_API(StreamIteratorDelete);
     REGISTER_API(StreamTrimByLength);
     REGISTER_API(StreamTrimByID);
     REGISTER_API(IsKeysPositionRequest);

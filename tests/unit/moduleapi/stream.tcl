@@ -84,6 +84,21 @@ start_server {tags {"modules"}} {
         assert_equal $result3 [list [list $streamid2 {item 2 value b}]]
     }
 
+    test {Module stream iterator delete} {
+        r del mystream
+        set id1 [r xadd mystream * normal item]
+        set id2 [r xadd mystream * selfdestruct yes]
+        set id3 [r xadd mystream * another item]
+        # stream.range deletes the "selfdestruct" item after returning it
+        assert_equal \
+            "{$id1 {normal item}} {$id2 {selfdestruct yes}} {$id3 {another item}}" \
+            [r stream.range mystream - +]
+        # now, the "selfdestruct" item is gone
+        assert_equal \
+            "{$id1 {normal item}} {$id3 {another item}}" \
+            [r stream.range mystream - +]
+    }
+
     test {Module stream trim by length} {
         r del mystream
         # exact maxlen
