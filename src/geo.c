@@ -176,8 +176,8 @@ int extractDistanceOrReply(client *c, robj **argv,
 int extractBoxOrReply(client *c, robj **argv, double *conversion,
                          double *height, double *width) {
     double h, w;
-    if ((getDoubleFromObjectOrReply(c, argv[0], &h, "need numeric height") != C_OK) ||
-        (getDoubleFromObjectOrReply(c, argv[1], &w, "need numeric width") != C_OK)) {
+    if ((getDoubleFromObjectOrReply(c, argv[0], &h, "need numeric width") != C_OK) ||
+        (getDoubleFromObjectOrReply(c, argv[1], &w, "need numeric height") != C_OK)) {
         return C_ERR;
     }
 
@@ -634,8 +634,8 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
                        flags & GEOSEARCH &&
                        !byradius)
             {
-                if (extractBoxOrReply(c, c->argv+base_args+i+1, &shape.conversion, &shape.t.r.height,
-                        &shape.t.r.width) != C_OK) return;
+                if (extractBoxOrReply(c, c->argv+base_args+i+1, &shape.conversion, &shape.t.r.width,
+                        &shape.t.r.height) != C_OK) return;
                 shape.type = RECTANGLE_TYPE;
                 bybox = 1;
                 i += 3;
