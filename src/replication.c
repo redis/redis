@@ -3532,7 +3532,13 @@ void abortFailover(const char *err) {
  * will be disabled. This may be needed if the failover is unable to progress. 
  * 
  * The special value of ANY ONE designates that any replica can failed over
- * to as long as its offset has caught up. =
+ * to as long as its offset has caught up. 
+ * 
+ * FORCE flag indicates that even if the target replica is not caught up,
+ * failover to it anyway. This must be specified with a timeout.
+ * 
+ * TIMEOUT <timeout> indicates how long should the primary wait for 
+ * a replica to sync up before aborting.
  */
 void failoverCommand(client *c) {
     if (server.cluster_enabled) {
@@ -3601,9 +3607,15 @@ void failoverCommand(client *c) {
                 return;
             }
         }
+
         if (listLength(server.slaves) == 0) {
             addReplyError(c,"FAILOVER requires connected replicas.");
             return; 
+        }
+
+        if (force_flag && !timeout_in_ms) {
+            addReplyError(c,"FAILOVER with force option requires a timeout.");
+            return;     
         }
 
         /* If a replica address was provided, validate that it is connected. */

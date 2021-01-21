@@ -42,7 +42,7 @@ start_server {} {
     }
 
     test {failover command fails with any one and force} {
-        catch { $node_0 failover to ANY ONE FORCE } err
+        catch { $node_0 failover to ANY ONE FORCE TIMEOUT 100} err
         if {! [string match "ERR*" $err]} {
             fail "failover command succeeded with invalid port"
         }
@@ -50,6 +50,13 @@ start_server {} {
 
     test {failover command fails when sent to a replica} {
         catch { $node_1 failover to $node_1_host $node_1_port } err
+        if {! [string match "ERR*" $err]} {
+            fail "failover command succeeded when sent to replica"
+        }
+    }
+
+    test {failover command fails with force without timeout} {
+        catch { $node_0 failover to $node_1_host $node_1_port FORCE } err
         if {! [string match "ERR*" $err]} {
             fail "failover command succeeded when sent to replica"
         }
