@@ -1918,6 +1918,7 @@ int clusterProcessPacket(clusterLink *link) {
                     link->node->name);
                 link->node->flags &= ~CLUSTER_NODE_HANDSHAKE;
                 link->node->flags |= flags&(CLUSTER_NODE_MASTER|CLUSTER_NODE_SLAVE);
+                sender = link->node;
                 clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
             } else if (memcmp(link->node->name,hdr->sender,
                         CLUSTER_NAMELEN) != 0)
