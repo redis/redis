@@ -2655,6 +2655,7 @@ void initServerConfig(void) {
     server.force_failover = 0;
     server.target_replica_host = NULL;
     server.target_replica_port = 0;
+    server.failover_state = NO_FAILOVER;
 
     /* Client output buffer limits */
     for (j = 0; j < CLIENT_TYPE_OBUF_COUNT; j++)

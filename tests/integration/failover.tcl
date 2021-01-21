@@ -41,6 +41,13 @@ start_server {} {
         }
     }
 
+    test {failover command fails with any one and force} {
+        catch { $node_0 failover to ANY ONE FORCE } err
+        if {! [string match "ERR*" $err]} {
+            fail "failover command succeeded with invalid port"
+        }
+    }
+
     test {failover command fails when sent to a replica} {
         catch { $node_1 failover to $node_1_host $node_1_port } err
         if {! [string match "ERR*" $err]} {
@@ -50,6 +57,7 @@ start_server {} {
 
     test {failover command to specific replica works} {
         set initial_psyncs [s -1 sync_partial_ok]
+        set initial_syncs [s -1 sync_full]
 
         # Generate a delta between primary and replica
         exec kill -SIGSTOP [srv -1 pid]
@@ -81,12 +89,15 @@ start_server {} {
 
         # We should accept psyncs from both nodes
         assert_equal [expr [s -1 sync_partial_ok] - $initial_psyncs] 2
+        assert_equal [expr [s -1 sync_full] - $initial_psyncs] 0
     }
 
     test {failover command to any replica works} {
         set initial_psyncs [s -2 sync_partial_ok]
+        set initial_syncs [s -2 sync_full]
+
         wait_for_ofs_sync $node_1 $node_2
-        # We stop node 0, and make sure node 2 is selected
+        # We stop node 0 to and make sure node 2 is selected
         exec kill -SIGSTOP [srv 0 pid]
         $node_1 set CASE 1
         $node_1 failover to any one
@@ -109,6 +120,7 @@ start_server {} {
 
         # We should accept Psyncs from both nodes
         assert_equal [expr [s -2 sync_partial_ok] - $initial_psyncs] 2
+        assert_equal [expr [s -1 sync_full] - $initial_psyncs] 0
     }
 
     test {failover to a replica with force works} {
@@ -184,7 +196,7 @@ start_server {} {
         $node_0 failover to [srv -1 host] [srv -1 port] TIMEOUT 60000
         assert_match [s 0 master_failover_state] "waiting-for-sync"
 
-        # Sanity check that failover get still accept commands
+        # Sanity check that read commands are still accepted
         $node_0 GET CASE
 
         $node_0 failover abort
@@ -192,7 +204,7 @@ start_server {} {
 
         exec kill -SIGCONT [srv -1 pid]
 
-        # We need to make sure the nodes actually sync back up
+        # Just make sure everything is still synced
         wait_for_ofs_sync $node_0 $node_1
         wait_for_ofs_sync $node_0 $node_2
 

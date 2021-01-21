@@ -318,7 +318,7 @@ typedef enum {
     REPL_STATE_CONNECTED,       /* Connected to master */
 } repl_state;
 
-
+/* The state of an in progress coordinated failover */
 typedef enum {
     NO_FAILOVER = 0,        /* No failover in progress */
     FAILOVER_WAIT_FOR_SYNC, /* Waiting for target replica to catch up */
@@ -1587,7 +1587,7 @@ struct redisServer {
     char *target_replica_host; /* Failover target host. If null during a
                                 * failover then any replica can be used. */
     int target_replica_port; /* Failover target port */
-    int failover_state; /* Failover target port */
+    int failover_state; /* Failover state */
 };
 
 typedef struct pubsubPattern {

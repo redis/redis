@@ -3518,18 +3518,18 @@ void abortFailover(const char *err) {
  * FAILOVER TO <HOST> <IP> [FORCE] [TIMEOUT <timeout>] 
  * FAILOVER ABORT
  * 
- * This command will coordinate a failover with master and one
+ * This command will coordinate a failover between the master and one
  * of its replicas. The happy path contains the following steps:
  * 1) The master will initiate a client pause write, to stop replication
- * traffic
+ * traffic.
  * 2) The master will periodically check if the target replica has
  * consumed the entire replication stream through acks. 
  * 3) Once the replica has caught up, the master will itself become a replica.
- * 4) The master will send a PSYNC FAILOVER request to the replica, which
- * will cause itself to become a master and start syncing with this node.
+ * 4) The master will send a PSYNC FAILOVER request to target replica, which
+ * if accepted will cause the replica to become the new master and start a sync.
  * 
  * Failover abort is the only way to abort a failover command, as replicaof
- * will be disabled. 
+ * will be disabled. This may be needed if the failover is unable to progress. 
  * 
  * The special value of ANY ONE designates that any replica can failed over
  * to as long as its offset has caught up. =
@@ -3624,8 +3624,7 @@ void failoverCommand(client *c) {
 
             server.target_replica_host = zstrdup(host);
             server.target_replica_port = port;
-            serverLog(LL_NOTICE,"FAILOVER TO %s:%ld requested.",
-                host,port,timeout_in_ms);
+            serverLog(LL_NOTICE,"FAILOVER TO %s:%ld requested.",host,port);
         } else {
             serverLog(LL_NOTICE,"FAILOVER TO ANY ONE requested.");
         }
