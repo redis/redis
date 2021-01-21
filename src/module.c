@@ -189,6 +189,10 @@ struct RedisModuleKey {
             int er;                /* Zset iterator end reached flag
                                        (true if end was reached). */
         } zset;
+        struct {
+            /* Stream, use only if value->type == OBJ_STREAM */
+            int64_t numfieldsleft; /* Fields left to fetch for current entry. */
+        } stream;
     } u;
 };
 typedef struct RedisModuleKey RedisModuleKey;
@@ -3290,6 +3294,7 @@ int RM_StreamIteratorStart(RedisModuleKey *key, int flags, RedisModuleStreamID *
     streamIterator *si = zmalloc(sizeof(*si));
     streamIteratorStart(si, s, start ? &lower : NULL, end ? &upper : NULL, rev);
     key->iter = si;
+    key->u.stream.numfieldsleft = 0; /* for RM_StreamIteratorNextField() */
     return REDISMODULE_OK;
 }
 
@@ -3357,6 +3362,7 @@ int RM_StreamIteratorNextID(RedisModuleKey *key, RedisModuleStreamID *id, long *
     int64_t num;
     streamID streamid;
     if (streamIteratorGetID(si, &streamid, &num)) {
+        key->u.stream.numfieldsleft = num;
         if (id) {
             id->ms = streamid.ms;
             id->seq = streamid.seq;
@@ -3365,6 +3371,7 @@ int RM_StreamIteratorNextID(RedisModuleKey *key, RedisModuleStreamID *id, long *
         return REDISMODULE_OK;
     } else {
         /* No entry found. */
+        key->u.stream.numfieldsleft = 0;
         if (id) {
             id->ms = 0;
             id->seq = 0;
@@ -3375,9 +3382,8 @@ int RM_StreamIteratorNextID(RedisModuleKey *key, RedisModuleStreamID *id, long *
 }
 
 /* Retrieves the next field of the current stream ID and its corresponding value
- * in a stream iteration. This function should be called directly after calling
- * RedisModule_StreamIteratorNextID() and not more than `numfields` times. If
- * called more times than the number of fields, the behaviour is undefined.
+ * in a stream iteration. This function should be called repeatedly after calling
+ * RedisModule_StreamIteratorNextID() to fetch each field-value pair.
  *
  * - `key`: Key where a stream iterator has been started.
  * - `field_ptr`: This is where the field is returned.
@@ -3392,11 +3398,9 @@ int RM_StreamIteratorNextID(RedisModuleKey *key, RedisModuleStreamID *id, long *
  * - ENOTSUP if the key refers to a value of a type other than stream or if the
  *   key is empty
  * - EBADF if no stream iterator is associated with the key
+ * - ENOENT if there are no more fields in the current stream entry
  *
  * See the example at RedisModule_StreamIteratorStart().
- *
- * Known issues: No error nor EOF is returned if called more times than the
- * number of fields.
  */
 int RM_StreamIteratorNextField(RedisModuleKey *key, RedisModuleString **field_ptr, RedisModuleString **value_ptr) {
     if (!key) {
@@ -3407,6 +3411,9 @@ int RM_StreamIteratorNextField(RedisModuleKey *key, RedisModuleString **field_pt
         return REDISMODULE_ERR;
     } else if (!key->iter) {
         errno = EBADF;
+        return REDISMODULE_ERR;
+    } else if (key->u.stream.numfieldsleft <= 0) {
+        errno = ENOENT;
         return REDISMODULE_ERR;
     }
     streamIterator *si = key->iter;
@@ -3421,6 +3428,7 @@ int RM_StreamIteratorNextField(RedisModuleKey *key, RedisModuleString **field_pt
         *value_ptr = createRawStringObject((char *)value, value_len);
         autoMemoryAdd(key->ctx, REDISMODULE_AM_STRING, *value_ptr);
     }
+    key->u.stream.numfieldsleft--;
     return REDISMODULE_OK;
 }
 

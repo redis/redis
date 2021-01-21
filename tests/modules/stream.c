@@ -4,6 +4,7 @@
 #include <strings.h>
 #include <assert.h>
 #include <unistd.h>
+#include <errno.h>
 
 /* Command which adds a stream entry with automatic ID, like XADD *.
  *
@@ -127,12 +128,17 @@ int stream_range(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         RedisModuleString *id_str = RedisModule_CreateStringFromStreamID(ctx, &id);
         RedisModule_ReplyWithString(ctx, id_str);
         RedisModule_ReplyWithArray(ctx, numfields * 2);
+        RedisModuleString *field, *value;
         for (long i = 0; i < numfields; i++) {
-            RedisModuleString *field, *value;
-            RedisModule_StreamIteratorNextField(key, &field, &value);
+            assert(RedisModule_StreamIteratorNextField(key, &field, &value) ==
+                   REDISMODULE_OK);
             RedisModule_ReplyWithString(ctx, field);
             RedisModule_ReplyWithString(ctx, value);
         }
+        /* check error handling: no more fields to fetch */
+        assert(RedisModule_StreamIteratorNextField(key, &field, &value) ==
+               REDISMODULE_ERR);
+        assert(errno == ENOENT);
         len++;
     }
     RedisModule_ReplySetArrayLength(ctx, len);
