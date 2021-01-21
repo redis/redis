@@ -3486,7 +3486,7 @@ const char *getFailoverStateString() {
 }
 
 /* Resets the internal failover configuration, this needs
- * to be called after a failover either succeeds or fails,
+ * to be called after a failover either succeeds or fails
  * as it includes the client unpause. */
 void clearFailoverState() {
     server.failover_end_time = 0;
@@ -3498,8 +3498,10 @@ void clearFailoverState() {
     unpauseClients();
 }
 
-/* Abort an ongoing failover. */
+/* Abort an ongoing failover if one is going on. */
 void abortFailover(const char *err) {
+    if (server.failover_state == NO_FAILOVER) return;
+
     if (server.target_replica_host) {
         serverLog(LL_NOTICE,"FAILOVER to %s:%d aborted: %s",
             server.target_replica_host,server.target_replica_port,err);  
@@ -3528,6 +3530,9 @@ void abortFailover(const char *err) {
  * 
  * Failover abort is the only way to abort a failover command, as replicaof
  * will be disabled. 
+ * 
+ * The special value of ANY ONE designates that any replica can failed over
+ * to as long as its offset has caught up. =
  */
 void failoverCommand(client *c) {
     if (server.cluster_enabled) {
@@ -3580,13 +3585,14 @@ void failoverCommand(client *c) {
                 if (getLongFromObjectOrReply(c, c->argv[j],
                             &timeout_in_ms, NULL) != C_OK) return;
                 if (timeout_in_ms <= 0) {
-                    addReplyError(c,"FAILOVER timeout must be greater than");
+                    addReplyError(c,"FAILOVER timeout must be greater than 0");
+                    return;
                 }
             } else if (!strcasecmp(c->argv[j]->ptr, "force") && !force_flag) {
                 if (host) {
                     force_flag = 1;
                 } else {
-                    addReplyError(c,"FAILOVER cannot failover to \"any one\" with "
+                    addReplyError(c,"FAILOVER TO \"any one\" can not be used with "
                                 "force flag.");
                     return;  
                 }
@@ -3605,21 +3611,23 @@ void failoverCommand(client *c) {
             client *replica = findReplica(host, port);
 
             if (replica == NULL) {
-                addReplyError(c,"FAILOVER requested destination is not "
+                addReplyError(c,"FAILOVER TO destination is not "
                                 "a replica.");
                 return;
             }
 
             /* Check if requested replica is online */
             if (replica->replstate != SLAVE_STATE_ONLINE) {
-                addReplyError(c,"FAILOVER to requested replica is not online.");
+                addReplyError(c,"FAILOVER TO requested replica is not online.");
                 return;
             }
 
             server.target_replica_host = zstrdup(host);
             server.target_replica_port = port;
+            serverLog(LL_NOTICE,"FAILOVER TO %s:%ld requested.",
+                host,port,timeout_in_ms);
         } else {
-
+            serverLog(LL_NOTICE,"FAILOVER TO ANY ONE requested.");
         }
 
         mstime_t now = mstime();
@@ -3632,8 +3640,7 @@ void failoverCommand(client *c) {
         /* Cluster failover will unpause eventually */
         pauseClients(LLONG_MAX,CLIENT_PAUSE_WRITE);
 
-        serverLog(LL_NOTICE,"FAILOVER to %s:%ld (timeout: %ld ms) requested.",
-            host,port,timeout_in_ms);
+
         addReply(c,shared.ok);
     } else {
         addReplyErrorObject(c, shared.syntaxerr);
