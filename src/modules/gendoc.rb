@@ -9,13 +9,21 @@ def markdown(s)
     s.chop! while s[-1] == "\n" || s[-1] == " "
     lines = s.split("\n")
     newlines = []
-    # Backquote function, macro and type names, except if already backquoted and
-    # in code blocks indented by 4 spaces.
+    # Fix some markdown, except in code blocks indented by 4 spaces.
     lines.each{|l|
         if not l.start_with?('    ')
-            l = l.gsub(/(?<!`)RM_[A-z()]+/){|x| "`#{x}`"}
-            l = l.gsub(/(?<!`)RedisModule[A-z()]+/){|x| "`#{x}`"}
-            l = l.gsub(/(?<!`)REDISMODULE_[A-z]+/){|x| "`#{x}`"}
+            # Rewrite RM_Xyz() to `RedisModule_Xyz()`. The () suffix is
+            # optional. Even RM_Xyz*() with * as wildcard is handled.
+            l = l.gsub(/(?<!`)RM_([A-z]+(?:\*?\(\))?)/, '`RedisModule_\1`')
+            # Add backquotes around RedisModule functions and type where missing.
+            l = l.gsub(/(?<!`)RedisModule[A-z]+(?:\*?\(\))?/){|x| "`#{x}`"}
+            # Add backquotes around c functions like malloc() where missing.
+            l = l.gsub(/(?<![`A-z])[a-z_]+\(\)/, '`\0`')
+            # Add backquotes around macro and var names containing underscores.
+            l = l.gsub(/(?<![`A-z\*])[A-Za-z]+_[A-Za-z0-9_]+/){|x| "`#{x}`"}
+            # Link URLs preceded by space (i.e. when not already linked)
+            l = l.gsub(/ (https?:\/\/[A-Za-z0-9_\/\.\-]+[A-Za-z0-9\/])/,
+                       ' [\1](\1)')
         end
         newlines << l
     }

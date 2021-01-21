@@ -2302,6 +2302,7 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
                 link->cc->errstr);
             instanceLinkCloseConnection(link,link->cc);
         } else {
+            anetCloexec(link->cc->c.fd);
             link->pending_commands = 0;
             link->cc_conn_time = mstime();
             link->cc->data = link;
@@ -2329,7 +2330,7 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
             instanceLinkCloseConnection(link,link->pc);
         } else {
             int retval;
-
+            anetCloexec(link->pc->c.fd);
             link->pc_conn_time = mstime();
             link->pc->data = link;
             redisAeAttach(server.el,link->pc);
