@@ -1758,7 +1758,7 @@ void queueSentinelConfig(sds *argv, int argc, int linenum, sds line) {
 /* This function is used for loading the sentinel configuration from
  * pre_monitor_cfg, monitor_cfg and post_monitor_cfg list */
 void loadSentinelConfigFromQueue(void) {
-    char *err = NULL;
+    const char *err = NULL;
     listIter li;
     listNode *ln;
     int linenum = 0;
