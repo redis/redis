@@ -4953,6 +4953,9 @@ void moduleBlockedClientTimedOut(client *c) {
     ctx.blocked_privdata = bc->privdata;
     bc->timeout_callback(&ctx,(void**)c->argv,c->argc);
     moduleFreeContext(&ctx);
+    if (!bc->blocked_on_keys) {
+        updateStatsOnUnblock(c, bc->background_duration, 0);
+    }
     /* For timeout events, we do not want to call the disconnect callback,
      * because the blocked client will be automatically disconnected in
      * this case, and the user can still hook using the timeout callback. */
