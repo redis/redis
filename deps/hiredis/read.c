@@ -123,13 +123,17 @@ static char *readBytes(redisReader *r, unsigned int bytes) {
 
 /* Find pointer to \r\n. */
 static char *seekNewline(char *s, size_t len) {
-    int pos = 0;
-    int _len = len-1;
+    size_t _len, pos = 0;
+    
+    if (len == 0) {
+        return NULL;
+    }
 
     /* Position should be < len-1 because the character at "pos" should be
      * followed by a \n. Note that strchr cannot be used because it doesn't
      * allow to search a limited length and the buffer that is being searched
      * might not have a trailing NULL character. */
+    _len = len-1;
     while (pos < _len) {
         while(pos < _len && s[pos] != '\r') pos++;
         if (pos==_len) {

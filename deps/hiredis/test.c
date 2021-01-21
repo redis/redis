@@ -547,6 +547,19 @@ static void test_reply_reader(void) {
     test_cond(ret == REDIS_ERR && reply == NULL);
     redisReaderFree(reader);
 
+    test("Don't reset state after protocol error(not segfault): ");
+    reader = redisReaderCreate();
+    redisReaderFeed(reader,(char*)"*3\r\n$3\r\nSET\r\n$5\r\nhello\r\n$", 25);
+    ret = redisReaderGetReply(reader,&reply);
+    assert(ret == REDIS_OK);
+    redisReaderFeed(reader,(char*)"3\r\nval\r\n", 8);
+    ret = redisReaderGetReply(reader,&reply);
+    test_cond(ret == REDIS_OK && 
+        ((redisReply*)reply)->type == REDIS_REPLY_ARRAY &&
+        ((redisReply*)reply)->elements == 3);
+    freeReplyObject(reply);
+    redisReaderFree(reader);
+
     /* Regression test for issue #45 on GitHub. */
     test("Don't do empty allocation for empty multi bulk: ");
     reader = redisReaderCreate();
