@@ -1645,7 +1645,7 @@ char *sentinelInstanceMapCommand(sentinelRedisInstance *ri, char *command) {
 
 /* Generalise handling create instance error. Use SRI_MASTER, SRI_SLAVE or
  * SRI_SENTINEL as a role value. */
-char *sentinelCheckCreateInstanceErrors(int role) {
+const char *sentinelCheckCreateInstanceErrors(int role) {
     switch(errno) {
     case EBUSY:
         switch (role) {
@@ -1669,7 +1669,7 @@ char *sentinelCheckCreateInstanceErrors(int role) {
     }
 }
 
-char *sentinelHandleConfiguration(char **argv, int argc) {
+const char *sentinelHandleConfiguration(char **argv, int argc) {
     sentinelRedisInstance *ri;
 
     if (!strcasecmp(argv[0],"monitor") && argc == 5) {
