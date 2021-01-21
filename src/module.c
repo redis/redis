@@ -908,6 +908,9 @@ long long RM_Milliseconds(void) {
 /* Mark a point in time that will be used as the start time
  * to calculate the elapsed execution time when
  * RM_MeasureTimeEnd() is called.
+ * Within the same command, you can call multiple times
+ * RM_MeasureTimeStart() and RM_MeasureTimeEnd() to accummulate 
+ * indepedent time intervals to the background duration.
  * This method always return REDISMODULE_OK. */
 int RM_MeasureTimeStart(RedisModuleBlockedClient *bc) {
     elapsedStart(&(bc->background_timer));
