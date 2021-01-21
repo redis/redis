@@ -59,10 +59,9 @@ proc exec_instance {type dirname cfgfile} {
 }
 
 # Spawn a redis or sentinel instance, depending on 'type'.
-proc spawn_instance {type base_port count {conf {}}} {
+proc spawn_instance {type base_port count {conf {}} {base_conf_file ""}} {
     for {set j 0} {$j < $count} {incr j} {
         set port [find_available_port $base_port $::redis_port_count]
-
         # Create a directory for this instance.
         set dirname "${type}_${j}"
         lappend ::dirs $dirname
@@ -71,7 +70,13 @@ proc spawn_instance {type base_port count {conf {}}} {
 
         # Write the instance config file.
         set cfgfile [file join $dirname $type.conf]
-        set cfg [open $cfgfile w]
+        if {$base_conf_file ne ""} {
+            file copy -- $base_conf_file $cfgfile
+            set cfg [open $cfgfile a+]
+        } else {
+            set cfg [open $cfgfile w]
+        }
+
         if {$::tls} {
             puts $cfg "tls-port $port"
             puts $cfg "tls-replication yes"
