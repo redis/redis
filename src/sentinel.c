@@ -1662,7 +1662,7 @@ char *sentinelInstanceMapCommand(sentinelRedisInstance *ri, char *command) {
 
 /* Generalise handling create instance error. Use SRI_MASTER, SRI_SLAVE or
  * SRI_SENTINEL as a role value. */
-char *sentinelCheckCreateInstanceErrors(int role) {
+const char *sentinelCheckCreateInstanceErrors(int role) {
     switch(errno) {
     case EBUSY:
         switch (role) {
@@ -1816,7 +1816,8 @@ loaderr:
     exit(1);
 }
 
-char *sentinelHandleConfiguration(char **argv, int argc) {
+const char *sentinelHandleConfiguration(char **argv, int argc) {
+
     sentinelRedisInstance *ri;
 
     if (!strcasecmp(argv[0],"monitor") && argc == 5) {
@@ -2293,6 +2294,7 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
     /* Commands connection. */
     if (link->cc == NULL) {
         link->cc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,NET_FIRST_BIND_ADDR);
+        if (!link->cc->err) anetCloexec(link->cc->c.fd);
         if (!link->cc->err && server.tls_replication &&
                 (instanceLinkNegotiateTLS(link->cc) == C_ERR)) {
             sentinelEvent(LL_DEBUG,"-cmd-link-reconnection",ri,"%@ #Failed to initialize TLS");
@@ -2302,7 +2304,6 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
                 link->cc->errstr);
             instanceLinkCloseConnection(link,link->cc);
         } else {
-            anetCloexec(link->cc->c.fd);
             link->pending_commands = 0;
             link->cc_conn_time = mstime();
             link->cc->data = link;
@@ -2321,6 +2322,7 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
     /* Pub / Sub */
     if ((ri->flags & (SRI_MASTER|SRI_SLAVE)) && link->pc == NULL) {
         link->pc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,NET_FIRST_BIND_ADDR);
+        if (!link->pc->err) anetCloexec(link->pc->c.fd);
         if (!link->pc->err && server.tls_replication &&
                 (instanceLinkNegotiateTLS(link->pc) == C_ERR)) {
             sentinelEvent(LL_DEBUG,"-pubsub-link-reconnection",ri,"%@ #Failed to initialize TLS");
@@ -2330,7 +2332,6 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
             instanceLinkCloseConnection(link,link->pc);
         } else {
             int retval;
-            anetCloexec(link->pc->c.fd);
             link->pc_conn_time = mstime();
             link->pc->data = link;
             redisAeAttach(server.el,link->pc);
