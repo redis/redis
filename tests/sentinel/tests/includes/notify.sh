@@ -16,5 +16,6 @@ then
     if [ ! -f $sentinel_fd_leaks_file ]
     then
         ls -l /proc/self/fd | cat >> $sentinel_fd_leaks_file
+        lsof -p $$ | cat >> $sentinel_fd_leaks_file
     fi
 fi
