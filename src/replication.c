@@ -2379,15 +2379,16 @@ void syncWithMaster(connection *conn) {
     if (psync_result == PSYNC_WAIT_REPLY) return; /* Try again later... */
 
     /* Check the status of the planned failover. We expect PSYNC_CONTINUE,
-     * but there is nothing technically wrong with a full resync. */
+     * but there is nothing technically wrong with a full resync which
+     * could happen in edge cases. */
     if (server.failover_state == FAILOVER_IN_PROGRESS) {
         if (psync_result == PSYNC_CONTINUE || psync_result == PSYNC_FULLRESYNC) {
             clearFailoverState();
         } else {
             abortFailover("Failover target rejected psync request");
+            return;
         }
     }
-
 
     /* If the master is in an transient error, we should try to PSYNC
      * from scratch later, so go to the error path. This happens when
@@ -2694,7 +2695,7 @@ void replicaofCommand(client *c) {
         return;
     }
 
-    if (server.failover_end_time) {
+    if (server.failover_state != NO_FAILOVER) {
         addReplyError(c,"REPLICAOF not allowed while failing over.");
         return;
     }
@@ -3232,6 +3233,10 @@ long long replicationGetSlaveOffset(void) {
 void replicationCron(void) {
     static long long replication_cron_loops = 0;
 
+    /* Check failover status first, to see if we need to start
+     * handling the failover. */
+    updateFailoverStatus();
+
     /* Non blocking connection timeout? */
     if (server.masterhost &&
         (server.repl_state == REPL_STATE_CONNECTING ||
@@ -3480,6 +3485,9 @@ const char *getFailoverStateString() {
     }
 }
 
+/* Resets the internal failover configuration, this needs
+ * to be called after a failover either succeeds or fails,
+ * as it includes the client unpause. */
 void clearFailoverState() {
     server.failover_end_time = 0;
     server.force_failover = 0;
@@ -3490,24 +3498,36 @@ void clearFailoverState() {
     unpauseClients();
 }
 
+/* Abort an ongoing failover. */
 void abortFailover(const char *err) {
-    serverLog(LL_NOTICE,"FAILOVER to %s:%d aborted: %s",
-        server.target_replica_host,server.target_replica_port,err);  
-    if (server.masterhost != NULL) {
+    if (server.target_replica_host) {
+        serverLog(LL_NOTICE,"FAILOVER to %s:%d aborted: %s",
+            server.target_replica_host,server.target_replica_port,err);  
+    } else {
+        serverLog(LL_NOTICE,"FAILOVER to ANY ONE aborted: %s",err);  
+    }
+    if (server.failover_state == FAILOVER_IN_PROGRESS) {
         replicationUnsetMaster();
-        
-        /* We also restore our previous offset, so that our
-         * replica can psync back to us. */
-        server.master_repl_offset = server.second_replid_offset-1;
-        memcpy(server.replid,server.replid2,sizeof(server.replid));
-        clearReplicationId2();
     }
     clearFailoverState();
 }
 
 /* 
- * FAILOVER ABORT
  * FAILOVER TO <HOST> <IP> [FORCE] [TIMEOUT <timeout>] 
+ * FAILOVER ABORT
+ * 
+ * This command will coordinate a failover with master and one
+ * of its replicas. The happy path contains the following steps:
+ * 1) The master will initiate a client pause write, to stop replication
+ * traffic
+ * 2) The master will periodically check if the target replica has
+ * consumed the entire replication stream through acks. 
+ * 3) Once the replica has caught up, the master will itself become a replica.
+ * 4) The master will send a PSYNC FAILOVER request to the replica, which
+ * will cause itself to become a master and start syncing with this node.
+ * 
+ * Failover abort is the only way to abort a failover command, as replicaof
+ * will be disabled. 
  */
 void failoverCommand(client *c) {
     if (server.cluster_enabled) {
@@ -3518,10 +3538,10 @@ void failoverCommand(client *c) {
     
     if (!strcasecmp(c->argv[1]->ptr, "abort") && (c->argc == 2)) {
         if (server.failover_state == NO_FAILOVER) {
-            addReplyError(c, "No FAILOVER in progress.");
+            addReplyError(c, "No failover in progress.");
             return;
         }
- 
+
         abortFailover("Failover manually aborted");
         addReply(c,shared.ok);
     } else if(!strcasecmp(c->argv[1]->ptr, "to")) {
@@ -3622,20 +3642,20 @@ void failoverCommand(client *c) {
 }
 
 /* Failover cron function, checks coordinated failover state. */
-void failoverCron(void) {
+void updateFailoverStatus(void) {
+    if (server.failover_state != FAILOVER_WAIT_FOR_SYNC) return;
     mstime_t now = server.mstime;
-    serverAssert(server.failover_state == FAILOVER_WAIT_FOR_SYNC);
 
     /* Check if failover operation has timed out */
     if (server.failover_end_time && server.failover_end_time <= now) {
         if (server.force_failover) {
-            /* If timeout has expired force a failover if requested. */
-            replicationSetMaster(server.target_replica_host,
-                server.target_replica_port);
             serverLog(LL_NOTICE,
                 "FAILOVER to %s:%d time out exceeded, failing over.",
                 server.target_replica_host, server.target_replica_port);
             server.failover_state = FAILOVER_IN_PROGRESS;
+            /* If timeout has expired force a failover if requested. */
+            replicationSetMaster(server.target_replica_host,
+                server.target_replica_port);
             return;
         } else {
             /* Force was not requested, so timeout. */
@@ -3676,12 +3696,12 @@ void failoverCron(void) {
 
     /* We've found a replica that is caught up */
     if (replica && (replica->repl_ack_off == server.master_repl_offset)) {
-        /* Designated replica is caught up, failover to it. */
-        replicationSetMaster(server.target_replica_host,
-            server.target_replica_port);
         server.failover_state = FAILOVER_IN_PROGRESS;
         serverLog(LL_NOTICE,
                 "Failover target %s:%d is synced, failing over.",
                 server.target_replica_host, server.target_replica_port);
+        /* Designated replica is caught up, failover to it. */
+        replicationSetMaster(server.target_replica_host,
+            server.target_replica_port);
     }
 }

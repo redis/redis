@@ -2180,14 +2180,10 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Replication cron function -- used to reconnect to master,
      * detect transfer failures, start background RDB transfers and so forth. 
      * 
-     * If Redis is trying to failover then run a job to check if failover can be
-     * completed. Also run replicationCron in this faster loop so if this node
-     * starts sync with a master the sync handshake progresses quickly. */
-    if (server.failover_state == FAILOVER_WAIT_FOR_SYNC) {
-        run_with_period(100) {
-            replicationCron();
-            failoverCron();
-        }
+     * If Redis is trying to failover then run the replication cron faster so
+     * progress on the handshake happens more quickly. */
+    if (server.failover_state != NO_FAILOVER) {
+        run_with_period(100) replicationCron();
     } else {
         run_with_period(1000) replicationCron();
     }
@@ -2400,6 +2396,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         decrRefCount(argv[2]);
         server.get_ack_from_slaves = 0;
     }
+
+    /* We may have recieved updates from clients about their current offset. NOTE:
+     * this can't be done where the ACK is recieved since failover will disconnect 
+     * our clients. */
+    updateFailoverStatus();
 
     /* Send the invalidation messages to clients participating to the
      * client side caching protocol in broadcasting (BCAST) mode. */

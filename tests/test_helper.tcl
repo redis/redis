@@ -52,6 +52,7 @@ set ::all_tests {
     integration/psync2
     integration/psync2-reg
     integration/psync2-pingoff
+    integration/failover
     integration/redis-cli
     integration/redis-benchmark
     unit/pubsub
@@ -74,7 +75,6 @@ set ::all_tests {
     unit/tracking
     unit/oom-score-adj
     unit/shutdown
-    integration/failoverto
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0

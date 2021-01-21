@@ -2007,8 +2007,8 @@ void feedReplicationBacklog(void *ptr, size_t len);
 void showLatestBacklog(void);
 void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask);
 void rdbPipeWriteHandlerConnRemoved(struct connection *conn);
-void failoverCron(void);
 void clearFailoverState(void);
+void updateFailoverStatus(void);
 void abortFailover(const char *err);
 const char *getFailoverStateString();
 
