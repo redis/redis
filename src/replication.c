@@ -713,26 +713,26 @@ void syncCommand(client *c) {
     if (c->flags & CLIENT_SLAVE) return;
 
     /* Check if this is a failover request to a replica with the same replid and
-     * become a master if so. Use cached_master since if this is a failover
-     * request then the master will have disconnected from us and server.master
-     * will be NULL. */
+     * become a master if so. */
     if (c->argc > 3 && !strcasecmp(c->argv[0]->ptr,"psync") && 
         !strcasecmp(c->argv[3]->ptr,"failover"))
     {
-        serverLog(LL_WARNING, "Failover request received for replid %s", 
+        serverLog(LL_WARNING, "Failover request received for replid %s.",
             (unsigned char *)c->argv[1]->ptr);
         if (!server.masterhost) {
             addReplyError(c, "PSYNC FAILOVER can't be sent to a master.");
             return;
         }
 
-        client *master = server.master ? server.master : server.cached_master;
-        if (master && !strcasecmp(c->argv[1]->ptr,master->replid)) {
+        if (!strcasecmp(c->argv[1]->ptr,server.replid)) {
             replicationUnsetMaster();
             sds client = catClientInfoString(sdsempty(),c);
             serverLog(LL_NOTICE,
                 "MASTER MODE enabled (failover request from '%s')",client);
             sdsfree(client);
+        } else {
+            addReplyError(c, "PSYNC FAILOVER replid must match my replid.");
+            return;            
         }
     }
 

@@ -13,6 +13,11 @@ start_server {} {
     set node_2_host [srv -2 host]
     set node_2_port [srv -2 port]
 
+    proc assert_digests_match {n1 n2 n3} {
+        assert_equal [$n1 debug digest] [$n2 debug digest]
+        assert_equal [$n2 debug digest] [$n3 debug digest]
+    }
+
     test {failover command fails without connected replica} {
         catch { $node_0 failover to $node_1_host $node_1_port } err
         if {! [string match "ERR*" $err]} {
@@ -67,8 +72,8 @@ start_server {} {
         set initial_syncs [s -1 sync_full]
 
         # Generate a delta between primary and replica
+        set load_handler [start_write_load $node_0_host $node_0_port 5]
         exec kill -SIGSTOP [srv -1 pid]
-        set bench_pid [exec src/redis-benchmark -s [srv 0 unixsocket] -c 50 -n 1000 -r 1 INCR FOO > /tmp/whatever &]
         wait_for_condition 50 100 {
             [s 0 total_commands_processed] > 100
         } else {
@@ -85,7 +90,7 @@ start_server {} {
         } else {
             fail "Failover from node 0 to node 1 did not finish"
         }
-
+        stop_write_load $load_handler
         $node_2 replicaof $node_1_host $node_1_port
         wait_for_sync $node_0
         wait_for_sync $node_2
@@ -97,6 +102,7 @@ start_server {} {
         # We should accept psyncs from both nodes
         assert_equal [expr [s -1 sync_partial_ok] - $initial_psyncs] 2
         assert_equal [expr [s -1 sync_full] - $initial_psyncs] 0
+        assert_digests_match $node_0 $node_1 $node_2
     }
 
     test {failover command to any replica works} {
@@ -128,6 +134,7 @@ start_server {} {
         # We should accept Psyncs from both nodes
         assert_equal [expr [s -2 sync_partial_ok] - $initial_psyncs] 2
         assert_equal [expr [s -1 sync_full] - $initial_psyncs] 0
+        assert_digests_match $node_0 $node_1 $node_2
     }
 
     test {failover to a replica with force works} {
@@ -137,7 +144,14 @@ start_server {} {
         exec kill -SIGSTOP [srv 0 pid]
         # node 0 will never acknowledge this write
         $node_2 set case 2
-        $node_2 failover to $node_0_host $node_0_port TIMEOUT 10 FORCE
+        $node_2 failover to $node_0_host $node_0_port TIMEOUT 100 FORCE
+
+        # Wait for node 0 to give up on sync attempt and start failover
+        wait_for_condition 50 100 {
+            [s -2 master_failover_state] == "failover-in-progress"
+        } else {
+            fail "Failover from node 2 to node 0 did not timeout"
+        }
         exec kill -SIGCONT [srv 0 pid]
 
         # Wait for failover to end
@@ -146,7 +160,6 @@ start_server {} {
         } else {
             fail "Failover from node 2 to node 0 did not finish"
         }
-
         $node_1 replicaof $node_0_host $node_0_port
 
         wait_for_sync $node_1
@@ -156,9 +169,13 @@ start_server {} {
         assert_match *slave* [$node_1 role]
         assert_match *slave* [$node_2 role]
 
-        # We should accept Psyncs from both nodes
+        assert_equal [count_log_message -2 "time out exceeded, failing over."] 1
+
+        # We should accept both psyncs, although this is the condition we might not
+        # since we didn't catch up.
         assert_equal [expr [s 0 sync_partial_ok] - $initial_psyncs] 2
         assert_equal [expr [s 0 sync_full] - $initial_syncs] 0
+        assert_digests_match $node_0 $node_1 $node_2
     }
 
     test {failover with timeout aborts if replica never catches up} {
@@ -190,6 +207,7 @@ start_server {} {
         # Since we never caught up, there should be no syncs
         assert_equal [expr [s 0 sync_partial_ok] - $initial_psyncs] 0
         assert_equal [expr [s 0 sync_full] - $initial_syncs] 0
+        assert_digests_match $node_0 $node_1 $node_2
     }
 
     test {failovers can be aborted} {
@@ -222,6 +240,7 @@ start_server {} {
         # Since we never caught up, there should be no syncs
         assert_equal [expr [s 0 sync_partial_ok] - $initial_psyncs] 0
         assert_equal [expr [s 0 sync_full] - $initial_syncs] 0
+        assert_digests_match $node_0 $node_1 $node_2
     }
 
     test {failover aborts if target rejects sync request} {
@@ -265,6 +284,7 @@ start_server {} {
         assert_equal [expr [s 0 sync_full] - $initial_syncs] 0
 
         assert_equal [count_log_message 0 "Failover target rejected psync request"] 1
+        assert_digests_match $node_0 $node_1 $node_2
     }
 }
 }
