@@ -8,13 +8,15 @@ start_server {tags {"modules"}} {
     test { blocked clients time tracking - check blocked command that uses RedisModule_MeasureTimeStart() is tracking background time} {
         r slowlog reset
         r config set slowlog-log-slower-than 50000
+        r config set latency-monitor-threshold 50
+        r latency reset
         assert_equal [r slowlog len] 0
         r block.debug 0 10000
         assert_equal [r slowlog len] 0
         r config resetstat
         r block.debug 100 10000
         assert_equal [r slowlog len] 1
-        # ensure only one key was populated
+        assert {[r latency history command-unblocking] >= 1}
 
         set cmdstatline [cmdrstat block.debug r]
 
