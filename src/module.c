@@ -192,6 +192,7 @@ struct RedisModuleKey {
         struct {
             /* Stream, use only if value->type == OBJ_STREAM */
             int64_t numfieldsleft; /* Fields left to fetch for current entry. */
+            int signalready;       /* Flag that signalKeyAsReady() is needed. */
         } stream;
     } u;
 };
@@ -2119,8 +2120,12 @@ static void moduleInitKey(RedisModuleKey *kp, RedisModuleCtx *ctx, robj *keyname
     kp->value = value;
     kp->iter = NULL;
     kp->mode = mode;
-    if (kp->value && kp->value->type == OBJ_ZSET) {
-        zsetKeyReset(kp);
+    if (kp->value) {
+        /* initialize the type-specific part of the key */
+        switch (kp->value->type) {
+        case OBJ_ZSET: zsetKeyReset(kp); break;
+        case OBJ_STREAM: kp->u.stream.signalready = 0; break;
+        }
     }
 }
 
@@ -2166,6 +2171,11 @@ static void moduleCloseKey(RedisModuleKey *key) {
         signalModifiedKey(key->ctx->client,key->db,key->key);
     /* TODO: if (key->iter) RM_KeyIteratorStop(kp); */
     RM_ZsetRangeStop(key);
+    if (key && key->value && key->value->type == OBJ_STREAM &&
+        key->u.stream.signalready) {
+        /* One of more RM_StreamAdd() have been done. */
+        signalKeyAsReady(key->db, key->key, OBJ_STREAM);
+    }
     decrRefCount(key->key);
 }
 
@@ -3165,7 +3175,9 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
         errno = EDOM;
         return REDISMODULE_ERR;
     }
-    signalKeyAsReady(key->db, key->key, OBJ_STREAM);
+    /* Postponed signalKeyAsReady(). Done implicitly by moduleCreateEmptyKey()
+     * so not needed if the stream has just been created, i.e. if length == 1 */
+    key->u.stream.signalready = (s->length > 1);
 
     if (id != NULL) {
         id->ms = added_id.ms;
