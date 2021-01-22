@@ -11,10 +11,6 @@
 #define REDISMODULE_OK 0
 #define REDISMODULE_ERR 1
 
-/* EOF returned by iterator functions when there are no more elements. EOF is an
- * implementation defined negative number (normally -1). */
-#define REDISMODULE_EOF EOF
-
 /* API versions. */
 #define REDISMODULE_APIVER_1 1
 

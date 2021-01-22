@@ -3354,13 +3354,13 @@ int RM_StreamIteratorStop(RedisModuleKey *key) {
  *   don't care.
  *
  * Returns REDISMODULE_OK and sets `*id` and `*numfields` if an entry was found.
- * If there are no more entries, REDISMODULE_EOF is returned. On failure,
- * REDISMODULE_ERR is returned and `errno` is set as follows:
+ * On failure, REDISMODULE_ERR is returned and `errno` is set as follows:
  *
  * - EINVAL if called with a NULL key
  * - ENOTSUP if the key refers to a value of a type other than stream or if the
  *   key is empty
  * - EBADF if no stream iterator is associated with the key
+ * - ENOENT if there are no more entries in the range of the iterator
  *
  * Use RedisModule_StreamIteratorNextField() to retrieve the fields and values.
  * See the example at RedisModule_StreamIteratorStart().
@@ -3396,7 +3396,7 @@ int RM_StreamIteratorNextID(RedisModuleKey *key, RedisModuleStreamID *id, long *
             id->seq = 0;
         }
         if (numfields) *numfields = 0;
-        return REDISMODULE_EOF;
+        return REDISMODULE_ERR;
     }
 }
 
