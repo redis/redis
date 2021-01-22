@@ -3158,8 +3158,10 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
     }
 
     /* Create key if necessery */
+    int created = 0;
     if (key->value == NULL) {
         moduleCreateEmptyKey(key, REDISMODULE_KEYTYPE_STREAM);
+        created = 1;
     }
 
     stream *s = key->value->ptr;
@@ -3177,8 +3179,8 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
         return REDISMODULE_ERR;
     }
     /* Postponed signalKeyAsReady(). Done implicitly by moduleCreateEmptyKey()
-     * so not needed if the stream has just been created, i.e. if length == 1 */
-    key->u.stream.signalready = (s->length > 1);
+     * so not needed if the stream has just been created. */
+    if (!created) key->u.stream.signalready = 1;
 
     if (id != NULL) {
         id->ms = added_id.ms;
@@ -3265,9 +3267,9 @@ int RM_StreamDelete(RedisModuleKey *key, RedisModuleStreamID *id) {
  *     long numfields;
  *     while (RedisModule_StreamIteratorNextID(key, &id, &numfields) ==
  *            REDISMODULE_OK) {
- *         for (long i = 0; i < numfields; i++) {
- *             RedisModuleString *field, *value;
- *             RedisModule_StreamIteratorNextField(key, &field, &value);
+ *         RedisModuleString *field, *value;
+ *         while (RedisModule_StreamIteratorNextField(key, &field, &value) ==
+ *                REDISMODULE_OK) {
  *             //
  *             // ... Do stuff ...
  *             //
@@ -3362,6 +3364,10 @@ int RM_StreamIteratorStop(RedisModuleKey *key) {
  * - EBADF if no stream iterator is associated with the key
  * - ENOENT if there are no more entries in the range of the iterator
  *
+ * In practice, if RM_StreamIteratorNextID() is called after a successful call
+ * to RM_StreamIteratorStart() and with the same key, it is safe to assume that
+ * an REDISMODULE_ERR return value means that there are no more entries.
+ *
  * Use RedisModule_StreamIteratorNextField() to retrieve the fields and values.
  * See the example at RedisModule_StreamIteratorStart().
  */
@@ -3391,11 +3397,7 @@ int RM_StreamIteratorNextID(RedisModuleKey *key, RedisModuleStreamID *id, long *
         key->u.stream.currentid.ms = 0; /* for RM_StreamIteratorDelete() */
         key->u.stream.currentid.seq = 0;
         key->u.stream.numfieldsleft = 0; /* for RM_StreamIteratorNextField() */
-        if (id) {
-            id->ms = 0;
-            id->seq = 0;
-        }
-        if (numfields) *numfields = 0;
+        errno = ENOENT;
         return REDISMODULE_ERR;
     }
 }
@@ -3418,6 +3420,10 @@ int RM_StreamIteratorNextID(RedisModuleKey *key, RedisModuleStreamID *id, long *
  *   key is empty
  * - EBADF if no stream iterator is associated with the key
  * - ENOENT if there are no more fields in the current stream entry
+ *
+ * In practice, if RM_StreamIteratorNextField() is called after a successful
+ * call to RM_StreamIteratorNextID() and with the same key, it is safe to assume
+ * that an REDISMODULE_ERR return value means that there are no more fields.
  *
  * See the example at RedisModule_StreamIteratorStart().
  */
