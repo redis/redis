@@ -1,7 +1,7 @@
 # Helper functions to simulate search-in-radius in the Tcl side in order to
 # verify the Redis implementation with a fuzzy test.
 proc geo_degrad deg {expr {$deg*(atan(1)*8/360)}}
-proc geo_raddeg deg {expr {$deg/(atan(1)*8/360)}}
+proc geo_raddeg rad {expr {$rad/(atan(1)*8/360)}}
 
 proc geo_distance {lon1d lat1d lon2d lat2d} {
     set lon1r [geo_degrad $lon1d]

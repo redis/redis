@@ -174,10 +174,10 @@ int extractDistanceOrReply(client *c, robj **argv,
  * that should be in the form: <number> <number> <unit>, and return C_OK or C_ERR means success or failure
  * *conversions is populated with the coefficient to use in order to convert meters to the unit.*/
 int extractBoxOrReply(client *c, robj **argv, double *conversion,
-                         double *height, double *width) {
+                         double *width, double *height) {
     double h, w;
-    if ((getDoubleFromObjectOrReply(c, argv[0], &h, "need numeric width") != C_OK) ||
-        (getDoubleFromObjectOrReply(c, argv[1], &w, "need numeric height") != C_OK)) {
+    if ((getDoubleFromObjectOrReply(c, argv[0], &w, "need numeric width") != C_OK) ||
+        (getDoubleFromObjectOrReply(c, argv[1], &h, "need numeric height") != C_OK)) {
         return C_ERR;
     }
 
