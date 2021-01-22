@@ -3137,6 +3137,7 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
  * - EBADF if the key was not opened for writing
  * - EDOM if the given ID was 0-0 or not greater than all other IDs in the
  *   stream (only if the AUTOID flag is unset)
+ * - EFBIG if the stream has reached the last possible ID
  */
 int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisModuleString **argv, long numfields) {
     /* Validate args */
@@ -3165,6 +3166,12 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
     }
 
     stream *s = key->value->ptr;
+    if (s->last_id.ms == UINT64_MAX && s->last_id.seq == UINT64_MAX) {
+        /* The stream has reached the last possible ID */
+        errno = EFBIG;
+        return REDISMODULE_ERR;
+    }
+
     streamID added_id;
     streamID use_id;
     streamID *use_id_ptr = NULL;
