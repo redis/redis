@@ -622,8 +622,8 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
         ctx->postponed_arrays_count = 0;
         serverLog(LL_WARNING,
             "API misuse detected in module %s: "
-            "RedisModule_ReplyWithArray(REDISMODULE_POSTPONED_ARRAY_LEN) "
-            "not matched by the same number of RedisModule_SetReplyArrayLen() "
+            "RedisModule_ReplyWith*(REDISMODULE_POSTPONED_LEN) "
+            "not matched by the same number of RedisModule_SetReply*Len() "
             "calls.",
             ctx->module->name);
     }
@@ -1408,34 +1408,94 @@ int RM_ReplyWithSimpleString(RedisModuleCtx *ctx, const char *msg) {
     return REDISMODULE_OK;
 }
 
-/* Reply with an array type of 'len' elements. However 'len' other calls
- * to `ReplyWith*` style functions must follow in order to emit the elements
- * of the array.
- *
- * When producing arrays with a number of element that is not known beforehand
- * the function can be called with the special count
- * REDISMODULE_POSTPONED_ARRAY_LEN, and the actual number of elements can be
- * later set with RedisModule_ReplySetArrayLength() (which will set the
- * latest "open" count if there are multiple ones).
- *
- * The function always returns REDISMODULE_OK. */
-int RM_ReplyWithArray(RedisModuleCtx *ctx, long len) {
+#define COLLECTION_REPLY_ARRAY      1
+#define COLLECTION_REPLY_MAP        2
+#define COLLECTION_REPLY_SET        3
+#define COLLECTION_REPLY_ATTRIBUTE  4
+#define COLLECTION_REPLY_PUSH       5
+
+int moduleReplyWithCollection(RedisModuleCtx *ctx, long len, int type) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
-    if (len == REDISMODULE_POSTPONED_ARRAY_LEN) {
+    if (len == REDISMODULE_POSTPONED_LEN) {
         ctx->postponed_arrays = zrealloc(ctx->postponed_arrays,sizeof(void*)*
                 (ctx->postponed_arrays_count+1));
         ctx->postponed_arrays[ctx->postponed_arrays_count] =
             addReplyDeferredLen(c);
         ctx->postponed_arrays_count++;
     } else {
-        addReplyArrayLen(c,len);
+        switch (type) {
+        case COLLECTION_REPLY_ARRAY:
+            addReplyArrayLen(c,len);
+            break;
+        case COLLECTION_REPLY_MAP:
+            addReplyMapLen(c,len);
+            break;
+        case COLLECTION_REPLY_SET:
+            addReplySetLen(c,len);
+            break;
+        case COLLECTION_REPLY_ATTRIBUTE:
+            addReplyAttributeLen(c,len);
+            break;
+        case COLLECTION_REPLY_PUSH:
+            addReplyPushLen(c,len);
+            break;
+        default:
+            serverPanic("Invalid module reply type %d", type);
+        }
     }
     return REDISMODULE_OK;
 }
 
+
+/* Reply with an array type of 'len' elements. However 'len' other calls
+ * to `ReplyWith*` style functions must follow in order to emit the elements
+ * of the array.
+ *
+ * When producing arrays with a number of element that is not known beforehand
+ * the function can be called with the special count
+ * REDISMODULE_POSTPONED_LEN, and the actual number of elements can be
+ * later set with RedisModule_ReplySetArrayLength() (which will set the
+ * latest "open" count if there are multiple ones).
+ *
+ * The function always returns REDISMODULE_OK. */
+int RM_ReplyWithArray(RedisModuleCtx *ctx, long len) {
+    return moduleReplyWithCollection(ctx, len, COLLECTION_REPLY_ARRAY);
+}
+
+/* Very similar to RedisModule_ReplyWithArray except that `len` is
+ * the amount of pairs, so the actual number of elements (i.e. the
+ * number of times to call a `ReplyWith*` style function)
+ * is `len`*2
+ * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3. */
+int RM_ReplyWithMap(RedisModuleCtx *ctx, long len) {
+    return moduleReplyWithCollection(ctx, len, COLLECTION_REPLY_MAP);
+}
+
+/* Very similar to RedisModule_ReplyWithArray
+ * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3. */
+int RM_ReplyWithSet(RedisModuleCtx *ctx, long len) {
+    return moduleReplyWithCollection(ctx, len, COLLECTION_REPLY_SET);
+}
+
+/* Very similar to RedisModule_ReplyWithMap
+ * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3. */
+int RM_ReplyWithAttribute(RedisModuleCtx *ctx, long len) {
+    return moduleReplyWithCollection(ctx, len, COLLECTION_REPLY_ATTRIBUTE);
+}
+
+/* Very similar to RedisModule_ReplyWithArray
+ * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3. */
+int RM_ReplyWithPush(RedisModuleCtx *ctx, long len) {
+    return moduleReplyWithCollection(ctx, len, COLLECTION_REPLY_PUSH);
+}
+
 /* Reply to the client with a null array, simply null in RESP3 
  * null array in RESP2.
+ *
+ * Note: In RESP3 there's no difference between Null reply and
+ * NullArray reply so, to prevent ambiguity it's better to avoid
+ * using this API and use RedisModule_ReplyWithNull instead.
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithNullArray(RedisModuleCtx *ctx) {
@@ -1455,8 +1515,65 @@ int RM_ReplyWithEmptyArray(RedisModuleCtx *ctx) {
     return REDISMODULE_OK;
 }
 
+/* Reply to the client with an empty map.
+ *
+ * The function always returns REDISMODULE_OK. */
+int RM_ReplyWithEmptyMap(RedisModuleCtx *ctx) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReply(c,shared.emptymap[c->resp]);
+    return REDISMODULE_OK;
+}
+
+/* Reply to the client with an empty set.
+ *
+ * The function always returns REDISMODULE_OK. */
+int RM_ReplyWithEmptySet(RedisModuleCtx *ctx) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReply(c,shared.emptyset[c->resp]);
+    return REDISMODULE_OK;
+}
+
+void moduleReplySetCollectionLength(RedisModuleCtx *ctx, long len, int type) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return;
+    if (ctx->postponed_arrays_count == 0) {
+        serverLog(LL_WARNING,
+            "API misuse detected in module %s: "
+            "RedisModule_ReplySet*Length() called without previous "
+            "RedisModule_ReplyWith*(ctx,REDISMODULE_POSTPONED_LEN) "
+            "call.", ctx->module->name);
+            return;
+    }
+    ctx->postponed_arrays_count--;
+    switch(type) {
+    case COLLECTION_REPLY_ARRAY:
+        setDeferredArrayLen(c,ctx->postponed_arrays[ctx->postponed_arrays_count],len);
+        break;
+    case COLLECTION_REPLY_MAP:
+        setDeferredMapLen(c,ctx->postponed_arrays[ctx->postponed_arrays_count],len);
+        break;
+    case COLLECTION_REPLY_SET:
+        setDeferredSetLen(c,ctx->postponed_arrays[ctx->postponed_arrays_count],len);
+        break;
+    case COLLECTION_REPLY_ATTRIBUTE:
+        setDeferredAttributeLen(c,ctx->postponed_arrays[ctx->postponed_arrays_count],len);
+        break;
+    case COLLECTION_REPLY_PUSH:
+        setDeferredPushLen(c,ctx->postponed_arrays[ctx->postponed_arrays_count],len);
+        break;
+    default:
+        serverPanic("Invalid module reply type %d", type);
+    }
+    if (ctx->postponed_arrays_count == 0) {
+        zfree(ctx->postponed_arrays);
+        ctx->postponed_arrays = NULL;
+    }
+}
+
 /* When RedisModule_ReplyWithArray() is used with the argument
- * REDISMODULE_POSTPONED_ARRAY_LEN, because we don't know beforehand the number
+ * REDISMODULE_POSTPONED_LEN, because we don't know beforehand the number
  * of items we are going to output as elements of the array, this function
  * will take care to set the array length.
  *
@@ -1467,9 +1584,9 @@ int RM_ReplyWithEmptyArray(RedisModuleCtx *ctx) {
  * For example in order to output an array like [1,[10,20,30]] we
  * could write:
  *
- *      RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_ARRAY_LEN);
+ *      RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_LEN);
  *      RedisModule_ReplyWithLongLong(ctx,1);
- *      RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_ARRAY_LEN);
+ *      RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_LEN);
  *      RedisModule_ReplyWithLongLong(ctx,10);
  *      RedisModule_ReplyWithLongLong(ctx,20);
  *      RedisModule_ReplyWithLongLong(ctx,30);
@@ -1482,24 +1599,33 @@ int RM_ReplyWithEmptyArray(RedisModuleCtx *ctx) {
  * that is not easy to calculate in advance the number of elements.
  */
 void RM_ReplySetArrayLength(RedisModuleCtx *ctx, long len) {
-    client *c = moduleGetReplyClient(ctx);
-    if (c == NULL) return;
-    if (ctx->postponed_arrays_count == 0) {
-        serverLog(LL_WARNING,
-            "API misuse detected in module %s: "
-            "RedisModule_ReplySetArrayLength() called without previous "
-            "RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_ARRAY_LEN) "
-            "call.", ctx->module->name);
-            return;
-    }
-    ctx->postponed_arrays_count--;
-    setDeferredArrayLen(c,
-            ctx->postponed_arrays[ctx->postponed_arrays_count],
-            len);
-    if (ctx->postponed_arrays_count == 0) {
-        zfree(ctx->postponed_arrays);
-        ctx->postponed_arrays = NULL;
-    }
+    moduleReplySetCollectionLength(ctx, len, COLLECTION_REPLY_ARRAY);
+}
+
+/* Very similar to RedisModule_ReplySetArrayLength except `len` should
+ * exactly half of the number of `ReplyWith*` functions called in the
+ * context of the map.
+ * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3. */
+void RM_ReplySetMapLength(RedisModuleCtx *ctx, long len) {
+    moduleReplySetCollectionLength(ctx, len, COLLECTION_REPLY_MAP);
+}
+
+/* Very similar to RedisModule_ReplySetArrayLength
+ * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3. */
+void RM_ReplySetSetLength(RedisModuleCtx *ctx, long len) {
+    moduleReplySetCollectionLength(ctx, len, COLLECTION_REPLY_SET);
+}
+
+/* Very similar to RedisModule_ReplySetMapLength
+ * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3. */
+void RM_ReplySetAttributeLength(RedisModuleCtx *ctx, long len) {
+    moduleReplySetCollectionLength(ctx, len, COLLECTION_REPLY_ATTRIBUTE);
+}
+
+/* Very similar to RedisModule_ReplySetArrayLength
+ * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3. */
+void RM_ReplySetPushLength(RedisModuleCtx *ctx, long len) {
+    moduleReplySetCollectionLength(ctx, len, COLLECTION_REPLY_PUSH);
 }
 
 /* Reply with a bulk string, taking in input a C buffer pointer and length.
@@ -1561,6 +1687,16 @@ int RM_ReplyWithNull(RedisModuleCtx *ctx) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
     addReplyNull(c);
+    return REDISMODULE_OK;
+}
+
+/* Reply to the client with a boolena value.
+ *
+ * The function always returns REDISMODULE_OK. */
+int RM_ReplyWithBool(RedisModuleCtx *ctx, int b) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReplyBool(c,b);
     return REDISMODULE_OK;
 }
 
@@ -8439,9 +8575,19 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ReplyWithError);
     REGISTER_API(ReplyWithSimpleString);
     REGISTER_API(ReplyWithArray);
+    REGISTER_API(ReplyWithMap);
+    REGISTER_API(ReplyWithSet);
+    REGISTER_API(ReplyWithAttribute);
+    REGISTER_API(ReplyWithPush);
     REGISTER_API(ReplyWithNullArray);
     REGISTER_API(ReplyWithEmptyArray);
+    REGISTER_API(ReplyWithEmptyMap);
+    REGISTER_API(ReplyWithEmptySet);
     REGISTER_API(ReplySetArrayLength);
+    REGISTER_API(ReplySetMapLength);
+    REGISTER_API(ReplySetSetLength);
+    REGISTER_API(ReplySetAttributeLength);
+    REGISTER_API(ReplySetPushLength);
     REGISTER_API(ReplyWithString);
     REGISTER_API(ReplyWithEmptyString);
     REGISTER_API(ReplyWithVerbatimString);
