@@ -821,7 +821,7 @@ REDISMODULE_API int (*RedisModule_IsSubEventSupported)(RedisModuleEvent event, u
 REDISMODULE_API int (*RedisModule_GetServerVersion)() REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetTypeMethodVersion)() REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AddCommandKeySpecRange)(RedisModuleCtx *ctx, const char *name, const char *specflags, int firstkey, int lastkey, int keystep) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_AddCommandKeySpecKeyword)(RedisModuleCtx *ctx, const char *name, const char *specflags, const char *keyword, int keycount, int keystep) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_AddCommandKeySpecKeyword)(RedisModuleCtx *ctx, const char *name, const char *specflags, const char *keyword, int keycount, int startfrom, int keystep) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AddCommandKeySpecKeynum)(RedisModuleCtx *ctx, const char *name, const char *specflags, int keynumidx, int firstkey, int keystep) REDISMODULE_ATTR;
 
 /* Experimental APIs */

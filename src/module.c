@@ -795,7 +795,7 @@ int64_t commandFlagsFromString(char *s) {
  * flags into the keys spec flags used by the Redis core.
  *
  * It returns the set of flags, or -1 if unknown flags are found. */
-int64_t commandKeySpecsFlagsFromString(char *s) {
+int64_t commandKeySpecsFlagsFromString(const char *s) {
     int count, j;
     int64_t flags = 0;
     sds *tokens = sdssplitlen(s,strlen(s)," ",1,&count);
@@ -803,6 +803,7 @@ int64_t commandKeySpecsFlagsFromString(char *s) {
         char *t = tokens[j];
         if (!strcasecmp(t,"write")) flags |= CMD_KEY_WRITE;
         else if (!strcasecmp(t,"read")) flags |= CMD_KEY_READ;
+        else if (!strcasecmp(t,"incomplete")) flags |= CMD_KEY_INCOMPLETE;
         else break;
     }
     sdsfreesplitres(tokens,count);
@@ -932,6 +933,7 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
         cp->rediscmd->keys_specs_num = 0;
         cp->rediscmd->legacy_range_key_spec.type = KSPEC_INVALID;
     }
+    populateCommandMovableKeys(cp->rediscmd);
     cp->rediscmd->microseconds = 0;
     cp->rediscmd->calls = 0;
     cp->rediscmd->rejected_calls = 0;
@@ -960,7 +962,7 @@ void extendKeySpecsIfNeeded(struct redisCommand *cmd) {
 }
 
 int moduleAddCommandKeySpec(RedisModuleCtx *ctx, const char *name, const char *specflags, keysSpec *spec) {
-    int64_t flags = specflags ? commandKeySpecsFlagsFromString((char*)specflags) : 0;
+    int64_t flags = specflags ? commandKeySpecsFlagsFromString(specflags) : 0;
     if (flags == -1)
         return REDISMODULE_ERR;
 
@@ -984,6 +986,9 @@ int moduleAddCommandKeySpec(RedisModuleCtx *ctx, const char *name, const char *s
 
     /* Refresh legacy range */
     populateCommandLegacyRangeSpec(cmd);
+    /* Refresh movablekeys flag */
+    populateCommandMovableKeys(cmd);
+
     return REDISMODULE_OK;
 }
 
@@ -1001,11 +1006,12 @@ int RM_AddCommandKeySpecRange(RedisModuleCtx *ctx, const char *name, const char 
 
 /* Add a "keyword" key arguments spec to a command.
  * Returns REDISMODULE_OK */
-int RM_AddCommandKeySpecKeyword(RedisModuleCtx *ctx, const char *name, const char *specflags, const char *keyword, int keycount, int keystep) {
+int RM_AddCommandKeySpecKeyword(RedisModuleCtx *ctx, const char *name, const char *specflags, const char *keyword, int keycount, int startfrom, int keystep) {
     keysSpec spec;
     spec.type = KSPEC_KEYWORD;
     spec.u.keyword.keyword = keyword;
     spec.u.keyword.keycount = keycount;
+    spec.u.keyword.startfrom = startfrom;
     spec.u.keyword.keystep = keystep;
 
     return moduleAddCommandKeySpec(ctx, name, specflags, &spec);

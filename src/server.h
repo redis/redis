@@ -201,6 +201,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
  * for more information about the meaning of every flag. */
 #define CMD_KEY_WRITE (1ULL<<0)        /* "write" flag */
 #define CMD_KEY_READ (1ULL<<1)         /* "read" flag */
+#define CMD_KEY_INCOMPLETE (1ULL<<2)   /* "incomplete" flag (meaning that the keyspec might not point out to all keys it should cover) */
 
 /* Command flags used by the module system. */
 #define CMD_MODULE_GETKEYS (1ULL<<17)  /* Use the modules getkeys interface. */
@@ -1711,7 +1712,7 @@ typedef struct {
 typedef struct {
     /* Declarative data */
     int type;
-    char *sflags;
+    const char *sflags;
     union {
         struct {
             int firstkey;
@@ -1726,6 +1727,7 @@ typedef struct {
         struct {
             const char *keyword;
             int keycount;
+            int startfrom;
             int keystep;
         } keyword;
     } u;
@@ -1766,6 +1768,7 @@ struct redisCommand {
                                      * COMMAND INFO and COMMAND GETKEYS */
     int keys_specs_num;
     int keys_specs_max;
+    int movablekeys; /* See populateCommandMovableKeys */
 };
 
 struct redisError {
@@ -2835,6 +2838,7 @@ int memtest_preserving_test(unsigned long *m, size_t bytes, int passes);
 void mixDigest(unsigned char *digest, void *ptr, size_t len);
 void xorDigest(unsigned char *digest, void *ptr, size_t len);
 int populateSingleCommand(struct redisCommand *c, char *strflags);
+void populateCommandMovableKeys(struct redisCommand *cmd);
 void debugDelay(int usec);
 void killIOThreads(void);
 void killThreads(void);
