@@ -226,7 +226,7 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
     /* Although the key is not really deleted from the database, we regard 
     overwrite as two steps of unlink+add, so we still need to call the unlink 
     callback of the module. */
-    moduleNotifyKeyUnlink(key,val);
+    moduleNotifyKeyUnlink(key,old);
     dictSetVal(db->dict, de, val);
 
     if (server.lazyfree_lazy_server_del) {
