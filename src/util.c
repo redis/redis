@@ -618,6 +618,7 @@ int ld2string(char *buf, size_t len, long double value, ld2string_mode mode) {
  *
  * This function is not thread safe, since the state is global. */
 void getRandomBytes(unsigned char *p, size_t len) {
+/* O_CLOEXEC is supported in fopen since glibc 2.7. */
 #if (__GLIBC__ > 2) || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 7)
     const char* mode = "r+e";
 #else
