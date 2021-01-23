@@ -5247,6 +5247,8 @@ int linuxMadvFreeForkBugCheck(void) {
     /* Create a pipe for the child to return the info to the parent. */
     ret = pipe(pipefd);
     serverAssert(!ret);
+    anetCloexec(pipefd[0]);
+    anetCloexec(pipefd[1]);
 
     /* Fork the process. */
     pid = fork();
