@@ -47,6 +47,8 @@ void openChildInfoPipe(void) {
     } else if (anetNonBlock(NULL,server.child_info_pipe[0]) != ANET_OK) {
         closeChildInfoPipe();
     } else {
+        anetCloexec(server.child_info_pipe[0]);
+        anetCloexec(server.child_info_pipe[1]);
         server.child_info_nread = 0;
     }
 }
