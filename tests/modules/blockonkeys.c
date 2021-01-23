@@ -66,7 +66,8 @@ int get_fsl(RedisModuleCtx *ctx, RedisModuleString *keyname, int mode, int creat
         RedisModule_CloseKey(key);
         if (reply_on_failure)
             RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
-        RedisModule_Call(ctx, "INCR", "c", "fsl_wrong_type");
+        RedisModuleCallReply *reply = RedisModule_Call(ctx, "INCR", "c", "fsl_wrong_type");
+        RedisModule_FreeCallReply(reply);
         return 0;
     }
 
