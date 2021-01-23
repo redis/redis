@@ -618,6 +618,12 @@ int ld2string(char *buf, size_t len, long double value, ld2string_mode mode) {
  *
  * This function is not thread safe, since the state is global. */
 void getRandomBytes(unsigned char *p, size_t len) {
+#if (__GLIBC__ > 2) || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 7)
+    const char* mode = "r+e";
+#else
+    const char* mode = "r";
+#endif
+
     /* Global state. */
     static int seed_initialized = 0;
     static unsigned char seed[64]; /* 512 bit internal block size. */
@@ -628,7 +634,7 @@ void getRandomBytes(unsigned char *p, size_t len) {
          * the same seed with a progressive counter. For the goals of this
          * function we just need non-colliding strings, there are no
          * cryptographic security needs. */
-        FILE *fp = fopen("/dev/urandom","r");
+        FILE *fp = fopen("/dev/urandom",mode);
         if (fp == NULL || fread(seed,sizeof(seed),1,fp) != 1) {
             /* Revert to a weaker seed, and in this case reseed again
              * at every call.*/
