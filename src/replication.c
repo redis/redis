@@ -200,12 +200,12 @@ void feedReplicationBacklogWithObject(robj *o) {
     feedReplicationBacklog(p,len);
 }
 
-int canFeedSlaveReplBuffer(client *slave) {
-    /* Don't feed slaves that only want the RDB. */
-    if (slave->flags & CLIENT_SLAVE_NOBUF) return 0;
+int canFeedReplicaReplBuffer(client *replica) {
+    /* Don't feed replicas that only want the RDB. */
+    if (replica->flags & CLIENT_REPL_RDBONLY) return 0;
 
-    /* Don't feed slaves that are still waiting for BGSAVE to start. */
-    if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) return 0;
+    /* Don't feed replicas that are still waiting for BGSAVE to start. */
+    if (replica->replstate == SLAVE_STATE_WAIT_BGSAVE_START) return 0;
 
     return 1;
 }
@@ -260,7 +260,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         while((ln = listNext(&li))) {
             client *slave = ln->value;
 
-            if (!canFeedSlaveReplBuffer(slave)) continue;
+            if (!canFeedReplicaReplBuffer(slave)) continue;
             addReply(slave,selectcmd);
         }
 
@@ -301,7 +301,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     while((ln = listNext(&li))) {
         client *slave = ln->value;
 
-        if (!canFeedSlaveReplBuffer(slave)) continue;
+        if (!canFeedReplicaReplBuffer(slave)) continue;
 
         /* Feed slaves that are waiting for the initial SYNC (so these commands
          * are queued in the output buffer until the initial SYNC completes),
@@ -373,7 +373,7 @@ void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t bufle
     while((ln = listNext(&li))) {
         client *slave = ln->value;
 
-        if (!canFeedSlaveReplBuffer(slave)) continue;
+        if (!canFeedReplicaReplBuffer(slave)) continue;
         addReplyProto(slave,buf,buflen);
     }
 }
@@ -809,10 +809,10 @@ void syncCommand(client *c) {
         while((ln = listNext(&li))) {
             slave = ln->value;
             /* If the client needs a buffer of commands, we can't use
-             * a replica with NOBUF. */
+             * a replica without replication buffer. */
             if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END &&
-                (!(slave->flags & CLIENT_SLAVE_NOBUF) ||
-                 (c->flags & CLIENT_SLAVE_NOBUF)))
+                (!(slave->flags & CLIENT_REPL_RDBONLY) ||
+                 (c->flags & CLIENT_REPL_RDBONLY)))
                 break;
         }
         /* To attach this slave, we check that it has at least all the
@@ -821,7 +821,7 @@ void syncCommand(client *c) {
             /* Perfect, the server is already registering differences for
              * another slave. Set the right state, and copy the buffer.
              * We don't copy buffer if clients don't want. */
-            if (!(c->flags & CLIENT_SLAVE_NOBUF)) copyClientOutputBuffer(c,slave);
+            if (!(c->flags & CLIENT_REPL_RDBONLY)) copyClientOutputBuffer(c,slave);
             replicationSetupSlaveForFullResync(c,slave->psync_initial_offset);
             serverLog(LL_NOTICE,"Waiting for end of BGSAVE for SYNC");
         } else {
@@ -947,7 +947,7 @@ void replconfCommand(client *c) {
             if (getLongFromObjectOrReply(c,c->argv[j+1],
                     &rdb_only,NULL) != C_OK)
                 return;
-            if (rdb_only == 1) c->flags |= CLIENT_SLAVE_NOBUF;
+            if (rdb_only == 1) c->flags |= CLIENT_REPL_RDBONLY;
         } else {
             addReplyErrorFormat(c,"Unrecognized REPLCONF option: %s",
                 (char*)c->argv[j]->ptr);
@@ -962,7 +962,7 @@ void replconfCommand(client *c) {
  * we are finally ready to send the incremental stream of commands.
  *
  * It does a few things:
- * 1) Close the client's connection ASAP if the client don't need replication
+ * 1) Close the replica's connection async if it doesn't need replication
  *    commands buffer stream, since it actually isn't a valid replica.
  * 2) Put the slave in ONLINE state. Note that the function may also be called
  *    for a replicas that are already in ONLINE state, but having the flag
@@ -977,7 +977,7 @@ void putSlaveOnline(client *slave) {
     slave->repl_put_online_on_ack = 0;
     slave->repl_ack_time = server.unixtime; /* Prevent false timeout. */
 
-    if (slave->flags & CLIENT_SLAVE_NOBUF) {
+    if (slave->flags & CLIENT_REPL_RDBONLY) {
         freeClientAsync(slave);
         return;
     }
