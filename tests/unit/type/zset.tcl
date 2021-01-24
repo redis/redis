@@ -713,6 +713,12 @@ start_server {tags {"zset"}} {
             assert_equal {b 3 c 5} [r zinter 2 zseta zsetb withscores]
         }
 
+        test "ZINTER RESP3 - $encoding" {
+            r hello 3
+            assert_equal {{b 3.0} {c 5.0}} [r zinter 2 zseta zsetb withscores]
+        }
+        r hello 2
+
         test "ZINTERSTORE with weights - $encoding" {
             assert_equal 2 [r zinterstore zsetc 2 zseta zsetb weights 2 3]
             assert_equal {b 7 c 12} [r zrange zsetc 0 -1 withscores]
@@ -1480,6 +1486,12 @@ start_server {tags {"zset"}} {
         assert_equal $res 4
         r zrange z2 0 -1 withscores
     } {a 1 b 2 c 3 d 4}
+
+    test {ZRANGESTORE RESP3} {
+        r hello 3
+        r zrange z2 0 -1 withscores
+    } {{a 1.0} {b 2.0} {c 3.0} {d 4.0}}
+    r hello 2
 
     test {ZRANGESTORE range} {
         set res [r zrangestore z2 z1 1 2]

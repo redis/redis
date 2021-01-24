@@ -2751,6 +2751,9 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         unsigned long length = dstzset->zsl->length;
         zskiplist *zsl = dstzset->zsl;
         zskiplistNode *zn = zsl->header->level[0].forward;
+        /* In case of WITHSCORES, respond with a single array in RESP2, and
+         * nested arrays in RESP3. We can't use a map response type since the
+         * client library needs to know to respect the order. */
         if (withscores && c->resp == 2)
             addReplyArrayLen(c, length*2);
         else
@@ -2868,6 +2871,9 @@ static void zrangeResultEmitLongLongToClient(zrange_result_handler *handler,
 static void zrangeResultFinalizeClient(zrange_result_handler *handler,
     size_t result_count)
 {
+    /* In case of WITHSCORES, respond with a single array in RESP2, and
+     * nested arrays in RESP3. We can't use a map response type since the
+     * client library needs to know to respect the order. */
     if (handler->withscores && (handler->client->resp == 2)) {
         result_count *= 2;
     }
