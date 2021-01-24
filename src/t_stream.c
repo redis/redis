@@ -512,7 +512,8 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
         {
             lp = NULL;
         } else if (server.stream_node_max_entries) {
-            int64_t count = lpGetInteger(lpFirst(lp));
+            unsigned char *lp_ele = lpFirst(lp);
+            int64_t count = lpGetInteger(lp_ele) + lpGetInteger(lpNext(lp,lp_ele));
             if (count >= server.stream_node_max_entries) {
                 /* Shrink extra pre-allocated memory */
                 lp = lpShrinkToFit(lp);
