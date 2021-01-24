@@ -2715,6 +2715,7 @@ void makeThreadKillable(void);
 
 /* TLS stuff */
 void tlsInit(void);
+void tlsCleanup(void);
 int tlsConfigure(redisTLSContextConfig *ctx_config);
 
 #define redisDebug(fmt, ...) \

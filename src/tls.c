@@ -147,7 +147,7 @@ void tlsInit(void) {
     #if OPENSSL_VERSION_NUMBER < 0x10100000L
     OPENSSL_config(NULL);
     #else
-    OPENSSL_init_crypto(OPENSSL_INIT_LOAD_CONFIG, NULL);
+    OPENSSL_init_crypto(OPENSSL_INIT_LOAD_CONFIG|OPENSSL_INIT_ATFORK, NULL);
     #endif
     ERR_load_crypto_strings();
     SSL_load_error_strings();
@@ -162,6 +162,21 @@ void tlsInit(void) {
     }
 
     pending_list = listCreate();
+}
+
+void tlsCleanup(void) {
+    if (redis_tls_ctx) {
+        SSL_CTX_free(redis_tls_ctx);
+        redis_tls_ctx = NULL;
+    }
+    if (redis_tls_client_ctx) {
+        SSL_CTX_free(redis_tls_client_ctx);
+        redis_tls_client_ctx = NULL;
+    }
+
+    #if OPENSSL_VERSION_NUMBER >= 0x10100000L
+    OPENSSL_cleanup();
+    #endif
 }
 
 /* Create a *base* SSL_CTX using the SSL configuration provided. The base context
@@ -946,6 +961,9 @@ sds connTLSGetPeerCert(connection *conn_) {
 #else   /* USE_OPENSSL */
 
 void tlsInit(void) {
+}
+
+void tlsCleanup(void) {
 }
 
 int tlsConfigure(redisTLSContextConfig *ctx_config) {
