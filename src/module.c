@@ -905,9 +905,8 @@ long long RM_Milliseconds(void) {
     return mstime();
 }
 
-/* Mark a point in time that will be used as the start time
- * to calculate the elapsed execution time when
- * RM_BlockedClientMeasureTimeEnd() is called.
+/* Mark a point in time that will be used as the start time to calculate
+ * the elapsed execution time when RM_BlockedClientMeasureTimeEnd() is called.
  * Within the same command, you can call multiple times
  * RM_BlockedClientMeasureTimeStart() and RM_BlockedClientMeasureTimeEnd()
  * to accummulate indepedent time intervals to the background duration.
