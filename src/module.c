@@ -907,12 +907,12 @@ long long RM_Milliseconds(void) {
 
 /* Mark a point in time that will be used as the start time
  * to calculate the elapsed execution time when
- * RM_MeasureTimeEnd() is called.
+ * RM_BlockedClientMeasureTimeEnd() is called.
  * Within the same command, you can call multiple times
- * RM_MeasureTimeStart() and RM_MeasureTimeEnd() to accummulate 
- * indepedent time intervals to the background duration.
+ * RM_BlockedClientMeasureTimeStart() and RM_BlockedClientMeasureTimeEnd()
+ * to accummulate indepedent time intervals to the background duration.
  * This method always return REDISMODULE_OK. */
-int RM_MeasureTimeStart(RedisModuleBlockedClient *bc) {
+int RM_BlockedClientMeasureTimeStart(RedisModuleBlockedClient *bc) {
     elapsedStart(&(bc->background_timer));
     return REDISMODULE_OK;
 }
@@ -920,10 +920,10 @@ int RM_MeasureTimeStart(RedisModuleBlockedClient *bc) {
 /* Mark a point in time that will be used as the end time
  * to calculate the elapsed execution time.
  * On success REDISMODULE_OK is returned.
- * This method only returns REDISMODULE_ERR if no start time
- * was previously defined ( meaning RM_MeasureTimeStart was not called ). */
-int RM_MeasureTimeEnd(RedisModuleBlockedClient *bc) {
-    // If the counter is 0 then we haven't called RM_MeasureTimeStart
+ * This method only returns REDISMODULE_ERR if no start time was
+ * previously defined ( meaning RM_BlockedClientMeasureTimeStart was not called ). */
+int RM_BlockedClientMeasureTimeEnd(RedisModuleBlockedClient *bc) {
+    // If the counter is 0 then we haven't called RM_BlockedClientMeasureTimeStart
     if (!bc->background_timer)
         return REDISMODULE_ERR;
     bc->background_duration += elapsedUs(bc->background_timer);
@@ -4677,6 +4677,11 @@ int moduleTryServeClientBlockedOnKey(client *c, robj *key) {
  *
  * In these cases, a call to RedisModule_BlockClient() will **not** block the
  * client, but instead produce a specific error reply.
+ *
+ * Measuring background time: By default the time spent in the blocked command
+ * is not account for the total command duration. To include such time you should
+ * use RM_BlockedClientMeasureTimeStart() and RM_BlockedClientMeasureTimeEnd() one,
+ * or multiple times within the blocking command background work.
  */
 RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms) {
     return moduleBlockClient(ctx,reply_callback,timeout_callback,free_privdata,timeout_ms, NULL,0,NULL);
@@ -8597,8 +8602,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetBlockedClientPrivateData);
     REGISTER_API(AbortBlock);
     REGISTER_API(Milliseconds);
-    REGISTER_API(MeasureTimeStart);
-    REGISTER_API(MeasureTimeEnd);
+    REGISTER_API(BlockedClientMeasureTimeStart);
+    REGISTER_API(BlockedClientMeasureTimeEnd);
     REGISTER_API(GetThreadSafeContext);
     REGISTER_API(GetDetachedThreadSafeContext);
     REGISTER_API(FreeThreadSafeContext);

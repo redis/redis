@@ -21,7 +21,7 @@ int HelloBlock_Timeout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     UNUSED(argv);
     UNUSED(argc);
     RedisModuleBlockedClient *bc = RedisModule_GetBlockedClientHandle(ctx);
-    assert(RedisModule_MeasureTimeEnd(bc)==REDISMODULE_OK);
+    assert(RedisModule_BlockedClientMeasureTimeEnd(bc)==REDISMODULE_OK);
     return RedisModule_ReplyWithSimpleString(ctx,"Request timedout");
 }
 
@@ -39,7 +39,7 @@ void *BlockDebug_ThreadMain(void *arg) {
     long long delay = (unsigned long)targ[1];
     long long enable_time_track = (unsigned long)targ[2];
     if (enable_time_track)
-        assert(RedisModule_MeasureTimeStart(bc)==REDISMODULE_OK);
+        assert(RedisModule_BlockedClientMeasureTimeStart(bc)==REDISMODULE_OK);
     RedisModule_Free(targ);
 
     struct timespec ts;
@@ -49,7 +49,7 @@ void *BlockDebug_ThreadMain(void *arg) {
     int *r = RedisModule_Alloc(sizeof(int));
     *r = rand();
     if (enable_time_track)
-        assert(RedisModule_MeasureTimeEnd(bc)==REDISMODULE_OK);
+        assert(RedisModule_BlockedClientMeasureTimeEnd(bc)==REDISMODULE_OK);
     RedisModule_UnblockClient(bc,r);
     return NULL;
 }
@@ -60,7 +60,7 @@ void *DoubleBlock_ThreadMain(void *arg) {
     void **targ = arg;
     RedisModuleBlockedClient *bc = targ[0];
     long long delay = (unsigned long)targ[1];
-    assert(RedisModule_MeasureTimeStart(bc)==REDISMODULE_OK);
+    assert(RedisModule_BlockedClientMeasureTimeStart(bc)==REDISMODULE_OK);
     RedisModule_Free(targ);
     struct timespec ts;
     ts.tv_sec = delay / 1000;
@@ -68,13 +68,13 @@ void *DoubleBlock_ThreadMain(void *arg) {
     nanosleep(&ts, NULL);
     int *r = RedisModule_Alloc(sizeof(int));
     *r = rand();
-    RedisModule_MeasureTimeEnd(bc);
-    /* call again RedisModule_MeasureTimeStart() and
-     * RedisModule_MeasureTimeEnd and ensure that the
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
+    /* call again RedisModule_BlockedClientMeasureTimeStart() and
+     * RedisModule_BlockedClientMeasureTimeEnd and ensure that the
      * total execution time is 2x the delay. */
-    assert(RedisModule_MeasureTimeStart(bc)==REDISMODULE_OK);
+    assert(RedisModule_BlockedClientMeasureTimeStart(bc)==REDISMODULE_OK);
     nanosleep(&ts, NULL);
-    RedisModule_MeasureTimeEnd(bc);
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
 
     RedisModule_UnblockClient(bc,r);
     return NULL;
@@ -168,8 +168,8 @@ int HelloBlockNoTracking_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **a
 
 /* BLOCK.DOUBLE_DEBUG <delay_ms> -- Block for 2 x <count> milliseconds,
  * then reply with a random number.
- * This command is used to test multiple calls to RedisModule_MeasureTimeStart()
- * and RedisModule_MeasureTimeEnd() within the same execution. */
+ * This command is used to test multiple calls to RedisModule_BlockedClientMeasureTimeStart()
+ * and RedisModule_BlockedClientMeasureTimeEnd() within the same execution. */
 int HelloDoubleBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 2) return RedisModule_WrongArity(ctx);
     long long delay;
