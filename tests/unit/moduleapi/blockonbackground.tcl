@@ -7,12 +7,12 @@ start_server {tags {"modules"}} {
 
     test { blocked clients time tracking - check blocked command that uses RedisModule_BlockedClientMeasureTimeStart() is tracking background time} {
         r slowlog reset
-        r config set slowlog-log-slower-than 50000
+        r config set slowlog-log-slower-than 200000
         assert_equal [r slowlog len] 0
         r block.debug 0 10000
         assert_equal [r slowlog len] 0
         r config resetstat
-        r block.debug 100 10000
+        r block.debug 200 10000
         assert_equal [r slowlog len] 1
 
         set cmdstatline [cmdrstat block.debug r]
@@ -24,14 +24,13 @@ start_server {tags {"modules"}} {
 
     test { blocked clients time tracking - check blocked command that uses RedisModule_BlockedClientMeasureTimeStart() is tracking background time even in timeout } {
         r slowlog reset
-        r config set slowlog-log-slower-than 50000
+        r config set slowlog-log-slower-than 200000
         assert_equal [r slowlog len] 0
-        r block.debug 0 10000
+        r block.debug 0 20000
         assert_equal [r slowlog len] 0
         r config resetstat
-        r block.debug 10000 100
+        r block.debug 20000 200
         assert_equal [r slowlog len] 1
-        # ensure only one key was populated
 
         set cmdstatline [cmdrstat block.debug r]
 
@@ -42,14 +41,13 @@ start_server {tags {"modules"}} {
 
     test { blocked clients time tracking - check blocked command with multiple calls RedisModule_BlockedClientMeasureTimeStart()  is tracking the total background time } {
         r slowlog reset
-        r config set slowlog-log-slower-than 50000
+        r config set slowlog-log-slower-than 200000
         assert_equal [r slowlog len] 0
         r block.double_debug 0
         assert_equal [r slowlog len] 0
         r config resetstat
-        r block.double_debug 30
+        r block.double_debug 100
         assert_equal [r slowlog len] 1
-        # ensure only one key was populated
 
         set cmdstatline [cmdrstat block.double_debug r]
 
@@ -60,15 +58,10 @@ start_server {tags {"modules"}} {
 
     test { blocked clients time tracking - check blocked command without calling RedisModule_BlockedClientMeasureTimeStart() is not reporting background time } {
         r slowlog reset
-        r config set slowlog-log-slower-than 5000
+        r config set slowlog-log-slower-than 200000
         assert_equal [r slowlog len] 0
-        r block.debug_no_track 10 100
+        r block.debug_no_track 200 1000
         # ensure slowlog is still empty
         assert_equal [r slowlog len] 0
-        # ensure only one key was populated
-        set cmdstatline [cmdrstat block.debug_no_track r]
-
-        regexp "calls=1,usec=(.+),usec_per_call=(.+),rejected_calls=0,failed_calls=0" $cmdstatline usec usec_per_call
-        assert_morethan 10000 $usec_per_call
     }
 }
