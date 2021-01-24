@@ -110,7 +110,7 @@ void updateStatsOnUnblock(client *c, long blocked_us, long reply_us){
     if (!(c->lastcmd->flags & CMD_SKIP_SLOWLOG)) {
         slowlogPushEntryIfNeeded(c,c->argv,c->argc,total_cmd_duration);
         /* Log the reply duration event. */
-        latencyAddSampleIfNeeded("command-unblocking",total_cmd_duration/1000);
+        latencyAddSampleIfNeeded("command-unblocking",reply_us/1000);
     }
 }
 
