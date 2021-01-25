@@ -5600,17 +5600,53 @@ void redisOutOfMemoryHandler(size_t allocation_size) {
         allocation_size);
 }
 
+/* Callback for sdstemplate on proc-title-template. See redis.conf for 
+ * supported variables.
+ */
+static sds redisProcTitleGetVariable(const sds varname, void *arg)
+{
+    if (!strcmp(varname, "title")) {
+        return sdsnew(arg);
+    } else if (!strcmp(varname, "listen-addr")) {
+        return sdscatprintf(sdsempty(), "%s:%u",
+                            server.bindaddr_count ? server.bindaddr[0] : "*",
+                            server.port ? server.port : server.tls_port);
+    } else if (!strcmp(varname, "server-mode")) {
+        if (server.cluster_enabled) return sdsnew("[cluster]");
+        else if (server.sentinel_mode) return sdsnew("[sentinel]");
+        else return sdsempty();
+    } else if (!strcmp(varname, "config-file")) {
+        return sdsnew(server.configfile);
+    } else if (!strcmp(varname, "port")) {
+        return sdscatprintf(sdsempty(), "%u", server.port);
+    } else if (!strcmp(varname, "tls-port")) {
+        return sdscatprintf(sdsempty(), "%u", server.tls_port);
+    } else if (!strcmp(varname, "unixsocket")) {
+        return sdsnew(server.unixsocket);
+    } else
+        return NULL;    /* Unknown variable name */
+}
+
+/* Validate the specified template, returns 1 if valid or 0 otherwise. */
+int validateProcTitleTemplate(const char *template) {
+    sds res = sdstemplate(template, redisProcTitleGetVariable, "");
+    if (!res)
+        return 0;
+    sdsfree(res);
+    return 1;
+}
+
 void redisSetProcTitle(char *title) {
 #ifdef USE_SETPROCTITLE
-    char *server_mode = "";
-    if (server.cluster_enabled) server_mode = " [cluster]";
-    else if (server.sentinel_mode) server_mode = " [sentinel]";
+    sds proc_title = sdstemplate(server.proc_title_template, redisProcTitleGetVariable, title);
+    if (!proc_title) {
+        /* Shouldn't really happen because of validations... */
+        serverLog(LL_WARNING, "Invalid proc-title-template specified, process title not set.");
+        return;
+    }
 
-    setproctitle("%s %s:%d%s",
-        title,
-        server.bindaddr_count ? server.bindaddr[0] : "*",
-        server.port ? server.port : server.tls_port,
-        server_mode);
+    setproctitle("%s", sdstrim(proc_title, " "));
+    sdsfree(proc_title);
 #else
     UNUSED(title);
 #endif

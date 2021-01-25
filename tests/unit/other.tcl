@@ -321,3 +321,36 @@ start_server {tags {"other"}} {
         assert_match "*table size: 8192*" [r debug HTSTATS 9]
     }
 }
+
+start_server {tags {"other"} overrides {{"proc-title-template" "TEST {title} {listen-addr} {port} {tls-port} {unixsocket} {config-file}"}}} {
+    test {Process title set as expected} {
+        # Test only on Linux where it's easy to get cmdline without relying on tools.
+        # Skip valgrind as it messes up the arguments.
+        set os [exec uname]
+        if {$os == "Linux" && !$::valgrind} {
+            set pid [srv 0 pid]
+            set fd [open "/proc/$pid/cmdline" "r"]
+            set cmdline [read $fd 1024]
+            close $fd
+
+            assert_equal "TEST" [lindex $cmdline 0]
+            assert_match "*/redis-server" [lindex $cmdline 1]
+            
+            if {$::tls} {
+                set expect_port 0
+                set expect_tls_port [srv 0 port]
+            } else {
+                set expect_port [srv 0 port]
+                set expect_tls_port 0
+            }
+            set port [srv 0 port]
+
+            assert_equal "$::host:$port" [lindex $cmdline 2]
+            assert_equal $expect_port [lindex $cmdline 3]
+            assert_equal $expect_tls_port [lindex $cmdline 4]
+            assert_match "*/tests/tmp/server.*/socket" [lindex $cmdline 5]
+            assert_match "*/tests/tmp/redis.conf.*" [lindex $cmdline 6]
+        }
+    }
+}
+
