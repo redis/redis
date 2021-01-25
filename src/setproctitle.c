@@ -38,6 +38,17 @@
 
 #include <errno.h>	/* errno program_invocation_name program_invocation_short_name */
 
+#ifdef PROC_ZMALLOC
+#include "zmalloc.h"
+#define proc_malloc zmalloc
+#define proc_strdup zstrdup
+#define proc_free zfree
+#else
+#define proc_malloc malloc
+#define proc_strdup strdup
+#define proc_free free
+#endif
+
 #if !defined(HAVE_SETPROCTITLE)
 #if (defined __NetBSD__ || defined __FreeBSD__ || defined __OpenBSD__ || defined __DragonFly__)
 #define HAVE_SETPROCTITLE 1
@@ -45,7 +56,6 @@
 #define HAVE_SETPROCTITLE 0
 #endif
 #endif
-
 
 #if !HAVE_SETPROCTITLE
 #if (defined __linux || defined __APPLE__)
@@ -91,7 +101,7 @@ int spt_clearenv(void) {
 	extern char **environ;
 	static char **tmp;
 
-	if (!(tmp = malloc(sizeof *tmp)))
+	if (!(tmp = proc_malloc(sizeof *tmp)))
 		return errno;
 
 	tmp[0]  = NULL;
@@ -116,7 +126,7 @@ static int spt_copyenv(int envc, char *oldenv[]) {
 	 * enough as clearenv() only clears the environ array.
 	 */
 	envsize = (envc + 1) * sizeof(char *);
-	envcopy = malloc(envsize);
+	envcopy = proc_malloc(envsize);
 	if (!envcopy)
 		return ENOMEM;
 	memcpy(envcopy, oldenv, envsize);
@@ -126,7 +136,7 @@ static int spt_copyenv(int envc, char *oldenv[]) {
 	 */
 	if ((error = spt_clearenv())) {
 		environ = oldenv;
-		free(envcopy);
+		proc_free(envcopy);
 		return error;
 	}
 
@@ -148,15 +158,15 @@ static int spt_copyenv(int envc, char *oldenv[]) {
 			 */
 			environ = envcopy;
 #else
-			free(envcopy);
-			free(environ);  /* Safe to free, we have just alloc'd it */
+			proc_free(envcopy);
+			proc_free(environ);  /* Safe to free, we have just alloc'd it */
 			environ = oldenv;
 #endif
 			return error;
 		}
 	}
 
-	free(envcopy);
+	proc_free(envcopy);
 	return 0;
 } /* spt_copyenv() */
 
@@ -169,7 +179,7 @@ static int spt_copyargs(int argc, char *argv[]) {
 		if (!argv[i])
 			continue;
 
-		if (!(tmp = strdup(argv[i])))
+		if (!(tmp = proc_strdup(argv[i])))
 			return errno;
 
 		argv[i] = tmp;
@@ -229,21 +239,21 @@ void spt_init(int argc, char *argv[]) {
 	 * the old memory for the purpose of updating the title so we need
 	 * to keep the original value elsewhere.
 	 */
-	if (!(SPT.arg0 = strdup(argv[0])))
+	if (!(SPT.arg0 = proc_strdup(argv[0])))
 		goto syerr;
 
 #if __GLIBC__
-	if (!(tmp = strdup(program_invocation_name)))
+	if (!(tmp = proc_strdup(program_invocation_name)))
 		goto syerr;
 
 	program_invocation_name = tmp;
 
-	if (!(tmp = strdup(program_invocation_short_name)))
+	if (!(tmp = proc_strdup(program_invocation_short_name)))
 		goto syerr;
 
 	program_invocation_short_name = tmp;
 #elif __APPLE__
-	if (!(tmp = strdup(getprogname())))
+	if (!(tmp = proc_strdup(getprogname())))
 		goto syerr;
 
 	setprogname(tmp);
