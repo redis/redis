@@ -1822,6 +1822,16 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             close(newfd);
             goto cleanup;
         }
+        if (server.aof_fsync == AOF_FSYNC_EVERYSEC) {
+            aof_background_fsync(newfd);
+        } else if (server.aof_fsync == AOF_FSYNC_ALWAYS) {
+            if (redis_fsync(newfd) == -1) {
+                serverLog(LL_WARNING,
+                    "Error trying to fsync the parent diff to the rewritten AOF: %s", strerror(errno));
+                close(newfd);
+                goto cleanup;
+            }
+        }
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("aof-rewrite-diff-write",latency);
 
@@ -1891,10 +1901,6 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             /* AOF enabled, replace the old fd with the new one. */
             oldfd = server.aof_fd;
             server.aof_fd = newfd;
-            if (server.aof_fsync == AOF_FSYNC_ALWAYS)
-                redis_fsync(newfd);
-            else if (server.aof_fsync == AOF_FSYNC_EVERYSEC)
-                aof_background_fsync(newfd);
             server.aof_selected_db = -1; /* Make sure SELECT is re-issued */
             aofUpdateCurrentSize();
             server.aof_rewrite_base_size = server.aof_current_size;
