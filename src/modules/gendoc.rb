@@ -25,6 +25,10 @@ def markdown(s)
             l = l.gsub(/ (https?:\/\/[A-Za-z0-9_\/\.\-]+[A-Za-z0-9\/])/,
                        ' [\1](\1)')
         end
+        # Link function names to their definition within the page
+        l = l.gsub(/`(RedisModule_[A-z0-9]+)[()]*`/) {|x|
+            $index[$1] ? "[#{x}](\##{$1})" : x
+        }
         newlines << l
     }
     return newlines.join("\n")
@@ -38,6 +42,9 @@ def docufy(src,i)
     name = name.sub("RM_","RedisModule_")
     proto = src[i].sub("{","").strip+";\n"
     proto = proto.sub("RM_","RedisModule_")
+    # Add a link target with the function name. (We don't trust the exact id of
+    # the generated one, which depends on the Markdown implementation.)
+    puts "<span id=\"#{name}\"></span>\n\n"
     puts "## `#{name}`\n\n"
     puts "    #{proto}\n"
     comment = ""
@@ -50,13 +57,33 @@ def docufy(src,i)
     puts comment+"\n\n"
 end
 
+# Like src.each_with_index but executes the block only for RM_ function
+# definition lines preceded by a documentation comment block.
+def each_rm_func_line_with_index(src, &block)
+    src.each_with_index{|line,i|
+        if line =~ /RM_/ && line[0] != ' ' && line[0] != '#' && line[0] != '/'
+            if src[i-1] =~ /\*\//
+                block.call(line, i)
+            end
+        end
+    }
+end
+
 puts "# Modules API reference\n\n"
 puts "<!-- This file is generated from module.c using gendoc.rb -->\n\n"
 src = File.open("../module.c").to_a
-src.each_with_index{|line,i|
-    if line =~ /RM_/ && line[0] != ' ' && line[0] != '#' && line[0] != '/'
-        if src[i-1] =~ /\*\//
-            docufy(src,i)
-        end
-    end
+
+# Build function index
+$index = {}
+each_rm_func_line_with_index(src){|line,i|
+    line =~ /RM_([A-z0-9]+)/
+    name = "RedisModule_#{$1}"
+    $index[name] = true
 }
+
+# Docufy: Print function prototype and markdown docs
+each_rm_func_line_with_index(src){|line,i| docufy(src,i)}
+
+puts "## Function index\n\n"
+$index.keys.sort.each{|x| puts "* [`#{x}`](\##{x})\n"}
+puts "\n"
