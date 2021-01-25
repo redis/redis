@@ -2174,7 +2174,7 @@ static void moduleCloseKey(RedisModuleKey *key) {
     int signal = SHOULD_SIGNAL_MODIFIED_KEYS(key->ctx);
     if ((key->mode & REDISMODULE_WRITE) && signal)
         signalModifiedKey(key->ctx->client,key->db,key->key);
-    /* TODO: if (key->iter) RM_KeyIteratorStop(kp); */
+    if (key->iter) zfree(key->iter);
     RM_ZsetRangeStop(key);
     if (key && key->value && key->value->type == OBJ_STREAM &&
         key->u.stream.signalready) {
@@ -3268,7 +3268,7 @@ int RM_StreamDelete(RedisModuleKey *key, RedisModuleStreamID *id) {
  *
  * The stream IDs are retrieved using RedisModule_StreamIteratorNextID() and
  * for each stream ID, the fields and values are retrieved using
- * RedisModule_StreamIteratorNextField(). The iterator must be freed by calling
+ * RedisModule_StreamIteratorNextField(). The iterator is freed by calling
  * RedisModule_StreamIteratorStop().
  *
  * Example (error handling omitted):
