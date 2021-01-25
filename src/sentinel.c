@@ -1705,7 +1705,6 @@ void freeSentinelConfig() {
     listRelease(server.sentinel_config->post_monitor_cfg);
     zfree(server.sentinel_config);
     server.sentinel_config = NULL;
-    
 }
 
 /* Search config name in pre monitor config name array, return 1 if found,
@@ -1727,7 +1726,7 @@ void freeSentinelLoadQueueEntry(void *item) {
 
 /* This function is used for queuing sentinel configuration, the main
  * purpose of this function is to delay parsing the sentinel config option
- * in order to avoid the dependency issue from the config. */
+ * in order to avoid the order dependent issue from the config. */
 void queueSentinelConfig(sds *argv, int argc, int linenum, sds line) {
     int i;
     struct sentinelLoadQueueEntry *entry;
@@ -2145,7 +2144,6 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
         rewriteConfigRewriteLine(state,"sentinel sentinel-pass",line,1);
     }
 
-
     dictReleaseIterator(di);
 
     /* mark rewrite as done for the optional configs */
@@ -2165,8 +2163,7 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
     rewriteConfigMarkAsProcessed(state,"sentinel announce-ip");
     rewriteConfigMarkAsProcessed(state,"sentinel announce-port");
     rewriteConfigMarkAsProcessed(state,"sentinel sentinel-user");
-    rewriteConfigMarkAsProcessed(state,"sentinel sentinel-pass");
-    
+    rewriteConfigMarkAsProcessed(state,"sentinel sentinel-pass");  
 }
 
 /* This function uses the config rewriting Redis engine in order to persist
