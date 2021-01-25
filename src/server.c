@@ -1086,7 +1086,7 @@ struct redisCommand redisCommandTable[] = {
      "no-script ok-stale ok-loading fast @connection",
      0,NULL,0,0,0,0,0,0},
 
-    {"failover",failoverCommand,-2,
+    {"failover",failoverCommand,-1,
      "admin no-script ok-stale",
      0,NULL,0,0,0,0,0,0}
 };

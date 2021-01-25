@@ -34,37 +34,28 @@ start_server {} {
 
     test {failover command fails with invalid host} {
         catch { $node_0 failover to invalidhost $node_1_port } err
-        if {! [string match "ERR*" $err]} {
-            fail "failover command succeeded with invalid host"
-        }
+        assert_match "ERR*" $err
     }
 
     test {failover command fails with invalid port} {
         catch { $node_0 failover to $node_1_host invalidport } err
-        if {! [string match "ERR*" $err]} {
-            fail "failover command succeeded with invalid port"
-        }
+        assert_match "ERR*" $err
     }
 
-    test {failover command fails with any one and force} {
-        catch { $node_0 failover to ANY ONE FORCE TIMEOUT 100} err
-        if {! [string match "ERR*" $err]} {
-            fail "failover command succeeded with invalid port"
-        }
+    test {failover command fails with just force and timeout} {
+        catch { $node_0 FAILOVER FORCE TIMEOUT 100} err
+        puts err
+        assert_match "ERR*" $err
     }
 
     test {failover command fails when sent to a replica} {
         catch { $node_1 failover to $node_1_host $node_1_port } err
-        if {! [string match "ERR*" $err]} {
-            fail "failover command succeeded when sent to replica"
-        }
+         assert_match "ERR*" $err
     }
 
     test {failover command fails with force without timeout} {
         catch { $node_0 failover to $node_1_host $node_1_port FORCE } err
-        if {! [string match "ERR*" $err]} {
-            fail "failover command succeeded when sent to replica"
-        }
+        assert_match "ERR*" $err
     }
 
     test {failover command to specific replica works} {
@@ -113,7 +104,7 @@ start_server {} {
         # We stop node 0 to and make sure node 2 is selected
         exec kill -SIGSTOP [srv 0 pid]
         $node_1 set CASE 1
-        $node_1 failover to any one
+        $node_1 FAILOVER
 
         # Wait for failover to end
         wait_for_condition 50 100 {

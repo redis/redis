@@ -3506,7 +3506,7 @@ void abortFailover(const char *err) {
         serverLog(LL_NOTICE,"FAILOVER to %s:%d aborted: %s",
             server.target_replica_host,server.target_replica_port,err);  
     } else {
-        serverLog(LL_NOTICE,"FAILOVER to ANY ONE aborted: %s",err);  
+        serverLog(LL_NOTICE,"FAILOVER to any replica aborted: %s",err);  
     }
     if (server.failover_state == FAILOVER_IN_PROGRESS) {
         replicationUnsetMaster();
@@ -3515,31 +3515,31 @@ void abortFailover(const char *err) {
 }
 
 /* 
- * FAILOVER TO <HOST> <IP> [FORCE] [TIMEOUT <timeout>] 
- * FAILOVER ABORT
+ * FAILOVER [TO <HOST> <IP>] [ABORT] [FORCE] [TIMEOUT <timeout>] 
  * 
  * This command will coordinate a failover between the master and one
  * of its replicas. The happy path contains the following steps:
  * 1) The master will initiate a client pause write, to stop replication
  * traffic.
- * 2) The master will periodically check if the target replica has
+ * 2) The master will periodically check if any of its replicas has
  * consumed the entire replication stream through acks. 
- * 3) Once the replica has caught up, the master will itself become a replica.
- * 4) The master will send a PSYNC FAILOVER request to target replica, which
+ * 3) Once any replica has caught up, the master will itself become a replica.
+ * 4) The master will send a PSYNC FAILOVER request to the target replica, which
  * if accepted will cause the replica to become the new master and start a sync.
  * 
  * FAILOVER ABORT is the only way to abort a failover command, as replicaof
  * will be disabled. This may be needed if the failover is unable to progress. 
  * 
- * The special values for <HOST> <IP> of ANY ONE designates that any replica
- * can be failed over to as long as its offset has caught up. 
+ * The optional arguments [TO <HOST> <IP>] allows designating a specific replica
+ * to be failed over to.
  * 
  * FORCE flag indicates that even if the target replica is not caught up,
- * failover to it anyway. This must be specified with a timeout. 
+ * failover to it anyway. This must be specified with a timeout and a target
+ * HOST and IP.
  * 
  * TIMEOUT <timeout> indicates how long should the primary wait for 
  * a replica to sync up before aborting. If not specified, the failover
- * will wait forever.
+ * will attempt forever and must be manually aborted.
  */
 void failoverCommand(client *c) {
     if (server.cluster_enabled) {
@@ -3548,7 +3548,8 @@ void failoverCommand(client *c) {
         return;
     }
     
-    if (!strcasecmp(c->argv[1]->ptr, "abort") && (c->argc == 2)) {
+    /* Handle special case for abort */
+    if ((c->argc == 2) && !strcasecmp(c->argv[1]->ptr,"abort")) {
         if (server.failover_state == NO_FAILOVER) {
             addReplyError(c, "No failover in progress.");
             return;
@@ -3556,108 +3557,95 @@ void failoverCommand(client *c) {
 
         abortFailover("Failover manually aborted");
         addReply(c,shared.ok);
-    } else if(!strcasecmp(c->argv[1]->ptr, "to")) {
-        if (server.masterhost != NULL) {
-            addReplyError(c,"FAILOVER TO is not valid when server is a replica.");
-            return;
-        }
-
-        if (server.failover_state != NO_FAILOVER) {
-            addReplyError(c, "FAILOVER already in progress.");
-            return;
-        }
-
-        long timeout_in_ms = 0;
-        int force_flag = 0;
-        long port = 0;
-        char *host = NULL;
-
-        /* The special host/port combination "ANY" "ONE" allows failover to any
-        * replica. Otherwise the target replica info is set. */
-        if (strcasecmp(c->argv[2]->ptr, "any") ||
-            strcasecmp(c->argv[3]->ptr, "one"))
-        {
-            if (getLongFromObjectOrReply(c, c->argv[3], &port, NULL) != C_OK)
-                return;
-            host = c->argv[2]->ptr;
-        }
-
-        /* Check for optional arguments */
-        for (int j = 4; j < c->argc; j++) {
-            int more_args = j + 1 < c->argc;
-            if (!strcasecmp(c->argv[j]->ptr, "timeout") && more_args &&
-                timeout_in_ms == 0)
-            {
-                j++;
-                if (getLongFromObjectOrReply(c, c->argv[j],
-                            &timeout_in_ms, NULL) != C_OK) return;
-                if (timeout_in_ms <= 0) {
-                    addReplyError(c,"FAILOVER timeout must be greater than 0");
-                    return;
-                }
-            } else if (!strcasecmp(c->argv[j]->ptr, "force") && !force_flag) {
-                if (host) {
-                    force_flag = 1;
-                } else {
-                    addReplyError(c,"FAILOVER TO \"any one\" can not be used with "
-                                "force flag.");
-                    return;  
-                }
-            } else {
-                addReplyErrorObject(c, shared.syntaxerr);
-                return;
-            }
-        }
-
-        if (listLength(server.slaves) == 0) {
-            addReplyError(c,"FAILOVER requires connected replicas.");
-            return; 
-        }
-
-        if (force_flag && !timeout_in_ms) {
-            addReplyError(c,"FAILOVER with force option requires a timeout.");
-            return;     
-        }
-
-        /* If a replica address was provided, validate that it is connected. */
-        if (host) {
-            client *replica = findReplica(host, port);
-
-            if (replica == NULL) {
-                addReplyError(c,"FAILOVER TO destination is not "
-                                "a replica.");
-                return;
-            }
-
-            /* Check if requested replica is online */
-            if (replica->replstate != SLAVE_STATE_ONLINE) {
-                addReplyError(c,"FAILOVER TO requested replica is not online.");
-                return;
-            }
-
-            server.target_replica_host = zstrdup(host);
-            server.target_replica_port = port;
-            serverLog(LL_NOTICE,"FAILOVER TO %s:%ld requested.",host,port);
-        } else {
-            serverLog(LL_NOTICE,"FAILOVER TO ANY ONE requested.");
-        }
-
-        mstime_t now = mstime();
-        if (timeout_in_ms) {
-            server.failover_end_time = now + timeout_in_ms;
-        }
-        
-        server.force_failover = force_flag;
-        server.failover_state = FAILOVER_WAIT_FOR_SYNC;
-        /* Cluster failover will unpause eventually */
-        pauseClients(LLONG_MAX,CLIENT_PAUSE_WRITE);
-
-
-        addReply(c,shared.ok);
-    } else {
-        addReplyErrorObject(c, shared.syntaxerr);
         return;
     }
+
+    long timeout_in_ms = 0;
+    int force_flag = 0;
+    long port = 0;
+    char *host = NULL;
+
+    /* Parse the command for syntax and arguments. */
+    for (int j = 1; j < c->argc; j++) {
+        if (!strcasecmp(c->argv[j]->ptr,"timeout") && (j + 1 < c->argc) &&
+            timeout_in_ms == 0)
+        {
+            if (getLongFromObjectOrReply(c,c->argv[j + 1],
+                        &timeout_in_ms,NULL) != C_OK) return;
+            if (timeout_in_ms <= 0) {
+                addReplyError(c,"FAILOVER timeout must be greater than 0");
+                return;
+            }
+            j++;
+        } else if (!strcasecmp(c->argv[j]->ptr,"to") && (j + 2 < c->argc) &&
+            !host) 
+        {
+            if (getLongFromObjectOrReply(c,c->argv[j + 2],&port,NULL) != C_OK)
+                return;
+            host = c->argv[j + 1]->ptr;
+            j += 2;
+        } else if (!strcasecmp(c->argv[j]->ptr,"force") && !force_flag) {
+            force_flag = 1;
+        } else {
+            addReplyErrorObject(c,shared.syntaxerr);
+            return;
+        }
+    }
+
+    if (server.failover_state != NO_FAILOVER) {
+        addReplyError(c,"FAILOVER already in progress.");
+        return;
+    }
+
+    if (server.masterhost) {
+        addReplyError(c,"FAILOVER is not valid when server is a replica.");
+        return;
+    }
+
+    if (listLength(server.slaves) == 0) {
+        addReplyError(c,"FAILOVER requires connected replicas.");
+        return; 
+    }
+
+    if (force_flag && (!timeout_in_ms || !host)) {
+        addReplyError(c,"FAILOVER with force option requires both a timeout "
+            "and target HOST and IP.");
+        return;     
+    }
+
+    /* If a replica address was provided, validate that it is connected. */
+    if (host) {
+        client *replica = findReplica(host, port);
+
+        if (replica == NULL) {
+            addReplyError(c,"FAILOVER target HOST and IP is not "
+                            "a replica.");
+            return;
+        }
+
+        /* Check if requested replica is online */
+        if (replica->replstate != SLAVE_STATE_ONLINE) {
+            addReplyError(c,"FAILOVER target replica is not online.");
+            return;
+        }
+
+        server.target_replica_host = zstrdup(host);
+        server.target_replica_port = port;
+        serverLog(LL_NOTICE,"FAILOVER requested to %s:%ld.",host,port);
+    } else {
+        serverLog(LL_NOTICE,"FAILOVER requested to any replica.");
+    }
+
+    mstime_t now = mstime();
+    if (timeout_in_ms) {
+        server.failover_end_time = now + timeout_in_ms;
+    }
+    
+    server.force_failover = force_flag;
+    server.failover_state = FAILOVER_WAIT_FOR_SYNC;
+    /* Cluster failover will unpause eventually */
+    pauseClients(LLONG_MAX,CLIENT_PAUSE_WRITE);
+    addReply(c,shared.ok);
 }
 
 /* Failover cron function, checks coordinated failover state. */
