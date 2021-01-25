@@ -71,7 +71,6 @@ static int checkStringLength(client *c, long long size) {
 #define OBJ_EXAT (1<<6)            /* Set if timestamp in second is given */
 #define OBJ_PXAT (1<<7)            /* Set if timestamp in ms is given */
 #define OBJ_PERSIST (1<<8)         /* Set if we need to remove the ttl */
-#define OBJ_DEL (1<<9)             /* Set if we need to delete the key */
 
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
@@ -197,22 +196,14 @@ int parseExtendedStringArgumentsOrReply(client *c, int *flags, int *unit, robj *
         } else if (!strcasecmp(opt,"PERSIST") && (command_type == COMMAND_GET) &&
                !(*flags & OBJ_EX) && !(*flags & OBJ_EXAT) &&
                !(*flags & OBJ_PX) && !(*flags & OBJ_PXAT) &&
-               !(*flags & OBJ_DEL) && !(*flags & OBJ_KEEPTTL))
+               !(*flags & OBJ_KEEPTTL))
         {
             *flags |= OBJ_PERSIST;
-        }  else if ((opt[0] == 'd' || opt[0] == 'D') &&
-                    (opt[1] == 'e' || opt[1] == 'E') &&
-                    (opt[2] == 'l' || opt[2] == 'L') && opt[3] == '\0' &&
-                    !(*flags & OBJ_KEEPTTL) && !(*flags & OBJ_PERSIST) &&
-                    !(*flags & OBJ_EX) && !(*flags & OBJ_EXAT) &&
-                    !(*flags & OBJ_PX) && !(*flags & OBJ_PXAT) && (command_type == COMMAND_GET))
-        {
-            *flags |= OBJ_DEL;
         } else if ((opt[0] == 'e' || opt[0] == 'E') &&
                    (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
                    !(*flags & OBJ_KEEPTTL) && !(*flags & OBJ_PERSIST) &&
                    !(*flags & OBJ_EXAT) && !(*flags & OBJ_PX) &&
-                   !(*flags & OBJ_PXAT) && !(*flags & OBJ_DEL) && next)
+                   !(*flags & OBJ_PXAT) && next)
         {
             *flags |= OBJ_EX;
             *expire = next;
@@ -221,7 +212,7 @@ int parseExtendedStringArgumentsOrReply(client *c, int *flags, int *unit, robj *
                    (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
                    !(*flags & OBJ_KEEPTTL) && !(*flags & OBJ_PERSIST) &&
                    !(*flags & OBJ_EX) && !(*flags & OBJ_EXAT) &&
-                   !(*flags & OBJ_PXAT) && !(*flags & OBJ_DEL) && next)
+                   !(*flags & OBJ_PXAT) && next)
         {
             *flags |= OBJ_PX;
             *unit = UNIT_MILLISECONDS;
@@ -233,7 +224,7 @@ int parseExtendedStringArgumentsOrReply(client *c, int *flags, int *unit, robj *
                    (opt[3] == 't' || opt[3] == 'T') && opt[4] == '\0' &&
                    !(*flags & OBJ_KEEPTTL) && !(*flags & OBJ_PERSIST) &&
                    !(*flags & OBJ_EX) && !(*flags & OBJ_PX) &&
-                   !(*flags & OBJ_PXAT) && !(*flags & OBJ_DEL) && next)
+                   !(*flags & OBJ_PXAT) && next)
         {
             *flags |= OBJ_EXAT;
             *expire = next;
@@ -244,7 +235,7 @@ int parseExtendedStringArgumentsOrReply(client *c, int *flags, int *unit, robj *
                    (opt[3] == 't' || opt[3] == 'T') && opt[4] == '\0' &&
                    !(*flags & OBJ_KEEPTTL) && !(*flags & OBJ_PERSIST) &&
                    !(*flags & OBJ_EX) && !(*flags & OBJ_EXAT) &&
-                   !(*flags & OBJ_PX) && !(*flags & OBJ_DEL) && next)
+                   !(*flags & OBJ_PX) && next)
         {
             *flags |= OBJ_PXAT;
             *unit = UNIT_MILLISECONDS;
@@ -307,8 +298,7 @@ void getCommand(client *c) {
 }
 
 /*
- * GETEX <key> [PERSIST][DEL][EX seconds][PX milliseconds]
- * [EXAT seconds-timestamp][PXAT milliseconds-timestamp]
+ * GETEX <key> [PERSIST][EX seconds][PX milliseconds][EXAT seconds-timestamp][PXAT milliseconds-timestamp]
  *
  * The getexCommand() function implements extended options and variants of the GET command. Unlike GET
  * command this command is not read-only.
@@ -318,12 +308,11 @@ void getCommand(client *c) {
  * Only one of the below options can be used at a given time.
  *
  * 1. PERSIST removes any TTL associated with the key.
- * 2. DEL deletes the key after the return.
- * 3. EX Set expiry TTL in seconds.
- * 4. PX Set expiry TTL in milliseconds.
- * 5. EXAT Same like EX instead of specifying the number of seconds representing the TTL
+ * 2. EX Set expiry TTL in seconds.
+ * 3. PX Set expiry TTL in milliseconds.
+ * 4. EXAT Same like EX instead of specifying the number of seconds representing the TTL
  *      (time to live), it takes an absolute Unix timestamp
- * 6. PXAT Same like PX instead of specifying the number of milliseconds representing the TTL
+ * 5. PXAT Same like PX instead of specifying the number of milliseconds representing the TTL
  *      (time to live), it takes an absolute Unix timestamp
  *
  * Command would either return the bulk string, error or nil.
@@ -362,24 +351,18 @@ void getexCommand(client *c) {
     /* We need to do this before we expire the key or delete it */
     addReplyBulk(c,o);
 
-    /* When PXAT/EXAT absolute timestamp is specified, there can be a chance that timestamp
-     * has already elapsed so delete the key in that case. */
-    if ((flags & OBJ_PXAT) || (flags & OBJ_EXAT)) {
-        if (checkAlreadyExpired(milliseconds)) {
-            flags = OBJ_DEL;
-        }
-    }
-
-    /* This command is never propagated as is. It is either propagated as PEXPIRE[AT], DEL, or PERSIST.
+    /* This command is never propagated as is. It is either propagated as PEXPIRE[AT], or PERSIST.
      * This why it doesn't need special handling in feedAppendOnlyFile to convert relative expire time to absolute one. */
-    if (flags & OBJ_DEL) {
+    if (((flags & OBJ_PXAT) || (flags & OBJ_EXAT)) && checkAlreadyExpired(milliseconds)) {
+        /* When PXAT/EXAT absolute timestamp is specified, there can be a chance that timestamp
+         * has already elapsed so delete the key in that case. */
         int deleted = server.lazyfree_lazy_user_del ? dbAsyncDelete(c->db, c->argv[1]) :
                       dbSyncDelete(c->db, c->argv[1]);
         serverAssert(deleted);
 
         rewriteClientCommandVector(c, 2, shared.del, c->argv[1]);
         signalModifiedKey(c, c->db, c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
         server.dirty++;
     } else if (expire) {
         robj *exp = shared.pexpireat;
@@ -403,6 +386,19 @@ void getexCommand(client *c) {
             notifyKeyspaceEvent(NOTIFY_GENERIC,"persist",c->argv[1],c->db->id);
             server.dirty++;
         }
+    }
+}
+
+void getdelCommand(client *c) {
+    if (getGenericCommand(c) == C_ERR) return;
+    int deleted = server.lazyfree_lazy_user_del ? dbAsyncDelete(c->db, c->argv[1]) :
+                  dbSyncDelete(c->db, c->argv[1]);
+    if (deleted) {
+        /* Propagate as DEL command */
+        rewriteClientCommandVector(c, 2, shared.del, c->argv[1]);
+        signalModifiedKey(c, c->db, c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
+        server.dirty++;
     }
 }
 

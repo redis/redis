@@ -130,13 +130,6 @@ start_server {tags {"string"}} {
         assert_range [r pttl foo] 5000 10000
     }
 
-    test "GETEX DEL option" {
-        r del foo
-        r set foo bar
-        assert_equal bar [r getex foo del]
-        assert_equal {} [r getex foo del]
-    }
-
     test "GETEX PERSIST option" {
         r del foo
         r set foo bar ex 10
@@ -164,19 +157,25 @@ start_server {tags {"string"}} {
          set ex
      } {*wrong number of arguments*}
 
-    test {GETEX use of DEL option should delete after loadaof} {
+    test "GETDEL command" {
+        r del foo
+        r set foo bar
+        assert_equal bar [r getdel foo ]
+        assert_equal {} [r getdel foo ]
+    }
+    test {GETDEL should delete after loadaof} {
         r config set appendonly yes
         r set foo bar EX 100
-        r getex foo DEL
+        r getdel foo
         after 2000
         r debug loadaof
         r getex foo
     } {}
 
-    test {GETEX use of DEL option propagate as DEL command to replica} {
+    test {GETDEL propagate as DEL command to replica} {
         set repl [attach_to_replication_stream]
         r set foo bar
-        r getex foo DEL
+        r getdel foo
         assert_replication_stream $repl {
             {select *}
             {set foo bar}

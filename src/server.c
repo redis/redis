@@ -205,6 +205,10 @@ struct redisCommand redisCommandTable[] = {
      "write fast @string",
      0,NULL,1,1,1,0,0,0},
 
+    {"getdel",getdelCommand,2,
+     "write fast @string",
+     0,NULL,1,1,1,0,0,0},
+
     /* Note that we can't flag set as fast, since it may perform an
      * implicit DEL of a large key. */
     {"set",setCommand,-3,
