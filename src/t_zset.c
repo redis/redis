@@ -1284,9 +1284,9 @@ int zsetScore(robj *zobj, sds member, double *score) {
  *            assume 0 as previous score.
  * ZADD_NX:   Perform the operation only if the element does not exist.
  * ZADD_XX:   Perform the operation only if the element already exist.
- * ZADD_GT:   Perform the operation on existing elements only if the new score is 
+ * ZADD_GT:   Perform the operation on existing elements only if the new score is
  *            greater than the current score.
- * ZADD_LT:   Perform the operation on existing elements only if the new score is 
+ * ZADD_LT:   Perform the operation on existing elements only if the new score is
  *            less than the current score.
  *
  * When ZADD_INCR is used, the new score of the element is stored in
@@ -1355,11 +1355,11 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
             }
 
             /* Remove and re-insert when score changed. */
-            if (score != curscore &&  
+            if (score != curscore &&
                 /* LT? Only update if score is less than current. */
                 (!lt || score < curscore) &&
                 /* GT? Only update if score is greater than current. */
-                (!gt || score > curscore)) 
+                (!gt || score > curscore))
             {
                 zobj->ptr = zzlDelete(zobj->ptr,eptr);
                 zobj->ptr = zzlInsert(zobj->ptr,ele,score);
@@ -1405,11 +1405,11 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
             }
 
             /* Remove and re-insert when score changes. */
-            if (score != curscore &&  
+            if (score != curscore &&
                 /* LT? Only update if score is less than current. */
                 (!lt || score < curscore) &&
                 /* GT? Only update if score is greater than current. */
-                (!gt || score > curscore)) 
+                (!gt || score > curscore))
             {
                 znode = zslUpdateScore(zs->zsl,curscore,ele,score);
                 /* Note that we did not removed the original element from
@@ -1712,7 +1712,7 @@ void zaddGenericCommand(client *c, int flags) {
             "XX and NX options at the same time are not compatible");
         return;
     }
-    
+
     if ((gt && nx) || (lt && nx) || (gt && lt)) {
         addReplyError(c,
             "GT, LT, and/or NX options at the same time are not compatible");
@@ -3174,8 +3174,7 @@ void genericZrangebyscoreCommand(zrange_result_handler *handler,
             }
 
             rangelen++;
-            handler->emitResultFromCBuffer(handler, ln->ele, sdslen(ln->ele),
-              ((withscores) ? ln->score : ln->score));
+            handler->emitResultFromCBuffer(handler, ln->ele, sdslen(ln->ele), ln->score);
 
             /* Move to next node */
             if (reverse) {
