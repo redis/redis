@@ -5608,9 +5608,12 @@ static sds redisProcTitleGetVariable(const sds varname, void *arg)
     if (!strcmp(varname, "title")) {
         return sdsnew(arg);
     } else if (!strcmp(varname, "listen-addr")) {
-        return sdscatprintf(sdsempty(), "%s:%u",
-                            server.bindaddr_count ? server.bindaddr[0] : "*",
-                            server.port ? server.port : server.tls_port);
+        if (server.port || server.tls_port)
+            return sdscatprintf(sdsempty(), "%s:%u",
+                                server.bindaddr_count ? server.bindaddr[0] : "*",
+                                server.port ? server.port : server.tls_port);
+        else
+            return sdscatprintf(sdsempty(), "unixsocket:%s", server.unixsocket);
     } else if (!strcmp(varname, "server-mode")) {
         if (server.cluster_enabled) return sdsnew("[cluster]");
         else if (server.sentinel_mode) return sdsnew("[sentinel]");
