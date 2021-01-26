@@ -322,16 +322,23 @@ start_server {tags {"other"}} {
     }
 }
 
-start_server {tags {"other"} overrides {{"proc-title-template" "TEST {title} {listen-addr} {port} {tls-port} {unixsocket} {config-file}"}}} {
+proc read_proc_title {pid} {
+    set fd [open "/proc/$pid/cmdline" "r"]
+    set cmdline [read $fd 1024]
+    close $fd
+
+    return $cmdline
+}
+
+start_server {tags {"other"}} {
     test {Process title set as expected} {
         # Test only on Linux where it's easy to get cmdline without relying on tools.
         # Skip valgrind as it messes up the arguments.
         set os [exec uname]
         if {$os == "Linux" && !$::valgrind} {
-            set pid [srv 0 pid]
-            set fd [open "/proc/$pid/cmdline" "r"]
-            set cmdline [read $fd 1024]
-            close $fd
+            # Set a custom template
+            r config set "proc-title-template" "TEST {title} {listen-addr} {port} {tls-port} {unixsocket} {config-file}"
+            set cmdline [read_proc_title [srv 0 pid]]
 
             assert_equal "TEST" [lindex $cmdline 0]
             assert_match "*/redis-server" [lindex $cmdline 1]
@@ -350,6 +357,10 @@ start_server {tags {"other"} overrides {{"proc-title-template" "TEST {title} {li
             assert_equal $expect_tls_port [lindex $cmdline 4]
             assert_match "*/tests/tmp/server.*/socket" [lindex $cmdline 5]
             assert_match "*/tests/tmp/redis.conf.*" [lindex $cmdline 6]
+
+            # Try setting a bad template
+            catch {r config set "proc-title-template" "{invalid-var}"} err
+            assert_match {*template format is invalid*} $err
         }
     }
 }

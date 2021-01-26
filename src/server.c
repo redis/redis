@@ -5619,7 +5619,7 @@ static sds redisProcTitleGetVariable(const sds varname, void *arg)
         else if (server.sentinel_mode) return sdsnew("[sentinel]");
         else return sdsempty();
     } else if (!strcmp(varname, "config-file")) {
-        return sdsnew(server.configfile);
+        return sdsnew(server.configfile ? server.configfile : "-");
     } else if (!strcmp(varname, "port")) {
         return sdscatprintf(sdsempty(), "%u", server.port);
     } else if (!strcmp(varname, "tls-port")) {
@@ -5649,13 +5649,14 @@ int validateProcTitleTemplate(const char *template) {
     return ok;
 }
 
-void redisSetProcTitle(char *title) {
+int redisSetProcTitle(char *title) {
 #ifdef USE_SETPROCTITLE
+    if (!title) title = server.exec_argv[0];
     sds proc_title = expandProcTitleTemplate(server.proc_title_template, title);
     if (!proc_title) {
         /* Shouldn't really happen because of validations... */
         serverLog(LL_WARNING, "Invalid proc-title-template specified, process title not set.");
-        return;
+        return C_ERR;
     }
 
     setproctitle("%s", proc_title);
@@ -5663,6 +5664,8 @@ void redisSetProcTitle(char *title) {
 #else
     UNUSED(title);
 #endif
+
+    return C_OK;
 }
 
 void redisSetCpuAffinity(const char *cpulist) {
@@ -5925,7 +5928,7 @@ int main(int argc, char **argv) {
     readOOMScoreAdj();
     initServer();
     if (background || server.pidfile) createPidFile();
-    redisSetProcTitle(argv[0]);
+    redisSetProcTitle(NULL);
     redisAsciiArt();
     checkTcpBacklogSettings();
 
