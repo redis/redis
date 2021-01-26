@@ -163,14 +163,6 @@ start_server {tags {"string"}} {
         assert_equal bar [r getdel foo ]
         assert_equal {} [r getdel foo ]
     }
-    test {GETDEL should delete after loadaof} {
-        r config set appendonly yes
-        r set foo bar EX 100
-        r getdel foo
-        after 2000
-        r debug loadaof
-        r getex foo
-    } {}
 
     test {GETDEL propagate as DEL command to replica} {
         set repl [attach_to_replication_stream]

@@ -351,16 +351,16 @@ void getexCommand(client *c) {
     /* We need to do this before we expire the key or delete it */
     addReplyBulk(c,o);
 
-    /* This command is never propagated as is. It is either propagated as PEXPIRE[AT], or PERSIST.
+    /* This command is never propagated as is. It is either propagated as PEXPIRE[AT],DEL,UNLINK or PERSIST.
      * This why it doesn't need special handling in feedAppendOnlyFile to convert relative expire time to absolute one. */
     if (((flags & OBJ_PXAT) || (flags & OBJ_EXAT)) && checkAlreadyExpired(milliseconds)) {
         /* When PXAT/EXAT absolute timestamp is specified, there can be a chance that timestamp
          * has already elapsed so delete the key in that case. */
-        int deleted = server.lazyfree_lazy_user_del ? dbAsyncDelete(c->db, c->argv[1]) :
+        int deleted = server.lazyfree_lazy_expire ? dbAsyncDelete(c->db, c->argv[1]) :
                       dbSyncDelete(c->db, c->argv[1]);
         serverAssert(deleted);
-
-        rewriteClientCommandVector(c, 2, shared.del, c->argv[1]);
+        robj *aux = server.lazyfree_lazy_expire ? shared.unlink : shared.del;
+        rewriteClientCommandVector(c,2,aux,c->argv[1]);
         signalModifiedKey(c, c->db, c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
         server.dirty++;
