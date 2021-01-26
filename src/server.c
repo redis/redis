@@ -5851,6 +5851,7 @@ int main(int argc, char **argv) {
             exit(1);
         }
         loadServerConfig(server.configfile, config_from_stdin, options);
+        if (server.sentinel_mode) loadSentinelConfigFromQueue();
         sdsfree(options);
     }
 
