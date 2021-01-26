@@ -624,8 +624,7 @@ void loadServerConfigFromString(char *config) {
                     err = "sentinel directive while not in sentinel mode";
                     goto loaderr;
                 }
-                err = sentinelHandleConfiguration(argv+1,argc-1);
-                if (err) goto loaderr;
+                queueSentinelConfig(argv+1,argc-1,linenum,lines[i]);
             }
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
@@ -1221,7 +1220,16 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
             sdsfree(argv[0]);
             argv[0] = alt;
         }
-        rewriteConfigAddLineNumberToOption(state,argv[0],linenum);
+        /* If this is sentinel config, we use sentinel "sentinel <config>" as option 
+            to avoid messing up the sequence. */
+        if (server.sentinel_mode && argc > 1 && !strcasecmp(argv[0],"sentinel")) {
+            sds sentinelOption = sdsempty();
+            sentinelOption = sdscatfmt(sentinelOption,"%S %S",argv[0],argv[1]);
+            rewriteConfigAddLineNumberToOption(state,sentinelOption,linenum);
+            sdsfree(sentinelOption);
+        } else {
+            rewriteConfigAddLineNumberToOption(state,argv[0],linenum);
+        }
         sdsfreesplitres(argv,argc);
     }
     fclose(fp);
