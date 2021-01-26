@@ -101,7 +101,11 @@ static long mono_ticksPerMicrosecond = 0;
 /* Read the clock value.  */
 static inline uint64_t __cntvct() {
     uint64_t virtual_timer_value;
+#ifndef __APPLE__
     __asm__ volatile("mrs %0, cntvct_el0" : "=r"(virtual_timer_value));
+#else
+    __asm__ volatile("mrs %0, cntpct_el0" : "=r"(virtual_timer_value));
+#endif
     return virtual_timer_value;
 }
 
