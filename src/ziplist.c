@@ -1498,19 +1498,27 @@ int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
     return 1;
 }
 
-/* Randomly select a pair of kv */
-void ziplistRandom(unsigned char *zl,  unsigned char **key, unsigned int *klen, long long *klval,
-                   unsigned char **value, unsigned int *vallen, long long *vlval) {
+/* Randomly select a pair of key and value.
+ * total_count is a pre-computed length/3 of the ziplist (to avoid calls to ziplistLen)
+ * 'key' and 'klen' are used to store the result key if it is a string. and
+ * 'klval' is used to store the key in case it is integer encoded.
+ * The other 3 arguments are used to store the value, and can be NULL if the
+ * value is not needed. */
+void ziplistRandomPair(unsigned char *zl,  unsigned long total_count,
+                       unsigned char **key, unsigned int *klen, long long *klval,
+                       unsigned char **value, unsigned int *vallen, long long *vlval)
+{
     int ret;
     unsigned char *p;
-    unsigned int len = ziplistLen(zl);
 
     /* Generate even numbers, because ziplist saved K-V pair */
-    int r = (rand() % (len/2)) * 2;
+    int r = (rand() % total_count) * 2;
     p = ziplistIndex(zl, r);
     ret = ziplistGet(p, key, klen, klval);
     assert(ret != 0);
 
+    if (!value)
+        return;
     p = ziplistNext(zl, p);
     ret = ziplistGet(p, value, vallen, vlval);
     assert(ret != 0);
@@ -1521,62 +1529,62 @@ int intCompare(const void *a, const void *b) {
     return (*(int *) a - *(int *) b);
 }
 
-/* shuffle compare for qsort */
-int shuffleCompare(const void *a, const void *b) {
-    (void)a; (void)b;
-    return rand() % 2 ? 1 : -1;
-}
-
-void saveKeyValueInKvs(unsigned char *p, unsigned int len, long long lval, char **kv) {
-    if (p) {
-        *kv = zmalloc(len+1);
-        memcpy(*kv, p, len);
-        (*kv)[len] = '\0';
+/* Helper method to store a string into from val or lval into dest */
+void ziplistSaveValue(unsigned char *val, unsigned int len, long long lval, char **dest) {
+    if (val) {
+        *dest = zmalloc(len+1);
+        memcpy(*dest, val, len);
+        (*dest)[len] = '\0';
     } else {
         char buf[32];
         int l = ll2string(buf,sizeof(buf),lval);
-        *kv = zmalloc(l+1);
-        memcpy(*kv, buf, l);
-        (*kv)[l] = '\0';
+        *dest = zmalloc(l+1);
+        memcpy(*dest, buf, l);
+        (*dest)[l] = '\0';
     }
 }
 
-/* Randomly select count kvs and save them in the kvs array
- * The algorithm comes from: https://github.com/redis/redis/pull/8219#issuecomment-749587323 */
-void ziplistRandomCount(unsigned char *zl, int count, char **kvs) {
+/* Randomly select unique count of key value pairs and store into 'keys' and
+ * 'vals' args. The order of the picked entries is random.
+ * The 'vals' arg can be NULL in which case we skip these. */
+void ziplistRandomPairs(unsigned char *zl, int count, char **keys, char **vals) {
     unsigned char *p, *key, *value;
     unsigned int klen, vlen;
     long long klval, vlval;
-    int *randoms = zmalloc(sizeof(int)*count);
-    int *shuffles = zmalloc(sizeof(int)*count);
+    typedef struct {
+        int index;
+        int order;
+    } rand_pick;
+    rand_pick *picks = zmalloc(sizeof(rand_pick)*count);
+    unsigned long total_size = ziplistLen(zl)/2;
 
-    /* 1. create a pull of random indexes. */
-    for (int i = 0; i < count; ++i) {
-        randoms[i] = (rand() % (ziplistLen(zl)/2)) * 2; /* Generate even numbers */
-        shuffles[i] = i;
+    /* create a pull of random indexes. */
+    for (int i = 0; i < count; i++) {
+        picks[i].index = (rand() % total_size) * 2; /* Generate even indexes */
+        picks[i].order = i;
     }
 
-    /* 2. sort the indexes. */
-    qsort(randoms, count, sizeof(int), intCompare);
-    qsort(shuffles, count, sizeof(int), shuffleCompare);
+    /* sort by indexes. */
+    qsort(picks, count, sizeof(rand_pick), intCompare);
 
-    /* 3. fetch the elements form the ziplist into a temporary array. */
+    /* fetch the elements form the ziplist into a output array. */
     int i = 0, j = 0, k = 0;
     p = ziplistIndex(zl, 0);
     while (ziplistGet(p, &key, &klen, &klval)) {
         p = ziplistNext(zl, p);
         ziplistGet(p, &value, &vlen, &vlval);
-        for (; i == randoms[j]; ++j) {
-            saveKeyValueInKvs(key, klen, klval, &kvs[shuffles[k]*2]);
-            saveKeyValueInKvs(value, vlen, vlval, &kvs[shuffles[k]*2+1]);
+        for (; i == picks[j].index; ++j) {
+            int order = picks[j].order;
+            ziplistSaveValue(key, klen, klval, &keys[order]);
+            if (vals)
+                ziplistSaveValue(value, vlen, vlval, &vals[order]);
             k++;
         }
         i += 2;
         p = ziplistNext(zl, p);
     }
 
-    zfree(randoms);
-    zfree(shuffles);
+    zfree(picks);
 }
 
 #ifdef REDIS_TEST

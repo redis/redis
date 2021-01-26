@@ -690,7 +690,8 @@ void srandmemberWithCountCommand(client *c) {
     /* CASE 1: The count was negative, so the extraction method is just:
      * "return N random elements" sampling the whole set every time.
      * This case is trivial and can be served without auxiliary data
-     * structures. */
+     * structures. This case is the only one that also needs to return the
+     * elements in random order. */
     if (!uniq) {
         addReplySetLen(c,count);
         while(count--) {
@@ -791,6 +792,7 @@ void srandmemberWithCountCommand(client *c) {
     }
 }
 
+/* SRANDMEMBER [<count>] */
 void srandmemberCommand(client *c) {
     robj *set;
     sds ele;
@@ -805,6 +807,7 @@ void srandmemberCommand(client *c) {
         return;
     }
 
+    /* Handle variant without <count> argument. Reply with simple bulk string */
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))
         == NULL || checkType(c,set,OBJ_SET)) return;
 

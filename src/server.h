@@ -1679,6 +1679,7 @@ extern dictType hashDictType;
 extern dictType replScriptCacheDictType;
 extern dictType dbExpiresDictType;
 extern dictType modulesDictType;
+extern dictType sdsReplyDictType;
 
 /*-----------------------------------------------------------------------------
  * Functions prototypes

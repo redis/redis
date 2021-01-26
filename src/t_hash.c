@@ -599,21 +599,25 @@ int hashZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep) {
 }
 
 /* Return random element from a non empty hash.
- * sdskey and sdsvalue need to be called free.*/
-void hashTypeRandomElement(robj *hashobj, sds *sdskey, sds *sdsvalue) {
+ * sdskey and sdsvalue need to be called free.
+ * sdsvalue can be NULL in which case it's not extracted. */
+void hashTypeRandomElement(robj *hashobj, unsigned long hashsize, sds *sdskey, sds *sdsvalue) {
     if (hashobj->encoding == OBJ_ENCODING_HT) {
         dictEntry *de = dictGetFairRandomKey(hashobj->ptr);
         *sdskey = sdsnew((const char *)dictGetKey(de));
-        *sdsvalue = sdsnew((const char *)dictGetVal(de));
+        if (sdsvalue)
+            *sdsvalue = sdsnew((const char *)dictGetVal(de));
     } else if (hashobj->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *key, *value;
         unsigned int klen, vlen;
         long long klval, vlval;
 
-        ziplistRandom(hashobj->ptr, &key, &klen, &klval,
-                      &value, &vlen, &vlval);
+        ziplistRandomPair(hashobj->ptr, hashsize,
+                          &key, &klen, &klval,
+                          &value, &vlen, &vlval);
         *sdskey = key ? sdsnewlen(key, klen) : sdsfromlonglong(klval);
-        *sdsvalue = value ? sdsnewlen(value, vlen) : sdsfromlonglong(vlval);
+        if (sdsvalue)
+            *sdsvalue = value ? sdsnewlen(value, vlen) : sdsfromlonglong(vlval);
     } else {
         serverPanic("Unknown hash encoding");
     }
@@ -950,7 +954,7 @@ void hscanCommand(client *c) {
  * implementation for more info. */
 #define HRANDMEMBER_SUB_STRATEGY_MUL 3
 
-void hrandmemberWithCountCommand(client *c, long l) {
+void hrandmemberWithCountCommand(client *c, long l, int withvalues) {
     unsigned long count, size;
     int uniq = 1;
     hashTypeIterator *hi;
@@ -968,36 +972,53 @@ void hrandmemberWithCountCommand(client *c, long l) {
         uniq = 0;
     }
 
+    /* If count is zero, serve it ASAP to avoid special cases later. */
     if (count == 0) {
-        addReply(c,shared.emptyset[c->resp]);
+        addReply(c,shared.emptyarray);
         return;
     }
 
     /* CASE 1: The count was negative, so the extraction method is just:
      * "return N random elements" sampling the whole set every time.
      * This case is trivial and can be served without auxiliary data
-     * structures. */
+     * structures. This case is the only one that also needs to return the
+     * elements in random order. */
     if (!uniq) {
-        addReplyMapLen(c, count);
+        if (withvalues && c->resp == 2)
+            addReplyArrayLen(c, count*2);
+        else
+            addReplyArrayLen(c, count);
         if (hash->encoding == OBJ_ENCODING_HT) {
             sds key, value;
             while (count--) {
                 dictEntry *de = dictGetRandomKey(hash->ptr);
                 key = dictGetKey(de);
                 value = dictGetVal(de);
+                if (withvalues && c->resp > 2)
+                    addReplyArrayLen(c,2);
                 addReplyBulkCBuffer(c, key, sdslen(key));
-                addReplyBulkCBuffer(c, value, sdslen(value));
+                if (withvalues)
+                    addReplyBulkCBuffer(c, value, sdslen(value));
             }
         } else if (hash->encoding == OBJ_ENCODING_ZIPLIST) {
-            char **kvs = zmalloc(sizeof(char *)*count*2);
-
-            ziplistRandomCount(hash->ptr, count, kvs);
-            for (unsigned long i = 0; i < count*2; i+=2) {
-                addReplyBulkCBuffer(c, kvs[i], strlen(kvs[i]));
-                addReplyBulkCBuffer(c, kvs[i+1], strlen(kvs[i+1]));
+            char **keys, **vals = NULL;
+            keys = zmalloc(sizeof(char *)*count);
+            if (withvalues)
+                vals = zmalloc(sizeof(char *)*count);
+            ziplistRandomPairs(hash->ptr, count, keys, vals);
+            for (unsigned long i = 0; i < count; i++) {
+                if (withvalues && c->resp > 2)
+                    addReplyArrayLen(c,2);
+                addReplyBulkCBuffer(c, keys[i], strlen(keys[i]));
+                if (withvalues)
+                    addReplyBulkCBuffer(c, vals[i], strlen(vals[i]));
             }
-            for (unsigned long i = 0; i < count*2; ++i) zfree(kvs[i]);
-            zfree(kvs);
+            for (unsigned long i = 0; i < count; ++i) {
+                zfree(keys[i]);
+                if (vals) zfree(vals[i]);
+            }
+            zfree(keys);
+            zfree(vals);
         }
         return;
     }
@@ -1006,19 +1027,24 @@ void hrandmemberWithCountCommand(client *c, long l) {
     * The number of requested elements is greater than the number of
     * elements inside the hash: simply return the whole hash. */
     if(count >= size) {
-        addReplyMapLen(c, size);
+        if (withvalues && c->resp == 2)
+            addReplyArrayLen(c, size*2);
+        else
+            addReplyArrayLen(c, size);
         hi = hashTypeInitIterator(hash);
         while (hashTypeNext(hi) != C_ERR) {
+            if (withvalues && c->resp > 2)
+                addReplyArrayLen(c,2);
             addHashIteratorCursorToReply(c, hi, OBJ_HASH_KEY);
-            addHashIteratorCursorToReply(c, hi, OBJ_HASH_VALUE);
+            if (withvalues)
+                addHashIteratorCursorToReply(c, hi, OBJ_HASH_VALUE);
         }
         hashTypeReleaseIterator(hi);
         return;
     }
 
-    d = dictCreate(&hashDictType, NULL);
+    d = dictCreate(&sdsReplyDictType, NULL);
     hi = hashTypeInitIterator(hash);
-    addReplyMapLen(c, count);
 
     /* CASE 3:
      * The number of elements inside the hash is not greater than
@@ -1033,10 +1059,11 @@ void hrandmemberWithCountCommand(client *c, long l) {
         /* Add all the elements into the temporary dictionary. */
         while((hashTypeNext(hi)) != C_ERR) {
             int ret = DICT_ERR;
-            sds key, value;
+            sds key, value = NULL;
 
             key = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_KEY);
-            value = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
+            if (withvalues)
+                value = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
             ret = dictAdd(d, key, value);
 
             serverAssert(ret == DICT_OK);
@@ -1046,7 +1073,6 @@ void hrandmemberWithCountCommand(client *c, long l) {
         /* Remove random elements to reach the right count. */
         while(size > count) {
             dictEntry *de;
-
             de = dictGetRandomKey(d);
             dictDelete(d,dictGetKey(de));
             size--;
@@ -1059,10 +1085,9 @@ void hrandmemberWithCountCommand(client *c, long l) {
      * to reach the specified count. */
     else {
         unsigned long added = 0;
-        sds key, value;
-
+        sds key, value = NULL;
         while(added < count) {
-            hashTypeRandomElement(hash, &key, &value);
+            hashTypeRandomElement(hash, size, &key, withvalues? &value : NULL);
 
             /* Try to add the object to the dictionary. If it already exists
             * free it, otherwise increment the number of objects we have
@@ -1077,14 +1102,21 @@ void hrandmemberWithCountCommand(client *c, long l) {
     }
 
     {
+        if (withvalues && c->resp == 2)
+            addReplyArrayLen(c, dictSize(d)*2);
+        else
+            addReplyArrayLen(c, dictSize(d));
         dictIterator *di;
         dictEntry *de;
         di = dictGetIterator(d);
         while ((de = dictNext(di)) != NULL) {
             sds key = dictGetKey(de);
             sds value = dictGetVal(de);
-            addReplyBulkCBuffer(c, key, sdslen(key));
-            addReplyBulkCBuffer(c, value, sdslen(value));
+            if (withvalues && c->resp > 2)
+                addReplyArrayLen(c,2);
+            addReplyBulkSds(c, key);
+            if (withvalues)
+                addReplyBulkSds(c, value);
         }
 
         hashTypeReleaseIterator(hi);
@@ -1093,17 +1125,30 @@ void hrandmemberWithCountCommand(client *c, long l) {
     }
 }
 
+/* HRANDMEMBER [<count> WITHVALUES] */
 void hrandmemberCommand(client *c) {
     long l;
+    int withvalues = 0;
+    robj *hash;
+    sds ele;
 
-    if (c->argc == 3) {
+    if (c->argc >= 3) {
         if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != C_OK) return;
-        hrandmemberWithCountCommand(c, l);
-        return;
-    } else if (c->argc > 3) {
-        addReply(c,shared.syntaxerr);
+        if (c->argc > 4 || (c->argc == 4 && strcasecmp(c->argv[3]->ptr,"withvalues"))) {
+            addReplyErrorObject(c,shared.syntaxerr);
+            return;
+        } else if (c->argc == 4)
+            withvalues = 1;
+        hrandmemberWithCountCommand(c, l, withvalues);
         return;
     }
 
-    hrandmemberWithCountCommand(c, 1);
+    /* Handle variant without <count> argument. Reply with simple bulk string */
+    if ((hash = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))== NULL ||
+        checkType(c,hash,OBJ_HASH)) {
+        return;
+    }
+
+    hashTypeRandomElement(hash,hashTypeLength(hash),&ele,NULL);
+    addReplyBulkSds(c,ele);
 }
