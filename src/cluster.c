@@ -398,7 +398,7 @@ int clusterLockConfig(char *filename) {
     /* To lock it, we need to open the file in a way it is created if
      * it does not exist, otherwise there is a race condition with other
      * processes. */
-    int fd = open(filename,O_WRONLY|O_CREAT,0644);
+    int fd = open(filename,O_WRONLY|O_CREAT|O_CLOEXEC,0644);
     if (fd == -1) {
         serverLog(LL_WARNING,
             "Can't open %s in order to acquire a lock: %s",
@@ -509,8 +509,7 @@ void clusterInit(void) {
         serverLog(LL_WARNING, "Redis port number too high. "
                    "Cluster communication port is 10,000 port "
                    "numbers higher than your Redis port. "
-                   "Your Redis port number must be "
-                   "lower than 55535.");
+                   "Your Redis port number must be 55535 or less.");
         exit(1);
     }
     if (listenToPort(port+CLUSTER_PORT_INCR,

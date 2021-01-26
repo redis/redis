@@ -60,10 +60,9 @@ proc exec_instance {type dirname cfgfile} {
 }
 
 # Spawn a redis or sentinel instance, depending on 'type'.
-proc spawn_instance {type base_port count {conf {}}} {
+proc spawn_instance {type base_port count {conf {}} {base_conf_file ""}} {
     for {set j 0} {$j < $count} {incr j} {
         set port [find_available_port $base_port $::redis_port_count]
-
         # Create a directory for this instance.
         set dirname "${type}_${j}"
         lappend ::dirs $dirname
@@ -72,7 +71,13 @@ proc spawn_instance {type base_port count {conf {}}} {
 
         # Write the instance config file.
         set cfgfile [file join $dirname $type.conf]
-        set cfg [open $cfgfile w]
+        if {$base_conf_file ne ""} {
+            file copy -- $base_conf_file $cfgfile
+            set cfg [open $cfgfile a+]
+        } else {
+            set cfg [open $cfgfile w]
+        }
+
         if {$::tls} {
             puts $cfg "tls-port $port"
             puts $cfg "tls-replication yes"
@@ -405,6 +410,11 @@ proc check_leaks instance_types {
 
 # Execute all the units inside the 'tests' directory.
 proc run_tests {} {
+    set sentinel_fd_leaks_file "sentinel_fd_leaks"
+    if { [file exists $sentinel_fd_leaks_file] } {
+        file delete $sentinel_fd_leaks_file
+    }
+
     set tests [lsort [glob ../tests/*]]
     foreach test $tests {
         if {$::run_matching ne {} && [string match $::run_matching $test] == 0} {
@@ -419,7 +429,15 @@ proc run_tests {} {
 
 # Print a message and exists with 0 / 1 according to zero or more failures.
 proc end_tests {} {
-    if {$::failed == 0} {
+    set sentinel_fd_leaks_file "sentinel_fd_leaks"
+    if { [file exists $sentinel_fd_leaks_file] } {
+        puts [colorstr red "WARNING: sentinel test(s) failed, there are leaked fds in sentinel:"] 
+        puts [exec cat $sentinel_fd_leaks_file]
+        # temporarily disabling this error from failing the tests until leaks are fixed.
+        #exit 1
+    }
+
+    if {$::failed == 0 } {
         puts "GOOD! No errors."
         exit 0
     } else {

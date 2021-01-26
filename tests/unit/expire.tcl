@@ -209,19 +209,70 @@ start_server {tags {"expire"}} {
         set e
     } {*not an integer*}
 
-    test {SET - use EX/PX option, TTL should not be reseted after loadaof} {
-        r config set appendonly yes
-        r set foo bar EX 100
-        after 2000
-        r debug loadaof
-        set ttl [r ttl foo]
-        assert {$ttl <= 98 && $ttl > 90}
+    test {EXPIRE and SET EX/PX option, TTL should not be reset after loadaof} {
+        # This test makes sure that expire times are propagated as absolute
+        # times to the AOF file and not as relative time, so that when the AOF
+        # is reloaded the TTLs are not being shifted forward to the future.
+        # We want the time to logically pass when the server is restarted!
 
-        r set foo bar PX 100000
+        r config set appendonly yes
+        r set foo1 bar EX 100
+        r set foo2 bar PX 100000
+        r set foo3 bar
+        r set foo4 bar
+        r expire foo3 100
+        r pexpire foo4 100000
+        r setex foo5 100 bar
+        r psetex foo6 100000 bar
         after 2000
         r debug loadaof
-        set ttl [r ttl foo]
-        assert {$ttl <= 98 && $ttl > 90}
+        assert_range [r ttl foo1] 90 98
+        assert_range [r ttl foo2] 90 98
+        assert_range [r ttl foo3] 90 98
+        assert_range [r ttl foo4] 90 98
+        assert_range [r ttl foo5] 90 98
+        assert_range [r ttl foo6] 90 98
+    }
+
+    test {EXPIRE relative and absolute propagation to replicas} {
+        # Make sure that relative and absolute expire commands are propagated
+        # "as is" to replicas.
+        # We want replicas to honor the same high level contract of expires that
+        # the master has, that is, we want the time to be counted logically
+        # starting from the moment the write was received. This usually provides
+        # the most coherent behavior from the point of view of the external
+        # users, with TTLs that are similar from the POV of the external observer.
+        #
+        # This test is here to stop some innocent / eager optimization or cleanup
+        # from doing the wrong thing without proper discussion, see:
+        # https://github.com/redis/redis/pull/5171#issuecomment-409553266
+
+        set repl [attach_to_replication_stream]
+        r set foo1 bar ex 100
+        r set foo1 bar px 100000
+        r setex foo1 100 bar
+        r psetex foo1 100000 bar
+        r set foo2 bar
+        r expire foo2 100
+        r pexpire foo2 100000
+        r set foo3 bar
+        r expireat foo3 [expr [clock seconds]+100]
+        r pexpireat foo3 [expr [clock seconds]*1000+100000]
+        r expireat foo3 [expr [clock seconds]-100]
+        assert_replication_stream $repl {
+            {select *}
+            {set foo1 bar ex 100}
+            {set foo1 bar px 100000}
+            {setex foo1 100 bar}
+            {psetex foo1 100000 bar}
+            {set foo2 bar}
+            {expire foo2 100}
+            {pexpire foo2 100000}
+            {set foo3 bar}
+            {expireat foo3 *}
+            {pexpireat foo3 *}
+            {del foo3}
+        }
     }
 
     test {SET command will remove expire} {

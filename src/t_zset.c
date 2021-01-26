@@ -2751,6 +2751,9 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         unsigned long length = dstzset->zsl->length;
         zskiplist *zsl = dstzset->zsl;
         zskiplistNode *zn = zsl->header->level[0].forward;
+        /* In case of WITHSCORES, respond with a single array in RESP2, and
+         * nested arrays in RESP3. We can't use a map response type since the
+         * client library needs to know to respect the order. */
         if (withscores && c->resp == 2)
             addReplyArrayLen(c, length*2);
         else
@@ -2868,6 +2871,9 @@ static void zrangeResultEmitLongLongToClient(zrange_result_handler *handler,
 static void zrangeResultFinalizeClient(zrange_result_handler *handler,
     size_t result_count)
 {
+    /* In case of WITHSCORES, respond with a single array in RESP2, and
+     * nested arrays in RESP3. We can't use a map response type since the
+     * client library needs to know to respect the order. */
     if (handler->withscores && (handler->client->resp == 2)) {
         result_count *= 2;
     }
@@ -3073,8 +3079,8 @@ void zrevrangeCommand(client *c) {
 
 /* This command implements ZRANGEBYSCORE, ZREVRANGEBYSCORE. */
 void genericZrangebyscoreCommand(zrange_result_handler *handler,
-    zrangespec *range, robj *zobj, int withscores, long offset,
-    long limit, int reverse) {
+    zrangespec *range, robj *zobj, long offset, long limit, 
+    int reverse) {
 
     client *c = handler->client;
     unsigned long rangelen = 0;
@@ -3174,8 +3180,7 @@ void genericZrangebyscoreCommand(zrange_result_handler *handler,
             }
 
             rangelen++;
-            handler->emitResultFromCBuffer(handler, ln->ele, sdslen(ln->ele),
-              ((withscores) ? ln->score : ln->score));
+            handler->emitResultFromCBuffer(handler, ln->ele, sdslen(ln->ele), ln->score);
 
             /* Move to next node */
             if (reverse) {
@@ -3626,8 +3631,8 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
         break;
 
     case ZRANGE_SCORE:
-        genericZrangebyscoreCommand(handler, &range, zobj, opt_withscores || store,
-            opt_offset, opt_limit, direction == ZRANGE_DIRECTION_REVERSE);
+        genericZrangebyscoreCommand(handler, &range, zobj, opt_offset,
+            opt_limit, direction == ZRANGE_DIRECTION_REVERSE);
         break;
 
     case ZRANGE_LEX:

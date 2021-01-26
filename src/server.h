@@ -942,6 +942,19 @@ struct moduleLoadQueueEntry {
     robj **argv;
 };
 
+struct sentinelLoadQueueEntry {
+    int argc;
+    sds *argv;
+    int linenum;
+    sds line;
+};
+
+struct sentinelConfig {
+    list *pre_monitor_cfg;
+    list *monitor_cfg;
+    list *post_monitor_cfg;
+};
+
 struct sharedObjectsStruct {
     robj *crlf, *ok, *err, *emptybulk, *czero, *cone, *pong, *space,
     *colon, *queued, *null[4], *nullarray[4], *emptymap[4], *emptyset[4],
@@ -1124,6 +1137,7 @@ struct redisServer {
     int config_hz;              /* Configured HZ value. May be different than
                                    the actual 'hz' field value if dynamic-hz
                                    is enabled. */
+    mode_t umask;               /* The umask value of the process on startup */
     int hz;                     /* serverCron() calls frequency in hertz */
     int in_fork_child;          /* indication that this is a fork child */
     redisDb *db;
@@ -1555,6 +1569,8 @@ struct redisServer {
     char *bio_cpulist; /* cpu affinity list of bio thread. */
     char *aof_rewrite_cpulist; /* cpu affinity list of aof rewrite process. */
     char *bgsave_cpulist; /* cpu affinity list of bgsave process. */
+    /* Sentinel config */
+    struct sentinelConfig *sentinel_config; /* sentinel config to load at startup time. */
 };
 
 typedef struct pubsubPattern {
@@ -2043,7 +2059,7 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen);
 sds ACLDefaultUserFirstPassword(void);
 uint64_t ACLGetCommandCategoryFlagByName(const char *name);
 int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err);
-char *ACLSetUserStringError(void);
+const char *ACLSetUserStringError(void);
 int ACLLoadConfiguredUsers(void);
 sds ACLDescribeUser(user *u);
 void ACLLoadUsersAtStartup(void);
@@ -2237,6 +2253,7 @@ void appendServerSaveParams(time_t seconds, int changes);
 void resetServerSaveParams(void);
 struct rewriteConfigState; /* Forward declaration to export API. */
 void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *option, sds line, int force);
+void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *option);
 int rewriteConfig(char *path, int force_all);
 void initConfigValues();
 
@@ -2331,7 +2348,9 @@ int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uin
 void initSentinelConfig(void);
 void initSentinel(void);
 void sentinelTimer(void);
-char *sentinelHandleConfiguration(char **argv, int argc);
+const char *sentinelHandleConfiguration(char **argv, int argc);
+void queueSentinelConfig(sds *argv, int argc, int linenum, sds line);
+void loadSentinelConfigFromQueue(void);
 void sentinelIsRunning(void);
 
 /* redis-check-rdb & aof */

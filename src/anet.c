@@ -69,6 +69,11 @@ int anetSetBlock(char *err, int fd, int non_block) {
         return ANET_ERR;
     }
 
+    /* Check if this flag has been set or unset, if so, 
+     * then there is no need to call fcntl to set/unset it again. */
+    if (!!(flags & O_NONBLOCK) == !!non_block)
+        return ANET_OK;
+
     if (non_block)
         flags |= O_NONBLOCK;
     else
@@ -87,6 +92,29 @@ int anetNonBlock(char *err, int fd) {
 
 int anetBlock(char *err, int fd) {
     return anetSetBlock(err,fd,0);
+}
+
+/* Enable the FD_CLOEXEC on the given fd to avoid fd leaks. 
+ * This function should be invoked for fd's on specific places 
+ * where fork + execve system calls are called. */
+int anetCloexec(int fd) {
+    int r;
+    int flags;
+
+    do {
+        r = fcntl(fd, F_GETFD);
+    } while (r == -1 && errno == EINTR);
+
+    if (r == -1 || (r & FD_CLOEXEC))
+        return r;
+
+    flags = r | FD_CLOEXEC;
+
+    do {
+        r = fcntl(fd, F_SETFD, flags);
+    } while (r == -1 && errno == EINTR);
+
+    return r;
 }
 
 /* Set TCP keep alive option to detect dead peers. The interval option
