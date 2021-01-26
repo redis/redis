@@ -96,8 +96,8 @@ typedef struct {
     int type; /* search type */
     double xy[2]; /* search center point, xy[0]: lon, xy[1]: lat */
     double conversion; /* km: 1000 */
-    double bounds[4]; /* bounds[0]: min_lon, bounds[1]: min_lat
-                       * bounds[2]: max_lon, bounds[3]: max_lat */
+    double bounds[8]; /* bounds[0] - bounds[7] are the 4 coordinates of the trapezoid
+                       * see geohash_helper.c geohashBoundingBox */
     union {
         /* CIRCULAR_TYPE */
         double radius;

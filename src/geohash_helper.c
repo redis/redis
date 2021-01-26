@@ -83,22 +83,20 @@ uint8_t geohashEstimateStepsByRadius(double range_meters, double lat) {
 }
 
 /* Return the bounding box of the search area by shape (see geohash.h GeoShape)
- * bounds[0] - bounds[2] is the minimum and maximum longitude
- * while bounds[1] - bounds[3] is the minimum and maximum latitude.
+ * since the higher the latitude, the shorter the arc length, so the box is a
+ * trapezoid. bounds[0] - bounds[7] are the 4 coordinates of the trapezoid,
+ * as shown in the following diagram:
+ * The trapezoid directions of the northern and southern hemispheres are opposite.
  *
- * This function does not behave correctly with very large radius values, for
- * instance for the coordinates 81.634948934258375 30.561509253718668 and a
- * radius of 7083 kilometers, it reports as bounding boxes:
- *
- * min_lon 7.680495, min_lat -33.119473, max_lon 155.589402, max_lat 94.242491
- *
- * However, for instance, a min_lon of 7.680495 is not correct, because the
- * point -1.27579540014266968 61.33421815228281559 is at less than 7000
- * kilometers away.
- *
- * Since this function is currently only used as an optimization, the
- * optimization is not used for very big radiuses, however the function
- * should be fixed. */
+ * (bounds[0],bounds[1])   (bounds[2],bounds[3])
+ *             \-----------------/                   --------
+ *              \               /                  /          \
+ *               \  (long,lat) /                  / (long,lat) \
+ *                \           /                  /              \
+ *                  ---------                   /----------------\
+ *(bounds[6],bounds[7])   (bounds[4],bounds[5])
+ *               Northern Hemisphere              Southern Hemisphere
+ */
 int geohashBoundingBox(GeoShape *shape, double *bounds) {
     if (!bounds) return 0;
     double longitude = shape->xy[0];
@@ -106,12 +104,17 @@ int geohashBoundingBox(GeoShape *shape, double *bounds) {
     double height = shape->conversion * (shape->type == CIRCULAR_TYPE ? shape->t.radius : shape->t.r.height/2);
     double width = shape->conversion * (shape->type == CIRCULAR_TYPE ? shape->t.radius : shape->t.r.width/2);
 
-    const double long_delta = rad_deg(width/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude)));
     const double lat_delta = rad_deg(height/EARTH_RADIUS_IN_METERS);
-    bounds[0] = longitude - long_delta;
-    bounds[2] = longitude + long_delta;
-    bounds[1] = latitude - lat_delta;
+    const double long_delta_top = rad_deg(width/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude+lat_delta)));
+    const double long_delta_bottom = rad_deg(width/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude-lat_delta)));
+    bounds[0] = longitude - long_delta_top;
+    bounds[1] = latitude + lat_delta;
+    bounds[2] = longitude + long_delta_top;
     bounds[3] = latitude + lat_delta;
+    bounds[4] = longitude + long_delta_bottom;
+    bounds[5] = latitude - lat_delta;
+    bounds[6] = longitude - long_delta_bottom;
+    bounds[7] = latitude - lat_delta;
     return 1;
 }
 
@@ -128,21 +131,23 @@ GeoHashRadius geohashCalculateAreasByShapeWGS84(GeoShape *shape) {
     int steps;
 
     geohashBoundingBox(shape, shape->bounds);
-    min_lon = shape->bounds[0];
-    min_lat = shape->bounds[1];
-    max_lon = shape->bounds[2];
-    max_lat = shape->bounds[3];
+    /* The trapezoid directions of the northern and southern hemispheres
+     * are opposite, so we choice different points as max/min long/lat*/
+    int southern_hemisphere = shape->xy[1] < 0 ? 1 : 0;
+    min_lon = southern_hemisphere ? shape->bounds[6] : shape->bounds[0];
+    min_lat = shape->bounds[5];
+    max_lon = southern_hemisphere ? shape->bounds[4] : shape->bounds[2];
+    max_lat = shape->bounds[1];
 
     double longitude = shape->xy[0];
     double latitude = shape->xy[1];
     /* radius_meters is calculated differently in different search types:
      * 1) CIRCULAR_TYPE, just use radius.
-     * 2) RECTANGLE_TYPE, in order to calculate accurately, we should use
-     * sqrt((width/2)^2 + (height/2)^2), so that the box is bound by a circle,
-     * But the current code a simpler approach resulting in a smaller circle,
-     * which is safe because we search the 8 nearby boxes anyway. */
+     * 2) RECTANGLE_TYPE, we should use sqrt((width/2)^2 + (height/2)^2),
+     * get the hypotenuse of a right triangle, so that the box is bound
+     * by a circle. */
     double radius_meters = shape->type == CIRCULAR_TYPE ? shape->t.radius :
-                            shape->t.r.width > shape->t.r.height ? shape->t.r.width/2 : shape->t.r.height/2;
+            sqrt((shape->t.r.width/2)*(shape->t.r.width/2) + (shape->t.r.height/2)*(shape->t.r.height/2));
     radius_meters *= shape->conversion;
 
     steps = geohashEstimateStepsByRadius(radius_meters,latitude);
@@ -231,6 +236,11 @@ double geohashGetDistance(double lon1d, double lat1d, double lon2d, double lat2d
            asin(sqrt(u * u + cos(lat1r) * cos(lat2r) * v * v));
 }
 
+/* Given three points, calculate the area of the triangle */
+double triangleArea(double x1, double y1, double x2, double y2, double x3, double y3) {
+    return fabs(0.5 * (x1*(y2-y3) + x2*(y3-y1) + x3*(y1-y2)));
+}
+
 int geohashGetDistanceIfInRadius(double x1, double y1,
                                  double x2, double y2, double radius,
                                  double *distance) {
@@ -245,14 +255,58 @@ int geohashGetDistanceIfInRadiusWGS84(double x1, double y1, double x2,
     return geohashGetDistanceIfInRadius(x1, y1, x2, y2, radius, distance);
 }
 
-/* Judge whether a point is in the axis-aligned rectangle.
+#define EPSILON 1e-6
+int is_double_gt(double a, double b) {
+    return a > b + EPSILON;
+}
+
+int is_double_lt(double a, double b) {
+    return a < b - EPSILON;
+}
+
+int is_double_eq(double a, double b) {
+    return ((a - b) < EPSILON) && ((b - a) < EPSILON);
+}
+
+/* Judge whether a point is in the trapezoid.
  * bounds : see geohash.h GeoShape::bounds
- * x1, y1 : the center of the box
+ * x1, y1 : the center of the trapezoid
  * x2, y2 : the point to be searched
+ *
+ * ray-crossing Algorithm refer: http://erich.realtimerendering.com/ptinpoly/
  */
 int geohashGetDistanceIfInRectangle(double *bounds, double x1, double y1,
                                     double x2, double y2, double *distance) {
-    if (x2 < bounds[0] || x2 > bounds[2] || y2 < bounds[1] || y2 > bounds[3]) return 0;
+    /* Use max_lon max_lat min_lat min_lat to quickly exclude some points */
+    int southern_hemisphere = y1 < 0 ? 1 : 0;
+    double min_lon = southern_hemisphere ? bounds[6] : bounds[0];
+    double min_lat = bounds[5];
+    double max_lon = southern_hemisphere ? bounds[4] : bounds[2];
+    double max_lat = bounds[1];
+    if (is_double_lt(x2, min_lon) || is_double_gt(x2, max_lon) ||
+        is_double_lt(y2, min_lat) || is_double_gt(y2, max_lat)) {
+        return 0;
+    }
+
+    /* Use ray-crossing judge if point in trapezoid */
+    int cross = 0;
+    for (int i = 0; i < 8; i += 2) {
+        double p1x = bounds[i];
+        double p1y = bounds[i+1];
+        double p2x = bounds[(i+2) % 8];
+        double p2y = bounds[(i+3) % 8];
+
+        if (is_double_eq(p1y, p2y)) continue;
+        if (is_double_lt(y2, fmin(p1y, p2y)) || is_double_gt(y2, fmax(p1y, p2y))) continue;
+        if (is_double_gt(((y2 - p1y) * (p2x - p1x) / (p2y - p1y) + p1x), x2)) {
+            cross++;
+        }
+    }
+
+    if (cross % 2 != 1) {
+        return 0;
+    }
+
     *distance = geohashGetDistance(x1, y1, x2, y2);
     return 1;
 }
