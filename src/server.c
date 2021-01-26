@@ -5627,25 +5627,35 @@ static sds redisProcTitleGetVariable(const sds varname, void *arg)
         return NULL;    /* Unknown variable name */
 }
 
+/* Expand the specified proc-title-template string and return a newly
+ * allocated sds, or NULL. */
+static sds expandProcTitleTemplate(const char *template, const char *title) {
+    sds res = sdstemplate(template, redisProcTitleGetVariable, (void *) title);
+    if (!res)
+        return NULL;
+    return sdstrim(res, " ");
+}
 /* Validate the specified template, returns 1 if valid or 0 otherwise. */
 int validateProcTitleTemplate(const char *template) {
-    sds res = sdstemplate(template, redisProcTitleGetVariable, "");
+    int ok = 1;
+    sds res = expandProcTitleTemplate(template, "");
     if (!res)
         return 0;
+    if (sdslen(res) == 0) ok = 0;
     sdsfree(res);
-    return 1;
+    return ok;
 }
 
 void redisSetProcTitle(char *title) {
 #ifdef USE_SETPROCTITLE
-    sds proc_title = sdstemplate(server.proc_title_template, redisProcTitleGetVariable, title);
+    sds proc_title = expandProcTitleTemplate(server.proc_title_template, title);
     if (!proc_title) {
         /* Shouldn't really happen because of validations... */
         serverLog(LL_WARNING, "Invalid proc-title-template specified, process title not set.");
         return;
     }
 
-    setproctitle("%s", sdstrim(proc_title, " "));
+    setproctitle("%s", proc_title);
     sdsfree(proc_title);
 #else
     UNUSED(title);
