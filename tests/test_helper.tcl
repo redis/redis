@@ -717,6 +717,7 @@ if {[llength $filtered_tests] < [llength $::all_tests]} {
 }
 
 proc attach_to_replication_stream {} {
+    r config set repl-ping-replica-period 3600
     if {$::tls} {
         set s [::tls::socket [srv 0 "host"] [srv 0 "port"]]
     } else {
@@ -774,6 +775,7 @@ proc assert_replication_stream {s patterns} {
 
 proc close_replication_stream {s} {
     close $s
+    r config set repl-ping-replica-period 10
 }
 
 # With the parallel test running multiple Redis instances at the same time

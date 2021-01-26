@@ -1,4 +1,4 @@
-start_server {tags {"pubsub"}} {
+start_server {tags {"pubsub network"}} {
     proc __consume_subscribe_messages {client type channels} {
         set numsub -1
         set counts {}

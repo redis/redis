@@ -1124,6 +1124,7 @@ struct redisServer {
     int config_hz;              /* Configured HZ value. May be different than
                                    the actual 'hz' field value if dynamic-hz
                                    is enabled. */
+    mode_t umask;               /* The umask value of the process on startup */
     int hz;                     /* serverCron() calls frequency in hertz */
     int in_fork_child;          /* indication that this is a fork child */
     redisDb *db;
@@ -1530,6 +1531,7 @@ struct redisServer {
     int lazyfree_lazy_expire;
     int lazyfree_lazy_server_del;
     int lazyfree_lazy_user_del;
+    int lazyfree_lazy_user_flush;
     /* Latency monitor */
     long long latency_monitor_threshold;
     dict *latency_events;
@@ -2042,7 +2044,7 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen);
 sds ACLDefaultUserFirstPassword(void);
 uint64_t ACLGetCommandCategoryFlagByName(const char *name);
 int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err);
-char *ACLSetUserStringError(void);
+const char *ACLSetUserStringError(void);
 int ACLLoadConfiguredUsers(void);
 sds ACLDescribeUser(user *u);
 void ACLLoadUsersAtStartup(void);
@@ -2330,7 +2332,7 @@ int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uin
 void initSentinelConfig(void);
 void initSentinel(void);
 void sentinelTimer(void);
-char *sentinelHandleConfiguration(char **argv, int argc);
+const char *sentinelHandleConfiguration(char **argv, int argc);
 void sentinelIsRunning(void);
 
 /* redis-check-rdb & aof */
@@ -2344,6 +2346,7 @@ int ldbRemoveChild(pid_t pid);
 void ldbKillForkedSessions(void);
 int ldbPendingChildren(void);
 sds luaCreateFunction(client *c, lua_State *lua, robj *body);
+void freeLuaScriptsAsync(dict *lua_scripts);
 
 /* Blocked clients */
 void processUnblockedClients(void);

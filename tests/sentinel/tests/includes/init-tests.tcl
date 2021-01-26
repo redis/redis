@@ -37,6 +37,8 @@ test "(init) Sentinels can start monitoring a master" {
         S $id SENTINEL SET mymaster down-after-milliseconds 2000
         S $id SENTINEL SET mymaster failover-timeout 20000
         S $id SENTINEL SET mymaster parallel-syncs 10
+        S $id SENTINEL SET mymaster notification-script ../../tests/includes/notify.sh
+        S $id SENTINEL SET mymaster client-reconfig-script ../../tests/includes/notify.sh
     }
 }
 

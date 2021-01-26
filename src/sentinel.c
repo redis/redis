@@ -1523,14 +1523,17 @@ int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *ip,
     newaddr = createSentinelAddr(ip,port);
     if (newaddr == NULL) return C_ERR;
 
-    /* Make a list of slaves to add back after the reset.
-     * Don't include the one having the address we are switching to. */
+    /* There can be only 0 or 1 slave that has the newaddr.
+     * and It can add old master 1 more slave. 
+     * so It allocates dictSize(master->slaves) + 1          */
+    slaves = zmalloc(sizeof(sentinelAddr*)*(dictSize(master->slaves) + 1));
+    
+    /* Don't include the one having the address we are switching to. */
     di = dictGetIterator(master->slaves);
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *slave = dictGetVal(de);
 
         if (sentinelAddrIsEqual(slave->addr,newaddr)) continue;
-        slaves = zrealloc(slaves,sizeof(sentinelAddr*)*(numslaves+1));
         slaves[numslaves++] = createSentinelAddr(slave->addr->ip,
                                                  slave->addr->port);
     }
@@ -1540,7 +1543,6 @@ int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *ip,
      * as a slave as well, so that we'll be able to sense / reconfigure
      * the old master. */
     if (!sentinelAddrIsEqual(newaddr,master->addr)) {
-        slaves = zrealloc(slaves,sizeof(sentinelAddr*)*(numslaves+1));
         slaves[numslaves++] = createSentinelAddr(master->addr->ip,
                                                  master->addr->port);
     }
@@ -1640,7 +1642,34 @@ char *sentinelInstanceMapCommand(sentinelRedisInstance *ri, char *command) {
 }
 
 /* ============================ Config handling ============================= */
-char *sentinelHandleConfiguration(char **argv, int argc) {
+
+/* Generalise handling create instance error. Use SRI_MASTER, SRI_SLAVE or
+ * SRI_SENTINEL as a role value. */
+const char *sentinelCheckCreateInstanceErrors(int role) {
+    switch(errno) {
+    case EBUSY:
+        switch (role) {
+        case SRI_MASTER:
+            return "Duplicate master name.";
+        case SRI_SLAVE:
+            return "Duplicate hostname and port for replica.";
+        case SRI_SENTINEL:
+            return "Duplicate runid for sentinel.";
+        default:
+            serverAssert(0);
+            break;
+        }
+        break;
+    case ENOENT:
+        return "Can't resolve instance hostname.";
+    case EINVAL:
+        return "Invalid port number.";
+    default:
+        return "Unknown Error for creating instances.";
+    }
+}
+
+const char *sentinelHandleConfiguration(char **argv, int argc) {
     sentinelRedisInstance *ri;
 
     if (!strcasecmp(argv[0],"monitor") && argc == 5) {
@@ -1651,11 +1680,7 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
         if (createSentinelRedisInstance(argv[1],SRI_MASTER,argv[2],
                                         atoi(argv[3]),quorum,NULL) == NULL)
         {
-            switch(errno) {
-            case EBUSY: return "Duplicated master name.";
-            case ENOENT: return "Can't resolve master instance hostname.";
-            case EINVAL: return "Invalid port number";
-            }
+            return sentinelCheckCreateInstanceErrors(SRI_MASTER);
         }
     } else if (!strcasecmp(argv[0],"down-after-milliseconds") && argc == 3) {
         /* down-after-milliseconds <name> <milliseconds> */
@@ -1737,7 +1762,7 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
         if ((slave = createSentinelRedisInstance(NULL,SRI_SLAVE,argv[2],
                     atoi(argv[3]), ri->quorum, ri)) == NULL)
         {
-            return "Wrong hostname or port for replica.";
+            return sentinelCheckCreateInstanceErrors(SRI_SLAVE);
         }
     } else if (!strcasecmp(argv[0],"known-sentinel") &&
                (argc == 4 || argc == 5)) {
@@ -1750,7 +1775,7 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
             if ((si = createSentinelRedisInstance(argv[4],SRI_SENTINEL,argv[2],
                         atoi(argv[3]), ri->quorum, ri)) == NULL)
             {
-                return "Wrong hostname or port for sentinel.";
+                return sentinelCheckCreateInstanceErrors(SRI_SENTINEL);
             }
             si->runid = sdsnew(argv[4]);
             sentinelTryConnectionSharing(si);
@@ -2101,6 +2126,7 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
     /* Commands connection. */
     if (link->cc == NULL) {
         link->cc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,NET_FIRST_BIND_ADDR);
+        if (!link->cc->err) anetCloexec(link->cc->c.fd);
         if (!link->cc->err && server.tls_replication &&
                 (instanceLinkNegotiateTLS(link->cc) == C_ERR)) {
             sentinelEvent(LL_DEBUG,"-cmd-link-reconnection",ri,"%@ #Failed to initialize TLS");
@@ -2128,6 +2154,7 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
     /* Pub / Sub */
     if ((ri->flags & (SRI_MASTER|SRI_SLAVE)) && link->pc == NULL) {
         link->pc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,NET_FIRST_BIND_ADDR);
+        if (!link->pc->err) anetCloexec(link->pc->c.fd);
         if (!link->pc->err && server.tls_replication &&
                 (instanceLinkNegotiateTLS(link->pc) == C_ERR)) {
             sentinelEvent(LL_DEBUG,"-pubsub-link-reconnection",ri,"%@ #Failed to initialize TLS");
@@ -2137,7 +2164,6 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
             instanceLinkCloseConnection(link,link->pc);
         } else {
             int retval;
-
             link->pc_conn_time = mstime();
             link->pc->data = link;
             redisAeAttach(server.el,link->pc);
