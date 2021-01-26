@@ -1998,6 +1998,10 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
             master->name, master_addr->ip, master_addr->port,
             master->quorum);
         rewriteConfigRewriteLine(state,"sentinel monitor",line,1);
+        /* NOTE: in case if there is no monitored masters and previously has
+         "sentinel monitor" config, a line rewriteConfigMarkAsProcessed should
+         be put at the end of this function to mark it as processed.
+        */
 
         /* sentinel down-after-milliseconds */
         if (master->down_after_period != SENTINEL_DEFAULT_DOWN_AFTER) {
@@ -2005,6 +2009,11 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
                 "sentinel down-after-milliseconds %s %ld",
                 master->name, (long) master->down_after_period);
             rewriteConfigRewriteLine(state,"sentinel down-after-milliseconds",line,1);
+            /* NOTE: in case if there is no monitored masters or master's down_after_period
+             is all set to default, but previously has "sentinel down-after-milliseconds" config, 
+             a line rewriteConfigMarkAsProcessed should be put at the end of this function to mark
+             it as processed.
+            */
         }
 
         /* sentinel failover-timeout */
@@ -2013,6 +2022,12 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
                 "sentinel failover-timeout %s %ld",
                 master->name, (long) master->failover_timeout);
             rewriteConfigRewriteLine(state,"sentinel failover-timeout",line,1);
+            /* NOTE: in case if there is no monitored masters or master's failover_timeout
+             is all set to default, but previously has "sentinel failover-timeout" config, 
+             a line rewriteConfigMarkAsProcessed should be put at the end of this function
+             to mark it as processed.
+            */
+
         }
 
         /* sentinel parallel-syncs */
@@ -2021,6 +2036,11 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
                 "sentinel parallel-syncs %s %d",
                 master->name, master->parallel_syncs);
             rewriteConfigRewriteLine(state,"sentinel parallel-syncs",line,1);
+            /* NOTE: in case if there is no monitored masters or master's parallel_syncs
+             is all set to default, but previously has "sentinel parallel-syncs" config, 
+             a line rewriteConfigMarkAsProcessed should be put at the end of this function
+             to mark it as processed.
+            */
         }
 
         /* sentinel notification-script */
@@ -2029,6 +2049,11 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
                 "sentinel notification-script %s %s",
                 master->name, master->notification_script);
             rewriteConfigRewriteLine(state,"sentinel notification-script",line,1);
+            /* NOTE: in case if there is no monitored masters or master's notification_script
+             has not been set, but previously has "sentinel notification-script" config, 
+             a line rewriteConfigMarkAsProcessed should be put at the end of this function 
+             to mark it as processed.
+            */
         }
 
         /* sentinel client-reconfig-script */
@@ -2037,6 +2062,11 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
                 "sentinel client-reconfig-script %s %s",
                 master->name, master->client_reconfig_script);
             rewriteConfigRewriteLine(state,"sentinel client-reconfig-script",line,1);
+            /* NOTE: in case if there is no monitored masters or master's client_reconfig_script
+             has not been set, but previously has "sentinel client-reconfig-script" config, 
+             a line rewriteConfigMarkAsProcessed should be put at the end of this function 
+             to mark it as processed.
+            */
         }
 
         /* sentinel auth-pass & auth-user */
@@ -2045,6 +2075,11 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
                 "sentinel auth-pass %s %s",
                 master->name, master->auth_pass);
             rewriteConfigRewriteLine(state,"sentinel auth-pass",line,1);
+            /* NOTE: in case if there is no monitored masters or master's auth_pass
+             has not been set, but previously has "sentinel auth-pass" config, 
+             a line rewriteConfigMarkAsProcessed should be put at the end of this function 
+             to mark it as processed.
+            */
         }
 
         if (master->auth_user) {
@@ -2052,6 +2087,11 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
                 "sentinel auth-user %s %s",
                 master->name, master->auth_user);
             rewriteConfigRewriteLine(state,"sentinel auth-user",line,1);
+            /* NOTE: in case if there is no monitored masters or master's auth_user
+             has not been set, but previously has "sentinel auth-user" config, 
+             a line rewriteConfigMarkAsProcessed should be put at the end of this function 
+             to mark it as processed.
+            */
         }
 
         /* sentinel config-epoch */
@@ -2059,12 +2099,23 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
             "sentinel config-epoch %s %llu",
             master->name, (unsigned long long) master->config_epoch);
         rewriteConfigRewriteLine(state,"sentinel config-epoch",line,1);
+        /* NOTE: in case if there is no monitored masters and previously has 
+         "sentinel config-epoch" config for certain masters, a line 
+         rewriteConfigMarkAsProcessed should be put at the end of this function to 
+         mark it as processed.
+        */
+
 
         /* sentinel leader-epoch */
         line = sdscatprintf(sdsempty(),
             "sentinel leader-epoch %s %llu",
             master->name, (unsigned long long) master->leader_epoch);
         rewriteConfigRewriteLine(state,"sentinel leader-epoch",line,1);
+        /* NOTE: in case if there is no monitored masters and previously has 
+         "sentinel leader-epoch" config for certain masters, a line 
+         rewriteConfigMarkAsProcessed should be put at the end of this function to 
+         mark it as processed.
+        */
 
         /* sentinel known-slave */
         di2 = dictGetIterator(master->slaves);
@@ -2085,6 +2136,11 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
                 "sentinel known-replica %s %s %d",
                 master->name, slave_addr->ip, slave_addr->port);
             rewriteConfigRewriteLine(state,"sentinel known-replica",line,1);
+            /* NOTE: in case if there is no monitored masters or all master has no known slaves, 
+             but previously has "sentinel known-replica" config, 
+             a line rewriteConfigMarkAsProcessed should be put at the end of this function 
+             to mark it as processed.
+            */
         }
         dictReleaseIterator(di2);
 
@@ -2097,6 +2153,11 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
                 "sentinel known-sentinel %s %s %d %s",
                 master->name, ri->addr->ip, ri->addr->port, ri->runid);
             rewriteConfigRewriteLine(state,"sentinel known-sentinel",line,1);
+            /* NOTE: in case if there is no monitored masters or all master has no known sentinels, 
+             but previously has "sentinel known-sentinel" config, 
+             a line rewriteConfigMarkAsProcessed should be put at the end of this function 
+             to mark it as processed.
+            */
         }
         dictReleaseIterator(di2);
 
@@ -2109,6 +2170,11 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
                 "sentinel rename-command %s %s %s",
                 master->name, oldname, newname);
             rewriteConfigRewriteLine(state,"sentinel rename-command",line,1);
+            /* NOTE: in case if there is no monitored masters or all master has no renamed_commands, 
+             but previously has "sentinel rename-command" config, 
+             a line rewriteConfigMarkAsProcessed should be put at the end of this function 
+             to mark it as processed.
+            */
         }
         dictReleaseIterator(di2);
     }
@@ -2123,6 +2189,8 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
         line = sdsnew("sentinel announce-ip ");
         line = sdscatrepr(line, sentinel.announce_ip, sdslen(sentinel.announce_ip));
         rewriteConfigRewriteLine(state,"sentinel announce-ip",line,1);
+    } else {
+        rewriteConfigMarkAsProcessed(state,"sentinel announce-ip");
     }
 
     /* sentinel announce-port. */
@@ -2130,18 +2198,24 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
         line = sdscatprintf(sdsempty(),"sentinel announce-port %d",
                             sentinel.announce_port);
         rewriteConfigRewriteLine(state,"sentinel announce-port",line,1);
+    } else {
+        rewriteConfigMarkAsProcessed(state,"sentinel announce-port");
     }
 
     /* sentinel sentinel-user. */
     if (sentinel.sentinel_auth_user) {
         line = sdscatprintf(sdsempty(), "sentinel sentinel-user %s", sentinel.sentinel_auth_user);
         rewriteConfigRewriteLine(state,"sentinel sentinel-user",line,1);
+    } else {
+        rewriteConfigMarkAsProcessed(state,"sentinel sentinel-user");
     }
 
     /* sentinel sentinel-pass. */
     if (sentinel.sentinel_auth_pass) {
         line = sdscatprintf(sdsempty(), "sentinel sentinel-pass %s", sentinel.sentinel_auth_pass);
         rewriteConfigRewriteLine(state,"sentinel sentinel-pass",line,1);
+    } else {
+        rewriteConfigMarkAsProcessed(state,"sentinel sentinel-pass");  
     }
 
     dictReleaseIterator(di);
@@ -2160,10 +2234,6 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
     rewriteConfigMarkAsProcessed(state,"sentinel known-replica");
     rewriteConfigMarkAsProcessed(state,"sentinel known-sentinel");
     rewriteConfigMarkAsProcessed(state,"sentinel rename-command");
-    rewriteConfigMarkAsProcessed(state,"sentinel announce-ip");
-    rewriteConfigMarkAsProcessed(state,"sentinel announce-port");
-    rewriteConfigMarkAsProcessed(state,"sentinel sentinel-user");
-    rewriteConfigMarkAsProcessed(state,"sentinel sentinel-pass");  
 }
 
 /* This function uses the config rewriting Redis engine in order to persist
