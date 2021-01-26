@@ -3073,8 +3073,8 @@ void zrevrangeCommand(client *c) {
 
 /* This command implements ZRANGEBYSCORE, ZREVRANGEBYSCORE. */
 void genericZrangebyscoreCommand(zrange_result_handler *handler,
-    zrangespec *range, robj *zobj, int withscores, long offset,
-    long limit, int reverse) {
+    zrangespec *range, robj *zobj, long offset, long limit, 
+    int reverse) {
 
     client *c = handler->client;
     unsigned long rangelen = 0;
@@ -3625,8 +3625,8 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
         break;
 
     case ZRANGE_SCORE:
-        genericZrangebyscoreCommand(handler, &range, zobj, opt_withscores || store,
-            opt_offset, opt_limit, direction == ZRANGE_DIRECTION_REVERSE);
+        genericZrangebyscoreCommand(handler, &range, zobj, opt_offset,
+            opt_limit, direction == ZRANGE_DIRECTION_REVERSE);
         break;
 
     case ZRANGE_LEX:
