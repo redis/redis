@@ -44,7 +44,6 @@ start_server {} {
 
     test {failover command fails with just force and timeout} {
         catch { $node_0 FAILOVER FORCE TIMEOUT 100} err
-        puts err
         assert_match "ERR*" $err
     }
 

@@ -3515,7 +3515,7 @@ void abortFailover(const char *err) {
 }
 
 /* 
- * FAILOVER [TO <HOST> <IP>] [ABORT] [FORCE] [TIMEOUT <timeout>] 
+ * FAILOVER [TO <HOST> <IP> [FORCE]] [ABORT] [TIMEOUT <timeout>] 
  * 
  * This command will coordinate a failover between the master and one
  * of its replicas. The happy path contains the following steps:
