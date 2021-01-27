@@ -5638,6 +5638,16 @@ static sds expandProcTitleTemplate(const char *template, const char *title) {
         return NULL;
     return sdstrim(res, " ");
 }
+/* Validate the specified template, returns 1 if valid or 0 otherwise. */
+int validateProcTitleTemplate(const char *template) {
+    int ok = 1;
+    sds res = expandProcTitleTemplate(template, "");
+    if (!res)
+        return 0;
+    if (sdslen(res) == 0) ok = 0;
+    sdsfree(res);
+    return ok;
+}
 
 int redisSetProcTitle(char *title) {
 #ifdef USE_SETPROCTITLE
@@ -5646,12 +5656,6 @@ int redisSetProcTitle(char *title) {
     if (!proc_title) {
         /* Shouldn't really happen because of validations... */
         serverLog(LL_WARNING, "Invalid proc-title-template specified, process title not set.");
-        return C_ERR;
-    }
-
-    /* Avoid setproctitle() with an empty string as it doesn't accept it. */
-    if (!proc_title[0]) {
-        sdsfree(proc_title);
         return C_ERR;
     }
 
