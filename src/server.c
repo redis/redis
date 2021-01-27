@@ -201,6 +201,14 @@ struct redisCommand redisCommandTable[] = {
      "read-only fast @string",
      0,NULL,1,1,1,0,0,0},
 
+    {"getex",getexCommand,-2,
+     "write fast @string",
+     0,NULL,1,1,1,0,0,0},
+
+    {"getdel",getdelCommand,2,
+     "write fast @string",
+     0,NULL,1,1,1,0,0,0},
+
     /* Note that we can't flag set as fast, since it may perform an
      * implicit DEL of a large key. */
     {"set",setCommand,-3,
@@ -2532,6 +2540,12 @@ void createSharedObjects(void) {
     /* Used in the LMOVE/BLMOVE commands */
     shared.left = createStringObject("left",4);
     shared.right = createStringObject("right",5);
+    shared.pexpireat = createStringObject("PEXPIREAT",9);
+    shared.pexpire = createStringObject("PEXPIRE",7);
+    shared.persist = createStringObject("PERSIST",7);
+    shared.set = createStringObject("SET",3);
+    shared.pxat = createStringObject("PXAT", 4);
+    shared.px = createStringObject("PX",2);
     for (j = 0; j < OBJ_SHARED_INTEGERS; j++) {
         shared.integers[j] =
             makeObjectShared(createObject(OBJ_STRING,(void*)(long)j));

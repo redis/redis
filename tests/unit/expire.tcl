@@ -209,7 +209,7 @@ start_server {tags {"expire"}} {
         set e
     } {*not an integer*}
 
-    test {EXPIRE and SET EX/PX option, TTL should not be reset after loadaof} {
+    test {EXPIRE and SET/GETEX EX/PX/EXAT/PXAT option, TTL should not be reset after loadaof} {
         # This test makes sure that expire times are propagated as absolute
         # times to the AOF file and not as relative time, so that when the AOF
         # is reloaded the TTLs are not being shifted forward to the future.
@@ -224,6 +224,17 @@ start_server {tags {"expire"}} {
         r pexpire foo4 100000
         r setex foo5 100 bar
         r psetex foo6 100000 bar
+        r set foo7 bar EXAT [expr [clock seconds] + 100]
+        r set foo8 bar PXAT [expr [clock milliseconds] + 100000]
+        r set foo9 bar
+        r getex foo9 EX 100
+        r set foo10 bar
+        r getex foo10 PX 100000
+        r set foo11 bar
+        r getex foo11 EXAT [expr [clock seconds] + 100]
+        r set foo12 bar
+        r getex foo12 PXAT [expr [clock milliseconds] + 100000]
+
         after 2000
         r debug loadaof
         assert_range [r ttl foo1] 90 98
@@ -232,6 +243,12 @@ start_server {tags {"expire"}} {
         assert_range [r ttl foo4] 90 98
         assert_range [r ttl foo5] 90 98
         assert_range [r ttl foo6] 90 98
+        assert_range [r ttl foo7] 90 98
+        assert_range [r ttl foo8] 90 98
+        assert_range [r ttl foo9] 90 98
+        assert_range [r ttl foo10] 90 98
+        assert_range [r ttl foo11] 90 98
+        assert_range [r ttl foo12] 90 98
     }
 
     test {EXPIRE relative and absolute propagation to replicas} {
@@ -248,8 +265,10 @@ start_server {tags {"expire"}} {
         # https://github.com/redis/redis/pull/5171#issuecomment-409553266
 
         set repl [attach_to_replication_stream]
-        r set foo1 bar ex 100
+        r set foo1 bar ex 200
         r set foo1 bar px 100000
+        r set foo1 bar exat [expr [clock seconds]+100]
+        r set foo1 bar pxat [expr [clock milliseconds]+10000]
         r setex foo1 100 bar
         r psetex foo1 100000 bar
         r set foo2 bar
@@ -259,12 +278,19 @@ start_server {tags {"expire"}} {
         r expireat foo3 [expr [clock seconds]+100]
         r pexpireat foo3 [expr [clock seconds]*1000+100000]
         r expireat foo3 [expr [clock seconds]-100]
+        r set foo4 bar
+        r getex foo4 ex 200
+        r getex foo4 px 200000
+        r getex foo4 exat [expr [clock seconds]+100]
+        r getex foo4 pxat [expr [clock milliseconds]+10000]
         assert_replication_stream $repl {
             {select *}
-            {set foo1 bar ex 100}
-            {set foo1 bar px 100000}
-            {setex foo1 100 bar}
-            {psetex foo1 100000 bar}
+            {set foo1 bar PX 200000}
+            {set foo1 bar PX 100000}
+            {set foo1 bar PXAT *}
+            {set foo1 bar PXAT *}
+            {set foo1 bar PX 100000}
+            {set foo1 bar PX 100000}
             {set foo2 bar}
             {expire foo2 100}
             {pexpire foo2 100000}
@@ -272,6 +298,11 @@ start_server {tags {"expire"}} {
             {expireat foo3 *}
             {pexpireat foo3 *}
             {del foo3}
+            {set foo4 bar}
+            {pexpire foo4 200000}
+            {pexpire foo4 200000}
+            {pexpireat foo4 *}
+            {pexpireat foo4 *}
         }
     }
 
@@ -296,5 +327,33 @@ start_server {tags {"expire"}} {
         r debug loadaof
         set ttl [r ttl foo]
         assert {$ttl <= 98 && $ttl > 90}
+    }
+
+    test {GETEX use of PERSIST option should remove TTL} {
+       r set foo bar EX 100
+       r getex foo PERSIST
+       r ttl foo
+    } {-1}
+
+    test {GETEX use of PERSIST option should remove TTL after loadaof} {
+       r set foo bar EX 100
+       r getex foo PERSIST
+       after 2000
+       r debug loadaof
+       r ttl foo
+    } {-1}
+
+    test {GETEX propagate as to replica as PERSIST, DEL, or nothing} {
+       set repl [attach_to_replication_stream]
+       r set foo bar EX 100
+       r getex foo PERSIST
+       r getex foo
+       r getex foo exat [expr [clock seconds]-100]
+       assert_replication_stream $repl {
+           {select *}
+           {set foo bar PX 100000}
+           {persist foo}
+           {del foo}
+        }
     }
 }
