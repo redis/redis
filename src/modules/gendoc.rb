@@ -34,6 +34,34 @@ def markdown(s)
     return newlines.join("\n")
 end
 
+# Linebreak a prototype longer than 80 characters on the commas, but only
+# between balanced parentheses so that we don't linebreak args which are
+# function pointers, and then aligning each arg under each other.
+def linebreak_proto(proto, indent)
+    if proto.bytesize <= 80
+        return proto
+    end
+    parts = proto.split(/,\s*/);
+    if parts.length == 1
+        return proto;
+    end
+    align_pos = proto.index("(") + 1;
+    align = " " * align_pos
+    result = parts.shift;
+    last_part = parts.pop;
+    bracket_balance = 0;
+    parts.each{|part|
+        result += part
+        bracket_balance += part.count("(") - part.count(")")
+        if bracket_balance == 0
+            result += ",\n" + indent + align
+        else
+            result += ", "
+        end
+    }
+    return result + last_part;
+end
+
 # Given the source code array and the index at which an exported symbol was
 # detected, extracts and outputs the documentation.
 def docufy(src,i)
@@ -42,6 +70,7 @@ def docufy(src,i)
     name = name.sub("RM_","RedisModule_")
     proto = src[i].sub("{","").strip+";\n"
     proto = proto.sub("RM_","RedisModule_")
+    proto = linebreak_proto(proto, "    ");
     # Add a link target with the function name. (We don't trust the exact id of
     # the generated one, which depends on the Markdown implementation.)
     puts "<span id=\"#{name}\"></span>\n\n"
