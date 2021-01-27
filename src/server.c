@@ -5902,13 +5902,12 @@ int main(int argc, char **argv) {
     checkTcpBacklogSettings();
 
     if (!server.sentinel_mode) {
-        int ret;
-
         /* Things not needed when running in Sentinel mode. */
         serverLog(LL_WARNING,"Server initialized");
     #ifdef __linux__
         linuxMemoryWarnings();
     #if defined (__arm64__)
+        int ret;
         if ((ret = linuxMadvFreeForkBugCheck())) {
             if (ret == 1)
                 serverLog(LL_WARNING,"WARNING Your kernel has a bug that could lead to data corruption during background save."
