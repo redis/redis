@@ -54,18 +54,41 @@ proc pointInCircular {radius_km lon lat search_lon search_lat} {
 }
 
 # If a point in box
-proc pointInBox {width_km height_km lon lat search_lon search_lat fixed_degree} {
+proc pointInBox {width_km height_km lon lat search_lon search_lat} {
     set width_m [expr {$width_km*1000/2}]
     set height_m [expr {$height_km*1000/2}]
-    set long_delta [geo_raddeg [expr {$width_m/6372797.560856/cos([geo_degrad $search_lat])}]]
     set lat_delta [geo_raddeg [expr {$height_m/6372797.560856}]]
-    if {$lon < [expr {$search_lon-$long_delta-$fixed_degree}] ||
-        $lon > [expr {$search_lon+$long_delta+$fixed_degree}] ||
-        $lat < [expr {$search_lat-$lat_delta-$fixed_degree}] ||
-        $lat > [expr {$search_lat+$lat_delta+$fixed_degree}]} {
-        return false
+    set long_delta_top [geo_raddeg [expr {$width_m/6372797.560856/cos([geo_degrad [expr {$search_lat+$lat_delta}]])}]]
+    set long_delta_bottom [geo_raddeg [expr {$width_m/6372797.560856/cos([geo_degrad [expr {$search_lat-$lat_delta}]])}]]
+
+    set bounds(0) [expr {$search_lon-$long_delta_top}]
+    set bounds(1) [expr {$search_lat+$lat_delta}]
+    set bounds(2) [expr {$search_lon+$long_delta_top}]
+    set bounds(3) [expr {$search_lat+$lat_delta}]
+    set bounds(4) [expr {$search_lon+$long_delta_bottom}]
+    set bounds(5) [expr {$search_lat-$lat_delta}]
+    set bounds(6) [expr {$search_lon-$long_delta_bottom}]
+    set bounds(7) [expr {$search_lat-$lat_delta}]
+
+    set cross 0
+    for {set i 0} {$i < 8} {incr i 2} {
+        set p1x $bounds($i)
+        set p1y $bounds([expr {$i+1}])
+        set p2x $bounds([expr {($i+2)%8}])
+        set p2y $bounds([expr {($i+3)%8}])
+
+        if {$p1y == $p2y} continue
+        if {$lat < [expr {min($p1y, $p2y)}] || $lat > [expr {max($p1y, $p2y)}]} continue
+        set x [expr {($lat - $p1y) * ($p2x - $p1x) / ($p2y - $p1y) + $p1x}]
+        if {$x > $lon} {
+            incr cross
+        }
     }
-    return true
+
+    if {$cross % 2 == 1} {
+        return true;
+    }
+    return false;
 }
 
 # The following list represents sets of random seed, search position
@@ -440,7 +463,7 @@ start_server {tags {"geo"}} {
                         lappend tcl_result "place:$j"
                     }
                 } elseif {$type == "bybox"} {
-                    if {[pointInBox $width_km $height_km $lon $lat $search_lon $search_lat 0]} {
+                    if {[pointInBox $width_km $height_km $lon $lat $search_lon $search_lat]} {
                         lappend tcl_result "place:$j"
                     }
                 }
@@ -476,10 +499,7 @@ start_server {tags {"geo"}} {
                         }
                     } elseif {$type == "bybox"} {
                         # we add fixed 0.01 degree because higher precision calculation
-                        if {[pointInBox $width_km $height_km $lon $lat $search_lon $search_lat 0.01]} {
-                            incr rounding_errors
-                            continue
-                        }
+                        puts $debuginfo
                     }
                 }
 
