@@ -566,24 +566,30 @@ long long dictFingerprint(dict *d) {
     return hash;
 }
 
-dictIterator *dictGetIterator(dict *d)
-{
-    dictIterator *iter = zmalloc(sizeof(*iter));
-
+void dictInitIterator(dictIterator *iter, dict *d) {
     iter->d = d;
     iter->table = 0;
     iter->index = -1;
     iter->safe = 0;
     iter->entry = NULL;
     iter->nextEntry = NULL;
+}
+
+void dictInitSafeIterator(dictIterator *iter, dict *d) {
+    dictInitIterator(iter, d);
+    iter->safe = 1;
+}
+
+dictIterator *dictGetIterator(dict *d) {
+    dictIterator *iter = zmalloc(sizeof(*iter));
+    dictInitIterator(iter,d);
     return iter;
 }
 
 dictIterator *dictGetSafeIterator(dict *d) {
-    dictIterator *i = dictGetIterator(d);
-
-    i->safe = 1;
-    return i;
+    dictIterator *iter = zmalloc(sizeof(*iter));
+    dictInitSafeIterator(iter,d);
+    return iter;
 }
 
 dictEntry *dictNext(dictIterator *iter)

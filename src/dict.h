@@ -173,6 +173,8 @@ void dictRelease(dict *d);
 dictEntry * dictFind(dict *d, const void *key);
 void *dictFetchValue(dict *d, const void *key);
 int dictResize(dict *d);
+void dictInitIterator(dictIterator *iter, dict *d);
+void dictInitSafeIterator(dictIterator *iter, dict *d);
 dictIterator *dictGetIterator(dict *d);
 dictIterator *dictGetSafeIterator(dict *d);
 dictEntry *dictNext(dictIterator *iter);
