@@ -270,6 +270,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_DENY_BLOCKING (1ULL<<41) /* Indicate that the client should not be blocked.
                                            currently, turned on inside MULTI, Lua, RM_Call,
                                            and AOF client */
+#define CLIENT_REPL_RDBONLY (1ULL<<42) /* This client is a replica that only wants
+                                          RDB without replication buffer. */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
