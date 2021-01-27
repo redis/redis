@@ -4,14 +4,17 @@ start_server {} {
     set node_0 [srv 0 client]
     set node_0_host [srv 0 host]
     set node_0_port [srv 0 port]
+    set node_0_pid [srv 0 pid]
 
     set node_1 [srv -1 client]
     set node_1_host [srv -1 host]
     set node_1_port [srv -1 port]
+    set node_1_pid [srv -1 pid]
 
     set node_2 [srv -2 client]
     set node_2_host [srv -2 host]
     set node_2_port [srv -2 port]
+    set node_2_pid [srv -2 pid]
 
     proc assert_digests_match {n1 n2 n3} {
         assert_equal [$n1 debug digest] [$n2 debug digest]
@@ -49,7 +52,7 @@ start_server {} {
 
     test {failover command fails when sent to a replica} {
         catch { $node_1 failover to $node_1_host $node_1_port } err
-         assert_match "ERR*" $err
+        assert_match "ERR*" $err
     }
 
     test {failover command fails with force without timeout} {
@@ -101,7 +104,7 @@ start_server {} {
 
         wait_for_ofs_sync $node_1 $node_2
         # We stop node 0 to and make sure node 2 is selected
-        exec kill -SIGSTOP [srv 0 pid]
+        exec kill -SIGSTOP $node_0_pid
         $node_1 set CASE 1
         $node_1 FAILOVER
 
@@ -111,7 +114,7 @@ start_server {} {
         } else {
             fail "Failover from node 1 to node 2 did not finish"
         }
-        exec kill -SIGCONT [srv 0 pid]
+        exec kill -SIGCONT $node_0_pid
         $node_0 replicaof $node_2_host $node_2_port
 
         wait_for_sync $node_0
@@ -131,7 +134,7 @@ start_server {} {
         set initial_psyncs [s 0 sync_partial_ok]
         set initial_syncs [s 0 sync_full]
 
-        exec kill -SIGSTOP [srv 0 pid]
+        exec kill -SIGSTOP $node_0_pid
         # node 0 will never acknowledge this write
         $node_2 set case 2
         $node_2 failover to $node_0_host $node_0_port TIMEOUT 100 FORCE
@@ -142,7 +145,13 @@ start_server {} {
         } else {
             fail "Failover from node 2 to node 0 did not timeout"
         }
-        exec kill -SIGCONT [srv 0 pid]
+
+        # Quick check that everyone is a replica, we never want a 
+        # state where there are two masters.
+        assert_match *slave* [$node_1 role]
+        assert_match *slave* [$node_2 role]
+
+        exec kill -SIGCONT $node_0_pid
 
         # Wait for failover to end
         wait_for_condition 50 100 {

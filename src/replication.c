@@ -3648,7 +3648,13 @@ void failoverCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-/* Failover cron function, checks coordinated failover state. */
+/* Failover cron function, checks coordinated failover state. 
+ *
+ * Implementation note: The current implementation calls replicationSetMaster()
+ * to start the failover request, this has some unintended side effects if the
+ * failover doesn't work like blocked clients will be unblocked and replicas will
+ * be disconnected. 
+ */
 void updateFailoverStatus(void) {
     if (server.failover_state != FAILOVER_WAIT_FOR_SYNC) return;
     mstime_t now = server.mstime;
