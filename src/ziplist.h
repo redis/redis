@@ -31,6 +31,8 @@
 #ifndef _ZIPLIST_H
 #define _ZIPLIST_H
 
+#include "sds.h"
+
 #define ZIPLIST_HEAD 0
 #define ZIPLIST_TAIL 1
 
@@ -55,7 +57,7 @@ int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
 void ziplistRandomPair(unsigned char *zl,  unsigned long ziplistlen,
                        unsigned char **key, unsigned int *klen, long long *klval,
                        unsigned char **value, unsigned int *vallen, long long *vlval);
-void ziplistRandomPairs(unsigned char *zl, int count, char **keys, char **vals);
+void ziplistRandomPairs(unsigned char *zl, int count, sds *keys, sds *vals);
 
 #ifdef REDIS_TEST
 int ziplistTest(int argc, char *argv[]);

@@ -3951,7 +3951,6 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
     int uniq = 1;
     robj *zsetobj;
     dict *d;
-    double score;
 
     if ((zsetobj = lookupKeyReadOrReply(c, c->argv[1], shared.null[c->resp]))
         == NULL || checkType(c, zsetobj, OBJ_ZSET)) return;
@@ -3984,29 +3983,27 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
             zset *zs = zsetobj->ptr;
             while (count--) {
                 dictEntry *de = dictGetFairRandomKey(zs->dict);
+                sds key = dictGetKey(de);
                 if (withscores && c->resp > 2)
                     addReplyArrayLen(c,2);
-                addReplyBulkSds(c, dictGetKey(de));
+                addReplyBulkCBuffer(c, key, sdslen(key));
                 if (withscores)
                     addReplyDouble(c, dictGetDoubleVal(de));
             }
         } else if (zsetobj->encoding == OBJ_ENCODING_ZIPLIST) {
-            char **keys, **vals = NULL;
-            keys = zmalloc(sizeof(char *)*count);
+            sds *keys, *vals = NULL;
+            keys = zmalloc(sizeof(sds*)*count);
             if (withscores)
-                vals = zmalloc(sizeof(char *)*count);
+                vals = zmalloc(sizeof(sds*)*count);
             ziplistRandomPairs(zsetobj->ptr, count, keys, vals);
             for (unsigned long i = 0; i < count; i++) {
                 if (withscores && c->resp > 2)
                     addReplyArrayLen(c,2);
-                addReplyBulkCBuffer(c, keys[i], strlen(keys[i]));
+                addReplyBulkSds(c, keys[i]);
                 if (withscores) {
                     addReplyDouble(c, strtod(vals[i],NULL));
+                    sdsfree(vals[i]);
                 }
-            }
-            for (unsigned long i = 0; i < count; ++i) {
-                zfree(keys[i]);
-                if (vals) zfree(vals[i]);
             }
             zfree(keys);
             zfree(vals);
@@ -4020,6 +4017,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
     src.type = zsetobj->type;
     src.encoding = zsetobj->encoding;
     zuiInitIterator(&src);
+    memset(&zval, 0, sizeof(zval));
 
     /* CASE 2:
     * The number of requested elements is greater than the number of
@@ -4030,12 +4028,11 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
         else
             addReplyArrayLen(c, size);
         while (zuiNext(&src, &zval)) {
-            score = zval.score;
             if (withscores && c->resp > 2)
                 addReplyArrayLen(c,2);
-            addReplyBulkSds(c, zuiSdsFromValue(&zval));
+            addReplyBulkSds(c, zuiNewSdsFromValue(&zval));
             if (withscores)
-                addReplyDouble(c, score);
+                addReplyDouble(c, zval.score);
         }
         return;
     }
@@ -4054,8 +4051,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
     if(count*ZRANDMEMBER_SUB_STRATEGY_MUL > size) {
         /* Add all the elements into the temporary dictionary. */
         while (zuiNext(&src, &zval)) {
-            sds key;
-            key = zuiNewSdsFromValue(&zval);
+            sds key = zuiNewSdsFromValue(&zval);
             dictEntry *de = dictAddRaw(d, key, NULL);
             serverAssert(de);
             if (withscores)
@@ -4067,7 +4063,9 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
         while(size > count) {
             dictEntry *de;
             de = dictGetRandomKey(d);
-            dictDelete(d,dictGetKey(de));
+            dictUnlink(d,dictGetKey(de));
+            sdsfree(dictGetKey(de));
+            dictFreeUnlinkedEntry(d,de);
             size--;
         }
     }
@@ -4081,6 +4079,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
 
         while(added < count) {
             sds key;
+            double score;
             zsetTypeRandomElement(zsetobj, size, &key, withscores ? &score: NULL);
             /* Try to add the object to the dictionary. If it already exists
             * free it, otherwise increment the number of objects we have

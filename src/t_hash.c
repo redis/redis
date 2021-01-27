@@ -1001,21 +1001,17 @@ void hrandmemberWithCountCommand(client *c, long l, int withvalues) {
                     addReplyBulkCBuffer(c, value, sdslen(value));
             }
         } else if (hash->encoding == OBJ_ENCODING_ZIPLIST) {
-            char **keys, **vals = NULL;
-            keys = zmalloc(sizeof(char *)*count);
+            sds *keys, *vals = NULL;
+            keys = zmalloc(sizeof(sds*)*count);
             if (withvalues)
-                vals = zmalloc(sizeof(char *)*count);
+                vals = zmalloc(sizeof(sds*)*count);
             ziplistRandomPairs(hash->ptr, count, keys, vals);
             for (unsigned long i = 0; i < count; i++) {
                 if (withvalues && c->resp > 2)
                     addReplyArrayLen(c,2);
-                addReplyBulkCBuffer(c, keys[i], strlen(keys[i]));
+                addReplyBulkSds(c, keys[i]);
                 if (withvalues)
-                    addReplyBulkCBuffer(c, vals[i], strlen(vals[i]));
-            }
-            for (unsigned long i = 0; i < count; ++i) {
-                zfree(keys[i]);
-                if (vals) zfree(vals[i]);
+                    addReplyBulkSds(c, vals[i]);
             }
             zfree(keys);
             zfree(vals);
@@ -1074,7 +1070,10 @@ void hrandmemberWithCountCommand(client *c, long l, int withvalues) {
         while(size > count) {
             dictEntry *de;
             de = dictGetRandomKey(d);
-            dictDelete(d,dictGetKey(de));
+            dictUnlink(d,dictGetKey(de));
+            sdsfree(dictGetKey(de));
+            sdsfree(dictGetVal(de));
+            dictFreeUnlinkedEntry(d,de);
             size--;
         }
     }

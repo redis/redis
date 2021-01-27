@@ -1530,24 +1530,22 @@ int intCompare(const void *a, const void *b) {
 }
 
 /* Helper method to store a string into from val or lval into dest */
-void ziplistSaveValue(unsigned char *val, unsigned int len, long long lval, char **dest) {
+void ziplistSaveValue(unsigned char *val, unsigned int len, long long lval, sds *dest) {
     if (val) {
-        *dest = zmalloc(len+1);
+        *dest = sdsnewlen(val, len);
         memcpy(*dest, val, len);
         (*dest)[len] = '\0';
     } else {
         char buf[32];
         int l = ll2string(buf,sizeof(buf),lval);
-        *dest = zmalloc(l+1);
-        memcpy(*dest, buf, l);
-        (*dest)[l] = '\0';
+        *dest = sdsnewlen(buf, l);
     }
 }
 
 /* Randomly select unique count of key value pairs and store into 'keys' and
  * 'vals' args. The order of the picked entries is random.
  * The 'vals' arg can be NULL in which case we skip these. */
-void ziplistRandomPairs(unsigned char *zl, int count, char **keys, char **vals) {
+void ziplistRandomPairs(unsigned char *zl, int count, sds *keys, sds *vals) {
     unsigned char *p, *key, *value;
     unsigned int klen, vlen;
     long long klval, vlval;
@@ -1568,19 +1566,19 @@ void ziplistRandomPairs(unsigned char *zl, int count, char **keys, char **vals) 
     qsort(picks, count, sizeof(rand_pick), intCompare);
 
     /* fetch the elements form the ziplist into a output array. */
-    int i = 0, j = 0, k = 0;
+    int zipindex = 0, pickindex = 0;
     p = ziplistIndex(zl, 0);
-    while (ziplistGet(p, &key, &klen, &klval)) {
+    while (ziplistGet(p, &key, &klen, &klval) && pickindex < count) {
         p = ziplistNext(zl, p);
         ziplistGet(p, &value, &vlen, &vlval);
-        for (; i == picks[j].index; ++j) {
-            int order = picks[j].order;
-            ziplistSaveValue(key, klen, klval, &keys[order]);
+        while (pickindex < count && zipindex == picks[pickindex].index) {
+            int storeorder = picks[pickindex].order;
+            ziplistSaveValue(key, klen, klval, &keys[storeorder]);
             if (vals)
-                ziplistSaveValue(value, vlen, vlval, &vals[order]);
-            k++;
+                ziplistSaveValue(value, vlen, vlval, &vals[storeorder]);
+             pickindex++;
         }
-        i += 2;
+        zipindex += 2;
         p = ziplistNext(zl, p);
     }
 
@@ -1590,7 +1588,6 @@ void ziplistRandomPairs(unsigned char *zl, int count, char **keys, char **vals) 
 #ifdef REDIS_TEST
 #include <sys/time.h>
 #include "adlist.h"
-#include "sds.h"
 
 #define debug(f, ...) { if (DEBUG) printf(f, __VA_ARGS__); }
 
