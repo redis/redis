@@ -20,84 +20,109 @@ start_server {tags {"hash"}} {
 
     proc create_hash {key entries} {
         r del $key
-        foreach entry $entries { r hset $key $entry 1 }
-    }
-
-    foreach {type contents} "ziplist {1 2 3} hashtable {a b c[randstring 70 90 alpha]}" {
-
-        test "HRANDMEMBER - $type" {
-            create_hash myhash $contents;
-            assert_encoding $type myhash
-            unset -nocomplain myhash
-            array set myhash {}
-            for {set i 0} {$i < 100} {incr i} {
-                lassign [r hrandmember myhash] key val
-                set myhash($key) $val
-            }
-            assert_equal [lsort $contents] [lsort [array names myhash]]
+        foreach entry $entries {
+            r hset $key [lindex $entry 0] [lindex $entry 1]
         }
     }
 
+    proc get_keys {l} {
+        set res {}
+        foreach entry $l {
+            set key [lindex $entry 0]
+            lappend res $key
+        }
+        return $res
+    }
+
+    foreach {type contents} "ziplist {{a 1} {b 2} {c 3}} hashtable {{a 1} {b 2} {[randstring 70 90 alpha] 3}}" {
+        set original_max_value [lindex [r config get hash-max-ziplist-value] 1]
+        r config set hash-max-ziplist-value 10
+        create_hash myhash $contents
+        assert_encoding $type myhash
+
+        test "HRANDMEMBER - $type" {
+            unset -nocomplain myhash
+            array set myhash {}
+            for {set i 0} {$i < 100} {incr i} {
+                set key [r hrandmember myhash]
+                set myhash($key) 1
+            }
+            assert_equal [lsort [get_keys $contents]] [lsort [array names myhash]]
+        }
+        r config set hash-max-ziplist-value $original_max_value
+    }
+
+    test "HRANDMEMBER with RESP3" {
+        r hello 3
+        set res [r hrandmember myhash 3 withvalues]
+        assert_equal [llength $res] 3
+        assert_equal [llength [lindex $res 1]] 2
+
+        set res [r hrandmember myhash 3]
+        assert_equal [llength $res] 3
+        assert_equal [llength [lindex $res 1]] 1
+    }
+    r hello 2
+
+    test "HRANDMEMBER count of 0 is handled correctly" {
+        r hrandmember myhash 0
+    } {}
 
     test "HRANDMEMBER with <count> against non existing key" {
         r hrandmember nonexisting_key 100
     } {}
 
     foreach {type contents} "
-        hashtable {
-            1 5 10 50 125 50000 33959417 4775547 65434162
-            12098459 427716 483706 2726473884 72615637475
-            MARY PATRICIA LINDA BARBARA ELIZABETH JENNIFER MARIA
-            SUSAN MARGARET DOROTHY LISA NANCY KAREN BETTY HELEN
-            SANDRA DONNA CAROL RUTH SHARON MICHELLE LAURA SARAH
-            KIMBERLY DEBORAH JESSICA SHIRLEY CYNTHIA ANGELA MELISSA
-            BRENDA AMY ANNA REBECCA VIRGINIA c[randstring 70 90 alpha]
-        }
-        ziplist {
-            0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19
-            20 21 22 23 24 25 26 27 28 2d9
-            30 31 32 33 34 35 36 37 38 39
-            40 41 42 43 44 45 46 47 48 49
-        }
-    " {
+        hashtable {{a 1} {b 2} {c 3} {d 4} {e 5} {6 f} {7 g} {8 h} {9 i} {[randstring 70 90 alpha] 10}}
+        ziplist {{a 1} {b 2} {c 3} {d 4} {e 5} {6 f} {7 g} {8 h} {9 i} {10 j}} " {
         test "HRANDMEMBER with <count> - $type" {
+            set original_max_value [lindex [r config get hash-max-ziplist-value] 1]
+            r config set hash-max-ziplist-value 10
             create_hash myhash $contents
-            unset -nocomplain myhash
-            foreach ele [r hkeys myhash] {
-                dict append myhash $ele 1
-            }
-            assert_equal [lsort $contents] [lsort [dict keys $myhash]]
+            assert_encoding $type myhash
 
-            # Make sure that a count of 0 is handled correctly.
-            assert_equal [r hrandmember myhash 0] {}
+            # create a dict for easy lookup
+            unset -nocomplain mydict
+            foreach {k v} [r hgetall myhash] {
+                dict append mydict $k $v
+            }
 
             # We'll stress different parts of the code, see the implementation
             # of HRANDMEMBER for more information, but basically there are
             # four different code paths.
-            #
-            # PATH 1: Use negative count.
-            #
-            # 1) Check that it returns repeated elements.
-            set res [r hrandmember myhash 100]
-            # assert_equal [llength $res] 200
-            # If not asked, decide not to implement this feature.
 
-            # 2) Check that all the elements actually belong to the
-            # original set.
+            # PATH 1: Use negative count.
+
+            # 1) Check that it returns repeated elements with and without values.
+            set res [r hrandmember myhash -20]
+            assert_equal [llength $res] 20
+            # again with WITHVALUES
+            set res [r hrandmember myhash -20 withvalues]
+            assert_equal [llength $res] 40
+
+            # 2) Check that all the elements actually belong to the original hash.
             foreach {key val} $res {
-                assert {[dict exists $myhash $key]}
+                assert {[dict exists $mydict $key]}
             }
 
             # 3) Check that eventually all the elements are returned.
+            #    Use both WITHVALUES and without
             unset -nocomplain auxset
             set iterations 1000
             while {$iterations != 0} {
                 incr iterations -1
-                set res [r hrandmember myhash -10]
-                foreach {key val} $res {
-                    dict append auxset $key $val
+                if {[expr {$iterations % 2}] == 0} {
+                    set res [r hrandmember myhash -3 withvalues]
+                    foreach {key val} $res {
+                        dict append auxset $key $val
+                    }
+                } else {
+                    set res [r hrandmember myhash -3]
+                    foreach key $res {
+                        dict append auxset $key $val
+                    }
                 }
-                if {[lsort [dict keys $myhash]] eq
+                if {[lsort [dict keys $mydict]] eq
                     [lsort [dict keys $auxset]]} {
                     break;
                 }
@@ -106,10 +131,15 @@ start_server {tags {"hash"}} {
 
             # PATH 2: positive count (unique behavior) with requested size
             # equal or greater than set size.
-            foreach size {50 100} {
+            foreach size {10 20} {
                 set res [r hrandmember myhash $size]
-                assert_equal [dict size $res] 50
-                assert_equal [lsort [dict keys $res]] [lsort [dict keys $myhash]]
+                assert_equal [llength $res] 10
+                assert_equal [lsort $res] [lsort [dict keys $mydict]]
+
+                # again with WITHVALUES
+                set res [r hrandmember myhash $size withvalues]
+                assert_equal [llength $res] 20
+                assert_equal [lsort $res] [lsort $mydict]
             }
 
             # PATH 3: Ask almost as elements as there are in the set.
@@ -121,27 +151,37 @@ start_server {tags {"hash"}} {
             #
             # We can test both the code paths just changing the size but
             # using the same code.
-
-            foreach size {45 5} {
+            foreach size {8 2} {
                 set res [r hrandmember myhash $size]
-                assert_equal [dict size $res] $size
+                assert_equal [llength $res] $size
+                # again with WITHVALUES
+                set res [r hrandmember myhash $size withvalues]
+                assert_equal [llength $res] [expr {$size * 2}]
 
                 # 1) Check that all the elements actually belong to the
                 # original set.
                 foreach ele [dict keys $res] {
-                    assert {[dict exists $myhash $ele]}
+                    assert {[dict exists $mydict $ele]}
                 }
 
                 # 2) Check that eventually all the elements are returned.
+                #    Use both WITHVALUES and without
                 unset -nocomplain auxset
                 set iterations 1000
                 while {$iterations != 0} {
                     incr iterations -1
-                    set res [r hrandmember myhash -10]
-                    foreach {key value} $res {
-                        dict append auxset $key $value
+                    if {[expr {$iterations % 2}] == 0} {
+                        set res [r hrandmember myhash $size withvalues]
+                        foreach {key value} $res {
+                            dict append auxset $key $value
+                        }
+                    } else {
+                        set res [r hrandmember myhash $size]
+                        foreach key $res {
+                            dict append auxset $key
+                        }
                     }
-                    if {[lsort [dict keys $myhash]] eq
+                    if {[lsort [dict keys $mydict]] eq
                         [lsort [dict keys $auxset]]} {
                         break;
                     }
@@ -149,6 +189,7 @@ start_server {tags {"hash"}} {
                 assert {$iterations != 0}
             }
         }
+        r config set hash-max-ziplist-value $original_max_value
     }
 
 
