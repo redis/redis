@@ -3653,7 +3653,7 @@ void failoverCommand(client *c) {
  * Implementation note: The current implementation calls replicationSetMaster()
  * to start the failover request, this has some unintended side effects if the
  * failover doesn't work like blocked clients will be unblocked and replicas will
- * be disconnected.
+ * be disconnected. This could be optimized further.
  */
 void updateFailoverStatus(void) {
     if (server.failover_state != FAILOVER_WAIT_FOR_SYNC) return;
