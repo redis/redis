@@ -53,15 +53,19 @@
  * to the function to avoid too many gettimeofday() syscalls. */
 int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
     long long t = dictGetSignedIntegerVal(de);
+    mstime_t expire_latency;
     if (now > t) {
         sds key = dictGetKey(de);
         robj *keyobj = createStringObject(key,sdslen(key));
 
         propagateExpire(db,keyobj,server.lazyfree_lazy_expire);
+        latencyStartMonitor(expire_latency);
         if (server.lazyfree_lazy_expire)
             dbAsyncDelete(db,keyobj);
         else
             dbSyncDelete(db,keyobj);
+        latencyEndMonitor(expire_latency);
+        latencyAddSampleIfNeeded("expire-del",expire_latency);
         notifyKeyspaceEvent(NOTIFY_EXPIRED,
             "expired",keyobj,db->id);
         signalModifiedKey(NULL, db, keyobj);
@@ -224,7 +228,7 @@ void activeExpireCycle(int type) {
             /* When there are less than 1% filled slots, sampling the key
              * space is expensive, so stop here waiting for better times...
              * The dictionary will be resized asap. */
-            if (num && slots > DICT_HT_INITIAL_SIZE &&
+            if (slots > DICT_HT_INITIAL_SIZE &&
                 (num*100/slots < 1)) break;
 
             /* The main collection cycle. Sample random keys among keys

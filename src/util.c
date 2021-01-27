@@ -749,7 +749,7 @@ sds getAbsolutePath(char *filename) {
  * Gets the proper timezone in a more portable fashion
  * i.e timezone variables are linux specific.
  */
-unsigned long getTimeZone(void) {
+long getTimeZone(void) {
 #if defined(__linux__) || defined(__sun)
     return timezone;
 #else
@@ -758,7 +758,7 @@ unsigned long getTimeZone(void) {
 
     gettimeofday(&tv, &tz);
 
-    return tz.tz_minuteswest * 60UL;
+    return tz.tz_minuteswest * 60L;
 #endif
 }
 

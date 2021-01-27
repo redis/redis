@@ -58,3 +58,14 @@ jobs:
       run: |
         yum -y install gcc make
         make REDIS_CFLAGS='-Werror'
+        
+  build-freebsd:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: make
+      uses: vmactions/freebsd-vm@v0.1.0
+      with:
+        usesh: true
+        prepare: pkg install -y gmake
+        run: gmake
