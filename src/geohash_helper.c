@@ -275,7 +275,7 @@ int is_double_eq(double a, double b) {
  *
  * ray-crossing Algorithm refer: http://erich.realtimerendering.com/ptinpoly/
  */
-int geohashGetDistanceIfInRectangle(double *bounds, double x1, double y1,
+int geohashGetDistanceIfInTrapezoid(double *bounds, double x1, double y1,
                                     double x2, double y2, double *distance) {
     /* Use max_lon max_lat min_lat min_lat to quickly exclude some points */
     int southern_hemisphere = y1 < 0 ? 1 : 0;
