@@ -206,10 +206,13 @@ set system_name [string tolower [exec uname -s]]
 if {$system_name eq {linux}} {
 
 start_server {overrides {save ""}} {
-    test {Test child sending COW info} {
+    test {Test child sending info} {
         # make sure that rdb_last_cow_size and current_cow_size are zero (the test using new server),
         # so that the comparisons during the test will be valid
         assert {[s current_cow_size] == 0}
+        assert {[s current_processed_keys] == 0}
+        assert {[s keys_on_bgsave_start] == 0}
+
         assert {[s rdb_last_cow_size] == 0}
 
         # using a 200us delay, the bgsave is empirically taking about 10 seconds.
@@ -234,14 +237,24 @@ start_server {overrides {save ""}} {
         # start background rdb save
         r bgsave
 
+        set keys_on_bgsave_start [s keys_on_bgsave_start]
+        if {$::verbose} {
+            puts "Keys before bgsave start: $keys_on_bgsave_start"
+        }
+
         # on each iteration, we will write some key to the server to trigger copy-on-write, and
         # wait to see that it reflected in INFO.
         set iteration 1
         while 1 {
-            # take a sample before writing new data to the server
+            # take samples before writing new data to the server
             set cow_size [s current_cow_size]
             if {$::verbose} {
                 puts "COW info before copy-on-write: $cow_size"
+            }
+
+            set current_processed_keys [s current_processed_keys]
+            if {$::verbose} {
+                puts "current_processed_keys info : $current_processed_keys"
             }
 
             # trigger copy-on-write
@@ -257,6 +270,21 @@ start_server {overrides {save ""}} {
                     puts [exec tail -n 100 < [srv 0 stdout]]
                 }
                 fail "COW info wasn't reported"
+            }
+
+            # assert that $current_processed_keys is not greater than keys on start.
+            assert_morethan_equal $keys_on_bgsave_start $current_processed_keys
+  
+            # wait to see that $current_processed_keys value updated (as long as the child is in progress)
+            wait_for_condition 80 100 {
+                [s rdb_bgsave_in_progress] == 0 ||
+                [s current_processed_keys] > $current_processed_keys
+            } else {
+                if {$::verbose} {
+                    puts "current_processed_keys info on fail: [s current_processed_keys]"
+                    puts [exec tail -n 100 < [srv 0 stdout]]
+                }
+                fail "current_processed_keys info wasn't reported"
             }
 
             # for no accurate, stop after 2 iterations

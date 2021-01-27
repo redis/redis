@@ -1598,6 +1598,8 @@ void resetChildState() {
     server.child_type = CHILD_TYPE_NONE;
     server.child_pid = -1;
     server.stat_current_cow_bytes = 0;
+    server.stat_current_processed_keys = 0;
+    server.stat_keys_on_bgsave_start = 0;
     updateDictResizePolicy();
     closeChildInfoPipe();
 }
@@ -3167,6 +3169,8 @@ void initServer(void) {
     server.stat_starttime = time(NULL);
     server.stat_peak_memory = 0;
     server.stat_current_cow_bytes = 0;
+    server.stat_current_processed_keys = 0;
+    server.stat_keys_on_bgsave_start = 0;
     server.stat_rdb_cow_bytes = 0;
     server.stat_aof_cow_bytes = 0;
     server.stat_module_cow_bytes = 0;
@@ -4681,6 +4685,8 @@ sds genRedisInfoString(const char *section) {
             "# Persistence\r\n"
             "loading:%d\r\n"
             "current_cow_size:%zu\r\n"
+            "current_processed_keys:%zu\r\n"
+            "keys_on_bgsave_start:%zu\r\n"
             "rdb_changes_since_last_save:%lld\r\n"
             "rdb_bgsave_in_progress:%d\r\n"
             "rdb_last_save_time:%jd\r\n"
@@ -4700,6 +4706,8 @@ sds genRedisInfoString(const char *section) {
             "module_fork_last_cow_size:%zu\r\n",
             (int)server.loading,
             server.stat_current_cow_bytes,
+            server.stat_current_processed_keys,
+            server.stat_keys_on_bgsave_start,
             server.dirty,
             server.child_type == CHILD_TYPE_RDB,
             (intmax_t)server.lastsave,
@@ -5564,6 +5572,8 @@ int redisFork(int purpose) {
             server.child_pid = childpid;
             server.child_type = purpose;
             server.stat_current_cow_bytes = 0;
+            server.stat_current_processed_keys = 0;
+            server.stat_keys_on_bgsave_start = 0;
         }
 
         updateDictResizePolicy();
@@ -5571,16 +5581,16 @@ int redisFork(int purpose) {
     return childpid;
 }
 
-void sendChildCOWInfo(int ptype, int on_exit, char *pname) {
+void sendChildCOWInfo(int ptype, char *pname) {
     size_t private_dirty = zmalloc_get_private_dirty(-1);
 
     if (private_dirty) {
-        serverLog(on_exit ? LL_NOTICE : LL_VERBOSE,
+        serverLog((ptype == CHILD_INFO_TYPE_CURRENT_COW_SIZE) ? LL_VERBOSE : LL_NOTICE,
             "%s: %zu MB of memory used by copy-on-write",
             pname, private_dirty/(1024*1024));
     }
 
-    sendChildInfo(ptype, on_exit, private_dirty);
+    sendChildInfo(ptype, private_dirty);
 }
 
 void memtest(size_t megabytes, int passes);

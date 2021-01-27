@@ -1491,7 +1491,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
                 key_count = 0;
                 long long now = mstime();
                 if (now - cow_updated_time >= 1000) {
-                    sendChildCOWInfo(CHILD_TYPE_AOF, 0, "AOF rewrite");
+                    sendChildCOWInfo(CHILD_INFO_TYPE_CURRENT_COW_SIZE, "AOF rewrite");
                     cow_updated_time = now;
                 }
             }
@@ -1610,7 +1610,7 @@ int rewriteAppendOnlyFile(char *filename) {
         /* Update COW info */
         long long now = mstime();
         if (now - cow_updated_time >= 1000) {
-            sendChildCOWInfo(CHILD_TYPE_AOF, 0, "AOF rewrite");
+            sendChildCOWInfo(CHILD_INFO_TYPE_CURRENT_COW_SIZE, "AOF rewrite");
             cow_updated_time = now;
         }
     }
@@ -1744,7 +1744,7 @@ int rewriteAppendOnlyFileBackground(void) {
         redisSetCpuAffinity(server.aof_rewrite_cpulist);
         snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
         if (rewriteAppendOnlyFile(tmpfile) == C_OK) {
-            sendChildCOWInfo(CHILD_TYPE_AOF, 1, "AOF rewrite");
+            sendChildCOWInfo(CHILD_INFO_TYPE_AOF_COW_SIZE, "AOF rewrite");
             exitFromChild(0);
         } else {
             exitFromChild(1);
