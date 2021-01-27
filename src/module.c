@@ -185,6 +185,13 @@ struct RedisModuleKey {
 
     union {
         struct {
+            /* List, use only if value->type == OBJ_LIST */
+            listTypeEntry entry;   /* Current entry in iteration. */
+            int hascurrent;        /* 1 if Next() was just called. */
+            int reseek;            /* Flag: Need to reseek after inserting. */
+            long index;            /* Current 0-based index in iteration. */
+        } list;
+        struct {
             /* Zset iterator, use only if value->type == OBJ_ZSET */
             uint32_t type;         /* REDISMODULE_ZSET_RANGE_* */
             zrangespec rs;         /* Score range. */
@@ -388,6 +395,7 @@ void RM_CloseKey(RedisModuleKey *key);
 void autoMemoryCollect(RedisModuleCtx *ctx);
 robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *flags, va_list ap);
 void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx);
+int RM_ListIteratorStop(RedisModuleKey *key);
 void RM_ZsetRangeStop(RedisModuleKey *kp);
 static void zsetKeyReset(RedisModuleKey *key);
 static void moduleInitKeyTypeSpecific(RedisModuleKey *key);
@@ -2436,12 +2444,21 @@ static void moduleCloseKey(RedisModuleKey *key) {
     int signal = SHOULD_SIGNAL_MODIFIED_KEYS(key->ctx);
     if ((key->mode & REDISMODULE_WRITE) && signal)
         signalModifiedKey(key->ctx->client,key->db,key->key);
-    if (key->iter) zfree(key->iter);
-    RM_ZsetRangeStop(key);
-    if (key && key->value && key->value->type == OBJ_STREAM &&
-        key->u.stream.signalready) {
-        /* One of more RM_StreamAdd() have been done. */
-        signalKeyAsReady(key->db, key->key, OBJ_STREAM);
+    if (key->value) {
+        switch (key->value->type) {
+        case OBJ_LIST:
+            if (key->iter) RM_ListIteratorStop(key);
+            break;
+        case OBJ_ZSET:
+            RM_ZsetRangeStop(key);
+            break;
+        case OBJ_STREAM:
+            if (key->iter) zfree(key->iter);
+            if (key->u.stream.signalready)
+                /* One of more RM_StreamAdd() have been done. */
+                signalKeyAsReady(key->db, key->key, OBJ_STREAM);
+            break;
+        }
     }
     decrRefCount(key->key);
 }
@@ -2745,6 +2762,7 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
 int RM_ListPush(RedisModuleKey *key, int where, RedisModuleString *ele) {
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
     if (key->value && key->value->type != OBJ_LIST) return REDISMODULE_ERR;
+    if (key->iter) return REDISMODULE_ERR;
     if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_LIST);
     listTypePush(key->value, ele,
         (where == REDISMODULE_LIST_HEAD) ? LIST_HEAD : LIST_TAIL);
@@ -2758,11 +2776,13 @@ int RM_ListPush(RedisModuleKey *key, int where, RedisModuleString *ele) {
  *
  * 1. The list is empty.
  * 2. The key was not open for writing.
- * 3. The key is not a list. */
+ * 3. The key is not a list.
+ * 4. The key has an interator started. */
 RedisModuleString *RM_ListPop(RedisModuleKey *key, int where) {
     if (!(key->mode & REDISMODULE_WRITE) ||
         key->value == NULL ||
         key->value->type != OBJ_LIST) return NULL;
+    if (key->iter) return NULL;
     robj *ele = listTypePop(key->value,
         (where == REDISMODULE_LIST_HEAD) ? LIST_HEAD : LIST_TAIL);
     robj *decoded = getDecodedObject(ele);
@@ -2770,6 +2790,342 @@ RedisModuleString *RM_ListPop(RedisModuleKey *key, int where) {
     moduleDelKeyIfEmpty(key);
     autoMemoryAdd(key->ctx,REDISMODULE_AM_STRING,decoded);
     return decoded;
+}
+
+/* Returns the element at index `index` in the list stored at `key`, like the
+ * LINDEX command.
+ *
+ * The index is zero-based, so 0 means the first element, 1 the second element
+ * and so on. Negative indices can be used to designate elements starting at the
+ * tail of the list. Here, -1 means the last element, -2 means the penultimate
+ * and so forth.
+ *
+ * When no value is found at the given key and index, an NULL is returned and
+ * `errno` is set as follows:
+ *
+ * - EINVAL if key is NULL.
+ * - ENOTSUP if the key is not a list.
+ * - EBADF if the key is not opened for reading.
+ * - EDOM if the index is out of range.
+ */
+RedisModuleString *RM_ListGet(RedisModuleKey *key, long index) {
+    if (!key) {
+        errno = EINVAL;
+        return NULL;
+    } else if (!key->value || key->value->type != OBJ_LIST) {
+        errno = ENOTSUP;
+        return NULL;
+    } else if (!(key->mode & REDISMODULE_READ)) {
+        errno = EBADF;
+        return NULL;
+    }
+    RedisModuleString *value = listTypeIndex(key->value, index);
+    if (value) {
+        autoMemoryAdd(key->ctx, REDISMODULE_AM_STRING, value);
+        return value;
+    } else {
+        errno = EDOM;
+        return NULL;
+    }
+}
+
+/* Replaces the element at index `index` in the list stored at `key`.
+ *
+ * The index is zero-based, so 0 means the first element, 1 the second element
+ * and so on. Negative indices can be used to designate elements starting at the
+ * tail of the list. Here, -1 means the last element, -2 means the penultimate
+ * and so forth.
+ *
+ * On success, REDISMODULE_OK is returned. On failure, REDISOMDULE_ERR is
+ * returned and `errno` is set as follows:
+ *
+ * - EINVAL if key or value is NULL.
+ * - ENOTSUP if the key is not a list.
+ * - EBADF if the key is not opened for writing or if the key has an iterator
+ *   started.
+ * - EDOM if the index is out of range.
+ */
+int RM_ListSet(RedisModuleKey *key, long index, RedisModuleString *value) {
+    if (!key || !value) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    } else if (!key->value || key->value->type != OBJ_LIST) {
+        errno = ENOTSUP;
+        return REDISMODULE_ERR;
+    } else if (!(key->mode & REDISMODULE_WRITE) || key->iter) {
+        errno = EBADF;
+        return REDISMODULE_ERR;
+    }
+    if (listTypeSet(key->value, index, value)) {
+        return REDISMODULE_OK;
+    } else {
+        errno = EDOM;
+        return REDISMODULE_ERR;
+    }
+}
+
+/* Inserts an element before or after the element at the given index.
+ *
+ * The `where` argument is either REDISMODULE_LIST_BEFORE or
+ * REDISMODULE_LIST_AFTER.
+ *
+ * The index is zero-based, so 0 means the first element, 1 the second element
+ * and so on. Negative indices can be used to designate elements starting at the
+ * tail of the list. Here, -1 means the last element, -2 means the penultimate
+ * and so forth.
+ *
+ * On success, REDISMODULE_OK is returned. On failure, REDISOMDULE_ERR is
+ * returned and `errno` is set as follows:
+ *
+ * - EINVAL if key or value is NULL.
+ * - ENOTSUP if the key is not a list.
+ * - EBADF if the key is not opened for writing or if the key has an iterator
+ *   started.
+ * - EDOM if the index is out of range.
+ */
+int RM_ListInsert(RedisModuleKey *key, int where, long index, RedisModuleString *value) {
+    if (!key || !value) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    } else if (!key->value || key->value->type != OBJ_LIST) {
+        errno = ENOTSUP;
+        return REDISMODULE_ERR;
+    } else if (!(key->mode & REDISMODULE_WRITE) || key->iter) {
+        errno = EBADF;
+        return REDISMODULE_ERR;
+    }
+    listTypeIterator *li = listTypeInitIterator(key->value, index, LIST_TAIL);
+    listTypeEntry entry;
+    int success = listTypeNext(li, &entry);
+    if (success) {
+        where = (where == REDISMODULE_LIST_AFTER) ? LIST_TAIL : LIST_HEAD;
+        listTypeInsert(&entry, value, where);
+    } else {
+        errno = EDOM;
+    }
+    listTypeReleaseIterator(li);
+    return success ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
+/* Removes an element at the given index. The index is 0-based. A negative index
+ * can also be used, counting from the end of the list.
+ *
+ * On success, REDISMODULE_OK is returned. On failure, REDISOMDULE_ERR is
+ * returned and `errno` is set as follows:
+ *
+ * - EINVAL if key or value is NULL.
+ * - ENOTSUP if the key is not a list.
+ * - EBADF if the key is not opened for writing or if the key has an iterator
+ *   started.
+ * - EDOM if the index is out of range.
+ */
+int RM_ListDelete(RedisModuleKey *key, long index) {
+    if (!key) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    } else if (!key->value || key->value->type != OBJ_LIST) {
+        errno = ENOTSUP;
+        return REDISMODULE_ERR;
+    } else if (!(key->mode & REDISMODULE_WRITE) || key->iter) {
+        errno = EBADF;
+        return REDISMODULE_ERR;
+    }
+    listTypeIterator *li = listTypeInitIterator(key->value, index, LIST_TAIL);
+    listTypeEntry entry;
+    int success = listTypeNext(li, &entry);
+    if (success) {
+        listTypeDelete(li, &entry);
+    } else {
+        errno = EDOM;
+    }
+    listTypeReleaseIterator(li);
+    moduleDelKeyIfEmpty(key);
+    return success ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
+/* Creates an iterator over the elements of a list stored at key.
+ *
+ * - `key`: A key of type list.
+ * - `flags`: A bitwise OR of flags, currently only REDISMODULE_LIST_REVERSE.
+ *
+ * Returns REDISMODULE_OK on success and REDISMODULE_ERR on failure and
+ * additionally sets `errno`:
+ *
+ * - EINVAL if called with invalid arguments.
+ * - ENOTSUP if the key is not a list.
+ * - EBADF if the key is not opened for reading or if an iterator is already.
+ *   started.
+ */
+int RM_ListIteratorStart(RedisModuleKey *key, int flags) {
+    if (!key || (flags & ~(REDISMODULE_LIST_REVERSE))) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    } else if (!key->value || key->value->type != OBJ_LIST) {
+        errno = ENOTSUP;
+        return REDISMODULE_ERR;
+    } else if (!(key->mode & REDISMODULE_READ) || key->iter) {
+        errno = EBADF;
+        return REDISMODULE_ERR;
+    }
+
+    unsigned char dir;
+    long start_index;
+    if (flags & REDISMODULE_LIST_REVERSE) {
+        dir = LIST_HEAD;
+        start_index = -1;
+    } else {
+        dir = LIST_TAIL;
+        start_index = 0;
+    }
+    key->iter = listTypeInitIterator(key->value, start_index, dir);
+    key->u.list.index = start_index;
+    key->u.list.hascurrent = 0; /* Next() must be called before e.g. Delete() */
+    key->u.list.reseek = 0; /* Next() doesn't need to reseek. */
+    return REDISMODULE_OK;
+}
+
+/* Releases an iterator created using RM_ListIteratorStart(). On failure,
+ * REDISMODULE_ERR is returned and `errno` is set accordningly:
+ *
+ * - EINVAL if key is NULL.
+ * - ENOTSUP if the key is not a list.
+ * - EBADF if no iterator is started.
+  */
+int RM_ListIteratorStop(RedisModuleKey *key) {
+    if (!key) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    } else if (!key->value || key->value->type != OBJ_LIST) {
+        errno = ENOTSUP;
+        return REDISMODULE_ERR;
+    } else if (!key->iter) {
+        errno = EBADF;
+        return REDISMODULE_ERR;
+    }
+    listTypeReleaseIterator(key->iter);
+    key->iter = NULL;
+    moduleDelKeyIfEmpty(key);
+    return REDISMODULE_OK;
+}
+
+/* Advances a list iterator and fetches the next element.
+ *
+ * On success, REDISMODULE_OK is returned and the `elem` pointer is set to the
+ * next element. The element should be free'd using RM_FreeString() or using
+ * automatic memory management. To advance the iterator without receiving the
+ * element, set `elem` to NULL. On failure, REDISMODULE_ERR is returned and
+ * `errno` is set accordningly:
+ *
+ * - EINVAL if key is NULL.
+ * - ENOTSUP if the key is not a list.
+ * - EBADF if no iterator is started.
+ * - ENOENT if there are no more elements in the list.
+ */
+int RM_ListIteratorNext(RedisModuleKey *key, RedisModuleString **elem) {
+    if (!key) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    } else if (!key->value || key->value->type != OBJ_LIST) {
+        errno = ENOTSUP;
+        return REDISMODULE_ERR;
+    } else if (!(key->mode & REDISMODULE_READ) || !key->iter) {
+        errno = EBADF;
+        return REDISMODULE_ERR;
+    }
+
+    listTypeIterator *li = key->iter;
+    if (key->u.list.reseek) {
+        /* listTypeInsert() has made the iterator invalid. Fix it. */
+        listTypeReseekIterator(li, key->u.list.index);
+        key->u.list.reseek = 0;
+    }
+    key->u.list.index += li->direction == LIST_HEAD ? -1 : 1;
+    if (listTypeNext(li, &key->u.list.entry)) {
+        key->u.list.hascurrent = 1;
+        if (elem != NULL) {
+            robj *encoded = listTypeGet(&key->u.list.entry);
+            *elem = getDecodedObject(encoded);
+            decrRefCount(encoded);
+            serverAssert((*elem)->type == OBJ_STRING);
+            autoMemoryAdd(key->ctx, REDISMODULE_AM_STRING, *elem);
+        }
+        return REDISMODULE_OK;
+    } else {
+        key->u.list.hascurrent = 0;
+        errno = ENOENT;
+        return REDISMODULE_ERR;
+    }
+}
+
+/* Deletes the list element at the current position in a list iterator started
+ * on a key.
+ *
+ * Returns REDISMODULE_OK on success. Returns REDISMODULE_ERR on failure and
+ * sets `errno` as follows:
+ *
+ * - EINVAL if key is NULL.
+ * - ENOTSUP if the key is not a list.
+ * - EBADF is no iterator has been started.
+ * - ENOENT if there is no current element.
+ */
+int RM_ListIteratorDelete(RedisModuleKey *key) {
+    if (!key) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    } else if (!key->value || key->value->type != OBJ_LIST) {
+        errno = ENOTSUP;
+        return REDISMODULE_ERR;
+    } else if (!(key->mode & REDISMODULE_READ) || !key->iter) {
+        errno = EBADF;
+        return REDISMODULE_ERR;
+    } else if (!key->u.list.hascurrent) {
+        /* TODO? Reseek automatically to allow Delete() without Next() */
+        errno = ENOENT;
+        return REDISMODULE_ERR;
+    }
+
+    listTypeIterator *li = key->iter;
+    listTypeDelete(li, &key->u.list.entry);
+    /* if (&key->u.list.entry.entry.value) */
+    /*     decrRefCount((robj *)&key->u.list.entry.entry.value); */
+    key->u.list.hascurrent = 0;
+    return REDISMODULE_OK;
+}
+
+/* Inserts an element before (where = REDISMODULE_LIST_BEFORE) or after (where =
+ * REDISMODULE_LIST_AFTER) the current element in a list during iteration. The
+ * current element is the element returned by the last call to
+ * RM_ListIteratorNext().
+ *
+ * Returns REDISMODULE_OK on success and on failure REDISMODULE_ERR is returned
+ * and errno is set as follows:
+ *
+ * - EINVAL if key is NULL.
+ * - ENOTSUP if the key is not a list.
+ * - EBADF is no iterator has been started.
+ * - ENOENT if there is no current element.
+ */
+int RM_ListIteratorInsert(RedisModuleKey *key, int where, RedisModuleString *value) {
+    if (!key) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    } else if (!key->value || key->value->type != OBJ_LIST) {
+        errno = ENOTSUP;
+        return REDISMODULE_ERR;
+    } else if (!(key->mode & REDISMODULE_READ) || !key->iter) {
+        errno = EBADF;
+        return REDISMODULE_ERR;
+    } else if (!key->u.list.hascurrent) {
+        errno = ENOENT;
+        return REDISMODULE_ERR;
+    }
+
+    listTypeIterator *li = key->iter;
+    where = (where == REDISMODULE_LIST_BEFORE) ? LIST_HEAD : LIST_TAIL;
+    listTypeInsert(&key->u.list.entry, value, where);
+    key->u.list.reseek = 1;
+    key->u.list.index += li->direction == LIST_HEAD ? -1 : 1;
+    return REDISMODULE_OK;
 }
 
 /* --------------------------------------------------------------------------
@@ -9564,6 +9920,15 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ValueLength);
     REGISTER_API(ListPush);
     REGISTER_API(ListPop);
+    REGISTER_API(ListGet);
+    REGISTER_API(ListSet);
+    REGISTER_API(ListInsert);
+    REGISTER_API(ListDelete);
+    REGISTER_API(ListIteratorStart);
+    REGISTER_API(ListIteratorNext);
+    REGISTER_API(ListIteratorInsert);
+    REGISTER_API(ListIteratorDelete);
+    REGISTER_API(ListIteratorStop);
     REGISTER_API(StringToLongLong);
     REGISTER_API(StringToDouble);
     REGISTER_API(StringToLongDouble);

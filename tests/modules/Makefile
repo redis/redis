@@ -40,6 +40,7 @@ TEST_MODULES = \
     hash.so \
     zset.so \
     stream.so \
+    list.so
 
 
 .PHONY: all
