@@ -5186,7 +5186,7 @@ static int smapsGetSharedDirty(unsigned long addr) {
     FILE *f;
 
     f = fopen("/proc/self/smaps", "r");
-    serverAssert(f);
+    if (!f) return -1;
 
     while (1) {
         if (!fgets(buf, sizeof(buf), f))
@@ -5197,8 +5197,8 @@ static int smapsGetSharedDirty(unsigned long addr) {
             in_mapping = from <= addr && addr < to;
 
         if (in_mapping && !memcmp(buf, "Shared_Dirty:", 13)) {
-            ret = sscanf(buf, "%*s %d", &val);
-            serverAssert(ret == 1);
+            sscanf(buf, "%*s %d", &val);
+            /* If parsing fails, we remain with val == -1 */
             break;
         }
     }
@@ -5219,7 +5219,8 @@ int linuxMadvFreeForkBugCheck(void) {
     pid_t pid;
     char *p = NULL, *q;
     int bug_found = 0;
-    const long map_size = 3 * 4096;
+    long page_size = sysconf(_SC_PAGESIZE);
+    long map_size = 3 * page_size;
 
     /* Create a memory map that's in our full control (not one used by the allocator). */
     p = mmap(NULL, map_size, PROT_READ, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
@@ -5228,11 +5229,11 @@ int linuxMadvFreeForkBugCheck(void) {
         return -1;
     }
 
-    q = p + 4096;
+    q = p + page_size;
 
     /* Split the memory map in 3 pages by setting their protection as RO|RW|RO to prevent
      * Linux from merging this memory map with adjacent VMAs. */
-    ret = mprotect(q, 4096, PROT_READ | PROT_WRITE);
+    ret = mprotect(q, page_size, PROT_READ | PROT_WRITE);
     if (ret < 0) {
         serverLog(LL_WARNING, "Failed to mprotect(): %s", strerror(errno));
         bug_found = -1;
@@ -5246,8 +5247,12 @@ int linuxMadvFreeForkBugCheck(void) {
 #ifndef MADV_FREE
 #define MADV_FREE 8
 #endif
-    ret = madvise(q, 4096, MADV_FREE);
+    ret = madvise(q, page_size, MADV_FREE);
     if (ret < 0) {
+        /* MADV_FREE is not available on older kernels that are presumably
+         * not affected. */
+        if (errno == EINVAL) goto exit;
+
         serverLog(LL_WARNING, "Failed to madvise(): %s", strerror(errno));
         bug_found = -1;
         goto exit;
@@ -5272,10 +5277,13 @@ int linuxMadvFreeForkBugCheck(void) {
         bug_found = -1;
         goto exit;
     } else if (!pid) {
-        /* Child: check if the page is marked as dirty, expecing 4 (kB).
+        /* Child: check if the page is marked as dirty, page_size in kb.
          * A value of 0 means the kernel is affected by the bug. */
-        if (!smapsGetSharedDirty((unsigned long)q))
+        ret = smapsGetSharedDirty((unsigned long) q));
+        if (!ret)
             bug_found = 1;
+        else if (ret == -1)     /* Failed to read */
+            bug_found -1;
 
         if (write(pipefd[1], &bug_found, sizeof(bug_found)) < 0)
             serverLog(LL_WARNING, "Failed to write to parent: %s", strerror(errno));
@@ -5910,12 +5918,14 @@ int main(int argc, char **argv) {
         int ret;
         if ((ret = linuxMadvFreeForkBugCheck())) {
             if (ret == 1)
-                serverLog(LL_WARNING,"WARNING Your kernel has a bug that could lead to data corruption during background save."
+                serverLog(LL_WARNING,"WARNING Your kernel has a bug that could lead to data corruption during background save. "
                                      "Please upgrade to the latest stable kernel.");
             else
-                serverLog(LL_WARNING, "Failed to test the kernel for a bug that could lead to data corruption during background save.");
+                serverLog(LL_WARNING, "Failed to test the kernel for a bug that could lead to data corruption during background save. "
+                                      "Your system could be affected, please report this error.");
             if (!checkIgnoreWarning("ARM64-COW-BUG")) {
-                serverLog(LL_WARNING,"Redis will now exit to prevent data corruption. Note that it is possible to suppress this warning by setting the following config: ignore-warnings ARM64-COW-BUG");
+                serverLog(LL_WARNING,"Redis will now exit to prevent data corruption. "
+                                     "Note that it is possible to suppress this warning by setting the following config: ignore-warnings ARM64-COW-BUG");
                 exit(1);
             }
         }
