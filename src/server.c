@@ -5212,23 +5212,32 @@ static int smapsGetSharedDirty(unsigned long addr) {
  * kernel is affected.
  * The bug was fixed in commit ff1712f953e27f0b0718762ec17d0adb15c9fd0b
  * titled: "arm64: pgtable: Ensure dirty bit is preserved across pte_wrprotect()"
- * Return 1 if the kernel seems to be affected, and 0 otherwise. */
+ * Return -1 on unexpected test failure, 1 if the kernel seems to be affected,
+ * and 0 otherwise. */
 int linuxMadvFreeForkBugCheck(void) {
-    int ret, pipefd[2];
+    int ret, pipefd[2] = { -1, -1 };
     pid_t pid;
-    char *p, *q, bug_found = 0;
+    char *p = NULL, *q;
+    int bug_found = 0;
     const long map_size = 3 * 4096;
 
     /* Create a memory map that's in our full control (not one used by the allocator). */
     p = mmap(NULL, map_size, PROT_READ, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
-    serverAssert(p != MAP_FAILED);
+    if (p == MAP_FAILED) {
+        serverLog(LL_WARNING, "Failed to mmap(): %s", strerror(errno));
+        return -1;
+    }
 
     q = p + 4096;
 
     /* Split the memory map in 3 pages by setting their protection as RO|RW|RO to prevent
      * Linux from merging this memory map with adjacent VMAs. */
     ret = mprotect(q, 4096, PROT_READ | PROT_WRITE);
-    serverAssert(!ret);
+    if (ret < 0) {
+        serverLog(LL_WARNING, "Failed to mprotect(): %s", strerror(errno));
+        bug_found = -1;
+        goto exit;
+    }
 
     /* Write to the page once to make it resident */
     *(volatile char*)q = 0;
@@ -5238,7 +5247,11 @@ int linuxMadvFreeForkBugCheck(void) {
 #define MADV_FREE 8
 #endif
     ret = madvise(q, 4096, MADV_FREE);
-    serverAssert(!ret);
+    if (ret < 0) {
+        serverLog(LL_WARNING, "Failed to madvise(): %s", strerror(errno));
+        bug_found = -1;
+        goto exit;
+    }
 
     /* Write to the page after being marked for freeing, this is supposed to take
      * ownership of that page again. */
@@ -5246,37 +5259,44 @@ int linuxMadvFreeForkBugCheck(void) {
 
     /* Create a pipe for the child to return the info to the parent. */
     ret = pipe(pipefd);
-    serverAssert(!ret);
+    if (ret < 0) {
+        serverLog(LL_WARNING, "Failed to create pipe: %s", strerror(errno));
+        bug_found = -1;
+        goto exit;
+    }
 
     /* Fork the process. */
     pid = fork();
-    serverAssert(pid >= 0);
-    if (!pid) {
+    if (pid < 0) {
+        serverLog(LL_WARNING, "Failed to fork: %s", strerror(errno));
+        bug_found = -1;
+        goto exit;
+    } else if (!pid) {
         /* Child: check if the page is marked as dirty, expecing 4 (kB).
          * A value of 0 means the kernel is affected by the bug. */
         if (!smapsGetSharedDirty((unsigned long)q))
             bug_found = 1;
 
-        ret = write(pipefd[1], &bug_found, 1);
-        serverAssert(ret == 1);
-
+        if (write(pipefd[1], &bug_found, sizeof(bug_found)) < 0)
+            serverLog(LL_WARNING, "Failed to write to parent: %s", strerror(errno));
         exit(0);
     } else {
         /* Read the result from the child. */
-        ret = read(pipefd[0], &bug_found, 1);
-        serverAssert(ret == 1);
+        ret = read(pipefd[0], &bug_found, sizeof(bug_found));
+        if (ret < 0) {
+            serverLog(LL_WARNING, "Failed to read from child: %s", strerror(errno));
+            bug_found = -1;
+        }
 
         /* Reap the child pid. */
-        serverAssert(waitpid(pid, NULL, 0) == pid);
+        waitpid(pid, NULL, 0);
     }
 
+exit:
     /* Cleanup */
-    ret = close(pipefd[0]);
-    serverAssert(!ret);
-    ret = close(pipefd[1]);
-    serverAssert(!ret);
-    ret = munmap(p, map_size);
-    serverAssert(!ret);
+    if (pipefd[0] != -1) close(pipefd[0]);
+    if (pipefd[1] != -1) close(pipefd[1]);
+    if (p != NULL) munmap(p, map_size);
 
     return bug_found;
 }
@@ -5882,13 +5902,19 @@ int main(int argc, char **argv) {
     checkTcpBacklogSettings();
 
     if (!server.sentinel_mode) {
+        int ret;
+
         /* Things not needed when running in Sentinel mode. */
         serverLog(LL_WARNING,"Server initialized");
     #ifdef __linux__
         linuxMemoryWarnings();
     #if defined (__arm64__)
-        if (linuxMadvFreeForkBugCheck()) {
-            serverLog(LL_WARNING,"WARNING Your kernel has a bug that could lead to data corruption during background save. Please upgrade to the latest stable kernel.");
+        if ((ret = linuxMadvFreeForkBugCheck())) {
+            if (ret == 1)
+                serverLog(LL_WARNING,"WARNING Your kernel has a bug that could lead to data corruption during background save."
+                                     "Please upgrade to the latest stable kernel.");
+            else
+                serverLog(LL_WARNING, "Failed to test the kernel for a bug that could lead to data corruption during background save.");
             if (!checkIgnoreWarning("ARM64-COW-BUG")) {
                 serverLog(LL_WARNING,"Redis will now exit to prevent data corruption. Note that it is possible to suppress this warning by setting the following config: ignore-warnings ARM64-COW-BUG");
                 exit(1);
