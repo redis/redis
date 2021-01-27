@@ -944,10 +944,11 @@ void replconfCommand(client *c) {
            /* REPLCONF RDB-ONLY is used to identify the client only wants
             * RDB snapshot without replication buffer. */
             long rdb_only = 0;
-            if (getLongFromObjectOrReply(c,c->argv[j+1],
-                    &rdb_only,NULL) != C_OK)
+            if (getRangeLongFromObjectOrReply(c,c->argv[j+1],
+                    0,1,&rdb_only,NULL) != C_OK)
                 return;
             if (rdb_only == 1) c->flags |= CLIENT_REPL_RDBONLY;
+            else c->flags &= ~CLIENT_REPL_RDBONLY;
         } else {
             addReplyErrorFormat(c,"Unrecognized REPLCONF option: %s",
                 (char*)c->argv[j]->ptr);
@@ -978,6 +979,9 @@ void putSlaveOnline(client *slave) {
     slave->repl_ack_time = server.unixtime; /* Prevent false timeout. */
 
     if (slave->flags & CLIENT_REPL_RDBONLY) {
+        serverLog(LL_NOTICE,
+            "Close the connection with replica %s as RDB transfer is complete",
+            replicationGetSlaveName(slave));
         freeClientAsync(slave);
         return;
     }
