@@ -2680,7 +2680,7 @@ NULL
                                                         c->argc == 4))
     {
         /* CLIENT PAUSE TIMEOUT [WRITE|ALL] */
-        long long duration;
+        mstime_t end;
         int type = CLIENT_PAUSE_ALL;
         if (c->argc == 4) {
             if (!strcasecmp(c->argv[3]->ptr,"write")) {
@@ -2694,9 +2694,9 @@ NULL
             }
         }
 
-        if (getTimeoutFromObjectOrReply(c,c->argv[2],&duration,
+        if (getTimeoutFromObjectOrReply(c,c->argv[2],&end,
             UNIT_MILLISECONDS) != C_OK) return;
-        pauseClients(duration, type);
+        pauseClients(end, type);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"tracking") && c->argc >= 3) {
         /* CLIENT TRACKING (on|off) [REDIRECT <id>] [BCAST] [PREFIX first]

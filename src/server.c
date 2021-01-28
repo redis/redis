@@ -752,7 +752,7 @@ struct redisCommand redisCommandTable[] = {
      "admin no-script",
      0,NULL,0,0,0,0,0,0},
 
-    {"psync",syncCommand,3,
+    {"psync",syncCommand,-3,
      "admin no-script",
      0,NULL,0,0,0,0,0,0},
 
@@ -1092,6 +1092,10 @@ struct redisCommand redisCommandTable[] = {
 
     {"reset",resetCommand,1,
      "no-script ok-stale ok-loading fast @connection",
+     0,NULL,0,0,0,0,0,0},
+
+    {"failover",failoverCommand,-1,
+     "admin no-script ok-stale",
      0,NULL,0,0,0,0,0,0}
 };
 
@@ -2185,8 +2189,15 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     checkClientPauseTimeoutAndReturnIfPaused();
 
     /* Replication cron function -- used to reconnect to master,
-     * detect transfer failures, start background RDB transfers and so forth. */
-    run_with_period(1000) replicationCron();
+     * detect transfer failures, start background RDB transfers and so forth. 
+     * 
+     * If Redis is trying to failover then run the replication cron faster so
+     * progress on the handshake happens more quickly. */
+    if (server.failover_state != NO_FAILOVER) {
+        run_with_period(100) replicationCron();
+    } else {
+        run_with_period(1000) replicationCron();
+    }
 
     /* Run the Redis Cluster cron. */
     run_with_period(100) {
@@ -2396,6 +2407,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         decrRefCount(argv[2]);
         server.get_ack_from_slaves = 0;
     }
+
+    /* We may have recieved updates from clients about their current offset. NOTE:
+     * this can't be done where the ACK is recieved since failover will disconnect 
+     * our clients. */
+    updateFailoverStatus();
 
     /* Send the invalidation messages to clients participating to the
      * client side caching protocol in broadcasting (BCAST) mode. */
@@ -2650,6 +2666,13 @@ void initServerConfig(void) {
     server.repl_backlog_idx = 0;
     server.repl_backlog_off = 0;
     server.repl_no_slaves_since = time(NULL);
+
+    /* Failover related */
+    server.failover_end_time = 0;
+    server.force_failover = 0;
+    server.target_replica_host = NULL;
+    server.target_replica_port = 0;
+    server.failover_state = NO_FAILOVER;
 
     /* Client output buffer limits */
     for (j = 0; j < CLIENT_TYPE_OBUF_COUNT; j++)
@@ -4991,6 +5014,7 @@ sds genRedisInfoString(const char *section) {
             }
         }
         info = sdscatprintf(info,
+            "master_failover_state:%s\r\n"
             "master_replid:%s\r\n"
             "master_replid2:%s\r\n"
             "master_repl_offset:%lld\r\n"
@@ -4999,6 +5023,7 @@ sds genRedisInfoString(const char *section) {
             "repl_backlog_size:%lld\r\n"
             "repl_backlog_first_byte_offset:%lld\r\n"
             "repl_backlog_histlen:%lld\r\n",
+            getFailoverStateString(),
             server.replid,
             server.replid2,
             server.master_repl_offset,
