@@ -599,7 +599,7 @@ int hashZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep) {
 }
 
 /* Return random element from a non empty hash.
- * sdskey and sdsvalue need to be called free.
+ * sdskey and sdsvalue need to be freed by caller.
  * sdsvalue can be NULL in which case it's not extracted. */
 void hashTypeRandomElement(robj *hashobj, unsigned long hashsize, sds *sdskey, sds *sdsvalue) {
     if (hashobj->encoding == OBJ_ENCODING_HT) {
@@ -950,7 +950,7 @@ void hscanCommand(client *c) {
 }
 
 /* How many times bigger should be the hash compared to the requested size
- * for us to don't use the "remove elements" strategy? Read later in the
+ * for us to not use the "remove elements" strategy? Read later in the
  * implementation for more info. */
 #define HRANDMEMBER_SUB_STRATEGY_MUL 3
 

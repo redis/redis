@@ -1556,7 +1556,7 @@ void ziplistRandomPairs(unsigned char *zl, int count, sds *keys, sds *vals) {
     rand_pick *picks = zmalloc(sizeof(rand_pick)*count);
     unsigned long total_size = ziplistLen(zl)/2;
 
-    /* create a pull of random indexes. */
+    /* create a pool of random indexes. */
     for (int i = 0; i < count; i++) {
         picks[i].index = (rand() % total_size) * 2; /* Generate even indexes */
         picks[i].order = i;

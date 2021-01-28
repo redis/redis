@@ -3942,7 +3942,7 @@ void bzpopmaxCommand(client *c) {
 }
 
 /* How many times bigger should be the zset compared to the requested size
- * for us to don't use the "remove elements" strategy? Read later in the
+ * for us to not use the "remove elements" strategy? Read later in the
  * implementation for more info. */
 #define ZRANDMEMBER_SUB_STRATEGY_MUL 3
 
