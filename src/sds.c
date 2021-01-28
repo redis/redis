@@ -1157,12 +1157,80 @@ void *sds_malloc(size_t size) { return s_malloc(size); }
 void *sds_realloc(void *ptr, size_t size) { return s_realloc(ptr,size); }
 void sds_free(void *ptr) { s_free(ptr); }
 
+/* Perform expansion of a template string and return the result as a newly
+ * allocated sds.
+ *
+ * Template variables are specified using curly brackets, e.g. {variable}.
+ * An opening bracket can be quoted by repeating it twice.
+ */
+sds sdstemplate(const char *template, sdstemplate_callback_t cb_func, void *cb_arg)
+{
+    sds res = sdsempty();
+    const char *p = template;
+
+    while (*p) {
+        /* Find next variable, copy everything until there */
+        const char *sv = strchr(p, '{');
+        if (!sv) {
+            /* Not found: copy till rest of template and stop */
+            res = sdscat(res, p);
+            break;
+        } else if (sv > p) {
+            /* Found: copy anything up to the begining of the variable */
+            res = sdscatlen(res, p, sv - p);
+        }
+
+        /* Skip into variable name, handle premature end or quoting */
+        sv++;
+        if (!*sv) goto error;       /* Premature end of template */
+        if (*sv == '{') {
+            /* Quoted '{' */
+            p = sv + 1;
+            res = sdscat(res, "{");
+            continue;
+        }
+
+        /* Find end of variable name, handle premature end of template */
+        const char *ev = strchr(sv, '}');
+        if (!ev) goto error;
+
+        /* Pass variable name to callback and obtain value. If callback failed,
+         * abort. */
+        sds varname = sdsnewlen(sv, ev - sv);
+        sds value = cb_func(varname, cb_arg);
+        sdsfree(varname);
+        if (!value) goto error;
+
+        /* Append value to result and continue */
+        res = sdscat(res, value);
+        sdsfree(value);
+        p = ev + 1;
+    }
+
+    return res;
+
+error:
+    sdsfree(res);
+    return NULL;
+}
+
 #ifdef REDIS_TEST
 #include <stdio.h>
 #include <limits.h>
 #include "testhelp.h"
 
 #define UNUSED(x) (void)(x)
+
+static sds sdsTestTemplateCallback(sds varname, void *arg) {
+    UNUSED(arg);
+    static const char *_var1 = "variable1";
+    static const char *_var2 = "variable2";
+
+    if (!strcmp(varname, _var1)) return sdsnew("value1");
+    else if (!strcmp(varname, _var2)) return sdsnew("value2");
+    else return NULL;
+}
+
 int sdsTest(int argc, char **argv) {
     UNUSED(argc);
     UNUSED(argv);
@@ -1342,6 +1410,30 @@ int sdsTest(int argc, char **argv) {
 
             sdsfree(x);
         }
+
+        /* Simple template */
+        x = sdstemplate("v1={variable1} v2={variable2}", sdsTestTemplateCallback, NULL);
+        test_cond("sdstemplate() normal flow",
+                  memcmp(x,"v1=value1 v2=value2",19) == 0);
+        sdsfree(x);
+
+        /* Template with callback error */
+        x = sdstemplate("v1={variable1} v3={doesnotexist}", sdsTestTemplateCallback, NULL);
+        test_cond("sdstemplate() with callback error", x == NULL);
+
+        /* Template with empty var name */
+        x = sdstemplate("v1={", sdsTestTemplateCallback, NULL);
+        test_cond("sdstemplate() with empty var name", x == NULL);
+
+        /* Template with truncated var name */
+        x = sdstemplate("v1={start", sdsTestTemplateCallback, NULL);
+        test_cond("sdstemplate() with truncated var name", x == NULL);
+
+        /* Template with quoting */
+        x = sdstemplate("v1={{{variable1}} {{} v2={variable2}", sdsTestTemplateCallback, NULL);
+        test_cond("sdstemplate() with quoting",
+                  memcmp(x,"v1={value1} {} v2=value2",24) == 0);
+        sdsfree(x);
     }
     test_report();
     return 0;

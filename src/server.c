@@ -5648,20 +5648,68 @@ void redisOutOfMemoryHandler(size_t allocation_size) {
         allocation_size);
 }
 
-void redisSetProcTitle(char *title) {
-#ifdef USE_SETPROCTITLE
-    char *server_mode = "";
-    if (server.cluster_enabled) server_mode = " [cluster]";
-    else if (server.sentinel_mode) server_mode = " [sentinel]";
+/* Callback for sdstemplate on proc-title-template. See redis.conf for
+ * supported variables.
+ */
+static sds redisProcTitleGetVariable(const sds varname, void *arg)
+{
+    if (!strcmp(varname, "title")) {
+        return sdsnew(arg);
+    } else if (!strcmp(varname, "listen-addr")) {
+        if (server.port || server.tls_port)
+            return sdscatprintf(sdsempty(), "%s:%u",
+                                server.bindaddr_count ? server.bindaddr[0] : "*",
+                                server.port ? server.port : server.tls_port);
+        else
+            return sdscatprintf(sdsempty(), "unixsocket:%s", server.unixsocket);
+    } else if (!strcmp(varname, "server-mode")) {
+        if (server.cluster_enabled) return sdsnew("[cluster]");
+        else if (server.sentinel_mode) return sdsnew("[sentinel]");
+        else return sdsempty();
+    } else if (!strcmp(varname, "config-file")) {
+        return sdsnew(server.configfile ? server.configfile : "-");
+    } else if (!strcmp(varname, "port")) {
+        return sdscatprintf(sdsempty(), "%u", server.port);
+    } else if (!strcmp(varname, "tls-port")) {
+        return sdscatprintf(sdsempty(), "%u", server.tls_port);
+    } else if (!strcmp(varname, "unixsocket")) {
+        return sdsnew(server.unixsocket);
+    } else
+        return NULL;    /* Unknown variable name */
+}
 
-    setproctitle("%s %s:%d%s",
-        title,
-        server.bindaddr_count ? server.bindaddr[0] : "*",
-        server.port ? server.port : server.tls_port,
-        server_mode);
+/* Expand the specified proc-title-template string and return a newly
+ * allocated sds, or NULL. */
+static sds expandProcTitleTemplate(const char *template, const char *title) {
+    sds res = sdstemplate(template, redisProcTitleGetVariable, (void *) title);
+    if (!res)
+        return NULL;
+    return sdstrim(res, " ");
+}
+/* Validate the specified template, returns 1 if valid or 0 otherwise. */
+int validateProcTitleTemplate(const char *template) {
+    int ok = 1;
+    sds res = expandProcTitleTemplate(template, "");
+    if (!res)
+        return 0;
+    if (sdslen(res) == 0) ok = 0;
+    sdsfree(res);
+    return ok;
+}
+
+int redisSetProcTitle(char *title) {
+#ifdef USE_SETPROCTITLE
+    if (!title) title = server.exec_argv[0];
+    sds proc_title = expandProcTitleTemplate(server.proc_title_template, title);
+    if (!proc_title) return C_ERR;  /* Not likely, proc_title_template is validated */
+
+    setproctitle("%s", proc_title);
+    sdsfree(proc_title);
 #else
     UNUSED(title);
 #endif
+
+    return C_OK;
 }
 
 void redisSetCpuAffinity(const char *cpulist) {
@@ -5925,7 +5973,7 @@ int main(int argc, char **argv) {
     readOOMScoreAdj();
     initServer();
     if (background || server.pidfile) createPidFile();
-    if (server.set_proc_title) redisSetProcTitle(argv[0]);
+    if (server.set_proc_title) redisSetProcTitle(NULL);
     redisAsciiArt();
     checkTcpBacklogSettings();
 
