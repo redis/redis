@@ -5919,7 +5919,7 @@ int main(int argc, char **argv) {
     readOOMScoreAdj();
     initServer();
     if (background || server.pidfile) createPidFile();
-    redisSetProcTitle(argv[0]);
+    if (server.set_proc_title) redisSetProcTitle(argv[0]);
     redisAsciiArt();
     checkTcpBacklogSettings();
 

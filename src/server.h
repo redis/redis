@@ -1297,6 +1297,7 @@ struct redisServer {
     int supervised;                 /* 1 if supervised, 0 otherwise. */
     int supervised_mode;            /* See SUPERVISED_* */
     int daemonize;                  /* True if running as a daemon */
+    int set_proc_title;             /* True if change proc title */
     clientBufferLimitsConfig client_obuf_limits[CLIENT_TYPE_OBUF_COUNT];
     /* AOF persistence */
     int aof_enabled;                /* AOF configuration */
