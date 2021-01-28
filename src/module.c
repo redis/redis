@@ -7899,6 +7899,14 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *     * `REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE`
  *     * `REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD`
  *
+ * * RedisModuleEvent_ForkChild
+ *
+ *     Called when a fork child (AOFRW, RDBSAVE, module fork...) is born/dies
+ *     The following sub events are available:
+ *
+ *     * `REDISMODULE_SUBEVENT_FORK_CHILD_BORN`
+ *     * `REDISMODULE_SUBEVENT_FORK_CHILD_DIED`
+ *
  * The function returns REDISMODULE_OK if the module was successfully subscribed
  * for the specified event. If the API is called from a wrong context or unsupported event
  * is given then REDISMODULE_ERR is returned. */
@@ -7971,6 +7979,8 @@ int RM_IsSubEventSupported(RedisModuleEvent event, int64_t subevent) {
         return subevent < _REDISMODULE_SUBEVENT_SWAPDB_NEXT;
     case REDISMODULE_EVENT_REPL_BACKUP:
         return subevent < _REDISMODULE_SUBEVENT_REPL_BACKUP_NEXT;
+    case REDISMODULE_EVENT_FORK_CHILD:
+        return subevent < _REDISMODULE_SUBEVENT_FORK_CHILD_NEXT;
     default:
         break;
     }
