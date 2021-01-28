@@ -2071,8 +2071,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * however to try every second is enough in case of 'hz' is set to
      * a higher frequency. */
     run_with_period(1000) {
-        if (server.aof_state == AOF_ON &&
-            server.aof_last_write_status == C_ERR)
+        if (server.aof_state == AOF_ON && server.aof_last_write_status == C_ERR)
             flushAppendOnlyFile(0);
     }
 

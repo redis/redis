@@ -1883,7 +1883,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
                 latencyStartMonitor(latency);
                 redis_fsync(newfd);
                 latencyEndMonitor(latency);
-                latencyAddSampleIfNeeded("aof-fsync-rewrite-done",latency);
+                latencyAddSampleIfNeeded("aof-rewrite-done-fsync",latency);
             } else if (server.aof_fsync == AOF_FSYNC_EVERYSEC) {
                 aof_background_fsync(newfd);
             }
