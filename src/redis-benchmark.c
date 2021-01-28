@@ -1516,6 +1516,8 @@ int parseOptions(int argc, const char **argv) {
         } else if (!strcmp(argv[i],"--cacert")) {
             if (lastarg) goto invalid;
             config.sslconfig.cacert = strdup(argv[++i]);
+        } else if (!strcmp(argv[i],"--insecure")) {
+            config.sslconfig.skip_cert_verify = 1;
         } else if (!strcmp(argv[i],"--cert")) {
             if (lastarg) goto invalid;
             config.sslconfig.cert = strdup(argv[++i]);
@@ -1585,6 +1587,7 @@ usage:
 " --cacertdir <dir>  Directory where trusted CA certificates are stored.\n"
 "                    If neither cacert nor cacertdir are specified, the default\n"
 "                    system-wide trusted root certs configuration will apply.\n"
+" --insecure         Allow insecure TLS connection by skipping cert validation.\n"
 " --cert <file>      Client certificate to authenticate with.\n"
 " --key <file>       Private key file to authenticate with.\n"
 " --tls-ciphers <list> Sets the list of prefered ciphers (TLSv1.2 and below)\n"
@@ -1682,6 +1685,7 @@ int main(int argc, const char **argv) {
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
 
+    memset(&config.sslconfig, 0, sizeof(config.sslconfig));
     config.numclients = 50;
     config.requests = 100000;
     config.liveclients = 0;
