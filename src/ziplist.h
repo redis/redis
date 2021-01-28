@@ -31,10 +31,14 @@
 #ifndef _ZIPLIST_H
 #define _ZIPLIST_H
 
-#include "sds.h"
-
 #define ZIPLIST_HEAD 0
 #define ZIPLIST_TAIL 1
+
+typedef struct {
+    unsigned char *sval;
+    unsigned int slen;
+    long long lval;
+} ziplistEntry;
 
 unsigned char *ziplistNew(void);
 unsigned char *ziplistMerge(unsigned char **first, unsigned char **second);
@@ -54,10 +58,8 @@ void ziplistRepr(unsigned char *zl);
 typedef int (*ziplistValidateEntryCB)(unsigned char* p, void* userdata);
 int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
                              ziplistValidateEntryCB entry_cb, void *cb_userdata);
-void ziplistRandomPair(unsigned char *zl,  unsigned long ziplistlen,
-                       unsigned char **key, unsigned int *klen, long long *klval,
-                       unsigned char **value, unsigned int *vallen, long long *vlval);
-void ziplistRandomPairs(unsigned char *zl, int count, sds *keys, sds *vals);
+void ziplistRandomPair(unsigned char *zl, unsigned long total_count, ziplistEntry *key, ziplistEntry *val);
+void ziplistRandomPairs(unsigned char *zl, int count, ziplistEntry *keys, ziplistEntry *vals);
 
 #ifdef REDIS_TEST
 int ziplistTest(int argc, char *argv[]);

@@ -606,18 +606,13 @@ void hashTypeRandomElement(robj *hashobj, unsigned long hashsize, sds *sdskey, s
         dictEntry *de = dictGetFairRandomKey(hashobj->ptr);
         *sdskey = sdsnew((const char *)dictGetKey(de));
         if (sdsvalue)
-            *sdsvalue = sdsnew((const char *)dictGetVal(de));
+            *sdsvalue = sdsdup(dictGetVal(de));
     } else if (hashobj->encoding == OBJ_ENCODING_ZIPLIST) {
-        unsigned char *key, *value;
-        unsigned int klen, vlen;
-        long long klval, vlval;
-
-        ziplistRandomPair(hashobj->ptr, hashsize,
-                          &key, &klen, &klval,
-                          &value, &vlen, &vlval);
-        *sdskey = key ? sdsnewlen(key, klen) : sdsfromlonglong(klval);
+        ziplistEntry key, val;
+        ziplistRandomPair(hashobj->ptr, hashsize, &key, &val);
+        *sdskey = key.sval ? sdsnewlen(key.sval, key.slen) : sdsfromlonglong(key.lval);
         if (sdsvalue)
-            *sdsvalue = value ? sdsnewlen(value, vlen) : sdsfromlonglong(vlval);
+            *sdsvalue = val.sval ? sdsnewlen(val.sval, val.slen) : sdsfromlonglong(val.lval);
     } else {
         serverPanic("Unknown hash encoding");
     }
@@ -1001,17 +996,24 @@ void hrandmemberWithCountCommand(client *c, long l, int withvalues) {
                     addReplyBulkCBuffer(c, value, sdslen(value));
             }
         } else if (hash->encoding == OBJ_ENCODING_ZIPLIST) {
-            sds *keys, *vals = NULL;
-            keys = zmalloc(sizeof(sds*)*count);
+            ziplistEntry *keys, *vals = NULL;
+            keys = zmalloc(sizeof(ziplistEntry)*count);
             if (withvalues)
-                vals = zmalloc(sizeof(sds*)*count);
+                vals = zmalloc(sizeof(ziplistEntry)*count);
             ziplistRandomPairs(hash->ptr, count, keys, vals);
             for (unsigned long i = 0; i < count; i++) {
                 if (withvalues && c->resp > 2)
                     addReplyArrayLen(c,2);
-                addReplyBulkSds(c, keys[i]);
-                if (withvalues)
-                    addReplyBulkSds(c, vals[i]);
+                if (keys[i].sval)
+                    addReplyBulkSds(c, sdsnewlen(keys[i].sval, keys[i].slen));
+                else
+                    addReplyBulkLongLong(c, keys[i].lval);
+                if (withvalues) {
+                    if (vals[i].sval)
+                        addReplyBulkSds(c, sdsnewlen(vals[i].sval, vals[i].slen));
+                    else
+                        addReplyBulkLongLong(c, vals[i].lval);
+                }
             }
             zfree(keys);
             zfree(vals);

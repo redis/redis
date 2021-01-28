@@ -1659,26 +1659,21 @@ void zsetTypeRandomElement(robj *zsetobj, unsigned long zsetsize, sds *sdskey, d
     if (zsetobj->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = zsetobj->ptr;
         dictEntry *de = dictGetFairRandomKey(zs->dict);
-        *sdskey = sdsnew((const char *)dictGetKey(de));
+        *sdskey = sdsdup(dictGetKey(de));
         if (score)
             *score = *(double*)dictGetVal(de);
     } else if (zsetobj->encoding == OBJ_ENCODING_ZIPLIST) {
-        unsigned char *key, *value;
-        unsigned int klen, vlen;
-        long long klval, vlval;
         char buf[128];
-
-        ziplistRandomPair(zsetobj->ptr, zsetsize,
-                          &key, &klen, &klval,
-                          &value, &vlen, &vlval);
-        *sdskey = key ? sdsnewlen(key, klen) : sdsfromlonglong(klval);
+        ziplistEntry key, val;
+        ziplistRandomPair(zsetobj->ptr, zsetsize, &key, &val);
+        *sdskey = key.sval ? sdsnewlen(key.sval, key.slen) : sdsfromlonglong(key.lval);
         if (score) {
-            if (value) {
-                memcpy(buf,value,vlen);
-                buf[vlen] = '\0';
+            if (val.sval) {
+                memcpy(buf,val.sval,val.slen);
+                buf[val.slen] = '\0';
                 *score = strtod(buf,NULL);
             } else {
-                *score = vlval;
+                *score = (double)val.lval;
             }
         }
     } else {
@@ -3991,18 +3986,26 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
                     addReplyDouble(c, dictGetDoubleVal(de));
             }
         } else if (zsetobj->encoding == OBJ_ENCODING_ZIPLIST) {
-            sds *keys, *vals = NULL;
-            keys = zmalloc(sizeof(sds*)*count);
+            ziplistEntry *keys, *vals = NULL;
+            keys = zmalloc(sizeof(ziplistEntry)*count);
             if (withscores)
-                vals = zmalloc(sizeof(sds*)*count);
+                vals = zmalloc(sizeof(ziplistEntry)*count);
             ziplistRandomPairs(zsetobj->ptr, count, keys, vals);
             for (unsigned long i = 0; i < count; i++) {
                 if (withscores && c->resp > 2)
                     addReplyArrayLen(c,2);
-                addReplyBulkSds(c, keys[i]);
+                if (keys[i].sval)
+                    addReplyBulkSds(c, sdsnewlen(keys[i].sval, keys[i].slen));
+                else
+                    addReplyBulkLongLong(c, keys[i].lval);
                 if (withscores) {
-                    addReplyDouble(c, strtod(vals[i],NULL));
-                    sdsfree(vals[i]);
+                    if (vals[i].sval) {
+                        char buf[128];
+                        memcpy(buf,vals[i].sval,vals[i].slen);
+                        buf[vals[i].slen] = '\0';
+                        addReplyDouble(c, strtod(buf,NULL));
+                    } else
+                        addReplyDouble(c, vals[i].lval);
                 }
             }
             zfree(keys);
