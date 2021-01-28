@@ -40,11 +40,11 @@ start_server {tags {"hash"}} {
         create_hash myhash $contents
         assert_encoding $type myhash
 
-        test "HRANDMEMBER - $type" {
+        test "HRANDFIELD - $type" {
             unset -nocomplain myhash
             array set myhash {}
             for {set i 0} {$i < 100} {incr i} {
-                set key [r hrandmember myhash]
+                set key [r hrandfield myhash]
                 set myhash($key) 1
             }
             assert_equal [lsort [get_keys $contents]] [lsort [array names myhash]]
@@ -52,30 +52,30 @@ start_server {tags {"hash"}} {
         r config set hash-max-ziplist-value $original_max_value
     }
 
-    test "HRANDMEMBER with RESP3" {
+    test "HRANDFIELD with RESP3" {
         r hello 3
-        set res [r hrandmember myhash 3 withvalues]
+        set res [r hrandfield myhash 3 withvalues]
         assert_equal [llength $res] 3
         assert_equal [llength [lindex $res 1]] 2
 
-        set res [r hrandmember myhash 3]
+        set res [r hrandfield myhash 3]
         assert_equal [llength $res] 3
         assert_equal [llength [lindex $res 1]] 1
     }
     r hello 2
 
-    test "HRANDMEMBER count of 0 is handled correctly" {
-        r hrandmember myhash 0
+    test "HRANDFIELD count of 0 is handled correctly" {
+        r hrandfield myhash 0
     } {}
 
-    test "HRANDMEMBER with <count> against non existing key" {
-        r hrandmember nonexisting_key 100
+    test "HRANDFIELD with <count> against non existing key" {
+        r hrandfield nonexisting_key 100
     } {}
 
     foreach {type contents} "
         hashtable {{a 1} {b 2} {c 3} {d 4} {e 5} {6 f} {7 g} {8 h} {9 i} {[randstring 70 90 alpha] 10}}
         ziplist {{a 1} {b 2} {c 3} {d 4} {e 5} {6 f} {7 g} {8 h} {9 i} {10 j}} " {
-        test "HRANDMEMBER with <count> - $type" {
+        test "HRANDFIELD with <count> - $type" {
             set original_max_value [lindex [r config get hash-max-ziplist-value] 1]
             r config set hash-max-ziplist-value 10
             create_hash myhash $contents
@@ -88,16 +88,16 @@ start_server {tags {"hash"}} {
             }
 
             # We'll stress different parts of the code, see the implementation
-            # of HRANDMEMBER for more information, but basically there are
+            # of HRANDFIELD for more information, but basically there are
             # four different code paths.
 
             # PATH 1: Use negative count.
 
             # 1) Check that it returns repeated elements with and without values.
-            set res [r hrandmember myhash -20]
+            set res [r hrandfield myhash -20]
             assert_equal [llength $res] 20
             # again with WITHVALUES
-            set res [r hrandmember myhash -20 withvalues]
+            set res [r hrandfield myhash -20 withvalues]
             assert_equal [llength $res] 40
 
             # 2) Check that all the elements actually belong to the original hash.
@@ -112,12 +112,12 @@ start_server {tags {"hash"}} {
             while {$iterations != 0} {
                 incr iterations -1
                 if {[expr {$iterations % 2}] == 0} {
-                    set res [r hrandmember myhash -3 withvalues]
+                    set res [r hrandfield myhash -3 withvalues]
                     foreach {key val} $res {
                         dict append auxset $key $val
                     }
                 } else {
-                    set res [r hrandmember myhash -3]
+                    set res [r hrandfield myhash -3]
                     foreach key $res {
                         dict append auxset $key $val
                     }
@@ -132,12 +132,12 @@ start_server {tags {"hash"}} {
             # PATH 2: positive count (unique behavior) with requested size
             # equal or greater than set size.
             foreach size {10 20} {
-                set res [r hrandmember myhash $size]
+                set res [r hrandfield myhash $size]
                 assert_equal [llength $res] 10
                 assert_equal [lsort $res] [lsort [dict keys $mydict]]
 
                 # again with WITHVALUES
-                set res [r hrandmember myhash $size withvalues]
+                set res [r hrandfield myhash $size withvalues]
                 assert_equal [llength $res] 20
                 assert_equal [lsort $res] [lsort $mydict]
             }
@@ -152,10 +152,10 @@ start_server {tags {"hash"}} {
             # We can test both the code paths just changing the size but
             # using the same code.
             foreach size {8 2} {
-                set res [r hrandmember myhash $size]
+                set res [r hrandfield myhash $size]
                 assert_equal [llength $res] $size
                 # again with WITHVALUES
-                set res [r hrandmember myhash $size withvalues]
+                set res [r hrandfield myhash $size withvalues]
                 assert_equal [llength $res] [expr {$size * 2}]
 
                 # 1) Check that all the elements actually belong to the
@@ -171,12 +171,12 @@ start_server {tags {"hash"}} {
                 while {$iterations != 0} {
                     incr iterations -1
                     if {[expr {$iterations % 2}] == 0} {
-                        set res [r hrandmember myhash $size withvalues]
+                        set res [r hrandfield myhash $size withvalues]
                         foreach {key value} $res {
                             dict append auxset $key $value
                         }
                     } else {
-                        set res [r hrandmember myhash $size]
+                        set res [r hrandfield myhash $size]
                         foreach key $res {
                             dict append auxset $key
                         }

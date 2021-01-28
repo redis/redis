@@ -947,9 +947,9 @@ void hscanCommand(client *c) {
 /* How many times bigger should be the hash compared to the requested size
  * for us to not use the "remove elements" strategy? Read later in the
  * implementation for more info. */
-#define HRANDMEMBER_SUB_STRATEGY_MUL 3
+#define HRANDFIELD_SUB_STRATEGY_MUL 3
 
-void hrandmemberWithCountCommand(client *c, long l, int withvalues) {
+void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
     unsigned long count, size;
     int uniq = 1;
     hashTypeIterator *hi;
@@ -1046,14 +1046,14 @@ void hrandmemberWithCountCommand(client *c, long l, int withvalues) {
 
     /* CASE 3:
      * The number of elements inside the hash is not greater than
-     * HRANDMEMBER_SUB_STRATEGY_MUL times the number of requested elements.
+     * HRANDFIELD_SUB_STRATEGY_MUL times the number of requested elements.
      * In this case we create a hash from scratch with all the elements, and
      * subtract random elements to reach the requested number of elements.
      *
      * This is done because if the number of requested elements is just
      * a bit less than the number of elements in the hash, the natural approach
      * used into CASE 4 is highly inefficient. */
-    if(count*HRANDMEMBER_SUB_STRATEGY_MUL > size) {
+    if(count*HRANDFIELD_SUB_STRATEGY_MUL > size) {
         /* Add all the elements into the temporary dictionary. */
         while((hashTypeNext(hi)) != C_ERR) {
             int ret = DICT_ERR;
@@ -1126,8 +1126,8 @@ void hrandmemberWithCountCommand(client *c, long l, int withvalues) {
     }
 }
 
-/* HRANDMEMBER [<count> WITHVALUES] */
-void hrandmemberCommand(client *c) {
+/* HRANDFIELD [<count> WITHVALUES] */
+void hrandfieldCommand(client *c) {
     long l;
     int withvalues = 0;
     robj *hash;
@@ -1140,7 +1140,7 @@ void hrandmemberCommand(client *c) {
             return;
         } else if (c->argc == 4)
             withvalues = 1;
-        hrandmemberWithCountCommand(c, l, withvalues);
+        hrandfieldWithCountCommand(c, l, withvalues);
         return;
     }
 
