@@ -5279,11 +5279,11 @@ int linuxMadvFreeForkBugCheck(void) {
     } else if (!pid) {
         /* Child: check if the page is marked as dirty, page_size in kb.
          * A value of 0 means the kernel is affected by the bug. */
-        ret = smapsGetSharedDirty((unsigned long) q));
+        ret = smapsGetSharedDirty((unsigned long) q);
         if (!ret)
             bug_found = 1;
         else if (ret == -1)     /* Failed to read */
-            bug_found -1;
+            bug_found = -1;
 
         if (write(pipefd[1], &bug_found, sizeof(bug_found)) < 0)
             serverLog(LL_WARNING, "Failed to write to parent: %s", strerror(errno));
