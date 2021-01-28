@@ -624,8 +624,7 @@ void loadServerConfigFromString(char *config) {
                     err = "sentinel directive while not in sentinel mode";
                     goto loaderr;
                 }
-                err = sentinelHandleConfiguration(argv+1,argc-1);
-                if (err) goto loaderr;
+                queueSentinelConfig(argv+1,argc-1,linenum,lines[i]);
             }
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
@@ -1221,7 +1220,16 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
             sdsfree(argv[0]);
             argv[0] = alt;
         }
-        rewriteConfigAddLineNumberToOption(state,argv[0],linenum);
+        /* If this is sentinel config, we use sentinel "sentinel <config>" as option 
+            to avoid messing up the sequence. */
+        if (server.sentinel_mode && argc > 1 && !strcasecmp(argv[0],"sentinel")) {
+            sds sentinelOption = sdsempty();
+            sentinelOption = sdscatfmt(sentinelOption,"%S %S",argv[0],argv[1]);
+            rewriteConfigAddLineNumberToOption(state,sentinelOption,linenum);
+            sdsfree(sentinelOption);
+        } else {
+            rewriteConfigAddLineNumberToOption(state,argv[0],linenum);
+        }
         sdsfreesplitres(argv,argc);
     }
     fclose(fp);
@@ -2399,6 +2407,7 @@ standardConfig configs[] = {
     createBoolConfig("rdb-del-sync-files", NULL, MODIFIABLE_CONFIG, server.rdb_del_sync_files, 0, NULL, NULL),
     createBoolConfig("activerehashing", NULL, MODIFIABLE_CONFIG, server.activerehashing, 1, NULL, NULL),
     createBoolConfig("stop-writes-on-bgsave-error", NULL, MODIFIABLE_CONFIG, server.stop_writes_on_bgsave_err, 1, NULL, NULL),
+    createBoolConfig("set-proc-title", NULL, IMMUTABLE_CONFIG, server.set_proc_title, 1, NULL, NULL), /* Should setproctitle be used? */
     createBoolConfig("dynamic-hz", NULL, MODIFIABLE_CONFIG, server.dynamic_hz, 1, NULL, NULL), /* Adapt hz to # of clients.*/
     createBoolConfig("lazyfree-lazy-eviction", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_eviction, 0, NULL, NULL),
     createBoolConfig("lazyfree-lazy-expire", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_expire, 0, NULL, NULL),

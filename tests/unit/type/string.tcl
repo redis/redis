@@ -102,6 +102,91 @@ start_server {tags {"string"}} {
         assert_equal 20 [r get x]
     }
 
+    test "GETEX EX option" {
+        r del foo
+        r set foo bar
+        r getex foo ex 10
+        assert_range [r ttl foo] 5 10
+    }
+
+    test "GETEX PX option" {
+        r del foo
+        r set foo bar
+        r getex foo px 10000
+        assert_range [r pttl foo] 5000 10000
+    }
+
+    test "GETEX EXAT option" {
+        r del foo
+        r set foo bar
+        r getex foo exat [expr [clock seconds] + 10]
+        assert_range [r ttl foo] 5 10
+    }
+
+    test "GETEX PXAT option" {
+        r del foo
+        r set foo bar
+        r getex foo pxat [expr [clock milliseconds] + 10000]
+        assert_range [r pttl foo] 5000 10000
+    }
+
+    test "GETEX PERSIST option" {
+        r del foo
+        r set foo bar ex 10
+        assert_range [r ttl foo] 5 10
+        r getex foo persist
+        assert_equal -1 [r ttl foo]
+    }
+
+    test "GETEX no option" {
+        r del foo
+        r set foo bar
+        r getex foo
+        assert_equal bar [r getex foo]
+    }
+
+    test "GETEX syntax errors" {
+        set ex {}
+        catch {r getex foo non-existent-option} ex
+        set ex
+    } {*syntax*}
+
+    test "GETEX no arguments" {
+         set ex {}
+         catch {r getex} ex
+         set ex
+     } {*wrong number of arguments*}
+
+    test "GETDEL command" {
+        r del foo
+        r set foo bar
+        assert_equal bar [r getdel foo ]
+        assert_equal {} [r getdel foo ]
+    }
+
+    test {GETDEL propagate as DEL command to replica} {
+        set repl [attach_to_replication_stream]
+        r set foo bar
+        r getdel foo
+        assert_replication_stream $repl {
+            {select *}
+            {set foo bar}
+            {del foo}
+        }
+    }
+
+    test {GETEX without argument does not propagate to replica} {
+        set repl [attach_to_replication_stream]
+        r set foo bar
+        r getex foo
+        r del foo
+        assert_replication_stream $repl {
+            {select *}
+            {set foo bar}
+            {del foo}
+        }
+    }
+
     test {MGET} {
         r flushdb
         r set foo BAR
@@ -437,6 +522,17 @@ start_server {tags {"string"}} {
         assert {$ttl <= 10 && $ttl > 5}
     }
 
+    test "Extended SET EXAT option" {
+        r del foo
+        r set foo bar exat [expr [clock seconds] + 10]
+        assert_range [r ttl foo] 5 10
+    }
+
+    test "Extended SET PXAT option" {
+        r del foo
+        r set foo bar pxat [expr [clock milliseconds] + 10000]
+        assert_range [r ttl foo] 5 10
+    }
     test {Extended SET using multiple options at once} {
         r set foo val
         assert {[r set foo bar xx px 10000] eq {OK}}

@@ -271,6 +271,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_DENY_BLOCKING (1ULL<<41) /* Indicate that the client should not be blocked.
                                            currently, turned on inside MULTI, Lua, RM_Call,
                                            and AOF client */
+#define CLIENT_REPL_RDBONLY (1ULL<<42) /* This client is a replica that only wants
+                                          RDB without replication buffer. */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -943,6 +945,19 @@ struct moduleLoadQueueEntry {
     robj **argv;
 };
 
+struct sentinelLoadQueueEntry {
+    int argc;
+    sds *argv;
+    int linenum;
+    sds line;
+};
+
+struct sentinelConfig {
+    list *pre_monitor_cfg;
+    list *monitor_cfg;
+    list *post_monitor_cfg;
+};
+
 struct sharedObjectsStruct {
     robj *crlf, *ok, *err, *emptybulk, *czero, *cone, *pong, *space,
     *colon, *queued, *null[4], *nullarray[4], *emptymap[4], *emptyset[4],
@@ -952,7 +967,8 @@ struct sharedObjectsStruct {
     *busykeyerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *unlink,
     *rpop, *lpop, *lpush, *rpoplpush, *lmove, *blmove, *zpopmin, *zpopmax,
-    *emptyscan, *multi, *exec, *left, *right,
+    *emptyscan, *multi, *exec, *left, *right, *persist, *set, *pexpireat,
+    *pexpire, *pxat, *px,
     *select[PROTO_SHARED_SELECT_CMDS],
     *integers[OBJ_SHARED_INTEGERS],
     *mbulkhdr[OBJ_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
@@ -1282,6 +1298,7 @@ struct redisServer {
     int supervised;                 /* 1 if supervised, 0 otherwise. */
     int supervised_mode;            /* See SUPERVISED_* */
     int daemonize;                  /* True if running as a daemon */
+    int set_proc_title;             /* True if change proc title */
     char *proc_title_template;      /* Process title template format */
     clientBufferLimitsConfig client_obuf_limits[CLIENT_TYPE_OBUF_COUNT];
     /* AOF persistence */
@@ -1558,6 +1575,8 @@ struct redisServer {
     char *bio_cpulist; /* cpu affinity list of bio thread. */
     char *aof_rewrite_cpulist; /* cpu affinity list of aof rewrite process. */
     char *bgsave_cpulist; /* cpu affinity list of bgsave process. */
+    /* Sentinel config */
+    struct sentinelConfig *sentinel_config; /* sentinel config to load at startup time. */
 };
 
 typedef struct pubsubPattern {
@@ -2241,6 +2260,7 @@ void appendServerSaveParams(time_t seconds, int changes);
 void resetServerSaveParams(void);
 struct rewriteConfigState; /* Forward declaration to export API. */
 void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *option, sds line, int force);
+void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *option);
 int rewriteConfig(char *path, int force_all);
 void initConfigValues();
 
@@ -2336,6 +2356,8 @@ void initSentinelConfig(void);
 void initSentinel(void);
 void sentinelTimer(void);
 const char *sentinelHandleConfiguration(char **argv, int argc);
+void queueSentinelConfig(sds *argv, int argc, int linenum, sds line);
+void loadSentinelConfigFromQueue(void);
 void sentinelIsRunning(void);
 
 /* redis-check-rdb & aof */
@@ -2409,6 +2431,8 @@ void setnxCommand(client *c);
 void setexCommand(client *c);
 void psetexCommand(client *c);
 void getCommand(client *c);
+void getexCommand(client *c);
+void getdelCommand(client *c);
 void delCommand(client *c);
 void unlinkCommand(client *c);
 void existsCommand(client *c);
