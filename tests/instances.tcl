@@ -28,6 +28,7 @@ set ::global_config {}
 set ::sentinel_base_port 20000
 set ::redis_base_port 30000
 set ::redis_port_count 1024
+set ::host "127.0.0.1"
 set ::pids {} ; # We kill everything at exit
 set ::dirs {} ; # We remove all the temp dirs at exit
 set ::run_matching {} ; # If non empty, only tests matching pattern are run.
@@ -128,18 +129,18 @@ proc spawn_instance {type base_port count {conf {}} {base_conf_file ""}} {
         }
 
         # Check availability finally
-        if {[server_is_up 127.0.0.1 $port 100] == 0} {
+        if {[server_is_up $::host $port 100] == 0} {
             set logfile [file join $dirname log.txt]
             puts [exec tail $logfile]
             abort_sentinel_test "Problems starting $type #$j: ping timeout, maybe server start failed, check $logfile"
         }
 
         # Push the instance into the right list
-        set link [redis 127.0.0.1 $port 0 $::tls]
+        set link [redis $::host $port 0 $::tls]
         $link reconnect 1
         lappend ::${type}_instances [list \
             pid $pid \
-            host 127.0.0.1 \
+            host $::host \
             port $port \
             link $link \
         ]
@@ -241,6 +242,9 @@ proc parse_options {} {
             set ::simulate_error 1
         } elseif {$opt eq {--valgrind}} {
             set ::valgrind 1
+        } elseif {$opt eq {--host}} {
+            incr j
+            set ::host ${val}
         } elseif {$opt eq {--tls}} {
             package require tls 1.6
             ::tls::init \
@@ -259,6 +263,7 @@ proc parse_options {} {
             puts "--fail                  Simulate a test failure."
             puts "--valgrind              Run with valgrind."
             puts "--tls                   Run tests in TLS mode."
+            puts "--host <host>           Use hostname instead of 127.0.0.1."
             puts "--config <k> <v>        Extra config argument(s)."
             puts "--help                  Shows this help."
             exit 0
