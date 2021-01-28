@@ -34,9 +34,12 @@
 #define ZIPLIST_HEAD 0
 #define ZIPLIST_TAIL 1
 
+/* Each entry in the ziplist is either a string or an integer. */
 typedef struct {
+    /* When string is used, it is provided with the length (slen). */
     unsigned char *sval;
     unsigned int slen;
+    /* When integer is used, 'sval' is NULL, and lval holds the value. */
     long long lval;
 } ziplistEntry;
 
