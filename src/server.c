@@ -5695,11 +5695,7 @@ int redisSetProcTitle(char *title) {
 #ifdef USE_SETPROCTITLE
     if (!title) title = server.exec_argv[0];
     sds proc_title = expandProcTitleTemplate(server.proc_title_template, title);
-    if (!proc_title) {
-        /* Shouldn't really happen because of validations... */
-        serverLog(LL_WARNING, "Invalid proc-title-template specified, process title not set.");
-        return C_ERR;
-    }
+    if (!proc_title) return C_ERR;  /* Not likely, proc_title_template is validated */
 
     setproctitle("%s", proc_title);
     sdsfree(proc_title);
