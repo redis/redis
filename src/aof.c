@@ -235,6 +235,8 @@ void stopAppendOnly(void) {
     serverAssert(server.aof_state != AOF_OFF);
     flushAppendOnlyFile(1);
     redis_fsync(server.aof_fd);
+    server.aof_fsync_offset = server.aof_current_size;
+    server.aof_last_fsync = server.unixtime;
     close(server.aof_fd);
 
     server.aof_fd = -1;
@@ -242,6 +244,8 @@ void stopAppendOnly(void) {
     server.aof_state = AOF_OFF;
     server.aof_rewrite_scheduled = 0;
     killAppendOnlyChild();
+    sdsfree(server.aof_buf);
+    server.aof_buf = sdsempty();
 }
 
 /* Called when the user switches from "appendonly no" to "appendonly yes"
@@ -285,6 +289,12 @@ int startAppendOnly(void) {
     server.aof_state = AOF_WAIT_REWRITE;
     server.aof_last_fsync = server.unixtime;
     server.aof_fd = newfd;
+
+    /* If AOF was in error state, we just ignore it and log the event. */
+    if (server.aof_last_write_status == C_ERR) {
+        serverLog(LL_WARNING,"AOF reopen, just ignore the last error.");
+        server.aof_last_write_status = C_OK;
+    }
     return C_OK;
 }
 
@@ -1855,18 +1865,22 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             close(newfd);
             goto cleanup;
         }
+        latencyEndMonitor(latency);
+        latencyAddSampleIfNeeded("aof-rewrite-diff-write",latency);
+  
         if (server.aof_fsync == AOF_FSYNC_EVERYSEC) {
             aof_background_fsync(newfd);
         } else if (server.aof_fsync == AOF_FSYNC_ALWAYS) {
+            latencyStartMonitor(latency);
             if (redis_fsync(newfd) == -1) {
                 serverLog(LL_WARNING,
                     "Error trying to fsync the parent diff to the rewritten AOF: %s", strerror(errno));
                 close(newfd);
                 goto cleanup;
             }
+            latencyEndMonitor(latency);
+            latencyAddSampleIfNeeded("aof-rewrite-done-fsync",latency);
         }
-        latencyEndMonitor(latency);
-        latencyAddSampleIfNeeded("aof-rewrite-diff-write",latency);
 
         serverLog(LL_NOTICE,
             "Residual parent diff successfully flushed to the rewritten AOF (%.2f MB)", (double) aofRewriteBufferSize() / (1024*1024));
@@ -1938,6 +1952,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             aofUpdateCurrentSize();
             server.aof_rewrite_base_size = server.aof_current_size;
             server.aof_fsync_offset = server.aof_current_size;
+            server.aof_last_fsync = server.unixtime;
 
             /* Clear regular AOF buffer since its contents was just written to
              * the new AOF from the background rewrite buffer. */
