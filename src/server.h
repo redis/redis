@@ -1718,6 +1718,7 @@ extern dictType hashDictType;
 extern dictType replScriptCacheDictType;
 extern dictType dbExpiresDictType;
 extern dictType modulesDictType;
+extern dictType sdsReplyDictType;
 
 /*-----------------------------------------------------------------------------
  * Functions prototypes
@@ -2555,6 +2556,7 @@ void zpopminCommand(client *c);
 void zpopmaxCommand(client *c);
 void bzpopminCommand(client *c);
 void bzpopmaxCommand(client *c);
+void zrandmemberCommand(client *c);
 void multiCommand(client *c);
 void execCommand(client *c);
 void discardCommand(client *c);
@@ -2588,6 +2590,7 @@ void hvalsCommand(client *c);
 void hgetallCommand(client *c);
 void hexistsCommand(client *c);
 void hscanCommand(client *c);
+void hrandfieldCommand(client *c);
 void configCommand(client *c);
 void hincrbyCommand(client *c);
 void hincrbyfloatCommand(client *c);

@@ -555,6 +555,10 @@ struct redisCommand redisCommandTable[] = {
      "write no-script fast @sortedset @blocking",
      0,NULL,1,-2,1,0,0,0},
 
+    {"zrandmember",zrandmemberCommand,-2,
+     "read-only random @sortedset",
+     0,NULL,1,1,1,0,0,0},
+
     {"hset",hsetCommand,-4,
      "write use-memory fast @hash",
      0,NULL,1,1,1,0,0,0},
@@ -609,6 +613,10 @@ struct redisCommand redisCommandTable[] = {
 
     {"hexists",hexistsCommand,3,
      "read-only fast @hash",
+     0,NULL,1,1,1,0,0,0},
+
+    {"hrandfield",hrandfieldCommand,-2,
+     "read-only random @hash",
      0,NULL,1,1,1,0,0,0},
 
     {"hscan",hscanCommand,-3,
@@ -1453,6 +1461,17 @@ dictType hashDictType = {
     dictSdsKeyCompare,          /* key compare */
     dictSdsDestructor,          /* key destructor */
     dictSdsDestructor,          /* val destructor */
+    NULL                        /* allow to expand */
+};
+
+/* Dict type without destructor */
+dictType sdsReplyDictType = {
+    dictSdsHash,                /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictSdsKeyCompare,          /* key compare */
+    NULL,                       /* key destructor */
+    NULL,                       /* val destructor */
     NULL                        /* allow to expand */
 };
 

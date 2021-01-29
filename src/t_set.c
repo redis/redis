@@ -690,8 +690,9 @@ void srandmemberWithCountCommand(client *c) {
     /* CASE 1: The count was negative, so the extraction method is just:
      * "return N random elements" sampling the whole set every time.
      * This case is trivial and can be served without auxiliary data
-     * structures. */
-    if (!uniq) {
+     * structures. This case is the only one that also needs to return the
+     * elements in random order. */
+    if (!uniq || count == 1) {
         addReplySetLen(c,count);
         while(count--) {
             encoding = setTypeRandomElement(set,&ele,&llele);
@@ -713,7 +714,7 @@ void srandmemberWithCountCommand(client *c) {
     }
 
     /* For CASE 3 and CASE 4 we need an auxiliary dictionary. */
-    d = dictCreate(&objectKeyPointerValueDictType,NULL);
+    d = dictCreate(&sdsReplyDictType,NULL);
 
     /* CASE 3:
      * The number of elements inside the set is not greater than
@@ -729,13 +730,13 @@ void srandmemberWithCountCommand(client *c) {
 
         /* Add all the elements into the temporary dictionary. */
         si = setTypeInitIterator(set);
-        while((encoding = setTypeNext(si,&ele,&llele)) != -1) {
+        while ((encoding = setTypeNext(si,&ele,&llele)) != -1) {
             int retval = DICT_ERR;
 
             if (encoding == OBJ_ENCODING_INTSET) {
-                retval = dictAdd(d,createStringObjectFromLongLong(llele),NULL);
+                retval = dictAdd(d,sdsfromlonglong(llele),NULL);
             } else {
-                retval = dictAdd(d,createStringObject(ele,sdslen(ele)),NULL);
+                retval = dictAdd(d,sdsdup(ele),NULL);
             }
             serverAssert(retval == DICT_OK);
         }
@@ -743,11 +744,12 @@ void srandmemberWithCountCommand(client *c) {
         serverAssert(dictSize(d) == size);
 
         /* Remove random elements to reach the right count. */
-        while(size > count) {
+        while (size > count) {
             dictEntry *de;
-
             de = dictGetRandomKey(d);
-            dictDelete(d,dictGetKey(de));
+            dictUnlink(d,dictGetKey(de));
+            sdsfree(dictGetKey(de));
+            dictFreeUnlinkedEntry(d,de);
             size--;
         }
     }
@@ -758,22 +760,22 @@ void srandmemberWithCountCommand(client *c) {
      * to reach the specified count. */
     else {
         unsigned long added = 0;
-        robj *objele;
+        sds sdsele;
 
-        while(added < count) {
+        while (added < count) {
             encoding = setTypeRandomElement(set,&ele,&llele);
             if (encoding == OBJ_ENCODING_INTSET) {
-                objele = createStringObjectFromLongLong(llele);
+                sdsele = sdsfromlonglong(llele);
             } else {
-                objele = createStringObject(ele,sdslen(ele));
+                sdsele = sdsdup(ele);
             }
             /* Try to add the object to the dictionary. If it already exists
              * free it, otherwise increment the number of objects we have
              * in the result dictionary. */
-            if (dictAdd(d,objele,NULL) == DICT_OK)
+            if (dictAdd(d,sdsele,NULL) == DICT_OK)
                 added++;
             else
-                decrRefCount(objele);
+                sdsfree(sdsele);
         }
     }
 
@@ -785,12 +787,13 @@ void srandmemberWithCountCommand(client *c) {
         addReplySetLen(c,count);
         di = dictGetIterator(d);
         while((de = dictNext(di)) != NULL)
-            addReplyBulk(c,dictGetKey(de));
+            addReplyBulkSds(c,dictGetKey(de));
         dictReleaseIterator(di);
         dictRelease(d);
     }
 }
 
+/* SRANDMEMBER [<count>] */
 void srandmemberCommand(client *c) {
     robj *set;
     sds ele;
@@ -805,6 +808,7 @@ void srandmemberCommand(client *c) {
         return;
     }
 
+    /* Handle variant without <count> argument. Reply with simple bulk string */
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))
         == NULL || checkType(c,set,OBJ_SET)) return;
 
