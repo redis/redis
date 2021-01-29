@@ -33,13 +33,18 @@ source "../tests/includes/init-tests.tcl"
 proc verify_hostname_announced {hostname} {
     foreach_sentinel_id id {
         # Master is reported with its hostname
-        assert_equal [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 0] $hostname
+        if {![string equal [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 0] $hostname]} {
+            return 0
+        }
 
         # Replicas are reported with their hostnames
         foreach replica [S $id SENTINEL REPLICAS mymaster] {
-            assert_equal [dict get $replica ip] $hostname
+            if {![string equal [dict get $replica ip] $hostname]} {
+                return 0
+            }
         }
     }
+    return 1
 }
 
 test "Sentinel announces hostnames" {
@@ -48,7 +53,7 @@ test "Sentinel announces hostnames" {
 
     # Disable announce-hostnames and confirm IPs are used
     set_sentinel_config announce-hostnames no
-    verify_hostname_announced "127.0.0.1"
+    assert {[verify_hostname_announced "127.0.0.1"] || [verify_hostname_announced "::1"]}
 }
 
 # We need to revert any special configuration because all tests currently
