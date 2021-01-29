@@ -12,7 +12,7 @@ start_server {tags {"dump"}} {
         r del foo
         r restore foo 5000 $encoded
         set ttl [r pttl foo]
-        assert {$ttl >= 3000 && $ttl <= 5000}
+        assert_range $ttl 3000 5000
         r get foo
     } {bar}
 
@@ -22,7 +22,7 @@ start_server {tags {"dump"}} {
         r del foo
         r restore foo 2569591501 $encoded
         set ttl [r pttl foo]
-        assert {$ttl >= (2569591501-3000) && $ttl <= 2569591501}
+        assert_range $ttl (2569591501-3000) 2569591501
         r get foo
     } {bar}
     
@@ -33,7 +33,7 @@ start_server {tags {"dump"}} {
         set now [clock milliseconds]
         r restore foo [expr $now+3000] $encoded absttl
         set ttl [r pttl foo]
-        assert {$ttl >= 2900 && $ttl <= 3100}
+        assert_range $ttl 2000 3100
         r get foo
     } {bar}
 

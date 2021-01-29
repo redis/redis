@@ -99,6 +99,23 @@ jobs:
         ./runtest-cluster --tls
         ./runtest-cluster
 
+  test-ubuntu-io-threads:
+    runs-on: ubuntu-latest
+    if: github.repository == 'redis/redis'
+    timeout-minutes: 14400
+    steps:
+    - uses: actions/checkout@v2
+    - name: make
+      run: |
+        make
+    - name: test
+      run: |
+        sudo apt-get install tcl8.5 tcl-tls
+        ./runtest --config io-threads 4 --config io-threads-do-reads yes --accurate --verbose --tags network
+    - name: cluster tests
+      run: |
+        ./runtest-cluster --config io-threads 4 --config io-threads-do-reads yes
+
   test-valgrind:
     runs-on: ubuntu-latest
     if: github.repository == 'redis/redis'
@@ -129,28 +146,6 @@ jobs:
     - name: test
       run: |
         yum -y install which tcl
-        ./runtest --accurate --verbose
-    - name: module api test
-      run: ./runtest-moduleapi --verbose
-    - name: sentinel tests
-      run: ./runtest-sentinel
-    - name: cluster tests
-      run: ./runtest-cluster
-
-  test-centos6-jemalloc:
-    runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis'
-    container: centos:6
-    timeout-minutes: 14400
-    steps:
-    - uses: actions/checkout@v1
-    - name: make
-      run: |
-        yum -y install gcc make
-        make
-    - name: test
-      run: |
-        yum -y install which tcl util-linux-ng
         ./runtest --accurate --verbose
     - name: module api test
       run: ./runtest-moduleapi --verbose
@@ -208,3 +203,20 @@ jobs:
     - name: cluster tests
       run: ./runtest-cluster
 
+  test-freebsd:
+    runs-on: macos-latest
+    if: github.repository == 'redis/redis'
+    timeout-minutes: 14400
+    steps:
+    - uses: actions/checkout@v2
+    - name: test
+      uses: vmactions/freebsd-vm@v0.1.0
+      with:
+        usesh: true
+        prepare: pkg install -y gmake lang/tcl85
+        run: |
+          gmake
+          ./runtest --accurate --verbose --no-latency
+          MAKE=gmake ./runtest-moduleapi --verbose
+          ./runtest-sentinel
+          ./runtest-cluster

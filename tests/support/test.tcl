@@ -31,36 +31,48 @@ proc assert_match {pattern value} {
     }
 }
 
+proc assert_failed {expected_err detail} {
+     if {$detail ne ""} {
+        set detail "(detail: $detail)"
+     } else {
+        set detail "(context: [info frame -2])"
+     }
+     error "assertion:$expected_err $detail"
+}
+
 proc assert_equal {value expected {detail ""}} {
     if {$expected ne $value} {
-        if {$detail ne ""} {
-            set detail "(detail: $detail)"
-        } else {
-            set detail "(context: [info frame -1])"
-        }
-        error "assertion:Expected '$value' to be equal to '$expected' $detail"
+        assert_failed "Expected '$value' to be equal to '$expected'" $detail
     }
 }
 
 proc assert_lessthan {value expected {detail ""}} {
     if {!($value < $expected)} {
-        if {$detail ne ""} {
-            set detail "(detail: $detail)"
-        } else {
-            set detail "(context: [info frame -1])"
-        }
-        error "assertion:Expected '$value' to be lessthan to '$expected' $detail"
+        assert_failed "Expected '$value' to be less than '$expected'" $detail
+    }
+}
+
+proc assert_lessthan_equal {value expected {detail ""}} {
+    if {!($value <= $expected)} {
+        assert_failed "Expected '$value' to be less than or equal to '$expected'" $detail
+    }
+}
+
+proc assert_morethan {value expected {detail ""}} {
+    if {!($value > $expected)} {
+        assert_failed "Expected '$value' to be more than '$expected'" $detail
+    }
+}
+
+proc assert_morethan_equal {value expected {detail ""}} {
+    if {!($value >= $expected)} {
+        assert_failed "Expected '$value' to be more than or equal to '$expected'" $detail
     }
 }
 
 proc assert_range {value min max {detail ""}} {
     if {!($value <= $max && $value >= $min)} {
-        if {$detail ne ""} {
-            set detail "(detail: $detail)"
-        } else {
-            set detail "(context: [info frame -1])"
-        }
-        error "assertion:Expected '$value' to be between to '$min' and '$max' $detail"
+        assert_failed "Expected '$value' to be between to '$min' and '$max'" $detail
     }
 }
 

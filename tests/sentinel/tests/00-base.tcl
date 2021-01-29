@@ -1,5 +1,5 @@
 # Check the basic monitoring and failover capabilities.
-
+source "../tests/includes/start-init-tests.tcl"
 source "../tests/includes/init-tests.tcl"
 
 if {$::simulate_error} {

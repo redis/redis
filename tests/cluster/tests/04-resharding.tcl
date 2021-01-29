@@ -172,3 +172,10 @@ test "Verify slaves consistency" {
     }
     assert {$verified_masters >= 5}
 }
+
+test "Dump sanitization was skipped for migrations" {
+    set verified_masters 0
+    foreach_redis_id id {
+        assert {[RI $id dump_payload_sanitizations] == 0}
+    }
+}

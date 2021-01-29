@@ -140,9 +140,39 @@ start_server {tags {"scripting"}} {
         } {*execution time*}
     }
 
-    test {EVAL - Scripts can't run certain commands} {
+    test {EVAL - Scripts can't run blpop command} {
         set e {}
         catch {r eval {return redis.pcall('blpop','x',0)} 0} e
+        set e
+    } {*not allowed*}
+
+    test {EVAL - Scripts can't run brpop command} {
+        set e {}
+        catch {r eval {return redis.pcall('brpop','empty_list',0)} 0} e
+        set e
+    } {*not allowed*}
+
+    test {EVAL - Scripts can't run brpoplpush command} {
+        set e {}
+        catch {r eval {return redis.pcall('brpoplpush','empty_list1', 'empty_list2',0)} 0} e
+        set e
+    } {*not allowed*}
+
+    test {EVAL - Scripts can't run blmove command} {
+        set e {}
+        catch {r eval {return redis.pcall('blmove','empty_list1', 'empty_list2', 'LEFT', 'LEFT', 0)} 0} e
+        set e
+    } {*not allowed*}
+
+    test {EVAL - Scripts can't run bzpopmin command} {
+        set e {}
+        catch {r eval {return redis.pcall('bzpopmin','empty_zset', 0)} 0} e
+        set e
+    } {*not allowed*}
+
+    test {EVAL - Scripts can't run bzpopmax command} {
+        set e {}
+        catch {r eval {return redis.pcall('bzpopmax','empty_zset', 0)} 0} e
         set e
     } {*not allowed*}
 
@@ -299,6 +329,15 @@ start_server {tags {"scripting"}} {
         catch {r evalsha fd758d1589d044dd850a6f05d52f2eefd27f033f 1 mykey} e
         set e
     } {NOSCRIPT*}
+
+    test {SCRIPTING FLUSH ASYNC} {
+        for {set j 0} {$j < 100} {incr j} {
+            r script load "return $j"
+        }
+        assert { [string match "*number_of_cached_scripts:100*" [r info Memory]] }
+        r script flush async
+        assert { [string match "*number_of_cached_scripts:0*" [r info Memory]] }
+    }
 
     test {SCRIPT EXISTS - can detect already defined scripts?} {
         r eval "return 1+1" 0
@@ -533,6 +572,30 @@ start_server {tags {"scripting"}} {
         } e
         set e
     } {*wrong number*}
+
+    test {Script with RESP3 map} {
+        set expected_dict [dict create field value]
+        set expected_list [list field value]
+
+        # Sanity test for RESP3 without scripts
+        r HELLO 3
+        r hset hash field value
+        set res [r hgetall hash]
+        assert_equal $res $expected_dict
+
+        # Test RESP3 client with script in both RESP2 and RESP3 modes
+        set res [r eval {redis.setresp(3); return redis.call('hgetall', KEYS[1])} 1 hash]
+        assert_equal $res $expected_dict
+        set res [r eval {redis.setresp(2); return redis.call('hgetall', KEYS[1])} 1 hash]
+        assert_equal $res $expected_list
+
+        # Test RESP2 client with script in both RESP2 and RESP3 modes
+        r HELLO 2
+        set res [r eval {redis.setresp(3); return redis.call('hgetall', KEYS[1])} 1 hash]
+        assert_equal $res $expected_list
+        set res [r eval {redis.setresp(2); return redis.call('hgetall', KEYS[1])} 1 hash]
+        assert_equal $res $expected_list
+    }
 }
 
 # Start a new server since the last test in this stanza will kill the

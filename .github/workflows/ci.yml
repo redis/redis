@@ -58,13 +58,14 @@ jobs:
       run: |
         yum -y install gcc make
         make REDIS_CFLAGS='-Werror'
-
-  build-centos6-jemalloc:
-    runs-on: ubuntu-latest
-    container: centos:6
+        
+  build-freebsd:
+    runs-on: macos-latest
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - name: make
-      run: |
-        yum -y install gcc make
-        make
+      uses: vmactions/freebsd-vm@v0.1.0
+      with:
+        usesh: true
+        prepare: pkg install -y gmake
+        run: gmake

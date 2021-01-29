@@ -99,6 +99,57 @@ void disableTracking(client *c) {
     }
 }
 
+static int stringCheckPrefix(unsigned char *s1, size_t s1_len, unsigned char *s2, size_t s2_len) {
+    size_t min_length = s1_len < s2_len ? s1_len : s2_len;
+    return memcmp(s1,s2,min_length) == 0;   
+}
+
+/* Check if any of the provided prefixes collide with one another or
+ * with an existing prefix for the client. A collision is defined as two 
+ * prefixes that will emit an invalidation for the same key. If no prefix 
+ * collision is found, 1 is return, otherwise 0 is returned and the client 
+ * has an error emitted describing the error. */
+int checkPrefixCollisionsOrReply(client *c, robj **prefixes, size_t numprefix) {
+    for (size_t i = 0; i < numprefix; i++) {
+        /* Check input list has no overlap with existing prefixes. */
+        if (c->client_tracking_prefixes) {
+            raxIterator ri;
+            raxStart(&ri,c->client_tracking_prefixes);
+            raxSeek(&ri,"^",NULL,0);
+            while(raxNext(&ri)) {
+                if (stringCheckPrefix(ri.key,ri.key_len,
+                    prefixes[i]->ptr,sdslen(prefixes[i]->ptr))) 
+                {
+                    sds collision = sdsnewlen(ri.key,ri.key_len);
+                    addReplyErrorFormat(c,
+                        "Prefix '%s' overlaps with an existing prefix '%s'. "
+                        "Prefixes for a single client must not overlap.",
+                        (unsigned char *)prefixes[i]->ptr,
+                        (unsigned char *)collision);
+                    sdsfree(collision);
+                    raxStop(&ri);
+                    return 0;
+                }
+            }
+            raxStop(&ri);
+        }
+        /* Check input has no overlap with itself. */
+        for (size_t j = i + 1; j < numprefix; j++) {
+            if (stringCheckPrefix(prefixes[i]->ptr,sdslen(prefixes[i]->ptr),
+                prefixes[j]->ptr,sdslen(prefixes[j]->ptr)))
+            {
+                addReplyErrorFormat(c,
+                    "Prefix '%s' overlaps with another provided prefix '%s'. "
+                    "Prefixes for a single client must not overlap.",
+                    (unsigned char *)prefixes[i]->ptr,
+                    (unsigned char *)prefixes[j]->ptr);
+                return i;
+            }
+        }
+    }
+    return -1;
+}
+
 /* Set the client 'c' to track the prefix 'prefix'. If the client 'c' is
  * already registered for the specified prefix, no operation is performed. */
 void enableBcastTrackingForPrefix(client *c, char *prefix, size_t plen) {
@@ -350,19 +401,22 @@ void trackingInvalidateKey(client *c, robj *keyobj) {
 }
 
 /* This function is called when one or all the Redis databases are
- * flushed (dbid == -1 in case of FLUSHALL). Caching keys are not
- * specific for each DB but are global: currently what we do is send a
- * special notification to clients with tracking enabled, sending a
- * RESP NULL, which means, "all the keys", in order to avoid flooding
- * clients with many invalidation messages for all the keys they may
- * hold.
+ * flushed. Caching keys are not specific for each DB but are global: 
+ * currently what we do is send a special notification to clients with 
+ * tracking enabled, sending a RESP NULL, which means, "all the keys", 
+ * in order to avoid flooding clients with many invalidation messages 
+ * for all the keys they may hold.
  */
-void freeTrackingRadixTree(void *rt) {
+void freeTrackingRadixTreeCallback(void *rt) {
     raxFree(rt);
 }
 
+void freeTrackingRadixTree(rax *rt) {
+    raxFreeWithCallback(rt,freeTrackingRadixTreeCallback);
+}
+
 /* A RESP NULL is sent to indicate that all keys are invalid */
-void trackingInvalidateKeysOnFlush(int dbid) {
+void trackingInvalidateKeysOnFlush(int async) {
     if (server.tracking_clients) {
         listNode *ln;
         listIter li;
@@ -376,8 +430,12 @@ void trackingInvalidateKeysOnFlush(int dbid) {
     }
 
     /* In case of FLUSHALL, reclaim all the memory used by tracking. */
-    if (dbid == -1 && TrackingTable) {
-        raxFreeWithCallback(TrackingTable,freeTrackingRadixTree);
+    if (TrackingTable) {
+        if (async) {
+            freeTrackingRadixTreeAsync(TrackingTable);
+        } else {
+            freeTrackingRadixTree(TrackingTable);
+        }
         TrackingTable = raxNew();
         TrackingTableTotalItems = 0;
     }
