@@ -23,6 +23,7 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/hooks \
 --single unit/moduleapi/misc \
 --single unit/moduleapi/blockonkeys \
+--single unit/moduleapi/blockonbackground \
 --single unit/moduleapi/scan \
 --single unit/moduleapi/datatype \
 --single unit/moduleapi/auth \

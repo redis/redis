@@ -3620,7 +3620,7 @@ void preventCommandReplication(client *c) {
  */
 void call(client *c, int flags) {
     long long dirty;
-    ustime_t start, duration;
+    monotime call_timer;
     int client_old_flags = c->flags;
     struct redisCommand *real_cmd = c->cmd;
     static long long prev_err_count;
@@ -3646,9 +3646,10 @@ void call(client *c, int flags) {
     dirty = server.dirty;
     prev_err_count = server.stat_total_error_replies;
     updateCachedTime(0);
-    start = server.ustime;
+    elapsedStart(&call_timer);
     c->cmd->proc(c);
-    duration = ustime()-start;
+    const long duration = elapsedUs(call_timer);
+    c->duration = duration;
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
 
@@ -3692,7 +3693,10 @@ void call(client *c, int flags) {
          * arguments. */
         robj **argv = c->original_argv ? c->original_argv : c->argv;
         int argc = c->original_argv ? c->original_argc : c->argc;
-        slowlogPushEntryIfNeeded(c,argv,argc,duration);
+        /* If the client is blocked we will handle slowlog when it is unblocked . */
+        if (!(c->flags & CLIENT_BLOCKED)) {
+            slowlogPushEntryIfNeeded(c,argv,argc,duration);
+        }
     }
     freeClientOriginalArgv(c);
 
