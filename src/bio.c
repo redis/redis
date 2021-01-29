@@ -220,7 +220,10 @@ void *bioProcessBackgroundJobs(void *arg) {
         if (type == BIO_CLOSE_FILE) {
             close(job->fd);
         } else if (type == BIO_AOF_FSYNC) {
-            redis_fsync(job->fd);
+            if (redis_fsync(job->fd) == -1) {
+                serverLog(LL_WARNING,
+                    "Fail to fsync the AOF file: %s", strerror(errno));
+            }
         } else if (type == BIO_LAZY_FREE) {
             job->free_fn(job->free_args);
         } else {

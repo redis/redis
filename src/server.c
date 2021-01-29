@@ -4249,7 +4249,10 @@ int prepareForShutdown(int flags) {
         /* Append only file: flush buffers and fsync() the AOF at exit */
         serverLog(LL_NOTICE,"Calling fsync() on the AOF file.");
         flushAppendOnlyFile(1);
-        redis_fsync(server.aof_fd);
+        if (redis_fsync(server.aof_fd) == -1) {
+            serverLog(LL_WARNING,"Fail to fsync the AOF file: %s.",
+                                 strerror(errno));
+        }
     }
 
     /* Create a new RDB file before exiting. */

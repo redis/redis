@@ -234,9 +234,12 @@ void killAppendOnlyChild(void) {
 void stopAppendOnly(void) {
     serverAssert(server.aof_state != AOF_OFF);
     flushAppendOnlyFile(1);
-    redis_fsync(server.aof_fd);
-    server.aof_fsync_offset = server.aof_current_size;
-    server.aof_last_fsync = server.unixtime;
+    if (redis_fsync(server.aof_fd) == -1) {
+        serverLog(LL_WARNING,"Fail to fsync the AOF file: %s",strerror(errno));
+    } else {
+        server.aof_fsync_offset = server.aof_current_size;
+        server.aof_last_fsync = server.unixtime;
+    }
     close(server.aof_fd);
 
     server.aof_fd = -1;
