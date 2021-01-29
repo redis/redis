@@ -1018,12 +1018,12 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
                 if (withvalues && c->resp > 2)
                     addReplyArrayLen(c,2);
                 if (keys[i].sval)
-                    addReplyBulkSds(c, sdsnewlen(keys[i].sval, keys[i].slen));
+                    addReplyBulkCBuffer(c, keys[i].sval, keys[i].slen);
                 else
                     addReplyBulkLongLong(c, keys[i].lval);
                 if (withvalues) {
                     if (vals[i].sval)
-                        addReplyBulkSds(c, sdsnewlen(vals[i].sval, vals[i].slen));
+                        addReplyBulkCBuffer(c, vals[i].sval, vals[i].slen);
                     else
                         addReplyBulkLongLong(c, vals[i].lval);
                 }

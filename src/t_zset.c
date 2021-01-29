@@ -4014,7 +4014,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
                 if (withscores && c->resp > 2)
                     addReplyArrayLen(c,2);
                 if (keys[i].sval)
-                    addReplyBulkSds(c, sdsnewlen(keys[i].sval, keys[i].slen));
+                    addReplyBulkCBuffer(c, keys[i].sval, keys[i].slen);
                 else
                     addReplyBulkLongLong(c, keys[i].lval);
                 if (withscores) {
