@@ -1506,6 +1506,9 @@ void ziplistRandomPair(unsigned char *zl, unsigned long total_count, ziplistEntr
     int ret;
     unsigned char *p;
 
+    /* Avoid div by zero on corrupt ziplist */
+    assert(total_count);
+
     /* Generate even numbers, because ziplist saved K-V pair */
     int r = (rand() % total_count) * 2;
     p = ziplistIndex(zl, r);
@@ -1544,6 +1547,9 @@ void ziplistRandomPairs(unsigned char *zl, int count, ziplistEntry *keys, ziplis
     } rand_pick;
     rand_pick *picks = zmalloc(sizeof(rand_pick)*count);
     unsigned long total_size = ziplistLen(zl)/2;
+
+    /* Avoid div by zero on corrupt ziplist */
+    assert(total_size);
 
     /* create a pool of random indexes (some may be duplicate). */
     for (int i = 0; i < count; i++) {
