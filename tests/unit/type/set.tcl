@@ -501,7 +501,7 @@ start_server {
                 set iterations 1000
                 while {$iterations != 0} {
                     incr iterations -1
-                    set res [r srandmember myset -10]
+                    set res [r srandmember myset $size]
                     foreach ele $res {
                         set auxset($ele) 1
                     }

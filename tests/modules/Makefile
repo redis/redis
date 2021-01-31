@@ -19,6 +19,7 @@ TEST_MODULES = \
     misc.so \
     hooks.so \
     blockonkeys.so \
+    blockonbackground.so \
     scan.so \
     datatype.so \
     auth.so \
@@ -27,7 +28,8 @@ TEST_MODULES = \
     getkeys.so \
     test_lazyfree.so \
     timer.so \
-    defragtest.so
+    defragtest.so \
+    stream.so
 
 
 .PHONY: all

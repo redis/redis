@@ -209,19 +209,101 @@ start_server {tags {"expire"}} {
         set e
     } {*not an integer*}
 
-    test {SET - use EX/PX option, TTL should not be reseted after loadaof} {
-        r config set appendonly yes
-        r set foo bar EX 100
-        after 2000
-        r debug loadaof
-        set ttl [r ttl foo]
-        assert {$ttl <= 98 && $ttl > 90}
+    test {EXPIRE and SET/GETEX EX/PX/EXAT/PXAT option, TTL should not be reset after loadaof} {
+        # This test makes sure that expire times are propagated as absolute
+        # times to the AOF file and not as relative time, so that when the AOF
+        # is reloaded the TTLs are not being shifted forward to the future.
+        # We want the time to logically pass when the server is restarted!
 
-        r set foo bar PX 100000
+        r config set appendonly yes
+        r set foo1 bar EX 100
+        r set foo2 bar PX 100000
+        r set foo3 bar
+        r set foo4 bar
+        r expire foo3 100
+        r pexpire foo4 100000
+        r setex foo5 100 bar
+        r psetex foo6 100000 bar
+        r set foo7 bar EXAT [expr [clock seconds] + 100]
+        r set foo8 bar PXAT [expr [clock milliseconds] + 100000]
+        r set foo9 bar
+        r getex foo9 EX 100
+        r set foo10 bar
+        r getex foo10 PX 100000
+        r set foo11 bar
+        r getex foo11 EXAT [expr [clock seconds] + 100]
+        r set foo12 bar
+        r getex foo12 PXAT [expr [clock milliseconds] + 100000]
+
         after 2000
         r debug loadaof
-        set ttl [r ttl foo]
-        assert {$ttl <= 98 && $ttl > 90}
+        assert_range [r ttl foo1] 90 98
+        assert_range [r ttl foo2] 90 98
+        assert_range [r ttl foo3] 90 98
+        assert_range [r ttl foo4] 90 98
+        assert_range [r ttl foo5] 90 98
+        assert_range [r ttl foo6] 90 98
+        assert_range [r ttl foo7] 90 98
+        assert_range [r ttl foo8] 90 98
+        assert_range [r ttl foo9] 90 98
+        assert_range [r ttl foo10] 90 98
+        assert_range [r ttl foo11] 90 98
+        assert_range [r ttl foo12] 90 98
+    }
+
+    test {EXPIRE relative and absolute propagation to replicas} {
+        # Make sure that relative and absolute expire commands are propagated
+        # "as is" to replicas.
+        # We want replicas to honor the same high level contract of expires that
+        # the master has, that is, we want the time to be counted logically
+        # starting from the moment the write was received. This usually provides
+        # the most coherent behavior from the point of view of the external
+        # users, with TTLs that are similar from the POV of the external observer.
+        #
+        # This test is here to stop some innocent / eager optimization or cleanup
+        # from doing the wrong thing without proper discussion, see:
+        # https://github.com/redis/redis/pull/5171#issuecomment-409553266
+
+        set repl [attach_to_replication_stream]
+        r set foo1 bar ex 200
+        r set foo1 bar px 100000
+        r set foo1 bar exat [expr [clock seconds]+100]
+        r set foo1 bar pxat [expr [clock milliseconds]+10000]
+        r setex foo1 100 bar
+        r psetex foo1 100000 bar
+        r set foo2 bar
+        r expire foo2 100
+        r pexpire foo2 100000
+        r set foo3 bar
+        r expireat foo3 [expr [clock seconds]+100]
+        r pexpireat foo3 [expr [clock seconds]*1000+100000]
+        r expireat foo3 [expr [clock seconds]-100]
+        r set foo4 bar
+        r getex foo4 ex 200
+        r getex foo4 px 200000
+        r getex foo4 exat [expr [clock seconds]+100]
+        r getex foo4 pxat [expr [clock milliseconds]+10000]
+        assert_replication_stream $repl {
+            {select *}
+            {set foo1 bar PX 200000}
+            {set foo1 bar PX 100000}
+            {set foo1 bar PXAT *}
+            {set foo1 bar PXAT *}
+            {set foo1 bar PX 100000}
+            {set foo1 bar PX 100000}
+            {set foo2 bar}
+            {expire foo2 100}
+            {pexpire foo2 100000}
+            {set foo3 bar}
+            {expireat foo3 *}
+            {pexpireat foo3 *}
+            {del foo3}
+            {set foo4 bar}
+            {pexpire foo4 200000}
+            {pexpire foo4 200000}
+            {pexpireat foo4 *}
+            {pexpireat foo4 *}
+        }
     }
 
     test {SET command will remove expire} {
@@ -245,5 +327,33 @@ start_server {tags {"expire"}} {
         r debug loadaof
         set ttl [r ttl foo]
         assert {$ttl <= 98 && $ttl > 90}
+    }
+
+    test {GETEX use of PERSIST option should remove TTL} {
+       r set foo bar EX 100
+       r getex foo PERSIST
+       r ttl foo
+    } {-1}
+
+    test {GETEX use of PERSIST option should remove TTL after loadaof} {
+       r set foo bar EX 100
+       r getex foo PERSIST
+       after 2000
+       r debug loadaof
+       r ttl foo
+    } {-1}
+
+    test {GETEX propagate as to replica as PERSIST, DEL, or nothing} {
+       set repl [attach_to_replication_stream]
+       r set foo bar EX 100
+       r getex foo PERSIST
+       r getex foo
+       r getex foo exat [expr [clock seconds]-100]
+       assert_replication_stream $repl {
+           {select *}
+           {set foo bar PX 100000}
+           {persist foo}
+           {del foo}
+        }
     }
 }

@@ -61,13 +61,16 @@ static int checkStringLength(client *c, long long size) {
  * If ok_reply is NULL "+OK" is used.
  * If abort_reply is NULL, "$-1" is used. */
 
-#define OBJ_SET_NO_FLAGS 0
+#define OBJ_NO_FLAGS 0
 #define OBJ_SET_NX (1<<0)          /* Set if key not exists. */
 #define OBJ_SET_XX (1<<1)          /* Set if key exists. */
-#define OBJ_SET_EX (1<<2)          /* Set if time in seconds is given */
-#define OBJ_SET_PX (1<<3)          /* Set if time in ms in given */
-#define OBJ_SET_KEEPTTL (1<<4)     /* Set and keep the ttl */
+#define OBJ_EX (1<<2)              /* Set if time in seconds is given */
+#define OBJ_PX (1<<3)              /* Set if time in ms in given */
+#define OBJ_KEEPTTL (1<<4)         /* Set and keep the ttl */
 #define OBJ_SET_GET (1<<5)         /* Set if want to get key before set */
+#define OBJ_EXAT (1<<6)            /* Set if timestamp in second is given */
+#define OBJ_PXAT (1<<7)            /* Set if timestamp in ms is given */
+#define OBJ_PERSIST (1<<8)         /* Set if we need to remove the ttl */
 
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
@@ -93,77 +96,41 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         if (getGenericCommand(c) == C_ERR) return;
     }
 
-    genericSetKey(c,c->db,key,val,flags & OBJ_SET_KEEPTTL,1);
+    genericSetKey(c,c->db,key, val,flags & OBJ_KEEPTTL,1);
     server.dirty++;
-    if (expire) setExpire(c,c->db,key,mstime()+milliseconds);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
-    if (expire) notifyKeyspaceEvent(NOTIFY_GENERIC,
-        "expire",key,c->db->id);
+    if (expire) {
+        robj *exp = shared.pxat;
+
+        if ((flags & OBJ_PX) || (flags & OBJ_EX)) {
+            setExpire(c,c->db,key,milliseconds + mstime());
+            exp = shared.px;
+        } else {
+            setExpire(c,c->db,key,milliseconds);
+        }
+        notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
+
+        /* Propagate as SET Key Value PXAT millisecond-timestamp if there is EXAT/PXAT or
+         * propagate as SET Key Value PX millisecond if there is EX/PX flag.
+         *
+         * Additionally when we propagate the SET with PX (relative millisecond) we translate
+         * it again to SET with PXAT for the AOF.
+         *
+         * Additional care is required while modifying the argument order. AOF relies on the
+         * exp argument being at index 3. (see feedAppendOnlyFile)
+         * */
+        robj *millisecondObj = createStringObjectFromLongLong(milliseconds);
+        rewriteClientCommandVector(c,5,shared.set,key,val,exp,millisecondObj);
+        decrRefCount(millisecondObj);
+    }
     if (!(flags & OBJ_SET_GET)) {
         addReply(c, ok_reply ? ok_reply : shared.ok);
     }
-}
 
-/* SET key value [NX] [XX] [KEEPTTL] [GET] [EX <seconds>] [PX <milliseconds>] */
-void setCommand(client *c) {
-    int j;
-    robj *expire = NULL;
-    int unit = UNIT_SECONDS;
-    int flags = OBJ_SET_NO_FLAGS;
-
-    for (j = 3; j < c->argc; j++) {
-        char *a = c->argv[j]->ptr;
-        robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
-
-        if ((a[0] == 'n' || a[0] == 'N') &&
-            (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
-            !(flags & OBJ_SET_XX) && !(flags & OBJ_SET_GET))
-        {
-            flags |= OBJ_SET_NX;
-        } else if ((a[0] == 'x' || a[0] == 'X') &&
-                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
-                   !(flags & OBJ_SET_NX))
-        {
-            flags |= OBJ_SET_XX;
-        } else if ((a[0] == 'g' || a[0] == 'G') &&
-                   (a[1] == 'e' || a[1] == 'E') &&
-                   (a[2] == 't' || a[2] == 'T') && a[3] == '\0' &&
-                   !(flags & OBJ_SET_NX)) {
-            flags |= OBJ_SET_GET;
-        } else if (!strcasecmp(c->argv[j]->ptr,"KEEPTTL") &&
-                   !(flags & OBJ_SET_EX) && !(flags & OBJ_SET_PX))
-        {
-            flags |= OBJ_SET_KEEPTTL;
-        } else if ((a[0] == 'e' || a[0] == 'E') &&
-                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
-                   !(flags & OBJ_SET_KEEPTTL) &&
-                   !(flags & OBJ_SET_PX) && next)
-        {
-            flags |= OBJ_SET_EX;
-            unit = UNIT_SECONDS;
-            expire = next;
-            j++;
-        } else if ((a[0] == 'p' || a[0] == 'P') &&
-                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
-                   !(flags & OBJ_SET_KEEPTTL) &&
-                   !(flags & OBJ_SET_EX) && next)
-        {
-            flags |= OBJ_SET_PX;
-            unit = UNIT_MILLISECONDS;
-            expire = next;
-            j++;
-        } else {
-            addReplyErrorObject(c,shared.syntaxerr);
-            return;
-        }
-    }
-
-    c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL);
-
-    /* Propagate without the GET argument */
-    if (flags & OBJ_SET_GET) {
+    /* Propagate without the GET argument (Isn't needed if we had expire since in that case we completely re-written the command argv) */
+    if ((flags & OBJ_SET_GET) && !expire) {
         int argc = 0;
+        int j;
         robj **argv = zmalloc((c->argc-1)*sizeof(robj*));
         for (j=0; j < c->argc; j++) {
             char *a = c->argv[j]->ptr;
@@ -180,6 +147,123 @@ void setCommand(client *c) {
     }
 }
 
+#define COMMAND_GET 0
+#define COMMAND_SET 1
+/*
+ * The parseExtendedStringArgumentsOrReply() function performs the common validation for extended
+ * string arguments used in SET and GET command.
+ *
+ * Get specific commands - PERSIST/DEL
+ * Set specific commands - XX/NX/GET
+ * Common commands - EX/EXAT/PX/PXAT/KEEPTTL
+ *
+ * Function takes pointers to client, flags, unit, pointer to pointer of expire obj if needed
+ * to be determined and command_type which can be COMMAND_GET or COMMAND_SET.
+ *
+ * If there are any syntax violations C_ERR is returned else C_OK is returned.
+ *
+ * Input flags are updated upon parsing the arguments. Unit and expire are updated if there are any
+ * EX/EXAT/PX/PXAT arguments. Unit is updated to millisecond if PX/PXAT is set.
+ */
+int parseExtendedStringArgumentsOrReply(client *c, int *flags, int *unit, robj **expire, int command_type) {
+
+    int j = command_type == COMMAND_GET ? 2 : 3;
+    for (; j < c->argc; j++) {
+        char *opt = c->argv[j]->ptr;
+        robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
+
+        if ((opt[0] == 'n' || opt[0] == 'N') &&
+            (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
+            !(*flags & OBJ_SET_XX) && !(*flags & OBJ_SET_GET) && (command_type == COMMAND_SET))
+        {
+            *flags |= OBJ_SET_NX;
+        } else if ((opt[0] == 'x' || opt[0] == 'X') &&
+                   (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
+                   !(*flags & OBJ_SET_NX) && (command_type == COMMAND_SET))
+        {
+            *flags |= OBJ_SET_XX;
+        } else if ((opt[0] == 'g' || opt[0] == 'G') &&
+                   (opt[1] == 'e' || opt[1] == 'E') &&
+                   (opt[2] == 't' || opt[2] == 'T') && opt[3] == '\0' &&
+                   !(*flags & OBJ_SET_NX) && (command_type == COMMAND_SET))
+        {
+            *flags |= OBJ_SET_GET;
+        } else if (!strcasecmp(opt, "KEEPTTL") && !(*flags & OBJ_PERSIST) &&
+            !(*flags & OBJ_EX) && !(*flags & OBJ_EXAT) &&
+            !(*flags & OBJ_PX) && !(*flags & OBJ_PXAT) && (command_type == COMMAND_SET))
+        {
+            *flags |= OBJ_KEEPTTL;
+        } else if (!strcasecmp(opt,"PERSIST") && (command_type == COMMAND_GET) &&
+               !(*flags & OBJ_EX) && !(*flags & OBJ_EXAT) &&
+               !(*flags & OBJ_PX) && !(*flags & OBJ_PXAT) &&
+               !(*flags & OBJ_KEEPTTL))
+        {
+            *flags |= OBJ_PERSIST;
+        } else if ((opt[0] == 'e' || opt[0] == 'E') &&
+                   (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
+                   !(*flags & OBJ_KEEPTTL) && !(*flags & OBJ_PERSIST) &&
+                   !(*flags & OBJ_EXAT) && !(*flags & OBJ_PX) &&
+                   !(*flags & OBJ_PXAT) && next)
+        {
+            *flags |= OBJ_EX;
+            *expire = next;
+            j++;
+        } else if ((opt[0] == 'p' || opt[0] == 'P') &&
+                   (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
+                   !(*flags & OBJ_KEEPTTL) && !(*flags & OBJ_PERSIST) &&
+                   !(*flags & OBJ_EX) && !(*flags & OBJ_EXAT) &&
+                   !(*flags & OBJ_PXAT) && next)
+        {
+            *flags |= OBJ_PX;
+            *unit = UNIT_MILLISECONDS;
+            *expire = next;
+            j++;
+        } else if ((opt[0] == 'e' || opt[0] == 'E') &&
+                   (opt[1] == 'x' || opt[1] == 'X') &&
+                   (opt[2] == 'a' || opt[2] == 'A') &&
+                   (opt[3] == 't' || opt[3] == 'T') && opt[4] == '\0' &&
+                   !(*flags & OBJ_KEEPTTL) && !(*flags & OBJ_PERSIST) &&
+                   !(*flags & OBJ_EX) && !(*flags & OBJ_PX) &&
+                   !(*flags & OBJ_PXAT) && next)
+        {
+            *flags |= OBJ_EXAT;
+            *expire = next;
+            j++;
+        } else if ((opt[0] == 'p' || opt[0] == 'P') &&
+                   (opt[1] == 'x' || opt[1] == 'X') &&
+                   (opt[2] == 'a' || opt[2] == 'A') &&
+                   (opt[3] == 't' || opt[3] == 'T') && opt[4] == '\0' &&
+                   !(*flags & OBJ_KEEPTTL) && !(*flags & OBJ_PERSIST) &&
+                   !(*flags & OBJ_EX) && !(*flags & OBJ_EXAT) &&
+                   !(*flags & OBJ_PX) && next)
+        {
+            *flags |= OBJ_PXAT;
+            *unit = UNIT_MILLISECONDS;
+            *expire = next;
+            j++;
+        } else {
+            addReplyErrorObject(c,shared.syntaxerr);
+            return C_ERR;
+        }
+    }
+    return C_OK;
+}
+
+/* SET key value [NX] [XX] [KEEPTTL] [GET] [EX <seconds>] [PX <milliseconds>]
+ *     [EXAT <seconds-timestamp>][PXAT <milliseconds-timestamp>] */
+void setCommand(client *c) {
+    robj *expire = NULL;
+    int unit = UNIT_SECONDS;
+    int flags = OBJ_NO_FLAGS;
+
+    if (parseExtendedStringArgumentsOrReply(c,&flags,&unit,&expire,COMMAND_SET) != C_OK) {
+        return;
+    }
+
+    c->argv[2] = tryObjectEncoding(c->argv[2]);
+    setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL);
+}
+
 void setnxCommand(client *c) {
     c->argv[2] = tryObjectEncoding(c->argv[2]);
     setGenericCommand(c,OBJ_SET_NX,c->argv[1],c->argv[2],NULL,0,shared.cone,shared.czero);
@@ -187,12 +271,12 @@ void setnxCommand(client *c) {
 
 void setexCommand(client *c) {
     c->argv[3] = tryObjectEncoding(c->argv[3]);
-    setGenericCommand(c,OBJ_SET_NO_FLAGS,c->argv[1],c->argv[3],c->argv[2],UNIT_SECONDS,NULL,NULL);
+    setGenericCommand(c,OBJ_EX,c->argv[1],c->argv[3],c->argv[2],UNIT_SECONDS,NULL,NULL);
 }
 
 void psetexCommand(client *c) {
     c->argv[3] = tryObjectEncoding(c->argv[3]);
-    setGenericCommand(c,OBJ_SET_NO_FLAGS,c->argv[1],c->argv[3],c->argv[2],UNIT_MILLISECONDS,NULL,NULL);
+    setGenericCommand(c,OBJ_PX,c->argv[1],c->argv[3],c->argv[2],UNIT_MILLISECONDS,NULL,NULL);
 }
 
 int getGenericCommand(client *c) {
@@ -213,6 +297,112 @@ void getCommand(client *c) {
     getGenericCommand(c);
 }
 
+/*
+ * GETEX <key> [PERSIST][EX seconds][PX milliseconds][EXAT seconds-timestamp][PXAT milliseconds-timestamp]
+ *
+ * The getexCommand() function implements extended options and variants of the GET command. Unlike GET
+ * command this command is not read-only.
+ *
+ * The default behavior when no options are specified is same as GET and does not alter any TTL.
+ *
+ * Only one of the below options can be used at a given time.
+ *
+ * 1. PERSIST removes any TTL associated with the key.
+ * 2. EX Set expiry TTL in seconds.
+ * 3. PX Set expiry TTL in milliseconds.
+ * 4. EXAT Same like EX instead of specifying the number of seconds representing the TTL
+ *      (time to live), it takes an absolute Unix timestamp
+ * 5. PXAT Same like PX instead of specifying the number of milliseconds representing the TTL
+ *      (time to live), it takes an absolute Unix timestamp
+ *
+ * Command would either return the bulk string, error or nil.
+ */
+void getexCommand(client *c) {
+    robj *expire = NULL;
+    int unit = UNIT_SECONDS;
+    int flags = OBJ_NO_FLAGS;
+
+    if (parseExtendedStringArgumentsOrReply(c,&flags,&unit,&expire,COMMAND_GET) != C_OK) {
+        return;
+    }
+
+    robj *o;
+
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL)
+        return;
+
+    if (checkType(c,o,OBJ_STRING)) {
+        return;
+    }
+
+    long long milliseconds = 0;
+
+    /* Validate the expiration time value first */
+    if (expire) {
+        if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != C_OK)
+            return;
+        if (milliseconds <= 0) {
+            addReplyErrorFormat(c,"invalid expire time in %s",c->cmd->name);
+            return;
+        }
+        if (unit == UNIT_SECONDS) milliseconds *= 1000;
+    }
+
+    /* We need to do this before we expire the key or delete it */
+    addReplyBulk(c,o);
+
+    /* This command is never propagated as is. It is either propagated as PEXPIRE[AT],DEL,UNLINK or PERSIST.
+     * This why it doesn't need special handling in feedAppendOnlyFile to convert relative expire time to absolute one. */
+    if (((flags & OBJ_PXAT) || (flags & OBJ_EXAT)) && checkAlreadyExpired(milliseconds)) {
+        /* When PXAT/EXAT absolute timestamp is specified, there can be a chance that timestamp
+         * has already elapsed so delete the key in that case. */
+        int deleted = server.lazyfree_lazy_expire ? dbAsyncDelete(c->db, c->argv[1]) :
+                      dbSyncDelete(c->db, c->argv[1]);
+        serverAssert(deleted);
+        robj *aux = server.lazyfree_lazy_expire ? shared.unlink : shared.del;
+        rewriteClientCommandVector(c,2,aux,c->argv[1]);
+        signalModifiedKey(c, c->db, c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
+        server.dirty++;
+    } else if (expire) {
+        robj *exp = shared.pexpireat;
+        if ((flags & OBJ_PX) || (flags & OBJ_EX)) {
+            setExpire(c,c->db,c->argv[1],milliseconds + mstime());
+            exp = shared.pexpire;
+        } else {
+            setExpire(c,c->db,c->argv[1],milliseconds);
+        }
+
+        robj* millisecondObj = createStringObjectFromLongLong(milliseconds);
+        rewriteClientCommandVector(c,3,exp,c->argv[1],millisecondObj);
+        decrRefCount(millisecondObj);
+        signalModifiedKey(c, c->db, c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",c->argv[1],c->db->id);
+        server.dirty++;
+    } else if (flags & OBJ_PERSIST) {
+        if (removeExpire(c->db, c->argv[1])) {
+            signalModifiedKey(c, c->db, c->argv[1]);
+            rewriteClientCommandVector(c, 2, shared.persist, c->argv[1]);
+            notifyKeyspaceEvent(NOTIFY_GENERIC,"persist",c->argv[1],c->db->id);
+            server.dirty++;
+        }
+    }
+}
+
+void getdelCommand(client *c) {
+    if (getGenericCommand(c) == C_ERR) return;
+    int deleted = server.lazyfree_lazy_user_del ? dbAsyncDelete(c->db, c->argv[1]) :
+                  dbSyncDelete(c->db, c->argv[1]);
+    if (deleted) {
+        /* Propagate as DEL/UNLINK command */
+        robj *aux = server.lazyfree_lazy_user_del ? shared.unlink : shared.del;
+        rewriteClientCommandVector(c,2,aux,c->argv[1]);
+        signalModifiedKey(c, c->db, c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
+        server.dirty++;
+    }
+}
+
 void getsetCommand(client *c) {
     if (getGenericCommand(c) == C_ERR) return;
     c->argv[2] = tryObjectEncoding(c->argv[2]);
@@ -221,9 +411,7 @@ void getsetCommand(client *c) {
     server.dirty++;
 
     /* Propagate as SET command */
-    robj *setcmd = createStringObject("SET",3);
-    rewriteClientCommandArgument(c,0,setcmd);
-    decrRefCount(setcmd);
+    rewriteClientCommandArgument(c,0,shared.set);
 }
 
 void setrangeCommand(client *c) {
@@ -443,7 +631,7 @@ void decrbyCommand(client *c) {
 
 void incrbyfloatCommand(client *c) {
     long double incr, value;
-    robj *o, *new, *aux1, *aux2;
+    robj *o, *new, *aux;
 
     o = lookupKeyWrite(c->db,c->argv[1]);
     if (checkType(c,o,OBJ_STRING)) return;
@@ -469,13 +657,11 @@ void incrbyfloatCommand(client *c) {
     /* Always replicate INCRBYFLOAT as a SET command with the final value
      * in order to make sure that differences in float precision or formatting
      * will not create differences in replicas or after an AOF restart. */
-    aux1 = createStringObject("SET",3);
-    rewriteClientCommandArgument(c,0,aux1);
-    decrRefCount(aux1);
+    rewriteClientCommandArgument(c,0,shared.set);
     rewriteClientCommandArgument(c,2,new);
-    aux2 = createStringObject("KEEPTTL",7);
-    rewriteClientCommandArgument(c,3,aux2);
-    decrRefCount(aux2);
+    aux = createStringObject("KEEPTTL",7);
+    rewriteClientCommandArgument(c,3,aux);
+    decrRefCount(aux);
 }
 
 void appendCommand(client *c) {

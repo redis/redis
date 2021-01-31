@@ -5301,7 +5301,7 @@ static clusterManagerNode *clusterNodeForResharding(char *id,
         clusterManagerLogErr(invalid_node_msg, id);
         *raise_err = 1;
         return NULL;
-    } else if (node != NULL && target != NULL) {
+    } else if (target != NULL) {
         if (!strcmp(node->name, target->name)) {
             clusterManagerLogErr( "*** It is not possible to use "
                                   "the target node as "
@@ -6940,6 +6940,10 @@ void sendCapa() {
     sendReplconf("capa", "eof");
 }
 
+void sendRdbOnly(void) {
+    sendReplconf("rdb-only", "1");
+}
+
 /* Read raw bytes through a redisContext. The read operation is not greedy
  * and may not fill the buffer entirely.
  */
@@ -7137,7 +7141,6 @@ static void getRDB(clusterManagerNode *node) {
         node->context = NULL;
     fsync(fd);
     close(fd);
-    fprintf(stderr,"Transfer finished with success.\n");
     if (node) {
         sdsfree(filename);
         return;
@@ -8258,6 +8261,7 @@ int main(int argc, char **argv) {
     if (config.getrdb_mode) {
         if (cliConnect(0) == REDIS_ERR) exit(1);
         sendCapa();
+        sendRdbOnly();
         getRDB(NULL);
     }
 

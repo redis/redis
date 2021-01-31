@@ -153,15 +153,15 @@ int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT] = { 0, 200, 800 };
 typedef struct boolConfigData {
     int *config; /* The pointer to the server config this value is stored in */
     const int default_value; /* The default value of the config on rewrite */
-    int (*is_valid_fn)(int val, char **err); /* Optional function to check validity of new value (generic doc above) */
-    int (*update_fn)(int val, int prev, char **err); /* Optional function to apply new value at runtime (generic doc above) */
+    int (*is_valid_fn)(int val, const char **err); /* Optional function to check validity of new value (generic doc above) */
+    int (*update_fn)(int val, int prev, const char **err); /* Optional function to apply new value at runtime (generic doc above) */
 } boolConfigData;
 
 typedef struct stringConfigData {
     char **config; /* Pointer to the server config this value is stored in. */
     const char *default_value; /* Default value of the config on rewrite. */
-    int (*is_valid_fn)(char* val, char **err); /* Optional function to check validity of new value (generic doc above) */
-    int (*update_fn)(char* val, char* prev, char **err); /* Optional function to apply new value at runtime (generic doc above) */
+    int (*is_valid_fn)(char* val, const char **err); /* Optional function to check validity of new value (generic doc above) */
+    int (*update_fn)(char* val, char* prev, const char **err); /* Optional function to apply new value at runtime (generic doc above) */
     int convert_empty_to_null; /* Boolean indicating if empty strings should
                                   be stored as a NULL value. */
 } stringConfigData;
@@ -169,8 +169,8 @@ typedef struct stringConfigData {
 typedef struct sdsConfigData {
     sds *config; /* Pointer to the server config this value is stored in. */
     const char *default_value; /* Default value of the config on rewrite. */
-    int (*is_valid_fn)(sds val, char **err); /* Optional function to check validity of new value (generic doc above) */
-    int (*update_fn)(sds val, sds prev, char **err); /* Optional function to apply new value at runtime (generic doc above) */
+    int (*is_valid_fn)(sds val, const char **err); /* Optional function to check validity of new value (generic doc above) */
+    int (*update_fn)(sds val, sds prev, const char **err); /* Optional function to apply new value at runtime (generic doc above) */
     int convert_empty_to_null; /* Boolean indicating if empty SDS strings should
                                   be stored as a NULL value. */
 } sdsConfigData;
@@ -179,8 +179,8 @@ typedef struct enumConfigData {
     int *config; /* The pointer to the server config this value is stored in */
     configEnum *enum_value; /* The underlying enum type this data represents */
     const int default_value; /* The default value of the config on rewrite */
-    int (*is_valid_fn)(int val, char **err); /* Optional function to check validity of new value (generic doc above) */
-    int (*update_fn)(int val, int prev, char **err); /* Optional function to apply new value at runtime (generic doc above) */
+    int (*is_valid_fn)(int val, const char **err); /* Optional function to check validity of new value (generic doc above) */
+    int (*update_fn)(int val, int prev, const char **err); /* Optional function to apply new value at runtime (generic doc above) */
 } enumConfigData;
 
 typedef enum numericType {
@@ -214,8 +214,8 @@ typedef struct numericConfigData {
     long long lower_bound; /* The lower bound of this numeric value */
     long long upper_bound; /* The upper bound of this numeric value */
     const long long default_value; /* The default value of the config on rewrite */
-    int (*is_valid_fn)(long long val, char **err); /* Optional function to check validity of new value (generic doc above) */
-    int (*update_fn)(long long val, long long prev, char **err); /* Optional function to apply new value at runtime (generic doc above) */
+    int (*is_valid_fn)(long long val, const char **err); /* Optional function to check validity of new value (generic doc above) */
+    int (*update_fn)(long long val, long long prev, const char **err); /* Optional function to apply new value at runtime (generic doc above) */
 } numericConfigData;
 
 typedef union typeData {
@@ -230,10 +230,10 @@ typedef struct typeInterface {
     /* Called on server start, to init the server with default value */
     void (*init)(typeData data);
     /* Called on server start, should return 1 on success, 0 on error and should set err */
-    int (*load)(typeData data, sds *argc, int argv, char **err);
+    int (*load)(typeData data, sds *argc, int argv, const char **err);
     /* Called on server startup and CONFIG SET, returns 1 on success, 0 on error
      * and can set a verbose err string, update is true when called from CONFIG SET */
-    int (*set)(typeData data, sds value, int update, char **err);
+    int (*set)(typeData data, sds value, int update, const char **err);
     /* Called on CONFIG GET, required to add output to the client */
     void (*get)(client *c, typeData data);
     /* Called on CONFIG REWRITE, required to rewrite the config state */
@@ -325,7 +325,7 @@ void queueLoadModule(sds path, sds *argv, int argc) {
  * server.oom_score_adj_values if valid.
  */
 
-static int updateOOMScoreAdjValues(sds *args, char **err, int apply) {
+static int updateOOMScoreAdjValues(sds *args, const char **err, int apply) {
     int i;
     int values[CONFIG_OOM_COUNT];
 
@@ -385,7 +385,7 @@ void initConfigValues() {
 }
 
 void loadServerConfigFromString(char *config) {
-    char *err = NULL;
+    const char *err = NULL;
     int linenum = 0, totlines, i;
     int slaveof_linenum = 0;
     sds *lines;
@@ -608,7 +608,7 @@ void loadServerConfigFromString(char *config) {
             int argc_err;
             if (ACLAppendUserForLoading(argv,argc,&argc_err) == C_ERR) {
                 char buf[1024];
-                char *errmsg = ACLSetUserStringError();
+                const char *errmsg = ACLSetUserStringError();
                 snprintf(buf,sizeof(buf),"Error in user declaration '%s': %s",
                     argv[argc_err],errmsg);
                 err = buf;
@@ -624,8 +624,7 @@ void loadServerConfigFromString(char *config) {
                     err = "sentinel directive while not in sentinel mode";
                     goto loaderr;
                 }
-                err = sentinelHandleConfiguration(argv+1,argc-1);
-                if (err) goto loaderr;
+                queueSentinelConfig(argv+1,argc-1,linenum,lines[i]);
             }
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
@@ -730,7 +729,7 @@ void configSetCommand(client *c) {
     robj *o;
     long long ll;
     int err;
-    char *errstr = NULL;
+    const char *errstr = NULL;
     serverAssertWithInfo(c,c->argv[2],sdsEncodedObject(c->argv[2]));
     serverAssertWithInfo(c,c->argv[3],sdsEncodedObject(c->argv[3]));
     o = c->argv[3];
@@ -1221,7 +1220,16 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
             sdsfree(argv[0]);
             argv[0] = alt;
         }
-        rewriteConfigAddLineNumberToOption(state,argv[0],linenum);
+        /* If this is sentinel config, we use sentinel "sentinel <config>" as option 
+            to avoid messing up the sequence. */
+        if (server.sentinel_mode && argc > 1 && !strcasecmp(argv[0],"sentinel")) {
+            sds sentinelOption = sdsempty();
+            sentinelOption = sdscatfmt(sentinelOption,"%S %S",argv[0],argv[1]);
+            rewriteConfigAddLineNumberToOption(state,sentinelOption,linenum);
+            sdsfree(sentinelOption);
+        } else {
+            rewriteConfigAddLineNumberToOption(state,argv[0],linenum);
+        }
         sdsfreesplitres(argv,argc);
     }
     fclose(fp);
@@ -1683,7 +1691,7 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
 
     if (fsync(fd))
         serverLog(LL_WARNING, "Could not sync tmp config file to disk (%s)", strerror(errno));
-    else if (fchmod(fd, 0644) == -1)
+    else if (fchmod(fd, 0644 & ~server.umask) == -1)
         serverLog(LL_WARNING, "Could not chmod config file (%s)", strerror(errno));
     else if (rename(tmp_conffile, configfile) == -1)
         serverLog(LL_WARNING, "Could not rename tmp config file (%s)", strerror(errno));
@@ -1795,7 +1803,7 @@ static void boolConfigInit(typeData data) {
     *data.yesno.config = data.yesno.default_value;
 }
 
-static int boolConfigSet(typeData data, sds value, int update, char **err) {
+static int boolConfigSet(typeData data, sds value, int update, const char **err) {
     int yn = yesnotoi(value);
     if (yn == -1) {
         *err = "argument must be 'yes' or 'no'";
@@ -1836,7 +1844,7 @@ static void stringConfigInit(typeData data) {
     *data.string.config = (data.string.convert_empty_to_null && !data.string.default_value) ? NULL : zstrdup(data.string.default_value);
 }
 
-static int stringConfigSet(typeData data, sds value, int update, char **err) {
+static int stringConfigSet(typeData data, sds value, int update, const char **err) {
     if (data.string.is_valid_fn && !data.string.is_valid_fn(value, err))
         return 0;
     char *prev = *data.string.config;
@@ -1863,7 +1871,7 @@ static void sdsConfigInit(typeData data) {
     *data.sds.config = (data.sds.convert_empty_to_null && !data.sds.default_value) ? NULL: sdsnew(data.sds.default_value);
 }
 
-static int sdsConfigSet(typeData data, sds value, int update, char **err) {
+static int sdsConfigSet(typeData data, sds value, int update, const char **err) {
     if (data.sds.is_valid_fn && !data.sds.is_valid_fn(value, err))
         return 0;
     sds prev = *data.sds.config;
@@ -1922,7 +1930,7 @@ static void enumConfigInit(typeData data) {
     *data.enumd.config = data.enumd.default_value;
 }
 
-static int enumConfigSet(typeData data, sds value, int update, char **err) {
+static int enumConfigSet(typeData data, sds value, int update, const char **err) {
     int enumval = configEnumGetValue(data.enumd.enum_value, value);
     if (enumval == INT_MIN) {
         sds enumerr = sdsnew("argument must be one of the following: ");
@@ -2028,7 +2036,7 @@ static void numericConfigInit(typeData data) {
     SET_NUMERIC_TYPE(data.numeric.default_value)
 }
 
-static int numericBoundaryCheck(typeData data, long long ll, char **err) {
+static int numericBoundaryCheck(typeData data, long long ll, const char **err) {
     if (data.numeric.numeric_type == NUMERIC_TYPE_ULONG_LONG ||
         data.numeric.numeric_type == NUMERIC_TYPE_UINT ||
         data.numeric.numeric_type == NUMERIC_TYPE_SIZE_T) {
@@ -2058,7 +2066,7 @@ static int numericBoundaryCheck(typeData data, long long ll, char **err) {
     return 1;
 }
 
-static int numericConfigSet(typeData data, sds value, int update, char **err) {
+static int numericConfigSet(typeData data, sds value, int update, const char **err) {
     long long ll, prev = 0;
     if (data.numeric.is_memory) {
         int memerr;
@@ -2196,7 +2204,7 @@ static void numericConfigRewrite(typeData data, const char *name, struct rewrite
     } \
 }
 
-static int isValidActiveDefrag(int val, char **err) {
+static int isValidActiveDefrag(int val, const char **err) {
 #ifndef HAVE_DEFRAG
     if (val) {
         *err = "Active defragmentation cannot be enabled: it "
@@ -2212,7 +2220,7 @@ static int isValidActiveDefrag(int val, char **err) {
     return 1;
 }
 
-static int isValidDBfilename(char *val, char **err) {
+static int isValidDBfilename(char *val, const char **err) {
     if (!pathIsBaseName(val)) {
         *err = "dbfilename can't be a path, just a filename";
         return 0;
@@ -2220,7 +2228,7 @@ static int isValidDBfilename(char *val, char **err) {
     return 1;
 }
 
-static int isValidAOFfilename(char *val, char **err) {
+static int isValidAOFfilename(char *val, const char **err) {
     if (!pathIsBaseName(val)) {
         *err = "appendfilename can't be a path, just a filename";
         return 0;
@@ -2228,7 +2236,26 @@ static int isValidAOFfilename(char *val, char **err) {
     return 1;
 }
 
-static int updateHZ(long long val, long long prev, char **err) {
+/* Validate specified string is a valid proc-title-template */
+static int isValidProcTitleTemplate(char *val, const char **err) {
+    if (!validateProcTitleTemplate(val)) {
+        *err = "template format is invalid or contains unknown variables";
+        return 0;
+    }
+    return 1;
+}
+
+static int updateProcTitleTemplate(char *val, char *prev, const char **err) {
+    UNUSED(val);
+    UNUSED(prev);
+    if (redisSetProcTitle(NULL) == C_ERR) {
+        *err = "failed to set process title";
+        return 0;
+    }
+    return 1;
+}
+
+static int updateHZ(long long val, long long prev, const char **err) {
     UNUSED(prev);
     UNUSED(err);
     /* Hz is more a hint from the user, so we accept values out of range
@@ -2240,14 +2267,14 @@ static int updateHZ(long long val, long long prev, char **err) {
     return 1;
 }
 
-static int updateJemallocBgThread(int val, int prev, char **err) {
+static int updateJemallocBgThread(int val, int prev, const char **err) {
     UNUSED(prev);
     UNUSED(err);
     set_jemalloc_bg_thread(val);
     return 1;
 }
 
-static int updateReplBacklogSize(long long val, long long prev, char **err) {
+static int updateReplBacklogSize(long long val, long long prev, const char **err) {
     /* resizeReplicationBacklog sets server.repl_backlog_size, and relies on
      * being able to tell when the size changes, so restore prev before calling it. */
     UNUSED(err);
@@ -2256,7 +2283,7 @@ static int updateReplBacklogSize(long long val, long long prev, char **err) {
     return 1;
 }
 
-static int updateMaxmemory(long long val, long long prev, char **err) {
+static int updateMaxmemory(long long val, long long prev, const char **err) {
     UNUSED(prev);
     UNUSED(err);
     if (val) {
@@ -2269,7 +2296,7 @@ static int updateMaxmemory(long long val, long long prev, char **err) {
     return 1;
 }
 
-static int updateGoodSlaves(long long val, long long prev, char **err) {
+static int updateGoodSlaves(long long val, long long prev, const char **err) {
     UNUSED(val);
     UNUSED(prev);
     UNUSED(err);
@@ -2277,7 +2304,7 @@ static int updateGoodSlaves(long long val, long long prev, char **err) {
     return 1;
 }
 
-static int updateAppendonly(int val, int prev, char **err) {
+static int updateAppendonly(int val, int prev, const char **err) {
     UNUSED(prev);
     if (val == 0 && server.aof_state != AOF_OFF) {
         stopAppendOnly();
@@ -2290,7 +2317,7 @@ static int updateAppendonly(int val, int prev, char **err) {
     return 1;
 }
 
-static int updateSighandlerEnabled(int val, int prev, char **err) {
+static int updateSighandlerEnabled(int val, int prev, const char **err) {
     UNUSED(err);
     UNUSED(prev);
     if (val)
@@ -2300,7 +2327,7 @@ static int updateSighandlerEnabled(int val, int prev, char **err) {
     return 1;
 }
 
-static int updateMaxclients(long long val, long long prev, char **err) {
+static int updateMaxclients(long long val, long long prev, const char **err) {
     /* Try to check if the OS is capable of supporting so many FDs. */
     if (val > prev) {
         adjustOpenFilesLimit();
@@ -2328,7 +2355,7 @@ static int updateMaxclients(long long val, long long prev, char **err) {
     return 1;
 }
 
-static int updateOOMScoreAdj(int val, int prev, char **err) {
+static int updateOOMScoreAdj(int val, int prev, const char **err) {
     UNUSED(prev);
 
     if (val) {
@@ -2342,7 +2369,7 @@ static int updateOOMScoreAdj(int val, int prev, char **err) {
 }
 
 #ifdef USE_OPENSSL
-static int updateTlsCfg(char *val, char *prev, char **err) {
+static int updateTlsCfg(char *val, char *prev, const char **err) {
     UNUSED(val);
     UNUSED(prev);
     UNUSED(err);
@@ -2355,13 +2382,13 @@ static int updateTlsCfg(char *val, char *prev, char **err) {
     }
     return 1;
 }
-static int updateTlsCfgBool(int val, int prev, char **err) {
+static int updateTlsCfgBool(int val, int prev, const char **err) {
     UNUSED(val);
     UNUSED(prev);
     return updateTlsCfg(NULL, NULL, err);
 }
 
-static int updateTlsCfgInt(long long val, long long prev, char **err) {
+static int updateTlsCfgInt(long long val, long long prev, const char **err) {
     UNUSED(val);
     UNUSED(prev);
     return updateTlsCfg(NULL, NULL, err);
@@ -2380,11 +2407,13 @@ standardConfig configs[] = {
     createBoolConfig("rdb-del-sync-files", NULL, MODIFIABLE_CONFIG, server.rdb_del_sync_files, 0, NULL, NULL),
     createBoolConfig("activerehashing", NULL, MODIFIABLE_CONFIG, server.activerehashing, 1, NULL, NULL),
     createBoolConfig("stop-writes-on-bgsave-error", NULL, MODIFIABLE_CONFIG, server.stop_writes_on_bgsave_err, 1, NULL, NULL),
+    createBoolConfig("set-proc-title", NULL, IMMUTABLE_CONFIG, server.set_proc_title, 1, NULL, NULL), /* Should setproctitle be used? */
     createBoolConfig("dynamic-hz", NULL, MODIFIABLE_CONFIG, server.dynamic_hz, 1, NULL, NULL), /* Adapt hz to # of clients.*/
     createBoolConfig("lazyfree-lazy-eviction", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_eviction, 0, NULL, NULL),
     createBoolConfig("lazyfree-lazy-expire", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_expire, 0, NULL, NULL),
     createBoolConfig("lazyfree-lazy-server-del", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_server_del, 0, NULL, NULL),
     createBoolConfig("lazyfree-lazy-user-del", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_user_del , 0, NULL, NULL),
+    createBoolConfig("lazyfree-lazy-user-flush", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_user_flush , 0, NULL, NULL),
     createBoolConfig("repl-disable-tcp-nodelay", NULL, MODIFIABLE_CONFIG, server.repl_disable_tcp_nodelay, 0, NULL, NULL),
     createBoolConfig("repl-diskless-sync", NULL, MODIFIABLE_CONFIG, server.repl_diskless_sync, 0, NULL, NULL),
     createBoolConfig("gopher-enabled", NULL, MODIFIABLE_CONFIG, server.gopher_enabled, 0, NULL, NULL),
@@ -2425,6 +2454,7 @@ standardConfig configs[] = {
     createStringConfig("aof_rewrite_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.aof_rewrite_cpulist, NULL, NULL, NULL),
     createStringConfig("bgsave_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.bgsave_cpulist, NULL, NULL, NULL),
     createStringConfig("ignore-warnings", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.ignore_warnings, "", NULL, NULL),
+    createStringConfig("proc-title-template", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.proc_title_template, CONFIG_DEFAULT_PROC_TITLE_TEMPLATE, isValidProcTitleTemplate, updateProcTitleTemplate),
 
     /* SDS Configs */
     createSDSConfig("masterauth", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.masterauth, NULL, NULL, NULL),

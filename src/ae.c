@@ -31,6 +31,7 @@
  */
 
 #include "ae.h"
+#include "anet.h"
 
 #include <stdio.h>
 #include <sys/time.h>
