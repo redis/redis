@@ -1,3 +1,53 @@
+Redis 6.2 RC3   Released Tue Feb 1 14:00:00 IST 2021
+================================================================================
+
+Upgrade urgency LOW: This is the third Release Candidate of Redis 6.2.
+
+Here is a comprehensive list of changes in this release compared to 6.2 RC2,
+each one includes the PR number that added it, so you can get more details
+at https://github.com/redis/redis/pull/<number>
+
+New commands / args:
+* Add HRANDFIELD and ZRANDMEMBER commands (#8297)
+* Add FAILOVER command (#8315)
+* Add GETEX, GETDEL commands (#8327)
+* Add PXAT/EXAT arguments to SET command (#8327)
+* Add SYNC arg to FLUSHALL and FLUSHDB, and ASYNC/SYNC arg to SCRIPT FLUSH (#8258)
+
+Sentinel:
+* Add hostname support to Sentinel (#8282)
+* Prevent file descriptors from leaking into Sentinel scripts (#8242)
+* Fix config file line order dependency and config rewrite sequence (#8271)
+
+New configuration options:
+* Add set-proc-title config option to disable changes to the process title (#3623)
+* Add proc-title-template option to control what's shown in the process title (#8397)
+* Add lazyfree-lazy-user-flush config option to control FLUSHALL, FLUSHDB and SCRIPT FLUSH (#8258)
+
+Bug fixes:
+* AOF: recover from last write error by turning on/off appendonly config (#8030)
+* Exit on fsync error when the AOF fsync policy is 'always' (#8347)
+* Avoid assertions (on older kernels) when testing arm64 CoW bug (#8405)
+* CONFIG REWRITE should honor umask settings (#8371)
+* Fix firstkey,lastkey,step in COMMAND command for some commands (#8367)
+
+Special considerations:
+* Fix misleading description of the save configuration directive (#8337)
+
+Improvements:
+* A way to get RDB file via replication without excessive replication buffers (#8303)
+* Optimize performance of clusterGenNodesDescription for large clusters (#8182)
+
+Info fields and introspection changes:
+* SLOWLOG and LATENCY monitor include unblocking time of blocked commands (#7491)
+
+Modules:
+* Add modules API for streams (#8288)
+* Add event for fork child birth and termination (#8289)
+* Add RM_BlockedClientMeasureTime* etc, to track background processing in commandstats (#7491)
+* Fix bug in v6.2, wrong value passed to the new unlink callback (#8381)
+* Fix bug in v6.2, modules blocked on keys unblock on commands like LPUSH (#8356)
+
 ================================================================================
 Redis 6.2 RC2   Released Tue Jan 12 16:17:20 IST 2021
 ================================================================================
@@ -255,35 +305,39 @@ and we don't get reports of serious issues for a while.
 A special thank you for the amount of work put into this release by:
 - Oran Agra
 - Yossi Gottlieb
-- Itamar Haber
-- Guy Benoish
 - Filipe Oliveira
+- Viktor Söderqvist
+- Guy Benoish
+- Itamar Haber
+- Yang Bodong
 - Madelyn Olson
 - Wang Yuan
 - Felipe Machado
-- Yang Bodong
+- Wen Hui
 - Tatsuya Arisawa
 - Jonah H. Harris
+- Raghav Muddur
 - Jim Brunner
 - Yaacov Hazan
-- Wen Hui
+- Allen Farris
 - Chen Yang
 - Nitai Caro
 - Meir Shpilraien
 - maohuazhu
 - Valentino Geron
-- Qu Chen
-- sundb
-- George Prekas
 - Zhao Zhao
+- sundb
+- Qu Chen
+- George Prekas
 - Tyson Andre
 - Michael Grunder
 - alexronke-channeladvisor
+- Andy Pan
 - Wu Yunlong
 - Wei Kukey
 - Yoav Steinberg
-- Uri Shachar
 - Greg Femec
+- Uri Shachar
 - Nykolas Laurentino de Lima
 - xhe
 - zhenwei pi
