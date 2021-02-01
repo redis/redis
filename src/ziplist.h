@@ -34,6 +34,15 @@
 #define ZIPLIST_HEAD 0
 #define ZIPLIST_TAIL 1
 
+/* Each entry in the ziplist is either a string or an integer. */
+typedef struct {
+    /* When string is used, it is provided with the length (slen). */
+    unsigned char *sval;
+    unsigned int slen;
+    /* When integer is used, 'sval' is NULL, and lval holds the value. */
+    long long lval;
+} ziplistEntry;
+
 unsigned char *ziplistNew(void);
 unsigned char *ziplistMerge(unsigned char **first, unsigned char **second);
 unsigned char *ziplistPush(unsigned char *zl, unsigned char *s, unsigned int slen, int where);
@@ -52,6 +61,8 @@ void ziplistRepr(unsigned char *zl);
 typedef int (*ziplistValidateEntryCB)(unsigned char* p, void* userdata);
 int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
                              ziplistValidateEntryCB entry_cb, void *cb_userdata);
+void ziplistRandomPair(unsigned char *zl, unsigned long total_count, ziplistEntry *key, ziplistEntry *val);
+void ziplistRandomPairs(unsigned char *zl, int count, ziplistEntry *keys, ziplistEntry *vals);
 
 #ifdef REDIS_TEST
 int ziplistTest(int argc, char *argv[]);

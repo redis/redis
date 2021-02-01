@@ -24,9 +24,11 @@ set ::simulate_error 0
 set ::failed 0
 set ::sentinel_instances {}
 set ::redis_instances {}
+set ::global_config {}
 set ::sentinel_base_port 20000
 set ::redis_base_port 30000
 set ::redis_port_count 1024
+set ::host "127.0.0.1"
 set ::pids {} ; # We kill everything at exit
 set ::dirs {} ; # We remove all the temp dirs at exit
 set ::run_matching {} ; # If non empty, only tests matching pattern are run.
@@ -58,10 +60,9 @@ proc exec_instance {type dirname cfgfile} {
 }
 
 # Spawn a redis or sentinel instance, depending on 'type'.
-proc spawn_instance {type base_port count {conf {}}} {
+proc spawn_instance {type base_port count {conf {}} {base_conf_file ""}} {
     for {set j 0} {$j < $count} {incr j} {
         set port [find_available_port $base_port $::redis_port_count]
-
         # Create a directory for this instance.
         set dirname "${type}_${j}"
         lappend ::dirs $dirname
@@ -70,7 +71,13 @@ proc spawn_instance {type base_port count {conf {}}} {
 
         # Write the instance config file.
         set cfgfile [file join $dirname $type.conf]
-        set cfg [open $cfgfile w]
+        if {$base_conf_file ne ""} {
+            file copy -- $base_conf_file $cfgfile
+            set cfg [open $cfgfile a+]
+        } else {
+            set cfg [open $cfgfile w]
+        }
+
         if {$::tls} {
             puts $cfg "tls-port $port"
             puts $cfg "tls-replication yes"
@@ -91,6 +98,9 @@ proc spawn_instance {type base_port count {conf {}}} {
         # Add additional config files
         foreach directive $conf {
             puts $cfg $directive
+        }
+        dict for {name val} $::global_config {
+            puts $cfg "$name $val"
         }
         close $cfg
 
@@ -119,18 +129,18 @@ proc spawn_instance {type base_port count {conf {}}} {
         }
 
         # Check availability finally
-        if {[server_is_up 127.0.0.1 $port 100] == 0} {
+        if {[server_is_up $::host $port 100] == 0} {
             set logfile [file join $dirname log.txt]
             puts [exec tail $logfile]
             abort_sentinel_test "Problems starting $type #$j: ping timeout, maybe server start failed, check $logfile"
         }
 
         # Push the instance into the right list
-        set link [redis 127.0.0.1 $port 0 $::tls]
+        set link [redis $::host $port 0 $::tls]
         $link reconnect 1
         lappend ::${type}_instances [list \
             pid $pid \
-            host 127.0.0.1 \
+            host $::host \
             port $port \
             link $link \
         ]
@@ -232,6 +242,9 @@ proc parse_options {} {
             set ::simulate_error 1
         } elseif {$opt eq {--valgrind}} {
             set ::valgrind 1
+        } elseif {$opt eq {--host}} {
+            incr j
+            set ::host ${val}
         } elseif {$opt eq {--tls}} {
             package require tls 1.6
             ::tls::init \
@@ -239,6 +252,10 @@ proc parse_options {} {
                 -certfile "$::tlsdir/client.crt" \
                 -keyfile "$::tlsdir/client.key"
             set ::tls 1
+        } elseif {$opt eq {--config}} {
+            set val2 [lindex $::argv [expr $j+2]]
+            dict set ::global_config $val $val2
+            incr j 2
         } elseif {$opt eq "--help"} {
             puts "--single <pattern>      Only runs tests specified by pattern."
             puts "--dont-clean            Keep log files on exit."
@@ -246,6 +263,8 @@ proc parse_options {} {
             puts "--fail                  Simulate a test failure."
             puts "--valgrind              Run with valgrind."
             puts "--tls                   Run tests in TLS mode."
+            puts "--host <host>           Use hostname instead of 127.0.0.1."
+            puts "--config <k> <v>        Extra config argument(s)."
             puts "--help                  Shows this help."
             exit 0
         } else {
@@ -391,6 +410,11 @@ proc check_leaks instance_types {
 
 # Execute all the units inside the 'tests' directory.
 proc run_tests {} {
+    set sentinel_fd_leaks_file "sentinel_fd_leaks"
+    if { [file exists $sentinel_fd_leaks_file] } {
+        file delete $sentinel_fd_leaks_file
+    }
+
     set tests [lsort [glob ../tests/*]]
     foreach test $tests {
         if {$::run_matching ne {} && [string match $::run_matching $test] == 0} {
@@ -405,7 +429,15 @@ proc run_tests {} {
 
 # Print a message and exists with 0 / 1 according to zero or more failures.
 proc end_tests {} {
-    if {$::failed == 0} {
+    set sentinel_fd_leaks_file "sentinel_fd_leaks"
+    if { [file exists $sentinel_fd_leaks_file] } {
+        # temporarily disabling this error from failing the tests until leaks are fixed.
+        #puts [colorstr red "WARNING: sentinel test(s) failed, there are leaked fds in sentinel:"] 
+        #puts [exec cat $sentinel_fd_leaks_file]
+        #exit 1
+    }
+
+    if {$::failed == 0 } {
         puts "GOOD! No errors."
         exit 0
     } else {
