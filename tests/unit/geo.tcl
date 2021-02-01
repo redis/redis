@@ -53,43 +53,69 @@ proc pointInCircular {radius_km lon lat search_lon search_lat} {
     return false
 }
 
-# Given three points, calculate the area of the triangle
-proc triangleArea {x1 y1 x2 y2 x3 y3} {
-    return [expr abs([expr {0.5 * ($x1*($y2-$y3) + $x2*($y3-$y1) + $x3*($y1-$y2))}])]
-}
-
 # Judge whether a point is in the trapezoid.
-# area algorithm refer: https://stackoverflow.com/a/16260220/5761134
 proc pointInBox {width_km height_km lon lat search_lon search_lat error} {
     set width_m [expr {$width_km*1000*$error/2}]
     set height_m [expr {$height_km*1000*$error/2}]
     set lat_delta [geo_raddeg [expr {$height_m/6372797.560856}]]
     set long_delta_top [geo_raddeg [expr {$width_m/6372797.560856/cos([geo_degrad [expr {$search_lat+$lat_delta}]])}]]
+    set long_delta_middle [geo_raddeg [expr {$width_m/6372797.560856/cos([geo_degrad $search_lat])}]]
     set long_delta_bottom [geo_raddeg [expr {$width_m/6372797.560856/cos([geo_degrad [expr {$search_lat-$lat_delta}]])}]]
 
     set bounds(0) [expr {$search_lon-$long_delta_top}]
     set bounds(1) [expr {$search_lat+$lat_delta}]
     set bounds(2) [expr {$search_lon+$long_delta_top}]
     set bounds(3) [expr {$search_lat+$lat_delta}]
-    set bounds(4) [expr {$search_lon+$long_delta_bottom}]
-    set bounds(5) [expr {$search_lat-$lat_delta}]
-    set bounds(6) [expr {$search_lon-$long_delta_bottom}]
+    set bounds(4) [expr {$search_lon+$long_delta_middle}]
+    set bounds(5) $search_lat
+    set bounds(6) [expr {$search_lon+$long_delta_bottom}]
     set bounds(7) [expr {$search_lat-$lat_delta}]
+    set bounds(8) [expr {$search_lon-$long_delta_bottom}]
+    set bounds(9) [expr {$search_lat-$lat_delta}]
+    set bounds(10) [expr {$search_lon-$long_delta_middle}]
+    set bounds(11) $search_lat
 
-    # Calculate trapezoid area
-    set trapezoid_area [expr {0.5*(($bounds(2)-$bounds(0)) + ($bounds(4)-$bounds(6))) * ($bounds(3)-$bounds(5))}]
-
-    # Calculate triangle area
-    set triangle_area [expr {[triangleArea $lon $lat $bounds(0) $bounds(1) $bounds(2) $bounds(3)] +
-                             [triangleArea $lon $lat $bounds(2) $bounds(3) $bounds(4) $bounds(5)] +
-                             [triangleArea $lon $lat $bounds(4) $bounds(5) $bounds(6) $bounds(7)] +
-                             [triangleArea $lon $lat $bounds(6) $bounds(7) $bounds(0) $bounds(1)]}]
-
-    # If triangle_area is greater than trapezoid_area, the point is outside the trapezoid.
-    if {$triangle_area > [expr {$trapezoid_area+0.000001}]} {
-        return false
+    if {$bounds(1) < 0 != $bounds(9) < 0} {
+        set long_delta_equator [geo_raddeg [expr {$width_m/6372797.560856}]]
+        set bounds(4) [expr {$search_lon+$long_delta_equator}]
+        set bounds(5) 0
+        set bounds(10) [expr {$search_lon-$long_delta_equator}]
+        set bounds(11) 0
     }
-    return true
+
+    if {$bounds(2) > 180 || $bounds(6) > 180} {
+        if {$lon < 0} {set lon [expr {$lon+360}]}
+    }
+    if {$bounds(0) < -180 || $bounds(8) < -180} {
+        if {$lon > 0} {set lon [expr {$lon-360}]}
+    }
+
+    set cross 0
+    for {set i 0} {$i < 12} {incr i 2} {
+        set p1x $bounds($i)
+        set p1y $bounds([expr {$i+1}])
+        set p2x $bounds([expr {($i+2)%12}])
+        set p2y $bounds([expr {($i+3)%12}])
+
+        if {$p1y == $p2y} {
+            if {$lon == $p1y && $lat <= [expr {max($p1x, $p2x)}] && $lat >= [expr {min($p1x, $p2x)}]} {
+                return true
+            }
+        }
+        if {$lat < [expr {min($p1y, $p2y)}] || $lat >= [expr {max($p1y, $p2y)}]} continue
+        set x [expr {($lat - $p1y) * ($p2x - $p1x) / ($p2y - $p1y) + $p1x}]
+        if {$x == $lon} {
+            return true
+        }
+        if {$x > [expr {$lon+0.00001}]} {
+            incr cross
+        }
+    }
+
+    if {$cross % 2 == 1} {
+        return true
+    }
+    return false
 }
 
 # The following list represents sets of random seed, search position
@@ -288,6 +314,13 @@ start_server {tags {"geo"}} {
         assert_equal $ret2 {test1 test3}
     }
 
+    test {GEOSEARCH corner point test} {
+        r del Sicily
+        r geoadd Sicily 12.758489 38.788135 edge1 17.241510 38.788135 edge2 17.250000 35.202000 edge3 12.750000 35.202000 edge4 12.748489955781654 37 edge5 15 38.798135872540925 edge6 17.251510044218346 37 edge7 15 35.201864127459075 edge8 12.692799634687903 38.798135872540925 corner1 12.692799634687903 38.798135872540925 corner2 17.200560937451133 35.201864127459075 corner3 12.799439062548865 35.201864127459075 corner4
+        set ret [lsort [r geosearch Sicily fromlonlat 15 37 bybox 400 400 km asc]]
+        assert_equal $ret {corner1 corner2 corner3 corner4 edge1 edge2 edge5 edge6 edge7 edge8}
+    }
+
     test {GEORADIUSBYMEMBER withdist (sorted)} {
         r georadiusbymember nyc "wtc one" 7 km withdist
     } {{{wtc one} 0.0000} {{union square} 3.2544} {{central park n/q/r} 6.7000} {4545 6.1975} {{lic market} 6.8969}}
@@ -408,6 +441,14 @@ start_server {tags {"geo"}} {
         assert {[r zcard points2] == 1}
         set res [r zrange points2 0 -1 withscores]
         assert {[lindex $res 0] eq "Catania"}
+    }
+
+    test {GEOSEARCH the box spans -180° or 180°} {
+        r del points
+        r geoadd points 179.5 36 point1
+        r geoadd points -179.5 36 point2
+        assert_equal {point1 point2} [r geosearch points fromlonlat 179 37 bybox 400 400 km asc]
+        assert_equal {point2 point1} [r geosearch points fromlonlat -179 37 bybox 400 400 km asc]
     }
 
     foreach {type} {byradius bybox} {
@@ -550,30 +591,61 @@ start_server {tags {"geo"}} {
             r del mypoints
 
             geo_random_point search_lon search_lat
-            set width_m [expr {[randomInt 1000]+10}]
-            set height_m [expr {[randomInt 1000]+10}]
+            set width_m [expr {[randomInt 10000]+10}]
+            set height_m [expr {[randomInt 10000]+10}]
             set lat_delta [geo_raddeg [expr {$height_m/2/6372797.560856}]]
-            set lon $search_lon
-            set lat [expr {$search_lat+$lat_delta}]
-            lappend debuginfo "Search area: $search_lon,$search_lat $width_m $height_m m $lon,$lat"
+            set long_delta_top [geo_raddeg [expr {$width_m/2/6372797.560856/cos([geo_degrad [expr {$search_lat+$lat_delta}]])}]]
+            set long_delta_middle [geo_raddeg [expr {$width_m/2/6372797.560856/cos([geo_degrad $search_lat])}]]
+            set long_delta_bottom [geo_raddeg [expr {$width_m/2/6372797.560856/cos([geo_degrad [expr {$search_lat-$lat_delta}]])}]]
 
-            # GEOADD point
-            r geoadd mypoints $lon $lat "place"
+            # Total of 8 points are generated, which are located at each vertex and the center of each side
+            set bounds(0) [expr {$search_lon-$long_delta_top}]
+            set bounds(1) [expr {$search_lat+$lat_delta}]
+            set bounds(2) [expr {$search_lon+$long_delta_top}]
+            set bounds(3) [expr {$search_lat+$lat_delta}]
+            set bounds(4) [expr {$search_lon+$long_delta_bottom}]
+            set bounds(5) [expr {$search_lat-$lat_delta}]
+            set bounds(6) [expr {$search_lon-$long_delta_bottom}]
+            set bounds(7) [expr {$search_lat-$lat_delta}]
+            set bounds(8) $search_lon
+            set bounds(9) [expr {$search_lat+$lat_delta}]
+            set bounds(10) $search_lon
+            set bounds(11) [expr {$search_lat-$lat_delta}]
+            set bounds(12) [expr {$search_lon+$long_delta_middle}]
+            set bounds(13) $search_lat
+            set bounds(14) [expr {$search_lon-$long_delta_middle}]
+            set bounds(15) $search_lat
 
-            # move the box by one meter to put the coordinate slightly inside the box.
-            set height_new [expr {$height_m+2}]
-            set res [r geosearch mypoints fromlonlat $search_lon $search_lat bybox $width_m $height_new m]
-            if {$res != "place"} {
-                fail "place should be found, debuginfo: $debuginfo"
+            lappend debuginfo "Search area: geosearch mypoints fromlonlat $search_lon $search_lat bybox $width_m $height_m m"
+            set tcl_result {}
+            for {set i 0} {$i < 16} {incr i 2} {
+                set x $bounds($i)
+                set y $bounds([expr {$i+1}])
+                r geoadd mypoints $x $y place:$i
+                lappend tcl_result "place:$i"
+                lappend debuginfo "geoadd mypoints $x $y place:$i"
             }
 
-            # move the box by one meter to put the coordinate slightly outside the box.
-            set height_new [expr {$height_m-2}]
-            set res [r geosearch mypoints fromlonlat $search_lon $search_lat bybox $width_m $height_new m]
+            set res2 [lsort $tcl_result]
+
+            # move the box by two meter to put the coordinate slightly inside the box.
+            set height_new [expr {$height_m+4}]
+            set width_new [expr {$width_m+4}]
+            set res [lsort [r geosearch mypoints fromlonlat $search_lon $search_lat bybox $width_new $height_new m]]
+            if {$res != $res2} {
+                set diff [compare_lists $res $res2]
+                lappend debuginfo "diff: $diff"
+                fail "place should be found, debuginfo: $debuginfo, height_new: $height_new width_new: $width_new"
+            }
+
+            # move the box by two meter to put the coordinate slightly outside the box.
+            set height_new [expr {$height_m-4}]
+            set width_new [expr {$width_m-4}]
+            set res [r geosearch mypoints fromlonlat $search_lon $search_lat bybox $width_new $height_new m]
             if {$res != ""} {
-                fail "place should not be found, debuginfo: $debuginfo"
+                lappend debuginfo "res: $res"
+                fail "place should not be found, debuginfo: $debuginfo, height_new: $height_new width_new: $width_new"
             }
-
             unset -nocomplain debuginfo
         }
     }

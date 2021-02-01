@@ -83,19 +83,19 @@ uint8_t geohashEstimateStepsByRadius(double range_meters, double lat) {
 }
 
 /* Return the bounding box of the search area by shape (see geohash.h GeoShape)
- * since the higher the latitude, the shorter the arc length, so the box is a
- * trapezoid. bounds[0] - bounds[7] are the 4 coordinates of the trapezoid,
- * as shown in the following diagram:
- * The trapezoid directions of the northern and southern hemispheres are opposite.
+ * since the higher the latitude, the shorter the arc length, the box shape
+ * is as follows (left and right edges are actually bent), bounds[0]-bounds[11]
+ * are 6 coordinates in the search area, as shown in the following diagram:
+ * The search area directions of the northern and southern hemispheres are opposite.
  *
- * (bounds[0],bounds[1])   (bounds[2],bounds[3])
- *             \-----------------/                   --------
- *              \               /                  /          \
- *               \  (long,lat) /                  / (long,lat) \
- *                \           /                  /              \
- *                  ---------                   /----------------\
- *(bounds[6],bounds[7])   (bounds[4],bounds[5])
- *               Northern Hemisphere              Southern Hemisphere
+ *             (bounds[0],bounds[1])   (bounds[2],bounds[3])
+ *                         \-----------------/                           --------               \-----------------/
+ *                          \               /                          /          \              \               /
+ *  (bounds[10],bounds[11])  \  (long,lat) / (bounds[4],bounds[5])    / (long,lat) \              \  (long,lat) /
+ *                            \           /                          /              \              /            \
+ *                              ---------                           /----------------\            /--------------\
+ *            (bounds[8],bounds[9])   (bounds[6],bounds[7])
+ *                       Northern Hemisphere                        Southern Hemisphere         Around the equator
  */
 int geohashBoundingBox(GeoShape *shape, double *bounds) {
     if (!bounds) return 0;
@@ -106,21 +106,36 @@ int geohashBoundingBox(GeoShape *shape, double *bounds) {
 
     const double lat_delta = rad_deg(height/EARTH_RADIUS_IN_METERS);
     const double long_delta_top = rad_deg(width/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude+lat_delta)));
+    const double long_delta_middle = rad_deg(width/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude)));
     const double long_delta_bottom = rad_deg(width/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude-lat_delta)));
     bounds[0] = longitude - long_delta_top;
     bounds[1] = latitude + lat_delta;
     bounds[2] = longitude + long_delta_top;
     bounds[3] = latitude + lat_delta;
-    bounds[4] = longitude + long_delta_bottom;
-    bounds[5] = latitude - lat_delta;
-    bounds[6] = longitude - long_delta_bottom;
+    bounds[4] = longitude + long_delta_middle;
+    bounds[5] = latitude;
+    bounds[6] = longitude + long_delta_bottom;
     bounds[7] = latitude - lat_delta;
+    bounds[8] = longitude - long_delta_bottom;
+    bounds[9] = latitude - lat_delta;
+    bounds[10] = longitude - long_delta_middle;
+    bounds[11] = latitude;
+
+    /* If the latitude crosses the equator, the shortest modified width is the equator */
+    if ((bounds[1] < 0) != (bounds[9] < 0)) {
+        const double long_delta_equator = rad_deg(width / EARTH_RADIUS_IN_METERS);
+        bounds[4] = longitude + long_delta_equator;
+        bounds[5] = 0;
+        bounds[10] = longitude - long_delta_equator;
+        bounds[11] = 0;
+    }
+
     return 1;
 }
 
 /* Calculate a set of areas (center + 8) that are able to cover a range query
  * for the specified position and shape (see geohash.h GeoShape).
- * the bounding box saved in shaple.bounds */
+ * the bounding box saved in shape.bounds */
 GeoHashRadius geohashCalculateAreasByShapeWGS84(GeoShape *shape) {
     GeoHashRange long_range, lat_range;
     GeoHashRadius radius;
@@ -134,9 +149,9 @@ GeoHashRadius geohashCalculateAreasByShapeWGS84(GeoShape *shape) {
     /* The trapezoid directions of the northern and southern hemispheres
      * are opposite, so we choice different points as max/min long/lat*/
     int southern_hemisphere = shape->xy[1] < 0 ? 1 : 0;
-    min_lon = southern_hemisphere ? shape->bounds[6] : shape->bounds[0];
-    min_lat = shape->bounds[5];
-    max_lon = southern_hemisphere ? shape->bounds[4] : shape->bounds[2];
+    min_lon = southern_hemisphere ? shape->bounds[8] : shape->bounds[0];
+    min_lat = shape->bounds[7];
+    max_lon = southern_hemisphere ? shape->bounds[6] : shape->bounds[2];
     max_lat = shape->bounds[1];
 
     double longitude = shape->xy[0];
@@ -236,11 +251,6 @@ double geohashGetDistance(double lon1d, double lat1d, double lon2d, double lat2d
            asin(sqrt(u * u + cos(lat1r) * cos(lat2r) * v * v));
 }
 
-/* Given three points, calculate the area of the triangle */
-double triangleArea(double x1, double y1, double x2, double y2, double x3, double y3) {
-    return fabs(0.5 * (x1*(y2-y3) + x2*(y3-y1) + x3*(y1-y2)));
-}
-
 int geohashGetDistanceIfInRadius(double x1, double y1,
                                  double x2, double y2, double radius,
                                  double *distance) {
@@ -255,7 +265,7 @@ int geohashGetDistanceIfInRadiusWGS84(double x1, double y1, double x2,
     return geohashGetDistanceIfInRadius(x1, y1, x2, y2, radius, distance);
 }
 
-#define EPSILON 1e-6
+#define EPSILON 1e-5
 int is_double_gt(double a, double b) {
     return a > b + EPSILON;
 }
@@ -268,6 +278,14 @@ int is_double_eq(double a, double b) {
     return ((a - b) < EPSILON) && ((b - a) < EPSILON);
 }
 
+int is_double_ge(double a, double b) {
+    return a > b - EPSILON;
+}
+
+int is_double_le(double a, double b) {
+    return a < b + EPSILON;
+}
+
 /* Judge whether a point is in the trapezoid.
  * bounds : see geohash.h GeoShape::bounds
  * x1, y1 : the center of the trapezoid
@@ -277,11 +295,19 @@ int is_double_eq(double a, double b) {
  */
 int geohashGetDistanceIfInTrapezoid(double *bounds, double x1, double y1,
                                     double x2, double y2, double *distance) {
+    /* If bounds crosses -180° or 180°, the position of the searched point needs to be adjusted */
+    if (bounds[2] > 180 || bounds[6] > 180) {
+        if (x2 < 0) x2 += 360;
+    }
+    if (bounds[0] < -180 || bounds[8] < -180) {
+        if (x2 > 0) x2 -= 360;
+    }
+
     /* Use max_lon max_lat min_lat min_lat to quickly exclude some points */
     int southern_hemisphere = y1 < 0 ? 1 : 0;
-    double min_lon = southern_hemisphere ? bounds[6] : bounds[0];
-    double min_lat = bounds[5];
-    double max_lon = southern_hemisphere ? bounds[4] : bounds[2];
+    double min_lon = southern_hemisphere ? bounds[8] : bounds[0];
+    double min_lat = bounds[7];
+    double max_lon = southern_hemisphere ? bounds[6] : bounds[2];
     double max_lat = bounds[1];
     if (is_double_lt(x2, min_lon) || is_double_gt(x2, max_lon) ||
         is_double_lt(y2, min_lat) || is_double_gt(y2, max_lat)) {
@@ -290,15 +316,34 @@ int geohashGetDistanceIfInTrapezoid(double *bounds, double x1, double y1,
 
     /* Use ray-crossing judge if point in trapezoid */
     int cross = 0;
-    for (int i = 0; i < 8; i += 2) {
+    for (int i = 0; i < 12; i += 2) {
         double p1x = bounds[i];
         double p1y = bounds[i+1];
-        double p2x = bounds[(i+2) % 8];
-        double p2y = bounds[(i+3) % 8];
+        double p2x = bounds[(i+2) % 12];
+        double p2y = bounds[(i+3) % 12];
 
-        if (is_double_eq(p1y, p2y)) continue;
-        if (is_double_lt(y2, fmin(p1y, p2y)) || is_double_gt(y2, fmax(p1y, p2y))) continue;
-        if (is_double_gt(((y2 - p1y) * (p2x - p1x) / (p2y - p1y) + p1x), x2)) {
+        if (is_double_eq(p1y, p2y)) {
+            /* If the point is on the upper or lower edge */
+            if (is_double_eq(p1y, y2) &&
+                is_double_ge(x2, fmin(p1x, p2x)) &&
+                is_double_le(x2, fmax(p1x, p2x))) {
+                goto point_on_polygon;
+            }
+            continue;
+        }
+
+        /* If the y-axis of the point is greater than the maximum y-axis or smaller
+         * than the minimum y-axis, continue. Note: in order to prevent the same
+         * intersection from being calculated repeatedly, we use < fmin and >= fmax */
+        if (is_double_lt(y2, fmin(p1y, p2y)) || is_double_ge(y2, fmax(p1y, p2y)))
+            continue;
+
+        double x = (y2 - p1y) * (p2x - p1x) / (p2y - p1y) + p1x;
+        /* point on polygon */
+        if (is_double_eq(x, x2))
+            goto point_on_polygon;
+        /* ray cross line */
+        if (is_double_gt(x, x2)) {
             cross++;
         }
     }
@@ -307,6 +352,7 @@ int geohashGetDistanceIfInTrapezoid(double *bounds, double x1, double y1,
         return 0;
     }
 
+point_on_polygon:
     *distance = geohashGetDistance(x1, y1, x2, y2);
     return 1;
 }
