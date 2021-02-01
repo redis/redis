@@ -1541,6 +1541,8 @@ void ziplistRandomPairs(unsigned char *zl, int count, ziplistEntry *keys, ziplis
     unsigned char *p, *key, *value;
     unsigned int klen, vlen;
     long long klval, vlval;
+
+    /* Avoid modify the position of the index in the struct. */
     typedef struct {
         int index;
         int order;
