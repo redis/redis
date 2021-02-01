@@ -1522,16 +1522,9 @@ void ziplistRandomPair(unsigned char *zl, unsigned long total_count, ziplistEntr
     assert(ret != 0);
 }
 
-typedef struct {
-    int index;
-    int order;
-} rand_pick;
-
-/* rand_pick compare by index for qsort */
-int randPickCompareByIndex(const void *a, const void *b) {
-    rand_pick *rp1 = (rand_pick *)a;
-    rand_pick *rp2 = (rand_pick *)b;
-    return rp1->index - rp2->index;
+/* int compare for qsort */
+int intCompare(const void *a, const void *b) {
+    return (*(int *) a - *(int *) b);
 }
 
 /* Helper method to store a string into from val or lval into dest */
@@ -1548,7 +1541,10 @@ void ziplistRandomPairs(unsigned char *zl, int count, ziplistEntry *keys, ziplis
     unsigned char *p, *key, *value;
     unsigned int klen, vlen;
     long long klval, vlval;
-    
+    typedef struct {
+        int index;
+        int order;
+    } rand_pick;
     rand_pick *picks = zmalloc(sizeof(rand_pick)*count);
     unsigned long total_size = ziplistLen(zl)/2;
 
@@ -1563,7 +1559,7 @@ void ziplistRandomPairs(unsigned char *zl, int count, ziplistEntry *keys, ziplis
     }
 
     /* sort by indexes. */
-    qsort(picks, count, sizeof(rand_pick), randPickCompareByIndex);
+    qsort(picks, count, sizeof(rand_pick), intCompare);
 
     /* fetch the elements form the ziplist into a output array respecting the original order. */
     int zipindex = 0, pickindex = 0;
