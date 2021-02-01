@@ -3249,12 +3249,24 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
 void addReplyDictOfRedisInstances(client *c, dict *instances) {
     dictIterator *di;
     dictEntry *de;
+    int ds;
+
+    /* count elements excluding slaves with prio < 0 */
+    ds = 0;
+    di = dictGetIterator(instances);
+    while((de = dictNext(di)) != NULL) {
+        sentinelRedisInstance *ri = dictGetVal(de);
+        if (ri->flags & SRI_SLAVE && ri->slave_priority < 0) continue;
+        ds++;
+    }
+    dictReleaseIterator(di);
+    addReplyArrayLen(c,ds);
 
     di = dictGetIterator(instances);
-    addReplyArrayLen(c,dictSize(instances));
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
 
+        if (ri->flags & SRI_SLAVE && ri->slave_priority < 0) continue;
         addReplySentinelRedisInstance(c,ri);
     }
     dictReleaseIterator(di);
@@ -4482,7 +4494,7 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
         if (slave->flags & (SRI_S_DOWN|SRI_O_DOWN)) continue;
         if (slave->link->disconnected) continue;
         if (mstime() - slave->link->last_avail_time > SENTINEL_PING_PERIOD*5) continue;
-        if (slave->slave_priority == 0) continue;
+        if (slave->slave_priority <= 0) continue;
 
         /* If the master is in SDOWN state we get INFO for slaves every second.
          * Otherwise we get it with the usual period so we need to account for
