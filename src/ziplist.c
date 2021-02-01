@@ -1529,8 +1529,8 @@ typedef struct {
 
 /* rand_pick compare by index for qsort */
 int randPickCompareByIndex(const void *a, const void *b) {
-    const rand_pick *rp1 = a;
-    const rand_pick *rp2 = b;
+    rand_pick *rp1 = (rand_pick *)a;
+    rand_pick *rp2 = (rand_pick *)b;
     return rp1->index - rp2->index;
 }
 
