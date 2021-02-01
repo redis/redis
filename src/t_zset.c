@@ -3989,6 +3989,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
      * structures. This case is the only one that also needs to return the
      * elements in random order. */
     if (!uniq || count == 1) {
+        count = count > size ? size : count;
         if (withscores && c->resp == 2)
             addReplyArrayLen(c, count*2);
         else
