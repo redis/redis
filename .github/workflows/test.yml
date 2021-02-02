@@ -1,0 +1,22 @@
+name: FreeBSD Test
+
+on: push
+
+jobs:
+  test-freebsd:
+    runs-on: macos-latest
+    timeout-minutes: 14400
+    steps:
+    - uses: actions/checkout@v2
+    - name: test
+      uses: vmactions/freebsd-vm@v0.1.2
+      with:
+        usesh: true
+        sync: rsync
+        prepare: pkg install -y bash gmake lang/tcl86
+        run: >
+          gmake &&
+          ./runtest --accurate --verbose --no-latency &&
+          MAKE=gmake ./runtest-moduleapi --verbose &&
+          ./runtest-sentinel &&
+          ./runtest-cluster &&
