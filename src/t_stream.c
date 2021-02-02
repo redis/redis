@@ -2716,7 +2716,7 @@ NULL
     key = c->argv[2];
 
     /* Lookup the key now, this is common for all the subcommands but HELP. */
-    robj *o = lookupKeyWriteOrReply(c,key,shared.nokeyerr);
+    robj *o = lookupKeyReadOrReply(c,key,shared.nokeyerr);
     if (o == NULL || checkType(c,o,OBJ_STREAM)) return;
     s = o->ptr;
 
