@@ -1646,9 +1646,13 @@ start_server {tags {"zset"}} {
             # 1) Check that it returns repeated elements with and without values.
             set res [r zrandmember myzset -20]
             assert_equal [llength $res] 20
+            set res [r zrandmember myzset -1001]
+            assert_equal [llength $res] 1001
             # again with WITHSCORES
             set res [r zrandmember myzset -20 withscores]
             assert_equal [llength $res] 40
+            set res [r zrandmember myzset -1001 withscores]
+            assert_equal [llength $res] 2002
 
             # 2) Check that all the elements actually belong to the original zset.
             foreach {key val} $res {

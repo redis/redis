@@ -96,9 +96,13 @@ start_server {tags {"hash"}} {
             # 1) Check that it returns repeated elements with and without values.
             set res [r hrandfield myhash -20]
             assert_equal [llength $res] 20
+            set res [r hrandfield myhash -1001]
+            assert_equal [llength $res] 1001
             # again with WITHVALUES
             set res [r hrandfield myhash -20 withvalues]
             assert_equal [llength $res] 40
+            set res [r hrandfield myhash -1001 withvalues]
+            assert_equal [llength $res] 2002
 
             # 2) Check that all the elements actually belong to the original hash.
             foreach {key val} $res {
