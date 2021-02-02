@@ -726,6 +726,11 @@ void syncCommand(client *c) {
     /* ignore SYNC if already slave or in monitor mode */
     if (c->flags & CLIENT_SLAVE) return;
 
+    if (!(c->slave_capa & SLAVE_CAPA_PING_OOB)) {
+        addReplyError(c,"replica should support PING out-of-band");
+        return;
+    }
+
     /* Check if this is a failover request to a replica with the same replid and
      * become a master if so. */
     if (c->argc > 3 && !strcasecmp(c->argv[0]->ptr,"psync") && 
@@ -944,6 +949,8 @@ void replconfCommand(client *c) {
                 c->slave_capa |= SLAVE_CAPA_EOF;
             else if (!strcasecmp(c->argv[j+1]->ptr,"psync2"))
                 c->slave_capa |= SLAVE_CAPA_PSYNC2;
+            else if (!strcasecmp(c->argv[j+1]->ptr,"ping-out-of-band"))
+                c->slave_capa |= SLAVE_CAPA_PING_OOB;
         } else if (!strcasecmp(c->argv[j]->ptr,"ack")) {
             /* REPLCONF ACK is used by slave to inform the master the amount
              * of replication stream that it processed so far. It is an
@@ -2321,7 +2328,7 @@ void syncWithMaster(connection *conn) {
          *
          * The master will ignore capabilities it does not understand. */
         err = sendCommand(conn,"REPLCONF",
-                "capa","eof","capa","psync2",NULL);
+                "capa","eof","capa","psync2","capa","ping-out-of-band",NULL);
         if (err) goto write_error;
 
         server.repl_state = REPL_STATE_RECEIVE_AUTH_REPLY;
