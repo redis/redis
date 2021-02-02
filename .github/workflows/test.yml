@@ -19,4 +19,4 @@ jobs:
           ./runtest --accurate --verbose --no-latency &&
           MAKE=gmake ./runtest-moduleapi --verbose &&
           ./runtest-sentinel &&
-          ./runtest-cluster &&
+          ./runtest-cluster
