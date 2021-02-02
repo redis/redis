@@ -225,8 +225,13 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc, int 
      * the stream of data we receive from our master instead, in order to
      * propagate *identical* replication stream. In this way this slave can
      * advertise the same replication ID as the master (since it shares the
-     * master replication history and has the same backlog and offsets). */
-    if (server.masterhost != NULL) return;
+     * master replication history and has the same backlog and offsets).
+     *
+     * Unless it is out of replication, it means these data would not affect
+     * backlog and offsets. Because the replica do not proxy PINGs received
+     * from master to sub-replicas to keep alive, so replica need send PINGs
+     * in replicationCron by itself to keep alive. */
+    if (server.masterhost != NULL && !out_of_repl) return;
 
     /* If there aren't slaves, and there is no backlog buffer to populate,
      * we can return ASAP. */
