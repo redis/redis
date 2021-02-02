@@ -31,6 +31,7 @@
 #include "geo.h"
 #include "geohash_helper.h"
 #include "debugmacro.h"
+#include "pqsort.h"
 
 /* Things exported from t_zset.c only for geo.c, since it is the only other
  * part of Redis that requires close zset introspection. */
@@ -699,10 +700,20 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
     long option_length = 0;
 
     /* Process [optional] requested sorting */
-    if (sort == SORT_ASC) {
-        qsort(ga->array, result_length, sizeof(geoPoint), sort_gp_asc);
-    } else if (sort == SORT_DESC) {
-        qsort(ga->array, result_length, sizeof(geoPoint), sort_gp_desc);
+    if (sort != SORT_NONE) {
+        int (*sort_gp_callback)(const void *a, const void *b) = NULL;
+        if (sort == SORT_ASC) {
+            sort_gp_callback = sort_gp_asc;
+        } else if (sort == SORT_DESC) {
+            sort_gp_callback = sort_gp_desc;
+        }
+
+        if (returned_items == result_length) {
+            qsort(ga->array, result_length, sizeof(geoPoint), sort_gp_callback);
+        } else {
+            pqsort(ga->array, result_length, sizeof(geoPoint), sort_gp_callback,
+                0, (returned_items - 1));
+        }
     }
 
     if (storekey == NULL) {
