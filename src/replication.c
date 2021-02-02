@@ -215,7 +215,7 @@ int canFeedReplicaReplBuffer(client *replica) {
  * the commands received by our clients in order to create the replication
  * stream. Instead if the instance is a slave and has sub-slaves attached,
  * we use replicationFeedSlavesFromMasterStream() */
-void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
+void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc, int out_of_repl) {
     listNode *ln;
     listIter li;
     int j, len;
@@ -253,7 +253,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         }
 
         /* Add the SELECT command into the backlog. */
-        if (server.repl_backlog) feedReplicationBacklogWithObject(selectcmd);
+        if (server.repl_backlog && !out_of_repl) feedReplicationBacklogWithObject(selectcmd);
 
         /* Send it to slaves. */
         listRewind(slaves,&li);
@@ -270,7 +270,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     server.slaveseldb = dictid;
 
     /* Write the command to the replication backlog if any. */
-    if (server.repl_backlog) {
+    if (server.repl_backlog && !out_of_repl) {
         char aux[LONG_STR_SIZE+3];
 
         /* Add the multi bulk reply length. */
@@ -3335,7 +3335,7 @@ void replicationCron(void) {
         if (!manual_failover_in_progress) {
             ping_argv[0] = createStringObject("PING",4);
             replicationFeedSlaves(server.slaves, server.slaveseldb,
-                ping_argv, 1);
+                ping_argv, 1, 1);
             decrRefCount(ping_argv[0]);
         }
     }
