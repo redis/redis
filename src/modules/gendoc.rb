@@ -48,18 +48,17 @@ def linebreak_proto(proto, indent)
     align_pos = proto.index("(") + 1;
     align = " " * align_pos
     result = parts.shift;
-    last_part = parts.pop;
     bracket_balance = 0;
     parts.each{|part|
-        result += part
-        bracket_balance += part.count("(") - part.count(")")
         if bracket_balance == 0
             result += ",\n" + indent + align
         else
             result += ", "
         end
+        result += part
+        bracket_balance += part.count("(") - part.count(")")
     }
-    return result + last_part;
+    return result;
 end
 
 # Given the source code array and the index at which an exported symbol was
