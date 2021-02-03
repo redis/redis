@@ -1,6 +1,6 @@
 name: FreeBSD Test
 
-on: [push, pr]
+on: [push, pull_request]
 
 jobs:
   test-freebsd:
