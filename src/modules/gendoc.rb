@@ -88,7 +88,7 @@ end
 # Print a comment from line until */ is found, as markdown.
 def section_doc(src, i)
     name = get_section_heading(src, i)
-    comment = "<span id=\"#{name_to_id(name)}\"></span>\n\n"
+    comment = "<span id=\"#{section_name_to_id(name)}\"></span>\n\n"
     while true
          # append line, except if it's a horizontal divider
         comment = comment + src[i] if src[i] !~ /^[\/ ]?\*{1,2} ?-{50,}/
@@ -100,16 +100,17 @@ def section_doc(src, i)
 end
 
 # generates an id suitable for links within the page
-def name_to_id(name)
-    return name.strip.downcase.gsub(/[^a-z0-9]+/, '-').gsub(/^-+|-+$/, '')
+def section_name_to_id(name)
+    return "section-" +
+           name.strip.downcase.gsub(/[^a-z0-9]+/, '-').gsub(/^-+|-+$/, '')
 end
 
 # Returns the name of the first section heading in the comment block for which
 # is_section_doc(src, i) is true
 def get_section_heading(src, i)
-    if src[i] =~ /^\/\*\*? \#+(.*)/
+    if src[i] =~ /^\/\*\*? \#+ *(.*)/
         return $1
-    elsif src[i+1] =~ /^ ?\* \#+(.*)/
+    elsif src[i+1] =~ /^ ?\* \#+ *(.*)/
         return $1
     end
 end
@@ -148,10 +149,10 @@ puts "## Sections\n\n"
 src.each_with_index do |line,i|
     if is_section_doc(src, i)
         name = get_section_heading(src, i)
-        puts "* [#{name}](\##{name_to_id(name)})\n"
+        puts "* [#{name}](\##{section_name_to_id(name)})\n"
     end
 end
-puts "* [Function index](#function-index)\n\n"
+puts "* [Function index](#section-function-index)\n\n"
 
 # Docufy: Print function prototype and markdown docs
 src.each_with_index do |line,i|
@@ -163,7 +164,7 @@ src.each_with_index do |line,i|
 end
 
 # Print function index
-puts "<span id=\"function-index\"></span>\n\n"
+puts "<span id=\"section-function-index\"></span>\n\n"
 puts "## Function index\n\n"
 $index.keys.sort.each{|x| puts "* [`#{x}`](\##{x})\n"}
 puts "\n"
