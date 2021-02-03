@@ -210,13 +210,14 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: test
-      uses: vmactions/freebsd-vm@v0.1.0
+      uses: vmactions/freebsd-vm@v0.1.2
       with:
         usesh: true
-        prepare: pkg install -y gmake lang/tcl85
-        run: |
-          gmake
-          ./runtest --accurate --verbose --no-latency
-          MAKE=gmake ./runtest-moduleapi --verbose
-          ./runtest-sentinel
+        sync: rsync
+        prepare: pkg install -y bash gmake lang/tcl86
+        run: >
+          gmake &&
+          ./runtest --accurate --verbose --no-latency &&
+          MAKE=gmake ./runtest-moduleapi --verbose &&
+          ./runtest-sentinel &&
           ./runtest-cluster
