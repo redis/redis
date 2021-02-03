@@ -1383,14 +1383,6 @@ int RM_StringToLongDouble(const RedisModuleString *str, long double *ld) {
  * Returns REDISMODULE_OK on success and returns REDISMODULE_ERR if the string
  * is not a valid string representation of a stream ID. The special IDs "+" and
  * "-" are allowed.
- *
- * RedisModuleStreamID is a struct with two 64-bit fields, which is used in
- * stream functions and defined as
- *
- *     typedef struct RedisModuleStreamID {
- *         uint64_t ms;
- *         uint64_t seq;
- *     } RedisModuleStreamID;
  */
 int RM_StringToStreamID(const RedisModuleString *str, RedisModuleStreamID *id) {
     streamID streamid;
@@ -2450,6 +2442,8 @@ RedisModuleString *RM_RandomKey(RedisModuleCtx *ctx) {
 
 /* --------------------------------------------------------------------------
  * ## Key API for String type
+ *
+ * See also RM_ValueLength(), which returns the length of a string.
  * -------------------------------------------------------------------------- */
 
 /* If the key is open for writing, set the specified string 'str' as the
@@ -2560,6 +2554,8 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
 
 /* --------------------------------------------------------------------------
  * ## Key API for List type
+ *
+ * See also RM_ValueLength(), which returns the length of a list.
  * -------------------------------------------------------------------------- */
 
 /* Push an element into a list, on head or tail depending on 'where' argument.
@@ -2598,6 +2594,8 @@ RedisModuleString *RM_ListPop(RedisModuleKey *key, int where) {
 
 /* --------------------------------------------------------------------------
  * ## Key API for Sorted Set type
+ *
+ * See also RM_ValueLength(), which returns the length of a sorted set.
  * -------------------------------------------------------------------------- */
 
 /* Conversion from/to public flags of the Modules API and our private flags,
@@ -3048,6 +3046,8 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
 
 /* --------------------------------------------------------------------------
  * ## Key API for Hash type
+ *
+ * See also RM_ValueLength(), which returns the number of fields in a hash.
  * -------------------------------------------------------------------------- */
 
 /* Set the field of the specified hash field to the specified value.
@@ -3282,7 +3282,20 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
 }
 
 /* --------------------------------------------------------------------------
- * ## Key API for the stream type.
+ * ## Key API for Stream type
+ *
+ * For an introduction to streams, see https://redis.io/topics/streams-intro.
+ *
+ * The type RedisModuleStreamID, which is used in stream functions, is a struct
+ * with two 64-bit fields and is defined as
+ *
+ *     typedef struct RedisModuleStreamID {
+ *         uint64_t ms;
+ *         uint64_t seq;
+ *     } RedisModuleStreamID;
+ *
+ * See also RM_ValueLength(), which returns the length of a stream, and the
+ * conversion functions RM_StringToStreamID() and RM_CreateStringFromStreamID().
  * -------------------------------------------------------------------------- */
 
 /* Adds an entry to a stream. Like XADD without trimming.
