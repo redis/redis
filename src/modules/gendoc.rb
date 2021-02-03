@@ -74,7 +74,7 @@ def docufy(src,i)
     # Add a link target with the function name. (We don't trust the exact id of
     # the generated one, which depends on the Markdown implementation.)
     puts "<span id=\"#{name}\"></span>\n\n"
-    puts "## `#{name}`\n\n"
+    puts "### `#{name}`\n\n"
     puts "    #{proto}\n"
     comment = ""
     while true
@@ -86,33 +86,85 @@ def docufy(src,i)
     puts comment+"\n\n"
 end
 
-# Like src.each_with_index but executes the block only for RM_ function
-# definition lines preceded by a documentation comment block.
-def each_rm_func_line_with_index(src, &block)
-    src.each_with_index{|line,i|
-        if line =~ /RM_/ && line[0] != ' ' && line[0] != '#' && line[0] != '/'
-            if src[i-1] =~ /\*\//
-                block.call(line, i)
-            end
-        end
-    }
+# Print a comment from line until */ is found, as markdown.
+def section_doc(src, i)
+    name = get_section_heading(src, i)
+    comment = "<span id=\"#{name_to_id(name)}\"></span>\n\n"
+    while true
+         # append line, except if it's a horizontal divider
+        comment = comment + src[i] if src[i] !~ /^[\/ ]?\*{1,2} ?-{50,}/
+        break if src[i] =~ /\*\//
+        i = i+1
+    end
+    comment = markdown(comment)
+    puts comment+"\n\n"
+end
+
+# generates an id suitable for links within the page
+def name_to_id(name)
+    return name.strip.downcase.gsub(/[^a-z0-9]+/, '-').gsub(/^-+|-+$/, '')
+end
+
+# Returns the name of the first section heading in the comment block for which
+# is_section_doc(src, i) is true
+def get_section_heading(src, i)
+    if src[i] =~ /^\/\*\*? \#+(.*)/
+        return $1
+    elsif src[i+1] =~ /^ ?\* \#+(.*)/
+        return $1
+    end
+end
+
+# Returns true if the line is the start of a generic documentation section. Such
+# section must start with the # symbol, i.e. a markdown heading, on the first or
+# the second line.
+def is_section_doc(src, i)
+    return src[i] =~ /^\/\*\*? \#/ ||
+           (src[i] =~ /^\/\*/ && src[i+1] =~ /^ ?\* \#/)
+end
+
+def is_func_line(src, i)
+  line = src[i]
+  return line =~ /RM_/ &&
+         line[0] != ' ' && line[0] != '#' && line[0] != '/' &&
+         src[i-1] =~ /\*\//
 end
 
 puts "# Modules API reference\n\n"
 puts "<!-- This file is generated from module.c using gendoc.rb -->\n\n"
-src = File.open("../module.c").to_a
+src = File.open(File.dirname(__FILE__) ++ "/../module.c").to_a
 
 # Build function index
 $index = {}
-each_rm_func_line_with_index(src){|line,i|
-    line =~ /RM_([A-z0-9]+)/
-    name = "RedisModule_#{$1}"
-    $index[name] = true
-}
+src.each_with_index do |line,i|
+    if is_func_line(src, i)
+        line =~ /RM_([A-z0-9]+)/
+        name = "RedisModule_#{$1}"
+        $index[name] = true
+    end
+end
+
+# Print TOC
+puts "## Sections\n\n"
+src.each_with_index do |line,i|
+    if is_section_doc(src, i)
+        name = get_section_heading(src, i)
+        puts "* [#{name}](\##{name_to_id(name)})\n"
+    end
+end
+puts "* [Function index](#function-index)\n\n"
 
 # Docufy: Print function prototype and markdown docs
-each_rm_func_line_with_index(src){|line,i| docufy(src,i)}
+src.each_with_index do |line,i|
+    if is_func_line(src, i)
+        docufy(src, i)
+    elsif is_section_doc(src, i)
+        section_doc(src, i)
+    end
+end
 
+# Print function index
+puts "<span id=\"function-index\"></span>\n\n"
 puts "## Function index\n\n"
 $index.keys.sort.each{|x| puts "* [`#{x}`](\##{x})\n"}
 puts "\n"
