@@ -223,7 +223,7 @@ int geoAppendIfWithinShape(geoArray *ga, GeoShape *shape, double score, sds memb
         if (!geohashGetDistanceIfInRadiusWGS84(shape->xy[0], shape->xy[1], xy[0], xy[1],
                                                shape->t.radius*shape->conversion, &distance)) return C_ERR;
     } else if (shape->type == RECTANGLE_TYPE) {
-        if (!geohashGetDistanceIfInTrapezoid(shape->bounds, shape->xy[0], shape->xy[1],
+        if (!geohashGetDistanceIfInPolygon(shape->polygon, shape->bounds, shape->xy[0], shape->xy[1],
                                              xy[0], xy[1], &distance)) return C_ERR;
     }
 

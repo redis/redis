@@ -96,8 +96,10 @@ typedef struct {
     int type; /* search type */
     double xy[2]; /* search center point, xy[0]: lon, xy[1]: lat */
     double conversion; /* km: 1000 */
-    double bounds[12]; /* bounds[0]-bounds[11] are 6 coordinates in the search
-                       * area, see geohash_helper.c geohashBoundingBox */
+    double bounds[4]; /* bounds[0]: min_lon, bounds[1]: min_lat, bounds[2]: max_lon, bounds[3]: max_lat */
+    double polygon[12]; /* polygon are 6 coordinates (see geohash_helper.c geohashBoundingBoxAndPolygon)
+                         * in the search area, the latitude and longitude coordinates are arranged in
+                         * order, with longitude first. */
     union {
         /* CIRCULAR_TYPE */
         double radius;

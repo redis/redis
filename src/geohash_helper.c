@@ -82,89 +82,101 @@ uint8_t geohashEstimateStepsByRadius(double range_meters, double lat) {
     return step;
 }
 
-/* Return the bounding box of the search area by shape (see geohash.h GeoShape)
- * since the higher the latitude, the shorter the arc length, the box shape
- * is as follows (left and right edges are actually bent), bounds[0]-bounds[11]
- * are 6 coordinates in the search area, as shown in the following diagram:
+/* Get the bounding box and polygon of the search area by shape (see geohash.h GeoShape)
+ * CIRCULAR_TYPE: only need bounds
+ *
+ * RECTANGLE_TYPE: need bounds and polygon. since the higher the latitude, the shorter the arc length,
+ * the polygon shape is as follows (left and right edges are actually bent), as shown in the following diagram:
  * The search area directions of the northern and southern hemispheres are opposite.
  *
- *             (bounds[0],bounds[1])   (bounds[2],bounds[3])
+ *             (polygon[0],polygon[1])   (polygon[2],polygon[3])
  *                         \-----------------/                           --------               \-----------------/
  *                          \               /                          /          \              \               /
- *  (bounds[10],bounds[11])  \  (long,lat) / (bounds[4],bounds[5])    / (long,lat) \              \  (long,lat) /
+ *  (polygon[10],polygon[11])\  (long,lat) / (polygon[4],polygon[5])  / (long,lat) \              \  (long,lat) /
  *                            \           /                          /              \              /            \
  *                              ---------                           /----------------\            /--------------\
- *            (bounds[8],bounds[9])   (bounds[6],bounds[7])
+ *            (polygon[8],polygon[9])   (polygon[6],polygon[7])
  *                       Northern Hemisphere                        Southern Hemisphere         Around the equator
  */
-int geohashBoundingBox(GeoShape *shape, double *bounds) {
-    if (!bounds) return 0;
+int geohashBoundingBoxAndPolygon(GeoShape *shape) {
     double longitude = shape->xy[0];
     double latitude = shape->xy[1];
-    double height = shape->conversion * (shape->type == CIRCULAR_TYPE ? shape->t.radius : shape->t.r.height/2);
-    double width = shape->conversion * (shape->type == CIRCULAR_TYPE ? shape->t.radius : shape->t.r.width/2);
+    double *bounds = shape->bounds;
+    double *polygon = shape->polygon;
+    double height, width;
 
-    const double lat_delta = rad_deg(height/EARTH_RADIUS_IN_METERS);
-    const double long_delta_top = rad_deg(width/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude+lat_delta)));
-    const double long_delta_middle = rad_deg(width/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude)));
-    const double long_delta_bottom = rad_deg(width/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude-lat_delta)));
-    bounds[0] = longitude - long_delta_top;
-    bounds[1] = latitude + lat_delta;
-    bounds[2] = longitude + long_delta_top;
-    bounds[3] = latitude + lat_delta;
-    bounds[4] = longitude + long_delta_middle;
-    bounds[5] = latitude;
-    bounds[6] = longitude + long_delta_bottom;
-    bounds[7] = latitude - lat_delta;
-    bounds[8] = longitude - long_delta_bottom;
-    bounds[9] = latitude - lat_delta;
-    bounds[10] = longitude - long_delta_middle;
-    bounds[11] = latitude;
+    if (shape->type == CIRCULAR_TYPE) {
+        width = height = shape->conversion * shape->t.radius;
+        const double lat_delta = rad_deg(height/EARTH_RADIUS_IN_METERS);
+        const double long_delta = rad_deg(width/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude)));
+        bounds[0] = longitude - long_delta;
+        bounds[2] = longitude + long_delta;
+        bounds[1] = latitude - lat_delta;
+        bounds[3] = latitude + lat_delta;
 
-    /* If the latitude crosses the equator, the shortest modified width is the equator */
-    if ((bounds[1] < 0) != (bounds[9] < 0)) {
-        const double long_delta_equator = rad_deg(width / EARTH_RADIUS_IN_METERS);
-        bounds[4] = longitude + long_delta_equator;
-        bounds[5] = 0;
-        bounds[10] = longitude - long_delta_equator;
-        bounds[11] = 0;
+    } else if (shape->type == RECTANGLE_TYPE) {
+        height = shape->conversion * shape->t.r.height/2;
+        width = shape->conversion * shape->t.r.width/2;
+        const double lat_delta = rad_deg(height/EARTH_RADIUS_IN_METERS);
+        const double long_delta_top = rad_deg(width/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude+lat_delta)));
+        const double long_delta_middle = rad_deg(width/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude)));
+        const double long_delta_bottom = rad_deg(width/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude-lat_delta)));
+        polygon[0] = longitude - long_delta_top;
+        polygon[1] = latitude + lat_delta;
+        polygon[2] = longitude + long_delta_top;
+        polygon[3] = latitude + lat_delta;
+        polygon[4] = longitude + long_delta_middle;
+        polygon[5] = latitude;
+        polygon[6] = longitude + long_delta_bottom;
+        polygon[7] = latitude - lat_delta;
+        polygon[8] = longitude - long_delta_bottom;
+        polygon[9] = latitude - lat_delta;
+        polygon[10] = longitude - long_delta_middle;
+        polygon[11] = latitude;
+
+        /* If the latitude crosses the equator, the shortest modified width is the equator */
+        if ((polygon[1] < 0) != (polygon[9] < 0)) {
+            const double long_delta_equator = rad_deg(width/EARTH_RADIUS_IN_METERS);
+            polygon[4] = longitude + long_delta_equator;
+            polygon[5] = 0;
+            polygon[10] = longitude - long_delta_equator;
+            polygon[11] = 0;
+        }
+
+        /* The directions of the northern and southern hemispheres
+         * are opposite, so we choice different points as min/max long/lat */
+        int southern_hemisphere = latitude < 0 ? 1 : 0;
+        bounds[0] = southern_hemisphere ? polygon[8] : polygon[0];
+        bounds[2] = southern_hemisphere ? polygon[6] : polygon[2];
+        bounds[1] = polygon[7];
+        bounds[3] = polygon[1];
     }
-
     return 1;
 }
 
 /* Calculate a set of areas (center + 8) that are able to cover a range query
- * for the specified position and shape (see geohash.h GeoShape).
- * the bounding box saved in shape.bounds */
+ * for the specified position and shape (see geohash.h GeoShape). */
 GeoHashRadius geohashCalculateAreasByShapeWGS84(GeoShape *shape) {
     GeoHashRange long_range, lat_range;
     GeoHashRadius radius;
     GeoHashBits hash;
     GeoHashNeighbors neighbors;
     GeoHashArea area;
-    double min_lon, max_lon, min_lat, max_lat;
     int steps;
 
-    geohashBoundingBox(shape, shape->bounds);
-    /* The trapezoid directions of the northern and southern hemispheres
-     * are opposite, so we choice different points as max/min long/lat*/
-    int southern_hemisphere = shape->xy[1] < 0 ? 1 : 0;
-    min_lon = southern_hemisphere ? shape->bounds[8] : shape->bounds[0];
-    min_lat = shape->bounds[7];
-    max_lon = southern_hemisphere ? shape->bounds[6] : shape->bounds[2];
-    max_lat = shape->bounds[1];
+    geohashBoundingBoxAndPolygon(shape);
 
     double longitude = shape->xy[0];
     double latitude = shape->xy[1];
     /* radius_meters is calculated differently in different search types:
      * 1) CIRCULAR_TYPE, just use radius.
-     * 2) RECTANGLE_TYPE, we should use sqrt((width/2)^2 + (height/2)^2),
-     * get the hypotenuse of a right triangle, so that the box is bound
-     * by a circle. */
-    double radius_meters = shape->type == CIRCULAR_TYPE ? shape->t.radius :
-            sqrt((shape->t.r.width/2)*(shape->t.r.width/2) + (shape->t.r.height/2)*(shape->t.r.height/2));
-    radius_meters *= shape->conversion;
-
+     * 2) RECTANGLE_TYPE, Use the distance from the center point to the upper left corner */
+    double radius_meters = 0;
+    if (shape->type == CIRCULAR_TYPE) {
+        radius_meters = shape->t.radius * shape->conversion;
+    } else if (shape->type == RECTANGLE_TYPE) {
+        radius_meters = geohashGetDistance(longitude, latitude, shape->polygon[0], shape->polygon[1]);
+    }
     steps = geohashEstimateStepsByRadius(radius_meters,latitude);
 
     geohashGetCoordRange(&long_range,&lat_range);
@@ -205,22 +217,22 @@ GeoHashRadius geohashCalculateAreasByShapeWGS84(GeoShape *shape) {
 
     /* Exclude the search areas that are useless. */
     if (steps >= 2) {
-        if (area.latitude.min < min_lat) {
+        if (area.latitude.min < shape->bounds[1]) {
             GZERO(neighbors.south);
             GZERO(neighbors.south_west);
             GZERO(neighbors.south_east);
         }
-        if (area.latitude.max > max_lat) {
+        if (area.latitude.max > shape->bounds[3]) {
             GZERO(neighbors.north);
             GZERO(neighbors.north_east);
             GZERO(neighbors.north_west);
         }
-        if (area.longitude.min < min_lon) {
+        if (area.longitude.min < shape->bounds[0]) {
             GZERO(neighbors.west);
             GZERO(neighbors.south_west);
             GZERO(neighbors.north_west);
         }
-        if (area.longitude.max > max_lon) {
+        if (area.longitude.max > shape->bounds[2]) {
             GZERO(neighbors.east);
             GZERO(neighbors.south_east);
             GZERO(neighbors.north_east);
@@ -286,41 +298,37 @@ int is_double_le(double a, double b) {
     return a < b + EPSILON;
 }
 
-/* Judge whether a point is in the trapezoid.
+/* Judge whether a point is in the polygon.
+ * polygon: see geohash.h GeoShape::polygon
  * bounds : see geohash.h GeoShape::bounds
- * x1, y1 : the center of the trapezoid
+ * x1, y1 : the center
  * x2, y2 : the point to be searched
  *
  * ray-crossing Algorithm refer: http://erich.realtimerendering.com/ptinpoly/
  */
-int geohashGetDistanceIfInTrapezoid(double *bounds, double x1, double y1,
+int geohashGetDistanceIfInPolygon(double *polygon, double *bounds, double x1, double y1,
                                     double x2, double y2, double *distance) {
-    /* If bounds crosses -180° or 180°, the position of the searched point needs to be adjusted */
-    if (bounds[2] > 180 || bounds[6] > 180) {
+    /* If polygon crosses -180° or 180°, the position of the searched point needs to be adjusted */
+    if (polygon[2] > 180 || polygon[6] > 180) {
         if (x2 < 0) x2 += 360;
     }
-    if (bounds[0] < -180 || bounds[8] < -180) {
+    if (polygon[0] < -180 || polygon[8] < -180) {
         if (x2 > 0) x2 -= 360;
     }
 
     /* Use max_lon max_lat min_lat min_lat to quickly exclude some points */
-    int southern_hemisphere = y1 < 0 ? 1 : 0;
-    double min_lon = southern_hemisphere ? bounds[8] : bounds[0];
-    double min_lat = bounds[7];
-    double max_lon = southern_hemisphere ? bounds[6] : bounds[2];
-    double max_lat = bounds[1];
-    if (is_double_lt(x2, min_lon) || is_double_gt(x2, max_lon) ||
-        is_double_lt(y2, min_lat) || is_double_gt(y2, max_lat)) {
+    if (is_double_lt(x2, bounds[0]) || is_double_gt(x2, bounds[2]) ||
+        is_double_lt(y2, bounds[1]) || is_double_gt(y2, bounds[3])) {
         return 0;
     }
 
-    /* Use ray-crossing judge if point in trapezoid */
+    /* Use ray-crossing judge if point in polygon */
     int cross = 0;
     for (int i = 0; i < 12; i += 2) {
-        double p1x = bounds[i];
-        double p1y = bounds[i+1];
-        double p2x = bounds[(i+2) % 12];
-        double p2y = bounds[(i+3) % 12];
+        double p1x = polygon[i];
+        double p1y = polygon[i+1];
+        double p2x = polygon[(i+2) % 12];
+        double p2y = polygon[(i+3) % 12];
 
         if (is_double_eq(p1y, p2y)) {
             /* If the point is on the upper or lower edge */
