@@ -62,7 +62,8 @@ typedef int (*ziplistValidateEntryCB)(unsigned char* p, void* userdata);
 int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
                              ziplistValidateEntryCB entry_cb, void *cb_userdata);
 void ziplistRandomPair(unsigned char *zl, unsigned long total_count, ziplistEntry *key, ziplistEntry *val);
-void ziplistRandomPairs(unsigned char *zl, int count, ziplistEntry *keys, ziplistEntry *vals);
+void ziplistRandomPairs(unsigned char *zl, unsigned int count, ziplistEntry *keys, ziplistEntry *vals);
+unsigned int ziplistRandomPairsUnique(unsigned char *zl, unsigned int count, ziplistEntry *keys, ziplistEntry *vals);
 
 #ifdef REDIS_TEST
 int ziplistTest(int argc, char *argv[]);

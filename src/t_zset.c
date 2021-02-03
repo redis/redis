@@ -3956,6 +3956,23 @@ void bzpopmaxCommand(client *c) {
     blockingGenericZpopCommand(c,ZSET_MAX);
 }
 
+static void zarndmemberReplyWithZiplist(client *c, unsigned int count, ziplistEntry *keys, ziplistEntry *vals) {
+    for (unsigned long i = 0; i < count; i++) {
+        if (vals && c->resp > 2)
+            addReplyArrayLen(c,2);
+        if (keys[i].sval)
+            addReplyBulkCBuffer(c, keys[i].sval, keys[i].slen);
+        else
+            addReplyBulkLongLong(c, keys[i].lval);
+        if (vals) {
+            if (vals[i].sval) {
+                addReplyDouble(c, zzlStrtod(vals[i].sval,vals[i].slen));
+            } else
+                addReplyDouble(c, vals[i].lval);
+        }
+    }
+}
+
 /* How many times bigger should be the zset compared to the requested size
  * for us to not use the "remove elements" strategy? Read later in the
  * implementation for more info. */
@@ -4020,20 +4037,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
                 sample_count = count > limit ? limit : count;
                 count -= sample_count;
                 ziplistRandomPairs(zsetobj->ptr, sample_count, keys, vals);
-                for (unsigned long i = 0; i < sample_count; i++) {
-                    if (withscores && c->resp > 2)
-                        addReplyArrayLen(c,2);
-                    if (keys[i].sval)
-                        addReplyBulkCBuffer(c, keys[i].sval, keys[i].slen);
-                    else
-                        addReplyBulkLongLong(c, keys[i].lval);
-                    if (withscores) {
-                        if (vals[i].sval) {
-                            addReplyDouble(c, zzlStrtod(vals[i].sval,vals[i].slen));
-                        } else
-                            addReplyDouble(c, vals[i].lval);
-                    }
-                }
+                zarndmemberReplyWithZiplist(c, sample_count, keys, vals);
             }
             zfree(keys);
             zfree(vals);
@@ -4122,6 +4126,21 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
      * to the temporary set, trying to eventually get enough unique elements
      * to reach the specified count. */
     else {
+        if (zsetobj->encoding == OBJ_ENCODING_ZIPLIST) {
+            /* it is inefficient to repeatedly pick one random element from a
+             * ziplist. so we use this instead: */
+            ziplistEntry *keys, *vals = NULL;
+            keys = zmalloc(sizeof(ziplistEntry)*count);
+            if (withscores)
+                vals = zmalloc(sizeof(ziplistEntry)*count);
+            serverAssert(ziplistRandomPairsUnique(zsetobj->ptr, count, keys, vals) == count);
+            zarndmemberReplyWithZiplist(c, count, keys, vals);
+            zfree(keys);
+            zfree(vals);
+            return;
+        }
+
+        /* Hashtable encoding (generic implementation) */
         unsigned long added = 0;
         dict *d = dictCreate(&hashDictType, NULL);
 
