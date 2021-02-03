@@ -1631,10 +1631,12 @@ start_server {tags {"zset"}} {
             create_zset myzset $contents
             assert_encoding $type myzset
 
-            # create a dict for easy lookup
+            # create a dict for easy lookup and random count
             unset -nocomplain mydict
+            unset -nocomplain randomdict
             foreach {k v} [r zrange myzset 0 -1 withscores] {
                 dict append mydict $k $v
+                dict append randomdict $k 0
             }
 
             # We'll stress different parts of the code, see the implementation
@@ -1742,6 +1744,31 @@ start_server {tags {"zset"}} {
                 }
                 assert {$iterations != 0}
             }
+
+            # 4) Check that probability of each element are between 5% to 15%.
+            set count 1000
+            set res [r zrandmember myzset -$count]
+            foreach key $res {
+                dict set randomdict $key [expr [dict get $randomdict $key] + 1]
+            }
+
+            foreach key [dict keys $randomdict] {
+                set value [dict get $randomdict $key]
+                set probability [expr {double($value) / $count}]
+                assert {$probability > 0.05 && $probability < 0.15}
+            }
+
+            # 5) Check order is kinda random.
+            # We only check that the first 100 entries are not identical.
+            set firstkey [lindex $res 0]
+            set identical 1
+            foreach key [lrange $res 1 100] {
+                if {$key != $firstkey} {
+                    set identical 0
+                    break
+                }
+            }
+            assert {$identical == 0}
         }
         r config set zset-max-ziplist-value $original_max_value
     }
