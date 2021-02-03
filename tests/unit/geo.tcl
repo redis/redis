@@ -43,8 +43,10 @@ proc compare_lists {List1 List2} {
    return $DiffList
 }
 
-# If a point in circular
-proc pointInCircular {radius_km lon lat search_lon search_lat} {
+# return true If a point in circle.
+# search_lon and search_lat define the center of the circle,
+# and lon, lat define the point being searched.
+proc pointInCircle {radius_km lon lat search_lon search_lat} {
     set radius_m [expr {$radius_km*1000}]
     set distance [geo_distance $lon $lat $search_lon $search_lat]
     if {$distance < $radius_m} {
@@ -501,7 +503,7 @@ start_server {tags {"geo"}} {
                 geo_random_point lon lat
                 lappend argv $lon $lat "place:$j"
                 if {$type == "byradius"} {
-                    if {[pointInCircular $radius_km $lon $lat $search_lon $search_lat]} {
+                    if {[pointInCircle $radius_km $lon $lat $search_lon $search_lat]} {
                         lappend tcl_result "place:$j"
                     }
                 } elseif {$type == "bybox"} {
@@ -581,7 +583,7 @@ start_server {tags {"geo"}} {
     } {OK}
     }
 
-    test {GEOSEARCH fuzzy test} {
+    test {GEOSEARCH box edges fuzzy test} {
         if {$::accurate} { set attempt 300 } else { set attempt 30 }
         while {[incr attempt -1]} {
             unset -nocomplain debuginfo
@@ -628,7 +630,7 @@ start_server {tags {"geo"}} {
 
             set res2 [lsort $tcl_result]
 
-            # move the box by two meter to put the coordinate slightly inside the box.
+            # make the box larger by two meter in each direction to put the coordinate slightly inside the box.
             set height_new [expr {$height_m+4}]
             set width_new [expr {$width_m+4}]
             set res [lsort [r geosearch mypoints fromlonlat $search_lon $search_lat bybox $width_new $height_new m]]
@@ -638,7 +640,7 @@ start_server {tags {"geo"}} {
                 fail "place should be found, debuginfo: $debuginfo, height_new: $height_new width_new: $width_new"
             }
 
-            # move the box by two meter to put the coordinate slightly outside the box.
+            # make the box smaller by two meter in each direction to put the coordinate slightly outside the box.
             set height_new [expr {$height_m-4}]
             set width_new [expr {$width_m-4}]
             set res [r geosearch mypoints fromlonlat $search_lon $search_lat bybox $width_new $height_new m]
