@@ -105,7 +105,7 @@ struct commandHelp {
     "1.0.0" },
     { "BGSAVE",
     "[SCHEDULE]",
-    "Asynchronously save the dataset to disk",
+    "Asynchronously save the dataset to the disk",
     9,
     "1.0.0" },
     { "BITCOUNT",
