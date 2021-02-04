@@ -177,6 +177,7 @@ start_server {tags {"hash"}} {
                 unset -nocomplain auxset
                 unset -nocomplain allkey
                 set iterations 1000
+                set all_ele_return false
                 while {$iterations != 0} {
                     incr iterations -1
                     if {[expr {$iterations % 2}] == 0} {
@@ -194,11 +195,11 @@ start_server {tags {"hash"}} {
                     }
                     if {[lsort [dict keys $mydict]] eq
                         [lsort [dict keys $auxset]]} {
-                        break;
+                        set all_ele_return true
                     }
                 }
-                assert {$iterations != 0}
-                test_histogram_distribution $allkey 0.005 0.4
+                assert {$all_ele_return == true}
+                test_histogram_distribution $allkey 0.05 0.15
             }
         }
         r config set hash-max-ziplist-value $original_max_value
