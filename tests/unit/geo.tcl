@@ -567,7 +567,7 @@ start_server {tags {"geo"}} {
                 set x [lindex $points($name) 0]
                 set y [lindex $points($name) 1]
                 # If longitude crosses -180° or 180°, we need to convert it.
-                # latitude has no this problem, because it's scope is -70~70, see geo_random_point
+                # latitude doesn't have this problem, because it's scope is -70~70, see geo_random_point
                 if {$x > 180} {
                     set x [expr {$x-360}]
                 } elseif {$x < -180} {
