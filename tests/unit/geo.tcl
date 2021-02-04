@@ -566,6 +566,13 @@ start_server {tags {"geo"}} {
             foreach name [array names points] {
                 set x [lindex $points($name) 0]
                 set y [lindex $points($name) 1]
+                # If longitude crosses -180° or 180°, we need to convert it.
+                # latitude doesn't have this problem, because it's scope is -70~70, see geo_random_point
+                if {$x > 180} {
+                    set x [expr {$x-360}]
+                } elseif {$x < -180} {
+                    set x [expr {$x+360}]
+                }
                 r geoadd mypoints $x $y place:$name
                 lappend tcl_result "place:$name"
                 lappend debuginfo "geoadd mypoints $x $y place:$name"
@@ -579,7 +586,7 @@ start_server {tags {"geo"}} {
             set res [lsort [r geosearch mypoints fromlonlat $search_lon $search_lat bybox $width_new $height_new m]]
             if {$res != $res2} {
                 set diff [compare_lists $res $res2]
-                lappend debuginfo "diff: $diff"
+                lappend debuginfo "res: $res, res2: $res2, diff: $diff"
                 fail "place should be found, debuginfo: $debuginfo, height_new: $height_new width_new: $width_new"
             }
 
@@ -588,8 +595,7 @@ start_server {tags {"geo"}} {
             set height_new [expr {$height_m+4}]
             set res [lsort [r geosearch mypoints fromlonlat $search_lon $search_lat bybox $width_new $height_new m]]
             if {$res != {place:north place:south}} {
-                set diff [compare_lists $res $res2]
-                lappend debuginfo "diff: $diff"
+                lappend debuginfo "res: $res"
                 fail "place should not be found, debuginfo: $debuginfo, height_new: $height_new width_new: $width_new"
             }
 
@@ -598,8 +604,7 @@ start_server {tags {"geo"}} {
             set height_new [expr {$height_m-4}]
             set res [lsort [r geosearch mypoints fromlonlat $search_lon $search_lat bybox $width_new $height_new m]]
             if {$res != {place:east place:west}} {
-                set diff [compare_lists $res $res2]
-                lappend debuginfo "diff: $diff"
+                lappend debuginfo "res: $res"
                 fail "place should not be found, debuginfo: $debuginfo, height_new: $height_new width_new: $width_new"
             }
 
