@@ -41,7 +41,7 @@
  * The functions are divided into sections. Each section is preceded by a
  * documentation block, which is comment block starting with a markdown level 2
  * heading, i.e. a line starting with ##, on the first line of the comment block
- * (with the exeption of a ----- line which can appear first). Other comment
+ * (with the exception of a ----- line which can appear first). Other comment
  * blocks, which are not intended for the modules API user, such as this comment
  * block, do NOT start with a markdown level 2 heading, so they are included in
  * the generated a API documentation.
@@ -1439,8 +1439,7 @@ int RM_StringAppendBuffer(RedisModuleCtx *ctx, RedisModuleString *str, const cha
 /* --------------------------------------------------------------------------
  * ## Reply APIs
  *
- * These functions are used for sending replies to commands created using
- * RM_CreateCommand().
+ * These functions are used for sending replies to the client.
  *
  * Most functions always return REDISMODULE_OK so you can use it with
  * 'return' in order to return from the command implementation with:
@@ -3746,7 +3745,7 @@ long long RM_StreamTrimByID(RedisModuleKey *key, int flags, RedisModuleStreamID 
 /* --------------------------------------------------------------------------
  * ## Calling Redis commands from modules
  *
- * RM_Call() sends a command to Redis. The remaing functions handle the reply.
+ * RM_Call() sends a command to Redis. The remaining functions handle the reply.
  * -------------------------------------------------------------------------- */
 
 /* Create a new RedisModuleCallReply object. The processing of the reply
@@ -8855,7 +8854,7 @@ int RM_GetLFU(RedisModuleKey *key, long long *lfu_freq) {
 }
 
 /* --------------------------------------------------------------------------
- * ## Misc
+ * ## Miscellaneous APIs
  * -------------------------------------------------------------------------- */
 
 /**
