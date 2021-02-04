@@ -1631,7 +1631,7 @@ start_server {tags {"zset"}} {
             create_zset myzset $contents
             assert_encoding $type myzset
 
-            # create a dict for easy lookup.
+            # create a dict for easy lookup
             unset -nocomplain mydict
             foreach {k v} [r zrange myzset 0 -1 withscores] {
                 dict append mydict $k $v

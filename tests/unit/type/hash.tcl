@@ -81,7 +81,7 @@ start_server {tags {"hash"}} {
             create_hash myhash $contents
             assert_encoding $type myhash
 
-            # create a dict for easy lookup.
+            # create a dict for easy lookup
             unset -nocomplain mydict
             foreach {k v} [r hgetall myhash] {
                 dict append mydict $k $v
