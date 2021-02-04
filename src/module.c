@@ -2998,16 +2998,16 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
  * returned number may be less than the number of fields specified because of
  * the XX or NX options.
  *
- * If the number returned is less than expected (such as zero), since Redis 6.2
- * `errno` is set as follows:
+ * If the return value is zero, `errno` is set (since Redis 6.2) as follows:
  *
  * - EINVAL if any unknown flags are set or if key is NULL.
  * - ENOTSUP if the key is associated with a non Hash value.
  * - EBADF if the key was not opened for writing.
- * - EEXIST if some fields were not inserted because a field with the same name
- *   already exists (only if the NX flag is set).
- * - ENOENT if some fields were not updated because they don't exist (only if
- *   the XX flag is set).
+ * - ENOENT if no fields were counted as updated, deleted or inserted, depending
+ *   on the COUNT_INSERTS flag as described under Return value above. This is
+ *   not actually an error. The return value can be zero if all fields were
+ *   inserted and the COUNT_INSERTS flag was unset, or if updates or inserts
+ *   were held back by the NX or the XX flag.
  */
 int RM_HashSet(RedisModuleKey *key, int flags, ...) {
     va_list ap;
@@ -3047,7 +3047,6 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
             if (((flags & REDISMODULE_HASH_XX) && !exists) ||
                 ((flags & REDISMODULE_HASH_NX) && exists))
             {
-                errno = exists ? EEXIST : ENOENT;
                 if (flags & REDISMODULE_HASH_CFIELDS) decrRefCount(field);
                 continue;
             }
@@ -3081,6 +3080,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
     }
     va_end(ap);
     moduleDelKeyIfEmpty(key);
+    if (count == 0) errno = ENOENT;
     return count;
 }
 

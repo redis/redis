@@ -66,16 +66,11 @@ int hash_set(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
 
     /* Check errno */
-    if (errno == ENOTSUP) {
-        RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
-    } else if (flags & REDISMODULE_HASH_COUNT_INSERTS) {
-        int numfields = (argc - 3) / 2;
-        if (result != numfields) {
-            if (flags & REDISMODULE_HASH_NX)
-                RedisModule_Assert(errno == EEXIST);
-            if (flags & REDISMODULE_HASH_XX)
-                RedisModule_Assert(errno == ENOENT);
-        }
+    if (result == 0) {
+        if (errno == ENOTSUP)
+            return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+        else
+            RedisModule_Assert(errno == ENOENT);
     }
 
     return RedisModule_ReplyWithLongLong(ctx, result);
