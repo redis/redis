@@ -3963,7 +3963,7 @@ void bzpopmaxCommand(client *c) {
 
 /* If client is trying to ask for a very large number of random elements,
  * queuing may consume an unlimited amount of memory, so we want to limit
- * number of randoms per time. */
+ * the number of randoms per time. */
 #define ZRANDMEMBER_RANDOM_SAMPLE_LIMIT 1000
 
 void zrandmemberWithCountCommand(client *c, long l, int withscores) {
