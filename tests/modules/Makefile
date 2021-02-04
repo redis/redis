@@ -10,6 +10,12 @@ else	# Linux, others
 	SHOBJ_LDFLAGS ?= -shared
 endif
 
+# Needed to satisfy __stack_chk_fail_local on Linux with -m32, due to gcc
+# -fstack-protector by default. Breaks on FreeBSD so we exclude it.
+ifneq ($(uname_S),FreeBSD)
+    LIBS = -lc
+endif
+
 TEST_MODULES = \
     commandfilter.so \
     testrdb.so \
