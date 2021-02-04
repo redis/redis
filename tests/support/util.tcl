@@ -695,7 +695,7 @@ proc test_histogram_distribution {res min_prop max_prop} {
         assert {$probability > $min_prop && $probability < $max_prop}
     }
 
-    # 2) Check order is not completely continuous.
+    # 2) Poor man's check for random order, check that the repetitions are not forming a chain of same item.
     set firstkey [lindex $res 0]
     set identical 1
     set check_count [expr {[llength $res] / 10}];
