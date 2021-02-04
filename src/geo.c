@@ -175,10 +175,10 @@ int extractDistanceOrReply(client *c, robj **argv,
  * that should be in the form: <number> <number> <unit>, and return C_OK or C_ERR means success or failure
  * *conversions is populated with the coefficient to use in order to convert meters to the unit.*/
 int extractBoxOrReply(client *c, robj **argv, double *conversion,
-                         double *height, double *width) {
+                         double *width, double *height) {
     double h, w;
-    if ((getDoubleFromObjectOrReply(c, argv[0], &h, "need numeric height") != C_OK) ||
-        (getDoubleFromObjectOrReply(c, argv[1], &w, "need numeric width") != C_OK)) {
+    if ((getDoubleFromObjectOrReply(c, argv[0], &w, "need numeric width") != C_OK) ||
+        (getDoubleFromObjectOrReply(c, argv[1], &h, "need numeric height") != C_OK)) {
         return C_ERR;
     }
 
@@ -224,8 +224,10 @@ int geoAppendIfWithinShape(geoArray *ga, GeoShape *shape, double score, sds memb
         if (!geohashGetDistanceIfInRadiusWGS84(shape->xy[0], shape->xy[1], xy[0], xy[1],
                                                shape->t.radius*shape->conversion, &distance)) return C_ERR;
     } else if (shape->type == RECTANGLE_TYPE) {
-        if (!geohashGetDistanceIfInRectangle(shape->bounds, shape->xy[0], shape->xy[1],
-                                             xy[0], xy[1], &distance)) return C_ERR;
+        if (!geohashGetDistanceIfInRectangle(shape->t.r.width * shape->conversion,
+                                             shape->t.r.height * shape->conversion,
+                                             shape->xy[0], shape->xy[1], xy[0], xy[1], &distance))
+            return C_ERR;
     }
 
     /* Append the new element. */
@@ -635,8 +637,8 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
                        flags & GEOSEARCH &&
                        !byradius)
             {
-                if (extractBoxOrReply(c, c->argv+base_args+i+1, &shape.conversion, &shape.t.r.height,
-                        &shape.t.r.width) != C_OK) return;
+                if (extractBoxOrReply(c, c->argv+base_args+i+1, &shape.conversion, &shape.t.r.width,
+                        &shape.t.r.height) != C_OK) return;
                 shape.type = RECTANGLE_TYPE;
                 bybox = 1;
                 i += 3;
