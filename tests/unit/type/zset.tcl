@@ -1654,6 +1654,10 @@ start_server {tags {"zset"}} {
             set res [r zrandmember myzset -1001 withscores]
             assert_equal [llength $res] 2002
 
+            # Test random uniform distribution
+            set res [r zrandmember myzset -1000]
+            test_histogram_distribution $res 0.05 0.15
+
             # 2) Check that all the elements actually belong to the original zset.
             foreach {key val} $res {
                 assert {[dict exists $mydict $key]}
@@ -1721,6 +1725,7 @@ start_server {tags {"zset"}} {
                 # 2) Check that eventually all the elements are returned.
                 #    Use both WITHSCORES and without
                 unset -nocomplain auxset
+                unset -nocomplain allkey
                 set iterations 1000
                 while {$iterations != 0} {
                     incr iterations -1
@@ -1728,11 +1733,13 @@ start_server {tags {"zset"}} {
                         set res [r zrandmember myzset $size withscores]
                         foreach {key value} $res {
                             dict append auxset $key $value
+                            lappend allkey $key
                         }
                     } else {
                         set res [r zrandmember myzset $size]
                         foreach key $res {
                             dict append auxset $key
+                            lappend allkey $key
                         }
                     }
                     if {[lsort [dict keys $mydict]] eq
@@ -1741,11 +1748,8 @@ start_server {tags {"zset"}} {
                     }
                 }
                 assert {$iterations != 0}
+                test_histogram_distribution $allkey 0.005 0.25
             }
-
-            # 4) Test random uniform distribution
-            set res [r zrandmember myzset -1000]
-            test_histogram_distribution $res 0.05 0.15
         }
         r config set zset-max-ziplist-value $original_max_value
     }
