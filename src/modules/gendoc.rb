@@ -150,7 +150,7 @@ end
 
 # Print TOC
 puts "## Sections\n\n"
-src.each_with_index do |line,i|
+src.each_with_index do |_line,i|
     if is_section_doc(src, i)
         name = get_section_heading(src, i)
         puts "* [#{name}](\##{section_name_to_id(name)})\n"
@@ -159,7 +159,7 @@ end
 puts "* [Function index](#section-function-index)\n\n"
 
 # Docufy: Print function prototype and markdown docs
-src.each_with_index do |line,i|
+src.each_with_index do |_line,i|
     if is_func_line(src, i)
         docufy(src, i)
     elsif is_section_doc(src, i)
