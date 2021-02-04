@@ -85,20 +85,16 @@ uint8_t geohashEstimateStepsByRadius(double range_meters, double lat) {
 /* Return the bounding box of the search area by shape (see geohash.h GeoShape)
  * bounds[0] - bounds[2] is the minimum and maximum longitude
  * while bounds[1] - bounds[3] is the minimum and maximum latitude.
+ * since the higher the latitude, the shorter the arc length, the box shape is as follows
+ * (left and right edges are actually bent), as shown in the following diagram:
  *
- * This function does not behave correctly with very large radius values, for
- * instance for the coordinates 81.634948934258375 30.561509253718668 and a
- * radius of 7083 kilometers, it reports as bounding boxes:
- *
- * min_lon 7.680495, min_lat -33.119473, max_lon 155.589402, max_lat 94.242491
- *
- * However, for instance, a min_lon of 7.680495 is not correct, because the
- * point -1.27579540014266968 61.33421815228281559 is at less than 7000
- * kilometers away.
- *
- * Since this function is currently only used as an optimization, the
- * optimization is not used for very big radiuses, however the function
- * should be fixed. */
+ *    \-----------------/          --------               \-----------------/
+ *     \               /         /          \              \               /
+ *      \  (long,lat) /         / (long,lat) \              \  (long,lat) /
+ *       \           /         /              \              /            \
+ *         ---------          /----------------\            /--------------\
+ *  Northern Hemisphere       Southern Hemisphere         Around the equator
+ */
 int geohashBoundingBox(GeoShape *shape, double *bounds) {
     if (!bounds) return 0;
     double longitude = shape->xy[0];
@@ -106,10 +102,14 @@ int geohashBoundingBox(GeoShape *shape, double *bounds) {
     double height = shape->conversion * (shape->type == CIRCULAR_TYPE ? shape->t.radius : shape->t.r.height/2);
     double width = shape->conversion * (shape->type == CIRCULAR_TYPE ? shape->t.radius : shape->t.r.width/2);
 
-    const double long_delta = rad_deg(width/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude)));
     const double lat_delta = rad_deg(height/EARTH_RADIUS_IN_METERS);
-    bounds[0] = longitude - long_delta;
-    bounds[2] = longitude + long_delta;
+    const double long_delta_top = rad_deg(width/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude+lat_delta)));
+    const double long_delta_bottom = rad_deg(width/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude-lat_delta)));
+    /* The directions of the northern and southern hemispheres
+     * are opposite, so we choice different points as min/max long/lat */
+    int southern_hemisphere = latitude < 0 ? 1 : 0;
+    bounds[0] = southern_hemisphere ? longitude-long_delta_bottom : longitude-long_delta_top;
+    bounds[2] = southern_hemisphere ? longitude+long_delta_bottom : longitude+long_delta_top;
     bounds[1] = latitude - lat_delta;
     bounds[3] = latitude + lat_delta;
     return 1;
@@ -137,12 +137,10 @@ GeoHashRadius geohashCalculateAreasByShapeWGS84(GeoShape *shape) {
     double latitude = shape->xy[1];
     /* radius_meters is calculated differently in different search types:
      * 1) CIRCULAR_TYPE, just use radius.
-     * 2) RECTANGLE_TYPE, in order to calculate accurately, we should use
-     * sqrt((width/2)^2 + (height/2)^2), so that the box is bound by a circle,
-     * But the current code a simpler approach resulting in a smaller circle,
-     * which is safe because we search the 8 nearby boxes anyway. */
+     * 2) RECTANGLE_TYPE, we use sqrt((width/2)^2 + (height/2)^2) to
+     * calculate the distance from the center point to the corner */
     double radius_meters = shape->type == CIRCULAR_TYPE ? shape->t.radius :
-                            shape->t.r.width > shape->t.r.height ? shape->t.r.width/2 : shape->t.r.height/2;
+            sqrt((shape->t.r.width/2)*(shape->t.r.width/2) + (shape->t.r.height/2)*(shape->t.r.height/2));
     radius_meters *= shape->conversion;
 
     steps = geohashEstimateStepsByRadius(radius_meters,latitude);
@@ -245,14 +243,21 @@ int geohashGetDistanceIfInRadiusWGS84(double x1, double y1, double x2,
     return geohashGetDistanceIfInRadius(x1, y1, x2, y2, radius, distance);
 }
 
-/* Judge whether a point is in the axis-aligned rectangle.
- * bounds : see geohash.h GeoShape::bounds
+/* Judge whether a point is in the axis-aligned rectangle, when the distance
+ * between a searched point and the center point is less than or equal to
+ * height/2 or width/2 in height and width, the point is in the rectangle.
+ *
+ * width_m, height_m: the rectangle
  * x1, y1 : the center of the box
  * x2, y2 : the point to be searched
  */
-int geohashGetDistanceIfInRectangle(double *bounds, double x1, double y1,
+int geohashGetDistanceIfInRectangle(double width_m, double height_m, double x1, double y1,
                                     double x2, double y2, double *distance) {
-    if (x2 < bounds[0] || x2 > bounds[2] || y2 < bounds[1] || y2 > bounds[3]) return 0;
+    double lon_distance = geohashGetDistance(x2, y2, x1, y2);
+    double lat_distance = geohashGetDistance(x2, y2, x2, y1);
+    if (lon_distance > width_m/2 || lat_distance > height_m/2) {
+        return 0;
+    }
     *distance = geohashGetDistance(x1, y1, x2, y2);
     return 1;
 }
