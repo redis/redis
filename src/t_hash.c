@@ -1004,7 +1004,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
         if (hash->encoding == OBJ_ENCODING_HT) {
             sds key, value;
             while (count--) {
-                dictEntry *de = dictGetRandomKey(hash->ptr);
+                dictEntry *de = dictGetFairRandomKey(hash->ptr);
                 key = dictGetKey(de);
                 value = dictGetVal(de);
                 if (withvalues && c->resp > 2)
