@@ -81,12 +81,10 @@ start_server {tags {"hash"}} {
             create_hash myhash $contents
             assert_encoding $type myhash
 
-            # create a dict for easy lookup and random count.
+            # create a dict for easy lookup.
             unset -nocomplain mydict
-            unset -nocomplain randomdict
             foreach {k v} [r hgetall myhash] {
                 dict append mydict $k $v
-                dict append randomdict $k 0
             }
 
             # We'll stress different parts of the code, see the implementation
@@ -195,30 +193,9 @@ start_server {tags {"hash"}} {
                 assert {$iterations != 0}
             }
 
-            # 4) Check that probability of each element are between 5% to 15%.
-            set count 1000
-            set res [r hrandfield myhash -$count]
-            foreach key $res {
-                dict set randomdict $key [expr [dict get $randomdict $key] + 1]
-            }
-
-            foreach key [dict keys $randomdict] {
-                set value [dict get $randomdict $key]
-                set probability [expr {double($value) / $count}]
-                assert {$probability > 0.05 && $probability < 0.15}
-            }
-
-            # 5) Check order is kinda random.
-            # We only check that the first 100 entries are not identical.
-            set firstkey [lindex $res 0]
-            set identical 1
-            foreach key [lrange $res 1 100] {
-                if {$key != $firstkey} {
-                    set identical 0
-                    break
-                }
-            }
-            assert {$identical == 0}
+            # 4) Test random uniform distribution
+            set res [r hrandfield myhash -1000]
+            test_histogram_distribution $res 0.05 0.15
         }
         r config set hash-max-ziplist-value $original_max_value
     }

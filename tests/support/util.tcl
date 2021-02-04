@@ -681,3 +681,29 @@ proc string2printable s {
     set res "\"$res\""
     return $res
 }
+
+proc test_histogram_distribution {res min_prop max_prop} {
+    # 1) Check that probability of each element are between {min_prop} and {max_prop}.
+    unset -nocomplain mydict
+    foreach key $res {
+        dict incr mydict $key 1
+    }
+
+    foreach key [dict keys $mydict] {
+        set value [dict get $mydict $key]
+        set probability [expr {double($value) / [llength $res]}]
+        assert {$probability > $min_prop && $probability < $max_prop}
+    }
+
+    # 2) Check order is not completely continuous.
+    set firstkey [lindex $res 0]
+    set identical 1
+    set check_count [expr {[llength $res] / 10}];
+    foreach key [lrange $res 1 $check_count] {
+        if {$key != $firstkey} {
+            set identical 0
+            break
+        }
+    }
+    assert {$identical == 0}
+}
