@@ -1748,7 +1748,7 @@ start_server {tags {"zset"}} {
                         [lsort [dict keys $auxset]]} {
                         set all_ele_return true
                     }
-                    if {[check_histogram_distribution $allkey 0.05 0.15] == true} {
+                    if {[check_histogram_distribution $allkey 0.05 0.15]} {
                         set random_uniformity true
                     }
                     if {$all_ele_return && $random_uniformity} {
