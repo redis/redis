@@ -35,6 +35,7 @@ TEST_MODULES = \
     test_lazyfree.so \
     timer.so \
     defragtest.so \
+    zset.so \
     stream.so
 
 
