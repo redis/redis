@@ -532,11 +532,11 @@ start_server {
                 set myset($ele) 1
             }
 
-            # Use negative count.
+            # Use negative count (PATH 1).
             set res [r srandmember myset -1000]
             assert_equal [check_histogram_distribution $res 0.05 0.15] true
 
-            # Use positive count.
+            # Use positive count (both PATH 3 and PATH 4).
             foreach size {8 2} {
                 unset -nocomplain allkey
                 set iterations [expr {1000 / $size}]
