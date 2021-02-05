@@ -515,6 +515,43 @@ start_server {
         }
     }
 
+    foreach {type contents} {
+        hashtable {
+            1 5 10 50 125
+            MARY PATRICIA LINDA BARBARA ELIZABETH
+        }
+        intset {
+            0 1 2 3 4 5 6 7 8 9
+        }
+    } {
+        test "SRANDMEMBER histogram distribution - $type" {
+            create_set myset $contents
+            unset -nocomplain myset
+            array set myset {}
+            foreach ele [r smembers myset] {
+                set myset($ele) 1
+            }
+
+            # Use negative count.
+            set res [r srandmember myset -1000]
+            test_histogram_distribution $res 0.05 0.15
+
+            # Use positive count.
+            foreach size {8 2} {
+                unset -nocomplain allkey
+                set iterations 1000
+                while {$iterations != 0} {
+                    incr iterations -1
+                    set res [r srandmember myset $size]
+                    foreach ele $res {
+                        lappend allkey $ele
+                    }
+                }
+                test_histogram_distribution $allkey 0.05 0.15
+            }
+        }
+    }
+
     proc setup_move {} {
         r del myset3 myset4
         create_set myset1 {1 a b}
