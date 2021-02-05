@@ -964,6 +964,11 @@ void hscanCommand(client *c) {
  * implementation for more info. */
 #define HRANDFIELD_SUB_STRATEGY_MUL 3
 
+/* If client is trying to ask for a very large number of random elements,
+ * queuing may consume an unlimited amount of memory, so we want to limit
+ * the number of randoms per time. */
+#define HRANDFIELD_RANDOM_SAMPLE_LIMIT 1000
+
 void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
     unsigned long count, size;
     int uniq = 1;
@@ -999,7 +1004,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
         if (hash->encoding == OBJ_ENCODING_HT) {
             sds key, value;
             while (count--) {
-                dictEntry *de = dictGetRandomKey(hash->ptr);
+                dictEntry *de = dictGetFairRandomKey(hash->ptr);
                 key = dictGetKey(de);
                 value = dictGetVal(de);
                 if (withvalues && c->resp > 2)
@@ -1010,22 +1015,28 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
             }
         } else if (hash->encoding == OBJ_ENCODING_ZIPLIST) {
             ziplistEntry *keys, *vals = NULL;
-            keys = zmalloc(sizeof(ziplistEntry)*count);
+            unsigned long limit, sample_count;
+            limit = count > HRANDFIELD_RANDOM_SAMPLE_LIMIT ? HRANDFIELD_RANDOM_SAMPLE_LIMIT : count;
+            keys = zmalloc(sizeof(ziplistEntry)*limit);
             if (withvalues)
-                vals = zmalloc(sizeof(ziplistEntry)*count);
-            ziplistRandomPairs(hash->ptr, count, keys, vals);
-            for (unsigned long i = 0; i < count; i++) {
-                if (withvalues && c->resp > 2)
-                    addReplyArrayLen(c,2);
-                if (keys[i].sval)
-                    addReplyBulkCBuffer(c, keys[i].sval, keys[i].slen);
-                else
-                    addReplyBulkLongLong(c, keys[i].lval);
-                if (withvalues) {
-                    if (vals[i].sval)
-                        addReplyBulkCBuffer(c, vals[i].sval, vals[i].slen);
+                vals = zmalloc(sizeof(ziplistEntry)*limit);
+            while (count) {
+                sample_count = count > limit ? limit : count;
+                count -= sample_count;
+                ziplistRandomPairs(hash->ptr, sample_count, keys, vals);
+                for (unsigned long i = 0; i < sample_count; i++) {
+                    if (withvalues && c->resp > 2)
+                        addReplyArrayLen(c,2);
+                    if (keys[i].sval)
+                        addReplyBulkCBuffer(c, keys[i].sval, keys[i].slen);
                     else
-                        addReplyBulkLongLong(c, vals[i].lval);
+                        addReplyBulkLongLong(c, keys[i].lval);
+                    if (withvalues) {
+                        if (vals[i].sval)
+                            addReplyBulkCBuffer(c, vals[i].sval, vals[i].slen);
+                        else
+                            addReplyBulkLongLong(c, vals[i].lval);
+                    }
                 }
             }
             zfree(keys);

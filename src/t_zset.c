@@ -3961,6 +3961,11 @@ void bzpopmaxCommand(client *c) {
  * implementation for more info. */
 #define ZRANDMEMBER_SUB_STRATEGY_MUL 3
 
+/* If client is trying to ask for a very large number of random elements,
+ * queuing may consume an unlimited amount of memory, so we want to limit
+ * the number of randoms per time. */
+#define ZRANDMEMBER_RANDOM_SAMPLE_LIMIT 1000
+
 void zrandmemberWithCountCommand(client *c, long l, int withscores) {
     unsigned long count, size;
     int uniq = 1;
@@ -4006,22 +4011,28 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
             }
         } else if (zsetobj->encoding == OBJ_ENCODING_ZIPLIST) {
             ziplistEntry *keys, *vals = NULL;
-            keys = zmalloc(sizeof(ziplistEntry)*count);
+            unsigned long limit, sample_count;
+            limit = count > ZRANDMEMBER_RANDOM_SAMPLE_LIMIT ? ZRANDMEMBER_RANDOM_SAMPLE_LIMIT : count;
+            keys = zmalloc(sizeof(ziplistEntry)*limit);
             if (withscores)
-                vals = zmalloc(sizeof(ziplistEntry)*count);
-            ziplistRandomPairs(zsetobj->ptr, count, keys, vals);
-            for (unsigned long i = 0; i < count; i++) {
-                if (withscores && c->resp > 2)
-                    addReplyArrayLen(c,2);
-                if (keys[i].sval)
-                    addReplyBulkCBuffer(c, keys[i].sval, keys[i].slen);
-                else
-                    addReplyBulkLongLong(c, keys[i].lval);
-                if (withscores) {
-                    if (vals[i].sval) {
-                        addReplyDouble(c, zzlStrtod(vals[i].sval,vals[i].slen));
-                    } else
-                        addReplyDouble(c, vals[i].lval);
+                vals = zmalloc(sizeof(ziplistEntry)*limit);
+            while (count) {
+                sample_count = count > limit ? limit : count;
+                count -= sample_count;
+                ziplistRandomPairs(zsetobj->ptr, sample_count, keys, vals);
+                for (unsigned long i = 0; i < sample_count; i++) {
+                    if (withscores && c->resp > 2)
+                        addReplyArrayLen(c,2);
+                    if (keys[i].sval)
+                        addReplyBulkCBuffer(c, keys[i].sval, keys[i].slen);
+                    else
+                        addReplyBulkLongLong(c, keys[i].lval);
+                    if (withscores) {
+                        if (vals[i].sval) {
+                            addReplyDouble(c, zzlStrtod(vals[i].sval,vals[i].slen));
+                        } else
+                            addReplyDouble(c, vals[i].lval);
+                    }
                 }
             }
             zfree(keys);

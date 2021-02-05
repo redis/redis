@@ -1541,6 +1541,8 @@ void ziplistRandomPairs(unsigned char *zl, int count, ziplistEntry *keys, ziplis
     unsigned char *p, *key, *value;
     unsigned int klen, vlen;
     long long klval, vlval;
+
+    /* Notice: the index member must be first due to the use in intCompare */
     typedef struct {
         int index;
         int order;
