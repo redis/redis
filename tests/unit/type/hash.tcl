@@ -176,9 +176,8 @@ start_server {tags {"hash"}} {
                 #    Use both WITHVALUES and without
                 unset -nocomplain auxset
                 unset -nocomplain allkey
-                set iterations 1000
+                set iterations [expr {1000 / $size}]
                 set all_ele_return false
-                set random_uniformity false
                 while {$iterations != 0} {
                     incr iterations -1
                     if {[expr {$iterations % 2}] == 0} {
@@ -198,15 +197,9 @@ start_server {tags {"hash"}} {
                         [lsort [dict keys $auxset]]} {
                         set all_ele_return true
                     }
-                    if {[check_histogram_distribution $allkey 0.05 0.15]} {
-                        set random_uniformity true
-                    }
-                    if {$all_ele_return && $random_uniformity} {
-                        break
-                    }
                 }
                 assert_equal $all_ele_return true
-                assert_equal $random_uniformity true
+                assert_equal [check_histogram_distribution $allkey 0.05 0.15] true
             }
         }
         r config set hash-max-ziplist-value $original_max_value

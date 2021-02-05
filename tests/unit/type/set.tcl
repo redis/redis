@@ -539,20 +539,15 @@ start_server {
             # Use positive count.
             foreach size {8 2} {
                 unset -nocomplain allkey
-                set iterations 1000
-                set random_uniformity false
+                set iterations [expr {1000 / $size}]
                 while {$iterations != 0} {
                     incr iterations -1
                     set res [r srandmember myset $size]
                     foreach ele $res {
                         lappend allkey $ele
                     }
-                    if {[check_histogram_distribution $allkey 0.05 0.15]} {
-                        set random_uniformity true
-                        break
-                    }
                 }
-                assert_equal $random_uniformity true
+                assert_equal [check_histogram_distribution $allkey 0.05 0.15] true
             }
         }
     }
