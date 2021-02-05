@@ -2035,6 +2035,7 @@ int RM_ZsetRem(RedisModuleKey *key, RedisModuleString *ele, int *deleted) {
     if (key->value && key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
     if (key->value != NULL && zsetDel(key->value,ele->ptr)) {
         if (deleted) *deleted = 1;
+        moduleDelKeyIfEmpty(key);
     } else {
         if (deleted) *deleted = 0;
     }
@@ -2079,6 +2080,7 @@ void RM_ZsetRangeStop(RedisModuleKey *key) {
 
 /* Return the "End of range" flag value to signal the end of the iteration. */
 int RM_ZsetRangeEndReached(RedisModuleKey *key) {
+    if (!key->value || key->value->type != OBJ_ZSET) return 1;
     return key->zer;
 }
 
