@@ -25,6 +25,7 @@ TEST_MODULES = \
     auth.so \
     keyspace_events.so \
     blockedclient.so \
+    zset.so \
     getkeys.so
 
 
