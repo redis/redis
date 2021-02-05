@@ -683,7 +683,7 @@ proc string2printable s {
 }
 
 # Check that probability of each element are between {min_prop} and {max_prop}.
-proc test_histogram_distribution {res min_prop max_prop} {
+proc check_histogram_distribution {res min_prop max_prop} {
     unset -nocomplain mydict
     foreach key $res {
         dict incr mydict $key 1
@@ -692,6 +692,10 @@ proc test_histogram_distribution {res min_prop max_prop} {
     foreach key [dict keys $mydict] {
         set value [dict get $mydict $key]
         set probability [expr {double($value) / [llength $res]}]
-        assert {$probability > $min_prop && $probability < $max_prop}
+        if {$probability < $min_prop || $probability > $max_prop} {
+            return false
+        }
     }
+
+    return true
 }

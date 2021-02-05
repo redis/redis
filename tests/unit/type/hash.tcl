@@ -106,7 +106,7 @@ start_server {tags {"hash"}} {
 
             # Test random uniform distribution
             set res [r hrandfield myhash -1000]
-            test_histogram_distribution $res 0.05 0.15
+            assert_equal [check_histogram_distribution $res 0.05 0.15] true
 
             # 2) Check that all the elements actually belong to the original hash.
             foreach {key val} $res {
@@ -178,6 +178,7 @@ start_server {tags {"hash"}} {
                 unset -nocomplain allkey
                 set iterations 1000
                 set all_ele_return false
+                set random_uniformity false
                 while {$iterations != 0} {
                     incr iterations -1
                     if {[expr {$iterations % 2}] == 0} {
@@ -197,9 +198,15 @@ start_server {tags {"hash"}} {
                         [lsort [dict keys $auxset]]} {
                         set all_ele_return true
                     }
+                    if {[check_histogram_distribution $allkey 0.05 0.15] == true} {
+                        set random_uniformity true
+                    }
+                    if {$all_ele_return && $random_uniformity} {
+                        break
+                    }
                 }
-                assert {$all_ele_return == true}
-                test_histogram_distribution $allkey 0.05 0.15
+                assert_equal $all_ele_return true
+                assert_equal $random_uniformity true
             }
         }
         r config set hash-max-ziplist-value $original_max_value
