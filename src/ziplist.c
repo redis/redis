@@ -1540,8 +1540,8 @@ static inline void ziplistSaveValue(unsigned char *val, unsigned int len, long l
  * The 'vals' arg can be NULL in which case we skip these. */
 void ziplistRandomPairs(unsigned char *zl, unsigned int count, ziplistEntry *keys, ziplistEntry *vals) {
     unsigned char *p, *key, *value;
-    unsigned int klen, vlen;
-    long long klval, vlval;
+    unsigned int klen = 0, vlen = 0;
+    long long klval = 0, vlval = 0;
 
     /* Notice: the index member must be first due to the use in uintCompare */
     typedef struct {
@@ -1569,7 +1569,7 @@ void ziplistRandomPairs(unsigned char *zl, unsigned int count, ziplistEntry *key
     p = ziplistIndex(zl, 0);
     while (ziplistGet(p, &key, &klen, &klval) && pickindex < count) {
         p = ziplistNext(zl, p);
-        ziplistGet(p, &value, &vlen, &vlval);
+        assert(ziplistGet(p, &value, &vlen, &vlval));
         while (pickindex < count && zipindex == picks[pickindex].index) {
             int storeorder = picks[pickindex].order;
             ziplistSaveValue(key, klen, klval, &keys[storeorder]);
@@ -1592,8 +1592,8 @@ void ziplistRandomPairs(unsigned char *zl, unsigned int count, ziplistEntry *key
  * requested count if the ziplist doesn't hold enough pairs. */
 unsigned int ziplistRandomPairsUnique(unsigned char *zl, unsigned int count, ziplistEntry *keys, ziplistEntry *vals) {
     unsigned char *p, *key;
-    unsigned int klen;
-    long long klval;
+    unsigned int klen = 0;
+    long long klval = 0;
     unsigned int total_size = ziplistLen(zl)/2;
     unsigned int index = 0;
     if (count > total_size)
