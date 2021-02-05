@@ -1,4 +1,5 @@
 #define REDISMODULE_EXPERIMENTAL_API
+#define _XOPEN_SOURCE 700
 #include "redismodule.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -55,7 +56,7 @@ void *BlockDebug_ThreadMain(void *arg) {
 }
 
 /* The thread entry point that actually executes the blocking part
- * of the command BLOCK.DEBUG. */
+ * of the command BLOCK.DOUBLE_DEBUG. */
 void *DoubleBlock_ThreadMain(void *arg) {
     void **targ = arg;
     RedisModuleBlockedClient *bc = targ[0];
@@ -173,14 +174,13 @@ int HelloBlockNoTracking_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **a
 int HelloDoubleBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 2) return RedisModule_WrongArity(ctx);
     long long delay;
-    long long timeout;
 
     if (RedisModule_StringToLongLong(argv[1],&delay) != REDISMODULE_OK) {
         return RedisModule_ReplyWithError(ctx,"ERR invalid count");
     }
 
     pthread_t tid;
-    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,HelloBlock_Reply,HelloBlock_Timeout,HelloBlock_FreeData,timeout);
+    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,HelloBlock_Reply,HelloBlock_Timeout,HelloBlock_FreeData,0);
 
     /* Now that we setup a blocking client, we need to pass the control
      * to the thread. However we need to pass arguments to the thread:
