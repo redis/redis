@@ -209,6 +209,28 @@ start_server {tags {"expire"}} {
         set e
     } {*not an integer*}
 
+    test {SET with EX with big integer should report an error} {
+        catch {r set foo bar EX 10000000000000000} e
+        set e
+    } {ERR invalid expire time in set}
+
+    test {SET with EX with smallest unsigned integer should report an error} {
+        catch {r SET foo bar EX -9999999999999999} e
+        set e
+    } {ERR invalid expire time in set}
+
+    test {EXPIRE with big integer should report an error} {
+        r set foo bar
+        catch {r EXPIRE foo 10000000000000000} e
+        set e
+    } {ERR invalid expire time in expire}
+
+    test {EXPIRE with smallest unsigned integer should report an error} {
+        r set foo bar
+        catch {r EXPIRE foo -9999999999999999} e
+        set e
+    } {ERR invalid expire time in expire}
+
     test {EXPIRE and SET/GETEX EX/PX/EXAT/PXAT option, TTL should not be reset after loadaof} {
         # This test makes sure that expire times are propagated as absolute
         # times to the AOF file and not as relative time, so that when the AOF
