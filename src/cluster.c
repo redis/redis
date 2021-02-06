@@ -47,7 +47,7 @@
 clusterNode *myself = NULL;
 
 clusterNode *createClusterNode(char *nodename, int flags);
-int clusterAddNode(clusterNode *node);
+void clusterAddNode(clusterNode *node);
 void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void clusterReadHandler(connection *conn);
 void clusterSendPing(clusterLink *link, int type);
@@ -398,7 +398,7 @@ int clusterLockConfig(char *filename) {
     /* To lock it, we need to open the file in a way it is created if
      * it does not exist, otherwise there is a race condition with other
      * processes. */
-    int fd = open(filename,O_WRONLY|O_CREAT,0644);
+    int fd = open(filename,O_WRONLY|O_CREAT|O_CLOEXEC,0644);
     if (fd == -1) {
         serverLog(LL_WARNING,
             "Can't open %s in order to acquire a lock: %s",
@@ -509,8 +509,7 @@ void clusterInit(void) {
         serverLog(LL_WARNING, "Redis port number too high. "
                    "Cluster communication port is 10,000 port "
                    "numbers higher than your Redis port. "
-                   "Your Redis port number must be "
-                   "lower than 55535.");
+                   "Your Redis port number must be 55535 or less.");
         exit(1);
     }
     if (listenToPort(port+CLUSTER_PORT_INCR,
@@ -779,6 +778,7 @@ clusterNode *createClusterNode(char *nodename, int flags) {
     node->configEpoch = 0;
     node->flags = flags;
     memset(node->slots,0,sizeof(node->slots));
+    node->slots_info = NULL;
     node->numslots = 0;
     node->numslaves = 0;
     node->slaves = NULL;
@@ -961,12 +961,12 @@ void freeClusterNode(clusterNode *n) {
 }
 
 /* Add a node to the nodes hash table */
-int clusterAddNode(clusterNode *node) {
+void clusterAddNode(clusterNode *node) {
     int retval;
 
     retval = dictAdd(server.cluster->nodes,
             sdsnewlen(node->name,CLUSTER_NAMELEN), node);
-    return (retval == DICT_OK) ? C_OK : C_ERR;
+    serverAssert(retval == DICT_OK);
 }
 
 /* Remove a node from the cluster. The function performs the high level
@@ -2164,7 +2164,7 @@ int clusterProcessPacket(clusterLink *link) {
         resetManualFailover();
         server.cluster->mf_end = now + CLUSTER_MF_TIMEOUT;
         server.cluster->mf_slave = sender;
-        pauseClients(now+(CLUSTER_MF_TIMEOUT*CLUSTER_MF_PAUSE_MULT));
+        pauseClients(now+(CLUSTER_MF_TIMEOUT*CLUSTER_MF_PAUSE_MULT),CLIENT_PAUSE_WRITE);
         serverLog(LL_WARNING,"Manual failover requested by replica %.40s.",
             sender->name);
         /* We need to send a ping message to the replica, as it would carry
@@ -3421,9 +3421,8 @@ void clusterHandleSlaveMigration(int max_slaves) {
  * The function can be used both to initialize the manual failover state at
  * startup or to abort a manual failover in progress. */
 void resetManualFailover(void) {
-    if (server.cluster->mf_end && clientsArePaused()) {
-        server.clients_pause_end_time = 0;
-        clientsArePaused(); /* Just use the side effect of the function. */
+    if (server.cluster->mf_end) {
+        checkClientPauseTimeoutAndReturnIfPaused();
     }
     server.cluster->mf_end = 0; /* No manual failover in progress. */
     server.cluster->mf_can_start = 0;
@@ -4145,8 +4144,8 @@ sds clusterGenNodeDescription(clusterNode *node) {
     sds ci;
 
     /* Node coordinates */
-    ci = sdscatprintf(sdsempty(),"%.40s %s:%d@%d ",
-        node->name,
+    ci = sdscatlen(sdsempty(),node->name,CLUSTER_NAMELEN);
+    ci = sdscatfmt(ci," %s:%i@%i ",
         node->ip,
         node->port,
         node->cport);
@@ -4155,40 +4154,46 @@ sds clusterGenNodeDescription(clusterNode *node) {
     ci = representClusterNodeFlags(ci, node->flags);
 
     /* Slave of... or just "-" */
+    ci = sdscatlen(ci," ",1);
     if (node->slaveof)
-        ci = sdscatprintf(ci," %.40s ",node->slaveof->name);
+        ci = sdscatlen(ci,node->slaveof->name,CLUSTER_NAMELEN);
     else
-        ci = sdscatlen(ci," - ",3);
+        ci = sdscatlen(ci,"-",1);
 
     unsigned long long nodeEpoch = node->configEpoch;
     if (nodeIsSlave(node) && node->slaveof) {
         nodeEpoch = node->slaveof->configEpoch;
     }
     /* Latency from the POV of this node, config epoch, link status */
-    ci = sdscatprintf(ci,"%lld %lld %llu %s",
+    ci = sdscatfmt(ci," %I %I %U %s",
         (long long) node->ping_sent,
         (long long) node->pong_received,
         nodeEpoch,
         (node->link || node->flags & CLUSTER_NODE_MYSELF) ?
                     "connected" : "disconnected");
 
-    /* Slots served by this instance */
-    start = -1;
-    for (j = 0; j < CLUSTER_SLOTS; j++) {
-        int bit;
+    /* Slots served by this instance. If we already have slots info,
+     * append it diretly, otherwise, generate slots only if it has. */
+    if (node->slots_info) {
+        ci = sdscatsds(ci, node->slots_info);
+    } else if (node->numslots > 0) {
+        start = -1;
+        for (j = 0; j < CLUSTER_SLOTS; j++) {
+            int bit;
 
-        if ((bit = clusterNodeGetSlotBit(node,j)) != 0) {
-            if (start == -1) start = j;
-        }
-        if (start != -1 && (!bit || j == CLUSTER_SLOTS-1)) {
-            if (bit && j == CLUSTER_SLOTS-1) j++;
-
-            if (start == j-1) {
-                ci = sdscatprintf(ci," %d",start);
-            } else {
-                ci = sdscatprintf(ci," %d-%d",start,j-1);
+            if ((bit = clusterNodeGetSlotBit(node,j)) != 0) {
+                if (start == -1) start = j;
             }
-            start = -1;
+            if (start != -1 && (!bit || j == CLUSTER_SLOTS-1)) {
+                if (bit && j == CLUSTER_SLOTS-1) j++;
+
+                if (start == j-1) {
+                    ci = sdscatfmt(ci," %i",start);
+                } else {
+                    ci = sdscatfmt(ci," %i-%i",start,j-1);
+                }
+                start = -1;
+            }
         }
     }
 
@@ -4209,6 +4214,41 @@ sds clusterGenNodeDescription(clusterNode *node) {
     return ci;
 }
 
+/* Generate the slot topology for all nodes and store the string representation
+ * in the slots_info struct on the node. This is used to improve the efficiency
+ * of clusterGenNodesDescription() because it removes looping of the slot space
+ * for generating the slot info for each node individually. */
+void clusterGenNodesSlotsInfo(int filter) {
+    clusterNode *n = NULL;
+    int start = -1;
+
+    for (int i = 0; i <= CLUSTER_SLOTS; i++) {
+        /* Find start node and slot id. */
+        if (n == NULL) {
+            if (i == CLUSTER_SLOTS) break;
+            n = server.cluster->slots[i];
+            start = i;
+            continue;
+        }
+
+        /* Generate slots info when occur different node with start
+         * or end of slot. */
+        if (i == CLUSTER_SLOTS || n != server.cluster->slots[i]) {
+            if (!(n->flags & filter)) {
+                if (n->slots_info == NULL) n->slots_info = sdsempty();
+                if (start == i-1) {
+                    n->slots_info = sdscatfmt(n->slots_info," %i",start);
+                } else {
+                    n->slots_info = sdscatfmt(n->slots_info," %i-%i",start,i-1);
+                }
+            }
+            if (i == CLUSTER_SLOTS) break;
+            n = server.cluster->slots[i];
+            start = i;
+        }
+    }
+}
+
 /* Generate a csv-alike representation of the nodes we are aware of,
  * including the "myself" node, and return an SDS string containing the
  * representation (it is up to the caller to free it).
@@ -4226,6 +4266,9 @@ sds clusterGenNodesDescription(int filter) {
     dictIterator *di;
     dictEntry *de;
 
+    /* Generate all nodes slots info firstly. */
+    clusterGenNodesSlotsInfo(filter);
+
     di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
@@ -4235,6 +4278,12 @@ sds clusterGenNodesDescription(int filter) {
         ci = sdscatsds(ci,ni);
         sdsfree(ni);
         ci = sdscatlen(ci,"\n",1);
+
+        /* Release slots info. */
+        if (node->slots_info) {
+            sdsfree(node->slots_info);
+            node->slots_info = NULL;
+        }
     }
     dictReleaseIterator(di);
     return ci;

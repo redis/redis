@@ -1,3 +1,5 @@
+tags {"rdb"} {
+
 set server_path [tmpdir "server.rdb-encoding-test"]
 
 # Copy RDB with different encodings in server path
@@ -198,3 +200,96 @@ test {client freed during loading} {
         exec kill [srv 0 pid]
     }
 }
+
+# Our COW metrics (Private_Dirty) work only on Linux
+set system_name [string tolower [exec uname -s]]
+if {$system_name eq {linux}} {
+
+start_server {overrides {save ""}} {
+    test {Test child sending COW info} {
+        # make sure that rdb_last_cow_size and current_cow_size are zero (the test using new server),
+        # so that the comparisons during the test will be valid
+        assert {[s current_cow_size] == 0}
+        assert {[s rdb_last_cow_size] == 0}
+
+        # using a 200us delay, the bgsave is empirically taking about 10 seconds.
+        # we need it to take more than some 5 seconds, since redis only report COW once a second.
+        r config set rdb-key-save-delay 200
+        r config set loglevel debug
+
+        # populate the db with 10k keys of 4k each
+        set rd [redis_deferring_client 0]
+        set size 4096
+        set cmd_count 10000
+        for {set k 0} {$k < $cmd_count} {incr k} {
+            $rd set key$k [string repeat A $size]
+        }
+
+        for {set k 0} {$k < $cmd_count} {incr k} {
+            catch { $rd read }
+        }
+
+        $rd close
+
+        # start background rdb save
+        r bgsave
+
+        # on each iteration, we will write some key to the server to trigger copy-on-write, and
+        # wait to see that it reflected in INFO.
+        set iteration 1
+        while 1 {
+            # take a sample before writing new data to the server
+            set cow_size [s current_cow_size]
+            if {$::verbose} {
+                puts "COW info before copy-on-write: $cow_size"
+            }
+
+            # trigger copy-on-write
+            r setrange key$iteration 0 [string repeat B $size]
+
+            # wait to see that current_cow_size value updated (as long as the child is in progress)
+            wait_for_condition 80 100 {
+                [s rdb_bgsave_in_progress] == 0 ||
+                [s current_cow_size] >= $cow_size + $size
+            } else {
+                if {$::verbose} {
+                    puts "COW info on fail: [s current_cow_size]"
+                    puts [exec tail -n 100 < [srv 0 stdout]]
+                }
+                fail "COW info wasn't reported"
+            }
+
+            # for no accurate, stop after 2 iterations
+            if {!$::accurate && $iteration == 2} {
+                break
+            }
+
+            # stop iterating if the bgsave completed
+            if { [s rdb_bgsave_in_progress] == 0 } {
+                break
+            }
+
+            incr iteration 1
+        }
+
+        # make sure we saw report of current_cow_size
+        if {$iteration < 2 && $::verbose} {
+            puts [exec tail -n 100 < [srv 0 stdout]]
+        }
+        assert_morethan_equal $iteration 2
+
+        # if bgsave completed, check that rdb_last_cow_size (fork exit report)
+        # is at least 90% of last rdb_active_cow_size.
+        if { [s rdb_bgsave_in_progress] == 0 } {
+            set final_cow [s rdb_last_cow_size]
+            set cow_size [expr $cow_size * 0.9]
+            if {$final_cow < $cow_size && $::verbose} {
+                puts [exec tail -n 100 < [srv 0 stdout]]
+            }
+            assert_morethan_equal $final_cow $cow_size
+        }
+    }
+}
+} ;# system_name
+
+} ;# tags

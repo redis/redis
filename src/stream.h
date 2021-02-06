@@ -108,6 +108,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
 void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamID *end, int rev);
 int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields);
 void streamIteratorGetField(streamIterator *si, unsigned char **fieldptr, unsigned char **valueptr, int64_t *fieldlen, int64_t *valuelen);
+void streamIteratorRemoveEntry(streamIterator *si, streamID *current);
 void streamIteratorStop(streamIterator *si);
 streamCG *streamLookupCG(stream *s, sds groupname);
 streamConsumer *streamLookupConsumer(streamCG *cg, sds name, int flags, int *created);
@@ -121,5 +122,11 @@ int streamDecrID(streamID *id);
 void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds consumername);
 robj *streamDup(robj *o);
 int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep);
+int streamParseID(const robj *o, streamID *id);
+robj *createObjectFromStreamID(streamID *id);
+int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_id, streamID *use_id);
+int streamDeleteItem(stream *s, streamID *id);
+int64_t streamTrimByLength(stream *s, long long maxlen, int approx);
+int64_t streamTrimByID(stream *s, streamID minid, int approx);
 
 #endif

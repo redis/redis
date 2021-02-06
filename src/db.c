@@ -226,7 +226,7 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
     /* Although the key is not really deleted from the database, we regard 
     overwrite as two steps of unlink+add, so we still need to call the unlink 
     callback of the module. */
-    moduleNotifyKeyUnlink(key,val);
+    moduleNotifyKeyUnlink(key,old);
     dictSetVal(db->dict, de, val);
 
     if (server.lazyfree_lazy_server_del) {
@@ -595,21 +595,23 @@ void signalFlushedDb(int dbid, int async) {
 /* Return the set of flags to use for the emptyDb() call for FLUSHALL
  * and FLUSHDB commands.
  *
- * Currently the command just attempts to parse the "ASYNC" option. It
- * also checks if the command arity is wrong.
+ * sync: flushes the database in an sync manner.
+ * async: flushes the database in an async manner.
+ * no option: determine sync or async according to the value of lazyfree-lazy-user-flush.
  *
  * On success C_OK is returned and the flags are stored in *flags, otherwise
  * C_ERR is returned and the function sends an error to the client. */
 int getFlushCommandFlags(client *c, int *flags) {
     /* Parse the optional ASYNC option. */
-    if (c->argc > 1) {
-        if (c->argc > 2 || strcasecmp(c->argv[1]->ptr,"async")) {
-            addReplyErrorObject(c,shared.syntaxerr);
-            return C_ERR;
-        }
-        *flags = EMPTYDB_ASYNC;
-    } else {
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"sync")) {
         *flags = EMPTYDB_NO_FLAGS;
+    } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"async")) {
+        *flags = EMPTYDB_ASYNC;
+    } else if (c->argc == 1) {
+        *flags = server.lazyfree_lazy_user_flush ? EMPTYDB_ASYNC : EMPTYDB_NO_FLAGS;
+    } else {
+        addReplyErrorObject(c,shared.syntaxerr);
+        return C_ERR;
     }
     return C_OK;
 }
@@ -617,7 +619,7 @@ int getFlushCommandFlags(client *c, int *flags) {
 /* Flushes the whole server data set. */
 void flushAllDataAndResetRDB(int flags) {
     server.dirty += emptyDb(-1,flags,NULL);
-    if (server.rdb_child_pid != -1) killRDBChild();
+    if (server.child_type == CHILD_TYPE_RDB) killRDBChild();
     if (server.saveparamslen > 0) {
         /* Normally rdbSave() will reset dirty, but we don't want this here
          * as otherwise FLUSHALL will not be replicated nor put into the AOF. */
@@ -951,7 +953,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         int filter = 0;
 
         /* Filter element if it does not match the pattern. */
-        if (!filter && use_pattern) {
+        if (use_pattern) {
             if (sdsEncodedObject(kobj)) {
                 if (!stringmatchlen(pat, patlen, kobj->ptr, sdslen(kobj->ptr), 0))
                     filter = 1;
@@ -1519,6 +1521,12 @@ int expireIfNeeded(redisDb *db, robj *key) {
      * that is, 0 if we think the key should be still valid, 1 if
      * we think the key is expired at this time. */
     if (server.masterhost != NULL) return 1;
+
+    /* If clients are paused, we keep the current dataset constant,
+     * but return to the client what we believe is the right state. Typically,
+     * at the end of the pause we will properly expire the key OR we will
+     * have failed over and the new primary will send us the expire. */
+    if (checkClientPauseTimeoutAndReturnIfPaused()) return 1;
 
     /* Delete the key */
     server.stat_expiredkeys++;

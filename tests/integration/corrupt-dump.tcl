@@ -507,5 +507,16 @@ test {corrupt payload: fuzzer findings - valgrind invalid read} {
     }
 }
 
+test {corrupt payload: fuzzer findings - HRANDFIELD on bad ziplist} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+        r RESTORE _int 0 "\x04\xC0\x01\x09\x00\xF6\x8A\xB6\x7A\x85\x87\x72\x4D"
+        catch {r HRANDFIELD _int}
+        assert_equal [count_log_message 0 "crashed by signal"] 0
+        assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
+    }
+}
+
 } ;# tags
 
