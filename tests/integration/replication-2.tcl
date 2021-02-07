@@ -43,7 +43,7 @@ start_server {tags {"repl"}} {
             r config set min-slaves-max-lag 2
             exec kill -SIGSTOP [srv -1 pid]
             assert {[r set foo 12345] eq {OK}}
-            after 3000
+            after 4000
             catch {r set foo 12345} err
             set err
         } {NOREPLICAS*}
