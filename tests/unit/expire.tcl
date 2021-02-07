@@ -214,10 +214,22 @@ start_server {tags {"expire"}} {
         set e
     } {ERR invalid expire time in set}
 
-    test {SET with EX with smallest unsigned integer should report an error} {
+    test {SET with EX with smallest integer should report an error} {
         catch {r SET foo bar EX -9999999999999999} e
         set e
     } {ERR invalid expire time in set}
+
+    test {GETEX with big integer should report an error} {
+        r set foo bar
+        catch {r GETEX foo EX 10000000000000000} e
+        set e
+    } {ERR invalid expire time in getex}
+
+    test {GETEX with smallest integer should report an error} {
+        r set foo bar
+        catch {r GETEX foo EX -9999999999999999} e
+        set e
+    } {ERR invalid expire time in getex}
 
     test {EXPIRE with big integer should report an error} {
         r set foo bar
@@ -225,7 +237,7 @@ start_server {tags {"expire"}} {
         set e
     } {ERR invalid expire time in expire}
 
-    test {EXPIRE with smallest unsigned integer should report an error} {
+    test {EXPIRE with smallest integer should report an error} {
         r set foo bar
         catch {r EXPIRE foo -9999999999999999} e
         set e
