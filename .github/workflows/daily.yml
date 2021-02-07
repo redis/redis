@@ -21,7 +21,7 @@ jobs:
     - name: test
       run: |
         sudo apt-get install tcl8.5
-        ./runtest --accurate --verbose
+        ./runtest --accurate --verbose --dump-logs
     - name: module api test
       run: ./runtest-moduleapi --verbose
     - name: sentinel tests
@@ -40,7 +40,7 @@ jobs:
     - name: test
       run: |
         sudo apt-get install tcl8.5
-        ./runtest --accurate --verbose
+        ./runtest --accurate --verbose --dump-logs
     - name: module api test
       run: ./runtest-moduleapi --verbose
     - name: sentinel tests
@@ -61,7 +61,7 @@ jobs:
     - name: test
       run: |
         sudo apt-get install tcl8.5
-        ./runtest --accurate --verbose
+        ./runtest --accurate --verbose --dump-logs
     - name: module api test
       run: |
         make -C tests/modules 32bit # the script below doesn't have an argument, we must build manually ahead of time
@@ -84,8 +84,8 @@ jobs:
       run: |
         sudo apt-get install tcl8.5 tcl-tls
         ./utils/gen-test-certs.sh
-        ./runtest --accurate --verbose --tls
-        ./runtest --accurate --verbose
+        ./runtest --accurate --verbose --tls --dump-logs
+        ./runtest --accurate --verbose --dump-logs
     - name: module api test
       run: |
         ./runtest-moduleapi --verbose --tls
@@ -111,7 +111,7 @@ jobs:
     - name: test
       run: |
         sudo apt-get install tcl8.5 tcl-tls
-        ./runtest --config io-threads 4 --config io-threads-do-reads yes --accurate --verbose --tags network
+        ./runtest --config io-threads 4 --config io-threads-do-reads yes --accurate --verbose --tags network --dump-logs
     - name: cluster tests
       run: |
         ./runtest-cluster --config io-threads 4 --config io-threads-do-reads yes
@@ -128,7 +128,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install tcl8.5 valgrind -y
-        ./runtest --valgrind --verbose --clients 1
+        ./runtest --valgrind --verbose --clients 1 --dump-logs
     - name: module api test
       run: ./runtest-moduleapi --valgrind --verbose --clients 1
 
@@ -146,7 +146,7 @@ jobs:
     - name: test
       run: |
         yum -y install which tcl
-        ./runtest --accurate --verbose
+        ./runtest --accurate --verbose --dump-logs
     - name: module api test
       run: ./runtest-moduleapi --verbose
     - name: sentinel tests
@@ -170,8 +170,8 @@ jobs:
       run: |
         yum -y install tcl tcltls
         ./utils/gen-test-certs.sh
-        ./runtest --accurate --verbose --tls
-        ./runtest --accurate --verbose
+        ./runtest --accurate --verbose --tls --dump-logs
+        ./runtest --accurate --verbose --dump-logs
     - name: module api test
       run: |
         ./runtest-moduleapi --verbose --tls
@@ -195,7 +195,7 @@ jobs:
       run: make
     - name: test
       run: |
-        ./runtest --accurate --verbose --no-latency
+        ./runtest --accurate --verbose --no-latency --dump-logs
     - name: module api test
       run: ./runtest-moduleapi --verbose
     - name: sentinel tests
@@ -217,7 +217,7 @@ jobs:
         prepare: pkg install -y bash gmake lang/tcl86
         run: >
           gmake &&
-          ./runtest --accurate --verbose --no-latency &&
+          ./runtest --accurate --verbose --no-latency --dump-logs &&
           MAKE=gmake ./runtest-moduleapi --verbose &&
           ./runtest-sentinel &&
           ./runtest-cluster
