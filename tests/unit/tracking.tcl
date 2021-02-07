@@ -17,6 +17,10 @@ start_server {tags {"tracking network"}} {
 
     proc clean_all {} {
         uplevel {
+            # We should make r TRACKING off first. If r is in RESP3,
+            # r FLUSH ALL will send us tracking-redir-broken which 
+            # will not be consumed.
+            r CLIENT TRACKING off
             $rd QUIT
             $rd_redirection QUIT
             set rd [redis_deferring_client]
@@ -26,7 +30,6 @@ start_server {tags {"tracking network"}} {
             $rd_redirection subscribe __redis__:invalidate
             $rd_redirection read ; # Consume the SUBSCRIBE reply.
             r FLUSHALL
-            r CLIENT TRACKING off
             r HELLO 2
             r config set tracking-table-max-keys 1000000
         }
@@ -194,12 +197,17 @@ start_server {tags {"tracking network"}} {
         $rd_sg SET key1 1
         r GET key1
         $rd_redirection QUIT
+        # Next SET may be send to server with QUIT together
+        $rd_redirection read
         $rd_sg SET key1 2
         set MAX_TRIES 100
-        for {set i 0} {$i <= $MAX_TRIES && $res <= 0} {incr i} {
+        set res -1
+        for {set i 0} {$i <= $MAX_TRIES && $res < 0} {incr i} {
             set res [lsearch -exact [r PING] "tracking-redir-broken"]
         }
         assert {$res >= 0}
+        # Consume PING reply
+        r read
     }
 
     test {Different clients can redirect to the same connection} {
