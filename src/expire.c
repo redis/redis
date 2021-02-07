@@ -507,15 +507,12 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
 
     if (getLongLongFromObjectOrReply(c, param, &when, NULL) != C_OK)
         return;
-    /* Used to check for negative number overflow */
-    int is_expire_input_negative = when < 0;
     if (unit == UNIT_SECONDS) when *= 1000;
     when += basetime;
-    if (when <= 0) {
+    if (when <= 0 || (unit == UNIT_SECONDS && when >= LLONG_MAX / 1000)) {
         addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
         return;
     }
-
     /* No key, return zero. */
     if (lookupKeyWrite(c->db,key) == NULL) {
         addReply(c,shared.czero);
@@ -538,15 +535,6 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         addReply(c, shared.cone);
         return;
     } else {
-        /*
-         * If the provided expiry from input was negative, and after
-         * unit conversion and adding `basetime`, if the key was still
-         * not expired, there is an integer overflow.
-         */
-        if (is_expire_input_negative && when > 0) {
-            addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
-            return;
-        }
         setExpire(c,c->db,key,when);
         addReply(c,shared.cone);
         signalModifiedKey(c,c->db,key);
