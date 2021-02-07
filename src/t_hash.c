@@ -959,6 +959,23 @@ void hscanCommand(client *c) {
     scanGenericCommand(c,o,cursor);
 }
 
+static void harndfieldReplyWithZiplist(client *c, unsigned int count, ziplistEntry *keys, ziplistEntry *vals) {
+    for (unsigned long i = 0; i < count; i++) {
+        if (vals && c->resp > 2)
+            addReplyArrayLen(c,2);
+        if (keys[i].sval)
+            addReplyBulkCBuffer(c, keys[i].sval, keys[i].slen);
+        else
+            addReplyBulkLongLong(c, keys[i].lval);
+        if (vals) {
+            if (vals[i].sval)
+                addReplyBulkCBuffer(c, vals[i].sval, vals[i].slen);
+            else
+                addReplyBulkLongLong(c, vals[i].lval);
+        }
+    }
+}
+
 /* How many times bigger should be the hash compared to the requested size
  * for us to not use the "remove elements" strategy? Read later in the
  * implementation for more info. */
@@ -1024,20 +1041,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
                 sample_count = count > limit ? limit : count;
                 count -= sample_count;
                 ziplistRandomPairs(hash->ptr, sample_count, keys, vals);
-                for (unsigned long i = 0; i < sample_count; i++) {
-                    if (withvalues && c->resp > 2)
-                        addReplyArrayLen(c,2);
-                    if (keys[i].sval)
-                        addReplyBulkCBuffer(c, keys[i].sval, keys[i].slen);
-                    else
-                        addReplyBulkLongLong(c, keys[i].lval);
-                    if (withvalues) {
-                        if (vals[i].sval)
-                            addReplyBulkCBuffer(c, vals[i].sval, vals[i].slen);
-                        else
-                            addReplyBulkLongLong(c, vals[i].lval);
-                    }
-                }
+                harndfieldReplyWithZiplist(c, sample_count, keys, vals);
             }
             zfree(keys);
             zfree(vals);
@@ -1130,6 +1134,21 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
      * to the temporary hash, trying to eventually get enough unique elements
      * to reach the specified count. */
     else {
+        if (hash->encoding == OBJ_ENCODING_ZIPLIST) {
+            /* it is inefficient to repeatedly pick one random element from a
+             * ziplist. so we use this instead: */
+            ziplistEntry *keys, *vals = NULL;
+            keys = zmalloc(sizeof(ziplistEntry)*count);
+            if (withvalues)
+                vals = zmalloc(sizeof(ziplistEntry)*count);
+            serverAssert(ziplistRandomPairsUnique(hash->ptr, count, keys, vals) == count);
+            harndfieldReplyWithZiplist(c, count, keys, vals);
+            zfree(keys);
+            zfree(vals);
+            return;
+        }
+
+        /* Hashtable encoding (generic implementation) */
         unsigned long added = 0;
         ziplistEntry key, value;
         dict *d = dictCreate(&hashDictType, NULL);
