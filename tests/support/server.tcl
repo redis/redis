@@ -263,7 +263,7 @@ proc dump_server_log {srv} {
     set pid [dict get $srv "pid"]
     puts "\n===== Start of server log (pid $pid) =====\n"
     puts [exec cat [dict get $srv "stdout"]]
-    puts "\n===== End of server log (pid $pid) =====\n"
+    puts "===== End of server log (pid $pid) =====\n"
 }
 
 proc start_server {options {code undefined}} {
