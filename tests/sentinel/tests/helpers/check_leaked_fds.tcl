@@ -54,7 +54,7 @@ foreach fd [glob -tails -directory "/proc/self/fd" *] {
 
     # See if grandparent process has the same fd and info and skip if it does.
     if { ! [catch {set gp_fdlink [file readlink "/proc/$grandparent_pid/fd/$fd"]} err] } {
-        if {$gp_fdlink != $fdlink} {
+        if {$gp_fdlink == $fdlink} {
             continue
         }
     }
