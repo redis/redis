@@ -29,14 +29,14 @@ start_server {tags {"modules"}} {
         r block.debug 0 20000
         assert_equal [r slowlog len] 0
         r config resetstat
-        r block.debug 20000 200
+        r block.debug 20000 500
         assert_equal [r slowlog len] 1
 
         set cmdstatline [cmdrstat block.debug r]
 
         regexp "calls=1,usec=(.*?),usec_per_call=(.*?),rejected_calls=0,failed_calls=0" $cmdstatline usec usec_per_call
-        assert {$usec >= 100000}
-        assert {$usec_per_call >= 100000}
+        assert {$usec >= 250000}
+        assert {$usec_per_call >= 250000}
     }
 
     test { blocked clients time tracking - check blocked command with multiple calls RedisModule_BlockedClientMeasureTimeStart()  is tracking the total background time } {
