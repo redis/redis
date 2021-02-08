@@ -107,11 +107,9 @@ static void clientSetDefaultAuth(client *c) {
                        !(c->user->flags & USER_FLAG_DISABLED);
 }
 
+/* Initialize a client with a connection and prepare it for reading
+ * incoming queries. */
 int prepareClientForReading(client *c, connection *conn) {
-    /* passing NULL as conn it is possible to create a non connected client.
-     * This is useful since all the commands needs to be executed
-     * in the context of a client. When commands are executed in other
-     * contexts (for instance a Lua script) we need a non connected client. */
     if (connSetReadHandler(conn, readQueryFromClient) != C_OK) {
         return C_ERR;
     }
@@ -125,6 +123,9 @@ int prepareClientForReading(client *c, connection *conn) {
     return C_OK;
 }
 
+/* Creates a disconnected client that is fully initialized. To bring this
+ * client fully online, you need to call prepareClientForReading with a 
+ * connection object. */
 client *createClient() {
     client *c = zmalloc(sizeof(client));
 

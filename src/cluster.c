@@ -2242,7 +2242,9 @@ void clusterWriteHandler(connection *conn) {
     sdsrange(link->sndbuf,nwritten,-1);
     if (sdslen(link->sndbuf) == 0) {
         if (connSetWriteHandler(link->conn, NULL) == C_ERR) {
-            serverPanic("Unrecoverable setting write handler for cluster link.");
+            serverPanic("Error setting write handler for cluster link: %s",
+                connGetLastError(conn));
+            handleLinkIOError(link);
         }
     }
         

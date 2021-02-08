@@ -553,9 +553,7 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
                 if (ret <= 0) {
                     WantIOType want = 0;
                     if (!handleSSLReturnCode(conn, ret, &want)) {
-                        /* We have to error out if this fails */
                         if (registerSSLEvent(conn, want) == C_OK) {
-
                             /* Avoid hitting UpdateSSLEvent, which knows nothing
                             * of what SSL_connect() wants and instead looks at our
                             * R/W handlers.
@@ -579,7 +577,6 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
             if (ret <= 0) {
                 WantIOType want = 0;
                 if (!handleSSLReturnCode(conn, ret, &want)) {
-                    /* We have to error out if this fails */
                     if (registerSSLEvent(conn, want) == C_OK) {
                         /* Avoid hitting UpdateSSLEvent, which knows nothing
                         * of what SSL_connect() wants and instead looks at our
@@ -657,7 +654,6 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
             break;
     }
 
-    /* If we fail update the event handler, we fail out */
     if (updateSSLEvent(conn) == C_ERR) {
         conn->c.state = CONN_STATE_ERROR;
         if (!callHandler((connection *) conn, conn->c.conn_handler)) return;

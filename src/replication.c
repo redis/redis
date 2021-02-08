@@ -1185,7 +1185,7 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
             if (nwritten != server.rdb_pipe_bufflen) {
                 if (connSetWriteHandler(conn, rdbPipeWriteHandler) == C_ERR) {
                     serverLog(LL_WARNING,"Diskless rdb transfer, error "
-                        "registering write handler for replica : %s",
+                        "registering write handler for replica: %s",
                         connGetLastError(conn));
                     freeClient(slave);
                     server.rdb_pipe_conns[i] = NULL;
@@ -1374,12 +1374,8 @@ void replicationEmptyDbCallback(void *privdata) {
  * performed, this function materializes the master client we store
  * at server.master, starting from the specified file descriptor. */
 void replicationCreateMasterClient(int dbid) {
+    /* Create a new unlinked client */
     server.master = createClient();
-
-    /* CreateClient should never fail here, since we've already
-     * been using the connection on the eventloop OR no connection
-     * was passed in. */
-    serverAssert(server.master);
 
     /**
      * Important note:
@@ -2151,7 +2147,10 @@ void syncWithMaster(connection *conn) {
         serverLog(LL_NOTICE,"Non blocking connect for SYNC fired the event.");
         /* Delete the writable event so that the readable event remains
          * registered and we can wait for the PONG reply. */
-        if (connSetReadHandler(conn, syncWithMaster) == C_ERR) goto write_error;
+        if (connSetReadHandler(conn, syncWithMaster) == C_ERR) {
+            serverLog(LL_NOTICE,"Failed to register read handler for reading from master.");
+            goto error;
+        }
         connSetWriteHandler(conn, NULL);
         server.repl_state = REPL_STATE_RECEIVE_PONG;
         /* Send the PING, don't check for errors at all, we have the timeout
