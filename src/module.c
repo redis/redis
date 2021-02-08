@@ -3008,9 +3008,9 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
  *   were just created and the COUNT_ALL flag was unset, or if changes were held
  *   back due to the NX and XX flags.
  *
- * NOTICE: The return value semantics of this function is very different between
- * Redis 6.2 and older versions. Modules that use it should determine the Redis
- * version and handle it accordingly.
+ * NOTICE: The return value semantics of this function are very different
+ * between Redis 6.2 and older versions. Modules that use it should determine
+ * the Redis version and handle it accordingly.
  */
 int RM_HashSet(RedisModuleKey *key, int flags, ...) {
     va_list ap;
