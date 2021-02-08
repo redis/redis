@@ -2976,10 +2976,10 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
  *                          are created.
  *     REDISMODULE_HASH_CFIELDS: The field names passed are null terminated C
  *                               strings instead of RedisModuleString objects.
- *     REDISMODULE_HASH_COUNT_INSERTS: Include the number of inserted fields in
- *                                     the returned number, in addition to the
- *                                     number of updated and deleted fields.
- *                                     (Added in Redis 6.2.)
+ *     REDISMODULE_HASH_COUNT_ALL: Include the number of inserted fields in the
+ *                                 returned number, in addition to the number of
+ *                                 updated and deleted fields. (Added in Redis
+ *                                 6.2.)
  *
  * Unless NX is specified, the command overwrites the old field value with
  * the new one.
@@ -2993,28 +2993,31 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
  *
  * Return value:
  *
- * The number of fields updated or deleted. If the
- * REDISMODULE_HASH_COUNT_INSERTS is set, inserted fields are also counted. The
- * returned number may be less than the number of fields specified because of
- * the XX or NX options.
+ * The number of fields existing in the hash prior to the call, which have been
+ * updated (its old value has been replaced by a new value) or deleted. If the
+ * flag REDISMODULE_HASH_COUNT_ALL is set, insterted fields not previously
+ * existing in the hash are also counted.
  *
  * If the return value is zero, `errno` is set (since Redis 6.2) as follows:
  *
  * - EINVAL if any unknown flags are set or if key is NULL.
  * - ENOTSUP if the key is associated with a non Hash value.
  * - EBADF if the key was not opened for writing.
- * - ENOENT if no fields were counted as updated, deleted or inserted, depending
- *   on the COUNT_INSERTS flag as described under Return value above. This is
- *   not actually an error. The return value can be zero if all fields were
- *   inserted and the COUNT_INSERTS flag was unset, or if updates or inserts
- *   were held back by the NX or the XX flag.
+ * - ENOENT if no fields were counted as described under Return value above.
+ *   This is not actually an error. The return value can be zero if all fields
+ *   were just created and the COUNT_ALL flag was unset, or if changes were held
+ *   back due to the NX and XX flags.
+ *
+ * NOTICE: The return value semantics of this function is very different between
+ * Redis 6.2 and older versions. Modules that use it should determine the Redis
+ * version and handle it accordingly.
  */
 int RM_HashSet(RedisModuleKey *key, int flags, ...) {
     va_list ap;
     if (!key || (flags & ~(REDISMODULE_HASH_NX |
                            REDISMODULE_HASH_XX |
                            REDISMODULE_HASH_CFIELDS |
-                           REDISMODULE_HASH_COUNT_INSERTS))) {
+                           REDISMODULE_HASH_COUNT_ALL))) {
         errno = EINVAL;
         return 0;
     } else if (key->value && key->value->type != OBJ_HASH) {
@@ -3069,7 +3072,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
         robj *argv[2] = {field,value};
         hashTypeTryConversion(key->value,argv,0,1);
         int updated = hashTypeSet(key->value, field->ptr, value->ptr, low_flags);
-        count += (flags & REDISMODULE_HASH_COUNT_INSERTS) ? 1 : updated;
+        count += (flags & REDISMODULE_HASH_COUNT_ALL) ? 1 : updated;
 
         /* If CFIELDS is active, SDS string ownership is now of hashTypeSet(),
          * however we still have to release the 'field' object shell. */

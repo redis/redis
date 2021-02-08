@@ -15,7 +15,7 @@ static RedisModuleString *value_or_delete(RedisModuleString *s) {
 /* HASH.SET key flags field1 value1 [field2 value2 ..]
  *
  * Sets 1-4 fields. Returns the same as RedisModule_HashSet().
- * Flags is a string of "nxi" where n = NX, x = XX, i = count inserts.
+ * Flags is a string of "nxa" where n = NX, x = XX, a = COUNT_ALL.
  * To delete a field, use the value ":delete:".
  */
 int hash_set(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -32,11 +32,11 @@ int hash_set(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         switch (flags_str[i]) {
         case 'n': flags |= REDISMODULE_HASH_NX; break;
         case 'x': flags |= REDISMODULE_HASH_XX; break;
-        case 'i': flags |= REDISMODULE_HASH_COUNT_INSERTS; break;
+        case 'a': flags |= REDISMODULE_HASH_COUNT_ALL; break;
         }
     }
 
-    /* This is why varargs sucks... */
+    /* Test some varargs. (In real-world, use a loop and set one at a time.) */
     int result;
     errno = 0;
     if (argc == 5) {
