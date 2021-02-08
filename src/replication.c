@@ -1373,8 +1373,9 @@ void replicationEmptyDbCallback(void *privdata) {
 /* Once we have a link with the master and the synchronization was
  * performed, this function materializes the master client we store
  * at server.master, starting from the specified file descriptor. */
-void replicationCreateMasterClient(connection *conn, int dbid) {
-    server.master = createClient(conn);
+void replicationCreateMasterClient(int dbid) {
+    server.master = createClient();
+
     /* CreateClient should never fail here, since we've already
      * been using the connection on the eventloop OR no connection
      * was passed in. */
@@ -1794,7 +1795,13 @@ void readSyncBulkPayload(connection *conn) {
     }
 
     /* Final setup of the connected slave <- master link */
-    replicationCreateMasterClient(server.repl_transfer_s,rsi.repl_stream_db);
+    replicationCreateMasterClient(rsi.repl_stream_db);
+    if (prepareClientForReading(server.master,server.repl_transfer_s) == C_ERR) {
+        serverLog(LL_WARNING,"Failed registering replication client for reading.");
+        cancelReplicationHandshake(1);
+        return;
+    }
+
     server.repl_state = REPL_STATE_CONNECTED;
     server.repl_down_since = 0;
 
@@ -2836,7 +2843,7 @@ void replicationCacheMasterUsingMyself(void) {
 
     /* The master client we create can be set to any DBID, because
      * the new master will start its replication stream with SELECT. */
-    replicationCreateMasterClient(NULL,-1);
+    replicationCreateMasterClient(-1);
 
     /* Use our own ID / offset. */
     memcpy(server.master->replid, server.replid, sizeof(server.replid));
@@ -2882,7 +2889,7 @@ void replicationResurrectCachedMaster(connection *conn) {
 
     /* Re-add to the list of clients. */
     linkClient(server.master);
-    if (connSetReadHandler(server.master->conn, readQueryFromClient) != C_OK) {
+    if (connSetReadHandler(server.master->conn, readQueryFromClient) == C_ERR) {
         serverLog(LL_WARNING,"Error resurrecting the cached master, impossible to add the readable handler: %s", strerror(errno));
         freeClientAsync(server.master); /* Close ASAP. */
     }
@@ -2890,7 +2897,7 @@ void replicationResurrectCachedMaster(connection *conn) {
     /* We may also need to install the write handler as well if there is
      * pending data in the write buffers. */
     if (clientHasPendingReplies(server.master)) {
-        if (connSetWriteHandler(server.master->conn, sendReplyToClient) != C_OK) {
+        if (connSetWriteHandler(server.master->conn, sendReplyToClient) == C_ERR) {
             serverLog(LL_WARNING,"Error resurrecting the cached master, impossible to add the writable handler: %s", strerror(errno));
             freeClientAsync(server.master); /* Close ASAP. */
         }

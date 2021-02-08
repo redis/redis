@@ -477,8 +477,8 @@ int registerSSLEvent(tls_connection *conn, WantIOType want) {
         case WANT_READ:
             if (mask & AE_WRITABLE) aeDeleteFileEvent(server.el, conn->c.fd, AE_WRITABLE);
             if (!(mask & AE_READABLE)) {
-                if (aeCreateFileEvent(server.el,conn->c.fd,AE_READABLE,
-                        tlsEventHandler,conn) == AE_ERR) 
+                if (aeCreateFileEvent(server.el,conn->c.fd, AE_READABLE,
+                    tlsEventHandler,conn) == AE_ERR) 
                 {
                     c.conn->err = errno;
                     return C_ERR;
@@ -489,7 +489,7 @@ int registerSSLEvent(tls_connection *conn, WantIOType want) {
             if (mask & AE_READABLE) aeDeleteFileEvent(server.el, conn->c.fd, AE_READABLE);
             if (!(mask & AE_WRITABLE)) {
                 if (aeCreateFileEvent(server.el, conn->c.fd, AE_WRITABLE,
-                        tlsEventHandler,conn) == AE_ERR) 
+                    tlsEventHandler,conn) == AE_ERR) 
                 {
                     c.conn->err = errno;
                     return C_ERR;
@@ -553,14 +553,15 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
                 if (ret <= 0) {
                     WantIOType want = 0;
                     if (!handleSSLReturnCode(conn, ret, &want)) {
-                        /* We're in an event handler, this can't fail */
-                        serverAssert(registerSSLEvent(conn, want) == C_OK);
+                        /* We have to error out if this fails */
+                        if (registerSSLEvent(conn, want) == C_OK) {
 
-                        /* Avoid hitting UpdateSSLEvent, which knows nothing
-                         * of what SSL_connect() wants and instead looks at our
-                         * R/W handlers.
-                         */
-                        return;
+                            /* Avoid hitting UpdateSSLEvent, which knows nothing
+                            * of what SSL_connect() wants and instead looks at our
+                            * R/W handlers.
+                            */
+                            return;
+                        }
                     }
 
                     /* If not handled, it's an error */
@@ -578,14 +579,14 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
             if (ret <= 0) {
                 WantIOType want = 0;
                 if (!handleSSLReturnCode(conn, ret, &want)) {
-                    /* We're in an event handler, this can't fail */
-                    serverAssert(registerSSLEvent(conn, want) == C_OK);
-
-                    /* Avoid hitting UpdateSSLEvent, which knows nothing
-                     * of what SSL_connect() wants and instead looks at our
-                     * R/W handlers.
-                     */
-                    return;
+                    /* We have to error out if this fails */
+                    if (registerSSLEvent(conn, want) == C_OK) {
+                        /* Avoid hitting UpdateSSLEvent, which knows nothing
+                        * of what SSL_connect() wants and instead looks at our
+                        * R/W handlers.
+                        */
+                        return;
+                    }
                 }
 
                 /* If not handled, it's an error */
@@ -656,8 +657,12 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
             break;
     }
 
-    /* Failure to update the SSL Event is not trivially recoverable here. */
-    serverAssert(updateSSLEvent(conn) == C_OK);
+    /* If we fail update the event handler, we fail out */
+    if (updateSSLEvent(conn) == C_ERR) {
+        conn->c.state = CONN_STATE_ERROR;
+        if (!callHandler((connection *) conn, conn->c.conn_handler)) return;
+        conn->c.conn_handler = NULL;
+    }
 }
 
 static void tlsEventHandler(struct aeEventLoop *el, int fd, void *clientData, int mask) {
@@ -744,7 +749,7 @@ static int connTLSWrite(connection *conn_, const void *data, size_t data_len) {
         WantIOType want = 0;
         if (!(ssl_err = handleSSLReturnCode(conn, ret, &want))) {
             if (want == WANT_READ) conn->flags |= TLS_CONN_FLAG_WRITE_WANT_READ;
-            if (updateSSLEvent(conn) == C_ERR) return -;1
+            if (updateSSLEvent(conn) == C_ERR) return -1;
             errno = EAGAIN;
             return -1;
         } else {
@@ -774,7 +779,7 @@ static int connTLSRead(connection *conn_, void *buf, size_t buf_len) {
         WantIOType want = 0;
         if (!(ssl_err = handleSSLReturnCode(conn, ret, &want))) {
             if (want == WANT_WRITE) conn->flags |= TLS_CONN_FLAG_READ_WANT_WRITE;
-            if (updateSSLEvent(conn) == C_ERR) return -;1
+            if (updateSSLEvent(conn) == C_ERR) return -1;
 
             errno = EAGAIN;
             return -1;
@@ -806,14 +811,12 @@ int connTLSSetWriteHandler(connection *conn, ConnectionCallbackFunc func, int ba
         conn->flags |= CONN_FLAG_WRITE_BARRIER;
     else
         conn->flags &= ~CONN_FLAG_WRITE_BARRIER;
-    if (updateSSLEvent((tls_connection *) conn) == C_ERR) return C_ERR;
-    return C_OK;
+    return updateSSLEvent((tls_connection *) conn);
 }
 
 int connTLSSetReadHandler(connection *conn, ConnectionCallbackFunc func) {
     conn->read_handler = func;
-    if (updateSSLEvent((tls_connection *) conn) == C_ERR) return C_ERR;
-    return C_OK;
+    return updateSSLEvent((tls_connection *) conn);
 }
 
 static void setBlockingTimeout(tls_connection *conn, long long timeout) {

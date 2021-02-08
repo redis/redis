@@ -1720,7 +1720,8 @@ int redisCommunicateSystemd(const char *sd_notify_msg);
 void redisSetCpuAffinity(const char *cpulist);
 
 /* networking.c -- Networking and Client related operations */
-client *createClient(connection *conn);
+client *createClient();
+int prepareClientForReading(client *c, connection *conn);
 void closeTimedoutClients(void);
 void freeClient(client *c);
 void freeClientAsync(client *c);

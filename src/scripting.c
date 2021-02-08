@@ -1268,7 +1268,7 @@ void scriptingInit(int setup) {
      * Note: there is no need to create it again when this function is called
      * by scriptingReset(). */
     if (server.lua_client == NULL) {
-        server.lua_client = createClient(NULL);
+        server.lua_client = createClient();
         server.lua_client->flags |= CLIENT_LUA;
 
         /* We do not want to allow blocking commands inside Lua */

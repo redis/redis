@@ -107,31 +107,32 @@ static void clientSetDefaultAuth(client *c) {
                        !(c->user->flags & USER_FLAG_DISABLED);
 }
 
-client *createClient(connection *conn) {
-    client *c = zmalloc(sizeof(client));
-
+int prepareClientForReading(client *c, connection *conn) {
     /* passing NULL as conn it is possible to create a non connected client.
      * This is useful since all the commands needs to be executed
      * in the context of a client. When commands are executed in other
      * contexts (for instance a Lua script) we need a non connected client. */
-    if (conn) {
-        if (connSetReadHandler(conn, readQueryFromClient) != C_OK) {
-            zfree(c);
-            return NULL;
-        }
-        connNonBlock(conn);
-        connEnableTcpNoDelay(conn);
-        if (server.tcpkeepalive)
-            connKeepAlive(conn,server.tcpkeepalive);
-        connSetPrivateData(conn, c);
+    if (connSetReadHandler(conn, readQueryFromClient) != C_OK) {
+        return C_ERR;
     }
+    connNonBlock(conn);
+    connEnableTcpNoDelay(conn);
+    if (server.tcpkeepalive)
+        connKeepAlive(conn,server.tcpkeepalive);
+    connSetPrivateData(conn, c);
+    c->conn = conn;
+    linkClient(c);
+    return C_OK;
+}
+
+client *createClient() {
+    client *c = zmalloc(sizeof(client));
 
     selectDb(c,0);
     uint64_t client_id;
     atomicGetIncr(server.next_client_id, client_id, 1);
     c->id = client_id;
     c->resp = 2;
-    c->conn = conn;
     c->name = NULL;
     c->bufpos = 0;
     c->qb_pos = 0;
@@ -190,7 +191,6 @@ client *createClient(connection *conn) {
     c->auth_module = NULL;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
-    if (conn) linkClient(c);
     initClientMultiState(c);
     return c;
 }
@@ -1012,12 +1012,14 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
     }
 
     /* Create connection and client */
-    if ((c = createClient(conn)) == NULL) {
+    c = createClient();
+    if (prepareClientForReading(c, conn) == C_ERR) {
         serverLog(LL_WARNING,
             "Error registering fd event for the new client: %s (conn: %s)",
             connGetLastError(conn),
             connGetInfo(conn, conninfo, sizeof(conninfo)));
         connClose(conn); /* May be already closed, just ignore errors */
+        zfree(c);
         return;
     }
 
