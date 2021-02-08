@@ -301,7 +301,7 @@ int dictAdd(dict *d, void *key, void *val)
 /* Low level add or find:
  * This function adds the entry but instead of setting a value returns the
  * dictEntry structure to the user, that will make sure to fill the value
- * field as he wishes.
+ * field as they wish.
  *
  * This function is also directly exposed to the user API to be called
  * mainly in order to store non-pointers inside the hash value, example:
