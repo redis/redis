@@ -84,8 +84,7 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     if (mask & AE_READABLE) ee.events |= EPOLLIN;
     if (mask & AE_WRITABLE) ee.events |= EPOLLOUT;
     ee.data.fd = fd;
-    if (epoll_ctl(state->epfd,op,fd,&ee) == -1) return -1;
-    return 0;
+    return epoll_ctl(state->epfd,op,fd,&ee);
 }
 
 static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int delmask) {
