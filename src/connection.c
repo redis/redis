@@ -250,7 +250,7 @@ static int connSocketSetReadHandler(connection *conn, ConnectionCallbackFunc fun
         aeDeleteFileEvent(server.el,conn->fd,AE_READABLE);
     else
         if (aeCreateFileEvent(server.el,conn->fd,
-                    AE_READABLE,conn->type->ae_handler,conn) == AE_ERR)
+                    AE_READABLE, conn->type->ae_handler, conn) == AE_ERR)
         {
             conn->last_errno = errno;
             return C_ERR;

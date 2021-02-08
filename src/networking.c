@@ -3414,7 +3414,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
         /* Install the write handler if there are pending writes in some
          * of the clients. */
         if (clientHasPendingReplies(c) &&
-                connSetWriteHandler(c->conn, sendReplyToClient) == AE_ERR)
+                connSetWriteHandler(c->conn, sendReplyToClient) == C_ERR)
         {
             freeClientAsync(c);
         }
