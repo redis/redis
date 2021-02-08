@@ -480,7 +480,7 @@ int registerSSLEvent(tls_connection *conn, WantIOType want) {
                 if (aeCreateFileEvent(server.el,conn->c.fd, AE_READABLE,
                     tlsEventHandler,conn) == AE_ERR) 
                 {
-                    c.conn->err = errno;
+                    conn->c.last_errno = errno;
                     return C_ERR;
                 }
             } 
@@ -491,7 +491,7 @@ int registerSSLEvent(tls_connection *conn, WantIOType want) {
                 if (aeCreateFileEvent(server.el, conn->c.fd, AE_WRITABLE,
                     tlsEventHandler,conn) == AE_ERR) 
                 {
-                    c.conn->err = errno;
+                    conn->c.last_errno = errno;
                     return C_ERR;
                 }
             }
