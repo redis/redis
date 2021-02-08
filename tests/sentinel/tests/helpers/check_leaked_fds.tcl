@@ -9,8 +9,8 @@
 # grandparent process.
 
 # Get PID of parent process
-proc get_parent_pid {proc} {
-    set fd [open "/proc/$proc/status" "r"]
+proc get_parent_pid {_pid} {
+    set fd [open "/proc/$_pid/status" "r"]
     set content [read $fd]
     close $fd
 
@@ -19,19 +19,6 @@ proc get_parent_pid {proc} {
     }
 
     error "failed to get parent pid"
-}
-
-# Look up fdlink in the specified process's open file list
-proc proc_has_fdlink {proc fdlink} {
-    foreach fd [glob -tails -directory "/proc/$proc/fd" *] {
-        if { [catch {set s [file readlink "/proc/$proc/fd/$fd"]} err] } {
-            continue
-        }
-        if {$s == $fdlink} {
-            return 1
-        }
-    }
-    return 0
 }
 
 # Linux only
@@ -59,12 +46,17 @@ foreach fd [glob -tails -directory "/proc/self/fd" *] {
         continue
     }
 
+    # Read symlink to get info about the file descriptor. This can be a real
+    # file name or an arbitrary string that identifies the fd.
     if { [catch {set fdlink [file readlink "/proc/self/fd/$fd"]} err] } {
         continue
     }
 
-    if {[proc_has_fdlink $grandparent_pid $fdlink]} {
-        continue
+    # See if grandparent process has the same fd and info and skip if it does.
+    if { ! [catch {set gp_fdlink [file readlink "/proc/$grandparent_pid/fd/$fd"]} err] } {
+        if {$gp_fdlink != $fdlink} {
+            continue
+        }
     }
 
     lappend leaked_fds [list $fd $fdlink]
