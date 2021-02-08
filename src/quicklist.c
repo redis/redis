@@ -1427,7 +1427,7 @@ void quicklistPush(quicklist *quicklist, void *value, const size_t sz,
  * Returns 1 on success (creation of new bookmark or override of an existing one).
  * Returns 0 on failure (reached the maximum supported number of bookmarks).
  * NOTE: use short simple names, so that string compare on find is quick.
- * NOTE: bookmakrk creation may re-allocate the quicklist, so the input pointer
+ * NOTE: bookmark creation may re-allocate the quicklist, so the input pointer
          may change and it's the caller responsibilty to update the reference.
  */
 int quicklistBookmarkCreate(quicklist **ql_ref, const char *name, quicklistNode *node) {

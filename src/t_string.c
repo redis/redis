@@ -764,7 +764,7 @@ void stralgoLCS(client *c) {
                 addReplyError(c,
                     "The specified keys must contain string values");
                 /* Don't cleanup the objects, we need to do that
-                 * only after callign getDecodedObject(). */
+                 * only after calling getDecodedObject(). */
                 obja = NULL;
                 objb = NULL;
                 goto cleanup;
