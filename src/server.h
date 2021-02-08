@@ -1595,11 +1595,6 @@ struct redisServer {
     int failover_state; /* Failover state */
 };
 
-typedef struct pubsubPattern {
-    client *client;
-    robj *pattern;
-} pubsubPattern;
-
 #define MAX_KEYS_BUFFER 256
 
 /* A result structure for the various getkeys function calls. It lists the
@@ -2265,8 +2260,6 @@ int hashZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep);
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(client *c, int notify);
 int pubsubUnsubscribeAllPatterns(client *c, int notify);
-void freePubsubPattern(void *p);
-int listMatchPubsubPattern(void *a, void *b);
 int pubsubPublishMessage(robj *channel, robj *message);
 void addReplyPubsubMessage(client *c, robj *channel, robj *msg);
 
