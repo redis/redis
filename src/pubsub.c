@@ -124,20 +124,6 @@ void addReplyPubsubPatUnsubscribed(client *c, robj *pattern) {
  * Pubsub low level API
  *----------------------------------------------------------------------------*/
 
-void freePubsubPattern(void *p) {
-    pubsubPattern *pat = p;
-
-    decrRefCount(pat->pattern);
-    zfree(pat);
-}
-
-int listMatchPubsubPattern(void *a, void *b) {
-    pubsubPattern *pa = a, *pb = b;
-
-    return (pa->client == pb->client) &&
-           (equalStringObjects(pa->pattern,pb->pattern));
-}
-
 /* Return the number of channels + patterns a client is subscribed to. */
 int clientSubscriptionsCount(client *c) {
     return dictSize(c->pubsub_channels)+
@@ -212,12 +198,8 @@ int pubsubSubscribePattern(client *c, robj *pattern) {
 
     if (listSearchKey(c->pubsub_patterns,pattern) == NULL) {
         retval = 1;
-        pubsubPattern *pat;
         listAddNodeTail(c->pubsub_patterns,pattern);
         incrRefCount(pattern);
-        pat = zmalloc(sizeof(*pat));
-        pat->pattern = getDecodedObject(pattern);
-        pat->client = c;
         /* Add the client to the pattern -> list of clients hash table */
         de = dictFind(server.pubsub_patterns,pattern);
         if (de == NULL) {
@@ -240,15 +222,12 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
     dictEntry *de;
     list *clients;
     listNode *ln;
-    pubsubPattern pat;
     int retval = 0;
 
     incrRefCount(pattern); /* Protect the object. May be the same we remove */
     if ((ln = listSearchKey(c->pubsub_patterns,pattern)) != NULL) {
         retval = 1;
         listDelNode(c->pubsub_patterns,ln);
-        pat.client = c;
-        pat.pattern = pattern;
         /* Remove the client from the pattern -> clients list hash table */
         de = dictFind(server.pubsub_patterns,pattern);
         serverAssertWithInfo(c,NULL,de != NULL);
