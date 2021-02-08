@@ -1608,7 +1608,7 @@ unsigned int ziplistRandomPairsUnique(unsigned char *zl, unsigned int count, zip
     while (picked < count && p) {
         double randomDouble = ((double)rand()) / RAND_MAX;
         double threshold = ((double)remaining) / (total_size - index);
-        if(randomDouble < threshold){
+        if (randomDouble <= threshold) {
             assert(ziplistGet(p, &key, &klen, &klval));
             ziplistSaveValue(key, klen, klval, &keys[picked]);
             p = ziplistNext(zl, p);
