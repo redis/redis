@@ -2126,7 +2126,7 @@ int clusterProcessPacket(clusterLink *link) {
         /* Don't bother creating useless objects if there are no
          * Pub/Sub subscribers. */
         if (dictSize(server.pubsub_channels) ||
-           listLength(server.pubsub_patterns))
+           dictSize(server.pubsub_patterns))
         {
             channel_len = ntohl(hdr->data.publish.msg.channel_len);
             message_len = ntohl(hdr->data.publish.msg.message_len);

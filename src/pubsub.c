@@ -218,12 +218,11 @@ int pubsubSubscribePattern(client *c, robj *pattern) {
         pat = zmalloc(sizeof(*pat));
         pat->pattern = getDecodedObject(pattern);
         pat->client = c;
-        listAddNodeTail(server.pubsub_patterns,pat);
         /* Add the client to the pattern -> list of clients hash table */
-        de = dictFind(server.pubsub_patterns_dict,pattern);
+        de = dictFind(server.pubsub_patterns,pattern);
         if (de == NULL) {
             clients = listCreate();
-            dictAdd(server.pubsub_patterns_dict,pattern,clients);
+            dictAdd(server.pubsub_patterns,pattern,clients);
             incrRefCount(pattern);
         } else {
             clients = dictGetVal(de);
@@ -250,10 +249,8 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
         listDelNode(c->pubsub_patterns,ln);
         pat.client = c;
         pat.pattern = pattern;
-        ln = listSearchKey(server.pubsub_patterns,&pat);
-        listDelNode(server.pubsub_patterns,ln);
         /* Remove the client from the pattern -> clients list hash table */
-        de = dictFind(server.pubsub_patterns_dict,pattern);
+        de = dictFind(server.pubsub_patterns,pattern);
         serverAssertWithInfo(c,NULL,de != NULL);
         clients = dictGetVal(de);
         ln = listSearchKey(clients,c);
@@ -262,7 +259,7 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
         if (listLength(clients) == 0) {
             /* Free the list and associated hash entry at all if this was
              * the latest client. */
-            dictDelete(server.pubsub_patterns_dict,pattern);
+            dictDelete(server.pubsub_patterns,pattern);
         }
     }
     /* Notify the client */
@@ -329,7 +326,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
         }
     }
     /* Send to clients listening to matching channels */
-    di = dictGetIterator(server.pubsub_patterns_dict);
+    di = dictGetIterator(server.pubsub_patterns);
     if (di) {
         channel = getDecodedObject(channel);
         while((de = dictNext(di)) != NULL) {
@@ -502,7 +499,7 @@ NULL
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"numpat") && c->argc == 2) {
         /* PUBSUB NUMPAT */
-        addReplyLongLong(c,listLength(server.pubsub_patterns));
+        addReplyLongLong(c,dictSize(server.pubsub_patterns));
     } else {
         addReplySubcommandSyntaxError(c);
     }
