@@ -588,11 +588,10 @@ sds catAppendOnlyExpireAtCommand(sds buf, struct redisCommand *cmd, robj *key, r
     }
     decrRefCount(seconds);
 
-    argv[0] = createStringObject("PEXPIREAT",9);
+    argv[0] = shared.pexpireat;
     argv[1] = key;
     argv[2] = createStringObjectFromLongLong(when);
     buf = catAppendOnlyGenericCommand(buf, 3, argv);
-    decrRefCount(argv[0]);
     decrRefCount(argv[2]);
     return buf;
 }

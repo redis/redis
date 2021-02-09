@@ -1328,19 +1328,19 @@ void streamPropagateXCLAIM(client *c, robj *key, streamCG *group, robj *groupnam
      * Note that JUSTID is useful in order to avoid that XCLAIM will do
      * useless work in the slave side, trying to fetch the stream item. */
     robj *argv[14];
-    argv[0] = createStringObject("XCLAIM",6);
+    argv[0] = shared.xclaim;
     argv[1] = key;
     argv[2] = groupname;
     argv[3] = createStringObject(nack->consumer->name,sdslen(nack->consumer->name));
-    argv[4] = createStringObjectFromLongLong(0);
+    argv[4] = shared.integers[0];
     argv[5] = id;
-    argv[6] = createStringObject("TIME",4);
+    argv[6] = shared.time;
     argv[7] = createStringObjectFromLongLong(nack->delivery_time);
-    argv[8] = createStringObject("RETRYCOUNT",10);
+    argv[8] = shared.retrycount;
     argv[9] = createStringObjectFromLongLong(nack->delivery_count);
-    argv[10] = createStringObject("FORCE",5);
-    argv[11] = createStringObject("JUSTID",6);
-    argv[12] = createStringObject("LASTID",6);
+    argv[10] = shared.force;
+    argv[11] = shared.justid;
+    argv[12] = shared.lastid;
     argv[13] = createObjectFromStreamID(&group->last_id);
 
     /* We use progagate() because this code path is not always called from
@@ -1348,16 +1348,9 @@ void streamPropagateXCLAIM(client *c, robj *key, streamCG *group, robj *groupnam
      * consumer group state, and we don't need MULTI/EXEC wrapping because
      * there is no message state cross-message atomicity required. */
     propagate(server.xclaimCommand,c->db->id,argv,14,PROPAGATE_AOF|PROPAGATE_REPL);
-    decrRefCount(argv[0]);
     decrRefCount(argv[3]);
-    decrRefCount(argv[4]);
-    decrRefCount(argv[6]);
     decrRefCount(argv[7]);
-    decrRefCount(argv[8]);
     decrRefCount(argv[9]);
-    decrRefCount(argv[10]);
-    decrRefCount(argv[11]);
-    decrRefCount(argv[12]);
     decrRefCount(argv[13]);
 }
 
@@ -1369,8 +1362,8 @@ void streamPropagateXCLAIM(client *c, robj *key, streamCG *group, robj *groupnam
  */
 void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupname) {
     robj *argv[5];
-    argv[0] = createStringObject("XGROUP",6);
-    argv[1] = createStringObject("SETID",5);
+    argv[0] = shared.xgroup;
+    argv[1] = shared.setid;
     argv[2] = key;
     argv[3] = groupname;
     argv[4] = createObjectFromStreamID(&group->last_id);
@@ -1380,8 +1373,6 @@ void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupna
      * consumer group state, and we don't need MULTI/EXEC wrapping because
      * there is no message state cross-message atomicity required. */
     propagate(server.xgroupCommand,c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
-    decrRefCount(argv[0]);
-    decrRefCount(argv[1]);
     decrRefCount(argv[4]);
 }
 
@@ -1393,8 +1384,8 @@ void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupna
  */
 void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds consumername) {
     robj *argv[5];
-    argv[0] = createStringObject("XGROUP",6);
-    argv[1] = createStringObject("CREATECONSUMER",14);
+    argv[0] = shared.xgroup;
+    argv[1] = shared.createconsumer;
     argv[2] = key;
     argv[3] = groupname;
     argv[4] = createObject(OBJ_STRING,sdsdup(consumername));
@@ -1404,8 +1395,6 @@ void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds 
      * consumer group state, and we don't need MULTI/EXEC wrapping because
      * there is no message state cross-message atomicity required. */
     propagate(server.xgroupCommand,c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
-    decrRefCount(argv[0]);
-    decrRefCount(argv[1]);
     decrRefCount(argv[4]);
 }
 
@@ -1725,9 +1714,7 @@ int streamParseIntervalIDOrReply(client *c, robj *o, streamID *id, int *exclude,
 }
 
 void streamRewriteApproxSpecifier(client *c, int idx) {
-    robj *equal_obj = createStringObject("=",1);
-    rewriteClientCommandArgument(c,idx,equal_obj);
-    decrRefCount(equal_obj);
+    rewriteClientCommandArgument(c,idx,shared.special_equals);
 }
 
 /* We propagate MAXLEN/MINID ~ <count> as MAXLEN/MINID = <resulting-len-of-stream>

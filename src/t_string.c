@@ -631,7 +631,7 @@ void decrbyCommand(client *c) {
 
 void incrbyfloatCommand(client *c) {
     long double incr, value;
-    robj *o, *new, *aux;
+    robj *o, *new;
 
     o = lookupKeyWrite(c->db,c->argv[1]);
     if (checkType(c,o,OBJ_STRING)) return;
@@ -659,9 +659,7 @@ void incrbyfloatCommand(client *c) {
      * will not create differences in replicas or after an AOF restart. */
     rewriteClientCommandArgument(c,0,shared.set);
     rewriteClientCommandArgument(c,2,new);
-    aux = createStringObject("KEEPTTL",7);
-    rewriteClientCommandArgument(c,3,aux);
-    decrRefCount(aux);
+    rewriteClientCommandArgument(c,3,shared.keepttl);
 }
 
 void appendCommand(client *c) {

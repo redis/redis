@@ -3333,10 +3333,9 @@ void replicationCron(void) {
             checkClientPauseTimeoutAndReturnIfPaused();
 
         if (!manual_failover_in_progress) {
-            ping_argv[0] = createStringObject("PING",4);
+            ping_argv[0] = shared.ping;
             replicationFeedSlaves(server.slaves, server.slaveseldb,
                 ping_argv, 1);
-            decrRefCount(ping_argv[0]);
         }
     }
 

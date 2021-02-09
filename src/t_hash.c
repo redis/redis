@@ -759,11 +759,9 @@ void hincrbyfloatCommand(client *c) {
     /* Always replicate HINCRBYFLOAT as an HSET command with the final value
      * in order to make sure that differences in float precision or formatting
      * will not create differences in replicas or after an AOF restart. */
-    robj *aux, *newobj;
-    aux = createStringObject("HSET",4);
+    robj *newobj;
     newobj = createRawStringObject(buf,len);
-    rewriteClientCommandArgument(c,0,aux);
-    decrRefCount(aux);
+    rewriteClientCommandArgument(c,0,shared.hset);
     rewriteClientCommandArgument(c,3,newobj);
     decrRefCount(newobj);
 }

@@ -1668,12 +1668,11 @@ void evalGenericCommand(client *c, int evalsha) {
              * or just running a CPU costly read-only script on the slaves. */
             if (server.dirty == initial_server_dirty) {
                 rewriteClientCommandVector(c,3,
-                    resetRefCount(createStringObject("SCRIPT",6)),
-                    resetRefCount(createStringObject("LOAD",4)),
+                    shared.script,
+                    shared.load,
                     script);
             } else {
-                rewriteClientCommandArgument(c,0,
-                    resetRefCount(createStringObject("EVAL",4)));
+                rewriteClientCommandArgument(c,0,shared.eval);
                 rewriteClientCommandArgument(c,1,script);
             }
             forceCommandPropagation(c,PROPAGATE_REPL|PROPAGATE_AOF);
