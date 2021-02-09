@@ -1793,10 +1793,11 @@ void readSyncBulkPayload(connection *conn) {
     /* Final setup of the connected slave <- master link */
     replicationCreateMasterClient(rsi.repl_stream_db);
     if (prepareClientForReading(server.master,server.repl_transfer_s) == C_ERR) {
-        serverLog(LL_WARNING,"Failed registering replication client for reading.");
-        cancelReplicationHandshake(1);
+        serverLog(LL_WARNING,"Failed registering read handler for master client: %s",
+            connGetLastError(server.repl_transfer_s));
         zfree(server.master);
         server.master = NULL;
+        cancelReplicationHandshake(1);
         return;
     }
 
