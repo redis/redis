@@ -24,7 +24,6 @@ proc get_parent_pid {_pid} {
 # Linux only
 set os [exec uname]
 if {$os != "Linux"} {
-    puts "Only Linux is supported."
     exit 0
 }
 
