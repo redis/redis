@@ -5,7 +5,6 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <time.h>
-#include "assert.h"
 
 #define UNUSED(x) (void)(x)
 
@@ -22,7 +21,7 @@ int HelloBlock_Timeout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     UNUSED(argv);
     UNUSED(argc);
     RedisModuleBlockedClient *bc = RedisModule_GetBlockedClientHandle(ctx);
-    assert(RedisModule_BlockedClientMeasureTimeEnd(bc)==REDISMODULE_OK);
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
     return RedisModule_ReplyWithSimpleString(ctx,"Request timedout");
 }
 
@@ -40,7 +39,7 @@ void *BlockDebug_ThreadMain(void *arg) {
     long long delay = (unsigned long)targ[1];
     long long enable_time_track = (unsigned long)targ[2];
     if (enable_time_track)
-        assert(RedisModule_BlockedClientMeasureTimeStart(bc)==REDISMODULE_OK);
+        RedisModule_BlockedClientMeasureTimeStart(bc);
     RedisModule_Free(targ);
 
     struct timespec ts;
@@ -50,7 +49,7 @@ void *BlockDebug_ThreadMain(void *arg) {
     int *r = RedisModule_Alloc(sizeof(int));
     *r = rand();
     if (enable_time_track)
-        assert(RedisModule_BlockedClientMeasureTimeEnd(bc)==REDISMODULE_OK);
+        RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc,r);
     return NULL;
 }
@@ -61,7 +60,7 @@ void *DoubleBlock_ThreadMain(void *arg) {
     void **targ = arg;
     RedisModuleBlockedClient *bc = targ[0];
     long long delay = (unsigned long)targ[1];
-    assert(RedisModule_BlockedClientMeasureTimeStart(bc)==REDISMODULE_OK);
+    RedisModule_BlockedClientMeasureTimeStart(bc);
     RedisModule_Free(targ);
     struct timespec ts;
     ts.tv_sec = delay / 1000;
@@ -73,7 +72,7 @@ void *DoubleBlock_ThreadMain(void *arg) {
     /* call again RedisModule_BlockedClientMeasureTimeStart() and
      * RedisModule_BlockedClientMeasureTimeEnd and ensure that the
      * total execution time is 2x the delay. */
-    assert(RedisModule_BlockedClientMeasureTimeStart(bc)==REDISMODULE_OK);
+    RedisModule_BlockedClientMeasureTimeStart(bc);
     nanosleep(&ts, NULL);
     RedisModule_BlockedClientMeasureTimeEnd(bc);
 

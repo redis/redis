@@ -5122,6 +5122,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->dbid = c->db->id;
     bc->blocked_on_keys = keys != NULL;
     bc->unblocked = 0;
+    bc->background_timer = 0;
     bc->background_duration = 0;
     c->bpop.timeout = timeout;
 
