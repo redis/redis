@@ -1929,13 +1929,20 @@ static int confirmWithYes(char *msg, int ignore_force) {
 
 /* Turn the plain C strings into Sds strings */
 static char **convertToSds(int count, char** args) {
-  int j;
-  char **sds = zmalloc(sizeof(char*)*count);
+    int j;
+    char **sds = zmalloc(sizeof(char*)*count);
 
-  for(j = 0; j < count; j++)
-    sds[j] = sdsnew(args[j]);
+    for(j = 0; j < count; j++)
+        sds[j] = sdsnew(args[j]);
 
-  return sds;
+    return sds;
+}
+
+static void freeConvertedSds(int count, char **sds) {
+    int j;
+    for (j = 0; j < count; j++)
+        sdsfree(sds[j]);
+    zfree(sds);
 }
 
 static int issueCommandRepeat(int argc, char **argv, long repeat) {
@@ -2168,13 +2175,17 @@ static void repl(void) {
 
 static int noninteractive(int argc, char **argv) {
     int retval = 0;
+
+    argv = convertToSds(argc, argv);
     if (config.stdinarg) {
         argv = zrealloc(argv, (argc+1)*sizeof(char*));
         argv[argc] = readArgFromStdin();
         retval = issueCommand(argc+1, argv);
+        sdsfree(argv[argc]);
     } else {
         retval = issueCommand(argc, argv);
     }
+    freeConvertedSds(argc, argv);
     return retval;
 }
 
@@ -8331,6 +8342,6 @@ int main(int argc, char **argv) {
     if (config.eval) {
         return evalMode(argc,argv);
     } else {
-        return noninteractive(argc,convertToSds(argc,argv));
+        return noninteractive(argc,argv);
     }
 }
