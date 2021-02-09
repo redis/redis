@@ -215,7 +215,7 @@ int canFeedReplicaReplBuffer(client *replica) {
  * the commands received by our clients in order to create the replication
  * stream. Instead if the instance is a slave and has sub-slaves attached,
  * we use replicationFeedSlavesFromMasterStream() */
-void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
+void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc, int out_of_repl) {
     listNode *ln;
     listIter li;
     int j, len;
@@ -225,8 +225,13 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
      * the stream of data we receive from our master instead, in order to
      * propagate *identical* replication stream. In this way this slave can
      * advertise the same replication ID as the master (since it shares the
-     * master replication history and has the same backlog and offsets). */
-    if (server.masterhost != NULL) return;
+     * master replication history and has the same backlog and offsets).
+     *
+     * Unless it is out of replication, it means these data would not affect
+     * backlog and offsets. Because the replica do not proxy PINGs received
+     * from master to sub-replicas to keep alive, so replica need send PINGs
+     * in replicationCron by itself to keep alive. */
+    if (server.masterhost != NULL && !out_of_repl) return;
 
     /* If there aren't slaves, and there is no backlog buffer to populate,
      * we can return ASAP. */
@@ -253,7 +258,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         }
 
         /* Add the SELECT command into the backlog. */
-        if (server.repl_backlog) feedReplicationBacklogWithObject(selectcmd);
+        if (server.repl_backlog && !out_of_repl) feedReplicationBacklogWithObject(selectcmd);
 
         /* Send it to slaves. */
         listRewind(slaves,&li);
@@ -270,7 +275,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     server.slaveseldb = dictid;
 
     /* Write the command to the replication backlog if any. */
-    if (server.repl_backlog) {
+    if (server.repl_backlog && !out_of_repl) {
         char aux[LONG_STR_SIZE+3];
 
         /* Add the multi bulk reply length. */
@@ -721,6 +726,11 @@ void syncCommand(client *c) {
     /* ignore SYNC if already slave or in monitor mode */
     if (c->flags & CLIENT_SLAVE) return;
 
+    if (!(c->slave_capa & SLAVE_CAPA_PING_OOB)) {
+        addReplyError(c,"replica should support PING out-of-band");
+        return;
+    }
+
     /* Check if this is a failover request to a replica with the same replid and
      * become a master if so. */
     if (c->argc > 3 && !strcasecmp(c->argv[0]->ptr,"psync") && 
@@ -939,6 +949,8 @@ void replconfCommand(client *c) {
                 c->slave_capa |= SLAVE_CAPA_EOF;
             else if (!strcasecmp(c->argv[j+1]->ptr,"psync2"))
                 c->slave_capa |= SLAVE_CAPA_PSYNC2;
+            else if (!strcasecmp(c->argv[j+1]->ptr,"ping-out-of-band"))
+                c->slave_capa |= SLAVE_CAPA_PING_OOB;
         } else if (!strcasecmp(c->argv[j]->ptr,"ack")) {
             /* REPLCONF ACK is used by slave to inform the master the amount
              * of replication stream that it processed so far. It is an
@@ -2316,7 +2328,7 @@ void syncWithMaster(connection *conn) {
          *
          * The master will ignore capabilities it does not understand. */
         err = sendCommand(conn,"REPLCONF",
-                "capa","eof","capa","psync2",NULL);
+                "capa","eof","capa","psync2","capa","ping-out-of-band",NULL);
         if (err) goto write_error;
 
         server.repl_state = REPL_STATE_RECEIVE_AUTH_REPLY;
@@ -3335,7 +3347,7 @@ void replicationCron(void) {
         if (!manual_failover_in_progress) {
             ping_argv[0] = createStringObject("PING",4);
             replicationFeedSlaves(server.slaves, server.slaveseldb,
-                ping_argv, 1);
+                ping_argv, 1, 1);
             decrRefCount(ping_argv[0]);
         }
     }

@@ -1949,8 +1949,17 @@ int processMultibulkBuffer(client *c) {
 void commandProcessed(client *c) {
     long long prev_offset = c->reploff;
     if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
-        /* Update the applied replication offset of our master. */
-        c->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
+        long long next_offset = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
+        long long applied = next_offset - prev_offset;
+        /* If the command is marked as out-of-replication, just make it
+         * out-of-band from replication stream. */
+        if (c->cmd && c->cmd->flags & CMD_OUT_OF_REPL) {
+            sdsrange(c->pending_querybuf,applied,-1);
+            c->read_reploff -= applied;
+        } else {
+            /* Update the applied replication offset of our master. */
+            c->reploff = next_offset;
+        }
     }
 
     /* Don't reset the client structure for clients blocked in a
