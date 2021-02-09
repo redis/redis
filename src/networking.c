@@ -128,6 +128,7 @@ int prepareClientForReading(client *c, connection *conn) {
  * connection object. */
 client *createClient() {
     client *c = zmalloc(sizeof(client));
+    c->conn = NULL;
 
     selectDb(c,0);
     uint64_t client_id;
