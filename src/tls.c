@@ -555,9 +555,9 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
                     if (!handleSSLReturnCode(conn, ret, &want)) {
                         if (registerSSLEvent(conn, want) == C_OK) {
                             /* Avoid hitting UpdateSSLEvent, which knows nothing
-                            * of what SSL_connect() wants and instead looks at our
-                            * R/W handlers.
-                            */
+                             * of what SSL_connect() wants and instead looks at our
+                             * R/W handlers.
+                             */
                             return;
                         }
                     }
