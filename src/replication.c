@@ -2148,7 +2148,8 @@ void syncWithMaster(connection *conn) {
         /* Delete the writable event so that the readable event remains
          * registered and we can wait for the PONG reply. */
         if (connSetReadHandler(conn, syncWithMaster) == C_ERR) {
-            serverLog(LL_NOTICE,"Failed to register read handler for reading from master.");
+            serverLog(LL_NOTICE,"Failed to register read handler for reading "
+                "from master: %s.", connGetLastError(conn));
             goto error;
         }
         connSetWriteHandler(conn, NULL);
