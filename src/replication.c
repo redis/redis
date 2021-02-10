@@ -1795,7 +1795,7 @@ void readSyncBulkPayload(connection *conn) {
     if (prepareClientForReading(server.master,server.repl_transfer_s) == C_ERR) {
         serverLog(LL_WARNING,"Failed registering read handler for master client: %s",
             connGetLastError(server.repl_transfer_s));
-        zfree(server.master);
+        freeClient(server.master);
         server.master = NULL;
         cancelReplicationHandshake(1);
         return;

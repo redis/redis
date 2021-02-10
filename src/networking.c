@@ -1021,7 +1021,7 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
             connGetLastError(conn),
             connGetInfo(conn, conninfo, sizeof(conninfo)));
         connClose(conn); /* May be already closed, just ignore errors */
-        zfree(c);
+        freeClient(c);
         return;
     }
 
