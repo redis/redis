@@ -2077,13 +2077,13 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
      */
     line = sdscatprintf(sdsempty(), "sentinel resolve-hostnames %s",
                         sentinel.resolve_hostnames ? "yes" : "no");
-    rewriteConfigRewriteLine(state,"sentinel",line,
+    rewriteConfigRewriteLine(state,"sentinel resolve-hostnames",line,
                              sentinel.resolve_hostnames != SENTINEL_DEFAULT_RESOLVE_HOSTNAMES);
 
     /* sentinel announce-hostnames. */
     line = sdscatprintf(sdsempty(), "sentinel announce-hostnames %s",
                         sentinel.announce_hostnames ? "yes" : "no");
-    rewriteConfigRewriteLine(state,"sentinel",line,
+    rewriteConfigRewriteLine(state,"sentinel announce-hostnames",line,
                              sentinel.announce_hostnames != SENTINEL_DEFAULT_ANNOUNCE_HOSTNAMES);
 
     /* For every master emit a "sentinel monitor" config entry. */
