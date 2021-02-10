@@ -36,12 +36,14 @@ test "(init) Sentinels can start monitoring a master" {
               [get_instance_attrib redis $master_id host] \
               [get_instance_attrib redis $master_id port] $quorum
     }
+    set os [exec uname]
     foreach_sentinel_id id {
         assert {[S $id sentinel master mymaster] ne {}}
         S $id SENTINEL SET mymaster down-after-milliseconds 2000
         S $id SENTINEL SET mymaster failover-timeout 20000
         S $id SENTINEL SET mymaster parallel-syncs 10
-        if {$::leaked_fds_file != ""} {
+        # Linux is the only supported platform for now.
+        if {$::leaked_fds_file != "" && $os == "Linux"} {
             S $id SENTINEL SET mymaster notification-script ../../tests/helpers/check_leaked_fds.tcl
             S $id SENTINEL SET mymaster client-reconfig-script ../../tests/helpers/check_leaked_fds.tcl
         }

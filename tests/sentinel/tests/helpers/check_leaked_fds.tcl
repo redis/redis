@@ -21,12 +21,6 @@ proc get_parent_pid {_pid} {
     error "failed to get parent pid"
 }
 
-# Linux only
-set os [exec uname]
-if {$os != "Linux"} {
-    exit 0
-}
-
 if {![info exists env(LEAKED_FDS_FILE)]} {
     puts "Missing LEAKED_FDS_FILE environment variable."
     exit 0
