@@ -542,12 +542,6 @@ void loadServerConfigFromString(char *config) {
             } else if (argc == 2 && !strcasecmp(argv[1],"")) {
                 resetServerSaveParams();
             }
-        } else if (!strcasecmp(argv[0],"dir") && argc == 2) {
-            if (chdir(argv[1]) == -1) {
-                err = sdscatprintf(sdsempty(), "Can't chdir to '%s': %s",
-                                   argv[1], strerror(errno));
-                goto loaderr;
-            }
         } else if (!strcasecmp(argv[0],"include") && argc == 2) {
             loadServerConfig(argv[1], 0, NULL);
         } else if ((!strcasecmp(argv[0],"slaveof") ||
@@ -864,11 +858,6 @@ void configSetCommand(client *c) {
             appendServerSaveParams(seconds, changes);
         }
         sdsfreesplitres(v,vlen);
-    } config_set_special_field("dir") {
-        if (chdir((char*)o->ptr) == -1) {
-            addReplyErrorFormat(c,"Changing directory: %s", strerror(errno));
-            return;
-        }
     } config_set_special_field("client-output-buffer-limit") {
         int vlen;
         sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
@@ -983,16 +972,6 @@ void configGetCommand(client *c) {
 
     /* Everything we can't handle with macros follows. */
 
-    if (stringmatch(pattern,"dir",1)) {
-        char buf[1024];
-
-        if (getcwd(buf,sizeof(buf)) == NULL)
-            buf[0] = '\0';
-
-        addReplyBulkCString(c,"dir");
-        addReplyBulkCString(c,buf);
-        matches++;
-    }
     if (stringmatch(pattern,"save",1)) {
         sds buf = sdsempty();
         int j;
@@ -1478,14 +1457,15 @@ void rewriteConfigUserOption(struct rewriteConfigState *state) {
 }
 
 /* Rewrite the dir option, always using absolute paths.*/
-void rewriteConfigDirOption(struct rewriteConfigState *state) {
+void rewriteConfigDirOption(typeData data, const char *name, struct rewriteConfigState *state) {
+    UNUSED(data);
     char cwd[1024];
 
     if (getcwd(cwd,sizeof(cwd)) == NULL) {
-        rewriteConfigMarkAsProcessed(state,"dir");
+        rewriteConfigMarkAsProcessed(state,name);
         return; /* no rewrite on error. */
     }
-    rewriteConfigStringOption(state,"dir",cwd,NULL);
+    rewriteConfigStringOption(state,name,cwd,NULL);
 }
 
 /* Rewrite the slaveof option. */
@@ -1808,7 +1788,6 @@ int rewriteConfig(char *path, int force_write) {
     rewriteConfigBindOption(state);
     rewriteConfigSaveOption(state);
     rewriteConfigUserOption(state);
-    rewriteConfigDirOption(state);
     rewriteConfigSlaveofOption(state,"replicaof");
     rewriteConfigNotifykeyspaceeventsOption(state);
     rewriteConfigClientoutputbufferlimitOption(state);
@@ -2635,6 +2614,35 @@ static void getConfigRequirepassOption(client *c, typeData data) {
     }
 }
 
+static int setConfigDirOption(typeData data, sds *argv, int argc, int update, const char **err) {
+    UNUSED(data);
+    if (argc != 1) {
+        *err = "wrong number of arguments";
+        return 0;
+    }
+    if (chdir(argv[0]) == -1) {
+        if (update) {
+            *err = sdscatprintf(sdsempty(),"Changing directory: %s", strerror(errno));
+            return 0;
+        }
+
+        serverLog(LL_WARNING,"Can't chdir to '%s': %s",
+                  argv[0], strerror(errno));
+        exit(1);
+    }
+    return 1;
+}
+
+static void getConfigDirOption(client *c, typeData data) {
+    UNUSED(data);
+    char buf[1024];
+
+    if (getcwd(buf,sizeof(buf)) == NULL)
+        buf[0] = '\0';
+
+    addReplyBulkCString(c,buf);
+}
+
 standardConfig configs[] = {
     /* Bool configs */
     createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),
@@ -2816,6 +2824,7 @@ standardConfig configs[] = {
 
     /* Special configs */
     createSpecialConfig("requirepass", NULL, MODIFIABLE_CONFIG, setConfigRequirepassOption, getConfigRequirepassOption, rewriteConfigRequirepassOption),
+    createSpecialConfig("dir", NULL, MODIFIABLE_CONFIG, setConfigDirOption, getConfigDirOption, rewriteConfigDirOption),
 
     /* NULL Terminator */
     {NULL}
