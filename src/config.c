@@ -764,12 +764,6 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
         if (max != LLONG_MAX && ll > max) goto badfmt; \
         _var = ll;
 
-#define config_set_memory_field(_name,_var) \
-    } else if (!strcasecmp(c->argv[2]->ptr,_name)) { \
-        ll = memtoull(o->ptr,&err); \
-        if (err) goto badfmt; \
-        _var = ll;
-
 #define config_set_special_field(_name) \
     } else if (!strcasecmp(c->argv[2]->ptr,_name)) {
 
@@ -2643,6 +2637,28 @@ static void getConfigDirOption(client *c, typeData data) {
     addReplyBulkCString(c,buf);
 }
 
+static int setConfigClientQueryBufferLimitOption(typeData data, sds *argv, int argc, int update, const char **err) {
+    UNUSED(data);
+    if (argc != 1) {
+        *err = "wrong number of arguments";
+        return 0;
+    }
+    int failed;
+    long long ll = memtoll(argv[0],&failed);
+    if (update && (failed || ll < 0))
+        return 0;
+
+    server.client_max_querybuf_len = ll;
+    return 1;
+}
+
+static void getConfigClientQueryBufferLimitOption(client *c, typeData data) {
+    UNUSED(data);
+    char buf[128];
+    ll2string(buf,sizeof(buf),server.client_max_querybuf_len);
+    addReplyBulkCString(c,buf);
+}
+
 standardConfig configs[] = {
     /* Bool configs */
     createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),
@@ -2825,6 +2841,7 @@ standardConfig configs[] = {
     /* Special configs */
     createSpecialConfig("requirepass", NULL, MODIFIABLE_CONFIG, setConfigRequirepassOption, getConfigRequirepassOption, rewriteConfigRequirepassOption),
     createSpecialConfig("dir", NULL, MODIFIABLE_CONFIG, setConfigDirOption, getConfigDirOption, rewriteConfigDirOption),
+    createSpecialConfig("client-query-buffer-limit", NULL, MODIFIABLE_CONFIG, setConfigClientQueryBufferLimitOption, getConfigClientQueryBufferLimitOption, rewriteConfigClientQueryBufferLimitOption),
 
     /* NULL Terminator */
     {NULL}
