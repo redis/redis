@@ -2142,6 +2142,10 @@ static void repl(void) {
                 } else if (argc == 1 && !strcasecmp(argv[0],"clear")) {
                     linenoiseClearScreen();
                 } else {
+                    if (!strcasecmp(argv[0],"flushall")) {
+                        char *flush_prompt = linenoise("Confirm you want to flush your db? (y/N) ");
+                        if (strcasecmp(flush_prompt,"y") != 0) continue;
+                    }
                     long long start_time = mstime(), elapsed;
 
                     issueCommandRepeat(argc-skipargs, argv+skipargs, repeat);
