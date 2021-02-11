@@ -652,7 +652,6 @@ const char *announceSentinelAddr(const sentinelAddr *a) {
 /* Return an allocated sds with hostname/address:port. IPv6
  * addresses are bracketed the same way anetFormatAddr() does.
  */
-
 sds announceSentinelAddrAndPort(const sentinelAddr *a) {
     const char *addr = announceSentinelAddr(a);
     if (strchr(addr, ':') != NULL)
