@@ -324,7 +324,6 @@ void lindexCommand(client *c) {
     robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
     long index;
-    robj *value = NULL;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != C_OK))
         return;
@@ -333,12 +332,10 @@ void lindexCommand(client *c) {
         quicklistEntry entry;
         if (quicklistIndex(o->ptr, index, &entry)) {
             if (entry.value) {
-                value = createStringObject((char*)entry.value,entry.sz);
+                addReplyBulkCBuffer(c, entry.value, entry.sz);
             } else {
-                value = createStringObjectFromLongLong(entry.longval);
+                addReplyBulkLongLong(c, entry.longval);
             }
-            addReplyBulk(c,value);
-            decrRefCount(value);
         } else {
             addReplyNull(c);
         }
