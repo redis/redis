@@ -1265,6 +1265,42 @@ unsigned char *ziplistDeleteRange(unsigned char *zl, int index, unsigned int num
     return (p == NULL) ? zl : __ziplistDelete(zl,p,num);
 }
 
+/* Replaces the entry at p. This is equivalent to a delete and an insert,
+ * but avoids some overhead when replacing a value of the same size. */
+unsigned char *ziplistReplace(unsigned char *zl, unsigned char *p, unsigned char *s, unsigned int slen) {
+
+    /* get metadata of the current entry */
+    zlentry entry;
+    zipEntry(p, &entry);
+
+    /* compute length of entry to store, excluding prevlen */
+    unsigned int reqlen;
+    unsigned char encoding = 0;
+    long long value = 123456789; /* initialized to avoid warning. */
+    if (zipTryEncoding(s,slen,&value,&encoding)) {
+        reqlen = zipIntSize(encoding); /* encoding is set */
+    } else {
+        reqlen = slen; /* encoding == 0 */
+    }
+    reqlen += zipStoreEntryEncoding(NULL,encoding,slen);
+
+    if (reqlen == entry.lensize + entry.len) {
+        /* Simply overwrite the element. */
+        p += entry.prevrawlensize;
+        p += zipStoreEntryEncoding(p,encoding,slen);
+        if (ZIP_IS_STR(encoding)) {
+            memcpy(p,s,slen);
+        } else {
+            zipSaveInteger(p,value,encoding);
+        }
+    } else {
+        /* Fallback. */
+        zl = ziplistDelete(zl,&p);
+        zl = ziplistInsert(zl,p,s,slen);
+    }
+    return zl;
+}
+
 /* Compare entry pointer to by 'p' with 'sstr' of length 'slen'. */
 /* Return 1 if equal. */
 unsigned int ziplistCompare(unsigned char *p, unsigned char *sstr, unsigned int slen) {
@@ -2068,6 +2104,41 @@ int ziplistTest(int argc, char **argv) {
         printf("\n");
         ziplistRepr(zl);
         zfree(zl);
+    }
+
+    printf("Replace with same size:\n");
+    {
+        zl = createList(); /* "hello", "foo", "quux", "1024" */
+        unsigned char *orig_zl = zl;
+        p = ziplistIndex(zl, 0);
+        zl = ziplistReplace(zl, p, (unsigned char*)"zoink", 5);
+        p = ziplistIndex(zl, 3);
+        zl = ziplistReplace(zl, p, (unsigned char*)"yy", 2);
+        p = ziplistIndex(zl, 1);
+        zl = ziplistReplace(zl, p, (unsigned char*)"65536", 5);
+        p = ziplistIndex(zl, 0);
+        assert(!memcmp((char*)p,
+                       "\x00\x05zoink"
+                       "\x07\xf0\x00\x00\x01" /* 65536 as int24 */
+                       "\x05\x04quux" "\x06\x02yy" "\xff",
+                       23));
+        assert(zl == orig_zl); /* no reallocations have happened */
+        zfree(zl);
+        printf("SUCCESS\n\n");
+    }
+
+    printf("Replace with different size:\n");
+    {
+        zl = createList(); /* "hello", "foo", "quux", "1024" */
+        p = ziplistIndex(zl, 1);
+        zl = ziplistReplace(zl, p, (unsigned char*)"squirrel", 8);
+        p = ziplistIndex(zl, 0);
+        assert(!strncmp((char*)p,
+                        "\x00\x05hello" "\x07\x08squirrel" "\x0a\x04quux"
+                        "\x06\xc0\x00\x04" "\xff",
+                        28));
+        zfree(zl);
+        printf("SUCCESS\n\n");
     }
 
     printf("Regression test for >255 byte strings:\n");
