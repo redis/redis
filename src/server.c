@@ -5595,8 +5595,11 @@ void sendChildInfo(childInfoType info_type, size_t keys, char *pname) {
             pname, data.cow/(1024*1024));
     }
 
-    write(server.child_info_pipe[1], &data, sizeof(data));
-    /* Nothing to do on write error, this will be detected by the other side. */
+    ssize_t wlen = sizeof(data);
+
+    if (write(server.child_info_pipe[1], &data, wlen) != wlen) {
+        /* Nothing to do on error, this will be detected by the other side. */
+    }
 }
 
 void memtest(size_t megabytes, int passes);
