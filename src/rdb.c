@@ -1274,11 +1274,10 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
             /* Update child info every 1 second (approximately).
              * in order to avoid calling mstime() on each iteration, we will
              * check the diff every 1024 keys */
-            if ((key_count++ % 1024) == 0) {
+            if ((key_count++ & 1023) == 0) {
                 long long now = mstime();
                 if (now - info_updated_time >= 1000) {
-                    sendChildInfo(CHILD_INFO_TYPE_CURRENT_KEYS_PROCESSED, key_count);
-                    sendChildCOWInfo(CHILD_INFO_TYPE_CURRENT_COW_SIZE, pname);
+                    sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, key_count, pname);
                     info_updated_time = now;
                 }
             }
@@ -1434,7 +1433,7 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
         redisSetCpuAffinity(server.bgsave_cpulist);
         retval = rdbSave(filename,rsi);
         if (retval == C_OK) {
-            sendChildCOWInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, "RDB");
+            sendChildInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, 0, "RDB");
         }
         exitFromChild((retval == C_OK) ? 0 : 1);
     } else {
@@ -1446,7 +1445,6 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
             return C_ERR;
         }
         serverLog(LL_NOTICE,"Background saving started by pid %ld",(long) childpid);
-        server.stat_keys_on_bgsave_start = dbTotalServerKeyCount();
         server.rdb_save_time_start = time(NULL);
         server.rdb_child_type = RDB_CHILD_TYPE_DISK;
         return C_OK;
@@ -2802,7 +2800,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
             retval = C_ERR;
 
         if (retval == C_OK) {
-            sendChildCOWInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, "RDB");
+            sendChildInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, 0, "RDB");
         }
 
         rioFreeFd(&rdb);
@@ -2842,7 +2840,6 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
                 (long) childpid);
             server.rdb_save_time_start = time(NULL);
             server.rdb_child_type = RDB_CHILD_TYPE_SOCKET;
-            server.stat_keys_on_bgsave_start = dbTotalServerKeyCount();
             close(rdb_pipe_write); /* close write in parent so that it can detect the close on the child. */
             if (aeCreateFileEvent(server.el, server.rdb_pipe_read, AE_READABLE, rdbPipeReadHandler,NULL) == AE_ERR) {
                 serverPanic("Unrecoverable error creating server.rdb_pipe_read file event.");

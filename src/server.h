@@ -1130,8 +1130,7 @@ struct clusterState;
 #define CHILD_TYPE_MODULE 4
 
 typedef enum childInfoType {
-    CHILD_INFO_TYPE_CURRENT_KEYS_PROCESSED,
-    CHILD_INFO_TYPE_CURRENT_COW_SIZE,
+    CHILD_INFO_TYPE_CURRENT_INFO,
     CHILD_INFO_TYPE_AOF_COW_SIZE,
     CHILD_INFO_TYPE_RDB_COW_SIZE,
     CHILD_INFO_TYPE_MODULE_COW_SIZE
@@ -1265,8 +1264,8 @@ struct redisServer {
     redisAtomic long long stat_net_input_bytes; /* Bytes read from network. */
     redisAtomic long long stat_net_output_bytes; /* Bytes written to network. */
     size_t stat_current_cow_bytes;  /* Copy on write bytes while child is active. */
-    size_t stat_current_processed_keys;  /* Processed keys while child is active. */
-    size_t stat_keys_on_bgsave_start;  /* Number of keys when child started. */
+    size_t stat_current_save_keys_processed;  /* Processed keys while child is active. */
+    size_t stat_current_save_keys_total;  /* Number of keys when child started. */
     size_t stat_rdb_cow_bytes;      /* Copy on write bytes during RDB saving. */
     size_t stat_aof_cow_bytes;      /* Copy on write bytes during AOF rewrite. */
     size_t stat_module_cow_bytes;   /* Copy on write bytes during module fork. */
@@ -1686,6 +1685,12 @@ typedef struct {
     dictEntry *de;
 } hashTypeIterator;
 
+typedef struct {
+    size_t keys;
+    size_t cow;
+    childInfoType information_type; /* Type of information */
+} child_info_data;
+
 #include "stream.h"  /* Stream data type header file. */
 
 #define OBJ_HASH_KEY 1
@@ -2042,7 +2047,7 @@ void restartAOFAfterSYNC();
 /* Child info */
 void openChildInfoPipe(void);
 void closeChildInfoPipe(void);
-void sendChildInfo(int information_type, size_t cow_size);
+void sendChildInfo(childInfoType info_type, size_t keys, char *pname);
 void receiveChildInfo(void);
 
 /* Fork helpers */
@@ -2050,7 +2055,6 @@ int redisFork(int type);
 int hasActiveChildProcess();
 void resetChildState();
 int isMutuallyExclusiveChildType(int type);
-void sendChildCOWInfo(int ptype, char *pname);
 
 /* acl.c -- Authentication related prototypes. */
 extern rax *Users;

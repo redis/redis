@@ -1598,8 +1598,8 @@ void resetChildState() {
     server.child_type = CHILD_TYPE_NONE;
     server.child_pid = -1;
     server.stat_current_cow_bytes = 0;
-    server.stat_current_processed_keys = 0;
-    server.stat_keys_on_bgsave_start = 0;
+    server.stat_current_save_keys_processed = 0;
+    server.stat_current_save_keys_total = 0;
     updateDictResizePolicy();
     closeChildInfoPipe();
 }
@@ -3169,8 +3169,8 @@ void initServer(void) {
     server.stat_starttime = time(NULL);
     server.stat_peak_memory = 0;
     server.stat_current_cow_bytes = 0;
-    server.stat_current_processed_keys = 0;
-    server.stat_keys_on_bgsave_start = 0;
+    server.stat_current_save_keys_processed = 0;
+    server.stat_current_save_keys_total = 0;
     server.stat_rdb_cow_bytes = 0;
     server.stat_aof_cow_bytes = 0;
     server.stat_module_cow_bytes = 0;
@@ -4685,8 +4685,8 @@ sds genRedisInfoString(const char *section) {
             "# Persistence\r\n"
             "loading:%d\r\n"
             "current_cow_size:%zu\r\n"
-            "current_processed_keys:%zu\r\n"
-            "keys_on_bgsave_start:%zu\r\n"
+            "current_save_keys_processed:%zu\r\n"
+            "current_save_keys_total:%zu\r\n"
             "rdb_changes_since_last_save:%lld\r\n"
             "rdb_bgsave_in_progress:%d\r\n"
             "rdb_last_save_time:%jd\r\n"
@@ -4706,8 +4706,8 @@ sds genRedisInfoString(const char *section) {
             "module_fork_last_cow_size:%zu\r\n",
             (int)server.loading,
             server.stat_current_cow_bytes,
-            server.stat_current_processed_keys,
-            server.stat_keys_on_bgsave_start,
+            server.stat_current_save_keys_processed,
+            server.stat_current_save_keys_total,
             server.dirty,
             server.child_type == CHILD_TYPE_RDB,
             (intmax_t)server.lastsave,
@@ -5572,8 +5572,8 @@ int redisFork(int purpose) {
             server.child_pid = childpid;
             server.child_type = purpose;
             server.stat_current_cow_bytes = 0;
-            server.stat_current_processed_keys = 0;
-            server.stat_keys_on_bgsave_start = 0;
+            server.stat_current_save_keys_processed = 0;
+            server.stat_current_save_keys_total = dbTotalServerKeyCount();
         }
 
         updateDictResizePolicy();
@@ -5581,16 +5581,22 @@ int redisFork(int purpose) {
     return childpid;
 }
 
-void sendChildCOWInfo(int ptype, char *pname) {
-    size_t private_dirty = zmalloc_get_private_dirty(-1);
+/* Send save data to parent. */
+void sendChildInfo(childInfoType info_type, size_t keys, char *pname) {
+    if (server.child_info_pipe[1] == -1) return;
 
-    if (private_dirty) {
-        serverLog((ptype == CHILD_INFO_TYPE_CURRENT_COW_SIZE) ? LL_VERBOSE : LL_NOTICE,
+    child_info_data data = {.information_type=info_type,
+                            .keys=keys,
+                            .cow=zmalloc_get_private_dirty(-1)};
+
+    if (data.cow) {
+        serverLog((info_type == CHILD_INFO_TYPE_CURRENT_INFO) ? LL_VERBOSE : LL_NOTICE,
             "%s: %zu MB of memory used by copy-on-write",
-            pname, private_dirty/(1024*1024));
+            pname, data.cow/(1024*1024));
     }
 
-    sendChildInfo(ptype, private_dirty);
+    write(server.child_info_pipe[1], &data, sizeof(data));
+    /* Nothing to do on write error, this will be detected by the other side. */
 }
 
 void memtest(size_t megabytes, int passes);

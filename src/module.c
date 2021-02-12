@@ -7098,14 +7098,14 @@ int RM_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
 /* The module is advised to call this function from the fork child once in a while,
  * so that it can report COW memory to the parent which will be reported in INFO */
 void RM_SendChildCOWInfo(void) {
-    sendChildCOWInfo(CHILD_INFO_TYPE_CURRENT_COW_SIZE, "Module fork");
+    sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, 0, "Module fork");
 }
 
 /* Call from the child process when you want to terminate it.
  * retcode will be provided to the done handler executed on the parent process.
  */
 int RM_ExitFromChild(int retcode) {
-    sendChildCOWInfo(CHILD_INFO_TYPE_MODULE_COW_SIZE, "Module fork");
+    sendChildInfo(CHILD_INFO_TYPE_MODULE_COW_SIZE, 0, "Module fork");
     exitFromChild(retcode);
     return REDISMODULE_OK;
 }

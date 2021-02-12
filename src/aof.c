@@ -1423,7 +1423,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
     size_t processed = 0;
     int j;
     long key_count = 0;
-    long long cow_updated_time = 0;
+    long long updated_time = 0;
 
     for (j = 0; j < server.dbnum; j++) {
         char selectcmd[] = "*2\r\n$6\r\nSELECT\r\n";
@@ -1484,18 +1484,16 @@ int rewriteAppendOnlyFileRio(rio *aof) {
                 aofReadDiffFromParent();
             }
 
-            /* Update COW info every 1 second (approximately).
+            /* Update info every 1 second (approximately).
              * in order to avoid calling mstime() on each iteration, we will
              * check the diff every 1024 keys */
-            if ((key_count & 1023) == 0) {
-                key_count = 0;
+            if ((key_count++ & 1023) == 0) {
                 long long now = mstime();
-                if (now - cow_updated_time >= 1000) {
-                    sendChildCOWInfo(CHILD_INFO_TYPE_CURRENT_COW_SIZE, "AOF rewrite");
-                    cow_updated_time = now;
+                if (now - updated_time >= 1000) {
+                    sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, key_count, "AOF rewrite");
+                    updated_time = now;
                 }
             }
-            key_count++;
         }
         dictReleaseIterator(di);
         di = NULL;
@@ -1610,7 +1608,7 @@ int rewriteAppendOnlyFile(char *filename) {
         /* Update COW info */
         long long now = mstime();
         if (now - cow_updated_time >= 1000) {
-            sendChildCOWInfo(CHILD_INFO_TYPE_CURRENT_COW_SIZE, "AOF rewrite");
+            sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, 0, "AOF rewrite");
             cow_updated_time = now;
         }
     }
@@ -1744,7 +1742,7 @@ int rewriteAppendOnlyFileBackground(void) {
         redisSetCpuAffinity(server.aof_rewrite_cpulist);
         snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
         if (rewriteAppendOnlyFile(tmpfile) == C_OK) {
-            sendChildCOWInfo(CHILD_INFO_TYPE_AOF_COW_SIZE, "AOF rewrite");
+            sendChildInfo(CHILD_INFO_TYPE_AOF_COW_SIZE, 0, "AOF rewrite");
             exitFromChild(0);
         } else {
             exitFromChild(1);

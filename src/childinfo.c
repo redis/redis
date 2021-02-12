@@ -30,11 +30,6 @@
 #include "server.h"
 #include <unistd.h>
 
-typedef struct {
-    int information_type;            /* Type of information */
-    size_t info;               /* Information about the process. */
-} child_info_data;
-
 /* Open a child-parent channel used in order to move information about the
  * RDB / AOF saving process from the child to the parent (for instance
  * the amount of copy on write memory used) */
@@ -63,54 +58,38 @@ void closeChildInfoPipe(void) {
     }
 }
 
-/* Send save data to parent. */
-void sendChildInfo(int information_type, size_t info) {
-    if (server.child_info_pipe[1] == -1) return;
-
-    child_info_data buffer = {.information_type = information_type, .info = info};
-    ssize_t wlen = sizeof(buffer);
-
-    if (write(server.child_info_pipe[1],&buffer,wlen) != wlen) {
-        /* Nothing to do on error, this will be detected by the other side. */
-    }
-}
-
 /* Update Child info. */
-void updateChildInfo(int information_type, size_t info) {
-    if (information_type == CHILD_INFO_TYPE_CURRENT_COW_SIZE) {
-        server.stat_current_cow_bytes = info;
-    } else if (information_type == CHILD_INFO_TYPE_CURRENT_KEYS_PROCESSED) {
-        server.stat_current_processed_keys = info;
-    } else if (information_type == CHILD_INFO_TYPE_AOF_COW_SIZE) {
-        server.stat_aof_cow_bytes = info;
-    } else if (information_type == CHILD_INFO_TYPE_RDB_COW_SIZE) {
-        server.stat_rdb_cow_bytes = info;
-    } else if (information_type == CHILD_INFO_TYPE_MODULE_COW_SIZE) {
-        server.stat_module_cow_bytes = info;
+void updateChildInfo(child_info_data *data) {
+    if (data->information_type == CHILD_INFO_TYPE_CURRENT_INFO) {
+        if (data->cow) server.stat_current_cow_bytes = data->cow;
+        if (data->keys) server.stat_current_save_keys_processed = data->keys;
+    } else if (data->information_type == CHILD_INFO_TYPE_AOF_COW_SIZE) {
+        server.stat_aof_cow_bytes = data->cow;
+    } else if (data->information_type == CHILD_INFO_TYPE_RDB_COW_SIZE) {
+        server.stat_rdb_cow_bytes = data->cow;
+    } else if (data->information_type == CHILD_INFO_TYPE_MODULE_COW_SIZE) {
+        server.stat_module_cow_bytes = data->cow;
     }
 }
 
 /* Read child info data from the pipe.
- * if complete data read into the buffer, process type, copy-on-write type and copy-on-write size
- * are stored into *information_type, and *info respectively and returns 1.
+ * if complete data read into the buffer, 
+ * data is stored into *buffer, and returns 1.
  * otherwise, the partial data is left in the buffer, waiting for the next read, and returns 0. */
-int readChildInfo(int *information_type, size_t *info) {
+int readChildInfo(child_info_data *buffer) {
     /* We are using here a static buffer in combination with the server.child_info_nread to handle short reads */
-    static child_info_data buffer;
-    ssize_t wlen = sizeof(buffer);
+    ssize_t wlen = sizeof(*buffer);
 
     /* Do not overlap */
     if (server.child_info_nread == wlen) server.child_info_nread = 0;
 
-    int nread = read(server.child_info_pipe[0], (char *)&buffer + server.child_info_nread, wlen - server.child_info_nread);
+    int nread = read(server.child_info_pipe[0], (char *)buffer + server.child_info_nread, wlen - server.child_info_nread);
     if (nread > 0) {
         server.child_info_nread += nread;
     }
 
     /* We have complete child info */
     if (server.child_info_nread == wlen) {
-        *information_type = buffer.information_type;
-        *info = buffer.info;
         return 1;
     } else {
         return 0;
@@ -121,11 +100,11 @@ int readChildInfo(int *information_type, size_t *info) {
 void receiveChildInfo(void) {
     if (server.child_info_pipe[0] == -1) return;
 
-    int information_type;
-    size_t info;
+    child_info_data data = {0};
 
     /* Drain the pipe and update child info so that we get the final message. */
-    while (readChildInfo(&information_type, &info)) {
-        updateChildInfo(information_type, info);
+    while (readChildInfo(&data)) {
+        updateChildInfo(&data);
+        memset(&data, 0, sizeof(data));
     }
 }
