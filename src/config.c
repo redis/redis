@@ -456,7 +456,6 @@ void loadServerConfigFromString(char *config) {
     int linenum = 0, totlines, i;
     int slaveof_linenum = 0;
     sds *lines;
-    int save_loaded = 0;
 
     lines = sdssplitlen(config,strlen(config),"\n",1,&totlines);
 
@@ -523,25 +522,6 @@ void loadServerConfigFromString(char *config) {
             for (j = 0; j < addresses; j++)
                 server.bindaddr[j] = zstrdup(argv[j+1]);
             server.bindaddr_count = addresses;
-        } else if (!strcasecmp(argv[0],"save")) {
-            /* We don't reset save params before loading, because if they're not part
-             * of the file the defaults should be used.
-             */
-            if (!save_loaded) {
-                save_loaded = 1;
-                resetServerSaveParams();
-            }
-
-            if (argc == 3) {
-                int seconds = atoi(argv[1]);
-                int changes = atoi(argv[2]);
-                if (seconds < 1 || changes < 0) {
-                    err = "Invalid save parameters"; goto loaderr;
-                }
-                appendServerSaveParams(seconds,changes);
-            } else if (argc == 2 && !strcasecmp(argv[1],"")) {
-                resetServerSaveParams();
-            }
         } else if (!strcasecmp(argv[0],"include") && argc == 2) {
             loadServerConfig(argv[1], 0, NULL);
         } else if ((!strcasecmp(argv[0],"slaveof") ||
@@ -810,42 +790,8 @@ void configSetCommand(client *c) {
             return;
         }
         sdsfreesplitres(v, vlen);
-    } config_set_special_field("save") {
-        int vlen, j;
-        sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
-
-        /* Perform sanity check before setting the new config:
-         * - Even number of args
-         * - Seconds >= 1, changes >= 0 */
-        if (vlen & 1) {
-            sdsfreesplitres(v,vlen);
-            goto badfmt;
-        }
-        for (j = 0; j < vlen; j++) {
-            char *eptr;
-            long val;
-
-            val = strtoll(v[j], &eptr, 10);
-            if (eptr[0] != '\0' ||
-                ((j & 1) == 0 && val < 1) ||
-                ((j & 1) == 1 && val < 0)) {
-                sdsfreesplitres(v,vlen);
-                goto badfmt;
-            }
-        }
-        /* Finally set the new config */
-        resetServerSaveParams();
-        for (j = 0; j < vlen; j += 2) {
-            time_t seconds;
-            int changes;
-
-            seconds = strtoll(v[j],NULL,10);
-            changes = strtoll(v[j+1],NULL,10);
-            appendServerSaveParams(seconds, changes);
-        }
-        sdsfreesplitres(v,vlen);
     } config_set_special_field("client-output-buffer-limit") {
-        int vlen;
+        int vlen, j;
         sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
 
         if (updateClientOutputBufferLimit(v, vlen, &errstr) == C_ERR) {
@@ -937,22 +883,6 @@ void configGetCommand(client *c) {
 
     /* Everything we can't handle with macros follows. */
 
-    if (stringmatch(pattern,"save",1)) {
-        sds buf = sdsempty();
-        int j;
-
-        for (j = 0; j < server.saveparamslen; j++) {
-            buf = sdscatprintf(buf,"%jd %d",
-                    (intmax_t)server.saveparams[j].seconds,
-                    server.saveparams[j].changes);
-            if (j != server.saveparamslen-1)
-                buf = sdscatlen(buf," ",1);
-        }
-        addReplyBulkCString(c,"save");
-        addReplyBulkCString(c,buf);
-        sdsfree(buf);
-        matches++;
-    }
     if (stringmatch(pattern,"client-output-buffer-limit",1)) {
         sds buf = sdsempty();
         int j;
@@ -1362,13 +1292,14 @@ void rewriteConfigEnumOption(struct rewriteConfigState *state, const char *optio
 }
 
 /* Rewrite the save option. */
-void rewriteConfigSaveOption(struct rewriteConfigState *state) {
+void rewriteConfigSaveOption(typeData data, const char *name, struct rewriteConfigState *state) {
+    UNUSED(data);
     int j;
     sds line;
 
     /* In Sentinel mode we don't need to rewrite the save parameters */
     if (server.sentinel_mode) {
-        rewriteConfigMarkAsProcessed(state,"save");
+        rewriteConfigMarkAsProcessed(state,name);
         return;
     }
 
@@ -1376,17 +1307,17 @@ void rewriteConfigSaveOption(struct rewriteConfigState *state) {
      * defaults from being used.
      */
     if (!server.saveparamslen) {
-        rewriteConfigRewriteLine(state,"save",sdsnew("save \"\""),1);
+        rewriteConfigRewriteLine(state,name,sdsnew("save \"\""),1);
     } else {
         for (j = 0; j < server.saveparamslen; j++) {
             line = sdscatprintf(sdsempty(),"save %ld %d",
                 (long) server.saveparams[j].seconds, server.saveparams[j].changes);
-            rewriteConfigRewriteLine(state,"save",line,1);
+            rewriteConfigRewriteLine(state,name,line,1);
         }
     }
 
     /* Mark "save" as processed in case server.saveparamslen is zero. */
-    rewriteConfigMarkAsProcessed(state,"save");
+    rewriteConfigMarkAsProcessed(state,name);
 }
 
 /* Rewrite the user option. */
@@ -1751,7 +1682,6 @@ int rewriteConfig(char *path, int force_write) {
     }
 
     rewriteConfigBindOption(state);
-    rewriteConfigSaveOption(state);
     rewriteConfigUserOption(state);
     rewriteConfigSlaveofOption(state,"replicaof");
     rewriteConfigNotifykeyspaceeventsOption(state);
@@ -2654,6 +2584,96 @@ static void getConfigWatchdogPeriodOption(client *c, typeData data) {
     addReplyBulkCString(c,buf);
 }
 
+static int setConfigSaveOptionLoad(sds *argv, int argc, const char **err) {
+    /* We don't reset save params before loading, because if they're not part
+     * of the file the defaults should be used.
+     */
+    static int save_loaded = 0;
+    if (!save_loaded) {
+        save_loaded = 1;
+        resetServerSaveParams();
+    }
+
+    if (argc == 2) {
+        int seconds = atoi(argv[0]);
+        int changes = atoi(argv[1]);
+        if (seconds < 1 || changes < 0) {
+            *err = "Invalid save parameters"; return 0;
+        }
+        appendServerSaveParams(seconds,changes);
+    } else if (argc == 1 && !strcasecmp(argv[0],"")) {
+        resetServerSaveParams();
+    }
+    return 1;
+}
+
+static int setConfigSaveOptionUpdate(sds *argv, int argc, const char **err) {
+    if (argc != 1) {
+        *err = "wrong number of arguments";
+        return 0;
+    }
+
+    int vlen, j;
+    sds *v = sdssplitlen(argv[0],sdslen(argv[0])," ",1,&vlen);
+
+    /* Perform sanity check before setting the new config:
+     * - Even number of args
+     * - Seconds >= 1, changes >= 0 */
+    if (vlen & 1) {
+        sdsfreesplitres(v,vlen);
+        return 0;
+    }
+    for (j = 0; j < vlen; j++) {
+        char *eptr;
+        long val;
+
+        val = strtoll(v[j], &eptr, 10);
+        if (eptr[0] != '\0' ||
+            ((j & 1) == 0 && val < 1) ||
+            ((j & 1) == 1 && val < 0)) {
+            sdsfreesplitres(v,vlen);
+            return 0;
+        }
+    }
+    /* Finally set the new config */
+    resetServerSaveParams();
+    for (j = 0; j < vlen; j += 2) {
+        time_t seconds;
+        int changes;
+
+        seconds = strtoll(v[j],NULL,10);
+        changes = strtoll(v[j+1],NULL,10);
+        appendServerSaveParams(seconds, changes);
+    }
+    sdsfreesplitres(v,vlen);
+    return 1;
+}
+
+static int setConfigSaveOption(typeData data, sds *argv, int argc, int update, const char **err) {
+    UNUSED(data);
+    if (update)
+        return setConfigSaveOptionUpdate(argv,argc,err);
+    else
+        return setConfigSaveOptionLoad(argv,argc,err);
+}
+
+static void getConfigSaveOption(client *c, typeData data) {
+    UNUSED(data);
+    sds buf = sdsempty();
+    int j;
+
+    for (j = 0; j < server.saveparamslen; j++) {
+        buf = sdscatprintf(buf,"%jd %d",
+                           (intmax_t)server.saveparams[j].seconds,
+                           server.saveparams[j].changes);
+        if (j != server.saveparamslen-1)
+            buf = sdscatlen(buf," ",1);
+    }
+
+    addReplyBulkCString(c,buf);
+    sdsfree(buf);
+}
+
 standardConfig configs[] = {
     /* Bool configs */
     createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),
@@ -2838,6 +2858,7 @@ standardConfig configs[] = {
     createSpecialConfig("dir", NULL, MODIFIABLE_CONFIG, setConfigDirOption, getConfigDirOption, rewriteConfigDirOption),
     createSpecialConfig("client-query-buffer-limit", NULL, MODIFIABLE_CONFIG, setConfigClientQueryBufferLimitOption, getConfigClientQueryBufferLimitOption, rewriteConfigClientQueryBufferLimitOption),
     createSpecialConfig("watchdog-period", NULL, MODIFIABLE_CONFIG, setConfigWatchdogPeriodOption, getConfigWatchdogPeriodOption, NULL),
+    createSpecialConfig("save", NULL, MODIFIABLE_CONFIG, setConfigSaveOption, getConfigSaveOption, rewriteConfigSaveOption),
 
     /* NULL Terminator */
     {NULL}
