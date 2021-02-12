@@ -567,10 +567,6 @@ void loadServerConfigFromString(char *config) {
                     err = "Target command name already exists"; goto loaderr;
                 }
             }
-        } else if (!strcasecmp(argv[0],"client-output-buffer-limit") &&
-                   argc == 5)
-        {
-            if (updateClientOutputBufferLimit(&argv[1], 4, &err) == C_ERR) goto loaderr;
         } else if (!strcasecmp(argv[0],"oom-score-adj-values") && argc == 1 + CONFIG_OOM_COUNT) {
             if (updateOOMScoreAdjValues(&argv[1], &err, 0) == C_ERR) goto loaderr;
         } else if (!strcasecmp(argv[0],"notify-keyspace-events") && argc == 2) {
@@ -883,24 +879,6 @@ void configGetCommand(client *c) {
 
     /* Everything we can't handle with macros follows. */
 
-    if (stringmatch(pattern,"client-output-buffer-limit",1)) {
-        sds buf = sdsempty();
-        int j;
-
-        for (j = 0; j < CLIENT_TYPE_OBUF_COUNT; j++) {
-            buf = sdscatprintf(buf,"%s %llu %llu %ld",
-                    getClientTypeName(j),
-                    server.client_obuf_limits[j].hard_limit_bytes,
-                    server.client_obuf_limits[j].soft_limit_bytes,
-                    (long) server.client_obuf_limits[j].soft_limit_seconds);
-            if (j != CLIENT_TYPE_OBUF_COUNT-1)
-                buf = sdscatlen(buf," ",1);
-        }
-        addReplyBulkCString(c,"client-output-buffer-limit");
-        addReplyBulkCString(c,buf);
-        sdsfree(buf);
-        matches++;
-    }
     for (int i = 0; i < 2; i++) {
         char *optname = i == 0 ? "replicaof" : "slaveof";
         if (!stringmatch(pattern, optname, 1)) continue;
@@ -1395,10 +1373,9 @@ void rewriteConfigNotifykeyspaceeventsOption(struct rewriteConfigState *state) {
 }
 
 /* Rewrite the client-output-buffer-limit option. */
-void rewriteConfigClientoutputbufferlimitOption(struct rewriteConfigState *state) {
+void rewriteConfigClientOutputBufferLimitOption(typeData data, const char *name, struct rewriteConfigState *state) {
+    UNUSED(data);
     int j;
-    char *option = "client-output-buffer-limit";
-
     for (j = 0; j < CLIENT_TYPE_OBUF_COUNT; j++) {
         int force = (server.client_obuf_limits[j].hard_limit_bytes !=
                     clientBufferLimitsDefaults[j].hard_limit_bytes) ||
@@ -1417,9 +1394,9 @@ void rewriteConfigClientoutputbufferlimitOption(struct rewriteConfigState *state
         char *typename = getClientTypeName(j);
         if (!strcmp(typename,"slave")) typename = "replica";
         line = sdscatprintf(sdsempty(),"%s %s %s %s %ld",
-                option, typename, hard, soft,
+                name, typename, hard, soft,
                 (long) server.client_obuf_limits[j].soft_limit_seconds);
-        rewriteConfigRewriteLine(state,option,line,force);
+        rewriteConfigRewriteLine(state,name,line,force);
     }
 }
 
@@ -1685,7 +1662,6 @@ int rewriteConfig(char *path, int force_write) {
     rewriteConfigUserOption(state);
     rewriteConfigSlaveofOption(state,"replicaof");
     rewriteConfigNotifykeyspaceeventsOption(state);
-    rewriteConfigClientoutputbufferlimitOption(state);
     rewriteConfigOOMScoreAdjValuesOption(state);
     rewriteConfigLoadmoduleOption(state);
 
@@ -2674,6 +2650,113 @@ static void getConfigSaveOption(client *c, typeData data) {
     sdsfree(buf);
 }
 
+static int setConfigClientOutputBufferLimitOptionLoad(sds *argv, int argc, const char **err) {
+    if (argc != 4) {
+        *err = "wrong number of arguments";
+        return 0;
+    }
+    int class = getClientTypeByName(argv[0]);
+    unsigned long long hard, soft;
+    int soft_seconds;
+
+    if (class == -1 || class == CLIENT_TYPE_MASTER) {
+        *err = "Unrecognized client limit class: the user specified "
+            "an invalid one, or 'master' which has no buffer limits.";
+        return 0;
+    }
+    hard = memtoll(argv[1],NULL);
+    soft = memtoll(argv[2],NULL);
+    soft_seconds = atoi(argv[3]);
+    if (soft_seconds < 0) {
+        *err = "Negative number of seconds in soft limit is invalid";
+        return 0;
+    }
+    server.client_obuf_limits[class].hard_limit_bytes = hard;
+    server.client_obuf_limits[class].soft_limit_bytes = soft;
+    server.client_obuf_limits[class].soft_limit_seconds = soft_seconds;
+    return 1;
+}
+
+static int setConfigClientOutputBufferLimitOptionUpdate(sds *argv, int argc, const char **err) {
+    if (argc != 1) {
+        *err = "wrong number of arguments";
+        return 0;
+    }
+
+    int vlen, j;
+    sds *v = sdssplitlen(argv[0],sdslen(argv[0])," ",1,&vlen);
+
+    /* We need a multiple of 4: <class> <hard> <soft> <soft_seconds> */
+    if (vlen % 4) {
+        sdsfreesplitres(v,vlen);
+        return 0;
+    }
+
+    /* Sanity check of single arguments, so that we either refuse the
+     * whole configuration string or accept it all, even if a single
+     * error in a single client class is present. */
+    for (j = 0; j < vlen; j++) {
+        long val;
+
+        if ((j % 4) == 0) {
+            int class = getClientTypeByName(v[j]);
+            if (class == -1 || class == CLIENT_TYPE_MASTER) {
+                sdsfreesplitres(v,vlen);
+                return 0;
+            }
+        } else {
+            int failed;
+            val = memtoll(v[j], &failed);
+            if (failed || val < 0) {
+                sdsfreesplitres(v,vlen);
+                return 0;
+            }
+        }
+    }
+    /* Finally set the new config */
+    for (j = 0; j < vlen; j += 4) {
+        int class;
+        unsigned long long hard, soft;
+        int soft_seconds;
+
+        class = getClientTypeByName(v[j]);
+        hard = memtoll(v[j+1],NULL);
+        soft = memtoll(v[j+2],NULL);
+        soft_seconds = strtoll(v[j+3],NULL,10);
+
+        server.client_obuf_limits[class].hard_limit_bytes = hard;
+        server.client_obuf_limits[class].soft_limit_bytes = soft;
+        server.client_obuf_limits[class].soft_limit_seconds = soft_seconds;
+    }
+    sdsfreesplitres(v,vlen);
+    return 1;
+}
+
+static int setConfigClientOutputBufferLimitOption(typeData data, sds *argv, int argc, int update, const char **err) {
+    UNUSED(data);
+    if (update)
+        return setConfigClientOutputBufferLimitOptionUpdate(argv,argc,err);
+    else
+        return setConfigClientOutputBufferLimitOptionLoad(argv,argc,err);
+}
+
+static void getConfigClientOutputBufferLimitOption(client *c, typeData data) {
+    UNUSED(data);
+    sds buf = sdsempty();
+    int j;
+    for (j = 0; j < CLIENT_TYPE_OBUF_COUNT; j++) {
+        buf = sdscatprintf(buf,"%s %llu %llu %ld",
+                           getClientTypeName(j),
+                           server.client_obuf_limits[j].hard_limit_bytes,
+                           server.client_obuf_limits[j].soft_limit_bytes,
+                           (long) server.client_obuf_limits[j].soft_limit_seconds);
+        if (j != CLIENT_TYPE_OBUF_COUNT-1)
+            buf = sdscatlen(buf," ",1);
+    }
+    addReplyBulkCString(c,buf);
+    sdsfree(buf);
+}
+
 standardConfig configs[] = {
     /* Bool configs */
     createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),
@@ -2859,6 +2942,7 @@ standardConfig configs[] = {
     createSpecialConfig("client-query-buffer-limit", NULL, MODIFIABLE_CONFIG, setConfigClientQueryBufferLimitOption, getConfigClientQueryBufferLimitOption, rewriteConfigClientQueryBufferLimitOption),
     createSpecialConfig("watchdog-period", NULL, MODIFIABLE_CONFIG, setConfigWatchdogPeriodOption, getConfigWatchdogPeriodOption, NULL),
     createSpecialConfig("save", NULL, MODIFIABLE_CONFIG, setConfigSaveOption, getConfigSaveOption, rewriteConfigSaveOption),
+    createSpecialConfig("client-output-buffer-limit", NULL, MODIFIABLE_CONFIG, setConfigClientOutputBufferLimitOption, getConfigClientOutputBufferLimitOption, rewriteConfigClientOutputBufferLimitOption),
 
     /* NULL Terminator */
     {NULL}
