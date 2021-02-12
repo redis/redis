@@ -561,12 +561,15 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                     c->pending--;
                     /* Discard prefix commands on first response.*/
                     if (c->prefixlen > 0) {
-                        size_t j;
+                        
                         sdsrange(c->obuf, c->prefixlen, -1);
                         /* We also need to fix the pointers to the strings
                         * we need to randomize. */
-                        for (j = 0; j < c->randlen; j++)
+                        for (size_t j = 0; j < c->randlen; j++)
                             c->randptr[j] -= c->prefixlen;
+                        /* Fix the pointers to the slot hash tags */
+                        for (size_t j = 0; j < c->staglen; j++)
+                            c->stagptr[j] -= c->prefixlen;
                         c->prefixlen = 0;
                     }
                     continue;
