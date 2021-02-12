@@ -215,11 +215,8 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
                 serverAssert(vptr != NULL);
                 update = 1;
 
-                /* Delete value */
-                zl = ziplistDelete(zl, &vptr);
-
-                /* Insert new value */
-                zl = ziplistInsert(zl, vptr, (unsigned char*)value,
+                /* Replace value */
+                zl = ziplistReplace(zl, vptr, (unsigned char*)value,
                         sdslen(value));
             }
         }
