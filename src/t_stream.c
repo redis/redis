@@ -509,7 +509,13 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
             lp = NULL;
         } else if (server.stream_node_max_entries) {
             int64_t count = lpGetInteger(lpFirst(lp));
-            if (count >= server.stream_node_max_entries) lp = NULL;
+            if (count >= server.stream_node_max_entries) {
+                // Shrink extra pre-allocated memory
+                lp = lpShrinkToFit(lp);
+                if (ri.data != lp)
+                    raxInsert(s->rax,ri.key,ri.key_len,lp,NULL);
+                lp = NULL;
+            }
         }
     }
 

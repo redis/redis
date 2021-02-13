@@ -234,6 +234,16 @@ void lpFree(unsigned char *lp) {
     lp_free(lp);
 }
 
+/* Shrink the memory to fit. */
+unsigned char* lpShrinkToFit(unsigned char *lp) {
+    size_t size = lpGetTotalBytes(lp);
+    if (size < lp_malloc_size(lp)) {
+        return lp_realloc(lp, size);
+    } else {
+        return lp;
+    }
+}
+
 /* Given an element 'ele' of size 'size', determine if the element can be
  * represented inside the listpack encoded as integer, and returns
  * LP_ENCODING_INT if so. Otherwise returns LP_ENCODING_STR if no integer

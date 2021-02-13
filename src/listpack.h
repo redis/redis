@@ -47,6 +47,7 @@
 
 unsigned char *lpNew(size_t capacity);
 void lpFree(unsigned char *lp);
+unsigned char* lpShrinkToFit(unsigned char *lp);
 unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, unsigned char *p, int where, unsigned char **newp);
 unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size);
 unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **newp);
