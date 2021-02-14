@@ -5593,28 +5593,6 @@ int redisFork(int purpose) {
     return childpid;
 }
 
-/* Send save data to parent. */
-void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress, char *pname) {
-    if (server.child_info_pipe[1] == -1) return;
-
-    child_info_data data = {.information_type=info_type,
-                            .keys=keys,
-                            .cow=zmalloc_get_private_dirty(-1),
-                            .progress=progress};
-
-    if (data.cow) {
-        serverLog((info_type == CHILD_INFO_TYPE_CURRENT_INFO) ? LL_VERBOSE : LL_NOTICE,
-            "%s: %zu MB of memory used by copy-on-write",
-            pname, data.cow/(1024*1024));
-    }
-
-    ssize_t wlen = sizeof(data);
-
-    if (write(server.child_info_pipe[1], &data, wlen) != wlen) {
-        /* Nothing to do on error, this will be detected by the other side. */
-    }
-}
-
 void sendChildCowInfo(childInfoType info_type, char *pname) {
     sendChildInfoGeneric(info_type, 0, -1, pname);
 }

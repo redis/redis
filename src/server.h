@@ -1686,13 +1686,6 @@ typedef struct {
     dictEntry *de;
 } hashTypeIterator;
 
-typedef struct {
-    size_t keys;
-    size_t cow;
-    double progress;
-    childInfoType information_type; /* Type of information */
-} child_info_data;
-
 #include "stream.h"  /* Stream data type header file. */
 
 #define OBJ_HASH_KEY 1

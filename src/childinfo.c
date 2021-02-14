@@ -30,6 +30,13 @@
 #include "server.h"
 #include <unistd.h>
 
+typedef struct {
+    size_t keys;
+    size_t cow;
+    double progress;
+    childInfoType information_type; /* Type of information */
+} child_info_data;
+
 /* Open a child-parent channel used in order to move information about the
  * RDB / AOF saving process from the child to the parent (for instance
  * the amount of copy on write memory used) */
@@ -55,6 +62,28 @@ void closeChildInfoPipe(void) {
         server.child_info_pipe[0] = -1;
         server.child_info_pipe[1] = -1;
         server.child_info_nread = 0;
+    }
+}
+
+/* Send save data to parent. */
+void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress, char *pname) {
+    if (server.child_info_pipe[1] == -1) return;
+
+    child_info_data data = {.information_type=info_type,
+            .keys=keys,
+            .cow=zmalloc_get_private_dirty(-1),
+            .progress=progress};
+
+    if (data.cow) {
+        serverLog((info_type == CHILD_INFO_TYPE_CURRENT_INFO) ? LL_VERBOSE : LL_NOTICE,
+                  "%s: %zu MB of memory used by copy-on-write",
+                  pname, data.cow/(1024*1024));
+    }
+
+    ssize_t wlen = sizeof(data);
+
+    if (write(server.child_info_pipe[1], &data, wlen) != wlen) {
+        /* Nothing to do on error, this will be detected by the other side. */
     }
 }
 
