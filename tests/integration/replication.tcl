@@ -51,6 +51,55 @@ start_server {tags {"repl network"}} {
     }
 }
 
+start_server {tags {"repl"} overrides {masterauth foobar}} {
+    set replica [srv 0 client]
+    set replica_host [srv 0 host]
+    set replica_port [srv 0 port]
+    start_server {overrides {requirepass foobar}} {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+        set master_log [srv 0 stdout]
+
+        # Start the replication process...
+        $replica replicaof $master_host $master_port
+
+        # Should pass since masterauth is set...
+        test {Replica Sync Success} {
+            wait_for_condition 50 1000 {
+                [log_file_matches $master_log "*Synchronization with replica * succeeded*"]
+            } else {
+                fail "Replica does not Sync Successfully"
+            }
+        }
+    }
+}
+
+start_server {tags {"repl"}} {
+    set replica [srv 0 client]
+    set replica_host [srv 0 host]
+    set replica_port [srv 0 port]
+    set replica_log [srv 0 stdout]
+    start_server {overrides {requirepass foobar}} {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+        set master_log [srv 0 stdout]
+
+        # Start the replication process...
+        $replica replicaof $master_host $master_port
+
+        # Should fail since masterauth is not set...
+        test {Replica Sync Failure: NOAUTH Error} {
+            wait_for_condition 50 1000 {
+                [log_file_matches $replica_log "*MASTER aborted replication with an error: NOAUTH Authentication required.*"]
+            } else {
+                fail "Replica Syncs Successfully"
+            }
+        }
+    }
+}
+
 start_server {tags {"repl"}} {
     set A [srv 0 client]
     set A_host [srv 0 host]
