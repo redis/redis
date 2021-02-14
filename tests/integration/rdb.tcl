@@ -263,7 +263,9 @@ start_server {overrides {save ""}} {
             # wait to see that current_cow_size value updated (as long as the child is in progress)
             wait_for_condition 80 100 {
                 [s rdb_bgsave_in_progress] == 0 ||
-                [s current_cow_size] >= $cow_size + $size && [s current_save_keys_processed] > $keys_processed
+                [s current_cow_size] >= $cow_size + $size && 
+                [s current_save_keys_processed] > $keys_processed &&
+                [s current_fork_perc] > 0
             } else {
                 if {$::verbose} {
                     puts "COW info on fail: [s current_cow_size]"

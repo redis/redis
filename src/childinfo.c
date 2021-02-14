@@ -63,7 +63,7 @@ void updateChildInfo(child_info_data *data) {
     if (data->information_type == CHILD_INFO_TYPE_CURRENT_INFO) {
         server.stat_current_cow_bytes = data->cow;
         server.stat_current_save_keys_processed = data->keys;
-        if (data->progress != -1) server.stat_module_save_progress = data->progress;
+        if (data->progress != -1) server.stat_module_progress = data->progress;
     } else if (data->information_type == CHILD_INFO_TYPE_AOF_COW_SIZE) {
         server.stat_aof_cow_bytes = data->cow;
     } else if (data->information_type == CHILD_INFO_TYPE_RDB_COW_SIZE) {

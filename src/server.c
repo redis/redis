@@ -1599,6 +1599,7 @@ void resetChildState() {
     server.child_pid = -1;
     server.stat_current_cow_bytes = 0;
     server.stat_current_save_keys_processed = 0;
+    server.stat_module_progress = 0;
     server.stat_current_save_keys_total = 0;
     updateDictResizePolicy();
     closeChildInfoPipe();
@@ -3174,7 +3175,7 @@ void initServer(void) {
     server.stat_rdb_cow_bytes = 0;
     server.stat_aof_cow_bytes = 0;
     server.stat_module_cow_bytes = 0;
-    server.stat_module_save_progress = 0;
+    server.stat_module_progress = 0;
     for (int j = 0; j < CLIENT_TYPE_COUNT; j++)
         server.stat_clients_type_memory[j] = 0;
     server.cron_malloc_stats.zmalloc_used = 0;
@@ -4682,10 +4683,18 @@ sds genRedisInfoString(const char *section) {
     /* Persistence */
     if (allsections || defsections || !strcasecmp(section,"persistence")) {
         if (sections++) info = sdscat(info,"\r\n");
+        double fork_perc = 0;
+        if (server.stat_module_progress) {
+            fork_perc = server.stat_module_progress;
+        } else if (server.stat_current_save_keys_total) {
+            fork_perc = ((double)server.stat_current_save_keys_processed / server.stat_current_save_keys_total) * 100;
+        }
+  
         info = sdscatprintf(info,
             "# Persistence\r\n"
             "loading:%d\r\n"
             "current_cow_size:%zu\r\n"
+            "current_fork_perc:%f\r\n"
             "current_save_keys_processed:%zu\r\n"
             "current_save_keys_total:%zu\r\n"
             "rdb_changes_since_last_save:%lld\r\n"
@@ -4704,10 +4713,10 @@ sds genRedisInfoString(const char *section) {
             "aof_last_write_status:%s\r\n"
             "aof_last_cow_size:%zu\r\n"
             "module_fork_in_progress:%d\r\n"
-            "module_fork_last_cow_size:%zu\r\n"
-            "module_save_progress:%f\r\n",
+            "module_fork_last_cow_size:%zu\r\n",
             (int)server.loading,
             server.stat_current_cow_bytes,
+            fork_perc,
             server.stat_current_save_keys_processed,
             server.stat_current_save_keys_total,
             server.dirty,
@@ -4728,8 +4737,7 @@ sds genRedisInfoString(const char *section) {
             (server.aof_last_write_status == C_OK) ? "ok" : "err",
             server.stat_aof_cow_bytes,
             server.child_type == CHILD_TYPE_MODULE,
-            server.stat_module_cow_bytes,
-            server.stat_module_save_progress);
+            server.stat_module_cow_bytes);
 
         if (server.aof_enabled) {
             info = sdscatprintf(info,
@@ -5576,6 +5584,7 @@ int redisFork(int purpose) {
             server.child_type = purpose;
             server.stat_current_cow_bytes = 0;
             server.stat_current_save_keys_processed = 0;
+            server.stat_module_progress = 0;
             server.stat_current_save_keys_total = dbTotalServerKeyCount();
         }
 
