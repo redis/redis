@@ -6689,6 +6689,9 @@ static int clusterManagerCommandHelp(int argc, char **argv) {
             }
         }
     }
+    fprintf(stderr, "\nCreate subcommand supports ip:port endpoint only. "
+                    "Cluster creation does not support unix sockets as "
+                    "endpoints.\n\n");
     fprintf(stderr, "\nFor check, fix, reshard, del-node, set-timeout you "
                     "can specify the host and port of any working node in "
                     "the cluster.\n");
