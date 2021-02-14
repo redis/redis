@@ -7096,7 +7096,9 @@ int RM_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
 }
 
 /* The module is advised to call this function from the fork child once in a while,
- * so that it can report COW memory to the parent which will be reported in INFO */
+ * so that it can report progress and COW memory to the parent which will be
+ * reported in INFO.
+ * The `progress` argument should between 0 and 1, or -1 when not available. */
 void RM_ForkChildHeartbeat(double progress) {
     sendChildInfoGeneric(CHILD_INFO_TYPE_CURRENT_INFO, 0, progress, "Module fork");
 }

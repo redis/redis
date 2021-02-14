@@ -1594,7 +1594,7 @@ int rewriteAppendOnlyFile(char *filename) {
     size_t bytes_to_write = sdslen(server.aof_child_diff);
     const char *buf = server.aof_child_diff;
     long long cow_updated_time = mstime();
-
+    long long key_count = dbTotalServerKeyCount();
     while (bytes_to_write) {
         /* We write the AOF buffer in chunk of 8MB so that we can check the time in between them */
         size_t chunk_size = bytes_to_write < (8<<20) ? bytes_to_write : (8<<20);
@@ -1608,7 +1608,7 @@ int rewriteAppendOnlyFile(char *filename) {
         /* Update COW info */
         long long now = mstime();
         if (now - cow_updated_time >= 1000) {
-            sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, dbTotalServerKeyCount(), "AOF rewrite");
+            sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, key_count, "AOF rewrite");
             cow_updated_time = now;
         }
     }
