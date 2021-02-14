@@ -101,7 +101,7 @@ int readChildInfo(child_info_data *buffer) {
 void receiveChildInfo(void) {
     if (server.child_info_pipe[0] == -1) return;
 
-    child_info_data data = {0};
+    static child_info_data data;
 
     /* Drain the pipe and update child info so that we get the final message. */
     while (readChildInfo(&data)) {
