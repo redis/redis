@@ -59,17 +59,17 @@ void closeChildInfoPipe(void) {
 }
 
 /* Update Child info. */
-void updateChildInfo(child_info_data *data) {
-    if (data->information_type == CHILD_INFO_TYPE_CURRENT_INFO) {
-        server.stat_current_cow_bytes = data->cow;
-        server.stat_current_save_keys_processed = data->keys;
-        if (data->progress != -1) server.stat_module_progress = data->progress;
-    } else if (data->information_type == CHILD_INFO_TYPE_AOF_COW_SIZE) {
-        server.stat_aof_cow_bytes = data->cow;
-    } else if (data->information_type == CHILD_INFO_TYPE_RDB_COW_SIZE) {
-        server.stat_rdb_cow_bytes = data->cow;
-    } else if (data->information_type == CHILD_INFO_TYPE_MODULE_COW_SIZE) {
-        server.stat_module_cow_bytes = data->cow;
+void updateChildInfo(childInfoType information_type, size_t cow, size_t keys, double progress) {
+    if (information_type == CHILD_INFO_TYPE_CURRENT_INFO) {
+        server.stat_current_cow_bytes = cow;
+        server.stat_current_save_keys_processed = keys;
+        if (progress != -1) server.stat_module_progress = progress;
+    } else if (information_type == CHILD_INFO_TYPE_AOF_COW_SIZE) {
+        server.stat_aof_cow_bytes = cow;
+    } else if (information_type == CHILD_INFO_TYPE_RDB_COW_SIZE) {
+        server.stat_rdb_cow_bytes = cow;
+    } else if (information_type == CHILD_INFO_TYPE_MODULE_COW_SIZE) {
+        server.stat_module_cow_bytes = cow;
     }
 }
 
@@ -77,20 +77,25 @@ void updateChildInfo(child_info_data *data) {
  * if complete data read into the buffer, 
  * data is stored into *buffer, and returns 1.
  * otherwise, the partial data is left in the buffer, waiting for the next read, and returns 0. */
-int readChildInfo(child_info_data *buffer) {
+int readChildInfo(childInfoType *information_type, size_t *cow, size_t *keys, double* progress) {
     /* We are using here a static buffer in combination with the server.child_info_nread to handle short reads */
-    ssize_t wlen = sizeof(*buffer);
+    static child_info_data buffer;
+    ssize_t wlen = sizeof(buffer);
 
     /* Do not overlap */
     if (server.child_info_nread == wlen) server.child_info_nread = 0;
 
-    int nread = read(server.child_info_pipe[0], (char *)buffer + server.child_info_nread, wlen - server.child_info_nread);
+    int nread = read(server.child_info_pipe[0], (char *)&buffer + server.child_info_nread, wlen - server.child_info_nread);
     if (nread > 0) {
         server.child_info_nread += nread;
     }
 
     /* We have complete child info */
     if (server.child_info_nread == wlen) {
+        *information_type = buffer.information_type;
+        *cow = buffer.cow;
+        *keys = buffer.keys;
+        *progress = buffer.progress;
         return 1;
     } else {
         return 0;
@@ -101,11 +106,13 @@ int readChildInfo(child_info_data *buffer) {
 void receiveChildInfo(void) {
     if (server.child_info_pipe[0] == -1) return;
 
-    static child_info_data data;
+    size_t cow;
+    size_t keys;
+    double progress;
+    childInfoType information_type;
 
     /* Drain the pipe and update child info so that we get the final message. */
-    while (readChildInfo(&data)) {
-        updateChildInfo(&data);
-        memset(&data, 0, sizeof(data));
+    while (readChildInfo(&information_type, &cow, &keys, &progress)) {
+        updateChildInfo(information_type, cow, keys, progress);
     }
 }
