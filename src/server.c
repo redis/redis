@@ -3174,6 +3174,7 @@ void initServer(void) {
     server.stat_rdb_cow_bytes = 0;
     server.stat_aof_cow_bytes = 0;
     server.stat_module_cow_bytes = 0;
+    server.stat_module_save_progress = 0;
     for (int j = 0; j < CLIENT_TYPE_COUNT; j++)
         server.stat_clients_type_memory[j] = 0;
     server.cron_malloc_stats.zmalloc_used = 0;
@@ -4703,7 +4704,8 @@ sds genRedisInfoString(const char *section) {
             "aof_last_write_status:%s\r\n"
             "aof_last_cow_size:%zu\r\n"
             "module_fork_in_progress:%d\r\n"
-            "module_fork_last_cow_size:%zu\r\n",
+            "module_fork_last_cow_size:%zu\r\n"
+            "module_save_progress:%f\r\n",
             (int)server.loading,
             server.stat_current_cow_bytes,
             server.stat_current_save_keys_processed,
@@ -4726,7 +4728,8 @@ sds genRedisInfoString(const char *section) {
             (server.aof_last_write_status == C_OK) ? "ok" : "err",
             server.stat_aof_cow_bytes,
             server.child_type == CHILD_TYPE_MODULE,
-            server.stat_module_cow_bytes);
+            server.stat_module_cow_bytes,
+            server.stat_module_save_progress);
 
         if (server.aof_enabled) {
             info = sdscatprintf(info,
@@ -5582,12 +5585,13 @@ int redisFork(int purpose) {
 }
 
 /* Send save data to parent. */
-void sendChildInfo(childInfoType info_type, size_t keys, char *pname) {
+void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress, char *pname) {
     if (server.child_info_pipe[1] == -1) return;
 
     child_info_data data = {.information_type=info_type,
                             .keys=keys,
-                            .cow=zmalloc_get_private_dirty(-1)};
+                            .cow=zmalloc_get_private_dirty(-1),
+                            .progress=progress};
 
     if (data.cow) {
         serverLog((info_type == CHILD_INFO_TYPE_CURRENT_INFO) ? LL_VERBOSE : LL_NOTICE,
@@ -5600,6 +5604,14 @@ void sendChildInfo(childInfoType info_type, size_t keys, char *pname) {
     if (write(server.child_info_pipe[1], &data, wlen) != wlen) {
         /* Nothing to do on error, this will be detected by the other side. */
     }
+}
+
+void sendChildCowInfo(childInfoType info_type, char *pname) {
+    sendChildInfoGeneric(info_type, 0, -1, pname);
+}
+
+void sendChildInfo(childInfoType info_type, size_t keys, char *pname) {
+    sendChildInfoGeneric(info_type, keys, -1, pname);
 }
 
 void memtest(size_t megabytes, int passes);

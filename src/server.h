@@ -1269,6 +1269,7 @@ struct redisServer {
     size_t stat_rdb_cow_bytes;      /* Copy on write bytes during RDB saving. */
     size_t stat_aof_cow_bytes;      /* Copy on write bytes during AOF rewrite. */
     size_t stat_module_cow_bytes;   /* Copy on write bytes during module fork. */
+    double stat_module_save_progress;   /* Module save progress. */
     uint64_t stat_clients_type_memory[CLIENT_TYPE_COUNT];/* Mem usage by type */
     long long stat_unexpected_error_replies; /* Number of unexpected (aof-loading, replica to master, etc.) error replies */
     long long stat_total_error_replies; /* Total number of issued error replies ( command + rejected errors ) */
@@ -1688,6 +1689,7 @@ typedef struct {
 typedef struct {
     size_t keys;
     size_t cow;
+    double progress;
     childInfoType information_type; /* Type of information */
 } child_info_data;
 
@@ -2047,6 +2049,8 @@ void restartAOFAfterSYNC();
 /* Child info */
 void openChildInfoPipe(void);
 void closeChildInfoPipe(void);
+void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress, char *pname);
+void sendChildCowInfo(childInfoType info_type, char *pname);
 void sendChildInfo(childInfoType info_type, size_t keys, char *pname);
 void receiveChildInfo(void);
 
