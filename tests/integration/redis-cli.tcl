@@ -109,7 +109,7 @@ start_server {tags {"cli"}} {
     test_interactive_cli "INFO response should be printed raw" {
         set lines [split [run_command $fd info] "\n"]
         foreach line $lines {
-            assert [regexp {^$|^#|^[a-z0-9_]+:.+} $line]
+            assert [regexp {^$|^#|^[^#:]+:} $line]
         }
     }
 

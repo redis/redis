@@ -49,6 +49,8 @@ int stringmatchlen(const char *p, int plen, const char *s, int slen, int nocase)
 int stringmatch(const char *p, const char *s, int nocase);
 int stringmatchlen_fuzz_test(void);
 long long memtoll(const char *p, int *err);
+const char *mempbrk(const char *s, size_t len, const char *chars, size_t charslen);
+char *memmapchars(char *s, size_t len, const char *from, const char *to, size_t setlen);
 uint32_t digits10(uint64_t v);
 uint32_t sdigits10(int64_t v);
 int ll2string(char *s, size_t len, long long value);

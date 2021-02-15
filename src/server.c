@@ -4501,6 +4501,25 @@ void bytesToHuman(char *s, unsigned long long n) {
     }
 }
 
+/* Characters we sanitize on INFO output to maintain expected format. */
+static char unsafe_info_chars[] = "#:\n\r";
+static char unsafe_info_chars_substs[] = "____";   /* Must be same length as above */
+
+/* Returns a sanitized version of s that contains no unsafe info string chars.
+ * If no unsafe characters are found, simply returns s. Caller needs to
+ * free tmp if it is non-null on return.
+ */
+const char *getSafeInfoString(const char *s, size_t len, char **tmp) {
+    *tmp = NULL;
+    if (mempbrk(s, len, unsafe_info_chars,sizeof(unsafe_info_chars)-1)
+        == NULL) return s;
+    char *new = *tmp = zmalloc(len + 1);
+    memcpy(new, s, len);
+    new[len] = '\0';
+    return memmapchars(new, len, unsafe_info_chars, unsafe_info_chars_substs,
+                       sizeof(unsafe_info_chars)-1);
+}
+
 /* Create the string returned by the INFO command. This is decoupled
  * by the INFO command itself as we need to report the same information
  * on memory corruption problems. */
@@ -5126,15 +5145,17 @@ sds genRedisInfoString(const char *section) {
         dictIterator *di;
         di = dictGetSafeIterator(server.commands);
         while((de = dictNext(di)) != NULL) {
+            char *tmpsafe;
             c = (struct redisCommand *) dictGetVal(de);
             if (!c->calls && !c->failed_calls && !c->rejected_calls)
                 continue;
             info = sdscatprintf(info,
                 "cmdstat_%s:calls=%lld,usec=%lld,usec_per_call=%.2f"
                 ",rejected_calls=%lld,failed_calls=%lld\r\n",
-                c->name, c->calls, c->microseconds,
+                getSafeInfoString(c->name, strlen(c->name), &tmpsafe), c->calls, c->microseconds,
                 (c->calls == 0) ? 0 : ((float)c->microseconds/c->calls),
                 c->rejected_calls, c->failed_calls);
+            if (tmpsafe != NULL) zfree(tmpsafe);
         }
         dictReleaseIterator(di);
     }
@@ -5147,10 +5168,12 @@ sds genRedisInfoString(const char *section) {
         raxSeek(&ri,"^",NULL,0);
         struct redisError *e;
         while(raxNext(&ri)) {
+            char *tmpsafe;
             e = (struct redisError *) ri.data;
             info = sdscatprintf(info,
                 "errorstat_%.*s:count=%lld\r\n",
-                (int)ri.key_len, ri.key, e->count);
+                (int)ri.key_len, getSafeInfoString((char *) ri.key, ri.key_len, &tmpsafe), e->count);
+            if (tmpsafe != NULL) zfree(tmpsafe);
         }
         raxStop(&ri);
     }
