@@ -4,7 +4,7 @@
 
 # HIREDIS
 
-Hiredis is a minimalistic C client library for the [Redis](http://redis.io/) database.
+Hiredis is a minimalistic C client library for the [Redis](https://redis.io/) database.
 
 It is minimalistic because it just adds minimal support for the protocol, but
 at the same time it uses a high level printf-alike API in order to make it
