@@ -43,10 +43,14 @@ start_server {tags {"repl"}} {
             r config set min-slaves-max-lag 2
             exec kill -SIGSTOP [srv -1 pid]
             assert {[r set foo 12345] eq {OK}}
-            after 4000
+            wait_for_condition 100 100 {
+                [catch {r set foo 12345}] != 0
+            } else {
+                fail "Master didn't become readonly"
+            }
             catch {r set foo 12345} err
-            set err
-        } {NOREPLICAS*}
+            assert_match {NOREPLICAS*} $err
+        }
         exec kill -SIGCONT [srv -1 pid]
 
         test {min-slaves-to-write is ignored by slaves} {
