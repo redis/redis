@@ -219,7 +219,10 @@ int lpStringToInt64(const char *s, unsigned long slen, int64_t *value) {
 }
 
 /* Create a new, empty listpack.
- * On success the new listpack is returned, otherwise an error is returned. */
+ * On success the new listpack is returned, otherwise an error is returned.
+ * Pre-allocate at least `capacity` bytes of memory,
+ * over-allocated memory can be shrinked by `lpShrinkToFit`.
+ * */
 unsigned char *lpNew(size_t capacity) {
     unsigned char *lp = lp_malloc(capacity > LP_HDR_SIZE+1 ? capacity : LP_HDR_SIZE+1);
     if (lp == NULL) return NULL;

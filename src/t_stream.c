@@ -523,7 +523,10 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
     if (lp == NULL) {
         master_id = id;
         streamEncodeID(rax_key,&id);
-        /* Create the listpack having the master entry ID and fields. */
+        /* Create the listpack having the master entry ID and fields.
+         * Allocate max bytes when creating listpack to avoid realloc on every XADD.
+         * When listpack reaches max number of entries, shrink the allocation.
+         */
         lp = lpNew(server.stream_node_max_bytes);
         lp = lpAppendInteger(lp,1); /* One item, the one we are adding. */
         lp = lpAppendInteger(lp,0); /* Zero deleted so far. */
