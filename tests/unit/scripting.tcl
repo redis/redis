@@ -468,6 +468,7 @@ start_server {tags {"scripting"}} {
         r slaveof no one
         set res
     } {102}
+    r config set aof-use-rdb-preamble yes
 
     test {EVAL timeout from AOF} {
         # generate a long running script that is propagated to the AOF as script
@@ -505,8 +506,6 @@ start_server {tags {"scripting"}} {
         $rd close
         r get x
     } {y}
-    r config set aof-use-rdb-preamble yes
-    r config set lua-replicate-commands yes
 
     test {We can call scripts rewriting client->argv from Lua} {
         r del myset
