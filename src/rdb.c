@@ -1546,7 +1546,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
     } else if (rdbtype == RDB_TYPE_LIST) {
         /* Read list value */
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
-
+        if (len == 0) { rdbReportCorruptRDB("empty list"); return NULL; }
         o = createQuicklistObject();
         quicklistSetOptions(o->ptr, server.list_max_ziplist_size,
                             server.list_compress_depth);
@@ -1566,7 +1566,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
     } else if (rdbtype == RDB_TYPE_SET) {
         /* Read Set value */
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
-
+        if (len == 0) { rdbReportCorruptRDB("empty set"); return NULL; }
         /* Use a regular set when there are too many entries. */
         if (len > server.set_max_intset_entries) {
             o = createSetObject();
@@ -1633,6 +1633,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
         zset *zs;
 
         if ((zsetlen = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
+        if (zsetlen == 0) { rdbReportCorruptRDB("empty zset"); return NULL; }
         o = createZsetObject();
         zs = o->ptr;
 
@@ -1691,6 +1692,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
 
         len = rdbLoadLen(rdb, NULL);
         if (len == RDB_LENERR) return NULL;
+        if (len == 0) { rdbReportCorruptRDB("empty hash"); return NULL; }
 
         o = createHashObject();
 
@@ -1798,6 +1800,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
         serverAssert(len == 0);
     } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST) {
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
+        if (len == 0) { rdbReportCorruptRDB("empty list"); return NULL; }
         o = createQuicklistObject();
         quicklistSetOptions(o->ptr, server.list_max_ziplist_size,
                             server.list_compress_depth);

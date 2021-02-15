@@ -328,12 +328,13 @@ test {corrupt payload: fuzzer findings - leak in rdbloading due to dup entry in 
     }
 }
 
-test {corrupt payload: fuzzer findings - empty intset div by zero} {
+test {corrupt payload: fuzzer findings - empty intset} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no
         r debug set-skip-checksum-validation 1
-        r RESTORE _setbig 0 "\x02\xC0\xC0\x06\x02\x5F\x39\xC0\x02\x02\x5F\x33\xC0\x00\x02\x5F\x31\xC0\x04\xC0\x08\x02\x5F\x37\x02\x5F\x35\x09\x00\xC5\xD4\x6D\xBA\xAD\x14\xB7\xE7"
-        catch {r SRANDMEMBER _setbig }
+        catch {r RESTORE _setbig 0 "\x02\xC0\xC0\x06\x02\x5F\x39\xC0\x02\x02\x5F\x33\xC0\x00\x02\x5F\x31\xC0\x04\xC0\x08\x02\x5F\x37\x02\x5F\x35\x09\x00\xC5\xD4\x6D\xBA\xAD\x14\xB7\xE7" } err
+        assert_match "*Bad data format*" $err
+        r ping
     }
 }
 
@@ -507,14 +508,13 @@ test {corrupt payload: fuzzer findings - valgrind invalid read} {
     }
 }
 
-test {corrupt payload: fuzzer findings - HRANDFIELD on bad ziplist} {
+test {corrupt payload: fuzzer findings - empty hash} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload yes
         r debug set-skip-checksum-validation 1
-        r RESTORE _int 0 "\x04\xC0\x01\x09\x00\xF6\x8A\xB6\x7A\x85\x87\x72\x4D"
-        catch {r HRANDFIELD _int}
-        assert_equal [count_log_message 0 "crashed by signal"] 0
-        assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
+        catch {r RESTORE _int 0 "\x04\xC0\x01\x09\x00\xF6\x8A\xB6\x7A\x85\x87\x72\x4D"} err
+        assert_match "*Bad data format*" $err
+        r ping
     }
 }
 
