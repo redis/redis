@@ -4502,8 +4502,8 @@ void bytesToHuman(char *s, unsigned long long n) {
 }
 
 /* Characters we sanitize on INFO output to maintain expected format. */
-static char unsafe_info_chars[] = ":\n\r";
-static char escaped_info_chars[] = "___";   /* Must be same length as above */
+static char unsafe_info_chars[] = "#:\n\r";
+static char unsafe_info_chars_substs[] = "____";   /* Must be same length as above */
 
 /* Returns a sanitized version of s that contains no unsafe info string chars.
  * If no unsafe characters are found, simply returns s. Caller needs to
@@ -4516,7 +4516,7 @@ const char *getSafeInfoString(const char *s, size_t len, char **tmp) {
     char *new = *tmp = zmalloc(len + 1);
     memcpy(new, s, len);
     new[len] = '\0';
-    return memmapchars(new, len, unsafe_info_chars, escaped_info_chars,
+    return memmapchars(new, len, unsafe_info_chars, unsafe_info_chars_substs,
                        sizeof(unsafe_info_chars)-1);
 }
 
