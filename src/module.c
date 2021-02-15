@@ -2976,6 +2976,10 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
  *                          are created.
  *     REDISMODULE_HASH_CFIELDS: The field names passed are null terminated C
  *                               strings instead of RedisModuleString objects.
+ *     REDISMODULE_HASH_COUNT_ALL: Include the number of inserted fields in the
+ *                                 returned number, in addition to the number of
+ *                                 updated and deleted fields. (Added in Redis
+ *                                 6.2.)
  *
  * Unless NX is specified, the command overwrites the old field value with
  * the new one.
@@ -2989,21 +2993,43 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
  *
  * Return value:
  *
- * The number of fields updated (that may be less than the number of fields
- * specified because of the XX or NX options).
+ * The number of fields existing in the hash prior to the call, which have been
+ * updated (its old value has been replaced by a new value) or deleted. If the
+ * flag REDISMODULE_HASH_COUNT_ALL is set, insterted fields not previously
+ * existing in the hash are also counted.
  *
- * In the following case the return value is always zero:
+ * If the return value is zero, `errno` is set (since Redis 6.2) as follows:
  *
- * * The key was not open for writing.
- * * The key was associated with a non Hash value.
+ * - EINVAL if any unknown flags are set or if key is NULL.
+ * - ENOTSUP if the key is associated with a non Hash value.
+ * - EBADF if the key was not opened for writing.
+ * - ENOENT if no fields were counted as described under Return value above.
+ *   This is not actually an error. The return value can be zero if all fields
+ *   were just created and the COUNT_ALL flag was unset, or if changes were held
+ *   back due to the NX and XX flags.
+ *
+ * NOTICE: The return value semantics of this function are very different
+ * between Redis 6.2 and older versions. Modules that use it should determine
+ * the Redis version and handle it accordingly.
  */
 int RM_HashSet(RedisModuleKey *key, int flags, ...) {
     va_list ap;
-    if (!(key->mode & REDISMODULE_WRITE)) return 0;
-    if (key->value && key->value->type != OBJ_HASH) return 0;
+    if (!key || (flags & ~(REDISMODULE_HASH_NX |
+                           REDISMODULE_HASH_XX |
+                           REDISMODULE_HASH_CFIELDS |
+                           REDISMODULE_HASH_COUNT_ALL))) {
+        errno = EINVAL;
+        return 0;
+    } else if (key->value && key->value->type != OBJ_HASH) {
+        errno = ENOTSUP;
+        return 0;
+    } else if (!(key->mode & REDISMODULE_WRITE)) {
+        errno = EBADF;
+        return 0;
+    }
     if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_HASH);
 
-    int updated = 0;
+    int count = 0;
     va_start(ap, flags);
     while(1) {
         RedisModuleString *field, *value;
@@ -3031,7 +3057,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
 
         /* Handle deletion if value is REDISMODULE_HASH_DELETE. */
         if (value == REDISMODULE_HASH_DELETE) {
-            updated += hashTypeDelete(key->value, field->ptr);
+            count += hashTypeDelete(key->value, field->ptr);
             if (flags & REDISMODULE_HASH_CFIELDS) decrRefCount(field);
             continue;
         }
@@ -3045,7 +3071,8 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
 
         robj *argv[2] = {field,value};
         hashTypeTryConversion(key->value,argv,0,1);
-        updated += hashTypeSet(key->value, field->ptr, value->ptr, low_flags);
+        int updated = hashTypeSet(key->value, field->ptr, value->ptr, low_flags);
+        count += (flags & REDISMODULE_HASH_COUNT_ALL) ? 1 : updated;
 
         /* If CFIELDS is active, SDS string ownership is now of hashTypeSet(),
          * however we still have to release the 'field' object shell. */
@@ -3056,7 +3083,8 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
     }
     va_end(ap);
     moduleDelKeyIfEmpty(key);
-    return updated;
+    if (count == 0) errno = ENOENT;
+    return count;
 }
 
 /* Get fields from an hash value. This function is called using a variable

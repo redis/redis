@@ -68,6 +68,7 @@
 #define REDISMODULE_HASH_XX         (1<<1)
 #define REDISMODULE_HASH_CFIELDS    (1<<2)
 #define REDISMODULE_HASH_EXISTS     (1<<3)
+#define REDISMODULE_HASH_COUNT_ALL  (1<<4)
 
 /* StreamID type. */
 typedef struct RedisModuleStreamID {
