@@ -2599,7 +2599,7 @@ void createSharedObjects(void) {
     shared.justid = createStringObject("JUSTID",6);
     shared.lastid = createStringObject("LASTID",6);
     shared.default_username = createStringObject("default",7);
-    shared.ping = createStringObject("ping",7);
+    shared.ping = createStringObject("ping",4);
     shared.setid = createStringObject("SETID",5);
     shared.keepttl = createStringObject("KEEPTTL",7);
     shared.load = createStringObject("LOAD",4);
