@@ -43,6 +43,10 @@
  * avoid malloc allocation.*/
 #define STREAMID_STATIC_VECTOR_LEN 8
 
+/* Max pre-allocation for listpack. This is done to avoid abuse of a user
+ * setting stream_node_max_bytes to a huge number. */
+#define STREAM_LISTPACK_MAX_PRE_ALLOCATE 4096
+
 void streamFreeCG(streamCG *cg);
 void streamFreeNACK(streamNACK *na);
 size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamConsumer *consumer);
@@ -509,7 +513,13 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
             lp = NULL;
         } else if (server.stream_node_max_entries) {
             int64_t count = lpGetInteger(lpFirst(lp));
-            if (count >= server.stream_node_max_entries) lp = NULL;
+            if (count >= server.stream_node_max_entries) {
+                /* Shrink extra pre-allocated memory */
+                lp = lpShrinkToFit(lp);
+                if (ri.data != lp)
+                    raxInsert(s->rax,ri.key,ri.key_len,lp,NULL);
+                lp = NULL;
+            }
         }
     }
 
@@ -517,8 +527,17 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
     if (lp == NULL) {
         master_id = id;
         streamEncodeID(rax_key,&id);
-        /* Create the listpack having the master entry ID and fields. */
-        lp = lpNew();
+        /* Create the listpack having the master entry ID and fields.
+         * Pre-allocate some bytes when creating listpack to avoid realloc on
+         * every XADD. Since listpack.c uses malloc_size, it'll grow in steps,
+         * and won't realloc on every XADD.
+         * When listpack reaches max number of entries, we'll shrink the
+         * allocation to fit the data. */
+        size_t prealloc = STREAM_LISTPACK_MAX_PRE_ALLOCATE;
+        if (server.stream_node_max_bytes > 0 && server.stream_node_max_bytes < prealloc) {
+            prealloc = server.stream_node_max_bytes;
+        }
+        lp = lpNew(prealloc);
         lp = lpAppendInteger(lp,1); /* One item, the one we are adding. */
         lp = lpAppendInteger(lp,0); /* Zero deleted so far. */
         lp = lpAppendInteger(lp,numfields);
