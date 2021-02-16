@@ -248,6 +248,7 @@ proc ::redis::redis_read_reply {id fd} {
         - {return -code error [redis_read_line $fd]}
         $ {redis_bulk_read $fd}
         > -
+        ~ -
         * {redis_multi_bulk_read $id $fd}
         % {redis_read_map $id $fd}
         default {
