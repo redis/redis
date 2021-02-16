@@ -147,7 +147,7 @@ int checkPrefixCollisionsOrReply(client *c, robj **prefixes, size_t numprefix) {
             }
         }
     }
-    return -1;
+    return 1;
 }
 
 /* Set the client 'c' to track the prefix 'prefix'. If the client 'c' is
