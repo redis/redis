@@ -534,7 +534,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
          * When listpack reaches max number of entries, we'll shrink the
          * allocation to fit the data. */
         size_t prealloc = STREAM_LISTPACK_MAX_PRE_ALLOCATE;
-        if (server.stream_node_max_bytes > 0 && server.stream_node_max_bytes < STREAM_LISTPACK_MAX_PRE_ALLOCATE) {
+        if (server.stream_node_max_bytes > 0 && server.stream_node_max_bytes < prealloc) {
             prealloc = server.stream_node_max_bytes;
         }
         lp = lpNew(prealloc);
