@@ -43,8 +43,8 @@
  * avoid malloc allocation.*/
 #define STREAMID_STATIC_VECTOR_LEN 8
 
-/* Max pre-allocation for listpack
- */
+/* Max pre-allocation for listpack. This is done to avoid abuse of a user
+ * setting stream_node_max_bytes to a huge number. */
 #define STREAM_LISTPACK_MAX_PRE_ALLOCATE 4096
 
 void streamFreeCG(streamCG *cg);
