@@ -528,9 +528,11 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
         master_id = id;
         streamEncodeID(rax_key,&id);
         /* Create the listpack having the master entry ID and fields.
-         * Allocate max bytes when creating listpack to avoid realloc on every XADD.
-         * When listpack reaches max number of entries, shrink the allocation.
-         */
+         * Pre-allocate some bytes when creating listpack to avoid realloc on
+         * every XADD. Since listpack.c uses malloc_size, it'll grow in steps,
+         * and won't realloc on every XADD.
+         * When listpack reaches max number of entries, we'll shrink the
+         * allocation to fit the data. */
         size_t prealloc = STREAM_LISTPACK_MAX_PRE_ALLOCATE;
         if (server.stream_node_max_bytes > 0 && server.stream_node_max_bytes < STREAM_LISTPACK_MAX_PRE_ALLOCATE) {
             prealloc = server.stream_node_max_bytes;
