@@ -33,6 +33,7 @@
 
 /* Node, List, and Iterator are the only data structures used currently. */
 
+// 链表的基本结构，是一个双向链表
 typedef struct listNode {
     struct listNode *prev;
     struct listNode *next;
@@ -44,6 +45,7 @@ typedef struct listIter {
     int direction;
 } listIter;
 
+// 实际使用的链表结构，这里多了几个变量，记录了头尾节点和长度，还有几个函数
 typedef struct list {
     listNode *head;
     listNode *tail;

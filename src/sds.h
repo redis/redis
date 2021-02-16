@@ -36,10 +36,11 @@
 
 typedef char *sds;
 
+// 基本字符串对象结构，所有字符串都基于该结构
 struct sdshdr {
-    int len;
-    int free;
-    char buf[];
+    int len;  // 长度
+    int free;  // 剩余空间
+    char buf[];  // 实际存储的字符串
 };
 
 sds sdsnewlen(const void *init, size_t initlen);
