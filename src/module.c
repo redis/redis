@@ -7099,7 +7099,7 @@ int RM_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
  * so that it can report progress and COW memory to the parent which will be
  * reported in INFO.
  * The `progress` argument should between 0 and 1, or -1 when not available. */
-void RM_ForkChildHeartbeat(double progress) {
+void RM_SendChildHeartbeat(double progress) {
     sendChildInfoGeneric(CHILD_INFO_TYPE_CURRENT_INFO, 0, progress, "Module fork");
 }
 
@@ -8618,7 +8618,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CommandFilterArgReplace);
     REGISTER_API(CommandFilterArgDelete);
     REGISTER_API(Fork);
-    REGISTER_API(ForkChildHeartbeat);
+    REGISTER_API(SendChildHeartbeat);
     REGISTER_API(ExitFromChild);
     REGISTER_API(KillForkChild);
     REGISTER_API(RegisterInfoFunc);
