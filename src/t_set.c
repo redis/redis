@@ -690,7 +690,9 @@ void srandmemberWithCountCommand(client *c) {
      * structures. This case is the only one that also needs to return the
      * elements in random order. */
     if (!uniq || count == 1) {
-        addReplySetLen(c,count);
+        /* if the count was negative, return as array type since the reply
+           may contain duplicate element */
+        !uniq ? addReplyArrayLen(c,count) : addReplySetLen(c,count);
         while(count--) {
             encoding = setTypeRandomElement(set,&ele,&llele);
             if (encoding == OBJ_ENCODING_INTSET) {
