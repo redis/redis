@@ -43,6 +43,10 @@
  * avoid malloc allocation.*/
 #define STREAMID_STATIC_VECTOR_LEN 8
 
+/* Max pre-allocation for listpack
+ */
+#define STREAM_LISTPACK_MAX_PRE_ALLOCATE 4096
+
 void streamFreeCG(streamCG *cg);
 void streamFreeNACK(streamNACK *na);
 size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamConsumer *consumer);
@@ -527,7 +531,11 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
          * Allocate max bytes when creating listpack to avoid realloc on every XADD.
          * When listpack reaches max number of entries, shrink the allocation.
          */
-        lp = lpNew(server.stream_node_max_bytes);
+        size_t prealloc = STREAM_LISTPACK_MAX_PRE_ALLOCATE;
+        if (server.stream_node_max_bytes > 0 && server.stream_node_max_bytes < STREAM_LISTPACK_MAX_PRE_ALLOCATE) {
+            prealloc = server.stream_node_max_bytes;
+        }
+        lp = lpNew(prealloc);
         lp = lpAppendInteger(lp,1); /* One item, the one we are adding. */
         lp = lpAppendInteger(lp,0); /* Zero deleted so far. */
         lp = lpAppendInteger(lp,numfields);
