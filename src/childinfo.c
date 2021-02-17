@@ -69,10 +69,11 @@ void closeChildInfoPipe(void) {
 void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress, char *pname) {
     if (server.child_info_pipe[1] == -1) return;
 
-    child_info_data data = {.information_type=info_type,
-            .keys=keys,
-            .cow=zmalloc_get_private_dirty(-1),
-            .progress=progress};
+    child_info_data data = {0}; /* zero everything, including padding to sattisfy valgrind */
+    data.information_type = info_type;
+    data.keys = keys;
+    data.cow = zmalloc_get_private_dirty(-1);
+    data.progress = progress;
 
     if (data.cow) {
         serverLog((info_type == CHILD_INFO_TYPE_CURRENT_INFO) ? LL_VERBOSE : LL_NOTICE,
