@@ -231,17 +231,22 @@ start_server {tags {"expire"}} {
         set e
     } {ERR invalid expire time in getex}
 
-    test {EXPIRE with big integer should report an error} {
+    test {EXPIRE with big integer overflows when converted to milliseconds} {
         r set foo bar
         catch {r EXPIRE foo 10000000000000000} e
         set e
     } {ERR invalid expire time in expire}
 
-    test {EXPIRE with smallest integer should report an error} {
+    test {PEXPIRE with big integer overflow when basetime is added} {
         r set foo bar
-        catch {r EXPIRE foo -9999999999999999} e
+        catch {r PEXPIRE foo 9223372036854770000} e
         set e
-    } {ERR invalid expire time in expire}
+    } {ERR invalid expire time in pexpire}
+
+    test {PEXPIREAT with big integer works} {
+        r set foo bar
+        r PEXPIREAT foo 9223372036854770000
+    } {1}
 
     test {EXPIRE and SET/GETEX EX/PX/EXAT/PXAT option, TTL should not be reset after loadaof} {
         # This test makes sure that expire times are propagated as absolute
