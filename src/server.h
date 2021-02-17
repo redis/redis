@@ -1521,8 +1521,7 @@ struct redisServer {
     long long blocked_last_cron; /* Indicate the mstime of the last time we did cron jobs from a blocking operation */
     /* Pubsub */
     dict *pubsub_channels;  /* Map channels to list of subscribed clients */
-    list *pubsub_patterns;  /* A list of pubsub_patterns */
-    dict *pubsub_patterns_dict;  /* A dict of pubsub_patterns */
+    dict *pubsub_patterns;  /* A dict of pubsub_patterns */
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
     /* Cluster */
@@ -1608,11 +1607,6 @@ struct redisServer {
     int target_replica_port; /* Failover target port */
     int failover_state; /* Failover state */
 };
-
-typedef struct pubsubPattern {
-    client *client;
-    robj *pattern;
-} pubsubPattern;
 
 #define MAX_KEYS_BUFFER 256
 
@@ -2280,8 +2274,6 @@ int hashZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep);
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(client *c, int notify);
 int pubsubUnsubscribeAllPatterns(client *c, int notify);
-void freePubsubPattern(void *p);
-int listMatchPubsubPattern(void *a, void *b);
 int pubsubPublishMessage(robj *channel, robj *message);
 void addReplyPubsubMessage(client *c, robj *channel, robj *msg);
 
