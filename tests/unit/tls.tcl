@@ -114,5 +114,30 @@ start_server {tags {"tls"}} {
                 }
             }
         }
+
+        test {TLS: switch between tcp and tls ports} {
+            set srv_port [srv 0 port]
+
+            # TLS
+            set rd [redis [srv 0 host] $srv_port 0 1]
+            $rd PING
+
+            # TCP
+            $rd CONFIG SET tls-port 0
+            $rd CONFIG SET port $srv_port
+            $rd close
+
+            set rd [redis [srv 0 host] $srv_port 0 0]
+            $rd PING
+
+            # TLS
+            $rd CONFIG SET port 0
+            $rd CONFIG SET tls-port $srv_port
+            $rd close
+
+            set rd [redis [srv 0 host] $srv_port 0 1]
+            $rd PING
+            $rd close
+        }
     }
 }

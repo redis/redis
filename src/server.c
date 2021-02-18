@@ -2648,8 +2648,8 @@ void initServerConfig(void) {
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
     server.bindaddr_count = 0;
     server.unixsocketperm = CONFIG_DEFAULT_UNIX_SOCKET_PERM;
-    server.ipfd_count = 0;
-    server.tlsfd_count = 0;
+    server.ipfd.count = 0;
+    server.tlsfd.count = 0;
     server.sofd = -1;
     server.active_expire_enabled = 1;
     server.skip_checksum_validation = 0;
@@ -3007,7 +3007,7 @@ void checkTcpBacklogSettings(void) {
  * impossible to bind, or no bind addresses were specified in the server
  * configuration but the function is not able to bind * for at least
  * one of the IPv4 or IPv6 protocols. */
-int listenToPort(int port, int *fds, int *count) {
+int listenToPort(int port, socketFds *sfd) {
     int j;
     char **bindaddr = server.bindaddr;
     int bindaddr_count = server.bindaddr_count;
@@ -3025,12 +3025,12 @@ int listenToPort(int port, int *fds, int *count) {
         if (optional) addr++;
         if (strchr(addr,':')) {
             /* Bind IPv6 address. */
-            fds[*count] = anetTcp6Server(server.neterr,port,addr,server.tcp_backlog);
+            sfd->fd[sfd->count] = anetTcp6Server(server.neterr,port,addr,server.tcp_backlog);
         } else {
             /* Bind IPv4 address. */
-            fds[*count] = anetTcpServer(server.neterr,port,addr,server.tcp_backlog);
+            sfd->fd[sfd->count] = anetTcpServer(server.neterr,port,addr,server.tcp_backlog);
         }
-        if (fds[*count] == ANET_ERR) {
+        if (sfd->fd[sfd->count] == ANET_ERR) {
             serverLog(LL_WARNING,
                 "Could not create server TCP listening socket %s:%d: %s",
                 addr, port, server.neterr);
@@ -3042,11 +3042,34 @@ int listenToPort(int port, int *fds, int *count) {
                 continue;
             return C_ERR;
         }
-        anetNonBlock(NULL,fds[*count]);
-        anetCloexec(fds[*count]);
-        (*count)++;
+        anetNonBlock(NULL,sfd->fd[sfd->count]);
+        anetCloexec(sfd->fd[sfd->count]);
+        sfd->count++;
     }
     return C_OK;
+}
+
+void closeSocketListeners(socketFds *sfd) {
+    int j;
+
+    for (j = 0; j < sfd->count; j++) {
+        aeDeleteFileEvent(server.el, sfd->fd[j], AE_READABLE);
+        close(sfd->fd[j]);
+    }
+
+    sfd->count = 0;
+}
+
+void createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler) {
+    int j;
+
+    /* Create an event handler for accepting new connections in TCP and TLS
+     * domain sockets. */
+    for (j = 0; j < sfd->count; j++) {
+        if (aeCreateFileEvent(server.el, sfd->fd[j], AE_READABLE, accept_handler,NULL) == AE_ERR) {
+            serverPanic("Unrecoverable error creating file event.");
+        }
+    }
 }
 
 /* Resets the stats that we expose via INFO or other means that we want
@@ -3166,10 +3189,10 @@ void initServer(void) {
 
     /* Open the TCP listening socket for the user commands. */
     if (server.port != 0 &&
-        listenToPort(server.port,server.ipfd,&server.ipfd_count) == C_ERR)
+        listenToPort(server.port,&server.ipfd) == C_ERR)
         exit(1);
     if (server.tls_port != 0 &&
-        listenToPort(server.tls_port,server.tlsfd,&server.tlsfd_count) == C_ERR)
+        listenToPort(server.tls_port,&server.tlsfd) == C_ERR)
         exit(1);
 
     /* Open the listening Unix domain socket. */
@@ -3186,7 +3209,7 @@ void initServer(void) {
     }
 
     /* Abort if there are no listening sockets at all. */
-    if (server.ipfd_count == 0 && server.tlsfd_count == 0 && server.sofd < 0) {
+    if (server.ipfd.count == 0 && server.tlsfd.count == 0 && server.sofd < 0) {
         serverLog(LL_WARNING, "Configured to not listen anywhere, exiting.");
         exit(1);
     }
@@ -3264,22 +3287,8 @@ void initServer(void) {
 
     /* Create an event handler for accepting new connections in TCP and Unix
      * domain sockets. */
-    for (j = 0; j < server.ipfd_count; j++) {
-        if (aeCreateFileEvent(server.el, server.ipfd[j], AE_READABLE,
-            acceptTcpHandler,NULL) == AE_ERR)
-            {
-                serverPanic(
-                    "Unrecoverable error creating server.ipfd file event.");
-            }
-    }
-    for (j = 0; j < server.tlsfd_count; j++) {
-        if (aeCreateFileEvent(server.el, server.tlsfd[j], AE_READABLE,
-            acceptTLSHandler,NULL) == AE_ERR)
-            {
-                serverPanic(
-                    "Unrecoverable error creating server.tlsfd file event.");
-            }
-    }
+    createSocketAcceptHandler(&server.ipfd, acceptTcpHandler);
+    createSocketAcceptHandler(&server.tlsfd, acceptTLSHandler);
     if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
         acceptUnixHandler,NULL) == AE_ERR) serverPanic("Unrecoverable error creating server.sofd file event.");
 
@@ -4180,11 +4189,11 @@ void incrementErrorCount(const char *fullerr, size_t namelen) {
 void closeListeningSockets(int unlink_unix_socket) {
     int j;
 
-    for (j = 0; j < server.ipfd_count; j++) close(server.ipfd[j]);
-    for (j = 0; j < server.tlsfd_count; j++) close(server.tlsfd[j]);
+    for (j = 0; j < server.ipfd.count; j++) close(server.ipfd.fd[j]);
+    for (j = 0; j < server.tlsfd.count; j++) close(server.tlsfd.fd[j]);
     if (server.sofd != -1) close(server.sofd);
     if (server.cluster_enabled)
-        for (j = 0; j < server.cfd_count; j++) close(server.cfd[j]);
+        for (j = 0; j < server.cfd.count; j++) close(server.cfd.fd[j]);
     if (unlink_unix_socket && server.unixsocket) {
         serverLog(LL_NOTICE,"Removing the unix socket file.");
         unlink(server.unixsocket); /* don't care if this fails */
@@ -5534,6 +5543,98 @@ void redisAsciiArt(void) {
     zfree(buf);
 }
 
+int changeBindAddr(sds *addrlist, int addrlist_len) {
+    int i;
+    int result = C_OK;
+
+    char *prev_bindaddr[CONFIG_BINDADDR_MAX];
+    int prev_bindaddr_count;
+
+    /* Close old TCP and TLS servers */
+    closeSocketListeners(&server.ipfd);
+    closeSocketListeners(&server.tlsfd);
+
+    /* Keep previous settings */
+    prev_bindaddr_count = server.bindaddr_count;
+    memcpy(prev_bindaddr, server.bindaddr, sizeof(server.bindaddr));
+
+    /* Copy new settings */
+    memset(server.bindaddr, 0, sizeof(server.bindaddr));
+    for (i = 0; i < addrlist_len; i++) {
+        server.bindaddr[i] = zstrdup(addrlist[i]);
+    }
+    server.bindaddr_count = addrlist_len;
+
+    /* Bind to the new port */
+    if (listenToPort(server.port, &server.ipfd) != C_OK ||
+        listenToPort(server.tls_port, &server.tlsfd) != C_OK) {
+        serverLog(LL_WARNING, "Failed to bind, trying to restore old listening sockets.");
+
+        /* Restore old bind addresses */
+        for (i = 0; i < addrlist_len; i++) {
+            zfree(server.bindaddr[i]);
+        }
+        memcpy(server.bindaddr, prev_bindaddr, sizeof(server.bindaddr));
+        server.bindaddr_count = prev_bindaddr_count;
+
+        /* Re-Listen TCP and TLS */
+        server.ipfd.count = 0;
+        if (listenToPort(server.port, &server.ipfd) != C_OK) {
+            serverPanic("Failed to restore old listening sockets.");
+        }
+
+        server.tlsfd.count = 0;
+        if (listenToPort(server.port, &server.tlsfd) != C_OK) {
+            serverPanic("Failed to restore old listening sockets.");
+        }
+
+        result = C_ERR;
+    } else {
+        /* Free old bind addresses */
+        for (i = 0; i < prev_bindaddr_count; i++) {
+            zfree(prev_bindaddr[i]);
+        }
+    }
+
+    /* Create TCP and TLS event handlers */
+    createSocketAcceptHandler(&server.ipfd, acceptTcpHandler);
+    createSocketAcceptHandler(&server.tlsfd, acceptTLSHandler);
+
+    if (server.set_proc_title) redisSetProcTitle(NULL);
+
+    return result;
+}
+
+int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler) {
+    socketFds new_sfd = {0};
+
+    /* Just close the server if port disabled */
+    if (port == 0) {
+        closeSocketListeners(sfd);
+        if (server.set_proc_title) redisSetProcTitle(NULL);
+        return C_OK;
+    }
+
+    /* Bind to the new port */
+    if (listenToPort(port, &new_sfd) != C_OK) {
+        return C_ERR;
+    }
+
+    /* Close old servers */
+    closeSocketListeners(sfd);
+
+    /* Copy new descriptors */
+    sfd->count = new_sfd.count;
+    memcpy(sfd->fd, new_sfd.fd, sizeof(new_sfd.fd));
+
+    /* Create event handlers */
+    createSocketAcceptHandler(sfd, accept_handler);
+
+    if (server.set_proc_title) redisSetProcTitle(NULL);
+
+    return C_OK;
+}
+
 static void sigShutdownHandler(int sig) {
     char *msg;
 
@@ -6122,7 +6223,7 @@ int main(int argc, char **argv) {
                 exit(1);
             }
         }
-        if (server.ipfd_count > 0 || server.tlsfd_count > 0)
+        if (server.ipfd.count > 0 || server.tlsfd.count > 0)
             serverLog(LL_NOTICE,"Ready to accept connections");
         if (server.sofd > 0)
             serverLog(LL_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);
