@@ -21,16 +21,6 @@ proc get_parent_pid {_pid} {
     error "failed to get parent pid"
 }
 
-# Read symlink to get info about the specified fd of the specified process.
-# The result can be the file name or an arbitrary string that identifies it.
-# When not able to read, an empty string is returned.
-proc get_fdlink {_pid fd} {
-    if { [catch {set fdlink [file readlink "/proc/$_pid/fd/$fd"]} err] } {
-        return ""
-    }
-    return $fdlink
-}
-
 # Linux only
 set os [exec uname]
 if {$os != "Linux"} {
@@ -56,16 +46,17 @@ foreach fd [glob -tails -directory "/proc/self/fd" *] {
         continue
     }
 
-    set fdlink [get_fdlink "self" $fd]
-    if {$fdlink == ""} {
+    # Read symlink to get info about the file descriptor. This can be a real
+    # file name or an arbitrary string that identifies the fd.
+    if { [catch {set fdlink [file readlink "/proc/self/fd/$fd"]} err] } {
         continue
     }
 
-    # We ignore fds that existed in the grandparent, or fds that don't exist
-    # in our parent (Sentinel process).
-    if {[get_fdlink $grandparent_pid $fd] == $fdlink ||
-	[get_fdlink $parent_pid $fd] != $fdlink} {
-        continue
+    # See if grandparent process has the same fd and info and skip if it does.
+    if { ! [catch {set gp_fdlink [file readlink "/proc/$grandparent_pid/fd/$fd"]} err] } {
+        if {$gp_fdlink == $fdlink} {
+            continue
+        }
     }
 
     lappend leaked_fds [list $fd $fdlink]
