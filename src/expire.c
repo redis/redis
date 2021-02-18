@@ -510,7 +510,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     int negative_when = when < 0;
     if (unit == UNIT_SECONDS) when *= 1000;
     when += basetime;
-    if ((when < 0) && !negative_when) {
+    if (((when < 0) && !negative_when) || ((when-basetime > 0) && negative_when)) {
         /* EXPIRE allows negative numbers, but we can at least detect an
          * overflow by either unit conversion or basetime addition. */
         addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
