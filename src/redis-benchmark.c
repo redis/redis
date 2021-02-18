@@ -567,6 +567,9 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                         * we need to randomize. */
                         for (j = 0; j < c->randlen; j++)
                             c->randptr[j] -= c->prefixlen;
+                        /* Fix the pointers to the slot hash tags */
+                        for (j = 0; j < c->staglen; j++)
+                            c->stagptr[j] -= c->prefixlen;
                         c->prefixlen = 0;
                     }
                     continue;

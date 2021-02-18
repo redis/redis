@@ -219,9 +219,12 @@ int lpStringToInt64(const char *s, unsigned long slen, int64_t *value) {
 }
 
 /* Create a new, empty listpack.
- * On success the new listpack is returned, otherwise an error is returned. */
-unsigned char *lpNew(void) {
-    unsigned char *lp = lp_malloc(LP_HDR_SIZE+1);
+ * On success the new listpack is returned, otherwise an error is returned.
+ * Pre-allocate at least `capacity` bytes of memory,
+ * over-allocated memory can be shrinked by `lpShrinkToFit`.
+ * */
+unsigned char *lpNew(size_t capacity) {
+    unsigned char *lp = lp_malloc(capacity > LP_HDR_SIZE+1 ? capacity : LP_HDR_SIZE+1);
     if (lp == NULL) return NULL;
     lpSetTotalBytes(lp,LP_HDR_SIZE+1);
     lpSetNumElements(lp,0);
@@ -232,6 +235,16 @@ unsigned char *lpNew(void) {
 /* Free the specified listpack. */
 void lpFree(unsigned char *lp) {
     lp_free(lp);
+}
+
+/* Shrink the memory to fit. */
+unsigned char* lpShrinkToFit(unsigned char *lp) {
+    size_t size = lpGetTotalBytes(lp);
+    if (size < lp_malloc_size(lp)) {
+        return lp_realloc(lp, size);
+    } else {
+        return lp;
+    }
 }
 
 /* Given an element 'ele' of size 'size', determine if the element can be
@@ -702,7 +715,8 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, un
     unsigned char *dst = lp + poff; /* May be updated after reallocation. */
 
     /* Realloc before: we need more room. */
-    if (new_listpack_bytes > old_listpack_bytes) {
+    if (new_listpack_bytes > old_listpack_bytes &&
+        new_listpack_bytes > lp_malloc_size(lp)) {
         if ((lp = lp_realloc(lp,new_listpack_bytes)) == NULL) return NULL;
         dst = lp + poff;
     }

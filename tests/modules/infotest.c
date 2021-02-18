@@ -21,6 +21,11 @@ void InfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
     RedisModule_InfoAddFieldLongLong(ctx, "expires", 1);
     RedisModule_InfoEndDictField(ctx);
 
+    RedisModule_InfoAddSection(ctx, "unsafe");
+    RedisModule_InfoBeginDictField(ctx, "unsafe:field");
+    RedisModule_InfoAddFieldLongLong(ctx, "value", 1);
+    RedisModule_InfoEndDictField(ctx);
+
     if (for_crash_report) {
         RedisModule_InfoAddSection(ctx, "Klingon");
         RedisModule_InfoAddFieldCString(ctx, "one", "wa’");
