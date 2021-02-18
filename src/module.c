@@ -1837,6 +1837,19 @@ unsigned long long RM_GetClientId(RedisModuleCtx *ctx) {
     return ctx->client->id;
 }
 
+
+/* Return the Name of the current client calling the currently active module
+ * command. If client authentication is NULL will return "default"
+ */
+RedisModuleString *RM_GetClientName(RedisModuleCtx *ctx) {
+    if (ctx->client == NULL) return NULL;
+    sds name = sdsnew(ctx->client->user ? ctx->client->user->name: "default");
+    robj *str = createObject(OBJ_STRING, name);
+    autoMemoryAdd(ctx,REDISMODULE_AM_STRING, str);
+    return str;
+}
+
+
 /* This is an helper for RM_GetClientInfoById() and other functions: given
  * a client, it populates the client info structure with the appropriate
  * fields depending on the version provided. If the version is not valid
@@ -9133,6 +9146,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(IsKeysPositionRequest);
     REGISTER_API(KeyAtPos);
     REGISTER_API(GetClientId);
+    REGISTER_API(GetClientName);
     REGISTER_API(GetContextFlags);
     REGISTER_API(AvoidReplicaTraffic);
     REGISTER_API(PoolAlloc);
