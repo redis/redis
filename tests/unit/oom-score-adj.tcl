@@ -43,7 +43,7 @@ if {$system_name eq {linux}} {
             wait_for_condition 10 10 {
                 [get_oom_score_adj $child_pid] == [expr $base + 30]
             } else {
-                fail "Set oom-score-adj of background child process not ok"
+                fail "Set oom-score-adj of background child process is not ok"
             }
         }
 
