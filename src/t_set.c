@@ -692,7 +692,11 @@ void srandmemberWithCountCommand(client *c) {
     if (!uniq || count == 1) {
         /* if the count was negative, return as array type since the reply
            may contain duplicate element */
-        !uniq ? addReplyArrayLen(c,count) : addReplySetLen(c,count);
+        if (!uniq)
+            addReplyArrayLen(c,count);
+        else
+            addReplySetLen(c,count);
+
         while(count--) {
             encoding = setTypeRandomElement(set,&ele,&llele);
             if (encoding == OBJ_ENCODING_INTSET) {
