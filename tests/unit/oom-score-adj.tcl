@@ -39,7 +39,18 @@ if {$system_name eq {linux}} {
             r bgsave
 
             set child_pid [get_child_pid 0]
-            assert_equal [get_oom_score_adj $child_pid] [expr $base + 30]
+            set iterations 10
+            while {$iterations != 0} {
+                incr iterations -1
+                set oom_score_adj [get_oom_score_adj $child_pid]
+                if {$oom_score_adj == [expr $base + 30]} {
+                    break
+                }
+
+                after 10
+            }
+
+            assert_equal $oom_score_adj [expr $base + 30]
         }
 
         # Failed oom-score-adj tests can only run unprivileged
