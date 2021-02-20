@@ -57,21 +57,19 @@ int RDBGeneratedByReplication = 0;
  * IP address and its listening port which is more clear for the user, for
  * example: "Closing connection with replica 10.1.2.3:6380". */
 char *replicationGetSlaveName(client *c) {
-    static char buf[NET_ADDR_STR_LEN];
+    static char buf[NET_HOST_PORT_STR_LEN];
     char ip[NET_IP_STR_LEN];
 
     ip[0] = '\0';
     buf[0] = '\0';
-    if (c->slave_ip[0] != '\0' ||
+    if (c->slave_addr ||
         connPeerToString(c->conn,ip,sizeof(ip),NULL) != -1)
     {
-        /* Note that the 'ip' buffer is always larger than 'c->slave_ip' */
-        if (c->slave_ip[0] != '\0') memcpy(ip,c->slave_ip,sizeof(c->slave_ip));
-
+        char *addr = c->slave_addr ? c->slave_addr : ip;
         if (c->slave_listening_port)
-            anetFormatAddr(buf,sizeof(buf),ip,c->slave_listening_port);
+            anetFormatAddr(buf,sizeof(buf),addr,c->slave_listening_port);
         else
-            snprintf(buf,sizeof(buf),"%s:<unknown-replica-port>",ip);
+            snprintf(buf,sizeof(buf),"%s:<unknown-replica-port>",addr);
     } else {
         snprintf(buf,sizeof(buf),"client id #%llu",
             (unsigned long long) c->id);
@@ -925,12 +923,13 @@ void replconfCommand(client *c) {
                 return;
             c->slave_listening_port = port;
         } else if (!strcasecmp(c->argv[j]->ptr,"ip-address")) {
-            sds ip = c->argv[j+1]->ptr;
-            if (sdslen(ip) < sizeof(c->slave_ip)) {
-                memcpy(c->slave_ip,ip,sdslen(ip)+1);
+            sds addr = c->argv[j+1]->ptr;
+            if (sdslen(addr) < NET_HOST_STR_LEN) {
+                if (c->slave_addr) sdsfree(c->slave_addr);
+                c->slave_addr = sdsdup(addr);
             } else {
                 addReplyErrorFormat(c,"REPLCONF ip-address provided by "
-                    "replica instance is too long: %zd bytes", sdslen(ip));
+                    "replica instance is too long: %zd bytes", sdslen(addr));
                 return;
             }
         } else if (!strcasecmp(c->argv[j]->ptr,"capa")) {
@@ -2797,16 +2796,16 @@ void roleCommand(client *c) {
         listRewind(server.slaves,&li);
         while((ln = listNext(&li))) {
             client *slave = ln->value;
-            char ip[NET_IP_STR_LEN], *slaveip = slave->slave_ip;
+            char ip[NET_IP_STR_LEN], *slaveaddr = slave->slave_addr;
 
-            if (slaveip[0] == '\0') {
+            if (!slaveaddr) {
                 if (connPeerToString(slave->conn,ip,sizeof(ip),NULL) == -1)
                     continue;
-                slaveip = ip;
+                slaveaddr = ip;
             }
             if (slave->replstate != SLAVE_STATE_ONLINE) continue;
             addReplyArrayLen(c,3);
-            addReplyBulkCString(c,slaveip);
+            addReplyBulkCString(c,slaveaddr);
             addReplyBulkLongLong(c,slave->slave_listening_port);
             addReplyBulkLongLong(c,slave->repl_ack_off);
             slaves++;
@@ -3492,9 +3491,9 @@ static client *findReplica(char *host, int port) {
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
         replica = ln->value;
-        char ip[NET_IP_STR_LEN], *replicaip = replica->slave_ip;
+        char ip[NET_IP_STR_LEN], *replicaip = replica->slave_addr;
 
-        if (replicaip[0] == '\0') {
+        if (!replicaip) {
             if (connPeerToString(replica->conn, ip, sizeof(ip), NULL) == -1)
                 continue;
             replicaip = ip;
@@ -3723,16 +3722,16 @@ void updateFailoverStatus(void) {
         while((ln = listNext(&li))) {
             replica = ln->value;
             if (replica->repl_ack_off == server.master_repl_offset) {
-                char ip[NET_IP_STR_LEN], *replicaip = replica->slave_ip;
+                char ip[NET_IP_STR_LEN], *replicaaddr = replica->slave_addr;
 
-                if (replicaip[0] == '\0') {
+                if (!replicaaddr) {
                     if (connPeerToString(replica->conn,ip,sizeof(ip),NULL) == -1)
                         continue;
-                    replicaip = ip;
+                    replicaaddr = ip;
                 }
 
                 /* We are now failing over to this specific node */
-                server.target_replica_host = zstrdup(replicaip);
+                server.target_replica_host = zstrdup(replicaaddr);
                 server.target_replica_port = replica->slave_listening_port;
                 break;
             }
