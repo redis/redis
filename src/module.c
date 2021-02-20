@@ -4077,7 +4077,14 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 cleanup:
     if (ctx->module) ctx->module->in_call--;
     if (c == server.module_client) {
-        c->argv = NULL; /* reusable client: mark as free to use */
+        /* reset shared client so it can be reused */
+        discardTransaction(c);
+        pubsubUnsubscribeAllChannels(c,0);
+        pubsubUnsubscribeAllPatterns(c,0);
+        resetClient(c); /* frees the contents of argv */
+        zfree(c->argv);
+        c->argv = NULL;
+        c->resp = 2;
     } else {
         freeClient(c); /* temporary client */
     }
