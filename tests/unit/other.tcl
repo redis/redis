@@ -55,7 +55,7 @@ start_server {tags {"other"}} {
     } {*index is out of range*}
 
     tags {consistency} {
-        if {![catch {package require sha1}]} {
+        if {true} {
             if {$::accurate} {set numops 10000} else {set numops 1000}
             test {Check consistency of different data types after a reload} {
                 r flushdb
@@ -321,3 +321,47 @@ start_server {tags {"other"}} {
         assert_match "*table size: 8192*" [r debug HTSTATS 9]
     }
 }
+
+proc read_proc_title {pid} {
+    set fd [open "/proc/$pid/cmdline" "r"]
+    set cmdline [read $fd 1024]
+    close $fd
+
+    return $cmdline
+}
+
+start_server {tags {"other"}} {
+    test {Process title set as expected} {
+        # Test only on Linux where it's easy to get cmdline without relying on tools.
+        # Skip valgrind as it messes up the arguments.
+        set os [exec uname]
+        if {$os == "Linux" && !$::valgrind} {
+            # Set a custom template
+            r config set "proc-title-template" "TEST {title} {listen-addr} {port} {tls-port} {unixsocket} {config-file}"
+            set cmdline [read_proc_title [srv 0 pid]]
+
+            assert_equal "TEST" [lindex $cmdline 0]
+            assert_match "*/redis-server" [lindex $cmdline 1]
+            
+            if {$::tls} {
+                set expect_port 0
+                set expect_tls_port [srv 0 port]
+            } else {
+                set expect_port [srv 0 port]
+                set expect_tls_port 0
+            }
+            set port [srv 0 port]
+
+            assert_equal "$::host:$port" [lindex $cmdline 2]
+            assert_equal $expect_port [lindex $cmdline 3]
+            assert_equal $expect_tls_port [lindex $cmdline 4]
+            assert_match "*/tests/tmp/server.*/socket" [lindex $cmdline 5]
+            assert_match "*/tests/tmp/redis.conf.*" [lindex $cmdline 6]
+
+            # Try setting a bad template
+            catch {r config set "proc-title-template" "{invalid-var}"} err
+            assert_match {*template format is invalid*} $err
+        }
+    }
+}
+

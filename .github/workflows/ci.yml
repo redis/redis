@@ -14,7 +14,7 @@ jobs:
       run: make REDIS_CFLAGS='-Werror' BUILD_TLS=yes
     - name: test
       run: |
-        sudo apt-get install tcl8.5
+        sudo apt-get install tcl8.6
         ./runtest --verbose
     - name: module api test
       run: ./runtest-moduleapi --verbose
@@ -58,14 +58,3 @@ jobs:
       run: |
         yum -y install gcc make
         make REDIS_CFLAGS='-Werror'
-        
-  build-freebsd:
-    runs-on: macos-latest
-    steps:
-    - uses: actions/checkout@v2
-    - name: make
-      uses: vmactions/freebsd-vm@v0.1.0
-      with:
-        usesh: true
-        prepare: pkg install -y gmake
-        run: gmake

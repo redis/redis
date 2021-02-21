@@ -1695,6 +1695,8 @@ static int parseOptions(int argc, char **argv) {
             config.sslconfig.key = argv[++i];
         } else if (!strcmp(argv[i],"--tls-ciphers") && !lastarg) {
             config.sslconfig.ciphers = argv[++i];
+        } else if (!strcmp(argv[i],"--insecure")) {
+            config.sslconfig.skip_cert_verify = 1;
         #ifdef TLS1_3_VERSION
         } else if (!strcmp(argv[i],"--tls-ciphersuites") && !lastarg) {
             config.sslconfig.ciphersuites = argv[++i];
@@ -1820,6 +1822,7 @@ static void usage(void) {
 "  --cacertdir <dir>  Directory where trusted CA certificates are stored.\n"
 "                     If neither cacert nor cacertdir are specified, the default\n"
 "                     system-wide trusted root certs configuration will apply.\n"
+"  --insecure         Allow insecure TLS connection by skipping cert validation.\n"
 "  --cert <file>      Client certificate to authenticate with.\n"
 "  --key <file>       Private key file to authenticate with.\n"
 "  --tls-ciphers <list> Sets the list of prefered ciphers (TLSv1.2 and below)\n"
@@ -1926,13 +1929,20 @@ static int confirmWithYes(char *msg, int ignore_force) {
 
 /* Turn the plain C strings into Sds strings */
 static char **convertToSds(int count, char** args) {
-  int j;
-  char **sds = zmalloc(sizeof(char*)*count);
+    int j;
+    char **sds = zmalloc(sizeof(char*)*count);
 
-  for(j = 0; j < count; j++)
-    sds[j] = sdsnew(args[j]);
+    for(j = 0; j < count; j++)
+        sds[j] = sdsnew(args[j]);
 
-  return sds;
+    return sds;
+}
+
+static void freeConvertedSds(int count, char **sds) {
+    int j;
+    for (j = 0; j < count; j++)
+        sdsfree(sds[j]);
+    zfree(sds);
 }
 
 static int issueCommandRepeat(int argc, char **argv, long repeat) {
@@ -2165,13 +2175,17 @@ static void repl(void) {
 
 static int noninteractive(int argc, char **argv) {
     int retval = 0;
+
+    argv = convertToSds(argc, argv);
     if (config.stdinarg) {
         argv = zrealloc(argv, (argc+1)*sizeof(char*));
         argv[argc] = readArgFromStdin();
         retval = issueCommand(argc+1, argv);
+        sdsfree(argv[argc]);
     } else {
         retval = issueCommand(argc, argv);
     }
+    freeConvertedSds(argc, argv);
     return retval;
 }
 
@@ -6940,6 +6954,10 @@ void sendCapa() {
     sendReplconf("capa", "eof");
 }
 
+void sendRdbOnly(void) {
+    sendReplconf("rdb-only", "1");
+}
+
 /* Read raw bytes through a redisContext. The read operation is not greedy
  * and may not fill the buffer entirely.
  */
@@ -7137,7 +7155,6 @@ static void getRDB(clusterManagerNode *node) {
         node->context = NULL;
     fsync(fd);
     close(fd);
-    fprintf(stderr,"Transfer finished with success.\n");
     if (node) {
         sdsfree(filename);
         return;
@@ -8128,6 +8145,7 @@ int main(int argc, char **argv) {
     int firstarg;
     struct timeval tv;
 
+    memset(&config.sslconfig, 0, sizeof(config.sslconfig));
     config.hostip = sdsnew("127.0.0.1");
     config.hostport = 6379;
     config.hostsocket = NULL;
@@ -8258,6 +8276,7 @@ int main(int argc, char **argv) {
     if (config.getrdb_mode) {
         if (cliConnect(0) == REDIS_ERR) exit(1);
         sendCapa();
+        sendRdbOnly();
         getRDB(NULL);
     }
 
@@ -8323,6 +8342,6 @@ int main(int argc, char **argv) {
     if (config.eval) {
         return evalMode(argc,argv);
     } else {
-        return noninteractive(argc,convertToSds(argc,argv));
+        return noninteractive(argc,argv);
     }
 }

@@ -12,7 +12,11 @@ proc randstring {min max {type binary}} {
         set maxval 52
     }
     while {$len} {
-        append output [format "%c" [expr {$minval+int(rand()*($maxval-$minval+1))}]]
+        set rr [expr {$minval+int(rand()*($maxval-$minval+1))}]
+        if {$type eq {alpha} && $rr eq 92} {
+            set rr 90; # avoid putting '\' char in the string, it can mess up TCL processing
+        }
+        append output [format "%c" $rr]
         incr len -1
     }
     return $output
@@ -86,12 +90,10 @@ proc waitForBgrewriteaof r {
 }
 
 proc wait_for_sync r {
-    while 1 {
-        if {[status $r master_link_status] eq "down"} {
-            after 10
-        } else {
-            break
-        }
+    wait_for_condition 50 100 {
+        [status $r master_link_status] eq "up"
+    } else {
+        fail "replica didn't sync in time"
     }
 }
 
@@ -571,8 +573,8 @@ proc generate_fuzzy_traffic_on_key {key duration} {
     # Commands per type, blocking commands removed
     # TODO: extract these from help.h or elsewhere, and improve to include other types
     set string_commands {APPEND BITCOUNT BITFIELD BITOP BITPOS DECR DECRBY GET GETBIT GETRANGE GETSET INCR INCRBY INCRBYFLOAT MGET MSET MSETNX PSETEX SET SETBIT SETEX SETNX SETRANGE STRALGO STRLEN}
-    set hash_commands {HDEL HEXISTS HGET HGETALL HINCRBY HINCRBYFLOAT HKEYS HLEN HMGET HMSET HSCAN HSET HSETNX HSTRLEN HVALS}
-    set zset_commands {ZADD ZCARD ZCOUNT ZINCRBY ZINTERSTORE ZLEXCOUNT ZPOPMAX ZPOPMIN ZRANGE ZRANGEBYLEX ZRANGEBYSCORE ZRANK ZREM ZREMRANGEBYLEX ZREMRANGEBYRANK ZREMRANGEBYSCORE ZREVRANGE ZREVRANGEBYLEX ZREVRANGEBYSCORE ZREVRANK ZSCAN ZSCORE ZUNIONSTORE}
+    set hash_commands {HDEL HEXISTS HGET HGETALL HINCRBY HINCRBYFLOAT HKEYS HLEN HMGET HMSET HSCAN HSET HSETNX HSTRLEN HVALS HRANDFIELD}
+    set zset_commands {ZADD ZCARD ZCOUNT ZINCRBY ZINTERSTORE ZLEXCOUNT ZPOPMAX ZPOPMIN ZRANGE ZRANGEBYLEX ZRANGEBYSCORE ZRANK ZREM ZREMRANGEBYLEX ZREMRANGEBYRANK ZREMRANGEBYSCORE ZREVRANGE ZREVRANGEBYLEX ZREVRANGEBYSCORE ZREVRANK ZSCAN ZSCORE ZUNIONSTORE ZRANDMEMBER}
     set list_commands {LINDEX LINSERT LLEN LPOP LPOS LPUSH LPUSHX LRANGE LREM LSET LTRIM RPOP RPOPLPUSH RPUSH RPUSHX}
     set set_commands {SADD SCARD SDIFF SDIFFSTORE SINTER SINTERSTORE SISMEMBER SMEMBERS SMOVE SPOP SRANDMEMBER SREM SSCAN SUNION SUNIONSTORE}
     set stream_commands {XACK XADD XCLAIM XDEL XGROUP XINFO XLEN XPENDING XRANGE XREAD XREADGROUP XREVRANGE XTRIM}
@@ -678,4 +680,22 @@ proc string2printable s {
     }
     set res "\"$res\""
     return $res
+}
+
+# Check that probability of each element are between {min_prop} and {max_prop}.
+proc check_histogram_distribution {res min_prop max_prop} {
+    unset -nocomplain mydict
+    foreach key $res {
+        dict incr mydict $key 1
+    }
+
+    foreach key [dict keys $mydict] {
+        set value [dict get $mydict $key]
+        set probability [expr {double($value) / [llength $res]}]
+        if {$probability < $min_prop || $probability > $max_prop} {
+            return false
+        }
+    }
+
+    return true
 }

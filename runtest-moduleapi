@@ -23,6 +23,7 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/hooks \
 --single unit/moduleapi/misc \
 --single unit/moduleapi/blockonkeys \
+--single unit/moduleapi/blockonbackground \
 --single unit/moduleapi/scan \
 --single unit/moduleapi/datatype \
 --single unit/moduleapi/auth \
@@ -31,4 +32,7 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/getkeys \
 --single unit/moduleapi/test_lazyfree \
 --single unit/moduleapi/defrag \
+--single unit/moduleapi/hash \
+--single unit/moduleapi/zset \
+--single unit/moduleapi/stream \
 "${@}"

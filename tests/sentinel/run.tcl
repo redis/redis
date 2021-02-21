@@ -10,7 +10,10 @@ set ::tlsdir "../../tls"
 
 proc main {} {
     parse_options
-    spawn_instance sentinel $::sentinel_base_port $::instances_count [list "sentinel deny-scripts-reconfig no"]
+    if {$::leaked_fds_file != ""} {
+        set ::env(LEAKED_FDS_FILE) $::leaked_fds_file
+    }
+    spawn_instance sentinel $::sentinel_base_port $::instances_count [list "sentinel deny-scripts-reconfig no"] "../tests/includes/sentinel.conf"
     spawn_instance redis $::redis_base_port $::instances_count
     run_tests
     cleanup

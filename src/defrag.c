@@ -367,7 +367,7 @@ long activeDefragSdsListAndDict(list *l, dict *d, int dict_val_type) {
         } else if (dict_val_type == DEFRAG_SDS_DICT_VAL_VOID_PTR) {
             void *newptr, *ptr = dictGetVal(de);
             if ((newptr = activeDefragAlloc(ptr)))
-                ln->value = newptr, defragged++;
+                de->v.val = newptr, defragged++;
         }
         defragged += dictIterDefragEntry(di);
     }
@@ -638,7 +638,7 @@ int defragRaxNode(raxNode **noderef) {
 }
 
 /* returns 0 if no more work needs to be been done, and 1 if time is up and more work is needed. */
-int scanLaterStraemListpacks(robj *ob, unsigned long *cursor, long long endtime, long long *defragged) {
+int scanLaterStreamListpacks(robj *ob, unsigned long *cursor, long long endtime, long long *defragged) {
     static unsigned char last[sizeof(streamID)];
     raxIterator ri;
     long iterations = 0;
@@ -958,7 +958,7 @@ int defragLaterItem(dictEntry *de, unsigned long *cursor, long long endtime) {
         } else if (ob->type == OBJ_HASH) {
             server.stat_active_defrag_hits += scanLaterHash(ob, cursor);
         } else if (ob->type == OBJ_STREAM) {
-            return scanLaterStraemListpacks(ob, cursor, endtime, &server.stat_active_defrag_hits);
+            return scanLaterStreamListpacks(ob, cursor, endtime, &server.stat_active_defrag_hits);
         } else if (ob->type == OBJ_MODULE) {
             return moduleLateDefrag(dictGetKey(de), ob, cursor, endtime, &server.stat_active_defrag_hits);
         } else {

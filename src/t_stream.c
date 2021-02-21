@@ -43,6 +43,10 @@
  * avoid malloc allocation.*/
 #define STREAMID_STATIC_VECTOR_LEN 8
 
+/* Max pre-allocation for listpack. This is done to avoid abuse of a user
+ * setting stream_node_max_bytes to a huge number. */
+#define STREAM_LISTPACK_MAX_PRE_ALLOCATE 4096
+
 void streamFreeCG(streamCG *cg);
 void streamFreeNACK(streamNACK *na);
 size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamConsumer *consumer);
@@ -509,7 +513,13 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
             lp = NULL;
         } else if (server.stream_node_max_entries) {
             int64_t count = lpGetInteger(lpFirst(lp));
-            if (count >= server.stream_node_max_entries) lp = NULL;
+            if (count >= server.stream_node_max_entries) {
+                /* Shrink extra pre-allocated memory */
+                lp = lpShrinkToFit(lp);
+                if (ri.data != lp)
+                    raxInsert(s->rax,ri.key,ri.key_len,lp,NULL);
+                lp = NULL;
+            }
         }
     }
 
@@ -517,8 +527,17 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
     if (lp == NULL) {
         master_id = id;
         streamEncodeID(rax_key,&id);
-        /* Create the listpack having the master entry ID and fields. */
-        lp = lpNew();
+        /* Create the listpack having the master entry ID and fields.
+         * Pre-allocate some bytes when creating listpack to avoid realloc on
+         * every XADD. Since listpack.c uses malloc_size, it'll grow in steps,
+         * and won't realloc on every XADD.
+         * When listpack reaches max number of entries, we'll shrink the
+         * allocation to fit the data. */
+        size_t prealloc = STREAM_LISTPACK_MAX_PRE_ALLOCATE;
+        if (server.stream_node_max_bytes > 0 && server.stream_node_max_bytes < prealloc) {
+            prealloc = server.stream_node_max_bytes;
+        }
+        lp = lpNew(prealloc);
         lp = lpAppendInteger(lp,1); /* One item, the one we are adding. */
         lp = lpAppendInteger(lp,0); /* Zero deleted so far. */
         lp = lpAppendInteger(lp,numfields);
@@ -816,6 +835,28 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
 
     raxStop(&ri);
     return deleted;
+}
+
+/* Trims a stream by length. Returns the number of deleted items. */
+int64_t streamTrimByLength(stream *s, long long maxlen, int approx) {
+    streamAddTrimArgs args = {
+        .trim_strategy = TRIM_STRATEGY_MAXLEN,
+        .approx_trim = approx,
+        .limit = approx ? 100 * server.stream_node_max_entries : 0,
+        .maxlen = maxlen
+    };
+    return streamTrim(s, &args);
+}
+
+/* Trims a stream by minimum ID. Returns the number of deleted items. */
+int64_t streamTrimByID(stream *s, streamID minid, int approx) {
+    streamAddTrimArgs args = {
+        .trim_strategy = TRIM_STRATEGY_MINID,
+        .approx_trim = approx,
+        .limit = approx ? 100 * server.stream_node_max_entries : 0,
+        .minid = minid
+    };
+    return streamTrim(s, &args);
 }
 
 /* Parse the arguements of XADD/XTRIM.
@@ -1306,19 +1347,19 @@ void streamPropagateXCLAIM(client *c, robj *key, streamCG *group, robj *groupnam
      * Note that JUSTID is useful in order to avoid that XCLAIM will do
      * useless work in the slave side, trying to fetch the stream item. */
     robj *argv[14];
-    argv[0] = createStringObject("XCLAIM",6);
+    argv[0] = shared.xclaim;
     argv[1] = key;
     argv[2] = groupname;
     argv[3] = createStringObject(nack->consumer->name,sdslen(nack->consumer->name));
-    argv[4] = createStringObjectFromLongLong(0);
+    argv[4] = shared.integers[0];
     argv[5] = id;
-    argv[6] = createStringObject("TIME",4);
+    argv[6] = shared.time;
     argv[7] = createStringObjectFromLongLong(nack->delivery_time);
-    argv[8] = createStringObject("RETRYCOUNT",10);
+    argv[8] = shared.retrycount;
     argv[9] = createStringObjectFromLongLong(nack->delivery_count);
-    argv[10] = createStringObject("FORCE",5);
-    argv[11] = createStringObject("JUSTID",6);
-    argv[12] = createStringObject("LASTID",6);
+    argv[10] = shared.force;
+    argv[11] = shared.justid;
+    argv[12] = shared.lastid;
     argv[13] = createObjectFromStreamID(&group->last_id);
 
     /* We use progagate() because this code path is not always called from
@@ -1326,16 +1367,9 @@ void streamPropagateXCLAIM(client *c, robj *key, streamCG *group, robj *groupnam
      * consumer group state, and we don't need MULTI/EXEC wrapping because
      * there is no message state cross-message atomicity required. */
     propagate(server.xclaimCommand,c->db->id,argv,14,PROPAGATE_AOF|PROPAGATE_REPL);
-    decrRefCount(argv[0]);
     decrRefCount(argv[3]);
-    decrRefCount(argv[4]);
-    decrRefCount(argv[6]);
     decrRefCount(argv[7]);
-    decrRefCount(argv[8]);
     decrRefCount(argv[9]);
-    decrRefCount(argv[10]);
-    decrRefCount(argv[11]);
-    decrRefCount(argv[12]);
     decrRefCount(argv[13]);
 }
 
@@ -1347,8 +1381,8 @@ void streamPropagateXCLAIM(client *c, robj *key, streamCG *group, robj *groupnam
  */
 void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupname) {
     robj *argv[5];
-    argv[0] = createStringObject("XGROUP",6);
-    argv[1] = createStringObject("SETID",5);
+    argv[0] = shared.xgroup;
+    argv[1] = shared.setid;
     argv[2] = key;
     argv[3] = groupname;
     argv[4] = createObjectFromStreamID(&group->last_id);
@@ -1358,8 +1392,6 @@ void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupna
      * consumer group state, and we don't need MULTI/EXEC wrapping because
      * there is no message state cross-message atomicity required. */
     propagate(server.xgroupCommand,c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
-    decrRefCount(argv[0]);
-    decrRefCount(argv[1]);
     decrRefCount(argv[4]);
 }
 
@@ -1371,8 +1403,8 @@ void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupna
  */
 void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds consumername) {
     robj *argv[5];
-    argv[0] = createStringObject("XGROUP",6);
-    argv[1] = createStringObject("CREATECONSUMER",14);
+    argv[0] = shared.xgroup;
+    argv[1] = shared.createconsumer;
     argv[2] = key;
     argv[3] = groupname;
     argv[4] = createObject(OBJ_STRING,sdsdup(consumername));
@@ -1382,8 +1414,6 @@ void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds 
      * consumer group state, and we don't need MULTI/EXEC wrapping because
      * there is no message state cross-message atomicity required. */
     propagate(server.xgroupCommand,c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
-    decrRefCount(argv[0]);
-    decrRefCount(argv[1]);
     decrRefCount(argv[4]);
 }
 
@@ -1625,7 +1655,7 @@ robj *streamTypeLookupWriteOrCreate(client *c, robj *key, int no_create) {
  * treated as an invalid ID.
  *
  * If 'c' is set to NULL, no reply is sent to the client. */
-int streamGenericParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq, int strict) {
+int streamGenericParseIDOrReply(client *c, const robj *o, streamID *id, uint64_t missing_seq, int strict) {
     char buf[128];
     if (sdslen(o->ptr) > sizeof(buf)-1) goto invalid;
     memcpy(buf,o->ptr,sdslen(o->ptr)+1);
@@ -1659,6 +1689,11 @@ invalid:
     if (c) addReplyError(c,"Invalid stream ID specified as stream "
                            "command argument");
     return C_ERR;
+}
+
+/* Wrapper for streamGenericParseIDOrReply() used by module API. */
+int streamParseID(const robj *o, streamID *id) {
+    return streamGenericParseIDOrReply(NULL, o, id, 0, 0);
 }
 
 /* Wrapper for streamGenericParseIDOrReply() with 'strict' argument set to
@@ -1698,9 +1733,7 @@ int streamParseIntervalIDOrReply(client *c, robj *o, streamID *id, int *exclude,
 }
 
 void streamRewriteApproxSpecifier(client *c, int idx) {
-    robj *equal_obj = createStringObject("=",1);
-    rewriteClientCommandArgument(c,idx,equal_obj);
-    decrRefCount(equal_obj);
+    rewriteClientCommandArgument(c,idx,shared.special_equals);
 }
 
 /* We propagate MAXLEN/MINID ~ <count> as MAXLEN/MINID = <resulting-len-of-stream>
@@ -3444,7 +3477,7 @@ NULL
     key = c->argv[2];
 
     /* Lookup the key now, this is common for all the subcommands but HELP. */
-    robj *o = lookupKeyWriteOrReply(c,key,shared.nokeyerr);
+    robj *o = lookupKeyReadOrReply(c,key,shared.nokeyerr);
     if (o == NULL || checkType(c,o,OBJ_STREAM)) return;
     s = o->ptr;
 

@@ -71,6 +71,13 @@ foreach sanitize_dump {no yes} {
         set min_cycles 10 ; # run at least 10 cycles
     }
 
+    # Don't execute this on FreeBSD due to a yet-undiscovered memory issue
+    # which causes tclsh to bloat.
+    if {[exec uname] == "FreeBSD"} {
+        set min_cycles 1
+        set min_duration 1
+    }
+
     test "Fuzzer corrupt restore payloads - sanitize_dump: $sanitize_dump" {
         if {$min_duration * 2 > $::timeout} {
             fail "insufficient timeout"

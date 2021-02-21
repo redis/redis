@@ -259,6 +259,13 @@ proc wait_server_started {config_file stdout pid} {
     return $port_busy
 }
 
+proc dump_server_log {srv} {
+    set pid [dict get $srv "pid"]
+    puts "\n===== Start of server log (pid $pid) =====\n"
+    puts [exec cat [dict get $srv "stdout"]]
+    puts "===== End of server log (pid $pid) =====\n"
+}
+
 proc start_server {options {code undefined}} {
     # setup defaults
     set baseconfig "default.conf"
@@ -492,6 +499,9 @@ proc start_server {options {code undefined}} {
         # connect client (after server dict is put on the stack)
         reconnect
 
+        # remember previous num_failed to catch new errors
+        set prev_num_failed $::num_failed
+
         # execute provided block
         set num_tests $::num_tests
         if {[catch { uplevel 1 $code } error]} {
@@ -528,6 +538,10 @@ proc start_server {options {code undefined}} {
             } else {
                 # Re-raise, let handler up the stack take care of this.
                 error $error $backtrace
+            }
+        } else {
+            if {$::dump_logs && $prev_num_failed != $::num_failed} {
+                dump_server_log $srv
             }
         }
 

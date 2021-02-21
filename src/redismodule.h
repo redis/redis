@@ -69,6 +69,21 @@
 #define REDISMODULE_HASH_XX         (1<<1)
 #define REDISMODULE_HASH_CFIELDS    (1<<2)
 #define REDISMODULE_HASH_EXISTS     (1<<3)
+#define REDISMODULE_HASH_COUNT_ALL  (1<<4)
+
+/* StreamID type. */
+typedef struct RedisModuleStreamID {
+    uint64_t ms;
+    uint64_t seq;
+} RedisModuleStreamID;
+
+/* StreamAdd() flags. */
+#define REDISMODULE_STREAM_ADD_AUTOID (1<<0)
+/* StreamIteratorStart() flags. */
+#define REDISMODULE_STREAM_ITERATOR_EXCLUSIVE (1<<0)
+#define REDISMODULE_STREAM_ITERATOR_REVERSE (1<<1)
+/* StreamIteratorTrim*() flags. */
+#define REDISMODULE_STREAM_TRIM_APPROX (1<<0)
 
 /* Context Flags: Info about the current context returned by
  * RM_GetContextFlags(). */
@@ -217,9 +232,8 @@ typedef uint64_t RedisModuleTimerID;
 #define REDISMODULE_EVENT_LOADING_PROGRESS 10
 #define REDISMODULE_EVENT_SWAPDB 11
 #define REDISMODULE_EVENT_REPL_BACKUP 12
-
-/* Next event flag, should be updated if a new event added. */
-#define _REDISMODULE_EVENT_NEXT 13
+#define REDISMODULE_EVENT_FORK_CHILD 13
+#define _REDISMODULE_EVENT_NEXT 14 /* Next event flag, should be updated if a new event added. */
 
 typedef struct RedisModuleEvent {
     uint64_t id;        /* REDISMODULE_EVENT_... defines. */
@@ -282,6 +296,10 @@ static const RedisModuleEvent
     RedisModuleEvent_ReplBackup = {
         REDISMODULE_EVENT_REPL_BACKUP,
         1
+    },
+    RedisModuleEvent_ForkChild = {
+        REDISMODULE_EVENT_FORK_CHILD,
+        1
     };
 
 /* Those are values that are used for the 'subevent' callback argument. */
@@ -331,6 +349,10 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE 1
 #define REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD 2
 #define _REDISMODULE_SUBEVENT_REPL_BACKUP_NEXT 3
+
+#define REDISMODULE_SUBEVENT_FORK_CHILD_BORN 0
+#define REDISMODULE_SUBEVENT_FORK_CHILD_DIED 1
+#define _REDISMODULE_SUBEVENT_FORK_CHILD_NEXT 2
 
 #define _REDISMODULE_SUBEVENT_SHUTDOWN_NEXT 0
 #define _REDISMODULE_SUBEVENT_CRON_LOOP_NEXT 0
@@ -579,6 +601,7 @@ REDISMODULE_API RedisModuleString * (*RedisModule_CreateStringFromLongLong)(Redi
 REDISMODULE_API RedisModuleString * (*RedisModule_CreateStringFromDouble)(RedisModuleCtx *ctx, double d) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_CreateStringFromLongDouble)(RedisModuleCtx *ctx, long double ld, int humanfriendly) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_CreateStringFromString)(RedisModuleCtx *ctx, const RedisModuleString *str) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleString * (*RedisModule_CreateStringFromStreamID)(RedisModuleCtx *ctx, const RedisModuleStreamID *id) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_CreateStringPrintf)(RedisModuleCtx *ctx, const char *fmt, ...) REDISMODULE_ATTR_PRINTF(2,3) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_FreeString)(RedisModuleCtx *ctx, RedisModuleString *str) REDISMODULE_ATTR;
 REDISMODULE_API const char * (*RedisModule_StringPtrLen)(const RedisModuleString *str, size_t *len) REDISMODULE_ATTR;
@@ -611,6 +634,7 @@ REDISMODULE_API int (*RedisModule_ReplyWithCallReply)(RedisModuleCtx *ctx, Redis
 REDISMODULE_API int (*RedisModule_StringToLongLong)(const RedisModuleString *str, long long *ll) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_StringToDouble)(const RedisModuleString *str, double *d) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_StringToLongDouble)(const RedisModuleString *str, long double *d) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_StringToStreamID)(const RedisModuleString *str, RedisModuleStreamID *id) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_AutoMemory)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_Replicate)(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplicateVerbatim)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
@@ -641,6 +665,15 @@ REDISMODULE_API int (*RedisModule_ZsetRangePrev)(RedisModuleKey *key) REDISMODUL
 REDISMODULE_API int (*RedisModule_ZsetRangeEndReached)(RedisModuleKey *key) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_HashSet)(RedisModuleKey *key, int flags, ...) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_HashGet)(RedisModuleKey *key, int flags, ...) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_StreamAdd)(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisModuleString **argv, int64_t numfields) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_StreamDelete)(RedisModuleKey *key, RedisModuleStreamID *id) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_StreamIteratorStart)(RedisModuleKey *key, int flags, RedisModuleStreamID *startid, RedisModuleStreamID *endid) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_StreamIteratorStop)(RedisModuleKey *key) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_StreamIteratorNextID)(RedisModuleKey *key, RedisModuleStreamID *id, long *numfields) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_StreamIteratorNextField)(RedisModuleKey *key, RedisModuleString **field_ptr, RedisModuleString **value_ptr) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_StreamIteratorDelete)(RedisModuleKey *key) REDISMODULE_ATTR;
+REDISMODULE_API long long (*RedisModule_StreamTrimByLength)(RedisModuleKey *key, int flags, long long length) REDISMODULE_ATTR;
+REDISMODULE_API long long (*RedisModule_StreamTrimByID)(RedisModuleKey *key, int flags, RedisModuleStreamID *id) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_IsKeysPositionRequest)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_KeyAtPos)(RedisModuleCtx *ctx, int pos) REDISMODULE_ATTR;
 REDISMODULE_API unsigned long long (*RedisModule_GetClientId)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
@@ -756,6 +789,8 @@ REDISMODULE_API int (*RedisModule_IsBlockedTimeoutRequest)(RedisModuleCtx *ctx) 
 REDISMODULE_API void * (*RedisModule_GetBlockedClientPrivateData)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleBlockedClient * (*RedisModule_GetBlockedClientHandle)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AbortBlock)(RedisModuleBlockedClient *bc) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_BlockedClientMeasureTimeStart)(RedisModuleBlockedClient *bc) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_BlockedClientMeasureTimeEnd)(RedisModuleBlockedClient *bc) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCtx * (*RedisModule_GetThreadSafeContext)(RedisModuleBlockedClient *bc) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCtx * (*RedisModule_GetDetachedThreadSafeContext)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_FreeThreadSafeContext)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
@@ -790,7 +825,7 @@ REDISMODULE_API int (*RedisModule_CommandFilterArgInsert)(RedisModuleCommandFilt
 REDISMODULE_API int (*RedisModule_CommandFilterArgReplace)(RedisModuleCommandFilterCtx *fctx, int pos, RedisModuleString *arg) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_CommandFilterArgDelete)(RedisModuleCommandFilterCtx *fctx, int pos) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_Fork)(RedisModuleForkDoneHandler cb, void *user_data) REDISMODULE_ATTR;
-REDISMODULE_API void (*RedisModule_SendChildCOWInfo)(void) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_SendChildHeartbeat)(double progress) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ExitFromChild)(int retcode) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_KillForkChild)(int child_pid) REDISMODULE_ATTR;
 REDISMODULE_API float (*RedisModule_GetUsedMemoryRatio)() REDISMODULE_ATTR;
@@ -865,6 +900,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(StringToLongLong);
     REDISMODULE_GET_API(StringToDouble);
     REDISMODULE_GET_API(StringToLongDouble);
+    REDISMODULE_GET_API(StringToStreamID);
     REDISMODULE_GET_API(Call);
     REDISMODULE_GET_API(CallReplyProto);
     REDISMODULE_GET_API(FreeCallReply);
@@ -879,6 +915,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(CreateStringFromDouble);
     REDISMODULE_GET_API(CreateStringFromLongDouble);
     REDISMODULE_GET_API(CreateStringFromString);
+    REDISMODULE_GET_API(CreateStringFromStreamID);
     REDISMODULE_GET_API(CreateStringPrintf);
     REDISMODULE_GET_API(FreeString);
     REDISMODULE_GET_API(StringPtrLen);
@@ -910,6 +947,15 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ZsetRangeEndReached);
     REDISMODULE_GET_API(HashSet);
     REDISMODULE_GET_API(HashGet);
+    REDISMODULE_GET_API(StreamAdd);
+    REDISMODULE_GET_API(StreamDelete);
+    REDISMODULE_GET_API(StreamIteratorStart);
+    REDISMODULE_GET_API(StreamIteratorStop);
+    REDISMODULE_GET_API(StreamIteratorNextID);
+    REDISMODULE_GET_API(StreamIteratorNextField);
+    REDISMODULE_GET_API(StreamIteratorDelete);
+    REDISMODULE_GET_API(StreamTrimByLength);
+    REDISMODULE_GET_API(StreamTrimByID);
     REDISMODULE_GET_API(IsKeysPositionRequest);
     REDISMODULE_GET_API(KeyAtPos);
     REDISMODULE_GET_API(GetClientId);
@@ -1029,6 +1075,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetBlockedClientPrivateData);
     REDISMODULE_GET_API(GetBlockedClientHandle);
     REDISMODULE_GET_API(AbortBlock);
+    REDISMODULE_GET_API(BlockedClientMeasureTimeStart);
+    REDISMODULE_GET_API(BlockedClientMeasureTimeEnd);
     REDISMODULE_GET_API(SetDisconnectCallback);
     REDISMODULE_GET_API(SubscribeToKeyspaceEvents);
     REDISMODULE_GET_API(NotifyKeyspaceEvent);
@@ -1057,7 +1105,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(CommandFilterArgReplace);
     REDISMODULE_GET_API(CommandFilterArgDelete);
     REDISMODULE_GET_API(Fork);
-    REDISMODULE_GET_API(SendChildCOWInfo);
+    REDISMODULE_GET_API(SendChildHeartbeat);
     REDISMODULE_GET_API(ExitFromChild);
     REDISMODULE_GET_API(KillForkChild);
     REDISMODULE_GET_API(GetUsedMemoryRatio);
