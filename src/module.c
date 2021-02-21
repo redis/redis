@@ -8594,6 +8594,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ReplyWithStringBuffer);
     REGISTER_API(ReplyWithCString);
     REGISTER_API(ReplyWithNull);
+    REGISTER_API(ReplyWithBool);
     REGISTER_API(ReplyWithCallReply);
     REGISTER_API(ReplyWithDouble);
     REGISTER_API(ReplyWithLongDouble);
