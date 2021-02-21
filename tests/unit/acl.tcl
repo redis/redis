@@ -218,18 +218,23 @@ start_server {tags {"acl"}} {
     } {*NOPERM*}
 
     test {ACLs set can include subcommands, if already full command exists} {
-            r ACL setuser bob +pfcount +pfcount|hll
-            # Validate the commands have got engulfed to +pfcount.
-            set cmdstr [dict get [r ACL getuser bob] commands]
-            assert_match {-@all +pfcount} $cmdstr
-            # Appending to the existing access string of bob.
-            r ACL setuser bob +@all +client|id
-            # Validate the new commands have got engulfed to +@all.
-            set cmdstr [dict get [r ACL getuser bob] commands]
-            assert_match {+@all} $cmdstr
-            r CLIENT ID; # Should not fail
-            r PFCOUNT hll # Should not fail
-        }
+        r ACL setuser bob +pfcount|hll
+        set cmdstr [dict get [r ACL getuser bob] commands]
+        assert_equal {-@all +pfcount|hll} $cmdstr
+
+        # Validate the commands have got engulfed to +pfcount.
+        r ACL setuser bob +pfcount
+        set cmdstr [dict get [r ACL getuser bob] commands]
+        assert_equal {-@all +pfcount} $cmdstr
+
+        # Appending to the existing access string of bob.
+        r ACL setuser bob +@all +client|id
+        # Validate the new commands has got engulfed to +@all.
+        set cmdstr [dict get [r ACL getuser bob] commands]
+        assert_equal {+@all} $cmdstr
+        r CLIENT ID; # Should not fail
+        r PFCOUNT hll; # Should not fail
+    }
 
     # Note that the order of the generated ACL rules is not stable in Redis
     # so we need to match the different parts and not as a whole string.

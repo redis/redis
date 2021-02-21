@@ -975,7 +975,7 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
             }
 
             unsigned long id = ACLGetCommandID(copy);
-            /* Add the subcommand to the list of valid ones, if  the command is not set. */
+            /* Add the subcommand to the list of valid ones, if the command is not set. */
             if (ACLGetUserCommandBit(u,id) == 0) {
                 ACLAddAllowedSubcommand(u,id,sub);
             }
