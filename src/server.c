@@ -5062,11 +5062,11 @@ sds genRedisInfoString(const char *section) {
             while((ln = listNext(&li))) {
                 client *slave = listNodeValue(ln);
                 char *state = NULL;
-                char ip[NET_IP_STR_LEN], *slaveip = slave->slave_ip;
+                char ip[NET_IP_STR_LEN], *slaveip = slave->slave_addr;
                 int port;
                 long lag = 0;
 
-                if (slaveip[0] == '\0') {
+                if (!slaveip) {
                     if (connPeerToString(slave->conn,ip,sizeof(ip),&port) == -1)
                         continue;
                     slaveip = ip;

@@ -155,7 +155,7 @@ client *createClient(connection *conn) {
     c->repl_ack_off = 0;
     c->repl_ack_time = 0;
     c->slave_listening_port = 0;
-    c->slave_ip[0] = '\0';
+    c->slave_addr = NULL;
     c->slave_capa = SLAVE_CAPA_NONE;
     c->reply = listCreate();
     c->reply_bytes = 0;
@@ -1400,6 +1400,7 @@ void freeClient(client *c) {
     freeClientMultiState(c);
     sdsfree(c->peerid);
     sdsfree(c->sockname);
+    sdsfree(c->slave_addr);
     zfree(c);
 }
 
