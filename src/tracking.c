@@ -218,7 +218,7 @@ void sendTrackingMessage(client *c, char *keyname, size_t keylen, int proto) {
              * are unable to send invalidation messages to the redirected
              * connection, because the client no longer exist. */
             if (c->resp > 2) {
-                addReplyPushLen(c,3);
+                addReplyPushLen(c,2);
                 addReplyBulkCBuffer(c,"tracking-redir-broken",21);
                 addReplyLongLong(c,c->client_tracking_redirection);
             }
