@@ -1911,7 +1911,9 @@ void processInputBuffer(client *c) {
     /* Keep processing while there is something in the input buffer */
     while(c->qb_pos < sdslen(c->querybuf)) {
         /* Return if clients are paused. */
-        if (!(c->flags & CLIENT_SLAVE) && clientsArePaused()) break;
+        if (!(c->flags & CLIENT_SLAVE) && 
+            !(c->flags & CLIENT_PENDING_READ) && 
+            clientsArePaused()) break;
 
         /* Immediately abort if the client is in the middle of something. */
         if (c->flags & CLIENT_BLOCKED) break;
@@ -3269,6 +3271,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
 int postponeClientRead(client *c) {
     if (server.io_threads_active &&
         server.io_threads_do_reads &&
+        !clientsArePaused() &&
         !ProcessingEventsWhileBlocked &&
         !(c->flags & (CLIENT_MASTER|CLIENT_SLAVE|CLIENT_PENDING_READ)))
     {
