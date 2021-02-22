@@ -12,6 +12,34 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 6.0.11     Released Mon Feb 22 16:13:23 IST 2021
+================================================================================
+
+Upgrade urgency: SECURITY if you use 32bit build of redis (see bellow), LOW
+otherwise.
+
+Integer overflow on 32-bit systems (CVE-2021-21309):
+Redis 4.0 or newer uses a configurable limit for the maximum supported bulk
+input size. By default, it is 512MB which is a safe value for all platforms.
+If the limit is significantly increased, receiving a large request from a client
+may trigger several integer overflow scenarios, which would result with buffer
+overflow and heap corruption.
+
+Bug fixes:
+* Avoid 32-bit overflows when proto-max-bulk-len is set high (#8522)
+* Fix handling of threaded IO and CLIENT PAUSE (failover), could lead to data loss or a crash (#8520)
+* Fix the selection of a random element from large hash tables (#8133)
+* Fix broken protocol in client tracking tracking-redir-broken message (#8456)
+* XINFO able to access expired keys on a replica (#8436)
+* Fix broken protocol in redis-benchmark when used with -a or --dbnum (#8486)
+* Avoid assertions (on older kernels) when testing arm64 CoW bug (#8405)
+* CONFIG REWRITE should honor umask settings (#8371)
+* Fix firstkey,lastkey,step in COMMAND command for some commands (#8367)
+
+Modules:
+* RM_ZsetRem: Delete key if empty, the bug could leave empty zset keys (#8453)
+
+================================================================================
 Redis 6.0.10     Released Tue Jan 12 16:20:20 IST 2021
 ================================================================================
 
