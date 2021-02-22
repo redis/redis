@@ -1836,23 +1836,20 @@ unsigned long long RM_GetClientId(RedisModuleCtx *ctx) {
     if (ctx->client == NULL) return 0;
     return ctx->client->id;
 }
-
-
-/* Return name of client user with the specified ID (that was
- * previously obtained via the RedisModule_GetClientId() API). If the
- * client is not exists, NULL is returned. If client->user is NULL,
- * "default" is returned.
- */
+================================================================================
+/* Return the ACL user name used by the client with the specified client ID.
+ * Client ID can be obtained with RM_GetClientId() API. If the client does not
+ * exists, NULL is returned. If the client isn't using an ACL user user, an
+ * empty string is returned. */
 RedisModuleString *RM_GetClientUserNameById(RedisModuleCtx *ctx, uint64_t id) {
     client *client = lookupClientByID(id);
     if (client == NULL) return NULL;
 
-    sds name = sdsnew(client->user ? client->user->name: "default");
+    sds name = sdsnew(client->user ? client->user->name: "");
     robj *str = createObject(OBJ_STRING, name);
     autoMemoryAdd(ctx, REDISMODULE_AM_STRING, str);
     return str;
 }
-
 
 /* This is an helper for RM_GetClientInfoById() and other functions: given
  * a client, it populates the client info structure with the appropriate
