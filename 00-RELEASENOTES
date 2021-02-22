@@ -1,3 +1,71 @@
+Redis 6.2 release notes
+=======================
+
+--------------------------------------------------------------------------------
+Upgrade urgency levels:
+
+LOW:      No need to upgrade unless there are new features you want to use.
+MODERATE: Program an upgrade of the server, but it's not urgent.
+HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
+CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
+SECURITY: There are security fixes in the release.
+--------------------------------------------------------------------------------
+
+================================================================================
+Redis 6.2.0 GA  Released Tue Feb 22 14:00:00 IST 2021
+================================================================================
+
+Upgrade urgency: SECURITY if you use 32bit build of redis (see bellow), MODERATE
+if you used earlier versions of Redis 6.2, LOW otherwise.
+
+Integer overflow on 32-bit systems (CVE-2021-21309):
+Redis 4.0 or newer uses a configurable limit for the maximum supported bulk
+input size. By default, it is 512MB which is a safe value for all platforms.
+If the limit is significantly increased, receiving a large request from a client
+may trigger several integer overflow scenarios, which would result with buffer
+overflow and heap corruption.
+
+Here is a comprehensive list of changes in this release compared to 6.2 RC3,
+each one includes the PR number that added it, so you can get more details
+at https://github.com/redis/redis/pull/<number>
+
+Bug fixes:
+* Avoid 32-bit overflows when proto-max-bulk-len is set high (#8522)
+* Fix broken protocol in client tracking tracking-redir-broken message (#8456)
+* Avoid unsafe field name characters in INFO commandstats, errorstats, modules (#8492)
+* XINFO able to access expired keys during CLIENT PAUSE WRITE (#8436)
+* Fix allowed length for REPLCONF ip-address, needed due to Sentinel's support for hostnames (#8517)
+* Fix broken protocol in redis-benchmark when used with -a or --dbnum (#8486)
+* XADD counts deleted records too when considering switching to a new listpack (#8390)
+
+Bug fixes that are only applicable to previous releases of Redis 6.2:
+* Fixes in GEOSEARCH bybox (accuracy and mismatch between width and height) (#8445)
+* Fix risk of OOM panic in HRANDFIELD, ZRANDMEMBER commands with huge negative count (#8429)
+* Fix duplicate replicas issue in Sentinel, needed due to hostname support (#8481)
+* Fix Sentinel configuration rewrite, an improvement of #8271 (#8480)
+
+Command behavior changes:
+* SRANDMEMBER uses RESP3 array type instead of set type (#8504)
+* EXPIRE, EXPIREAT, SETEX, GETEX: Return error when provided expire time overflows (#8287)
+
+Other behavior changes:
+* Remove ACL subcommand validation if fully added command exists. (#8483)
+
+Improvements:
+* Optimize sorting in GEORADIUS / GEOSEARCH with COUNT (#8326)
+* Optimize HRANDFIELD and ZRANDMEMBER case 4 when ziplist encoded (#8444)
+* Optimize in-place replacement of elements in HSET, HINCRBY, LSET (#8493)
+* Remove redundant list to store pubsub patterns (#8472)
+* Add --insecure option to command line tools (#8416)
+
+Info fields and introspection changes:
+* Add INFO fields to track progress of BGSAVE, AOFRW, replication (#8414)
+
+Modules:
+* RM_ZsetRem: Delete key if empty, the bug could leave empty zset keys (#8453)
+* RM_HashSet: Add COUNT_ALL flag and set errno (#8446)
+
+================================================================================
 Redis 6.2 RC3   Released Tue Feb 1 14:00:00 IST 2021
 ================================================================================
 
@@ -305,11 +373,11 @@ and we don't get reports of serious issues for a while.
 A special thank you for the amount of work put into this release by:
 - Oran Agra
 - Yossi Gottlieb
-- Filipe Oliveira
 - Viktor Söderqvist
+- Yang Bodong
+- Filipe Oliveira
 - Guy Benoish
 - Itamar Haber
-- Yang Bodong
 - Madelyn Olson
 - Wang Yuan
 - Felipe Machado
@@ -322,15 +390,17 @@ A special thank you for the amount of work put into this release by:
 - Allen Farris
 - Chen Yang
 - Nitai Caro
+- sundb
 - Meir Shpilraien
 - maohuazhu
 - Valentino Geron
 - Zhao Zhao
-- sundb
 - Qu Chen
 - George Prekas
 - Tyson Andre
+- Uri Yagelnik
 - Michael Grunder
+- Huang Zw
 - alexronke-channeladvisor
 - Andy Pan
 - Wu Yunlong
