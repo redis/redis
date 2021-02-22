@@ -1621,6 +1621,9 @@ void resetChildState() {
     server.child_type = CHILD_TYPE_NONE;
     server.child_pid = -1;
     server.stat_current_cow_bytes = 0;
+    server.stat_current_save_keys_processed = 0;
+    server.stat_module_progress = 0;
+    server.stat_current_save_keys_total = 0;
     updateDictResizePolicy();
     closeChildInfoPipe();
     moduleFireServerEvent(REDISMODULE_EVENT_FORK_CHILD,
@@ -2418,13 +2421,10 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     if (server.get_ack_from_slaves && !checkClientPauseTimeoutAndReturnIfPaused()) {
         robj *argv[3];
 
-        argv[0] = createStringObject("REPLCONF",8);
-        argv[1] = createStringObject("GETACK",6);
-        argv[2] = createStringObject("*",1); /* Not used argument. */
+        argv[0] = shared.replconf;
+        argv[1] = shared.getack;
+        argv[2] = shared.special_asterick; /* Not used argument. */
         replicationFeedSlaves(server.slaves, server.slaveseldb, argv, 3);
-        decrRefCount(argv[0]);
-        decrRefCount(argv[1]);
-        decrRefCount(argv[2]);
         server.get_ack_from_slaves = 0;
     }
 
@@ -2565,6 +2565,8 @@ void createSharedObjects(void) {
     shared.unsubscribebulk = createStringObject("$11\r\nunsubscribe\r\n",18);
     shared.psubscribebulk = createStringObject("$10\r\npsubscribe\r\n",17);
     shared.punsubscribebulk = createStringObject("$12\r\npunsubscribe\r\n",19);
+
+    /* Shared command names */
     shared.del = createStringObject("DEL",3);
     shared.unlink = createStringObject("UNLINK",6);
     shared.rpop = createStringObject("RPOP",4);
@@ -2577,15 +2579,38 @@ void createSharedObjects(void) {
     shared.zpopmax = createStringObject("ZPOPMAX",7);
     shared.multi = createStringObject("MULTI",5);
     shared.exec = createStringObject("EXEC",4);
-    /* Used in the LMOVE/BLMOVE commands */
-    shared.left = createStringObject("left",4);
-    shared.right = createStringObject("right",5);
+    shared.hset = createStringObject("HSET",4);
+    shared.srem = createStringObject("SREM",4);
+    shared.xgroup = createStringObject("XGROUP",6);
+    shared.xclaim = createStringObject("XCLAIM",6);
+    shared.script = createStringObject("SCRIPT",6);
+    shared.replconf = createStringObject("REPLCONF",8);
     shared.pexpireat = createStringObject("PEXPIREAT",9);
     shared.pexpire = createStringObject("PEXPIRE",7);
     shared.persist = createStringObject("PERSIST",7);
     shared.set = createStringObject("SET",3);
+    shared.eval = createStringObject("EVAL",4);
+
+    /* Shared command argument */
+    shared.left = createStringObject("left",4);
+    shared.right = createStringObject("right",5);
     shared.pxat = createStringObject("PXAT", 4);
     shared.px = createStringObject("PX",2);
+    shared.time = createStringObject("TIME",4);
+    shared.retrycount = createStringObject("RETRYCOUNT",10);
+    shared.force = createStringObject("FORCE",5);
+    shared.justid = createStringObject("JUSTID",6);
+    shared.lastid = createStringObject("LASTID",6);
+    shared.default_username = createStringObject("default",7);
+    shared.ping = createStringObject("ping",4);
+    shared.setid = createStringObject("SETID",5);
+    shared.keepttl = createStringObject("KEEPTTL",7);
+    shared.load = createStringObject("LOAD",4);
+    shared.createconsumer = createStringObject("CREATECONSUMER",14);
+    shared.getack = createStringObject("GETACK",6);
+    shared.special_asterick = createStringObject("*",1);
+    shared.special_equals = createStringObject("=",1);
+
     for (j = 0; j < OBJ_SHARED_INTEGERS; j++) {
         shared.integers[j] =
             makeObjectShared(createObject(OBJ_STRING,(void*)(long)j));
@@ -3181,10 +3206,7 @@ void initServer(void) {
     }
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
     server.pubsub_channels = dictCreate(&keylistDictType,NULL);
-    server.pubsub_patterns = listCreate();
-    server.pubsub_patterns_dict = dictCreate(&keylistDictType,NULL);
-    listSetFreeMethod(server.pubsub_patterns,freePubsubPattern);
-    listSetMatchMethod(server.pubsub_patterns,listMatchPubsubPattern);
+    server.pubsub_patterns = dictCreate(&keylistDictType,NULL);
     server.cronloops = 0;
     server.in_eval = 0;
     server.in_exec = 0;
@@ -3214,9 +3236,12 @@ void initServer(void) {
     server.stat_starttime = time(NULL);
     server.stat_peak_memory = 0;
     server.stat_current_cow_bytes = 0;
+    server.stat_current_save_keys_processed = 0;
+    server.stat_current_save_keys_total = 0;
     server.stat_rdb_cow_bytes = 0;
     server.stat_aof_cow_bytes = 0;
     server.stat_module_cow_bytes = 0;
+    server.stat_module_progress = 0;
     for (int j = 0; j < CLIENT_TYPE_COUNT; j++)
         server.stat_clients_type_memory[j] = 0;
     server.cron_malloc_stats.zmalloc_used = 0;
@@ -4479,6 +4504,25 @@ void bytesToHuman(char *s, unsigned long long n) {
     }
 }
 
+/* Characters we sanitize on INFO output to maintain expected format. */
+static char unsafe_info_chars[] = "#:\n\r";
+static char unsafe_info_chars_substs[] = "____";   /* Must be same length as above */
+
+/* Returns a sanitized version of s that contains no unsafe info string chars.
+ * If no unsafe characters are found, simply returns s. Caller needs to
+ * free tmp if it is non-null on return.
+ */
+const char *getSafeInfoString(const char *s, size_t len, char **tmp) {
+    *tmp = NULL;
+    if (mempbrk(s, len, unsafe_info_chars,sizeof(unsafe_info_chars)-1)
+        == NULL) return s;
+    char *new = *tmp = zmalloc(len + 1);
+    memcpy(new, s, len);
+    new[len] = '\0';
+    return memmapchars(new, len, unsafe_info_chars, unsafe_info_chars_substs,
+                       sizeof(unsafe_info_chars)-1);
+}
+
 /* Create the string returned by the INFO command. This is decoupled
  * by the INFO command itself as we need to report the same information
  * on memory corruption problems. */
@@ -4728,10 +4772,20 @@ sds genRedisInfoString(const char *section) {
     /* Persistence */
     if (allsections || defsections || !strcasecmp(section,"persistence")) {
         if (sections++) info = sdscat(info,"\r\n");
+        double fork_perc = 0;
+        if (server.stat_module_progress) {
+            fork_perc = server.stat_module_progress * 100;
+        } else if (server.stat_current_save_keys_total) {
+            fork_perc = ((double)server.stat_current_save_keys_processed / server.stat_current_save_keys_total) * 100;
+        }
+  
         info = sdscatprintf(info,
             "# Persistence\r\n"
             "loading:%d\r\n"
             "current_cow_size:%zu\r\n"
+            "current_fork_perc:%.2f%%\r\n"
+            "current_save_keys_processed:%zu\r\n"
+            "current_save_keys_total:%zu\r\n"
             "rdb_changes_since_last_save:%lld\r\n"
             "rdb_bgsave_in_progress:%d\r\n"
             "rdb_last_save_time:%jd\r\n"
@@ -4751,6 +4805,9 @@ sds genRedisInfoString(const char *section) {
             "module_fork_last_cow_size:%zu\r\n",
             (int)server.loading,
             server.stat_current_cow_bytes,
+            fork_perc,
+            server.stat_current_save_keys_processed,
+            server.stat_current_save_keys_total,
             server.dirty,
             server.child_type == CHILD_TYPE_RDB,
             (intmax_t)server.lastsave,
@@ -4899,7 +4956,7 @@ sds genRedisInfoString(const char *section) {
             server.stat_keyspace_hits,
             server.stat_keyspace_misses,
             dictSize(server.pubsub_channels),
-            listLength(server.pubsub_patterns),
+            dictSize(server.pubsub_patterns),
             server.stat_fork_time,
             server.stat_total_forks,
             dictSize(server.migrate_cached_sockets),
@@ -5005,11 +5062,11 @@ sds genRedisInfoString(const char *section) {
             while((ln = listNext(&li))) {
                 client *slave = listNodeValue(ln);
                 char *state = NULL;
-                char ip[NET_IP_STR_LEN], *slaveip = slave->slave_ip;
+                char ip[NET_IP_STR_LEN], *slaveip = slave->slave_addr;
                 int port;
                 long lag = 0;
 
-                if (slaveip[0] == '\0') {
+                if (!slaveip) {
                     if (connPeerToString(slave->conn,ip,sizeof(ip),&port) == -1)
                         continue;
                     slaveip = ip;
@@ -5104,15 +5161,17 @@ sds genRedisInfoString(const char *section) {
         dictIterator *di;
         di = dictGetSafeIterator(server.commands);
         while((de = dictNext(di)) != NULL) {
+            char *tmpsafe;
             c = (struct redisCommand *) dictGetVal(de);
             if (!c->calls && !c->failed_calls && !c->rejected_calls)
                 continue;
             info = sdscatprintf(info,
                 "cmdstat_%s:calls=%lld,usec=%lld,usec_per_call=%.2f"
                 ",rejected_calls=%lld,failed_calls=%lld\r\n",
-                c->name, c->calls, c->microseconds,
+                getSafeInfoString(c->name, strlen(c->name), &tmpsafe), c->calls, c->microseconds,
                 (c->calls == 0) ? 0 : ((float)c->microseconds/c->calls),
                 c->rejected_calls, c->failed_calls);
+            if (tmpsafe != NULL) zfree(tmpsafe);
         }
         dictReleaseIterator(di);
     }
@@ -5125,10 +5184,12 @@ sds genRedisInfoString(const char *section) {
         raxSeek(&ri,"^",NULL,0);
         struct redisError *e;
         while(raxNext(&ri)) {
+            char *tmpsafe;
             e = (struct redisError *) ri.data;
             info = sdscatprintf(info,
                 "errorstat_%.*s:count=%lld\r\n",
-                (int)ri.key_len, ri.key, e->count);
+                (int)ri.key_len, getSafeInfoString((char *) ri.key, ri.key_len, &tmpsafe), e->count);
+            if (tmpsafe != NULL) zfree(tmpsafe);
         }
         raxStop(&ri);
     }
@@ -5617,6 +5678,9 @@ int redisFork(int purpose) {
             server.child_pid = childpid;
             server.child_type = purpose;
             server.stat_current_cow_bytes = 0;
+            server.stat_current_save_keys_processed = 0;
+            server.stat_module_progress = 0;
+            server.stat_current_save_keys_total = dbTotalServerKeyCount();
         }
 
         updateDictResizePolicy();
@@ -5627,16 +5691,12 @@ int redisFork(int purpose) {
     return childpid;
 }
 
-void sendChildCOWInfo(int ptype, int on_exit, char *pname) {
-    size_t private_dirty = zmalloc_get_private_dirty(-1);
+void sendChildCowInfo(childInfoType info_type, char *pname) {
+    sendChildInfoGeneric(info_type, 0, -1, pname);
+}
 
-    if (private_dirty) {
-        serverLog(on_exit ? LL_NOTICE : LL_VERBOSE,
-            "%s: %zu MB of memory used by copy-on-write",
-            pname, private_dirty/(1024*1024));
-    }
-
-    sendChildInfo(ptype, on_exit, private_dirty);
+void sendChildInfo(childInfoType info_type, size_t keys, char *pname) {
+    sendChildInfoGeneric(info_type, keys, -1, pname);
 }
 
 void memtest(size_t megabytes, int passes);

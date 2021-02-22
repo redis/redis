@@ -106,9 +106,8 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
     robj *val;
 
     if (expireIfNeeded(db,key) == 1) {
-        /* Key expired. If we are in the context of a master, expireIfNeeded()
-         * returns 0 only when the key does not exist at all, so it's safe
-         * to return NULL ASAP. */
+        /* If we are in the context of a master, expireIfNeeded() returns 1
+         * when the key is no longer valid, so we can return NULL ASAP. */
         if (server.masterhost == NULL)
             goto keymiss;
 

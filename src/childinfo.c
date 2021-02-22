@@ -31,9 +31,10 @@
 #include <unistd.h>
 
 typedef struct {
-    int process_type;           /* AOF or RDB child? */
-    int on_exit;                /* COW size of active or exited child */
-    size_t cow_size;            /* Copy on write size. */
+    size_t keys;
+    size_t cow;
+    double progress;
+    childInfoType information_type; /* Type of information */
 } child_info_data;
 
 /* Open a child-parent channel used in order to move information about the
@@ -64,39 +65,49 @@ void closeChildInfoPipe(void) {
     }
 }
 
-/* Send COW data to parent. */
-void sendChildInfo(int process_type, int on_exit, size_t cow_size) {
+/* Send save data to parent. */
+void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress, char *pname) {
     if (server.child_info_pipe[1] == -1) return;
 
-    child_info_data buffer = {.process_type = process_type, .on_exit = on_exit, .cow_size = cow_size};
-    ssize_t wlen = sizeof(buffer);
+    child_info_data data = {0}; /* zero everything, including padding to sattisfy valgrind */
+    data.information_type = info_type;
+    data.keys = keys;
+    data.cow = zmalloc_get_private_dirty(-1);
+    data.progress = progress;
 
-    if (write(server.child_info_pipe[1],&buffer,wlen) != wlen) {
+    if (data.cow) {
+        serverLog((info_type == CHILD_INFO_TYPE_CURRENT_INFO) ? LL_VERBOSE : LL_NOTICE,
+                  "%s: %zu MB of memory used by copy-on-write",
+                  pname, data.cow/(1024*1024));
+    }
+
+    ssize_t wlen = sizeof(data);
+
+    if (write(server.child_info_pipe[1], &data, wlen) != wlen) {
         /* Nothing to do on error, this will be detected by the other side. */
     }
 }
 
-/* Update COW data. */
-void updateChildInfo(int process_type, int on_exit, size_t cow_size) {
-    if (!on_exit) {
-        server.stat_current_cow_bytes = cow_size;
-        return;
-    }
-
-    if (process_type == CHILD_TYPE_RDB) {
-        server.stat_rdb_cow_bytes = cow_size;
-    } else if (process_type == CHILD_TYPE_AOF) {
-        server.stat_aof_cow_bytes = cow_size;
-    } else if (process_type == CHILD_TYPE_MODULE) {
-        server.stat_module_cow_bytes = cow_size;
+/* Update Child info. */
+void updateChildInfo(childInfoType information_type, size_t cow, size_t keys, double progress) {
+    if (information_type == CHILD_INFO_TYPE_CURRENT_INFO) {
+        server.stat_current_cow_bytes = cow;
+        server.stat_current_save_keys_processed = keys;
+        if (progress != -1) server.stat_module_progress = progress;
+    } else if (information_type == CHILD_INFO_TYPE_AOF_COW_SIZE) {
+        server.stat_aof_cow_bytes = cow;
+    } else if (information_type == CHILD_INFO_TYPE_RDB_COW_SIZE) {
+        server.stat_rdb_cow_bytes = cow;
+    } else if (information_type == CHILD_INFO_TYPE_MODULE_COW_SIZE) {
+        server.stat_module_cow_bytes = cow;
     }
 }
 
-/* Read COW info data from the pipe.
- * if complete data read into the buffer, process type, copy-on-write type and copy-on-write size
- * are stored into *process_type, *on_exit and *cow_size respectively and returns 1.
+/* Read child info data from the pipe.
+ * if complete data read into the buffer, 
+ * data is stored into *buffer, and returns 1.
  * otherwise, the partial data is left in the buffer, waiting for the next read, and returns 0. */
-int readChildInfo(int *process_type, int *on_exit, size_t *cow_size) {
+int readChildInfo(childInfoType *information_type, size_t *cow, size_t *keys, double* progress) {
     /* We are using here a static buffer in combination with the server.child_info_nread to handle short reads */
     static child_info_data buffer;
     ssize_t wlen = sizeof(buffer);
@@ -111,25 +122,27 @@ int readChildInfo(int *process_type, int *on_exit, size_t *cow_size) {
 
     /* We have complete child info */
     if (server.child_info_nread == wlen) {
-        *process_type = buffer.process_type;
-        *on_exit = buffer.on_exit;
-        *cow_size = buffer.cow_size;
+        *information_type = buffer.information_type;
+        *cow = buffer.cow;
+        *keys = buffer.keys;
+        *progress = buffer.progress;
         return 1;
     } else {
         return 0;
     }
 }
 
-/* Receive COW data from child. */
+/* Receive info data from child. */
 void receiveChildInfo(void) {
     if (server.child_info_pipe[0] == -1) return;
 
-    int process_type;
-    int on_exit;
-    size_t cow_size;
+    size_t cow;
+    size_t keys;
+    double progress;
+    childInfoType information_type;
 
     /* Drain the pipe and update child info so that we get the final message. */
-    while (readChildInfo(&process_type, &on_exit, &cow_size)) {
-        updateChildInfo(process_type, on_exit, cow_size);
+    while (readChildInfo(&information_type, &cow, &keys, &progress)) {
+        updateChildInfo(information_type, cow, keys, progress);
     }
 }

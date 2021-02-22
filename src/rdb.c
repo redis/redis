@@ -1223,7 +1223,8 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     size_t processed = 0;
     int j;
     long key_count = 0;
-    long long cow_updated_time = 0;
+    long long info_updated_time = 0;
+    char *pname = (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB";
 
     if (server.rdb_checksum)
         rdb->update_cksum = rioGenericUpdateChecksum;
@@ -1270,22 +1271,16 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
                 aofReadDiffFromParent();
             }
 
-            /* Update COW info every 1 second (approximately).
+            /* Update child info every 1 second (approximately).
              * in order to avoid calling mstime() on each iteration, we will
              * check the diff every 1024 keys */
-            if ((key_count & 1023) == 0) {
-                key_count = 0;
+            if ((key_count++ & 1023) == 0) {
                 long long now = mstime();
-                if (now - cow_updated_time >= 1000) {
-                    if (rdbflags & RDBFLAGS_AOF_PREAMBLE) {
-                        sendChildCOWInfo(CHILD_TYPE_AOF, 0, "AOF rewrite");
-                    } else {
-                        sendChildCOWInfo(CHILD_TYPE_RDB, 0, "RDB");
-                    }
-                    cow_updated_time = now;
+                if (now - info_updated_time >= 1000) {
+                    sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, key_count, pname);
+                    info_updated_time = now;
                 }
             }
-            key_count++;
         }
         dictReleaseIterator(di);
         di = NULL; /* So that we don't release it again on error. */
@@ -1438,7 +1433,7 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
         redisSetCpuAffinity(server.bgsave_cpulist);
         retval = rdbSave(filename,rsi);
         if (retval == C_OK) {
-            sendChildCOWInfo(CHILD_TYPE_RDB, 1, "RDB");
+            sendChildCowInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, "RDB");
         }
         exitFromChild((retval == C_OK) ? 0 : 1);
     } else {
@@ -2805,7 +2800,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
             retval = C_ERR;
 
         if (retval == C_OK) {
-            sendChildCOWInfo(CHILD_TYPE_RDB, 1, "RDB");
+            sendChildCowInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, "RDB");
         }
 
         rioFreeFd(&rdb);

@@ -73,16 +73,25 @@ static int checkStringLength(client *c, long long size) {
 #define OBJ_PERSIST (1<<8)         /* Set if we need to remove the ttl */
 
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
-    long long milliseconds = 0; /* initialized to avoid any harmness warning */
+    long long milliseconds = 0, when = 0; /* initialized to avoid any harmness warning */
 
     if (expire) {
         if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != C_OK)
             return;
-        if (milliseconds <= 0) {
-            addReplyErrorFormat(c,"invalid expire time in %s",c->cmd->name);
+        if (milliseconds <= 0 || (unit == UNIT_SECONDS && milliseconds > LLONG_MAX / 1000)) {
+            /* Negative value provided or multiplication is gonna overflow. */
+            addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
             return;
         }
         if (unit == UNIT_SECONDS) milliseconds *= 1000;
+        when = milliseconds;
+        if ((flags & OBJ_PX) || (flags & OBJ_EX))
+            when += mstime();
+        if (when <= 0) {
+            /* Overflow detected. */
+            addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
+            return;
+        }
     }
 
     if ((flags & OBJ_SET_NX && lookupKeyWrite(c->db,key) != NULL) ||
@@ -100,14 +109,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
     if (expire) {
-        robj *exp = shared.pxat;
-
-        if ((flags & OBJ_PX) || (flags & OBJ_EX)) {
-            setExpire(c,c->db,key,milliseconds + mstime());
-            exp = shared.px;
-        } else {
-            setExpire(c,c->db,key,milliseconds);
-        }
+        setExpire(c,c->db,key,when);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
 
         /* Propagate as SET Key Value PXAT millisecond-timestamp if there is EXAT/PXAT or
@@ -119,6 +121,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
          * Additional care is required while modifying the argument order. AOF relies on the
          * exp argument being at index 3. (see feedAppendOnlyFile)
          * */
+        robj *exp = (flags & OBJ_PXAT) || (flags & OBJ_EXAT) ? shared.pxat : shared.px;
         robj *millisecondObj = createStringObjectFromLongLong(milliseconds);
         rewriteClientCommandVector(c,5,shared.set,key,val,exp,millisecondObj);
         decrRefCount(millisecondObj);
@@ -335,17 +338,26 @@ void getexCommand(client *c) {
         return;
     }
 
-    long long milliseconds = 0;
+    long long milliseconds = 0, when = 0;
 
     /* Validate the expiration time value first */
     if (expire) {
         if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != C_OK)
             return;
-        if (milliseconds <= 0) {
-            addReplyErrorFormat(c,"invalid expire time in %s",c->cmd->name);
+        if (milliseconds <= 0 || (unit == UNIT_SECONDS && milliseconds > LLONG_MAX / 1000)) {
+            /* Negative value provided or multiplication is gonna overflow. */
+            addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
             return;
         }
         if (unit == UNIT_SECONDS) milliseconds *= 1000;
+        when = milliseconds;
+        if ((flags & OBJ_PX) || (flags & OBJ_EX))
+            when += mstime();
+        if (when <= 0) {
+            /* Overflow detected. */
+            addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
+            return;
+        }
     }
 
     /* We need to do this before we expire the key or delete it */
@@ -365,14 +377,9 @@ void getexCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
         server.dirty++;
     } else if (expire) {
-        robj *exp = shared.pexpireat;
-        if ((flags & OBJ_PX) || (flags & OBJ_EX)) {
-            setExpire(c,c->db,c->argv[1],milliseconds + mstime());
-            exp = shared.pexpire;
-        } else {
-            setExpire(c,c->db,c->argv[1],milliseconds);
-        }
-
+        setExpire(c,c->db,c->argv[1],when);
+        /* Propagate */
+        robj *exp = (flags & OBJ_PXAT) || (flags & OBJ_EXAT) ? shared.pexpireat : shared.pexpire;
         robj* millisecondObj = createStringObjectFromLongLong(milliseconds);
         rewriteClientCommandVector(c,3,exp,c->argv[1],millisecondObj);
         decrRefCount(millisecondObj);
@@ -631,7 +638,7 @@ void decrbyCommand(client *c) {
 
 void incrbyfloatCommand(client *c) {
     long double incr, value;
-    robj *o, *new, *aux;
+    robj *o, *new;
 
     o = lookupKeyWrite(c->db,c->argv[1]);
     if (checkType(c,o,OBJ_STRING)) return;
@@ -659,9 +666,7 @@ void incrbyfloatCommand(client *c) {
      * will not create differences in replicas or after an AOF restart. */
     rewriteClientCommandArgument(c,0,shared.set);
     rewriteClientCommandArgument(c,2,new);
-    aux = createStringObject("KEEPTTL",7);
-    rewriteClientCommandArgument(c,3,aux);
-    decrRefCount(aux);
+    rewriteClientCommandArgument(c,3,shared.keepttl);
 }
 
 void appendCommand(client *c) {
@@ -764,7 +769,7 @@ void stralgoLCS(client *c) {
                 addReplyError(c,
                     "The specified keys must contain string values");
                 /* Don't cleanup the objects, we need to do that
-                 * only after callign getDecodedObject(). */
+                 * only after calling getDecodedObject(). */
                 obja = NULL;
                 objb = NULL;
                 goto cleanup;

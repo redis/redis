@@ -3956,10 +3956,32 @@ void bzpopmaxCommand(client *c) {
     blockingGenericZpopCommand(c,ZSET_MAX);
 }
 
+static void zarndmemberReplyWithZiplist(client *c, unsigned int count, ziplistEntry *keys, ziplistEntry *vals) {
+    for (unsigned long i = 0; i < count; i++) {
+        if (vals && c->resp > 2)
+            addReplyArrayLen(c,2);
+        if (keys[i].sval)
+            addReplyBulkCBuffer(c, keys[i].sval, keys[i].slen);
+        else
+            addReplyBulkLongLong(c, keys[i].lval);
+        if (vals) {
+            if (vals[i].sval) {
+                addReplyDouble(c, zzlStrtod(vals[i].sval,vals[i].slen));
+            } else
+                addReplyDouble(c, vals[i].lval);
+        }
+    }
+}
+
 /* How many times bigger should be the zset compared to the requested size
  * for us to not use the "remove elements" strategy? Read later in the
  * implementation for more info. */
 #define ZRANDMEMBER_SUB_STRATEGY_MUL 3
+
+/* If client is trying to ask for a very large number of random elements,
+ * queuing may consume an unlimited amount of memory, so we want to limit
+ * the number of randoms per time. */
+#define ZRANDMEMBER_RANDOM_SAMPLE_LIMIT 1000
 
 void zrandmemberWithCountCommand(client *c, long l, int withscores) {
     unsigned long count, size;
@@ -4006,23 +4028,16 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
             }
         } else if (zsetobj->encoding == OBJ_ENCODING_ZIPLIST) {
             ziplistEntry *keys, *vals = NULL;
-            keys = zmalloc(sizeof(ziplistEntry)*count);
+            unsigned long limit, sample_count;
+            limit = count > ZRANDMEMBER_RANDOM_SAMPLE_LIMIT ? ZRANDMEMBER_RANDOM_SAMPLE_LIMIT : count;
+            keys = zmalloc(sizeof(ziplistEntry)*limit);
             if (withscores)
-                vals = zmalloc(sizeof(ziplistEntry)*count);
-            ziplistRandomPairs(zsetobj->ptr, count, keys, vals);
-            for (unsigned long i = 0; i < count; i++) {
-                if (withscores && c->resp > 2)
-                    addReplyArrayLen(c,2);
-                if (keys[i].sval)
-                    addReplyBulkCBuffer(c, keys[i].sval, keys[i].slen);
-                else
-                    addReplyBulkLongLong(c, keys[i].lval);
-                if (withscores) {
-                    if (vals[i].sval) {
-                        addReplyDouble(c, zzlStrtod(vals[i].sval,vals[i].slen));
-                    } else
-                        addReplyDouble(c, vals[i].lval);
-                }
+                vals = zmalloc(sizeof(ziplistEntry)*limit);
+            while (count) {
+                sample_count = count > limit ? limit : count;
+                count -= sample_count;
+                ziplistRandomPairs(zsetobj->ptr, sample_count, keys, vals);
+                zarndmemberReplyWithZiplist(c, sample_count, keys, vals);
             }
             zfree(keys);
             zfree(vals);
@@ -4070,6 +4085,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
      * used into CASE 4 is highly inefficient. */
     if (count*ZRANDMEMBER_SUB_STRATEGY_MUL > size) {
         dict *d = dictCreate(&sdsReplyDictType, NULL);
+        dictExpand(d, size);
         /* Add all the elements into the temporary dictionary. */
         while (zuiNext(&src, &zval)) {
             sds key = zuiNewSdsFromValue(&zval);
@@ -4111,8 +4127,24 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
      * to the temporary set, trying to eventually get enough unique elements
      * to reach the specified count. */
     else {
+        if (zsetobj->encoding == OBJ_ENCODING_ZIPLIST) {
+            /* it is inefficient to repeatedly pick one random element from a
+             * ziplist. so we use this instead: */
+            ziplistEntry *keys, *vals = NULL;
+            keys = zmalloc(sizeof(ziplistEntry)*count);
+            if (withscores)
+                vals = zmalloc(sizeof(ziplistEntry)*count);
+            serverAssert(ziplistRandomPairsUnique(zsetobj->ptr, count, keys, vals) == count);
+            zarndmemberReplyWithZiplist(c, count, keys, vals);
+            zfree(keys);
+            zfree(vals);
+            return;
+        }
+
+        /* Hashtable encoding (generic implementation) */
         unsigned long added = 0;
         dict *d = dictCreate(&hashDictType, NULL);
+        dictExpand(d, count);
 
         while (added < count) {
             ziplistEntry key;

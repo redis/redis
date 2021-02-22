@@ -155,7 +155,7 @@ client *createClient(connection *conn) {
     c->repl_ack_off = 0;
     c->repl_ack_time = 0;
     c->slave_listening_port = 0;
-    c->slave_ip[0] = '\0';
+    c->slave_addr = NULL;
     c->slave_capa = SLAVE_CAPA_NONE;
     c->reply = listCreate();
     c->reply_bytes = 0;
@@ -527,7 +527,7 @@ void trimReplyUnusedTailSpace(client *c) {
     listNode *ln = listLast(c->reply);
     clientReplyBlock *tail = ln? listNodeValue(ln): NULL;
 
-    /* Note that 'tail' may be NULL even if we have a tail node, becuase when
+    /* Note that 'tail' may be NULL even if we have a tail node, because when
      * addReplyDeferredLen() is used */
     if (!tail) return;
 
@@ -717,10 +717,7 @@ void addReplyLongLong(client *c, long long ll) {
 
 void addReplyAggregateLen(client *c, long length, int prefix) {
     serverAssert(length >= 0);
-    if (prefix == '*' && length < OBJ_SHARED_BULKHDR_LEN)
-        addReply(c,shared.mbulkhdr[length]);
-    else
-        addReplyLongLongWithPrefix(c,length,prefix);
+    addReplyLongLongWithPrefix(c,length,prefix);
 }
 
 void addReplyArrayLen(client *c, long length) {
@@ -781,10 +778,7 @@ void addReplyNullArray(client *c) {
 void addReplyBulkLen(client *c, robj *obj) {
     size_t len = stringObjectLen(obj);
 
-    if (len < OBJ_SHARED_BULKHDR_LEN)
-        addReply(c,shared.bulkhdr[len]);
-    else
-        addReplyLongLongWithPrefix(c,len,'$');
+    addReplyLongLongWithPrefix(c,len,'$');
 }
 
 /* Add a Redis Object as a bulk reply */
@@ -1406,6 +1400,7 @@ void freeClient(client *c) {
     freeClientMultiState(c);
     sdsfree(c->peerid);
     sdsfree(c->sockname);
+    sdsfree(c->slave_addr);
     zfree(c);
 }
 
@@ -1432,7 +1427,7 @@ void freeClientAsync(client *c) {
     pthread_mutex_unlock(&async_free_queue_mutex);
 }
 
-/* Free the clietns marked as CLOSE_ASAP, return the number of clients
+/* Free the clients marked as CLOSE_ASAP, return the number of clients
  * freed. */
 int freeClientsInAsyncFreeQueue(void) {
     int freed = 0;
@@ -3525,7 +3520,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     if (processed == 0) return 0; /* Return ASAP if there are no clients. */
 
     /* If I/O threads are disabled or we have few clients to serve, don't
-     * use I/O threads, but thejboring synchronous code. */
+     * use I/O threads, but the boring synchronous code. */
     if (server.io_threads_num == 1 || stopThreadedIOIfNeeded()) {
         return handleClientsWithPendingWrites();
     }

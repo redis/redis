@@ -110,6 +110,7 @@ set ::active_servers {} ; # Pids of active Redis instances.
 set ::dont_clean 0
 set ::wait_server 0
 set ::stop_on_failure 0
+set ::dump_logs 0
 set ::loop 0
 set ::tlsdir "tests/tls"
 
@@ -555,6 +556,7 @@ proc print_help_screen {} {
         "--stop             Blocks once the first test fails."
         "--loop             Execute the specified set of tests forever."
         "--wait-server      Wait after server is started (so that you can attach a debugger)."
+        "--dump-logs        Dump server log on test failure."
         "--tls              Run tests in TLS mode."
         "--host <addr>      Run tests against an external host."
         "--port <port>      TCP port to use against external host."
@@ -657,6 +659,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set ::no_latency 1
     } elseif {$opt eq {--wait-server}} {
         set ::wait_server 1
+    } elseif {$opt eq {--dump-logs}} {
+        set ::dump_logs 1
     } elseif {$opt eq {--stop}} {
         set ::stop_on_failure 1
     } elseif {$opt eq {--loop}} {

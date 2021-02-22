@@ -499,7 +499,7 @@ void spopWithCountCommand(client *c) {
      * Prepare our replication argument vector. Also send the array length
      * which is common to both the code paths. */
     robj *propargv[3];
-    propargv[0] = createStringObject("SREM",4);
+    propargv[0] = shared.srem;
     propargv[1] = c->argv[1];
     addReplySetLen(c,count);
 
@@ -590,13 +590,12 @@ void spopWithCountCommand(client *c) {
      * dirty counter. We don't want to propagate an SPOP command since
      * we propagated the command as a set of SREMs operations using
      * the alsoPropagate() API. */
-    decrRefCount(propargv[0]);
     preventCommandPropagation(c);
     signalModifiedKey(c,c->db,c->argv[1]);
 }
 
 void spopCommand(client *c) {
-    robj *set, *ele, *aux;
+    robj *set, *ele;
     sds sdsele;
     int64_t llele;
     int encoding;
@@ -629,9 +628,7 @@ void spopCommand(client *c) {
     notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
 
     /* Replicate/AOF this command as an SREM operation */
-    aux = createStringObject("SREM",4);
-    rewriteClientCommandVector(c,3,aux,c->argv[1],ele);
-    decrRefCount(aux);
+    rewriteClientCommandVector(c,3,shared.srem,c->argv[1],ele);
 
     /* Add the element to the reply */
     addReplyBulk(c,ele);
@@ -677,13 +674,13 @@ void srandmemberWithCountCommand(client *c) {
         uniq = 0;
     }
 
-    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptyset[c->resp]))
+    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptyarray))
         == NULL || checkType(c,set,OBJ_SET)) return;
     size = setTypeSize(set);
 
     /* If count is zero, serve it ASAP to avoid special cases later. */
     if (count == 0) {
-        addReply(c,shared.emptyset[c->resp]);
+        addReply(c,shared.emptyarray);
         return;
     }
 
@@ -693,7 +690,7 @@ void srandmemberWithCountCommand(client *c) {
      * structures. This case is the only one that also needs to return the
      * elements in random order. */
     if (!uniq || count == 1) {
-        addReplySetLen(c,count);
+        addReplyArrayLen(c,count);
         while(count--) {
             encoding = setTypeRandomElement(set,&ele,&llele);
             if (encoding == OBJ_ENCODING_INTSET) {
@@ -709,7 +706,19 @@ void srandmemberWithCountCommand(client *c) {
      * The number of requested elements is greater than the number of
      * elements inside the set: simply return the whole set. */
     if (count >= size) {
-        sunionDiffGenericCommand(c,c->argv+1,1,NULL,SET_OP_UNION);
+        setTypeIterator *si;
+        addReplyArrayLen(c,size);
+        si = setTypeInitIterator(set);
+        while ((encoding = setTypeNext(si,&ele,&llele)) != -1) {
+            if (encoding == OBJ_ENCODING_INTSET) {
+                addReplyBulkLongLong(c,llele);
+            } else {
+                addReplyBulkCBuffer(c,ele,sdslen(ele));
+            }
+            size--;
+        }
+        setTypeReleaseIterator(si);
+        serverAssert(size==0);
         return;
     }
 
@@ -730,6 +739,7 @@ void srandmemberWithCountCommand(client *c) {
 
         /* Add all the elements into the temporary dictionary. */
         si = setTypeInitIterator(set);
+        dictExpand(d, size);
         while ((encoding = setTypeNext(si,&ele,&llele)) != -1) {
             int retval = DICT_ERR;
 
@@ -762,6 +772,7 @@ void srandmemberWithCountCommand(client *c) {
         unsigned long added = 0;
         sds sdsele;
 
+        dictExpand(d, count);
         while (added < count) {
             encoding = setTypeRandomElement(set,&ele,&llele);
             if (encoding == OBJ_ENCODING_INTSET) {
@@ -784,7 +795,7 @@ void srandmemberWithCountCommand(client *c) {
         dictIterator *di;
         dictEntry *de;
 
-        addReplySetLen(c,count);
+        addReplyArrayLen(c,count);
         di = dictGetIterator(d);
         while((de = dictNext(di)) != NULL)
             addReplyBulkSds(c,dictGetKey(de));

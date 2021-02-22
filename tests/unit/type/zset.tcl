@@ -1646,9 +1646,17 @@ start_server {tags {"zset"}} {
             # 1) Check that it returns repeated elements with and without values.
             set res [r zrandmember myzset -20]
             assert_equal [llength $res] 20
+            set res [r zrandmember myzset -1001]
+            assert_equal [llength $res] 1001
             # again with WITHSCORES
             set res [r zrandmember myzset -20 withscores]
             assert_equal [llength $res] 40
+            set res [r zrandmember myzset -1001 withscores]
+            assert_equal [llength $res] 2002
+
+            # Test random uniform distribution
+            set res [r zrandmember myzset -1000]
+            assert_equal [check_histogram_distribution $res 0.05 0.15] true
 
             # 2) Check that all the elements actually belong to the original zset.
             foreach {key val} $res {
@@ -1717,26 +1725,31 @@ start_server {tags {"zset"}} {
                 # 2) Check that eventually all the elements are returned.
                 #    Use both WITHSCORES and without
                 unset -nocomplain auxset
-                set iterations 1000
+                unset -nocomplain allkey
+                set iterations [expr {1000 / $size}]
+                set all_ele_return false
                 while {$iterations != 0} {
                     incr iterations -1
                     if {[expr {$iterations % 2}] == 0} {
                         set res [r zrandmember myzset $size withscores]
                         foreach {key value} $res {
                             dict append auxset $key $value
+                            lappend allkey $key
                         }
                     } else {
                         set res [r zrandmember myzset $size]
                         foreach key $res {
                             dict append auxset $key
+                            lappend allkey $key
                         }
                     }
                     if {[lsort [dict keys $mydict]] eq
                         [lsort [dict keys $auxset]]} {
-                        break;
+                        set all_ele_return true
                     }
                 }
-                assert {$iterations != 0}
+                assert_equal $all_ele_return true
+                assert_equal [check_histogram_distribution $allkey 0.05 0.15] true
             }
         }
         r config set zset-max-ziplist-value $original_max_value

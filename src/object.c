@@ -384,23 +384,6 @@ void decrRefCountVoid(void *o) {
     decrRefCount(o);
 }
 
-/* This function set the ref count to zero without freeing the object.
- * It is useful in order to pass a new object to functions incrementing
- * the ref count of the received object. Example:
- *
- *    functionThatWillIncrementRefCount(resetRefCount(CreateObject(...)));
- *
- * Otherwise you need to resort to the less elegant pattern:
- *
- *    *obj = createObject(...);
- *    functionThatWillIncrementRefCount(obj);
- *    decrRefCount(obj);
- */
-robj *resetRefCount(robj *obj) {
-    obj->refcount = 0;
-    return obj;
-}
-
 int checkType(client *c, robj *o, int type) {
     /* A NULL is considered an empty key */
     if (o && o->type != type) {

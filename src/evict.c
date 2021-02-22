@@ -135,7 +135,7 @@ void evictionPoolAlloc(void) {
 
 /* This is an helper function for performEvictions(), it is used in order
  * to populate the evictionPool with a few entries every time we want to
- * expire a key. Keys with idle time smaller than one of the current
+ * expire a key. Keys with idle time bigger than one of the current
  * keys are added. Keys are always added if there are free entries.
  *
  * We insert keys on place in ascending order, so keys with the smaller

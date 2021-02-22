@@ -244,6 +244,33 @@ long long memtoll(const char *p, int *err) {
     return val*mul;
 }
 
+/* Search a memory buffer for any set of bytes, like strpbrk().
+ * Returns pointer to first found char or NULL.
+ */
+const char *mempbrk(const char *s, size_t len, const char *chars, size_t charslen) {
+    for (size_t j = 0; j < len; j++) {
+        for (size_t n = 0; n < charslen; n++)
+            if (s[j] == chars[n]) return &s[j];
+    }
+
+    return NULL;
+}
+
+/* Modify the buffer replacing all occurrences of chars from the 'from'
+ * set with the corresponding char in the 'to' set. Always returns s.
+ */
+char *memmapchars(char *s, size_t len, const char *from, const char *to, size_t setlen) {
+    for (size_t j = 0; j < len; j++) {
+        for (size_t i = 0; i < setlen; i++) {
+            if (s[j] == from[i]) {
+                s[j] = to[i];
+                break;
+            }
+        }
+    }
+    return s;
+}
+
 /* Return the number of digits of 'v' when converted to string in radix 10.
  * See ll2string() for more information. */
 uint32_t digits10(uint64_t v) {

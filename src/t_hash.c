@@ -215,11 +215,8 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
                 serverAssert(vptr != NULL);
                 update = 1;
 
-                /* Delete value */
-                zl = ziplistDelete(zl, &vptr);
-
-                /* Insert new value */
-                zl = ziplistInsert(zl, vptr, (unsigned char*)value,
+                /* Replace value */
+                zl = ziplistReplace(zl, vptr, (unsigned char*)value,
                         sdslen(value));
             }
         }
@@ -759,11 +756,9 @@ void hincrbyfloatCommand(client *c) {
     /* Always replicate HINCRBYFLOAT as an HSET command with the final value
      * in order to make sure that differences in float precision or formatting
      * will not create differences in replicas or after an AOF restart. */
-    robj *aux, *newobj;
-    aux = createStringObject("HSET",4);
+    robj *newobj;
     newobj = createRawStringObject(buf,len);
-    rewriteClientCommandArgument(c,0,aux);
-    decrRefCount(aux);
+    rewriteClientCommandArgument(c,0,shared.hset);
     rewriteClientCommandArgument(c,3,newobj);
     decrRefCount(newobj);
 }
@@ -959,10 +954,32 @@ void hscanCommand(client *c) {
     scanGenericCommand(c,o,cursor);
 }
 
+static void harndfieldReplyWithZiplist(client *c, unsigned int count, ziplistEntry *keys, ziplistEntry *vals) {
+    for (unsigned long i = 0; i < count; i++) {
+        if (vals && c->resp > 2)
+            addReplyArrayLen(c,2);
+        if (keys[i].sval)
+            addReplyBulkCBuffer(c, keys[i].sval, keys[i].slen);
+        else
+            addReplyBulkLongLong(c, keys[i].lval);
+        if (vals) {
+            if (vals[i].sval)
+                addReplyBulkCBuffer(c, vals[i].sval, vals[i].slen);
+            else
+                addReplyBulkLongLong(c, vals[i].lval);
+        }
+    }
+}
+
 /* How many times bigger should be the hash compared to the requested size
  * for us to not use the "remove elements" strategy? Read later in the
  * implementation for more info. */
 #define HRANDFIELD_SUB_STRATEGY_MUL 3
+
+/* If client is trying to ask for a very large number of random elements,
+ * queuing may consume an unlimited amount of memory, so we want to limit
+ * the number of randoms per time. */
+#define HRANDFIELD_RANDOM_SAMPLE_LIMIT 1000
 
 void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
     unsigned long count, size;
@@ -999,7 +1016,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
         if (hash->encoding == OBJ_ENCODING_HT) {
             sds key, value;
             while (count--) {
-                dictEntry *de = dictGetRandomKey(hash->ptr);
+                dictEntry *de = dictGetFairRandomKey(hash->ptr);
                 key = dictGetKey(de);
                 value = dictGetVal(de);
                 if (withvalues && c->resp > 2)
@@ -1010,23 +1027,16 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
             }
         } else if (hash->encoding == OBJ_ENCODING_ZIPLIST) {
             ziplistEntry *keys, *vals = NULL;
-            keys = zmalloc(sizeof(ziplistEntry)*count);
+            unsigned long limit, sample_count;
+            limit = count > HRANDFIELD_RANDOM_SAMPLE_LIMIT ? HRANDFIELD_RANDOM_SAMPLE_LIMIT : count;
+            keys = zmalloc(sizeof(ziplistEntry)*limit);
             if (withvalues)
-                vals = zmalloc(sizeof(ziplistEntry)*count);
-            ziplistRandomPairs(hash->ptr, count, keys, vals);
-            for (unsigned long i = 0; i < count; i++) {
-                if (withvalues && c->resp > 2)
-                    addReplyArrayLen(c,2);
-                if (keys[i].sval)
-                    addReplyBulkCBuffer(c, keys[i].sval, keys[i].slen);
-                else
-                    addReplyBulkLongLong(c, keys[i].lval);
-                if (withvalues) {
-                    if (vals[i].sval)
-                        addReplyBulkCBuffer(c, vals[i].sval, vals[i].slen);
-                    else
-                        addReplyBulkLongLong(c, vals[i].lval);
-                }
+                vals = zmalloc(sizeof(ziplistEntry)*limit);
+            while (count) {
+                sample_count = count > limit ? limit : count;
+                count -= sample_count;
+                ziplistRandomPairs(hash->ptr, sample_count, keys, vals);
+                harndfieldReplyWithZiplist(c, sample_count, keys, vals);
             }
             zfree(keys);
             zfree(vals);
@@ -1068,6 +1078,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
      * used into CASE 4 is highly inefficient. */
     if (count*HRANDFIELD_SUB_STRATEGY_MUL > size) {
         dict *d = dictCreate(&sdsReplyDictType, NULL);
+        dictExpand(d, size);
         hashTypeIterator *hi = hashTypeInitIterator(hash);
 
         /* Add all the elements into the temporary dictionary. */
@@ -1119,9 +1130,25 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
      * to the temporary hash, trying to eventually get enough unique elements
      * to reach the specified count. */
     else {
+        if (hash->encoding == OBJ_ENCODING_ZIPLIST) {
+            /* it is inefficient to repeatedly pick one random element from a
+             * ziplist. so we use this instead: */
+            ziplistEntry *keys, *vals = NULL;
+            keys = zmalloc(sizeof(ziplistEntry)*count);
+            if (withvalues)
+                vals = zmalloc(sizeof(ziplistEntry)*count);
+            serverAssert(ziplistRandomPairsUnique(hash->ptr, count, keys, vals) == count);
+            harndfieldReplyWithZiplist(c, count, keys, vals);
+            zfree(keys);
+            zfree(vals);
+            return;
+        }
+
+        /* Hashtable encoding (generic implementation) */
         unsigned long added = 0;
         ziplistEntry key, value;
         dict *d = dictCreate(&hashDictType, NULL);
+        dictExpand(d, count);
         while(added < count) {
             hashTypeRandomElement(hash, size, &key, withvalues? &value : NULL);
 
