@@ -674,13 +674,13 @@ void srandmemberWithCountCommand(client *c) {
         uniq = 0;
     }
 
-    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptyset[c->resp]))
+    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptyarray))
         == NULL || checkType(c,set,OBJ_SET)) return;
     size = setTypeSize(set);
 
     /* If count is zero, serve it ASAP to avoid special cases later. */
     if (count == 0) {
-        addReply(c,shared.emptyset[c->resp]);
+        addReply(c,shared.emptyarray);
         return;
     }
 
@@ -690,13 +690,7 @@ void srandmemberWithCountCommand(client *c) {
      * structures. This case is the only one that also needs to return the
      * elements in random order. */
     if (!uniq || count == 1) {
-        /* if the count was negative, return as array type since the reply
-           may contain duplicate element */
-        if (!uniq)
-            addReplyArrayLen(c,count);
-        else
-            addReplySetLen(c,count);
-
+        addReplyArrayLen(c,count);
         while(count--) {
             encoding = setTypeRandomElement(set,&ele,&llele);
             if (encoding == OBJ_ENCODING_INTSET) {
@@ -787,7 +781,7 @@ void srandmemberWithCountCommand(client *c) {
         dictIterator *di;
         dictEntry *de;
 
-        addReplySetLen(c,count);
+        addReplyArrayLen(c,count);
         di = dictGetIterator(d);
         while((de = dictNext(di)) != NULL)
             addReplyBulkSds(c,dictGetKey(de));
