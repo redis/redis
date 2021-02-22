@@ -1838,46 +1838,19 @@ unsigned long long RM_GetClientId(RedisModuleCtx *ctx) {
 }
 
 
-/*
- * Return name of RedisModuleUser. Get current client RedisModuleUser via the
- * RM_GetClientUserById API. If user reference in RedisModuleUser is null,
+/* Return name of client user with the specified ID (that was
+ * previously obtained via the RedisModule_GetClientId() API). If the
+ * client is not exists, NULL is returned. If client->user is NULL,
  * "default" is returned.
  */
-RedisModuleString *RM_GetUserName(RedisModuleCtx *ctx, RedisModuleUser *user) {
-    if (user == NULL) return NULL;
-    sds name = sdsnew(user->user ? user->user->name: "default");
-    robj *str = createObject(OBJ_STRING, name);
-    autoMemoryAdd(ctx,REDISMODULE_AM_STRING, str);
-    return str;
-}
-
-
-/* Return reference of RedisModuleUser with the specified ID (that was
- * previously obtained via the RedisModule_GetClientId() API). RedisModuleUser
- * contains fake user which copy current client user's name and flags. If the
- * client is not exists, NULL is returned. If client->user is NULL, user name
- * will set to "default".
- *
- * User created here are not listed by the ACL command. Free the user using the
- * function RM_FreeModuleUser()
- */
-RedisModuleUser *RM_GetClientUserById(uint64_t id) {
+RedisModuleString *RM_GetClientUserNameById(RedisModuleCtx *ctx, uint64_t id) {
     client *client = lookupClientByID(id);
     if (client == NULL) return NULL;
 
-    RedisModuleUser *new_user = zmalloc(sizeof(RedisModuleUser));
-    new_user->user = ACLCreateUnlinkedUser();
-
-    /* Free the previous temporarily assigned name */
-    sdsfree(new_user->user->name);
-
-    if (client->user == NULL) {
-        new_user->user->name = sdsnew("default");
-    } else {
-        new_user->user->name = sdsnew(client->user->name);
-        new_user->user->flags = client->user->flags;
-    }
-    return new_user;
+    sds name = sdsnew(client->user ? client->user->name: "default");
+    robj *str = createObject(OBJ_STRING, name);
+    autoMemoryAdd(ctx, REDISMODULE_AM_STRING, str);
+    return str;
 }
 
 
@@ -9177,8 +9150,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(IsKeysPositionRequest);
     REGISTER_API(KeyAtPos);
     REGISTER_API(GetClientId);
-    REGISTER_API(GetUserName);
-    REGISTER_API(GetClientUserById);
+    REGISTER_API(GetClientUserNameById);
     REGISTER_API(GetContextFlags);
     REGISTER_API(AvoidReplicaTraffic);
     REGISTER_API(PoolAlloc);
