@@ -78,7 +78,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     if (expire) {
         if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != C_OK)
             return;
-        if (milliseconds <= 0 || (unit == UNIT_SECONDS && milliseconds >= LLONG_MAX / 1000)) {
+        if (milliseconds <= 0 || (unit == UNIT_SECONDS && milliseconds > LLONG_MAX / 1000)) {
             /* Negative value provided or multiplication is gonna overflow. */
             addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
             return;
@@ -344,7 +344,7 @@ void getexCommand(client *c) {
     if (expire) {
         if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != C_OK)
             return;
-        if (milliseconds <= 0 || (unit == UNIT_SECONDS && milliseconds >= LLONG_MAX / 1000)) {
+        if (milliseconds <= 0 || (unit == UNIT_SECONDS && milliseconds > LLONG_MAX / 1000)) {
             /* Negative value provided or multiplication is gonna overflow. */
             addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
             return;
