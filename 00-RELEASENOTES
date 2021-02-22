@@ -12,6 +12,37 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 5.0.11     Released Mon Feb 22 16:48:25 IST 2021
+================================================================================
+
+Upgrade urgency: SECURITY if you use 32bit build of redis (see bellow), LOW
+otherwise.
+
+Integer overflow on 32-bit systems (CVE-2021-21309):
+Redis 4.0 or newer uses a configurable limit for the maximum supported bulk
+input size. By default, it is 512MB which is a safe value for all platforms.
+If the limit is significantly increased, receiving a large request from a client
+may trigger several integer overflow scenarios, which would result with buffer
+overflow and heap corruption.
+
+Bug fixes:
+* Avoid 32-bit overflows when proto-max-bulk-len is set high (#8522)
+* Fix an issue where a forked process deletes the parent's pidfile (#8231)
+* Fix flock cluster config may cause failure to restart after kill -9 (#7674)
+* Avoid an out-of-bounds read in the redis-sentinel (#7443)
+
+Platform and deployment-related changes:
+* Fix setproctitle related crashes. (#8150, #8088)
+  Caused various crashes on startup, mainly on Apple M1 chips or under
+  instrumentation.
+* Add a check for an ARM64 Linux kernel bug (#8224)
+  Due to the potential severity of this issue, Redis will refuse to run on
+  affected platforms by default.
+
+Modules:
+* RM_ZsetRem: Delete key if empty, the bug could leave empty zset keys (#8453)
+
+================================================================================
 Redis 5.0.10     Released Mon Oct 26 09:21:49 IST 2020
 ================================================================================
 
