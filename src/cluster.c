@@ -514,8 +514,9 @@ void clusterInit(void) {
     }
     if (listenToPort(port+CLUSTER_PORT_INCR, &server.cfd) == C_ERR) {
         exit(1);
-    } else {
-        createSocketAcceptHandler(&server.cfd, clusterAcceptHandler);
+    }
+    if (createSocketAcceptHandler(&server.cfd, clusterAcceptHandler) != C_OK) {
+        serverPanic("Unrecoverable error creating Redis Cluster socket accept handler.");
     }
 
     /* The slots -> keys map is a radix tree. Initialize it here. */

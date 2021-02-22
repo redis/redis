@@ -2183,7 +2183,7 @@ int processCommand(client *c);
 int processPendingCommandsAndResetClient(client *c);
 void setupSignalHandlers(void);
 void removeSignalHandlers(void);
-void createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler);
+int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler);
 int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler);
 int changeBindAddr(sds *addrlist, int addrlist_len);
 struct redisCommand *lookupCommand(sds name);

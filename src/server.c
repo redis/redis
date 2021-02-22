@@ -2989,6 +2989,34 @@ void checkTcpBacklogSettings(void) {
 #endif
 }
 
+void closeSocketListeners(socketFds *sfd) {
+    int j;
+
+    for (j = 0; j < sfd->count; j++) {
+        if (sfd->fd[j] == -1) continue;
+
+        aeDeleteFileEvent(server.el, sfd->fd[j], AE_READABLE);
+        close(sfd->fd[j]);
+    }
+
+    sfd->count = 0;
+}
+
+int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler) {
+    int j;
+
+    /* Create an event handler for accepting new connections in TCP and TLS
+     * domain sockets. */
+    for (j = 0; j < sfd->count; j++) {
+        if (aeCreateFileEvent(server.el, sfd->fd[j], AE_READABLE, accept_handler,NULL) == AE_ERR) {
+            /* Rollback */
+            for (j = j-1; j >= 0; j--) aeDeleteFileEvent(server.el, sfd->fd[j], AE_READABLE);
+            return C_ERR;
+        }
+    }
+    return C_OK;
+}
+
 /* Initialize a set of file descriptors to listen to the specified 'port'
  * binding the addresses specified in the Redis server configuration.
  *
@@ -3040,6 +3068,9 @@ int listenToPort(int port, socketFds *sfd) {
                 errno == ESOCKTNOSUPPORT || errno == EPFNOSUPPORT ||
                 errno == EAFNOSUPPORT)
                 continue;
+
+            /* Rollback successful listens before exiting */
+            closeSocketListeners(sfd);
             return C_ERR;
         }
         anetNonBlock(NULL,sfd->fd[sfd->count]);
@@ -3047,29 +3078,6 @@ int listenToPort(int port, socketFds *sfd) {
         sfd->count++;
     }
     return C_OK;
-}
-
-void closeSocketListeners(socketFds *sfd) {
-    int j;
-
-    for (j = 0; j < sfd->count; j++) {
-        aeDeleteFileEvent(server.el, sfd->fd[j], AE_READABLE);
-        close(sfd->fd[j]);
-    }
-
-    sfd->count = 0;
-}
-
-void createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler) {
-    int j;
-
-    /* Create an event handler for accepting new connections in TCP and TLS
-     * domain sockets. */
-    for (j = 0; j < sfd->count; j++) {
-        if (aeCreateFileEvent(server.el, sfd->fd[j], AE_READABLE, accept_handler,NULL) == AE_ERR) {
-            serverPanic("Unrecoverable error creating file event.");
-        }
-    }
 }
 
 /* Resets the stats that we expose via INFO or other means that we want
@@ -3287,8 +3295,12 @@ void initServer(void) {
 
     /* Create an event handler for accepting new connections in TCP and Unix
      * domain sockets. */
-    createSocketAcceptHandler(&server.ipfd, acceptTcpHandler);
-    createSocketAcceptHandler(&server.tlsfd, acceptTLSHandler);
+    if (createSocketAcceptHandler(&server.ipfd, acceptTcpHandler) != C_OK) {
+        serverPanic("Unrecoverable error creating TCP socket accept handler.");
+    }
+    if (createSocketAcceptHandler(&server.tlsfd, acceptTLSHandler) != C_OK) {
+        serverPanic("Unrecoverable error creating TLS socket accept handler.");
+    }
     if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
         acceptUnixHandler,NULL) == AE_ERR) serverPanic("Unrecoverable error creating server.sofd file event.");
 
@@ -5566,8 +5578,8 @@ int changeBindAddr(sds *addrlist, int addrlist_len) {
     server.bindaddr_count = addrlist_len;
 
     /* Bind to the new port */
-    if (listenToPort(server.port, &server.ipfd) != C_OK ||
-        listenToPort(server.tls_port, &server.tlsfd) != C_OK) {
+    if ((server.port != 0 && listenToPort(server.port, &server.ipfd) != C_OK) ||
+        (server.tls_port != 0 && listenToPort(server.tls_port, &server.tlsfd) != C_OK)) {
         serverLog(LL_WARNING, "Failed to bind, trying to restore old listening sockets.");
 
         /* Restore old bind addresses */
@@ -5579,12 +5591,12 @@ int changeBindAddr(sds *addrlist, int addrlist_len) {
 
         /* Re-Listen TCP and TLS */
         server.ipfd.count = 0;
-        if (listenToPort(server.port, &server.ipfd) != C_OK) {
+        if (server.port != 0 && listenToPort(server.port, &server.ipfd) != C_OK) {
             serverPanic("Failed to restore old listening sockets.");
         }
 
         server.tlsfd.count = 0;
-        if (listenToPort(server.port, &server.tlsfd) != C_OK) {
+        if (server.tls_port != 0 && listenToPort(server.tls_port, &server.tlsfd) != C_OK) {
             serverPanic("Failed to restore old listening sockets.");
         }
 
@@ -5597,8 +5609,12 @@ int changeBindAddr(sds *addrlist, int addrlist_len) {
     }
 
     /* Create TCP and TLS event handlers */
-    createSocketAcceptHandler(&server.ipfd, acceptTcpHandler);
-    createSocketAcceptHandler(&server.tlsfd, acceptTLSHandler);
+    if (createSocketAcceptHandler(&server.ipfd, acceptTcpHandler) != C_OK) {
+        serverPanic("Unrecoverable error creating TCP socket accept handler.");
+    }
+    if (createSocketAcceptHandler(&server.tlsfd, acceptTLSHandler) != C_OK) {
+        serverPanic("Unrecoverable error creating TLS socket accept handler.");
+    }
 
     if (server.set_proc_title) redisSetProcTitle(NULL);
 
@@ -5606,7 +5622,7 @@ int changeBindAddr(sds *addrlist, int addrlist_len) {
 }
 
 int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler) {
-    socketFds new_sfd = {0};
+    socketFds new_sfd = {{0}};
 
     /* Just close the server if port disabled */
     if (port == 0) {
@@ -5620,15 +5636,18 @@ int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler) {
         return C_ERR;
     }
 
+    /* Create event handlers */
+    if (createSocketAcceptHandler(&new_sfd, accept_handler) != C_OK) {
+        closeSocketListeners(&new_sfd);
+        return C_ERR;
+    }
+
     /* Close old servers */
     closeSocketListeners(sfd);
 
     /* Copy new descriptors */
     sfd->count = new_sfd.count;
     memcpy(sfd->fd, new_sfd.fd, sizeof(new_sfd.fd));
-
-    /* Create event handlers */
-    createSocketAcceptHandler(sfd, accept_handler);
 
     if (server.set_proc_title) redisSetProcTitle(NULL);
 
