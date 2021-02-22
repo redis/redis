@@ -2126,7 +2126,7 @@ int clusterProcessPacket(clusterLink *link) {
         /* Don't bother creating useless objects if there are no
          * Pub/Sub subscribers. */
         if (dictSize(server.pubsub_channels) ||
-           listLength(server.pubsub_patterns))
+           dictSize(server.pubsub_patterns))
         {
             channel_len = ntohl(hdr->data.publish.msg.channel_len);
             message_len = ntohl(hdr->data.publish.msg.message_len);
@@ -2815,7 +2815,7 @@ void clusterPropagatePublish(robj *channel, robj *message) {
  * SLAVE node specific functions
  * -------------------------------------------------------------------------- */
 
-/* This function sends a FAILOVE_AUTH_REQUEST message to every node in order to
+/* This function sends a FAILOVER_AUTH_REQUEST message to every node in order to
  * see if there is the quorum for this slave instance to failover its failing
  * master.
  *

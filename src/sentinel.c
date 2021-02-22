@@ -649,6 +649,17 @@ const char *announceSentinelAddr(const sentinelAddr *a) {
     return sentinel.announce_hostnames ? a->hostname : a->ip;
 }
 
+/* Return an allocated sds with hostname/address:port. IPv6
+ * addresses are bracketed the same way anetFormatAddr() does.
+ */
+sds announceSentinelAddrAndPort(const sentinelAddr *a) {
+    const char *addr = announceSentinelAddr(a);
+    if (strchr(addr, ':') != NULL)
+        return sdscatprintf(sdsempty(), "[%s]:%d", addr, a->port);
+    else
+        return sdscatprintf(sdsempty(), "%s:%d", addr, a->port);
+}
+
 /* =========================== Events notification ========================== */
 
 /* Send an event to log, pub/sub, user notification script.
@@ -1273,7 +1284,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     sentinelRedisInstance *ri;
     sentinelAddr *addr;
     dict *table = NULL;
-    char slavename[NET_ADDR_STR_LEN], *sdsname;
+    sds sdsname;
 
     serverAssert(flags & (SRI_MASTER|SRI_SLAVE|SRI_SENTINEL));
     serverAssert((flags & SRI_MASTER) || master != NULL);
@@ -1282,11 +1293,11 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     addr = createSentinelAddr(hostname,port);
     if (addr == NULL) return NULL;
 
-    /* For slaves use ip:port as name. */
-    if (flags & SRI_SLAVE) {
-        anetFormatAddr(slavename, sizeof(slavename), addr->ip, port);
-        name = slavename;
-    }
+    /* For slaves use ip/host:port as name. */
+    if (flags & SRI_SLAVE)
+        sdsname = announceSentinelAddrAndPort(addr);
+    else
+        sdsname = sdsnew(name);
 
     /* Make sure the entry is not duplicated. This may happen when the same
      * name for a master is used multiple times inside the configuration or
@@ -1295,7 +1306,6 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     if (flags & SRI_MASTER) table = sentinel.masters;
     else if (flags & SRI_SLAVE) table = master->slaves;
     else if (flags & SRI_SENTINEL) table = master->sentinels;
-    sdsname = sdsnew(name);
     if (dictFind(table,sdsname)) {
         releaseSentinelAddr(addr);
         sdsfree(sdsname);
@@ -1399,7 +1409,6 @@ sentinelRedisInstance *sentinelRedisInstanceLookupSlave(
 {
     sds key;
     sentinelRedisInstance *slave;
-    char buf[NET_ADDR_STR_LEN];
     sentinelAddr *addr;
 
     serverAssert(ri->flags & SRI_MASTER);
@@ -1410,11 +1419,9 @@ sentinelRedisInstance *sentinelRedisInstanceLookupSlave(
      */
     addr = createSentinelAddr(slave_addr, port);
     if (!addr) return NULL;
-
-    anetFormatAddr(buf,sizeof(buf),addr->ip,addr->port);
+    key = announceSentinelAddrAndPort(addr);
     releaseSentinelAddr(addr);
 
-    key = sdsnew(buf);
     slave = dictFetchValue(ri->slaves,key);
     sdsfree(key);
     return slave;
@@ -2077,13 +2084,13 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
      */
     line = sdscatprintf(sdsempty(), "sentinel resolve-hostnames %s",
                         sentinel.resolve_hostnames ? "yes" : "no");
-    rewriteConfigRewriteLine(state,"sentinel",line,
+    rewriteConfigRewriteLine(state,"sentinel resolve-hostnames",line,
                              sentinel.resolve_hostnames != SENTINEL_DEFAULT_RESOLVE_HOSTNAMES);
 
     /* sentinel announce-hostnames. */
     line = sdscatprintf(sdsempty(), "sentinel announce-hostnames %s",
                         sentinel.announce_hostnames ? "yes" : "no");
-    rewriteConfigRewriteLine(state,"sentinel",line,
+    rewriteConfigRewriteLine(state,"sentinel announce-hostnames",line,
                              sentinel.announce_hostnames != SENTINEL_DEFAULT_ANNOUNCE_HOSTNAMES);
 
     /* For every master emit a "sentinel monitor" config entry. */

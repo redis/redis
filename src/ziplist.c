@@ -1265,6 +1265,42 @@ unsigned char *ziplistDeleteRange(unsigned char *zl, int index, unsigned int num
     return (p == NULL) ? zl : __ziplistDelete(zl,p,num);
 }
 
+/* Replaces the entry at p. This is equivalent to a delete and an insert,
+ * but avoids some overhead when replacing a value of the same size. */
+unsigned char *ziplistReplace(unsigned char *zl, unsigned char *p, unsigned char *s, unsigned int slen) {
+
+    /* get metadata of the current entry */
+    zlentry entry;
+    zipEntry(p, &entry);
+
+    /* compute length of entry to store, excluding prevlen */
+    unsigned int reqlen;
+    unsigned char encoding = 0;
+    long long value = 123456789; /* initialized to avoid warning. */
+    if (zipTryEncoding(s,slen,&value,&encoding)) {
+        reqlen = zipIntSize(encoding); /* encoding is set */
+    } else {
+        reqlen = slen; /* encoding == 0 */
+    }
+    reqlen += zipStoreEntryEncoding(NULL,encoding,slen);
+
+    if (reqlen == entry.lensize + entry.len) {
+        /* Simply overwrite the element. */
+        p += entry.prevrawlensize;
+        p += zipStoreEntryEncoding(p,encoding,slen);
+        if (ZIP_IS_STR(encoding)) {
+            memcpy(p,s,slen);
+        } else {
+            zipSaveInteger(p,value,encoding);
+        }
+    } else {
+        /* Fallback. */
+        zl = ziplistDelete(zl,&p);
+        zl = ziplistInsert(zl,p,s,slen);
+    }
+    return zl;
+}
+
 /* Compare entry pointer to by 'p' with 'sstr' of length 'slen'. */
 /* Return 1 if equal. */
 unsigned int ziplistCompare(unsigned char *p, unsigned char *sstr, unsigned int slen) {
@@ -1523,8 +1559,8 @@ void ziplistRandomPair(unsigned char *zl, unsigned long total_count, ziplistEntr
 }
 
 /* int compare for qsort */
-int intCompare(const void *a, const void *b) {
-    return (*(int *) a - *(int *) b);
+int uintCompare(const void *a, const void *b) {
+    return (*(unsigned int *) a - *(unsigned int *) b);
 }
 
 /* Helper method to store a string into from val or lval into dest */
@@ -1534,39 +1570,42 @@ static inline void ziplistSaveValue(unsigned char *val, unsigned int len, long l
     dest->lval = lval;
 }
 
-/* Randomly select unique count of key value pairs and store into 'keys' and
- * 'vals' args. The order of the picked entries is random.
+/* Randomly select count of key value pairs and store into 'keys' and
+ * 'vals' args. The order of the picked entries is random, and the selections
+ * are non-unique (repetitions are possible).
  * The 'vals' arg can be NULL in which case we skip these. */
-void ziplistRandomPairs(unsigned char *zl, int count, ziplistEntry *keys, ziplistEntry *vals) {
+void ziplistRandomPairs(unsigned char *zl, unsigned int count, ziplistEntry *keys, ziplistEntry *vals) {
     unsigned char *p, *key, *value;
-    unsigned int klen, vlen;
-    long long klval, vlval;
+    unsigned int klen = 0, vlen = 0;
+    long long klval = 0, vlval = 0;
+
+    /* Notice: the index member must be first due to the use in uintCompare */
     typedef struct {
-        int index;
-        int order;
+        unsigned int index;
+        unsigned int order;
     } rand_pick;
     rand_pick *picks = zmalloc(sizeof(rand_pick)*count);
-    unsigned long total_size = ziplistLen(zl)/2;
+    unsigned int total_size = ziplistLen(zl)/2;
 
     /* Avoid div by zero on corrupt ziplist */
     assert(total_size);
 
     /* create a pool of random indexes (some may be duplicate). */
-    for (int i = 0; i < count; i++) {
+    for (unsigned int i = 0; i < count; i++) {
         picks[i].index = (rand() % total_size) * 2; /* Generate even indexes */
         /* keep track of the order we picked them */
         picks[i].order = i;
     }
 
     /* sort by indexes. */
-    qsort(picks, count, sizeof(rand_pick), intCompare);
+    qsort(picks, count, sizeof(rand_pick), uintCompare);
 
     /* fetch the elements form the ziplist into a output array respecting the original order. */
-    int zipindex = 0, pickindex = 0;
+    unsigned int zipindex = 0, pickindex = 0;
     p = ziplistIndex(zl, 0);
     while (ziplistGet(p, &key, &klen, &klval) && pickindex < count) {
         p = ziplistNext(zl, p);
-        ziplistGet(p, &value, &vlen, &vlval);
+        assert(ziplistGet(p, &value, &vlen, &vlval));
         while (pickindex < count && zipindex == picks[pickindex].index) {
             int storeorder = picks[pickindex].order;
             ziplistSaveValue(key, klen, klval, &keys[storeorder]);
@@ -1579,6 +1618,51 @@ void ziplistRandomPairs(unsigned char *zl, int count, ziplistEntry *keys, ziplis
     }
 
     zfree(picks);
+}
+
+/* Randomly select count of key value pairs and store into 'keys' and
+ * 'vals' args. The selections are unique (no repetitions), and the order of
+ * the picked entries is NOT-random.
+ * The 'vals' arg can be NULL in which case we skip these.
+ * The return value is the number of items picked which can be lower than the
+ * requested count if the ziplist doesn't hold enough pairs. */
+unsigned int ziplistRandomPairsUnique(unsigned char *zl, unsigned int count, ziplistEntry *keys, ziplistEntry *vals) {
+    unsigned char *p, *key;
+    unsigned int klen = 0;
+    long long klval = 0;
+    unsigned int total_size = ziplistLen(zl)/2;
+    unsigned int index = 0;
+    if (count > total_size)
+        count = total_size;
+
+    /* To only iterate once, every time we try to pick a member, the probability
+     * we pick it is the quotient of the count left we want to pick and the
+     * count still we haven't visited in the dict, this way, we could make every
+     * member be equally picked.*/
+    p = ziplistIndex(zl, 0);
+    unsigned int picked = 0, remaining = count;
+    while (picked < count && p) {
+        double randomDouble = ((double)rand()) / RAND_MAX;
+        double threshold = ((double)remaining) / (total_size - index);
+        if (randomDouble <= threshold) {
+            assert(ziplistGet(p, &key, &klen, &klval));
+            ziplistSaveValue(key, klen, klval, &keys[picked]);
+            p = ziplistNext(zl, p);
+            assert(p);
+            if (vals) {
+                assert(ziplistGet(p, &key, &klen, &klval));
+                ziplistSaveValue(key, klen, klval, &vals[picked]);
+            }
+            remaining--;
+            picked++;
+        } else {
+            p = ziplistNext(zl, p);
+            assert(p);
+        }
+        p = ziplistNext(zl, p);
+        index++;
+    }
+    return picked;
 }
 
 #ifdef REDIS_TEST
@@ -2020,6 +2104,41 @@ int ziplistTest(int argc, char **argv) {
         printf("\n");
         ziplistRepr(zl);
         zfree(zl);
+    }
+
+    printf("Replace with same size:\n");
+    {
+        zl = createList(); /* "hello", "foo", "quux", "1024" */
+        unsigned char *orig_zl = zl;
+        p = ziplistIndex(zl, 0);
+        zl = ziplistReplace(zl, p, (unsigned char*)"zoink", 5);
+        p = ziplistIndex(zl, 3);
+        zl = ziplistReplace(zl, p, (unsigned char*)"yy", 2);
+        p = ziplistIndex(zl, 1);
+        zl = ziplistReplace(zl, p, (unsigned char*)"65536", 5);
+        p = ziplistIndex(zl, 0);
+        assert(!memcmp((char*)p,
+                       "\x00\x05zoink"
+                       "\x07\xf0\x00\x00\x01" /* 65536 as int24 */
+                       "\x05\x04quux" "\x06\x02yy" "\xff",
+                       23));
+        assert(zl == orig_zl); /* no reallocations have happened */
+        zfree(zl);
+        printf("SUCCESS\n\n");
+    }
+
+    printf("Replace with different size:\n");
+    {
+        zl = createList(); /* "hello", "foo", "quux", "1024" */
+        p = ziplistIndex(zl, 1);
+        zl = ziplistReplace(zl, p, (unsigned char*)"squirrel", 8);
+        p = ziplistIndex(zl, 0);
+        assert(!strncmp((char*)p,
+                        "\x00\x05hello" "\x07\x08squirrel" "\x0a\x04quux"
+                        "\x06\xc0\x00\x04" "\xff",
+                        28));
+        zfree(zl);
+        printf("SUCCESS\n\n");
     }
 
     printf("Regression test for >255 byte strings:\n");

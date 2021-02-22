@@ -17,6 +17,10 @@ start_server {tags {"tracking network"}} {
 
     proc clean_all {} {
         uplevel {
+            # We should make r TRACKING off first. If r is in RESP3,
+            # r FLUSH ALL will send us tracking-redir-broken or other
+            # info which will not be consumed.
+            r CLIENT TRACKING off
             $rd QUIT
             $rd_redirection QUIT
             set rd [redis_deferring_client]
@@ -26,7 +30,6 @@ start_server {tags {"tracking network"}} {
             $rd_redirection subscribe __redis__:invalidate
             $rd_redirection read ; # Consume the SUBSCRIBE reply.
             r FLUSHALL
-            r CLIENT TRACKING off
             r HELLO 2
             r config set tracking-table-max-keys 1000000
         }
@@ -52,7 +55,7 @@ start_server {tags {"tracking network"}} {
         # so that we can check for leaks, as a side effect.
         r MGET a b c d e f g
         r CLIENT TRACKING off
-    }
+    } {*OK}
 
     test {Clients can enable the BCAST mode with the empty prefix} {
         r CLIENT TRACKING on BCAST REDIRECT $redir_id
@@ -72,6 +75,8 @@ start_server {tags {"tracking network"}} {
         r INCR a:2
         r INCR b:1
         r INCR b:2
+        # we should not get this key
+        r INCR c:1
         r EXEC
         # Because of the internals, we know we are going to receive
         # two separated notifications for the two different prefixes.
@@ -96,7 +101,7 @@ start_server {tags {"tracking network"}} {
         r SET loopkey 1 ; # We should not get this
         $rd_sg SET otherkey2 1; # We should get this
         # Because of the internals, we know we are going to receive
-        # two separated notifications for the two different prefixes.
+        # two separated notifications for the two different keys.
         set keys1 [lsort [lindex [$rd_redirection read] 2]]
         set keys2 [lsort [lindex [$rd_redirection read] 2]]
         set keys [lsort [list {*}$keys1 {*}$keys2]]
@@ -109,8 +114,8 @@ start_server {tags {"tracking network"}} {
         $rd_sg SET otherkey1 1; # We should get this
         r SET loopkey 1 ; # We should not get this
         $rd_sg SET otherkey2 1; # We should get this
-        # Because of the internals, we know we are going to receive
-        # two separated notifications for the two different prefixes.
+        # Because $rd_sg send command synchronously, we know we are
+        # going to receive two separated notifications.
         set keys1 [lsort [lindex [$rd_redirection read] 2]]
         set keys2 [lsort [lindex [$rd_redirection read] 2]]
         set keys [lsort [list {*}$keys1 {*}$keys2]]
@@ -123,10 +128,7 @@ start_server {tags {"tracking network"}} {
         r SET mykey myval px 1
         r SET mykeyotherkey myval ; # We should not get it
         after 1000
-        # Because of the internals, we know we are going to receive
-        # two separated notifications for the two different prefixes.
-        set keys1 [lsort [lindex [$rd_redirection read] 2]]
-        set keys [lsort [list {*}$keys1]]
+        set keys [lsort [lindex [$rd_redirection read] 2]]
         assert {$keys eq {mykey}}
     }
 
@@ -172,6 +174,7 @@ start_server {tags {"tracking network"}} {
     }
 
     test {Invalidations of previous keys can be redirected after switching to RESP3} {
+        r HELLO 2
         $rd_sg SET key1 1
         r GET key1
         r HELLO 3
@@ -194,28 +197,33 @@ start_server {tags {"tracking network"}} {
         $rd_sg SET key1 1
         r GET key1
         $rd_redirection QUIT
+        assert_equal OK [$rd_redirection read]
         $rd_sg SET key1 2
         set MAX_TRIES 100
-        for {set i 0} {$i <= $MAX_TRIES && $res <= 0} {incr i} {
+        set res -1
+        for {set i 0} {$i <= $MAX_TRIES && $res < 0} {incr i} {
             set res [lsearch -exact [r PING] "tracking-redir-broken"]
         }
         assert {$res >= 0}
-    }
+        # Consume PING reply
+        assert_equal PONG [r read]
 
-    test {Different clients can redirect to the same connection} {
         # Reinstantiating after QUIT
         set rd_redirection [redis_deferring_client]
         $rd_redirection CLIENT ID
         set redir_id [$rd_redirection read]
         $rd_redirection SUBSCRIBE __redis__:invalidate
         $rd_redirection read ; # Consume the SUBSCRIBE reply
+    }
+
+    test {Different clients can redirect to the same connection} {
         r CLIENT TRACKING on REDIRECT $redir_id
         $rd CLIENT TRACKING on REDIRECT $redir_id 
-        $rd read ; # Consume the TRACKING reply
+        assert_equal OK [$rd read] ; # Consume the TRACKING reply
         $rd_sg MSET key1 1 key2 1
         r GET key1
         $rd GET key2 
-        $rd read ; # Consume the GET reply
+        assert_equal 1 [$rd read] ; # Consume the GET reply
         $rd_sg INCR key1
         $rd_sg INCR key2
         set res1 [lindex [$rd_redirection read] 2]
@@ -226,18 +234,19 @@ start_server {tags {"tracking network"}} {
 
     test {Different clients using different protocols can track the same key} {
         $rd HELLO 3 
-        $rd read ; # Consume the HELLO reply
+        set reply [$rd read] ; # Consume the HELLO reply
+        assert_equal 3 [dict get $reply proto]
         $rd CLIENT TRACKING on 
-        $rd read ; # Consume the TRACKING reply
+        assert_equal OK [$rd read] ; # Consume the TRACKING reply
         $rd_sg set key1 1
         r GET key1
         $rd GET key1 
-        $rd read ; # Consume the GET reply
+        assert_equal 1 [$rd read] ; # Consume the GET reply
         $rd_sg INCR key1
         set res1 [lindex [$rd_redirection read] 2]
         $rd PING ; # Non redirecting client has to talk to the server in order to get invalidation message
         set res2 [lindex [split [$rd read] " "] 1] 
-        $rd read ; # Consume the PING reply, which comes together with the invalidation message
+        assert_equal PONG [$rd read] ; # Consume the PING reply, which comes together with the invalidation message
         assert {$res1 eq {key1}}
         assert {$res2 eq {key1}}
     }
@@ -292,35 +301,36 @@ start_server {tags {"tracking network"}} {
 
     test {Able to redirect to a RESP3 client} {
         $rd_redirection UNSUBSCRIBE __redis__:invalidate ; # Need to unsub first before we can do HELLO 3
-        $rd_redirection read ; # Consume the UNSUBSCRIBE reply
+        set res [$rd_redirection read] ; # Consume the UNSUBSCRIBE reply
+        assert_equal {__redis__:invalidate} [lindex $res 1]
         $rd_redirection HELLO 3
-        $rd_redirection read ; # Consume the HELLO reply
+        set res [$rd_redirection read] ; # Consume the HELLO reply
+        assert_equal [dict get $reply proto] 3
         $rd_redirection SUBSCRIBE __redis__:invalidate
-        $rd_redirection read ; # Consume the SUBSCRIBE reply
+        set res [$rd_redirection read] ; # Consume the SUBSCRIBE reply
+        assert_equal {__redis__:invalidate} [lindex $res 1]
         r CLIENT TRACKING on REDIRECT $redir_id
         $rd_sg SET key1 1
         r GET key1
         $rd_sg INCR key1
         set res [lindex [$rd_redirection read] 1]
         assert {$res eq {key1}}
+        $rd_redirection HELLO 2
+        set res [$rd_redirection read] ; # Consume the HELLO reply
+        assert_equal [dict get $res proto] 2
     }
 
     test {After switching from normal tracking to BCAST mode, no invalidation message is produced for pre-BCAST keys} {
-        $rd HELLO 3
-        $rd read ; # Consume the HELLO reply
-        $rd CLIENT TRACKING on
-        $rd read ; # Consume the TRACKING reply
+        r CLIENT TRACKING off
+        r HELLO 3
+        r CLIENT TRACKING on
         $rd_sg SET key1 1
-        $rd GET key1
-        $rd read ; # Consume the GET reply
-        $rd CLIENT TRACKING off 
-        $rd read ; # Consume the TRACKING reply
-        $rd CLIENT TRACKING on BCAST
-        $rd read ; # Consume the TRACKING reply
+        r GET key1
+        r CLIENT TRACKING off 
+        r CLIENT TRACKING on BCAST
         $rd_sg INCR key1
-        $rd PING
-        set inv_msg [$rd read]
-        set ping_reply [$rd read]
+        set inv_msg [r PING]
+        set ping_reply [r read]
         assert {$inv_msg eq {invalidate key1}}
         assert {$ping_reply eq {PONG}}
     }
@@ -344,7 +354,6 @@ start_server {tags {"tracking network"}} {
     }
 
     test {Tracking gets notification on tracking table key eviction} {
-        $rd_redirection HELLO 2
         r CLIENT TRACKING off
         r CLIENT TRACKING on REDIRECT $redir_id NOLOOP
         r MSET key1 1 key2 2
@@ -368,7 +377,6 @@ start_server {tags {"tracking network"}} {
 
     test {Invalidation message received for flushall} {
         clean_all
-        r CLIENT TRACKING off
         r CLIENT TRACKING on REDIRECT $redir_id
         $rd_sg SET key1 1
         r GET key1
@@ -379,7 +387,6 @@ start_server {tags {"tracking network"}} {
 
     test {Invalidation message received for flushdb} {
         clean_all
-        r CLIENT TRACKING off
         r CLIENT TRACKING on REDIRECT $redir_id
         $rd_sg SET key1 1
         r GET key1
@@ -422,15 +429,29 @@ start_server {tags {"tracking network"}} {
         r GET key1 
         r GET key2
         $rd CLIENT TRACKING on BCAST PREFIX prefix:
+        assert [string match *OK* [$rd read]]
         $rd_sg SET prefix:key1 1 
         $rd_sg SET prefix:key2 2
         set info [r info]
         regexp "\r\ntracking_total_items:(.*?)\r\n" $info _ total_items
         regexp "\r\ntracking_total_keys:(.*?)\r\n" $info _ total_keys
         regexp "\r\ntracking_total_prefixes:(.*?)\r\n" $info _ total_prefixes
+        regexp "\r\ntracking_clients:(.*?)\r\n" $info _ tracking_clients
         assert {$total_items == 2}
         assert {$total_keys == 2}
         assert {$total_prefixes == 1}
+        assert {$tracking_clients == 2}
+    }
+
+    test {CLIENT GETREDIR provides correct client id} {
+        set res [r CLIENT GETREDIR]
+        assert_equal $redir_id $res
+        r CLIENT TRACKING off
+        set res [r CLIENT GETREDIR]
+        assert_equal -1 $res
+        r CLIENT TRACKING on
+        set res [r CLIENT GETREDIR]
+        assert_equal 0 $res
     }
 
     test {CLIENT TRACKINGINFO provides reasonable results when tracking off} {
@@ -510,6 +531,32 @@ start_server {tags {"tracking network"}} {
         assert_equal {0} $redirect
         set prefixes [lsort [dict get $res prefixes]]
         assert_equal {bar foo} $prefixes
+
+        r CLIENT TRACKING off
+        r CLIENT TRACKING on BCAST
+        set res [r client trackinginfo]
+        set prefixes [dict get $res prefixes]
+        assert_equal {{}} $prefixes
+    }
+
+    test {CLIENT TRACKINGINFO provides reasonable results when tracking redir broken} {
+        clean_all
+        r HELLO 3
+        r CLIENT TRACKING on REDIRECT $redir_id
+        $rd_sg SET key1 1
+        r GET key1
+        $rd_redirection QUIT
+        assert_equal OK [$rd_redirection read]
+        $rd_sg SET key1 2
+        set res [lsearch -exact [r read] "tracking-redir-broken"]
+        assert {$res >= 0}
+        set res [r client trackinginfo]
+        set flags [dict get $res flags]
+        assert_equal {on broken_redirect} $flags
+        set redirect [dict get $res redirect]
+        assert_equal $redir_id $redirect
+        set prefixes [dict get $res prefixes]
+        assert_equal {} $prefixes
     }
 
     $rd_redirection close

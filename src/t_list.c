@@ -41,10 +41,13 @@
 void listTypePush(robj *subject, robj *value, int where) {
     if (subject->encoding == OBJ_ENCODING_QUICKLIST) {
         int pos = (where == LIST_HEAD) ? QUICKLIST_HEAD : QUICKLIST_TAIL;
-        value = getDecodedObject(value);
-        size_t len = sdslen(value->ptr);
-        quicklistPush(subject->ptr, value->ptr, len, pos);
-        decrRefCount(value);
+        if (value->encoding == OBJ_ENCODING_INT) {
+            char buf[32];
+            ll2string(buf, 32, (long)value->ptr);
+            quicklistPush(subject->ptr, buf, strlen(buf), pos);
+        } else {
+            quicklistPush(subject->ptr, value->ptr, sdslen(value->ptr), pos);
+        }
     } else {
         serverPanic("Unknown list encoding");
     }
@@ -324,7 +327,6 @@ void lindexCommand(client *c) {
     robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
     long index;
-    robj *value = NULL;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != C_OK))
         return;
@@ -333,12 +335,10 @@ void lindexCommand(client *c) {
         quicklistEntry entry;
         if (quicklistIndex(o->ptr, index, &entry)) {
             if (entry.value) {
-                value = createStringObject((char*)entry.value,entry.sz);
+                addReplyBulkCBuffer(c, entry.value, entry.sz);
             } else {
-                value = createStringObjectFromLongLong(entry.longval);
+                addReplyBulkLongLong(c, entry.longval);
             }
-            addReplyBulk(c,value);
-            decrRefCount(value);
         } else {
             addReplyNull(c);
         }

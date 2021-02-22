@@ -83,9 +83,8 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
  * keys that can be removed from the keyspace.
  *
  * Every expire cycle tests multiple databases: the next call will start
- * again from the next db, with the exception of exists for time limit: in that
- * case we restart again from the last database we were processing. Anyway
- * no more than CRON_DBS_PER_CALL databases are tested at every iteration.
+ * again from the next db. No more than CRON_DBS_PER_CALL databases are
+ * tested at every iteration.
  *
  * The function can perform more or less work, depending on the "type"
  * argument. It can execute a "fast cycle" or a "slow cycle". The slow
@@ -141,7 +140,7 @@ void activeExpireCycle(int type) {
 
     /* This function has some global state in order to continue the work
      * incrementally across calls. */
-    static unsigned int current_db = 0; /* Last DB tested. */
+    static unsigned int current_db = 0; /* Next DB to test. */
     static int timelimit_exit = 0;      /* Time limit hit in previous call? */
     static long long last_fast_cycle = 0; /* When last fast cycle ran. */
 
@@ -507,10 +506,15 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
 
     if (getLongLongFromObjectOrReply(c, param, &when, NULL) != C_OK)
         return;
-
+    int negative_when = when < 0;
     if (unit == UNIT_SECONDS) when *= 1000;
     when += basetime;
-
+    if (((when < 0) && !negative_when) || ((when-basetime > 0) && negative_when)) {
+        /* EXPIRE allows negative numbers, but we can at least detect an
+         * overflow by either unit conversion or basetime addition. */
+        addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
+        return;
+    }
     /* No key, return zero. */
     if (lookupKeyWrite(c->db,key) == NULL) {
         addReply(c,shared.czero);

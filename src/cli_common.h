@@ -10,6 +10,8 @@ typedef struct cliSSLconfig {
     char *cacert;
     /* Directory where trusted CA certificates are stored, or NULL */
     char *cacertdir;
+    /* Skip server certificate verification. */
+    int skip_cert_verify;
     /* Client certificate to authenticate with, or NULL */
     char *cert;
     /* Private key file to authenticate with, or NULL */

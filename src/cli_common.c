@@ -54,7 +54,7 @@ int cliSecureConnection(redisContext *c, cliSSLconfig config, const char **err) 
             goto error;
         }
         SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
-        SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
+        SSL_CTX_set_verify(ssl_ctx, config.skip_cert_verify ? SSL_VERIFY_NONE : SSL_VERIFY_PEER, NULL);
 
         if (config.cacert || config.cacertdir) {
             if (!SSL_CTX_load_verify_locations(ssl_ctx, config.cacert, config.cacertdir)) {

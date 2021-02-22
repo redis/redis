@@ -39,7 +39,12 @@ if {$system_name eq {linux}} {
             r bgsave
 
             set child_pid [get_child_pid 0]
-            assert_equal [get_oom_score_adj $child_pid] [expr $base + 30]
+            # Wait until background child process to setOOMScoreAdj success.
+            wait_for_condition 100 10 {
+                [get_oom_score_adj $child_pid] == [expr $base + 30]
+            } else {
+                fail "Set oom-score-adj of background child process is not ok"
+            }
         }
 
         # Failed oom-score-adj tests can only run unprivileged

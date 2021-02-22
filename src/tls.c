@@ -350,7 +350,7 @@ ConnectionType CT_TLS;
  * socket operation.
  *
  * When this happens, we need to do two things:
- * 1. Make sure we register for the even.
+ * 1. Make sure we register for the event.
  * 2. Make sure we know which handler needs to execute when the
  *    event fires.  That is, if we notify the caller of a write operation
  *    that it blocks, and SSL asks for a read, we need to trigger the

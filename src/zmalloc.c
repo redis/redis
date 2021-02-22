@@ -57,6 +57,12 @@ void zlibc_free(void *ptr) {
 #endif
 #endif
 
+#if PREFIX_SIZE > 0
+#define ASSERT_NO_SIZE_OVERFLOW(sz) assert((sz) + PREFIX_SIZE > (sz))
+#else
+#define ASSERT_NO_SIZE_OVERFLOW(sz)
+#endif
+
 /* Explicitly override malloc/free etc when using tcmalloc. */
 #if defined(USE_TCMALLOC)
 #define malloc(size) tc_malloc(size)
@@ -89,6 +95,7 @@ static void (*zmalloc_oom_handler)(size_t) = zmalloc_default_oom;
 /* Try allocating memory, and return NULL if failed.
  * '*usable' is set to the usable size if non NULL. */
 void *ztrymalloc_usable(size_t size, size_t *usable) {
+    ASSERT_NO_SIZE_OVERFLOW(size);
     void *ptr = malloc(size+PREFIX_SIZE);
 
     if (!ptr) return NULL;
@@ -131,6 +138,7 @@ void *zmalloc_usable(size_t size, size_t *usable) {
  * Currently implemented only for jemalloc. Used for online defragmentation. */
 #ifdef HAVE_DEFRAG
 void *zmalloc_no_tcache(size_t size) {
+    ASSERT_NO_SIZE_OVERFLOW(size);
     void *ptr = mallocx(size+PREFIX_SIZE, MALLOCX_TCACHE_NONE);
     if (!ptr) zmalloc_oom_handler(size);
     update_zmalloc_stat_alloc(zmalloc_size(ptr));
@@ -147,6 +155,7 @@ void zfree_no_tcache(void *ptr) {
 /* Try allocating memory and zero it, and return NULL if failed.
  * '*usable' is set to the usable size if non NULL. */
 void *ztrycalloc_usable(size_t size, size_t *usable) {
+    ASSERT_NO_SIZE_OVERFLOW(size);
     void *ptr = calloc(1, size+PREFIX_SIZE);
     if (ptr == NULL) return NULL;
 
@@ -187,6 +196,7 @@ void *zcalloc_usable(size_t size, size_t *usable) {
 /* Try reallocating memory, and return NULL if failed.
  * '*usable' is set to the usable size if non NULL. */
 void *ztryrealloc_usable(void *ptr, size_t size, size_t *usable) {
+    ASSERT_NO_SIZE_OVERFLOW(size);
 #ifndef HAVE_MALLOC_SIZE
     void *realptr;
 #endif

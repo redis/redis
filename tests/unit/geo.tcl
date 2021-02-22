@@ -1,6 +1,7 @@
 # Helper functions to simulate search-in-radius in the Tcl side in order to
 # verify the Redis implementation with a fuzzy test.
-proc geo_degrad deg {expr {$deg*atan(1)*8/360}}
+proc geo_degrad deg {expr {$deg*(atan(1)*8/360)}}
+proc geo_raddeg rad {expr {$rad/(atan(1)*8/360)}}
 
 proc geo_distance {lon1d lat1d lon2d lat2d} {
     set lon1r [geo_degrad $lon1d]
@@ -40,6 +41,34 @@ proc compare_lists {List1 List2} {
       }
    }
    return $DiffList
+}
+
+# return true If a point in circle.
+# search_lon and search_lat define the center of the circle,
+# and lon, lat define the point being searched.
+proc pointInCircle {radius_km lon lat search_lon search_lat} {
+    set radius_m [expr {$radius_km*1000}]
+    set distance [geo_distance $lon $lat $search_lon $search_lat]
+    if {$distance < $radius_m} {
+        return true
+    }
+    return false
+}
+
+# return true If a point in rectangle.
+# search_lon and search_lat define the center of the rectangle,
+# and lon, lat define the point being searched.
+# error: can adjust the width and height of the rectangle according to the error
+proc pointInRectangle {width_km height_km lon lat search_lon search_lat error} {
+    set width_m [expr {$width_km*1000*$error/2}]
+    set height_m [expr {$height_km*1000*$error/2}]
+    set lon_distance [geo_distance $lon $lat $search_lon $lat]
+    set lat_distance [geo_distance $lon $lat $lon $search_lat]
+
+    if {$lon_distance > $width_m || $lat_distance > $height_m} {
+        return false
+    }
+    return true
 }
 
 # The following list represents sets of random seed, search position
@@ -225,17 +254,24 @@ start_server {tags {"geo"}} {
 
     test {GEOSEARCH non square, long and narrow} {
         r del Sicily
-        r geoadd Sicily 12.75 37.00 "test1"
+        r geoadd Sicily 12.75 36.995 "test1"
         r geoadd Sicily 12.75 36.50 "test2"
         r geoadd Sicily 13.00 36.50 "test3"
         # box height=2km width=400km
-        set ret1 [r geosearch Sicily fromlonlat 15 37 bybox 2 400 km]
+        set ret1 [r geosearch Sicily fromlonlat 15 37 bybox 400 2 km]
         assert_equal $ret1 {test1}
 
         # Add a western Hemisphere point
         r geoadd Sicily -1 37.00 "test3"
-        set ret2 [r geosearch Sicily fromlonlat 15 37 bybox 2 3000 km asc]
+        set ret2 [r geosearch Sicily fromlonlat 15 37 bybox 3000 2 km asc]
         assert_equal $ret2 {test1 test3}
+    }
+
+    test {GEOSEARCH corner point test} {
+        r del Sicily
+        r geoadd Sicily 12.758489 38.788135 edge1 17.241510 38.788135 edge2 17.250000 35.202000 edge3 12.750000 35.202000 edge4 12.748489955781654 37 edge5 15 38.798135872540925 edge6 17.251510044218346 37 edge7 15 35.201864127459075 edge8 12.692799634687903 38.798135872540925 corner1 12.692799634687903 38.798135872540925 corner2 17.200560937451133 35.201864127459075 corner3 12.799439062548865 35.201864127459075 corner4
+        set ret [lsort [r geosearch Sicily fromlonlat 15 37 bybox 400 400 km asc]]
+        assert_equal $ret {edge1 edge2 edge5 edge7}
     }
 
     test {GEORADIUSBYMEMBER withdist (sorted)} {
@@ -360,12 +396,22 @@ start_server {tags {"geo"}} {
         assert {[lindex $res 0] eq "Catania"}
     }
 
-    test {GEOADD + GEORANGE randomized test} {
-        set attempt 30
+    test {GEOSEARCH the box spans -180° or 180°} {
+        r del points
+        r geoadd points 179.5 36 point1
+        r geoadd points -179.5 36 point2
+        assert_equal {point1 point2} [r geosearch points fromlonlat 179 37 bybox 400 400 km asc]
+        assert_equal {point2 point1} [r geosearch points fromlonlat -179 37 bybox 400 400 km asc]
+    }
+
+    foreach {type} {byradius bybox} {
+    test "GEOSEARCH fuzzy test - $type" {
+        if {$::accurate} { set attempt 300 } else { set attempt 30 }
         while {[incr attempt -1]} {
             set rv [lindex $regression_vectors $rv_idx]
             incr rv_idx
 
+            set radius_km 0; set width_km 0; set height_km 0
             unset -nocomplain debuginfo
             set srand_seed [clock milliseconds]
             if {$rv ne {}} {set srand_seed [lindex $rv 0]}
@@ -375,33 +421,55 @@ start_server {tags {"geo"}} {
 
             if {[randomInt 10] == 0} {
                 # From time to time use very big radiuses
-                set radius_km [expr {[randomInt 50000]+10}]
+                if {$type == "byradius"} {
+                    set radius_km [expr {[randomInt 5000]+10}]
+                } elseif {$type == "bybox"} {
+                    set width_km [expr {[randomInt 5000]+10}]
+                    set height_km [expr {[randomInt 5000]+10}]
+                }
             } else {
                 # Normally use a few - ~200km radiuses to stress
                 # test the code the most in edge cases.
-                set radius_km [expr {[randomInt 200]+10}]
+                if {$type == "byradius"} {
+                    set radius_km [expr {[randomInt 200]+10}]
+                } elseif {$type == "bybox"} {
+                    set width_km [expr {[randomInt 200]+10}]
+                    set height_km [expr {[randomInt 200]+10}]
+                }
             }
-            if {$rv ne {}} {set radius_km [lindex $rv 1]}
-            set radius_m [expr {$radius_km*1000}]
+            if {$rv ne {}} {
+                set radius_km [lindex $rv 1]
+                set width_km [lindex $rv 1]
+                set height_km [lindex $rv 1]
+            }
             geo_random_point search_lon search_lat
             if {$rv ne {}} {
                 set search_lon [lindex $rv 2]
                 set search_lat [lindex $rv 3]
             }
-            lappend debuginfo "Search area: $search_lon,$search_lat $radius_km km"
+            lappend debuginfo "Search area: $search_lon,$search_lat $radius_km $width_km $height_km km"
             set tcl_result {}
             set argv {}
             for {set j 0} {$j < 20000} {incr j} {
                 geo_random_point lon lat
                 lappend argv $lon $lat "place:$j"
-                set distance [geo_distance $lon $lat $search_lon $search_lat]
-                if {$distance < $radius_m} {
-                    lappend tcl_result "place:$j"
+                if {$type == "byradius"} {
+                    if {[pointInCircle $radius_km $lon $lat $search_lon $search_lat]} {
+                        lappend tcl_result "place:$j"
+                    }
+                } elseif {$type == "bybox"} {
+                    if {[pointInRectangle $width_km $height_km $lon $lat $search_lon $search_lat 1]} {
+                        lappend tcl_result "place:$j"
+                    }
                 }
-                lappend debuginfo "place:$j $lon $lat [expr {$distance/1000}] km"
+                lappend debuginfo "place:$j $lon $lat"
             }
             r geoadd mypoints {*}$argv
-            set res [lsort [r georadius mypoints $search_lon $search_lat $radius_km km]]
+            if {$type == "byradius"} {
+                set res [lsort [r geosearch mypoints fromlonlat $search_lon $search_lat byradius $radius_km km]]
+            } elseif {$type == "bybox"} {
+                set res [lsort [r geosearch mypoints fromlonlat $search_lon $search_lat bybox $width_km $height_km km]]
+            }
             set res2 [lsort $tcl_result]
             set test_result OK
 
@@ -409,18 +477,27 @@ start_server {tags {"geo"}} {
                 set rounding_errors 0
                 set diff [compare_lists $res $res2]
                 foreach place $diff {
+                    lassign [lindex [r geopos mypoints $place] 0] lon lat
                     set mydist [geo_distance $lon $lat $search_lon $search_lat]
                     set mydist [expr $mydist/1000]
-                    if {($mydist / $radius_km) > 0.999} {
-                        incr rounding_errors
-                        continue
-                    }
-                    if {$mydist < $radius_m} {
-                        # This is a false positive for redis since given the 
-                        # same points the higher precision calculation provided 
-                        # by TCL shows the point within range
-                        incr rounding_errors
-                        continue
+                    if {$type == "byradius"} {
+                        if {($mydist / $radius_km) > 0.999} {
+                            incr rounding_errors
+                            continue
+                        }
+                        if {$mydist < [expr {$radius_km*1000}]} {
+                            # This is a false positive for redis since given the
+                            # same points the higher precision calculation provided
+                            # by TCL shows the point within range
+                            incr rounding_errors
+                            continue
+                        }
+                    } elseif {$type == "bybox"} {
+                        # we add 0.1% error for floating point calculation error
+                        if {[pointInRectangle $width_km $height_km $lon $lat $search_lon $search_lat 1.001]} {
+                            incr rounding_errors
+                            continue
+                        }
                     }
                 }
 
@@ -447,7 +524,6 @@ start_server {tags {"geo"}} {
                     set mydist [geo_distance $lon $lat $search_lon $search_lat]
                     set mydist [expr $mydist/1000]
                     puts "$place -> [r geopos mypoints $place] $mydist $where"
-                    if {($mydist / $radius_km) > 0.999} {incr rounding_errors}
                 }
                 set test_result FAIL
             }
@@ -456,4 +532,91 @@ start_server {tags {"geo"}} {
         }
         set test_result
     } {OK}
+    }
+
+    test {GEOSEARCH box edges fuzzy test} {
+        if {$::accurate} { set attempt 300 } else { set attempt 30 }
+        while {[incr attempt -1]} {
+            unset -nocomplain debuginfo
+            set srand_seed [clock milliseconds]
+            lappend debuginfo "srand_seed is $srand_seed"
+            expr {srand($srand_seed)} ; # If you need a reproducible run
+            r del mypoints
+
+            geo_random_point search_lon search_lat
+            set width_m [expr {[randomInt 10000]+10}]
+            set height_m [expr {[randomInt 10000]+10}]
+            set lat_delta [geo_raddeg [expr {$height_m/2/6372797.560856}]]
+            set long_delta_top [geo_raddeg [expr {$width_m/2/6372797.560856/cos([geo_degrad [expr {$search_lat+$lat_delta}]])}]]
+            set long_delta_middle [geo_raddeg [expr {$width_m/2/6372797.560856/cos([geo_degrad $search_lat])}]]
+            set long_delta_bottom [geo_raddeg [expr {$width_m/2/6372797.560856/cos([geo_degrad [expr {$search_lat-$lat_delta}]])}]]
+
+            # Total of 8 points are generated, which are located at each vertex and the center of each side
+            set points(north) [list $search_lon [expr {$search_lat+$lat_delta}]]
+            set points(south) [list $search_lon [expr {$search_lat-$lat_delta}]]
+            set points(east) [list [expr {$search_lon+$long_delta_middle}] $search_lat]
+            set points(west) [list [expr {$search_lon-$long_delta_middle}] $search_lat]
+            set points(north_east) [list [expr {$search_lon+$long_delta_top}] [expr {$search_lat+$lat_delta}]]
+            set points(north_west) [list [expr {$search_lon-$long_delta_top}] [expr {$search_lat+$lat_delta}]]
+            set points(south_east) [list [expr {$search_lon+$long_delta_bottom}] [expr {$search_lat-$lat_delta}]]
+            set points(south_west) [list [expr {$search_lon-$long_delta_bottom}] [expr {$search_lat-$lat_delta}]]
+
+            lappend debuginfo "Search area: geosearch mypoints fromlonlat $search_lon $search_lat bybox $width_m $height_m m"
+            set tcl_result {}
+            foreach name [array names points] {
+                set x [lindex $points($name) 0]
+                set y [lindex $points($name) 1]
+                # If longitude crosses -180° or 180°, we need to convert it.
+                # latitude doesn't have this problem, because it's scope is -70~70, see geo_random_point
+                if {$x > 180} {
+                    set x [expr {$x-360}]
+                } elseif {$x < -180} {
+                    set x [expr {$x+360}]
+                }
+                r geoadd mypoints $x $y place:$name
+                lappend tcl_result "place:$name"
+                lappend debuginfo "geoadd mypoints $x $y place:$name"
+            }
+
+            set res2 [lsort $tcl_result]
+
+            # make the box larger by two meter in each direction to put the coordinate slightly inside the box.
+            set height_new [expr {$height_m+4}]
+            set width_new [expr {$width_m+4}]
+            set res [lsort [r geosearch mypoints fromlonlat $search_lon $search_lat bybox $width_new $height_new m]]
+            if {$res != $res2} {
+                set diff [compare_lists $res $res2]
+                lappend debuginfo "res: $res, res2: $res2, diff: $diff"
+                fail "place should be found, debuginfo: $debuginfo, height_new: $height_new width_new: $width_new"
+            }
+
+            # The width decreases and the height increases. Only north and south are found
+            set width_new [expr {$width_m-4}]
+            set height_new [expr {$height_m+4}]
+            set res [lsort [r geosearch mypoints fromlonlat $search_lon $search_lat bybox $width_new $height_new m]]
+            if {$res != {place:north place:south}} {
+                lappend debuginfo "res: $res"
+                fail "place should not be found, debuginfo: $debuginfo, height_new: $height_new width_new: $width_new"
+            }
+
+            # The width increases and the height decreases. Only ease and west are found
+            set width_new [expr {$width_m+4}]
+            set height_new [expr {$height_m-4}]
+            set res [lsort [r geosearch mypoints fromlonlat $search_lon $search_lat bybox $width_new $height_new m]]
+            if {$res != {place:east place:west}} {
+                lappend debuginfo "res: $res"
+                fail "place should not be found, debuginfo: $debuginfo, height_new: $height_new width_new: $width_new"
+            }
+
+            # make the box smaller by two meter in each direction to put the coordinate slightly outside the box.
+            set height_new [expr {$height_m-4}]
+            set width_new [expr {$width_m-4}]
+            set res [r geosearch mypoints fromlonlat $search_lon $search_lat bybox $width_new $height_new m]
+            if {$res != ""} {
+                lappend debuginfo "res: $res"
+                fail "place should not be found, debuginfo: $debuginfo, height_new: $height_new width_new: $width_new"
+            }
+            unset -nocomplain debuginfo
+        }
+    }
 }
