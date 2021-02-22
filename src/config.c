@@ -881,10 +881,10 @@ void loadServerConfig(char *filename, char *options) {
         if (max != LLONG_MAX && ll > max) goto badfmt; \
         _var = ll;
 
-#define config_set_memory_field(_name,_var) \
+#define config_set_memory_field(_name,_var,min,max) \
     } else if (!strcasecmp(c->argv[2]->ptr,_name)) { \
         ll = memtoll(o->ptr,&err); \
-        if (err || ll < 0) goto badfmt; \
+        if (err || ll < (long long) (min) || ll > (long long) (max)) goto badfmt; \
         _var = ll;
 
 #define config_set_enum_field(_name,_var,_enumvar) \
@@ -1150,7 +1150,7 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "active-defrag-threshold-upper",server.active_defrag_threshold_upper,0,1000) {
     } config_set_memory_field(
-      "active-defrag-ignore-bytes",server.active_defrag_ignore_bytes) {
+      "active-defrag-ignore-bytes",server.active_defrag_ignore_bytes,0,LONG_MAX) {
     } config_set_numerical_field(
       "active-defrag-cycle-min",server.active_defrag_cycle_min,1,99) {
     } config_set_numerical_field(
@@ -1246,7 +1246,7 @@ void configSetCommand(client *c) {
 
     /* Memory fields.
      * config_set_memory_field(name,var) */
-    } config_set_memory_field("maxmemory",server.maxmemory) {
+    } config_set_memory_field("maxmemory",server.maxmemory,0,LONG_MAX) {
         if (server.maxmemory) {
             if (server.maxmemory < zmalloc_used_memory()) {
                 serverLog(LL_WARNING,"WARNING: the new maxmemory value set via CONFIG SET is smaller than the current memory usage. This will result in key eviction and/or the inability to accept new write commands depending on the maxmemory-policy.");
@@ -1254,12 +1254,12 @@ void configSetCommand(client *c) {
             freeMemoryIfNeededAndSafe();
         }
     } config_set_memory_field(
-      "proto-max-bulk-len",server.proto_max_bulk_len) {
+      "proto-max-bulk-len",server.proto_max_bulk_len,1024*1024,LONG_MAX/2) {
     } config_set_memory_field(
-      "client-query-buffer-limit",server.client_max_querybuf_len) {
-    } config_set_memory_field("repl-backlog-size",ll) {
+      "client-query-buffer-limit",server.client_max_querybuf_len,0,LONG_MAX) {
+    } config_set_memory_field("repl-backlog-size",ll,0,LONG_MAX) {
         resizeReplicationBacklog(ll);
-    } config_set_memory_field("auto-aof-rewrite-min-size",ll) {
+    } config_set_memory_field("auto-aof-rewrite-min-size",ll,0,LONG_MAX) {
         server.aof_rewrite_min_size = ll;
 
     /* Enumeration fields.
