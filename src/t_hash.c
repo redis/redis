@@ -1078,6 +1078,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
      * used into CASE 4 is highly inefficient. */
     if (count*HRANDFIELD_SUB_STRATEGY_MUL > size) {
         dict *d = dictCreate(&sdsReplyDictType, NULL);
+        dictExpand(d, size);
         hashTypeIterator *hi = hashTypeInitIterator(hash);
 
         /* Add all the elements into the temporary dictionary. */
@@ -1147,6 +1148,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
         unsigned long added = 0;
         ziplistEntry key, value;
         dict *d = dictCreate(&hashDictType, NULL);
+        dictExpand(d, count);
         while(added < count) {
             hashTypeRandomElement(hash, size, &key, withvalues? &value : NULL);
 
