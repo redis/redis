@@ -114,7 +114,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CONFIG_BGSAVE_RETRY_DELAY 5 /* Wait a few secs before trying again. */
 #define CONFIG_DEFAULT_PID_FILE "/var/run/redis.pid"
 #define CONFIG_DEFAULT_SYSLOG_IDENT "redis"
-#define CONFIG_DEFAULT_IGNORE_WARNINGS ""
+#define CONFIG_DEFAULT_IGNORE_WARNINGS "ARM64-COW-BUG"
 #define CONFIG_DEFAULT_CLUSTER_CONFIG_FILE "nodes.conf"
 #define CONFIG_DEFAULT_CLUSTER_ANNOUNCE_IP NULL         /* Auto detect. */
 #define CONFIG_DEFAULT_CLUSTER_ANNOUNCE_PORT 0          /* Use server.port */
