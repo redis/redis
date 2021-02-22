@@ -1836,7 +1836,7 @@ unsigned long long RM_GetClientId(RedisModuleCtx *ctx) {
     if (ctx->client == NULL) return 0;
     return ctx->client->id;
 }
-================================================================================
+
 /* Return the ACL user name used by the client with the specified client ID.
  * Client ID can be obtained with RM_GetClientId() API. If the client does not
  * exists, NULL is returned. If the client isn't using an ACL user user, an
