@@ -2020,6 +2020,7 @@ size_t freeMemoryGetNotCountedMemory();
 int freeMemoryIfNeeded(void);
 int freeMemoryIfNeededAndSafe(void);
 int processCommand(client *c);
+int processPendingCommandsAndResetClient(client *c);
 void setupSignalHandlers(void);
 struct redisCommand *lookupCommand(sds name);
 struct redisCommand *lookupCommandByCString(const char *s);
