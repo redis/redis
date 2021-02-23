@@ -1845,7 +1845,12 @@ RedisModuleString *RM_GetClientUserNameById(RedisModuleCtx *ctx, uint64_t id) {
     client *client = lookupClientByID(id);
     if (client == NULL) return NULL;
 
-    sds name = sdsnew(client->user ? client->user->name: "");
+    if (client->user == NULL) {
+        errno = ENODEV;
+        return NULL;
+    }
+
+    sds name = sdsnew(client->user->name);
     robj *str = createObject(OBJ_STRING, name);
     autoMemoryAdd(ctx, REDISMODULE_AM_STRING, str);
     return str;
