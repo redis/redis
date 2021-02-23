@@ -245,6 +245,7 @@ proc ::redis::redis_read_reply {id fd} {
         : -
         + {redis_read_line $fd}
         , {expr {double([redis_read_line $fd])}}
+        # {expr {[redis_read_line $fd] == "t"}}
         - {return -code error [redis_read_line $fd]}
         $ {redis_bulk_read $fd}
         > -
