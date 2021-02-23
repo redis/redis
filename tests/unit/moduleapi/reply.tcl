@@ -33,7 +33,7 @@ start_server {tags {"modules"}} {
         assert_equal {0 1 2} [r rw.set 3]
     }
 
-    test {RM_ReplyWithattribute: an set reply} {
+    test {RM_ReplyWithAttribute: an set reply} {
         #assert_equal {0 1 2} [r rw.attribute 3]
     }
 
