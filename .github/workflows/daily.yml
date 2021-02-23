@@ -189,6 +189,7 @@ jobs:
 
   test-alpine-jemalloc:
     runs-on: ubuntu-latest
+    if: github.repository == 'redis/redis'
     container: alpine:latest
     steps:
     - uses: actions/checkout@v2
@@ -209,6 +210,7 @@ jobs:
 
   test-alpine-libc-malloc:
     runs-on: ubuntu-latest
+    if: github.repository == 'redis/redis'
     container: alpine:latest
     steps:
     - uses: actions/checkout@v2
