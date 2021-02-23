@@ -221,3 +221,23 @@ jobs:
           MAKE=gmake ./runtest-moduleapi --verbose &&
           ./runtest-sentinel &&
           ./runtest-cluster
+
+  test-alpine:
+    runs-on: ubuntu-latest
+    container: alpine:latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: make
+      run: |
+          apk add build-base
+          make REDIS_CFLAGS='-Werror'
+    - name: test
+      run: |
+        apk add tcl procps
+        ./runtest --accurate --verbose --dump-logs
+    - name: module api test
+      run: ./runtest-moduleapi --verbose
+    - name: sentinel tests
+      run: ./runtest-sentinel
+    - name: cluster tests
+      run: ./runtest-cluster
