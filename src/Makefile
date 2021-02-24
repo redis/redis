@@ -21,7 +21,12 @@ NODEPS:=clean distclean
 
 # Default settings
 STD=-pedantic -DREDIS_STATIC=''
+
+# Use -Wno-c11-extensions on clang, either where explicitly used or on
+# platforms we can assume it's being used.
 ifneq (,$(findstring clang,$(CC)))
+  STD+=-Wno-c11-extensions
+else
 ifneq (,$(findstring FreeBSD,$(uname_S)))
   STD+=-Wno-c11-extensions
 endif
