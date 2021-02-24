@@ -819,6 +819,8 @@ static int cliConnect(int flags) {
     if (context == NULL || flags & CC_FORCE) {
         if (context != NULL) {
             redisFree(context);
+            config.dbnum = 0;
+            config.in_multi = 0;
         }
 
         if (config.hostsocket == NULL) {
@@ -2065,6 +2067,7 @@ static void repl(void) {
 
     cliRefreshPrompt();
     while((line = linenoise(context ? config.prompt : "not connected> ")) != NULL) {
+        cliRefreshPrompt();
         if (line[0] != '\0') {
             long repeat = 1;
             int skipargs = 0;
