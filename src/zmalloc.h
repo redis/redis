@@ -61,9 +61,12 @@
 #define zmalloc_size(p) malloc_size(p)
 #endif
 
+/* On native libc implementations, we should still do our best to provide a
+ * HAVE_MALLOC_SIZE capability.
+ */
 #ifndef ZMALLOC_LIB
 #define ZMALLOC_LIB "libc"
-#ifdef __GLIBC__
+#if defined(__GLIBC__) || defined(__FreeBSD__)
 #include <malloc.h>
 #define HAVE_MALLOC_SIZE 1
 #define zmalloc_size(p) malloc_usable_size(p)
