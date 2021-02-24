@@ -619,7 +619,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
                               "at least one of the keys mentioned in the "
                               "command arguments");
             break;
-        case ACL_DENIED_AUTH:
+        case ACL_DENIED_CHANNEL:
             luaPushError(lua, "The user executing the script can't publish "
                               "to the channel mentioned in the command");
             break;
