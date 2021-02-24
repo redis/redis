@@ -250,7 +250,7 @@ jobs:
     - name: make
       run: |
           apk add build-base
-          make REDIS_CFLAGS='-Werror' USE_JEMALLOC=no
+          make REDIS_CFLAGS='-Werror' USE_JEMALLOC=no CFLAGS=-DUSE_MALLOC_USABLE_SIZE
     - name: test
       run: |
         apk add tcl procps
