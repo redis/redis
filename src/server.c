@@ -1070,7 +1070,7 @@ struct redisCommand redisCommandTable[] = {
      "write fast @stream",
      0,NULL,1,1,1,0,0,0},
 
-    {"xtrim",xtrimCommand,-2,
+    {"xtrim",xtrimCommand,-4,
      "write random @stream",
      0,NULL,1,1,1,0,0,0},
 
