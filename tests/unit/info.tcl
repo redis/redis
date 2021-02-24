@@ -62,6 +62,19 @@ start_server {tags {"info"}} {
             assert_equal [s total_error_replies] 2
         }
 
+        test {errorstats: failed call NOSCRIPT error} {
+            r config resetstat
+            assert_equal [s total_error_replies] 0
+            assert_match {} [errorstat NOSCRIPT]
+            catch {r evalsha NotValidShaSUM 0} e
+            assert_match {NOSCRIPT*} $e
+            assert_match {*count=1*} [errorstat NOSCRIPT]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat evalsha]
+            assert_equal [s total_error_replies] 1
+            r config resetstat
+            assert_match {} [errorstat NOSCRIPT]
+        }
+
         test {errorstats: failed call NOGROUP error} {
             r config resetstat
             assert_match {} [errorstat NOGROUP]
