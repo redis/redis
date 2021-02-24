@@ -675,6 +675,7 @@ int zmalloc_test(int argc, char **argv) {
 
     UNUSED(argc);
     UNUSED(argv);
+    printf("Malloc prefix size: %zu\n", PREFIX_SIZE);
     printf("Initial used memory: %zu\n", zmalloc_used_memory());
     ptr = zmalloc(123);
     printf("Allocated 123 bytes; used: %zu\n", zmalloc_used_memory());
