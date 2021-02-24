@@ -1544,7 +1544,7 @@ void evalGenericCommand(client *c, int evalsha) {
          * return an error. */
         if (evalsha) {
             lua_pop(lua,1); /* remove the error handler from the stack. */
-            addReply(c, shared.noscripterr);
+            addReplyErrorObject(c, shared.noscripterr);
             return;
         }
         if (luaCreateFunction(c,lua,c->argv[1]) == NULL) {
@@ -1695,7 +1695,7 @@ void evalShaCommand(client *c) {
          * not the right length. So we return an error ASAP, this way
          * evalGenericCommand() can be implemented without string length
          * sanity check */
-        addReply(c, shared.noscripterr);
+        addReplyErrorObject(c, shared.noscripterr);
         return;
     }
     if (!(c->flags & CLIENT_LUA_DEBUG))
