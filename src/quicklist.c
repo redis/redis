@@ -2239,6 +2239,17 @@ int quicklistTest(int argc, char *argv[]) {
             quicklistRelease(ql);
         }
 
+        TEST("delete less than fill but across nodes") {
+            quicklist *ql = quicklistNew(-2, options[_i]);
+            quicklistSetFill(ql, 32);
+            for (int i = 0; i < 500; i++)
+                quicklistPushTail(ql, genstr("hello", i + 1), 32);
+            ql_verify(ql, 16, 500, 32, 20);
+            quicklistDelRange(ql, 60, 10);
+            ql_verify(ql, 16, 490, 32, 20);
+            quicklistRelease(ql);
+        }
+
         TEST("delete negative 1 from 500 list") {
             quicklist *ql = quicklistNew(-2, options[_i]);
             quicklistSetFill(ql, 32);
