@@ -48,6 +48,25 @@ jobs:
     - name: cluster tests
       run: ./runtest-cluster
 
+  test-ubuntu-no-malloc-usable-size:
+    runs-on: ubuntu-latest
+    if: github.repository == 'redis/redis'
+    timeout-minutes: 14400
+    steps:
+    - uses: actions/checkout@v2
+    - name: make
+      run: make MALLOC=libc CFLAGS=-DNO_MALLOC_USABLE_SIZE
+    - name: test
+      run: |
+        sudo apt-get install tcl8.6
+        ./runtest --accurate --verbose --dump-logs
+    - name: module api test
+      run: ./runtest-moduleapi --verbose
+    - name: sentinel tests
+      run: ./runtest-sentinel
+    - name: cluster tests
+      run: ./runtest-cluster
+
   test-ubuntu-32bit:
     runs-on: ubuntu-latest
     if: github.repository == 'redis/redis'
@@ -124,6 +143,22 @@ jobs:
     - uses: actions/checkout@v2
     - name: make
       run: make valgrind
+    - name: test
+      run: |
+        sudo apt-get update
+        sudo apt-get install tcl8.6 valgrind -y
+        ./runtest --valgrind --verbose --clients 1 --dump-logs
+    - name: module api test
+      run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1
+
+  test-valgrind-no-malloc-usable-size:
+    runs-on: ubuntu-latest
+    if: github.repository == 'redis/redis'
+    timeout-minutes: 14400
+    steps:
+    - uses: actions/checkout@v2
+    - name: make
+      run: make valgrind CFLAGS="-DNO_MALLOC_USABLE_SIZE"
     - name: test
       run: |
         sudo apt-get update
@@ -250,7 +285,7 @@ jobs:
     - name: make
       run: |
           apk add build-base
-          make REDIS_CFLAGS='-Werror' USE_JEMALLOC=no
+          make REDIS_CFLAGS='-Werror' USE_JEMALLOC=no CFLAGS=-DUSE_MALLOC_USABLE_SIZE
     - name: test
       run: |
         apk add tcl procps
