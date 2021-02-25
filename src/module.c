@@ -2507,7 +2507,6 @@ int moduleZsetAddFlagsFromCoreFlags(int flags) {
     if (flags & ZADD_OUT_ADDED) retflags |= REDISMODULE_ZADD_ADDED;
     if (flags & ZADD_OUT_UPDATED) retflags |= REDISMODULE_ZADD_UPDATED;
     if (flags & ZADD_OUT_NOP) retflags |= REDISMODULE_ZADD_NOP;
-    if (flags & ZADD_OUT_NAN) retflags |= REDISMODULE_ZADD_NAN;
     return retflags;
 }
 
@@ -2582,10 +2581,6 @@ int RM_ZsetIncrby(RedisModuleKey *key, double score, RedisModuleString *ele, int
         return REDISMODULE_ERR;
     }
     if (flagsptr) *flagsptr = moduleZsetAddFlagsFromCoreFlags(out_flags);
-    /* zsetAdd() may signal back that the resulting score is not a number. */
-    if (out_flags & ZADD_OUT_NAN) {
-        return REDISMODULE_ERR;
-    }
     return REDISMODULE_OK;
 }
 
