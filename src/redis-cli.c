@@ -819,6 +819,9 @@ static int cliConnect(int flags) {
     if (context == NULL || flags & CC_FORCE) {
         if (context != NULL) {
             redisFree(context);
+            config.dbnum = 0;
+            config.in_multi = 0;
+            cliRefreshPrompt();
         }
 
         if (config.hostsocket == NULL) {
