@@ -2250,3 +2250,15 @@ void authCommand(client *c) {
     }
 }
 
+/* Set the password for the "default" ACL user. This implements supports for
+ * requirepass config, so passing in NULL will set the user to be nopass. */
+void ACLUpdateDefaultUserPassword(sds password) {
+    ACLSetUser(DefaultUser,"resetpass",-1);
+    if (password) {
+        sds aclop = sdscatlen(sdsnew(">"), password, sdslen(password));
+        ACLSetUser(DefaultUser,aclop,sdslen(aclop));
+        sdsfree(aclop);
+    } else {
+        ACLSetUser(DefaultUser,"nopass",-1);
+    }
+}

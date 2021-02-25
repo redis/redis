@@ -3325,11 +3325,7 @@ void initServer(void) {
     latencyMonitorInit();
     
     /* Initialize ACL default password if it exists */
-    if (server.requirepass) {
-        sds aclop = sdscatlen(sdsnew(">"), server.requirepass, sdslen(server.requirepass));
-        ACLSetUser(DefaultUser,aclop,sdslen(aclop));
-        sdsfree(aclop); 
-    }
+    ACLUpdateDefaultUserPassword(server.requirepass);
 }
 
 /* Some steps in server initialization need to be done last (after modules

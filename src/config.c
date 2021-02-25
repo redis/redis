@@ -2292,21 +2292,15 @@ static int updateOOMScoreAdj(int val, int prev, const char **err) {
     return 1;
 }
 
-static int updateRequirePass(sds val, sds prev, const char **err) {
-    UNUSED(err);
+
+int updateRequirePass(sds val, sds prev, const char **err) {
     UNUSED(prev);
+    UNUSED(err);
     /* The old "requirepass" directive just translates to setting
      * a password to the default user. The only thing we do
      * additionally is to remember the cleartext password in this
      * case, for backward compatibility with Redis <= 5. */
-    ACLSetUser(DefaultUser,"resetpass",-1);
-    if (val) {
-        sds aclop = sdscatlen(sdsnew(">"), val, sdslen(val));
-        ACLSetUser(DefaultUser,aclop,sdslen(aclop));
-        sdsfree(aclop);
-    } else {
-        ACLSetUser(DefaultUser,"nopass",-1);
-    }
+    ACLUpdateDefaultUserPassword(val);
     return 1;
 }
 
@@ -2477,7 +2471,7 @@ standardConfig configs[] = {
     createSizeTConfig("zset-max-ziplist-value", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.zset_max_ziplist_value, 64, MEMORY_CONFIG, NULL, NULL),
     createSizeTConfig("hll-sparse-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hll_sparse_max_bytes, 3000, MEMORY_CONFIG, NULL, NULL),
     createSizeTConfig("tracking-table-max-keys", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.tracking_table_max_keys, 1000000, INTEGER_CONFIG, NULL, NULL), /* Default: 1 million keys max. */
-    createSizeTConfig("client-query-buffer-limit", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.client_max_querybuf_len, 1024*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 1GB max query buffer. */
+    createSizeTConfig("client-query-buffer-limit", NULL, MODIFIABLE_CONFIG, 1024*1024, LONG_MAX, server.client_max_querybuf_len, 1024*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 1GB max query buffer. */
 
     /* Other configs */
     createTimeTConfig("repl-backlog-ttl", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.repl_backlog_time_limit, 60*60, INTEGER_CONFIG, NULL, NULL), /* Default: 1 hour */
