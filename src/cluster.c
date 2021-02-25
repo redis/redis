@@ -4321,9 +4321,8 @@ int getSlotOrReply(client *c, robj *o) {
     return (int) slot;
 }
 
-void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, int end_slot){
-    int i = 0;
-    int nested_elements = 3; /* slots (2) + master addr (1) */
+void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, int end_slot) {
+    int i, nested_elements = 3; /* slots (2) + master addr (1) */
     void *nested_replylen = addReplyDeferredLen(c);
     addReplyLongLong(c, start_slot);
     addReplyLongLong(c, end_slot);
@@ -4333,12 +4332,10 @@ void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, in
     addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
 
     /* Remaining nodes in reply are replicas for slot range */
-    for (i = 0; i < node->numslaves; i++)
-    {
+    for (i = 0; i < node->numslaves; i++) {
         /* This loop is copy/pasted from clusterGenNodeDescription()
-                     * with modifications for per-slot node aggregation */
-        if (nodeFailed(node->slaves[i]))
-            continue;
+         * with modifications for per-slot node aggregation */
+        if (nodeFailed(node->slaves[i])) continue;
         addReplyArrayLen(c, 3);
         addReplyBulkCString(c, node->slaves[i]->ip);
         addReplyLongLong(c, node->slaves[i]->port);
@@ -4349,7 +4346,6 @@ void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, in
 }
 
 void clusterReplyMultiBulkSlots(client * c) {
-
     /* Format: 1) 1) start slot
      *            2) end slot
      *            3) 1) master IP
@@ -4362,22 +4358,20 @@ void clusterReplyMultiBulkSlots(client * c) {
      */
     int num_masters = 0;
     void *slot_replylen = addReplyDeferredLen(c);
-    int i = 0;
     clusterNode *last_node = NULL;
-    int start_slot = 0;
-    int end_slot = 0;
+    int i, start_slot = 0, end_slot = 0;
     int loop_range = CLUSTER_SLOTS + 1;
     for (i = 0; i < loop_range; i++) {
-        if (NULL == last_node) {
-            if (CLUSTER_SLOTS != i && NULL != server.cluster->slots[i]) {
-                /* A new slots_range_start. */
-                last_node = server.cluster->slots[i];
-                start_slot = i;
-                end_slot = i;
-            }
-            /* Skip if last node is null without a new slots_range_start. */
+        if (last_node == NULL) {
+            if (CLUSTER_SLOTS == i || server.cluster->slots[i] == NULL)
+                /* Skip a slots_range_start if loop to end or loop in null slot. */
+                continue;
+            /* A new slots_range_start. */
+            last_node = server.cluster->slots[i];
+            start_slot = i;
+            end_slot = i;
         } else {
-            if (CLUSTER_SLOTS != i && NULL != server.cluster->slots[i] &&
+            if (CLUSTER_SLOTS != i && server.cluster->slots[i] != NULL &&
                 server.cluster->slots[i] == last_node) {
                 /* Enlarge this slots range with last slots_range_start. */
                 end_slot = i;
