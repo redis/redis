@@ -5948,7 +5948,7 @@ int main(int argc, char **argv) {
     char config_from_stdin = 0;
 
 #ifdef REDIS_TEST
-    if (argc == 3 && !strcasecmp(argv[1], "test")) {
+    if (argc >= 3 && !strcasecmp(argv[1], "test")) {
         if (!strcasecmp(argv[2], "all")) {
             int numtests = sizeof(redisTests)/sizeof(struct redisTest);
             for (int j = 0; j < numtests; j++) {

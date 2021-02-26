@@ -1218,8 +1218,8 @@ int dictTest(int argc, char **argv) {
     dict *dict = dictCreate(&BenchmarkDictType,NULL);
     long count = 0;
 
-    if (argc == 2) {
-        count = strtol(argv[1],NULL,10);
+    if (argc == 4) {
+        count = strtol(argv[3],NULL,10);
     } else {
         count = 5000000;
     }
