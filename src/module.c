@@ -1839,17 +1839,17 @@ unsigned long long RM_GetClientId(RedisModuleCtx *ctx) {
 
 /* Return the ACL user name used by the client with the specified client ID.
  * Client ID can be obtained with RM_GetClientId() API. If the client does not
- * exist, NULL is returned and errno is set to ENOTDIR. If the client isn't 
- * using an ACL user, NULL is returned and errno is set to ENODEV */
+ * exist, NULL is returned and errno is set to ENOENT. If the client isn't 
+ * using an ACL user, NULL is returned and errno is set to ENOTSUP */
 RedisModuleString *RM_GetClientUserNameById(RedisModuleCtx *ctx, uint64_t id) {
     client *client = lookupClientByID(id);
     if (client == NULL) {
-        errno = ENOTDIR;
+        errno = ENOENT;
         return NULL;
     }
     
     if (client->user == NULL) {
-        errno = ENODEV;
+        errno = ENOSUP;
         return NULL;
     }
 
