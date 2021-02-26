@@ -1849,7 +1849,7 @@ RedisModuleString *RM_GetClientUserNameById(RedisModuleCtx *ctx, uint64_t id) {
     }
     
     if (client->user == NULL) {
-        errno = ENOSUP;
+        errno = ENOTSUP;
         return NULL;
     }
 
