@@ -2653,7 +2653,6 @@ void initServerConfig(void) {
     server.sofd = -1;
     server.active_expire_enabled = 1;
     server.skip_checksum_validation = 0;
-    server.client_max_querybuf_len = PROTO_MAX_QUERYBUF_LEN;
     server.saveparams = NULL;
     server.loading = 0;
     server.loading_rdb_used_mem = 0;
@@ -3324,6 +3323,9 @@ void initServer(void) {
     scriptingInit(1);
     slowlogInit();
     latencyMonitorInit();
+    
+    /* Initialize ACL default password if it exists */
+    ACLUpdateDefaultUserPassword(server.requirepass);
 }
 
 /* Some steps in server initialization need to be done last (after modules
