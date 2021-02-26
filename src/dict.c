@@ -45,11 +45,7 @@
 
 #include "dict.h"
 #include "zmalloc.h"
-#ifndef DICT_BENCHMARK_MAIN
 #include "redisassert.h"
-#else
-#include <assert.h>
-#endif
 
 /* Using dictEnableResize() / dictDisableResize() we make possible to
  * enable/disable resizing of the hash table as needed. This is very important
@@ -1175,7 +1171,7 @@ void dictGetStats(char *buf, size_t bufsize, dict *d) {
 
 /* ------------------------------- Benchmark ---------------------------------*/
 
-#ifdef DICT_BENCHMARK_MAIN
+#ifdef REDIS_TEST
 
 #include "sds.h"
 
@@ -1216,7 +1212,7 @@ dictType BenchmarkDictType = {
 } while(0)
 
 /* dict-benchmark [count] */
-int main(int argc, char **argv) {
+int dictTest(int argc, char **argv) {
     long j;
     long long start, elapsed;
     dict *dict = dictCreate(&BenchmarkDictType,NULL);
@@ -1295,5 +1291,6 @@ int main(int argc, char **argv) {
         assert(retval == DICT_OK);
     }
     end_benchmark("Removing and adding");
+    return 0;
 }
 #endif
