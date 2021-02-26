@@ -7960,8 +7960,16 @@ static void scanMode(void) {
             unsigned int j;
 
             cur = strtoull(reply->element[0]->str,NULL,10);
-            for (j = 0; j < reply->element[1]->elements; j++)
-                printf("%s\n", reply->element[1]->element[j]->str);
+            for (j = 0; j < reply->element[1]->elements; j++) {
+                if (config.output == OUTPUT_STANDARD) {
+                    sds out = sdscatrepr(sdsempty(), reply->element[1]->element[j]->str,
+                                         reply->element[1]->element[j]->len);
+                    printf("%s\n", out);
+                    sdsfree(out);
+                } else {
+                    printf("%s\n", reply->element[1]->element[j]->str);
+                }
+            }
         }
         freeReplyObject(reply);
     } while(cur != 0);
