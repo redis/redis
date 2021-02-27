@@ -315,7 +315,7 @@ REDIS_STATIC void __quicklistCompress(const quicklist *quicklist,
         if (forward == node || reverse == node)
             in_depth = 1;
 
-        if (forward == reverse)
+        if (forward == reverse || forward->next == reverse)
             return;
 
         forward = forward->next;
@@ -325,11 +325,9 @@ REDIS_STATIC void __quicklistCompress(const quicklist *quicklist,
     if (!in_depth)
         quicklistCompressNode(node);
 
-    if (depth > 2 && quicklist->len > (unsigned int)(quicklist->compress * 2)) {
-        /* At this point, forward and reverse are one node beyond depth */
-        quicklistCompressNode(forward);
-        quicklistCompressNode(reverse);
-    }
+    /* At this point, forward and reverse are one node beyond depth */
+    quicklistCompressNode(forward);
+    quicklistCompressNode(reverse);
 }
 
 #define quicklistCompress(_ql, _node)                                          \
