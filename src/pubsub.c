@@ -65,14 +65,14 @@ void addReplyPubsubPatMessage(client *c, robj *pat, robj *channel, robj *msg) {
 }
 
 /* Send the pubsub subscription notification to the client. */
-void addReplyPubsubSubscribed(client *c, robj *channel) {
+void addReplyPubsubSubscribed(client *c, robj *channel, int (*subscriptionCount)(client*)) {
     if (c->resp == 2)
         addReply(c,shared.mbulkhdr[3]);
     else
         addReplyPushLen(c,3);
     addReply(c,shared.subscribebulk);
     addReplyBulk(c,channel);
-    addReplyLongLong(c,clientSubscriptionsCount(c));
+    addReplyLongLong(c,subscriptionCount(c));
 }
 
 /* Send the pubsub unsubscription notification to the client.
@@ -130,22 +130,28 @@ int clientSubscriptionsCount(client *c) {
            listLength(c->pubsub_patterns);
 }
 
+/* Return the number of channels + patterns a client is subscribed to. */
+int clientLocalSubscriptionsCount(client *c) {
+    return dictSize(c->pubsublocal_channels);
+}
+
+
 /* Subscribe a client to a channel. Returns 1 if the operation succeeded, or
  * 0 if the client was already subscribed to that channel. */
-int pubsubSubscribeChannel(client *c, robj *channel) {
+int pubsubSubscribeChannel(client *c, robj *channel, dict *client_channels, dict *server_channels,  int (*subscriptionCount)(client*)) {
     dictEntry *de;
     list *clients = NULL;
     int retval = 0;
 
     /* Add the channel to the client -> channels hash table */
-    if (dictAdd(c->pubsub_channels,channel,NULL) == DICT_OK) {
+    if (dictAdd(client_channels,channel,NULL) == DICT_OK) {
         retval = 1;
         incrRefCount(channel);
         /* Add the client to the channel -> list of clients hash table */
-        de = dictFind(server.pubsub_channels,channel);
+        de = dictFind(server_channels,channel);
         if (de == NULL) {
             clients = listCreate();
-            dictAdd(server.pubsub_channels,channel,clients);
+            dictAdd(server_channels,channel,clients);
             incrRefCount(channel);
         } else {
             clients = dictGetVal(de);
@@ -153,7 +159,7 @@ int pubsubSubscribeChannel(client *c, robj *channel) {
         listAddNodeTail(clients,c);
     }
     /* Notify the client */
-    addReplyPubsubSubscribed(c,channel);
+    addReplyPubsubSubscribed(c,channel,subscriptionCount);
     return retval;
 }
 
@@ -284,8 +290,7 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify) {
     return count;
 }
 
-/* Publish a message */
-int pubsubPublishMessage(robj *channel, robj *message) {
+int pubsubPublishMessageInternal(robj *channel, robj *message, dict* server_channels) {
     int receivers = 0;
     dictEntry *de;
     dictIterator *di;
@@ -293,7 +298,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
     listIter li;
 
     /* Send to clients listening for that channel */
-    de = dictFind(server.pubsub_channels,channel);
+    de = dictFind(server_channels,channel);
     if (de) {
         list *list = dictGetVal(de);
         listNode *ln;
@@ -306,6 +311,8 @@ int pubsubPublishMessage(robj *channel, robj *message) {
             receivers++;
         }
     }
+
+    // TODO avoid pubsub_patterns for local
     /* Send to clients listening to matching channels */
     di = dictGetIterator(server.pubsub_patterns);
     if (di) {
@@ -331,6 +338,26 @@ int pubsubPublishMessage(robj *channel, robj *message) {
     return receivers;
 }
 
+/* Publish a message */
+int pubsubPublishMessage(robj *channel, robj *message) {
+    return pubsubPublishMessageInternal(channel, message, server.pubsub_channels);
+}
+
+/* This wraps handling ACL channel permissions for the given client. */
+int pubsubCheckACLPermissionsOrReply(client *c, int idx, int count, int literal) {
+    /* Check if the user can run the command according to the current
+     * ACLs. */
+    int acl_chanpos;
+    int acl_retval = ACLCheckPubsubPerm(c,idx,count,literal,&acl_chanpos);
+    if (acl_retval == ACL_DENIED_CHANNEL) {
+        addACLLogEntry(c,acl_retval,acl_chanpos,NULL);
+        addReplyError(c,
+            "-NOPERM this user has no permissions to access "
+            "one of the channels used as arguments");
+    }
+    return acl_retval;
+}
+
 /*-----------------------------------------------------------------------------
  * Pubsub commands implementation
  *----------------------------------------------------------------------------*/
@@ -351,7 +378,7 @@ void subscribeCommand(client *c) {
     }
 
     for (j = 1; j < c->argc; j++)
-        pubsubSubscribeChannel(c,c->argv[j]);
+        pubsubSubscribeChannel(c,c->argv[j], c->pubsub_channels, server.pubsub_channels,clientSubscriptionsCount);
     c->flags |= CLIENT_PUBSUB;
 }
 
@@ -466,4 +493,60 @@ NULL
     } else {
         addReplySubcommandSyntaxError(c);
     }
+}
+
+/* PUBSUBLOCAL command for Pub/Sub introspection. */
+void pubsubLocalCommand(client *c) {
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+        const char *help[] = {
+                "NUMSUB [<channel> ...]",
+                "    Return the number of subscribers for the specified channels",
+                NULL
+        };
+        addReplyHelp(c, help);
+    } else if (!strcasecmp(c->argv[1]->ptr,"numsub") && c->argc >= 2) {
+        /* PUBSUB NUMSUB [Channel_1 ... Channel_N] */
+        int j;
+
+        addReplyArrayLen(c,(c->argc-2)*2);
+        for (j = 2; j < c->argc; j++) {
+            list *l = dictFetchValue(server.pubsublocal_channels,c->argv[j]);
+
+            addReplyBulk(c,c->argv[j]);
+            addReplyLongLong(c,l ? listLength(l) : 0);
+        }
+    } else {
+        addReplySubcommandSyntaxError(c);
+    }
+}
+
+/* PUBLISH <channel> <message> */
+void publishLocalCommand(client *c) {
+    if (pubsubCheckACLPermissionsOrReply(c,1,1,0) != ACL_OK) return;
+    int receivers = pubsubPublishMessageInternal(c->argv[1],c->argv[2],server.pubsublocal_channels);
+    forceCommandPropagation(c,PROPAGATE_REPL);
+    addReplyLongLong(c,receivers);
+}
+
+/* SUBSCRIBE channel [channel ...] */
+void subscribeLocalCommand(client *c) {
+    int j;
+    if (pubsubCheckACLPermissionsOrReply(c,1,c->argc-1,0) != ACL_OK) return;
+    if (c->flags & CLIENT_DENY_BLOCKING) {
+        /**
+         * A client that has CLIENT_DENY_BLOCKING flag on
+         * expect a reply per command and so can not execute subscribe.
+         *
+         */
+        addReplyError(c, "SUBSCRIBE isn't allowed for a DENY BLOCKING client");
+        return;
+    }
+
+    for (j = 1; j < c->argc; j++)
+        pubsubSubscribeChannel(c,
+                               c->argv[j],
+                               c->pubsublocal_channels,
+                               server.pubsublocal_channels,
+                               clientLocalSubscriptionsCount);
+    c->flags |= CLIENT_PUBSUB;
 }

@@ -1390,7 +1390,8 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
     if (!strcasecmp(command,"shutdown")) config.shutdown = 1;
     if (!strcasecmp(command,"monitor")) config.monitor_mode = 1;
     if (!strcasecmp(command,"subscribe") ||
-        !strcasecmp(command,"psubscribe")) config.pubsub_mode = 1;
+        !strcasecmp(command,"psubscribe") ||
+        !strcasecmp(command,"subscribelocal")) config.pubsub_mode = 1;
     if (!strcasecmp(command,"sync") ||
         !strcasecmp(command,"psync")) config.slave_mode = 1;
 
@@ -2547,7 +2548,7 @@ typedef struct clusterManagerCommandDef {
 } clusterManagerCommandDef;
 
 clusterManagerCommandDef clusterManagerCommands[] = {
-    {"create", clusterManagerCommandCreate, -2, "host1:port1 ... hostN:portN",
+    {"create", clusterManagerCommandCreate, -1, "host1:port1 ... hostN:portN",
      "replicas <arg>"},
     {"check", clusterManagerCommandCheck, -1, "host:port",
      "search-multiple-owners"},

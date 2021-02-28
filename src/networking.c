@@ -176,6 +176,7 @@ client *createClient(connection *conn) {
     c->watched_keys = listCreate();
     c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType,NULL);
     c->pubsub_patterns = listCreate();
+    c->pubsublocal_channels = dictCreate(&objectKeyPointerValueDictType,NULL);
     c->peerid = NULL;
     c->sockname = NULL;
     c->client_list_node = NULL;

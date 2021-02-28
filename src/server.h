@@ -915,6 +915,7 @@ typedef struct client {
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
+    dict *pubsublocal_channels;  /* local channels a client is interested in (SUBSCRIBELOCAL) */
     sds peerid;             /* Cached peer ID. */
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */
@@ -1540,6 +1541,7 @@ struct redisServer {
     dict *pubsub_patterns;  /* A dict of pubsub_patterns */
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
+    dict *pubsublocal_channels;  /* Map channels to list of subscribed clients */
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */
     mstime_t cluster_node_timeout; /* Cluster node timeout. */
@@ -2629,10 +2631,12 @@ void configCommand(client *c);
 void hincrbyCommand(client *c);
 void hincrbyfloatCommand(client *c);
 void subscribeCommand(client *c);
+void subscribeLocalCommand(client *c);
 void unsubscribeCommand(client *c);
 void psubscribeCommand(client *c);
 void punsubscribeCommand(client *c);
 void publishCommand(client *c);
+void publishLocalCommand(client *c);
 void pubsubCommand(client *c);
 void watchCommand(client *c);
 void unwatchCommand(client *c);

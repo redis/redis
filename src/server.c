@@ -1124,7 +1124,16 @@ struct redisCommand redisCommandTable[] = {
 
     {"failover",failoverCommand,-1,
      "admin no-script ok-stale",
-     0,NULL,0,0,0,0,0,0}
+     0,NULL,0,0,0,0,0,0},
+
+    {"publishlocal",publishLocalCommand,3,
+            "pub-sub ok-loading ok-stale fast may-replicate",
+            0,NULL,1,1,1,0,0,0},
+
+    {"subscribelocal",subscribeLocalCommand,-2,
+            "pub-sub no-script ok-loading ok-stale",
+            0,NULL,1,1,1,0,0,0},
+
 };
 
 /*============================ Utility functions ============================ */
@@ -3260,6 +3269,7 @@ void initServer(void) {
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
     server.pubsub_channels = dictCreate(&keylistDictType,NULL);
     server.pubsub_patterns = dictCreate(&keylistDictType,NULL);
+    server.pubsublocal_channels = dictCreate(&keylistDictType,NULL);
     server.cronloops = 0;
     server.in_eval = 0;
     server.in_exec = 0;
@@ -4171,6 +4181,7 @@ int processCommand(client *c) {
     if ((c->flags & CLIENT_PUBSUB && c->resp == 2) &&
         c->cmd->proc != pingCommand &&
         c->cmd->proc != subscribeCommand &&
+        c->cmd->proc != subscribeLocalCommand &&
         c->cmd->proc != unsubscribeCommand &&
         c->cmd->proc != psubscribeCommand &&
         c->cmd->proc != punsubscribeCommand &&
