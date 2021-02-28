@@ -665,6 +665,7 @@ REDISMODULE_API long long (*RedisModule_StreamTrimByID)(RedisModuleKey *key, int
 REDISMODULE_API int (*RedisModule_IsKeysPositionRequest)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_KeyAtPos)(RedisModuleCtx *ctx, int pos) REDISMODULE_ATTR;
 REDISMODULE_API unsigned long long (*RedisModule_GetClientId)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleString * (*RedisModule_GetClientUserNameById)(RedisModuleCtx *ctx, uint64_t id) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetClientInfoById)(void *ci, uint64_t id) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_PublishMessage)(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleString *message) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetContextFlags)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
@@ -936,6 +937,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(IsKeysPositionRequest);
     REDISMODULE_GET_API(KeyAtPos);
     REDISMODULE_GET_API(GetClientId);
+    REDISMODULE_GET_API(GetClientUserNameById);
     REDISMODULE_GET_API(GetContextFlags);
     REDISMODULE_GET_API(AvoidReplicaTraffic);
     REDISMODULE_GET_API(PoolAlloc);

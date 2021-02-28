@@ -1837,6 +1837,28 @@ unsigned long long RM_GetClientId(RedisModuleCtx *ctx) {
     return ctx->client->id;
 }
 
+/* Return the ACL user name used by the client with the specified client ID.
+ * Client ID can be obtained with RM_GetClientId() API. If the client does not
+ * exist, NULL is returned and errno is set to ENOENT. If the client isn't 
+ * using an ACL user, NULL is returned and errno is set to ENOTSUP */
+RedisModuleString *RM_GetClientUserNameById(RedisModuleCtx *ctx, uint64_t id) {
+    client *client = lookupClientByID(id);
+    if (client == NULL) {
+        errno = ENOENT;
+        return NULL;
+    }
+    
+    if (client->user == NULL) {
+        errno = ENOTSUP;
+        return NULL;
+    }
+
+    sds name = sdsnew(client->user->name);
+    robj *str = createObject(OBJ_STRING, name);
+    autoMemoryAdd(ctx, REDISMODULE_AM_STRING, str);
+    return str;
+}
+
 /* This is an helper for RM_GetClientInfoById() and other functions: given
  * a client, it populates the client info structure with the appropriate
  * fields depending on the version provided. If the version is not valid
@@ -9157,6 +9179,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(IsKeysPositionRequest);
     REGISTER_API(KeyAtPos);
     REGISTER_API(GetClientId);
+    REGISTER_API(GetClientUserNameById);
     REGISTER_API(GetContextFlags);
     REGISTER_API(AvoidReplicaTraffic);
     REGISTER_API(PoolAlloc);
