@@ -32,6 +32,7 @@ proc generate_types {} {
     # add some metadata to the stream
     r xgroup create stream mygroup 0
     set records [r xreadgroup GROUP mygroup Alice COUNT 2 STREAMS stream >]
+    r xdel stream [lindex [lindex [lindex [lindex $records 0] 1] 1] 0]
     r xack stream mygroup [lindex [lindex [lindex [lindex $records 0] 1] 0] 0]
 
     # create other non-collection types
