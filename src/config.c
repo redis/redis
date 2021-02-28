@@ -768,21 +768,21 @@ void configSetCommand(client *c) {
             ACLSetUser(DefaultUser,"nopass",-1);
         }
     } config_set_special_field("bind") {
-            int vlen;
-            sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
+        int vlen;
+        sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
 
-            if (vlen < 1 || vlen > CONFIG_BINDADDR_MAX) {
-                addReplyError(c, "Too many bind addresses specified.");
-                sdsfreesplitres(v, vlen);
-                return;
-            }
-
-            if (changeBindAddr(v, vlen) == C_ERR) {
-                addReplyError(c, "Failed to bind to specified addresses.");
-                sdsfreesplitres(v, vlen);
-                return;
-            }
+        if (vlen < 1 || vlen > CONFIG_BINDADDR_MAX) {
+            addReplyError(c, "Too many bind addresses specified.");
             sdsfreesplitres(v, vlen);
+            return;
+        }
+
+        if (changeBindAddr(v, vlen) == C_ERR) {
+            addReplyError(c, "Failed to bind to specified addresses.");
+            sdsfreesplitres(v, vlen);
+            return;
+        }
+        sdsfreesplitres(v, vlen);
     } config_set_special_field("save") {
         int vlen, j;
         sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);

@@ -3002,11 +3002,11 @@ void closeSocketListeners(socketFds *sfd) {
     sfd->count = 0;
 }
 
+/* Create an event handler for accepting new connections in TCP or TLS domain sockets.
+ * This works atomically for all socket fds */
 int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler) {
     int j;
 
-    /* Create an event handler for accepting new connections in TCP and TLS
-     * domain sockets. */
     for (j = 0; j < sfd->count; j++) {
         if (aeCreateFileEvent(server.el, sfd->fd[j], AE_READABLE, accept_handler,NULL) == AE_ERR) {
             /* Rollback */

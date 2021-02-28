@@ -100,13 +100,10 @@ start_server {tags {"introspection"}} {
             supervised
             syslog-facility
             databases
-            port
-            tls-port
             io-threads
             logfile
             unixsocketperm
             slaveof
-            bind
             requirepass
             server_cpulist
             bio_cpulist
@@ -131,6 +128,7 @@ start_server {tags {"introspection"}} {
                 tls-protocols
                 tls-ciphers
                 tls-ciphersuites
+                tls-port
             }
         }
 
