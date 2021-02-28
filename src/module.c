@@ -3969,16 +3969,26 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     RedisModuleCallReply *reply = NULL;
     int replicate = 0; /* Replicate this command? */
 
-    /* Create the client and dispatch the command. */
+    /* Handle arguments. */
     va_start(ap, fmt);
-    c = createClient(NULL);
-    c->user = NULL; /* Root user. */
     argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&flags,ap);
     replicate = flags & REDISMODULE_ARGV_REPLICATE;
     va_end(ap);
 
     /* Setup our fake client for command execution. */
-    c->flags |= CLIENT_MODULE;
+    if (server.module_client == NULL) {
+        /* This is the first RM_Call() ever. Create reusable client. */
+        c = server.module_client = createClient(NULL);
+    } else if (server.module_client->argv == NULL) {
+        /* The reusable module client is not busy with a command. Use it. */
+        c = server.module_client;
+    } else {
+        /* The reusable module client is busy. (It is probably used in a
+         * recursive call to this module.) */
+        c = createClient(NULL);
+    }
+    c->user = NULL; /* Root user. */
+    c->flags = CLIENT_MODULE;
 
     /* We do not want to allow block, the module do not expect it */
     c->flags |= CLIENT_DENY_BLOCKING;
@@ -4066,7 +4076,18 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 
 cleanup:
     if (ctx->module) ctx->module->in_call--;
-    freeClient(c);
+    if (c == server.module_client) {
+        /* reset shared client so it can be reused */
+        discardTransaction(c);
+        pubsubUnsubscribeAllChannels(c,0);
+        pubsubUnsubscribeAllPatterns(c,0);
+        resetClient(c); /* frees the contents of argv */
+        zfree(c->argv);
+        c->argv = NULL;
+        c->resp = 2;
+    } else {
+        freeClient(c); /* temporary client */
+    }
     return reply;
 }
 
@@ -8268,6 +8289,9 @@ void moduleInitModulesSystem(void) {
 
     /* Set up filter list */
     moduleCommandFilters = listCreate();
+
+    /* Reusable client for RM_Call() is created on first use */
+    server.module_client = NULL;
 
     moduleRegisterCoreAPI();
     if (pipe(server.module_blocked_pipe) == -1) {

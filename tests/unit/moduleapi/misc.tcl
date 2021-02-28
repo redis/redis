@@ -16,6 +16,11 @@ start_server {tags {"modules"}} {
         assert { [string match "*cmdstat_module*" $info] }
     }
 
+    test {test RM_Call recursive} {
+        set info [r test.call_generic test.call_generic info commandstats]
+        assert { [string match "*cmdstat_module*" $info] }
+    }
+
     test {test redis version} {
         set version [s redis_version]
         assert_equal $version [r test.redisversion]

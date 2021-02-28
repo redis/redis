@@ -1195,6 +1195,7 @@ struct redisServer {
                                    to be processed. */
     pid_t child_pid;            /* PID of current child */
     int child_type;             /* Type of current child */
+    client *module_client;      /* "Fake" client to call Redis from modules */
     /* Networking */
     int port;                   /* TCP listening port */
     int tls_port;               /* TLS listening port */
