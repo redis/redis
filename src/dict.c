@@ -1173,7 +1173,8 @@ void dictGetStats(char *buf, size_t bufsize, dict *d) {
 
 #ifdef REDIS_TEST
 
-#include "sds.h"
+#include <sdscompat.h>
+#include <sds.h>
 
 uint64_t hashCallback(const void *key) {
     return dictGenHashFunction((unsigned char*)key, sdslen((char*)key));
