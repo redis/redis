@@ -54,6 +54,10 @@ typedef ucontext_t sigcontext_t;
 #endif
 #endif
 
+#if defined(__APPLE__) && defined(__arm64__)
+#include <mach/mach.h>
+#endif
+
 /* Globals */
 static int bug_report_start = 0; /* True if bug report header was already logged. */
 static pthread_mutex_t bug_report_start_mutex = PTHREAD_MUTEX_INITIALIZER;
