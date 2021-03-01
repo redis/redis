@@ -79,10 +79,10 @@ start_server {tags {"repl"}} {
             $master config set min-slaves-max-lag 2
             $master config set min-slaves-to-write 1
             assert {[$master set foo bar] eq {OK}}
-            $slave deferred 1
-            $slave debug sleep 6
+            exec kill -SIGSTOP [srv 0 pid]
             after 4000
             catch {$master set foo bar} e
+            exec kill -SIGCONT [srv 0 pid]
             set e
         } {NOREPLICAS*}
     }
