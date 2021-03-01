@@ -2,7 +2,7 @@ test {CONFIG SET port number} {
     start_server {} {
         # available port
         set avail_port [find_available_port $::baseport $::portcount]
-        set rd [redis [srv 0 host] [srv 0 port] 0 0]
+        set rd [redis [srv 0 host] [srv 0 port] 0 $::tls]
         $rd CONFIG SET port $avail_port
         $rd close
         set rd [redis [srv 0 host] $avail_port 0 0]
@@ -27,7 +27,7 @@ test {CONFIG SET bind address} {
         assert_match {*Failed to bind to specified addresses*} $e
 
         # make sure server still bound to the previous address
-        set rd [redis [srv 0 host] [srv 0 port] 0 0]
+        set rd [redis [srv 0 host] [srv 0 port] 0 $::tls]
         $rd PING
         $rd close
     }
