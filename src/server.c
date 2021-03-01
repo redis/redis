@@ -1070,7 +1070,7 @@ struct redisCommand redisCommandTable[] = {
      "write fast @stream",
      0,NULL,1,1,1,0,0,0},
 
-    {"xtrim",xtrimCommand,-2,
+    {"xtrim",xtrimCommand,-4,
      "write random @stream",
      0,NULL,1,1,1,0,0,0},
 
@@ -2653,7 +2653,6 @@ void initServerConfig(void) {
     server.sofd = -1;
     server.active_expire_enabled = 1;
     server.skip_checksum_validation = 0;
-    server.client_max_querybuf_len = PROTO_MAX_QUERYBUF_LEN;
     server.saveparams = NULL;
     server.loading = 0;
     server.loading_rdb_used_mem = 0;
@@ -3345,6 +3344,9 @@ void initServer(void) {
     scriptingInit(1);
     slowlogInit();
     latencyMonitorInit();
+    
+    /* Initialize ACL default password if it exists */
+    ACLUpdateDefaultUserPassword(server.requirepass);
 }
 
 /* Some steps in server initialization need to be done last (after modules
@@ -5083,11 +5085,11 @@ sds genRedisInfoString(const char *section) {
             while((ln = listNext(&li))) {
                 client *slave = listNodeValue(ln);
                 char *state = NULL;
-                char ip[NET_IP_STR_LEN], *slaveip = slave->slave_ip;
+                char ip[NET_IP_STR_LEN], *slaveip = slave->slave_addr;
                 int port;
                 long lag = 0;
 
-                if (slaveip[0] == '\0') {
+                if (!slaveip) {
                     if (connPeerToString(slave->conn,ip,sizeof(ip),&port) == -1)
                         continue;
                     slaveip = ip;

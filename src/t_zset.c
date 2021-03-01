@@ -4085,6 +4085,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
      * used into CASE 4 is highly inefficient. */
     if (count*ZRANDMEMBER_SUB_STRATEGY_MUL > size) {
         dict *d = dictCreate(&sdsReplyDictType, NULL);
+        dictExpand(d, size);
         /* Add all the elements into the temporary dictionary. */
         while (zuiNext(&src, &zval)) {
             sds key = zuiNewSdsFromValue(&zval);
@@ -4143,6 +4144,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
         /* Hashtable encoding (generic implementation) */
         unsigned long added = 0;
         dict *d = dictCreate(&hashDictType, NULL);
+        dictExpand(d, count);
 
         while (added < count) {
             ziplistEntry key;

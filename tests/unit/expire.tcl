@@ -209,6 +209,58 @@ start_server {tags {"expire"}} {
         set e
     } {*not an integer*}
 
+    test {SET with EX with big integer should report an error} {
+        catch {r set foo bar EX 10000000000000000} e
+        set e
+    } {ERR invalid expire time in set}
+
+    test {SET with EX with smallest integer should report an error} {
+        catch {r SET foo bar EX -9999999999999999} e
+        set e
+    } {ERR invalid expire time in set}
+
+    test {GETEX with big integer should report an error} {
+        r set foo bar
+        catch {r GETEX foo EX 10000000000000000} e
+        set e
+    } {ERR invalid expire time in getex}
+
+    test {GETEX with smallest integer should report an error} {
+        r set foo bar
+        catch {r GETEX foo EX -9999999999999999} e
+        set e
+    } {ERR invalid expire time in getex}
+
+    test {EXPIRE with big integer overflows when converted to milliseconds} {
+        r set foo bar
+        catch {r EXPIRE foo 10000000000000000} e
+        set e
+    } {ERR invalid expire time in expire}
+
+    test {PEXPIRE with big integer overflow when basetime is added} {
+        r set foo bar
+        catch {r PEXPIRE foo 9223372036854770000} e
+        set e
+    } {ERR invalid expire time in pexpire}
+
+    test {EXPIRE with big negative integer} {
+        r set foo bar
+        catch {r EXPIRE foo -9999999999999999} e
+        assert_match {ERR invalid expire time in expire} $e
+        r ttl foo
+    } {-1}
+
+    test {PEXPIREAT with big integer works} {
+        r set foo bar
+        r PEXPIREAT foo 9223372036854770000
+    } {1}
+
+    test {PEXPIREAT with big negative integer works} {
+        r set foo bar
+        r PEXPIREAT foo -9223372036854770000
+        r ttl foo
+    } {-2}
+
     test {EXPIRE and SET/GETEX EX/PX/EXAT/PXAT option, TTL should not be reset after loadaof} {
         # This test makes sure that expire times are propagated as absolute
         # times to the AOF file and not as relative time, so that when the AOF

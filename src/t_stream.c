@@ -512,7 +512,9 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
         {
             lp = NULL;
         } else if (server.stream_node_max_entries) {
-            int64_t count = lpGetInteger(lpFirst(lp));
+            unsigned char *lp_ele = lpFirst(lp);
+            /* Count both live entries and deleted ones. */
+            int64_t count = lpGetInteger(lp_ele) + lpGetInteger(lpNext(lp,lp_ele));
             if (count >= server.stream_node_max_entries) {
                 /* Shrink extra pre-allocated memory */
                 lp = lpShrinkToFit(lp);
@@ -3227,16 +3229,16 @@ cleanup:
 void xtrimCommand(client *c) {
     robj *o;
 
+    /* Argument parsing. */
+    streamAddTrimArgs parsed_args;
+    if (streamParseAddOrTrimArgsOrReply(c, &parsed_args, 1) < 0)
+        return; /* streamParseAddOrTrimArgsOrReply already replied. */
+
     /* If the key does not exist, we are ok returning zero, that is, the
      * number of elements removed from the stream. */
     if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL
         || checkType(c,o,OBJ_STREAM)) return;
     stream *s = o->ptr;
-
-    /* Argument parsing. */
-    streamAddTrimArgs parsed_args;
-    if (streamParseAddOrTrimArgsOrReply(c, &parsed_args, 1) < 0)
-        return; /* streamParseAddOrTrimArgsOrReply already replied. */
 
     /* Perform the trimming. */
     int64_t deleted = streamTrim(s, &parsed_args);

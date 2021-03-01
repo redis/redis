@@ -674,13 +674,13 @@ void srandmemberWithCountCommand(client *c) {
         uniq = 0;
     }
 
-    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptyset[c->resp]))
+    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptyarray))
         == NULL || checkType(c,set,OBJ_SET)) return;
     size = setTypeSize(set);
 
     /* If count is zero, serve it ASAP to avoid special cases later. */
     if (count == 0) {
-        addReply(c,shared.emptyset[c->resp]);
+        addReply(c,shared.emptyarray);
         return;
     }
 
@@ -690,7 +690,7 @@ void srandmemberWithCountCommand(client *c) {
      * structures. This case is the only one that also needs to return the
      * elements in random order. */
     if (!uniq || count == 1) {
-        addReplySetLen(c,count);
+        addReplyArrayLen(c,count);
         while(count--) {
             encoding = setTypeRandomElement(set,&ele,&llele);
             if (encoding == OBJ_ENCODING_INTSET) {
@@ -706,7 +706,19 @@ void srandmemberWithCountCommand(client *c) {
      * The number of requested elements is greater than the number of
      * elements inside the set: simply return the whole set. */
     if (count >= size) {
-        sunionDiffGenericCommand(c,c->argv+1,1,NULL,SET_OP_UNION);
+        setTypeIterator *si;
+        addReplyArrayLen(c,size);
+        si = setTypeInitIterator(set);
+        while ((encoding = setTypeNext(si,&ele,&llele)) != -1) {
+            if (encoding == OBJ_ENCODING_INTSET) {
+                addReplyBulkLongLong(c,llele);
+            } else {
+                addReplyBulkCBuffer(c,ele,sdslen(ele));
+            }
+            size--;
+        }
+        setTypeReleaseIterator(si);
+        serverAssert(size==0);
         return;
     }
 
@@ -727,6 +739,7 @@ void srandmemberWithCountCommand(client *c) {
 
         /* Add all the elements into the temporary dictionary. */
         si = setTypeInitIterator(set);
+        dictExpand(d, size);
         while ((encoding = setTypeNext(si,&ele,&llele)) != -1) {
             int retval = DICT_ERR;
 
@@ -759,6 +772,7 @@ void srandmemberWithCountCommand(client *c) {
         unsigned long added = 0;
         sds sdsele;
 
+        dictExpand(d, count);
         while (added < count) {
             encoding = setTypeRandomElement(set,&ele,&llele);
             if (encoding == OBJ_ENCODING_INTSET) {
@@ -781,7 +795,7 @@ void srandmemberWithCountCommand(client *c) {
         dictIterator *di;
         dictEntry *de;
 
-        addReplySetLen(c,count);
+        addReplyArrayLen(c,count);
         di = dictGetIterator(d);
         while((de = dictNext(di)) != NULL)
             addReplyBulkSds(c,dictGetKey(de));
