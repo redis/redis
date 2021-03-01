@@ -5918,6 +5918,7 @@ typedef int redisTestProc(int argc, char **argv);
 struct redisTest {
     char *name;
     redisTestProc *proc;
+    int failed;
 } redisTests[] = {
     {"ziplist", ziplistTest},
     {"quicklist", quicklistTest},
@@ -5952,11 +5953,27 @@ int main(int argc, char **argv) {
         if (!strcasecmp(argv[2], "all")) {
             int numtests = sizeof(redisTests)/sizeof(struct redisTest);
             for (int j = 0; j < numtests; j++) {
-                redisTests[j].proc(argc,argv);
+                redisTests[j].failed = (redisTests[j].proc(argc,argv) != 0);
             }
+
+            /* Report failed tests */
+            int failed_num = 0;
+            for (int j = 0; j < numtests; j++) {
+                if (redisTests[j].failed) {
+                    failed_num++;
+                    printf("[failed] Test - %s\n", redisTests[j].name);
+                } else {
+                    printf("[ok] Test - %s\n", redisTests[j].name);
+                }
+            }
+
+            printf("%d tests, %d passed, %d failed\n", numtests,
+                  numtests-failed_num, failed_num);
+
+            return failed_num == 0 ? 0 : 1;
         } else {
             redisTestProc *proc = getTestProcByName(argv[2]);
-            if (!proc) return -1;  /* test not found */
+            if (!proc) return -1; /* test not found */
             return proc(argc,argv);
         }
 
