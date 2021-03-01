@@ -66,7 +66,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: make
-      run: make REDIS_CFLAGS='-DREDIS_TEST'
+      run: make REDIS_CFLAGS='-Werror -DREDIS_TEST'
     - name: test
       run: ./src/redis-server test all
 
@@ -79,6 +79,6 @@ jobs:
     - name: make
       run: |
         sudo apt-get update && sudo apt-get install libc6-dev-i386
-        make 32bit REDIS_CFLAGS='-DREDIS_TEST'
+        make 32bit REDIS_CFLAGS='-Werror -DREDIS_TEST'
     - name: test
       run: ./src/redis-server test all
