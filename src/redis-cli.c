@@ -237,6 +237,7 @@ static struct config {
     char *auth;
     int askpass;
     char *user;
+    int quoted_input;   /* Force input args to be treated as quoted strings */
     int output; /* output mode, see OUTPUT_* defines */
     int push_output; /* Should we display spontaneous PUSH replies */
     sds mb_delim;
@@ -1533,6 +1534,8 @@ static int parseOptions(int argc, char **argv) {
             config.output = OUTPUT_RAW;
         } else if (!strcmp(argv[i],"--no-raw")) {
             config.output = OUTPUT_STANDARD;
+        } else if (!strcmp(argv[i],"--quoted-input")) {
+            config.quoted_input = 1;
         } else if (!strcmp(argv[i],"--csv")) {
             config.output = OUTPUT_CSV;
         } else if (!strcmp(argv[i],"--latency")) {
@@ -1841,6 +1844,7 @@ static void usage(void) {
 "  --raw              Use raw formatting for replies (default when STDOUT is\n"
 "                     not a tty).\n"
 "  --no-raw           Force formatted output even when STDOUT is not a tty.\n"
+"  --quoted-input     Force input to be handled as quoted strings.\n"
 "  --csv              Output in CSV format.\n"
 "  --show-pushes <yn> Whether to print RESP3 PUSH messages.  Enabled by default when\n"
 "                     STDOUT is a tty but can be overriden with --show-pushes no.\n"
@@ -1930,22 +1934,43 @@ static int confirmWithYes(char *msg, int ignore_force) {
     return (nread != 0 && !strcmp("yes", buf));
 }
 
-/* Turn the plain C strings into Sds strings */
-static char **convertToSds(int count, char** args) {
-    int j;
-    char **sds = zmalloc(sizeof(char*)*count);
+/* Unquote a null-terminated string and return it as a binary-safe sds. */
+static sds unquoteCString(char *str) {
+    int count;
+    sds *unquoted = sdssplitargs(str, &count);
 
-    for(j = 0; j < count; j++)
-        sds[j] = sdsnew(args[j]);
+    if (unquoted && count == 1) {
+        sds res = unquoted[0];
+        sds_free(unquoted);
+        return res;
+    }
 
-    return sds;
+    if (unquoted)
+        sdsfreesplitres(unquoted, count);
+    return NULL;
 }
 
-static void freeConvertedSds(int count, char **sds) {
-    int j;
-    for (j = 0; j < count; j++)
-        sdsfree(sds[j]);
-    zfree(sds);
+/* Create an sds array from argv, either as-is or by dequoting every
+ * element. When quoted is non-zero, may return a NULL to indicate an
+ * invalid quoted string.
+ */
+static sds *getSdsArrayFromArgv(int argc, char **argv, int quoted) {
+    sds *res = sds_malloc(sizeof(sds) * argc);
+
+    for (int j = 0; j < argc; j++) {
+        if (quoted) {
+            sds unquoted = unquoteCString(argv[j]);
+            if (!unquoted) {
+                while (--j > 0) sdsfree(res[j]);
+                return NULL;
+            }
+            res[j] = unquoted;
+        } else {
+            res[j] = sdsnew(argv[j]);
+        }
+    }
+
+    return res;
 }
 
 static int issueCommandRepeat(int argc, char **argv, long repeat) {
@@ -2178,17 +2203,19 @@ static void repl(void) {
 
 static int noninteractive(int argc, char **argv) {
     int retval = 0;
-
-    argv = convertToSds(argc, argv);
-    if (config.stdinarg) {
-        argv = zrealloc(argv, (argc+1)*sizeof(char*));
-        argv[argc] = readArgFromStdin();
-        retval = issueCommand(argc+1, argv);
-        sdsfree(argv[argc]);
-    } else {
-        retval = issueCommand(argc, argv);
+    sds *sds_args = getSdsArrayFromArgv(argc, argv, config.quoted_input);
+    if (!sds_args) {
+        printf("Invalid quoted string\n");
+        return 1;
     }
-    freeConvertedSds(argc, argv);
+    if (config.stdinarg) {
+        sds_args = sds_realloc(sds_args, (argc + 1) * sizeof(sds));
+        sds_args[argc] = readArgFromStdin();
+        argc++;
+    }
+
+    retval = issueCommand(argc, sds_args);
+    sdsfreesplitres(sds_args, argc);
     return retval;
 }
 
@@ -7331,10 +7358,16 @@ static void pipeMode(void) {
 static redisReply *sendScan(unsigned long long *it) {
     redisReply *reply;
 
-    if (config.pattern)
-        reply = redisCommand(context,"SCAN %llu MATCH %s",
-            *it,config.pattern);
-    else
+    if (config.pattern) {
+        sds pattern = config.quoted_input ? unquoteCString(config.pattern) : sdsnew(config.pattern);
+        if (!pattern) {
+            fprintf(stderr, "Invalid quoted --pattern argument.");
+            exit(1);
+        }
+        reply = redisCommand(context, "SCAN %llu MATCH %b",
+                             *it, pattern, sdslen(pattern));
+        sdsfree(pattern);
+    } else
         reply = redisCommand(context,"SCAN %llu",*it);
 
     /* Handle any error conditions */
@@ -7945,30 +7978,15 @@ static void scanMode(void) {
     unsigned long long cur = 0;
 
     do {
-        if (config.pattern)
-            reply = redisCommand(context,"SCAN %llu MATCH %s",
-                cur,config.pattern);
-        else
-            reply = redisCommand(context,"SCAN %llu",cur);
-        if (reply == NULL) {
-            printf("I/O error\n");
-            exit(1);
-        } else if (reply->type == REDIS_REPLY_ERROR) {
-            printf("ERROR: %s\n", reply->str);
-            exit(1);
-        } else {
-            unsigned int j;
-
-            cur = strtoull(reply->element[0]->str,NULL,10);
-            for (j = 0; j < reply->element[1]->elements; j++) {
-                if (config.output == OUTPUT_STANDARD) {
-                    sds out = sdscatrepr(sdsempty(), reply->element[1]->element[j]->str,
-                                         reply->element[1]->element[j]->len);
-                    printf("%s\n", out);
-                    sdsfree(out);
-                } else {
-                    printf("%s\n", reply->element[1]->element[j]->str);
-                }
+        reply = sendScan(&cur);
+        for (unsigned int j = 0; j < reply->element[1]->elements; j++) {
+            if (config.output == OUTPUT_STANDARD) {
+                sds out = sdscatrepr(sdsempty(), reply->element[1]->element[j]->str,
+                                     reply->element[1]->element[j]->len);
+                printf("%s\n", out);
+                sdsfree(out);
+            } else {
+                printf("%s\n", reply->element[1]->element[j]->str);
             }
         }
         freeReplyObject(reply);
