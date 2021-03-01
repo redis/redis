@@ -3619,7 +3619,7 @@ void preventCommandPropagation(client *c) {
     c->flags |= CLIENT_PREVENT_PROP;
 }
 
-/* Avoid logging any information about this client arguments
+/* Avoid logging any information about this client's arguments
  * since they contain sensitive information. */
 void preventCommandLogging(client *c) {
     c->flags |= CLIENT_PREVENT_LOGGING;
