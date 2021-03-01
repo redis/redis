@@ -1744,6 +1744,7 @@ void moduleLoadFromQueue(void);
 int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 moduleType *moduleTypeLookupModuleByID(uint64_t id);
 void moduleTypeNameByID(char *name, uint64_t moduleid);
+const char *moduleTypeModuleName(moduleType *mt);
 void moduleFreeContext(struct RedisModuleCtx *ctx);
 void unblockClientFromModule(client *c);
 void moduleHandleBlockedClients(void);

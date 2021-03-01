@@ -4264,6 +4264,12 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
     }
 }
 
+/* Return the name of the module that owns the specified moduleType. */
+const char *moduleTypeModuleName(moduleType *mt) {
+    if (!mt || !mt->module) return NULL;
+    return mt->module->name;
+}
+
 /* Create a copy of a module type value using the copy callback. If failed
  * or not supported, produce an error reply and return NULL.
  */
