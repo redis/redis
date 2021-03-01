@@ -1091,7 +1091,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"acl",aclCommand,-2,
-     "admin no-script no-slowlog ok-loading ok-stale",
+     "admin no-script ok-loading ok-stale",
      0,NULL,0,0,0,0,0,0},
 
     {"stralgo",stralgoCommand,-2,
@@ -3619,6 +3619,10 @@ void preventCommandPropagation(client *c) {
     c->flags |= CLIENT_PREVENT_PROP;
 }
 
+void preventCommandLogging(client *c) {
+    c->flags |= CLIENT_PREVENT_LOGGING;
+}
+
 /* AOF specific version of preventCommandPropagation(). */
 void preventCommandAOF(client *c) {
     c->flags |= CLIENT_PREVENT_AOF_PROP;
@@ -3729,6 +3733,13 @@ void call(client *c, int flags) {
             server.lua_caller->flags |= CLIENT_FORCE_REPL;
         if (c->flags & CLIENT_FORCE_AOF)
             server.lua_caller->flags |= CLIENT_FORCE_AOF;
+    }
+
+    /* Some commands may contain sensitive data that should
+     * not be available in the slowlog. */
+    if (c->flags & CLIENT_PREVENT_LOGGING) {
+        c->flags &= ~CLIENT_PREVENT_LOGGING;
+        flags &= ~CMD_CALL_SLOWLOG;
     }
 
     /* Log the command into the Slow log if needed, and populate the
