@@ -728,7 +728,23 @@ void configSetCommand(client *c) {
     if (0) { /* this starts the config_set macros else-if chain. */
 
     /* Special fields that can't be handled with general macros. */
-    config_set_special_field("save") {
+    config_set_special_field("bind") {
+        int vlen;
+        sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
+
+        if (vlen < 1 || vlen > CONFIG_BINDADDR_MAX) {
+            addReplyError(c, "Too many bind addresses specified.");
+            sdsfreesplitres(v, vlen);
+            return;
+        }
+
+        if (changeBindAddr(v, vlen) == C_ERR) {
+            addReplyError(c, "Failed to bind to specified addresses.");
+            sdsfreesplitres(v, vlen);
+            return;
+        }
+        sdsfreesplitres(v, vlen);
+    } config_set_special_field("save") {
         int vlen, j;
         sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
 
@@ -2191,6 +2207,20 @@ static int updateHZ(long long val, long long prev, const char **err) {
     return 1;
 }
 
+static int updatePort(long long val, long long prev, const char **err) {
+    /* Do nothing if port is unchanged */
+    if (val == prev) {
+        return 1;
+    }
+
+    if (changeListenPort(val, &server.ipfd, acceptTcpHandler) == C_ERR) {
+        *err = "Unable to listen on this port. Check server logs.";
+        return 0;
+    }
+
+    return 1;
+}
+
 static int updateJemallocBgThread(int val, int prev, const char **err) {
     UNUSED(prev);
     UNUSED(err);
@@ -2329,6 +2359,27 @@ static int updateTlsCfgInt(long long val, long long prev, const char **err) {
     UNUSED(prev);
     return updateTlsCfg(NULL, NULL, err);
 }
+
+static int updateTLSPort(long long val, long long prev, const char **err) {
+    /* Do nothing if port is unchanged */
+    if (val == prev) {
+        return 1;
+    }
+
+    /* Configure TLS if tls is enabled */
+    if (prev == 0 && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
+        *err = "Unable to update TLS configuration. Check server logs.";
+        return 0;
+    }
+
+    if (changeListenPort(val, &server.tlsfd, acceptTLSHandler) == C_ERR) {
+        *err = "Unable to listen on this port. Check server logs.";
+        return 0;
+    }
+
+    return 1;
+}
+
 #endif  /* USE_OPENSSL */
 
 standardConfig configs[] = {
@@ -2409,7 +2460,7 @@ standardConfig configs[] = {
 
     /* Integer configs */
     createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),
-    createIntConfig("port", NULL, IMMUTABLE_CONFIG, 0, 65535, server.port, 6379, INTEGER_CONFIG, NULL, NULL), /* TCP port. */
+    createIntConfig("port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.port, 6379, INTEGER_CONFIG, NULL, updatePort), /* TCP port. */
     createIntConfig("io-threads", NULL, IMMUTABLE_CONFIG, 1, 128, server.io_threads_num, 1, INTEGER_CONFIG, NULL, NULL), /* Single threaded by default */
     createIntConfig("auto-aof-rewrite-percentage", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.aof_rewrite_perc, 100, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("cluster-replica-validity-factor", "cluster-slave-validity-factor", MODIFIABLE_CONFIG, 0, INT_MAX, server.cluster_slave_validity_factor, 10, INTEGER_CONFIG, NULL, NULL), /* Slave max data age factor. */
@@ -2478,7 +2529,7 @@ standardConfig configs[] = {
     createOffTConfig("auto-aof-rewrite-min-size", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.aof_rewrite_min_size, 64*1024*1024, MEMORY_CONFIG, NULL, NULL),
 
 #ifdef USE_OPENSSL
-    createIntConfig("tls-port", NULL, IMMUTABLE_CONFIG, 0, 65535, server.tls_port, 0, INTEGER_CONFIG, NULL, updateTlsCfgInt), /* TCP port. */
+    createIntConfig("tls-port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.tls_port, 0, INTEGER_CONFIG, NULL, updateTLSPort), /* TCP port. */
     createIntConfig("tls-session-cache-size", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.tls_ctx_config.session_cache_size, 20*1024, INTEGER_CONFIG, NULL, updateTlsCfgInt),
     createIntConfig("tls-session-cache-timeout", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.tls_ctx_config.session_cache_timeout, 300, INTEGER_CONFIG, NULL, updateTlsCfgInt),
     createBoolConfig("tls-cluster", NULL, MODIFIABLE_CONFIG, server.tls_cluster, 0, NULL, updateTlsCfgBool),
