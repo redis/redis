@@ -504,8 +504,6 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"include") && argc == 2) {
             loadServerConfig(argv[1], 0, NULL);
-        } else if ((!strcasecmp(argv[0],"client-query-buffer-limit")) && argc == 2) {
-             server.client_max_querybuf_len = memtoll(argv[1],NULL);
         } else if ((!strcasecmp(argv[0],"slaveof") ||
                     !strcasecmp(argv[0],"replicaof")) && argc == 3) {
             slaveof_linenum = linenum;
@@ -521,26 +519,6 @@ void loadServerConfigFromString(char *config) {
                 err = "Invalid master port"; goto loaderr;
             }
             server.repl_state = REPL_STATE_CONNECT;
-        } else if (!strcasecmp(argv[0],"requirepass") && argc == 2) {
-            if (sdslen(argv[1]) > CONFIG_AUTHPASS_MAX_LEN) {
-                err = "Password is longer than CONFIG_AUTHPASS_MAX_LEN";
-                goto loaderr;
-            }
-            /* The old "requirepass" directive just translates to setting
-             * a password to the default user. The only thing we do
-             * additionally is to remember the cleartext password in this
-             * case, for backward compatibility with Redis <= 5. */
-            ACLSetUser(DefaultUser,"resetpass",-1);
-            sdsfree(server.requirepass);
-            server.requirepass = NULL;
-            if (sdslen(argv[1])) {
-                sds aclop = sdscatlen(sdsnew(">"), argv[1], sdslen(argv[1]));
-                ACLSetUser(DefaultUser,aclop,sdslen(aclop));
-                sdsfree(aclop);
-                server.requirepass = sdsdup(argv[1]);
-            } else {
-                ACLSetUser(DefaultUser,"nopass",-1);
-            }
         } else if (!strcasecmp(argv[0],"list-max-ziplist-entries") && argc == 2){
             /* DEAD OPTION */
         } else if (!strcasecmp(argv[0],"list-max-ziplist-value") && argc == 2) {
@@ -750,23 +728,22 @@ void configSetCommand(client *c) {
     if (0) { /* this starts the config_set macros else-if chain. */
 
     /* Special fields that can't be handled with general macros. */
-    config_set_special_field("requirepass") {
-        if (sdslen(o->ptr) > CONFIG_AUTHPASS_MAX_LEN) goto badfmt;
-        /* The old "requirepass" directive just translates to setting
-         * a password to the default user. The only thing we do
-         * additionally is to remember the cleartext password in this
-         * case, for backward compatibility with Redis <= 5. */
-        ACLSetUser(DefaultUser,"resetpass",-1);
-        sdsfree(server.requirepass);
-        server.requirepass = NULL;
-        if (sdslen(o->ptr)) {
-            sds aclop = sdscatlen(sdsnew(">"), o->ptr, sdslen(o->ptr));
-            ACLSetUser(DefaultUser,aclop,sdslen(aclop));
-            sdsfree(aclop);
-            server.requirepass = sdsdup(o->ptr);
-        } else {
-            ACLSetUser(DefaultUser,"nopass",-1);
+    config_set_special_field("bind") {
+        int vlen;
+        sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
+
+        if (vlen < 1 || vlen > CONFIG_BINDADDR_MAX) {
+            addReplyError(c, "Too many bind addresses specified.");
+            sdsfreesplitres(v, vlen);
+            return;
         }
+
+        if (changeBindAddr(v, vlen) == C_ERR) {
+            addReplyError(c, "Failed to bind to specified addresses.");
+            sdsfreesplitres(v, vlen);
+            return;
+        }
+        sdsfreesplitres(v, vlen);
     } config_set_special_field("save") {
         int vlen, j;
         sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
@@ -876,10 +853,6 @@ void configSetCommand(client *c) {
             enableWatchdog(ll);
         else
             disableWatchdog();
-    /* Memory fields.
-     * config_set_memory_field(name,var) */
-    } config_set_memory_field(
-      "client-query-buffer-limit",server.client_max_querybuf_len) {
     /* Everything else is an error... */
     } config_set_else {
         addReplyErrorFormat(c,"Unsupported CONFIG parameter: %s",
@@ -959,7 +932,6 @@ void configGetCommand(client *c) {
     config_get_string_field("logfile",server.logfile);
 
     /* Numerical values */
-    config_get_numerical_field("client-query-buffer-limit",server.client_max_querybuf_len);
     config_get_numerical_field("watchdog-period",server.watchdog_period);
 
     /* Everything we can't handle with macros follows. */
@@ -1044,16 +1016,6 @@ void configGetCommand(client *c) {
         addReplyBulkCString(c,"bind");
         addReplyBulkCString(c,aux);
         sdsfree(aux);
-        matches++;
-    }
-    if (stringmatch(pattern,"requirepass",1)) {
-        addReplyBulkCString(c,"requirepass");
-        sds password = server.requirepass;
-        if (password) {
-            addReplyBulkCBuffer(c,password,sdslen(password));
-        } else {
-            addReplyBulkCString(c,"");
-        }
         matches++;
     }
 
@@ -1564,26 +1526,6 @@ void rewriteConfigBindOption(struct rewriteConfigState *state) {
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
-/* Rewrite the requirepass option. */
-void rewriteConfigRequirepassOption(struct rewriteConfigState *state, char *option) {
-    int force = 1;
-    sds line;
-    sds password = server.requirepass;
-
-    /* If there is no password set, we don't want the requirepass option
-     * to be present in the configuration at all. */
-    if (password == NULL) {
-        rewriteConfigMarkAsProcessed(state,option);
-        return;
-    }
-
-    line = sdsnew(option);
-    line = sdscatlen(line, " ", 1);
-    line = sdscatsds(line, password);
-
-    rewriteConfigRewriteLine(state,option,line,force);
-}
-
 /* Glue together the configuration lines in the current configuration
  * rewrite state into a single string, stripping multiple empty lines. */
 sds rewriteConfigGetContentFromState(struct rewriteConfigState *state) {
@@ -1740,8 +1682,6 @@ int rewriteConfig(char *path, int force_all) {
     rewriteConfigUserOption(state);
     rewriteConfigDirOption(state);
     rewriteConfigSlaveofOption(state,"replicaof");
-    rewriteConfigRequirepassOption(state,"requirepass");
-    rewriteConfigBytesOption(state,"client-query-buffer-limit",server.client_max_querybuf_len,PROTO_MAX_QUERYBUF_LEN);
     rewriteConfigStringOption(state,"cluster-config-file",server.cluster_configfile,CONFIG_DEFAULT_CLUSTER_CONFIG_FILE);
     rewriteConfigNotifykeyspaceeventsOption(state);
     rewriteConfigClientoutputbufferlimitOption(state);
@@ -2267,6 +2207,20 @@ static int updateHZ(long long val, long long prev, const char **err) {
     return 1;
 }
 
+static int updatePort(long long val, long long prev, const char **err) {
+    /* Do nothing if port is unchanged */
+    if (val == prev) {
+        return 1;
+    }
+
+    if (changeListenPort(val, &server.ipfd, acceptTcpHandler) == C_ERR) {
+        *err = "Unable to listen on this port. Check server logs.";
+        return 0;
+    }
+
+    return 1;
+}
+
 static int updateJemallocBgThread(int val, int prev, const char **err) {
     UNUSED(prev);
     UNUSED(err);
@@ -2368,6 +2322,18 @@ static int updateOOMScoreAdj(int val, int prev, const char **err) {
     return 1;
 }
 
+
+int updateRequirePass(sds val, sds prev, const char **err) {
+    UNUSED(prev);
+    UNUSED(err);
+    /* The old "requirepass" directive just translates to setting
+     * a password to the default user. The only thing we do
+     * additionally is to remember the cleartext password in this
+     * case, for backward compatibility with Redis <= 5. */
+    ACLUpdateDefaultUserPassword(val);
+    return 1;
+}
+
 #ifdef USE_OPENSSL
 static int updateTlsCfg(char *val, char *prev, const char **err) {
     UNUSED(val);
@@ -2393,6 +2359,27 @@ static int updateTlsCfgInt(long long val, long long prev, const char **err) {
     UNUSED(prev);
     return updateTlsCfg(NULL, NULL, err);
 }
+
+static int updateTLSPort(long long val, long long prev, const char **err) {
+    /* Do nothing if port is unchanged */
+    if (val == prev) {
+        return 1;
+    }
+
+    /* Configure TLS if tls is enabled */
+    if (prev == 0 && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
+        *err = "Unable to update TLS configuration. Check server logs.";
+        return 0;
+    }
+
+    if (changeListenPort(val, &server.tlsfd, acceptTLSHandler) == C_ERR) {
+        *err = "Unable to listen on this port. Check server logs.";
+        return 0;
+    }
+
+    return 1;
+}
+
 #endif  /* USE_OPENSSL */
 
 standardConfig configs[] = {
@@ -2458,6 +2445,7 @@ standardConfig configs[] = {
 
     /* SDS Configs */
     createSDSConfig("masterauth", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.masterauth, NULL, NULL, NULL),
+    createSDSConfig("requirepass", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.requirepass, NULL, NULL, updateRequirePass),
 
     /* Enum Configs */
     createEnumConfig("supervised", NULL, IMMUTABLE_CONFIG, supervised_mode_enum, server.supervised_mode, SUPERVISED_NONE, NULL, NULL),
@@ -2472,7 +2460,7 @@ standardConfig configs[] = {
 
     /* Integer configs */
     createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),
-    createIntConfig("port", NULL, IMMUTABLE_CONFIG, 0, 65535, server.port, 6379, INTEGER_CONFIG, NULL, NULL), /* TCP port. */
+    createIntConfig("port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.port, 6379, INTEGER_CONFIG, NULL, updatePort), /* TCP port. */
     createIntConfig("io-threads", NULL, IMMUTABLE_CONFIG, 1, 128, server.io_threads_num, 1, INTEGER_CONFIG, NULL, NULL), /* Single threaded by default */
     createIntConfig("auto-aof-rewrite-percentage", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.aof_rewrite_perc, 100, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("cluster-replica-validity-factor", "cluster-slave-validity-factor", MODIFIABLE_CONFIG, 0, INT_MAX, server.cluster_slave_validity_factor, 10, INTEGER_CONFIG, NULL, NULL), /* Slave max data age factor. */
@@ -2534,13 +2522,14 @@ standardConfig configs[] = {
     createSizeTConfig("zset-max-ziplist-value", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.zset_max_ziplist_value, 64, MEMORY_CONFIG, NULL, NULL),
     createSizeTConfig("hll-sparse-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hll_sparse_max_bytes, 3000, MEMORY_CONFIG, NULL, NULL),
     createSizeTConfig("tracking-table-max-keys", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.tracking_table_max_keys, 1000000, INTEGER_CONFIG, NULL, NULL), /* Default: 1 million keys max. */
+    createSizeTConfig("client-query-buffer-limit", NULL, MODIFIABLE_CONFIG, 1024*1024, LONG_MAX, server.client_max_querybuf_len, 1024*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 1GB max query buffer. */
 
     /* Other configs */
     createTimeTConfig("repl-backlog-ttl", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.repl_backlog_time_limit, 60*60, INTEGER_CONFIG, NULL, NULL), /* Default: 1 hour */
     createOffTConfig("auto-aof-rewrite-min-size", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.aof_rewrite_min_size, 64*1024*1024, MEMORY_CONFIG, NULL, NULL),
 
 #ifdef USE_OPENSSL
-    createIntConfig("tls-port", NULL, IMMUTABLE_CONFIG, 0, 65535, server.tls_port, 0, INTEGER_CONFIG, NULL, updateTlsCfgInt), /* TCP port. */
+    createIntConfig("tls-port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.tls_port, 0, INTEGER_CONFIG, NULL, updateTLSPort), /* TCP port. */
     createIntConfig("tls-session-cache-size", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.tls_ctx_config.session_cache_size, 20*1024, INTEGER_CONFIG, NULL, updateTlsCfgInt),
     createIntConfig("tls-session-cache-timeout", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.tls_ctx_config.session_cache_timeout, 300, INTEGER_CONFIG, NULL, updateTlsCfgInt),
     createBoolConfig("tls-cluster", NULL, MODIFIABLE_CONFIG, server.tls_cluster, 0, NULL, updateTlsCfgBool),

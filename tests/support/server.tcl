@@ -72,6 +72,8 @@ proc kill_server config {
     # kill server and wait for the process to be totally exited
     send_data_packet $::test_server_fd server-killing $pid
     catch {exec kill $pid}
+    # Node might have been stopped in the test
+    catch {exec kill -SIGCONT $pid}
     if {$::valgrind} {
         set max_wait 60000
     } else {

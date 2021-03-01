@@ -250,18 +250,20 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
 /* Unsubscribe from all the channels. Return the number of channels the
  * client was subscribed to. */
 int pubsubUnsubscribeAllChannels(client *c, int notify) {
-    dictIterator *di = dictGetSafeIterator(c->pubsub_channels);
-    dictEntry *de;
     int count = 0;
+    if (dictSize(c->pubsub_channels) > 0) {
+        dictIterator *di = dictGetSafeIterator(c->pubsub_channels);
+        dictEntry *de;
 
-    while((de = dictNext(di)) != NULL) {
-        robj *channel = dictGetKey(de);
+        while((de = dictNext(di)) != NULL) {
+            robj *channel = dictGetKey(de);
 
-        count += pubsubUnsubscribeChannel(c,channel,notify);
+            count += pubsubUnsubscribeChannel(c,channel,notify);
+        }
+        dictReleaseIterator(di);
     }
     /* We were subscribed to nothing? Still reply to the client. */
     if (notify && count == 0) addReplyPubsubUnsubscribed(c,NULL);
-    dictReleaseIterator(di);
     return count;
 }
 
