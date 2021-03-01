@@ -5968,7 +5968,7 @@ int main(int argc, char **argv) {
             }
 
             printf("%d tests, %d passed, %d failed\n", numtests,
-                  numtests-failed_num, failed_num);
+                   numtests-failed_num, failed_num);
 
             return failed_num == 0 ? 0 : 1;
         } else {
