@@ -49,13 +49,13 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         r config set slowlog-log-slower-than 0
         r config set slowlog-log-slower-than 10000
         set slowlog_resp [r slowlog get]
-        
+
         # Make sure normal configs work, but the two sensitive
         # commands are omitted
         assert_equal 2 [llength $slowlog_resp]
         assert_equal {slowlog reset} [lindex [lindex [r slowlog get] 1] 3]
         assert_equal {config set slowlog-log-slower-than 0} [lindex [lindex [r slowlog get] 0] 3]
-    } {}
+    }
 
     test {SLOWLOG - Rewritten commands are logged as their original command} {
         r config set slowlog-log-slower-than 0

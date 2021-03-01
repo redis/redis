@@ -249,8 +249,8 @@ typedef struct standardConfig {
 } standardConfig;
 
 #define CONFIG_FLAG_NONE 0
-#define CONFIG_FLAG_IMMUTABLE (1ULL<<0)
-#define CONFIG_FLAG_SENSITIVE (1ULL<<1)
+#define CONFIG_FLAG_IMMUTABLE (1ULL<<0) /* Can this value only be set at startup? */
+#define CONFIG_FLAG_SENSITIVE (1ULL<<1) /* Does this value contain sensitive information */
 
 standardConfig configs[];
 
