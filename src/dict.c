@@ -1221,7 +1221,7 @@ dictType BenchmarkDictType = {
     printf(msg ": %ld items in %lld ms\n", count, elapsed); \
 } while(0)
 
-/* ./redis-server test [count] */
+/* ./redis-server test dict [count] */
 int dictTest(int argc, char **argv) {
     long j;
     long long start, elapsed;
