@@ -285,7 +285,7 @@ REDIS_CHECK_AOF_NAME=redis-check-aof$(PROG_SUFFIX)
 
 all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME)
 	@echo ""
-	@echo "Hint: It's a good idea to run 'make test' ;)"
+	@echo "Hint: It's a good idea to run 'make test' :)"
 	@echo ""
 
 Makefile.dep:
