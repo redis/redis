@@ -111,4 +111,8 @@ start_server {tags {"modules"}} {
         r test.log_tsctx "info" "Test message"
         verify_log_message 0 "*<misc> Test message*" 0
     }
+
+    test {test RM_Call CLIENT INFO} {
+        assert_match "*fd=-1*" [r test.call_generic client info]
+    }
 }
