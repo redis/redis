@@ -54,7 +54,7 @@ typedef ucontext_t sigcontext_t;
 #endif
 #endif
 
-#if defined(__APPLE__) && defined(__arm64__) && defined(USE_JEMALLOC)
+#if defined(__APPLE__) && defined(__arm64__)
 #include <mach/mach.h>
 #endif
 
