@@ -143,8 +143,7 @@ REDIS_STATIC quicklistNode *quicklistCreateNode(void) {
     node->count = 0;
     node->sz = 0;
     node->next = node->prev = NULL;
-    node->encoding = QUICKLIST_NODE_ENCODING_RAW;
-    node->container = QUICKLIST_NODE_CONTAINER_ZIPLIST;
+    node->encoding = QUICKLIST_NODE_ENCODING_ZIPLIST;
     node->recompress = 0;
     return node;
 }
@@ -207,7 +206,7 @@ REDIS_STATIC int __quicklistCompressNode(quicklistNode *node) {
 /* Compress only uncompressed nodes. */
 #define quicklistCompressNode(_node)                                           \
     do {                                                                       \
-        if ((_node) && (_node)->encoding == QUICKLIST_NODE_ENCODING_RAW) {     \
+        if ((_node) && (_node)->encoding == QUICKLIST_NODE_ENCODING_ZIPLIST) {     \
             __quicklistCompressNode((_node));                                  \
         }                                                                      \
     } while (0)
@@ -228,7 +227,7 @@ REDIS_STATIC int __quicklistDecompressNode(quicklistNode *node) {
     }
     zfree(lzf);
     node->zl = decompressed;
-    node->encoding = QUICKLIST_NODE_ENCODING_RAW;
+    node->encoding = QUICKLIST_NODE_ENCODING_ZIPLIST;
     return 1;
 }
 
@@ -1207,7 +1206,7 @@ quicklist *quicklistDup(quicklist *orig) {
             size_t lzf_sz = sizeof(*lzf) + lzf->sz;
             node->zl = zmalloc(lzf_sz);
             memcpy(node->zl, current->zl, lzf_sz);
-        } else if (current->encoding == QUICKLIST_NODE_ENCODING_RAW) {
+        } else if (current->encoding == QUICKLIST_NODE_ENCODING_ZIPLIST) {
             node->zl = zmalloc(current->sz);
             memcpy(node->zl, current->zl, current->sz);
         }
@@ -1657,7 +1656,7 @@ static int _ql_verify(quicklist *ql, uint32_t len, uint32_t count,
 
         for (unsigned int at = 0; at < ql->len; at++, node = node->next) {
             if (node && (at < low_raw || at >= high_raw)) {
-                if (node->encoding != QUICKLIST_NODE_ENCODING_RAW) {
+                if (node->encoding != QUICKLIST_NODE_ENCODING_ZIPLIST) {
                     yell("Incorrect compression: node %d is "
                          "compressed at depth %d ((%u, %u); total "
                          "nodes: %lu; size: %u; recompress: %d)",
@@ -2704,7 +2703,7 @@ int quicklistTest(int argc, char *argv[]) {
                     for (unsigned int at = 0; at < ql->len;
                          at++, node = node->next) {
                         if (at < low_raw || at >= high_raw) {
-                            if (node->encoding != QUICKLIST_NODE_ENCODING_RAW) {
+                            if (node->encoding != QUICKLIST_NODE_ENCODING_ZIPLIST) {
                                 ERR("Incorrect compression: node %d is "
                                     "compressed at depth %d ((%u, %u); total "
                                     "nodes: %lu; size: %u)",
