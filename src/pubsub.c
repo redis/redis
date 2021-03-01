@@ -31,6 +31,8 @@
 
 int clientSubscriptionsCount(client *c);
 
+void channel_list(client *c, sds pat, dict* pubsub_channels);
+
 /*-----------------------------------------------------------------------------
  * Pubsub client replies API
  *----------------------------------------------------------------------------*/
@@ -457,25 +459,7 @@ NULL
     {
         /* PUBSUB CHANNELS [<pattern>] */
         sds pat = (c->argc == 2) ? NULL : c->argv[2]->ptr;
-        dictIterator *di = dictGetIterator(server.pubsub_channels);
-        dictEntry *de;
-        long mblen = 0;
-        void *replylen;
-
-        replylen = addReplyDeferredLen(c);
-        while((de = dictNext(di)) != NULL) {
-            robj *cobj = dictGetKey(de);
-            sds channel = cobj->ptr;
-
-            if (!pat || stringmatchlen(pat, sdslen(pat),
-                                       channel, sdslen(channel),0))
-            {
-                addReplyBulk(c,cobj);
-                mblen++;
-            }
-        }
-        dictReleaseIterator(di);
-        setDeferredArrayLen(c,replylen,mblen);
+        channel_list(c, pat, server.pubsub_channels);
     } else if (!strcasecmp(c->argv[1]->ptr,"numsub") && c->argc >= 2) {
         /* PUBSUB NUMSUB [Channel_1 ... Channel_N] */
         int j;
@@ -490,9 +474,49 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"numpat") && c->argc == 2) {
         /* PUBSUB NUMPAT */
         addReplyLongLong(c,dictSize(server.pubsub_patterns));
+    } else if (!strcasecmp(c->argv[1]->ptr,"local") && c->argc >= 2) {
+        /* PUBSUB LOCAL CHANNELS [PATTERN] */
+        if (!strcasecmp(c->argv[2]->ptr,"channels")) {
+            sds pat = (c->argc == 3) ? NULL : c->argv[3]->ptr;
+            channel_list(c, pat, server.pubsublocal_channels);
+
+        } else if (!strcasecmp(c->argv[2]->ptr,"numsub")) {
+            /* PUBSUB LOCAL NUMSUB [Channel_1 ... Channel_N] */
+            int j;
+
+            addReplyArrayLen(c, (c->argc - 3) * 2);
+            for (j = 3; j < c->argc; j++) {
+                list *l = dictFetchValue(server.pubsublocal_channels, c->argv[j]);
+
+                addReplyBulk(c, c->argv[j]);
+                addReplyLongLong(c, l ? listLength(l) : 0);
+            }
+        }
     } else {
         addReplySubcommandSyntaxError(c);
     }
+}
+
+void channel_list(client *c, sds pat, dict *pubsub_channels) {
+    dictIterator *di = dictGetIterator(pubsub_channels);
+    dictEntry *de;
+    long mblen = 0;
+    void *replylen;
+
+    replylen = addReplyDeferredLen(c);
+    while((de = dictNext(di)) != NULL) {
+        robj *cobj = dictGetKey(de);
+        sds channel = cobj->ptr;
+
+        if (!pat || stringmatchlen(pat, sdslen(pat),
+                                   channel, sdslen(channel),0))
+        {
+            addReplyBulk(c,cobj);
+            mblen++;
+        }
+    }
+    dictReleaseIterator(di);
+    setDeferredArrayLen(c,replylen,mblen);
 }
 
 /* PUBSUBLOCAL command for Pub/Sub introspection. */

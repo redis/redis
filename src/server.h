@@ -2638,6 +2638,7 @@ void punsubscribeCommand(client *c);
 void publishCommand(client *c);
 void publishLocalCommand(client *c);
 void pubsubCommand(client *c);
+void pubsubLocalCommand(client *c);
 void watchCommand(client *c);
 void unwatchCommand(client *c);
 void clusterCommand(client *c);
