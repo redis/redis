@@ -782,6 +782,7 @@ clusterNode *createClusterNode(char *nodename, int flags) {
     memset(node->ip,0,sizeof(node->ip));
     node->port = 0;
     node->cport = 0;
+    node->pport = 0;
     node->fail_reports = listCreate();
     node->voted_time = 0;
     node->orphaned_time = 0;
@@ -1488,6 +1489,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 if (node->link) freeClusterLink(node->link);
                 memcpy(node->ip,g->ip,NET_IP_STR_LEN);
                 node->port = ntohs(g->port);
+                node->pport = ntohs(g->pport);
                 node->cport = ntohs(g->cport);
                 node->flags &= ~CLUSTER_NODE_NOADDR;
             }
@@ -1509,6 +1511,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 node = createClusterNode(g->nodename, flags);
                 memcpy(node->ip,g->ip,NET_IP_STR_LEN);
                 node->port = ntohs(g->port);
+                node->pport = ntohs(g->pport);
                 node->cport = ntohs(g->cport);
                 clusterAddNode(node);
             }
@@ -1548,6 +1551,7 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link,
 {
     char ip[NET_IP_STR_LEN] = {0};
     int port = ntohs(hdr->port);
+    int pport = ntohs(hdr->pport);
     int cport = ntohs(hdr->cport);
 
     /* We don't proceed if the link is the same as the sender link, as this
@@ -1559,12 +1563,13 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link,
     if (link == node->link) return 0;
 
     nodeIp2String(ip,link,hdr->myip);
-    if (node->port == port && node->cport == cport &&
+    if (node->port == port && node->cport == cport && node->pport == pport &&
         strcmp(ip,node->ip) == 0) return 0;
 
     /* IP / port is different, update it. */
     memcpy(node->ip,ip,sizeof(ip));
     node->port = port;
+    node->pport = pport;
     node->cport = cport;
     if (node->link) freeClusterLink(node->link);
     node->flags &= ~CLUSTER_NODE_NOADDR;
@@ -1862,6 +1867,7 @@ int clusterProcessPacket(clusterLink *link) {
             node = createClusterNode(NULL,CLUSTER_NODE_HANDSHAKE);
             nodeIp2String(node->ip,link,hdr->myip);
             node->port = ntohs(hdr->port);
+            node->pport = ntohs(hdr->pport);
             node->cport = ntohs(hdr->cport);
             clusterAddNode(node);
             clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
@@ -1924,6 +1930,7 @@ int clusterProcessPacket(clusterLink *link) {
                 link->node->flags |= CLUSTER_NODE_NOADDR;
                 link->node->ip[0] = '\0';
                 link->node->port = 0;
+                link->node->pport = 0;
                 link->node->cport = 0;
                 freeClusterLink(link);
                 clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
@@ -2431,11 +2438,19 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
                           server.cluster_announce_bus_port :
                           (port + CLUSTER_PORT_INCR);
 
+    /* Plaintext port for non-TLS clients in a TLS cluster. */
+    int announced_pport = server.tls_cluster ?
+                          (server.cluster_announce_plain_port ?
+                           server.cluster_announce_plain_port :
+                           server.port) :
+                          0;
+
     memcpy(hdr->myslots,master->slots,sizeof(hdr->myslots));
     memset(hdr->slaveof,0,CLUSTER_NAMELEN);
     if (myself->slaveof != NULL)
         memcpy(hdr->slaveof,myself->slaveof->name, CLUSTER_NAMELEN);
     hdr->port = htons(announced_port);
+    hdr->pport = htons(announced_pport);
     hdr->cport = htons(announced_cport);
     hdr->flags = htons(myself->flags);
     hdr->state = server.cluster->state;
@@ -2492,6 +2507,7 @@ void clusterSetGossipEntry(clusterMsg *hdr, int i, clusterNode *n) {
     gossip->port = htons(n->port);
     gossip->cport = htons(n->cport);
     gossip->flags = htons(n->flags);
+    gossip->pport = htons(n->pport);
     gossip->notused1 = 0;
 }
 
@@ -4320,7 +4336,10 @@ void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, in
     addReplyLongLong(c, end_slot);
     addReplyArrayLen(c, 3);
     addReplyBulkCString(c, node->ip);
-    addReplyLongLong(c, node->port);
+    /* Report non-TLS ports to non-TLS client in TLS cluster if available. */
+    int use_pport = (server.tls_cluster &&
+                     c->conn && connGetType(c->conn) != CONN_TYPE_TLS);
+    addReplyLongLong(c, use_pport && node->pport ? node->pport : node->port);
     addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
 
     /* Remaining nodes in reply are replicas for slot range */
@@ -4330,7 +4349,10 @@ void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, in
         if (nodeFailed(node->slaves[i])) continue;
         addReplyArrayLen(c, 3);
         addReplyBulkCString(c, node->slaves[i]->ip);
-        addReplyLongLong(c, node->slaves[i]->port);
+        /* Report slave's non-TLS port to non-TLS client in TLS cluster */
+        addReplyLongLong(c, (use_pport && node->slaves[i]->pport ?
+                             node->slaves[i]->pport :
+                             node->slaves[i]->port);
         addReplyBulkCBuffer(c, node->slaves[i]->name, CLUSTER_NAMELEN);
         nested_elements++;
     }
