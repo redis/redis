@@ -1729,33 +1729,17 @@ int clientsCronResizeQueryBuffer(client *c) {
  * When we want to know what was recently the peak memory usage, we just scan
  * such few slots searching for the maximum value. */
 #define CLIENTS_PEAK_MEM_USAGE_SLOTS 8
-size_t ClientsPeakMemInput[CLIENTS_PEAK_MEM_USAGE_SLOTS];
-size_t ClientsPeakMemOutput[CLIENTS_PEAK_MEM_USAGE_SLOTS];
+size_t ClientsPeakMemInput[CLIENTS_PEAK_MEM_USAGE_SLOTS] = {0};
+size_t ClientsPeakMemOutput[CLIENTS_PEAK_MEM_USAGE_SLOTS] = {0};
 
-int clientsCronTrackExpansiveClients(client *c) {
+int clientsCronTrackExpansiveClients(client *c, int time_idx) {
     size_t in_usage = sdsZmallocSize(c->querybuf) + c->argv_len_sum +
 	              (c->argv ? zmalloc_size(c->argv) : 0);
     size_t out_usage = getClientOutputBufferMemoryUsage(c);
-    int i = server.unixtime % CLIENTS_PEAK_MEM_USAGE_SLOTS;
-    int zeroidx = (i+1) % CLIENTS_PEAK_MEM_USAGE_SLOTS;
-
-    /* Always zero the next sample, so that when we switch to that second, we'll
-     * only register samples that are greater in that second without considering
-     * the history of such slot.
-     *
-     * Note: our index may jump to any random position if serverCron() is not
-     * called for some reason with the normal frequency, for instance because
-     * some slow command is called taking multiple seconds to execute. In that
-     * case our array may end containing data which is potentially older
-     * than CLIENTS_PEAK_MEM_USAGE_SLOTS seconds: however this is not a problem
-     * since here we want just to track if "recently" there were very expansive
-     * clients from the POV of memory usage. */
-    ClientsPeakMemInput[zeroidx] = 0;
-    ClientsPeakMemOutput[zeroidx] = 0;
 
     /* Track the biggest values observed so far in this slot. */
-    if (in_usage > ClientsPeakMemInput[i]) ClientsPeakMemInput[i] = in_usage;
-    if (out_usage > ClientsPeakMemOutput[i]) ClientsPeakMemOutput[i] = out_usage;
+    if (in_usage > ClientsPeakMemInput[time_idx]) ClientsPeakMemInput[time_idx] = in_usage;
+    if (out_usage > ClientsPeakMemOutput[time_idx]) ClientsPeakMemOutput[time_idx] = out_usage;
 
     return 0; /* This function never terminates the client. */
 }
@@ -1828,6 +1812,24 @@ void clientsCron(void) {
         iterations = (numclients < CLIENTS_CRON_MIN_ITERATIONS) ?
                      numclients : CLIENTS_CRON_MIN_ITERATIONS;
 
+
+    int curr_peak_mem_usage_slot = server.unixtime % CLIENTS_PEAK_MEM_USAGE_SLOTS;
+    /* Always zero the next sample, so that when we switch to that second, we'll
+     * only register samples that are greater in that second without considering
+     * the history of such slot.
+     *
+     * Note: our index may jump to any random position if serverCron() is not
+     * called for some reason with the normal frequency, for instance because
+     * some slow command is called taking multiple seconds to execute. In that
+     * case our array may end containing data which is potentially older
+     * than CLIENTS_PEAK_MEM_USAGE_SLOTS seconds: however this is not a problem
+     * since here we want just to track if "recently" there were very expansive
+     * clients from the POV of memory usage. */
+    int zeroidx = (curr_peak_mem_usage_slot+1) % CLIENTS_PEAK_MEM_USAGE_SLOTS;
+    ClientsPeakMemInput[zeroidx] = 0;
+    ClientsPeakMemOutput[zeroidx] = 0;
+
+
     while(listLength(server.clients) && iterations--) {
         client *c;
         listNode *head;
@@ -1843,7 +1845,7 @@ void clientsCron(void) {
          * terminated. */
         if (clientsCronHandleTimeout(c,now)) continue;
         if (clientsCronResizeQueryBuffer(c)) continue;
-        if (clientsCronTrackExpansiveClients(c)) continue;
+        if (clientsCronTrackExpansiveClients(c, curr_peak_mem_usage_slot)) continue;
         if (clientsCronTrackClientsMemUsage(c)) continue;
     }
 }
