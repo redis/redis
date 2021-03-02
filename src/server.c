@@ -5956,7 +5956,7 @@ int main(int argc, char **argv) {
                 redisTests[j].failed = (redisTests[j].proc(argc,argv) != 0);
             }
 
-            /* Report failed tests */
+            /* Report tests result */
             int failed_num = 0;
             for (int j = 0; j < numtests; j++) {
                 if (redisTests[j].failed) {
