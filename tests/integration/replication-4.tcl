@@ -79,12 +79,16 @@ start_server {tags {"repl"}} {
             $master config set min-slaves-max-lag 2
             $master config set min-slaves-to-write 1
             assert {[$master set foo bar] eq {OK}}
-            $slave deferred 1
-            $slave debug sleep 6
-            after 4000
-            catch {$master set foo bar} e
-            set e
-        } {NOREPLICAS*}
+            exec kill -SIGSTOP [srv 0 pid]
+            wait_for_condition 100 100 {
+                [catch {$master set foo bar}] != 0
+            } else {
+                fail "Master didn't become readonly"
+            }
+            catch {$master set foo bar} err
+            assert_match {NOREPLICAS*} $err
+            exec kill -SIGCONT [srv 0 pid]
+        }
     }
 }
 
