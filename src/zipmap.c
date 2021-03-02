@@ -532,6 +532,7 @@ int zipmapTest(int argc, char *argv[]) {
             printf("  %d:%.*s => %d:%.*s\n", klen, klen, key, vlen, vlen, value);
         }
     }
+    zfree(zm);
     return 0;
 }
 #endif
