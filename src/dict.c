@@ -1301,6 +1301,7 @@ int dictTest(int argc, char **argv) {
         assert(retval == DICT_OK);
     }
     end_benchmark("Removing and adding");
+    dictRelease(dict);
     return 0;
 }
 #endif
