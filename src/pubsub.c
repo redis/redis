@@ -167,7 +167,7 @@ int pubsubSubscribeChannel(client *c, robj *channel, dict *client_channels, dict
 
 /* Unsubscribe a client from a channel. Returns 1 if the operation succeeded, or
  * 0 if the client was not subscribed to the specified channel. */
-int pubsubUnsubscribeChannel(client *c, robj *channel, int notify) {
+int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, dict *server_channels, dict *client_channels) {
     dictEntry *de;
     list *clients;
     listNode *ln;
@@ -176,10 +176,10 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify) {
     /* Remove the channel from the client -> channels hash table */
     incrRefCount(channel); /* channel may be just a pointer to the same object
                             we have in the hash tables. Protect it... */
-    if (dictDelete(c->pubsub_channels,channel) == DICT_OK) {
+    if (dictDelete(client_channels,channel) == DICT_OK) {
         retval = 1;
         /* Remove the client from the channel -> clients list hash table */
-        de = dictFind(server.pubsub_channels,channel);
+        de = dictFind(server_channels,channel);
         serverAssertWithInfo(c,NULL,de != NULL);
         clients = dictGetVal(de);
         ln = listSearchKey(clients,c);
@@ -189,7 +189,7 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify) {
             /* Free the list and associated hash entry at all if this was
              * the latest client, so that it will be possible to abuse
              * Redis PUBSUB creating millions of channels. */
-            dictDelete(server.pubsub_channels,channel);
+            dictDelete(server_channels,channel);
         }
     }
     /* Notify the client */
@@ -266,7 +266,7 @@ int pubsubUnsubscribeAllChannels(client *c, int notify) {
         while((de = dictNext(di)) != NULL) {
             robj *channel = dictGetKey(de);
 
-            count += pubsubUnsubscribeChannel(c,channel,notify);
+            count += pubsubUnsubscribeChannel(c,channel,notify,server.pubsub_channels,c->pubsub_channels);
         }
         dictReleaseIterator(di);
     }
@@ -392,7 +392,7 @@ void unsubscribeCommand(client *c) {
         int j;
 
         for (j = 1; j < c->argc; j++)
-            pubsubUnsubscribeChannel(c,c->argv[j],1);
+            pubsubUnsubscribeChannel(c,c->argv[j],1,server.pubsub_channels,c->pubsub_channels);
     }
     if (clientSubscriptionsCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
 }
@@ -519,32 +519,7 @@ void channel_list(client *c, sds pat, dict *pubsub_channels) {
     setDeferredArrayLen(c,replylen,mblen);
 }
 
-/* PUBSUBLOCAL command for Pub/Sub introspection. */
-void pubsubLocalCommand(client *c) {
-    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
-        const char *help[] = {
-                "NUMSUB [<channel> ...]",
-                "    Return the number of subscribers for the specified channels",
-                NULL
-        };
-        addReplyHelp(c, help);
-    } else if (!strcasecmp(c->argv[1]->ptr,"numsub") && c->argc >= 2) {
-        /* PUBSUB NUMSUB [Channel_1 ... Channel_N] */
-        int j;
-
-        addReplyArrayLen(c,(c->argc-2)*2);
-        for (j = 2; j < c->argc; j++) {
-            list *l = dictFetchValue(server.pubsublocal_channels,c->argv[j]);
-
-            addReplyBulk(c,c->argv[j]);
-            addReplyLongLong(c,l ? listLength(l) : 0);
-        }
-    } else {
-        addReplySubcommandSyntaxError(c);
-    }
-}
-
-/* PUBLISH <channel> <message> */
+/* PUBLISHLOCAL <channel> <message> */
 void publishLocalCommand(client *c) {
     if (pubsubCheckACLPermissionsOrReply(c,1,1,0) != ACL_OK) return;
     int receivers = pubsubPublishMessageInternal(c->argv[1],c->argv[2],server.pubsublocal_channels);
@@ -552,7 +527,7 @@ void publishLocalCommand(client *c) {
     addReplyLongLong(c,receivers);
 }
 
-/* SUBSCRIBE channel [channel ...] */
+/* SUBSCRIBELOCAL channel [channel ...] */
 void subscribeLocalCommand(client *c) {
     int j;
     if (pubsubCheckACLPermissionsOrReply(c,1,c->argc-1,0) != ACL_OK) return;
@@ -573,4 +548,18 @@ void subscribeLocalCommand(client *c) {
                                server.pubsublocal_channels,
                                clientLocalSubscriptionsCount);
     c->flags |= CLIENT_PUBSUB;
+}
+
+
+/* UNSUBSCRIBELOCAL [channel [channel ...]] */
+void unsubscribeLocalCommand(client *c) {
+    if (c->argc == 1) {
+        pubsubUnsubscribeAllChannels(c,1);
+    } else {
+        int j;
+
+        for (j = 1; j < c->argc; j++)
+            pubsubUnsubscribeChannel(c,c->argv[j],1,server.pubsublocal_channels,c->pubsublocal_channels);
+    }
+    if (clientSubscriptionsCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
 }

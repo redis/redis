@@ -1132,8 +1132,11 @@ struct redisCommand redisCommandTable[] = {
 
     {"subscribelocal",subscribeLocalCommand,-2,
             "pub-sub no-script ok-loading ok-stale",
-            0,NULL,1,1,1,0,0,0},
+            0,NULL,1,-1,1,0,0,0},
 
+    {"unsubscribeLocal",unsubscribeLocalCommand,-1,
+            "pub-sub no-script ok-loading ok-stale",
+            0,NULL,1,-1,1,0,0,0}
 };
 
 /*============================ Utility functions ============================ */
