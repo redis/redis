@@ -12,6 +12,33 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 6.2.1 Released Mon Mar  1 17:51:36 IST 2021
+================================================================================
+
+Upgrade urgency: LOW.
+
+Here is a comprehensive list of changes in this release compared to 6.2.0,
+each one includes the PR number that added it, so you can get more details
+at https://github.com/redis/redis/pull/<number>
+
+Bug fixes:
+* Fix sanitize-dump-payload for stream with deleted records (#8568)
+* Prevent client-query-buffer-limit config from being set to lower than 1mb (#8557)
+
+Improvements:
+* Make port, tls-port and bind config options modifiable at runtime (#8510)
+
+Platform and deployment-related changes:
+* Fix compilation error on non-glibc systems if jemalloc is not used (#8533)
+* Improved memory consumption and memory usage tracking on FreeBSD (#8545)
+* Fix compilation on ARM64 MacOS with jemalloc (#8458)
+
+Modules:
+* New Module API for getting user name of a client (#8508)
+* Optimize RM_Call by utilizing a shared reusable client (#8516)
+* Fix crash running CLIENT INFO via RM_Call (#8560)
+
+================================================================================
 Redis 6.2.0 GA  Released Tue Feb 22 14:00:00 IST 2021
 ================================================================================
 

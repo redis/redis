@@ -52,6 +52,7 @@ start_server [list overrides [list "dir" $server_path] keep_persistence true] {
         }
         r xgroup create stream mygroup 0
         set records [r xreadgroup GROUP mygroup Alice COUNT 2 STREAMS stream >]
+        r xdel stream [lindex [lindex [lindex [lindex $records 0] 1] 1] 0]
         r xack stream mygroup [lindex [lindex [lindex [lindex $records 0] 1] 0] 0]
         set digest [r debug digest]
         r config set sanitize-dump-payload no

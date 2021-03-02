@@ -3229,16 +3229,16 @@ cleanup:
 void xtrimCommand(client *c) {
     robj *o;
 
+    /* Argument parsing. */
+    streamAddTrimArgs parsed_args;
+    if (streamParseAddOrTrimArgsOrReply(c, &parsed_args, 1) < 0)
+        return; /* streamParseAddOrTrimArgsOrReply already replied. */
+
     /* If the key does not exist, we are ok returning zero, that is, the
      * number of elements removed from the stream. */
     if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL
         || checkType(c,o,OBJ_STREAM)) return;
     stream *s = o->ptr;
-
-    /* Argument parsing. */
-    streamAddTrimArgs parsed_args;
-    if (streamParseAddOrTrimArgsOrReply(c, &parsed_args, 1) < 0)
-        return; /* streamParseAddOrTrimArgsOrReply already replied. */
 
     /* Perform the trimming. */
     int64_t deleted = streamTrim(s, &parsed_args);
@@ -3570,7 +3570,7 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
     p = next; if (!lpValidateNext(lp, &next, size)) return 0;
 
     /* deleted */
-    lpGetIntegerIfValid(p, &valid_record);
+    int64_t deleted_count = lpGetIntegerIfValid(p, &valid_record);
     if (!valid_record) return 0;
     p = next; if (!lpValidateNext(lp, &next, size)) return 0;
 
@@ -3589,6 +3589,7 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
     if (!valid_record || zero != 0) return 0;
     p = next; if (!lpValidateNext(lp, &next, size)) return 0;
 
+    entry_count += deleted_count;
     while (entry_count--) {
         if (!p) return 0;
         int64_t fields = master_fields, extra_fields = 3;
