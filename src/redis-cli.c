@@ -7369,10 +7369,10 @@ static void pipeMode(void) {
 static redisReply *sendScan(unsigned long long *it) {
     redisReply *reply;
 
-    if (config.pattern) {
+    if (config.pattern)
         reply = redisCommand(context, "SCAN %llu MATCH %b",
-                             *it, config.pattern, sdslen(config.pattern));
-    } else
+            *it, config.pattern, sdslen(config.pattern));
+    else
         reply = redisCommand(context,"SCAN %llu",*it);
 
     /* Handle any error conditions */
