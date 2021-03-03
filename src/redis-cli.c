@@ -227,7 +227,7 @@ static struct config {
     int scan_mode;
     int intrinsic_latency_mode;
     int intrinsic_latency_duration;
-    char *pattern;
+    sds pattern;
     char *rdb_filename;
     int bigkeys;
     int memkeys;
@@ -763,6 +763,22 @@ static void freeHintsCallback(void *ptr) {
 /*------------------------------------------------------------------------------
  * Networking / parsing
  *--------------------------------------------------------------------------- */
+
+/* Unquote a null-terminated string and return it as a binary-safe sds. */
+static sds unquoteCString(char *str) {
+    int count;
+    sds *unquoted = sdssplitargs(str, &count);
+
+    if (unquoted && count == 1) {
+        sds res = unquoted[0];
+        sds_free(unquoted);
+        return res;
+    }
+
+    if (unquoted)
+        sdsfreesplitres(unquoted, count);
+    return NULL;
+}
 
 /* Send AUTH command to the server */
 static int cliAuth(redisContext *ctx, char *user, char *auth) {
@@ -1560,7 +1576,15 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--scan")) {
             config.scan_mode = 1;
         } else if (!strcmp(argv[i],"--pattern") && !lastarg) {
-            config.pattern = argv[++i];
+            if (config.pattern) sds_free(config.pattern);
+            config.pattern = sdsnew(argv[++i]);
+        } else if (!strcmp(argv[i],"--quoted-pattern") && !lastarg) {
+            if (config.pattern) sds_free(config.pattern);
+            config.pattern = unquoteCString(argv[++i]);
+            if (!config.pattern) {
+                fprintf(stderr,"Invalid quoted string specified for --quoted-pattern.\n");
+                exit(1);
+            }
         } else if (!strcmp(argv[i],"--intrinsic-latency") && !lastarg) {
             config.intrinsic_latency_mode = 1;
             config.intrinsic_latency_duration = atoi(argv[++i]);
@@ -1880,6 +1904,8 @@ static void usage(void) {
 "  --scan             List all keys using the SCAN command.\n"
 "  --pattern <pat>    Keys pattern when using the --scan, --bigkeys or --hotkeys\n"
 "                     options (default: *).\n"
+"  --quoted-pattern <pat> Same as --pattern, but the specified string can be\n"
+"                         quoted, in order to pass a non binary-safe string.\n"
 "  --intrinsic-latency <sec> Run a test to measure intrinsic system latency.\n"
 "                     The test will run for the specified amount of seconds.\n"
 "  --eval <file>      Send an EVAL command using the Lua script at <file>.\n"
@@ -1934,22 +1960,6 @@ static int confirmWithYes(char *msg, int ignore_force) {
     return (nread != 0 && !strcmp("yes", buf));
 }
 
-/* Unquote a null-terminated string and return it as a binary-safe sds. */
-static sds unquoteCString(char *str) {
-    int count;
-    sds *unquoted = sdssplitargs(str, &count);
-
-    if (unquoted && count == 1) {
-        sds res = unquoted[0];
-        sds_free(unquoted);
-        return res;
-    }
-
-    if (unquoted)
-        sdsfreesplitres(unquoted, count);
-    return NULL;
-}
-
 /* Create an sds array from argv, either as-is or by dequoting every
  * element. When quoted is non-zero, may return a NULL to indicate an
  * invalid quoted string.
@@ -1961,7 +1971,8 @@ static sds *getSdsArrayFromArgv(int argc, char **argv, int quoted) {
         if (quoted) {
             sds unquoted = unquoteCString(argv[j]);
             if (!unquoted) {
-                while (--j > 0) sdsfree(res[j]);
+                while (--j >= 0) sdsfree(res[j]);
+                sds_free(res);
                 return NULL;
             }
             res[j] = unquoted;
@@ -7359,14 +7370,8 @@ static redisReply *sendScan(unsigned long long *it) {
     redisReply *reply;
 
     if (config.pattern) {
-        sds pattern = config.quoted_input ? unquoteCString(config.pattern) : sdsnew(config.pattern);
-        if (!pattern) {
-            fprintf(stderr, "Invalid quoted --pattern argument.");
-            exit(1);
-        }
         reply = redisCommand(context, "SCAN %llu MATCH %b",
-                             *it, pattern, sdslen(pattern));
-        sdsfree(pattern);
+                             *it, config.pattern, sdslen(config.pattern));
     } else
         reply = redisCommand(context,"SCAN %llu",*it);
 

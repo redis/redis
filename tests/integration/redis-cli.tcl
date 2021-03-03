@@ -280,7 +280,7 @@ start_server {tags {"cli"}} {
         assert_equal {key:2} [run_cli --scan --pattern "*:2"]
 
         # pattern matching with a quoted string
-        assert_equal {key:2} [run_cli --scan --quoted-input --pattern {"*:\x32"}]
+        assert_equal {key:2} [run_cli --scan --quoted-pattern {"*:\x32"}]
     }
 
     test "Connecting as a replica" {
