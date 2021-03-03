@@ -768,16 +768,17 @@ static void freeHintsCallback(void *ptr) {
 static sds unquoteCString(char *str) {
     int count;
     sds *unquoted = sdssplitargs(str, &count);
+    sds res = NULL;
 
     if (unquoted && count == 1) {
-        sds res = unquoted[0];
-        sds_free(unquoted);
-        return res;
+        res = unquoted[0];
+        unquoted[0] = NULL;
     }
 
     if (unquoted)
         sdsfreesplitres(unquoted, count);
-    return NULL;
+
+    return res;
 }
 
 /* Send AUTH command to the server */
@@ -1931,6 +1932,7 @@ static void usage(void) {
 "  redis-cli get mypasswd\n"
 "  redis-cli -r 100 lpush mylist x\n"
 "  redis-cli -r 100 -i 1 info | grep used_memory_human:\n"
+"  redis-cli --quoted-input set '\"null-\\x00-separated\"' value\n"
 "  redis-cli --eval myscript.lua key1 key2 , arg1 arg2 arg3\n"
 "  redis-cli --scan --pattern '*:12345*'\n"
 "\n"

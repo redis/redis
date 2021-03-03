@@ -271,7 +271,7 @@ start_server {tags {"cli"}} {
 
     test "Scan mode" {
         r flushdb
-        r debug populate 1000 key 1
+        populate 1000 key: 1
 
         # basic use
         assert_equal 1000 [llength [split [run_cli --scan]]]
