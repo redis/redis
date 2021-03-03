@@ -1576,10 +1576,10 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--scan")) {
             config.scan_mode = 1;
         } else if (!strcmp(argv[i],"--pattern") && !lastarg) {
-            if (config.pattern) sdsfree(config.pattern);
+            sdsfree(config.pattern);
             config.pattern = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"--quoted-pattern") && !lastarg) {
-            if (config.pattern) sdsfree(config.pattern);
+            sdsfree(config.pattern);
             config.pattern = unquoteCString(argv[++i]);
             if (!config.pattern) {
                 fprintf(stderr,"Invalid quoted string specified for --quoted-pattern.\n");
