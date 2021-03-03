@@ -102,7 +102,6 @@ static struct config {
     int showerrors;
     long long start;
     long long totlatency;
-    long long *latency;
     const char *title;
     list *clients;
     int quiet;
