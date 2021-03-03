@@ -55,7 +55,7 @@ void clusterSendFail(char *nodename);
 void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request);
 void clusterUpdateState(void);
 int clusterNodeGetSlotBit(clusterNode *n, int slot);
-sds clusterGenNodesDescription(int filter);
+sds clusterGenNodesDescription(int filter, int use_pport);
 clusterNode *clusterLookupNode(const char *name);
 int clusterNodeAddSlave(clusterNode *master, clusterNode *slave);
 int clusterAddSlot(clusterNode *n, int slot);
@@ -189,6 +189,9 @@ int clusterLoadConfig(char *filename) {
          * In this case we set it to the default offset of 10000 from the
          * base port. */
         n->cport = busp ? atoi(busp) : n->port + CLUSTER_PORT_INCR;
+
+        /* The plaintext port for client in a TLS cluster (n->pport) is not
+         * stored in nodes.conf. It is received later over the bus protocol. */
 
         /* Parse flags */
         p = s = argv[2];
@@ -336,7 +339,7 @@ int clusterSaveConfig(int do_fsync) {
 
     /* Get the nodes description and concatenate our "vars" directive to
      * save currentEpoch and lastVoteEpoch. */
-    ci = clusterGenNodesDescription(CLUSTER_NODE_HANDSHAKE);
+    ci = clusterGenNodesDescription(CLUSTER_NODE_HANDSHAKE, 0);
     ci = sdscatprintf(ci,"vars currentEpoch %llu lastVoteEpoch %llu\n",
         (unsigned long long) server.cluster->currentEpoch,
         (unsigned long long) server.cluster->lastVoteEpoch);
@@ -524,12 +527,15 @@ void clusterInit(void) {
     memset(server.cluster->slots_keys_count,0,
            sizeof(server.cluster->slots_keys_count));
 
-    /* Set myself->port / cport to my listening ports, we'll just need to
+    /* Set myself->port/cport/pport to my listening ports, we'll just need to
      * discover the IP address via MEET messages. */
     myself->port = port;
+    myself->pport = server.tls_cluster ? server.port : 0;
     myself->cport = port+CLUSTER_PORT_INCR;
     if (server.cluster_announce_port)
         myself->port = server.cluster_announce_port;
+    if (server.cluster_announce_plain_port)
+        myself->pport = server.cluster_announce_plain_port;
     if (server.cluster_announce_bus_port)
         myself->cport = server.cluster_announce_bus_port;
 
@@ -4147,15 +4153,16 @@ sds representClusterNodeFlags(sds ci, uint16_t flags) {
  * See clusterGenNodesDescription() top comment for more information.
  *
  * The function returns the string representation as an SDS string. */
-sds clusterGenNodeDescription(clusterNode *node) {
+sds clusterGenNodeDescription(clusterNode *node, int use_pport) {
     int j, start;
     sds ci;
+    int port = use_pport && node->pport ? node->pport : node->port;
 
     /* Node coordinates */
     ci = sdscatlen(sdsempty(),node->name,CLUSTER_NAMELEN);
     ci = sdscatfmt(ci," %s:%i@%i ",
         node->ip,
-        node->port,
+        port,
         node->cport);
 
     /* Flags */
@@ -4266,10 +4273,13 @@ void clusterGenNodesSlotsInfo(int filter) {
  * include all the known nodes in the representation, including nodes in
  * the HANDSHAKE state.
  *
+ * Setting use_pport to 1 in a TLS cluster makes the result contain the
+ * plaintext client port rather then the TLS client port of each node.
+ *
  * The representation obtained using this function is used for the output
  * of the CLUSTER NODES function, and as format for the cluster
  * configuration file (nodes.conf) for a given node. */
-sds clusterGenNodesDescription(int filter) {
+sds clusterGenNodesDescription(int filter, int use_pport) {
     sds ci = sdsempty(), ni;
     dictIterator *di;
     dictEntry *de;
@@ -4282,7 +4292,7 @@ sds clusterGenNodesDescription(int filter) {
         clusterNode *node = dictGetVal(de);
 
         if (node->flags & filter) continue;
-        ni = clusterGenNodeDescription(node);
+        ni = clusterGenNodeDescription(node, use_pport);
         ci = sdscatsds(ci,ni);
         sdsfree(ni);
         ci = sdscatlen(ci,"\n",1);
@@ -4352,7 +4362,7 @@ void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, in
         /* Report slave's non-TLS port to non-TLS client in TLS cluster */
         addReplyLongLong(c, (use_pport && node->slaves[i]->pport ?
                              node->slaves[i]->pport :
-                             node->slaves[i]->port);
+                             node->slaves[i]->port));
         addReplyBulkCBuffer(c, node->slaves[i]->name, CLUSTER_NAMELEN);
         nested_elements++;
     }
@@ -4481,7 +4491,11 @@ NULL
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"nodes") && c->argc == 2) {
         /* CLUSTER NODES */
-        sds nodes = clusterGenNodesDescription(0);
+        /* Report plaintext ports, only if cluster is TLS but client is known to
+         * be non-TLS). */
+        int use_pport = (server.tls_cluster &&
+                         c->conn && connGetType(c->conn) != CONN_TYPE_TLS);
+        sds nodes = clusterGenNodesDescription(0, use_pport);
         addReplyVerbatim(c,nodes,sdslen(nodes),"txt");
         sdsfree(nodes);
     } else if (!strcasecmp(c->argv[1]->ptr,"myid") && c->argc == 2) {
@@ -4857,9 +4871,12 @@ NULL
             return;
         }
 
+        /* Use plaintext port if cluster is TLS but client is non-TLS. */
+        int use_pport = (server.tls_cluster &&
+                         c->conn && connGetType(c->conn) != CONN_TYPE_TLS);
         addReplyArrayLen(c,n->numslaves);
         for (j = 0; j < n->numslaves; j++) {
-            sds ni = clusterGenNodeDescription(n->slaves[j]);
+            sds ni = clusterGenNodeDescription(n->slaves[j], use_pport);
             addReplyBulkCString(c,ni);
             sdsfree(ni);
         }
@@ -5915,10 +5932,15 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
     } else if (error_code == CLUSTER_REDIR_MOVED ||
                error_code == CLUSTER_REDIR_ASK)
     {
+        /* Redirect to IP:port. Include plaintext port if cluster is TLS but
+         * client is non-TLS. */
+        int use_pport = (server.tls_cluster &&
+                         c->conn && connGetType(c->conn) != CONN_TYPE_TLS);
+        int port = use_pport && n->pport ? n->pport : n->port;
         addReplyErrorSds(c,sdscatprintf(sdsempty(),
             "-%s %d %s:%d",
             (error_code == CLUSTER_REDIR_ASK) ? "ASK" : "MOVED",
-            hashslot,n->ip,n->port));
+            hashslot, n->ip, port));
     } else {
         serverPanic("getNodeByQuery() unknown error.");
     }
