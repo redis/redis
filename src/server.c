@@ -2589,6 +2589,8 @@ void createSharedObjects(void) {
     shared.pmessagebulk = createStringObject("$8\r\npmessage\r\n",14);
     shared.subscribebulk = createStringObject("$9\r\nsubscribe\r\n",15);
     shared.unsubscribebulk = createStringObject("$11\r\nunsubscribe\r\n",18);
+    shared.subscribelocalbulk = createStringObject("$14\r\nsubscribelocal\r\n",21);
+    shared.unsubscribelocalbulk = createStringObject("$16\r\nunsubscribelocal\r\n",23);
     shared.psubscribebulk = createStringObject("$10\r\npsubscribe\r\n",17);
     shared.punsubscribebulk = createStringObject("$12\r\npunsubscribe\r\n",19);
 

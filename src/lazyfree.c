@@ -225,6 +225,12 @@ void freeSlotsToKeysMapAsync(rax *rt) {
     }
 }
 
+/* Release the radix tree mapping Redis Cluster channels to slots asynchronously. */
+void freeSlotsToChannelsMapAsync(rax *rt) {
+    atomicIncr(lazyfree_objects,rt->numele);
+    bioCreateLazyFreeJob(lazyfreeFreeSlotsMap,1,rt);
+}
+
 /* Free the key tracking table.
  * If the table is huge enough, free it in async way. */
 void freeTrackingRadixTreeAsync(rax *tracking) {

@@ -448,7 +448,10 @@ long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
     /* Flush slots to keys map if enable cluster, we can flush entire
      * slots to keys map whatever dbnum because only support one DB
      * in cluster mode. */
-    if (server.cluster_enabled) slotToKeyFlush(async);
+    if (server.cluster_enabled) {
+        slotToKeyFlush(async);
+        slotToChannelFlush(async);
+    }
 
     if (dbnum == -1) flushSlaveKeysWithExpireList();
 
@@ -519,28 +522,28 @@ void discardDbBackup(dbBackup *buckup, int flags, void(callback)(void*)) {
  * in the db).
  * This function should be called after the current contents of the database
  * was emptied with a previous call to emptyDb (possibly using the async mode). */
-void restoreDbBackup(dbBackup *buckup) {
+void restoreDbBackup(dbBackup *backup) {
     /* Restore main DBs. */
     for (int i=0; i<server.dbnum; i++) {
         serverAssert(dictSize(server.db[i].dict) == 0);
         serverAssert(dictSize(server.db[i].expires) == 0);
         dictRelease(server.db[i].dict);
         dictRelease(server.db[i].expires);
-        server.db[i] = buckup->dbarray[i];
+        server.db[i] = backup->dbarray[i];
     }
 
     /* Restore slots to keys map backup if enable cluster. */
     if (server.cluster_enabled) {
         serverAssert(server.cluster->slots_to_keys->numele == 0);
         raxFree(server.cluster->slots_to_keys);
-        server.cluster->slots_to_keys = buckup->slots_to_keys;
-        memcpy(server.cluster->slots_keys_count, buckup->slots_keys_count,
-                sizeof(server.cluster->slots_keys_count));
+        server.cluster->slots_to_keys = backup->slots_to_keys;
+        memcpy(server.cluster->slots_keys_count, backup->slots_keys_count,
+               sizeof(server.cluster->slots_keys_count));
     }
 
-    /* Release buckup. */
-    zfree(buckup->dbarray);
-    zfree(buckup);
+    /* Release backup. */
+    zfree(backup->dbarray);
+    zfree(backup);
 
     moduleFireServerEvent(REDISMODULE_EVENT_REPL_BACKUP,
                           REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE,
@@ -1925,6 +1928,25 @@ void slotToKeyUpdateKey(sds key, int add) {
     if (indexed != buf) zfree(indexed);
 }
 
+void slotToChannelUpdate(sds channel, int add) {
+    size_t keylen = sdslen(channel);
+    unsigned int hashslot = keyHashSlot(channel,keylen);
+    unsigned char buf[64];
+    unsigned char *indexed = buf;
+
+    if (keylen+2 > 64) indexed = zmalloc(keylen+2);
+    indexed[0] = (hashslot >> 8) & 0xff;
+    indexed[1] = hashslot & 0xff;
+    memcpy(indexed+2,channel,keylen);
+    if (add) {
+        raxInsert(server.cluster->slots_to_channels,indexed,keylen+2,NULL,NULL);
+    } else {
+        raxRemove(server.cluster->slots_to_channels,indexed,keylen+2,NULL);
+    }
+    if (indexed != buf) zfree(indexed);
+}
+
+
 void slotToKeyAdd(sds key) {
     slotToKeyUpdateKey(key,1);
 }
@@ -1932,6 +1954,15 @@ void slotToKeyAdd(sds key) {
 void slotToKeyDel(sds key) {
     slotToKeyUpdateKey(key,0);
 }
+
+void slotToChannelAdd(sds channel) {
+    slotToChannelUpdate(channel,1);
+}
+
+void slotToChannelDel(sds channel) {
+    slotToChannelUpdate(channel,0);
+}
+
 
 /* Release the radix tree mapping Redis Cluster keys to slots. If 'async'
  * is true, we release it asynchronously. */
@@ -1943,6 +1974,17 @@ void freeSlotsToKeysMap(rax *rt, int async) {
     }
 }
 
+/* Release the radix tree mapping Redis Cluster channels to slots. If 'async'
+ * is true, we release it asynchronously. */
+void freeSlotsToChannelsMap(rax *rt, int async) {
+    if (async) {
+        freeSlotsToChannelsMapAsync(rt);
+    } else {
+        raxFree(rt);
+    }
+}
+
+
 /* Empty the slots-keys map of Redis CLuster by creating a new empty one and
  * freeing the old one. */
 void slotToKeyFlush(int async) {
@@ -1952,6 +1994,15 @@ void slotToKeyFlush(int async) {
     memset(server.cluster->slots_keys_count,0,
            sizeof(server.cluster->slots_keys_count));
     freeSlotsToKeysMap(old, async);
+}
+
+/* Empty the slots-channel map of Redis CLuster by creating a new empty one and
+ * freeing the old one. */
+void slotToChannelFlush(int async) {
+    rax *old = server.cluster->slots_to_channels;
+
+    server.cluster->slots_to_channels = raxNew();
+    freeSlotsToChannelsMap(old, async);
 }
 
 /* Populate the specified array of objects with keys in the specified slot.
@@ -1972,6 +2023,25 @@ unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int coun
     }
     raxStop(&iter);
     return j;
+}
+
+/* Populate the specified array of objects with keys in the specified slot.
+ * New objects are returned to represent keys, it's up to the caller to
+ * decrement the reference count to release the keys names. */
+void getChannelsInSlot(unsigned int hashslot, robj **keys) {
+    raxIterator iter;
+    int j = 0;
+    unsigned char indexed[2];
+
+    indexed[0] = (hashslot >> 8) & 0xff;
+    indexed[1] = hashslot & 0xff;
+    raxStart(&iter,server.cluster->slots_to_channels);
+    raxSeek(&iter,">=",indexed,2);
+    while(raxNext(&iter)) {
+        if (iter.key[0] != indexed[0] || iter.key[1] != indexed[1]) break;
+        keys[j++] = createStringObject((char*)iter.key+2,iter.key_len-2);
+    }
+    raxStop(&iter);
 }
 
 /* Remove all the keys in the specified hash slot.

@@ -548,7 +548,10 @@ void clusterInit(void) {
     memset(server.cluster->slots_keys_count,0,
            sizeof(server.cluster->slots_keys_count));
 
-    /* Set myself->port/cport/pport to my listening ports, we'll just need to
+    /* The slots -> channels map is a radix tree. Initialize it here. */
+    server.cluster->slots_to_channels = raxNew();
+
+    /* Set myself->port / cport to my listening ports, we'll just need to
      * discover the IP address via MEET messages. */
     deriveAnnouncedPorts(&myself->port, &myself->pport, &myself->cport);
 
@@ -4648,6 +4651,9 @@ NULL
 
             clusterDelSlot(slot);
             clusterAddSlot(n,slot);
+            /* As we are done with migration, we can clear all the channels
+             * in the hash slot. */
+            slotToChannelFlush(0);
 
             /* If this node was importing this slot, assigning the slot to
              * itself also clears the importing status. */

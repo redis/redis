@@ -72,7 +72,11 @@ void addReplyPubsubSubscribed(client *c, robj *channel, int (*subscriptionCount)
         addReply(c,shared.mbulkhdr[3]);
     else
         addReplyPushLen(c,3);
-    addReply(c,shared.subscribebulk);
+    if (c->cmd->proc == subscribeCommand) {
+        addReply(c,shared.subscribebulk);
+    } else if (c->cmd->proc == subscribeLocalCommand) {
+        addReply(c,shared.subscribelocalbulk);
+    }
     addReplyBulk(c,channel);
     addReplyLongLong(c,subscriptionCount(c));
 }
@@ -86,7 +90,11 @@ void addReplyPubsubUnsubscribed(client *c, robj *channel) {
         addReply(c,shared.mbulkhdr[3]);
     else
         addReplyPushLen(c,3);
-    addReply(c,shared.unsubscribebulk);
+    if (c->cmd->proc == unsubscribeCommand) {
+        addReply(c,shared.unsubscribebulk);
+    } else if (c->cmd->proc == unsubscribeLocalCommand) {
+        addReply(c,shared.unsubscribelocalbulk);
+    }
     if (channel)
         addReplyBulk(c,channel);
     else
@@ -541,12 +549,17 @@ void subscribeLocalCommand(client *c) {
         return;
     }
 
-    for (j = 1; j < c->argc; j++)
+    for (j = 1; j < c->argc; j++) {
         pubsubSubscribeChannel(c,
                                c->argv[j],
                                c->pubsublocal_channels,
                                server.pubsublocal_channels,
                                clientLocalSubscriptionsCount);
+        if (server.cluster_enabled) {
+            sds channel = sdsnewlen(c->argv[j]->ptr, sdslen(c->argv[j]->ptr));
+            slotToChannelAdd(channel);
+        }
+    }
     c->flags |= CLIENT_PUBSUB;
 }
 
@@ -558,8 +571,13 @@ void unsubscribeLocalCommand(client *c) {
     } else {
         int j;
 
-        for (j = 1; j < c->argc; j++)
+        for (j = 1; j < c->argc; j++) {
             pubsubUnsubscribeChannel(c,c->argv[j],1,server.pubsublocal_channels,c->pubsublocal_channels);
+            if (server.cluster_enabled) {
+                sds channel = sdsnewlen(c->argv[j]->ptr, sdslen(c->argv[j]->ptr));
+                slotToChannelDel(channel);
+            }
+        }
     }
     if (clientSubscriptionsCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
 }

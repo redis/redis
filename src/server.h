@@ -990,7 +990,9 @@ struct sharedObjectsStruct {
     *select[PROTO_SHARED_SELECT_CMDS],
     *integers[OBJ_SHARED_INTEGERS],
     *mbulkhdr[OBJ_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
-    *bulkhdr[OBJ_SHARED_BULKHDR_LEN];  /* "$<value>\r\n" */
+    *bulkhdr[OBJ_SHARED_BULKHDR_LEN],  /* "$<value>\r\n" */
+    *subscribelocalbulk,
+    *unsubscribelocalbulk;
     sds minstring, maxstring;
 };
 
@@ -2354,7 +2356,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async, void(callback
 void flushAllDataAndResetRDB(int flags);
 long long dbTotalServerKeyCount();
 dbBackup *backupDb(void);
-void restoreDbBackup(dbBackup *buckup);
+void restoreDbBackup(dbBackup *backup);
 void discardDbBackup(dbBackup *buckup, int flags, void(callback)(void*));
 
 
@@ -2364,20 +2366,26 @@ void signalFlushedDb(int dbid, int async);
 unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count);
 unsigned int countKeysInSlot(unsigned int hashslot);
 unsigned int delKeysInSlot(unsigned int hashslot);
+void getChannelsInSlot(unsigned int hashslot, robj **keys);
 int verifyClusterConfigWithData(void);
 void scanGenericCommand(client *c, robj *o, unsigned long cursor);
 int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor);
 void slotToKeyAdd(sds key);
 void slotToKeyDel(sds key);
+void slotToChannelAdd(sds channel);
+void slotToChannelDel(sds channel);
 int dbAsyncDelete(redisDb *db, robj *key);
 void emptyDbAsync(redisDb *db);
 void slotToKeyFlush(int async);
+void slotToChannelFlush(int async);
 size_t lazyfreeGetPendingObjectsCount(void);
 size_t lazyfreeGetFreedObjectsCount(void);
 void lazyfreeResetStats(void);
 void freeObjAsync(robj *key, robj *obj);
 void freeSlotsToKeysMapAsync(rax *rt);
+void freeSlotsToChannelsMapAsync(rax *rt);
 void freeSlotsToKeysMap(rax *rt, int async);
+void freeSlotsToChannelsMap(rax *rt, int async);
 
 
 /* API to get key arguments from commands */
