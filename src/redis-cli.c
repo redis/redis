@@ -1576,10 +1576,10 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--scan")) {
             config.scan_mode = 1;
         } else if (!strcmp(argv[i],"--pattern") && !lastarg) {
-            if (config.pattern) sds_free(config.pattern);
+            if (config.pattern) sdsfree(config.pattern);
             config.pattern = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"--quoted-pattern") && !lastarg) {
-            if (config.pattern) sds_free(config.pattern);
+            if (config.pattern) sdsfree(config.pattern);
             config.pattern = unquoteCString(argv[++i]);
             if (!config.pattern) {
                 fprintf(stderr,"Invalid quoted string specified for --quoted-pattern.\n");
@@ -1905,7 +1905,7 @@ static void usage(void) {
 "  --pattern <pat>    Keys pattern when using the --scan, --bigkeys or --hotkeys\n"
 "                     options (default: *).\n"
 "  --quoted-pattern <pat> Same as --pattern, but the specified string can be\n"
-"                         quoted, in order to pass a non binary-safe string.\n"
+"                         quoted, in order to pass an otherwise non binary-safe string.\n"
 "  --intrinsic-latency <sec> Run a test to measure intrinsic system latency.\n"
 "                     The test will run for the specified amount of seconds.\n"
 "  --eval <file>      Send an EVAL command using the Lua script at <file>.\n"
