@@ -1308,7 +1308,7 @@ void quicklistRotate(quicklist *quicklist) {
         sz = ll2string(longstr, sizeof(longstr), longval);
         value = (unsigned char *)longstr;
     } else if (quicklist->len == 1) {
-        /* There could be an memory overlap when move
+        /* Copy buffer since there could be an memory overlap when move
          * entity from tail to head in ziplist. */
         value = zmalloc(sz);
         memcpy(value, tmp, sz);
