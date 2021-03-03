@@ -1725,6 +1725,13 @@ typedef struct {
     dictEntry *de;
 } hashTypeIterator;
 
+typedef struct {
+    dict *server_channels;
+    dict *client_channels;
+    int local;
+}pubsubmeta;
+
+
 #include "stream.h"  /* Stream data type header file. */
 
 #define OBJ_HASH_KEY 1
@@ -2299,6 +2306,7 @@ int hashZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep);
 
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(client *c, int notify);
+int pubsubUnsubscribeLocalAllChannels(client *c, int notify);
 int pubsubUnsubscribeAllPatterns(client *c, int notify);
 int pubsubPublishMessage(robj *channel, robj *message);
 void addReplyPubsubMessage(client *c, robj *channel, robj *msg);

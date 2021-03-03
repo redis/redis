@@ -1351,6 +1351,7 @@ void freeClient(client *c) {
 
     /* Unsubscribe from all the pubsub channels */
     pubsubUnsubscribeAllChannels(c,0);
+    pubsubUnsubscribeLocalAllChannels(c,0);
     pubsubUnsubscribeAllPatterns(c,0);
     dictRelease(c->pubsub_channels);
     listRelease(c->pubsub_patterns);
@@ -2424,6 +2425,7 @@ void resetCommand(client *c) {
     discardTransaction(c);
 
     pubsubUnsubscribeAllChannels(c,0);
+    pubsubUnsubscribeLocalAllChannels(c,0);
     pubsubUnsubscribeAllPatterns(c,0);
 
     if (c->name) {
