@@ -499,7 +499,7 @@ void clusterInit(void) {
     if (saveconf) clusterSaveConfigOrDie(1);
 
     /* We need a listening TCP port for our cluster messaging needs. */
-    server.cfd_count = 0;
+    server.cfd.count = 0;
 
     /* Port sanity check II
      * The other handshake port check is triggered too late to stop
@@ -512,19 +512,11 @@ void clusterInit(void) {
                    "Your Redis port number must be 55535 or less.");
         exit(1);
     }
-    if (listenToPort(port+CLUSTER_PORT_INCR,
-        server.cfd,&server.cfd_count) == C_ERR)
-    {
+    if (listenToPort(port+CLUSTER_PORT_INCR, &server.cfd) == C_ERR) {
         exit(1);
-    } else {
-        int j;
-
-        for (j = 0; j < server.cfd_count; j++) {
-            if (aeCreateFileEvent(server.el, server.cfd[j], AE_READABLE,
-                clusterAcceptHandler, NULL) == AE_ERR)
-                    serverPanic("Unrecoverable error creating Redis Cluster "
-                                "file event.");
-        }
+    }
+    if (createSocketAcceptHandler(&server.cfd, clusterAcceptHandler) != C_OK) {
+        serverPanic("Unrecoverable error creating Redis Cluster socket accept handler.");
     }
 
     /* The slots -> keys map is a radix tree. Initialize it here. */

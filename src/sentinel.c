@@ -870,6 +870,7 @@ void sentinelRunPendingScripts(void) {
             sj->pid = 0;
         } else if (pid == 0) {
             /* Child */
+            tlsCleanup();
             execve(sj->argv[0],sj->argv,environ);
             /* If we are here an error occurred. */
             _exit(2); /* Don't retry execution. */
@@ -3710,17 +3711,7 @@ NULL
         ri = createSentinelRedisInstance(c->argv[2]->ptr,SRI_MASTER,
                 c->argv[3]->ptr,port,quorum,NULL);
         if (ri == NULL) {
-            switch(errno) {
-            case EBUSY:
-                addReplyError(c,"Duplicated master name");
-                break;
-            case EINVAL:
-                addReplyError(c,"Invalid port number");
-                break;
-            default:
-                addReplyError(c,"Unspecified error adding the instance");
-                break;
-            }
+            addReplyError(c,sentinelCheckCreateInstanceErrors(SRI_MASTER));
         } else {
             sentinelFlushConfig();
             sentinelEvent(LL_WARNING,"+monitor",ri,"%@ quorum %d",ri->quorum);

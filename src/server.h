@@ -138,7 +138,6 @@ typedef long long ustime_t; /* microsecond time type. */
 #define STATS_METRIC_COUNT 3
 
 /* Protocol and I/O related defines */
-#define PROTO_MAX_QUERYBUF_LEN  (1024*1024*1024) /* 1GB max query buffer. */
 #define PROTO_IOBUF_LEN         (1024*16)  /* Generic I/O buffer size */
 #define PROTO_REPLY_CHUNK_BYTES (16*1024) /* 16k output buffer */
 #define PROTO_INLINE_MAX_SIZE   (1024*64) /* Max size of inline reads */
@@ -1105,6 +1104,11 @@ struct malloc_stats {
     size_t allocator_resident;
 };
 
+typedef struct socketFds {
+    int fd[CONFIG_BINDADDR_MAX];
+    int count;
+} socketFds;
+
 /*-----------------------------------------------------------------------------
  * TLS Context Configuration
  *----------------------------------------------------------------------------*/
@@ -1196,6 +1200,7 @@ struct redisServer {
                                    to be processed. */
     pid_t child_pid;            /* PID of current child */
     int child_type;             /* Type of current child */
+    client *module_client;      /* "Fake" client to call Redis from modules */
     /* Networking */
     int port;                   /* TCP listening port */
     int tls_port;               /* TLS listening port */
@@ -1204,13 +1209,10 @@ struct redisServer {
     int bindaddr_count;         /* Number of addresses in server.bindaddr[] */
     char *unixsocket;           /* UNIX socket path */
     mode_t unixsocketperm;      /* UNIX socket permission */
-    int ipfd[CONFIG_BINDADDR_MAX]; /* TCP socket file descriptors */
-    int ipfd_count;             /* Used slots in ipfd[] */
-    int tlsfd[CONFIG_BINDADDR_MAX]; /* TLS socket file descriptors */
-    int tlsfd_count;            /* Used slots in tlsfd[] */
+    socketFds ipfd;             /* TCP socket file descriptors */
+    socketFds tlsfd;            /* TLS socket file descriptors */
     int sofd;                   /* Unix socket file descriptor */
-    int cfd[CONFIG_BINDADDR_MAX];/* Cluster bus listening socket */
-    int cfd_count;              /* Used slots in cfd[] */
+    socketFds cfd;              /* Cluster bus listening socket */
     list *clients;              /* List of active clients */
     list *clients_to_close;     /* Clients to close asynchronously */
     list *clients_pending_write; /* There is to write or install handler. */
@@ -1742,6 +1744,7 @@ void moduleLoadFromQueue(void);
 int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 moduleType *moduleTypeLookupModuleByID(uint64_t id);
 void moduleTypeNameByID(char *name, uint64_t moduleid);
+const char *moduleTypeModuleName(moduleType *mt);
 void moduleFreeContext(struct RedisModuleCtx *ctx);
 void unblockClientFromModule(client *c);
 void moduleHandleBlockedClients(void);
@@ -1855,7 +1858,7 @@ int getClientTypeByName(char *name);
 char *getClientTypeName(int class);
 void flushSlavesOutputBuffers(void);
 void disconnectSlaves(void);
-int listenToPort(int port, int *fds, int *count);
+int listenToPort(int port, socketFds *fds);
 void pauseClients(mstime_t duration, pause_type type);
 void unpauseClients(void);
 int areClientsPaused(void);
@@ -2106,6 +2109,7 @@ void addReplyCommandCategories(client *c, struct redisCommand *cmd);
 user *ACLCreateUnlinkedUser();
 void ACLFreeUserAndKillClients(user *u);
 void addACLLogEntry(client *c, int reason, int keypos, sds username);
+void ACLUpdateDefaultUserPassword(sds password);
 
 /* Sorted sets data type */
 
@@ -2183,6 +2187,9 @@ int processCommand(client *c);
 int processPendingCommandsAndResetClient(client *c);
 void setupSignalHandlers(void);
 void removeSignalHandlers(void);
+int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler);
+int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler);
+int changeBindAddr(sds *addrlist, int addrlist_len);
 struct redisCommand *lookupCommand(sds name);
 struct redisCommand *lookupCommandByCString(const char *s);
 struct redisCommand *lookupCommandOrOriginal(sds name);
@@ -2708,6 +2715,7 @@ void makeThreadKillable(void);
 
 /* TLS stuff */
 void tlsInit(void);
+void tlsCleanup(void);
 int tlsConfigure(redisTLSContextConfig *ctx_config);
 
 #define redisDebug(fmt, ...) \
