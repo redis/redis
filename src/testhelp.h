@@ -39,8 +39,19 @@
 #ifndef __TESTHELP_H
 #define __TESTHELP_H
 
-int __failed_tests = 0;
-int __test_num = 0;
+static int __failed_tests = 0;
+static int __test_num = 0;
+
+#ifndef REDIS_TEST_VERBOSE
+#define test_printf(...)
+#else
+#define test_printf(...)                                                       \
+    do {                                                                       \
+        printf(__VA_ARGS__);                                                   \
+        printf("\n");                                                          \
+    } while (0)
+#endif
+
 #define test_cond(descr,_c) do { \
     __test_num++; printf("%d - %s: ", __test_num, descr); \
     if(_c) printf("PASSED\n"); else {printf("FAILED\n"); __failed_tests++;} \
@@ -53,5 +64,7 @@ int __test_num = 0;
         exit(1); \
     } \
 } while(0)
+#define TEST(name) test_printf("test — %s\n", name);
+#define TEST_DESC(name, ...) test_printf("test — " name "\n", __VA_ARGS__);
 
 #endif
