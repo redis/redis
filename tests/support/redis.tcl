@@ -35,6 +35,7 @@ array set ::redis::addr {}
 array set ::redis::blocking {}
 array set ::redis::deferred {}
 array set ::redis::reconnect {}
+array set ::redis::tls {}
 array set ::redis::callback {}
 array set ::redis::state {} ;# State in non-blocking reply reading
 array set ::redis::statestack {} ;# Stack of states, for nested mbulks
@@ -58,7 +59,7 @@ proc redis {{server 127.0.0.1} {port 6379} {defer 0} {tls 0} {tlsoptions {}}} {
     set ::redis::blocking($id) 1
     set ::redis::deferred($id) $defer
     set ::redis::reconnect($id) 0
-    set ::redis::tls $tls
+    set ::redis::tls($id) $tls
     ::redis::redis_reset_state $id
     interp alias {} ::redis::redisHandle$id {} ::redis::__dispatch__ $id
 }
@@ -83,7 +84,7 @@ proc ::redis::__dispatch__raw__ {id method argv} {
     # Reconnect the link if needed.
     if {$fd eq {}} {
         lassign $::redis::addr($id) host port
-        if {$::redis::tls} {
+        if {$::redis::tls($id)} {
             set ::redis::fd($id) [::tls::socket $host $port]
         } else {
             set ::redis::fd($id) [socket $host $port]
@@ -158,6 +159,7 @@ proc ::redis::__method__close {id fd} {
     catch {unset ::redis::blocking($id)}
     catch {unset ::redis::deferred($id)}
     catch {unset ::redis::reconnect($id)}
+    catch {unset ::redis::tls($id)}
     catch {unset ::redis::state($id)}
     catch {unset ::redis::statestack($id)}
     catch {unset ::redis::callback($id)}
