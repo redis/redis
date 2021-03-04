@@ -1308,8 +1308,8 @@ void quicklistRotate(quicklist *quicklist) {
         sz = ll2string(longstr, sizeof(longstr), longval);
         value = (unsigned char *)longstr;
     } else if (quicklist->len == 1) {
-        /* Copy buffer since there could be an memory overlap when move
-         * entity from tail to head in ziplist. */
+        /* Copy buffer since there could be a memory overlap when move
+         * entity from tail to head in the same ziplist. */
         value = zmalloc(sz);
         memcpy(value, tmp, sz);
     } else {
