@@ -315,10 +315,8 @@ REDIS_STATIC void __quicklistCompress(const quicklist *quicklist,
         if (forward == node || reverse == node)
             in_depth = 1;
 
-        /* To make quicklist->len no matter odd or even exit early.
-         * If quicklist->len == quicklist->compress * 2, the old code will
-         * not exit here, so the middle two nodes will be compressed
-         * again. */
+        /* We passed into compress depth of opposite side of the quicklist
+         * so there's no need to compress anything and we can exit. */
         if (forward == reverse || forward->next == reverse)
             return;
 
