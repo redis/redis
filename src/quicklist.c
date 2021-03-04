@@ -859,7 +859,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
 
     /* Populate accounting flags for easier boolean checks later */
     if (!_quicklistNodeAllowInsert(node, fill, sz)) {
-        D("Current node is full with count %d with requested fill %d",
+        D("Current node is full with count %d with requested fill %lu",
           node->count, fill);
         full = 1;
     }
@@ -1136,7 +1136,7 @@ int quicklistNext(quicklistIter *iter, quicklistEntry *entry) {
     entry->node = iter->current;
 
     if (!iter->current) {
-        D("Returning because current node is NULL");
+        D("Returning because current node is NULL")
         return 0;
     }
 
@@ -1506,38 +1506,39 @@ void quicklistBookmarksClear(quicklist *ql) {
 #ifdef REDIS_TEST
 #include <stdint.h>
 #include <sys/time.h>
-#include <stdlib.h>
-#include "testhelp.h"
 
-#define yell(str, ...) test_printf("ERROR! " str "\n\n", __VA_ARGS__)
+#define yell(str, ...) printf("ERROR! " str "\n\n", __VA_ARGS__)
 
-#define OK test_printf("\tOK\n")
+#define OK printf("\tOK\n")
 
 #define ERROR                                                                  \
     do {                                                                       \
-        test_printf("\tERROR!\n");                                                  \
+        printf("\tERROR!\n");                                                  \
         err++;                                                                 \
     } while (0)
 
 #define ERR(x, ...)                                                            \
     do {                                                                       \
-        test_printf("%s:%s:%d:\t", __FILE__, __func__, __LINE__);                   \
-        test_printf("ERROR! " x "\n", __VA_ARGS__);                                 \
+        printf("%s:%s:%d:\t", __FILE__, __func__, __LINE__);                   \
+        printf("ERROR! " x "\n", __VA_ARGS__);                                 \
         err++;                                                                 \
     } while (0)
+
+#define TEST(name) printf("test — %s\n", name);
+#define TEST_DESC(name, ...) printf("test — " name "\n", __VA_ARGS__);
 
 #define QL_TEST_VERBOSE 0
 
 #define UNUSED(x) (void)(x)
 static void ql_info(quicklist *ql) {
 #if QL_TEST_VERBOSE
-    test_printf("Container length: %lu\n", ql->len);
-    test_printf("Container size: %lu\n", ql->count);
+    printf("Container length: %lu\n", ql->len);
+    printf("Container size: %lu\n", ql->count);
     if (ql->head)
-        test_printf("\t(zsize head: %d)\n", ziplistLen(ql->head->zl));
+        printf("\t(zsize head: %d)\n", ziplistLen(ql->head->zl));
     if (ql->tail)
-        test_printf("\t(zsize tail: %d)\n", ziplistLen(ql->tail->zl));
-    test_printf("\n");
+        printf("\t(zsize tail: %d)\n", ziplistLen(ql->tail->zl));
+    printf("\n");
 #else
     UNUSED(ql);
 #endif
@@ -1678,9 +1679,8 @@ static int _ql_verify(quicklist *ql, uint32_t len, uint32_t count,
         }
     }
 
-    if (!errors) {
+    if (!errors)
         OK;
-    }
     return errors;
 }
 
@@ -1700,15 +1700,14 @@ int quicklistTest(int argc, char *argv[]) {
     int optimize_start =
         -(int)(sizeof(optimization_level) / sizeof(*optimization_level));
 
-    test_printf("Starting optimization offset at: %d\n", optimize_start);
+    printf("Starting optimization offset at: %d\n", optimize_start);
 
     int options[] = {0, 1, 2, 3, 4, 5, 6, 10};
     size_t option_count = sizeof(options) / sizeof(*options);
     long long runtime[option_count];
-    ((void) runtime);
 
     for (int _i = 0; _i < (int)option_count; _i++) {
-        test_printf("Testing Option %d\n", options[_i]);
+        printf("Testing Option %d\n", options[_i]);
         long long start = mstime();
 
         TEST("create list") {
@@ -2192,12 +2191,11 @@ int quicklistTest(int argc, char *argv[]) {
                 for (int i = 0; i < 50; i++)
                     quicklistPushTail(ql, genstr("hello", i + 1), 32);
                 quicklistEntry entry;
-                if (quicklistIndex(ql, 50, &entry)) {
+                if (quicklistIndex(ql, 50, &entry))
                     ERR("Index found at 50 with 50 list: %.*s", entry.sz,
                         entry.value);
-                } else {
+                else
                     OK;
-                }
                 quicklistRelease(ql);
             }
         }
@@ -2450,9 +2448,8 @@ int quicklistTest(int argc, char *argv[]) {
 
                 quicklistReleaseIterator(iter);
                 /* final result of all tests */
-                if (ok) {
+                if (ok)
                     OK;
-                }
                 quicklistRelease(ql);
             }
         }
@@ -2576,17 +2573,15 @@ int quicklistTest(int argc, char *argv[]) {
                     ql_verify(ql, 1, 12, 12, 12);
                 quicklistEntry entry;
                 quicklistIndex(ql, 0, &entry);
-                if (entry.longval != 5) {
+                if (entry.longval != 5)
                     ERR("A: longval not 5, but %lld", entry.longval);
-                } else {
+                else
                     OK;
-                }
                 quicklistIndex(ql, -1, &entry);
-                if (entry.longval != 16) {
+                if (entry.longval != 16)
                     ERR("B! got instead: %lld", entry.longval);
-                } else {
+                else
                     OK;
-                }
                 quicklistPushTail(ql, "bobobob", 7);
                 quicklistIndex(ql, -1, &entry);
                 if (strncmp((char *)entry.value, "bobobob", 7))
@@ -2624,11 +2619,10 @@ int quicklistTest(int argc, char *argv[]) {
                     ql_verify(ql, 1, 1, 1, 1);
                 quicklistEntry entry;
                 quicklistIndex(ql, 0, &entry);
-                if (entry.longval != -5157318210846258173) {
+                if (entry.longval != -5157318210846258173)
                     ERROR;
-                } else {
+                else
                     OK;
-                }
                 quicklistRelease(ql);
             }
         }
@@ -2688,8 +2682,6 @@ int quicklistTest(int argc, char *argv[]) {
     /* Run a longer test of compression depth outside of primary test loop. */
     int list_sizes[] = {250, 251, 500, 999, 1000};
     long long start = mstime();
-    ((void) list_sizes);
-    ((void) start);
     for (int list = 0; list < (int)(sizeof(list_sizes) / sizeof(*list_sizes));
          list++) {
         for (int f = optimize_start; f < 128; f++) {
@@ -2735,14 +2727,13 @@ int quicklistTest(int argc, char *argv[]) {
         }
     }
     long long stop = mstime();
-    ((void) stop);
 
-    test_printf("\n");
+    printf("\n");
     for (size_t i = 0; i < option_count; i++)
-        test_printf("Test Loop %02d: %0.2f seconds.\n", options[i],
+        printf("Test Loop %02d: %0.2f seconds.\n", options[i],
                (float)runtime[i] / 1000);
-    test_printf("Compressions: %0.2f seconds.\n", (float)(stop - start) / 1000);
-    test_printf("\n");
+    printf("Compressions: %0.2f seconds.\n", (float)(stop - start) / 1000);
+    printf("\n");
 
     TEST("bookmark get updated to next item") {
         quicklist *ql = quicklistNew(1, 0);
@@ -2797,7 +2788,6 @@ int quicklistTest(int argc, char *argv[]) {
     else
         ERR("Sorry, not all tests passed!  In fact, %d tests failed.", err);
 
-    test_report();
     return err;
 }
 #endif
