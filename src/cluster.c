@@ -4325,68 +4325,55 @@ void clusterReplyMultiBulkSlots(client *c) {
      *           ... continued until done
      */
 
-    int num_masters = 0;
+    clusterNode *node = NULL;
+    int start = -1, j, num_masters = 0;
     void *slot_replylen = addReplyDeferredLen(c);
-
-    dictEntry *de;
-    dictIterator *di = dictGetSafeIterator(server.cluster->nodes);
-    while((de = dictNext(di)) != NULL) {
-        clusterNode *node = dictGetVal(de);
-        int j = 0, start = -1;
-        int i, nested_elements = 0;
-
-        /* Skip slaves (that are iterated when producing the output of their
-         * master) and  masters not serving any slot. */
-        if (!nodeIsMaster(node) || node->numslots == 0) continue;
-
-        for(i = 0; i < node->numslaves; i++) {
-            if (nodeFailed(node->slaves[i])) continue;
-            nested_elements++;
+    for (j = 0; j <= CLUSTER_SLOTS; j++) {
+        /* Find start node and slot id. */
+        if (node == NULL) {
+            node = server.cluster->slots[j];
+            start = j;
+            continue;
         }
-
-        for (j = 0; j < CLUSTER_SLOTS; j++) {
-            int bit, i;
-
-            if ((bit = clusterNodeGetSlotBit(node,j)) != 0) {
-                if (start == -1) start = j;
+        if (j == CLUSTER_SLOTS || node != server.cluster->slots[j]) {
+            int i, nested_elements = 0;
+            for (i = 0; i < node->numslaves; i++) {
+                if (nodeFailed(node->slaves[i])) continue;
+                nested_elements++;
             }
-            if (start != -1 && (!bit || j == CLUSTER_SLOTS-1)) {
-                addReplyArrayLen(c, nested_elements + 3); /* slots (2) + master addr (1). */
+            addReplyArrayLen(c, nested_elements + 3); /* slots (2) + master addr (1). */
 
-                if (bit && j == CLUSTER_SLOTS-1) j++;
-
-                /* If slot exists in output map, add to it's list.
-                 * else, create a new output map for this slot */
-                if (start == j-1) {
-                    addReplyLongLong(c, start); /* only one slot; low==high */
-                    addReplyLongLong(c, start);
-                } else {
-                    addReplyLongLong(c, start); /* low */
-                    addReplyLongLong(c, j-1);   /* high */
-                }
-                start = -1;
-
-                /* First node reply position is always the master */
-                addReplyArrayLen(c, 3);
-                addReplyBulkCString(c, node->ip);
-                addReplyLongLong(c, node->port);
-                addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
-
-                /* Remaining nodes in reply are replicas for slot range */
-                for (i = 0; i < node->numslaves; i++) {
-                    /* This loop is copy/pasted from clusterGenNodeDescription()
-                     * with modifications for per-slot node aggregation */
-                    if (nodeFailed(node->slaves[i])) continue;
-                    addReplyArrayLen(c, 3);
-                    addReplyBulkCString(c, node->slaves[i]->ip);
-                    addReplyLongLong(c, node->slaves[i]->port);
-                    addReplyBulkCBuffer(c, node->slaves[i]->name, CLUSTER_NAMELEN);
-                }
-                num_masters++;
+            if (start == j-1) {
+                addReplyLongLong(c, start); /* only one slot; low==high */
+                addReplyLongLong(c, start);
+            } else {
+                addReplyLongLong(c, start); /* low */
+                addReplyLongLong(c, j-1);   /* high */
             }
+
+            /* First node reply position is always the master */
+            addReplyArrayLen(c, 3);
+            addReplyBulkCString(c, node->ip);
+            addReplyLongLong(c, node->port);
+            addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
+
+            /* Remaining nodes in reply are replicas for slot range */
+            for (i = 0; i < node->numslaves; i++) {
+                 /* This loop is copy/pasted from clusterGenNodeDescription()
+                  * with modifications for per-slot node aggregation */
+                 if (nodeFailed(node->slaves[i])) continue;
+                 addReplyArrayLen(c, 3);
+                 addReplyBulkCString(c, node->slaves[i]->ip);
+                 addReplyLongLong(c, node->slaves[i]->port);
+                 addReplyBulkCBuffer(c, node->slaves[i]->name, CLUSTER_NAMELEN);
+            }
+            num_masters++;
+
+            if (j == CLUSTER_SLOTS) break;
+            node = server.cluster->slots[j];
+            start = j;
         }
     }
-    dictReleaseIterator(di);
     setDeferredArrayLen(c, slot_replylen, num_masters);
 }
 
