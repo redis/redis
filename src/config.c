@@ -229,8 +229,6 @@ typedef union typeData {
 typedef struct typeInterface {
     /* Called on server start, to init the server with default value */
     void (*init)(typeData data);
-    /* Called on server start, should return 1 on success, 0 on error and should set err */
-    int (*load)(typeData data, sds *argc, int argv, const char **err);
     /* Called on server startup and CONFIG SET, returns 1 on success, 0 on error
      * and can set a verbose err string, update is true when called from CONFIG SET */
     int (*set)(typeData data, sds value, int update, const char **err);
