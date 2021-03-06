@@ -4334,7 +4334,7 @@ void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, in
     /* Remaining nodes in reply are replicas for slot range */
     for (i = 0; i < node->numslaves; i++) {
         /* This loop is copy/pasted from clusterGenNodeDescription()
-         * with modifications for per-slot node aggregation */
+         * with modifications for per-slot node aggregation. */
         if (nodeFailed(node->slaves[i])) continue;
         addReplyArrayLen(c, 3);
         addReplyBulkCString(c, node->slaves[i]->ip);
@@ -4360,10 +4360,9 @@ void clusterReplyMultiBulkSlots(client * c) {
     void *slot_replylen = addReplyDeferredLen(c);
     clusterNode *last_node = NULL;
     int i, start_slot = 0, end_slot = 0;
-    int loop_range = CLUSTER_SLOTS + 1;
-    for (i = 0; i < loop_range; i++) {
+    for (i = 0; i < CLUSTER_SLOTS + 1; i++) {
         if (last_node == NULL) {
-            if (CLUSTER_SLOTS == i || server.cluster->slots[i] == NULL)
+            if (i == CLUSTER_SLOTS || server.cluster->slots[i] == NULL)
                 /* Skip a slots_range_start if loop to end or loop in null slot. */
                 continue;
             /* A new slots_range_start. */
@@ -4371,7 +4370,7 @@ void clusterReplyMultiBulkSlots(client * c) {
             start_slot = i;
             end_slot = i;
         } else {
-            if (CLUSTER_SLOTS != i && server.cluster->slots[i] != NULL &&
+            if (i != CLUSTER_SLOTS && server.cluster->slots[i] != NULL &&
                 server.cluster->slots[i] == last_node) {
                 /* Enlarge this slots range with last slots_range_start. */
                 end_slot = i;
