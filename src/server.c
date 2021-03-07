@@ -1555,10 +1555,10 @@ int htNeedsResize(dict *dict) {
     size = dictSlots(dict);
     used = dictSize(dict);
     return (size > DICT_HT_INITIAL_SIZE &&
-            (used*100/size < HASHTABLE_MIN_FILL));
+            (used*100/size < server.hashtable_min_fill));
 }
 
-/* If the percentage of used slots in the HT reaches HASHTABLE_MIN_FILL
+/* If the percentage of used slots in the HT reaches server.hashtable_min_fill
  * we resize the hash table to save memory */
 void tryResizeHashTables(int dbid) {
     if (htNeedsResize(server.db[dbid].dict))

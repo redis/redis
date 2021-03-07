@@ -162,7 +162,6 @@ typedef long long ustime_t; /* microsecond time type. */
 extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 
 /* Hash table parameters */
-#define HASHTABLE_MIN_FILL        10      /* Minimal hash table fill 10% */
 #define HASHTABLE_MAX_LOAD_FACTOR 1.618   /* Maximum hash table load factor. */
 
 /* Command flags. Please check the command table defined in the server.c file
@@ -1176,6 +1175,7 @@ struct redisServer {
     rax *errors;                /* Errors table */
     redisAtomic unsigned int lruclock; /* Clock for LRU eviction */
     volatile sig_atomic_t shutdown_asap; /* SHUTDOWN needed ASAP */
+    int hashtable_min_fill;     /* Minimal hash table fill */
     int activerehashing;        /* Incremental rehash in serverCron() */
     int active_defrag_running;  /* Active defragmentation running (holds current scan aggressiveness) */
     char *pidfile;              /* PID file path */
