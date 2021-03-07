@@ -78,7 +78,7 @@
 
 /* Includes for malloc_usable_size() */
 #ifdef __FreeBSD__
-#include <stdlib.h>
+#include <malloc_np.h>
 #else
 #include <malloc.h>
 #endif
