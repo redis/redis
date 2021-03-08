@@ -2953,8 +2953,12 @@ static int clusterManagerGetAntiAffinityScore(clusterManagerNodeArray *ipnodes,
             else types = sdsempty();
             /* Master type 'm' is always set as the first character of the
              * types string. */
-            if (!node->replicate) types = sdscatprintf(types, "m%s", types);
-            else types = sdscat(types, "s");
+            if (node->replicate) types = sdscat(types, "s");
+            else {
+                sds s = sdscatsds(sdsnew("m"), types);
+                sdsfree(types);
+                types = s;
+            }
             dictReplace(related, key, types);
         }
         /* Now it's trivial to check, for each related group having the
