@@ -450,7 +450,6 @@ long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
      * in cluster mode. */
     if (server.cluster_enabled) {
         slotToKeyFlush(async);
-        slotToChannelFlush(async);
     }
 
     if (dbnum == -1) flushSlaveKeysWithExpireList();
@@ -1934,6 +1933,7 @@ void slotToChannelUpdate(sds channel, int add) {
     unsigned char buf[64];
     unsigned char *indexed = buf;
 
+    server.cluster->slots_channels_count[hashslot] += add ? 1 : -1;
     if (keylen+2 > 64) indexed = zmalloc(keylen+2);
     indexed[0] = (hashslot >> 8) & 0xff;
     indexed[1] = hashslot & 0xff;
@@ -2002,6 +2002,8 @@ void slotToChannelFlush(int async) {
     rax *old = server.cluster->slots_to_channels;
 
     server.cluster->slots_to_channels = raxNew();
+    memset(server.cluster->slots_channels_count,0,
+           sizeof(server.cluster->slots_channels_count));
     freeSlotsToChannelsMap(old, async);
 }
 
@@ -2069,4 +2071,8 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
 
 unsigned int countKeysInSlot(unsigned int hashslot) {
     return server.cluster->slots_keys_count[hashslot];
+}
+
+unsigned int countChannelsInSlot(unsigned int hashslot) {
+    return server.cluster->slots_channels_count[hashslot];
 }

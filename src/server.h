@@ -2307,6 +2307,7 @@ int hashZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep);
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(client *c, int notify);
 int pubsubUnsubscribeLocalAllChannels(client *c, int notify);
+void pubsubUnsubscribeLocalAllChannelsInSlot(robj **channels, unsigned int count);
 int pubsubUnsubscribeAllPatterns(client *c, int notify);
 int pubsubPublishMessage(robj *channel, robj *message);
 void addReplyPubsubMessage(client *c, robj *channel, robj *msg);
@@ -2373,6 +2374,7 @@ void signalModifiedKey(client *c, redisDb *db, robj *key);
 void signalFlushedDb(int dbid, int async);
 unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count);
 unsigned int countKeysInSlot(unsigned int hashslot);
+unsigned int countChannelsInSlot(unsigned int hashslot);
 unsigned int delKeysInSlot(unsigned int hashslot);
 void getChannelsInSlot(unsigned int hashslot, robj **keys);
 int verifyClusterConfigWithData(void);

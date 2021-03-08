@@ -78,6 +78,8 @@ int clusterBumpConfigEpochWithoutConsensus(void);
 void moduleCallClusterReceivers(const char *sender_id, uint64_t module_id, uint8_t type, const unsigned char *payload, uint32_t len);
 const char *clusterGetMessageTypeString(int type);
 
+void removeChannelsInSlot(unsigned int slot);
+
 #define RCVBUF_INIT_LEN 1024
 #define RCVBUF_MAX_PREALLOC (1<<20) /* 1MB */
 
@@ -550,6 +552,8 @@ void clusterInit(void) {
 
     /* The slots -> channels map is a radix tree. Initialize it here. */
     server.cluster->slots_to_channels = raxNew();
+    memset(server.cluster->slots_channels_count,0,
+           sizeof(server.cluster->slots_channels_count));
 
     /* Set myself->port / cport to my listening ports, we'll just need to
      * discover the IP address via MEET messages. */
@@ -4644,16 +4648,16 @@ NULL
             }
             /* If this slot is in migrating status but we have no keys
              * for it assigning the slot to another node will clear
-             * the migrating status. */
+             * the migrating status and clear the channel to slot
+             * information. */
             if (countKeysInSlot(slot) == 0 &&
-                server.cluster->migrating_slots_to[slot])
+                server.cluster->migrating_slots_to[slot]) {
+                removeChannelsInSlot(slot);
                 server.cluster->migrating_slots_to[slot] = NULL;
+            }
 
             clusterDelSlot(slot);
             clusterAddSlot(n,slot);
-            /* As we are done with migration, we can clear all the channels
-             * in the hash slot. */
-            slotToChannelFlush(0);
 
             /* If this node was importing this slot, assigning the slot to
              * itself also clears the importing status. */
@@ -5034,6 +5038,15 @@ NULL
     } else {
         addReplySubcommandSyntaxError(c);
         return;
+    }
+}
+
+void removeChannelsInSlot(unsigned int slot) {
+    unsigned int channelcount = countChannelsInSlot(slot);
+    if (channelcount != 0) {
+        robj **channels = zmalloc(sizeof(robj*)*channelcount);
+        getChannelsInSlot(slot,channels);
+        pubsubUnsubscribeLocalAllChannelsInSlot(channels,channelcount);
     }
 }
 
@@ -5857,8 +5870,18 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                 }
             }
 
+            /* If it is pubsublocal command, it isn't required to check
+             * the channel being present or not in the node during the
+             * slot migration, the channel will be served from the source
+             * node until the migration completes with CLUSTER SETSLOT <slot>
+             * NODE <node-id>. */
+
+            int is_pubsublocal = cmd->proc == subscribeLocalCommand ||
+                                 cmd->proc == unsubscribeLocalCommand ||
+                                 cmd->proc == publishLocalCommand;
+
             /* Migrating / Importing slot? Count keys we don't have. */
-            if ((migrating_slot || importing_slot) &&
+            if ((migrating_slot || importing_slot) && !is_pubsublocal &&
                 lookupKeyRead(&server.db[0],thiskey) == NULL)
             {
                 missing_keys++;

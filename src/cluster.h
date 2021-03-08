@@ -154,6 +154,7 @@ typedef struct clusterState {
     clusterNode *importing_slots_from[CLUSTER_SLOTS];
     clusterNode *slots[CLUSTER_SLOTS];
     uint64_t slots_keys_count[CLUSTER_SLOTS];
+    uint64_t slots_channels_count[CLUSTER_SLOTS];
     rax *slots_to_keys;
     rax *slots_to_channels;
     /* The following fields are used to take the slave state on elections. */

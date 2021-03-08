@@ -104,21 +104,17 @@ void addReplyPubsubSubscribed(client *c, robj *channel, int (*subscriptionCount)
  * Channel can be NULL: this is useful when the client sends a mass
  * unsubscribe command but there are no channels to unsubscribe from: we
  * still send a notification. */
-void addReplyPubsubUnsubscribed(client *c, robj *channel) {
+void addReplyPubsubUnsubscribed(client *c, robj *channel, robj *msg, int (*subscriptionCount)(client*)) {
     if (c->resp == 2)
         addReply(c,shared.mbulkhdr[3]);
     else
         addReplyPushLen(c,3);
-    if (c->cmd->proc == unsubscribeCommand) {
-        addReply(c,shared.unsubscribebulk);
-    } else if (c->cmd->proc == unsubscribeLocalCommand) {
-        addReply(c,shared.unsubscribelocalbulk);
-    }
+    addReply(c,msg);
     if (channel)
         addReplyBulk(c,channel);
     else
         addReplyNull(c);
-    addReplyLongLong(c,clientSubscriptionsCount(c));
+    addReplyLongLong(c,subscriptionCount(c));
 }
 
 /* Send the pubsub pattern subscription notification to the client. */
@@ -159,11 +155,16 @@ int clientSubscriptionsCount(client *c) {
            listLength(c->pubsub_patterns);
 }
 
-/* Return the number of channels + patterns a client is subscribed to. */
+/* Return the number of local channels a client is subscribed to. */
 int clientLocalSubscriptionsCount(client *c) {
     return dictSize(c->pubsublocal_channels);
 }
 
+/* Return the number of pubsub + pubsub local channels
+ * a client is subscribed to. */
+int clientTotalPubSubSubscriptionCount(client *c) {
+    return clientSubscriptionsCount(c) + clientLocalSubscriptionsCount(c);
+}
 
 /* Subscribe a client to a channel. Returns 1 if the operation succeeded, or
  * 0 if the client was already subscribed to that channel. */
@@ -220,17 +221,64 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubmeta *m
             /* As this channel isn't subscribed by anyone, it's safe
              * to remove the channel from the slot. */
             if (server.cluster_enabled & meta->local) {
-                sds ch = sdsnewlen(channel->ptr, sdslen(channel->ptr));
-                slotToChannelDel(ch);
-                sdsfree(ch);
+                slotToChannelDel(channel->ptr);
             }
         }
     }
     /* Notify the client */
-    if (notify) addReplyPubsubUnsubscribed(c,channel);
+    if (notify) {
+        if (meta->local) {
+            addReplyPubsubUnsubscribed(c,
+                                       channel,
+                                       shared.unsubscribebulk,
+                                       clientLocalSubscriptionsCount);
+        } else {
+            addReplyPubsubUnsubscribed(c,
+                                       channel,
+                                       shared.unsubscribebulk,
+                                       clientSubscriptionsCount);
+        }
+    }
     decrRefCount(channel); /* it is finally safe to release it */
     return retval;
 }
+
+void pubsuLocalbUnsubscribeAllClients(robj *channel, int notify) {
+    int retval;
+
+    dictEntry *de = dictFind(server.pubsublocal_channels,channel);
+    serverAssertWithInfo(NULL,channel,de != NULL);
+    list *clients = dictGetVal(de);
+    if (listLength(clients) > 0) {
+        /* For each client subscribed to the channel, unsubscribe it. */
+        listIter li;
+        listNode *ln;
+        listRewind(clients, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            client *c = listNodeValue(ln);
+            retval = dictDelete(c->pubsublocal_channels,channel);
+            serverAssertWithInfo(c,channel,retval == DICT_OK);
+            if (notify) {
+                addReplyPubsubUnsubscribed(c,
+                                           channel,
+                                           shared.unsubscribelocalbulk,
+                                           clientLocalSubscriptionsCount);
+            }
+            /* If the client has no other pub sub subscription,
+             * move out of pubsub mode. */
+            if (clientTotalPubSubSubscriptionCount(c) == 0) {
+                c->flags &= ~CLIENT_PUBSUB;
+            }
+        }
+    }
+    /* Delete the channel from server pubsublocal channels hash table. */
+    retval = dictDelete(server.pubsublocal_channels,channel);
+    /* Delete the channel from slots_to_channel mapping. */
+    slotToChannelDel(channel->ptr);
+    serverAssertWithInfo(NULL,channel,retval == DICT_OK);
+    decrRefCount(channel); /* it is finally safe to release it */
+}
+
 
 /* Subscribe a client to a pattern. Returns 1 if the operation succeeded, or 0 if the client was already subscribed to that pattern. */
 int pubsubSubscribePattern(client *c, robj *pattern) {
@@ -291,13 +339,9 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
 
 /* Unsubscribe from all the channels. Return the number of channels the
  * client was subscribed to. */
-<<<<<<< HEAD
-int pubsubUnsubscribeAllChannels(client *c, int notify) {
-=======
 int pubsubUnsubscribeAllChannelsInternal(client *c, int notify, pubsubmeta *meta) {
     dictIterator *di = dictGetSafeIterator(meta->client_channels);
     dictEntry *de;
->>>>>>> 867d85082 (Refactoring and cleanup of slots on no subscription to channel.)
     int count = 0;
     if (dictSize(c->pubsub_channels) > 0) {
         dictIterator *di = dictGetSafeIterator(c->pubsub_channels);
@@ -306,16 +350,18 @@ int pubsubUnsubscribeAllChannelsInternal(client *c, int notify, pubsubmeta *meta
         while((de = dictNext(di)) != NULL) {
             robj *channel = dictGetKey(de);
 
-<<<<<<< HEAD
             count += pubsubUnsubscribeChannel(c,channel,notify,server.pubsub_channels,c->pubsub_channels);
         }
         dictReleaseIterator(di);
-=======
-        count += pubsubUnsubscribeChannel(c,channel,notify,meta);
->>>>>>> 867d85082 (Refactoring and cleanup of slots on no subscription to channel.)
     }
     /* We were subscribed to nothing? Still reply to the client. */
-    if (notify && count == 0) addReplyPubsubUnsubscribed(c,NULL);
+    if (notify && count == 0) {
+        addReplyPubsubUnsubscribed(c,
+                                   NULL,
+                                   shared.unsubscribebulk,
+                                   0);
+    }
+    dictReleaseIterator(di);
     return count;
 }
 
@@ -331,6 +377,14 @@ int pubsubUnsubscribeLocalAllChannels(client *c, int notify) {
     int count = pubsubUnsubscribeAllChannelsInternal(c, notify, meta);
     zfree(meta);
     return count;
+}
+
+void pubsubUnsubscribeLocalAllChannelsInSlot(robj **channels, unsigned int count) {
+    for (unsigned int j = 0; j < count; j++) {
+        /* Remove the channel from server and from the clients
+         * subscribed to it as well as notify them. */
+        pubsuLocalbUnsubscribeAllClients(channels[j], 1);
+    }
 }
 
 /* Unsubscribe from all the patterns. Return the number of patterns the
@@ -456,7 +510,7 @@ void unsubscribeCommand(client *c) {
         for (j = 1; j < c->argc; j++)
             pubsubUnsubscribeChannel(c,c->argv[j],1,meta);
     }
-    if (clientSubscriptionsCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
+    if (clientTotalPubSubSubscriptionCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
     zfree(meta);
 }
 
@@ -490,7 +544,7 @@ void punsubscribeCommand(client *c) {
         for (j = 1; j < c->argc; j++)
             pubsubUnsubscribePattern(c,c->argv[j],1);
     }
-    if (clientSubscriptionsCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
+    if (clientTotalPubSubSubscriptionCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
 }
 
 /* PUBLISH <channel> <message> */
@@ -614,11 +668,16 @@ void subscribeLocalCommand(client *c) {
 
     pubsubmeta *meta = createPubSubLocalMeta(c);
     for (j = 1; j < c->argc; j++) {
-        pubsubSubscribeChannel(c,c->argv[j],meta,clientLocalSubscriptionsCount);
-        if (server.cluster_enabled) {
-            sds channel = sdsnewlen(c->argv[j]->ptr, sdslen(c->argv[j]->ptr));
-            slotToChannelAdd(channel);
+        /* A channel is only considered to be added, if a
+         * subscriber exists for it. And if a subscriber
+         * already exists the slotToChannel doesn't needs
+         * to be incremented. */
+        if (server.cluster_enabled &
+                (dictFind(meta->server_channels,c->argv[j]) == NULL)) {
+            slotToChannelAdd(c->argv[j]->ptr);
         }
+        pubsubSubscribeChannel(
+                c, c->argv[j], meta, clientLocalSubscriptionsCount);
     }
     c->flags |= CLIENT_PUBSUB;
     zfree(meta);
@@ -637,6 +696,6 @@ void unsubscribeLocalCommand(client *c) {
             pubsubUnsubscribeChannel(c,c->argv[j],1,meta);
         }
     }
-    if (clientSubscriptionsCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
+    if (clientTotalPubSubSubscriptionCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
     zfree(meta);
 }
