@@ -1716,9 +1716,9 @@ int quicklistTest(int argc, char *argv[], int accurate) {
     size_t option_count = sizeof(options) / sizeof(*options);
     long long runtime[option_count];
 
-    iteration = accurate ? (int)option_count : 1;
+    iteration = accurate ? (int)option_count : 3;
     for (int _i = 0; _i < iteration; _i++) {
-        printf("Testing Option %d\n", options[_i]);
+        printf("Testing Compression option %d\n", options[_i]);
         long long start = mstime();
 
         TEST("create list") {
