@@ -1741,7 +1741,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST_DESC("add to tail 5x at compress %d", options[_i]) {
-        for (int f = 0; f < fill_count; f++) {
+            for (int f = 0; f < fill_count; f++) {
                 quicklist *ql = quicklistNew(fills[f], options[_i]);
                 for (int i = 0; i < 5; i++)
                     quicklistPushTail(ql, genstr("hello", i), 32);
@@ -2474,7 +2474,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST_DESC("iterator at index test at compress %d", options[_i]) {
-        for (int f = 0; f < fill_count; f++) {
+            for (int f = 0; f < fill_count; f++) {
                 quicklist *ql = quicklistNew(fills[f], options[_i]);
                 char num[32];
                 long long nums[5000];
@@ -2597,7 +2597,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST_DESC("ltrim test D at compress %d", options[_i]) {
-        for (int f = 0; f < fill_count; f++) {
+            for (int f = 0; f < fill_count; f++) {
                 quicklist *ql = quicklistNew(fills[f], options[_i]);
                 char num[32];
                 long long nums[5000];
