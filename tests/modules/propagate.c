@@ -70,6 +70,43 @@ int propagateTestTimerCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return REDISMODULE_OK;
 }
 
+/* Timer callback. */
+void timerMixedHandler(RedisModuleCtx *ctx, void *data) {
+    int repl = (int)data;
+
+    /* The goal is the trigger a module command that calls RM_Replicate
+     * in order to test MULTI/EXEC structre */
+    RedisModule_Replicate(ctx,"INCRBY","cc","timer-mixed-start","1");
+    RedisModule_Call(ctx,"propagate-test.mixed", repl? "!" : "");
+    RedisModule_Replicate(ctx,"INCRBY","cc","timer-mixed-end","1");
+}
+
+int propagateTestTimerMixedCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    RedisModuleTimerID timer_id =
+        RedisModule_CreateTimer(ctx,100,timerMixedHandler,(void*)0);
+    REDISMODULE_NOT_USED(timer_id);
+
+    RedisModule_ReplyWithSimpleString(ctx,"OK");
+    return REDISMODULE_OK;
+}
+
+int propagateTestTimerMixedReplCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    RedisModuleTimerID timer_id =
+        RedisModule_CreateTimer(ctx,100,timerMixedHandler,(void*)1);
+    REDISMODULE_NOT_USED(timer_id);
+
+    RedisModule_ReplyWithSimpleString(ctx,"OK");
+    return REDISMODULE_OK;
+}
+
 /* The thread entry point. */
 void *threadMain(void *arg) {
     REDISMODULE_NOT_USED(arg);
@@ -140,6 +177,16 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"propagate-test.timer",
                 propagateTestTimerCommand,
+                "",1,1,1) == REDISMODULE_ERR)
+            return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"propagate-test.timer-mixed",
+                propagateTestTimerMixedCommand,
+                "",1,1,1) == REDISMODULE_ERR)
+            return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"propagate-test.timer-mixed-repl",
+                propagateTestTimerMixedReplCommand,
                 "",1,1,1) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
 

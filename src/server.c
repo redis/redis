@@ -3502,6 +3502,7 @@ void redisOpArrayFree(redisOpArray *oa) {
         zfree(op->argv);
     }
     zfree(oa->ops);
+    oa->ops = NULL;
 }
 
 /* ====================== Commands lookup and execution ===================== */

@@ -1932,7 +1932,8 @@ void flagTransaction(client *c);
 void execCommandAbort(client *c, sds error);
 void execCommandPropagateMulti(int dbid);
 void execCommandPropagateExec(int dbid);
-void beforePropagateMultiOrExec(int multi);
+void beforePropagateMulti();
+void afterPropagateExec();
 
 /* Redis object implementation */
 void decrRefCount(robj *o);

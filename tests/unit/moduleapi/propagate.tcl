@@ -42,6 +42,58 @@ tags "modules" {
                     close_replication_stream $repl
                 }
 
+                test {module propagates nested ctx case1} {
+                    set repl [attach_to_replication_stream]
+
+                    $master del timer-mixed-start
+                    $master del timer-mixed-end
+                    $master propagate-test.timer-mixed
+
+                    wait_for_condition 5000 10 {
+                        [$replica get timer-mixed-end] eq "1"
+                    } else {
+                        fail "The two counters don't match the expected value."
+                    }
+
+                    # Note the 'after-call' and 'timer-mixed-start' propagation below is out of order (known limitation)
+                    assert_replication_stream $repl {
+                        {select *}
+                        {multi}
+                        {incrby timer-mixed-start 1}
+                        {incrby timer-mixed-end 1}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+                }
+
+                test {module propagates nested ctx case2} {
+                    set repl [attach_to_replication_stream]
+
+                    $master del timer-mixed-start
+                    $master del timer-mixed-end
+                    $master propagate-test.timer-mixed-repl
+
+                    wait_for_condition 5000 10 {
+                        [$replica get timer-mixed-end] eq "1"
+                    } else {
+                        fail "The two counters don't match the expected value."
+                    }
+
+                    # Note the 'after-call' and 'timer-mixed-start' propagation below is out of order (known limitation)
+                    assert_replication_stream $repl {
+                        {select *}
+                        {multi}
+                        {incr using-call}
+                        {incr after-call}
+                        {incr counter-1}
+                        {incr counter-2}
+                        {incrby timer-mixed-start 1}
+                        {incrby timer-mixed-end 1}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+                }
+
                 test {module propagates from thread} {
                     set repl [attach_to_replication_stream]
 
