@@ -29,7 +29,7 @@ jobs:
     - name: cluster tests
       run: ./runtest-cluster
     - name: unittest
-      run: ./src/redis-server test all --accurate
+      run: ./src/redis-server test all
 
   test-ubuntu-libc-malloc:
     runs-on: ubuntu-latest
@@ -92,7 +92,7 @@ jobs:
     - name: cluster tests
       run: ./runtest-cluster
     - name: unittest
-      run: ./src/redis-server test all --accurate
+      run: ./src/redis-server test all
 
   test-ubuntu-tls:
     runs-on: ubuntu-latest
