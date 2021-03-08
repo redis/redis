@@ -340,17 +340,15 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
 /* Unsubscribe from all the channels. Return the number of channels the
  * client was subscribed to. */
 int pubsubUnsubscribeAllChannelsInternal(client *c, int notify, pubsubmeta *meta) {
-    dictIterator *di = dictGetSafeIterator(meta->client_channels);
-    dictEntry *de;
     int count = 0;
     if (dictSize(c->pubsub_channels) > 0) {
-        dictIterator *di = dictGetSafeIterator(c->pubsub_channels);
+        dictIterator *di = dictGetSafeIterator(meta->client_channels);
         dictEntry *de;
 
         while((de = dictNext(di)) != NULL) {
             robj *channel = dictGetKey(de);
 
-            count += pubsubUnsubscribeChannel(c,channel,notify,server.pubsub_channels,c->pubsub_channels);
+            count += pubsubUnsubscribeChannel(c,channel,notify,meta);
         }
         dictReleaseIterator(di);
     }
@@ -361,7 +359,6 @@ int pubsubUnsubscribeAllChannelsInternal(client *c, int notify, pubsubmeta *meta
                                    shared.unsubscribebulk,
                                    0);
     }
-    dictReleaseIterator(di);
     return count;
 }
 
