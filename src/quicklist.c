@@ -315,7 +315,9 @@ REDIS_STATIC void __quicklistCompress(const quicklist *quicklist,
         if (forward == node || reverse == node)
             in_depth = 1;
 
-        if (forward == reverse)
+        /* We passed into compress depth of opposite side of the quicklist
+         * so there's no need to compress anything and we can exit. */
+        if (forward == reverse || forward->next == reverse)
             return;
 
         forward = forward->next;
@@ -325,11 +327,9 @@ REDIS_STATIC void __quicklistCompress(const quicklist *quicklist,
     if (!in_depth)
         quicklistCompressNode(node);
 
-    if (depth > 2) {
-        /* At this point, forward and reverse are one node beyond depth */
-        quicklistCompressNode(forward);
-        quicklistCompressNode(reverse);
-    }
+    /* At this point, forward and reverse are one node beyond depth */
+    quicklistCompressNode(forward);
+    quicklistCompressNode(reverse);
 }
 
 #define quicklistCompress(_ql, _node)                                          \
@@ -380,10 +380,11 @@ REDIS_STATIC void __quicklistInsertNode(quicklist *quicklist,
         quicklist->head = quicklist->tail = new_node;
     }
 
+    /* Update len first, so in __quicklistCompress we know exactly len */
+    quicklist->len++;
+
     if (old_node)
         quicklistCompress(quicklist, old_node);
-
-    quicklist->len++;
 }
 
 /* Wrappers for node inserting around existing node. */
@@ -602,15 +603,16 @@ REDIS_STATIC void __quicklistDelNode(quicklist *quicklist,
         quicklist->head = node->next;
     }
 
+    /* Update len first, so in __quicklistCompress we know exactly len */
+    quicklist->len--;
+    quicklist->count -= node->count;
+
     /* If we deleted a node within our compress depth, we
      * now have compressed nodes needing to be decompressed. */
     __quicklistCompress(quicklist, NULL);
 
-    quicklist->count -= node->count;
-
     zfree(node->zl);
     zfree(node);
-    quicklist->len--;
 }
 
 /* Delete one entry from list given the node for the entry and a pointer
@@ -2706,30 +2708,40 @@ int quicklistTest(int argc, char *argv[]) {
                         quicklistPushHead(ql, genstr("hello HEAD", i + 1), 64);
                     }
 
-                    quicklistNode *node = ql->head;
-                    unsigned int low_raw = ql->compress;
-                    unsigned int high_raw = ql->len - ql->compress;
-
-                    for (unsigned int at = 0; at < ql->len;
-                         at++, node = node->next) {
-                        if (at < low_raw || at >= high_raw) {
-                            if (node->encoding != QUICKLIST_NODE_ENCODING_RAW) {
-                                ERR("Incorrect compression: node %d is "
-                                    "compressed at depth %d ((%u, %u); total "
-                                    "nodes: %lu; size: %u)",
-                                    at, depth, low_raw, high_raw, ql->len,
-                                    node->sz);
+                    for (int step = 0; step < 2; step++) {
+                        /* test remove node */
+                        if (step == 1) {
+                            for (int i = 0; i < list_sizes[list] / 2; i++) {
+                                quicklistPop(ql, QUICKLIST_HEAD, NULL, NULL, NULL);
+                                quicklistPop(ql, QUICKLIST_TAIL, NULL, NULL, NULL);
                             }
-                        } else {
-                            if (node->encoding != QUICKLIST_NODE_ENCODING_LZF) {
-                                ERR("Incorrect non-compression: node %d is NOT "
-                                    "compressed at depth %d ((%u, %u); total "
-                                    "nodes: %lu; size: %u; attempted: %d)",
-                                    at, depth, low_raw, high_raw, ql->len,
-                                    node->sz, node->attempted_compress);
+                        }
+                        quicklistNode *node = ql->head;
+                        unsigned int low_raw = ql->compress;
+                        unsigned int high_raw = ql->len - ql->compress;
+
+                        for (unsigned int at = 0; at < ql->len;
+                            at++, node = node->next) {
+                            if (at < low_raw || at >= high_raw) {
+                                if (node->encoding != QUICKLIST_NODE_ENCODING_RAW) {
+                                    ERR("Incorrect compression: node %d is "
+                                        "compressed at depth %d ((%u, %u); total "
+                                        "nodes: %lu; size: %u)",
+                                        at, depth, low_raw, high_raw, ql->len,
+                                        node->sz);
+                                }
+                            } else {
+                                if (node->encoding != QUICKLIST_NODE_ENCODING_LZF) {
+                                    ERR("Incorrect non-compression: node %d is NOT "
+                                        "compressed at depth %d ((%u, %u); total "
+                                        "nodes: %lu; size: %u; attempted: %d)",
+                                        at, depth, low_raw, high_raw, ql->len,
+                                        node->sz, node->attempted_compress);
+                                }
                             }
                         }
                     }
+
                     quicklistRelease(ql);
                 }
             }
