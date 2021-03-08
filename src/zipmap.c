@@ -473,11 +473,12 @@ static void zipmapRepr(unsigned char *p) {
 }
 
 #define UNUSED(x) (void)(x)
-int zipmapTest(int argc, char *argv[]) {
+int zipmapTest(int argc, char *argv[], int accurate) {
     unsigned char *zm;
 
     UNUSED(argc);
     UNUSED(argv);
+    UNUSED(accurate);
 
     zm = zipmapNew();
 

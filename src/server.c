@@ -6038,7 +6038,7 @@ int iAmMaster(void) {
 }
 
 #ifdef REDIS_TEST
-typedef int redisTestProc(int argc, char **argv);
+typedef int redisTestProc(int argc, char **argv, int accurate);
 struct redisTest {
     char *name;
     redisTestProc *proc;
@@ -6074,15 +6074,22 @@ int main(int argc, char **argv) {
 
 #ifdef REDIS_TEST
     if (argc >= 3 && !strcasecmp(argv[1], "test")) {
+        int accurate = 0;
+        for (j = 3; j < argc; j++) {
+            if (!strcasecmp(argv[j], "--accurate")) {
+                accurate = 1;
+            }
+        }
+
         if (!strcasecmp(argv[2], "all")) {
             int numtests = sizeof(redisTests)/sizeof(struct redisTest);
-            for (int j = 0; j < numtests; j++) {
-                redisTests[j].failed = (redisTests[j].proc(argc,argv) != 0);
+            for (j = 0; j < numtests; j++) {
+                redisTests[j].failed = (redisTests[j].proc(argc,argv,accurate) != 0);
             }
 
             /* Report tests result */
             int failed_num = 0;
-            for (int j = 0; j < numtests; j++) {
+            for (j = 0; j < numtests; j++) {
                 if (redisTests[j].failed) {
                     failed_num++;
                     printf("[failed] Test - %s\n", redisTests[j].name);
@@ -6098,7 +6105,7 @@ int main(int argc, char **argv) {
         } else {
             redisTestProc *proc = getTestProcByName(argv[2]);
             if (!proc) return -1; /* test not found */
-            return proc(argc,argv);
+            return proc(argc,argv,accurate);
         }
 
         return 0;

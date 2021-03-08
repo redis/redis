@@ -1701,11 +1701,12 @@ static char *genstr(char *prefix, int i) {
 }
 
 /* main test, but callable from other files */
-int quicklistTest(int argc, char *argv[]) {
+int quicklistTest(int argc, char *argv[], int accurate) {
     UNUSED(argc);
     UNUSED(argv);
 
     unsigned int err = 0;
+    int iteration;
     int optimize_start =
         -(int)(sizeof(optimization_level) / sizeof(*optimization_level));
 
@@ -1715,7 +1716,8 @@ int quicklistTest(int argc, char *argv[]) {
     size_t option_count = sizeof(options) / sizeof(*options);
     long long runtime[option_count];
 
-    for (int _i = 0; _i < (int)option_count; _i++) {
+    iteration = accurate ? (int)option_count : 1;
+    for (int _i = 0; _i < iteration; _i++) {
         printf("Testing Option %d\n", options[_i]);
         long long start = mstime();
 
@@ -1769,7 +1771,8 @@ int quicklistTest(int argc, char *argv[]) {
             }
         }
 
-        for (int f = optimize_start; f < 512; f++) {
+        iteration = accurate ? 512 : 32;
+        for (int f = optimize_start; f < iteration; f++) {
             TEST_DESC("add to tail 500x at fill %d at compress %d", f,
                       options[_i]) {
                 quicklist *ql = quicklistNew(f, options[_i]);
@@ -1783,7 +1786,8 @@ int quicklistTest(int argc, char *argv[]) {
             }
         }
 
-        for (int f = optimize_start; f < 512; f++) {
+        iteration = accurate ? 512 : 32;
+        for (int f = optimize_start; f < iteration; f++) {
             TEST_DESC("add to head 500x at fill %d at compress %d", f,
                       options[_i]) {
                 quicklist *ql = quicklistNew(f, options[_i]);
@@ -2068,7 +2072,8 @@ int quicklistTest(int argc, char *argv[]) {
             }
         }
 
-        for (int f = optimize_start; f < 1024; f++) {
+        iteration = accurate ? 1024 : 32;
+        for (int f = optimize_start; f < iteration; f++) {
             TEST_DESC(
                 "insert [before] 250 new in middle of 500 elements at fill"
                 " %d at compress %d",
@@ -2087,7 +2092,8 @@ int quicklistTest(int argc, char *argv[]) {
             }
         }
 
-        for (int f = optimize_start; f < 1024; f++) {
+        iteration = accurate ? 1024 : 32;
+        for (int f = optimize_start; f < iteration; f++) {
             TEST_DESC("insert [after] 250 new in middle of 500 elements at "
                       "fill %d at compress %d",
                       f, options[_i]) {
@@ -2141,7 +2147,8 @@ int quicklistTest(int argc, char *argv[]) {
             quicklistRelease(copy);
         }
 
-        for (int f = optimize_start; f < 512; f++) {
+        iteration = accurate ? 512 : 32;
+        for (int f = optimize_start; f < iteration; f++) {
             TEST_DESC("index 1,200 from 500 list at fill %d at compress %d", f,
                       options[_i]) {
                 quicklist *ql = quicklistNew(f, options[_i]);
@@ -2503,7 +2510,8 @@ int quicklistTest(int argc, char *argv[]) {
             }
         }
 
-        for (int f = optimize_start; f < 800; f++) {
+        iteration = accurate ? 800 : 8;
+        for (int f = optimize_start; f < iteration; f++) {
             TEST_DESC("iterator at index test at fill %d at compress %d", f,
                       options[_i]) {
                 quicklist *ql = quicklistNew(f, options[_i]);
@@ -2691,9 +2699,10 @@ int quicklistTest(int argc, char *argv[]) {
     /* Run a longer test of compression depth outside of primary test loop. */
     int list_sizes[] = {250, 251, 500, 999, 1000};
     long long start = mstime();
-    for (int list = 0; list < (int)(sizeof(list_sizes) / sizeof(*list_sizes));
-         list++) {
-        for (int f = optimize_start; f < 128; f++) {
+    iteration = accurate ? (int)(sizeof(list_sizes) / sizeof(*list_sizes)) : 1;
+    for (int list = 0; list < iteration; list++) {
+        int optimize_end = accurate ? 128 : 32;
+        for (int f = optimize_start; f < optimize_end; f++) {
             for (int depth = 1; depth < 40; depth++) {
                 /* skip over many redundant test cases */
                 TEST_DESC("verify specific compression of interior nodes with "

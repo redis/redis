@@ -675,11 +675,12 @@ size_t zmalloc_get_memory_size(void) {
 
 #ifdef REDIS_TEST
 #define UNUSED(x) ((void)(x))
-int zmalloc_test(int argc, char **argv) {
+int zmalloc_test(int argc, char **argv, int accurate) {
     void *ptr;
 
     UNUSED(argc);
     UNUSED(argv);
+    UNUSED(accurate);
     printf("Malloc prefix size: %d\n", (int) PREFIX_SIZE);
     printf("Initial used memory: %zu\n", zmalloc_used_memory());
     ptr = zmalloc(123);

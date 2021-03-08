@@ -1222,7 +1222,7 @@ dictType BenchmarkDictType = {
 } while(0)
 
 /* ./redis-server test dict [count] */
-int dictTest(int argc, char **argv) {
+int dictTest(int argc, char **argv, int accurate) {
     long j;
     long long start, elapsed;
     dict *dict = dictCreate(&BenchmarkDictType,NULL);
@@ -1230,8 +1230,10 @@ int dictTest(int argc, char **argv) {
 
     if (argc == 4) {
         count = strtol(argv[3],NULL,10);
-    } else {
+    } else if (accurate) {
         count = 5000000;
+    } else {
+        count = 5000;
     }
 
     start_benchmark();
