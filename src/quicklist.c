@@ -1518,8 +1518,6 @@ void quicklistBookmarksClear(quicklist *ql) {
 
 #define yell(str, ...) printf("ERROR! " str "\n\n", __VA_ARGS__)
 
-#define OK printf("\tOK\n")
-
 #define ERROR                                                                  \
     do {                                                                       \
         printf("\tERROR!\n");                                                  \
@@ -1639,7 +1637,6 @@ static int _ql_verify(quicklist *ql, uint32_t len, uint32_t count,
     }
 
     if (ql->len == 0 && !errors) {
-        OK;
         return errors;
     }
 
@@ -1688,8 +1685,6 @@ static int _ql_verify(quicklist *ql, uint32_t len, uint32_t count,
         }
     }
 
-    if (!errors)
-        OK;
     return errors;
 }
 
@@ -1716,7 +1711,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
     size_t option_count = sizeof(options) / sizeof(*options);
     long long runtime[option_count];
 
-    iteration = accurate ? (int)option_count : 3;
+    iteration = accurate ? (int)option_count : 4;
     for (int _i = 0; _i < iteration; _i++) {
         printf("Testing Compression option %d\n", options[_i]);
         long long start = mstime();
@@ -1743,9 +1738,8 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             quicklistRelease(ql);
         }
 
+        TEST_DESC("add to tail 5x at compress %d", options[_i]) {
         for (int f = optimize_start; f < 32; f++) {
-            TEST_DESC("add to tail 5x at fill %d at compress %d", f,
-                      options[_i]) {
                 quicklist *ql = quicklistNew(f, options[_i]);
                 for (int i = 0; i < 5; i++)
                     quicklistPushTail(ql, genstr("hello", i), 32);
@@ -1757,9 +1751,8 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             }
         }
 
-        for (int f = optimize_start; f < 32; f++) {
-            TEST_DESC("add to head 5x at fill %d at compress %d", f,
-                      options[_i]) {
+        TEST_DESC("add to head 5x at compress %d", options[_i]) {
+            for (int f = optimize_start; f < 32; f++) {
                 quicklist *ql = quicklistNew(f, options[_i]);
                 for (int i = 0; i < 5; i++)
                     quicklistPushHead(ql, genstr("hello", i), 32);
@@ -1772,9 +1765,8 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         iteration = accurate ? 512 : 32;
-        for (int f = optimize_start; f < iteration; f++) {
-            TEST_DESC("add to tail 500x at fill %d at compress %d", f,
-                      options[_i]) {
+        TEST_DESC("add to tail 500x at compress %d", options[_i]) {
+            for (int f = optimize_start; f < iteration; f++) {
                 quicklist *ql = quicklistNew(f, options[_i]);
                 for (int i = 0; i < 500; i++)
                     quicklistPushTail(ql, genstr("hello", i), 64);
@@ -1787,9 +1779,8 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         iteration = accurate ? 512 : 32;
-        for (int f = optimize_start; f < iteration; f++) {
-            TEST_DESC("add to head 500x at fill %d at compress %d", f,
-                      options[_i]) {
+        TEST_DESC("add to head 500x at compress %d", options[_i]) {
+            for (int f = optimize_start; f < iteration; f++) {
                 quicklist *ql = quicklistNew(f, options[_i]);
                 for (int i = 0; i < 500; i++)
                     quicklistPushHead(ql, genstr("hello", i), 32);
@@ -1808,8 +1799,8 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             quicklistRelease(ql);
         }
 
-        for (int f = optimize_start; f < 32; f++) {
-            TEST("rotate one val once") {
+        TEST("rotate one val once") {
+            for (int f = optimize_start; f < 32; f++) {
                 quicklist *ql = quicklistNew(f, options[_i]);
                 quicklistPushHead(ql, "hello", 6);
                 quicklistRotate(ql);
@@ -1820,9 +1811,8 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             }
         }
 
-        for (int f = optimize_start; f < 3; f++) {
-            TEST_DESC("rotate 500 val 5000 times at fill %d at compress %d", f,
-                      options[_i]) {
+        TEST_DESC("rotate 500 val 5000 times at compress %d", options[_i]) {
+            for (int f = optimize_start; f < 3; f++) {
                 quicklist *ql = quicklistNew(f, options[_i]);
                 quicklistPushHead(ql, "900", 3);
                 quicklistPushHead(ql, "7000", 4);
@@ -2016,10 +2006,9 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             quicklistRelease(ql);
         }
 
-        for (int f = optimize_start; f < 12; f++) {
-            TEST_DESC("insert once in elements while iterating at fill %d at "
-                      "compress %d\n",
-                      f, options[_i]) {
+        TEST_DESC("insert once in elements while iterating at compress %d",
+                  options[_i]) {
+            for (int f = optimize_start; f < 12; f++) {
                 quicklist *ql = quicklistNew(f, options[_i]);
                 quicklistPushTail(ql, "abc", 3);
                 quicklistSetFill(ql, 1);
@@ -2073,11 +2062,10 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         iteration = accurate ? 1024 : 32;
-        for (int f = optimize_start; f < iteration; f++) {
-            TEST_DESC(
-                "insert [before] 250 new in middle of 500 elements at fill"
-                " %d at compress %d",
-                f, options[_i]) {
+        TEST_DESC(
+            "insert [before] 250 new in middle of 500 elements at compress %d",
+            options[_i]) {
+            for (int f = optimize_start; f < iteration; f++) {
                 quicklist *ql = quicklistNew(f, options[_i]);
                 for (int i = 0; i < 500; i++)
                     quicklistPushTail(ql, genstr("hello", i), 32);
@@ -2093,10 +2081,9 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         iteration = accurate ? 1024 : 32;
-        for (int f = optimize_start; f < iteration; f++) {
-            TEST_DESC("insert [after] 250 new in middle of 500 elements at "
-                      "fill %d at compress %d",
-                      f, options[_i]) {
+        TEST_DESC("insert [after] 250 new in middle of 500 elements at compress %d",
+                  options[_i]) {
+            for (int f = optimize_start; f < iteration; f++) {
                 quicklist *ql = quicklistNew(f, options[_i]);
                 for (int i = 0; i < 500; i++)
                     quicklistPushHead(ql, genstr("hello", i), 32);
@@ -2156,14 +2143,10 @@ int quicklistTest(int argc, char *argv[], int accurate) {
                     quicklistPushTail(ql, genstr("hello", i + 1), 32);
                 quicklistEntry entry;
                 quicklistIndex(ql, 1, &entry);
-                if (!strcmp((char *)entry.value, "hello2"))
-                    OK;
-                else
+                if (strcmp((char *)entry.value, "hello2") != 0)
                     ERR("Value: %s", entry.value);
                 quicklistIndex(ql, 200, &entry);
-                if (!strcmp((char *)entry.value, "hello201"))
-                    OK;
-                else
+                if (strcmp((char *)entry.value, "hello201") != 0)
                     ERR("Value: %s", entry.value);
                 quicklistRelease(ql);
             }
@@ -2175,14 +2158,10 @@ int quicklistTest(int argc, char *argv[], int accurate) {
                     quicklistPushTail(ql, genstr("hello", i + 1), 32);
                 quicklistEntry entry;
                 quicklistIndex(ql, -1, &entry);
-                if (!strcmp((char *)entry.value, "hello500"))
-                    OK;
-                else
+                if (strcmp((char *)entry.value, "hello500") != 0)
                     ERR("Value: %s", entry.value);
                 quicklistIndex(ql, -2, &entry);
-                if (!strcmp((char *)entry.value, "hello499"))
-                    OK;
-                else
+                if (strcmp((char *)entry.value, "hello499") != 0)
                     ERR("Value: %s", entry.value);
                 quicklistRelease(ql);
             }
@@ -2194,9 +2173,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
                     quicklistPushTail(ql, genstr("hello", i + 1), 32);
                 quicklistEntry entry;
                 quicklistIndex(ql, -100, &entry);
-                if (!strcmp((char *)entry.value, "hello401"))
-                    OK;
-                else
+                if (strcmp((char *)entry.value, "hello401") != 0)
                     ERR("Value: %s", entry.value);
                 quicklistRelease(ql);
             }
@@ -2210,8 +2187,6 @@ int quicklistTest(int argc, char *argv[], int accurate) {
                 if (quicklistIndex(ql, 50, &entry))
                     ERR("Index found at 50 with 50 list: %.*s", entry.sz,
                         entry.value);
-                else
-                    OK;
                 quicklistRelease(ql);
             }
         }
@@ -2383,11 +2358,10 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             quicklistReplaceAtIndex(ql, 1, "foo", 3);
             quicklistReplaceAtIndex(ql, -1, "bar", 3);
             quicklistRelease(ql);
-            OK;
         }
 
-        for (int f = optimize_start; f < 16; f++) {
-            TEST_DESC("lrem test at fill %d at compress %d", f, options[_i]) {
+        TEST_DESC("lrem test at compress %d", options[_i]) {
+            for (int f = optimize_start; f < 16; f++) {
                 quicklist *ql = quicklistNew(f, options[_i]);
                 char *words[] = {"abc", "foo", "bar",  "foobar", "foobared",
                                  "zap", "bar", "test", "foo"};
@@ -2413,14 +2387,12 @@ int quicklistTest(int argc, char *argv[], int accurate) {
                 /* check result of lrem 0 bar */
                 iter = quicklistGetIterator(ql, AL_START_HEAD);
                 i = 0;
-                int ok = 1;
                 while (quicklistNext(iter, &entry)) {
                     /* Result must be: abc, foo, foobar, foobared, zap, test,
                      * foo */
                     if (strncmp((char *)entry.value, result[i], entry.sz)) {
                         ERR("No match at position %d, got %.*s instead of %s",
                             i, entry.sz, entry.value, result[i]);
-                        ok = 0;
                     }
                     i++;
                 }
@@ -2457,22 +2429,17 @@ int quicklistTest(int argc, char *argv[], int accurate) {
                                 entry.sz)) {
                         ERR("No match at position %d, got %.*s instead of %s",
                             i, entry.sz, entry.value, resultB[resB - 1 - i]);
-                        ok = 0;
                     }
                     i++;
                 }
 
                 quicklistReleaseIterator(iter);
-                /* final result of all tests */
-                if (ok)
-                    OK;
                 quicklistRelease(ql);
             }
         }
 
-        for (int f = optimize_start; f < 16; f++) {
-            TEST_DESC("iterate reverse + delete at fill %d at compress %d", f,
-                      options[_i]) {
+        TEST_DESC("iterate reverse + delete at compress %d", options[_i]) {
+            for (int f = optimize_start; f < 16; f++) {
                 quicklist *ql = quicklistNew(f, options[_i]);
                 quicklistPushTail(ql, "abc", 3);
                 quicklistPushTail(ql, "def", 3);
@@ -2511,9 +2478,8 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         iteration = accurate ? 800 : 8;
+        TEST_DESC("iterator at index test at compress %d", options[_i]) {
         for (int f = optimize_start; f < iteration; f++) {
-            TEST_DESC("iterator at index test at fill %d at compress %d", f,
-                      options[_i]) {
                 quicklist *ql = quicklistNew(f, options[_i]);
                 char num[32];
                 long long nums[5000];
@@ -2538,9 +2504,8 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             }
         }
 
-        for (int f = optimize_start; f < 40; f++) {
-            TEST_DESC("ltrim test A at fill %d at compress %d", f,
-                      options[_i]) {
+        TEST_DESC("ltrim test A at compress %d", options[_i]) {
+            for (int f = optimize_start; f < 40; f++) {
                 quicklist *ql = quicklistNew(f, options[_i]);
                 char num[32];
                 long long nums[5000];
@@ -2568,9 +2533,8 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             }
         }
 
-        for (int f = optimize_start; f < 40; f++) {
-            TEST_DESC("ltrim test B at fill %d at compress %d", f,
-                      options[_i]) {
+        TEST_DESC("ltrim test B at compress %d", options[_i]) {
+            for (int f = optimize_start; f < 40; f++) {
                 /* Force-disable compression because our 33 sequential
                  * integers don't compress and the check always fails. */
                 quicklist *ql = quicklistNew(f, QUICKLIST_NOCOMPRESS);
@@ -2592,13 +2556,9 @@ int quicklistTest(int argc, char *argv[], int accurate) {
                 quicklistIndex(ql, 0, &entry);
                 if (entry.longval != 5)
                     ERR("A: longval not 5, but %lld", entry.longval);
-                else
-                    OK;
                 quicklistIndex(ql, -1, &entry);
                 if (entry.longval != 16)
                     ERR("B! got instead: %lld", entry.longval);
-                else
-                    OK;
                 quicklistPushTail(ql, "bobobob", 7);
                 quicklistIndex(ql, -1, &entry);
                 if (strncmp((char *)entry.value, "bobobob", 7))
@@ -2615,9 +2575,8 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             }
         }
 
-        for (int f = optimize_start; f < 40; f++) {
-            TEST_DESC("ltrim test C at fill %d at compress %d", f,
-                      options[_i]) {
+        TEST_DESC("ltrim test C at compress %d", options[_i]) {
+            for (int f = optimize_start; f < 40; f++) {
                 quicklist *ql = quicklistNew(f, options[_i]);
                 char num[32];
                 long long nums[5000];
@@ -2638,15 +2597,12 @@ int quicklistTest(int argc, char *argv[], int accurate) {
                 quicklistIndex(ql, 0, &entry);
                 if (entry.longval != -5157318210846258173)
                     ERROR;
-                else
-                    OK;
                 quicklistRelease(ql);
             }
         }
 
+        TEST_DESC("ltrim test D at compress %d", options[_i]) {
         for (int f = optimize_start; f < 40; f++) {
-            TEST_DESC("ltrim test D at fill %d at compress %d", f,
-                      options[_i]) {
                 quicklist *ql = quicklistNew(f, options[_i]);
                 char num[32];
                 long long nums[5000];
@@ -2665,9 +2621,8 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             }
         }
 
-        for (int f = optimize_start; f < 72; f++) {
-            TEST_DESC("create quicklist from ziplist at fill %d at compress %d",
-                      f, options[_i]) {
+        TEST_DESC("create quicklist from ziplist at compress %d", options[_i]) {
+            for (int f = optimize_start; f < 72; f++) {
                 unsigned char *zl = ziplistNew();
                 long long nums[64];
                 char num[64];
@@ -2701,14 +2656,12 @@ int quicklistTest(int argc, char *argv[], int accurate) {
     long long start = mstime();
     iteration = accurate ? (int)(sizeof(list_sizes) / sizeof(*list_sizes)) : 1;
     for (int list = 0; list < iteration; list++) {
-        int optimize_end = accurate ? 128 : 32;
-        for (int f = optimize_start; f < optimize_end; f++) {
-            for (int depth = 1; depth < 40; depth++) {
-                /* skip over many redundant test cases */
-                TEST_DESC("verify specific compression of interior nodes with "
-                          "%d list "
-                          "at fill %d at compress %d",
-                          list_sizes[list], f, depth) {
+        TEST_DESC("verify specific compression of interior nodes with %d list ",
+                  list_sizes[list]) {
+            int optimize_end = accurate ? 128 : 32;
+            for (int f = optimize_start; f < optimize_end; f++) {
+                for (int depth = 1; depth < 40; depth++) {
+                    /* skip over many redundant test cases */
                     quicklist *ql = quicklistNew(f, depth);
                     for (int i = 0; i < list_sizes[list]; i++) {
                         quicklistPushTail(ql, genstr("hello TAIL", i + 1), 64);
