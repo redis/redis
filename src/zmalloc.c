@@ -414,7 +414,7 @@ size_t zmalloc_get_rss(void) {
 
     if (sysctl(mib, 4, &info, &infolen, NULL, 0) == 0)
 #if defined(__FreeBSD__)
-        return (size_t)info.ki_rssize;
+        return (size_t)info.ki_rssize * getpagesize();
 #else
         return (size_t)info.kp_vm_rssize;
 #endif
