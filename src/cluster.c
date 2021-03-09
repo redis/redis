@@ -5824,18 +5824,14 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
              * cluster is down. */
             if (error_code) *error_code = CLUSTER_REDIR_DOWN_STATE;
             return NULL;
-        } else if ((cmd->flags & CMD_WRITE) && !(cmd->proc == evalCommand)
-                && !(cmd->proc == evalShaCommand))
-        {
-            /* The cluster is configured to allow read only commands
-             * but this command is neither readonly, nor EVAL or
-             * EVALSHA. */
+        } else if (cmd->flags & CMD_WRITE) {
+            /* The cluster is configured to allow read only commands */
             if (error_code) *error_code = CLUSTER_REDIR_DOWN_RO_STATE;
             return NULL;
         } else {
             /* Fall through and allow the command to be executed:
              * this happens when server.cluster_allow_reads_when_down is
-             * true and the command is a readonly command or EVAL / EVALSHA. */
+             * true and the command is not a write command */
         }
     }
 
@@ -5876,7 +5872,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     int is_write_command = (c->cmd->flags & CMD_WRITE) ||
                            (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_WRITE));
     if (c->flags & CLIENT_READONLY &&
-        (!is_write_command || cmd->proc == evalCommand || cmd->proc == evalShaCommand) &&
+        !is_write_command &&
         nodeIsSlave(myself) &&
         myself->slaveof == n)
     {
