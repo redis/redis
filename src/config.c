@@ -243,7 +243,7 @@ typedef struct typeInterface {
 typedef struct standardConfig {
     const char *name; /* The user visible name of this config */
     const char *alias; /* An alias that can also be used for this config */
-    const int flags; /* Flags for this specific config */
+    const unsigned int flags; /* Flags for this specific config */
     typeInterface interface; /* The function pointers that define the type interface */
     typeData data; /* The type specific data exposed used by the interface */
 } standardConfig;
