@@ -34,6 +34,7 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <assert.h>
+#include <errno.h>
 
 /* This function provide us access to the original libc free(). This is useful
  * for instance to free results obtained by backtrace_symbols(). We need
@@ -128,9 +129,9 @@ void *zmalloc(size_t size) {
 void *ztryallignedmalloc_usable(size_t alignment, size_t size, size_t *usable) {
     ASSERT_NO_SIZE_OVERFLOW(size);
     void *ptr;
-    posix_memalign(&ptr, alignment, size);
+    int ret = posix_memalign(&ptr, alignment, size);
+    if (!ptr || ret == EINVAL || ret == ENOMEM) return NULL;
 
-    if (!ptr) return NULL;
 #ifdef HAVE_MALLOC_SIZE
     size = zmalloc_size(ptr);
     update_zmalloc_stat_alloc(size);
