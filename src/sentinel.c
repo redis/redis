@@ -1732,7 +1732,7 @@ char *sentinelGetInstanceTypeString(sentinelRedisInstance *ri) {
  * with CONFIG and SLAVEOF commands renamed for security concerns. In that
  * case we check the ri->renamed_command table (or if the instance is a slave,
  * we check the one of the master), and map the command that we should send
- * to the set of renamed commads. However, if the command was not renamed,
+ * to the set of renamed commands. However, if the command was not renamed,
  * we just return "command" itself. */
 char *sentinelInstanceMapCommand(sentinelRedisInstance *ri, char *command) {
     sds sc = sdsnew(command);

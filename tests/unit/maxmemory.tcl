@@ -178,7 +178,7 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             set orig_client_buf [s -1 mem_clients_normal]
             set orig_mem_not_counted_for_evict [s -1 mem_not_counted_for_evict]
             set orig_used_no_repl [expr {$orig_used - $orig_mem_not_counted_for_evict}]
-            set limit [expr {$orig_used - $orig_mem_not_counted_for_evict + 20*1024}]
+            set limit [expr {$orig_used - $orig_mem_not_counted_for_evict + 32*1024}]
 
             if {$limit_memory==1} {
                 $master config set maxmemory $limit

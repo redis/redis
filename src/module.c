@@ -5550,6 +5550,12 @@ void moduleHandleBlockedClients(void) {
  * API to unblock the client and the memory will be released. */
 void moduleBlockedClientTimedOut(client *c) {
     RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+
+    /* Protect against re-processing: don't serve clients that are already
+     * in the unblocking list for any reason (including RM_UnblockClient()
+     * explicit call). See #6798. */
+    if (bc->unblocked) return;
+
     RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
     ctx.flags |= REDISMODULE_CTX_BLOCKED_TIMEOUT;
     ctx.module = bc->module;

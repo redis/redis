@@ -309,6 +309,12 @@ start_server {tags {"other"}} {
 
         populate 4096 "" 1
         r bgsave
+        wait_for_condition 10 100 {
+            [s rdb_bgsave_in_progress] eq 1
+        } else {
+            fail "bgsave did not start in time"
+        }
+
         r mset k1 v1 k2 v2
         # Hash table should not rehash
         assert_no_match "*table size: 8192*" [r debug HTSTATS 9]

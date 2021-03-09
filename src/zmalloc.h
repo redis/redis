@@ -71,12 +71,21 @@
  */
 #ifndef ZMALLOC_LIB
 #define ZMALLOC_LIB "libc"
+
 #if !defined(NO_MALLOC_USABLE_SIZE) && \
     (defined(__GLIBC__) || defined(__FreeBSD__) || \
      defined(USE_MALLOC_USABLE_SIZE))
+
+/* Includes for malloc_usable_size() */
+#ifdef __FreeBSD__
+#include <malloc_np.h>
+#else
 #include <malloc.h>
+#endif
+
 #define HAVE_MALLOC_SIZE 1
 #define zmalloc_size(p) malloc_usable_size(p)
+
 #endif
 #endif
 

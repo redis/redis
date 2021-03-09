@@ -207,6 +207,28 @@ start_server {tags {"cli"}} {
         assert_equal "foo\nbar" [run_cli lrange list 0 -1]
     }
 
+    test_nontty_cli "Quoted input arguments" {
+        r set "\x00\x00" "value"
+        assert_equal "value" [run_cli --quoted-input get {"\x00\x00"}]
+    }
+
+    test_nontty_cli "No accidental unquoting of input arguments" {
+        run_cli --quoted-input set {"\x41\x41"} quoted-val
+        run_cli set {"\x41\x41"} unquoted-val
+
+        assert_equal "quoted-val" [r get AA]
+        assert_equal "unquoted-val" [r get {"\x41\x41"}]
+    }
+
+    test_nontty_cli "Invalid quoted input arguments" {
+        catch {run_cli --quoted-input set {"Unterminated}} err
+        assert_match {*exited abnormally*} $err
+
+        # A single arg that unquotes to two arguments is also not expected
+        catch {run_cli --quoted-input set {"arg1" "arg2"}} err
+        assert_match {*exited abnormally*} $err
+    }
+
     test_nontty_cli "Read last argument from pipe" {
         assert_equal "OK" [run_cli_with_input_pipe "echo foo" set key]
         assert_equal "foo\n" [r get key]
@@ -245,6 +267,20 @@ start_server {tags {"cli"}} {
         assert_match "OK" [r config set repl-diskless-sync yes]
         assert_match "OK" [r config set repl-diskless-sync-delay 0]
         test_redis_cli_rdb_dump
+    }
+
+    test "Scan mode" {
+        r flushdb
+        populate 1000 key: 1
+
+        # basic use
+        assert_equal 1000 [llength [split [run_cli --scan]]]
+
+        # pattern
+        assert_equal {key:2} [run_cli --scan --pattern "*:2"]
+
+        # pattern matching with a quoted string
+        assert_equal {key:2} [run_cli --scan --quoted-pattern {"*:\x32"}]
     }
 
     test "Connecting as a replica" {
