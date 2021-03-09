@@ -78,6 +78,7 @@ void zlibc_free(void *ptr) {
 #define free(ptr) je_free(ptr)
 #define mallocx(size,flags) je_mallocx(size,flags)
 #define dallocx(ptr,flags) je_dallocx(ptr,flags)
+#define posix_memalign(ptr, alignment, size) je_posix_memalign(ptr, alignment, size)
 #endif
 
 #define update_zmalloc_stat_alloc(__n) atomicIncr(used_memory,(__n))
@@ -117,6 +118,34 @@ void *ztrymalloc_usable(size_t size, size_t *usable) {
 /* Allocate memory or panic */
 void *zmalloc(size_t size) {
     void *ptr = ztrymalloc_usable(size, NULL);
+    if (!ptr) zmalloc_oom_handler(size);
+    return ptr;
+}
+
+/* Try allocating memory, and return NULL if failed.
+ * '*usable' is set to the usable size if non NULL. */
+void *ztryallignedmalloc_usable(size_t alignment, size_t size, size_t *usable) {
+    ASSERT_NO_SIZE_OVERFLOW(size);
+    void *ptr;
+    posix_memalign(&ptr, alignment, size);
+
+    if (!ptr) return NULL;
+#ifdef HAVE_MALLOC_SIZE
+    size = zmalloc_size(ptr);
+    update_zmalloc_stat_alloc(size);
+    if (usable) *usable = size;
+    return ptr;
+#else
+    *((size_t*)ptr) = size;
+    update_zmalloc_stat_alloc(size+PREFIX_SIZE);
+    if (usable) *usable = size;
+    return (char*)ptr+PREFIX_SIZE;
+#endif
+}
+
+
+void* zaligned_alloc(size_t alignment, size_t size) {
+    void* ptr = ztryallignedmalloc_usable(alignment, size, NULL);
     if (!ptr) zmalloc_oom_handler(size);
     return ptr;
 }

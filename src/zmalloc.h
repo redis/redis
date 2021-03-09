@@ -97,6 +97,7 @@
 #endif
 
 void *zmalloc(size_t size);
+void* zaligned_alloc(size_t alignment, size_t size);
 void *zcalloc(size_t size);
 void *zrealloc(void *ptr, size_t size);
 void *ztrymalloc(size_t size);
