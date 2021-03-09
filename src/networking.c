@@ -1954,13 +1954,10 @@ void commandProcessed(client *c) {
         c->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
     }
 
-    /* Don't reset the client structure for clients blocked in a
-     * module blocking command, so that the reply callback will
-     * still be able to access the client argv and argc field.
-     * The client will be reset in unblockClientFromModule(). */
-    if (!(c->flags & CLIENT_BLOCKED) ||
-        (c->btype != BLOCKED_MODULE && c->btype != BLOCKED_PAUSE))
-    {
+    /* Don't reset the client structure for blocked clients, so that the reply
+     * callback will still be able to access the client argv and argc fields.
+     * The client will be reset in unblockClient(). */
+    if (!(c->flags & CLIENT_BLOCKED)) {
         resetClient(c);
     }
 

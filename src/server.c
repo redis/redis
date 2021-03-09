@@ -3741,7 +3741,8 @@ void call(client *c, int flags) {
             slowlogPushEntryIfNeeded(c,argv,argc,duration);
         }
     }
-    freeClientOriginalArgv(c);
+    if (!(c->flags & CLIENT_BLOCKED))
+        freeClientOriginalArgv(c);
 
     if (flags & CMD_CALL_STATS) {
         /* use the real command that was executed (cmd and lastamc) may be

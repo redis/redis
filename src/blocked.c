@@ -108,7 +108,11 @@ void updateStatsOnUnblock(client *c, long blocked_us, long reply_us){
     c->lastcmd->microseconds += total_cmd_duration;
     /* Log the command into the Slow log if needed. */
     if (!(c->lastcmd->flags & CMD_SKIP_SLOWLOG)) {
-        slowlogPushEntryIfNeeded(c,c->argv,c->argc,total_cmd_duration);
+        /* If command argument vector was rewritten, use the original
+         * arguments. */
+        robj **argv = c->original_argv ? c->original_argv : c->argv;
+        int argc = c->original_argv ? c->original_argc : c->argc;
+        slowlogPushEntryIfNeeded(c,argv,argc,total_cmd_duration);
         /* Log the reply duration event. */
         latencyAddSampleIfNeeded("command-unblocking",reply_us/1000);
     }
@@ -196,6 +200,13 @@ void unblockClient(client *c) {
     c->btype = BLOCKED_NONE;
     removeClientFromTimeoutTable(c);
     queueClientForReprocessing(c);
+
+    /* Reset the client for a new query since, for blocking commands
+     * we do not do it immediately after the command returns (when the
+     * client got blocked) in order to be still able to access the argument
+     * vector from module callbacks and updateStatsOnUnblock. */
+    freeClientOriginalArgv(c);
+    resetClient(c);
 }
 
 /* This function gets called when a blocked client timed out in order to
@@ -279,7 +290,6 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
                  * freed by the next unblockClient()
                  * call. */
                 if (dstkey) incrRefCount(dstkey);
-                unblockClient(receiver);
 
                 monotime replyTimer;
                 elapsedStart(&replyTimer);
@@ -292,6 +302,7 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
                     listTypePush(o,value,wherefrom);
                 }
                 updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
+                unblockClient(receiver);
 
                 if (dstkey) decrRefCount(dstkey);
                 decrRefCount(value);
@@ -335,11 +346,11 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
             int where = (receiver->lastcmd &&
                          receiver->lastcmd->proc == bzpopminCommand)
                          ? ZSET_MIN : ZSET_MAX;
-            unblockClient(receiver);
             monotime replyTimer;
             elapsedStart(&replyTimer);
             genericZpopCommand(receiver,&rl->key,1,where,1,NULL);
             updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
+            unblockClient(receiver);
             zcard--;
 
             /* Replicate the command. */
