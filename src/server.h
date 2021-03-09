@@ -994,7 +994,7 @@ typedef struct client {
     rax *client_tracking_prefixes; /* A dictionary of prefixes we are already
                                       subscribed to in BCAST mode, in the
                                       context of client side caching. */
-    /* In clientsCronTrackClientsMemUsage() we track the memory usage of
+    /* In updateClientMemUsage() we track the memory usage of
      * each client and add it to the sum of all the clients of a given type,
      * however we need to remember what was the old contribution of each
      * client, and in which category the client was, in order to remove it
@@ -1289,7 +1289,7 @@ struct redisServer {
     list *clients_pending_read;  /* Client has pending read socket buffers. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
     client *current_client;     /* Current client executing the command. */
-    rax *client_eviction_pull;  /* Radix tree holding the top memory hoggers. */
+    rax *client_eviction_pool;  /* Radix tree holding the top memory hoggers. */
     size_t client_eviction_pull_max;
     size_t client_eviction_pull_min;
     rax *clients_timeout_table; /* Radix tree for blocked clients timeouts. */
