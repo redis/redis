@@ -96,4 +96,6 @@ jobs:
         sudo apt-get update
         sudo apt-get install tcl8.6 valgrind -y
     - name: unittest
-      run: valgrind --track-origins=yes --suppressions=./src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full ./src/redis-server test all
+      run: |
+        valgrind --track-origins=yes --suppressions=./src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full ./src/redis-server test all 2>> err.txt
+        if grep -q 0x err.txt; then cat err.txt; exit 1; fi
