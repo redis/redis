@@ -723,7 +723,7 @@ void stralgoCommand(client *c) {
     }
 }
 
-/* STRALGO <algo> [IDX] [MINMATCHLEN <len>] [WITHMATCHLEN]
+/* STRALGO <algo> [IDX] [LEN] [MINMATCHLEN <len>] [WITHMATCHLEN]
  *     STRINGS <string> <string> | KEYS <keya> <keyb>
  */
 void stralgoLCS(client *c) {
