@@ -2668,8 +2668,12 @@ int quicklistTest(int argc, char *argv[], int accurate) {
                         /* test remove node */
                         if (step == 1) {
                             for (int i = 0; i < list_sizes[list] / 2; i++) {
-                                quicklistPop(ql, QUICKLIST_HEAD, NULL, NULL, NULL);
-                                quicklistPop(ql, QUICKLIST_TAIL, NULL, NULL, NULL);
+                                unsigned char *data;
+                                quicklistPop(ql, QUICKLIST_HEAD, &data, NULL, NULL);
+                                zfree(data);
+                                
+                                quicklistPop(ql, QUICKLIST_TAIL, &data, NULL, NULL);
+                                zfree(data);
                             }
                         }
                         quicklistNode *node = ql->head;
