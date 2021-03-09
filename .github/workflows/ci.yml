@@ -91,5 +91,9 @@ jobs:
     - uses: actions/checkout@v2
     - name: make
       run: make valgrind REDIS_CFLAGS='-Werror -DREDIS_TEST'
+    - name: test
+      run: |
+        sudo apt-get update
+        sudo apt-get install tcl8.6 valgrind -y
     - name: unittest
       run: valgrind --track-origins=yes --suppressions=./src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full ./src/redis-server test all
