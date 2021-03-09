@@ -184,6 +184,7 @@ client *createClient(connection *conn) {
     c->client_tracking_prefixes = NULL;
     c->client_cron_last_memory_usage = 0;
     c->client_cron_last_memory_type = CLIENT_TYPE_NORMAL;
+    c->client_cron_memory_usage_avg = -1; // Negative means uninitialized
     c->auth_callback = NULL;
     c->auth_callback_privdata = NULL;
     c->auth_module = NULL;
@@ -2322,18 +2323,12 @@ sds catClientInfoString(sds s, client *client) {
 
     /* Compute the total memory consumed by this client. */
     size_t obufmem = getClientOutputBufferMemoryUsage(client);
-    size_t total_mem = obufmem;
-    total_mem += zmalloc_size(client); /* includes client->buf */
-    total_mem += sdsZmallocSize(client->querybuf);
-    /* For efficiency (less work keeping track of the argv memory), it doesn't include the used memory
-     * i.e. unused sds space and internal fragmentation, just the string length. but this is enough to
-     * spot problematic clients. */
-    total_mem += client->argv_len_sum;
-    if (client->argv)
-        total_mem += zmalloc_size(client->argv);
+    // TODO: since getClientMemoryUsage internally calls getClientOutputBufferMemoryUsage again, we might just want to add an output variable to getClientMemoryUsage instead of calling in twice??
+    size_t total_mem = getClientMemoryUsage(client);
+    size_t avg_mem = getClientAverageMemory(client);
 
     return sdscatfmt(s,
-        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i",
+        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U obl=%U oll=%U omem=%U tot-mem=%U avg-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i",
         (unsigned long long) client->id,
         getClientPeerId(client),
         getClientSockname(client),
@@ -2353,6 +2348,7 @@ sds catClientInfoString(sds s, client *client) {
         (unsigned long long) listLength(client->reply),
         (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
         (unsigned long long) total_mem,
+        (unsigned long long) avg_mem,
         events,
         client->lastcmd ? client->lastcmd->name : "NULL",
         client->user ? client->user->name : "(superuser)",
@@ -3158,9 +3154,25 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
  * Note: this function is very fast so can be called as many time as
  * the caller wishes. The main usage of this function currently is
  * enforcing the client output length limits. */
-unsigned long getClientOutputBufferMemoryUsage(client *c) {
+size_t getClientOutputBufferMemoryUsage(client *c) {
     unsigned long list_item_size = sizeof(listNode) + sizeof(clientReplyBlock);
     return c->reply_bytes + (list_item_size*listLength(c->reply));
+}
+
+size_t getClientMemoryUsage(client *c) {
+    size_t mem = getClientOutputBufferMemoryUsage(c);
+    mem += sdsZmallocSize(c->querybuf);
+    mem += zmalloc_size(c);
+    mem += c->argv_len_sum;
+    /* For efficiency (less work keeping track of the argv memory), it doesn't include the used memory
+     * i.e. unused sds space and internal fragmentation, just the string length. but this is enough to
+     * spot problematic clients. */
+    if (c->argv) mem += zmalloc_size(c->argv);
+    return mem;
+}
+
+size_t getClientAverageMemory(client *c) {
+    return (size_t)(c->client_cron_memory_usage_avg > 0 ? c->client_cron_memory_usage_avg : 0);
 }
 
 /* Get the class of a client, used in order to enforce limits to different

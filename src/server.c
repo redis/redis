@@ -2203,16 +2203,18 @@ void removeClientFromEvictionPool(client *c) {
  * to the second) total memory used by clients using clientsCron() in
  * a more incremental way (depending on server.hz). */
 int updateClientMemUsage(client *c) {
-    size_t mem = 0;
+    size_t mem = getClientMemoryUsage(c);
     int type = getClientType(c);
-    mem += getClientOutputBufferMemoryUsage(c);
-    mem += sdsZmallocSize(c->querybuf);
-    mem += zmalloc_size(c);
-    mem += c->argv_len_sum;
-    if (c->argv) mem += zmalloc_size(c->argv);
 
-    /* Now that we have the memory used by the client, remove the old
-     * value from the old category, and add it back. */
+    /* Track last T secs of memory usage */
+    // TODO: consider changing this to a rolling avg (SMA) instead of an exponential moving average (EMA)
+    if (c->client_cron_memory_usage_avg < 0)
+        c->client_cron_memory_usage_avg = mem;
+    else
+        c->client_cron_memory_usage_avg = (EMA_ALPHA * mem) + ((1.0f - EMA_ALPHA) * c->client_cron_memory_usage_avg);
+
+    /* Remove the old value of the memory used by the client from the old
+     * category, and add it back. */
     server.stat_clients_type_memory[c->client_cron_last_memory_type] -=
         c->client_cron_last_memory_usage;
     server.stat_clients_type_memory[type] += mem;
@@ -2248,6 +2250,7 @@ int updateClientMemUsage(client *c) {
     /* Remember what we added and where, to remove it next time. */
     c->client_cron_last_memory_usage = mem;
     c->client_cron_last_memory_type = type;
+
     return 0;
 }
 

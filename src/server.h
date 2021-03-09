@@ -1001,6 +1001,9 @@ typedef struct client {
      * before adding it the new value. */
     uint64_t client_cron_last_memory_usage;
     int      client_cron_last_memory_type;
+
+    //uint32_t client_cron_memory_usage_avg_samples;
+    float client_cron_memory_usage_avg;
     /* Response buffer */
     int bufpos;
     size_t buf_usable_size; /* Usable size of buffer. */
@@ -2032,7 +2035,9 @@ void rewriteClientCommandVector(client *c, int argc, ...);
 void rewriteClientCommandArgument(client *c, int i, robj *newval);
 void replaceClientCommandVector(client *c, int argc, robj **argv);
 void redactClientCommandArgument(client *c, int argc);
-unsigned long getClientOutputBufferMemoryUsage(client *c);
+size_t getClientOutputBufferMemoryUsage(client *c);
+size_t getClientMemoryUsage(client *c);
+size_t getClientAverageMemory(client *c);
 int freeClientsInAsyncFreeQueue(void);
 int closeClientOnOutputBufferLimitReached(client *c, int async);
 int getClientType(client *c);
