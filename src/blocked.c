@@ -192,6 +192,16 @@ void unblockClient(client *c) {
     } else {
         serverPanic("Unknown btype in unblockClient().");
     }
+
+    /* Reset the client for a new query since, for blocking commands
+     * we do not do it immediately after the command returns (when the
+     * client got blocked) in order to be still able to access the argument
+     * vector from module callbacks and updateStatsOnUnblock. */
+    if (c->btype != BLOCKED_PAUSE) {
+        freeClientOriginalArgv(c);
+        resetClient(c);
+    }
+
     /* Clear the flags, and put the client in the unblocked list so that
      * we'll process new commands in its query buffer ASAP. */
     server.blocked_clients--;
@@ -200,13 +210,6 @@ void unblockClient(client *c) {
     c->btype = BLOCKED_NONE;
     removeClientFromTimeoutTable(c);
     queueClientForReprocessing(c);
-
-    /* Reset the client for a new query since, for blocking commands
-     * we do not do it immediately after the command returns (when the
-     * client got blocked) in order to be still able to access the argument
-     * vector from module callbacks and updateStatsOnUnblock. */
-    freeClientOriginalArgv(c);
-    resetClient(c);
 }
 
 /* This function gets called when a blocked client timed out in order to
