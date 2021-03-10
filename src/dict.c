@@ -1221,7 +1221,7 @@ dictType BenchmarkDictType = {
     printf(msg ": %ld items in %lld ms\n", count, elapsed); \
 } while(0)
 
-/* ./redis-server test dict [count] */
+/* ./redis-server test dict [<count> | --accurate] */
 int dictTest(int argc, char **argv, int accurate) {
     long j;
     long long start, elapsed;
@@ -1229,9 +1229,11 @@ int dictTest(int argc, char **argv, int accurate) {
     long count = 0;
 
     if (argc == 4) {
-        count = strtol(argv[3],NULL,10);
-    } else if (accurate) {
-        count = 5000000;
+        if (accurate) {
+            count = 5000000;
+        } else {
+            count = strtol(argv[3],NULL,10);
+        }
     } else {
         count = 5000;
     }

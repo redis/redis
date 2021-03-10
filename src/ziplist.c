@@ -1823,7 +1823,7 @@ static size_t strEntryBytesLarge(size_t slen) {
     return slen + zipStorePrevEntryLength(NULL, ZIP_BIG_PREVLEN) + zipStoreEntryEncoding(NULL, 0, slen);
 }
 
-/* ./redis-server test ziplist [randomseed] */
+/* ./redis-server test ziplist <randomseed> --accurate */
 int ziplistTest(int argc, char **argv, int accurate) {
     unsigned char *zl, *p;
     unsigned char *entry;
@@ -1832,7 +1832,7 @@ int ziplistTest(int argc, char **argv, int accurate) {
     int iteration;
 
     /* If an argument is given, use it as the random seed. */
-    if (argc == 4)
+    if (argc >= 4)
         srand(atoi(argv[3]));
 
     zl = createIntList();
