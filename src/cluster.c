@@ -4358,32 +4358,26 @@ void clusterReplyMultiBulkSlots(client * c) {
      */
     int num_masters = 0;
     void *slot_replylen = addReplyDeferredLen(c);
-    clusterNode *last_node = NULL;
-    int i, start_slot = 0, end_slot = 0;
-    for (i = 0; i < CLUSTER_SLOTS + 1; i++) {
-        if (last_node == NULL) {
-            if (i == CLUSTER_SLOTS || server.cluster->slots[i] == NULL)
-                /* Skip a slots_range_start if loop to end or loop in null slot. */
-                continue;
-            /* A new slots_range_start. */
-            last_node = server.cluster->slots[i];
-            start_slot = i;
-            end_slot = i;
-        } else {
-            if (i != CLUSTER_SLOTS && server.cluster->slots[i] != NULL &&
-                server.cluster->slots[i] == last_node) {
-                /* Enlarge this slots range with last slots_range_start. */
-                end_slot = i;
-            } else {
-                /* Reset slots_range_start and make new reply for last slots_range, which
-                means a node. */
-                addNodeReplyForClusterSlot(c, last_node, start_slot, end_slot);
-                num_masters++;
-                /* A new slot_range_start or NULL. */
-                last_node = server.cluster->slots[i];
-                start_slot = i;
-                end_slot = i;
-            }
+    clusterNode *n = NULL;
+    int start = -1;
+
+    for (int i = 0; i <= CLUSTER_SLOTS; i++) {
+        /* Find start node and slot id. */
+        if (n == NULL) {
+            if (i == CLUSTER_SLOTS) break;
+            n = server.cluster->slots[i];
+            start = i;
+            continue;
+        }
+
+        /* add cluster slots info when occur different node with start
+         * or end of slot. */
+        if (i == CLUSTER_SLOTS || n != server.cluster->slots[i]) {
+            addNodeReplyForClusterSlot(c, n, start, i - 1);
+            num_masters++;
+            if (i == CLUSTER_SLOTS) break;
+            n = server.cluster->slots[i];
+            start = i;
         }
     }
     setDeferredArrayLen(c, slot_replylen, num_masters);
