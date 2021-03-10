@@ -107,15 +107,10 @@ void updateStatsOnUnblock(client *c, long blocked_us, long reply_us){
     const ustime_t total_cmd_duration = c->duration + blocked_us + reply_us;
     c->lastcmd->microseconds += total_cmd_duration;
 
-    /* A command might be marked as no logging during the unblock,
-     * so capture that here and omit it */
-    if (c->flags & CLIENT_PREVENT_LOGGING) {
-        c->flags &= ~CLIENT_PREVENT_LOGGING;
-        return;
-    }
-
     /* Log the command into the Slow log if needed. */
-    if (!(c->lastcmd->flags & CMD_SKIP_SLOWLOG)) {
+    if (!(c->lastcmd->flags & CMD_SKIP_SLOWLOG) &&
+        !(c->flags & CLIENT_PREVENT_LOGGING))
+    {
         slowlogPushEntryIfNeeded(c,c->argv,c->argc,total_cmd_duration);
         /* Log the reply duration event. */
         latencyAddSampleIfNeeded("command-unblocking",reply_us/1000);

@@ -3737,13 +3737,6 @@ void call(client *c, int flags) {
             server.lua_caller->flags |= CLIENT_FORCE_AOF;
     }
 
-    /* Some commands may contain sensitive data that should
-     * not be available in the slowlog. */
-    if (c->flags & CLIENT_PREVENT_LOGGING) {
-        c->flags &= ~CLIENT_PREVENT_LOGGING;
-        flags &= ~CMD_CALL_SLOWLOG;
-    }
-
     /* Log the command into the Slow log if needed, and populate the
      * per-command statistics that we show in INFO commandstats. */
     if (flags & CMD_CALL_SLOWLOG && !(c->cmd->flags & CMD_SKIP_SLOWLOG)) {
@@ -3755,7 +3748,9 @@ void call(client *c, int flags) {
         robj **argv = c->original_argv ? c->original_argv : c->argv;
         int argc = c->original_argv ? c->original_argc : c->argc;
         /* If the client is blocked we will handle slowlog when it is unblocked . */
-        if (!(c->flags & CLIENT_BLOCKED)) {
+        if (!(c->flags & CLIENT_BLOCKED) && 
+            !(c->flags & CLIENT_PREVENT_LOGGING))
+        {
             slowlogPushEntryIfNeeded(c,argv,argc,duration);
         }
     }
