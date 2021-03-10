@@ -2671,7 +2671,6 @@ int quicklistTest(int argc, char *argv[], int accurate) {
                                 unsigned char *data;
                                 quicklistPop(ql, QUICKLIST_HEAD, &data, NULL, NULL);
                                 zfree(data);
-                                
                                 quicklistPop(ql, QUICKLIST_TAIL, &data, NULL, NULL);
                                 zfree(data);
                             }
