@@ -3998,14 +3998,6 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     RedisModuleCallReply *reply = NULL;
     int replicate = 0; /* Replicate this command? */
 
-    /* We need to use a global replication_allowed flag in order to prevent
-     * replication of nested RM_Calls. Example:
-     * 1. module1.foo does RM_Call of module2.bar without replication (i.e. no '!')
-     * 2. module2.bar internally calls RM_Call of INCR with '!'
-     * 3. at the end of module1.foo we call RM_ReplicateVerbatim
-     * We want the replica/AOF to see only module1.foo and not the INCR from module2.bar */
-    static int replication_allowed = 1;
-
     /* Handle arguments. */
     va_start(ap, fmt);
     argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&flags,ap);
@@ -4082,34 +4074,30 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         }
     }
 
-    /* Handle command flags and replication */
-    int reset_replication_allowed = 0;
-    int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS | CMD_CALL_NOWRAP;
-    if (replicate) {
-        if (replication_allowed) {
-            /* If we are using single commands replication, we need to wrap what
-             * we propagate into a MULTI/EXEC block, so that it will be atomic like
-             * a Lua script in the context of AOF and slaves. */
-            moduleReplicateMultiIfNeeded(ctx);
-
-            if (!(flags & REDISMODULE_ARGV_NO_AOF))
-                call_flags |= CMD_CALL_PROPAGATE_AOF;
-            if (!(flags & REDISMODULE_ARGV_NO_REPLICAS))
-                call_flags |= CMD_CALL_PROPAGATE_REPL;
-        }
-    } else if (replication_allowed) {
-        /* We just turn off replication for all possible nested RM_Call that may
-         * be called from the 'call()' below. We need to remember to re-enable it
-         * after it's done. */
-        reset_replication_allowed = 1;
-        replication_allowed = 0;
-    }
+    /* We need to use a global replication_allowed flag in order to prevent
+     * replication of nested RM_Calls. Example:
+     * 1. module1.foo does RM_Call of module2.bar without replication (i.e. no '!')
+     * 2. module2.bar internally calls RM_Call of INCR with '!'
+     * 3. at the end of module1.foo we call RM_ReplicateVerbatim
+     * We want the replica/AOF to see only module1.foo and not the INCR from module2.bar */
+    int prev_replication_allowed = server.replication_allowed;
+    server.replication_allowed = replicate && server.replication_allowed;
 
     /* Run the command */
-    call(c,call_flags);
+    int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS | CMD_CALL_NOWRAP;
+    if (replicate) {
+        /* If we are using single commands replication, we need to wrap what
+         * we propagate into a MULTI/EXEC block, so that it will be atomic like
+         * a Lua script in the context of AOF and slaves. */
+        moduleReplicateMultiIfNeeded(ctx);
 
-    if (reset_replication_allowed)
-        replication_allowed = 1;
+        if (!(flags & REDISMODULE_ARGV_NO_AOF))
+            call_flags |= CMD_CALL_PROPAGATE_AOF;
+        if (!(flags & REDISMODULE_ARGV_NO_REPLICAS))
+            call_flags |= CMD_CALL_PROPAGATE_REPL;
+    }
+    call(c,call_flags);
+    server.replication_allowed = prev_replication_allowed;
 
     serverAssert((c->flags & CLIENT_BLOCKED) == 0);
 
