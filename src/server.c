@@ -4801,7 +4801,7 @@ sds genRedisInfoString(const char *section) {
             "# Persistence\r\n"
             "loading:%d\r\n"
             "current_cow_size:%zu\r\n"
-            "current_fork_perc:%.2f%%\r\n"
+            "current_fork_perc:%.2f\r\n"
             "current_save_keys_processed:%zu\r\n"
             "current_save_keys_total:%zu\r\n"
             "rdb_changes_since_last_save:%lld\r\n"
