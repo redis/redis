@@ -50,7 +50,7 @@ test "client can handle keys with hash tag" {
 }
 
 if {$::tls} {
-    test {CLUSTER SLOTS from plaintext client in TLS cluster} {
+    test {CLUSTER SLOTS from non-TLS client in TLS cluster} {
         set slots_tls [R 0 cluster slots]
         set host [get_instance_attrib redis 0 host]
         set plaintext_port [get_instance_attrib redis 0 plaintext-port]

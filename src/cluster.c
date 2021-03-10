@@ -532,10 +532,12 @@ void clusterInit(void) {
     myself->port = port;
     myself->pport = server.tls_cluster ? server.port : 0;
     myself->cport = port+CLUSTER_PORT_INCR;
-    if (server.cluster_announce_port)
+    if (server.tls_cluster && server.cluster_announce_tls_port) {
+        myself->port = server.cluster_announce_tls_port;
+        myself->pport = server.cluster_announce_port;
+    } else if (server.cluster_announce_port) {
         myself->port = server.cluster_announce_port;
-    if (server.cluster_announce_plain_port)
-        myself->pport = server.cluster_announce_plain_port;
+    }
     if (server.cluster_announce_bus_port)
         myself->cport = server.cluster_announce_bus_port;
 
@@ -2436,20 +2438,19 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
         hdr->myip[NET_IP_STR_LEN-1] = '\0';
     }
 
-    /* Handle cluster-announce-port as well. */
+    /* Handle cluster-announce-[tls-|bus-]port. */
     int port = server.tls_cluster ? server.tls_port : server.port;
-    int announced_port = server.cluster_announce_port ?
-                         server.cluster_announce_port : port;
-    int announced_cport = server.cluster_announce_bus_port ?
-                          server.cluster_announce_bus_port :
-                          (port + CLUSTER_PORT_INCR);
-
-    /* Plaintext port for non-TLS clients in a TLS cluster. */
-    int announced_pport = server.tls_cluster ?
-                          (server.cluster_announce_plain_port ?
-                           server.cluster_announce_plain_port :
-                           server.port) :
-                          0;
+    int announced_port = port;
+    int announced_pport = server.tls_cluster ? server.port : 0;
+    int announced_cport = port+CLUSTER_PORT_INCR;
+    if (server.tls_cluster && server.cluster_announce_tls_port) {
+        announced_port = server.cluster_announce_tls_port;
+        announced_pport = server.cluster_announce_port;
+    } else if (server.cluster_announce_port) {
+        announced_port = server.cluster_announce_port;
+    }
+    if (server.cluster_announce_bus_port)
+        announced_cport = server.cluster_announce_bus_port;
 
     memcpy(hdr->myslots,master->slots,sizeof(hdr->myslots));
     memset(hdr->slaveof,0,CLUSTER_NAMELEN);
