@@ -201,4 +201,8 @@ extern dictType dictTypeHeapStringCopyKey;
 extern dictType dictTypeHeapStrings;
 extern dictType dictTypeHeapStringCopyKeyValue;
 
+#ifdef REDIS_TEST
+int dictTest(int argc, char *argv[], int accurate);
+#endif
+
 #endif /* __DICT_H */

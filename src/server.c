@@ -6030,36 +6030,78 @@ int iAmMaster(void) {
             (server.cluster_enabled && nodeIsMaster(server.cluster->myself)));
 }
 
+#ifdef REDIS_TEST
+typedef int redisTestProc(int argc, char **argv, int accurate);
+struct redisTest {
+    char *name;
+    redisTestProc *proc;
+    int failed;
+} redisTests[] = {
+    {"ziplist", ziplistTest},
+    {"quicklist", quicklistTest},
+    {"intset", intsetTest},
+    {"zipmap", zipmapTest},
+    {"sha1test", sha1Test},
+    {"util", utilTest},
+    {"endianconv", endianconvTest},
+    {"crc64", crc64Test},
+    {"zmalloc", zmalloc_test},
+    {"sds", sdsTest},
+    {"dict", dictTest}
+};
+redisTestProc *getTestProcByName(const char *name) {
+    int numtests = sizeof(redisTests)/sizeof(struct redisTest);
+    for (int j = 0; j < numtests; j++) {
+        if (!strcasecmp(name,redisTests[j].name)) {
+            return redisTests[j].proc;
+        }
+    }
+    return NULL;
+}
+#endif
+
 int main(int argc, char **argv) {
     struct timeval tv;
     int j;
     char config_from_stdin = 0;
 
 #ifdef REDIS_TEST
-    if (argc == 3 && !strcasecmp(argv[1], "test")) {
-        if (!strcasecmp(argv[2], "ziplist")) {
-            return ziplistTest(argc, argv);
-        } else if (!strcasecmp(argv[2], "quicklist")) {
-            quicklistTest(argc, argv);
-        } else if (!strcasecmp(argv[2], "intset")) {
-            return intsetTest(argc, argv);
-        } else if (!strcasecmp(argv[2], "zipmap")) {
-            return zipmapTest(argc, argv);
-        } else if (!strcasecmp(argv[2], "sha1test")) {
-            return sha1Test(argc, argv);
-        } else if (!strcasecmp(argv[2], "util")) {
-            return utilTest(argc, argv);
-        } else if (!strcasecmp(argv[2], "endianconv")) {
-            return endianconvTest(argc, argv);
-        } else if (!strcasecmp(argv[2], "crc64")) {
-            return crc64Test(argc, argv);
-        } else if (!strcasecmp(argv[2], "zmalloc")) {
-            return zmalloc_test(argc, argv);
-        } else if (!strcasecmp(argv[2], "sds")) {
-            return sdsTest(argc, argv);
+    if (argc >= 3 && !strcasecmp(argv[1], "test")) {
+        int accurate = 0;
+        for (j = 3; j < argc; j++) {
+            if (!strcasecmp(argv[j], "--accurate")) {
+                accurate = 1;
+            }
         }
 
-        return -1; /* test not found */
+        if (!strcasecmp(argv[2], "all")) {
+            int numtests = sizeof(redisTests)/sizeof(struct redisTest);
+            for (j = 0; j < numtests; j++) {
+                redisTests[j].failed = (redisTests[j].proc(argc,argv,accurate) != 0);
+            }
+
+            /* Report tests result */
+            int failed_num = 0;
+            for (j = 0; j < numtests; j++) {
+                if (redisTests[j].failed) {
+                    failed_num++;
+                    printf("[failed] Test - %s\n", redisTests[j].name);
+                } else {
+                    printf("[ok] Test - %s\n", redisTests[j].name);
+                }
+            }
+
+            printf("%d tests, %d passed, %d failed\n", numtests,
+                   numtests-failed_num, failed_num);
+
+            return failed_num == 0 ? 0 : 1;
+        } else {
+            redisTestProc *proc = getTestProcByName(argv[2]);
+            if (!proc) return -1; /* test not found */
+            return proc(argc,argv,accurate);
+        }
+
+        return 0;
     }
 #endif
 
