@@ -155,7 +155,9 @@ jobs:
     - name: module api test
       run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1
     - name: unittest
-      run: valgrind --track-origins=yes --suppressions=./src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full ./src/redis-server test all
+      run: |
+        valgrind --track-origins=yes --suppressions=./src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full --log-file=err.txt ./src/redis-server test all
+        if grep -q 0x err.txt; then cat err.txt; exit 1; fi
 
   test-valgrind-no-malloc-usable-size:
     runs-on: ubuntu-latest
