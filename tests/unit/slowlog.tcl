@@ -52,6 +52,7 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
 
         # Make sure normal configs work, but the two sensitive
         # commands are omitted
+        puts $slowlog_resp
         assert_equal 2 [llength $slowlog_resp]
         assert_equal {slowlog reset} [lindex [lindex [r slowlog get] 1] 3]
         assert_equal {config set slowlog-log-slower-than 0} [lindex [lindex [r slowlog get] 0] 3]
