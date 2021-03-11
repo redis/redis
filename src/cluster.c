@@ -4356,10 +4356,9 @@ void clusterReplyMultiBulkSlots(client * c) {
      *               3) node ID
      *           ... continued until done
      */
-    int num_masters = 0;
-    void *slot_replylen = addReplyDeferredLen(c);
     clusterNode *n = NULL;
-    int start = -1;
+    int num_masters = 0, start = -1;
+    void *slot_replylen = addReplyDeferredLen(c);
 
     for (int i = 0; i <= CLUSTER_SLOTS; i++) {
         /* Find start node and slot id. */
@@ -4370,10 +4369,10 @@ void clusterReplyMultiBulkSlots(client * c) {
             continue;
         }
 
-        /* add cluster slots info when occur different node with start
+        /* Add cluster slots info when occur different node with start
          * or end of slot. */
         if (i == CLUSTER_SLOTS || n != server.cluster->slots[i]) {
-            addNodeReplyForClusterSlot(c, n, start, i - 1);
+            addNodeReplyForClusterSlot(c, n, start, i-1);
             num_masters++;
             if (i == CLUSTER_SLOTS) break;
             n = server.cluster->slots[i];
