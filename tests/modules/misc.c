@@ -296,13 +296,13 @@ int test_aligned_alloc(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     for(int i = 0; i < 6; i++) {
         // Alignment, which must be a power of two and a multiple of sizeof(void *)
-        int alignment = sizeof(void*) * 2<< i;
+        int alignment = sizeof(void*) * (2 << i);
         void* ptr = RedisModule_AllocAligned(alignment, size);
         if(!ptr) {
             return REDISMODULE_ERR;
         }
         // Check  the address % alignment is 0
-        if((int64_t)ptr % alignment) {
+        if((size_t)ptr % alignment) {
             RedisModule_Free(ptr);
             return REDISMODULE_ERR;
         }
