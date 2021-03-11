@@ -3727,13 +3727,6 @@ void call(client *c, int flags) {
     if (server.loading && c->flags & CLIENT_LUA)
         flags &= ~(CMD_CALL_SLOWLOG | CMD_CALL_STATS);
 
-    /* Some commands may contain sensitive data that should
-     * not be available in the slowlog. */
-    if ((c->flags & CLIENT_PREVENT_LOGGING) && !(c->flags & CLIENT_BLOCKED)) {
-        c->flags &= ~CLIENT_PREVENT_LOGGING;
-        flags &= ~CMD_CALL_SLOWLOG;
-    }
-
     /* If the caller is Lua, we want to force the EVAL caller to propagate
      * the script if the command flag or client flag are forcing the
      * propagation. */
@@ -3742,6 +3735,13 @@ void call(client *c, int flags) {
             server.lua_caller->flags |= CLIENT_FORCE_REPL;
         if (c->flags & CLIENT_FORCE_AOF)
             server.lua_caller->flags |= CLIENT_FORCE_AOF;
+    }
+
+    /* Some commands may contain sensitive data that should
+     * not be available in the slowlog. */
+    if ((c->flags & CLIENT_PREVENT_LOGGING) && !(c->flags & CLIENT_BLOCKED)) {
+        c->flags &= ~CLIENT_PREVENT_LOGGING;
+        flags &= ~CMD_CALL_SLOWLOG;
     }
 
     /* Log the command into the Slow log if needed, and populate the

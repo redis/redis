@@ -41,7 +41,7 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         assert_equal {foobar} [lindex $e 5]
     }
 
-    test {SLOWLOG - Certain commands are omitted that contain sensitive information} {s
+    test {SLOWLOG - Certain commands are omitted that contain sensitive information} {
         r config set slowlog-log-slower-than 0
         r slowlog reset
         r config set masterauth ""

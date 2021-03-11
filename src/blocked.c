@@ -117,7 +117,7 @@ void updateStatsOnUnblock(client *c, long blocked_us, long reply_us){
     }
 
     /* Always clear the prevent logging field now. */
-    if ((c->flags & CLIENT_PREVENT_LOGGING)) {
+    if (c->flags & CLIENT_PREVENT_LOGGING) {
         c->flags &= ~CLIENT_PREVENT_LOGGING;
     }
 }
