@@ -190,6 +190,8 @@ client *createClient(connection *conn) {
     c->auth_module = NULL;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
+    c->mem_usage_bucket = NULL;
+    c->mem_usage_bucket_node = NULL;
     if (conn) linkClient(c);
     initClientMultiState(c);
     return c;
@@ -1435,7 +1437,11 @@ void freeClient(client *c) {
      * incrementally computed memory usage. */
     server.stat_clients_type_memory[c->client_cron_last_memory_type] -=
         c->client_cron_last_memory_usage;
-    removeClientFromEvictionPool(c);
+    /* Remove client from memory usage buckets */
+    if (c->mem_usage_bucket) {
+        c->mem_usage_bucket->mem_usage_sum -= c->client_cron_last_memory_usage;
+        listDelNode(c->mem_usage_bucket->clients, c->mem_usage_bucket_node);
+    }
 
     /* Release other dynamically allocated client structure fields,
      * and finally release the client structure itself. */
@@ -3787,21 +3793,25 @@ int clientEvictionCheckLimit() {
 }
 
 void clientsEviction() {
-    raxIterator ri;
-    if (!clientEvictionCheckLimit())
-        return;
-
-    raxStart(&ri,server.client_eviction_pool);
-    raxSeek(&ri,"$",NULL,0);
-    while (raxPrev(&ri)) {
-        client *best = ri.data;
-        sds ci = catClientInfoString(sdsempty(),best);
-        serverLog(LL_NOTICE, "Evicting client: %s", ci);
-        sdsfree(ci);
-        freeClient(best);
-        server.stat_evictedclients++;
-        if (!clientEvictionCheckLimit())
-            break;
+    /* Start eviction from topmost bucket (largest clients) */
+    int curr_bucket = CLIENT_MEM_USAGE_BUCKETS-1;
+    listIter bucket_iter;
+    listRewind(server.client_mem_usage_buckets[curr_bucket].clients, &bucket_iter);
+    while (clientEvictionCheckLimit()) {
+        listNode *ln = listNext(&bucket_iter);
+        if (ln) {
+            client *c = ln->value;
+            sds ci = catClientInfoString(sdsempty(),c);
+            serverLog(LL_NOTICE, "Evicting client: %s", ci);
+            freeClient(c);
+            server.stat_evictedclients++;
+        } else {
+            curr_bucket--;
+            if (curr_bucket < 0) {
+                serverLog(LL_WARNING, "Over client maxmemory after evicting all evictable clients");
+                break;
+            }
+            listRewind(server.client_mem_usage_buckets[curr_bucket].clients, &bucket_iter);
+        }
     }
-    raxStop(&ri);
 }

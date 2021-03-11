@@ -124,7 +124,57 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CONFIG_BINDADDR_MAX 16
 #define CONFIG_MIN_RESERVED_FDS 32
 #define CONFIG_DEFAULT_PROC_TITLE_TEMPLATE "{title} {listen-addr} {server-mode}"
-#define CLIENT_EVICTION_POOL 64
+
+/* TODO:
+ * We can optimize this by ignoring the first N bits in the memory size, for
+ * example if we ignore the first 14 bits then we need 14 less buckets. This
+ * means we assume there are no clients with less than 2^14 (16K) memory usage,
+ * or at least we group them together with the up to 32K bucket.
+ *
+ * Even better, we can implement Yuval's 2 layer bucketing with pre-eviction
+ * sort algorithm. From slack:
+ *
+ * I would decide on buckets sizes on M (the overall threashold) and have simple
+ * heuristic as followed:
+ * M' = M/8
+ * B1 (m) >= M'/2                 (1) max 16
+ * B2,1 >= 3M'/8 B2,2 m >= 2M'/8   (2) max 32 total
+ * B3,1 >= 7M'/32 B3,2 >= 6M'/32 B3,3 = 5M'/32 B3,4 >= 4M'/32 (4) max 64 total
+ * B4,1 >= 15M'/128 ... B4,8 >= 8M'/128   (8) max 128 total
+ * B5,1 >= 31M'/512 ... B5,16 >= 16M'/512 (16) max 256
+ * B6,1 >= 63M'/2048 .... B6,32 >= 32M'/2048 (32) max 1024 total
+ * B_END the rest
+ * total of 64 bins
+ *
+ * here i assume M is configurable, but seldom changes
+ *
+ * the motivation here is for the first bins u have a low upper bound and
+ * therefore can sort them when M' is "violated", then u can decide what error
+ * rate u can tolerate. for example not sorting elements in the 4'th layer would
+ * cause a max error of 1/128 (less than 1 percentage)
+ *
+ * Yoav Steinberg:
+ * Thanks, this makes sense and is also quite nice. I think even if I don't sort
+ * anything at all this is still a good solution because:
+ * * It's dependent on M.
+ * * It's more granular than a straight forward log based bucketing because of
+ *   the 2 layers (outer layer log based, inner layer linear based). Am I right?
+ * If I understand this correctly finding the right bucket should be something
+ * like:
+ * outer bucket = log(m)
+ * inner bucket = m/num_of_inner_buckets_in_layer
+ * If I'm correct I need a fast way to do this log operation. Can I use
+ * 64-CLZ(m) (count leading zeros) and then multiply it by some constant based
+ * on M' to find the right outer bucket?
+ *
+ * Yuval Inbar:
+ * i think sorting in the larger mem bins is important since diff between mem
+ * there can be sig. u can do it only when u actually need to 'close' some
+ * clients. about selecting the right bucket i need to think of the optimal way.
+ * always afraid to do something wrong with the bits ops.
+ * in general is based on leftmost bits of ((M/8)<<C)/m
+ */
+#define CLIENT_MEM_USAGE_BUCKETS 30 /* Bucket sizes up to 1GB */
 
 #define ACTIVE_EXPIRE_CYCLE_SLOW 0
 #define ACTIVE_EXPIRE_CYCLE_FAST 1
@@ -913,6 +963,11 @@ typedef struct {
                                       need more reserved IDs use UINT64_MAX-1,
                                       -2, ... and so forth. */
 
+typedef struct {
+    list *clients;
+    size_t mem_usage_sum;
+} clientMemUsageBucket;
+
 typedef struct client {
     uint64_t id;            /* Client incremental unique ID. */
     connection *conn;
@@ -1002,7 +1057,9 @@ typedef struct client {
     uint64_t client_cron_last_memory_usage;
     int      client_cron_last_memory_type;
 
-    //uint32_t client_cron_memory_usage_avg_samples;
+    listNode *mem_usage_bucket_node;
+    clientMemUsageBucket *mem_usage_bucket;
+
     float client_cron_memory_usage_avg;
     /* Response buffer */
     int bufpos;
@@ -1292,9 +1349,10 @@ struct redisServer {
     list *clients_pending_read;  /* Client has pending read socket buffers. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
     client *current_client;     /* Current client executing the command. */
-    rax *client_eviction_pool;  /* Radix tree holding the top memory hoggers. */
-    size_t client_eviction_pull_max;
-    size_t client_eviction_pull_min;
+
+    /* Stuff for client mem eviction */
+    clientMemUsageBucket client_mem_usage_buckets[CLIENT_MEM_USAGE_BUCKETS];
+
     rax *clients_timeout_table; /* Radix tree for blocked clients timeouts. */
     long fixed_time_expire;     /* If > 0, expire keys against server.mstime. */
     rax *clients_index;         /* Active clients dictionary by client ID. */
@@ -2624,7 +2682,6 @@ void updateStatsOnUnblock(client *c, long blocked_us, long reply_us);
 /* timeout.c -- Blocked clients timeout and connections timeout. */
 void addClientToTimeoutTable(client *c);
 void removeClientFromTimeoutTable(client *c);
-void removeClientFromEvictionPool();
 void handleBlockedClientsTimeout(void);
 int clientsCronHandleTimeout(client *c, mstime_t now_ms);
 

@@ -2169,32 +2169,13 @@ int clientsCronTrackExpansiveClients(client *c, int time_idx) {
     return 0; /* This function never terminates the client. */
 }
 
-void removeClientFromEvictionPool(client *c) {
-    if (c->client_cron_last_memory_usage < server.client_eviction_pull_min)
-        return;
-
-    char buf[16];
-    uint64_t score = htonu64(c->client_cron_last_memory_usage);
-    memcpy(buf, &score, 8);
-    memcpy(buf+8, &c->id, 8);
-    raxRemove(server.client_eviction_pool, (void*)&buf, 16, NULL);
-
-    raxIterator ri;
-    if (c->client_cron_last_memory_usage == server.client_eviction_pull_min) {
-        raxStart(&ri,server.client_eviction_pool);
-        raxSeek(&ri,"^",NULL,0);
-        if (raxNext(&ri))
-            server.client_eviction_pull_min = ((client*)ri.data)->client_cron_last_memory_usage;
-        raxStop(&ri);
-    }
-
-    if (c->client_cron_last_memory_usage == server.client_eviction_pull_max) {
-        raxStart(&ri,server.client_eviction_pool);
-        raxSeek(&ri,"$",NULL,0);
-        if (raxPrev(&ri))
-            server.client_eviction_pull_max = ((client*)ri.data)->client_cron_last_memory_usage;
-        raxStop(&ri);
-    }
+clientMemUsageBucket *getMemUsageBucket(size_t mem) {
+    int size_in_bits = 8*(int)sizeof(mem);
+    int clz = mem > 0 ? __builtin_clzl(mem) : size_in_bits;
+    int bucket_idx = size_in_bits - clz;
+    if (bucket_idx >= CLIENT_MEM_USAGE_BUCKETS)
+        bucket_idx = CLIENT_MEM_USAGE_BUCKETS-1;
+    return &server.client_mem_usage_buckets[bucket_idx];
 }
 
 /* Iterating all the clients in getMemoryOverheadData() is too slow and
@@ -2202,6 +2183,7 @@ void removeClientFromEvictionPool(client *c) {
  * computation incrementally and track the (not instantaneous but updated
  * to the second) total memory used by clients using clientsCron() in
  * a more incremental way (depending on server.hz). */
+#define EMA_ALPHA (0.1f)
 int updateClientMemUsage(client *c) {
     size_t mem = getClientMemoryUsage(c);
     int type = getClientType(c);
@@ -2219,32 +2201,18 @@ int updateClientMemUsage(client *c) {
         c->client_cron_last_memory_usage;
     server.stat_clients_type_memory[type] += mem;
 
-    /* Update the record in the clients eviction rax */
-    //TODO: score may not just be used memory, it might need to include age and others
-    //TODO: skip non normal client types, and handle cases where client changes type
-    //TODO: add some minimum under which clients don't bother to run the rax code below (in remove too)
-    removeClientFromEvictionPool(c);
-    if (raxSize(server.client_eviction_pool) < CLIENT_EVICTION_POOL || mem > server.client_eviction_pull_min) {
-        char buf[16];
-        uint64_t score = htonu64(mem);
-        memcpy(buf, &score, 8);
-        memcpy(buf+8, &c->id, 8);
-        raxInsert(server.client_eviction_pool, (void*)buf, 16, c, NULL);
-        if (mem < server.client_eviction_pull_min)
-            server.client_eviction_pull_min = mem;
-        if (mem > server.client_eviction_pull_max)
-            server.client_eviction_pull_max = mem;
-
-        /* too many items? remove the smallest one */
-        if (raxSize(server.client_eviction_pool) > CLIENT_EVICTION_POOL) {
-            raxIterator ri;
-            raxStart(&ri,server.client_eviction_pool);
-            raxSeek(&ri,"^",NULL,0);
-            if (raxNext(&ri))
-                raxRemove(server.client_eviction_pool, ri.key, ri.key_len, NULL);
-            raxStop(&ri);
-        }
-
+    /* Update the client in the mem usage buckets */
+    //TODO: skip non normal client types and non-eviction-flagged, and handle cases where client changes type
+    clientMemUsageBucket *bucket = getMemUsageBucket(mem);
+    bucket->mem_usage_sum += mem;
+    if (c->mem_usage_bucket)
+        c->mem_usage_bucket->mem_usage_sum -= c->client_cron_last_memory_usage;
+    if (bucket != c->mem_usage_bucket) {
+        if (c->mem_usage_bucket)
+            listDelNode(c->mem_usage_bucket->clients, c->mem_usage_bucket_node);
+        c->mem_usage_bucket = bucket;
+        listAddNodeTail(bucket->clients, c);
+        c->mem_usage_bucket_node = listLast(bucket->clients);
     }
 
     /* Remember what we added and where, to remove it next time. */
@@ -3669,6 +3637,11 @@ void initServer(void) {
                 && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
         serverLog(LL_WARNING, "Failed to configure TLS. Check logs for more info.");
         exit(1);
+    }
+
+    for (j = 0; j < CLIENT_MEM_USAGE_BUCKETS; j++) {
+        server.client_mem_usage_buckets[j].mem_usage_sum = 0;
+        server.client_mem_usage_buckets[j].clients = listCreate();
     }
 
     createSharedObjects();
@@ -5457,6 +5430,17 @@ sds genRedisInfoString(const char *section) {
             server.blocked_clients,
             server.tracking_clients,
             (unsigned long long) raxSize(server.clients_timeout_table));
+        for (j = 0; j < CLIENT_MEM_USAGE_BUCKETS; j++) {
+            info = sdscatprintf(info, "clients_mem_bucket%02d: tot-mem: %zu, clients: %lu\r\n", j,
+                                server.client_mem_usage_buckets[j].mem_usage_sum,
+                                server.client_mem_usage_buckets[j].clients->len);
+            listIter *it = listGetIterator(server.client_mem_usage_buckets[j].clients, AL_START_HEAD);
+            for (listNode *ln = listNext(it); ln; ln = listNext(it)) {
+                client *c = (client*)ln->value;
+                info = sdscatprintf(info, "client_mem: %lu\r\n", c->client_cron_last_memory_usage);
+            }
+            listReleaseIterator(it);
+        }
     }
 
     /* Memory */
