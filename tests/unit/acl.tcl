@@ -409,6 +409,14 @@ start_server {tags {"acl"}} {
         set e
     } {*NOAUTH*}
 
+    test {When default user has no command permission, hello command still works for other users} {
+        r ACL setuser secure-user >supass on +@all
+        r ACL setuser default -@all
+        r HELLO 2 AUTH secure-user supass
+        r ACL setuser default nopass +@all
+        r AUTH default ""
+    }
+
     test {ACL HELP should not have unexpected options} {
         catch {r ACL help xxx} e
         assert_match "*Unknown subcommand or wrong number of arguments*" $e
