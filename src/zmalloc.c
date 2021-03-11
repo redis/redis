@@ -131,7 +131,7 @@ void *zmalloc(size_t size) {
 void *ztryallignedmalloc_usable(size_t alignment, size_t size, size_t *usable) {
     ASSERT_NO_SIZE_OVERFLOW(size);
     void *ptr;
-    int ret = posix_memalign(&ptr, alignment, size);
+    int ret = posix_memalign(&ptr, alignment, MALLOC_MIN_SIZE(size)+PREFIX_SIZE);
     if (!ptr || ret == EINVAL || ret == ENOMEM) return NULL;
 
 #ifdef HAVE_MALLOC_SIZE
