@@ -115,6 +115,11 @@ void updateStatsOnUnblock(client *c, long blocked_us, long reply_us){
         /* Log the reply duration event. */
         latencyAddSampleIfNeeded("command-unblocking",reply_us/1000);
     }
+
+    /* Always clear the prevent logging field now. */
+    if ((c->flags & CLIENT_PREVENT_LOGGING)) {
+        c->flags &= ~CLIENT_PREVENT_LOGGING;
+    }
 }
 
 /* This function is called in the beforeSleep() function of the event loop

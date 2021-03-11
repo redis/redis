@@ -3727,6 +3727,13 @@ void call(client *c, int flags) {
     if (server.loading && c->flags & CLIENT_LUA)
         flags &= ~(CMD_CALL_SLOWLOG | CMD_CALL_STATS);
 
+    /* Some commands may contain sensitive data that should
+     * not be available in the slowlog. */
+    if ((c->flags & CLIENT_PREVENT_LOGGING) && !(c->flags & CLIENT_BLOCKED)) {
+        c->flags &= ~CLIENT_PREVENT_LOGGING;
+        flags &= ~CMD_CALL_SLOWLOG;
+    }
+
     /* If the caller is Lua, we want to force the EVAL caller to propagate
      * the script if the command flag or client flag are forcing the
      * propagation. */
@@ -3748,9 +3755,7 @@ void call(client *c, int flags) {
         robj **argv = c->original_argv ? c->original_argv : c->argv;
         int argc = c->original_argv ? c->original_argc : c->argc;
         /* If the client is blocked we will handle slowlog when it is unblocked . */
-        if (!(c->flags & CLIENT_BLOCKED) && 
-            !(c->flags & CLIENT_PREVENT_LOGGING))
-        {
+        if (!(c->flags & CLIENT_BLOCKED)) {
             slowlogPushEntryIfNeeded(c,argv,argc,duration);
         }
     }

@@ -1637,12 +1637,6 @@ void resetClient(client *c) {
     if (!(c->flags & CLIENT_MULTI) && prevcmd != clientCommand)
         c->flags &= ~CLIENT_TRACKING_CACHING;
 
-    /* Some commands may contain sensitive data that should
-     * not be available in the slowlog. */
-    if ((c->flags & CLIENT_PREVENT_LOGGING) && !(c->flags & CLIENT_BLOCKED)) {
-        c->flags &= ~CLIENT_PREVENT_LOGGING;
-    }
-
     /* Remove the CLIENT_REPLY_SKIP flag if any so that the reply
      * to the next command will be sent, but set the flag if the command
      * we just processed was "CLIENT REPLY SKIP". */
