@@ -441,7 +441,7 @@ void debugCommand(client *c) {
 "      conflicting keys will generate an exception and kill the server."
 "    * NOSAVE: the database will be loaded from an existing RDB file.",
 "    Examples:",
-"    * DEBUG RELOAD: verify that the server is able to persist, flsuh and reload",
+"    * DEBUG RELOAD: verify that the server is able to persist, flush and reload",
 "      the database.",
 "    * DEBUG RELOAD NOSAVE: replace the current database with the contents of an",
 "      existing RDB file.",
