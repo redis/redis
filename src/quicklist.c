@@ -866,7 +866,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
         full = 1;
     }
 
-    if (after && (entry->offset == node->count)) {
+    if (after && (entry->offset == node->count || entry->offset == -1)) {
         D("At Tail of current ziplist");
         at_tail = 1;
         if (!_quicklistNodeAllowInsert(node->next, fill, sz)) {
@@ -875,7 +875,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
         }
     }
 
-    if (!after && (entry->offset == 0)) {
+    if (!after && (entry->offset == 0 || entry->offset == -(node->count))) {
         D("At Head");
         at_head = 1;
         if (!_quicklistNodeAllowInsert(node->prev, fill, sz)) {
@@ -2005,6 +2005,36 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             quicklistIndex(ql, 0, &entry);
             quicklistInsertAfter(ql, &entry, "abc", 4);
             ql_verify(ql, 1, 2, 2, 2);
+            quicklistRelease(ql);
+        }
+
+        TEST("insert before with quicklist node full") {
+            quicklist *ql = quicklistNew(-2, options[_i]);
+            size_t limitsize = optimization_level[1];
+            void *value = zmalloc(limitsize);
+            quicklistPushHead(ql, value, limitsize);
+            quicklistPushHead(ql, "abc", 3);
+            ql_verify(ql, 2, 2, 1, 1);
+
+            quicklistEntry entry;
+            quicklistIndex(ql, -1, &entry);
+            quicklistInsertBefore(ql, &entry, "abc", 3);
+            ql_verify(ql, 2, 3, 2, 1);
+            quicklistRelease(ql);
+        }
+
+        TEST("insert after with quicklist node full") {
+            quicklist *ql = quicklistNew(-2, options[_i]);
+            size_t limitsize = optimization_level[1];
+            void *value = zmalloc(limitsize);
+            quicklistPushHead(ql, "abc", 3);
+            quicklistPushHead(ql, value, limitsize);
+            ql_verify(ql, 2, 2, 1, 1);
+
+            quicklistEntry entry;
+            quicklistIndex(ql, -2, &entry);
+            quicklistInsertAfter(ql, &entry, "abc", 3);
+            ql_verify(ql, 2, 3, 1, 2);
             quicklistRelease(ql);
         }
 
