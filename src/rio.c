@@ -160,7 +160,7 @@ void rioInitWithFile(rio *r, FILE *fp) {
 }
 
 /* ------------------- Connection implementation -------------------
- * We use this RIO implemetnation when reading an RDB file directly from
+ * We use this RIO implementation when reading an RDB file directly from
  * the connection to the memory via rdbLoadRio(), thus this implementation
  * only implements reading from a connection that is, normally,
  * just a socket. */
@@ -262,7 +262,7 @@ void rioInitWithConn(rio *r, connection *conn, size_t read_limit) {
     sdsclear(r->io.conn.buf);
 }
 
-/* Release the RIO tream. Optionally returns the unread buffered data
+/* Release the RIO stream. Optionally returns the unread buffered data
  * when the SDS pointer 'remaining' is passed. */
 void rioFreeConn(rio *r, sds *remaining) {
     if (remaining && (size_t)r->io.conn.pos < sdslen(r->io.conn.buf)) {

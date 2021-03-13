@@ -606,7 +606,7 @@ void moduleHandlePropagationAfterCommandCallback(RedisModuleCtx *ctx) {
      * a transaction. */
     if (!server.propagate_in_transaction) return;
 
-    /* If this command is executed from with Lua or MULTI/EXEC we do noy
+    /* If this command is executed from with Lua or MULTI/EXEC we do not
      * need to propagate EXEC */
     if (server.in_eval || server.in_exec) return;
 
