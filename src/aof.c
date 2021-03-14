@@ -1590,7 +1590,7 @@ int rewriteAppendOnlyFile(char *filename) {
     if (write(server.aof_pipe_write_ack_to_parent,"!",1) != 1) goto werr;
     if (anetNonBlock(NULL,server.aof_pipe_read_ack_from_parent) != ANET_OK)
         goto werr;
-    /* We read the ACK from the server using a 10 seconds timeout. Normally
+    /* We read the ACK from the server using a 5 seconds timeout. Normally
      * it should reply ASAP, but just in case we lose its reply, we are sure
      * the child will eventually get terminated. */
     if (syncRead(server.aof_pipe_read_ack_from_parent,&byte,1,5000) != 1 ||
