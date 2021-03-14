@@ -1113,8 +1113,10 @@ typedef struct socketFds {
 typedef struct redisTLSContextConfig {
     char *cert_file;                /* Server side and optionally client side cert file name */
     char *key_file;                 /* Private key filename for cert_file */
+    char *key_file_pass;            /* Optional password for key_file */
     char *client_cert_file;         /* Certificate to use as a client; if none, use cert_file */
     char *client_key_file;          /* Private key filename for client_cert_file */
+    char *client_key_file_pass;     /* Optional password for client_key_file */
     char *dh_params_file;
     char *ca_cert_file;
     char *ca_cert_dir;
