@@ -6294,10 +6294,10 @@ int main(int argc, char **argv) {
         if (server.supervised_mode == SUPERVISED_SYSTEMD) {
             if (!server.masterhost) {
                 redisCommunicateSystemd("STATUS=Ready to accept connections\n");
-                redisCommunicateSystemd("READY=1\n");
             } else {
-                redisCommunicateSystemd("STATUS=Waiting for MASTER <-> REPLICA sync\n");
+                redisCommunicateSystemd("STATUS=Ready to accept connections in read-only mode. Waiting for MASTER <-> REPLICA sync\n");
             }
+            redisCommunicateSystemd("READY=1\n");
         }
     } else {
         ACLLoadUsersAtStartup();
