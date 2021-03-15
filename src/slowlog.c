@@ -72,9 +72,16 @@ slowlogEntry *slowlogCreateEntry(client *c, robj **argv, int argc, long long dur
                     (unsigned long)
                     sdslen(argv[j]->ptr) - SLOWLOG_ENTRY_MAX_STRING);
                 se->argv[j] = createObject(OBJ_STRING,s);
-            } else {
+            } else if (argv[j]->refcount == OBJ_SHARED_REFCOUNT) {
                 se->argv[j] = argv[j];
-                incrRefCount(argv[j]);
+            } else {
+                /* Here we need to duplicate the string objects composing the
+                 * argument vector of the command, because those may otherwise
+                 * end shared with string objects stored into keys. Having
+                 * shared objects between any part of Redis, and the data
+                 * structure holding the data, is a problem: FLUSHALL ASYNC
+                 * may release the shared string object and create a race. */
+                se->argv[j] = dupStringObject(argv[j]);
             }
         }
     }
@@ -133,7 +140,21 @@ void slowlogReset(void) {
 /* The SLOWLOG command. Implements all the subcommands needed to handle the
  * Redis slow log. */
 void slowlogCommand(client *c) {
-    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"reset")) {
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+        const char *help[] = {
+"GET [<count>]",
+"    Return top <count> entries from the slowlog (default: 10). Entries are",
+"    made of:",
+"    id, timestamp, time in microseconds, arguments array, client IP and port,",
+"    client name",
+"LEN",
+"    Return the length of the slowlog.",
+"RESET",
+"    Reset the slowlog.",
+NULL
+        };
+        addReplyHelp(c, help);
+    } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"reset")) {
         slowlogReset();
         addReply(c,shared.ok);
     } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"len")) {
@@ -152,25 +173,24 @@ void slowlogCommand(client *c) {
             return;
 
         listRewind(server.slowlog,&li);
-        totentries = addDeferredMultiBulkLength(c);
+        totentries = addReplyDeferredLen(c);
         while(count-- && (ln = listNext(&li))) {
             int j;
 
             se = ln->value;
-            addReplyMultiBulkLen(c,6);
+            addReplyArrayLen(c,6);
             addReplyLongLong(c,se->id);
             addReplyLongLong(c,se->time);
             addReplyLongLong(c,se->duration);
-            addReplyMultiBulkLen(c,se->argc);
+            addReplyArrayLen(c,se->argc);
             for (j = 0; j < se->argc; j++)
                 addReplyBulk(c,se->argv[j]);
             addReplyBulkCBuffer(c,se->peerid,sdslen(se->peerid));
             addReplyBulkCBuffer(c,se->cname,sdslen(se->cname));
             sent++;
         }
-        setDeferredMultiBulkLength(c,totentries,sent);
+        setDeferredArrayLen(c,totentries,sent);
     } else {
-        addReplyError(c,
-            "Unknown SLOWLOG subcommand or wrong # of args. Try GET, RESET, LEN.");
+        addReplySubcommandSyntaxError(c);
     }
 }

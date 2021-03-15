@@ -21,7 +21,7 @@ proc get_cluster_nodes id {
             pong_recv [lindex $args 5] \
             config_epoch [lindex $args 6] \
             linkstate [lindex $args 7] \
-            slots [lrange $args 8 -1] \
+            slots [lrange $args 8 end] \
         ]
         lappend nodes $node
     }
@@ -42,9 +42,24 @@ proc get_myself id {
     return {}
 }
 
+# Get a specific node by ID by parsing the CLUSTER NODES output
+# of the instance Number 'instance_id'
+proc get_node_by_id {instance_id node_id} {
+    set nodes [get_cluster_nodes $instance_id]
+    foreach n $nodes {
+        if {[dict get $n id] eq $node_id} {return $n}
+    }
+    return {}
+}
+
 # Return the value of the specified CLUSTER INFO field.
 proc CI {n field} {
     get_info_field [R $n cluster info] $field
+}
+
+# Return the value of the specified INFO field.
+proc s {n field} {
+    get_info_field [R $n info] $field
 }
 
 # Assuming nodes are reest, this function performs slots allocation.

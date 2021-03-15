@@ -1,1 +1,2 @@
-#define REDIS_VERSION "999.999.999"
+#define REDIS_VERSION "255.255.255"
+#define REDIS_VERSION_NUM 0x00ffffff

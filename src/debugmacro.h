@@ -38,4 +38,4 @@
         fprintf(fp,__VA_ARGS__);                                             \
         fprintf(fp,"\n");                                                    \
         fclose(fp);                                                          \
-    } while (0);
+    } while (0)
