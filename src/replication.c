@@ -1998,32 +1998,85 @@ char *sendCommandArgv(connection *conn, int argc, char **argv, size_t *argv_lens
     return NULL;
 }
 
-/* Try a partial resynchronization with the master if we are about to reconnect.
+#define PSYNC_WRITE_ERROR 0
+#define PSYNC_WAIT_REPLY 1
+#define PSYNC_CONTINUE 2
+#define PSYNC_FULLRESYNC 3
+#define PSYNC_NOT_SUPPORTED 4
+#define PSYNC_TRY_LATER 5
+
+/* Try send a partial resynchronization with the master if we are about
+ * to reconnect.
  * If there is no cached master structure, at least try to issue a
  * "PSYNC ? -1" command in order to trigger a full resync using the PSYNC
  * command in order to obtain the master replid and the master replication
  * global offset.
  *
+ * This function is designed to be called from syncWithMaster(), an already
+ * connected socket connection is passed.
+ *
+ * The function writes the PSYNC command on the socket, and
+ * slaveTryPartialResynchronization call is needed, in order to read the
+ * reply of the command. This is useful in order to support non blocking
+ * operations, so that we write, return into the event loop, and read when
+ * there are data.
+ *
+ * The function returns PSYNC_WRITE_ERR if there was a write error, or
+ * PSYNC_WAIT_REPLY to signal we need call slaveTryPartialResynchronization.
+ *
+ * If returns PSYNC_WRITE_ERR, the readable event handler is removed from
+ * connection.
+ */
+int slaveSendPartialResynchronization(connection *conn) {
+    char *psync_replid;
+    char psync_offset[32];
+    sds reply;
+
+    /* Initially set master_initial_offset to -1 to mark the current
+        * master replid and offset as not valid. Later if we'll be able to do
+        * a FULL resync using the PSYNC command we'll set the offset at the
+        * right value, so that this information will be propagated to the
+        * client structure representing the master into server.master. */
+    server.master_initial_offset = -1;
+
+    if (server.cached_master) {
+        psync_replid = server.cached_master->replid;
+        snprintf(psync_offset,sizeof(psync_offset),"%lld", server.cached_master->reploff+1);
+        serverLog(LL_NOTICE,"Trying a partial resynchronization (request %s:%s).", psync_replid, psync_offset);
+    } else {
+        serverLog(LL_NOTICE,"Partial resynchronization not possible (no cached master)");
+        psync_replid = "?";
+        memcpy(psync_offset,"-1",3);
+    }
+
+    /* Issue the PSYNC command, if this is a master with a failover in
+        * progress then send the failover argument to the replica to cause it
+        * to become a master */
+    if (server.failover_state == FAILOVER_IN_PROGRESS) {
+        reply = sendCommand(conn,"PSYNC",psync_replid,psync_offset,"FAILOVER",NULL);
+    } else {
+        reply = sendCommand(conn,"PSYNC",psync_replid,psync_offset,NULL);
+    }
+
+    if (reply != NULL) {
+        serverLog(LL_WARNING,"Unable to send PSYNC to master: %s",reply);
+        sdsfree(reply);
+        connSetReadHandler(conn, NULL);
+        return PSYNC_WRITE_ERROR;
+    }
+    return PSYNC_WAIT_REPLY;
+}
+
+/* This function is used to read the reply of PSYNC command and take action on
+ * different response.
+ *
  * This function is designed to be called from syncWithMaster(), so the
  * following assumptions are made:
  *
- * 1) We pass the function an already connected socket "fd".
- * 2) This function does not close the file descriptor "fd". However in case
- *    of successful partial resynchronization, the function will reuse
- *    'fd' as file descriptor of the server.master client structure.
- *
- * The function is split in two halves: if read_reply is 0, the function
- * writes the PSYNC command on the socket, and a new function call is
- * needed, with read_reply set to 1, in order to read the reply of the
- * command. This is useful in order to support non blocking operations, so
- * that we write, return into the event loop, and read when there are data.
- *
- * When read_reply is 0 the function returns PSYNC_WRITE_ERR if there
- * was a write error, or PSYNC_WAIT_REPLY to signal we need another call
- * with read_reply set to 1. However even when read_reply is set to 1
- * the function may return PSYNC_WAIT_REPLY again to signal there were
- * insufficient data to read to complete its work. We should re-enter
- * into the event loop and wait in such a case.
+ * 1) We pass the function an already connected socket connection.
+ * 2) This function does not close the connection. However in case of successful
+ * partial resynchronization, the function will reuse connection of the
+ * server.master client structure.
  *
  * The function returns:
  *
@@ -2033,8 +2086,9 @@ char *sendCommandArgv(connection *conn, int argc, char **argv, size_t *argv_lens
  *                   offset is saved.
  * PSYNC_NOT_SUPPORTED: If the server does not understand PSYNC at all and
  *                      the caller should fall back to SYNC.
- * PSYNC_WRITE_ERROR: There was an error writing the command to the socket.
- * PSYNC_WAIT_REPLY: Call again the function with read_reply set to 1.
+ * PSYNC_WAIT_REPLY: Call this function again. There were insufficient data to
+ *                   read to complete its work. We should re-enter into the
+ *                   event loop and wait in such a case.
  * PSYNC_TRY_LATER: Master is currently in a transient error condition.
  *
  * Notable side effects:
@@ -2045,56 +2099,9 @@ char *sendCommandArgv(connection *conn, int argc, char **argv, size_t *argv_lens
  *    to the master reply. This will be used to populate the 'server.master'
  *    structure replication offset.
  */
-
-#define PSYNC_WRITE_ERROR 0
-#define PSYNC_WAIT_REPLY 1
-#define PSYNC_CONTINUE 2
-#define PSYNC_FULLRESYNC 3
-#define PSYNC_NOT_SUPPORTED 4
-#define PSYNC_TRY_LATER 5
-int slaveTryPartialResynchronization(connection *conn, int read_reply) {
-    char *psync_replid;
-    char psync_offset[32];
+int slaveTryPartialResynchronization(connection *conn) {
     sds reply;
 
-    /* Writing half */
-    if (!read_reply) {
-        /* Initially set master_initial_offset to -1 to mark the current
-         * master replid and offset as not valid. Later if we'll be able to do
-         * a FULL resync using the PSYNC command we'll set the offset at the
-         * right value, so that this information will be propagated to the
-         * client structure representing the master into server.master. */
-        server.master_initial_offset = -1;
-
-        if (server.cached_master) {
-            psync_replid = server.cached_master->replid;
-            snprintf(psync_offset,sizeof(psync_offset),"%lld", server.cached_master->reploff+1);
-            serverLog(LL_NOTICE,"Trying a partial resynchronization (request %s:%s).", psync_replid, psync_offset);
-        } else {
-            serverLog(LL_NOTICE,"Partial resynchronization not possible (no cached master)");
-            psync_replid = "?";
-            memcpy(psync_offset,"-1",3);
-        }
-
-        /* Issue the PSYNC command, if this is a master with a failover in
-         * progress then send the failover argument to the replica to cause it
-         * to become a master */
-        if (server.failover_state == FAILOVER_IN_PROGRESS) {
-            reply = sendCommand(conn,"PSYNC",psync_replid,psync_offset,"FAILOVER",NULL);
-        } else {
-            reply = sendCommand(conn,"PSYNC",psync_replid,psync_offset,NULL);
-        }
-
-        if (reply != NULL) {
-            serverLog(LL_WARNING,"Unable to send PSYNC to master: %s",reply);
-            sdsfree(reply);
-            connSetReadHandler(conn, NULL);
-            return PSYNC_WRITE_ERROR;
-        }
-        return PSYNC_WAIT_REPLY;
-    }
-
-    /* Reading half */
     reply = receiveSynchronousResponse(conn);
     if (sdslen(reply) == 0) {
         /* The master may send empty newlines after it receives PSYNC
@@ -2401,12 +2408,12 @@ void syncWithMaster(connection *conn) {
     }
 
     /* Try a partial resynchonization. If we don't have a cached master
-     * slaveTryPartialResynchronization() will at least try to use PSYNC
+     * slaveSendPartialResynchronization() will at least try to use PSYNC
      * to start a full resynchronization so that we get the master replid
      * and the global offset, to try a partial resync at the next
      * reconnection attempt. */
     if (server.repl_state == REPL_STATE_SEND_PSYNC) {
-        if (slaveTryPartialResynchronization(conn,0) == PSYNC_WRITE_ERROR) {
+        if (slaveSendPartialResynchronization(conn) == PSYNC_WRITE_ERROR) {
             err = sdsnew("Write error sending the PSYNC command.");
             abortFailover("Write error to failover target");
             goto write_error;
@@ -2423,7 +2430,7 @@ void syncWithMaster(connection *conn) {
         goto error;
     }
 
-    psync_result = slaveTryPartialResynchronization(conn,1);
+    psync_result = slaveTryPartialResynchronization(conn);
     if (psync_result == PSYNC_WAIT_REPLY) return; /* Try again later... */
 
     /* Check the status of the planned failover. We expect PSYNC_CONTINUE,
