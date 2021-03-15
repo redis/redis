@@ -1,7 +1,17 @@
 start_server {tags {"introspection"}} {
     test {CLIENT LIST} {
         r client list
-    } {*addr=*:* fd=* age=* idle=* flags=N db=9 sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* obl=0 oll=0 omem=0 events=r cmd=client*}
+    } {*addr=*:* fd=* age=* idle=* flags=N db=9 sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client*}
+
+    test {CLIENT LIST with IDs} {
+        set myid [r client id]
+        set cl [split [r client list id $myid] "\r\n"]
+        assert_match "id=$myid*" [lindex $cl 0]
+    }
+
+    test {CLIENT INFO} {
+        r client info
+    } {*addr=*:* fd=* age=* idle=* flags=N db=9 sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client*}
 
     test {MONITOR can log executed commands} {
         set rd [redis_deferring_client]
@@ -57,4 +67,119 @@ start_server {tags {"introspection"}} {
             fail "Client still listed in CLIENT LIST after SETNAME."
         }
     }
+
+    test {CONFIG save params special case handled properly} {
+        # No "save" keyword - defaults should apply
+        start_server {config "minimal.conf"} {
+            assert_match [r config get save] {save {3600 1 300 100 60 10000}}
+        }
+
+        # First "save" keyword overrides defaults
+        start_server {config "minimal.conf" overrides {save {100 100}}} {
+            # Defaults
+            assert_match [r config get save] {save {100 100}}
+        }
+    }
+
+    test {CONFIG sanity} {
+        # Do CONFIG GET, CONFIG SET and then CONFIG GET again
+        # Skip immutable configs, one with no get, and other complicated configs
+        set skip_configs {
+            rdbchecksum
+            daemonize
+            io-threads-do-reads
+            tcp-backlog
+            always-show-logo
+            syslog-enabled
+            cluster-enabled
+            aclfile
+            unixsocket
+            pidfile
+            syslog-ident
+            appendfilename
+            supervised
+            syslog-facility
+            databases
+            io-threads
+            logfile
+            unixsocketperm
+            slaveof
+            requirepass
+            server_cpulist
+            bio_cpulist
+            aof_rewrite_cpulist
+            bgsave_cpulist
+            set-proc-title
+        }
+
+        if {!$::tls} {
+            append skip_configs {
+                tls-prefer-server-ciphers
+                tls-session-cache-timeout
+                tls-session-cache-size
+                tls-session-caching
+                tls-cert-file
+                tls-key-file
+                tls-client-cert-file
+                tls-client-key-file
+                tls-dh-params-file
+                tls-ca-cert-file
+                tls-ca-cert-dir
+                tls-protocols
+                tls-ciphers
+                tls-ciphersuites
+                tls-port
+            }
+        }
+
+        set configs {}
+        foreach {k v} [r config get *] {
+            if {[lsearch $skip_configs $k] != -1} {
+                continue
+            }
+            dict set configs $k $v
+            # try to set the config to the same value it already has
+            r config set $k $v
+        }
+
+        set newconfigs {}
+        foreach {k v} [r config get *] {
+            if {[lsearch $skip_configs $k] != -1} {
+                continue
+            }
+            dict set newconfigs $k $v
+        }
+
+        dict for {k v} $configs {
+            set vv [dict get $newconfigs $k]
+            if {$v != $vv} {
+                fail "config $k mismatch, expecting $v but got $vv"
+            }
+
+        }
+    }
+
+    # Do a force-all config rewrite and make sure we're able to parse
+    # it.
+    test {CONFIG REWRITE sanity} {
+        # Capture state of config before
+        set configs {}
+        foreach {k v} [r config get *] {
+            dict set configs $k $v
+        }
+
+        # Rewrite entire configuration, restart and confirm the
+        # server is able to parse it and start.
+        assert_equal [r debug config-rewrite-force-all] "OK"
+        restart_server 0 true false
+        assert_equal [r ping] "PONG"
+
+        # Verify no changes were introduced
+        dict for {k v} $configs {
+            assert_equal $v [lindex [r config get $k] 1]
+        }
+    }
+
+    # Config file at this point is at a wierd state, and includes all
+    # known keywords. Might be a good idea to avoid adding tests here.
 }

@@ -45,9 +45,10 @@ int zipmapExists(unsigned char *zm, unsigned char *key, unsigned int klen);
 unsigned int zipmapLen(unsigned char *zm);
 size_t zipmapBlobLen(unsigned char *zm);
 void zipmapRepr(unsigned char *p);
+int zipmapValidateIntegrity(unsigned char *zm, size_t size, int deep);
 
 #ifdef REDIS_TEST
-int zipmapTest(int argc, char *argv[]);
+int zipmapTest(int argc, char *argv[], int accurate);
 #endif
 
 #endif

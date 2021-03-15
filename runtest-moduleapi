@@ -1,0 +1,38 @@
+#!/bin/sh
+TCL_VERSIONS="8.5 8.6"
+TCLSH=""
+[ -z "$MAKE" ] && MAKE=make
+
+for VERSION in $TCL_VERSIONS; do
+	TCL=`which tclsh$VERSION 2>/dev/null` && TCLSH=$TCL
+done
+
+if [ -z $TCLSH ]
+then
+    echo "You need tcl 8.5 or newer in order to run the Redis ModuleApi test"
+    exit 1
+fi
+
+$MAKE -C tests/modules && \
+$TCLSH tests/test_helper.tcl \
+--single unit/moduleapi/commandfilter \
+--single unit/moduleapi/fork \
+--single unit/moduleapi/testrdb \
+--single unit/moduleapi/infotest \
+--single unit/moduleapi/propagate \
+--single unit/moduleapi/hooks \
+--single unit/moduleapi/misc \
+--single unit/moduleapi/blockonkeys \
+--single unit/moduleapi/blockonbackground \
+--single unit/moduleapi/scan \
+--single unit/moduleapi/datatype \
+--single unit/moduleapi/auth \
+--single unit/moduleapi/keyspace_events \
+--single unit/moduleapi/blockedclient \
+--single unit/moduleapi/getkeys \
+--single unit/moduleapi/test_lazyfree \
+--single unit/moduleapi/defrag \
+--single unit/moduleapi/hash \
+--single unit/moduleapi/zset \
+--single unit/moduleapi/stream \
+"${@}"

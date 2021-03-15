@@ -53,12 +53,14 @@ dictType latencyTimeSeriesDictType = {
     NULL,                       /* val dup */
     dictStringKeyCompare,       /* key compare */
     dictVanillaFree,            /* key destructor */
-    dictVanillaFree             /* val destructor */
+    dictVanillaFree,            /* val destructor */
+    NULL                        /* allow to expand */
 };
 
 /* ------------------------- Utility functions ------------------------------ */
 
 #ifdef __linux__
+#include <sys/prctl.h>
 /* Returns 1 if Transparent Huge Pages support is enabled in the kernel.
  * Otherwise (or if we are unable to check) 0 is returned. */
 int THPIsEnabled(void) {
@@ -71,7 +73,22 @@ int THPIsEnabled(void) {
         return 0;
     }
     fclose(fp);
-    return (strstr(buf,"[never]") == NULL) ? 1 : 0;
+    return (strstr(buf,"[always]") != NULL) ? 1 : 0;
+}
+
+/* since linux-3.5, kernel supports to set the state of the "THP disable" flag
+ * for the calling thread. PR_SET_THP_DISABLE is defined in linux/prctl.h */
+int THPDisable(void) {
+    int ret = -EINVAL;
+
+    if (!server.disable_thp)
+        return ret;
+
+#ifdef PR_SET_THP_DISABLE
+    ret = prctl(PR_SET_THP_DISABLE, 1, 0, 0, 0);
+#endif
+
+    return ret;
 }
 #endif
 
@@ -85,7 +102,7 @@ int THPGetAnonHugePagesSize(void) {
 /* ---------------------------- Latency API --------------------------------- */
 
 /* Latency monitor initialization. We just need to create the dictionary
- * of time series, each time serie is craeted on demand in order to avoid
+ * of time series, each time series is created on demand in order to avoid
  * having a fixed list to maintain. */
 void latencyMonitorInit(void) {
     server.latency_events = dictCreate(&latencyTimeSeriesDictType,NULL);
@@ -95,7 +112,7 @@ void latencyMonitorInit(void) {
  * This function is usually called via latencyAddSampleIfNeeded(), that
  * is a macro that only adds the sample if the latency is higher than
  * server.latency_monitor_threshold. */
-void latencyAddSample(char *event, mstime_t latency) {
+void latencyAddSample(const char *event, mstime_t latency) {
     struct latencyTimeSeries *ts = dictFetchValue(server.latency_events,event);
     time_t now = time(NULL);
     int prev;
@@ -154,7 +171,7 @@ int latencyResetEvent(char *event_to_reset) {
 
 /* Analyze the samples available for a given event and return a structure
  * populate with different metrics, average, MAD, min, max, and so forth.
- * Check latency.h definition of struct latenctStat for more info.
+ * Check latency.h definition of struct latencyStats for more info.
  * If the specified event has no elements the structure is populate with
  * zero values. */
 void analyzeLatencyForEvent(char *event, struct latencyStats *ls) {
@@ -239,7 +256,7 @@ sds createLatencyReport(void) {
     if (dictSize(server.latency_events) == 0 &&
         server.latency_monitor_threshold == 0)
     {
-        report = sdscat(report,"I'm sorry, Dave, I can't do that. Latency monitoring is disabled in this Redis instance. You may use \"CONFIG SET latency-monitor-threshold <milliseconds>.\" in order to enable it. If we weren't in a deep space mission I'd suggest to take a look at http://redis.io/topics/latency-monitor.\n");
+        report = sdscat(report,"I'm sorry, Dave, I can't do that. Latency monitoring is disabled in this Redis instance. You may use \"CONFIG SET latency-monitor-threshold <milliseconds>.\" in order to enable it. If we weren't in a deep space mission I'd suggest to take a look at https://redis.io/topics/latency-monitor.\n");
         return report;
     }
 
@@ -343,7 +360,7 @@ sds createLatencyReport(void) {
         }
 
         if (!strcasecmp(event,"aof-fstat") ||
-            !strcasecmp(event,"rdb-unlik-temp-file")) {
+            !strcasecmp(event,"rdb-unlink-temp-file")) {
             advise_disk_contention = 1;
             advise_local_disk = 1;
             advices += 2;
@@ -396,7 +413,7 @@ sds createLatencyReport(void) {
         /* Better VM. */
         report = sdscat(report,"\nI have a few advices for you:\n\n");
         if (advise_better_vm) {
-            report = sdscat(report,"- If you are using a virtual machine, consider upgrading it with a faster one using an hypervisior that provides less latency during fork() calls. Xen is known to have poor fork() performance. Even in the context of the same VM provider, certain kinds of instances can execute fork faster than others.\n");
+            report = sdscat(report,"- If you are using a virtual machine, consider upgrading it with a faster one using a hypervisior that provides less latency during fork() calls. Xen is known to have poor fork() performance. Even in the context of the same VM provider, certain kinds of instances can execute fork faster than others.\n");
         }
 
         /* Slow log. */
@@ -409,14 +426,14 @@ sds createLatencyReport(void) {
         }
 
         if (advise_slowlog_inspect) {
-            report = sdscat(report,"- Check your Slow Log to understand what are the commands you are running which are too slow to execute. Please check http://redis.io/commands/slowlog for more information.\n");
+            report = sdscat(report,"- Check your Slow Log to understand what are the commands you are running which are too slow to execute. Please check https://redis.io/commands/slowlog for more information.\n");
         }
 
         /* Intrinsic latency. */
         if (advise_scheduler) {
             report = sdscat(report,"- The system is slow to execute Redis code paths not containing system calls. This usually means the system does not provide Redis CPU time to run for long periods. You should try to:\n"
             "  1) Lower the system load.\n"
-            "  2) Use a computer / VM just for Redis if you are running other softawre in the same system.\n"
+            "  2) Use a computer / VM just for Redis if you are running other software in the same system.\n"
             "  3) Check if you have a \"noisy neighbour\" problem.\n"
             "  4) Check with 'redis-cli --intrinsic-latency 100' what is the intrinsic latency in your system.\n"
             "  5) Check if the problem is allocator-related by recompiling Redis with MALLOC=libc, if you are using Jemalloc. However this may create fragmentation problems.\n");
@@ -432,7 +449,7 @@ sds createLatencyReport(void) {
         }
 
         if (advise_data_writeback) {
-            report = sdscat(report,"- Mounting ext3/4 filesystems with data=writeback can provide a performance boost compared to data=ordered, however this mode of operation provides less guarantees, and sometimes it can happen that after a hard crash the AOF file will have an half-written command at the end and will require to be repaired before Redis restarts.\n");
+            report = sdscat(report,"- Mounting ext3/4 filesystems with data=writeback can provide a performance boost compared to data=ordered, however this mode of operation provides less guarantees, and sometimes it can happen that after a hard crash the AOF file will have a half-written command at the end and will require to be repaired before Redis restarts.\n");
         }
 
         if (advise_disk_contention) {
@@ -476,19 +493,19 @@ sds createLatencyReport(void) {
 /* latencyCommand() helper to produce a time-delay reply for all the samples
  * in memory for the specified time series. */
 void latencyCommandReplyWithSamples(client *c, struct latencyTimeSeries *ts) {
-    void *replylen = addDeferredMultiBulkLength(c);
+    void *replylen = addReplyDeferredLen(c);
     int samples = 0, j;
 
     for (j = 0; j < LATENCY_TS_LEN; j++) {
         int i = (ts->idx + j) % LATENCY_TS_LEN;
 
         if (ts->samples[i].time == 0) continue;
-        addReplyMultiBulkLen(c,2);
+        addReplyArrayLen(c,2);
         addReplyLongLong(c,ts->samples[i].time);
         addReplyLongLong(c,ts->samples[i].latency);
         samples++;
     }
-    setDeferredMultiBulkLength(c,replylen,samples);
+    setDeferredArrayLen(c,replylen,samples);
 }
 
 /* latencyCommand() helper to produce the reply for the LATEST subcommand,
@@ -497,14 +514,14 @@ void latencyCommandReplyWithLatestEvents(client *c) {
     dictIterator *di;
     dictEntry *de;
 
-    addReplyMultiBulkLen(c,dictSize(server.latency_events));
+    addReplyArrayLen(c,dictSize(server.latency_events));
     di = dictGetIterator(server.latency_events);
     while((de = dictNext(di)) != NULL) {
         char *event = dictGetKey(de);
         struct latencyTimeSeries *ts = dictGetVal(de);
         int last = (ts->idx + LATENCY_TS_LEN - 1) % LATENCY_TS_LEN;
 
-        addReplyMultiBulkLen(c,4);
+        addReplyArrayLen(c,4);
         addReplyBulkCString(c,event);
         addReplyLongLong(c,ts->samples[last].time);
         addReplyLongLong(c,ts->samples[last].latency);
@@ -567,23 +584,13 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
  * LATENCY RESET: reset data of a specified event or all the data if no event provided.
  */
 void latencyCommand(client *c) {
-    const char *help[] = {
-"DOCTOR              -- Returns a human readable latency analysis report.",
-"GRAPH   <event>     -- Returns an ASCII latency graph for the event class.",
-"HISTORY <event>     -- Returns time-latency samples for the event class.",
-"LATEST              -- Returns the latest latency samples for all events.",
-"RESET   [event ...] -- Resets latency data of one or more event classes.",
-"                       (default: reset all data for all event classes)",
-"HELP                -- Prints this help.",
-NULL
-    };
     struct latencyTimeSeries *ts;
 
     if (!strcasecmp(c->argv[1]->ptr,"history") && c->argc == 3) {
         /* LATENCY HISTORY <event> */
         ts = dictFetchValue(server.latency_events,c->argv[2]->ptr);
         if (ts == NULL) {
-            addReplyMultiBulkLen(c,0);
+            addReplyArrayLen(c,0);
         } else {
             latencyCommandReplyWithSamples(c,ts);
         }
@@ -599,7 +606,7 @@ NULL
         event = dictGetKey(de);
 
         graph = latencyCommandGenSparkeline(event,ts);
-        addReplyBulkCString(c,graph);
+        addReplyVerbatim(c,graph,sdslen(graph),"txt");
         sdsfree(graph);
     } else if (!strcasecmp(c->argv[1]->ptr,"latest") && c->argc == 2) {
         /* LATENCY LATEST */
@@ -608,7 +615,7 @@ NULL
         /* LATENCY DOCTOR */
         sds report = createLatencyReport();
 
-        addReplyBulkCBuffer(c,report,sdslen(report));
+        addReplyVerbatim(c,report,sdslen(report),"txt");
         sdsfree(report);
     } else if (!strcasecmp(c->argv[1]->ptr,"reset") && c->argc >= 2) {
         /* LATENCY RESET */
@@ -621,7 +628,21 @@ NULL
                 resets += latencyResetEvent(c->argv[j]->ptr);
             addReplyLongLong(c,resets);
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"help") && c->argc >= 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"help") && c->argc == 2) {
+        const char *help[] = {
+"DOCTOR",
+"    Return a human readable latency analysis report.",
+"GRAPH <event>",
+"    Return an ASCII latency graph for the <event> class.",
+"HISTORY <event>",
+"    Return time-latency samples for the <event> class.",
+"LATEST",
+"    Return the latest latency samples for all events.",
+"RESET [<event> ...]",
+"    Reset latency data of one or more <event> classes.",
+"    (default: reset all data for all event classes)",
+NULL
+        };
         addReplyHelp(c, help);
     } else {
         addReplySubcommandSyntaxError(c);

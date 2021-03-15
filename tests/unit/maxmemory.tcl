@@ -161,7 +161,7 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             }
 
             # make sure master doesn't disconnect slave because of timeout
-            $master config set repl-timeout 300 ;# 5 minutes
+            $master config set repl-timeout 1200 ;# 20 minutes (for valgrind and slow machines)
             $master config set maxmemory-policy allkeys-random
             $master config set client-output-buffer-limit "replica 100000000 100000000 300"
             $master config set repl-backlog-size [expr {10*1024}]
@@ -178,7 +178,7 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             set orig_client_buf [s -1 mem_clients_normal]
             set orig_mem_not_counted_for_evict [s -1 mem_not_counted_for_evict]
             set orig_used_no_repl [expr {$orig_used - $orig_mem_not_counted_for_evict}]
-            set limit [expr {$orig_used - $orig_mem_not_counted_for_evict + 20*1024}]
+            set limit [expr {$orig_used - $orig_mem_not_counted_for_evict + 32*1024}]
 
             if {$limit_memory==1} {
                 $master config set maxmemory $limit
@@ -212,7 +212,8 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
 
             assert {[$master dbsize] == 100}
             assert {$slave_buf > 2*1024*1024} ;# some of the data may have been pushed to the OS buffers
-            assert {$delta < 50*1024 && $delta > -50*1024} ;# 1 byte unaccounted for, with 1M commands will consume some 1MB
+            set delta_max [expr {$cmd_count / 2}] ;# 1 byte unaccounted for, with 1M commands will consume some 1MB
+            assert {$delta < $delta_max && $delta > -$delta_max}
 
             $master client kill type slave
             set killed_used [s -1 used_memory]
@@ -221,7 +222,7 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             set killed_used_no_repl [expr {$killed_used - $killed_mem_not_counted_for_evict}]
             set delta_no_repl [expr {$killed_used_no_repl - $used_no_repl}]
             assert {$killed_slave_buf == 0}
-            assert {$delta_no_repl > -50*1024 && $delta_no_repl < 50*1024} ;# 1 byte unaccounted for, with 1M commands will consume some 1MB
+            assert {$delta_no_repl > -$delta_max && $delta_no_repl < $delta_max}
 
         }
         # unfreeze slave process (after the 'test' succeeded or failed, but before we attempt to terminate the server
@@ -240,3 +241,86 @@ test_slave_buffers {slave buffer are counted correctly} 1000000 10 0 1
 # test again with fewer (and bigger) commands without pipeline, but with eviction
 test_slave_buffers "replica buffer don't induce eviction" 100000 100 1 0
 
+start_server {tags {"maxmemory"}} {
+    test {Don't rehash if used memory exceeds maxmemory after rehash} {
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-random
+
+        # Next rehash size is 8192, that will eat 64k memory
+        populate 4096 "" 1
+
+        set used [s used_memory]
+        set limit [expr {$used + 10*1024}]
+        r config set maxmemory $limit
+        r set k1 v1
+        # Next writing command will trigger evicting some keys if last
+        # command trigger DB dict rehash
+        r set k2 v2
+        # There must be 4098 keys because redis doesn't evict keys.
+        r dbsize
+    } {4098}
+}
+
+start_server {tags {"maxmemory"}} {
+    test {client tracking don't cause eviction feedback loop} {
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-lru
+        r config set maxmemory-eviction-tenacity 100
+
+        # 10 clients listening on tracking messages
+        set clients {}
+        for {set j 0} {$j < 10} {incr j} {
+            lappend clients [redis_deferring_client]
+        }
+        foreach rd $clients {
+            $rd HELLO 3
+            $rd read ; # Consume the HELLO reply
+            $rd CLIENT TRACKING on
+            $rd read ; # Consume the CLIENT reply
+        }
+
+        # populate 300 keys, with long key name and short value
+        for {set j 0} {$j < 300} {incr j} {
+            set key $j[string repeat x 1000]
+            r set $key x
+
+            # for each key, enable caching for this key
+            foreach rd $clients {
+                $rd get $key
+                $rd read
+            }
+        }
+
+        # we need to wait one second for the client querybuf excess memory to be
+        # trimmed by cron, otherwise the INFO used_memory and CONFIG maxmemory
+        # below (on slow machines) won't be "atomic" and won't trigger eviction.
+        after 1100
+
+        # set the memory limit which will cause a few keys to be evicted
+        # we need to make sure to evict keynames of a total size of more than
+        # 16kb since the (PROTO_REPLY_CHUNK_BYTES), only after that the
+        # invalidation messages have a chance to trigger further eviction.
+        set used [s used_memory]
+        set limit [expr {$used - 40000}]
+        r config set maxmemory $limit
+
+        # make sure some eviction happened
+        set evicted [s evicted_keys]
+        if {$::verbose} { puts "evicted: $evicted" }
+
+        # make sure we didn't drain the database
+        assert_range [r dbsize] 200 300
+
+        assert_range $evicted 10 50
+        foreach rd $clients {
+            $rd read ;# make sure we have some invalidation message waiting
+            $rd close
+        }
+
+        # eviction continues (known problem described in #8069)
+        # for now this test only make sures the eviction loop itself doesn't
+        # have feedback loop
+        set evicted [s evicted_keys]
+        if {$::verbose} { puts "evicted: $evicted" }
+    }
+}

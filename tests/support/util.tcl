@@ -12,7 +12,11 @@ proc randstring {min max {type binary}} {
         set maxval 52
     }
     while {$len} {
-        append output [format "%c" [expr {$minval+int(rand()*($maxval-$minval+1))}]]
+        set rr [expr {$minval+int(rand()*($maxval-$minval+1))}]
+        if {$type eq {alpha} && $rr eq 92} {
+            set rr 90; # avoid putting '\' char in the string, it can mess up TCL processing
+        }
+        append output [format "%c" $rr]
         incr len -1
     }
     return $output
@@ -46,11 +50,15 @@ proc warnings_from_file {filename} {
     join $result "\n"
 }
 
-# Return value for INFO property
-proc status {r property} {
-    if {[regexp "\r\n$property:(.*?)\r\n" [{*}$r info] _ value]} {
+proc getInfoProperty {infostr property} {
+    if {[regexp "\r\n$property:(.*?)\r\n" $infostr _ value]} {
         set _ $value
     }
+}
+
+# Return value for INFO property
+proc status {r property} {
+    set _ [getInfoProperty [{*}$r info] $property]
 }
 
 proc waitForBgsave r {
@@ -82,12 +90,10 @@ proc waitForBgrewriteaof r {
 }
 
 proc wait_for_sync r {
-    while 1 {
-        if {[status $r master_link_status] eq "down"} {
-            after 10
-        } else {
-            break
-        }
+    wait_for_condition 50 100 {
+        [status $r master_link_status] eq "up"
+    } else {
+        fail "replica didn't sync in time"
     }
 }
 
@@ -97,6 +103,83 @@ proc wait_for_ofs_sync {r1 r2} {
     } else {
         fail "replica didn't sync in time"
     }
+}
+
+proc wait_done_loading r {
+    wait_for_condition 50 100 {
+        [catch {$r ping} e] == 0
+    } else {
+        fail "Loading DB is taking too much time."
+    }
+}
+
+# count current log lines in server's stdout
+proc count_log_lines {srv_idx} {
+    set _ [string trim [exec wc -l < [srv $srv_idx stdout]]]
+}
+
+# returns the number of times a line with that pattern appears in a file
+proc count_message_lines {file pattern} {
+    set res 0
+    # exec fails when grep exists with status other than 0 (when the patter wasn't found)
+    catch {
+        set res [string trim [exec grep $pattern $file 2> /dev/null | wc -l]]
+    }
+    return $res
+}
+
+# returns the number of times a line with that pattern appears in the log
+proc count_log_message {srv_idx pattern} {
+    set stdout [srv $srv_idx stdout]
+    return [count_message_lines $stdout $pattern]
+}
+
+# verify pattern exists in server's sdtout after a certain line number
+proc verify_log_message {srv_idx pattern from_line} {
+    incr from_line
+    set result [exec tail -n +$from_line < [srv $srv_idx stdout]]
+    if {![string match $pattern $result]} {
+        error "assertion:expected message not found in log file: $pattern"
+    }
+}
+
+# wait for pattern to be found in server's stdout after certain line number
+# return value is a list containing the line that matched the pattern and the line number
+proc wait_for_log_messages {srv_idx patterns from_line maxtries delay} {
+    set retry $maxtries
+    set next_line [expr $from_line + 1] ;# searching form the line after
+    set stdout [srv $srv_idx stdout]
+    while {$retry} {
+        # re-read the last line (unless it's before to our first), last time we read it, it might have been incomplete
+        set next_line [expr $next_line - 1 > $from_line + 1 ? $next_line - 1 : $from_line + 1]
+        set result [exec tail -n +$next_line < $stdout]
+        set result [split $result "\n"]
+        foreach line $result {
+            foreach pattern $patterns {
+                if {[string match $pattern $line]} {
+                    return [list $line $next_line]
+                }
+            }
+            incr next_line
+        }
+        incr retry -1
+        after $delay
+    }
+    if {$retry == 0} {
+        if {$::verbose} {
+            puts "content of $stdout from line: $from_line:"
+            puts [exec tail -n +$from_line < $stdout]
+        }
+        fail "log message of '$patterns' not found in $stdout after line: $from_line till line: [expr $next_line -1]"
+    }
+}
+
+# write line to server log file
+proc write_log_line {srv_idx msg} {
+    set logfile [srv $srv_idx stdout]
+    set fd [open $logfile "a+"]
+    puts $fd "### $msg"
+    close $fd
 }
 
 # Random integer between 0 and max (excluded).
@@ -325,21 +408,26 @@ proc roundFloat f {
     format "%.10g" $f
 }
 
-proc find_available_port start {
-    for {set j $start} {$j < $start+1024} {incr j} {
-        if {[catch {set fd1 [socket 127.0.0.1 $j]}] &&
-            [catch {set fd2 [socket 127.0.0.1 [expr $j+10000]]}]} {
-            return $j
+set ::last_port_attempted 0
+proc find_available_port {start count} {
+    set port [expr $::last_port_attempted + 1]
+    for {set attempts 0} {$attempts < $count} {incr attempts} {
+        if {$port < $start || $port >= $start+$count} {
+            set port $start
+        }
+        if {[catch {set fd1 [socket 127.0.0.1 $port]}] &&
+            [catch {set fd2 [socket 127.0.0.1 [expr $port+10000]]}]} {
+            set ::last_port_attempted $port
+            return $port
         } else {
             catch {
                 close $fd1
                 close $fd2
             }
         }
+        incr port
     }
-    if {$j == $start+1024} {
-        error "Can't find a non busy port in the $start-[expr {$start+1023}] range."
-    }
+    error "Can't find a non busy port in the $start-[expr {$start+$count-1}] range."
 }
 
 # Test if TERM looks like to support colors
@@ -372,11 +460,43 @@ proc colorstr {color str} {
     }
 }
 
+proc find_valgrind_errors {stderr on_termination} {
+    set fd [open $stderr]
+    set buf [read $fd]
+    close $fd
+
+    # Look for stack trace (" at 0x") and other errors (Invalid, Mismatched, etc).
+    # Look for "Warnings", but not the "set address range perms". These don't indicate any real concern.
+    # corrupt-dump unit, not sure why but it seems they don't indicate any real concern.
+    if {[regexp -- { at 0x} $buf] ||
+        [regexp -- {^(?=.*Warning)(?:(?!set address range perms).)*$} $buf] ||
+        [regexp -- {Invalid} $buf] ||
+        [regexp -- {Mismatched} $buf] ||
+        [regexp -- {uninitialized} $buf] ||
+        [regexp -- {has a fishy} $buf] ||
+        [regexp -- {overlap} $buf]} {
+        return $buf
+    }
+
+    # If the process didn't terminate yet, we can't look for the summary report
+    if {!$on_termination} {
+        return ""
+    }
+
+    # Look for the absense of a leak free summary (happens when redis isn't terminated properly).
+    if {(![regexp -- {definitely lost: 0 bytes} $buf] &&
+         ![regexp -- {no leaks are possible} $buf])} {
+        return $buf
+    }
+
+    return ""
+}
+
 # Execute a background process writing random data for the specified number
 # of seconds to the specified Redis instance.
 proc start_write_load {host port seconds} {
     set tclsh [info nameofexecutable]
-    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds &
+    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds $::tls &
 }
 
 # Stop a process generating write load executed with start_write_load.
@@ -398,4 +518,184 @@ proc lshuffle {list} {
         set list [lreplace [K $list [set list {}]] $j $j $temp]
     }
     return $slist
+}
+
+# Execute a background process writing complex data for the specified number
+# of ops to the specified Redis instance.
+proc start_bg_complex_data {host port db ops} {
+    set tclsh [info nameofexecutable]
+    exec $tclsh tests/helpers/bg_complex_data.tcl $host $port $db $ops $::tls &
+}
+
+# Stop a process generating write load executed with start_bg_complex_data.
+proc stop_bg_complex_data {handle} {
+    catch {exec /bin/kill -9 $handle}
+}
+
+proc populate {num prefix size} {
+    set rd [redis_deferring_client]
+    for {set j 0} {$j < $num} {incr j} {
+        $rd set $prefix$j [string repeat A $size]
+    }
+    for {set j 0} {$j < $num} {incr j} {
+        $rd read
+    }
+    $rd close
+}
+
+proc get_child_pid {idx} {
+    set pid [srv $idx pid]
+    if {[file exists "/usr/bin/pgrep"]} {
+        set fd [open "|pgrep -P $pid" "r"]
+        set child_pid [string trim [lindex [split [read $fd] \n] 0]]
+    } else {
+        set fd [open "|ps --ppid $pid -o pid" "r"]
+        set child_pid [string trim [lindex [split [read $fd] \n] 1]]
+    }
+    close $fd
+
+    return $child_pid
+}
+
+proc cmdrstat {cmd r} {
+    if {[regexp "\r\ncmdstat_$cmd:(.*?)\r\n" [$r info commandstats] _ value]} {
+        set _ $value
+    }
+}
+
+proc errorrstat {cmd r} {
+    if {[regexp "\r\nerrorstat_$cmd:(.*?)\r\n" [$r info errorstats] _ value]} {
+        set _ $value
+    }
+}
+
+proc generate_fuzzy_traffic_on_key {key duration} {
+    # Commands per type, blocking commands removed
+    # TODO: extract these from help.h or elsewhere, and improve to include other types
+    set string_commands {APPEND BITCOUNT BITFIELD BITOP BITPOS DECR DECRBY GET GETBIT GETRANGE GETSET INCR INCRBY INCRBYFLOAT MGET MSET MSETNX PSETEX SET SETBIT SETEX SETNX SETRANGE STRALGO STRLEN}
+    set hash_commands {HDEL HEXISTS HGET HGETALL HINCRBY HINCRBYFLOAT HKEYS HLEN HMGET HMSET HSCAN HSET HSETNX HSTRLEN HVALS HRANDFIELD}
+    set zset_commands {ZADD ZCARD ZCOUNT ZINCRBY ZINTERSTORE ZLEXCOUNT ZPOPMAX ZPOPMIN ZRANGE ZRANGEBYLEX ZRANGEBYSCORE ZRANK ZREM ZREMRANGEBYLEX ZREMRANGEBYRANK ZREMRANGEBYSCORE ZREVRANGE ZREVRANGEBYLEX ZREVRANGEBYSCORE ZREVRANK ZSCAN ZSCORE ZUNIONSTORE ZRANDMEMBER}
+    set list_commands {LINDEX LINSERT LLEN LPOP LPOS LPUSH LPUSHX LRANGE LREM LSET LTRIM RPOP RPOPLPUSH RPUSH RPUSHX}
+    set set_commands {SADD SCARD SDIFF SDIFFSTORE SINTER SINTERSTORE SISMEMBER SMEMBERS SMOVE SPOP SRANDMEMBER SREM SSCAN SUNION SUNIONSTORE}
+    set stream_commands {XACK XADD XCLAIM XDEL XGROUP XINFO XLEN XPENDING XRANGE XREAD XREADGROUP XREVRANGE XTRIM}
+    set commands [dict create string $string_commands hash $hash_commands zset $zset_commands list $list_commands set $set_commands stream $stream_commands]
+
+    set type [r type $key]
+    set cmds [dict get $commands $type]
+    set start_time [clock seconds]
+    set sent {}
+    set succeeded 0
+    while {([clock seconds]-$start_time) < $duration} {
+        # find a random command for our key type
+        set cmd_idx [expr {int(rand()*[llength $cmds])}]
+        set cmd [lindex $cmds $cmd_idx]
+        # get the command details from redis
+        if { [ catch {
+            set cmd_info [lindex [r command info $cmd] 0]
+        } err ] } {
+            # if we failed, it means redis crashed after the previous command
+            return $sent
+        }
+        # try to build a valid command argument
+        set arity [lindex $cmd_info 1]
+        set arity [expr $arity < 0 ? - $arity: $arity]
+        set firstkey [lindex $cmd_info 3]
+        set i 1
+        if {$cmd == "XINFO"} {
+            lappend cmd "STREAM"
+            lappend cmd $key
+            lappend cmd "FULL"
+            incr i 3
+        }
+        if {$cmd == "XREAD"} {
+            lappend cmd "STREAMS"
+            lappend cmd $key
+            randpath {
+                lappend cmd \$
+            } {
+                lappend cmd [randomValue]
+            }
+            incr i 3
+        }
+        if {$cmd == "XADD"} {
+            lappend cmd $key
+            randpath {
+                lappend cmd "*"
+            } {
+                lappend cmd [randomValue]
+            }
+            lappend cmd [randomValue]
+            lappend cmd [randomValue]
+            incr i 4
+        }
+        for {} {$i < $arity} {incr i} {
+            if {$i == $firstkey} {
+                lappend cmd $key
+            } else {
+                lappend cmd [randomValue]
+            }
+        }
+        # execute the command, we expect commands to fail on syntax errors
+        lappend sent $cmd
+        if { ! [ catch {
+            r {*}$cmd
+        } err ] } {
+            incr succeeded
+        }
+    }
+
+    # print stats so that we know if we managed to generate commands that actually made senes
+    #if {$::verbose} {
+    #    set count [llength $sent]
+    #    puts "Fuzzy traffic sent: $count, succeeded: $succeeded"
+    #}
+
+    # return the list of commands we sent
+    return $sent
+}
+
+# write line to server log file
+proc write_log_line {srv_idx msg} {
+    set logfile [srv $srv_idx stdout]
+    set fd [open $logfile "a+"]
+    puts $fd "### $msg"
+    close $fd
+}
+
+proc string2printable s {
+    set res {}
+    set has_special_chars false
+    foreach i [split $s {}] {
+        scan $i %c int
+        # non printable characters, including space and excluding: " \ $ { }
+        if {$int < 32 || $int > 122 || $int == 34 || $int == 36 || $int == 92} {
+            set has_special_chars true
+        }
+        # TCL8.5 has issues mixing \x notation and normal chars in the same
+        # source code string, so we'll convert the entire string.
+        append res \\x[format %02X $int]
+    }
+    if {!$has_special_chars} {
+        return $s
+    }
+    set res "\"$res\""
+    return $res
+}
+
+# Check that probability of each element are between {min_prop} and {max_prop}.
+proc check_histogram_distribution {res min_prop max_prop} {
+    unset -nocomplain mydict
+    foreach key $res {
+        dict incr mydict $key 1
+    }
+
+    foreach key [dict keys $mydict] {
+        set value [dict get $mydict $key]
+        set probability [expr {double($value) / [llength $res]}]
+        if {$probability < $min_prop || $probability > $max_prop} {
+            return false
+        }
+    }
+
+    return true
 }

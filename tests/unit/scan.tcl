@@ -1,4 +1,4 @@
-start_server {tags {"scan"}} {
+start_server {tags {"scan network"}} {
     test "SCAN basic" {
         r flushdb
         r debug populate 1000
@@ -51,6 +51,51 @@ start_server {tags {"scan"}} {
 
         set keys [lsort -unique $keys]
         assert_equal 100 [llength $keys]
+    }
+
+    test "SCAN TYPE" {
+        r flushdb
+        # populate only creates strings
+        r debug populate 1000
+
+        # Check non-strings are excluded
+        set cur 0
+        set keys {}
+        while 1 {
+            set res [r scan $cur type "list"]
+            set cur [lindex $res 0]
+            set k [lindex $res 1]
+            lappend keys {*}$k
+            if {$cur == 0} break
+        }
+
+        assert_equal 0 [llength $keys]
+
+        # Check strings are included
+        set cur 0
+        set keys {}
+        while 1 {
+            set res [r scan $cur type "string"]
+            set cur [lindex $res 0]
+            set k [lindex $res 1]
+            lappend keys {*}$k
+            if {$cur == 0} break
+        }
+
+        assert_equal 1000 [llength $keys]
+
+        # Check all three args work together
+        set cur 0
+        set keys {}
+        while 1 {
+            set res [r scan $cur type "string" match "key:*" count 10]
+            set cur [lindex $res 0]
+            set k [lindex $res 1]
+            lappend keys {*}$k
+            if {$cur == 0} break
+        }
+
+        assert_equal 1000 [llength $keys]
     }
 
     foreach enc {intset hashtable} {

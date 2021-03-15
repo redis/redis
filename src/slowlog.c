@@ -75,7 +75,7 @@ slowlogEntry *slowlogCreateEntry(client *c, robj **argv, int argc, long long dur
             } else if (argv[j]->refcount == OBJ_SHARED_REFCOUNT) {
                 se->argv[j] = argv[j];
             } else {
-                /* Here we need to dupliacate the string objects composing the
+                /* Here we need to duplicate the string objects composing the
                  * argument vector of the command, because those may otherwise
                  * end shared with string objects stored into keys. Having
                  * shared objects between any part of Redis, and the data
@@ -142,11 +142,15 @@ void slowlogReset(void) {
 void slowlogCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-"GET [count] -- Return top entries from the slowlog (default: 10)."
-"    Entries are made of:",
-"    id, timestamp, time in microseconds, arguments array, client IP and port, client name",
-"LEN -- Return the length of the slowlog.",
-"RESET -- Reset the slowlog.",
+"GET [<count>]",
+"    Return top <count> entries from the slowlog (default: 10). Entries are",
+"    made of:",
+"    id, timestamp, time in microseconds, arguments array, client IP and port,",
+"    client name",
+"LEN",
+"    Return the length of the slowlog.",
+"RESET",
+"    Reset the slowlog.",
 NULL
         };
         addReplyHelp(c, help);
@@ -169,23 +173,23 @@ NULL
             return;
 
         listRewind(server.slowlog,&li);
-        totentries = addDeferredMultiBulkLength(c);
+        totentries = addReplyDeferredLen(c);
         while(count-- && (ln = listNext(&li))) {
             int j;
 
             se = ln->value;
-            addReplyMultiBulkLen(c,6);
+            addReplyArrayLen(c,6);
             addReplyLongLong(c,se->id);
             addReplyLongLong(c,se->time);
             addReplyLongLong(c,se->duration);
-            addReplyMultiBulkLen(c,se->argc);
+            addReplyArrayLen(c,se->argc);
             for (j = 0; j < se->argc; j++)
                 addReplyBulk(c,se->argv[j]);
             addReplyBulkCBuffer(c,se->peerid,sdslen(se->peerid));
             addReplyBulkCBuffer(c,se->cname,sdslen(se->cname));
             sent++;
         }
-        setDeferredMultiBulkLength(c,totentries,sent);
+        setDeferredArrayLen(c,totentries,sent);
     } else {
         addReplySubcommandSyntaxError(c);
     }
