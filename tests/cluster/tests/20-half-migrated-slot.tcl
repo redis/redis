@@ -5,6 +5,7 @@
 # 4. migration is half finished on "migrating" node
 # 5. migration is half finished on "importing" node
 source "../tests/includes/init-tests.tcl"
+source "../../../tests/support/cli.tcl"
 
 test "Create a 2 nodes cluster" {
     create_cluster 2 0
@@ -28,7 +29,7 @@ proc reset_cluster {} {
 proc fix_cluster {} {
     uplevel 1 {
         set code [catch {
-            exec ../../../src/redis-cli --cluster fix $nodefrom(addr) << yes
+            exec ../../../src/redis-cli {*}[rediscli_tls_config "../../../tests"] --cluster fix $nodefrom(addr) << yes
         } result]
         if {$code != 0 && $::verbose} {
             puts $result
@@ -36,7 +37,7 @@ proc fix_cluster {} {
         assert {$code == 0}
         assert_cluster_state ok
         wait_for_condition 1000 10 {
-            [catch {exec ../../../src/redis-cli --cluster check $nodefrom(addr)} _] == 0
+            [catch {exec ../../../src/redis-cli {*}[rediscli_tls_config "../../../tests"] --cluster check $nodefrom(addr)} _] == 0
         } else {
             fail "Cluster could not settle with configuration"
         }
@@ -55,7 +56,7 @@ test "Key is accessible" {
 }
 
 test "Fix doesn't need to fix anything" {
-    set code [catch {exec ../../../src/redis-cli --cluster fix $nodefrom(addr) << yes} result]
+    set code [catch {exec ../../../src/redis-cli {*}[rediscli_tls_config "../../../tests"] --cluster fix $nodefrom(addr) << yes} result]
     assert {$code == 0}
 }
 
