@@ -1701,7 +1701,7 @@ int RM_ReplyWithLongDouble(RedisModuleCtx *ctx, long double ld) {
 void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx) {
     /* Skip this if client explicitly wrap the command with MULTI, or if
      * the module command was called by a script. */
-    if (server.lua_caller || server.in_exec) return;
+    if (server.in_eval || server.in_exec) return;
     /* If we already emitted MULTI return ASAP. */
     if (server.propagate_in_transaction) return;
     /* If this is a thread safe context, we do not want to wrap commands

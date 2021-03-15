@@ -3916,6 +3916,16 @@ static int cmdHasMovableKeys(struct redisCommand *cmd) {
  * other operations can be performed by the caller. Otherwise
  * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
 int processCommand(client *c) {
+    if (!server.lua_timedout) {
+        /* Both EXEC and EVAL call call() directly so there should be
+         * no way in_exec or in_eval or propagate_in_transaction is 1.
+         * That is unless lua_timedout, in which case client may run
+         * some commands. */
+        serverAssert(!server.propagate_in_transaction);
+        serverAssert(!server.in_exec);
+        serverAssert(!server.in_eval);
+    }
+
     moduleCallCommandFilters(c);
 
     /* The QUIT command is handled separately. Normal command procs will
