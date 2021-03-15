@@ -2020,6 +2020,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             quicklistIndex(ql, -1, &entry);
             quicklistInsertBefore(ql, &entry, "abc", 3);
             ql_verify(ql, 2, 3, 2, 1);
+            zfree(value);
             quicklistRelease(ql);
         }
 
@@ -2035,6 +2036,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             quicklistIndex(ql, -2, &entry);
             quicklistInsertAfter(ql, &entry, "abc", 3);
             ql_verify(ql, 2, 3, 1, 2);
+            zfree(value);
             quicklistRelease(ql);
         }
 
