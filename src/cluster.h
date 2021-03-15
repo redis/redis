@@ -168,7 +168,7 @@ typedef struct clusterState {
     clusterNode *mf_slave;      /* Slave performing the manual failover. */
     /* Manual failover state of slave. */
     long long mf_master_offset; /* Master offset the slave needs to start MF
-                                   or zero if still not received. */
+                                   or -1 if still not received. */
     int mf_can_start;           /* If non-zero signal that the manual failover
                                    can start requesting masters vote. */
     /* The following fields are used by masters to take state on elections. */
