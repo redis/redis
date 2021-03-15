@@ -477,6 +477,7 @@ proc signal_idle_client fd {
         lappend ::idle_clients $fd
         set ::active_clients_task($fd) "SLEEPING, no more units to assign"
         if {[llength $::active_clients] == 0} {
+            force_kill_all_servers
             the_end
         }
     }
