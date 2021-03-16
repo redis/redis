@@ -253,7 +253,7 @@ proc wait_server_started {config_file stdout pid} {
 
         # Check if the port is actually busy and the server failed
         # for this reason.
-        if {[regexp {Could not create server TCP} [exec cat $stdout]]} {
+        if {[regexp {Failed listening on port} [exec cat $stdout]]} {
             set port_busy 1
             break
         }
