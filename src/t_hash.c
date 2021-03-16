@@ -1155,7 +1155,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
         while (size > count) {
             dictEntry *de;
             de = dictGetRandomKey(d);
-            dictUnlink(d,dictGetKey(de));
+            de = dictUnlink(d,dictGetKey(de));
             sdsfree(dictGetKey(de));
             sdsfree(dictGetVal(de));
             dictFreeUnlinkedEntry(d,de);

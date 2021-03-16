@@ -1576,11 +1576,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             o = createSetObject();
             /* It's faster to expand the dict to the right size asap in order
              * to avoid rehashing */
-            if (len > DICT_HT_INITIAL_SIZE && dictTryExpand(o->ptr,len) != DICT_OK) {
-                rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)len);
-                decrRefCount(o);
-                return NULL;
-            }
+            /* if (len > DICT_HT_INITIAL_SIZE && dictTryExpand(o->ptr,len) != DICT_OK) { */
+            /*     rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)len); */
+            /*     decrRefCount(o); */
+            /*     return NULL; */
+            /* } */
         } else {
             o = createIntsetObject();
         }
@@ -1642,11 +1642,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         o = createZsetObject();
         zs = o->ptr;
 
-        if (zsetlen > DICT_HT_INITIAL_SIZE && dictTryExpand(zs->dict,zsetlen) != DICT_OK) {
-            rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)zsetlen);
-            decrRefCount(o);
-            return NULL;
-        }
+        /* if (zsetlen > DICT_HT_INITIAL_SIZE && dictTryExpand(zs->dict,zsetlen) != DICT_OK) { */
+        /*     rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)zsetlen); */
+        /*     decrRefCount(o); */
+        /*     return NULL; */
+        /* } */
 
         /* Load every single element of the sorted set. */
         while(zsetlen--) {
@@ -1766,13 +1766,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             dupSearchDict = NULL;
         }
 
-        if (o->encoding == OBJ_ENCODING_HT && len > DICT_HT_INITIAL_SIZE) {
-            if (dictTryExpand(o->ptr,len) != DICT_OK) {
-                rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)len);
-                decrRefCount(o);
-                return NULL;
-            }
-        }
+        /* if (o->encoding == OBJ_ENCODING_HT && len > DICT_HT_INITIAL_SIZE) { */
+        /*     if (dictTryExpand(o->ptr,len) != DICT_OK) { */
+        /*         rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)len); */
+        /*         decrRefCount(o); */
+        /*         return NULL; */
+        /*     } */
+        /* } */
 
         /* Load remaining fields and values into the hash table */
         while (o->encoding == OBJ_ENCODING_HT && len > 0) {
