@@ -169,6 +169,7 @@ typedef struct RedisModuleCtx RedisModuleCtx;
 #define REDISMODULE_CTX_THREAD_SAFE (1<<4)
 #define REDISMODULE_CTX_BLOCKED_DISCONNECTED (1<<5)
 #define REDISMODULE_CTX_MODULE_COMMAND_CALL (1<<6)
+#define REDISMODULE_CTX_MULTI_EMITTED (1<<7)
 
 /* This represents a Redis key opened with RM_OpenKey(). */
 struct RedisModuleKey {
@@ -599,17 +600,21 @@ void moduleHandlePropagationAfterCommandCallback(RedisModuleCtx *ctx) {
 
     /* We don't need to do anything here if the context was never used
      * in order to propagate commands. */
+    if (!(ctx->flags & REDISMODULE_CTX_MULTI_EMITTED)) return;
+
+    /* We don't need to do anything here if the server isn't inside
+     * a transaction. */
     if (!server.propagate_in_transaction) return;
 
-    /* If this command is executed from with Lua or MULTI/EXEC we do noy
+    /* If this command is executed from with Lua or MULTI/EXEC we do not
      * need to propagate EXEC */
     if (server.in_eval || server.in_exec) return;
 
     /* Handle the replication of the final EXEC, since whatever a command
      * emits is always wrapped around MULTI/EXEC. */
-    beforePropagateMultiOrExec(0);
     alsoPropagate(server.execCommand,c->db->id,&shared.exec,1,
         PROPAGATE_AOF|PROPAGATE_REPL);
+    afterPropagateExec();
 
     /* If this is not a module command context (but is instead a simple
      * callback context), we have to handle directly the "also propagate"
@@ -1696,7 +1701,7 @@ int RM_ReplyWithLongDouble(RedisModuleCtx *ctx, long double ld) {
 void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx) {
     /* Skip this if client explicitly wrap the command with MULTI, or if
      * the module command was called by a script. */
-    if (server.lua_caller || server.in_exec) return;
+    if (server.in_eval || server.in_exec) return;
     /* If we already emitted MULTI return ASAP. */
     if (server.propagate_in_transaction) return;
     /* If this is a thread safe context, we do not want to wrap commands
@@ -1707,10 +1712,12 @@ void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx) {
      * context, we have to setup the op array for the "also propagate" API
      * so that RM_Replicate() will work. */
     if (!(ctx->flags & REDISMODULE_CTX_MODULE_COMMAND_CALL)) {
+        serverAssert(ctx->saved_oparray.ops == NULL);
         ctx->saved_oparray = server.also_propagate;
         redisOpArrayInit(&server.also_propagate);
     }
     execCommandPropagateMulti(ctx->client->db->id);
+    ctx->flags |= REDISMODULE_CTX_MULTI_EMITTED;
 }
 
 /* Replicate the specified command and arguments to slaves and AOF, as effect
@@ -2516,19 +2523,19 @@ RedisModuleString *RM_ListPop(RedisModuleKey *key, int where) {
  * so that we have everything decoupled. */
 int moduleZsetAddFlagsToCoreFlags(int flags) {
     int retflags = 0;
-    if (flags & REDISMODULE_ZADD_XX) retflags |= ZADD_XX;
-    if (flags & REDISMODULE_ZADD_NX) retflags |= ZADD_NX;
-    if (flags & REDISMODULE_ZADD_GT) retflags |= ZADD_GT;
-    if (flags & REDISMODULE_ZADD_LT) retflags |= ZADD_LT;
+    if (flags & REDISMODULE_ZADD_XX) retflags |= ZADD_IN_XX;
+    if (flags & REDISMODULE_ZADD_NX) retflags |= ZADD_IN_NX;
+    if (flags & REDISMODULE_ZADD_GT) retflags |= ZADD_IN_GT;
+    if (flags & REDISMODULE_ZADD_LT) retflags |= ZADD_IN_LT;
     return retflags;
 }
 
 /* See previous function comment. */
 int moduleZsetAddFlagsFromCoreFlags(int flags) {
     int retflags = 0;
-    if (flags & ZADD_ADDED) retflags |= REDISMODULE_ZADD_ADDED;
-    if (flags & ZADD_UPDATED) retflags |= REDISMODULE_ZADD_UPDATED;
-    if (flags & ZADD_NOP) retflags |= REDISMODULE_ZADD_NOP;
+    if (flags & ZADD_OUT_ADDED) retflags |= REDISMODULE_ZADD_ADDED;
+    if (flags & ZADD_OUT_UPDATED) retflags |= REDISMODULE_ZADD_UPDATED;
+    if (flags & ZADD_OUT_NOP) retflags |= REDISMODULE_ZADD_NOP;
     return retflags;
 }
 
@@ -2565,16 +2572,16 @@ int moduleZsetAddFlagsFromCoreFlags(int flags) {
  * * 'score' double value is not a number (NaN).
  */
 int RM_ZsetAdd(RedisModuleKey *key, double score, RedisModuleString *ele, int *flagsptr) {
-    int flags = 0;
+    int in_flags = 0, out_flags = 0;
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
     if (key->value && key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
     if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_ZSET);
-    if (flagsptr) flags = moduleZsetAddFlagsToCoreFlags(*flagsptr);
-    if (zsetAdd(key->value,score,ele->ptr,&flags,NULL) == 0) {
+    if (flagsptr) in_flags = moduleZsetAddFlagsToCoreFlags(*flagsptr);
+    if (zsetAdd(key->value,score,ele->ptr,in_flags,&out_flags,NULL) == 0) {
         if (flagsptr) *flagsptr = 0;
         return REDISMODULE_ERR;
     }
-    if (flagsptr) *flagsptr = moduleZsetAddFlagsFromCoreFlags(flags);
+    if (flagsptr) *flagsptr = moduleZsetAddFlagsFromCoreFlags(out_flags);
     return REDISMODULE_OK;
 }
 
@@ -2592,22 +2599,17 @@ int RM_ZsetAdd(RedisModuleKey *key, double score, RedisModuleString *ele, int *f
  * with the new score of the element after the increment, if no error
  * is returned. */
 int RM_ZsetIncrby(RedisModuleKey *key, double score, RedisModuleString *ele, int *flagsptr, double *newscore) {
-    int flags = 0;
+    int in_flags = 0, out_flags = 0;
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
     if (key->value && key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
     if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_ZSET);
-    if (flagsptr) flags = moduleZsetAddFlagsToCoreFlags(*flagsptr);
-    flags |= ZADD_INCR;
-    if (zsetAdd(key->value,score,ele->ptr,&flags,newscore) == 0) {
+    if (flagsptr) in_flags = moduleZsetAddFlagsToCoreFlags(*flagsptr);
+    in_flags |= ZADD_IN_INCR;
+    if (zsetAdd(key->value,score,ele->ptr,in_flags,&out_flags,newscore) == 0) {
         if (flagsptr) *flagsptr = 0;
         return REDISMODULE_ERR;
     }
-    /* zsetAdd() may signal back that the resulting score is not a number. */
-    if (flagsptr && (*flagsptr & ZADD_NAN)) {
-        *flagsptr = 0;
-        return REDISMODULE_ERR;
-    }
-    if (flagsptr) *flagsptr = moduleZsetAddFlagsFromCoreFlags(flags);
+    if (flagsptr) *flagsptr = moduleZsetAddFlagsFromCoreFlags(out_flags);
     return REDISMODULE_OK;
 }
 
@@ -4067,20 +4069,30 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         }
     }
 
-    /* If we are using single commands replication, we need to wrap what
-     * we propagate into a MULTI/EXEC block, so that it will be atomic like
-     * a Lua script in the context of AOF and slaves. */
-    if (replicate) moduleReplicateMultiIfNeeded(ctx);
+    /* We need to use a global replication_allowed flag in order to prevent
+     * replication of nested RM_Calls. Example:
+     * 1. module1.foo does RM_Call of module2.bar without replication (i.e. no '!')
+     * 2. module2.bar internally calls RM_Call of INCR with '!'
+     * 3. at the end of module1.foo we call RM_ReplicateVerbatim
+     * We want the replica/AOF to see only module1.foo and not the INCR from module2.bar */
+    int prev_replication_allowed = server.replication_allowed;
+    server.replication_allowed = replicate && server.replication_allowed;
 
     /* Run the command */
     int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS | CMD_CALL_NOWRAP;
     if (replicate) {
+        /* If we are using single commands replication, we need to wrap what
+         * we propagate into a MULTI/EXEC block, so that it will be atomic like
+         * a Lua script in the context of AOF and slaves. */
+        moduleReplicateMultiIfNeeded(ctx);
+
         if (!(flags & REDISMODULE_ARGV_NO_AOF))
             call_flags |= CMD_CALL_PROPAGATE_AOF;
         if (!(flags & REDISMODULE_ARGV_NO_REPLICAS))
             call_flags |= CMD_CALL_PROPAGATE_REPL;
     }
     call(c,call_flags);
+    server.replication_allowed = prev_replication_allowed;
 
     serverAssert((c->flags & CLIENT_BLOCKED) == 0);
 

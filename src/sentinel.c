@@ -3344,7 +3344,8 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
     /* Masters and Slaves */
     if (ri->flags & (SRI_MASTER|SRI_SLAVE)) {
         addReplyBulkCString(c,"info-refresh");
-        addReplyBulkLongLong(c,mstime() - ri->info_refresh);
+        addReplyBulkLongLong(c,
+            ri->info_refresh ? (mstime() - ri->info_refresh) : 0);
         fields++;
 
         addReplyBulkCString(c,"role-reported");
@@ -3811,7 +3812,8 @@ NULL
             addReplyBulkCBuffer(c,ri->name,strlen(ri->name));
             addReplyArrayLen(c,dictSize(ri->slaves) + 1); /* +1 for self */
             addReplyArrayLen(c,2);
-            addReplyLongLong(c, now - ri->info_refresh);
+            addReplyLongLong(c,
+                ri->info_refresh ? (now - ri->info_refresh) : 0);
             if (ri->info)
                 addReplyBulkCBuffer(c,ri->info,sdslen(ri->info));
             else
@@ -3823,7 +3825,8 @@ NULL
             while ((sde = dictNext(sdi)) != NULL) {
                 sentinelRedisInstance *sri = dictGetVal(sde);
                 addReplyArrayLen(c,2);
-                addReplyLongLong(c, now - sri->info_refresh);
+                addReplyLongLong(c,
+                    ri->info_refresh ? (now - sri->info_refresh) : 0);
                 if (sri->info)
                     addReplyBulkCBuffer(c,sri->info,sdslen(sri->info));
                 else

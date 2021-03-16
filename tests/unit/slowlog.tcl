@@ -41,6 +41,22 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         assert_equal {foobar} [lindex $e 5]
     }
 
+    test {SLOWLOG - Certain commands are omitted that contain sensitive information} {
+        r config set slowlog-log-slower-than 0
+        r slowlog reset
+        r config set masterauth ""
+        r acl setuser slowlog-test-user
+        r config set slowlog-log-slower-than 0
+        r config set slowlog-log-slower-than 10000
+        set slowlog_resp [r slowlog get]
+
+        # Make sure normal configs work, but the two sensitive
+        # commands are omitted
+        assert_equal 2 [llength $slowlog_resp]
+        assert_equal {slowlog reset} [lindex [lindex [r slowlog get] 1] 3]
+        assert_equal {config set slowlog-log-slower-than 0} [lindex [lindex [r slowlog get] 0] 3]
+    }
+
     test {SLOWLOG - Rewritten commands are logged as their original command} {
         r config set slowlog-log-slower-than 0
 

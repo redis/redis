@@ -274,6 +274,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                            and AOF client */
 #define CLIENT_REPL_RDBONLY (1ULL<<42) /* This client is a replica that only wants
                                           RDB without replication buffer. */
+#define CLIENT_PREVENT_LOGGING (1ULL<<43)  /* Prevent logging of command to slowlog */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -838,7 +839,7 @@ typedef struct {
                         the flag ALLKEYS is set in the user. */
     list *channels;  /* A list of allowed Pub/Sub channel patterns. If this
                         field is NULL the user cannot mention any channel in a
-                        `PUBLISH` or [P][UNSUSBSCRIBE] command, unless the flag
+                        `PUBLISH` or [P][UNSUBSCRIBE] command, unless the flag
                         ALLCHANNELS is set in the user. */
 } user;
 
@@ -1400,6 +1401,7 @@ struct redisServer {
     int child_info_nread;           /* Num of bytes of the last read from pipe */
     /* Propagation of commands in AOF / replication */
     redisOpArray also_propagate;    /* Additional command to propagate. */
+    int replication_allowed;        /* Are we allowed to replicate? */
     /* Logging */
     char *logfile;                  /* Path of log file */
     int syslog_enabled;             /* Is syslog enabled? */
@@ -1932,7 +1934,8 @@ void flagTransaction(client *c);
 void execCommandAbort(client *c, sds error);
 void execCommandPropagateMulti(int dbid);
 void execCommandPropagateExec(int dbid);
-void beforePropagateMultiOrExec(int multi);
+void beforePropagateMulti();
+void afterPropagateExec();
 
 /* Redis object implementation */
 void decrRefCount(robj *o);
@@ -2111,21 +2114,18 @@ void ACLUpdateDefaultUserPassword(sds password);
 /* Sorted sets data type */
 
 /* Input flags. */
-#define ZADD_NONE 0
-#define ZADD_INCR (1<<0)    /* Increment the score instead of setting it. */
-#define ZADD_NX (1<<1)      /* Don't touch elements not already existing. */
-#define ZADD_XX (1<<2)      /* Only touch elements already existing. */
-#define ZADD_GT (1<<7)      /* Only update existing when new scores are higher. */
-#define ZADD_LT (1<<8)      /* Only update existing when new scores are lower. */
+#define ZADD_IN_NONE 0
+#define ZADD_IN_INCR (1<<0)    /* Increment the score instead of setting it. */
+#define ZADD_IN_NX (1<<1)      /* Don't touch elements not already existing. */
+#define ZADD_IN_XX (1<<2)      /* Only touch elements already existing. */
+#define ZADD_IN_GT (1<<3)      /* Only update existing when new scores are higher. */
+#define ZADD_IN_LT (1<<4)      /* Only update existing when new scores are lower. */
 
 /* Output flags. */
-#define ZADD_NOP (1<<3)     /* Operation not performed because of conditionals.*/
-#define ZADD_NAN (1<<4)     /* Only touch elements already existing. */
-#define ZADD_ADDED (1<<5)   /* The element was new and was added. */
-#define ZADD_UPDATED (1<<6) /* The element already existed, score updated. */
-
-/* Flags only used by the ZADD command but not by zsetAdd() API: */
-#define ZADD_CH (1<<16)      /* Return num of elements added or updated. */
+#define ZADD_OUT_NOP (1<<0)     /* Operation not performed because of conditionals.*/
+#define ZADD_OUT_NAN (1<<1)     /* Only touch elements already existing. */
+#define ZADD_OUT_ADDED (1<<2)   /* The element was new and was added. */
+#define ZADD_OUT_UPDATED (1<<3) /* The element already existed, score updated. */
 
 /* Struct to hold an inclusive/exclusive range spec by score comparison. */
 typedef struct {
@@ -2156,7 +2156,7 @@ void zsetConvert(robj *zobj, int encoding);
 void zsetConvertToZiplistIfNeeded(robj *zobj, size_t maxelelen);
 int zsetScore(robj *zobj, sds member, double *score);
 unsigned long zslGetRank(zskiplist *zsl, double score, sds o);
-int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore);
+int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, double *newscore);
 long zsetRank(robj *zobj, sds ele, int reverse);
 int zsetDel(robj *zobj, sds ele);
 robj *zsetDup(robj *o);
@@ -2197,6 +2197,7 @@ void redisOpArrayInit(redisOpArray *oa);
 void redisOpArrayFree(redisOpArray *oa);
 void forceCommandPropagation(client *c, int flags);
 void preventCommandPropagation(client *c);
+void preventCommandLogging(client *c);
 void preventCommandAOF(client *c);
 void preventCommandReplication(client *c);
 int prepareForShutdown(int flags);

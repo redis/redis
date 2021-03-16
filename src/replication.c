@@ -892,17 +892,34 @@ void syncCommand(client *c) {
 }
 
 /* REPLCONF <option> <value> <option> <value> ...
- * This command is used by a slave in order to configure the replication
+ * This command is used by a replica in order to configure the replication
  * process before starting it with the SYNC command.
+ * This command is also used by a master in order to get the replication
+ * offset from a replica.
  *
- * Currently the only use of this command is to communicate to the master
- * what is the listening port of the Slave redis instance, so that the
- * master can accurately list slaves and their listening ports in
- * the INFO output.
+ * Currently we support these options:
  *
- * In the future the same command can be used in order to configure
- * the replication to initiate an incremental replication instead of a
- * full resync. */
+ * - listening-port <port>
+ * - ip-address <ip>
+ * What is the listening ip and port of the Replica redis instance, so that
+ * the master can accurately lists replicas and their listening ports in the
+ * INFO output.
+ *
+ * - capa <eof|psync2>
+ * What is the capabilities of this instance.
+ * eof: supports EOF-style RDB transfer for diskless replication.
+ * psync2: supports PSYNC v2, so understands +CONTINUE <new repl ID>.
+ *
+ * - ack <offset>
+ * Replica informs the master the amount of replication stream that it
+ * processed so far.
+ *
+ * - getack
+ * Unlike other subcommands, this is used by master to get the replication
+ * offset from a replica.
+ *
+ * - rdb-only
+ * Only wants RDB snapshot without replication buffer. */
 void replconfCommand(client *c) {
     int j;
 
@@ -1873,8 +1890,7 @@ void readSyncBulkPayload(connection *conn) {
     serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Finished with success");
 
     if (server.supervised_mode == SUPERVISED_SYSTEMD) {
-        redisCommunicateSystemd("STATUS=MASTER <-> REPLICA sync: Finished with success. Ready to accept connections.\n");
-        redisCommunicateSystemd("READY=1\n");
+        redisCommunicateSystemd("STATUS=MASTER <-> REPLICA sync: Finished with success. Ready to accept connections in read-write mode.\n");
     }
 
     /* Send the initial ACK immediately to put this replica in online state. */
@@ -2434,8 +2450,7 @@ void syncWithMaster(connection *conn) {
     if (psync_result == PSYNC_CONTINUE) {
         serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Master accepted a Partial Resynchronization.");
         if (server.supervised_mode == SUPERVISED_SYSTEMD) {
-            redisCommunicateSystemd("STATUS=MASTER <-> REPLICA sync: Partial Resynchronization accepted. Ready to accept connections.\n");
-            redisCommunicateSystemd("READY=1\n");
+            redisCommunicateSystemd("STATUS=MASTER <-> REPLICA sync: Partial Resynchronization accepted. Ready to accept connections in read-write mode.\n");
         }
         return;
     }
@@ -3546,7 +3561,7 @@ void abortFailover(const char *err) {
 }
 
 /* 
- * FAILOVER [TO <HOST> <IP> [FORCE]] [ABORT] [TIMEOUT <timeout>] 
+ * FAILOVER [TO <HOST> <PORT> [FORCE]] [ABORT] [TIMEOUT <timeout>]
  * 
  * This command will coordinate a failover between the master and one
  * of its replicas. The happy path contains the following steps:
@@ -3649,7 +3664,7 @@ void failoverCommand(client *c) {
         client *replica = findReplica(host, port);
 
         if (replica == NULL) {
-            addReplyError(c,"FAILOVER target HOST and IP is not "
+            addReplyError(c,"FAILOVER target HOST and PORT is not "
                             "a replica.");
             return;
         }

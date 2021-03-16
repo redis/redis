@@ -1823,15 +1823,17 @@ static size_t strEntryBytesLarge(size_t slen) {
     return slen + zipStorePrevEntryLength(NULL, ZIP_BIG_PREVLEN) + zipStoreEntryEncoding(NULL, 0, slen);
 }
 
-int ziplistTest(int argc, char **argv) {
+/* ./redis-server test ziplist <randomseed> --accurate */
+int ziplistTest(int argc, char **argv, int accurate) {
     unsigned char *zl, *p;
     unsigned char *entry;
     unsigned int elen;
     long long value;
+    int iteration;
 
     /* If an argument is given, use it as the random seed. */
-    if (argc == 2)
-        srand(atoi(argv[1]));
+    if (argc >= 4)
+        srand(atoi(argv[3]));
 
     zl = createIntList();
     ziplistRepr(zl);
@@ -2339,7 +2341,8 @@ int ziplistTest(int argc, char **argv) {
         unsigned int slen;
         long long sval;
 
-        for (i = 0; i < 20000; i++) {
+        iteration = accurate ? 20000 : 20;
+        for (i = 0; i < iteration; i++) {
             zl = ziplistNew();
             ref = listCreate();
             listSetFreeMethod(ref,(void (*)(void*))sdsfree);
@@ -2405,15 +2408,17 @@ int ziplistTest(int argc, char **argv) {
     printf("Stress with variable ziplist size:\n");
     {
         unsigned long long start = usec();
-        stress(ZIPLIST_HEAD,100000,16384,256);
-        stress(ZIPLIST_TAIL,100000,16384,256);
+        int maxsize = accurate ? 16384 : 16;
+        stress(ZIPLIST_HEAD,100000,maxsize,256);
+        stress(ZIPLIST_TAIL,100000,maxsize,256);
         printf("Done. usec=%lld\n\n", usec()-start);
     }
 
     /* Benchmarks */
     {
         zl = ziplistNew();
-        for (int i=0; i<100000; i++) {
+        iteration = accurate ? 100000 : 100;
+        for (int i=0; i<iteration; i++) {
             char buf[4096] = "asdf";
             zl = ziplistPush(zl, (unsigned char*)buf, 4, ZIPLIST_TAIL);
             zl = ziplistPush(zl, (unsigned char*)buf, 40, ZIPLIST_TAIL);
@@ -2462,7 +2467,8 @@ int ziplistTest(int argc, char **argv) {
     {
         char data[ZIP_BIG_PREVLEN];
         zl = ziplistNew();
-        for (int i = 0; i < 100000; i++) {
+        iteration = accurate ? 100000 : 100;
+        for (int i = 0; i < iteration; i++) {
             zl = ziplistPush(zl, (unsigned char*)data, ZIP_BIG_PREVLEN-4, ZIPLIST_TAIL);
         }
         unsigned long long start = usec();

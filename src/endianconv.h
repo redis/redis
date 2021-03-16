@@ -72,7 +72,7 @@ uint64_t intrev64(uint64_t v);
 #endif
 
 #ifdef REDIS_TEST
-int endianconvTest(int argc, char *argv[]);
+int endianconvTest(int argc, char *argv[], int accurate);
 #endif
 
 #endif

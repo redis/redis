@@ -1180,9 +1180,9 @@ int ACLCheckCommandPerm(client *c, int *keyidxptr) {
     /* If there is no associated user, the connection can run anything. */
     if (u == NULL) return ACL_OK;
 
-    /* Check if the user can execute this command. */
-    if (!(u->flags & USER_FLAG_ALLCOMMANDS) &&
-        c->cmd->proc != authCommand)
+    /* Check if the user can execute this command or if the command
+     * doesn't need to be authenticated (hello, auth). */
+    if (!(u->flags & USER_FLAG_ALLCOMMANDS) && !(c->cmd->flags & CMD_NO_AUTH))
     {
         /* If the bit is not set we have to check further, in case the
          * command is allowed just with that specific subcommand. */
@@ -1873,6 +1873,10 @@ void addACLLogEntry(client *c, int reason, int argpos, sds username) {
 void aclCommand(client *c) {
     char *sub = c->argv[1]->ptr;
     if (!strcasecmp(sub,"setuser") && c->argc >= 3) {
+        /* Consider information about passwords or permissions
+         * to be sensitive, which will be the arguments for this
+         * subcommand. */
+        preventCommandLogging(c); 
         sds username = c->argv[2]->ptr;
         /* Check username validity. */
         if (ACLStringHasSpaces(username,sdslen(username))) {

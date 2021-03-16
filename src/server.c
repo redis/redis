@@ -901,7 +901,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"hello",helloCommand,-1,
-     "no-auth no-script fast no-monitor ok-loading ok-stale no-slowlog @connection",
+     "no-auth no-script fast no-monitor ok-loading ok-stale @connection",
      0,NULL,0,0,0,0,0,0},
 
     /* EVAL can modify the dataset, however it is not flagged as a write
@@ -1091,7 +1091,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"acl",aclCommand,-2,
-     "admin no-script no-slowlog ok-loading ok-stale",
+     "admin no-script ok-loading ok-stale",
      0,NULL,0,0,0,0,0,0},
 
     {"stralgo",stralgoCommand,-2,
@@ -3053,14 +3053,15 @@ int listenToPort(int port, socketFds *sfd) {
             sfd->fd[sfd->count] = anetTcpServer(server.neterr,port,addr,server.tcp_backlog);
         }
         if (sfd->fd[sfd->count] == ANET_ERR) {
+            int net_errno = errno;
             serverLog(LL_WARNING,
                 "Could not create server TCP listening socket %s:%d: %s",
                 addr, port, server.neterr);
-            if (errno == EADDRNOTAVAIL && optional)
+            if (net_errno == EADDRNOTAVAIL && optional)
                 continue;
-            if (errno == ENOPROTOOPT     || errno == EPROTONOSUPPORT ||
-                errno == ESOCKTNOSUPPORT || errno == EPFNOSUPPORT ||
-                errno == EAFNOSUPPORT)
+            if (net_errno == ENOPROTOOPT     || net_errno == EPROTONOSUPPORT ||
+                net_errno == ESOCKTNOSUPPORT || net_errno == EPFNOSUPPORT ||
+                net_errno == EAFNOSUPPORT)
                 continue;
 
             /* Rollback successful listens before exiting */
@@ -3158,6 +3159,7 @@ void initServer(void) {
     server.clients_pending_write = listCreate();
     server.clients_pending_read = listCreate();
     server.clients_timeout_table = raxNew();
+    server.replication_allowed = 1;
     server.slaveseldb = -1; /* Force to emit the first SELECT command. */
     server.unblocked_clients = listCreate();
     server.ready_keys = listCreate();
@@ -3502,6 +3504,7 @@ void redisOpArrayFree(redisOpArray *oa) {
         zfree(op->argv);
     }
     zfree(oa->ops);
+    oa->ops = NULL;
 }
 
 /* ====================== Commands lookup and execution ===================== */
@@ -3552,6 +3555,9 @@ struct redisCommand *lookupCommandOrOriginal(sds name) {
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
                int flags)
 {
+    if (!server.replication_allowed)
+        return;
+
     /* Propagate a MULTI request once we encounter the first command which
      * is a write command.
      * This way we'll deliver the MULTI/..../EXEC block as a whole and
@@ -3612,6 +3618,12 @@ void forceCommandPropagation(client *c, int flags) {
  * API. */
 void preventCommandPropagation(client *c) {
     c->flags |= CLIENT_PREVENT_PROP;
+}
+
+/* Avoid logging any information about this client's arguments
+ * since they contain sensitive information. */
+void preventCommandLogging(client *c) {
+    c->flags |= CLIENT_PREVENT_LOGGING;
 }
 
 /* AOF specific version of preventCommandPropagation(). */
@@ -3724,6 +3736,13 @@ void call(client *c, int flags) {
             server.lua_caller->flags |= CLIENT_FORCE_REPL;
         if (c->flags & CLIENT_FORCE_AOF)
             server.lua_caller->flags |= CLIENT_FORCE_AOF;
+    }
+
+    /* Some commands may contain sensitive data that should
+     * not be available in the slowlog. */
+    if ((c->flags & CLIENT_PREVENT_LOGGING) && !(c->flags & CLIENT_BLOCKED)) {
+        c->flags &= ~CLIENT_PREVENT_LOGGING;
+        flags &= ~CMD_CALL_SLOWLOG;
     }
 
     /* Log the command into the Slow log if needed, and populate the
@@ -3912,6 +3931,16 @@ static int cmdHasMovableKeys(struct redisCommand *cmd) {
  * other operations can be performed by the caller. Otherwise
  * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
 int processCommand(client *c) {
+    if (!server.lua_timedout) {
+        /* Both EXEC and EVAL call call() directly so there should be
+         * no way in_exec or in_eval or propagate_in_transaction is 1.
+         * That is unless lua_timedout, in which case client may run
+         * some commands. */
+        serverAssert(!server.propagate_in_transaction);
+        serverAssert(!server.in_exec);
+        serverAssert(!server.in_eval);
+    }
+
     moduleCallCommandFilters(c);
 
     /* The QUIT command is handled separately. Normal command procs will
@@ -4140,6 +4169,7 @@ int processCommand(client *c) {
           c->cmd->proc != discardCommand &&
           c->cmd->proc != watchCommand &&
           c->cmd->proc != unwatchCommand &&
+	  c->cmd->proc != resetCommand &&
         !(c->cmd->proc == shutdownCommand &&
           c->argc == 2 &&
           tolower(((char*)c->argv[1]->ptr)[0]) == 'n') &&
@@ -4802,7 +4832,7 @@ sds genRedisInfoString(const char *section) {
             "# Persistence\r\n"
             "loading:%d\r\n"
             "current_cow_size:%zu\r\n"
-            "current_fork_perc:%.2f%%\r\n"
+            "current_fork_perc:%.2f\r\n"
             "current_save_keys_processed:%zu\r\n"
             "current_save_keys_total:%zu\r\n"
             "rdb_changes_since_last_save:%lld\r\n"
@@ -6031,36 +6061,78 @@ int iAmMaster(void) {
             (server.cluster_enabled && nodeIsMaster(server.cluster->myself)));
 }
 
+#ifdef REDIS_TEST
+typedef int redisTestProc(int argc, char **argv, int accurate);
+struct redisTest {
+    char *name;
+    redisTestProc *proc;
+    int failed;
+} redisTests[] = {
+    {"ziplist", ziplistTest},
+    {"quicklist", quicklistTest},
+    {"intset", intsetTest},
+    {"zipmap", zipmapTest},
+    {"sha1test", sha1Test},
+    {"util", utilTest},
+    {"endianconv", endianconvTest},
+    {"crc64", crc64Test},
+    {"zmalloc", zmalloc_test},
+    {"sds", sdsTest},
+    {"dict", dictTest}
+};
+redisTestProc *getTestProcByName(const char *name) {
+    int numtests = sizeof(redisTests)/sizeof(struct redisTest);
+    for (int j = 0; j < numtests; j++) {
+        if (!strcasecmp(name,redisTests[j].name)) {
+            return redisTests[j].proc;
+        }
+    }
+    return NULL;
+}
+#endif
+
 int main(int argc, char **argv) {
     struct timeval tv;
     int j;
     char config_from_stdin = 0;
 
 #ifdef REDIS_TEST
-    if (argc == 3 && !strcasecmp(argv[1], "test")) {
-        if (!strcasecmp(argv[2], "ziplist")) {
-            return ziplistTest(argc, argv);
-        } else if (!strcasecmp(argv[2], "quicklist")) {
-            quicklistTest(argc, argv);
-        } else if (!strcasecmp(argv[2], "intset")) {
-            return intsetTest(argc, argv);
-        } else if (!strcasecmp(argv[2], "zipmap")) {
-            return zipmapTest(argc, argv);
-        } else if (!strcasecmp(argv[2], "sha1test")) {
-            return sha1Test(argc, argv);
-        } else if (!strcasecmp(argv[2], "util")) {
-            return utilTest(argc, argv);
-        } else if (!strcasecmp(argv[2], "endianconv")) {
-            return endianconvTest(argc, argv);
-        } else if (!strcasecmp(argv[2], "crc64")) {
-            return crc64Test(argc, argv);
-        } else if (!strcasecmp(argv[2], "zmalloc")) {
-            return zmalloc_test(argc, argv);
-        } else if (!strcasecmp(argv[2], "sds")) {
-            return sdsTest(argc, argv);
+    if (argc >= 3 && !strcasecmp(argv[1], "test")) {
+        int accurate = 0;
+        for (j = 3; j < argc; j++) {
+            if (!strcasecmp(argv[j], "--accurate")) {
+                accurate = 1;
+            }
         }
 
-        return -1; /* test not found */
+        if (!strcasecmp(argv[2], "all")) {
+            int numtests = sizeof(redisTests)/sizeof(struct redisTest);
+            for (j = 0; j < numtests; j++) {
+                redisTests[j].failed = (redisTests[j].proc(argc,argv,accurate) != 0);
+            }
+
+            /* Report tests result */
+            int failed_num = 0;
+            for (j = 0; j < numtests; j++) {
+                if (redisTests[j].failed) {
+                    failed_num++;
+                    printf("[failed] Test - %s\n", redisTests[j].name);
+                } else {
+                    printf("[ok] Test - %s\n", redisTests[j].name);
+                }
+            }
+
+            printf("%d tests, %d passed, %d failed\n", numtests,
+                   numtests-failed_num, failed_num);
+
+            return failed_num == 0 ? 0 : 1;
+        } else {
+            redisTestProc *proc = getTestProcByName(argv[2]);
+            if (!proc) return -1; /* test not found */
+            return proc(argc,argv,accurate);
+        }
+
+        return 0;
     }
 #endif
 
@@ -6247,10 +6319,10 @@ int main(int argc, char **argv) {
         if (server.supervised_mode == SUPERVISED_SYSTEMD) {
             if (!server.masterhost) {
                 redisCommunicateSystemd("STATUS=Ready to accept connections\n");
-                redisCommunicateSystemd("READY=1\n");
             } else {
-                redisCommunicateSystemd("STATUS=Waiting for MASTER <-> REPLICA sync\n");
+                redisCommunicateSystemd("STATUS=Ready to accept connections in read-only mode. Waiting for MASTER <-> REPLICA sync\n");
             }
+            redisCommunicateSystemd("READY=1\n");
         }
     } else {
         ACLLoadUsersAtStartup();

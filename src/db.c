@@ -139,9 +139,9 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
 
 keymiss:
     if (!(flags & LOOKUP_NONOTIFY)) {
-        server.stat_keyspace_misses++;
         notifyKeyspaceEvent(NOTIFY_KEY_MISS, "keymiss", key, db->id);
     }
+    server.stat_keyspace_misses++;
     return NULL;
 }
 
