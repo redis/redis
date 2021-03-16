@@ -2765,13 +2765,14 @@ int listenToPort(int port, int *fds, int *count) {
                 server.tcp_backlog);
         }
         if (fds[*count] == ANET_ERR) {
+            int net_errno = errno;
             serverLog(LL_WARNING,
                 "Could not create server TCP listening socket %s:%d: %s",
                 server.bindaddr[j] ? server.bindaddr[j] : "*",
                 port, server.neterr);
-                if (errno == ENOPROTOOPT     || errno == EPROTONOSUPPORT ||
-                    errno == ESOCKTNOSUPPORT || errno == EPFNOSUPPORT ||
-                    errno == EAFNOSUPPORT    || errno == EADDRNOTAVAIL)
+                if (net_errno == ENOPROTOOPT     || net_errno == EPROTONOSUPPORT ||
+                    net_errno == ESOCKTNOSUPPORT || net_errno == EPFNOSUPPORT ||
+                    net_errno == EAFNOSUPPORT    || net_errno == EADDRNOTAVAIL)
                     continue;
             return C_ERR;
         }
