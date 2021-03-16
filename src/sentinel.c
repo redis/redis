@@ -2423,8 +2423,10 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
     /* Commands connection. */
     if (link->cc == NULL) {
         link->cc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,NET_FIRST_BIND_ADDR);
-        if (!link->cc->err) anetCloexec(link->cc->c.fd);
-        if (!link->cc->err && server.tls_replication &&
+        if (link->cc && !link->cc->err) anetCloexec(link->cc->c.fd);
+        if (!link->cc) {
+            sentinelEvent(LL_DEBUG,"-cmd-link-reconnection",ri,"%@ #Failed to establish connection");
+        } else if (!link->cc->err && server.tls_replication &&
                 (instanceLinkNegotiateTLS(link->cc) == C_ERR)) {
             sentinelEvent(LL_DEBUG,"-cmd-link-reconnection",ri,"%@ #Failed to initialize TLS");
             instanceLinkCloseConnection(link,link->cc);
@@ -2451,8 +2453,10 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
     /* Pub / Sub */
     if ((ri->flags & (SRI_MASTER|SRI_SLAVE)) && link->pc == NULL) {
         link->pc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,NET_FIRST_BIND_ADDR);
-        if (!link->pc->err) anetCloexec(link->pc->c.fd);
-        if (!link->pc->err && server.tls_replication &&
+        if (link->pc && !link->pc->err) anetCloexec(link->pc->c.fd);
+        if (!link->pc) {
+            sentinelEvent(LL_DEBUG,"-pubsub-link-reconnection",ri,"%@ #Failed to establish connection");
+        } else if (!link->pc->err && server.tls_replication &&
                 (instanceLinkNegotiateTLS(link->pc) == C_ERR)) {
             sentinelEvent(LL_DEBUG,"-pubsub-link-reconnection",ri,"%@ #Failed to initialize TLS");
         } else if (link->pc->err) {
