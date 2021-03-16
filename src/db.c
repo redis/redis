@@ -164,16 +164,24 @@ robj *lookupKeyWriteWithFlags(redisDb *db, robj *key, int flags) {
 robj *lookupKeyWrite(redisDb *db, robj *key) {
     return lookupKeyWriteWithFlags(db, key, LOOKUP_NONE);
 }
-
+static void SentReplyOnKeyMiss(client *c, robj *reply){
+    serverAssert(sdsEncodedObject(reply));
+    sds rep = reply->ptr;
+    if (sdslen(rep) > 1 && rep[0] == '-'){
+        addReplyErrorObject(c, reply);
+    } else {
+        addReply(c,reply);
+    }
+}
 robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply) {
     robj *o = lookupKeyRead(c->db, key);
-    if (!o) addReply(c,reply);
+    if (!o) SentReplyOnKeyMiss(c, reply);
     return o;
 }
 
 robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
     robj *o = lookupKeyWrite(c->db, key);
-    if (!o) addReply(c,reply);
+    if (!o) SentReplyOnKeyMiss(c, reply);
     return o;
 }
 
