@@ -1283,7 +1283,7 @@ struct redisServer {
     redisAtomic long long stat_net_input_bytes; /* Bytes read from network. */
     redisAtomic long long stat_net_output_bytes; /* Bytes written to network. */
     size_t stat_current_cow_bytes;  /* Copy on write bytes while child is active. */
-    mstime_t stat_current_cow_updated;  /* Last update time of stat_current_cow_bytes */
+    monotime stat_current_cow_updated;  /* Last update time of stat_current_cow_bytes */
     size_t stat_current_save_keys_processed;  /* Processed keys while child is active. */
     size_t stat_current_save_keys_total;  /* Number of keys when child started. */
     size_t stat_rdb_cow_bytes;      /* Copy on write bytes during RDB saving. */

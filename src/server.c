@@ -4809,7 +4809,7 @@ sds genRedisInfoString(const char *section) {
             "# Persistence\r\n"
             "loading:%d\r\n"
             "current_cow_size:%zu\r\n"
-            "current_cow_size_age:%lld\r\n"
+            "current_cow_size_age:%lu\r\n"
             "current_fork_perc:%.2f\r\n"
             "current_save_keys_processed:%zu\r\n"
             "current_save_keys_total:%zu\r\n"
@@ -4832,7 +4832,7 @@ sds genRedisInfoString(const char *section) {
             "module_fork_last_cow_size:%zu\r\n",
             (int)server.loading,
             server.stat_current_cow_bytes,
-            server.stat_current_cow_updated ? (mstime() - server.stat_current_cow_updated)/1000 : 0,
+            server.stat_current_cow_updated ? (unsigned long) elapsedMs(server.stat_current_cow_updated) / 1000 : 0,
             fork_perc,
             server.stat_current_save_keys_processed,
             server.stat_current_save_keys_total,

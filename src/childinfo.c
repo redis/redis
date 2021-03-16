@@ -33,7 +33,7 @@
 typedef struct {
     size_t keys;
     size_t cow;
-    mstime_t cow_updated;
+    monotime cow_updated;
     double progress;
     childInfoType information_type; /* Type of information */
 } child_info_data;
@@ -70,8 +70,8 @@ void closeChildInfoPipe(void) {
 void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress, char *pname) {
     if (server.child_info_pipe[1] == -1) return;
 
-    static ustime_t cow_updated = 0;
-    static ustime_t cow_update_cost = 0;
+    static monotime cow_updated = 0;
+    static uint64_t cow_update_cost = 0;
     static size_t cow = 0;
 
     child_info_data data = {0}; /* zero everything, including padding to satisfy valgrind */
@@ -80,12 +80,14 @@ void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress,
      * can be very expensive. To do that, we measure the time it takes to get a reading
      * and schedule the next reading to happen not before time*CHILD_COW_COST_FACTOR
      * passes. */
-    ustime_t now = ustime();
+
+    monotime now = getMonotonicUs();
     if (info_type != CHILD_INFO_TYPE_CURRENT_INFO ||
         !cow_updated ||
-        now - cow_updated > cow_update_cost * CHILD_COW_DUTY_CYCLE) {
+        now - cow_updated > cow_update_cost * CHILD_COW_DUTY_CYCLE)
+    {
         cow = zmalloc_get_private_dirty(-1);
-        cow_updated = ustime();
+        cow_updated = getMonotonicUs();
         cow_update_cost = cow_updated - now;
 
         if (cow) {
@@ -98,7 +100,7 @@ void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress,
     data.information_type = info_type;
     data.keys = keys;
     data.cow = cow;
-    data.cow_updated = cow_updated / 1000;  /* Report mstime_t */
+    data.cow_updated = cow_updated;
     data.progress = progress;
 
     ssize_t wlen = sizeof(data);
@@ -109,7 +111,7 @@ void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress,
 }
 
 /* Update Child info. */
-void updateChildInfo(childInfoType information_type, size_t cow, mstime_t cow_updated, size_t keys, double progress) {
+void updateChildInfo(childInfoType information_type, size_t cow, monotime cow_updated, size_t keys, double progress) {
     if (information_type == CHILD_INFO_TYPE_CURRENT_INFO) {
         server.stat_current_cow_bytes = cow;
         server.stat_current_cow_updated = cow_updated;
@@ -128,7 +130,7 @@ void updateChildInfo(childInfoType information_type, size_t cow, mstime_t cow_up
  * if complete data read into the buffer, 
  * data is stored into *buffer, and returns 1.
  * otherwise, the partial data is left in the buffer, waiting for the next read, and returns 0. */
-int readChildInfo(childInfoType *information_type, size_t *cow, mstime_t *cow_updated, size_t *keys, double* progress) {
+int readChildInfo(childInfoType *information_type, size_t *cow, monotime *cow_updated, size_t *keys, double* progress) {
     /* We are using here a static buffer in combination with the server.child_info_nread to handle short reads */
     static child_info_data buffer;
     ssize_t wlen = sizeof(buffer);
@@ -159,7 +161,7 @@ void receiveChildInfo(void) {
     if (server.child_info_pipe[0] == -1) return;
 
     size_t cow;
-    mstime_t cow_updated;
+    monotime cow_updated;
     size_t keys;
     double progress;
     childInfoType information_type;
