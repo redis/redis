@@ -1645,6 +1645,9 @@ void resetClient(client *c) {
         c->flags |= CLIENT_REPLY_SKIP;
         c->flags &= ~CLIENT_REPLY_SKIP_NEXT;
     }
+
+    /* Always clear the prevent logging field. */
+    c->flags &= ~CLIENT_PREVENT_LOGGING;
 }
 
 /* This function is used when we want to re-enter the event loop but there

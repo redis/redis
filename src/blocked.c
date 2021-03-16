@@ -108,22 +108,9 @@ void updateStatsOnUnblock(client *c, long blocked_us, long reply_us){
     c->lastcmd->microseconds += total_cmd_duration;
 
     /* Log the command into the Slow log if needed. */
-    if (!(c->lastcmd->flags & CMD_SKIP_SLOWLOG) &&
-        !(c->flags & CLIENT_PREVENT_LOGGING))
-    {
-        /* If command argument vector was rewritten, use the original
-         * arguments. */
-        robj **argv = c->original_argv ? c->original_argv : c->argv;
-        int argc = c->original_argv ? c->original_argc : c->argc;
-        slowlogPushEntryIfNeeded(c,argv,argc,total_cmd_duration);
-        /* Log the reply duration event. */
-        latencyAddSampleIfNeeded("command-unblocking",reply_us/1000);
-    }
-
-    /* Always clear the prevent logging field now. */
-    if (c->flags & CLIENT_PREVENT_LOGGING) {
-        c->flags &= ~CLIENT_PREVENT_LOGGING;
-    }
+    slowlogPushCurrentCommand(c, c->lastcmd, total_cmd_duration);
+    /* Log the reply duration event. */
+    latencyAddSampleIfNeeded("command-unblocking",reply_us/1000);
 }
 
 /* This function is called in the beforeSleep() function of the event loop
