@@ -612,6 +612,18 @@ start_server {tags {"scripting"}} {
         assert_equal [r ping] "PONG"
     }
 
+    test {Timedout read-only scripts can be killed by SCRIPT KILL even when use pcall} {
+        set rd [redis_deferring_client]
+        r config set lua-time-limit 10
+        $rd eval {local f = function() while 1 do redis.call('ping') end end while 1 do pcall(f) end} 0
+        after 200
+        catch {r ping} e
+        assert_match {BUSY*} $e
+        r script kill
+        after 200 ; # Give some time to Lua to call the hook again...
+        assert_equal [r ping] "PONG"
+    }
+
     test {Timedout script link is still usable after Lua returns} {
         r config set lua-time-limit 10
         r eval {for i=1,100000 do redis.call('ping') end return 'ok'} 0
