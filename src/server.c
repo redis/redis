@@ -3054,7 +3054,7 @@ int listenToPort(int port, socketFds *sfd) {
         }
         if (sfd->fd[sfd->count] == ANET_ERR) {
             serverLog(LL_WARNING,
-                "Could not create server TCP listening socket %s:%d: %s",
+                "Warning: Could not create server TCP listening socket %s:%d: %s",
                 addr, port, server.neterr);
             if (errno == EADDRNOTAVAIL && optional)
                 continue;
@@ -3192,11 +3192,15 @@ void initServer(void) {
 
     /* Open the TCP listening socket for the user commands. */
     if (server.port != 0 &&
-        listenToPort(server.port,&server.ipfd) == C_ERR)
+        listenToPort(server.port,&server.ipfd) == C_ERR) {
+        serverLog(LL_WARNING, "Failed listening on port %u (TCP), aborting.", server.port);
         exit(1);
+    }
     if (server.tls_port != 0 &&
-        listenToPort(server.tls_port,&server.tlsfd) == C_ERR)
+        listenToPort(server.tls_port,&server.tlsfd) == C_ERR) {
+        serverLog(LL_WARNING, "Failed listening on port %u (TLS), aborting.", server.tls_port);
         exit(1);
+    }
 
     /* Open the listening Unix domain socket. */
     if (server.unixsocket != NULL) {

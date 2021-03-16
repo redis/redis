@@ -237,12 +237,10 @@ proc wait_server_started {config_file stdout pid} {
     set checkperiod 100; # Milliseconds
     set maxiter [expr {120*1000/$checkperiod}] ; # Wait up to 2 minutes.
     set port_busy 0
-    # Try read ASAP
-    after 1
-    if {[regexp -- " PID: $pid" [exec cat $stdout]]} {
-        return $port_busy
-    }
     while 1 {
+        if {[regexp -- " PID: $pid" [exec cat $stdout]]} {
+            break
+        }
         after $checkperiod
         incr maxiter -1
         if {$maxiter == 0} {
@@ -253,18 +251,9 @@ proc wait_server_started {config_file stdout pid} {
             break
         }
 
-        set res [exec cat $stdout]
-
-        # Check if the instance is success. We have to check is first.
-        # Instance may bind one interface success and other interface failed and
-        # output "Could not create server TCP".
-        if {[regexp -- " PID: $pid" $res]} {
-            break
-        }
-
         # Check if the port is actually busy and the server failed
         # for this reason.
-        if {[regexp {Could not create server TCP} $res]} {
+        if {[regexp {Failed listening on port} [exec cat $stdout]]} {
             set port_busy 1
             break
         }
