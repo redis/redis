@@ -440,6 +440,26 @@ int clusterLockConfig(char *filename) {
     return C_OK;
 }
 
+/* Derives our ports to be announced in the cluster bus. */
+void deriveAnnouncedPorts(int *announced_port, int *announced_pport,
+                          int *announced_cport) {
+    int port = server.tls_cluster ? server.tls_port : server.port;
+    /* Default announced ports. */
+    *announced_port = port;
+    *announced_pport = server.tls_cluster ? server.port : 0;
+    *announced_cport = port + CLUSTER_PORT_INCR;
+    /* Config overriding announced ports. */
+    if (server.tls_cluster && server.cluster_announce_tls_port) {
+        *announced_port = server.cluster_announce_tls_port;
+        *announced_pport = server.cluster_announce_port;
+    } else if (server.cluster_announce_port) {
+        *announced_port = server.cluster_announce_port;
+    }
+    if (server.cluster_announce_bus_port) {
+        *announced_cport = server.cluster_announce_bus_port;
+    }
+}
+
 /* Some flags (currently just the NOFAILOVER flag) may need to be updated
  * in the "myself" node based on the current configuration of the node,
  * that may change at runtime via CONFIG SET. This function changes the
@@ -529,17 +549,7 @@ void clusterInit(void) {
 
     /* Set myself->port/cport/pport to my listening ports, we'll just need to
      * discover the IP address via MEET messages. */
-    myself->port = port;
-    myself->pport = server.tls_cluster ? server.port : 0;
-    myself->cport = port+CLUSTER_PORT_INCR;
-    if (server.tls_cluster && server.cluster_announce_tls_port) {
-        myself->port = server.cluster_announce_tls_port;
-        myself->pport = server.cluster_announce_port;
-    } else if (server.cluster_announce_port) {
-        myself->port = server.cluster_announce_port;
-    }
-    if (server.cluster_announce_bus_port)
-        myself->cport = server.cluster_announce_bus_port;
+    deriveAnnouncedPorts(&myself->port, &myself->pport, &myself->cport);
 
     server.cluster->mf_end = 0;
     resetManualFailover();
@@ -2439,18 +2449,8 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
     }
 
     /* Handle cluster-announce-[tls-|bus-]port. */
-    int port = server.tls_cluster ? server.tls_port : server.port;
-    int announced_port = port;
-    int announced_pport = server.tls_cluster ? server.port : 0;
-    int announced_cport = port+CLUSTER_PORT_INCR;
-    if (server.tls_cluster && server.cluster_announce_tls_port) {
-        announced_port = server.cluster_announce_tls_port;
-        announced_pport = server.cluster_announce_port;
-    } else if (server.cluster_announce_port) {
-        announced_port = server.cluster_announce_port;
-    }
-    if (server.cluster_announce_bus_port)
-        announced_cport = server.cluster_announce_bus_port;
+    int announced_port, announced_pport, announced_cport;
+    deriveAnnouncedPorts(&announced_port, &announced_pport, &announced_cport);
 
     memcpy(hdr->myslots,master->slots,sizeof(hdr->myslots));
     memset(hdr->slaveof,0,CLUSTER_NAMELEN);
