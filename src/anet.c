@@ -186,27 +186,6 @@ int anetDisableTcpNoDelay(char *err, int fd)
     return anetSetTcpNoDelay(err, fd, 0);
 }
 
-
-int anetSetSendBuffer(char *err, int fd, int buffsize)
-{
-    if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &buffsize, sizeof(buffsize)) == -1)
-    {
-        anetSetError(err, "setsockopt SO_SNDBUF: %s", strerror(errno));
-        return ANET_ERR;
-    }
-    return ANET_OK;
-}
-
-int anetTcpKeepAlive(char *err, int fd)
-{
-    int yes = 1;
-    if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &yes, sizeof(yes)) == -1) {
-        anetSetError(err, "setsockopt SO_KEEPALIVE: %s", strerror(errno));
-        return ANET_ERR;
-    }
-    return ANET_OK;
-}
-
 /* Set the socket send timeout (SO_SNDTIMEO socket option) to the specified
  * number of milliseconds, or disable it if the 'ms' argument is zero. */
 int anetSendTimeout(char *err, int fd, long long ms) {
@@ -378,21 +357,9 @@ end:
     }
 }
 
-int anetTcpConnect(char *err, const char *addr, int port)
-{
-    return anetTcpGenericConnect(err,addr,port,NULL,ANET_CONNECT_NONE);
-}
-
 int anetTcpNonBlockConnect(char *err, const char *addr, int port)
 {
     return anetTcpGenericConnect(err,addr,port,NULL,ANET_CONNECT_NONBLOCK);
-}
-
-int anetTcpNonBlockBindConnect(char *err, const char *addr, int port,
-                               const char *source_addr)
-{
-    return anetTcpGenericConnect(err,addr,port,source_addr,
-            ANET_CONNECT_NONBLOCK);
 }
 
 int anetTcpNonBlockBestEffortBindConnect(char *err, const char *addr, int port,
@@ -428,46 +395,6 @@ int anetUnixGenericConnect(char *err, const char *path, int flags)
         return ANET_ERR;
     }
     return s;
-}
-
-int anetUnixConnect(char *err, const char *path)
-{
-    return anetUnixGenericConnect(err,path,ANET_CONNECT_NONE);
-}
-
-int anetUnixNonBlockConnect(char *err, const char *path)
-{
-    return anetUnixGenericConnect(err,path,ANET_CONNECT_NONBLOCK);
-}
-
-/* Like read(2) but make sure 'count' is read before to return
- * (unless error or EOF condition is encountered) */
-int anetRead(int fd, char *buf, int count)
-{
-    ssize_t nread, totlen = 0;
-    while(totlen != count) {
-        nread = read(fd,buf,count-totlen);
-        if (nread == 0) return totlen;
-        if (nread == -1) return -1;
-        totlen += nread;
-        buf += nread;
-    }
-    return totlen;
-}
-
-/* Like write(2) but make sure 'count' is written before to return
- * (unless error is encountered) */
-int anetWrite(int fd, char *buf, int count)
-{
-    ssize_t nwritten, totlen = 0;
-    while(totlen != count) {
-        nwritten = write(fd,buf,count-totlen);
-        if (nwritten == 0) return totlen;
-        if (nwritten == -1) return -1;
-        totlen += nwritten;
-        buf += nwritten;
-    }
-    return totlen;
 }
 
 static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int backlog) {
