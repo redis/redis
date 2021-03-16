@@ -253,16 +253,18 @@ proc wait_server_started {config_file stdout pid} {
             break
         }
 
+        set res [exec cat $stdout]
+
         # Check if the instance is success. We have to check is first.
         # Instance may bind one interface success and other interface failed and
         # output "Could not create server TCP".
-        if {[regexp -- " PID: $pid" [exec cat $stdout]]} {
+        if {[regexp -- " PID: $pid" $res]} {
             break
         }
 
         # Check if the port is actually busy and the server failed
         # for this reason.
-        if {[regexp {Could not create server TCP} [exec cat $stdout]]} {
+        if {[regexp {Could not create server TCP} $res]} {
             set port_busy 1
             break
         }
