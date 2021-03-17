@@ -234,6 +234,12 @@ void killAppendOnlyChild(void) {
 void stopAppendOnly(void) {
     serverAssert(server.aof_state != AOF_OFF);
     flushAppendOnlyFile(1);
+    
+    if(sdsalloc(server.aof_buf) > 0){
+        sdsfree(server.aof_buf);
+        server.aof_buf = sdsempty();
+    }
+
     redis_fsync(server.aof_fd);
     server.aof_fsync_offset = server.aof_current_size;
     server.aof_last_fsync = server.unixtime;
@@ -1953,8 +1959,12 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 
             /* Clear regular AOF buffer since its contents was just written to
              * the new AOF from the background rewrite buffer. */
-            sdsfree(server.aof_buf);
-            server.aof_buf = sdsempty();
+            if ((sdslen(server.aof_buf)+sdsavail(server.aof_buf)) < 4000) {
+                sdsclear(server.aof_buf);
+            } else {
+                sdsfree(server.aof_buf);
+                server.aof_buf = sdsempty();
+           }
         }
 
         server.aof_lastbgrewrite_status = C_OK;
