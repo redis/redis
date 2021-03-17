@@ -616,12 +616,28 @@ start_server {tags {"scripting"}} {
         set rd [redis_deferring_client]
         r config set lua-time-limit 10
         $rd eval {local f = function() while 1 do redis.call('ping') end end while 1 do pcall(f) end} 0
-        r script kill
+        
         wait_for_condition 50 100 {
-            [string match {PONG} [r ping]]
+            [catch {r ping} e] == 1
         } else {
-            fail "Can't turn the instance into a replica"
+            fail "Can't wait for script to start running"
         }
+        catch {r ping} e
+        assert_match {BUSY*} $e
+
+        r script kill
+
+        wait_for_condition 50 100 {
+            [catch {r ping} e] == 0
+        } else {
+            fail "Can't wait for script to be killed"
+        }
+        assert_equal [r ping] "PONG"
+
+        catch {$rd read} res
+        $rd close
+
+        assert_match {*killed by user*} $res        
     }
 
     test {Timedout script link is still usable after Lua returns} {
