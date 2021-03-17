@@ -1249,7 +1249,7 @@ void copyCommand(client *c) {
     }
 
     /* Check if the element exists and get a reference */
-    o = lookupKeyWrite(c->db, key);
+    o = lookupKeyRead(c->db, key);
     if (!o) {
         addReply(c,shared.czero);
         return;
