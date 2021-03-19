@@ -1034,6 +1034,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key) {
         RedisModuleIO io;
         moduleValue *mv = o->ptr;
         moduleType *mt = mv->type;
+        if (mt->rdb_save == NULL) return -1;
 
         /* Write the "module" identifier as prefix, so that we'll be able
          * to call the right module during loading. */
@@ -2196,7 +2197,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
         io.ver = (rdbtype == RDB_TYPE_MODULE) ? 1 : 2;
         /* Call the rdb_load method of the module providing the 10 bit
          * encoding version in the lower 10 bits of the module ID. */
-        void *ptr = mt->rdb_load(&io,moduleid&1023);
+        void *ptr = mt->rdb_load == NULL ? NULL : mt->rdb_load(&io,moduleid&1023);
         if (io.ctx) {
             moduleFreeContext(io.ctx);
             zfree(io.ctx);
