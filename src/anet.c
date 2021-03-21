@@ -541,12 +541,12 @@ int anetFdToString(int fd, char *ip, size_t ip_len, int *port, int fd_to_str_typ
     struct sockaddr_storage sa;
     socklen_t salen = sizeof(sa);
 
+    if (ip_len == 0) goto error;
     if (fd_to_str_type == FD_TO_PEER_NAME) {
         if (getpeername(fd, (struct sockaddr *)&sa, &salen) == -1) goto error;
     } else {
         if (getsockname(fd, (struct sockaddr *)&sa, &salen) == -1) goto error;
     }
-    if (ip_len == 0) goto error;
 
     if (sa.ss_family == AF_INET) {
         struct sockaddr_in *s = (struct sockaddr_in *)&sa;
