@@ -196,9 +196,11 @@ start_server {tags {"repl"}} {
         } {master}
 
         test {SLAVEOF should start with link status "down"} {
+            r multi
             r slaveof [srv -1 host] [srv -1 port]
-            s master_link_status
-        } {down}
+            r info replication
+            r exec
+        } {*master_link_status:down*}
 
         test {The role should immediately be changed to "replica"} {
             s role
