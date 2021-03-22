@@ -856,8 +856,6 @@ int loadAppendOnlyFile(char *filename) {
         /* Command lookup */
         cmd = lookupCommand(argv[0]->ptr);
         if (!cmd) {
-            if (fakeClient) freeFakeClient(fakeClient); /* avoid valgrind warning */
-            fclose(fp);
             serverLog(LL_WARNING,
                 "Unknown command '%s' reading the append only file",
                 (char*)argv[0]->ptr);
@@ -918,7 +916,6 @@ readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */
         if (fakeClient) freeFakeClient(fakeClient); /* avoid valgrind warning */
         fclose(fp);
         serverLog(LL_WARNING,"Unrecoverable error reading the append only file: %s", strerror(errno));
-        stopLoading(0);
         exit(1);
     }
 
@@ -950,14 +947,12 @@ uxeof: /* Unexpected AOF end of file. */
     if (fakeClient) freeFakeClient(fakeClient); /* avoid valgrind warning */
     fclose(fp);
     serverLog(LL_WARNING,"Unexpected end of file reading the append only file. You can: 1) Make a backup of your AOF file, then use ./redis-check-aof --fix <filename>. 2) Alternatively you can set the 'aof-load-truncated' configuration option to yes and restart the server.");
-    stopLoading(0);
     exit(1);
 
 fmterr: /* Format error. */
     if (fakeClient) freeFakeClient(fakeClient); /* avoid valgrind warning */
     fclose(fp);
     serverLog(LL_WARNING,"Bad file format reading the append only file: make a backup of your AOF file, then use ./redis-check-aof --fix <filename>");
-    stopLoading(0);
     exit(1);
 }
 
