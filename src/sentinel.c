@@ -3289,6 +3289,8 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
     if (ri->flags & SRI_RECONF_SENT) flags = sdscat(flags,"reconf_sent,");
     if (ri->flags & SRI_RECONF_INPROG) flags = sdscat(flags,"reconf_inprog,");
     if (ri->flags & SRI_RECONF_DONE) flags = sdscat(flags,"reconf_done,");
+    if (ri->flags & SRI_FORCE_FAILOVER) flags = sdscat(flags,"force_failover,");
+    if (ri->flags & SRI_SCRIPT_KILL_SENT) flags = sdscat(flags,"script_kill_sent,");
 
     if (sdslen(flags) != 0) sdsrange(flags,0,-2); /* remove last "," */
     addReplyBulkCString(c,flags);
