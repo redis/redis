@@ -179,11 +179,28 @@ void tlsCleanup(void) {
     #endif
 }
 
+/* Callback for passing a keyfile password stored as an sds to OpenSSL */
+static int tlsPasswordCallback(char *buf, int size, int rwflag, void *u) {
+    UNUSED(rwflag);
+
+    const char *pass = u;
+    size_t pass_len;
+
+    if (!pass) return -1;
+    pass_len = strlen(pass);
+    if (pass_len > (size_t) size) return -1;
+    memcpy(buf, pass, pass_len);
+
+    return (int) pass_len;
+}
+
 /* Create a *base* SSL_CTX using the SSL configuration provided. The base context
  * includes everything that's common for both client-side and server-side connections.
  */
-static SSL_CTX *createSSLContext(redisTLSContextConfig *ctx_config, int protocols,
-                                 const char *cert_file, const char *key_file) {
+static SSL_CTX *createSSLContext(redisTLSContextConfig *ctx_config, int protocols, int client) {
+    const char *cert_file = client ? ctx_config->client_cert_file : ctx_config->cert_file;
+    const char *key_file = client ? ctx_config->client_key_file : ctx_config->key_file;
+    const char *key_file_pass = client ? ctx_config->client_key_file_pass : ctx_config->key_file_pass;
     char errbuf[256];
     SSL_CTX *ctx = NULL;
 
@@ -214,6 +231,9 @@ static SSL_CTX *createSSLContext(redisTLSContextConfig *ctx_config, int protocol
 
     SSL_CTX_set_mode(ctx, SSL_MODE_ENABLE_PARTIAL_WRITE|SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
     SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER|SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
+
+    SSL_CTX_set_default_passwd_cb(ctx, tlsPasswordCallback);
+    SSL_CTX_set_default_passwd_cb_userdata(ctx, (void *) key_file_pass);
 
     if (SSL_CTX_use_certificate_chain_file(ctx, cert_file) <= 0) {
         ERR_error_string_n(ERR_get_error(), errbuf, sizeof(errbuf));
@@ -281,7 +301,7 @@ int tlsConfigure(redisTLSContextConfig *ctx_config) {
     if (protocols == -1) goto error;
 
     /* Create server side/generla context */
-    ctx = createSSLContext(ctx_config, protocols, ctx_config->cert_file, ctx_config->key_file);
+    ctx = createSSLContext(ctx_config, protocols, 0);
     if (!ctx) goto error;
 
     if (ctx_config->session_caching) {
@@ -332,7 +352,7 @@ int tlsConfigure(redisTLSContextConfig *ctx_config) {
 
     /* If a client-side certificate is configured, create an explicit client context */
     if (ctx_config->client_cert_file && ctx_config->client_key_file) {
-        client_ctx = createSSLContext(ctx_config, protocols, ctx_config->client_cert_file, ctx_config->client_key_file);
+        client_ctx = createSSLContext(ctx_config, protocols, 1);
         if (!client_ctx) goto error;
     }
 
