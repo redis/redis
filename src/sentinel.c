@@ -1720,13 +1720,6 @@ void sentinelPropagateDownAfterPeriod(sentinelRedisInstance *master) {
     }
 }
 
-char *sentinelGetInstanceTypeString(sentinelRedisInstance *ri) {
-    if (ri->flags & SRI_MASTER) return "master";
-    else if (ri->flags & SRI_SLAVE) return "slave";
-    else if (ri->flags & SRI_SENTINEL) return "sentinel";
-    else return "unknown";
-}
-
 /* This function is used in order to send commands to Redis instances: the
  * commands we send from Sentinel may be renamed, a common case is a master
  * with CONFIG and SLAVEOF commands renamed for security concerns. In that
