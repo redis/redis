@@ -5456,7 +5456,7 @@ sds genRedisInfoString(const char *section) {
             listIter *it = listGetIterator(server.client_mem_usage_buckets[j].clients, AL_START_HEAD);
             for (listNode *ln = listNext(it); ln; ln = listNext(it)) {
                 client *c = (client*)ln->value;
-                info = sdscatprintf(info, "client_mem: %lu\r\n", c->client_last_memory_usage);
+                info = sdscatprintf(info, "client_mem: %zu\r\n", c->client_last_memory_usage);
             }
             listReleaseIterator(it);
         }
