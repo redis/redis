@@ -2187,6 +2187,9 @@ clientMemUsageBucket *getMemUsageBucket(size_t mem) {
 int updateClientMemUsage(client *c) {
     size_t mem = getClientMemoryUsage(c);
     int type = getClientType(c);
+    int allow_eviction =
+            (type == CLIENT_TYPE_NORMAL || type == CLIENT_TYPE_PUBSUB) &&
+            !(c->flags & CLIENT_NO_EVICT);
 
     /* Track last T secs of memory usage */
     // TODO: consider changing this to a rolling avg (SMA) instead of an exponential moving average (EMA)
@@ -2202,17 +2205,27 @@ int updateClientMemUsage(client *c) {
     server.stat_clients_type_memory[type] += mem;
 
     /* Update the client in the mem usage buckets */
-    //TODO: skip non normal client types and non-eviction-flagged, and handle cases where client changes type
-    clientMemUsageBucket *bucket = getMemUsageBucket(mem);
-    bucket->mem_usage_sum += mem;
-    if (c->mem_usage_bucket)
+    if (c->mem_usage_bucket) {
         c->mem_usage_bucket->mem_usage_sum -= c->client_last_memory_usage;
-    if (bucket != c->mem_usage_bucket) {
-        if (c->mem_usage_bucket)
+        /* If this client can't be evicted then remove it from the mem usage
+         * buckets */
+        if (!allow_eviction) {
             listDelNode(c->mem_usage_bucket->clients, c->mem_usage_bucket_node);
-        c->mem_usage_bucket = bucket;
-        listAddNodeTail(bucket->clients, c);
-        c->mem_usage_bucket_node = listLast(bucket->clients);
+            c->mem_usage_bucket = NULL;
+            c->mem_usage_bucket_node = NULL;
+        }
+    }
+    if (allow_eviction) {
+        clientMemUsageBucket *bucket = getMemUsageBucket(mem);
+        bucket->mem_usage_sum += mem;
+        if (bucket != c->mem_usage_bucket) {
+            if (c->mem_usage_bucket)
+                listDelNode(c->mem_usage_bucket->clients,
+                            c->mem_usage_bucket_node);
+            c->mem_usage_bucket = bucket;
+            listAddNodeTail(bucket->clients, c);
+            c->mem_usage_bucket_node = listLast(bucket->clients);
+        }
     }
 
     /* Remember what we added and where, to remove it next time. */
