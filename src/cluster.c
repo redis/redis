@@ -1811,7 +1811,7 @@ int clusterProcessPacket(clusterLink *link) {
             nodeIsSlave(myself) &&
             myself->slaveof == sender &&
             hdr->mflags[0] & CLUSTERMSG_FLAG0_PAUSED &&
-            server.cluster->mf_master_offset == 0)
+            server.cluster->mf_master_offset == -1)
         {
             server.cluster->mf_master_offset = sender->repl_offset;
             clusterDoBeforeSleep(CLUSTER_TODO_HANDLE_MANUALFAILOVER);
@@ -3419,7 +3419,7 @@ void resetManualFailover(void) {
     server.cluster->mf_end = 0; /* No manual failover in progress. */
     server.cluster->mf_can_start = 0;
     server.cluster->mf_slave = NULL;
-    server.cluster->mf_master_offset = 0;
+    server.cluster->mf_master_offset = -1;
 }
 
 /* If a manual failover timed out, abort it. */
@@ -3440,7 +3440,7 @@ void clusterHandleManualFailover(void) {
      * next steps are performed by clusterHandleSlaveFailover(). */
     if (server.cluster->mf_can_start) return;
 
-    if (server.cluster->mf_master_offset == 0) return; /* Wait for offset... */
+    if (server.cluster->mf_master_offset == -1) return; /* Wait for offset... */
 
     if (server.cluster->mf_master_offset == replicationGetSlaveOffset()) {
         /* Our replication offset matches the master replication offset
