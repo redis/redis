@@ -2039,12 +2039,12 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
     } else if (!strcasecmp(argv[0],"resolve-hostnames") && argc == 2) {
         /* resolve-hostnames <yes|no> */
         if ((sentinel.resolve_hostnames = yesnotoi(argv[1])) == -1) {
-            return "Please specify yes or not for the resolve-hostnames option.";
+            return "Please specify yes or no for the resolve-hostnames option.";
         }
     } else if (!strcasecmp(argv[0],"announce-hostnames") && argc == 2) {
         /* announce-hostnames <yes|no> */
         if ((sentinel.announce_hostnames = yesnotoi(argv[1])) == -1) {
-            return "Please specify yes or not for the announce-hostnames option.";
+            return "Please specify yes or no for the announce-hostnames option.";
         }
     } else {
         return "Unrecognized sentinel configuration statement.";
