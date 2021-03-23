@@ -1054,13 +1054,13 @@ typedef struct client {
      * however we need to remember what was the old contribution of each
      * client, and in which category the client was, in order to remove it
      * before adding it the new value. */
-    uint64_t client_cron_last_memory_usage;
-    int      client_cron_last_memory_type;
+    uint64_t client_last_memory_usage;
+    int      client_last_memory_type;
 
     listNode *mem_usage_bucket_node;
     clientMemUsageBucket *mem_usage_bucket;
 
-    float client_cron_memory_usage_avg;
+    float client_memory_usage_avg;
     /* Response buffer */
     int bufpos;
     size_t buf_usable_size; /* Usable size of buffer. */

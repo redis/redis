@@ -182,9 +182,9 @@ client *createClient(connection *conn) {
     c->paused_list_node = NULL;
     c->client_tracking_redirection = 0;
     c->client_tracking_prefixes = NULL;
-    c->client_cron_last_memory_usage = 0;
-    c->client_cron_last_memory_type = CLIENT_TYPE_NORMAL;
-    c->client_cron_memory_usage_avg = -1; // Negative means uninitialized
+    c->client_last_memory_usage = 0;
+    c->client_last_memory_type = CLIENT_TYPE_NORMAL;
+    c->client_memory_usage_avg = -1; // Negative means uninitialized
     c->auth_callback = NULL;
     c->auth_callback_privdata = NULL;
     c->auth_module = NULL;
@@ -1435,11 +1435,11 @@ void freeClient(client *c) {
 
     /* Remove the contribution that this client gave to our
      * incrementally computed memory usage. */
-    server.stat_clients_type_memory[c->client_cron_last_memory_type] -=
-        c->client_cron_last_memory_usage;
+    server.stat_clients_type_memory[c->client_last_memory_type] -=
+        c->client_last_memory_usage;
     /* Remove client from memory usage buckets */
     if (c->mem_usage_bucket) {
-        c->mem_usage_bucket->mem_usage_sum -= c->client_cron_last_memory_usage;
+        c->mem_usage_bucket->mem_usage_sum -= c->client_last_memory_usage;
         listDelNode(c->mem_usage_bucket->clients, c->mem_usage_bucket_node);
     }
 
@@ -3178,7 +3178,7 @@ size_t getClientMemoryUsage(client *c) {
 }
 
 size_t getClientAverageMemory(client *c) {
-    return (size_t)(c->client_cron_memory_usage_avg > 0 ? c->client_cron_memory_usage_avg : 0);
+    return (size_t)(c->client_memory_usage_avg > 0 ? c->client_memory_usage_avg : 0);
 }
 
 /* Get the class of a client, used in order to enforce limits to different
@@ -3767,7 +3767,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
         }
 
         processInputBuffer(c);
-        updateClientMemUsage(c);
+        updateClientMemUsage(c); /* FIXME: Why call this again here? We already did this in processInputBuffer() */
 
         /* We may have pending replies if a thread readQueryFromClient() produced
          * replies and did not install a write handler (it can't).
@@ -3804,6 +3804,7 @@ void clientsEviction() {
             sds ci = catClientInfoString(sdsempty(),c);
             serverLog(LL_NOTICE, "Evicting client: %s", ci);
             freeClient(c);
+            sdsfree(ci);
             server.stat_evictedclients++;
         } else {
             curr_bucket--;

@@ -2178,11 +2178,11 @@ clientMemUsageBucket *getMemUsageBucket(size_t mem) {
     return &server.client_mem_usage_buckets[bucket_idx];
 }
 
-/* Iterating all the clients in getMemoryOverheadData() is too slow and
- * in turn would make the INFO command too slow. So we perform this
- * computation incrementally and track the (not instantaneous but updated
- * to the second) total memory used by clients using clientsCron() in
- * a more incremental way (depending on server.hz). */
+/* This is called both on explicit clients when something changed their buffers,
+ * so we can track clients' memory and enforce clients maxmemory in real time
+ * and also from the clietsCron so we have updated stats for non
+ * CLIENT_TYPE_NORMAL/PUBSUB clients.
+ */
 #define EMA_ALPHA (0.1f)
 int updateClientMemUsage(client *c) {
     size_t mem = getClientMemoryUsage(c);
@@ -2190,15 +2190,15 @@ int updateClientMemUsage(client *c) {
 
     /* Track last T secs of memory usage */
     // TODO: consider changing this to a rolling avg (SMA) instead of an exponential moving average (EMA)
-    if (c->client_cron_memory_usage_avg < 0)
-        c->client_cron_memory_usage_avg = mem;
+    if (c->client_memory_usage_avg < 0)
+        c->client_memory_usage_avg = mem;
     else
-        c->client_cron_memory_usage_avg = (EMA_ALPHA * mem) + ((1.0f - EMA_ALPHA) * c->client_cron_memory_usage_avg);
+        c->client_memory_usage_avg = (EMA_ALPHA * mem) + ((1.0f - EMA_ALPHA) * c->client_memory_usage_avg);
 
     /* Remove the old value of the memory used by the client from the old
      * category, and add it back. */
-    server.stat_clients_type_memory[c->client_cron_last_memory_type] -=
-        c->client_cron_last_memory_usage;
+    server.stat_clients_type_memory[c->client_last_memory_type] -=
+        c->client_last_memory_usage;
     server.stat_clients_type_memory[type] += mem;
 
     /* Update the client in the mem usage buckets */
@@ -2206,7 +2206,7 @@ int updateClientMemUsage(client *c) {
     clientMemUsageBucket *bucket = getMemUsageBucket(mem);
     bucket->mem_usage_sum += mem;
     if (c->mem_usage_bucket)
-        c->mem_usage_bucket->mem_usage_sum -= c->client_cron_last_memory_usage;
+        c->mem_usage_bucket->mem_usage_sum -= c->client_last_memory_usage;
     if (bucket != c->mem_usage_bucket) {
         if (c->mem_usage_bucket)
             listDelNode(c->mem_usage_bucket->clients, c->mem_usage_bucket_node);
@@ -2216,8 +2216,8 @@ int updateClientMemUsage(client *c) {
     }
 
     /* Remember what we added and where, to remove it next time. */
-    c->client_cron_last_memory_usage = mem;
-    c->client_cron_last_memory_type = type;
+    c->client_last_memory_usage = mem;
+    c->client_last_memory_type = type;
 
     return 0;
 }
@@ -2300,6 +2300,12 @@ void clientsCron(void) {
         if (clientsCronHandleTimeout(c,now)) continue;
         if (clientsCronResizeQueryBuffer(c)) continue;
         if (clientsCronTrackExpansiveClients(c, curr_peak_mem_usage_slot)) continue;
+
+        /* Iterating all the clients in getMemoryOverheadData() is too slow and
+         * in turn would make the INFO command too slow. So we perform this
+         * computation incrementally and track the (not instantaneous but updated
+         * to the second) total memory used by clients using clinetsCron() in
+         * a more incremental way (depending on server.hz). */
         if (updateClientMemUsage(c)) continue;
         if (closeClientOnOutputBufferLimitReached(c, 0)) continue;
     }
@@ -5437,7 +5443,7 @@ sds genRedisInfoString(const char *section) {
             listIter *it = listGetIterator(server.client_mem_usage_buckets[j].clients, AL_START_HEAD);
             for (listNode *ln = listNext(it); ln; ln = listNext(it)) {
                 client *c = (client*)ln->value;
-                info = sdscatprintf(info, "client_mem: %lu\r\n", c->client_cron_last_memory_usage);
+                info = sdscatprintf(info, "client_mem: %lu\r\n", c->client_last_memory_usage);
             }
             listReleaseIterator(it);
         }
