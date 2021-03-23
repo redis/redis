@@ -2210,10 +2210,10 @@ void preventCommandAOF(client *c);
 void preventCommandReplication(client *c);
 int prepareForShutdown(int flags);
 #ifdef __GNUC__
-void serverLog(int level, const char *fmt, ...)
+void _serverLog(int level, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));
 #else
-void serverLog(int level, const char *fmt, ...);
+void _serverLog(int level, const char *fmt, ...);
 #endif
 void serverLogRaw(int level, const char *msg);
 void serverLogFromHandler(int level, const char *msg);
@@ -2718,6 +2718,13 @@ void debugDelay(int usec);
 void killIOThreads(void);
 void killThreads(void);
 void makeThreadKillable(void);
+
+/* Use macro for checking log level to avoid evaluating arguments in cases log
+ * should be ignored due to low level. */
+#define serverLog(level, ...) do {\
+        if (((level)&0xff) < server.verbosity) break;\
+        _serverLog(level, __VA_ARGS__);\
+    } while(0)
 
 /* TLS stuff */
 void tlsInit(void);
