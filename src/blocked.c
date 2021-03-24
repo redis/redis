@@ -577,8 +577,12 @@ void handleClientsBlockedOnKeys(void) {
                     serveClientsBlockedOnStreamKey(o,rl);
                 /* We want to serve clients blocked on module keys
                  * regardless of the object type: we don't know what the
-                 * module is trying to accomplish right now. */
-                serveClientsBlockedOnKeyByModule(rl);
+                 * module is trying to accomplish right now.
+                 *
+                 * Optimization: If no clients are in type BLOCKED_MODULE,
+                 * we can skip this loop. */
+                if (server.blocked_clients_by_type[BLOCKED_MODULE])
+                    serveClientsBlockedOnKeyByModule(rl);
             }
             server.fixed_time_expire--;
 
