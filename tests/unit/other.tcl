@@ -1,4 +1,4 @@
-start_server {tags {"other"}} {
+start_server {overrides {save ""} tags {"other"}} {
     if {$::force_failure} {
         # This is used just for test suite development purposes.
         test {Failing test} {
