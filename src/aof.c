@@ -218,7 +218,7 @@ void killAppendOnlyChild(void) {
     serverLog(LL_NOTICE,"Killing running AOF rewrite child: %ld",
         (long) server.child_pid);
     if (kill(server.child_pid,SIGUSR1) != -1) {
-        while(wait3(&statloc,0,NULL) != server.child_pid);
+        while(waitpid(-1, &statloc, 0) != server.child_pid);
     }
     /* Reset the buffer accumulating changes while the child saves. */
     aofRewriteBufferReset();

@@ -722,7 +722,7 @@ start_server {tags {"repl"}} {
 test "diskless replication child being killed is collected" {
     # when diskless master is waiting for the replica to become writable
     # it removes the read event from the rdb pipe so if the child gets killed
-    # the replica will hung. and the master may not collect the pid with wait3
+    # the replica will hung. and the master may not collect the pid with waitpid
     start_server {tags {"repl"}} {
         set master [srv 0 client]
         set master_host [srv 0 host]

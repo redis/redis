@@ -7821,7 +7821,7 @@ int TerminateModuleForkChild(int child_pid, int wait) {
     serverLog(LL_VERBOSE,"Killing running module fork child: %ld",
         (long) server.child_pid);
     if (kill(server.child_pid,SIGUSR1) != -1 && wait) {
-        while(wait4(server.child_pid,&statloc,0,NULL) !=
+        while(waitpid(server.child_pid, &statloc, 0) !=
               server.child_pid);
     }
     /* Reset the buffer accumulating changes while the child saves. */

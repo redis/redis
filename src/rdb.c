@@ -2732,7 +2732,7 @@ void backgroundSaveDoneHandler(int exitcode, int bysignal) {
  * the cleanup needed. */
 void killRDBChild(void) {
     kill(server.child_pid, SIGUSR1);
-    /* Because we are not using here wait4 (like we have in killAppendOnlyChild
+    /* Because we are not using here waitpid (like we have in killAppendOnlyChild
      * and TerminateModuleForkChild), all the cleanup operations is done by
      * checkChildrenDone, that later will find that the process killed.
      * This includes:
