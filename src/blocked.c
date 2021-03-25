@@ -479,6 +479,10 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
 void serveClientsBlockedOnKeyByModule(readyList *rl) {
     dictEntry *de;
 
+    /* Optimization: If no clients are in type BLOCKED_MODULE,
+     * we can skip this loop. */
+    if (!server.blocked_clients_by_type[BLOCKED_MODULE]) return;
+
     /* We serve clients in the same order they blocked for
      * this key, from the first blocked to the last. */
     de = dictFind(rl->db->blocking_keys,rl->key);
@@ -577,12 +581,8 @@ void handleClientsBlockedOnKeys(void) {
                     serveClientsBlockedOnStreamKey(o,rl);
                 /* We want to serve clients blocked on module keys
                  * regardless of the object type: we don't know what the
-                 * module is trying to accomplish right now.
-                 *
-                 * Optimization: If no clients are in type BLOCKED_MODULE,
-                 * we can skip this loop. */
-                if (server.blocked_clients_by_type[BLOCKED_MODULE])
-                    serveClientsBlockedOnKeyByModule(rl);
+                 * module is trying to accomplish right now. */
+                serveClientsBlockedOnKeyByModule(rl);
             }
             server.fixed_time_expire--;
 
