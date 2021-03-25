@@ -113,13 +113,21 @@ start_server {tags {"acl"}} {
         set e
     } {*NOPERM*channel*}
 
-    test {In transaction queue publish to unauthorized channel will fail} {
+    test {In transaction queue publish/subscribe/psubscribe to unauthorized channel will fail} {
         r ACL setuser psuser +multi +discard
         r MULTI
         catch {r PUBLISH notexits helloworld} e
         r DISCARD
-        set e
-    } {*NOPERM*}
+        assert_match {*NOPERM*} $e
+        r MULTI
+        catch {r SUBSCRIBE notexits foo:1} e
+        r DISCARD
+        assert_match {*NOPERM*} $e
+        r MULTI
+        catch {r PSUBSCRIBE notexits:* bar:*} e
+        r DISCARD
+        assert_match {*NOPERM*} $e
+    }
 
     test {It's possible to allow subscribing to a subset of channels} {
         set rd [redis_deferring_client]

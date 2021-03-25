@@ -2103,8 +2103,6 @@ int ACLAuthenticateUser(client *c, robj *username, robj *password);
 unsigned long ACLGetCommandID(const char *cmdname);
 void ACLClearCommandID(void);
 user *ACLGetUserByName(const char *name, size_t namelen);
-int ACLCheckCommandPerm(client *c, int *keyidxptr);
-int ACLCheckPubsubPerm(client *c, int idx, int count, int literal, int *idxptr);
 int ACLCheckAllPerm(client *c, int *idxptr);
 int ACLSetUser(user *u, const char *op, ssize_t oplen);
 sds ACLDefaultUserFirstPassword(void);
