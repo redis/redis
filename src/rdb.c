@@ -1073,8 +1073,7 @@ size_t rdbSavedObjectLen(robj *o, robj *key) {
 
 /* Save a key-value pair, with expire time, type, key, value.
  * On error -1 is returned.
- * On success if the key was actually saved 1 is returned, otherwise 0
- * is returned (the key was already expired). */
+ * On success if the key was actually saved 1 is returned. */
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime) {
     int savelru = server.maxmemory_policy & MAXMEMORY_FLAG_LRU;
     int savelfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU;
