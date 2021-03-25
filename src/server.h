@@ -2208,6 +2208,7 @@ void preventCommandPropagation(client *c);
 void preventCommandLogging(client *c);
 void preventCommandAOF(client *c);
 void preventCommandReplication(client *c);
+void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration);
 int prepareForShutdown(int flags);
 #ifdef __GNUC__
 void _serverLog(int level, const char *fmt, ...)

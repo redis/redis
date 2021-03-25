@@ -90,6 +90,22 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         # INCRBYFLOAT is replicated as SET
         r INCRBYFLOAT A 1.0
         assert_equal {INCRBYFLOAT A 1.0} [lindex [lindex [r slowlog get] 0] 3]
+
+        # blocked BLPOP is replicated as LPOP
+        set rd [redis_deferring_client]
+        $rd blpop l 0
+        wait_for_condition 50 100 {
+            [s blocked_clients] eq {1}
+        } else {
+            fail "Clients are not blocked"
+        }
+        r multi
+        r lpush l foo
+        r slowlog reset
+        r exec
+        $rd read
+        $rd close
+        assert_equal {blpop l 0} [lindex [lindex [r slowlog get] 0] 3]
     }
 
     test {SLOWLOG - commands with too many arguments are trimmed} {
