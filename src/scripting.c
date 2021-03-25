@@ -604,9 +604,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
 
     /* Check the ACLs. */
     int acl_errpos;
-    int acl_retval = ACLCheckCommandPerm(c,&acl_errpos);
-    if (acl_retval == ACL_OK && c->cmd->proc == publishCommand)
-        acl_retval = ACLCheckPubsubPerm(c,1,1,0,&acl_errpos);
+    int acl_retval = ACLCheckAllPerm(c,&acl_errpos);
     if (acl_retval != ACL_OK) {
         addACLLogEntry(c,acl_retval,acl_errpos,NULL);
         switch (acl_retval) {
