@@ -480,6 +480,10 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
 void serveClientsBlockedOnKeyByModule(readyList *rl) {
     dictEntry *de;
 
+    /* Optimization: If no clients are in type BLOCKED_MODULE,
+     * we can skip this loop. */
+    if (!server.blocked_clients_by_type[BLOCKED_MODULE]) return;
+
     /* We serve clients in the same order they blocked for
      * this key, from the first blocked to the last. */
     de = dictFind(rl->db->blocking_keys,rl->key);
