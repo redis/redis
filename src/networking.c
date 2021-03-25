@@ -184,7 +184,6 @@ client *createClient(connection *conn) {
     c->client_tracking_prefixes = NULL;
     c->client_last_memory_usage = 0;
     c->client_last_memory_type = CLIENT_TYPE_NORMAL;
-    c->client_memory_usage_avg = -1; // Negative means uninitialized
     c->auth_callback = NULL;
     c->auth_callback_privdata = NULL;
     c->auth_module = NULL;
@@ -2332,10 +2331,9 @@ sds catClientInfoString(sds s, client *client) {
     size_t obufmem = getClientOutputBufferMemoryUsage(client);
     // TODO: since getClientMemoryUsage internally calls getClientOutputBufferMemoryUsage again, we might just want to add an output variable to getClientMemoryUsage instead of calling in twice??
     size_t total_mem = getClientMemoryUsage(client);
-    size_t avg_mem = getClientAverageMemory(client);
 
     return sdscatfmt(s,
-        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U obl=%U oll=%U omem=%U tot-mem=%U avg-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i",
+        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i",
         (unsigned long long) client->id,
         getClientPeerId(client),
         getClientSockname(client),
@@ -2355,7 +2353,6 @@ sds catClientInfoString(sds s, client *client) {
         (unsigned long long) listLength(client->reply),
         (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
         (unsigned long long) total_mem,
-        (unsigned long long) avg_mem,
         events,
         client->lastcmd ? client->lastcmd->name : "NULL",
         client->user ? client->user->name : "(superuser)",
@@ -3188,10 +3185,6 @@ size_t getClientMemoryUsage(client *c) {
      * spot problematic clients. */
     if (c->argv) mem += zmalloc_size(c->argv);
     return mem;
-}
-
-size_t getClientAverageMemory(client *c) {
-    return (size_t)(c->client_memory_usage_avg > 0 ? c->client_memory_usage_avg : 0);
 }
 
 /* Get the class of a client, used in order to enforce limits to different

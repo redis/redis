@@ -2183,20 +2183,12 @@ clientMemUsageBucket *getMemUsageBucket(size_t mem) {
  * and also from the clietsCron so we have updated stats for non
  * CLIENT_TYPE_NORMAL/PUBSUB clients.
  */
-#define EMA_ALPHA (0.1f)
 int updateClientMemUsage(client *c) {
     size_t mem = getClientMemoryUsage(c);
     int type = getClientType(c);
     int allow_eviction =
             (type == CLIENT_TYPE_NORMAL || type == CLIENT_TYPE_PUBSUB) &&
             !(c->flags & CLIENT_NO_EVICT);
-
-    /* Track last T secs of memory usage */
-    // TODO: consider changing this to a rolling avg (SMA) instead of an exponential moving average (EMA)
-    if (c->client_memory_usage_avg < 0)
-        c->client_memory_usage_avg = mem;
-    else
-        c->client_memory_usage_avg = (EMA_ALPHA * mem) + ((1.0f - EMA_ALPHA) * c->client_memory_usage_avg);
 
     /* Remove the old value of the memory used by the client from the old
      * category, and add it back. */
