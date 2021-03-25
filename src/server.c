@@ -4047,7 +4047,7 @@ int processCommand(client *c) {
             rejectCommand(c, shared.bgsaveerr);
         else
             rejectCommandFormat(c,
-                "-MISCONF Errors writing or fsyncing to the AOF file: %s",
+                "-MISCONF Errors writing to the AOF file: %s",
                 strerror(server.aof_last_write_errno));
         return C_OK;
     }
