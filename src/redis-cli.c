@@ -406,15 +406,17 @@ static void parseRedisUri(const char *uri) {
     if (!strncasecmp(tlsscheme, curr, strlen(tlsscheme))) {
 #ifdef USE_OPENSSL
         config.tls = 1;
+        curr += strlen(tlsscheme);
 #else
         fprintf(stderr,"rediss:// is only supported when redis-cli is compiled with OpenSSL\n");
         exit(1);
 #endif
-    } else if (strncasecmp(scheme, curr, strlen(scheme))) {
+    } else if (!strncasecmp(scheme, curr, strlen(scheme))) {
+        curr += strlen(scheme);
+    } else {
         fprintf(stderr,"Invalid URI scheme\n");
         exit(1);
     }
-    curr += strlen(scheme);
     if (curr == end) return;
 
     /* Extract user info. */
