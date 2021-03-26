@@ -114,7 +114,7 @@ start_server {tags {"acl"}} {
     } {*NOPERM*channel*}
 
     test {In transaction queue publish/subscribe/psubscribe to unauthorized channel will fail} {
-        r ACL setuser psuser resetchannels +multi +discard
+        r ACL setuser psuser +multi +discard
         r MULTI
         catch {r PUBLISH notexits helloworld} e
         r DISCARD
