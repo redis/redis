@@ -682,19 +682,36 @@ proc string2printable s {
     return $res
 }
 
-# Check that probability of each element are between {min_prop} and {max_prop}.
-proc check_histogram_distribution {res min_prop max_prop} {
+# Two validation methods are used here to verify the reasonableness
+# of the random distribution.
+# 1) Check that probability of each element are between {min_prop} and {max_prop}.
+# 2) Check with Chi-Square Distribution. Based on the following wiki:
+#    https://en.wikipedia.org/wiki/Chi-square_distribution
+proc check_histogram_distribution {res min_prop max_prop chi_square_max_value} {
     unset -nocomplain mydict
     foreach key $res {
         dict incr mydict $key 1
     }
 
+    set check_prop_result true
+    set chi_square_value 0
+    set p [expr [llength $res] / [dict size $mydict]]
     foreach key [dict keys $mydict] {
         set value [dict get $mydict $key]
+
+        # Check probability of each element
         set probability [expr {double($value) / [llength $res]}]
         if {$probability < $min_prop || $probability > $max_prop} {
-            return false
+            set check_prop_result false
         }
+
+        # Aggregate the chi-square value of each element
+        set v [expr {pow($value - $p, 2) / $p}]
+        set chi_square_value [expr {$chi_square_value + $v}]
+    }
+
+    if {!$check_prop_result && $chi_square_value < $chi_square_max_value} {
+        return false
     }
 
     return true
