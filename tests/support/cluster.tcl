@@ -174,7 +174,7 @@ proc ::redis_cluster::__method__masternode_for_slot {id slot} {
 }
 
 proc ::redis_cluster::__method__masternode_notfor_slot {id slot} {
-    # Get the node mapped to this slot.
+    # Get a node that is not mapped to this slot.
     set node_addr [dict get $::redis_cluster::slots($id) $slot]
     set addrs [dict keys $::redis_cluster::nodes($id)]
     foreach addr [lshuffle $addrs] {
@@ -353,4 +353,20 @@ proc ::redis_cluster::get_slot_from_keys {keys} {
         }
     }
     return $slot
+}
+
+proc fix_cluster {addr} {
+    set code [catch {
+        exec ../../../src/redis-cli {*}[rediscli_tls_config "../../../tests"] --cluster fix $addr << yes
+    } result]
+    if {$code != 0 && $::verbose} {
+        puts $result
+    }
+    assert {$code == 0}
+    assert_cluster_state ok
+    wait_for_condition 1000 10 {
+        [catch {exec ../../../src/redis-cli {*}[rediscli_tls_config "../../../tests"] --cluster check $addr} _] == 0
+    } else {
+        fail "Cluster could not settle with configuration"
+    }
 }

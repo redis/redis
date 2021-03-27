@@ -26,24 +26,6 @@ proc reset_cluster {} {
     }
 }
 
-proc fix_cluster {} {
-    uplevel 1 {
-        set code [catch {
-            exec ../../../src/redis-cli {*}[rediscli_tls_config "../../../tests"] --cluster fix $nodefrom(addr) << yes
-        } result]
-        if {$code != 0 && $::verbose} {
-            puts $result
-        }
-        assert {$code == 0}
-        assert_cluster_state ok
-        wait_for_condition 1000 10 {
-            [catch {exec ../../../src/redis-cli {*}[rediscli_tls_config "../../../tests"] --cluster check $nodefrom(addr)} _] == 0
-        } else {
-            fail "Cluster could not settle with configuration"
-        }
-    }
-}
-
 reset_cluster
 
 test "Set key" {
@@ -69,7 +51,7 @@ test "Half init migration in 'migrating'" {
 }
 
 test "Fix cluster" {
-    fix_cluster
+    fix_cluster $nodefrom(addr)
 }
 
 test "Key is accessible" {
@@ -81,7 +63,7 @@ test "Half init migration in 'importing'" {
 }
 
 test "Fix cluster" {
-    fix_cluster
+    fix_cluster $nodefrom(addr)
 }
 
 test "Key is accessible" {
@@ -99,7 +81,7 @@ test "Key is accessible" {
 }
 
 test "Fix cluster" {
-    fix_cluster
+    fix_cluster $nodefrom(addr)
 }
 
 test "Key is accessible" {
@@ -124,7 +106,7 @@ test "Half-finish migration" {
 }
 
 test "Fix cluster" {
-    fix_cluster
+    fix_cluster $nodefrom(addr)
 }
 
 reset_cluster
@@ -146,7 +128,7 @@ test "Half-finish migration" {
 }
 
 test "Fix cluster again" {
-    fix_cluster
+    fix_cluster $nodefrom(addr)
 }
 
 test "Key is accessible" {
