@@ -534,7 +534,7 @@ start_server {
 
             # Use negative count (PATH 1).
             set res [r srandmember myset -1000]
-            assert_equal [check_histogram_distribution $res 0.05 0.15 27.88] true
+            assert_equal [check_histogram_distribution $res 0.05 0.15] true
 
             # Use positive count (both PATH 3 and PATH 4).
             foreach size {8 2} {
@@ -547,7 +547,7 @@ start_server {
                         lappend allkey $ele
                     }
                 }
-                assert_equal [check_histogram_distribution $allkey 0.05 0.15 27.88] true
+                assert_equal [check_histogram_distribution $allkey 0.05 0.15] true
             }
         }
     }

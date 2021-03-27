@@ -1656,7 +1656,7 @@ start_server {tags {"zset"}} {
 
             # Test random uniform distribution
             set res [r zrandmember myzset -1000]
-            assert_equal [check_histogram_distribution $res 0.05 0.15 27.88] true
+            assert_equal [check_histogram_distribution $res 0.05 0.15] true
 
             # 2) Check that all the elements actually belong to the original zset.
             foreach {key val} $res {
@@ -1749,7 +1749,7 @@ start_server {tags {"zset"}} {
                     }
                 }
                 assert_equal $all_ele_return true
-                assert_equal [check_histogram_distribution $allkey 0.05 0.15 27.88] true
+                assert_equal [check_histogram_distribution $allkey 0.05 0.15] true
             }
         }
         r config set zset-max-ziplist-value $original_max_value
