@@ -4054,6 +4054,10 @@ void sentinelSetCommand(client *c) {
             char *value = c->argv[++j]->ptr;
             sdsfree(ri->auth_pass);
             ri->auth_pass = strlen(value) ? sdsnew(value) : NULL;
+            if (ri->link->cc)
+                instanceLinkCloseConnection(ri->link, ri->link->cc);
+            if (ri->link->pc)
+                instanceLinkCloseConnection(ri->link, ri->link->pc);
             changes++;
         } else if (!strcasecmp(option,"auth-user") && moreargs > 0) {
             /* auth-user <username> */
