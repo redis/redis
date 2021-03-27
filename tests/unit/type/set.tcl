@@ -533,21 +533,35 @@ start_server {
             }
 
             # Use negative count (PATH 1).
-            set res [r srandmember myset -1000]
-            assert_equal [check_histogram_distribution $res 0.05 0.15] true
+            set iterations 2
+            while {$iterations != 0} {
+                incr iterations -1
+                set res [r srandmember myset -1000]
+                if {[check_histogram_distribution $res 0.05 0.15] == true} {
+                    break
+                }
+            }
+            assert {$iterations != 0}
 
             # Use positive count (both PATH 3 and PATH 4).
             foreach size {8 2} {
-                unset -nocomplain allkey
-                set iterations [expr {1000 / $size}]
-                while {$iterations != 0} {
-                    incr iterations -1
-                    set res [r srandmember myset $size]
-                    foreach ele $res {
-                        lappend allkey $ele
+                set retry 2
+                while {$retry != 0} {
+                    incr retry -1
+                    unset -nocomplain allkey
+                    set iterations [expr {1000 / $size}]
+                    while {$iterations != 0} {
+                        incr iterations -1
+                        set res [r srandmember myset $size]
+                        foreach ele $res {
+                            lappend allkey $ele
+                        }
+                    }
+                    if {[check_histogram_distribution $allkey 0.05 0.15] == true} {
+                        break
                     }
                 }
-                assert_equal [check_histogram_distribution $allkey 0.05 0.15] true
+                assert {$retry != 0}
             }
         }
     }

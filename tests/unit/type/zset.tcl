@@ -1655,8 +1655,15 @@ start_server {tags {"zset"}} {
             assert_equal [llength $res] 2002
 
             # Test random uniform distribution
-            set res [r zrandmember myzset -1000]
-            assert_equal [check_histogram_distribution $res 0.05 0.15] true
+            set iterations 2
+            while {$iterations != 0} {
+                incr iterations -1
+                set res [r zrandmember myzset -1000]
+                if {[check_histogram_distribution $res 0.05 0.15] == true} {
+                    break
+                }
+            }
+            assert {$iterations != 0}
 
             # 2) Check that all the elements actually belong to the original zset.
             foreach {key val} $res {
@@ -1724,32 +1731,39 @@ start_server {tags {"zset"}} {
 
                 # 2) Check that eventually all the elements are returned.
                 #    Use both WITHSCORES and without
-                unset -nocomplain auxset
-                unset -nocomplain allkey
-                set iterations [expr {1000 / $size}]
-                set all_ele_return false
-                while {$iterations != 0} {
-                    incr iterations -1
-                    if {[expr {$iterations % 2}] == 0} {
-                        set res [r zrandmember myzset $size withscores]
-                        foreach {key value} $res {
-                            dict append auxset $key $value
-                            lappend allkey $key
+                set retry 2
+                while {$retry != 0} {
+                    incr retry -1
+                    unset -nocomplain auxset
+                    unset -nocomplain allkey
+                    set iterations [expr {1000 / $size}]
+                    set all_ele_return false
+                    while {$iterations != 0} {
+                        incr iterations -1
+                        if {[expr {$iterations % 2}] == 0} {
+                            set res [r zrandmember myzset $size withscores]
+                            foreach {key value} $res {
+                                dict append auxset $key $value
+                                lappend allkey $key
+                            }
+                        } else {
+                            set res [r zrandmember myzset $size]
+                            foreach key $res {
+                                dict append auxset $key
+                                lappend allkey $key
+                            }
                         }
-                    } else {
-                        set res [r zrandmember myzset $size]
-                        foreach key $res {
-                            dict append auxset $key
-                            lappend allkey $key
+                        if {[lsort [dict keys $mydict]] eq
+                            [lsort [dict keys $auxset]]} {
+                            set all_ele_return true
                         }
                     }
-                    if {[lsort [dict keys $mydict]] eq
-                        [lsort [dict keys $auxset]]} {
-                        set all_ele_return true
+                    assert_equal $all_ele_return true
+                    if {[check_histogram_distribution $allkey 0.05 0.15] == true} {
+                        break
                     }
                 }
-                assert_equal $all_ele_return true
-                assert_equal [check_histogram_distribution $allkey 0.05 0.15] true
+                assert {$retry != 0}
             }
         }
         r config set zset-max-ziplist-value $original_max_value
