@@ -14,20 +14,8 @@ test "Cluster is up" {
 set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
 catch {unset nodefrom}
 catch {unset nodeto}
-proc reset_cluster {} {
-    uplevel 1 {
-        $cluster refresh_nodes_map
-    }
-}
 
-proc get_nodes {slot} {
-    uplevel 1 {
-        array set nodefrom [$cluster masternode_for_slot $slot]
-        array set nodeto [$cluster masternode_notfor_slot $slot]
-    }
-}
-
-reset_cluster
+$cluster refresh_nodes_map
 
 test "Set many keys" {
     for {set i 0} {$i < 40000} {incr i} {
@@ -43,7 +31,9 @@ test "Keys are accessible" {
 
 test "Init migration of many slots" {
     for {set slot 0} {$slot < 1000} {incr slot} {
-        get_nodes $slot
+        array set nodefrom [$cluster masternode_for_slot $slot]
+        array set nodeto [$cluster masternode_notfor_slot $slot]
+
         $nodefrom(link) cluster setslot $slot migrating $nodeto(id)
         $nodeto(link) cluster setslot $slot importing $nodefrom(id)
     }
