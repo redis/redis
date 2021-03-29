@@ -640,6 +640,60 @@ start_server {tags {"scripting"}} {
         assert_match {*killed by user*} $res        
     }
 
+    test {Timedout script does not cause a false dead client} {
+        set rd [redis_deferring_client]
+        r config set lua-time-limit 10
+        
+        # senging (in a pipeline):
+        # 1. eval "while 1 do redis.call('ping') end" 0
+        # 2. ping
+        set buf "*3\r\n"
+        append buf "$"
+        append buf "4\r\n"
+        append buf "eval\r\n"
+        append buf "$"
+        append buf "33\r\n"
+        append buf "while 1 do redis.call('ping') end\r\n"
+        append buf "$"
+        append buf "1\r\n"
+        append buf "0\r\n"
+        append buf "*1\r\n"
+        append buf "$"
+        append buf "4\r\n"
+        append buf "ping\r\n"
+        $rd write $buf
+        $rd flush
+
+        wait_for_condition 50 100 {
+            [catch {r ping} e] == 1
+        } else {
+            fail "Can't wait for script to start running"
+        }
+
+        catch {r ping} e
+        assert_match {BUSY*} $e
+
+        r script kill
+
+        wait_for_condition 50 100 {
+            [catch {r ping} e] == 0
+        } else {
+            fail "Can't wait for script to be killed"
+        }
+
+        assert_equal [r ping] "PONG"
+
+        catch {$rd read} res
+        assert_match {*killed by user*} $res
+
+        
+        set res [$rd read]
+
+        assert_match {*PONG*} $res        
+
+        $rd close
+    }
+
     test {Timedout script link is still usable after Lua returns} {
         r config set lua-time-limit 10
         r eval {for i=1,100000 do redis.call('ping') end return 'ok'} 0
