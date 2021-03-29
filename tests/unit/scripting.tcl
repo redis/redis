@@ -643,24 +643,12 @@ start_server {tags {"scripting"}} {
     test {Timedout script does not cause a false dead client} {
         set rd [redis_deferring_client]
         r config set lua-time-limit 10
-        
+
         # senging (in a pipeline):
         # 1. eval "while 1 do redis.call('ping') end" 0
         # 2. ping
-        set buf "*3\r\n"
-        append buf "$"
-        append buf "4\r\n"
-        append buf "eval\r\n"
-        append buf "$"
-        append buf "33\r\n"
-        append buf "while 1 do redis.call('ping') end\r\n"
-        append buf "$"
-        append buf "1\r\n"
-        append buf "0\r\n"
-        append buf "*1\r\n"
-        append buf "$"
-        append buf "4\r\n"
-        append buf "ping\r\n"
+        set buf "*3\r\n\$4\r\neval\r\n\$33\r\nwhile 1 do redis.call('ping') end\r\n\$1\r\n0\r\n"
+        append buf "*1\r\n\$4\r\nping\r\n"
         $rd write $buf
         $rd flush
 
@@ -669,26 +657,21 @@ start_server {tags {"scripting"}} {
         } else {
             fail "Can't wait for script to start running"
         }
-
         catch {r ping} e
         assert_match {BUSY*} $e
 
         r script kill
-
         wait_for_condition 50 100 {
             [catch {r ping} e] == 0
         } else {
             fail "Can't wait for script to be killed"
         }
-
         assert_equal [r ping] "PONG"
 
         catch {$rd read} res
         assert_match {*killed by user*} $res
 
-        
         set res [$rd read]
-
         assert_match {*PONG*} $res        
 
         $rd close
