@@ -1990,12 +1990,20 @@ void commandProcessed(client *c) {
  * of processing the command, otherwise C_OK is returned. */
 int processCommandAndResetClient(client *c) {
     int deadclient = 0;
+    client *old_client = server.current_client;
     server.current_client = c;
     if (processCommand(c) == C_OK) {
         commandProcessed(c);
     }
     if (server.current_client == NULL) deadclient = 1;
-    server.current_client = NULL;
+    /*
+     * Restore the old client, this is needed because when a script
+     * times out, we will get into this code from processEventsWhileBlocked.
+     * Which will cause to set the server.current_client. If not restored
+     * we will return 1 to our caller which will falsely indicate the client
+     * is dead and will stop reading from its buffer.
+     */
+    server.current_client = old_client;
     /* performEvictions may flush slave output buffers. This may
      * result in a slave, that may be the active client, to be
      * freed. */
