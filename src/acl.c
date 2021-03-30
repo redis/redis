@@ -245,7 +245,7 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     if (raxFind(Users,(unsigned char*)name,namelen) != raxNotFound) return NULL;
     user *u = zmalloc(sizeof(*u));
     u->name = sdsnewlen(name,namelen);
-    u->flags = USER_FLAG_DISABLED | server.acl_pubusub_default;
+    u->flags = USER_FLAG_DISABLED | server.acl_pubsub_default;
     u->allowed_subcommands = NULL;
     u->passwords = listCreate();
     u->patterns = listCreate();
@@ -1448,6 +1448,7 @@ int ACLLoadConfiguredUsers(void) {
             u = ACLGetUserByName(username,sdslen(username));
             serverAssert(u != NULL);
             ACLSetUser(u,"reset",-1);
+            u->flags = u->flags | server.acl_pubsub_default;
         }
 
         /* Load every rule defined for this user. */
@@ -1609,6 +1610,7 @@ sds ACLLoadFromFile(const char *filename) {
             u = ACLGetUserByName(argv[1],sdslen(argv[1]));
             serverAssert(u != NULL);
             ACLSetUser(u,"reset",-1);
+            u->flags = u->flags | server.acl_pubsub_default;
         }
 
         /* Note that the same rules already applied to the fake user, so
