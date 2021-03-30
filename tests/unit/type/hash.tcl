@@ -107,7 +107,7 @@ start_server {tags {"hash"}} {
             # Test random uniform distribution
             # df = 9, 40 means 0.00001 probability
             set res [r hrandfield myhash -1000]
-            assert_morethan 40 [chi_square_value $res] 
+            assert_morethan 40 [chi_square_value $res]
 
             # 2) Check that all the elements actually belong to the original hash.
             foreach {key val} $res {
