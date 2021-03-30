@@ -331,8 +331,9 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
         memcpy(tail->buf, s, len);
         listAddNodeTail(c->reply, tail);
         c->reply_bytes += tail->size;
+
+        asyncCloseClientOnOutputBufferLimitReached(c);
     }
-    asyncCloseClientOnOutputBufferLimitReached(c);
 }
 
 /* -----------------------------------------------------------------------------
@@ -562,7 +563,7 @@ void *addReplyDeferredLen(client *c) {
 
 void setDeferredReply(client *c, void *node, const char *s, size_t length) {
     listNode *ln = (listNode*)node;
-    clientReplyBlock *next;
+    clientReplyBlock *next, *prev;
 
     /* Abort when *node is NULL: when the client should not accept writes
      * we return NULL in addReplyDeferredLen() */
@@ -571,15 +572,23 @@ void setDeferredReply(client *c, void *node, const char *s, size_t length) {
 
     /* Normally we fill this dummy NULL node, added by addReplyDeferredLen(),
      * with a new buffer structure containing the protocol needed to specify
-     * the length of the array following. However sometimes when there is
-     * little memory to move, we may instead remove this NULL node, and prefix
-     * our protocol in the node immediately after to it, in order to save a
-     * write(2) syscall later. Conditions needed to do it:
+     * the length of the array following. However sometimes there might be room
+     * in the previous/next node so we can instead remove this NULL node, and
+     * suffix/prefix our data in the node immediately before/after it, in order
+     * to save a write(2) syscall later. Conditions needed to do it:
      *
+     * - The prev node is non-NULL and has space in it or
      * - The next node is non-NULL,
      * - It has enough room already allocated
      * - And not too large (avoid large memmove) */
-    if (ln->next != NULL && (next = listNodeValue(ln->next)) &&
+    if (ln->prev != NULL && (prev = listNodeValue(ln->prev)) &&
+        prev->size - prev->used >= length)
+    {
+        memcpy(prev->buf + prev->used, s, length);
+        prev->used += length;
+        listDelNode(c->reply, ln);
+    }
+    else if (ln->next != NULL && (next = listNodeValue(ln->next)) &&
         next->size - next->used >= length &&
         next->used < PROTO_REPLY_CHUNK_BYTES * 4)
     {
@@ -596,8 +605,9 @@ void setDeferredReply(client *c, void *node, const char *s, size_t length) {
         memcpy(buf->buf, s, length);
         listNodeValue(ln) = buf;
         c->reply_bytes += buf->size;
+
+        asyncCloseClientOnOutputBufferLimitReached(c);
     }
-    asyncCloseClientOnOutputBufferLimitReached(c);
 }
 
 /* Populate the length object and try gluing it to the next chunk. */
