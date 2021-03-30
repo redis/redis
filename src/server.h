@@ -1548,6 +1548,7 @@ struct redisServer {
                                        if the master is in failure state. */
     char *cluster_announce_ip;  /* IP address to announce on cluster bus. */
     int cluster_announce_port;     /* base port to announce on cluster bus. */
+    int cluster_announce_tls_port; /* TLS port to announce on cluster bus. */
     int cluster_announce_bus_port; /* bus port to announce on cluster bus. */
     int cluster_module_flags;      /* Set of flags that Redis modules are able
                                       to set in order to suppress certain
