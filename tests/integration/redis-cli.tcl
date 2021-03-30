@@ -149,6 +149,10 @@ start_server {tags {"cli"}} {
         # quotes after the argument are weird, but should be allowed
         assert_equal "OK" [run_command $fd "set key\"\" bar"]
         assert_equal "bar" [r get key]
+
+        # single quote with a backslash trailing character
+        assert_equal "OK" [run_command $fd "set key '\\'bar\\'\\'"]
+        assert_equal "'bar'\\" [r get key]
     }
 
     test_tty_cli "Status reply" {

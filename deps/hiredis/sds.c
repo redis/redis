@@ -990,7 +990,7 @@ hisds *hi_sdssplitargs(const char *line, int *argc) {
                         current = hi_sdscatlen(current,p,1);
                     }
                 } else if (insq) {
-                    if (*p == '\\' && *(p+1) == '\'') {
+                    if (*p == '\\' && *(p+1) == '\'' && *(p+2)) {
                         p++;
                         current = hi_sdscatlen(current,"'",1);
                     } else if (*p == '\'') {
