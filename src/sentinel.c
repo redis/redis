@@ -215,6 +215,7 @@ typedef struct sentinelRedisInstance {
     /* Slave specific. */
     mstime_t master_link_down_time; /* Slave replication link down time. */
     int slave_priority; /* Slave priority according to its INFO output. */
+    int replica_announced; /* Replica announcing according to its INFO output. */
     mstime_t slave_reconf_sent_time; /* Time at which we sent SLAVE OF <new> */
     struct sentinelRedisInstance *master; /* Master instance if it's slave. */
     char *slave_master_host;    /* Master host as reported by INFO */
@@ -1335,6 +1336,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->auth_pass = NULL;
     ri->auth_user = NULL;
     ri->slave_priority = SENTINEL_DEFAULT_SLAVE_PRIORITY;
+    ri->replica_announced = 1;
     ri->slave_reconf_sent_time = 0;
     ri->slave_master_host = NULL;
     ri->slave_master_port = 0;
@@ -2622,6 +2624,10 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
             /* slave_repl_offset:<offset> */
             if (sdslen(l) >= 18 && !memcmp(l,"slave_repl_offset:",18))
                 ri->slave_repl_offset = strtoull(l+18,NULL,10);
+
+            /* replica_announced:<announcement> */
+            if (sdslen(l) >= 18 && !memcmp(l,"replica_announced:",18))
+                ri->replica_announced = atoi(l+18);
         }
     }
     ri->info_refresh = mstime();
@@ -3424,6 +3430,10 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
         addReplyBulkCString(c,"slave-repl-offset");
         addReplyBulkLongLong(c,ri->slave_repl_offset);
         fields++;
+
+        addReplyBulkCString(c,"replica-announced");
+        addReplyBulkLongLong(c,ri->replica_announced);
+        fields++;
     }
 
     /* Only sentinels */
@@ -3449,15 +3459,20 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
 void addReplyDictOfRedisInstances(client *c, dict *instances) {
     dictIterator *di;
     dictEntry *de;
+    long slaves = 0;
+    void *replylen = addReplyDeferredLen(c);
 
     di = dictGetIterator(instances);
-    addReplyArrayLen(c,dictSize(instances));
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
 
+        /* don't announce unannounced replicas */
+        if (ri->flags & SRI_SLAVE && !ri->replica_announced) continue;
         addReplySentinelRedisInstance(c,ri);
+        slaves++;
     }
     dictReleaseIterator(di);
+    setDeferredArrayLen(c, replylen, slaves);
 }
 
 /* Lookup the named master into sentinel.masters.
