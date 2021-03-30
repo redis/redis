@@ -190,6 +190,14 @@ start_server {tags {"introspection"}} {
         r config rewrite
         restart_server 0 true false
         assert_equal [r config get save] {save {}}
+
+        start_server {config "minimal.conf"} {
+            assert_equal [r config get save] {save {3600 1 300 100 60 10000}}
+            r config set save ""
+            r config rewrite
+            restart_server 0 true false
+            assert_equal [r config get save] {save {}}
+        }
     }
 
     # Config file at this point is at a wierd state, and includes all

@@ -1385,7 +1385,7 @@ void rewriteConfigSaveOption(struct rewriteConfigState *state) {
      * defaults from being used.
      */
     if (!server.saveparamslen) {
-        rewriteConfigRewriteLine(state,"save",sdsnew("save \"\""),0);
+        rewriteConfigRewriteLine(state,"save",sdsnew("save \"\""),1);
     } else {
         for (j = 0; j < server.saveparamslen; j++) {
             line = sdscatprintf(sdsempty(),"save %ld %d",
