@@ -3121,7 +3121,9 @@ void xautoclaimCommand(client *c) {
 
         /* Update the consumer and idle time. */
         nack->delivery_time = now;
-        nack->delivery_count++;
+        /* Increment the delivery attempts counter unless JUSTID option provided */
+        if (!justid)
+            nack->delivery_count++;
 
         if (nack->consumer != consumer) {
             /* Add the entry in the new consumer local PEL. */
