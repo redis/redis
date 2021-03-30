@@ -535,7 +535,7 @@ start_server {
             # Use negative count (PATH 1).
             # df = 9, 40 means 0.00001 probability
             set res [r srandmember myset -1000]
-            assert_morethan 40 [chi_square_value $res]
+            assert_lessthan [chi_square_value $res] 40
 
             # Use positive count (both PATH 3 and PATH 4).
             foreach size {8 2} {
@@ -549,7 +549,7 @@ start_server {
                     }
                 }
                 # df = 9, 40 means 0.00001 probability
-                assert_morethan 40 [chi_square_value $allkey]
+                assert_lessthan [chi_square_value $allkey] 40
             }
         }
     }

@@ -686,21 +686,30 @@ proc string2printable s {
 # we can verify the random distribution sample confidence.
 # Based on the following wiki:
 # https://en.wikipedia.org/wiki/Chi-square_distribution
+#
+# param res    Random sample list
+# return       Value of Chi-Square Distribution
+#
+# x2_value: return of chi_square_value function
+# df: Degrees of freedom, Number of independent values minus 1
+#
+# By using x2_value and df to back check the cardinality table,
+# we can know the confidence of the random sample.
 proc chi_square_value {res} {
     unset -nocomplain mydict
     foreach key $res {
         dict incr mydict $key 1
     }
 
-    set chi_square_sum 0
+    set x2_value 0
     set p [expr [llength $res] / [dict size $mydict]]
     foreach key [dict keys $mydict] {
         set value [dict get $mydict $key]
 
         # Aggregate the chi-square value of each element
         set v [expr {pow($value - $p, 2) / $p}]
-        set chi_square_sum [expr {$chi_square_sum + $v}]
+        set x2_value [expr {$x2_value + $v}]
     }
 
-    return $chi_square_sum
+    return $x2_value
 }
