@@ -533,35 +533,28 @@ start_server {
             }
 
             # Use negative count (PATH 1).
-            set iterations 2
-            while {$iterations != 0} {
-                incr iterations -1
-                set res [r srandmember myset -1000]
-                if {[check_histogram_distribution $res 0.05 0.15] == true} {
-                    break
-                }
-            }
-            assert {$iterations != 0}
+            # df = 9, 40 means 0.00001 probability
+            set res [r srandmember myset -1000]
+            assert_morethan 40 [chi_square_value $res]
 
             # Use positive count (both PATH 3 and PATH 4).
             foreach size {8 2} {
-                set retry 2
-                while {$retry != 0} {
-                    incr retry -1
-                    unset -nocomplain allkey
-                    set iterations [expr {1000 / $size}]
-                    while {$iterations != 0} {
-                        incr iterations -1
-                        set res [r srandmember myset $size]
-                        foreach ele $res {
-                            lappend allkey $ele
-                        }
-                    }
-                    if {[check_histogram_distribution $allkey 0.05 0.15] == true} {
-                        break
+                unset -nocomplain allkey
+                set iterations [expr {1000 / $size}]
+                while {$iterations != 0} {
+                    incr iterations -1
+                    set res [r srandmember myset $size]
+                    foreach ele $res {
+                        lappend allkey $ele
                     }
                 }
-                assert {$retry != 0}
+                if {$size == 8} {
+                    # df = 7, 35 means 0.00001 probability
+                    assert_morethan 35 [chi_square_value $allkey]
+                } elseif {$size == 2} {
+                    # df = 1, 19 means 0.00001 probability
+                    assert_morethan 19 [chi_square_value $allkey]
+                }
             }
         }
     }

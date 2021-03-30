@@ -682,20 +682,25 @@ proc string2printable s {
     return $res
 }
 
-# Check that probability of each element are between {min_prop} and {max_prop}.
-proc check_histogram_distribution {res min_prop max_prop} {
+# Calculation value of Chi-Square Distribution. By this value
+# we can verify the random distribution sample confidence.
+# Based on the following wiki:
+# https://en.wikipedia.org/wiki/Chi-square_distribution
+proc chi_square_value {res} {
     unset -nocomplain mydict
     foreach key $res {
         dict incr mydict $key 1
     }
 
+    set chi_square_sum 0
+    set p [expr [llength $res] / [dict size $mydict]]
     foreach key [dict keys $mydict] {
         set value [dict get $mydict $key]
-        set probability [expr {double($value) / [llength $res]}]
-        if {$probability < $min_prop || $probability > $max_prop} {
-            return false
-        }
+
+        # Aggregate the chi-square value of each element
+        set v [expr {pow($value - $p, 2) / $p}]
+        set chi_square_sum [expr {$chi_square_sum + $v}]
     }
 
-    return true
+    return $chi_square_sum
 }
