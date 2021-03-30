@@ -200,13 +200,8 @@ start_server {tags {"hash"}} {
                     }
                 }
                 assert_equal $all_ele_return true
-                if {$size == 8} {
-                    # df = 7, 35 means 0.00001 probability
-                    assert_morethan 35 [chi_square_value $allkey]
-                } elseif {$size == 2} {
-                    # df = 1, 19 means 0.00001 probability
-                    assert_morethan 19 [chi_square_value $allkey]
-                }
+                # df = 9, 40 means 0.00001 probability
+                assert_morethan 40 [chi_square_value $allkey]
             }
         }
         r config set hash-max-ziplist-value $original_max_value
