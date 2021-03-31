@@ -4386,12 +4386,13 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, robj *value) {
  * Note: the module name "AAAAAAAAA" is reserved and produces an error, it
  * happens to be pretty lame as well.
  *
- * If there is already a module registering a type with the same name,
- * and if the module name or encver is invalid, NULL is returned.
- * Otherwise the new type is registered into Redis, and a reference of
- * type RedisModuleType is returned: the caller of the function should store
- * this reference into a global variable to make future use of it in the
- * modules type API, since a single module may register multiple types.
+ * If there is already a module registering a type with the same name, or if
+ * the module name or encver is invalid, or if module type register without
+ * persistence functions, NULL is returned.
+ * Otherwise the new type is registered into Redis, and a reference of type
+ * RedisModuleType is returned. the caller of the function should store this
+ * reference into a global variable to make future use of it in the modules
+ * type API, since a single module may register multiple types.
  * Example code fragment:
  *
  *      static RedisModuleType *BalancedTreeType;
@@ -4429,6 +4430,16 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
             moduleTypeDefragFunc defrag;
         } v3;
     } *tms = (struct typemethods*) typemethods_ptr;
+
+    /* Persistence functions can't be NULL */
+    if (tms->rdb_load == NULL || tms->rdb_save == NULL || tms->aof_rewrite == NULL) {
+        return NULL;
+    }
+
+    /* Function aux_load and aux_save can't one is defined and the other is not */
+    if ((tms->version >= 2) && ((tms->v2.aux_load != NULL) != (tms->v2.aux_save != NULL))) {
+        return NULL;
+    }
 
     moduleType *mt = zcalloc(sizeof(*mt));
     mt->id = id;
