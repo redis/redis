@@ -163,14 +163,13 @@ start_server {tags {"zset"}} {
         test "ZADD INCR LT/GT replies with nill if score not updated - $encoding" {
             r del ztmp
             r zadd ztmp 28 x
-            puts [r zadd ztmp lt incr 1 x]
             assert {[r zadd ztmp lt incr 1 x] eq {}}
             assert {[r zscore ztmp x] == 28}
             assert {[r zadd ztmp gt incr -1 x] eq {}}
             assert {[r zscore ztmp x] == 28}
         }
 
-        test "ZADD INCR LT/GT replies with inf - $encoding" {
+        test "ZADD INCR LT/GT with inf - $encoding" {
             r del ztmp
             r zadd ztmp +inf x -inf y
 
