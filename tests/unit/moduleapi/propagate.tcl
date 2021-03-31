@@ -141,6 +141,55 @@ tags "modules" {
                     close_replication_stream $repl
                 }
 
+                test {module propagates from from command after good EVAL} {
+                    set repl [attach_to_replication_stream]
+
+                    assert_equal [ $master eval { return "hello" } 0 ] {hello}
+                    $master propagate-test.simple
+                    $master propagate-test.mixed
+
+                    # Note the 'after-call' propagation below is out of order (known limitation)
+                    assert_replication_stream $repl {
+                        {select *}
+                        {multi}
+                        {incr counter-1}
+                        {incr counter-2}
+                        {exec}
+                        {multi}
+                        {incr using-call}
+                        {incr after-call}
+                        {incr counter-1}
+                        {incr counter-2}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+                }
+
+                test {module propagates from from command after bad EVAL} {
+                    set repl [attach_to_replication_stream]
+
+                    catch { $master eval { return "hello" } -12 } e
+                    assert_equal $e {ERR Number of keys can't be negative}
+                    $master propagate-test.simple
+                    $master propagate-test.mixed
+
+                    # Note the 'after-call' propagation below is out of order (known limitation)
+                    assert_replication_stream $repl {
+                        {select *}
+                        {multi}
+                        {incr counter-1}
+                        {incr counter-2}
+                        {exec}
+                        {multi}
+                        {incr using-call}
+                        {incr after-call}
+                        {incr counter-1}
+                        {incr counter-2}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+                }
+
                 test {module propagates from from multi-exec} {
                     set repl [attach_to_replication_stream]
 

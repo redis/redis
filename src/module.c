@@ -606,7 +606,7 @@ void moduleHandlePropagationAfterCommandCallback(RedisModuleCtx *ctx) {
      * a transaction. */
     if (!server.propagate_in_transaction) return;
 
-    /* If this command is executed from with Lua or MULTI/EXEC we do noy
+    /* If this command is executed from with Lua or MULTI/EXEC we do not
      * need to propagate EXEC */
     if (server.in_eval || server.in_exec) return;
 
@@ -1701,7 +1701,7 @@ int RM_ReplyWithLongDouble(RedisModuleCtx *ctx, long double ld) {
 void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx) {
     /* Skip this if client explicitly wrap the command with MULTI, or if
      * the module command was called by a script. */
-    if (server.lua_caller || server.in_exec) return;
+    if (server.in_eval || server.in_exec) return;
     /* If we already emitted MULTI return ASAP. */
     if (server.propagate_in_transaction) return;
     /* If this is a thread safe context, we do not want to wrap commands
@@ -2084,7 +2084,7 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
         flags |= REDISMODULE_CTX_FLAGS_LOADING;
 
     /* Maxmemory and eviction policy */
-    if (server.maxmemory > 0) {
+    if (server.maxmemory > 0 && (!server.masterhost || !server.repl_slave_ignore_maxmemory)) {
         flags |= REDISMODULE_CTX_FLAGS_MAXMEMORY;
 
         if (server.maxmemory_policy != MAXMEMORY_NO_EVICTION)
@@ -2334,10 +2334,40 @@ mstime_t RM_GetExpire(RedisModuleKey *key) {
  * The function returns REDISMODULE_OK on success or REDISMODULE_ERR if
  * the key was not open for writing or is an empty key. */
 int RM_SetExpire(RedisModuleKey *key, mstime_t expire) {
-    if (!(key->mode & REDISMODULE_WRITE) || key->value == NULL)
+    if (!(key->mode & REDISMODULE_WRITE) || key->value == NULL || (expire < 0 && expire != REDISMODULE_NO_EXPIRE))
         return REDISMODULE_ERR;
     if (expire != REDISMODULE_NO_EXPIRE) {
         expire += mstime();
+        setExpire(key->ctx->client,key->db,key->key,expire);
+    } else {
+        removeExpire(key->db,key->key);
+    }
+    return REDISMODULE_OK;
+}
+
+/* Return the key expire value, as absolute Unix timestamp.
+ * If no TTL is associated with the key or if the key is empty,
+ * REDISMODULE_NO_EXPIRE is returned. */
+mstime_t RM_GetAbsExpire(RedisModuleKey *key) {
+    mstime_t expire = getExpire(key->db,key->key);
+    if (expire == -1 || key->value == NULL) 
+        return REDISMODULE_NO_EXPIRE;
+    return expire;
+}
+
+/* Set a new expire for the key. If the special expire
+ * REDISMODULE_NO_EXPIRE is set, the expire is cancelled if there was
+ * one (the same as the PERSIST command).
+ * 
+ * Note that the expire must be provided as a positive integer representing
+ * the absolute Unix timestamp the key should have.
+ *
+ * The function returns REDISMODULE_OK on success or REDISMODULE_ERR if
+ * the key was not open for writing or is an empty key. */
+int RM_SetAbsExpire(RedisModuleKey *key, mstime_t expire) {
+    if (!(key->mode & REDISMODULE_WRITE) || key->value == NULL || (expire < 0 && expire != REDISMODULE_NO_EXPIRE))
+        return REDISMODULE_ERR;
+    if (expire != REDISMODULE_NO_EXPIRE) {
         setExpire(key->ctx->client,key->db,key->key,expire);
     } else {
         removeExpire(key->db,key->key);
@@ -5158,11 +5188,6 @@ void unblockClientFromModule(client *c) {
         moduleUnblockClient(c);
 
     bc->client = NULL;
-    /* Reset the client for a new query since, for blocking commands implemented
-     * into modules, we do not it immediately after the command returns (and
-     * the client blocks) in order to be still able to access the argument
-     * vector from callbacks. */
-    resetClient(c);
 }
 
 /* Block a client in the context of a module: this function implements both
@@ -7791,7 +7816,7 @@ int TerminateModuleForkChild(int child_pid, int wait) {
     serverLog(LL_VERBOSE,"Killing running module fork child: %ld",
         (long) server.child_pid);
     if (kill(server.child_pid,SIGUSR1) != -1 && wait) {
-        while(wait4(server.child_pid,&statloc,0,NULL) !=
+        while(waitpid(server.child_pid, &statloc, 0) !=
               server.child_pid);
     }
     /* Reset the buffer accumulating changes while the child saves. */

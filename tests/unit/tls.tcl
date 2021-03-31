@@ -139,5 +139,20 @@ start_server {tags {"tls"}} {
             $rd PING
             $rd close
         }
+
+        test {TLS: Working with an encrypted keyfile} {
+            # Create an encrypted version
+            set keyfile [lindex [r config get tls-key-file] 1]
+            set keyfile_encrypted "$keyfile.encrypted"
+            exec -ignorestderr openssl rsa -in $keyfile -out $keyfile_encrypted -aes256 -passout pass:1234 2>/dev/null
+
+            # Using it without a password fails
+            catch {r config set tls-key-file $keyfile_encrypted} e
+            assert_match {*Unable to update TLS*} $e
+
+            # Now use a password
+            r config set tls-key-file-pass 1234
+            r config set tls-key-file $keyfile_encrypted
+        }
     }
 }

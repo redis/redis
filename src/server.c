@@ -901,7 +901,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"hello",helloCommand,-1,
-     "no-auth no-script fast no-monitor ok-loading ok-stale no-slowlog @connection",
+     "no-auth no-script fast no-monitor ok-loading ok-stale @connection",
      0,NULL,0,0,0,0,0,0},
 
     /* EVAL can modify the dataset, however it is not flagged as a write
@@ -1091,7 +1091,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"acl",aclCommand,-2,
-     "admin no-script no-slowlog ok-loading ok-stale",
+     "admin no-script ok-loading ok-stale",
      0,NULL,0,0,0,0,0,0},
 
     {"stralgo",stralgoCommand,-2,
@@ -1161,11 +1161,9 @@ void serverLogRaw(int level, const char *msg) {
 /* Like serverLogRaw() but with printf-alike support. This is the function that
  * is used across the code. The raw version is only used in order to dump
  * the INFO output on crash. */
-void serverLog(int level, const char *fmt, ...) {
+void _serverLog(int level, const char *fmt, ...) {
     va_list ap;
     char msg[LOG_MAX_LEN];
-
-    if ((level&0xff) < server.verbosity) return;
 
     va_start(ap, fmt);
     vsnprintf(msg, sizeof(msg), fmt, ap);
@@ -1614,6 +1612,7 @@ void resetChildState() {
     server.child_type = CHILD_TYPE_NONE;
     server.child_pid = -1;
     server.stat_current_cow_bytes = 0;
+    server.stat_current_cow_updated = 0;
     server.stat_current_save_keys_processed = 0;
     server.stat_module_progress = 0;
     server.stat_current_save_keys_total = 0;
@@ -1929,11 +1928,11 @@ void updateCachedTime(int update_daylight_info) {
 }
 
 void checkChildrenDone(void) {
-    int statloc;
+    int statloc = 0;
     pid_t pid;
 
-    if ((pid = wait3(&statloc,WNOHANG,NULL)) != 0) {
-        int exitcode = WEXITSTATUS(statloc);
+    if ((pid = waitpid(-1, &statloc, WNOHANG)) != 0) {
+        int exitcode = WIFEXITED(statloc) ? WEXITSTATUS(statloc) : -1;
         int bysignal = 0;
 
         if (WIFSIGNALED(statloc)) bysignal = WTERMSIG(statloc);
@@ -1941,15 +1940,14 @@ void checkChildrenDone(void) {
         /* sigKillChildHandler catches the signal and calls exit(), but we
          * must make sure not to flag lastbgsave_status, etc incorrectly.
          * We could directly terminate the child process via SIGUSR1
-         * without handling it, but in this case Valgrind will log an
-         * annoying error. */
+         * without handling it */
         if (exitcode == SERVER_CHILD_NOERROR_RETVAL) {
             bysignal = SIGUSR1;
             exitcode = 1;
         }
 
         if (pid == -1) {
-            serverLog(LL_WARNING,"wait3() returned an error: %s. "
+            serverLog(LL_WARNING,"waitpid() returned an error: %s. "
                 "child_type: %s, child_pid = %d",
                 strerror(errno),
                 strChildType(server.child_type),
@@ -3053,14 +3051,15 @@ int listenToPort(int port, socketFds *sfd) {
             sfd->fd[sfd->count] = anetTcpServer(server.neterr,port,addr,server.tcp_backlog);
         }
         if (sfd->fd[sfd->count] == ANET_ERR) {
+            int net_errno = errno;
             serverLog(LL_WARNING,
-                "Could not create server TCP listening socket %s:%d: %s",
+                "Warning: Could not create server TCP listening socket %s:%d: %s",
                 addr, port, server.neterr);
-            if (errno == EADDRNOTAVAIL && optional)
+            if (net_errno == EADDRNOTAVAIL && optional)
                 continue;
-            if (errno == ENOPROTOOPT     || errno == EPROTONOSUPPORT ||
-                errno == ESOCKTNOSUPPORT || errno == EPFNOSUPPORT ||
-                errno == EAFNOSUPPORT)
+            if (net_errno == ENOPROTOOPT     || net_errno == EPROTONOSUPPORT ||
+                net_errno == ESOCKTNOSUPPORT || net_errno == EPFNOSUPPORT ||
+                net_errno == EAFNOSUPPORT)
                 continue;
 
             /* Rollback successful listens before exiting */
@@ -3192,11 +3191,15 @@ void initServer(void) {
 
     /* Open the TCP listening socket for the user commands. */
     if (server.port != 0 &&
-        listenToPort(server.port,&server.ipfd) == C_ERR)
+        listenToPort(server.port,&server.ipfd) == C_ERR) {
+        serverLog(LL_WARNING, "Failed listening on port %u (TCP), aborting.", server.port);
         exit(1);
+    }
     if (server.tls_port != 0 &&
-        listenToPort(server.tls_port,&server.tlsfd) == C_ERR)
+        listenToPort(server.tls_port,&server.tlsfd) == C_ERR) {
+        serverLog(LL_WARNING, "Failed listening on port %u (TLS), aborting.", server.tls_port);
         exit(1);
+    }
 
     /* Open the listening Unix domain socket. */
     if (server.unixsocket != NULL) {
@@ -3262,6 +3265,7 @@ void initServer(void) {
     server.stat_starttime = time(NULL);
     server.stat_peak_memory = 0;
     server.stat_current_cow_bytes = 0;
+    server.stat_current_cow_updated = 0;
     server.stat_current_save_keys_processed = 0;
     server.stat_current_save_keys_total = 0;
     server.stat_rdb_cow_bytes = 0;
@@ -3619,6 +3623,12 @@ void preventCommandPropagation(client *c) {
     c->flags |= CLIENT_PREVENT_PROP;
 }
 
+/* Avoid logging any information about this client's arguments
+ * since they contain sensitive information. */
+void preventCommandLogging(client *c) {
+    c->flags |= CLIENT_PREVENT_LOGGING;
+}
+
 /* AOF specific version of preventCommandPropagation(). */
 void preventCommandAOF(client *c) {
     c->flags |= CLIENT_PREVENT_AOF_PROP;
@@ -3627,6 +3637,19 @@ void preventCommandAOF(client *c) {
 /* Replication specific version of preventCommandPropagation(). */
 void preventCommandReplication(client *c) {
     c->flags |= CLIENT_PREVENT_REPL_PROP;
+}
+
+/* Log the last command a client executed into the slowlog. */
+void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration) {
+    /* Some commands may contain sensitive data that should not be available in the slowlog. */
+    if ((c->flags & CLIENT_PREVENT_LOGGING) || (cmd->flags & CMD_SKIP_SLOWLOG))
+        return;
+
+    /* If command argument vector was rewritten, use the original
+     * arguments. */
+    robj **argv = c->original_argv ? c->original_argv : c->argv;
+    int argc = c->original_argv ? c->original_argc : c->argc;
+    slowlogPushEntryIfNeeded(c,argv,argc,duration);
 }
 
 /* Call() is the core of Redis execution of a command.
@@ -3731,27 +3754,31 @@ void call(client *c, int flags) {
             server.lua_caller->flags |= CLIENT_FORCE_AOF;
     }
 
-    /* Log the command into the Slow log if needed, and populate the
-     * per-command statistics that we show in INFO commandstats. */
-    if (flags & CMD_CALL_SLOWLOG && !(c->cmd->flags & CMD_SKIP_SLOWLOG)) {
-        char *latency_event = (c->cmd->flags & CMD_FAST) ?
-                              "fast-command" : "command";
-        latencyAddSampleIfNeeded(latency_event,duration/1000);
-        /* If command argument vector was rewritten, use the original
-         * arguments. */
-        robj **argv = c->original_argv ? c->original_argv : c->argv;
-        int argc = c->original_argv ? c->original_argc : c->argc;
-        /* If the client is blocked we will handle slowlog when it is unblocked . */
-        if (!(c->flags & CLIENT_BLOCKED)) {
-            slowlogPushEntryIfNeeded(c,argv,argc,duration);
-        }
-    }
-    freeClientOriginalArgv(c);
+    /* Note: the code below uses the real command that was executed
+     * c->cmd and c->lastcmd may be different, in case of MULTI-EXEC or
+     * re-written commands such as EXPIRE, GEOADD, etc. */
 
+    /* Record the latency this command induced on the main thread.
+     * unless instructed by the caller not to log. (happens when processing
+     * a MULTI-EXEC from inside an AOF). */
+    if (flags & CMD_CALL_SLOWLOG) {
+        char *latency_event = (real_cmd->flags & CMD_FAST) ?
+                               "fast-command" : "command";
+        latencyAddSampleIfNeeded(latency_event,duration/1000);
+    }
+
+    /* Log the command into the Slow log if needed.
+     * If the client is blocked we will handle slowlog when it is unblocked. */
+    if ((flags & CMD_CALL_SLOWLOG) && !(c->flags & CLIENT_BLOCKED))
+        slowlogPushCurrentCommand(c, real_cmd, duration);
+
+    /* Clear the original argv.
+     * If the client is blocked we will handle slowlog when it is unblocked. */
+    if (!(c->flags & CLIENT_BLOCKED))
+        freeClientOriginalArgv(c);
+
+    /* populate the per-command statistics that we show in INFO commandstats. */
     if (flags & CMD_CALL_STATS) {
-        /* use the real command that was executed (cmd and lastamc) may be
-         * different, in case of MULTI-EXEC or re-written commands such as
-         * EXPIRE, GEOADD, etc. */
         real_cmd->microseconds += duration;
         real_cmd->calls++;
     }
@@ -3916,6 +3943,16 @@ static int cmdHasMovableKeys(struct redisCommand *cmd) {
  * other operations can be performed by the caller. Otherwise
  * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
 int processCommand(client *c) {
+    if (!server.lua_timedout) {
+        /* Both EXEC and EVAL call call() directly so there should be
+         * no way in_exec or in_eval or propagate_in_transaction is 1.
+         * That is unless lua_timedout, in which case client may run
+         * some commands. */
+        serverAssert(!server.propagate_in_transaction);
+        serverAssert(!server.in_exec);
+        serverAssert(!server.in_eval);
+    }
+
     moduleCallCommandFilters(c);
 
     /* The QUIT command is handled separately. Normal command procs will
@@ -3974,18 +4011,30 @@ int processCommand(client *c) {
 
     /* Check if the user can run this command according to the current
      * ACLs. */
-    int acl_keypos;
-    int acl_retval = ACLCheckCommandPerm(c,&acl_keypos);
+    int acl_errpos;
+    int acl_retval = ACLCheckAllPerm(c,&acl_errpos);
     if (acl_retval != ACL_OK) {
-        addACLLogEntry(c,acl_retval,acl_keypos,NULL);
-        if (acl_retval == ACL_DENIED_CMD)
+        addACLLogEntry(c,acl_retval,acl_errpos,NULL);
+        switch (acl_retval) {
+        case ACL_DENIED_CMD:
             rejectCommandFormat(c,
                 "-NOPERM this user has no permissions to run "
                 "the '%s' command or its subcommand", c->cmd->name);
-        else
+            break;
+        case ACL_DENIED_KEY:
             rejectCommandFormat(c,
                 "-NOPERM this user has no permissions to access "
                 "one of the keys used as arguments");
+            break;
+        case ACL_DENIED_CHANNEL:
+            rejectCommandFormat(c,
+                "-NOPERM this user has no permissions to access "
+                "one of the channels used as arguments");
+            break;
+        default:
+            rejectCommandFormat(c, "no permission");
+            break;
+        }
         return C_OK;
     }
 
@@ -4807,6 +4856,7 @@ sds genRedisInfoString(const char *section) {
             "# Persistence\r\n"
             "loading:%d\r\n"
             "current_cow_size:%zu\r\n"
+            "current_cow_size_age:%lu\r\n"
             "current_fork_perc:%.2f\r\n"
             "current_save_keys_processed:%zu\r\n"
             "current_save_keys_total:%zu\r\n"
@@ -4829,6 +4879,7 @@ sds genRedisInfoString(const char *section) {
             "module_fork_last_cow_size:%zu\r\n",
             (int)server.loading,
             server.stat_current_cow_bytes,
+            server.stat_current_cow_updated ? (unsigned long) elapsedMs(server.stat_current_cow_updated) / 1000 : 0,
             fork_perc,
             server.stat_current_save_keys_processed,
             server.stat_current_save_keys_total,
@@ -5059,9 +5110,11 @@ sds genRedisInfoString(const char *section) {
             }
             info = sdscatprintf(info,
                 "slave_priority:%d\r\n"
-                "slave_read_only:%d\r\n",
+                "slave_read_only:%d\r\n"
+                "replica_announced:%d\r\n",
                 server.slave_priority,
-                server.repl_slave_ro);
+                server.repl_slave_ro,
+                server.replica_announced);
         }
 
         info = sdscatprintf(info,
@@ -5801,6 +5854,7 @@ int redisFork(int purpose) {
             server.child_pid = childpid;
             server.child_type = purpose;
             server.stat_current_cow_bytes = 0;
+            server.stat_current_cow_updated = 0;
             server.stat_current_save_keys_processed = 0;
             server.stat_module_progress = 0;
             server.stat_current_save_keys_total = dbTotalServerKeyCount();
@@ -6294,10 +6348,10 @@ int main(int argc, char **argv) {
         if (server.supervised_mode == SUPERVISED_SYSTEMD) {
             if (!server.masterhost) {
                 redisCommunicateSystemd("STATUS=Ready to accept connections\n");
-                redisCommunicateSystemd("READY=1\n");
             } else {
-                redisCommunicateSystemd("STATUS=Waiting for MASTER <-> REPLICA sync\n");
+                redisCommunicateSystemd("STATUS=Ready to accept connections in read-only mode. Waiting for MASTER <-> REPLICA sync\n");
             }
+            redisCommunicateSystemd("READY=1\n");
         }
     } else {
         ACLLoadUsersAtStartup();

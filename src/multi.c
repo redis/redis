@@ -140,7 +140,7 @@ void execCommandPropagateExec(int dbid) {
 }
 
 /* Aborts a transaction, with a specific error message.
- * The transaction is always aboarted with -EXECABORT so that the client knows
+ * The transaction is always aborted with -EXECABORT so that the client knows
  * the server exited the multi state, but the actual reason for the abort is
  * included too.
  * Note: 'error' may or may not end with \r\n. see addReplyErrorFormat. */
@@ -202,11 +202,9 @@ void execCommand(client *c) {
         c->cmd = c->mstate.commands[j].cmd;
 
         /* ACL permissions are also checked at the time of execution in case
-         * they were changed after the commands were ququed. */
+         * they were changed after the commands were queued. */
         int acl_errpos;
-        int acl_retval = ACLCheckCommandPerm(c,&acl_errpos);
-        if (acl_retval == ACL_OK && c->cmd->proc == publishCommand)
-            acl_retval = ACLCheckPubsubPerm(c,1,1,0,&acl_errpos);
+        int acl_retval = ACLCheckAllPerm(c,&acl_errpos);
         if (acl_retval != ACL_OK) {
             char *reason;
             switch (acl_retval) {
@@ -217,7 +215,8 @@ void execCommand(client *c) {
                 reason = "no permission to touch the specified keys";
                 break;
             case ACL_DENIED_CHANNEL:
-                reason = "no permission to publish to the specified channel";
+                reason = "no permission to access one of the channels used "
+                         "as arguments";
                 break;
             default:
                 reason = "no permission";

@@ -1360,6 +1360,22 @@ int ACLCheckPubsubPerm(client *c, int idx, int count, int literal, int *idxptr) 
 
 }
 
+/* Check whether the command is ready to be exceuted by ACLCheckCommandPerm.
+ * If check passes, then check whether pub/sub channels of the command is
+ * ready to be executed by ACLCheckPubsubPerm */
+int ACLCheckAllPerm(client *c, int *idxptr) {
+    int acl_retval = ACLCheckCommandPerm(c,idxptr);
+    if (acl_retval != ACL_OK)
+        return acl_retval;
+    if (c->cmd->proc == publishCommand)
+        acl_retval = ACLCheckPubsubPerm(c,1,1,0,idxptr);
+    else if (c->cmd->proc == subscribeCommand)
+        acl_retval = ACLCheckPubsubPerm(c,1,c->argc-1,0,idxptr);
+    else if (c->cmd->proc == psubscribeCommand)
+        acl_retval = ACLCheckPubsubPerm(c,1,c->argc-1,1,idxptr);
+    return acl_retval;
+}
+
 /* =============================================================================
  * ACL loading / saving functions
  * ==========================================================================*/
@@ -1873,6 +1889,10 @@ void addACLLogEntry(client *c, int reason, int argpos, sds username) {
 void aclCommand(client *c) {
     char *sub = c->argv[1]->ptr;
     if (!strcasecmp(sub,"setuser") && c->argc >= 3) {
+        /* Consider information about passwords or permissions
+         * to be sensitive, which will be the arguments for this
+         * subcommand. */
+        preventCommandLogging(c); 
         sds username = c->argv[2]->ptr;
         /* Check username validity. */
         if (ACLStringHasSpaces(username,sdslen(username))) {
