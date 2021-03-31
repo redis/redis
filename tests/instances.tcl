@@ -499,6 +499,14 @@ proc RI {n field} {
     get_info_field [R $n info] $field
 }
 
+proc RPort {n} {
+    if {$::tls} {
+        return [lindex [R $n config get tls-port] 1]
+    } else {
+        return [lindex [R $n config get port] 1]
+    }
+}
+
 # Iterate over IDs of sentinel or redis instances.
 proc foreach_instance_id {instances idvar code} {
     upvar 1 $idvar id
