@@ -582,13 +582,22 @@ void setDeferredReply(client *c, void *node, const char *s, size_t length) {
      * - It has enough room already allocated
      * - And not too large (avoid large memmove) */
     if (ln->prev != NULL && (prev = listNodeValue(ln->prev)) &&
-        prev->size - prev->used >= length)
+        prev->size - prev->used > 0)
     {
-        memcpy(prev->buf + prev->used, s, length);
-        prev->used += length;
-        listDelNode(c->reply, ln);
+        size_t len_to_copy = prev->size - prev->used;
+        if (len_to_copy > length)
+            len_to_copy = length;
+        memcpy(prev->buf + prev->used, s, len_to_copy);
+        prev->used += len_to_copy;
+        length -= len_to_copy;
+        if (length == 0) {
+            listDelNode(c->reply, ln);
+            return;
+        }
+        s += len_to_copy;
     }
-    else if (ln->next != NULL && (next = listNodeValue(ln->next)) &&
+
+    if (ln->next != NULL && (next = listNodeValue(ln->next)) &&
         next->size - next->used >= length &&
         next->used < PROTO_REPLY_CHUNK_BYTES * 4)
     {
