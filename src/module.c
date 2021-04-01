@@ -5073,10 +5073,10 @@ void moduleLogRaw(RedisModule *module, const char *levelstr, const char *fmt, va
  * printf-alike specifiers, while level is a string describing the log
  * level to use when emitting the log, and must be one of the following:
  *
- * * "debug"
- * * "verbose"
- * * "notice"
- * * "warning"
+ * * "debug" (`REDISMODULE_LOGLEVEL_DEBUG`)
+ * * "verbose" (`REDISMODULE_LOGLEVEL_VERBOSE`)
+ * * "notice" (`REDISMODULE_LOGLEVEL_NOTICE`)
+ * * "warning" (`REDISMODULE_LOGLEVEL_WARNING`)
  *
  * If the specified log level is invalid, verbose is used by default.
  * There is a fixed limit to the length of the log line this function is able
