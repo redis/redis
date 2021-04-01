@@ -947,7 +947,7 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep){
     /* Validate the invividual entries. */
     uint32_t count = 0;
     unsigned char *p = lpFirst(lp);
-    while(p) {
+    while(p && p[0] != LP_EOF) {
         if (!lpValidateNext(lp, &p, bytes))
             return 0;
         count++;
@@ -1101,7 +1101,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
         lp = lpShrinkToFit(lp);
         assert(lp_malloc_size(lp) == sz);
         lpFree(lp);
-        
+
         /* Shrink a not empty listpack */
         lp = lpNew(100);
         sz = lp_malloc_size(lp);
@@ -1209,6 +1209,13 @@ int listpackTest(int argc, char *argv[], int accurate) {
         lp = lpDeleteRange(lp, -3, 3);
         assert(lpLength(lp) == 0);
 
+        lpFree(lp);
+    }
+
+    TEST("validate integrity") {
+        unsigned char *lp = lpEmpty();
+        lp = lpPush(lp, (unsigned char*)"123", 3, LP_TAIL);
+        assert(lpValidateIntegrity(lp, lpGetTotalBytes(lp), 1) == 1);
         lpFree(lp);
     }
 
