@@ -4810,7 +4810,6 @@ sds genRedisInfoString(const char *section) {
             "aof_current_rewrite_time_sec:%jd\r\n"
             "aof_last_bgrewrite_status:%s\r\n"
             "aof_last_write_status:%s\r\n"
-            "aof_bio_fsync_status:%s\r\n"
             "aof_last_cow_size:%zu\r\n"
             "module_fork_in_progress:%d\r\n"
             "module_fork_last_cow_size:%zu\r\n",
@@ -4834,8 +4833,8 @@ sds genRedisInfoString(const char *section) {
             (intmax_t)((server.child_type != CHILD_TYPE_AOF) ?
                 -1 : time(NULL)-server.aof_rewrite_time_start),
             (server.aof_lastbgrewrite_status == C_OK) ? "ok" : "err",
-            (server.aof_last_write_status == C_OK) ? "ok" : "err",
-            (aof_bio_fsync_status == C_OK) ? "ok" : "err",
+            (server.aof_last_write_status == C_OK &&
+                aof_bio_fsync_status == C_OK) ? "ok" : "err",
             server.stat_aof_cow_bytes,
             server.child_type == CHILD_TYPE_MODULE,
             server.stat_module_cow_bytes);
