@@ -3151,6 +3151,9 @@ void xautoclaimCommand(client *c) {
         server.dirty++;
     }
 
+    /* We need to return the next entry as a cursor for the next XAUTOCLAIM call */
+    raxNext(&ri);
+
     streamID endid;
     if (raxEOF(&ri)) {
         endid.ms = endid.seq = 0;

@@ -373,7 +373,7 @@ start_server {
         after 200
         set reply [r XAUTOCLAIM mystream mygroup consumer2 10 - COUNT 1]
         assert_equal [llength $reply] 2
-        assert_equal [lindex $reply 0] $id1
+        assert_equal [lindex $reply 0] "0-0"
         assert_equal [llength [lindex $reply 1]] 1
         assert_equal [llength [lindex $reply 1 0]] 2
         assert_equal [llength [lindex $reply 1 0 1]] 2
@@ -392,7 +392,7 @@ start_server {
         set reply [r XAUTOCLAIM mystream mygroup consumer2 10 - COUNT 2]
         # id1 is self-claimed here but not id2 ('count' was set to 2)
         assert_equal [llength $reply] 2
-        assert_equal [lindex $reply 0] $id2
+        assert_equal [lindex $reply 0] $id3
         assert_equal [llength [lindex $reply 1]] 2
         assert_equal [llength [lindex $reply 1 0]] 2
         assert_equal [llength [lindex $reply 1 0 1]] 2
@@ -438,22 +438,22 @@ start_server {
         set reply [r XAUTOCLAIM mystream mygroup consumer2 10 - COUNT 2]
         assert_equal [llength $reply] 2
         set cursor [lindex $reply 0]
-        assert_equal $cursor $id2
+        assert_equal $cursor $id3
         assert_equal [llength [lindex $reply 1]] 2
         assert_equal [llength [lindex $reply 1 0 1]] 2
         assert_equal [lindex $reply 1 0 1] {a 1}
 
         # Claim 2 more entries
-        set reply [r XAUTOCLAIM mystream mygroup consumer2 10 ($cursor COUNT 2]
+        set reply [r XAUTOCLAIM mystream mygroup consumer2 10 $cursor COUNT 2]
         assert_equal [llength $reply] 2
         set cursor [lindex $reply 0]
-        assert_equal $cursor $id4
+        assert_equal $cursor $id5
         assert_equal [llength [lindex $reply 1]] 2
         assert_equal [llength [lindex $reply 1 0 1]] 2
         assert_equal [lindex $reply 1 0 1] {c 3}
 
         # Claim last entry
-        set reply [r XAUTOCLAIM mystream mygroup consumer2 10 ($cursor COUNT 2]
+        set reply [r XAUTOCLAIM mystream mygroup consumer2 10 $cursor COUNT 1]
         assert_equal [llength $reply] 2
         set cursor [lindex $reply 0]
         assert_equal $cursor {0-0}
