@@ -533,8 +533,9 @@ start_server {
             }
 
             # Use negative count (PATH 1).
+            # df = 9, 40 means 0.00001 probability
             set res [r srandmember myset -1000]
-            assert_equal [check_histogram_distribution $res 0.05 0.15] true
+            assert_lessthan [chi_square_value $res] 40
 
             # Use positive count (both PATH 3 and PATH 4).
             foreach size {8 2} {
@@ -547,7 +548,8 @@ start_server {
                         lappend allkey $ele
                     }
                 }
-                assert_equal [check_histogram_distribution $allkey 0.05 0.15] true
+                # df = 9, 40 means 0.00001 probability
+                assert_lessthan [chi_square_value $allkey] 40
             }
         }
     }
