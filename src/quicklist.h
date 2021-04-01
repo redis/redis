@@ -99,7 +99,7 @@ typedef struct quicklistContainerType {
     unsigned char *(*listNew)();
     void (*listFree)(void *l);
     unsigned char *(*listPush)(unsigned char *l, unsigned char *ele, uint32_t size, int where);
-    void (*listInsert)(quicklistNode *node, unsigned char *s, uint32_t slen, unsigned char *p, int where);
+    unsigned char *(*listInsert)(unsigned char *l, unsigned char *s, uint32_t slen, unsigned char *p, int where);
     unsigned int (*listGet)(unsigned char *p, unsigned char **sval, unsigned int *slen, long long *lval);
     unsigned char *(*listDelete)(unsigned char *l, unsigned char *p, unsigned char **newp);
     unsigned char *(*listDeleteRange)(unsigned char *zl, int index, unsigned int num);
@@ -110,7 +110,7 @@ typedef struct quicklistContainerType {
     unsigned char *(*listPrev)(unsigned char *l, unsigned char *p);
     unsigned char *(*listSeek)(unsigned char *l, long index);
     unsigned int (*listCompare)(unsigned char *l, unsigned char *s, unsigned int slen);
-    void *(*listConvertIfNeed)(unsigned char *l, unsigned char *s, unsigned int slen);
+    void (*listConvertIfNeed)(quicklistNode *node);
 } quicklistContainerType;
 
 /* quicklist is a 48 byte struct (on 64-bit systems) describing a quicklist.
