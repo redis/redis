@@ -119,7 +119,7 @@ typedef struct quicklistContainerType {
  * 'compress' is: 0 if compression disabled, otherwise it's the number
  *                of quicklistNodes to leave uncompressed at ends of quicklist.
  * 'fill' is the user-requested (or default) fill factor.
- * 'bookmakrs are an optional feature that is used by realloc this struct,
+ * 'bookmarks are an optional feature that is used by realloc this struct,
  *      so that they don't consume memory when not used. */
 typedef struct quicklist {
     quicklistContainerType *type;

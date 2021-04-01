@@ -721,7 +721,7 @@ void quicklistDelEntry(quicklistIter *iter, quicklistEntry *entry) {
      * doesn't move again because:
      *   - [1, 2, 3] => delete offset 1 => [1, 3]: next element still offset 1
      *   - [1, 2, 3] => delete offset 0 => [2, 3]: next element still offset 0
-     *  if we deleted the last element at offet N and now
+     *  if we deleted the last element at offset N and now
      *  length of this ziplist is N-1, the next call into
      *  quicklistNext() will jump to the next node. */
 }

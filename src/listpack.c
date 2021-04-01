@@ -116,7 +116,7 @@
     (p)[5] = ((v)>>8)&0xff; \
 } while(0)
 
-/* Validates that 'p' is not ouside the listpack.
+/* Validates that 'p' is not outside the listpack.
  * All function that return a pointer to an element in the listpack will assert
  * that this element is valid, so it can be freely used.
  * Generally functions such lpNext and lpDelete assume the input pointer is
@@ -424,7 +424,7 @@ uint32_t lpCurrentEncodedSizeUnsafe(unsigned char *p) {
 }
 
 /* Return bytes needed to encode the length of the listpack element pointed by 'p'.
- * This includes just the encodign byte, and the bytes needed to encode the length
+ * This includes just the encoding byte, and the bytes needed to encode the length
  * of the element (excluding the element data itself)
  * If the element encoding is wrong then 0 is returned. */
 uint32_t lpCurrentEncodedSizeBytes(unsigned char *p) {
@@ -924,7 +924,7 @@ int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes) {
 #undef OUT_OF_RANGE
 }
 
-/* Validate the integrity of the data stracture.
+/* Validate the integrity of the data structure.
  * when `deep` is 0, only the integrity of the header is validated.
  * when `deep` is 1, we scan all the entries one by one. */
 int lpValidateIntegrity(unsigned char *lp, size_t size, int deep){
@@ -944,7 +944,7 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep){
     if (!deep)
         return 1;
 
-    /* Validate the invividual entries. */
+    /* Validate the individual entries. */
     uint32_t count = 0;
     unsigned char *p = lpFirst(lp);
     while(p && p[0] != LP_EOF) {
