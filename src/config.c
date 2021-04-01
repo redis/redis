@@ -1242,12 +1242,17 @@ void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *opti
         listNode *ln = listFirst(l);
         int linenum = (long) ln->value;
 
-        /* There are still lines in the old configuration file we can reuse
-         * for this option. Replace the line with the new one. */
         listDelNode(l,ln);
         if (listLength(l) == 0) dictDelete(state->option_to_line,o);
-        sdsfree(state->lines[linenum]);
-        state->lines[linenum] = line;
+        if ( strcmp(state->lines[linenum], line) == 0 ){
+            /* If it is an old option, no change. */
+            sdsfree(state->lines[linenum]);
+            state->lines[linenum] = line;
+        } else {
+            /* If it is a new option, append a new line. */
+            state->lines[linenum] = sdsnew("");
+            rewriteConfigAppendLine(state,line);
+        }
     } else {
         /* Append a new line. */
         if (!state->has_tail) {
@@ -2438,6 +2443,7 @@ standardConfig configs[] = {
     createBoolConfig("crash-memcheck-enabled", NULL, MODIFIABLE_CONFIG, server.memcheck_enabled, 1, NULL, NULL),
     createBoolConfig("use-exit-on-panic", NULL, MODIFIABLE_CONFIG, server.use_exit_on_panic, 0, NULL, NULL),
     createBoolConfig("disable-thp", NULL, MODIFIABLE_CONFIG, server.disable_thp, 1, NULL, NULL),
+    createBoolConfig("replica-announced", NULL, MODIFIABLE_CONFIG, server.replica_announced, 1, NULL, NULL),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
@@ -2495,6 +2501,7 @@ standardConfig configs[] = {
     createIntConfig("tcp-backlog", NULL, IMMUTABLE_CONFIG, 0, INT_MAX, server.tcp_backlog, 511, INTEGER_CONFIG, NULL, NULL), /* TCP listen backlog. */
     createIntConfig("cluster-announce-bus-port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.cluster_announce_bus_port, 0, INTEGER_CONFIG, NULL, NULL), /* Default: Use +10000 offset. */
     createIntConfig("cluster-announce-port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.cluster_announce_port, 0, INTEGER_CONFIG, NULL, NULL), /* Use server.port */
+    createIntConfig("cluster-announce-tls-port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.cluster_announce_tls_port, 0, INTEGER_CONFIG, NULL, NULL), /* Use server.tls_port */
     createIntConfig("repl-timeout", NULL, MODIFIABLE_CONFIG, 1, INT_MAX, server.repl_timeout, 60, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("repl-ping-replica-period", "repl-ping-slave-period", MODIFIABLE_CONFIG, 1, INT_MAX, server.repl_ping_slave_period, 10, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("list-compress-depth", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.list_compress_depth, 0, INTEGER_CONFIG, NULL, NULL),
