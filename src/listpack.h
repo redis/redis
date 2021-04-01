@@ -45,11 +45,16 @@
 #define LP_AFTER 1
 #define LP_REPLACE 2
 
+#define LP_HEAD 0
+#define LP_TAIL 1
+
 unsigned char *lpNew(size_t capacity);
+unsigned char *lpEmpty();
 void lpFree(unsigned char *lp);
 unsigned char* lpShrinkToFit(unsigned char *lp);
 unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, unsigned char *p, int where, unsigned char **newp);
 unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size);
+unsigned char *lpPush(unsigned char *lp, unsigned char *ele, uint32_t size, int where);
 unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **newp);
 uint32_t lpLength(unsigned char *lp);
 unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf);
@@ -61,5 +66,12 @@ uint32_t lpBytes(unsigned char *lp);
 unsigned char *lpSeek(unsigned char *lp, long index);
 int lpValidateIntegrity(unsigned char *lp, size_t size, int deep);
 int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes);
+unsigned char *lpMerge(unsigned char **first, unsigned char **second);
+unsigned char *lpDeleteRange(unsigned char *zl, long index, unsigned int num);
+unsigned int lpCompare(unsigned char *p, unsigned char *s, unsigned int slen);
+
+#ifdef REDIS_TEST
+int listpackTest(int argc, char *argv[], int accurate);
+#endif
 
 #endif

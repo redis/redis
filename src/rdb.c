@@ -1541,7 +1541,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
         /* Read list value */
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
 
-        o = createQuicklistObject();
+        o = createQuicklistObject(&quicklistContainerTypeZiplist);
         quicklistSetOptions(o->ptr, server.list_max_ziplist_size,
                             server.list_compress_depth);
 
@@ -1792,7 +1792,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
         serverAssert(len == 0);
     } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST) {
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
-        o = createQuicklistObject();
+        o = createQuicklistObject(&quicklistContainerTypeZiplist);
         quicklistSetOptions(o->ptr, server.list_max_ziplist_size,
                             server.list_compress_depth);
 

@@ -232,6 +232,11 @@ unsigned char *lpNew(size_t capacity) {
     return lp;
 }
 
+/* Create an empty listpack. */
+unsigned char *lpEmpty() {
+    return lpNew(0);
+}
+
 /* Free the specified listpack. */
 void lpFree(unsigned char *lp) {
     lp_free(lp);
@@ -799,6 +804,17 @@ unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size) {
     return lpInsert(lp,ele,size,eofptr,LP_BEFORE,NULL);
 }
 
+unsigned char *lpPush(unsigned char *lp, unsigned char *ele, uint32_t size, int where) {
+    unsigned char *p;
+    uint64_t listpack_bytes = lpGetTotalBytes(lp);
+    if (lpGetNumElements(lp) == 0) {
+        p = lp + listpack_bytes - 1;
+    } else {
+        p = (where == LP_HEAD) ? (lp + LP_HDR_SIZE) : (lp + listpack_bytes - 1);
+    }
+    return lpInsert(lp,ele,size,p,LP_BEFORE,NULL);
+}
+
 /* Remove the element pointed by 'p', and return the resulting listpack.
  * If 'newp' is not NULL, the next element pointer (to the right of the
  * deleted one) is returned by reference. If the deleted element was the
@@ -944,3 +960,259 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep){
 
     return 1;
 }
+
+unsigned char *lpMerge(unsigned char **first, unsigned char **second) {
+    /* If any params are null, we can't merge, so NULL. */
+    if (first == NULL || *first == NULL || second == NULL || *second == NULL)
+        return NULL;
+
+    /* Can't merge same list into itself. */
+    if (*first == *second)
+        return NULL;
+
+    uint32_t first_bytes = lpBytes(*first);
+    uint32_t first_len = lpLength(*first);
+
+    uint32_t second_bytes = lpBytes(*second);
+    uint32_t second_len = lpLength(*second);
+
+    int append;
+    unsigned char *source, *target;
+    uint32_t target_bytes, source_bytes;
+    /* Pick the largest ziplist so we can resize easily in-place.
+     * We must also track if we are now appending or prepending to
+     * the target ziplist. */
+    if (first_len >= second_len) {
+        /* retain first, append second to first. */
+        target = *first;
+        target_bytes = first_bytes;
+        source = *second;
+        source_bytes = second_bytes;
+        append = 1;
+    } else {
+        /* else, retain second, prepend first to second. */
+        target = *second;
+        target_bytes = second_bytes;
+        source = *first;
+        source_bytes = first_bytes;
+        append = 0;
+    }
+
+    /* Calculate final bytes (subtract one pair of metadata) */
+    uint32_t lpbytes = first_bytes + second_bytes -
+                     LP_HDR_SIZE - 1;
+    uint32_t lplength = first_len + second_len;
+
+    /* Extend target to new zlbytes then append or prepend source. */
+    target = zrealloc(target, lpbytes);
+    if (append) {
+        /* append == appending to target */
+        /* Copy source after target (copying over original [END]):
+         *   [TARGET - END, SOURCE - HEADER] */
+        memcpy(target + target_bytes - 1,
+               source + LP_HDR_SIZE,
+               source_bytes - LP_HDR_SIZE);
+    } else {
+        /* !append == prepending to target */
+        /* Move target *contents* exactly size of (source - [END]),
+         * then copy source into vacated space (source - [END]):
+         *   [SOURCE - END, TARGET - HEADER] */
+        memmove(target + source_bytes - 1,
+                target + LP_HDR_SIZE,
+                target_bytes - LP_HDR_SIZE);
+        memcpy(target, source, source_bytes - 1);
+    }
+
+    lpSetTotalBytes(target, lpbytes);
+    lpSetNumElements(target, lplength);
+
+    /* Now free and NULL out what we didn't realloc */
+    if (append) {
+        zfree(*second);
+        *second = NULL;
+        *first = target;
+    } else {
+        zfree(*first);
+        *first = NULL;
+        *second = target;
+    }
+
+    return target;
+}
+
+unsigned char *lpDeleteRange(unsigned char *zl, long index, unsigned int num) {
+    unsigned int i = 0;
+
+    unsigned char *p = lpSeek(zl,index);
+    if (p == NULL) return zl;
+
+    for (i = 0; p != NULL && i < num; i++) {
+        zl = lpDelete(zl, p, &p);
+    }
+
+    return zl;
+}
+
+unsigned int lpCompare(unsigned char *p, unsigned char *s, unsigned int slen) {
+    unsigned char buf[LP_INTBUF_SIZE];
+    unsigned char *value;
+    int64_t sz;
+    if (p[0] == LP_EOF) return 0;
+
+    value = lpGet(p, &sz, buf);
+    if (slen != sz) return 0;
+    return memcmp(value,s,slen) == 0;
+}
+
+#ifdef REDIS_TEST
+
+#define UNUSED(x) (void)(x)
+
+#define TEST(name) printf("test — %s\n", name);
+
+#define yell(str, ...) printf("ERROR! " str "\n\n", __VA_ARGS__)
+
+int listpackTest(int argc, char *argv[], int accurate) {
+    UNUSED(argc);
+    UNUSED(argv);
+    UNUSED(accurate);
+
+    TEST("create listpack") {
+        unsigned char *lp = lpNew(100);
+        assert(lpLength(lp) == 0);
+        assert(lpBytes(lp) == (uint32_t)(LP_HDR_SIZE + 1));
+        lpFree(lp);
+    }
+
+    TEST("create empty listpack") {
+        unsigned char *lp = lpEmpty();
+        assert(lpLength(lp) == 0);
+        assert(lpBytes(lp) == (uint32_t)(LP_HDR_SIZE + 1));
+        lpFree(lp);
+    }
+
+    TEST("shrink listpack to fit") {
+        size_t sz;
+        unsigned char *lp;
+
+        /* Shrink a empty listpack */
+        lp = lpEmpty();
+        sz = lp_malloc_size(lp);
+        lp = lpShrinkToFit(lp);
+        assert(lp_malloc_size(lp) == sz);
+        lpFree(lp);
+        
+        /* Shrink a not empty listpack */
+        lp = lpNew(100);
+        sz = lp_malloc_size(lp);
+        lp = lpShrinkToFit(lp);
+        assert(lp_malloc_size(lp) != sz);
+        lpFree(lp);
+    }
+
+    TEST("add 500 elements to head of listpack") {
+        unsigned char *p;
+        unsigned char *lp = lpEmpty();
+        for (int i = 0; i < 500; i++) {
+            lp = lpPush(lp, (unsigned char*)"abc", 3, LP_HEAD);
+            p = lpFirst(lp);
+            assert(LP_ENCODING_IS_6BIT_STR(p[0]));
+            assert(lpBytes(lp) == (uint32_t)(LP_HDR_SIZE + (i + 1) * 5 + 1));
+            assert(lpLength(lp) == (uint32_t)(i + 1));
+        }
+        lpFree(lp);
+    }
+
+    TEST("add 500 elements to tail of listpack") {
+        unsigned char *p;
+        unsigned char *lp = lpEmpty();
+        for (int i = 0; i < 500; i++) {
+            lp = lpPush(lp, (unsigned char*)"abc", 3, LP_TAIL);
+            p = lpLast(lp);
+            assert(LP_ENCODING_IS_6BIT_STR(p[0]));
+            assert(lpBytes(lp) == (uint32_t)(LP_HDR_SIZE + (i + 1) * 5 + 1));
+            assert(lpLength(lp) == (uint32_t)(i + 1));
+        }
+        lpFree(lp);
+    }
+
+    TEST("delete elements from listpack") {
+        unsigned char *p;
+        unsigned char *lp1 = lpEmpty();
+        unsigned char *lp2 = lpEmpty();
+        unsigned char *lp3 = lpEmpty();
+
+        for (int i = 0; i < 500; i++) {
+            lp1 = lpPush(lp1, (unsigned char*)"abc", 3, LP_TAIL);
+            lp2 = lpPush(lp2, (unsigned char*)"abc", 3, LP_TAIL);
+            lp3 = lpPush(lp3, (unsigned char*)"abc", 3, LP_TAIL);
+        }
+
+        /* Use return ref of lpDelete to loop delete */
+        p = lpFirst(lp1);
+        while (p) {
+            lp1 = lpDelete(lp1, p, &p);
+        }
+        assert(lpLength(lp1) == 0);
+
+        /* Use lpFirst to loop delete */
+        while ((p = lpFirst(lp2))) {
+            lp2 = lpDelete(lp2, p, NULL);
+        }
+        assert(lpLength(lp2) == 0);
+
+        /* Use lpTail to loop delete */
+        while ((p = lpLast(lp3))) {
+            lp3 = lpDelete(lp3, p, NULL);
+        }
+        assert(lpLength(lp3) == 0);
+
+        lpFree(lp1);
+        lpFree(lp2);
+        lpFree(lp3);
+    }
+
+    TEST("merge two listpack") {
+        unsigned char *lp;
+        unsigned char *lp1 = lpEmpty();
+        unsigned char *lp2 = lpEmpty();
+
+        lp1 = lpPush(lp1, (unsigned char*)"abc", 3, LP_TAIL);
+        lp1 = lpPush(lp1, (unsigned char*)"def", 3, LP_TAIL);
+        lp2 = lpPush(lp2, (unsigned char*)"bob", 3, LP_TAIL);
+        lp2 = lpPush(lp2, (unsigned char*)"foo", 3, LP_TAIL);
+
+        lp = lpMerge(&lp1, &lp2);
+        assert(lpCompare(lpSeek(lp, 1), (unsigned char*)"def", 3) == 1);
+        assert(lpCompare(lpSeek(lp, 2), (unsigned char*)"bob", 3) == 1);
+
+        lpFree(lp);
+    }
+
+    TEST("delete range") {
+        unsigned char *lp = lpEmpty();
+
+        lp = lpPush(lp, (unsigned char*)"abc", 3, LP_TAIL);
+        lp = lpPush(lp, (unsigned char*)"def", 3, LP_TAIL);
+        lp = lpPush(lp, (unsigned char*)"bob", 3, LP_TAIL);
+        lp = lpPush(lp, (unsigned char*)"foo", 3, LP_TAIL);
+
+        lp = lpDeleteRange(lp, 4, 1);
+        assert(lpLength(lp) == 4);
+
+        lp = lpDeleteRange(lp, -5, 1);
+        assert(lpLength(lp) == 4);
+
+        lp = lpDeleteRange(lp, 0, 1);
+        assert(lpLength(lp) == 3);
+
+        lp = lpDeleteRange(lp, -3, 3);
+        assert(lpLength(lp) == 0);
+
+        lpFree(lp);
+    }
+
+    return 0;
+}
+
+#endif

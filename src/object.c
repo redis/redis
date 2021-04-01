@@ -211,8 +211,8 @@ robj *dupStringObject(const robj *o) {
     }
 }
 
-robj *createQuicklistObject(void) {
-    quicklist *l = quicklistCreate();
+robj *createQuicklistObject(quicklistContainerType *type) {
+    quicklist *l = quicklistCreate(type);
     robj *o = createObject(OBJ_LIST,l);
     o->encoding = OBJ_ENCODING_QUICKLIST;
     return o;

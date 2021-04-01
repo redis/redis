@@ -58,7 +58,7 @@ void *listPopSaver(unsigned char *data, unsigned int sz) {
 }
 
 robj *listTypePop(robj *subject, int where) {
-    long long vlong;
+    int64_t vlong;
     robj *value = NULL;
 
     int ql_where = where == LIST_HEAD ? QUICKLIST_HEAD : QUICKLIST_TAIL;
@@ -163,7 +163,7 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
 int listTypeEqual(listTypeEntry *entry, robj *o) {
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
         serverAssertWithInfo(NULL,o,sdsEncodedObject(o));
-        return quicklistCompare(entry->entry.zi,o->ptr,sdslen(o->ptr));
+        return quicklistCompare(entry->entry.quicklist,entry->entry.zi,o->ptr,sdslen(o->ptr));
     } else {
         serverPanic("Unknown list encoding");
     }
@@ -232,7 +232,7 @@ void pushGenericCommand(client *c, int where, int xx) {
             return;
         }
 
-        lobj = createQuicklistObject();
+        lobj = createQuicklistObject(&quicklistContainerTypeZiplist);
         quicklistSetOptions(lobj->ptr, server.list_max_ziplist_size,
                             server.list_compress_depth);
         dbAdd(c->db,c->argv[1],lobj);
@@ -719,7 +719,7 @@ void lmoveHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value,
                      int where) {
     /* Create the list if the key does not exist */
     if (!dstobj) {
-        dstobj = createQuicklistObject();
+        dstobj = createQuicklistObject(&quicklistContainerTypeZiplist);
         quicklistSetOptions(dstobj->ptr, server.list_max_ziplist_size,
                             server.list_compress_depth);
         dbAdd(c->db,dstkey,dstobj);

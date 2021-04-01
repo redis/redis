@@ -516,7 +516,7 @@ int moduleCreateEmptyKey(RedisModuleKey *key, int type) {
 
     switch(type) {
     case REDISMODULE_KEYTYPE_LIST:
-        obj = createQuicklistObject();
+        obj = createQuicklistObject(&quicklistContainerTypeZiplist);
         quicklistSetOptions(obj->ptr, server.list_max_ziplist_size,
                             server.list_compress_depth);
         break;

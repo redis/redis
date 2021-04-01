@@ -94,7 +94,26 @@ typedef struct quicklistBookmark {
 #   error unknown arch bits count
 #endif
 
-/* quicklist is a 40 byte struct (on 64-bit systems) describing a quicklist.
+typedef struct quicklistContainerType {
+    unsigned int container : 2;  /* ZIPLIST==2, LISTPACK=3 */
+    unsigned char *(*listNew)();
+    void (*listFree)(void *l);
+    unsigned char *(*listPush)(unsigned char *l, unsigned char *ele, uint32_t size, int where);
+    void (*listInsert)(quicklistNode *node, unsigned char *s, uint32_t slen, unsigned char *p, int where);
+    unsigned int (*listGet)(unsigned char *p, unsigned char **sval, unsigned int *slen, long long *lval);
+    unsigned char *(*listDelete)(unsigned char *l, unsigned char *p, unsigned char **newp);
+    unsigned char *(*listDeleteRange)(unsigned char *zl, int index, unsigned int num);
+    unsigned char *(*listMerge)(unsigned char **first, unsigned char **second);
+    uint32_t (*listLength)(unsigned char *l);
+    uint32_t (*listBytes)(unsigned char *l);
+    unsigned char *(*listNext)(unsigned char *l, unsigned char *p);
+    unsigned char *(*listPrev)(unsigned char *l, unsigned char *p);
+    unsigned char *(*listSeek)(unsigned char *l, long index);
+    unsigned int (*listCompare)(unsigned char *l, unsigned char *s, unsigned int slen);
+    void *(*listConvertIfNeed)(unsigned char *l, unsigned char *s, unsigned int slen);
+} quicklistContainerType;
+
+/* quicklist is a 48 byte struct (on 64-bit systems) describing a quicklist.
  * 'count' is the number of total entries.
  * 'len' is the number of quicklist nodes.
  * 'compress' is: 0 if compression disabled, otherwise it's the number
@@ -103,6 +122,7 @@ typedef struct quicklistBookmark {
  * 'bookmakrs are an optional feature that is used by realloc this struct,
  *      so that they don't consume memory when not used. */
 typedef struct quicklist {
+    quicklistContainerType *type;
     quicklistNode *head;
     quicklistNode *tail;
     unsigned long count;        /* total count of all entries in all ziplists */
@@ -134,6 +154,11 @@ typedef struct quicklistEntry {
 #define QUICKLIST_HEAD 0
 #define QUICKLIST_TAIL -1
 
+/* listInsert() where argument possible values */
+#define QUICKLIST_BEFORE 0
+#define QUICKLIST_AFTER 1
+#define QUICKLIST_REPLACE 2
+
 /* quicklist node encodings */
 #define QUICKLIST_NODE_ENCODING_RAW 1
 #define QUICKLIST_NODE_ENCODING_LZF 2
@@ -144,13 +169,14 @@ typedef struct quicklistEntry {
 /* quicklist container formats */
 #define QUICKLIST_NODE_CONTAINER_NONE 1
 #define QUICKLIST_NODE_CONTAINER_ZIPLIST 2
+#define QUICKLIST_NODE_CONTAINER_LISTPACK 3
 
 #define quicklistNodeIsCompressed(node)                                        \
     ((node)->encoding == QUICKLIST_NODE_ENCODING_LZF)
 
 /* Prototypes */
-quicklist *quicklistCreate(void);
-quicklist *quicklistNew(int fill, int compress);
+quicklist *quicklistCreate(quicklistContainerType *type);
+quicklist *quicklistNew(quicklistContainerType *type, int fill, int compress);
 void quicklistSetCompressDepth(quicklist *quicklist, int depth);
 void quicklistSetFill(quicklist *quicklist, int fill);
 void quicklistSetOptions(quicklist *quicklist, int fill, int depth);
@@ -163,6 +189,9 @@ void quicklistAppendZiplist(quicklist *quicklist, unsigned char *zl);
 quicklist *quicklistAppendValuesFromZiplist(quicklist *quicklist,
                                             unsigned char *zl);
 quicklist *quicklistCreateFromZiplist(int fill, int compress,
+                                      unsigned char *zl);
+void quicklistAppendListpack(quicklist *quicklist, unsigned char *zl);
+quicklist *quicklistCreateFromListpack(int fill, int compress,
                                       unsigned char *zl);
 void quicklistInsertAfter(quicklist *quicklist, quicklistEntry *node,
                           void *value, const size_t sz);
@@ -184,12 +213,12 @@ void quicklistRewind(quicklist *quicklist, quicklistIter *li);
 void quicklistRewindTail(quicklist *quicklist, quicklistIter *li);
 void quicklistRotate(quicklist *quicklist);
 int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
-                       unsigned int *sz, long long *sval,
+                       unsigned int *sz, int64_t *sval,
                        void *(*saver)(unsigned char *data, unsigned int sz));
 int quicklistPop(quicklist *quicklist, int where, unsigned char **data,
                  unsigned int *sz, long long *slong);
 unsigned long quicklistCount(const quicklist *ql);
-int quicklistCompare(unsigned char *p1, unsigned char *p2, int p2_len);
+int quicklistCompare(const quicklist *quicklist, unsigned char *p1, unsigned char *p2, int p2_len);
 size_t quicklistGetLzf(const quicklistNode *node, void **data);
 
 /* bookmarks */
@@ -197,6 +226,10 @@ int quicklistBookmarkCreate(quicklist **ql_ref, const char *name, quicklistNode 
 int quicklistBookmarkDelete(quicklist *ql, const char *name);
 quicklistNode *quicklistBookmarkFind(quicklist *ql, const char *name);
 void quicklistBookmarksClear(quicklist *ql);
+
+/* Hash table types */
+extern quicklistContainerType quicklistContainerTypeZiplist;
+extern quicklistContainerType quicklistContainerTypeListpack;
 
 #ifdef REDIS_TEST
 int quicklistTest(int argc, char *argv[], int accurate);
