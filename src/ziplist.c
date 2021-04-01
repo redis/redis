@@ -708,6 +708,11 @@ unsigned char *ziplistNew(void) {
     return zl;
 }
 
+/* Free the specified ziplist. */
+void ziplistFree(unsigned char *zl) {
+    zfree(zl);
+}
+
 /* Resize the ziplist. */
 unsigned char *ziplistResize(unsigned char *zl, unsigned int len) {
     zl = zrealloc(zl,len);

@@ -1588,7 +1588,7 @@ uint32_t quicklistZiplistBytes(unsigned char *l) {
     return ziplistBlobLen(l);
 }
 
-unsigned char *quicklistZiplistSeek(unsigned char *l, long index) {
+unsigned char *quicklistZiplistSeek(unsigned char *l, int index) {
     return ziplistIndex(l, index);
 }
 
@@ -1643,6 +1643,7 @@ void quicklistLpConvert(quicklistNode *node) {
 
         node->zl = lp;
         node->container = QUICKLIST_NODE_CONTAINER_LISTPACK;
+        node->count = ziplistLen(node->zl);
         node->sz = ziplistBlobLen(node->zl);
     } else {
         panic("Unknown quicklist node container");
@@ -1652,7 +1653,7 @@ void quicklistLpConvert(quicklistNode *node) {
 quicklistContainerType quicklistContainerTypeZiplist = {
     QUICKLIST_NODE_CONTAINER_ZIPLIST,
     ziplistNew,
-    zfree,
+    ziplistFree,
     ziplistPush,
     quicklistZiplistInsert,
     ziplistGet,
@@ -1671,12 +1672,12 @@ quicklistContainerType quicklistContainerTypeZiplist = {
 quicklistContainerType quicklistContainerTypeListpack = {
     QUICKLIST_NODE_CONTAINER_LISTPACK,
     lpEmpty,
-    (void (*)(void*))lpFree,
+    lpFree,
     lpPush,
     quicklistLpInsert,
     quicklistLpGet,
     lpDelete,
-    (unsigned char *(*)(unsigned char *,int,unsigned int))lpDeleteRange,
+    lpDeleteRange,
     lpMerge,
     lpLength,
     lpBytes,

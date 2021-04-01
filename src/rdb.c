@@ -1541,7 +1541,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
         /* Read list value */
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
 
-        o = createQuicklistObject(&quicklistContainerTypeZiplist);
+        o = createQuicklistObject(&quicklistContainerTypeListpack);
         quicklistSetOptions(o->ptr, server.list_max_ziplist_size,
                             server.list_compress_depth);
 
@@ -1792,26 +1792,29 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
         serverAssert(len == 0);
     } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST) {
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
-        o = createQuicklistObject(&quicklistContainerTypeZiplist);
+        o = createQuicklistObject(&quicklistContainerTypeListpack);
         quicklistSetOptions(o->ptr, server.list_max_ziplist_size,
                             server.list_compress_depth);
 
         while (len--) {
             size_t encoded_len;
-            unsigned char *zl =
+            unsigned char *list =
                 rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,&encoded_len);
-            if (zl == NULL) {
+            if (list == NULL) {
                 decrRefCount(o);
                 return NULL;
             }
             if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-            if (!ziplistValidateIntegrity(zl, encoded_len, deep_integrity_validation, NULL, NULL)) {
+            if (ziplistValidateIntegrity(list, encoded_len, deep_integrity_validation, NULL, NULL)) {
+                quicklistAppendZiplist(o->ptr, list);
+            } else if (lpValidateIntegrity(list, encoded_len, deep_integrity_validation)) {
+                quicklistAppendListpack(o->ptr, list);
+            } else {
                 rdbReportCorruptRDB("Ziplist integrity check failed.");
                 decrRefCount(o);
-                zfree(zl);
+                zfree(list);
                 return NULL;
             }
-            quicklistAppendZiplist(o->ptr, zl);
         }
     } else if (rdbtype == RDB_TYPE_HASH_ZIPMAP  ||
                rdbtype == RDB_TYPE_LIST_ZIPLIST ||

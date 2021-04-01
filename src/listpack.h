@@ -63,11 +63,11 @@ unsigned char *lpLast(unsigned char *lp);
 unsigned char *lpNext(unsigned char *lp, unsigned char *p);
 unsigned char *lpPrev(unsigned char *lp, unsigned char *p);
 uint32_t lpBytes(unsigned char *lp);
-unsigned char *lpSeek(unsigned char *lp, long index);
+unsigned char *lpSeek(unsigned char *lp, int index);
 int lpValidateIntegrity(unsigned char *lp, size_t size, int deep);
 int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes);
 unsigned char *lpMerge(unsigned char **first, unsigned char **second);
-unsigned char *lpDeleteRange(unsigned char *zl, long index, unsigned int num);
+unsigned char *lpDeleteRange(unsigned char *zl, int index, unsigned int num);
 unsigned int lpCompare(unsigned char *p, unsigned char *s, unsigned int slen);
 
 #ifdef REDIS_TEST

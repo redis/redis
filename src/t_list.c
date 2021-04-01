@@ -232,7 +232,7 @@ void pushGenericCommand(client *c, int where, int xx) {
             return;
         }
 
-        lobj = createQuicklistObject(&quicklistContainerTypeZiplist);
+        lobj = createQuicklistObject(&quicklistContainerTypeListpack);
         quicklistSetOptions(lobj->ptr, server.list_max_ziplist_size,
                             server.list_compress_depth);
         dbAdd(c->db,c->argv[1],lobj);
@@ -719,7 +719,7 @@ void lmoveHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value,
                      int where) {
     /* Create the list if the key does not exist */
     if (!dstobj) {
-        dstobj = createQuicklistObject(&quicklistContainerTypeZiplist);
+        dstobj = createQuicklistObject(&quicklistContainerTypeListpack);
         quicklistSetOptions(dstobj->ptr, server.list_max_ziplist_size,
                             server.list_compress_depth);
         dbAdd(c->db,dstkey,dstobj);

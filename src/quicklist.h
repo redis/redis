@@ -97,7 +97,7 @@ typedef struct quicklistBookmark {
 typedef struct quicklistContainerType {
     unsigned int container : 2;  /* ZIPLIST==2, LISTPACK=3 */
     unsigned char *(*listNew)();
-    void (*listFree)(void *l);
+    void (*listFree)(unsigned char *l);
     unsigned char *(*listPush)(unsigned char *l, unsigned char *ele, uint32_t size, int where);
     unsigned char *(*listInsert)(unsigned char *l, unsigned char *s, uint32_t slen, unsigned char *p, int where);
     unsigned int (*listGet)(unsigned char *p, unsigned char **sval, unsigned int *slen, long long *lval);
@@ -108,7 +108,7 @@ typedef struct quicklistContainerType {
     uint32_t (*listBytes)(unsigned char *l);
     unsigned char *(*listNext)(unsigned char *l, unsigned char *p);
     unsigned char *(*listPrev)(unsigned char *l, unsigned char *p);
-    unsigned char *(*listSeek)(unsigned char *l, long index);
+    unsigned char *(*listSeek)(unsigned char *l, int index);
     unsigned int (*listCompare)(unsigned char *l, unsigned char *s, unsigned int slen);
     void (*listConvertIfNeed)(quicklistNode *node);
 } quicklistContainerType;
