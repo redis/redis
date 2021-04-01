@@ -2655,6 +2655,7 @@ void initServerConfig(void) {
     server.aof_rewrite_scheduled = 0;
     server.aof_flush_sleep = 0;
     server.aof_last_fsync = time(NULL);
+    atomicSet(server.aof_bio_fsync_status,C_OK);
     server.aof_rewrite_time_last = -1;
     server.aof_rewrite_time_start = -1;
     server.aof_lastbgrewrite_status = C_OK;
@@ -4322,7 +4323,10 @@ int prepareForShutdown(int flags) {
         /* Append only file: flush buffers and fsync() the AOF at exit */
         serverLog(LL_NOTICE,"Calling fsync() on the AOF file.");
         flushAppendOnlyFile(1);
-        redis_fsync(server.aof_fd);
+        if (redis_fsync(server.aof_fd) == -1) {
+            serverLog(LL_WARNING,"Fail to fsync the AOF file: %s.",
+                                 strerror(errno));
+        }
     }
 
     /* Create a new RDB file before exiting. */
@@ -4385,13 +4389,17 @@ int writeCommandsDeniedByDiskError(void) {
         server.lastbgsave_status == C_ERR)
     {
         return DISK_ERROR_TYPE_RDB;
-    } else if (server.aof_state != AOF_OFF &&
-               server.aof_last_write_status == C_ERR)
-    {
-        return DISK_ERROR_TYPE_AOF;
-    } else {
-        return DISK_ERROR_TYPE_NONE;
+    } else if (server.aof_state != AOF_OFF) {
+        int aof_bio_fsync_status;
+        atomicGet(server.aof_bio_fsync_status,aof_bio_fsync_status);
+        if (server.aof_last_write_status == C_ERR ||
+            aof_bio_fsync_status == C_ERR)
+        {
+            return DISK_ERROR_TYPE_AOF;
+        }
     }
+
+    return DISK_ERROR_TYPE_NONE;
 }
 
 /* The PING command. It works in a different way if the client is in
@@ -4851,7 +4859,9 @@ sds genRedisInfoString(const char *section) {
         } else if (server.stat_current_save_keys_total) {
             fork_perc = ((double)server.stat_current_save_keys_processed / server.stat_current_save_keys_total) * 100;
         }
-  
+        int aof_bio_fsync_status;
+        atomicGet(server.aof_bio_fsync_status,aof_bio_fsync_status);
+
         info = sdscatprintf(info,
             "# Persistence\r\n"
             "loading:%d\r\n"
@@ -4898,7 +4908,8 @@ sds genRedisInfoString(const char *section) {
             (intmax_t)((server.child_type != CHILD_TYPE_AOF) ?
                 -1 : time(NULL)-server.aof_rewrite_time_start),
             (server.aof_lastbgrewrite_status == C_OK) ? "ok" : "err",
-            (server.aof_last_write_status == C_OK) ? "ok" : "err",
+            (server.aof_last_write_status == C_OK &&
+                aof_bio_fsync_status == C_OK) ? "ok" : "err",
             server.stat_aof_cow_bytes,
             server.child_type == CHILD_TYPE_MODULE,
             server.stat_module_cow_bytes);

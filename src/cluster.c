@@ -358,7 +358,7 @@ int clusterSaveConfig(int do_fsync) {
     if (write(fd,ci,sdslen(ci)) != (ssize_t)sdslen(ci)) goto err;
     if (do_fsync) {
         server.cluster->todo_before_sleep &= ~CLUSTER_TODO_FSYNC_CONFIG;
-        fsync(fd);
+        if (fsync(fd) == -1) goto err;
     }
 
     /* Truncate the file if needed to remove the final \n padding that

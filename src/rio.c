@@ -117,7 +117,7 @@ static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
         r->io.file.buffered >= r->io.file.autosync)
     {
         fflush(r->io.file.fp);
-        redis_fsync(fileno(r->io.file.fp));
+        if (redis_fsync(fileno(r->io.file.fp)) == -1) return 0;
         r->io.file.buffered = 0;
     }
     return retval;

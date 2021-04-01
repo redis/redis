@@ -7202,7 +7202,10 @@ static void getRDB(clusterManagerNode *node) {
     redisFree(s); /* Close the connection ASAP as fsync() may take time. */
     if (node)
         node->context = NULL;
-    fsync(fd);
+    if (fsync(fd) == -1) {
+        fprintf(stderr,"Fail to fsync '%s': %s\n", filename, strerror(errno));
+        exit(1);
+    }
     close(fd);
     if (node) {
         sdsfree(filename);
