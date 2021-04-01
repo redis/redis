@@ -388,9 +388,8 @@ unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec *range, dict *dic
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
-        while (x->level[i].forward && (range->minex ?
-            x->level[i].forward->score <= range->min :
-            x->level[i].forward->score < range->min))
+        while (x->level[i].forward &&
+            !zslValueGteMin(x->level[i].forward->score, range))
                 x = x->level[i].forward;
         update[i] = x;
     }
@@ -399,9 +398,7 @@ unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec *range, dict *dic
     x = x->level[0].forward;
 
     /* Delete nodes while in range. */
-    while (x &&
-           (range->maxex ? x->score < range->max : x->score <= range->max))
-    {
+    while (x && zslValueLteMax(x->score, range)) {
         zskiplistNode *next = x->level[0].forward;
         zslDeleteNode(zsl,x,update);
         dictDelete(dict,x->ele);
