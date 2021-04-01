@@ -549,14 +549,12 @@ void initSentinel(void) {
     server.sentinel_config = NULL;
 }
 
-/* This function gets called when the server is in Sentinel mode, started,
- * loaded the configuration, and is ready for normal operations. */
-void sentinelIsRunning(void) {
-    int j;
-
+/* This function is for checking whether sentinel config file has been set,
+ * also checking whether we have write permissions. */
+void sentinelCheckConfigFile(void) {
     if (server.configfile == NULL) {
         serverLog(LL_WARNING,
-            "Sentinel started without a config file. Exiting...");
+            "Sentinel needs config file on disk to save state. Exiting...");
         exit(1);
     } else if (access(server.configfile,W_OK) == -1) {
         serverLog(LL_WARNING,
@@ -564,6 +562,12 @@ void sentinelIsRunning(void) {
             server.configfile,strerror(errno));
         exit(1);
     }
+}
+
+/* This function gets called when the server is in Sentinel mode, started,
+ * loaded the configuration, and is ready for normal operations. */
+void sentinelIsRunning(void) {
+    int j;
 
     /* If this Sentinel has yet no ID set in the configuration file, we
      * pick a random one and persist the config on disk. From now on this

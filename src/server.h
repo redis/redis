@@ -2404,6 +2404,7 @@ const char *sentinelHandleConfiguration(char **argv, int argc);
 void queueSentinelConfig(sds *argv, int argc, int linenum, sds line);
 void loadSentinelConfigFromQueue(void);
 void sentinelIsRunning(void);
+void sentinelCheckConfigFile(void);
 
 /* redis-check-rdb & aof */
 int redis_check_rdb(char *rdbfilename, FILE *fp);

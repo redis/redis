@@ -6247,7 +6247,6 @@ int main(int argc, char **argv) {
             server.exec_argv[1] = zstrdup(server.configfile);
             j = 2; // Skip this arg when parsing options
         }
-
         while(j < argc) {
             /* Either first or last argument - Should we read config from stdin? */
             if (argv[j][0] == '-' && argv[j][1] == '\0' && (j == 1 || j == argc-1)) {
@@ -6270,16 +6269,11 @@ int main(int argc, char **argv) {
             j++;
         }
 
-        if (server.sentinel_mode && ! server.configfile) {
-            serverLog(LL_WARNING,
-                "Sentinel needs config file on disk to save state.  Exiting...");
-            exit(1);
-        }
         loadServerConfig(server.configfile, config_from_stdin, options);
         if (server.sentinel_mode) loadSentinelConfigFromQueue();
         sdsfree(options);
     }
-
+    if (server.sentinel_mode) sentinelCheckConfigFile();
     server.supervised = redisIsSupervised(server.supervised_mode);
     int background = server.daemonize && !server.supervised;
     if (background) daemonize();
