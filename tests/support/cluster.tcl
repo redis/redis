@@ -4,7 +4,7 @@
 #
 # Example usage:
 #
-# set c [redis_cluster 127.0.0.1 6379 127.0.0.1 6380]
+# set c [redis_cluster {127.0.0.1:6379 127.0.0.1:6380}]
 # $c set foo
 # $c get foo
 # $c close
@@ -17,6 +17,7 @@ set ::redis_cluster::id 0
 array set ::redis_cluster::startup_nodes {}
 array set ::redis_cluster::nodes {}
 array set ::redis_cluster::slots {}
+array set ::redis_cluster::tls {}
 
 # List of "plain" commands, which are commands where the sole key is always
 # the first argument.
@@ -34,11 +35,14 @@ set ::redis_cluster::plain_commands {
     dump bitcount bitpos pfadd pfcount
 }
 
-proc redis_cluster {nodes} {
+# Create a cluster client. The nodes are given as a list of host:port. The TLS
+# parameter (1 or 0) is optional and defaults to the global $::tls.
+proc redis_cluster {nodes {tls -1}} {
     set id [incr ::redis_cluster::id]
     set ::redis_cluster::startup_nodes($id) $nodes
     set ::redis_cluster::nodes($id) {}
     set ::redis_cluster::slots($id) {}
+    set ::redis_cluster::tls($id) [expr $tls == -1 ? $::tls : $tls]
     set handle [interp alias {} ::redis_cluster::instance$id {} ::redis_cluster::__dispatch__ $id]
     $handle refresh_nodes_map
     return $handle
@@ -60,9 +64,10 @@ proc ::redis_cluster::__method__refresh_nodes_map {id} {
     foreach start_node $::redis_cluster::startup_nodes($id) {
         set ip_port [lindex [split $start_node @] 0]
         lassign [split $ip_port :] start_host start_port
+        set tls $::redis_cluster::tls($id)
         if {[catch {
             set r {}
-            set r [redis $start_host $start_port 0 $::tls]
+            set r [redis $start_host $start_port 0 $tls]
             set nodes_descr [$r cluster nodes]
             $r close
         } e]} {
@@ -107,7 +112,8 @@ proc ::redis_cluster::__method__refresh_nodes_map {id} {
 
         # Connect to the node
         set link {}
-        catch {set link [redis $host $port 0 $::tls]}
+        set tls $::redis_cluster::tls($id)
+        catch {set link [redis $host $port 0 $tls]}
 
         # Build this node description as an hash.
         set node [dict create \
@@ -161,6 +167,7 @@ proc ::redis_cluster::__method__close {id} {
     catch {unset ::redis_cluster::startup_nodes($id)}
     catch {unset ::redis_cluster::nodes($id)}
     catch {unset ::redis_cluster::slots($id)}
+    catch {unset ::redis_cluster::tls($id)}
     catch {interp alias {} ::redis_cluster::instance$id {}}
 }
 
