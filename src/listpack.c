@@ -804,15 +804,16 @@ unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size) {
     return lpInsert(lp,ele,size,eofptr,LP_BEFORE,NULL);
 }
 
-unsigned char *lpPush(unsigned char *lp, unsigned char *ele, uint32_t size, int where) {
-    unsigned char *p;
+unsigned char *lpPushHead(unsigned char *lp, unsigned char *ele, uint32_t size) {
+    unsigned char *p = lpFirst(lp);
+    if (!p) return lpPushTail(lp, ele, size);
+    return lpInsert(lp, ele, size, p, LP_BEFORE, NULL);
+}
+
+unsigned char *lpPushTail(unsigned char *lp, unsigned char *ele, uint32_t size) {
     uint64_t listpack_bytes = lpGetTotalBytes(lp);
-    if (lpGetNumElements(lp) == 0) {
-        p = lp + listpack_bytes - 1;
-    } else {
-        p = (where == LP_HEAD) ? (lp + LP_HDR_SIZE) : (lp + listpack_bytes - 1);
-    }
-    return lpInsert(lp,ele,size,p,LP_BEFORE,NULL);
+    unsigned char *eofptr = lp + listpack_bytes - 1;
+    return lpInsert(lp,ele,size,eofptr,LP_BEFORE,NULL);
 }
 
 /* Remove the element pointed by 'p', and return the resulting listpack.
@@ -1114,7 +1115,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
         unsigned char *p;
         unsigned char *lp = lpEmpty();
         for (int i = 0; i < 500; i++) {
-            lp = lpPush(lp, (unsigned char*)"abc", 3, LP_HEAD);
+            lp = lpPushHead(lp, (unsigned char*)"abc", 3);
             p = lpFirst(lp);
             assert(LP_ENCODING_IS_6BIT_STR(p[0]));
             assert(lpBytes(lp) == (uint32_t)(LP_HDR_SIZE + (i + 1) * 5 + 1));
@@ -1127,7 +1128,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
         unsigned char *p;
         unsigned char *lp = lpEmpty();
         for (int i = 0; i < 500; i++) {
-            lp = lpPush(lp, (unsigned char*)"abc", 3, LP_TAIL);
+            lp = lpPushTail(lp, (unsigned char*)"abc", 3);
             p = lpLast(lp);
             assert(LP_ENCODING_IS_6BIT_STR(p[0]));
             assert(lpBytes(lp) == (uint32_t)(LP_HDR_SIZE + (i + 1) * 5 + 1));
@@ -1143,9 +1144,9 @@ int listpackTest(int argc, char *argv[], int accurate) {
         unsigned char *lp3 = lpEmpty();
 
         for (int i = 0; i < 500; i++) {
-            lp1 = lpPush(lp1, (unsigned char*)"abc", 3, LP_TAIL);
-            lp2 = lpPush(lp2, (unsigned char*)"abc", 3, LP_TAIL);
-            lp3 = lpPush(lp3, (unsigned char*)"abc", 3, LP_TAIL);
+            lp1 = lpPushTail(lp1, (unsigned char*)"abc", 3);
+            lp2 = lpPushTail(lp2, (unsigned char*)"abc", 3);
+            lp3 = lpPushTail(lp3, (unsigned char*)"abc", 3);
         }
 
         /* Use return ref of lpDelete to loop delete */
@@ -1177,10 +1178,10 @@ int listpackTest(int argc, char *argv[], int accurate) {
         unsigned char *lp1 = lpEmpty();
         unsigned char *lp2 = lpEmpty();
 
-        lp1 = lpPush(lp1, (unsigned char*)"abc", 3, LP_TAIL);
-        lp1 = lpPush(lp1, (unsigned char*)"def", 3, LP_TAIL);
-        lp2 = lpPush(lp2, (unsigned char*)"bob", 3, LP_TAIL);
-        lp2 = lpPush(lp2, (unsigned char*)"foo", 3, LP_TAIL);
+        lp1 = lpPushTail(lp1, (unsigned char*)"abc", 3);
+        lp1 = lpPushTail(lp1, (unsigned char*)"def", 3);
+        lp2 = lpPushTail(lp2, (unsigned char*)"bob", 3);
+        lp2 = lpPushTail(lp2, (unsigned char*)"foo", 3);
 
         lp = lpMerge(&lp1, &lp2);
         assert(lpCompare(lpSeek(lp, 1), (unsigned char*)"def", 3) == 1);
@@ -1192,10 +1193,10 @@ int listpackTest(int argc, char *argv[], int accurate) {
     TEST("delete range") {
         unsigned char *lp = lpEmpty();
 
-        lp = lpPush(lp, (unsigned char*)"abc", 3, LP_TAIL);
-        lp = lpPush(lp, (unsigned char*)"def", 3, LP_TAIL);
-        lp = lpPush(lp, (unsigned char*)"bob", 3, LP_TAIL);
-        lp = lpPush(lp, (unsigned char*)"foo", 3, LP_TAIL);
+        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
+        lp = lpPushTail(lp, (unsigned char*)"def", 3);
+        lp = lpPushTail(lp, (unsigned char*)"bob", 3);
+        lp = lpPushTail(lp, (unsigned char*)"foo", 3);
 
         lp = lpDeleteRange(lp, 4, 1);
         assert(lpLength(lp) == 4);
@@ -1214,7 +1215,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
 
     TEST("validate integrity") {
         unsigned char *lp = lpEmpty();
-        lp = lpPush(lp, (unsigned char*)"123", 3, LP_TAIL);
+        lp = lpPushTail(lp, (unsigned char*)"123", 3);
         assert(lpValidateIntegrity(lp, lpGetTotalBytes(lp), 1) == 1);
         lpFree(lp);
     }

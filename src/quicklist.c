@@ -494,11 +494,11 @@ int quicklistPushHead(quicklist *quicklist, void *value, size_t sz) {
     if (likely(
             _quicklistNodeAllowInsert(quicklist->head, quicklist->fill, sz))) {
         quicklist->head->zl =
-            quicklist->type->listPush(quicklist->head->zl, value, sz, QUICKLIST_HEAD);
+            quicklist->type->listPushHead(quicklist->head->zl, value, sz);
         quicklistNodeUpdateSz(quicklist, quicklist->head);
     } else {
         quicklistNode *node = quicklistCreateNode(quicklist->type->container);
-        node->zl = quicklist->type->listPush(quicklist->type->listNew(), value, sz, QUICKLIST_HEAD);
+        node->zl = quicklist->type->listPushHead(quicklist->type->listNew(), value, sz);
 
         quicklistNodeUpdateSz(quicklist, node);
         _quicklistInsertNodeBefore(quicklist, quicklist->head, node);
@@ -518,11 +518,11 @@ int quicklistPushTail(quicklist *quicklist, void *value, size_t sz) {
     if (likely(
             _quicklistNodeAllowInsert(quicklist->tail, quicklist->fill, sz))) {
         quicklist->tail->zl =
-            quicklist->type->listPush(quicklist->tail->zl, value, sz, QUICKLIST_TAIL);
+            quicklist->type->listPushTail(quicklist->tail->zl, value, sz);
         quicklistNodeUpdateSz(quicklist, quicklist->tail);
     } else {
         quicklistNode *node = quicklistCreateNode(quicklist->type->container);
-        node->zl = quicklist->type->listPush(quicklist->type->listNew(), value, sz, QUICKLIST_TAIL);
+        node->zl = quicklist->type->listPushTail(quicklist->type->listNew(), value, sz);
 
         quicklistNodeUpdateSz(quicklist, node);
         _quicklistInsertNodeAfter(quicklist, quicklist->tail, node);
@@ -735,7 +735,7 @@ int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
     quicklistEntry entry;
     if (likely(quicklistIndex(quicklist, index, &entry))) {
         /* quicklistIndex provides an uncompressed node */
-        entry.node->zl = quicklist->type->listInsert(entry.node->zl, data, sz, entry.zi, QUICKLIST_REPLACE);
+        entry.node->zl = quicklist->type->listReplace(entry.node->zl, data, sz, entry.zi);
         quicklistNodeUpdateSz(quicklist, entry.node);
         quicklistCompress(quicklist, entry.node);
         return 1;
@@ -905,7 +905,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
         /* we have no reference node, so let's create only node in the list */
         D("No node given!");
         new_node = quicklistCreateNode(quicklist->type->container);
-        new_node->zl = quicklist->type->listPush(quicklist->type->listNew(), value, sz, QUICKLIST_HEAD);
+        new_node->zl = quicklist->type->listPushHead(quicklist->type->listNew(), value, sz);
         __quicklistInsertNode(quicklist, NULL, new_node, after);
         new_node->count++;
         quicklist->count++;
@@ -941,14 +941,14 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
     if (!full && after) {
         D("Not full, inserting after current position.");
         quicklistDecompressNodeForUse(quicklist, node);
-        node->zl = quicklist->type->listInsert(node->zl, value, sz, entry->zi, QUICKLIST_AFTER);
+        node->zl = quicklist->type->listInsertAfter(node->zl, value, sz, entry->zi);
         node->count++;
         quicklistNodeUpdateSz(quicklist, node);
         quicklistRecompressOnly(quicklist, node);
     } else if (!full && !after) {
         D("Not full, inserting before current position.");
         quicklistDecompressNodeForUse(quicklist, node);
-        node->zl = quicklist->type->listInsert(node->zl, value, sz, entry->zi, QUICKLIST_BEFORE);
+        node->zl = quicklist->type->listInsertBefore(node->zl, value, sz, entry->zi);
         node->count++;
         quicklistNodeUpdateSz(quicklist, node);
         quicklistRecompressOnly(quicklist, node);
@@ -958,7 +958,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
         D("Full and tail, but next isn't full; inserting next node head");
         new_node = node->next;
         quicklistDecompressNodeForUse(quicklist, new_node);
-        new_node->zl = quicklist->type->listPush(new_node->zl, value, sz, QUICKLIST_HEAD);
+        new_node->zl = quicklist->type->listPushHead(new_node->zl, value, sz);
         new_node->count++;
         quicklistNodeUpdateSz(quicklist, new_node);
         quicklistRecompressOnly(quicklist, new_node);
@@ -968,7 +968,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
         D("Full and head, but prev isn't full, inserting prev node tail");
         new_node = node->prev;
         quicklistDecompressNodeForUse(quicklist, new_node);
-        new_node->zl = quicklist->type->listPush(new_node->zl, value, sz, QUICKLIST_TAIL);
+        new_node->zl = quicklist->type->listPushTail(new_node->zl, value, sz);
         new_node->count++;
         quicklistNodeUpdateSz(quicklist, new_node);
         quicklistRecompressOnly(quicklist, new_node);
@@ -978,7 +978,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
          *   - create new node and attach to quicklist */
         D("\tprovisioning new node...");
         new_node = quicklistCreateNode(quicklist->type->container);
-        new_node->zl = quicklist->type->listPush(quicklist->type->listNew(), value, sz, QUICKLIST_TAIL);
+        new_node->zl = quicklist->type->listPushTail(quicklist->type->listNew(), value, sz);
         new_node->count++;
         quicklistNodeUpdateSz(quicklist, new_node);
         __quicklistInsertNode(quicklist, node, new_node, after);
@@ -988,8 +988,11 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
         D("\tsplitting node...");
         quicklistDecompressNodeForUse(quicklist, node);
         new_node = _quicklistSplitNode(quicklist, node, entry->offset, after);
-        new_node->zl = quicklist->type->listPush(new_node->zl, value, sz,
-                                   after ? QUICKLIST_HEAD : QUICKLIST_TAIL);
+        if (after) {
+            new_node->zl = quicklist->type->listPushHead(new_node->zl, value, sz);
+        } else {
+            new_node->zl = quicklist->type->listPushTail(new_node->zl, value, sz);
+        }
         new_node->count++;
         quicklistNodeUpdateSz(quicklist, new_node);
         __quicklistInsertNode(quicklist, node, new_node, after);
@@ -1561,54 +1564,46 @@ void quicklistBookmarksClear(quicklist *ql) {
      * function is just before releasing the allocation. */
 }
 
-unsigned char *quicklistZiplistInsert(unsigned char *l, unsigned char *s, uint32_t slen, unsigned char *p, int where) {
-    if (where == QUICKLIST_AFTER) {
-        unsigned char *next = ziplistNext(l, p);
-        if (next == NULL) {
-            return ziplistPush(l, s, slen, ZIPLIST_TAIL);
-        } else {
-            return ziplistInsert(l, next, s, slen);
-        }
-    } else if (where == QUICKLIST_BEFORE) {
-        return ziplistInsert(l, p, s, slen);
-    } else if (where == QUICKLIST_REPLACE) {
-        return ziplistReplace(l, p, s, slen);
+unsigned char *_ziplistPushHead(unsigned char *l, unsigned char *s, uint32_t slen) {
+    return ziplistPush(l, s, slen, ZIPLIST_HEAD);
+}
+
+unsigned char *_ziplistPushTail(unsigned char *l, unsigned char *s, uint32_t slen) {
+    return ziplistPush(l, s, slen, ZIPLIST_TAIL);
+}
+
+unsigned char *_ziplistInsertBefore(unsigned char *l, unsigned char *s,
+                                    uint32_t slen, unsigned char *p) {
+    return ziplistInsert(l, p, s, slen);
+}
+
+unsigned char *_ziplistInsertAfter(unsigned char *l, unsigned char *s,
+                                   uint32_t slen, unsigned char *p) {
+    unsigned char *next = ziplistNext(l, p);
+    if (next == NULL) {
+        return ziplistPush(l, s, slen, ZIPLIST_TAIL);
     } else {
-        panic("Unknown insert position");
+        return ziplistInsert(l, next, s, slen);
     }
 }
 
-unsigned char *quicklistZiplistDelete(unsigned char *l, unsigned char *p, unsigned char **newp) {
+unsigned char *_ziplistReplace(unsigned char *l, unsigned char *s,
+                               uint32_t slen, unsigned char *p) {
+    return ziplistReplace(l, p, s, slen);
+}
+
+unsigned char *_ziplistDelete(unsigned char *l, unsigned char *p, unsigned char **newp) {
     l = ziplistDelete(l, &p);
     if (newp) *newp = p;
     return l;
 }
 
-uint32_t quicklistZiplistBytes(unsigned char *l) {
+uint32_t _ziplistBytes(unsigned char *l) {
     return ziplistBlobLen(l);
 }
 
-unsigned char *quicklistZiplistSeek(unsigned char *l, int index) {
-    return ziplistIndex(l, index);
-}
-
-unsigned char *quicklistLpInsert(unsigned char *l, unsigned char *s,
-                                       uint32_t slen, unsigned char *p, int where) {
-    int w;
-    if (where == QUICKLIST_AFTER) {
-        w = LP_AFTER;
-    } else if (where == QUICKLIST_BEFORE) {
-        w = LP_BEFORE;
-    } else if (where == QUICKLIST_REPLACE) {
-        w = LP_REPLACE;
-    } else {
-        panic("Unknown insert position");
-    }
-
-    return lpInsert(l, s, slen, p, w, NULL);
-}
-
-unsigned int quicklistLpGet(unsigned char *p, unsigned char **sval, unsigned int *slen, long long *lval) {
+unsigned int _lpGet(unsigned char *p, unsigned char **sval,
+                    unsigned int *slen, long long *lval) {
     int64_t vlen;
 
     *sval = lpGet(p, &vlen, NULL);
@@ -1620,7 +1615,22 @@ unsigned int quicklistLpGet(unsigned char *p, unsigned char **sval, unsigned int
     return 1;
 }
 
-void quicklistLpConvert(quicklistNode *node) {
+unsigned char *_lpInsertBefore(unsigned char *l, unsigned char *s,
+                               uint32_t slen, unsigned char *p) {
+    return lpInsert(l, s, slen, p, LP_BEFORE, NULL);
+}
+
+unsigned char *_lpInsertAfter(unsigned char *l, unsigned char *s,
+                              uint32_t slen, unsigned char *p) {
+    return lpInsert(l, s, slen, p, LP_AFTER, NULL);
+}
+
+unsigned char *_lpReplace(unsigned char *l, unsigned char *s,
+                          uint32_t slen, unsigned char *p) {
+    return lpInsert(l, s, slen, p, LP_REPLACE, NULL);
+}
+
+void _lpConvert(quicklistNode *node) {
     if (node->container == QUICKLIST_NODE_CONTAINER_ZIPLIST) {
         unsigned char *value;
         unsigned int sz;
@@ -1636,7 +1646,7 @@ void quicklistLpConvert(quicklistNode *node) {
                 sz = ll2string(longstr, sizeof(longstr), longval);
                 value = (unsigned char *)longstr;
             }
-            lpPush(lp, value, sz, LP_TAIL);
+            lpPushTail(lp, value, sz);
             p = ziplistNext(zl, p);
         }
         zfree(zl);
@@ -1654,17 +1664,20 @@ quicklistContainerType quicklistContainerTypeZiplist = {
     QUICKLIST_NODE_CONTAINER_ZIPLIST,
     ziplistNew,
     ziplistFree,
-    ziplistPush,
-    quicklistZiplistInsert,
-    ziplistGet,
-    quicklistZiplistDelete,
-    ziplistDeleteRange,
-    ziplistMerge,
     ziplistLen,
-    quicklistZiplistBytes,
+    _ziplistBytes,
+    ziplistGet,
+    ziplistIndex,
     ziplistNext,
     ziplistPrev,
-    quicklistZiplistSeek,
+    _ziplistPushHead,
+    _ziplistPushTail,
+    _ziplistInsertBefore,
+    _ziplistInsertAfter,
+    _ziplistReplace,
+    _ziplistDelete,
+    ziplistDeleteRange,
+    ziplistMerge,
     ziplistCompare,
     NULL,
 };
@@ -1673,19 +1686,22 @@ quicklistContainerType quicklistContainerTypeListpack = {
     QUICKLIST_NODE_CONTAINER_LISTPACK,
     lpEmpty,
     lpFree,
-    lpPush,
-    quicklistLpInsert,
-    quicklistLpGet,
+    lpLength,
+    lpBytes,
+    _lpGet,
+    lpSeek,
+    lpNext,
+    lpPrev,
+    lpPushHead,
+    lpPushTail,
+    _lpInsertBefore,
+    _lpInsertAfter,
+    _lpReplace,
     lpDelete,
     lpDeleteRange,
     lpMerge,
-    lpLength,
-    lpBytes,
-    lpNext,
-    lpPrev,
-    lpSeek,
     lpCompare,
-    quicklistLpConvert,
+    _lpConvert,
 };
 
 /* The rest of this file is test cases and test helpers. */

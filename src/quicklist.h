@@ -98,18 +98,23 @@ typedef struct quicklistContainerType {
     unsigned int container : 2;  /* ZIPLIST==2, LISTPACK=3 */
     unsigned char *(*listNew)();
     void (*listFree)(unsigned char *l);
-    unsigned char *(*listPush)(unsigned char *l, unsigned char *ele, uint32_t size, int where);
-    unsigned char *(*listInsert)(unsigned char *l, unsigned char *s, uint32_t slen, unsigned char *p, int where);
-    unsigned int (*listGet)(unsigned char *p, unsigned char **sval, unsigned int *slen, long long *lval);
+    uint32_t (*listLength)(unsigned char *l);
+    uint32_t (*listBytes)(unsigned char *l);
+    unsigned int (*listGet)(unsigned char *p, unsigned char **s, unsigned int *slen, long long *lval);
+    unsigned char *(*listSeek)(unsigned char *l, int index);
+    unsigned char *(*listNext)(unsigned char *l, unsigned char *p);
+    unsigned char *(*listPrev)(unsigned char *l, unsigned char *p);
+    unsigned char *(*listPushHead)(unsigned char *l, unsigned char *s, uint32_t slen);
+    unsigned char *(*listPushTail)(unsigned char *l, unsigned char *s, uint32_t slen);
+    unsigned char *(*listInsertBefore)(unsigned char *l, unsigned char *s,
+                                       uint32_t slen, unsigned char *p);
+    unsigned char *(*listInsertAfter)(unsigned char *l, unsigned char *ele,
+                                      uint32_t size, unsigned char *p);
+    unsigned char *(*listReplace)(unsigned char *l, unsigned char *s, uint32_t slen, unsigned char *p);
     unsigned char *(*listDelete)(unsigned char *l, unsigned char *p, unsigned char **newp);
     unsigned char *(*listDeleteRange)(unsigned char *zl, int index, unsigned int num);
     unsigned char *(*listMerge)(unsigned char **first, unsigned char **second);
-    uint32_t (*listLength)(unsigned char *l);
-    uint32_t (*listBytes)(unsigned char *l);
-    unsigned char *(*listNext)(unsigned char *l, unsigned char *p);
-    unsigned char *(*listPrev)(unsigned char *l, unsigned char *p);
-    unsigned char *(*listSeek)(unsigned char *l, int index);
-    unsigned int (*listCompare)(unsigned char *l, unsigned char *s, unsigned int slen);
+    unsigned int (*listCompare)(unsigned char *l, unsigned char *s, uint32_t slen);
     void (*listConvertIfNeed)(quicklistNode *node);
 } quicklistContainerType;
 
