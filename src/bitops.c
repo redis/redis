@@ -802,11 +802,8 @@ void bitcountCommand(client *c) {
             addReply(c,shared.czero);
             return;
         }
-        if (start < 0) start = strlen+start;
-        if (end < 0) end = strlen+end;
-        if (start < 0) start = 0;
-        if (end < 0) end = 0;
-        if (end >= strlen) end = strlen-1;
+        start = start > 0 ? start : (strlen + start > 0 ? strlen + start : 0);
+        end = end > 0 ? (end >= strlen ? strlen - 1 : end) : (strlen + end > 0 ? strlen + end : 0);
     } else if (c->argc == 2) {
         /* The whole string. */
         start = 0;
