@@ -1041,25 +1041,43 @@ unsigned char *lpMerge(unsigned char **first, unsigned char **second) {
     return target;
 }
 
-unsigned char *lpDeleteRange(unsigned char *zl, int index, unsigned int num) {
-    unsigned int i = 0;
+unsigned char *lpDeleteRange(unsigned char *lp, int index, unsigned int num) {
+    long long start = index;
+    uint32_t len = lpLength(lp);
+    uint32_t bytes = lpBytes(lp);
 
-    unsigned char *p = lpSeek(zl,index);
-    if (p == NULL) return zl;
+    unsigned char *p = lpSeek(lp,index);
+    if (p == NULL) return lp;
 
-    for (i = 0; p != NULL && i < num; i++) {
-        zl = lpDelete(zl, p, &p);
+    if (index < 0) start = len + index;
+    if ((start + num) >= len) {
+        p[0] = LP_EOF;
+        lpSetTotalBytes(lp, p - lp + 1);
+        lpSetNumElements(lp, start);
+    } else {
+        unsigned char *eofptr = lp + bytes - 1;
+        unsigned char *first = p;
+
+        for (unsigned int i = 0; i < num; i++) {
+            p = lpSkip(p);
+            assert(p[0] != LP_EOF);
+        }
+
+        memmove(first, p, eofptr - p + 1);
+        lpSetTotalBytes(lp, bytes - (p - first));
+        lpSetNumElements(lp, len - num);
     }
 
-    return zl;
+    lp = lpShrinkToFit(lp);
+    return lp;
 }
 
 unsigned int lpCompare(unsigned char *p, unsigned char *s, unsigned int slen) {
     unsigned char buf[LP_INTBUF_SIZE];
     unsigned char *value;
     int64_t sz;
-    if (p[0] == LP_EOF) return 0;
 
+    if (p[0] == LP_EOF) return 0;
     value = lpGet(p, &sz, buf);
     if (slen != sz) return 0;
     return memcmp(value,s,slen) == 0;
@@ -1209,14 +1227,56 @@ int listpackTest(int argc, char *argv[], int accurate) {
 
         lp = lpDeleteRange(lp, -3, 3);
         assert(lpLength(lp) == 0);
+        assert(lpBytes(lp) == (LP_HDR_SIZE + 1));
 
+        lpFree(lp);
+    }
+
+    TEST("delete range when num is UINT32_MAX") {
+        unsigned char *lp = lpEmpty();
+        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
+        lp = lpPushTail(lp, (unsigned char*)"def", 3);
+        lp = lpPushTail(lp, (unsigned char*)"bob", 3);
+        lp = lpPushTail(lp, (unsigned char*)"foo", 3);
+        lp = lpDeleteRange(lp, 1, UINT32_MAX);
+        assert(lpLength(lp) == 1);
         lpFree(lp);
     }
 
     TEST("validate integrity") {
         unsigned char *lp = lpEmpty();
-        lp = lpPushTail(lp, (unsigned char*)"123", 3);
         assert(lpValidateIntegrity(lp, lpGetTotalBytes(lp), 1) == 1);
+        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
+        lp = lpPushTail(lp, (unsigned char*)"def", 3);
+        assert(lpValidateIntegrity(lp, lpGetTotalBytes(lp), 1) == 1);
+        lpFree(lp);
+    }
+
+    TEST("push various encodings") {
+        unsigned char *lp = lpEmpty();
+
+        /* integer encode */
+        lp = lpPushTail(lp, (unsigned char*)"127", 3);
+        assert(LP_ENCODING_IS_7BIT_UINT(lpLast(lp)[0]));
+        lp = lpPushTail(lp, (unsigned char*)"4095", 4);
+        assert(LP_ENCODING_IS_13BIT_INT(lpLast(lp)[0]));
+        lp = lpPushTail(lp, (unsigned char*)"32767", 5);
+        assert(LP_ENCODING_IS_16BIT_INT(lpLast(lp)[0]));
+        lp = lpPushTail(lp, (unsigned char*)"8388607", 7);
+        assert(LP_ENCODING_IS_24BIT_INT(lpLast(lp)[0]));
+        lp = lpPushTail(lp, (unsigned char*)"2147483647", 10);
+        assert(LP_ENCODING_IS_32BIT_INT(lpLast(lp)[0]));
+        lp = lpPushTail(lp, (unsigned char*)"9223372036854775807", 19);
+        assert(LP_ENCODING_IS_64BIT_INT(lpLast(lp)[0]));
+
+        /* string encode */
+        unsigned char *str = zmalloc(4095);
+        lp = lpPushTail(lp, (unsigned char*)str, 63);
+        assert(LP_ENCODING_IS_6BIT_STR(lpLast(lp)[0]));
+        lp = lpPushTail(lp, (unsigned char*)str, 4095);
+        assert(LP_ENCODING_IS_12BIT_STR(lpLast(lp)[0]));
+        zfree(str);
+
         lpFree(lp);
     }
 
