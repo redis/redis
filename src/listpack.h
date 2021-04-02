@@ -45,9 +45,6 @@
 #define LP_AFTER 1
 #define LP_REPLACE 2
 
-#define LP_HEAD 0
-#define LP_TAIL 1
-
 unsigned char *lpNew(size_t capacity);
 unsigned char *lpEmpty();
 void lpFree(unsigned char *lp);
