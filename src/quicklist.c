@@ -862,6 +862,7 @@ REDIS_STATIC void _quicklistMergeNodes(quicklist *quicklist,
 REDIS_STATIC quicklistNode *_quicklistSplitNode(quicklist *quicklist, quicklistNode *node,
                                                 int offset, int after) {
     size_t zl_sz = node->sz;
+    unsigned int zl_len = ziplistLen(node->zl);
 
     quicklistNode *new_node = quicklistCreateNode(quicklist->type->container);
     new_node->zl = zmalloc(zl_sz);
@@ -871,9 +872,9 @@ REDIS_STATIC quicklistNode *_quicklistSplitNode(quicklist *quicklist, quicklistN
 
     /* Ranges to be trimmed: -1 here means "continue deleting until the list ends" */
     int orig_start = after ? offset + 1 : 0;
-    int orig_extent = after ? -1 : offset;
+    int orig_extent = after ? (int)(zl_len - offset - 1) : offset;
     int new_start = after ? 0 : offset;
-    int new_extent = after ? offset + 1 : -1;
+    int new_extent = after ? offset + 1 : (int)(zl_len - offset);
 
     D("After %d (%d); ranges: [%d, %d], [%d, %d]", after, offset, orig_start,
       orig_extent, new_start, new_extent);
