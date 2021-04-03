@@ -25,6 +25,20 @@ unsigned long int global_defragged = 0;
 int global_strings_len = 0;
 RedisModuleString **global_strings = NULL;
 
+static void *fragtype_load(RedisModuleIO *io, int encver) {
+    /*  do-nothing callback. */
+    return NULL;
+}
+
+static void fragtype_save(RedisModuleIO *io, void *value) {
+    /*  do-nothing callback. */
+}
+
+static void fragtype_rewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
+    /*  do-nothing callback. */
+}
+
+
 static void createGlobalStrings(RedisModuleCtx *ctx, int count)
 {
     global_strings_len = count;
@@ -211,6 +225,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     RedisModuleTypeMethods tm = {
             .version = REDISMODULE_TYPE_METHOD_VERSION,
+            .rdb_load = fragtype_load,
+            .rdb_save = fragtype_save,
+            .aof_rewrite = fragtype_rewrite,
             .free = FragFree,
             .free_effort = FragFreeEffort,
             .defrag = FragDefrag
