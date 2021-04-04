@@ -1616,21 +1616,6 @@ unsigned int _lpGet(unsigned char *p, unsigned char **sval,
     return 1;
 }
 
-unsigned char *_lpInsertBefore(unsigned char *l, unsigned char *s,
-                               uint32_t slen, unsigned char *p) {
-    return lpInsert(l, s, slen, p, LP_BEFORE, NULL);
-}
-
-unsigned char *_lpInsertAfter(unsigned char *l, unsigned char *s,
-                              uint32_t slen, unsigned char *p) {
-    return lpInsert(l, s, slen, p, LP_AFTER, NULL);
-}
-
-unsigned char *_lpReplace(unsigned char *l, unsigned char *s,
-                          uint32_t slen, unsigned char *p) {
-    return lpInsert(l, s, slen, p, LP_REPLACE, NULL);
-}
-
 void _lpConvert(quicklistNode *node) {
     if (node->container == QUICKLIST_NODE_CONTAINER_ZIPLIST) {
         unsigned char *value;
@@ -1695,9 +1680,9 @@ quicklistContainerType quicklistContainerTypeListpack = {
     lpPrev,
     lpPushHead,
     lpPushTail,
-    _lpInsertBefore,
-    _lpInsertAfter,
-    _lpReplace,
+    lpInsertBefore,
+    lpInsertAfter,
+    lpReplace,
     lpDelete,
     lpDeleteRange,
     lpMerge,
