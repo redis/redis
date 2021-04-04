@@ -1000,6 +1000,8 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         serverAssert(ACLSetUser(u,"resetpass",-1) == C_OK);
         serverAssert(ACLSetUser(u,"resetkeys",-1) == C_OK);
         serverAssert(ACLSetUser(u,"resetchannels",-1) == C_OK);
+        if (server.acl_pubsub_default & USER_FLAG_ALLCHANNELS)
+            serverAssert(ACLSetUser(u,"allchannels",-1) == C_OK);
         serverAssert(ACLSetUser(u,"off",-1) == C_OK);
         serverAssert(ACLSetUser(u,"sanitize-payload",-1) == C_OK);
         serverAssert(ACLSetUser(u,"-@all",-1) == C_OK);
@@ -1448,7 +1450,6 @@ int ACLLoadConfiguredUsers(void) {
             u = ACLGetUserByName(username,sdslen(username));
             serverAssert(u != NULL);
             ACLSetUser(u,"reset",-1);
-            u->flags = u->flags | server.acl_pubsub_default;
         }
 
         /* Load every rule defined for this user. */
@@ -1610,7 +1611,6 @@ sds ACLLoadFromFile(const char *filename) {
             u = ACLGetUserByName(argv[1],sdslen(argv[1]));
             serverAssert(u != NULL);
             ACLSetUser(u,"reset",-1);
-            u->flags = u->flags | server.acl_pubsub_default;
         }
 
         /* Note that the same rules already applied to the fake user, so

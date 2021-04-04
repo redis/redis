@@ -471,6 +471,27 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"]] {
         r PUBLISH hello world
     }
 
+    test {default: with config acl-pubsub-default allchannels after reset, can access any channels} {
+        r ACL setuser default reset on nopass ~* +@all
+        r SUBSCRIBE foo
+        r PSUBSCRIBE bar*
+        r UNSUBSCRIBE
+        r PUNSUBSCRIBE
+        r PUBLISH hello world
+    }
+
+    test {default: with config acl-pubsub-default resetchannels after reset, can not access any channels} {
+        r CONFIG SET acl-pubsub-default resetchannels
+        r ACL setuser default reset on nopass ~* +@all
+        catch {r SUBSCRIBE foo} e
+        assert_match {*NOPERM*} $e
+        catch {r PSUBSCRIBE bar*} e
+        assert_match {*NOPERM*} $e
+        catch {r PUBLISH hello world} e
+        assert_match {*NOPERM*} $e
+        r CONFIG SET acl-pubsub-default resetchannels
+    }
+
     test {Alice: can execute all command} {
         r AUTH alice alice
         assert_equal "alice" [r acl whoami]
