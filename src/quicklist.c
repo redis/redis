@@ -1874,12 +1874,7 @@ static char *genstr(char *prefix, int i) {
     return result;
 }
 
-/* main test, but callable from other files */
-int quicklistTest(int argc, char *argv[], int accurate) {
-    UNUSED(argc);
-    UNUSED(argv);
-    UNUSED(accurate);
-
+unsigned int quicklistTestContainer(quicklistContainerType *type, int accurate) {
     unsigned int err = 0;
     int optimize_start =
         -(int)(sizeof(optimization_level) / sizeof(*optimization_level));
@@ -1898,13 +1893,13 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         long long start = mstime();
 
         TEST("create list") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             ql_verify(ql, 0, 0, 0, 0);
             quicklistRelease(ql);
         }
 
         TEST("add to tail of empty list") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             quicklistPushTail(ql, "hello", 6);
             /* 1 for head and 1 for tail because 1 node = head = tail */
             ql_verify(ql, 1, 1, 1, 1);
@@ -1912,7 +1907,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("add to head of empty list") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             quicklistPushHead(ql, "hello", 6);
             /* 1 for head and 1 for tail because 1 node = head = tail */
             ql_verify(ql, 1, 1, 1, 1);
@@ -1921,7 +1916,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
 
         TEST_DESC("add to tail 5x at compress %d", options[_i]) {
             for (int f = 0; f < fill_count; f++) {
-                quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, fills[f], options[_i]);
+                quicklist *ql = quicklistNew(type, fills[f], options[_i]);
                 for (int i = 0; i < 5; i++)
                     quicklistPushTail(ql, genstr("hello", i), 32);
                 if (ql->count != 5)
@@ -1934,7 +1929,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
 
         TEST_DESC("add to head 5x at compress %d", options[_i]) {
             for (int f = 0; f < fill_count; f++) {
-                quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, fills[f], options[_i]);
+                quicklist *ql = quicklistNew(type, fills[f], options[_i]);
                 for (int i = 0; i < 5; i++)
                     quicklistPushHead(ql, genstr("hello", i), 32);
                 if (ql->count != 5)
@@ -1947,7 +1942,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
 
         TEST_DESC("add to tail 500x at compress %d", options[_i]) {
             for (int f = 0; f < fill_count; f++) {
-                quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, fills[f], options[_i]);
+                quicklist *ql = quicklistNew(type, fills[f], options[_i]);
                 for (int i = 0; i < 500; i++)
                     quicklistPushTail(ql, genstr("hello", i), 64);
                 if (ql->count != 500)
@@ -1960,7 +1955,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
 
         TEST_DESC("add to head 500x at compress %d", options[_i]) {
             for (int f = 0; f < fill_count; f++) {
-                quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, fills[f], options[_i]);
+                quicklist *ql = quicklistNew(type, fills[f], options[_i]);
                 for (int i = 0; i < 500; i++)
                     quicklistPushHead(ql, genstr("hello", i), 32);
                 if (ql->count != 500)
@@ -1972,7 +1967,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("rotate empty") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             quicklistRotate(ql);
             ql_verify(ql, 0, 0, 0, 0);
             quicklistRelease(ql);
@@ -1980,7 +1975,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
 
         TEST("rotate one val once") {
             for (int f = 0; f < fill_count; f++) {
-                quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, fills[f], options[_i]);
+                quicklist *ql = quicklistNew(type, fills[f], options[_i]);
                 quicklistPushHead(ql, "hello", 6);
                 quicklistRotate(ql);
                 /* Ignore compression verify because ziplist is
@@ -1992,7 +1987,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
 
         TEST_DESC("rotate 500 val 5000 times at compress %d", options[_i]) {
             for (int f = 0; f < fill_count; f++) {
-                quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, fills[f], options[_i]);
+                quicklist *ql = quicklistNew(type, fills[f], options[_i]);
                 quicklistPushHead(ql, "900", 3);
                 quicklistPushHead(ql, "7000", 4);
                 quicklistPushHead(ql, "-1200", 5);
@@ -2015,14 +2010,14 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("pop empty") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             quicklistPop(ql, QUICKLIST_HEAD, NULL, NULL, NULL);
             ql_verify(ql, 0, 0, 0, 0);
             quicklistRelease(ql);
         }
 
         TEST("pop 1 string from 1") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             char *populate = genstr("hello", 331);
             quicklistPushHead(ql, populate, 32);
             unsigned char *data;
@@ -2041,7 +2036,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("pop head 1 number from 1") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             quicklistPushHead(ql, "55513", 5);
             unsigned char *data;
             unsigned int sz;
@@ -2055,7 +2050,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("pop head 500 from 500") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             for (int i = 0; i < 500; i++)
                 quicklistPushHead(ql, genstr("hello", i), 32);
             ql_info(ql);
@@ -2077,7 +2072,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("pop head 5000 from 500") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             for (int i = 0; i < 500; i++)
                 quicklistPushHead(ql, genstr("hello", i), 32);
             for (int i = 0; i < 5000; i++) {
@@ -2103,7 +2098,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("iterate forward over 500 list") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             quicklistSetFill(ql, 32);
             for (int i = 0; i < 500; i++)
                 quicklistPushHead(ql, genstr("hello", i), 32);
@@ -2126,7 +2121,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("iterate reverse over 500 list") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             quicklistSetFill(ql, 32);
             for (int i = 0; i < 500; i++)
                 quicklistPushHead(ql, genstr("hello", i), 32);
@@ -2148,7 +2143,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("insert before with 0 elements") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             quicklistEntry entry;
             quicklistIndex(ql, 0, &entry);
             quicklistInsertBefore(ql, &entry, "abc", 4);
@@ -2157,7 +2152,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("insert after with 0 elements") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             quicklistEntry entry;
             quicklistIndex(ql, 0, &entry);
             quicklistInsertAfter(ql, &entry, "abc", 4);
@@ -2166,7 +2161,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("insert after 1 element") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             quicklistPushHead(ql, "hello", 6);
             quicklistEntry entry;
             quicklistIndex(ql, 0, &entry);
@@ -2176,7 +2171,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("insert before 1 element") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             quicklistPushHead(ql, "hello", 6);
             quicklistEntry entry;
             quicklistIndex(ql, 0, &entry);
@@ -2188,7 +2183,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         TEST_DESC("insert once in elements while iterating at compress %d",
                   options[_i]) {
             for (int f = 0; f < fill_count; f++) {
-                quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, fills[f], options[_i]);
+                quicklist *ql = quicklistNew(type, fills[f], options[_i]);
                 quicklistPushTail(ql, "abc", 3);
                 quicklistSetFill(ql, 1);
                 quicklistPushTail(ql, "def", 3); /* force to unique node */
@@ -2243,7 +2238,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         TEST_DESC("insert [before] 250 new in middle of 500 elements at compress %d",
                   options[_i]) {
             for (int f = 0; f < fill_count; f++) {
-                quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, fills[f], options[_i]);
+                quicklist *ql = quicklistNew(type, fills[f], options[_i]);
                 for (int i = 0; i < 500; i++)
                     quicklistPushTail(ql, genstr("hello", i), 32);
                 for (int i = 0; i < 250; i++) {
@@ -2260,7 +2255,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         TEST_DESC("insert [after] 250 new in middle of 500 elements at compress %d",
                   options[_i]) {
             for (int f = 0; f < fill_count; f++) {
-                quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, fills[f], options[_i]);
+                quicklist *ql = quicklistNew(type, fills[f], options[_i]);
                 for (int i = 0; i < 500; i++)
                     quicklistPushHead(ql, genstr("hello", i), 32);
                 for (int i = 0; i < 250; i++) {
@@ -2279,7 +2274,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("duplicate empty list") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             ql_verify(ql, 0, 0, 0, 0);
             quicklist *copy = quicklistDup(ql);
             ql_verify(copy, 0, 0, 0, 0);
@@ -2288,7 +2283,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("duplicate list of 1 element") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             quicklistPushHead(ql, genstr("hello", 3), 32);
             ql_verify(ql, 1, 1, 1, 1);
             quicklist *copy = quicklistDup(ql);
@@ -2298,7 +2293,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("duplicate list of 500") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             quicklistSetFill(ql, 32);
             for (int i = 0; i < 500; i++)
                 quicklistPushHead(ql, genstr("hello", i), 32);
@@ -2313,7 +2308,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         for (int f = 0; f < fill_count; f++) {
             TEST_DESC("index 1,200 from 500 list at fill %d at compress %d", f,
                       options[_i]) {
-                quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, fills[f], options[_i]);
+                quicklist *ql = quicklistNew(type, fills[f], options[_i]);
                 for (int i = 0; i < 500; i++)
                     quicklistPushTail(ql, genstr("hello", i + 1), 32);
                 quicklistEntry entry;
@@ -2328,7 +2323,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
 
             TEST_DESC("index -1,-2 from 500 list at fill %d at compress %d",
                       fills[f], options[_i]) {
-                quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, fills[f], options[_i]);
+                quicklist *ql = quicklistNew(type, fills[f], options[_i]);
                 for (int i = 0; i < 500; i++)
                     quicklistPushTail(ql, genstr("hello", i + 1), 32);
                 quicklistEntry entry;
@@ -2343,7 +2338,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
 
             TEST_DESC("index -100 from 500 list at fill %d at compress %d",
                       fills[f], options[_i]) {
-                quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, fills[f], options[_i]);
+                quicklist *ql = quicklistNew(type, fills[f], options[_i]);
                 for (int i = 0; i < 500; i++)
                     quicklistPushTail(ql, genstr("hello", i + 1), 32);
                 quicklistEntry entry;
@@ -2355,7 +2350,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
 
             TEST_DESC("index too big +1 from 50 list at fill %d at compress %d",
                       fills[f], options[_i]) {
-                quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, fills[f], options[_i]);
+                quicklist *ql = quicklistNew(type, fills[f], options[_i]);
                 for (int i = 0; i < 50; i++)
                     quicklistPushTail(ql, genstr("hello", i + 1), 32);
                 quicklistEntry entry;
@@ -2367,14 +2362,14 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("delete range empty list") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             quicklistDelRange(ql, 5, 20);
             ql_verify(ql, 0, 0, 0, 0);
             quicklistRelease(ql);
         }
 
         TEST("delete range of entire node in list of one node") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             for (int i = 0; i < 32; i++)
                 quicklistPushHead(ql, genstr("hello", i), 32);
             ql_verify(ql, 1, 32, 32, 32);
@@ -2384,7 +2379,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("delete range of entire node with overflow counts") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             for (int i = 0; i < 32; i++)
                 quicklistPushHead(ql, genstr("hello", i), 32);
             ql_verify(ql, 1, 32, 32, 32);
@@ -2394,7 +2389,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("delete middle 100 of 500 list") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             quicklistSetFill(ql, 32);
             for (int i = 0; i < 500; i++)
                 quicklistPushTail(ql, genstr("hello", i + 1), 32);
@@ -2405,7 +2400,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("delete less than fill but across nodes") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             quicklistSetFill(ql, 32);
             for (int i = 0; i < 500; i++)
                 quicklistPushTail(ql, genstr("hello", i + 1), 32);
@@ -2416,7 +2411,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("delete negative 1 from 500 list") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             quicklistSetFill(ql, 32);
             for (int i = 0; i < 500; i++)
                 quicklistPushTail(ql, genstr("hello", i + 1), 32);
@@ -2427,7 +2422,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("delete negative 1 from 500 list with overflow counts") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             quicklistSetFill(ql, 32);
             for (int i = 0; i < 500; i++)
                 quicklistPushTail(ql, genstr("hello", i + 1), 32);
@@ -2438,7 +2433,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("delete negative 100 from 500 list") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             quicklistSetFill(ql, 32);
             for (int i = 0; i < 500; i++)
                 quicklistPushTail(ql, genstr("hello", i + 1), 32);
@@ -2448,7 +2443,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("delete -10 count 5 from 50 list") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             quicklistSetFill(ql, 32);
             for (int i = 0; i < 50; i++)
                 quicklistPushTail(ql, genstr("hello", i + 1), 32);
@@ -2459,7 +2454,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("numbers only list read") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             quicklistPushTail(ql, "1111", 4);
             quicklistPushTail(ql, "2222", 4);
             quicklistPushTail(ql, "3333", 4);
@@ -2498,7 +2493,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("numbers larger list read") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             quicklistSetFill(ql, 32);
             char num[32];
             long long nums[5000];
@@ -2524,7 +2519,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("numbers larger list read B") {
-            quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, -2, options[_i]);
+            quicklist *ql = quicklistNew(type, -2, options[_i]);
             quicklistPushTail(ql, "99", 2);
             quicklistPushTail(ql, "98", 2);
             quicklistPushTail(ql, "xxxxxxxxxxxxxxxxxxxx", 20);
@@ -2537,7 +2532,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
 
         TEST_DESC("lrem test at compress %d", options[_i]) {
             for (int f = 0; f < fill_count; f++) {
-                quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, fills[f], options[_i]);
+                quicklist *ql = quicklistNew(type, fills[f], options[_i]);
                 char *words[] = {"abc", "foo", "bar",  "foobar", "foobared",
                                  "zap", "bar", "test", "foo"};
                 char *result[] = {"abc", "foo",  "foobar", "foobared",
@@ -2615,7 +2610,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
 
         TEST_DESC("iterate reverse + delete at compress %d", options[_i]) {
             for (int f = 0; f < fill_count; f++) {
-                quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, fills[f], options[_i]);
+                quicklist *ql = quicklistNew(type, fills[f], options[_i]);
                 quicklistPushTail(ql, "abc", 3);
                 quicklistPushTail(ql, "def", 3);
                 quicklistPushTail(ql, "hij", 3);
@@ -2654,7 +2649,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
 
         TEST_DESC("iterator at index test at compress %d", options[_i]) {
             for (int f = 0; f < fill_count; f++) {
-                quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, fills[f], options[_i]);
+                quicklist *ql = quicklistNew(type, fills[f], options[_i]);
                 char num[32];
                 long long nums[5000];
                 for (int i = 0; i < 760; i++) {
@@ -2680,7 +2675,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
 
         TEST_DESC("ltrim test A at compress %d", options[_i]) {
             for (int f = 0; f < fill_count; f++) {
-                quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, fills[f], options[_i]);
+                quicklist *ql = quicklistNew(type, fills[f], options[_i]);
                 char num[32];
                 long long nums[5000];
                 for (int i = 0; i < 32; i++) {
@@ -2711,7 +2706,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             for (int f = 0; f < fill_count; f++) {
                 /* Force-disable compression because our 33 sequential
                  * integers don't compress and the check always fails. */
-                quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, fills[f], QUICKLIST_NOCOMPRESS);
+                quicklist *ql = quicklistNew(type, fills[f], QUICKLIST_NOCOMPRESS);
                 char num[32];
                 long long nums[5000];
                 for (int i = 0; i < 33; i++) {
@@ -2751,7 +2746,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
 
         TEST_DESC("ltrim test C at compress %d", options[_i]) {
             for (int f = 0; f < fill_count; f++) {
-                quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, fills[f], options[_i]);
+                quicklist *ql = quicklistNew(type, fills[f], options[_i]);
                 char num[32];
                 long long nums[5000];
                 for (int i = 0; i < 33; i++) {
@@ -2777,7 +2772,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
 
         TEST_DESC("ltrim test D at compress %d", options[_i]) {
             for (int f = 0; f < fill_count; f++) {
-                quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, fills[f], options[_i]);
+                quicklist *ql = quicklistNew(type, fills[f], options[_i]);
                 char num[32];
                 long long nums[5000];
                 for (int i = 0; i < 33; i++) {
@@ -2835,7 +2830,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             for (int f = 0; f < fill_count; f++) {
                 for (int depth = 1; depth < 40; depth++) {
                     /* skip over many redundant test cases */
-                    quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, fills[f], depth);
+                    quicklist *ql = quicklistNew(type, fills[f], depth);
                     for (int i = 0; i < list_sizes[list]; i++) {
                         quicklistPushTail(ql, genstr("hello TAIL", i + 1), 64);
                         quicklistPushHead(ql, genstr("hello HEAD", i + 1), 64);
@@ -2893,7 +2888,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
     printf("\n");
 
     TEST("bookmark get updated to next item") {
-        quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, 1, 0);
+        quicklist *ql = quicklistNew(type, 1, 0);
         quicklistPushTail(ql, "1", 1);
         quicklistPushTail(ql, "2", 1);
         quicklistPushTail(ql, "3", 1);
@@ -2921,7 +2916,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
 
     TEST("bookmark limit") {
         int i;
-        quicklist *ql = quicklistNew(&quicklistContainerTypeZiplist, 1, 0);
+        quicklist *ql = quicklistNew(type, 1, 0);
         quicklistPushHead(ql, "1", 1);
         for (i=0; i<QL_MAX_BM; i++)
             assert(quicklistBookmarkCreate(&ql, genstr("",i), ql->head));
@@ -2939,7 +2934,17 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         assert(!quicklistBookmarkFind(ql, "_test"));
         quicklistRelease(ql);
     }
+    return err;
+}
 
+/* main test, but callable from other files */
+int quicklistTest(int argc, char *argv[], int accurate) {
+    UNUSED(argc);
+    UNUSED(argv);
+
+    unsigned int err = 0;
+    err += quicklistTestContainer(&quicklistContainerTypeZiplist, accurate);
+    err += quicklistTestContainer(&quicklistContainerTypeListpack, accurate);
     if (!err)
         printf("ALL TESTS PASSED!\n");
     else
