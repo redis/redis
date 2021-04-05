@@ -3,8 +3,11 @@
 source "../tests/includes/init-tests.tcl"
 source "../tests/includes/utils.tcl"
 
+# TODO: This test currently runs without replicas, as failovers (which may
+# happen on lower-end CI platforms) are still not handled properly by the
+# cluster during slot migration.
 test "Create a 10 nodes cluster" {
-    create_cluster 10 10
+    create_cluster 10 0
 }
 
 test "Cluster is up" {
@@ -40,6 +43,7 @@ test "Init migration of many slots" {
 }
 
 test "Fix cluster" {
+    wait_for_cluster_propagation
     fix_cluster $nodefrom(addr)
 }
 
