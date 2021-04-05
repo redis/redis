@@ -4344,9 +4344,9 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, robj *value) {
  *             .defrag = myType_DefragCallback
  *         }
  *
- * * **rdb_load**: A callback function pointer that loads data from RDB files.
- * * **rdb_save**: A callback function pointer that saves data to RDB files.
- * * **aof_rewrite**: A callback function pointer that rewrites data as commands.
+ * * **rdb_load**: A callback function pointer that loads data from RDB files. (mandatory)
+ * * **rdb_save**: A callback function pointer that saves data to RDB files. (mandatory)
+ * * **aof_rewrite**: A callback function pointer that rewrites data as commands. (mandatory)
  * * **digest**: A callback function pointer that is used for `DEBUG DIGEST`.
  * * **free**: A callback function pointer that can free a type value.
  * * **aux_save**: A callback function pointer that saves out of keyspace data to RDB files.
@@ -4386,13 +4386,12 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, robj *value) {
  * Note: the module name "AAAAAAAAA" is reserved and produces an error, it
  * happens to be pretty lame as well.
  *
- * If there is already a module registering a type with the same name, or if
- * the module name or encver is invalid, or if module type register without
- * persistence functions, NULL is returned.
- * Otherwise the new type is registered into Redis, and a reference of type
- * RedisModuleType is returned. the caller of the function should store this
- * reference into a global variable to make future use of it in the modules
- * type API, since a single module may register multiple types.
+ * If there is already a module registering a type with the same name, the name
+ * or encver are invalid, or a mandatory callback is missing, NULL is returned.
+ * Otherwise the new type is registered into Redis, and a reference of
+ * type RedisModuleType is returned: the caller of the function should store
+ * this reference into a global variable to make future use of it in the
+ * modules type API, since a single module may register multiple types.
  * Example code fragment:
  *
  *      static RedisModuleType *BalancedTreeType;
@@ -4436,7 +4435,7 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
         return NULL;
     }
 
-    /* Function aux_load and aux_save can't one is defined and the other is not */
+    /* Function aux_load and aux_save must be either both defined or undefined. */
     if ((tms->version >= 2) && ((tms->v2.aux_load != NULL) != (tms->v2.aux_save != NULL))) {
         return NULL;
     }
