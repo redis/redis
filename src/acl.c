@@ -245,7 +245,7 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     if (raxFind(Users,(unsigned char*)name,namelen) != raxNotFound) return NULL;
     user *u = zmalloc(sizeof(*u));
     u->name = sdsnewlen(name,namelen);
-    u->flags = USER_FLAG_DISABLED | server.acl_pubusub_default;
+    u->flags = USER_FLAG_DISABLED | server.acl_pubsub_default;
     u->allowed_subcommands = NULL;
     u->passwords = listCreate();
     u->patterns = listCreate();
@@ -1000,6 +1000,8 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         serverAssert(ACLSetUser(u,"resetpass",-1) == C_OK);
         serverAssert(ACLSetUser(u,"resetkeys",-1) == C_OK);
         serverAssert(ACLSetUser(u,"resetchannels",-1) == C_OK);
+        if (server.acl_pubsub_default & USER_FLAG_ALLCHANNELS)
+            serverAssert(ACLSetUser(u,"allchannels",-1) == C_OK);
         serverAssert(ACLSetUser(u,"off",-1) == C_OK);
         serverAssert(ACLSetUser(u,"sanitize-payload",-1) == C_OK);
         serverAssert(ACLSetUser(u,"-@all",-1) == C_OK);

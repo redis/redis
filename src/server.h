@@ -1596,7 +1596,7 @@ struct redisServer {
     sds requirepass;              /* Remember the cleartext password set with
                                      the old "requirepass" directive for
                                      backward compatibility with Redis <= 5. */
-    int acl_pubusub_default;      /* Default ACL pub/sub channels flag */
+    int acl_pubsub_default;      /* Default ACL pub/sub channels flag */
     /* Assert & bug reporting */
     int watchdog_period;  /* Software watchdog period in ms. 0 = off */
     /* System hardware info */
