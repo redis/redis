@@ -1805,12 +1805,16 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                 return NULL;
             }
             if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-            if (ziplistValidateIntegrity(list, encoded_len, deep_integrity_validation, NULL, NULL)) {
-                quicklistAppendZiplist(o->ptr, list);
-            } else if (lpValidateIntegrity(list, encoded_len, deep_integrity_validation)) {
+            if (likely(lpValidateIntegrity(list, encoded_len, deep_integrity_validation))) {
                 quicklistAppendListpack(o->ptr, list);
+            } else if (ziplistValidateIntegrity(list, encoded_len, deep_integrity_validation, NULL, NULL)) {
+                if (deep_integrity_validation) {
+                    quicklistAppendValuesFromZiplist(o->ptr, list);
+                } else {
+                    quicklistAppendZiplist(o->ptr, list);
+                }
             } else {
-                rdbReportCorruptRDB("Ziplist integrity check failed.");
+                rdbReportCorruptRDB("Listpack or ziplist integrity check failed.");
                 decrRefCount(o);
                 zfree(list);
                 return NULL;
