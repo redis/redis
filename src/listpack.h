@@ -67,6 +67,7 @@ unsigned char *lpReplace(unsigned char *lp, unsigned char *ele, uint32_t size, u
 unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **newp);
 uint32_t lpLength(unsigned char *lp);
 unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf);
+unsigned char *lpFind(unsigned char *lp, unsigned char *s, unsigned int slen, unsigned char *p, unsigned int skip);
 unsigned char *lpFirst(unsigned char *lp);
 unsigned char *lpLast(unsigned char *lp);
 unsigned char *lpNext(unsigned char *lp, unsigned char *p);

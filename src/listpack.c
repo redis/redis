@@ -631,6 +631,36 @@ unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf) {
     }
 }
 
+unsigned char *lpFind(unsigned char *lp, unsigned char *s, unsigned int slen, unsigned char *p, unsigned int skip) {
+    int skipcnt = 0;
+
+    assert(p);
+    while (p) {
+        unsigned char *vstr;
+        int64_t vlen;
+        unsigned char buf[LP_INTBUF_SIZE];
+
+        vstr = lpGet(p, &vlen, buf);
+        if (skipcnt == 0) {
+            /* Compare current entry with specified entry */
+            if (vlen == slen && memcmp(vstr, s, vlen) == 0) {
+                return p;
+            }
+
+            /* Reset skip count */
+            skipcnt = skip;
+        } else {
+            /* Skip entry */
+            skipcnt--;
+        }
+
+        /* Move to next entry */
+        p = lpNext(lp, p);
+    }
+
+    return NULL;
+}
+
 /* Insert, delete or replace the specified element 'ele' of length 'len' at
  * the specified position 'p', with 'p' being a listpack element pointer
  * obtained with lpFirst(), lpLast(), lpNext(), lpPrev() or lpSeek().
@@ -1479,6 +1509,28 @@ int listpackTest(int argc, char *argv[], int accurate) {
         assert(picked == 1);
         assert(memcmp(keys[0].sval, "abc", keys[0].slen) == 0);
         assert(vals[0].lval == 123);
+        lpFree(lp);
+    }
+
+    TEST("find entry") {
+        unsigned char *find, *vstr;
+        unsigned char *lp = lpEmpty();
+        int64_t vlen;
+
+        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
+        lp = lpPushTail(lp, (unsigned char*)"def", 3);
+        find = lpFind(lp, (unsigned char*)"abc", 3, lpFirst(lp), 1);
+        vstr = lpGet(find, &vlen, NULL);
+        assert(find != NULL);
+        assert(memcmp(vstr, "abc", vlen) == 0);
+
+        lp = lpPushTail(lp, (unsigned char*)"123", 3);
+        lp = lpPushTail(lp, (unsigned char*)"456", 3);
+        find = lpFind(lp, (unsigned char*)"123", 3, lpFirst(lp), 1);
+        vstr = lpGet(find, &vlen, NULL);
+        assert(find != NULL);
+        assert(vlen == 123);
+
         lpFree(lp);
     }
 
