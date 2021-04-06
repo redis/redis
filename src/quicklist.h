@@ -157,11 +157,6 @@ typedef struct quicklistEntry {
 #define QUICKLIST_HEAD 0
 #define QUICKLIST_TAIL -1
 
-/* listInsert() where argument possible values */
-#define QUICKLIST_BEFORE 0
-#define QUICKLIST_AFTER 1
-#define QUICKLIST_REPLACE 2
-
 /* quicklist node encodings */
 #define QUICKLIST_NODE_ENCODING_RAW 1
 #define QUICKLIST_NODE_ENCODING_LZF 2
