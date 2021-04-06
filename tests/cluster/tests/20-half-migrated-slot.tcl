@@ -32,55 +32,58 @@ reset_cluster
 $cluster set aga xyz
 
 test "Half init migration in 'migrating' is fixable" {
-    $nodefrom(link) cluster setslot 609 migrating $nodeto(id)
+    assert_equal {OK} [$nodefrom(link) cluster setslot 609 migrating $nodeto(id)]
     fix_cluster $nodefrom(addr)
-    assert {[$cluster get aga] eq "xyz"}
+    assert_equal "xyz" [$cluster get aga]
 }
 
 test "Half init migration in 'importing' is fixable" {
-    $nodeto(link) cluster setslot 609 importing $nodefrom(id)
+    assert_equal {OK} [$nodeto(link) cluster setslot 609 importing $nodefrom(id)]
     fix_cluster $nodefrom(addr)
-    assert {[$cluster get aga] eq "xyz"}
+    assert_equal "xyz" [$cluster get aga]
 }
 
 test "Init migration and move key" {
-    $nodefrom(link) cluster setslot 609 migrating $nodeto(id)
-    $nodeto(link) cluster setslot 609 importing $nodefrom(id)
-    $nodefrom(link) migrate $nodeto(host) $nodeto(port) aga 0 10000
-    assert {[$cluster get aga] eq "xyz"}
+    assert_equal {OK} [$nodefrom(link) cluster setslot 609 migrating $nodeto(id)]
+    assert_equal {OK} [$nodeto(link) cluster setslot 609 importing $nodefrom(id)]
+    assert_equal {OK} [$nodefrom(link) migrate $nodeto(host) $nodeto(port) aga 0 10000]
+    wait_for_cluster_propagation
+    assert_equal "xyz" [$cluster get aga]
     fix_cluster $nodefrom(addr)
-    assert {[$cluster get aga] eq "xyz"}
+    assert_equal "xyz" [$cluster get aga]
 }
 
 reset_cluster
 
 test "Move key again" {
-    $nodefrom(link) cluster setslot 609 migrating $nodeto(id)
-    $nodeto(link) cluster setslot 609 importing $nodefrom(id)
-    $nodefrom(link) migrate $nodeto(host) $nodeto(port) aga 0 10000
-    assert {[$cluster get aga] eq "xyz"}
+    wait_for_cluster_propagation
+    assert_equal {OK} [$nodefrom(link) cluster setslot 609 migrating $nodeto(id)]
+    assert_equal {OK} [$nodeto(link) cluster setslot 609 importing $nodefrom(id)]
+    assert_equal {OK} [$nodefrom(link) migrate $nodeto(host) $nodeto(port) aga 0 10000]
+    wait_for_cluster_propagation
+    assert_equal "xyz" [$cluster get aga]
 }
 
 test "Half-finish migration" {
     # half finish migration on 'migrating' node
-    $nodefrom(link) cluster setslot 609 node $nodeto(id)
+    assert_equal {OK} [$nodefrom(link) cluster setslot 609 node $nodeto(id)]
     fix_cluster $nodefrom(addr)
-    assert {[$cluster get aga] eq "xyz"}
+    assert_equal "xyz" [$cluster get aga]
 }
 
 reset_cluster
 
 test "Move key back" {
     # 'aga' key is in 609 slot
-    $nodefrom(link) cluster setslot 609 migrating $nodeto(id)
-    $nodeto(link) cluster setslot 609 importing $nodefrom(id)
-    $nodefrom(link) migrate $nodeto(host) $nodeto(port) aga 0 10000
-    assert {[$cluster get aga] eq "xyz"}
+    assert_equal {OK} [$nodefrom(link) cluster setslot 609 migrating $nodeto(id)]
+    assert_equal {OK} [$nodeto(link) cluster setslot 609 importing $nodefrom(id)]
+    assert_equal {OK} [$nodefrom(link) migrate $nodeto(host) $nodeto(port) aga 0 10000]
+    assert_equal "xyz" [$cluster get aga]
 }
 
 test "Half-finish importing" {
     # Now we half finish 'importing' node
-    $nodeto(link) cluster setslot 609 node $nodeto(id)
+    assert_equal {OK} [$nodeto(link) cluster setslot 609 node $nodeto(id)]
     fix_cluster $nodefrom(addr)
-    assert {[$cluster get aga] eq "xyz"}
+    assert_equal "xyz" [$cluster get aga]
 }

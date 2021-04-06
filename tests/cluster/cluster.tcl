@@ -4,6 +4,10 @@
 # This software is released under the BSD License. See the COPYING file for
 # more information.
 
+# Track cluster configuration as created by create_cluster below
+set ::cluster_master_nodes 0
+set ::cluster_replica_nodes 0
+
 # Returns a parsed CLUSTER NODES output as a list of dictionaries.
 proc get_cluster_nodes id {
     set lines [split [R $id cluster nodes] "\r\n"]
@@ -120,6 +124,9 @@ proc create_cluster {masters slaves} {
         cluster_allocate_slaves $masters $slaves
     }
     assert_cluster_state ok
+
+    set ::cluster_master_nodes $masters
+    set ::cluster_replica_nodes $slaves
 }
 
 # Set the cluster node-timeout to all the reachalbe nodes.
@@ -142,4 +149,29 @@ proc cluster_write_test {id} {
         assert {[$cluster get key.$j] eq "$prefix.$j"}
     }
     $cluster close
+}
+
+# Check if cluster configuration is consistent.
+proc cluster_config_consistent {} {
+    for {set j 0} {$j < $::cluster_master_nodes + $::cluster_replica_nodes} {incr j} {
+        if {$j == 0} {
+            set base_cfg [R $j cluster slots]
+        } else {
+            set cfg [R $j cluster slots]
+            if {$cfg != $base_cfg} {
+                return 0
+            }
+        }
+    }
+
+    return 1
+}
+
+# Wait for cluster configuration to propagate and be consistent across nodes.
+proc wait_for_cluster_propagation {} {
+    wait_for_condition 50 100 {
+        [cluster_config_consistent] eq 1
+    } else {
+        fail "cluster config did not reach a consistent state"
+    }
 }
