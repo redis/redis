@@ -61,7 +61,6 @@ unsigned char* lpShrinkToFit(unsigned char *lp);
 unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, unsigned char *p, int where, unsigned char **newp);
 unsigned char *lpInsertBefore(unsigned char *lp, unsigned char *ele, uint32_t size, unsigned char *p);
 unsigned char *lpInsertAfter(unsigned char *lp, unsigned char *ele, uint32_t size, unsigned char *p);
-unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size);
 unsigned char *lpPushHead(unsigned char *lp, unsigned char *ele, uint32_t size);
 unsigned char *lpPushTail(unsigned char *lp, unsigned char *ele, uint32_t size);
 unsigned char *lpReplace(unsigned char *lp, unsigned char *ele, uint32_t size, unsigned char *p);

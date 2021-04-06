@@ -803,21 +803,15 @@ unsigned char *lpInsertAfter(unsigned char *lp, unsigned char *ele, uint32_t siz
     return lpInsert(lp, ele, size, p, LP_AFTER, NULL);
 }
 
-/* Append the specified element 'ele' of length 'len' at the end of the
- * listpack. It is implemented in terms of lpInsert(), so the return value is
- * the same as lpInsert(). */
-unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size) {
-    uint64_t listpack_bytes = lpGetTotalBytes(lp);
-    unsigned char *eofptr = lp + listpack_bytes - 1;
-    return lpInsert(lp,ele,size,eofptr,LP_BEFORE,NULL);
-}
-
 unsigned char *lpPushHead(unsigned char *lp, unsigned char *ele, uint32_t size) {
     unsigned char *p = lpFirst(lp);
     if (!p) return lpPushTail(lp, ele, size);
     return lpInsert(lp, ele, size, p, LP_BEFORE, NULL);
 }
 
+/* Append the specified element 'ele' of length 'len' at the end of the
+ * listpack. It is implemented in terms of lpInsert(), so the return value is
+ * the same as lpInsert(). */
 unsigned char *lpPushTail(unsigned char *lp, unsigned char *ele, uint32_t size) {
     uint64_t listpack_bytes = lpGetTotalBytes(lp);
     unsigned char *eofptr = lp + listpack_bytes - 1;
