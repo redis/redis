@@ -3051,12 +3051,8 @@ void xautoclaimCommand(client *c) {
         int moreargs = (c->argc-1) - j; /* Number of additional arguments. */
         char *opt = c->argv[j]->ptr;
         if (!strcasecmp(opt,"COUNT") && moreargs) {
-            if (getPositiveLongFromObjectOrReply(c,c->argv[j+1],&count,NULL) != C_OK)
+            if (getRangeLongFromObjectOrReply(c,c->argv[j+1],1,LONG_MAX,&count,"COUNT must be > 0") != C_OK)
                 return;
-            if (count == 0) {
-                addReplyError(c,"COUNT must be > 0");
-                return;
-            }
             j++;
         } else if (!strcasecmp(opt,"JUSTID")) {
             justid = 1;
