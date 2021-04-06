@@ -1563,8 +1563,8 @@ void ziplistRandomPair(unsigned char *zl, unsigned long total_count, ziplistEntr
     assert(ret != 0);
 }
 
-/* int compare for qsort */
-int uintCompare(const void *a, const void *b) {
+/* uint compare for qsort */
+static int uintCompare(const void *a, const void *b) {
     return (*(unsigned int *) a - *(unsigned int *) b);
 }
 

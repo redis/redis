@@ -992,9 +992,9 @@ unsigned char *lpMerge(unsigned char **first, unsigned char **second) {
     int append;
     unsigned char *source, *target;
     uint32_t target_bytes, source_bytes;
-    /* Pick the largest ziplist so we can resize easily in-place.
+    /* Pick the largest listpack so we can resize easily in-place.
      * We must also track if we are now appending or prepending to
-     * the target ziplist. */
+     * the target listpack. */
     if (first_len >= second_len) {
         /* retain first, append second to first. */
         target = *first;
@@ -1016,7 +1016,7 @@ unsigned char *lpMerge(unsigned char **first, unsigned char **second) {
                      LP_HDR_SIZE - 1;
     uint32_t lplength = first_len + second_len;
 
-    /* Extend target to new zlbytes then append or prepend source. */
+    /* Extend target to new lpbytes then append or prepend source. */
     target = zrealloc(target, lpbytes);
     if (append) {
         /* append == appending to target */
@@ -1097,6 +1097,155 @@ unsigned int lpCompare(unsigned char *p, unsigned char *s, unsigned int slen) {
     value = lpGet(p, &sz, buf);
     if (slen != sz) return 0;
     return memcmp(value,s,slen) == 0;
+}
+
+/* uint compare for qsort */
+static int uintCompare(const void *a, const void *b) {
+    return (*(unsigned int *) a - *(unsigned int *) b);
+}
+
+/* Helper method to store a string into from val or lval into dest */
+static inline void lpSaveValue(unsigned char *val, unsigned int len, int64_t lval, lpEntry *dest) {
+    dest->sval = val;
+    dest->slen = len;
+    dest->lval = lval;
+}
+
+void lpRandomPair(unsigned char *lp, unsigned long total_count, lpEntry *key, lpEntry *val) {
+    unsigned char *p;
+    int64_t vlen;
+
+    /* Avoid div by zero on corrupt listpack */
+    assert(total_count);
+
+    /* Generate even numbers, because listpack saved K-V pair */
+    int r = (rand() % total_count) * 2;
+    p = lpSeek(lp, r);
+    assert(p);
+    key->sval = lpGet(p, &vlen, NULL);
+    if (key->sval) {
+        key->slen = vlen;
+    } else {
+        key->lval = vlen;
+    }
+
+    if (!val)
+        return;
+    p = lpNext(lp, p);
+    assert(p);
+    val->sval = lpGet(p, &vlen, NULL);
+    if (val->sval) {
+        val->slen = vlen;
+    } else {
+        val->lval = vlen;
+    }
+}
+
+void lpRandomPairs(unsigned char *lp, unsigned int count, lpEntry *keys, lpEntry *vals) {
+    unsigned char *p, *key, *value;
+    unsigned int klen = 0, vlen = 0;
+    int64_t klval = 0, vlval = 0, ele_len = 0;
+
+    /* Notice: the index member must be first due to the use in uintCompare */
+    typedef struct {
+        unsigned int index;
+        unsigned int order;
+    } rand_pick;
+    rand_pick *picks = zmalloc(sizeof(rand_pick)*count);
+    unsigned int total_size = lpLength(lp)/2;
+
+    /* Avoid div by zero on corrupt listpack */
+    assert(total_size);
+
+    /* create a pool of random indexes (some may be duplicate). */
+    for (unsigned int i = 0; i < count; i++) {
+        picks[i].index = (rand() % total_size) * 2; /* Generate even indexes */
+        /* keep track of the order we picked them */
+        picks[i].order = i;
+    }
+
+    /* sort by indexes. */
+    qsort(picks, count, sizeof(rand_pick), uintCompare);
+
+    /* fetch the elements form the listpack into a output array respecting the original order. */
+    unsigned int lpindex = 0, pickindex = 0;
+    p = lpSeek(lp, 0);
+    while (p && pickindex < count) {
+        key = lpGet(p, &ele_len, NULL);
+        if (key) {
+            klen = ele_len;
+        } else {
+            klval = ele_len;
+        }
+        p = lpNext(lp, p);
+        assert(p);
+        value = lpGet(p, &ele_len, NULL);
+        if (value) {
+            vlen = ele_len;
+        } else {
+            vlval = ele_len;
+        }
+        while (pickindex < count && lpindex == picks[pickindex].index) {
+            int storeorder = picks[pickindex].order;
+            lpSaveValue(key, klen, klval, &keys[storeorder]);
+            if (vals)
+                lpSaveValue(value, vlen, vlval, &vals[storeorder]);
+             pickindex++;
+        }
+        lpindex += 2;
+        p = lpNext(lp, p);
+    }
+
+    zfree(picks);
+}
+
+unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, lpEntry *keys, lpEntry *vals) {
+    unsigned char *p, *key;
+    unsigned int klen = 0;
+    int64_t klval = 0, ele_len = 0;
+    unsigned int total_size = lpLength(lp)/2;
+    unsigned int index = 0;
+    if (count > total_size)
+        count = total_size;
+
+    /* To only iterate once, every time we try to pick a member, the probability
+     * we pick it is the quotient of the count left we want to pick and the
+     * count still we haven't visited in the dict, this way, we could make every
+     * member be equally picked.*/
+    p = lpSeek(lp, 0);
+    unsigned int picked = 0, remaining = count;
+    while (picked < count && p) {
+        double randomDouble = ((double)rand()) / RAND_MAX;
+        double threshold = ((double)remaining) / (total_size - index);
+        if (randomDouble <= threshold) {
+            key = lpGet(p, &ele_len, NULL);
+            if (key) {
+                klen = ele_len;
+            } else {
+                klval = ele_len;
+            }
+            lpSaveValue(key, klen, klval, &keys[picked]);
+            p = lpNext(lp, p);
+            assert(p);
+            if (vals) {
+                key = lpGet(p, &ele_len, NULL);
+                if (key) {
+                    klen = ele_len;
+                } else {
+                    klval = ele_len;
+                }
+                lpSaveValue(key, klen, klval, &vals[picked]);
+            }
+            remaining--;
+            picked++;
+        } else {
+            p = lpNext(lp, p);
+            assert(p);
+        }
+        p = lpNext(lp, p);
+        index++;
+    }
+    return picked;
 }
 
 #ifdef REDIS_TEST
@@ -1295,6 +1444,47 @@ int listpackTest(int argc, char *argv[], int accurate) {
         assert(LP_ENCODING_IS_32BIT_STR(lpLast(lp)[0]));
         zfree(str);
 
+        lpFree(lp);
+    }
+
+    TEST("random pair") {
+        lpEntry key, val;
+        unsigned char *lp = lpEmpty();
+        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
+        lp = lpPushTail(lp, (unsigned char*)"123", 3);
+        lpRandomPair(lp, 1, &key, &val);
+        assert(memcmp(key.sval, "abc", key.slen) == 0);
+        assert(val.lval == 123);
+        lpFree(lp);
+    }
+
+    TEST("random pairs") {
+        int count = 5;
+        unsigned char *lp = lpEmpty();
+        lpEntry *keys = zmalloc(sizeof(lpEntry) * count);
+        lpEntry *vals = zmalloc(sizeof(lpEntry) * count);
+
+        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
+        lp = lpPushTail(lp, (unsigned char*)"123", 3);
+        lpRandomPairs(lp, count, keys, vals);
+        assert(memcmp(keys[4].sval, "abc", keys[4].slen) == 0);
+        assert(vals[4].lval == 123);
+        lpFree(lp);
+    }
+
+    TEST("random pairs unique") {
+        unsigned picked;
+        int count = 5;
+        unsigned char *lp = lpEmpty();
+        lpEntry *keys = zmalloc(sizeof(lpEntry) * count);
+        lpEntry *vals = zmalloc(sizeof(lpEntry) * count);
+
+        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
+        lp = lpPushTail(lp, (unsigned char*)"123", 3);
+        picked = lpRandomPairsUnique(lp, count, keys, vals);
+        assert(picked == 1);
+        assert(memcmp(keys[0].sval, "abc", keys[0].slen) == 0);
+        assert(vals[0].lval == 123);
         lpFree(lp);
     }
 

@@ -45,6 +45,15 @@
 #define LP_AFTER 1
 #define LP_REPLACE 2
 
+/* Each entry in the listpack is either a string or an integer. */
+typedef struct {
+    /* When string is used, it is provided with the length (slen). */
+    unsigned char *sval;
+    unsigned int slen;
+    /* When integer is used, 'sval' is NULL, and lval holds the value. */
+    int64_t lval;
+} lpEntry;
+
 unsigned char *lpNew(size_t capacity);
 unsigned char *lpEmpty();
 void lpFree(unsigned char *lp);
@@ -68,8 +77,11 @@ unsigned char *lpSeek(unsigned char *lp, int index);
 int lpValidateIntegrity(unsigned char *lp, size_t size, int deep);
 int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes);
 unsigned char *lpMerge(unsigned char **first, unsigned char **second);
-unsigned char *lpDeleteRange(unsigned char *zl, int index, unsigned int num);
+unsigned char *lpDeleteRange(unsigned char *lp, int index, unsigned int num);
 unsigned int lpCompare(unsigned char *p, unsigned char *s, unsigned int slen);
+void lpRandomPair(unsigned char *lp, unsigned long total_count, lpEntry *key, lpEntry *val);
+void lpRandomPairs(unsigned char *lp, unsigned int count, lpEntry *keys, lpEntry *vals);
+unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, lpEntry *keys, lpEntry *vals);
 
 #ifdef REDIS_TEST
 int listpackTest(int argc, char *argv[], int accurate);
