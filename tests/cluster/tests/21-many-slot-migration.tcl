@@ -5,7 +5,8 @@ source "../tests/includes/utils.tcl"
 
 # TODO: This test currently runs without replicas, as failovers (which may
 # happen on lower-end CI platforms) are still not handled properly by the
-# cluster during slot migration.
+# cluster during slot migration (related to #6339).
+
 test "Create a 10 nodes cluster" {
     create_cluster 10 0
 }
