@@ -3360,7 +3360,7 @@ void processEventsWhileBlocked(void) {
     /* Note: when we are processing events while blocked (for instance during
      * busy Lua scripts), we set a global flag. When such flag is set, we
      * avoid handling the read part of clients using threaded I/O.
-     * See https://github.com/antirez/redis/issues/6988 for more info. */
+     * See https://github.com/redis/redis/issues/6988 for more info. */
     ProcessingEventsWhileBlocked = 1;
     while (iterations--) {
         long long startval = server.events_processed_while_blocked;

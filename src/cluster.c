@@ -3858,7 +3858,7 @@ int clusterNodeSetSlotBit(clusterNode *n, int slot) {
          * However new masters with slots assigned are considered valid
          * migration targets if the rest of the cluster is not a slave-less.
          *
-         * See https://github.com/antirez/redis/issues/3043 for more info. */
+         * See https://github.com/redis/redis/issues/3043 for more info. */
         if (n->numslots == 1 && clusterMastersHaveSlaves())
             n->flags |= CLUSTER_NODE_MIGRATE_TO;
     }

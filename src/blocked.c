@@ -566,7 +566,7 @@ void handleClientsBlockedOnKeys(void) {
              * way we can lookup an object multiple times (BLMOVE does
              * that) without the risk of it being freed in the second
              * lookup, invalidating the first one.
-             * See https://github.com/antirez/redis/pull/6554. */
+             * See https://github.com/redis/redis/pull/6554. */
             server.fixed_time_expire++;
             updateCachedTime(0);
 
