@@ -1054,22 +1054,26 @@ unsigned char *lpMerge(unsigned char **first, unsigned char **second) {
 }
 
 unsigned char *lpDeleteRange(unsigned char *lp, int index, unsigned int num) {
-    long long start = index;
-    uint32_t len = lpLength(lp);
+    int len = lpLength(lp);
     uint32_t bytes = lpBytes(lp);
 
     unsigned char *p = lpSeek(lp,index);
     if (p == NULL) return lp;
 
-    if (index < 0) start = len + index;
-    if ((start + num) >= len) {
+    /* Note that index could overflow, but we use the value
+     * after seek, so when we use it no overflow happens. */
+    if (index < 0) index = len + index;
+    if ((unsigned int)(len - index) <= num) {
+        /* When deleted num is out of range, we just need
+         * to set LP_EOF, and resize listpack. */
         p[0] = LP_EOF;
         lpSetTotalBytes(lp, p - lp + 1);
-        lpSetNumElements(lp, start);
+        lpSetNumElements(lp, index);
     } else {
         unsigned char *eofptr = lp + bytes - 1;
         unsigned char *first = p;
 
+        /* Find the last entry that is needed to delete to. */
         for (unsigned int i = 0; i < num; i++) {
             p = lpSkip(p);
             assert(p[0] != LP_EOF);
@@ -1264,7 +1268,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
         lpFree(lp);
     }
 
-    TEST("push various encodings") {
+    TEST("check various encodings") {
         unsigned char *lp = lpEmpty();
 
         /* integer encode */
@@ -1282,11 +1286,13 @@ int listpackTest(int argc, char *argv[], int accurate) {
         assert(LP_ENCODING_IS_64BIT_INT(lpLast(lp)[0]));
 
         /* string encode */
-        unsigned char *str = zmalloc(4095);
+        unsigned char *str = zmalloc(4096);
         lp = lpPushTail(lp, (unsigned char*)str, 63);
         assert(LP_ENCODING_IS_6BIT_STR(lpLast(lp)[0]));
         lp = lpPushTail(lp, (unsigned char*)str, 4095);
         assert(LP_ENCODING_IS_12BIT_STR(lpLast(lp)[0]));
+        lp = lpPushTail(lp, (unsigned char*)str, 4096);
+        assert(LP_ENCODING_IS_32BIT_STR(lpLast(lp)[0]));
         zfree(str);
 
         lpFree(lp);
