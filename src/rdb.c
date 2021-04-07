@@ -1980,31 +1980,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                     return NULL;
                 }
 
-                {
-                    unsigned char *p, *val;
-                    unsigned int vlen;
-                    long long lval;
-                    char longstr[32] = {0};
-                    unsigned char *lp = lpEmpty();
-
-                    p = ziplistIndex(o->ptr, 0);
-                    while (ziplistGet(p, &val, &vlen, &lval)) {
-                        if (!val) {
-                            vlen = ll2string(longstr, sizeof(longstr), lval);
-                            val = (unsigned char *)longstr;
-                        }
-
-                        lp = lpPushTail(lp, val, vlen);
-                        p = ziplistNext(o->ptr, p);
-                    }
-
-                    zfree(o->ptr);
-                    o->ptr = lp;
-                    o->type = OBJ_HASH;
-                    o->encoding = OBJ_ENCODING_LISTPACK;
-                    if (hashTypeLength(o) > server.hash_max_listpack_entries)
-                        hashTypeConvert(o, OBJ_ENCODING_HT);
-                }
+                o->type = OBJ_HASH;
+                o->encoding = OBJ_ENCODING_ZIPLIST;
+                hashTypeConvert(o, OBJ_ENCODING_LISTPACK);
+                if (hashTypeLength(o) > server.hash_max_listpack_entries)
+                    hashTypeConvert(o, OBJ_ENCODING_HT);
                 break;
             case RDB_TYPE_HASH_LISTPACK:
                 if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
