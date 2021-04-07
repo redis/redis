@@ -462,6 +462,10 @@ start_server {
         assert_equal [lindex $reply 1 0 1] {e 5}
     }
 
+    test {XAUTOCLAIM COUNT must be > 0} {
+       assert_error "ERR COUNT must be > 0" {r XAUTOCLAIM key group consumer 1 1 COUNT 0}
+    }
+
     test {XINFO FULL output} {
         r del x
         r XADD x 100 a 1
