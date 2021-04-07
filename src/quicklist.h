@@ -35,22 +35,22 @@
 
 /* Node, quicklist, and Iterator are the only data structures used currently. */
 
-/* quicklistNode is a 32 byte struct describing a ziplist for a quicklist.
+/* quicklistNode is a 32 byte struct describing a (ziplist / listpack) for a quicklist.
  * We use bit fields keep the quicklistNode at 32 bytes.
  * count: 16 bits, max 65536 (max zl bytes is 65k, so max count actually < 32k).
  * encoding: 2 bits, RAW=1, LZF=2.
- * container: 2 bits, NONE=1, ZIPLIST=2.
+ * container: 2 bits, NONE=1, ZIPLIST=2, LISTPACK=3.
  * recompress: 1 bit, bool, true if node is temporary decompressed for usage.
  * attempted_compress: 1 bit, boolean, used for verifying during testing.
  * extra: 10 bits, free for future use; pads out the remainder of 32 bits */
 typedef struct quicklistNode {
     struct quicklistNode *prev;
     struct quicklistNode *next;
-    unsigned char *zl;
-    unsigned int sz;             /* ziplist size in bytes */
-    unsigned int count : 16;     /* count of items in ziplist */
+    unsigned char *l;            /* (ziplist / listpack) data */
+    unsigned int sz;             /* (ziplist / listpack) size in bytes */
+    unsigned int count : 16;     /* count of items in (ziplist/listpack) */
     unsigned int encoding : 2;   /* RAW==1 or LZF==2 */
-    unsigned int container : 2;  /* NONE==1 or ZIPLIST==2 */
+    unsigned int container : 2;  /* NONE==1, ZIPLIST==2, LISTPACK==3 */
     unsigned int recompress : 1; /* was this node previous compressed? */
     unsigned int attempted_compress : 1; /* node can't compress; too small */
     unsigned int extra : 10; /* more bits to steal for future usage */
@@ -60,7 +60,7 @@ typedef struct quicklistNode {
  * 'sz' is byte length of 'compressed' field.
  * 'compressed' is LZF data with total (compressed) length 'sz'
  * NOTE: uncompressed length is stored in quicklistNode->sz.
- * When quicklistNode->zl is compressed, node->zl points to a quicklistLZF */
+ * When quicklistNode->l is compressed, node->l points to a quicklistLZF */
 typedef struct quicklistLZF {
     unsigned int sz; /* LZF size in bytes*/
     char compressed[];
@@ -110,7 +110,7 @@ typedef struct quicklistContainerType {
     unsigned char *(*listInsertAfter)(unsigned char *l, unsigned char *ele, uint32_t size, unsigned char *p);
     unsigned char *(*listReplace)(unsigned char *l, unsigned char *s, uint32_t slen, unsigned char *p);
     unsigned char *(*listDelete)(unsigned char *l, unsigned char *p, unsigned char **newp);
-    unsigned char *(*listDeleteRange)(unsigned char *zl, int index, unsigned int num);
+    unsigned char *(*listDeleteRange)(unsigned char *l, int index, unsigned int num);
     unsigned char *(*listMerge)(unsigned char **first, unsigned char **second);
     unsigned int (*listCompare)(unsigned char *l, unsigned char *s, uint32_t slen);
     void (*listConvertIfNeed)(quicklistNode *node);
@@ -139,7 +139,7 @@ typedef struct quicklist {
 typedef struct quicklistIter {
     const quicklist *quicklist;
     quicklistNode *current;
-    unsigned char *zi;
+    unsigned char *li;
     long offset; /* offset in current ziplist */
     int direction;
 } quicklistIter;
@@ -147,7 +147,7 @@ typedef struct quicklistIter {
 typedef struct quicklistEntry {
     const quicklist *quicklist;
     quicklistNode *node;
-    unsigned char *zi;
+    unsigned char *li;
     unsigned char *value;
     long long longval;
     unsigned int sz;
@@ -188,9 +188,9 @@ quicklist *quicklistAppendValuesFromZiplist(quicklist *quicklist,
                                             unsigned char *zl);
 quicklist *quicklistCreateFromZiplist(int fill, int compress,
                                       unsigned char *zl);
-void quicklistAppendListpack(quicklist *quicklist, unsigned char *zl);
+void quicklistAppendListpack(quicklist *quicklist, unsigned char *lp);
 quicklist *quicklistCreateFromListpack(int fill, int compress,
-                                      unsigned char *zl);
+                                      unsigned char *lp);
 void quicklistInsertAfter(quicklist *quicklist, quicklistEntry *node,
                           void *value, const size_t sz);
 void quicklistInsertBefore(quicklist *quicklist, quicklistEntry *node,

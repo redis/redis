@@ -822,7 +822,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key) {
                     if ((n = rdbSaveLzfBlob(rdb,data,compress_len,node->sz)) == -1) return -1;
                     nwritten += n;
                 } else {
-                    if ((n = rdbSaveRawString(rdb,node->zl,node->sz)) == -1) return -1;
+                    if ((n = rdbSaveRawString(rdb,node->l,node->sz)) == -1) return -1;
                     nwritten += n;
                 }
                 node = node->next;

@@ -163,7 +163,7 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
 int listTypeEqual(listTypeEntry *entry, robj *o) {
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
         serverAssertWithInfo(NULL,o,sdsEncodedObject(o));
-        return quicklistCompare(entry->entry.quicklist,entry->entry.zi,o->ptr,sdslen(o->ptr));
+        return quicklistCompare(entry->entry.quicklist,entry->entry.li,o->ptr,sdslen(o->ptr));
     } else {
         serverPanic("Unknown list encoding");
     }
