@@ -730,7 +730,7 @@ int getPositiveLongFromObjectOrReply(client *c, robj *o, long *target, const cha
     if (msg) {
         return getRangeLongFromObjectOrReply(c, o, 0, LONG_MAX, target, msg);
     } else {
-        return getRangeLongFromObjectOrReply(c, o, 0, LONG_MAX, target, "Must be positive");
+        return getRangeLongFromObjectOrReply(c, o, 0, LONG_MAX, target, "value is out of range, must be positive");
     }
 }
 

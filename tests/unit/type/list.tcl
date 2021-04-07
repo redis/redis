@@ -132,7 +132,7 @@ start_server {
         assert_equal {aa bb} [r rpop listcount 2]
         assert_equal {cc} [r rpop listcount 1]
         assert_equal {dd} [r rpop listcount 123]
-        assert_error "ERR Must be positive" {r lpop forbarqaz -123}
+        assert_error "*ERR*range*" {r lpop forbarqaz -123}
     }
 
     test {Variadic RPUSH/LPUSH} {
