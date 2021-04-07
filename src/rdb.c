@@ -672,8 +672,8 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         else
             serverPanic("Unknown set encoding");
     case OBJ_ZSET:
-        if (o->encoding == OBJ_ENCODING_ZIPLIST)
-            return rdbSaveType(rdb,RDB_TYPE_ZSET_ZIPLIST);
+        if (o->encoding == OBJ_ENCODING_LISTPACK)
+            return rdbSaveType(rdb,RDB_TYPE_ZSET_LISTPACK);
         else if (o->encoding == OBJ_ENCODING_SKIPLIST)
             return rdbSaveType(rdb,RDB_TYPE_ZSET_2);
         else
@@ -864,8 +864,8 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key) {
         }
     } else if (o->type == OBJ_ZSET) {
         /* Save a sorted set value */
-        if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-            size_t l = ziplistBlobLen((unsigned char*)o->ptr);
+        if (o->encoding == OBJ_ENCODING_LISTPACK) {
+            size_t l = lpBytes((unsigned char*)o->ptr);
 
             if ((n = rdbSaveRawString(rdb,o->ptr,l)) == -1) return -1;
             nwritten += n;
@@ -1676,7 +1676,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
         /* Convert *after* loading, since sorted sets are not stored ordered. */
         if (zsetLength(o) <= server.zset_max_ziplist_entries &&
             maxelelen <= server.zset_max_ziplist_value)
-                zsetConvert(o,OBJ_ENCODING_ZIPLIST);
+                zsetConvert(o,OBJ_ENCODING_LISTPACK);
     } else if (rdbtype == RDB_TYPE_HASH) {
         uint64_t len;
         int ret;
@@ -1823,7 +1823,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                rdbtype == RDB_TYPE_SET_INTSET   ||
                rdbtype == RDB_TYPE_ZSET_ZIPLIST ||
                rdbtype == RDB_TYPE_HASH_ZIPLIST ||
-               rdbtype == RDB_TYPE_HASH_LISTPACK)
+               rdbtype == RDB_TYPE_HASH_LISTPACK ||
+               rdbtype == RDB_TYPE_ZSET_LISTPACK)
     {
         size_t encoded_len;
         unsigned char *encoded =
@@ -1927,8 +1928,45 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                     decrRefCount(o);
                     return NULL;
                 }
+
+                {
+                    unsigned char *p, *val;
+                    unsigned int vlen;
+                    long long lval;
+                    char longstr[32] = {0};
+                    unsigned char *lp = lpEmpty();
+
+                    p = ziplistIndex(o->ptr, 0);
+                    while (ziplistGet(p, &val, &vlen, &lval)) {
+                        if (!val) {
+                            vlen = ll2string(longstr, sizeof(longstr), lval);
+                            val = (unsigned char *)longstr;
+                        }
+
+                        lp = lpPushTail(lp, val, vlen);
+                        p = ziplistNext(o->ptr, p);
+                    }
+
+                    zfree(o->ptr);
+                    o->ptr = lp;
+                    o->type = OBJ_ZSET;
+                    o->encoding = OBJ_ENCODING_LISTPACK;
+                    if (zsetLength(o) > server.zset_max_ziplist_entries)
+                        zsetConvert(o,OBJ_ENCODING_SKIPLIST);
+                }
+                break;
+            case RDB_TYPE_ZSET_LISTPACK:
+                if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
+                if (!zsetListpackValidateIntegrity(encoded, encoded_len, deep_integrity_validation)) {
+                    rdbReportCorruptRDB("Zset listpack integrity check failed.");
+                    zfree(encoded);
+                    o->ptr = NULL;
+                    decrRefCount(o);
+                    return NULL;
+                }
+
                 o->type = OBJ_ZSET;
-                o->encoding = OBJ_ENCODING_ZIPLIST;
+                o->encoding = OBJ_ENCODING_LISTPACK;
                 if (zsetLength(o) > server.zset_max_ziplist_entries)
                     zsetConvert(o,OBJ_ENCODING_SKIPLIST);
                 break;
@@ -1943,28 +1981,19 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                 }
 
                 {
-                    unsigned char *p, *key, *val;
-                    unsigned int klen, vlen;
-                    long long klval, vlval;
-                    char klongstr[32] = {0};
-                    char vlongstr[32] = {0};
+                    unsigned char *p, *val;
+                    unsigned int vlen;
+                    long long lval;
+                    char longstr[32] = {0};
                     unsigned char *lp = lpEmpty();
 
                     p = ziplistIndex(o->ptr, 0);
-                    while (ziplistGet(p, &key, &klen, &klval)) {
-                        if (!key) {
-                            klen = ll2string(klongstr, sizeof(klongstr), klval);
-                            key = (unsigned char *)klongstr;
-                        }
-
-                        p = ziplistNext(o->ptr, p);
-                        serverAssert(ziplistGet(p, &val, &vlen, &vlval));
+                    while (ziplistGet(p, &val, &vlen, &lval)) {
                         if (!val) {
-                            vlen = ll2string(vlongstr, sizeof(vlongstr), vlval);
-                            val = (unsigned char *)klongstr;
+                            vlen = ll2string(longstr, sizeof(longstr), lval);
+                            val = (unsigned char *)longstr;
                         }
 
-                        lp = lpPushTail(lp, key, klen);
                         lp = lpPushTail(lp, val, vlen);
                         p = ziplistNext(o->ptr, p);
                     }
@@ -2280,7 +2309,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
             return NULL;
         }
         o = createModuleObject(mt,ptr);
-    } else if (rdbtype == RDB_TYPE_HASH_LISTPACK) {
     } else {
         rdbReportReadError("Unknown RDB encoding type %d",rdbtype);
         return NULL;

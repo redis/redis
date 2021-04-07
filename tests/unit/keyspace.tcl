@@ -272,10 +272,10 @@ start_server {tags {"keyspace"}} {
         assert_equal $digest [r debug digest-value newset2]
     }
 
-    test {COPY basic usage for ziplist sorted set} {
+    test {COPY basic usage for listpack sorted set} {
         r del zset1 newzset1
         r zadd zset1 123 foobar
-        assert_encoding ziplist zset1
+        assert_encoding listpack zset1
         r copy zset1 newzset1
         set digest [r debug digest-value zset1]
         assert_equal $digest [r debug digest-value newzset1]
@@ -303,10 +303,10 @@ start_server {tags {"keyspace"}} {
         r config set zset-max-ziplist-entries $original_max
     }
 
-    test {COPY basic usage for ziplist hash} {
+    test {COPY basic usage for listpack hash} {
         r del hash1 newhash1
         r hset hash1 tmp 17179869184
-        assert_encoding ziplist hash1
+        assert_encoding listpack hash1
         r copy hash1 newhash1
         set digest [r debug digest-value hash1]
         assert_equal $digest [r debug digest-value newhash1]

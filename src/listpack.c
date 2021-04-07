@@ -1198,7 +1198,7 @@ void lpRandomPairs(unsigned char *lp, unsigned int count, lpEntry *keys, lpEntry
 
     /* fetch the elements form the listpack into a output array respecting the original order. */
     unsigned int lpindex = 0, pickindex = 0;
-    p = lpSeek(lp, 0);
+    p = lpFirst(lp);
     while (p && pickindex < count) {
         key = lpGet(p, &ele_len, NULL);
         if (key) {
@@ -1241,7 +1241,7 @@ unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, lpEntry 
      * we pick it is the quotient of the count left we want to pick and the
      * count still we haven't visited in the dict, this way, we could make every
      * member be equally picked.*/
-    p = lpSeek(lp, 0);
+    p = lpFirst(lp);
     unsigned int picked = 0, remaining = count;
     while (picked < count && p) {
         double randomDouble = ((double)rand()) / RAND_MAX;

@@ -162,28 +162,27 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
     } else if (o->type == OBJ_ZSET) {
         unsigned char eledigest[20];
 
-        if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+        if (o->encoding == OBJ_ENCODING_LISTPACK) {
             unsigned char *zl = o->ptr;
             unsigned char *eptr, *sptr;
             unsigned char *vstr;
-            unsigned int vlen;
-            long long vll;
+            int64_t vlen;
             double score;
 
-            eptr = ziplistIndex(zl,0);
+            eptr = lpFirst(zl);
             serverAssert(eptr != NULL);
-            sptr = ziplistNext(zl,eptr);
+            sptr = lpNext(zl,eptr);
             serverAssert(sptr != NULL);
 
             while (eptr != NULL) {
-                serverAssert(ziplistGet(eptr,&vstr,&vlen,&vll));
+                vstr = lpGet(eptr,&vlen,NULL);
                 score = zzlGetScore(sptr);
 
                 memset(eledigest,0,20);
                 if (vstr != NULL) {
                     mixDigest(eledigest,vstr,vlen);
                 } else {
-                    ll2string(buf,sizeof(buf),vll);
+                    ll2string(buf,sizeof(buf),vlen);
                     mixDigest(eledigest,buf,strlen(buf));
                 }
 

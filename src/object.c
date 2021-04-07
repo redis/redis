@@ -218,13 +218,6 @@ robj *createQuicklistObject(quicklistContainerType *type) {
     return o;
 }
 
-robj *createZiplistObject(void) {
-    unsigned char *zl = ziplistNew();
-    robj *o = createObject(OBJ_LIST,zl);
-    o->encoding = OBJ_ENCODING_ZIPLIST;
-    return o;
-}
-
 robj *createSetObject(void) {
     dict *d = dictCreate(&setDictType,NULL);
     robj *o = createObject(OBJ_SET,d);
@@ -257,10 +250,10 @@ robj *createZsetObject(void) {
     return o;
 }
 
-robj *createZsetZiplistObject(void) {
-    unsigned char *zl = ziplistNew();
-    robj *o = createObject(OBJ_ZSET,zl);
-    o->encoding = OBJ_ENCODING_ZIPLIST;
+robj *createZsetListpackObject(void) {
+    unsigned char *lp = lpEmpty();
+    robj *o = createObject(OBJ_ZSET,lp);
+    o->encoding = OBJ_ENCODING_LISTPACK;
     return o;
 }
 
@@ -314,8 +307,8 @@ void freeZsetObject(robj *o) {
         zslFree(zs->zsl);
         zfree(zs);
         break;
-    case OBJ_ENCODING_ZIPLIST:
-        zfree(o->ptr);
+    case OBJ_ENCODING_LISTPACK:
+        lpFree(o->ptr);
         break;
     default:
         serverPanic("Unknown sorted set encoding");
@@ -810,12 +803,12 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
             quicklistNode *node = ql->head;
             asize = sizeof(*o)+sizeof(quicklist);
             do {
-                elesize += sizeof(quicklistNode)+ziplistBlobLen(node->zl);
+                elesize += sizeof(quicklistNode)+lpBytes(node->zl);
                 samples++;
             } while ((node = node->next) && samples < sample_size);
             asize += (double)elesize/samples*ql->len;
-        } else if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-            asize = sizeof(*o)+ziplistBlobLen(o->ptr);
+        } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+            asize = sizeof(*o)+lpBytes(o->ptr);
         } else {
             serverPanic("Unknown list encoding");
         }
@@ -838,8 +831,8 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
             serverPanic("Unknown set encoding");
         }
     } else if (o->type == OBJ_ZSET) {
-        if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-            asize = sizeof(*o)+(ziplistBlobLen(o->ptr));
+        if (o->encoding == OBJ_ENCODING_LISTPACK) {
+            asize = sizeof(*o)+(lpBytes(o->ptr));
         } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
             d = ((zset*)o->ptr)->dict;
             zskiplist *zsl = ((zset*)o->ptr)->zsl;
@@ -858,8 +851,8 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
             serverPanic("Unknown sorted set encoding");
         }
     } else if (o->type == OBJ_HASH) {
-        if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-            asize = sizeof(*o)+(ziplistBlobLen(o->ptr));
+        if (o->encoding == OBJ_ENCODING_LISTPACK) {
+            asize = sizeof(*o)+(lpBytes(o->ptr));
         } else if (o->encoding == OBJ_ENCODING_HT) {
             d = o->ptr;
             di = dictGetIterator(d);

@@ -259,20 +259,20 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
     size_t origincount = ga->used;
     sds member;
 
-    if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
+    if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl = zobj->ptr;
         unsigned char *eptr, *sptr;
         unsigned char *vstr = NULL;
-        unsigned int vlen = 0;
-        long long vlong = 0;
+        int64_t vlen = 0;
         double score = 0;
+        unsigned char buf[LP_INTBUF_SIZE];
 
         if ((eptr = zzlFirstInRange(zl, &range)) == NULL) {
             /* Nothing exists starting at our min.  No results. */
             return 0;
         }
 
-        sptr = ziplistNext(zl, eptr);
+        sptr = lpNext(zl, eptr);
         while (eptr) {
             score = zzlGetScore(sptr);
 
@@ -280,10 +280,8 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
             if (!zslValueLteMax(score, &range))
                 break;
 
-            /* We know the element exists. ziplistGet should always succeed */
-            ziplistGet(eptr, &vstr, &vlen, &vlong);
-            member = (vstr == NULL) ? sdsfromlonglong(vlong) :
-                                      sdsnewlen(vstr,vlen);
+            vstr = lpGet(eptr, &vlen, buf);
+            member = sdsnewlen(vstr,vlen);
             if (geoAppendIfWithinShape(ga,shape,score,member)
                 == C_ERR) sdsfree(member);
             if (ga->used && limit && ga->used >= limit) break;
@@ -791,7 +789,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
         }
 
         if (returned_items) {
-            zsetConvertToZiplistIfNeeded(zobj,maxelelen);
+            zsetConvertToListpackIfNeeded(zobj,maxelelen);
             setKey(c,c->db,storekey,zobj);
             decrRefCount(zobj);
             notifyKeyspaceEvent(NOTIFY_ZSET,flags & GEOSEARCH ? "geosearchstore" : "georadiusstore",storekey,
