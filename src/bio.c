@@ -224,7 +224,7 @@ void *bioProcessBackgroundJobs(void *arg) {
              * socket, pipe, or file. We just ignore these errno because
              * aof fsync did not really fail. */
             if (redis_fsync(job->fd) == -1 &&
-                (errno != EBADF || errno != EINVAL))
+                errno != EBADF && errno != EINVAL)
             {
                 int last_status;
                 atomicGet(server.aof_bio_fsync_status,last_status);
