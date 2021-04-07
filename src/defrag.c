@@ -813,7 +813,7 @@ long defragModule(redisDb *db, dictEntry *kde) {
 long defragKey(redisDb *db, dictEntry *de) {
     sds keysds = dictGetKey(de);
     robj *newob, *ob;
-    unsigned char *newzl, *newlp;
+    unsigned char *newlp;
     long defragged = 0;
     sds newsds;
 
@@ -842,8 +842,8 @@ long defragKey(redisDb *db, dictEntry *de) {
         if (ob->encoding == OBJ_ENCODING_QUICKLIST) {
             defragged += defragQuicklist(db, de);
         } else if (ob->encoding == OBJ_ENCODING_LISTPACK) {
-            if ((newzl = activeDefragAlloc(ob->ptr)))
-                defragged++, ob->ptr = newzl;
+            if ((newlp = activeDefragAlloc(ob->ptr)))
+                defragged++, ob->ptr = newlp;
         } else {
             serverPanic("Unknown list encoding");
         }
@@ -859,8 +859,8 @@ long defragKey(redisDb *db, dictEntry *de) {
         }
     } else if (ob->type == OBJ_ZSET) {
         if (ob->encoding == OBJ_ENCODING_LISTPACK) {
-            if ((newzl = activeDefragAlloc(ob->ptr)))
-                defragged++, ob->ptr = newzl;
+            if ((newlp = activeDefragAlloc(ob->ptr)))
+                defragged++, ob->ptr = newlp;
         } else if (ob->encoding == OBJ_ENCODING_SKIPLIST) {
             defragged += defragZsetSkiplist(db, de);
         } else {

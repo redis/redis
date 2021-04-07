@@ -1,7 +1,7 @@
 start_server {
     tags {"sort"}
     overrides {
-        "list-max-ziplist-size" 32
+        "list-max-listpack-size" 32
         "set-max-intset-entries" 32
     }
 } {

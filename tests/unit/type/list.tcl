@@ -9,7 +9,7 @@ proc wait_for_blocked_client {} {
 start_server {
     tags {"list"}
     overrides {
-        "list-max-ziplist-size" 5
+        "list-max-listpack-size" 5
     }
 } {
     source "tests/unit/type/list-common.tcl"

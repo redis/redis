@@ -1230,8 +1230,8 @@ void zsetConvertToListpackIfNeeded(robj *zobj, size_t maxelelen) {
     if (zobj->encoding == OBJ_ENCODING_LISTPACK) return;
     zset *zset = zobj->ptr;
 
-    if (zset->zsl->length <= server.zset_max_ziplist_entries &&
-        maxelelen <= server.zset_max_ziplist_value)
+    if (zset->zsl->length <= server.zset_max_listpack_entries &&
+        maxelelen <= server.zset_max_listpack_value)
             zsetConvert(zobj,OBJ_ENCODING_LISTPACK);
 }
 
@@ -1353,8 +1353,8 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
             /* Optimize: check if the element is too large or the list
              * becomes too long *before* executing zzlInsert. */
             zobj->ptr = zzlInsert(zobj->ptr,ele,score);
-            if (zzlLength(zobj->ptr) > server.zset_max_ziplist_entries ||
-                sdslen(ele) > server.zset_max_ziplist_value)
+            if (zzlLength(zobj->ptr) > server.zset_max_listpack_entries ||
+                sdslen(ele) > server.zset_max_listpack_value)
                 zsetConvert(zobj,OBJ_ENCODING_SKIPLIST);
             if (newscore) *newscore = score;
             *out_flags |= ZADD_OUT_ADDED;
@@ -1810,8 +1810,8 @@ void zaddGenericCommand(client *c, int flags) {
     if (checkType(c,zobj,OBJ_ZSET)) goto cleanup;
     if (zobj == NULL) {
         if (xx) goto reply_to_client; /* No key + XX option: nothing to do. */
-        if (server.zset_max_ziplist_entries == 0 ||
-            server.zset_max_ziplist_value < sdslen(c->argv[scoreidx+1]->ptr))
+        if (server.zset_max_listpack_entries == 0 ||
+            server.zset_max_listpack_value < sdslen(c->argv[scoreidx+1]->ptr))
         {
             zobj = createZsetObject();
         } else {

@@ -23,7 +23,7 @@ start_server {tags {"modules"}} {
     } {{f1 1}}
 
     test {Module scan hash dict} {
-        r config set hash-max-ziplist-entries 2
+        r config set hash-max-listpack-entries 2
         r hmset hh f3 v3
         lsort [r scan.scan_key hh]
     } {{f1 v1} {f2 v2} {f3 v3}}
@@ -34,7 +34,7 @@ start_server {tags {"modules"}} {
     } {{f1 1} {f2 2}}
 
     test {Module scan zset dict} {
-        r config set zset-max-ziplist-entries 2
+        r config set zset-max-listpack-entries 2
         r zadd zz 3 f3
         lsort [r scan.scan_key zz]
     } {{f1 1} {f2 2} {f3 3}}

@@ -21,9 +21,9 @@ proc generate_collections {suffix elements} {
 
 # generate keys with various types and encodings
 proc generate_types {} {
-    r config set list-max-ziplist-size 5
-    r config set hash-max-ziplist-entries 5
-    r config set zset-max-ziplist-entries 5
+    r config set list-max-listpack-size 5
+    r config set hash-max-listpack-entries 5
+    r config set zset-max-listpack-entries 5
     r config set stream-node-max-entries 5
 
     # create small (ziplist / listpack encoded) objects with 3 items

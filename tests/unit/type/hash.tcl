@@ -35,8 +35,8 @@ start_server {tags {"hash"}} {
     }
 
     foreach {type contents} "listpack {{a 1} {b 2} {c 3}} hashtable {{a 1} {b 2} {[randstring 70 90 alpha] 3}}" {
-        set original_max_value [lindex [r config get hash-max-ziplist-value] 1]
-        r config set hash-max-ziplist-value 10
+        set original_max_value [lindex [r config get hash-max-listpack-value] 1]
+        r config set hash-max-listpack-value 10
         create_hash myhash $contents
         assert_encoding $type myhash
 
@@ -49,7 +49,7 @@ start_server {tags {"hash"}} {
             }
             assert_equal [lsort [get_keys $contents]] [lsort [array names myhash]]
         }
-        r config set hash-max-ziplist-value $original_max_value
+        r config set hash-max-listpack-value $original_max_value
     }
 
     test "HRANDFIELD with RESP3" {
@@ -76,8 +76,8 @@ start_server {tags {"hash"}} {
         hashtable {{a 1} {b 2} {c 3} {d 4} {e 5} {6 f} {7 g} {8 h} {9 i} {[randstring 70 90 alpha] 10}}
         listpack {{a 1} {b 2} {c 3} {d 4} {e 5} {6 f} {7 g} {8 h} {9 i} {10 j}} " {
         test "HRANDFIELD with <count> - $type" {
-            set original_max_value [lindex [r config get hash-max-ziplist-value] 1]
-            r config set hash-max-ziplist-value 10
+            set original_max_value [lindex [r config get hash-max-listpack-value] 1]
+            r config set hash-max-listpack-value 10
             create_hash myhash $contents
             assert_encoding $type myhash
 
@@ -202,7 +202,7 @@ start_server {tags {"hash"}} {
                 assert_equal [check_histogram_distribution $allkey 0.05 0.15] true
             }
         }
-        r config set hash-max-ziplist-value $original_max_value
+        r config set hash-max-listpack-value $original_max_value
     }
 
 
@@ -701,7 +701,7 @@ start_server {tags {"hash"}} {
     }
 
     test {Stress test the hash listpack -> hashtable encoding conversion} {
-        r config set hash-max-ziplist-entries 32
+        r config set hash-max-listpack-entries 32
         for {set j 0} {$j < 100} {incr j} {
             r del myhash
             for {set i 0} {$i < 64} {incr i} {
@@ -731,8 +731,8 @@ start_server {tags {"hash"}} {
 
     test {Hash listpack of various encodings} {
         r del k
-        r config set hash-max-ziplist-entries 1000000000
-        r config set hash-max-ziplist-value 1000000000
+        r config set hash-max-listpack-entries 1000000000
+        r config set hash-max-listpack-value 1000000000
         r hset k ZIP_INT_8B 127
         r hset k ZIP_INT_16B 32767
         r hset k ZIP_INT_32B 2147483647
@@ -746,7 +746,7 @@ start_server {tags {"hash"}} {
         set dump [r dump k]
 
         # will be converted to dict at RESTORE
-        r config set hash-max-ziplist-entries 2
+        r config set hash-max-listpack-entries 2
         r config set sanitize-dump-payload no
         r restore kk 0 $dump
         set kk [r hgetall kk]

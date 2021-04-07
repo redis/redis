@@ -1,7 +1,7 @@
 start_server {
     tags {list ziplist}
     overrides {
-        "list-max-ziplist-size" 16
+        "list-max-listpack-size" 16
     }
 } {
     test {Explicit regression for a list bug} {

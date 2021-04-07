@@ -287,8 +287,8 @@ start_server {tags {"keyspace"}} {
 
      test {COPY basic usage for skiplist sorted set} {
         r del zset2 newzset2
-        set original_max [lindex [r config get zset-max-ziplist-entries] 1]
-        r config set zset-max-ziplist-entries 0
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 0
         for {set j 0} {$j < 130} {incr j} {
             r zadd zset2 [randomInt 50] ele-[randomInt 10]
         }
@@ -300,7 +300,7 @@ start_server {tags {"keyspace"}} {
         assert_equal 1 [r object refcount newzset2]
         r del zset2
         assert_equal $digest [r debug digest-value newzset2]
-        r config set zset-max-ziplist-entries $original_max
+        r config set zset-max-listpack-entries $original_max
     }
 
     test {COPY basic usage for listpack hash} {
@@ -318,8 +318,8 @@ start_server {tags {"keyspace"}} {
 
     test {COPY basic usage for hashtable hash} {
         r del hash2 newhash2
-        set original_max [lindex [r config get hash-max-ziplist-entries] 1]
-        r config set hash-max-ziplist-entries 0
+        set original_max [lindex [r config get hash-max-listpack-entries] 1]
+        r config set hash-max-listpack-entries 0
         for {set i 0} {$i < 64} {incr i} {
             r hset hash2 [randomValue] [randomValue]
         }
@@ -331,7 +331,7 @@ start_server {tags {"keyspace"}} {
         assert_equal 1 [r object refcount newhash2]
         r del hash2
         assert_equal $digest [r debug digest-value newhash2]
-        r config set hash-max-ziplist-entries $original_max
+        r config set hash-max-listpack-entries $original_max
     }
 
     test {COPY basic usage for stream} {

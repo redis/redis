@@ -13,8 +13,8 @@ start_server [list overrides [list "dir" $server_path "dbfilename" "hash-zipmap.
 }
 
 exec cp -f tests/assets/hash-zipmap.rdb $server_path
-start_server [list overrides [list "dir" $server_path "dbfilename" "hash-zipmap.rdb" "hash-max-ziplist-entries" 1]] {
-  test "RDB load zipmap hash: converts to hash table when hash-max-ziplist-entries is exceeded" {
+start_server [list overrides [list "dir" $server_path "dbfilename" "hash-zipmap.rdb" "hash-max-listpack-entries" 1]] {
+  test "RDB load zipmap hash: converts to hash table when hash-max-listpack-entries is exceeded" {
     r select 0
 
     assert_match "*hashtable*" [r debug object hash]
@@ -24,8 +24,8 @@ start_server [list overrides [list "dir" $server_path "dbfilename" "hash-zipmap.
 }
 
 exec cp -f tests/assets/hash-zipmap.rdb $server_path
-start_server [list overrides [list "dir" $server_path "dbfilename" "hash-zipmap.rdb" "hash-max-ziplist-value" 1]] {
-  test "RDB load zipmap hash: converts to hash table when hash-max-ziplist-value is exceeded" {
+start_server [list overrides [list "dir" $server_path "dbfilename" "hash-zipmap.rdb" "hash-max-listpack-value" 1]] {
+  test "RDB load zipmap hash: converts to hash table when hash-max-listpack-value is exceeded" {
     r select 0
 
     assert_match "*hashtable*" [r debug object hash]

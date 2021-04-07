@@ -1542,7 +1542,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
 
         o = createQuicklistObject(&quicklistContainerTypeListpack);
-        quicklistSetOptions(o->ptr, server.list_max_ziplist_size,
+        quicklistSetOptions(o->ptr, server.list_max_listpack_size,
                             server.list_compress_depth);
 
         /* Load every single element of the list */
@@ -1674,8 +1674,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
         }
 
         /* Convert *after* loading, since sorted sets are not stored ordered. */
-        if (zsetLength(o) <= server.zset_max_ziplist_entries &&
-            maxelelen <= server.zset_max_ziplist_value)
+        if (zsetLength(o) <= server.zset_max_listpack_entries &&
+            maxelelen <= server.zset_max_listpack_value)
                 zsetConvert(o,OBJ_ENCODING_LISTPACK);
     } else if (rdbtype == RDB_TYPE_HASH) {
         uint64_t len;
@@ -1689,7 +1689,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
         o = createHashObject();
 
         /* Too many entries? Use a hash table right from the start. */
-        if (len > server.hash_max_ziplist_entries)
+        if (len > server.hash_max_listpack_entries)
             hashTypeConvert(o, OBJ_ENCODING_HT);
         else if (deep_integrity_validation) {
             /* In this mode, we need to guarantee that the server won't crash
@@ -1734,8 +1734,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
             o->ptr = lpPushTail(o->ptr, (unsigned char*)value, sdslen(value));
 
             /* Convert to hash table if size threshold is exceeded */
-            if (sdslen(field) > server.hash_max_ziplist_value ||
-                sdslen(value) > server.hash_max_ziplist_value)
+            if (sdslen(field) > server.hash_max_listpack_value ||
+                sdslen(value) > server.hash_max_listpack_value)
             {
                 sdsfree(field);
                 sdsfree(value);
@@ -1791,7 +1791,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
     } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST) {
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
         o = createQuicklistObject(&quicklistContainerTypeListpack);
-        quicklistSetOptions(o->ptr, server.list_max_ziplist_size,
+        quicklistSetOptions(o->ptr, server.list_max_listpack_size,
                             server.list_compress_depth);
 
         while (len--) {
@@ -1885,8 +1885,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                     o->type = OBJ_HASH;
                     o->encoding = OBJ_ENCODING_LISTPACK;
 
-                    if (hashTypeLength(o) > server.hash_max_ziplist_entries ||
-                        maxlen > server.hash_max_ziplist_value)
+                    if (hashTypeLength(o) > server.hash_max_listpack_entries ||
+                        maxlen > server.hash_max_listpack_value)
                     {
                         hashTypeConvert(o, OBJ_ENCODING_HT);
                     }
@@ -1951,7 +1951,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                     o->ptr = lp;
                     o->type = OBJ_ZSET;
                     o->encoding = OBJ_ENCODING_LISTPACK;
-                    if (zsetLength(o) > server.zset_max_ziplist_entries)
+                    if (zsetLength(o) > server.zset_max_listpack_entries)
                         zsetConvert(o,OBJ_ENCODING_SKIPLIST);
                 }
                 break;
@@ -1967,7 +1967,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
 
                 o->type = OBJ_ZSET;
                 o->encoding = OBJ_ENCODING_LISTPACK;
-                if (zsetLength(o) > server.zset_max_ziplist_entries)
+                if (zsetLength(o) > server.zset_max_listpack_entries)
                     zsetConvert(o,OBJ_ENCODING_SKIPLIST);
                 break;
             case RDB_TYPE_HASH_ZIPLIST:
@@ -2002,7 +2002,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                     o->ptr = lp;
                     o->type = OBJ_HASH;
                     o->encoding = OBJ_ENCODING_LISTPACK;
-                    if (hashTypeLength(o) > server.hash_max_ziplist_entries)
+                    if (hashTypeLength(o) > server.hash_max_listpack_entries)
                         hashTypeConvert(o, OBJ_ENCODING_HT);
                 }
                 break;
@@ -2017,7 +2017,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                 }
                 o->type = OBJ_HASH;
                 o->encoding = OBJ_ENCODING_LISTPACK;
-                if (hashTypeLength(o) > server.hash_max_ziplist_entries)
+                if (hashTypeLength(o) > server.hash_max_listpack_entries)
                     hashTypeConvert(o, OBJ_ENCODING_HT);
                 break;
             default:

@@ -1512,16 +1512,16 @@ struct redisServer {
     int sort_bypattern;
     int sort_store;
     /* Zip structure config, see redis.conf for more information  */
-    size_t hash_max_ziplist_entries;
-    size_t hash_max_ziplist_value;
+    size_t hash_max_listpack_entries;
+    size_t hash_max_listpack_value;
     size_t set_max_intset_entries;
-    size_t zset_max_ziplist_entries;
-    size_t zset_max_ziplist_value;
+    size_t zset_max_listpack_entries;
+    size_t zset_max_listpack_value;
     size_t hll_sparse_max_bytes;
     size_t stream_node_max_bytes;
     long long stream_node_max_entries;
     /* List parameters */
-    int list_max_ziplist_size;
+    int list_max_listpack_size;
     int list_compress_depth;
     /* time cache */
     redisAtomic time_t unixtime; /* Unix time sampled every cron cycle. */
