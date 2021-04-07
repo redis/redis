@@ -240,9 +240,9 @@ robj *createIntsetObject(void) {
 }
 
 robj *createHashObject(void) {
-    unsigned char *zl = ziplistNew();
-    robj *o = createObject(OBJ_HASH, zl);
-    o->encoding = OBJ_ENCODING_ZIPLIST;
+    unsigned char *lp = lpEmpty();
+    robj *o = createObject(OBJ_HASH, lp);
+    o->encoding = OBJ_ENCODING_LISTPACK;
     return o;
 }
 
@@ -327,8 +327,8 @@ void freeHashObject(robj *o) {
     case OBJ_ENCODING_HT:
         dictRelease((dict*) o->ptr);
         break;
-    case OBJ_ENCODING_ZIPLIST:
-        zfree(o->ptr);
+    case OBJ_ENCODING_LISTPACK:
+        lpFree(o->ptr);
         break;
     default:
         serverPanic("Unknown hash encoding type");
@@ -751,6 +751,7 @@ char *strEncoding(int encoding) {
     case OBJ_ENCODING_SKIPLIST: return "skiplist";
     case OBJ_ENCODING_EMBSTR: return "embstr";
     case OBJ_ENCODING_STREAM: return "stream";
+    case OBJ_ENCODING_LISTPACK: return "listpack";
     default: return "unknown";
     }
 }

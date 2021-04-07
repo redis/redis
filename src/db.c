@@ -935,17 +935,16 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             listAddNodeTail(keys,createStringObjectFromLongLong(ll));
         cursor = 0;
     } else if (o->type == OBJ_HASH || o->type == OBJ_ZSET) {
-        unsigned char *p = ziplistIndex(o->ptr,0);
+        unsigned char *p = lpFirst(o->ptr);
         unsigned char *vstr;
-        unsigned int vlen;
-        long long vll;
+        int64_t vlen;
 
         while(p) {
-            ziplistGet(p,&vstr,&vlen,&vll);
+            vstr = lpGet(p,&vlen,NULL);
             listAddNodeTail(keys,
                 (vstr != NULL) ? createStringObject((char*)vstr,vlen) :
-                                 createStringObjectFromLongLong(vll));
-            p = ziplistNext(o->ptr,p);
+                                 createStringObjectFromLongLong(vlen));
+            p = lpNext(o->ptr,p);
         }
         cursor = 0;
     } else {

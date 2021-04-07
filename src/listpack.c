@@ -964,7 +964,8 @@ int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes) {
 /* Validate the integrity of the data structure.
  * when `deep` is 0, only the integrity of the header is validated.
  * when `deep` is 1, we scan all the entries one by one. */
-int lpValidateIntegrity(unsigned char *lp, size_t size, int deep){
+int lpValidateIntegrity(unsigned char *lp, size_t size, int deep, 
+                        listpackValidateEntryCB entry_cb, void *cb_userdata){
     /* Check that we can actually read the header. (and EOF) */
     if (size < LP_HDR_SIZE + 1)
         return 0;
@@ -987,6 +988,10 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep){
     while(p && p[0] != LP_EOF) {
         if (!lpValidateNext(lp, &p, bytes))
             return 0;
+
+        if (entry_cb && !entry_cb(p, cb_userdata))
+            return 0;
+
         count++;
     }
 
@@ -1434,10 +1439,10 @@ int listpackTest(int argc, char *argv[], int accurate) {
 
     TEST("validate integrity") {
         unsigned char *lp = lpEmpty();
-        assert(lpValidateIntegrity(lp, lpGetTotalBytes(lp), 1) == 1);
+        assert(lpValidateIntegrity(lp, lpGetTotalBytes(lp), 1, NULL, NULL) == 1);
         lp = lpPushTail(lp, (unsigned char*)"abc", 3);
         lp = lpPushTail(lp, (unsigned char*)"def", 3);
-        assert(lpValidateIntegrity(lp, lpGetTotalBytes(lp), 1) == 1);
+        assert(lpValidateIntegrity(lp, lpGetTotalBytes(lp), 1, NULL, NULL) == 1);
         lpFree(lp);
     }
 

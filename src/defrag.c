@@ -813,7 +813,7 @@ long defragModule(redisDb *db, dictEntry *kde) {
 long defragKey(redisDb *db, dictEntry *de) {
     sds keysds = dictGetKey(de);
     robj *newob, *ob;
-    unsigned char *newzl;
+    unsigned char *newzl, *newlp;
     long defragged = 0;
     sds newsds;
 
@@ -867,9 +867,9 @@ long defragKey(redisDb *db, dictEntry *de) {
             serverPanic("Unknown sorted set encoding");
         }
     } else if (ob->type == OBJ_HASH) {
-        if (ob->encoding == OBJ_ENCODING_ZIPLIST) {
-            if ((newzl = activeDefragAlloc(ob->ptr)))
-                defragged++, ob->ptr = newzl;
+        if (ob->encoding == OBJ_ENCODING_LISTPACK) {
+            if ((newlp = activeDefragAlloc(ob->ptr)))
+                defragged++, ob->ptr = newlp;
         } else if (ob->encoding == OBJ_ENCODING_HT) {
             defragged += defragHash(db, de);
         } else {
