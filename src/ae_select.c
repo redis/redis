@@ -97,7 +97,11 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
             eventLoop->fired[numevents].mask = mask;
             numevents++;
         }
+    } else if (retval == -1 && errno != EINTR) {
+        perror("aeApiPoll: select");
+        abort();
     }
+
     return numevents;
 }
 
