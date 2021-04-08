@@ -256,10 +256,16 @@ endif
 	FINAL_LIBS += ../deps/hiredis/libhiredis_ssl.a $(LIBSSL_LIBS) $(LIBCRYPTO_LIBS)
 endif
 
-define MAKE_INSTALL
-    @printf '    %b %b\n' $(LINKCOLOR)INSTALL$(ENDCOLOR) $(BINCOLOR)$(1)$(ENDCOLOR)
-    @$(INSTALL) $(1) $(2)
-endef
+ifndef V
+    define MAKE_INSTALL
+        @printf '    %b %b\n' $(LINKCOLOR)INSTALL$(ENDCOLOR) $(BINCOLOR)$(1)$(ENDCOLOR) 1>&2
+        @$(INSTALL) $(1) $(2)
+    endef
+else
+    define MAKE_INSTALL
+        $(INSTALL) $(1) $(2)
+    endef
+endif
 
 REDIS_CC=$(QUIET_CC)$(CC) $(FINAL_CFLAGS)
 REDIS_LD=$(QUIET_LINK)$(CC) $(FINAL_LDFLAGS)
