@@ -979,8 +979,14 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
     if (lp[size-1] != LP_EOF)
         return 0;
 
-    if (!deep)
+    if (!deep) {
+        /* Check the first entry, since the header and eof formats of
+         * listpack and ziplist are the same */
+        unsigned char *p = lpFirst(lp);
+        if (p && p[0] != LP_EOF && !lpValidateNext(lp, &p, bytes))
+            return 0;
         return 1;
+    }
 
     /* Validate the individual entries. */
     uint32_t count = 0;
