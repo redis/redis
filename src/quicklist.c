@@ -1556,44 +1556,6 @@ void quicklistBookmarksClear(quicklist *ql) {
      * function is just before releasing the allocation. */
 }
 
-unsigned char *_ziplistPushHead(unsigned char *l, unsigned char *s, uint32_t slen) {
-    return ziplistPush(l, s, slen, ZIPLIST_HEAD);
-}
-
-unsigned char *_ziplistPushTail(unsigned char *l, unsigned char *s, uint32_t slen) {
-    return ziplistPush(l, s, slen, ZIPLIST_TAIL);
-}
-
-unsigned char *_ziplistInsertBefore(unsigned char *l, unsigned char *s,
-                                    uint32_t slen, unsigned char *p) {
-    return ziplistInsert(l, p, s, slen);
-}
-
-unsigned char *_ziplistInsertAfter(unsigned char *l, unsigned char *s,
-                                   uint32_t slen, unsigned char *p) {
-    unsigned char *next = ziplistNext(l, p);
-    if (next == NULL) {
-        return ziplistPush(l, s, slen, ZIPLIST_TAIL);
-    } else {
-        return ziplistInsert(l, next, s, slen);
-    }
-}
-
-unsigned char *_ziplistReplace(unsigned char *l, unsigned char *s,
-                               uint32_t slen, unsigned char *p) {
-    return ziplistReplace(l, p, s, slen);
-}
-
-unsigned char *_ziplistDelete(unsigned char *l, unsigned char *p, unsigned char **newp) {
-    l = ziplistDelete(l, &p);
-    if (newp) *newp = p;
-    return l;
-}
-
-uint32_t _ziplistBytes(unsigned char *l) {
-    return ziplistBlobLen(l);
-}
-
 unsigned int _lpGet(unsigned char *p, unsigned char **sval,
                     unsigned int *slen, long long *lval) {
     int64_t vlen;
@@ -1636,27 +1598,6 @@ void _lpConvert(quicklistNode *node) {
         panic("Unknown quicklist node container");
     }
 }
-
-quicklistContainerType quicklistContainerTypeZiplist = {
-    QUICKLIST_NODE_CONTAINER_ZIPLIST,
-    ziplistNew,
-    ziplistLen,
-    _ziplistBytes,
-    ziplistGet,
-    ziplistIndex,
-    ziplistNext,
-    ziplistPrev,
-    _ziplistPushHead,
-    _ziplistPushTail,
-    _ziplistInsertBefore,
-    _ziplistInsertAfter,
-    _ziplistReplace,
-    _ziplistDelete,
-    ziplistDeleteRange,
-    ziplistMerge,
-    ziplistCompare,
-    NULL,
-};
 
 quicklistContainerType quicklistContainerTypeListpack = {
     QUICKLIST_NODE_CONTAINER_LISTPACK,
@@ -2950,7 +2891,6 @@ int quicklistTest(int argc, char *argv[], int accurate) {
     UNUSED(argv);
 
     unsigned int err = 0;
-    err += quicklistTestContainer(&quicklistContainerTypeZiplist, accurate);
     err += quicklistTestContainer(&quicklistContainerTypeListpack, accurate);
     if (!err)
         printf("ALL TESTS PASSED!\n");

@@ -221,7 +221,6 @@ quicklistNode *quicklistBookmarkFind(quicklist *ql, const char *name);
 void quicklistBookmarksClear(quicklist *ql);
 
 /* Hash table types */
-extern quicklistContainerType quicklistContainerTypeZiplist;
 extern quicklistContainerType quicklistContainerTypeListpack;
 
 #ifdef REDIS_TEST
