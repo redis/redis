@@ -331,21 +331,6 @@ int pubsubPublishMessage(robj *channel, robj *message) {
     return receivers;
 }
 
-/* This wraps handling ACL channel permissions for the given client. */
-int pubsubCheckACLPermissionsOrReply(client *c, int idx, int count, int literal) {
-    /* Check if the user can run the command according to the current
-     * ACLs. */
-    int acl_chanpos;
-    int acl_retval = ACLCheckPubsubPerm(c,idx,count,literal,&acl_chanpos);
-    if (acl_retval == ACL_DENIED_CHANNEL) {
-        addACLLogEntry(c,acl_retval,acl_chanpos,NULL);
-        addReplyError(c,
-            "-NOPERM this user has no permissions to access "
-            "one of the channels used as arguments");
-    }
-    return acl_retval;
-}
-
 /*-----------------------------------------------------------------------------
  * Pubsub commands implementation
  *----------------------------------------------------------------------------*/
@@ -353,7 +338,6 @@ int pubsubCheckACLPermissionsOrReply(client *c, int idx, int count, int literal)
 /* SUBSCRIBE channel [channel ...] */
 void subscribeCommand(client *c) {
     int j;
-    if (pubsubCheckACLPermissionsOrReply(c,1,c->argc-1,0) != ACL_OK) return;
     if ((c->flags & CLIENT_DENY_BLOCKING) && !(c->flags & CLIENT_MULTI)) {
         /**
          * A client that has CLIENT_DENY_BLOCKING flag on
@@ -387,7 +371,6 @@ void unsubscribeCommand(client *c) {
 /* PSUBSCRIBE pattern [pattern ...] */
 void psubscribeCommand(client *c) {
     int j;
-    if (pubsubCheckACLPermissionsOrReply(c,1,c->argc-1,1) != ACL_OK) return;
     if ((c->flags & CLIENT_DENY_BLOCKING) && !(c->flags & CLIENT_MULTI)) {
         /**
          * A client that has CLIENT_DENY_BLOCKING flag on
@@ -420,7 +403,6 @@ void punsubscribeCommand(client *c) {
 
 /* PUBLISH <channel> <message> */
 void publishCommand(client *c) {
-    if (pubsubCheckACLPermissionsOrReply(c,1,1,0) != ACL_OK) return;
     int receivers = pubsubPublishMessage(c->argv[1],c->argv[2]);
     if (server.cluster_enabled)
         clusterPropagatePublish(c->argv[1],c->argv[2]);

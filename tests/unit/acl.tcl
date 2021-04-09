@@ -113,6 +113,22 @@ start_server {tags {"acl"}} {
         set e
     } {*NOPERM*channel*}
 
+    test {In transaction queue publish/subscribe/psubscribe to unauthorized channel will fail} {
+        r ACL setuser psuser +multi +discard
+        r MULTI
+        catch {r PUBLISH notexits helloworld} e
+        r DISCARD
+        assert_match {*NOPERM*} $e
+        r MULTI
+        catch {r SUBSCRIBE notexits foo:1} e
+        r DISCARD
+        assert_match {*NOPERM*} $e
+        r MULTI
+        catch {r PSUBSCRIBE notexits:* bar:*} e
+        r DISCARD
+        assert_match {*NOPERM*} $e
+    }
+
     test {It's possible to allow subscribing to a subset of channels} {
         set rd [redis_deferring_client]
         $rd AUTH psuser pspass
@@ -445,14 +461,44 @@ exec cp -f tests/assets/user.acl $server_path
 start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"]] {
     # user alice on allcommands allkeys >alice
     # user bob on -@all +@set +acl ~set* >bob
+    # user default on nopass ~* +@all
 
-    test "Alice: can excute all command" {
+    test {default: load from include file, can access any channels} {
+        r SUBSCRIBE foo
+        r PSUBSCRIBE bar*
+        r UNSUBSCRIBE
+        r PUNSUBSCRIBE
+        r PUBLISH hello world
+    }
+
+    test {default: with config acl-pubsub-default allchannels after reset, can access any channels} {
+        r ACL setuser default reset on nopass ~* +@all
+        r SUBSCRIBE foo
+        r PSUBSCRIBE bar*
+        r UNSUBSCRIBE
+        r PUNSUBSCRIBE
+        r PUBLISH hello world
+    }
+
+    test {default: with config acl-pubsub-default resetchannels after reset, can not access any channels} {
+        r CONFIG SET acl-pubsub-default resetchannels
+        r ACL setuser default reset on nopass ~* +@all
+        catch {r SUBSCRIBE foo} e
+        assert_match {*NOPERM*} $e
+        catch {r PSUBSCRIBE bar*} e
+        assert_match {*NOPERM*} $e
+        catch {r PUBLISH hello world} e
+        assert_match {*NOPERM*} $e
+        r CONFIG SET acl-pubsub-default resetchannels
+    }
+
+    test {Alice: can execute all command} {
         r AUTH alice alice
         assert_equal "alice" [r acl whoami]
         r SET key value
     }
 
-    test "Bob: just excute @set and acl command" {
+    test {Bob: just execute @set and acl command} {
         r AUTH bob bob
         assert_equal "bob" [r acl whoami]
         assert_equal "3" [r sadd set 1 2 3]
@@ -460,7 +506,7 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"]] {
         set e
     } {*NOPERM*}
 
-    test "ACL load and save" {
+    test {ACL load and save} {
         r ACL setuser eve +get allkeys >eve on
         r ACL save
 
@@ -477,4 +523,14 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"]] {
         catch {r SET key value} e
         set e
     } {*NOPERM*}
+}
+
+start_server {overrides {user "default on nopass ~* +@all"}} {
+    test {default: load from config file, can access any channels} {
+        r SUBSCRIBE foo
+        r PSUBSCRIBE bar*
+        r UNSUBSCRIBE
+        r PUNSUBSCRIBE
+        r PUBLISH hello world
+    }
 }
