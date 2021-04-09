@@ -59,18 +59,18 @@ int hashTypeGetFromListpack(robj *o, sds field,
                            unsigned int *vlen,
                            long long *vll)
 {
-    unsigned char *zl, *fptr = NULL, *vptr = NULL;
+    unsigned char *lp, *fptr = NULL, *vptr = NULL;
     int64_t ele_len;
 
     serverAssert(o->encoding == OBJ_ENCODING_LISTPACK);
 
-    zl = o->ptr;
-    fptr = lpFirst(zl);
+    lp = o->ptr;
+    fptr = lpFirst(lp);
     if (fptr != NULL) {
-        fptr = lpFind(zl, (unsigned char*)field, sdslen(field), fptr, 1);
+        fptr = lpFind(lp, (unsigned char*)field, sdslen(field), fptr, 1);
         if (fptr != NULL) {
             /* Grab pointer to the value (fptr points to the field) */
-            vptr = lpNext(zl, fptr);
+            vptr = lpNext(lp, fptr);
             serverAssert(vptr != NULL);
         }
     }
@@ -278,16 +278,16 @@ int hashTypeDelete(robj *o, sds field) {
     int deleted = 0;
 
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *zl, *fptr;
+        unsigned char *lp, *fptr;
 
-        zl = o->ptr;
-        fptr = lpFirst(zl);
+        lp = o->ptr;
+        fptr = lpFirst(lp);
         if (fptr != NULL) {
-            fptr = lpFind(zl, (unsigned char*)field, sdslen(field), fptr, 1);
+            fptr = lpFind(lp, (unsigned char*)field, sdslen(field), fptr, 1);
             if (fptr != NULL) {
-                zl = lpDelete(zl,fptr,&fptr); /* Delete the key. */
-                zl = lpDelete(zl,fptr,&fptr); /* Delete the value. */
-                o->ptr = zl;
+                lp = lpDelete(lp,fptr,&fptr); /* Delete the key. */
+                lp = lpDelete(lp,fptr,&fptr); /* Delete the value. */
+                o->ptr = lp;
                 deleted = 1;
             }
         }

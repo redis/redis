@@ -163,20 +163,20 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
         unsigned char eledigest[20];
 
         if (o->encoding == OBJ_ENCODING_LISTPACK) {
-            unsigned char *zl = o->ptr;
+            unsigned char *lp = o->ptr;
             unsigned char *eptr, *sptr;
             unsigned char *vstr;
             int64_t vlen;
             double score;
 
-            eptr = lpFirst(zl);
+            eptr = lpFirst(lp);
             serverAssert(eptr != NULL);
-            sptr = lpNext(zl,eptr);
+            sptr = lpNext(lp,eptr);
             serverAssert(sptr != NULL);
 
             while (eptr != NULL) {
                 vstr = lpGet(eptr,&vlen,NULL);
-                score = zzlGetScore(sptr);
+                score = zlpGetScore(sptr);
 
                 memset(eledigest,0,20);
                 if (vstr != NULL) {
@@ -189,7 +189,7 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
                 snprintf(buf,sizeof(buf),"%.17g",score);
                 mixDigest(eledigest,buf,strlen(buf));
                 xorDigest(digest,eledigest,20);
-                zzlNext(zl,&eptr,&sptr);
+                zlpNext(lp,&eptr,&sptr);
             }
         } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
             zset *zs = o->ptr;

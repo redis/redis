@@ -599,30 +599,30 @@ void quicklistAppendListpack(quicklist *quicklist, unsigned char *lp) {
     quicklist->count += node->count;
 }
 
-/* Append all values of listpack 'zl' individually into 'quicklist'.
+/* Append all values of listpack 'lp' individually into 'quicklist'.
  *
  * This allows us to restore old RDB listpacks into new quicklists
  * with smaller listpack sizes than the saved RDB listpack.
  *
- * Returns 'quicklist' argument. Frees passed-in listpack 'zl' */
+ * Returns 'quicklist' argument. Frees passed-in listpack 'lp' */
 quicklist *quicklistAppendValuesFromListpack(quicklist *quicklist,
-                                            unsigned char *zl) {
+                                            unsigned char *lp) {
     unsigned char *value;
     int64_t sz;
 
-    unsigned char *p = lpFirst(zl);
+    unsigned char *p = lpFirst(lp);
     while (p) {
         value = lpGet(p,&sz,NULL);
         quicklistPushTail(quicklist, value, sz);
-        p = lpNext(zl, p);
+        p = lpNext(lp, p);
     }
-    zfree(zl);
+    zfree(lp);
     return quicklist;
 }
 
 /* Create new (potentially multi-node) quicklist from a single existing listpack.
  *
- * Returns new quicklist.  Frees passed-in listpack 'zl'. */
+ * Returns new quicklist.  Frees passed-in listpack 'lp'. */
 quicklist *quicklistCreateFromListpack(int fill, int compress,
                                       unsigned char *lp) {
     return quicklistAppendValuesFromListpack(quicklistNew(&quicklistContainerTypeListpack, fill, compress), lp);
@@ -2961,7 +2961,6 @@ unsigned int quicklistTestContainer(quicklistContainerType *type, int accurate) 
         assert(!quicklistBookmarkFind(ql, "_test"));
         quicklistRelease(ql);
     }
-
     return err;
 }
 
