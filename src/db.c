@@ -935,15 +935,14 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             listAddNodeTail(keys,createStringObjectFromLongLong(ll));
         cursor = 0;
     } else if (o->type == OBJ_HASH || o->type == OBJ_ZSET) {
-        unsigned char *p = lpFirst(o->ptr);
-        unsigned char *vstr;
+        unsigned char *p, *vstr;
         int64_t vlen;
+        unsigned char buf[LP_INTBUF_SIZE];
 
+        p = lpFirst(o->ptr);
         while(p) {
-            vstr = lpGet(p,&vlen,NULL);
-            listAddNodeTail(keys,
-                (vstr != NULL) ? createStringObject((char*)vstr,vlen) :
-                                 createStringObjectFromLongLong(vlen));
+            vstr = lpGet(p,&vlen,buf);
+            listAddNodeTail(keys,createStringObject((char*)vstr,vlen));
             p = lpNext(o->ptr,p);
         }
         cursor = 0;
