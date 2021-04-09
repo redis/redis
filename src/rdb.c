@@ -1814,11 +1814,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                 if (deep_integrity_validation) {
                     quicklistAppendValuesFromZiplist(o->ptr, list);
                 } else {
-                    int convert = 0;
-
-                    /* Head and tail of quicklist must be listpack container */
-                    if (ql_len == 0 || ql_len == (len - 1)) convert = 1;
-                    quicklistAppendZiplist(o->ptr, list, convert);
+                    quicklistAppendZiplist(o->ptr, list);
                 }
             } else {
                 rdbReportCorruptRDB("Listpack or ziplist integrity check failed.");
