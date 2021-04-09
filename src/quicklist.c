@@ -1210,8 +1210,14 @@ int quicklistNext(quicklistIter *iter, quicklistEntry *entry) {
     entry->offset = iter->offset;
 
     if (iter->li) {
+        int64_t len;
         /* Populate value from existing ziplist position */
-        iter->quicklist->type->listGet(entry->li, &entry->value, &entry->sz, &entry->longval);
+        entry->value = iter->quicklist->type->listGet(entry->li, &len, NULL);
+        if (entry->value) {
+            entry->sz = len;
+        } else {
+            entry->longval = len;
+        }
         return 1;
     } else {
         /* We ran out of ziplist entries.
@@ -1284,6 +1290,7 @@ int quicklistIndex(const quicklist *quicklist, const long long idx,
     unsigned long long accum = 0;
     unsigned long long index;
     int forward = idx < 0 ? 0 : 1; /* < 0 -> reverse, 0+ -> forward */
+    int64_t ele_len;
 
     initEntry(entry);
     entry->quicklist = quicklist;
@@ -1327,8 +1334,12 @@ int quicklistIndex(const quicklist *quicklist, const long long idx,
     }
 
     entry->li = _quicklistNodeSeek(quicklist, entry->node, entry->offset);
-    if (!quicklist->type->listGet(entry->li, &entry->value, &entry->sz, &entry->longval))
-        assert(0); /* This can happen on corrupt ziplist with fake entry count. */
+    entry->value = quicklist->type->listGet(entry->li, &ele_len, NULL);
+    if (entry->value) {
+        entry->sz = ele_len;
+    } else {
+        entry->longval = ele_len;
+    }
     /* The caller will use our result, so we don't re-compress here.
      * The caller can recompress or delete the node as needed. */
     return 1;
@@ -1342,27 +1353,26 @@ void quicklistRotate(quicklist *quicklist) {
     /* First, get the tail entry */
     unsigned char *p = _quicklistNodeSeek(quicklist, quicklist->tail, -1);
     unsigned char *value, *tmp;
-    long long longval;
-    unsigned int sz;
+    int64_t ele_len;
     char longstr[32] = {0};
-    quicklist->type->listGet(p, &tmp, &sz, &longval);
+    tmp = quicklist->type->listGet(p, &ele_len, NULL);
 
     /* If value found is NULL, then ziplistGet populated longval instead */
     if (!tmp) {
         /* Write the longval as a string so we can re-add it */
-        sz = ll2string(longstr, sizeof(longstr), longval);
+        ele_len = ll2string(longstr, sizeof(longstr), ele_len);
         value = (unsigned char *)longstr;
     } else if (quicklist->len == 1) {
         /* Copy buffer since there could be a memory overlap when move
          * entity from tail to head in the same ziplist. */
-        value = zmalloc(sz);
-        memcpy(value, tmp, sz);
+        value = zmalloc(ele_len);
+        memcpy(value, tmp, ele_len);
     } else {
         value = tmp;
     }
 
     /* Add tail entry to head (must happen before tail is deleted). */
-    quicklistPushHead(quicklist, value, sz);
+    quicklistPushHead(quicklist, value, ele_len);
 
     /* If quicklist has only one node, the head ziplist is also the
      * tail ziplist and PushHead() could have reallocated our single ziplist,
@@ -1391,8 +1401,7 @@ int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
                        void *(*saver)(unsigned char *data, unsigned int sz)) {
     unsigned char *p;
     unsigned char *vstr;
-    unsigned int vlen;
-    long long vlong;
+    int64_t vlen;
     int pos = (where == QUICKLIST_HEAD) ? 0 : -1;
 
     if (quicklist->count == 0)
@@ -1415,22 +1424,20 @@ int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
     }
 
     p = _quicklistNodeSeek(quicklist, node, pos);
-    if (quicklist->type->listGet(p, &vstr, &vlen, &vlong)) {
-        if (vstr) {
-            if (data)
-                *data = saver(vstr, vlen);
-            if (sz)
-                *sz = vlen;
-        } else {
-            if (data)
-                *data = NULL;
-            if (sval)
-                *sval = vlong;
-        }
-        quicklistDelIndex(quicklist, node, &p);
-        return 1;
+    vstr = quicklist->type->listGet(p, &vlen, NULL);
+    if (vstr) {
+        if (data)
+            *data = saver(vstr, vlen);
+        if (sz)
+            *sz = vlen;
+    } else {
+        if (data)
+            *data = NULL;
+        if (sval)
+            *sval = vlen;
     }
-    return 0;
+    quicklistDelIndex(quicklist, node, &p);
+    return 1;
 }
 
 /* Return a malloc'd copy of data passed in */
@@ -1556,19 +1563,6 @@ void quicklistBookmarksClear(quicklist *ql) {
      * function is just before releasing the allocation. */
 }
 
-unsigned int _lpGet(unsigned char *p, unsigned char **sval,
-                    unsigned int *slen, long long *lval) {
-    int64_t vlen;
-
-    *sval = lpGet(p, &vlen, NULL);
-    if (*sval) {
-        *slen = vlen;
-    } else {
-        *lval = vlen;
-    } 
-    return 1;
-}
-
 void _lpConvert(quicklistNode *node) {
     if (node->container == QUICKLIST_NODE_CONTAINER_ZIPLIST) {
         unsigned char *value;
@@ -1604,7 +1598,7 @@ quicklistContainerType quicklistContainerTypeListpack = {
     lpEmpty,
     lpLength,
     lpBytes,
-    _lpGet,
+    lpGet,
     lpSeek,
     lpNext,
     lpPrev,

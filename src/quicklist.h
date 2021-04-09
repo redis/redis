@@ -99,7 +99,7 @@ typedef struct quicklistContainerType {
     unsigned char *(*listNew)();
     uint32_t (*listLength)(unsigned char *l);
     uint32_t (*listBytes)(unsigned char *l);
-    unsigned int (*listGet)(unsigned char *p, unsigned char **s, unsigned int *slen, long long *lval);
+    unsigned char *(*listGet)(unsigned char *p, int64_t *len, unsigned char* intbuf);
     unsigned char *(*listSeek)(unsigned char *l, int index);
     unsigned char *(*listNext)(unsigned char *l, unsigned char *p);
     unsigned char *(*listPrev)(unsigned char *l, unsigned char *p);
