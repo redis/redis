@@ -188,8 +188,6 @@ quicklist *quicklistAppendValuesFromZiplist(quicklist *quicklist,
 quicklist *quicklistCreateFromZiplist(int fill, int compress,
                                       unsigned char *zl);
 void quicklistAppendListpack(quicklist *quicklist, unsigned char *lp);
-quicklist *quicklistCreateFromListpack(int fill, int compress,
-                                      unsigned char *lp);
 void quicklistInsertAfter(quicklist *quicklist, quicklistEntry *node,
                           void *value, const size_t sz);
 void quicklistInsertBefore(quicklist *quicklist, quicklistEntry *node,
