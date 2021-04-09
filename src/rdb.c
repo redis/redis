@@ -1807,7 +1807,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                 quicklistAppendListpack(o->ptr, list);
             } else if (ziplistValidateIntegrity(list, encoded_len, deep_integrity_validation, NULL, NULL)) {
                 /* If 'deep_integrity_validation' is 1, We will convert ziplist
-                 *directly to listpack, else we will add ziplist to quicklist,
+                 * directly to listpack, else we will add ziplist to quicklist,
                  * and convert it to listpack when it is accessed. */
                 if (deep_integrity_validation) {
                     quicklistAppendValuesFromZiplist(o->ptr, list);
