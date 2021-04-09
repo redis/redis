@@ -220,7 +220,7 @@ int quicklistBookmarkDelete(quicklist *ql, const char *name);
 quicklistNode *quicklistBookmarkFind(quicklist *ql, const char *name);
 void quicklistBookmarksClear(quicklist *ql);
 
-/* Hash table types */
+/* Quicklist container types */
 extern quicklistContainerType quicklistContainerTypeListpack;
 
 #ifdef REDIS_TEST

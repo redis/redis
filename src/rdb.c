@@ -1823,11 +1823,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                 return NULL;
             }
         }
-    } else if (rdbtype == RDB_TYPE_HASH_ZIPMAP  ||
-               rdbtype == RDB_TYPE_LIST_ZIPLIST ||
-               rdbtype == RDB_TYPE_SET_INTSET   ||
-               rdbtype == RDB_TYPE_ZSET_ZIPLIST ||
-               rdbtype == RDB_TYPE_HASH_ZIPLIST ||
+    } else if (rdbtype == RDB_TYPE_HASH_ZIPMAP   ||
+               rdbtype == RDB_TYPE_LIST_ZIPLIST  ||
+               rdbtype == RDB_TYPE_SET_INTSET    ||
+               rdbtype == RDB_TYPE_ZSET_ZIPLIST  ||
+               rdbtype == RDB_TYPE_HASH_ZIPLIST  ||
                rdbtype == RDB_TYPE_HASH_LISTPACK ||
                rdbtype == RDB_TYPE_ZSET_LISTPACK)
     {
