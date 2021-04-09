@@ -44,7 +44,6 @@ typedef struct {
 } ziplistEntry;
 
 unsigned char *ziplistNew(void);
-void ziplistFree(unsigned char *zl);
 unsigned char *ziplistMerge(unsigned char **first, unsigned char **second);
 unsigned char *ziplistPush(unsigned char *zl, unsigned char *s, unsigned int slen, int where);
 unsigned char *ziplistIndex(unsigned char *zl, int index);

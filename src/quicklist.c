@@ -164,7 +164,7 @@ void quicklistRelease(quicklist *quicklist) {
     while (len--) {
         next = current->next;
 
-        quicklist->type->listFree(current->l);
+        zfree(current->l);
         quicklist->count -= current->count;
 
         zfree(current);
@@ -514,7 +514,6 @@ int quicklistPushHead(quicklist *quicklist, void *value, size_t sz) {
  * Returns 1 if new tail created. */
 int quicklistPushTail(quicklist *quicklist, void *value, size_t sz) {
     quicklistNode *orig_tail = quicklist->tail;
-    quicklistConvertNodeIfNeed(quicklist, quicklist->tail);
     if (likely(
             _quicklistNodeAllowInsert(quicklist->tail, quicklist->fill, sz))) {
         quicklist->tail->l =
@@ -535,7 +534,7 @@ int quicklistPushTail(quicklist *quicklist, void *value, size_t sz) {
 /* Create new node consisting of a pre-formed ziplist.
  * Used for loading RDBs where entire ziplists have been stored
  * to be retrieved later. */
-void quicklistAppendZiplist(quicklist *quicklist, unsigned char *zl) {
+void quicklistAppendZiplist(quicklist *quicklist, unsigned char *zl, int convert) {
     quicklistNode *node = quicklistCreateNode(QUICKLIST_NODE_CONTAINER_ZIPLIST);
 
     node->l = zl;
@@ -544,6 +543,11 @@ void quicklistAppendZiplist(quicklist *quicklist, unsigned char *zl) {
 
     _quicklistInsertNodeAfter(quicklist, quicklist->tail, node);
     quicklist->count += node->count;
+
+    /* Convert ziplist to listpack immediately */
+    if (convert) {
+        quicklist->type->listConvertIfNeed(node);
+    }
 }
 
 /* Append all values of ziplist 'zl' individually into 'quicklist'.
@@ -584,12 +588,12 @@ quicklist *quicklistCreateFromZiplist(int fill, int compress,
 /* Create new node consisting of a pre-formed listpack.
  * Used for loading RDBs where entire listpacks have been stored
  * to be retrieved later. */
-void quicklistAppendListpack(quicklist *quicklist, unsigned char *zl) {
+void quicklistAppendListpack(quicklist *quicklist, unsigned char *lp) {
     quicklistNode *node = quicklistCreateNode(quicklist->type->container);
 
-    node->l = zl;
+    node->l = lp;
     node->count = quicklist->type->listLength(node->l);
-    node->sz = lpBytes(zl);
+    node->sz = lpBytes(lp);
 
     _quicklistInsertNodeAfter(quicklist, quicklist->tail, node);
     quicklist->count += node->count;
@@ -1622,9 +1626,9 @@ void _lpConvert(quicklistNode *node) {
         unsigned int sz;
         long long longval;
         char longstr[32] = {0};
+        unsigned char *lp = lpEmpty();
 
         unsigned char *zl = node->l;
-        unsigned char *lp = lpEmpty();
         unsigned char *p = ziplistIndex(zl, 0);
         while (ziplistGet(p, &value, &sz, &longval)) {
             if (!value) {
@@ -1632,15 +1636,15 @@ void _lpConvert(quicklistNode *node) {
                 sz = ll2string(longstr, sizeof(longstr), longval);
                 value = (unsigned char *)longstr;
             }
-            lpPushTail(lp, value, sz);
+            lp = lpPushTail(lp, value, sz);
             p = ziplistNext(zl, p);
         }
         zfree(zl);
 
         node->l = lp;
         node->container = QUICKLIST_NODE_CONTAINER_LISTPACK;
-        node->count = ziplistLen(node->l);
-        node->sz = ziplistBlobLen(node->l);
+        node->count = lpLength(node->l);
+        node->sz = lpBytes(node->l);
     } else {
         panic("Unknown quicklist node container");
     }
@@ -1649,7 +1653,6 @@ void _lpConvert(quicklistNode *node) {
 quicklistContainerType quicklistContainerTypeZiplist = {
     QUICKLIST_NODE_CONTAINER_ZIPLIST,
     ziplistNew,
-    ziplistFree,
     ziplistLen,
     _ziplistBytes,
     ziplistGet,
@@ -1671,7 +1674,6 @@ quicklistContainerType quicklistContainerTypeZiplist = {
 quicklistContainerType quicklistContainerTypeListpack = {
     QUICKLIST_NODE_CONTAINER_LISTPACK,
     lpEmpty,
-    lpFree,
     lpLength,
     lpBytes,
     _lpGet,
@@ -2816,6 +2818,31 @@ unsigned int quicklistTestContainer(quicklistContainerType *type, int accurate) 
             }
         }
 
+        TEST("auto convert from ziplist to listpack") {
+            for (int f = 0; f < fill_count; f++) {
+                quicklist *ql = quicklistNew(&quicklistContainerTypeListpack, fills[f], options[_i]);
+                unsigned char *zl = ziplistNew();
+                long long nums[64];
+                char num[64];
+                for (int i = 0; i < 33; i++) {
+                    nums[i] = -5157318210846258176 + i;
+                    int sz = ll2string(num, sizeof(num), nums[i]);
+                    zl =
+                        ziplistPush(zl, (unsigned char *)num, sz, ZIPLIST_TAIL);
+                }
+                for (int i = 0; i < 33; i++) {
+                    zl = ziplistPush(zl, (unsigned char *)genstr("hello", i),
+                                    32, ZIPLIST_TAIL);
+                }
+
+                quicklistAppendZiplist(ql, zl, 1);
+                
+                ql_verify(ql, 1, 66, 66, 66);
+                assert(ql->head->container == QUICKLIST_NODE_CONTAINER_LISTPACK);
+                quicklistRelease(ql);
+            }
+        }
+
         long long stop = mstime();
         runtime[_i] = stop - start;
     }
@@ -2934,6 +2961,7 @@ unsigned int quicklistTestContainer(quicklistContainerType *type, int accurate) 
         assert(!quicklistBookmarkFind(ql, "_test"));
         quicklistRelease(ql);
     }
+
     return err;
 }
 

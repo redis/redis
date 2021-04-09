@@ -1789,12 +1789,14 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
         /* All pairs should be read by now */
         serverAssert(len == 0);
     } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST) {
+        uint64_t ql_len;
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
         o = createQuicklistObject(&quicklistContainerTypeListpack);
         quicklistSetOptions(o->ptr, server.list_max_listpack_size,
                             server.list_compress_depth);
 
-        while (len--) {
+        ql_len = len;
+        while (ql_len--) {
             size_t encoded_len;
             unsigned char *list =
                 rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,&encoded_len);
@@ -1812,7 +1814,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                 if (deep_integrity_validation) {
                     quicklistAppendValuesFromZiplist(o->ptr, list);
                 } else {
-                    quicklistAppendZiplist(o->ptr, list);
+                    int convert = 0;
+
+                    /* Head and tail of quicklist must be listpack container */
+                    if (ql_len == 0 || ql_len == (len - 1)) convert = 1;
+                    quicklistAppendZiplist(o->ptr, list, convert);
                 }
             } else {
                 rdbReportCorruptRDB("Listpack or ziplist integrity check failed.");
