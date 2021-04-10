@@ -2133,15 +2133,25 @@ static void repl(void) {
                 }
             }
 
-            /* Won't save auth or acl setuser commands in history file */
+            /* Won't save auth/hello/acl setuser/
+             * config set (requirepass|masterauth|masteruser)
+             * commands in history file */
             int dangerous = 0;
             if (argv && argc > 0) {
                 if (!strcasecmp(argv[skipargs], "auth")) {
                     dangerous = 1;
+                } else if (!strcasecmp(argv[skipargs], "hello")) {
+                    dangerous = 1;
                 } else if (skipargs+1 < argc &&
                            !strcasecmp(argv[skipargs], "acl") &&
-                           !strcasecmp(argv[skipargs+1], "setuser"))
-                {
+                           !strcasecmp(argv[skipargs+1], "setuser")) {
+                    dangerous = 1;
+                } else if (skipargs+2 < argc &&
+                           !strcasecmp(argv[skipargs], "config") &&
+                           !strcasecmp(argv[skipargs+1], "set") &&
+                           (!strcasecmp(argv[skipargs+2], "requirepass") ||
+                           !strcasecmp(argv[skipargs+2], "masterauth") ||
+                           !strcasecmp(argv[skipargs+2], "masteruser"))) {
                     dangerous = 1;
                 }
             }
