@@ -58,6 +58,7 @@ unsigned char *lpNew(size_t capacity);
 unsigned char *lpEmpty();
 void lpFree(unsigned char *lp);
 unsigned char* lpShrinkToFit(unsigned char *lp);
+int lpEncodeGetType(unsigned char *ele, uint32_t size, unsigned char *intenc, uint64_t *enclen);
 unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, unsigned char *p, int where, unsigned char **newp);
 unsigned char *lpInsertBefore(unsigned char *lp, unsigned char *ele, uint32_t size, unsigned char *p);
 unsigned char *lpInsertAfter(unsigned char *lp, unsigned char *ele, uint32_t size, unsigned char *p);

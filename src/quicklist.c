@@ -429,28 +429,13 @@ _quicklistNodeSizeMeetsOptimizationRequirement(const size_t sz,
 
 #define sizeMeetsSafetyLimit(sz) ((sz) <= SIZE_SAFETY_LIMIT)
 
-REDIS_STATIC int _quicklistNodeAllowInsert(const quicklistNode *node,
-                                           const int fill, const size_t sz) {
+REDIS_STATIC int _quicklistNodeAllowInsert(quicklist* ql, quicklistNode *node,
+                                           const int fill, unsigned char *s, const size_t sz) {
     if (unlikely(!node))
         return 0;
 
-    int ziplist_overhead;
-    /* size of previous offset */
-    if (sz < 254)
-        ziplist_overhead = 1;
-    else
-        ziplist_overhead = 5;
-
-    /* size of forward offset */
-    if (sz < 64)
-        ziplist_overhead += 1;
-    else if (likely(sz < 16384))
-        ziplist_overhead += 2;
-    else
-        ziplist_overhead += 5;
-
-    /* new_sz overestimates if 'sz' encodes to an integer type */
-    unsigned int new_sz = node->sz + sz + ziplist_overhead;
+    quicklistConvertNodeIfNeed(ql, node);
+    unsigned int new_sz = node->sz + ql->type->listEncodeLength(s, sz);
     if (likely(_quicklistNodeSizeMeetsOptimizationRequirement(new_sz, fill)))
         return 1;
     else if (!sizeMeetsSafetyLimit(new_sz))
@@ -461,15 +446,16 @@ REDIS_STATIC int _quicklistNodeAllowInsert(const quicklistNode *node,
         return 0;
 }
 
-REDIS_STATIC int _quicklistNodeAllowMerge(const quicklistNode *a,
+REDIS_STATIC int _quicklistNodeAllowMerge(quicklist* ql,
+                                          const quicklistNode *a,
                                           const quicklistNode *b,
                                           const int fill) {
     if (!a || !b)
         return 0;
 
-    /* approximate merged ziplist size (- 11 to remove one ziplist
+    /* approximate merged ziplist size (remove one listpack
      * header/trailer) */
-    unsigned int merge_sz = a->sz + b->sz - 11;
+    unsigned int merge_sz = a->sz + b->sz - ql->type->listHeaderAndTrailerLength();
     if (likely(_quicklistNodeSizeMeetsOptimizationRequirement(merge_sz, fill)))
         return 1;
     else if (!sizeMeetsSafetyLimit(merge_sz))
@@ -517,7 +503,8 @@ REDIS_STATIC void _quicklistNodePushTail(quicklist *ql, quicklistNode *node,
     quicklistRecompressOnly(node);
 }
 
-REDIS_STATIC void _quicklistNodeInsertBefore(quicklist *ql, quicklistNode *node, unsigned char *s, uint32_t slen, unsigned char *li) 
+REDIS_STATIC void _quicklistNodeInsertBefore(quicklist *ql, quicklistNode *node,
+                                             unsigned char *s, uint32_t slen, unsigned char *li)
 {
     quicklistDecompressNodeForUse(node);
     quicklistConvertNodeIfNeed(ql, node);
@@ -539,7 +526,9 @@ REDIS_STATIC void _quicklistNodeInsertAfter(quicklist *ql, quicklistNode *node,
     quicklistRecompressOnly(node);
 }
 
-REDIS_STATIC void _quicklistNodeDeleteRange(quicklist *ql, quicklistNode *node, int index, unsigned int num) {
+REDIS_STATIC void _quicklistNodeDeleteRange(quicklist *ql, quicklistNode *node,
+                                            int index, unsigned int num)
+{
     quicklistDecompressNodeForUse(node);
     quicklistConvertNodeIfNeed(ql, node);
     node->l = ql->type->listDeleteRange(node->l, index, num);
@@ -559,7 +548,7 @@ REDIS_STATIC unsigned char *_quicklistNodeSeek(const quicklist *ql, quicklistNod
  * Returns 1 if new head created. */
 int quicklistPushHead(quicklist *quicklist, void *value, size_t sz) {
     quicklistNode *orig_head = quicklist->head;
-    if (likely(_quicklistNodeAllowInsert(quicklist->head, quicklist->fill, sz))) {
+    if (likely(_quicklistNodeAllowInsert(quicklist, quicklist->head, quicklist->fill, value, sz))) {
         _quicklistNodePushHead(quicklist, quicklist->head, value, sz);
     } else {
         quicklistNode *node = quicklistCreateNode(quicklist->type->container);
@@ -575,7 +564,7 @@ int quicklistPushHead(quicklist *quicklist, void *value, size_t sz) {
  * Returns 1 if new tail created. */
 int quicklistPushTail(quicklist *quicklist, void *value, size_t sz) {
     quicklistNode *orig_tail = quicklist->tail;
-    if (likely(_quicklistNodeAllowInsert(quicklist->tail, quicklist->fill, sz))) {
+    if (likely(_quicklistNodeAllowInsert(quicklist, quicklist->tail, quicklist->fill, value, sz))) {
         _quicklistNodePushTail(quicklist, quicklist->tail, value, sz);
     } else {
         quicklistNode *node = quicklistCreateNode(quicklist->type->container);
@@ -840,19 +829,19 @@ REDIS_STATIC void _quicklistMergeNodes(quicklist *quicklist,
     }
 
     /* Try to merge prev_prev and prev */
-    if (_quicklistNodeAllowMerge(prev, prev_prev, fill)) {
+    if (_quicklistNodeAllowMerge(quicklist, prev, prev_prev, fill)) {
         _quicklistMerge(quicklist, prev_prev, prev);
         prev_prev = prev = NULL; /* they could have moved, invalidate them. */
     }
 
     /* Try to merge next and next_next */
-    if (_quicklistNodeAllowMerge(next, next_next, fill)) {
+    if (_quicklistNodeAllowMerge(quicklist, next, next_next, fill)) {
         _quicklistMerge(quicklist, next, next_next);
         next = next_next = NULL; /* they could have moved, invalidate them. */
     }
 
     /* Try to merge center node and previous node */
-    if (_quicklistNodeAllowMerge(center, center->prev, fill)) {
+    if (_quicklistNodeAllowMerge(quicklist, center, center->prev, fill)) {
         target = _quicklistMerge(quicklist, center->prev, center);
         center = NULL; /* center could have been deleted, invalidate it. */
     } else {
@@ -861,7 +850,7 @@ REDIS_STATIC void _quicklistMergeNodes(quicklist *quicklist,
     }
 
     /* Use result of center merge (or original) to merge with next node. */
-    if (_quicklistNodeAllowMerge(target, target->next, fill)) {
+    if (_quicklistNodeAllowMerge(quicklist, target, target->next, fill)) {
         _quicklistMerge(quicklist, target, target->next);
     }
 }
@@ -933,7 +922,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
     }
 
     /* Populate accounting flags for easier boolean checks later */
-    if (!_quicklistNodeAllowInsert(node, fill, sz)) {
+    if (!_quicklistNodeAllowInsert(quicklist, node, fill, value, sz)) {
         D("Current node is full with count %d with requested fill %lu",
           node->count, fill);
         full = 1;
@@ -942,7 +931,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
     if (after && (entry->offset == node->count)) {
         D("At Tail of current quicklist node");
         at_tail = 1;
-        if (!_quicklistNodeAllowInsert(node->next, fill, sz)) {
+        if (!_quicklistNodeAllowInsert(quicklist, node->next, fill, value, sz)) {
             D("Next node is full too.");
             full_next = 1;
         }
@@ -951,7 +940,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
     if (!after && (entry->offset == 0)) {
         D("At Head");
         at_head = 1;
-        if (!_quicklistNodeAllowInsert(node->prev, fill, sz)) {
+        if (!_quicklistNodeAllowInsert(quicklist, node->prev, fill, value, sz)) {
             D("Prev node is full too.");
             full_prev = 1;
         }
@@ -1563,6 +1552,17 @@ void quicklistBookmarksClear(quicklist *ql) {
      * function is just before releasing the allocation. */
 }
 
+uint64_t lpEncodeLength(unsigned char *s, uint32_t slen) {
+    unsigned char intenc[32];
+    uint64_t enclen;
+    lpEncodeGetType(s, slen, intenc, &enclen);
+    return enclen;
+}
+
+uint32_t _lpHeaderAndTrailerLength() {
+    return 11;
+}
+
 void _lpConvert(quicklistNode *node) {
     if (node->container == QUICKLIST_NODE_CONTAINER_ZIPLIST) {
         unsigned char *value;
@@ -1612,6 +1612,8 @@ quicklistContainerType quicklistContainerTypeListpack = {
     lpDeleteRange,
     lpMerge,
     lpCompare,
+    lpEncodeLength,
+    _lpHeaderAndTrailerLength,
     _lpConvert,
 };
 
