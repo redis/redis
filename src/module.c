@@ -5793,6 +5793,7 @@ void moduleReleaseGIL(void) {
  *  - REDISMODULE_NOTIFY_EXPIRED: Expiration events
  *  - REDISMODULE_NOTIFY_EVICTED: Eviction events
  *  - REDISMODULE_NOTIFY_STREAM: Stream events
+ *  - REDISMODULE_NOTIFY_MODULE: Module types events
  *  - REDISMODULE_NOTIFY_KEYMISS: Key-miss events
  *  - REDISMODULE_NOTIFY_ALL: All events (Excluding REDISMODULE_NOTIFY_KEYMISS)
  *  - REDISMODULE_NOTIFY_LOADED: A special notification available only for modules,
@@ -5800,7 +5801,6 @@ void moduleReleaseGIL(void) {
  *                               Notice, when this event fires, the given key
  *                               can not be retained, use RM_CreateStringFromString
  *                               instead.
- *  - REDISMODULE_NOTIFY_MODULE: Module types events
  *
  * We do not distinguish between key events and keyspace events, and it is up
  * to the module to filter the actions taken based on the key.
