@@ -1522,6 +1522,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
 
         /* string encode */
         unsigned char *str = zmalloc(4096);
+        memset(str, 0, 4096);
         lp = lpPushTail(lp, (unsigned char*)str, 63);
         assert(LP_ENCODING_IS_6BIT_STR(lpLast(lp)[0]));
         lp = lpPushTail(lp, (unsigned char*)str, 4095);
@@ -1555,6 +1556,8 @@ int listpackTest(int argc, char *argv[], int accurate) {
         lpRandomPairs(lp, count, keys, vals);
         assert(memcmp(keys[4].sval, "abc", keys[4].slen) == 0);
         assert(vals[4].lval == 123);
+        zfree(keys);
+        zfree(vals);
         lpFree(lp);
     }
 
@@ -1571,6 +1574,8 @@ int listpackTest(int argc, char *argv[], int accurate) {
         assert(picked == 1);
         assert(memcmp(keys[0].sval, "abc", keys[0].slen) == 0);
         assert(vals[0].lval == 123);
+        zfree(keys);
+        zfree(vals);
         lpFree(lp);
     }
 

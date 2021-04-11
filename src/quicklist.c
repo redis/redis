@@ -2758,8 +2758,10 @@ unsigned int quicklistTestContainer(quicklistContainerType *type, int accurate) 
                     zl = ziplistPush(zl, (unsigned char *)num, sz, ZIPLIST_TAIL);
                     zl = ziplistPush(zl, (unsigned char *)genstr("hello", i), 32, ZIPLIST_TAIL);
                     quicklistAppendZiplist(ql, zl);
+                    assert(ql->head->container == QUICKLIST_NODE_CONTAINER_ZIPLIST);
                 }
 
+                /* Ziplist will convert to listpack when iteration in ql_verify */
                 ql_verify(ql, 500, 1000, 2, 2);
                 assert(ql->head->container == QUICKLIST_NODE_CONTAINER_LISTPACK);
                 quicklistRelease(ql);
