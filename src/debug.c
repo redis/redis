@@ -460,8 +460,8 @@ void debugCommand(client *c) {
 "    Run a fuzz tester against the stringmatchlen() function.",
 "STRUCTSIZE",
 "    Return the size of different Redis core C structures.",
-"ZIPLIST <key>",
-"    Show low level info about the ziplist encoding of <key>.",
+"LISTPACK <key>",
+"    Show low level info about the listpack encoding of <key>.",
 NULL
         };
         addReplyHelp(c, help);
@@ -580,8 +580,8 @@ NULL
             used = snprintf(nextra, remaining, " ql_avg_node:%.2f", avg);
             nextra += used;
             remaining -= used;
-            /* Add quicklist fill level / max ziplist size */
-            used = snprintf(nextra, remaining, " ql_ziplist_max:%d", ql->fill);
+            /* Add quicklist fill level / max list size */
+            used = snprintf(nextra, remaining, " ql_list_max:%d", ql->fill);
             nextra += used;
             remaining -= used;
             /* Add isCompressed? */
@@ -631,17 +631,17 @@ NULL
                 (long long) sdsavail(val->ptr),
                 (long long) getStringObjectSdsUsedMemory(val));
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"ziplist") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"listpack") && c->argc == 3) {
         robj *o;
 
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nokeyerr))
                 == NULL) return;
 
-        if (o->encoding != OBJ_ENCODING_ZIPLIST) {
-            addReplyError(c,"Not a ziplist encoded object.");
+        if (o->encoding != OBJ_ENCODING_LISTPACK) {
+            addReplyError(c,"Not a listpack encoded object.");
         } else {
-            ziplistRepr(o->ptr);
-            addReplyStatus(c,"Ziplist structure printed on stdout");
+            lpRepr(o->ptr);
+            addReplyStatus(c,"Listpack structure printed on stdout");
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"populate") &&
                c->argc >= 3 && c->argc <= 5) {

@@ -907,6 +907,61 @@ unsigned char *lpSeek(unsigned char *lp, int index) {
     }
 }
 
+/* Print info of listpack which is used in debugCommand */
+void lpRepr(unsigned char *lp) {
+    unsigned char *p;
+    int index = 0;
+
+    printf(
+        "{total bytes %u} "
+        "{num entries %u}\n",
+        lpBytes(lp),
+        lpLength(lp));
+        
+    p = lpFirst(lp);
+    while(p) {
+        unsigned char *vstr;
+        int64_t ele_len;
+        unsigned char buf[LP_INTBUF_SIZE];
+
+        uint32_t encoded_size_bytes = lpCurrentEncodedSizeBytes(p);
+        uint32_t encoded_size = lpCurrentEncodedSizeUnsafe(p);
+        unsigned long back_len = lpEncodeBacklen(NULL, encoded_size);
+        printf(
+            "{\n"
+                "\taddr: 0x%08lx,\n"
+                "\tindex: %2d,\n"
+                "\toffset: %5lu,\n"
+                "\thdr+entry len: %5u,\n"
+                "\thdr len: %2u,\n"
+                "\tpayload: %5lu\n",
+            (long unsigned)p,
+            index,
+            (unsigned long) (p-lp),
+            encoded_size,
+            encoded_size_bytes,
+            encoded_size + back_len);
+        printf("\tbytes: ");
+        for (unsigned int i = 0; i < encoded_size; i++) {
+            printf("%02x|",p[i]);
+        }
+        printf("\n");
+
+        vstr = lpGet(p, &ele_len, buf);
+        printf("\t[str]");
+        if (ele_len > 40) {
+            if (fwrite(vstr,40,1,stdout) == 0) perror("fwrite");
+            printf("...");
+        } else {
+            if (fwrite(vstr,ele_len,1,stdout) == 0) perror("fwrite");
+        }
+        printf("\n}\n");
+        index++;
+        p = lpNext(lp, p);
+    }
+    printf("{end}\n\n");
+}
+
 /* Validate the integrity of a single listpack entry and move to the next one.
  * The input argument 'pp' is a reference to the current record and is advanced on exit.
  * Returns 1 if valid, 0 if invalid. */
