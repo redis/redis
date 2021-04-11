@@ -12,7 +12,7 @@ start_server {tags {"modules"}} {
         lsort [r scan.scan_strings]
     } {{x 1} {y 2} {z 3}}
 
-    test {Module scan hash ziplist} {
+    test {Module scan hash listpack} {
         r hmset hh f1 v1 f2 v2
         lsort [r scan.scan_key hh]
     } {{f1 v1} {f2 v2}}
@@ -28,7 +28,7 @@ start_server {tags {"modules"}} {
         lsort [r scan.scan_key hh]
     } {{f1 v1} {f2 v2} {f3 v3}}
 
-    test {Module scan zset ziplist} {
+    test {Module scan zset listpack} {
         r zadd zz 1 f1 2 f2
         lsort [r scan.scan_key zz]
     } {{f1 1} {f2 2}}
