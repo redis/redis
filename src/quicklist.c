@@ -1582,8 +1582,9 @@ void _lpConvert(quicklistNode *node) {
             lp = lpPushTail(lp, value, sz);
             p = ziplistNext(zl, p);
         }
-        zfree(zl);
 
+        assert(ziplistLen(zl) == lpLength(lp));
+        zfree(zl);
         node->l = lp;
         node->container = QUICKLIST_NODE_CONTAINER_LISTPACK;
         node->count = lpLength(lp);

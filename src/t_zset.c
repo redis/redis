@@ -1180,6 +1180,7 @@ void zsetConvert(robj *zobj, int encoding) {
             p = ziplistNext(zobj->ptr, p);
         }
 
+        serverAssert(ziplistLen(zobj->ptr) == lpLength(lp));
         zfree(zobj->ptr);
         zobj->ptr = lp;
         zobj->type = OBJ_ZSET;

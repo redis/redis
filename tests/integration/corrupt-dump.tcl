@@ -44,9 +44,7 @@ test {corrupt payload: #7445 - without sanitize - 2} {
 test {corrupt payload: hash with valid zip list header, invalid entry len} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no
-        r restore key 0 "\x0D\x1B\x1B\x00\x00\x00\x16\x00\x00\x00\x04\x00\x00\x02\x61\x00\x04\x02\x62\x00\x04\x14\x63\x00\x04\x02\x64\x00\xFF\x09\x00\xD9\x10\x54\x92\x15\xF5\x5F\x52"
-        r config set hash-max-listpack-entries 1
-        catch {r hset key b b}
+        catch {r restore key 0 "\x0D\x1B\x1B\x00\x00\x00\x16\x00\x00\x00\x04\x00\x00\x02\x61\x00\x04\x02\x62\x00\x04\x14\x63\x00\x04\x02\x64\x00\xFF\x09\x00\xD9\x10\x54\x92\x15\xF5\x5F\x52"}
         verify_log_message 0 "*zipEntrySafe*" 0
     }
 }
@@ -97,10 +95,8 @@ test {corrupt payload: quicklist ziplist wrong count} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no
         r restore key 0 "\x0E\x01\x13\x13\x00\x00\x00\x0E\x00\x00\x00\x03\x00\x00\x02\x61\x00\x04\x02\x62\x00\xFF\x09\x00\x4D\xE2\x0A\x2F\x08\x25\xDF\x91"
-        # we'll be able to push, but iterating on the list will assert
-        r lpush key header
-        r rpush key footer
-        catch { [r lrange key -1 -1] }
+        # we'll be unable to push due to ziplist will convert to listpack fail.
+        catch {r lpush key header}
         assert_equal [count_log_message 0 "crashed by signal"] 0
         assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
     }
@@ -341,10 +337,8 @@ test {corrupt payload: fuzzer findings - valgrind ziplist - crash report prints 
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no
         r debug set-skip-checksum-validation 1
-        r RESTORE _zsetbig 0 "\x0C\x3D\x3D\x00\x00\x00\x3A\x00\x00\x00\x14\x00\x00\xF1\x02\xF1\x02\x02\x5F\x31\x04\xF2\x02\xF3\x02\xF3\x02\x02\x5F\x33\x04\xF4\x02\xEE\x02\xF5\x02\x02\x5F\x35\x04\xF6\x02\xF7\x02\xF7\x02\x02\x5F\x37\x04\xF8\x02\xF9\x02\xF9\x02\x02\x5F\x39\x04\xFA\xFF\x09\x00\xAE\xF9\x77\x2A\x47\x24\x33\xF6"
-        catch { r ZREMRANGEBYSCORE _zsetbig -1050966020 724 }
-        assert_equal [count_log_message 0 "crashed by signal"] 0
-        assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
+        catch {r RESTORE _zsetbig 0 "\x0C\x3D\x3D\x00\x00\x00\x3A\x00\x00\x00\x14\x00\x00\xF1\x02\xF1\x02\x02\x5F\x31\x04\xF2\x02\xF3\x02\xF3\x02\x02\x5F\x33\x04\xF4\x02\xEE\x02\xF5\x02\x02\x5F\x35\x04\xF6\x02\xF7\x02\xF7\x02\x02\x5F\x37\x04\xF8\x02\xF9\x02\xF9\x02\x02\x5F\x39\x04\xFA\xFF\x09\x00\xAE\xF9\x77\x2A\x47\x24\x33\xF6"}
+        verify_log_message 0 "*zipEntrySafe*" 0
     }
 }
 
@@ -460,18 +454,6 @@ test {corrupt payload: fuzzer findings - OOM in dictExpand} {
         catch { r RESTORE x 0 "\x02\x81\x02\x5F\x31\xC0\x00\xC0\x02\x09\x00\xCD\x84\x2C\xB7\xE8\xA4\x49\x57" } err
         assert_match "*Bad data format*" $err
         r ping
-    }
-}
-
-test {corrupt payload: fuzzer findings - invalid tail offset after removal} {
-    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
-        r config set sanitize-dump-payload no
-        r debug set-skip-checksum-validation 1
-        r RESTORE _zset 0 "\x0C\x19\x19\x00\x00\x00\x02\x00\x00\x00\x06\x00\x00\xF1\x02\xF1\x02\x02\x5F\x31\x04\xF2\x02\xF3\x02\xF3\xFF\x09\x00\x4D\x72\x7B\x97\xCD\x9A\x70\xC1"
-        catch {r ZPOPMIN _zset}
-        catch {r ZPOPMAX _zset}
-        assert_equal [count_log_message 0 "crashed by signal"] 0
-        assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
     }
 }
 
