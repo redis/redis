@@ -158,9 +158,9 @@ This flag should not be used directly by the module.
 #define REDISMODULE_NOTIFY_EXPIRED (1<<8)     /* x */
 #define REDISMODULE_NOTIFY_EVICTED (1<<9)     /* e */
 #define REDISMODULE_NOTIFY_STREAM (1<<10)     /* t */
-#define REDISMODULE_NOTIFY_MODULE (1<<11)     /* d, module key space notification */
-#define REDISMODULE_NOTIFY_KEY_MISS (1<<12)   /* m (Note: This one is excluded from REDISMODULE_NOTIFY_ALL on purpose) */
-#define REDISMODULE_NOTIFY_LOADED (1<<13)     /* module only key space notification, indicate a key loaded from rdb */
+#define REDISMODULE_NOTIFY_KEY_MISS (1<<11)   /* m (Note: This one is excluded from REDISMODULE_NOTIFY_ALL on purpose) */
+#define REDISMODULE_NOTIFY_LOADED (1<<12)     /* module only key space notification, indicate a key loaded from rdb */
+#define REDISMODULE_NOTIFY_MODULE (1<<13)     /* d, module key space notification */
 
 /* Next notification flag, must be updated when adding new flags above!
 This flag should not be used directly by the module.
