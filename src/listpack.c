@@ -636,16 +636,9 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *s, unsigned int slen, un
 
     assert(p);
     while (p) {
-        unsigned char *vstr;
-        int64_t vlen;
-        unsigned char buf[LP_INTBUF_SIZE];
-
-        vstr = lpGet(p, &vlen, buf);
         if (skipcnt == 0) {
             /* Compare current entry with specified entry */
-            if (vlen == slen && memcmp(vstr, s, vlen) == 0) {
-                return p;
-            }
+            if (lpCompare(p, s, slen)) return p;
 
             /* Reset skip count */
             skipcnt = skip;
