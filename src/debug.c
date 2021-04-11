@@ -168,6 +168,7 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
             unsigned char *vstr;
             int64_t vlen;
             double score;
+            unsigned char intbuf[LP_INTBUF_SIZE];
 
             eptr = lpFirst(lp);
             serverAssert(eptr != NULL);
@@ -175,16 +176,11 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
             serverAssert(sptr != NULL);
 
             while (eptr != NULL) {
-                vstr = lpGet(eptr,&vlen,NULL);
+                vstr = lpGet(eptr,&vlen,intbuf);
                 score = zlpGetScore(sptr);
 
                 memset(eledigest,0,20);
-                if (vstr != NULL) {
-                    mixDigest(eledigest,vstr,vlen);
-                } else {
-                    ll2string(buf,sizeof(buf),vlen);
-                    mixDigest(eledigest,buf,strlen(buf));
-                }
+                mixDigest(eledigest,vstr,vlen);
 
                 snprintf(buf,sizeof(buf),"%.17g",score);
                 mixDigest(eledigest,buf,strlen(buf));

@@ -2958,20 +2958,6 @@ static void zrangeResultEmitCBufferToClient(zrange_result_handler *handler,
     }
 }
 
-static void zrangeResultEmitLongLongToClient(zrange_result_handler *handler,
-    long long value, double score)
-{
-    if (handler->should_emit_array_length) {
-        addReplyArrayLen(handler->client, 2);
-    }
-
-    addReplyBulkLongLong(handler->client, value);
-
-    if (handler->withscores) {
-        addReplyDouble(handler->client, score);
-    }
-}
-
 static void zrangeResultFinalizeClient(zrange_result_handler *handler,
     size_t result_count)
 {
@@ -2997,17 +2983,6 @@ static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
     double newscore;
     int retflags = 0;
     sds ele = sdsnewlen(value, value_length_in_bytes);
-    int retval = zsetAdd(handler->dstobj, score, ele, ZADD_IN_NONE, &retflags, &newscore);
-    sdsfree(ele);
-    serverAssert(retval);
-}
-
-static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
-    long long value, double score)
-{
-    double newscore;
-    int retflags = 0;
-    sds ele = sdsfromlonglong(value);
     int retval = zsetAdd(handler->dstobj, score, ele, ZADD_IN_NONE, &retflags, &newscore);
     sdsfree(ele);
     serverAssert(retval);
@@ -3044,14 +3019,12 @@ static void zrangeResultHandlerInit(zrange_result_handler *handler,
         handler->beginResultEmission = zrangeResultBeginClient;
         handler->finalizeResultEmission = zrangeResultFinalizeClient;
         handler->emitResultFromCBuffer = zrangeResultEmitCBufferToClient;
-        handler->emitResultFromLongLong = zrangeResultEmitLongLongToClient;
         break;
 
     case ZRANGE_CONSUMER_TYPE_INTERNAL:
         handler->beginResultEmission = zrangeResultBeginStore;
         handler->finalizeResultEmission = zrangeResultFinalizeStore;
         handler->emitResultFromCBuffer = zrangeResultEmitCBufferForStore;
-        handler->emitResultFromLongLong = zrangeResultEmitLongLongForStore;
         break;
     }
 }
@@ -3100,6 +3073,7 @@ void genericZrangebyrankCommand(zrange_result_handler *handler,
         unsigned char *vstr;
         int64_t vlen;
         double score = 0.0;
+        unsigned char buf[LP_INTBUF_SIZE];
 
         if (reverse)
             eptr = lpSeek(lp,-2-(2*start));
@@ -3111,16 +3085,12 @@ void genericZrangebyrankCommand(zrange_result_handler *handler,
 
         while (rangelen--) {
             serverAssertWithInfo(c,zobj,eptr != NULL && sptr != NULL);
-            vstr = lpGet(eptr,&vlen,NULL);
+            vstr = lpGet(eptr,&vlen,buf);
 
             if (withscores) /* don't bother to extract the score if it's gonna be ignored. */
                 score = zlpGetScore(sptr);
 
-            if (vstr == NULL) {
-                handler->emitResultFromLongLong(handler, vlen, score);
-            } else {
-                handler->emitResultFromCBuffer(handler, vstr, vlen, score);
-            }
+            handler->emitResultFromCBuffer(handler, vstr, vlen, score);
 
             if (reverse)
                 zlpPrev(lp,&eptr,&sptr);
@@ -3200,6 +3170,7 @@ void genericZrangebyscoreCommand(zrange_result_handler *handler,
         unsigned char *eptr, *sptr;
         unsigned char *vstr;
         int64_t vlen;
+        unsigned char buf[LP_INTBUF_SIZE];
 
         /* If reversed, get the last node in range as starting point. */
         if (reverse) {
@@ -3234,14 +3205,10 @@ void genericZrangebyscoreCommand(zrange_result_handler *handler,
 
             /* We know the element exists, so lpGet should always
              * succeed */
-            vstr = lpGet(eptr,&vlen,NULL);
+            vstr = lpGet(eptr,&vlen,buf);
 
             rangelen++;
-            if (vstr == NULL) {
-                handler->emitResultFromLongLong(handler, vlen, score);
-            } else {
-                handler->emitResultFromCBuffer(handler, vstr, vlen, score);
-            }
+            handler->emitResultFromCBuffer(handler, vstr, vlen, score);
 
             /* Move to next node */
             if (reverse) {
@@ -3481,6 +3448,7 @@ void genericZrangebylexCommand(zrange_result_handler *handler,
         unsigned char *eptr, *sptr;
         unsigned char *vstr;
         int64_t vlen;
+        unsigned char buf[LP_INTBUF_SIZE];
 
         /* If reversed, get the last node in range as starting point. */
         if (reverse) {
@@ -3517,14 +3485,10 @@ void genericZrangebylexCommand(zrange_result_handler *handler,
 
             /* We know the element exists, so lpGet should always
              * succeed. */
-            vstr = lpGet(eptr,&vlen,NULL);
+            vstr = lpGet(eptr,&vlen,buf);
 
             rangelen++;
-            if (vstr == NULL) {
-                handler->emitResultFromLongLong(handler, vlen, score);
-            } else {
-                handler->emitResultFromCBuffer(handler, vstr, vlen, score);
-            }
+            handler->emitResultFromCBuffer(handler, vstr, vlen, score);
 
             /* Move to next node */
             if (reverse) {

@@ -1098,6 +1098,7 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
         unsigned char *vstr;
         int64_t vlen;
         double score;
+        unsigned char buf[LP_INTBUF_SIZE];
 
         eptr = lpFirst(lp);
         serverAssert(eptr != NULL);
@@ -1105,7 +1106,7 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
         serverAssert(sptr != NULL);
 
         while (eptr != NULL) {
-            vstr = lpGet(eptr,&vlen,NULL);
+            vstr = lpGet(eptr,&vlen,buf);
             score = zlpGetScore(sptr);
 
             if (count == 0) {
@@ -1120,11 +1121,7 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
                 }
             }
             if (!rioWriteBulkDouble(r,score)) return 0;
-            if (vstr != NULL) {
-                if (!rioWriteBulkString(r,(char*)vstr,vlen)) return 0;
-            } else {
-                if (!rioWriteBulkLongLong(r,vlen)) return 0;
-            }
+            if (!rioWriteBulkString(r,(char*)vstr,vlen)) return 0;
             zlpNext(lp,&eptr,&sptr);
             if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
             items--;

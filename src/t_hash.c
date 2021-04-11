@@ -615,6 +615,8 @@ static int _hashZiplistEntryValidation(unsigned char *p, void *userdata) {
 
 /* callback for to check the listpack doesn't have duplicate records */
 static int _hashListpackEntryValidation(unsigned char *p, void *userdata) {
+    unsigned char buf[LP_INTBUF_SIZE];
+
     struct {
         long count;
         dict *fields;
@@ -624,8 +626,8 @@ static int _hashListpackEntryValidation(unsigned char *p, void *userdata) {
     if (((data->count) & 1) == 0) {
         unsigned char *str;
         int64_t slen;
-        str = lpGet(p, &slen, NULL);
-        sds field = str? sdsnewlen(str, slen): sdsfromlonglong(slen);;
+        str = lpGet(p, &slen, buf);
+        sds field = sdsnewlen(str, slen);
         if (dictAdd(data->fields, field, NULL) != DICT_OK) {
             /* Duplicate, return an error */
             sdsfree(field);
