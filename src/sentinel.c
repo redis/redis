@@ -2980,6 +2980,7 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
 /* Send a "Hello" message via Pub/Sub to the specified 'ri' Redis
  * instance in order to broadcast the current configuration for this
  * master, and to advertise the existence of this Sentinel at the same time.
+ * This message is only sent to masters and replicas instances.
  *
  * The message has the following format:
  *
@@ -3047,7 +3048,7 @@ void sentinelForceHelloUpdateDictOfRedisInstances(dict *instances) {
 
 /* This function forces the delivery of a "Hello" message (see
  * sentinelSendHello() top comment for further information) to all the Redis
- * and Sentinel instances related to the specified 'master'.
+ * instances related to the specified 'master'.
  *
  * It is technically not needed since we send an update to every instance
  * with a period of SENTINEL_PUBLISH_PERIOD milliseconds, however when a
@@ -3057,7 +3058,6 @@ int sentinelForceHelloUpdateForMaster(sentinelRedisInstance *master) {
     if (!(master->flags & SRI_MASTER)) return C_ERR;
     if (master->last_pub_time >= (SENTINEL_PUBLISH_PERIOD+1))
         master->last_pub_time -= (SENTINEL_PUBLISH_PERIOD+1);
-    sentinelForceHelloUpdateDictOfRedisInstances(master->sentinels);
     sentinelForceHelloUpdateDictOfRedisInstances(master->slaves);
     return C_OK;
 }
@@ -3145,8 +3145,9 @@ void sentinelSendPeriodicCommands(sentinelRedisInstance *ri) {
         sentinelSendPing(ri);
     }
 
-    /* PUBLISH hello messages to all the three kinds of instances. */
-    if ((now - ri->last_pub_time) > SENTINEL_PUBLISH_PERIOD) {
+    /* PUBLISH hello messages to masters and replicas instances. */
+    if ((ri->flags & SRI_SENTINEL) == 0 &&
+                (now - ri->last_pub_time) > SENTINEL_PUBLISH_PERIOD) {
         sentinelSendHello(ri);
     }
 }
