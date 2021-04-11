@@ -385,24 +385,16 @@ void hashTypeCurrentFromListpack(hashTypeIterator *hi, int what,
                                  unsigned int *vlen,
                                  long long *vll)
 {
+    unsigned char *lp;
     int64_t ele_len;
 
     serverAssert(hi->encoding == OBJ_ENCODING_LISTPACK);
-
-    if (what & OBJ_HASH_KEY) {
-        *vstr = lpGet(hi->fptr, &ele_len, NULL);
-        if (*vstr) {
-            *vlen = ele_len;
-        } else {
-            *vll = ele_len;
-        }
+    lp = (what & OBJ_HASH_KEY) ? hi->fptr : hi->vptr;
+    *vstr = lpGet(lp, &ele_len, NULL);
+    if (*vstr) {
+        *vlen = ele_len;
     } else {
-        *vstr = lpGet(hi->vptr, &ele_len, NULL);
-        if (*vstr) {
-            *vlen = ele_len;
-        } else {
-            *vll = ele_len;
-        }
+        *vll = ele_len;
     }
 }
 
