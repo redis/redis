@@ -1,3 +1,5 @@
+set testmodule [file normalize tests/modules/keyspace_events.so]
+
 start_server {tags {"pubsub network"}} {
     proc __consume_subscribe_messages {client type channels} {
         set numsub -1
@@ -336,6 +338,17 @@ start_server {tags {"pubsub network"}} {
         r hincrby myhash yes 10
         assert_equal {pmessage * __keyspace@9__:myhash hset} [$rd1 read]
         assert_equal {pmessage * __keyspace@9__:myhash hincrby} [$rd1 read]
+        $rd1 close
+    }
+
+    test "Keyspace notifications: module events test" {
+        r module load $testmodule
+        r config set notify-keyspace-events Kd
+        r del x
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+        r keyspace.notify x
+        assert_equal {pmessage * __keyspace@9__:x notify} [$rd1 read]
         $rd1 close
     }
 

@@ -5800,6 +5800,7 @@ void moduleReleaseGIL(void) {
  *                               Notice, when this event fires, the given key
  *                               can not be retained, use RM_CreateStringFromString
  *                               instead.
+ *  - REDISMODULE_NOTIFY_MODULE: Module types events
  *
  * We do not distinguish between key events and keyspace events, and it is up
  * to the module to filter the actions taken based on the key.
