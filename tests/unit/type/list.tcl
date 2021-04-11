@@ -64,32 +64,32 @@ start_server {
         assert {[r LPOS mylist b COUNT 10 RANK 5] eq {}}
     }
 
-    test {LPUSH, RPUSH, LLENGTH, LINDEX, LPOP - ziplist} {
+    test {LPUSH, RPUSH, LLENGTH, LINDEX, LPOP - listpack} {
         # first lpush then rpush
-        assert_equal 1 [r lpush myziplist1 aa]
-        assert_equal 2 [r rpush myziplist1 bb]
-        assert_equal 3 [r rpush myziplist1 cc]
-        assert_equal 3 [r llen myziplist1]
-        assert_equal aa [r lindex myziplist1 0]
-        assert_equal bb [r lindex myziplist1 1]
-        assert_equal cc [r lindex myziplist1 2]
-        assert_equal {} [r lindex myziplist2 3]
-        assert_equal cc [r rpop myziplist1]
-        assert_equal aa [r lpop myziplist1]
-        assert_encoding quicklist myziplist1
+        assert_equal 1 [r lpush mylistpack1 aa]
+        assert_equal 2 [r rpush mylistpack1 bb]
+        assert_equal 3 [r rpush mylistpack1 cc]
+        assert_equal 3 [r llen mylistpack1]
+        assert_equal aa [r lindex mylistpack1 0]
+        assert_equal bb [r lindex mylistpack1 1]
+        assert_equal cc [r lindex mylistpack1 2]
+        assert_equal {} [r lindex mylistpack2 3]
+        assert_equal cc [r rpop mylistpack1]
+        assert_equal aa [r lpop mylistpack1]
+        assert_encoding quicklist mylistpack1
 
         # first rpush then lpush
-        assert_equal 1 [r rpush myziplist2 a]
-        assert_equal 2 [r lpush myziplist2 b]
-        assert_equal 3 [r lpush myziplist2 c]
-        assert_equal 3 [r llen myziplist2]
-        assert_equal c [r lindex myziplist2 0]
-        assert_equal b [r lindex myziplist2 1]
-        assert_equal a [r lindex myziplist2 2]
-        assert_equal {} [r lindex myziplist2 3]
-        assert_equal a [r rpop myziplist2]
-        assert_equal c [r lpop myziplist2]
-        assert_encoding quicklist myziplist2
+        assert_equal 1 [r rpush mylistpack2 a]
+        assert_equal 2 [r lpush mylistpack2 b]
+        assert_equal 3 [r lpush mylistpack2 c]
+        assert_equal 3 [r llen mylistpack2]
+        assert_equal c [r lindex mylistpack2 0]
+        assert_equal b [r lindex mylistpack2 1]
+        assert_equal a [r lindex mylistpack2 2]
+        assert_equal {} [r lindex mylistpack2 3]
+        assert_equal a [r rpop mylistpack2]
+        assert_equal c [r lpop mylistpack2]
+        assert_encoding quicklist mylistpack2
     }
 
     test {LPUSH, RPUSH, LLENGTH, LINDEX, LPOP - regular list} {
@@ -1107,17 +1107,19 @@ start_server {
         assert_equal {l foo} [$rd read]
     } {}
 
-    test {List ziplist of various encodings} {
+    test {List listpack of various encodings} {
         r del k
-        r lpush k 127 ;# ZIP_INT_8B
-        r lpush k 32767 ;# ZIP_INT_16B
-        r lpush k 2147483647 ;# ZIP_INT_32B
-        r lpush k 9223372036854775808 ;# ZIP_INT_64B
-        r lpush k 0 ;# ZIP_INT_IMM_MIN
-        r lpush k 12 ;# ZIP_INT_IMM_MAX
-        r lpush k [string repeat x 31] ;# ZIP_STR_06B
-        r lpush k [string repeat x 8191] ;# ZIP_STR_14B
-        r lpush k [string repeat x 65535] ;# ZIP_STR_32B
+        r lpush k 127 ;# LP_ENCODING_7BIT_UINT
+        r lpush k 4095 ;# LP_ENCODING_13BIT_INT
+        r lpush k 32767 ;# LP_ENCODING_16BIT_INT
+        r lpush k 8388607 ;# LP_ENCODING_24BIT_INT
+        r lpush k 2147483647 ;# LP_ENCODING_32BIT_INT
+        r lpush k 9223372036854775807 ;# LP_ENCODING_64BIT_INT
+        r lpush k 0
+        r lpush k 12
+        r lpush k [string repeat x 31] ;# LP_ENCODING_6BIT_STR
+        r lpush k [string repeat x 4095] ;# LP_ENCODING_12BIT_STR
+        r lpush k [string repeat x 65535] ;# LP_ENCODING_32BIT_STR
         set k [r lrange k 0 -1]
         set dump [r dump k]
 
@@ -1127,20 +1129,20 @@ start_server {
 
         # try some forward and backward searches to make sure all encodings
         # can be traversed
-        assert_equal [r lindex kk 5] {9223372036854775808}
-        assert_equal [r lindex kk -5] {0}
+        assert_equal [r lindex kk 5] {9223372036854775807}
+        assert_equal [r lindex kk -7] {0}
         assert_equal [r lpos kk foo rank 1] {}
         assert_equal [r lpos kk foo rank -1] {}
 
         # make sure the values are right
         assert_equal $k $kk
         assert_equal [lpop k] [string repeat x 65535]
-        assert_equal [lpop k] [string repeat x 8191]
+        assert_equal [lpop k] [string repeat x 4095]
         assert_equal [lpop k] [string repeat x 31]
         set _ $k
-    } {12 0 9223372036854775808 2147483647 32767 127}
+    } {12 0 9223372036854775807 2147483647 8388607 32767 4095 127}
 
-    test {List ziplist of various encodings - sanitize dump} {
+    test {List listpack of various encodings - sanitize dump} {
         r config set sanitize-dump-payload yes
         r restore kk 0 $dump replace
         set k [r lrange k 0 -1]
@@ -1149,9 +1151,9 @@ start_server {
         # make sure the values are right
         assert_equal $k $kk
         assert_equal [lpop k] [string repeat x 65535]
-        assert_equal [lpop k] [string repeat x 8191]
+        assert_equal [lpop k] [string repeat x 4095]
         assert_equal [lpop k] [string repeat x 31]
         set _ $k
-    } {12 0 9223372036854775808 2147483647 32767 127}
+    } {12 0 9223372036854775807 2147483647 8388607 32767 4095 127}
 
 }
