@@ -1,4 +1,4 @@
-/* quicklist.c - A doubly linked list of ziplists
+/* quicklist.c - A doubly linked list of listpacks or other container
  *
  * Copyright (c) 2014, Matt Stancliff <matt@genges.com>
  * All rights reserved.

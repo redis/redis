@@ -743,7 +743,7 @@ double zlpGetScore(unsigned char *sptr) {
     return score;
 }
 
-/* Return a ziplist element as an SDS string. */
+/* Return a listpack element as an SDS string. */
 sds lpGetObject(unsigned char *sptr) {
     unsigned char *vstr;
     int64_t vlen;
@@ -1006,12 +1006,12 @@ unsigned char *zlpFind(unsigned char *lp, sds ele, double *score) {
     return NULL;
 }
 
-/* Delete (element,score) pair from ziplist. Use local copy of eptr because we
+/* Delete (element,score) pair from listpack. Use local copy of eptr because we
  * don't want to modify the one given as argument. */
 unsigned char *zlpDelete(unsigned char *lp, unsigned char *eptr) {
     unsigned char *p = eptr;
 
-    /* TODO: add function to ziplist API to delete N elements from offset. */
+    /* TODO: add function to listpack API to delete N elements from offset. */
     lp = lpDelete(lp,p,&p);
     lp = lpDelete(lp,p,&p);
     return lp;
@@ -1036,7 +1036,7 @@ unsigned char *zlpInsertAt(unsigned char *lp, unsigned char *eptr, sds ele, doub
     return lp;
 }
 
-/* Insert (element,score) pair in ziplist. This function assumes the element is
+/* Insert (element,score) pair in listpack. This function assumes the element is
  * not yet present in the list. */
 unsigned char *zlpInsert(unsigned char *lp, sds ele, double score) {
     unsigned char *eptr = lpFirst(lp), *sptr;
@@ -1081,7 +1081,7 @@ unsigned char *zlpDeleteRangeByScore(unsigned char *lp, zrangespec *range, unsig
     eptr = zlpFirstInRange(lp,range);
     if (eptr == NULL) return lp;
 
-    /* When the tail of the ziplist is deleted, eptr will point to the sentinel
+    /* When the tail of the listpack is deleted, eptr will point to the sentinel
      * byte and lpNext will return NULL. */
     while (eptr && (sptr = lpNext(lp,eptr)) != NULL) {
         score = zlpGetScore(sptr);
@@ -1109,7 +1109,7 @@ unsigned char *zlpDeleteRangeByLex(unsigned char *lp, zlexrangespec *range, unsi
     eptr = zlpFirstInLexRange(lp,range);
     if (eptr == NULL) return lp;
 
-    /* When the tail of the ziplist is deleted, eptr will point to the sentinel
+    /* When the tail of the listpack is deleted, eptr will point to the sentinel
      * byte and lpNext will return NULL. */
     while (eptr && (sptr = lpNext(lp,eptr)) != NULL) {
         if (zlpLexValueLteMax(eptr,range)) {
@@ -1224,7 +1224,7 @@ void zsetConvert(robj *zobj, int encoding) {
             serverPanic("Unknown target encoding");
 
         /* Approach similar to zslFree(), since we want to free the skiplist at
-         * the same time as creating the ziplist. */
+         * the same time as creating the listpack. */
         zs = zobj->ptr;
         dictRelease(zs->dict);
         node = zs->zsl->header->level[0].forward;
@@ -1246,7 +1246,7 @@ void zsetConvert(robj *zobj, int encoding) {
     }
 }
 
-/* Convert the sorted set object into a ziplist if it is not already a ziplist
+/* Convert the sorted set object into a listpack if it is not already a listpack
  * and if the number of elements and the maximum element size is within the
  * expected ranges. */
 void zsetConvertToListpackIfNeeded(robj *zobj, size_t maxelelen) {
@@ -1317,7 +1317,7 @@ int zsetScore(robj *zobj, sds member, double *score) {
  * start.
  *
  * The command as a side effect of adding a new element may convert the sorted
- * set internal encoding from ziplist to hashtable+skiplist.
+ * set internal encoding from listpack to hashtable+skiplist.
  *
  * Memory management of 'ele':
  *
@@ -1615,7 +1615,7 @@ robj *zsetDup(robj *o) {
     return zobj;
 }
 
-/* callback for to check the ziplist doesn't have duplicate recoreds */
+/* callback for to check the ziplist doesn't have duplicate records */
 static int _zsetZiplistValidateIntegrity(unsigned char *p, void *userdata) {
     struct {
         long count;
@@ -1641,7 +1641,7 @@ static int _zsetZiplistValidateIntegrity(unsigned char *p, void *userdata) {
     return 1;
 }
 
-/* Validate the integrity of the data stracture.
+/* Validate the integrity of the data structure.
  * when `deep` is 0, only the integrity of the header is validated.
  * when `deep` is 1, we scan all the entries one by one. */
 int zsetZiplistValidateIntegrity(unsigned char *lp, size_t size, int deep) {
@@ -1710,12 +1710,12 @@ int zsetListpackValidateIntegrity(unsigned char *lp, size_t size, int deep) {
     return ret;
 }
 
-/* Create a new sds string from the ziplist entry. */
+/* Create a new sds string from the listpack entry. */
 sds zsetSdsFromListpackEntry(lpEntry *e) {
     return e->sval ? sdsnewlen(e->sval, e->slen) : sdsfromlonglong(e->lval);
 }
 
-/* Reply with bulk string from the ziplist entry. */
+/* Reply with bulk string from the listpack entry. */
 void zsetReplyFromListpackEntry(client *c, lpEntry *e) {
     if (e->sval)
         addReplyBulkCBuffer(c, e->sval, e->slen);
@@ -2792,7 +2792,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 if (!existing) {
                     tmp = zuiNewSdsFromValue(&zval);
                     /* Remember the longest single element encountered,
-                     * to understand if it's possible to convert to ziplist
+                     * to understand if it's possible to convert to listpack
                      * at the end. */
                      if (sdslen(tmp) > maxelelen) maxelelen = sdslen(tmp);
                     /* Update the element with its initial score. */
@@ -3232,7 +3232,7 @@ void genericZrangebyscoreCommand(zrange_result_handler *handler,
                 if (!zslValueLteMax(score,range)) break;
             }
 
-            /* We know the element exists, so ziplistGet should always
+            /* We know the element exists, so lpGet should always
              * succeed */
             vstr = lpGet(eptr,&vlen,NULL);
 
@@ -3515,7 +3515,7 @@ void genericZrangebylexCommand(zrange_result_handler *handler,
                 if (!zlpLexValueLteMax(eptr,range)) break;
             }
 
-            /* We know the element exists, so ziplistGet should always
+            /* We know the element exists, so lpGet should always
              * succeed. */
             vstr = lpGet(eptr,&vlen,NULL);
 
@@ -4177,7 +4177,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
     else {
         if (zsetobj->encoding == OBJ_ENCODING_LISTPACK) {
             /* it is inefficient to repeatedly pick one random element from a
-             * ziplist. so we use this instead: */
+             * listpack. so we use this instead: */
             lpEntry *keys, *vals = NULL;
             keys = zmalloc(sizeof(lpEntry)*count);
             if (withscores)
