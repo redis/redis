@@ -492,40 +492,8 @@ void hashTypeConvertListpack(robj *o, int enc) {
     }
 }
 
-void hashTypeConvertZiplist(robj *o, int enc) {
-    serverAssert(o->encoding == OBJ_ENCODING_ZIPLIST);
-
-    if (enc == OBJ_ENCODING_LISTPACK) {
-        unsigned char *p, *val;
-        unsigned int vlen;
-        long long lval;
-        char longstr[32] = {0};
-        unsigned char *lp = lpEmpty();
-
-        p = ziplistIndex(o->ptr, 0);
-        while (ziplistGet(p, &val, &vlen, &lval)) {
-            if (!val) {
-                vlen = ll2string(longstr, sizeof(longstr), lval);
-                val = (unsigned char *)longstr;
-            }
-
-            lp = lpPushTail(lp, val, vlen);
-            p = ziplistNext(o->ptr, p);
-        }
-
-        zfree(o->ptr);
-        o->ptr = lp;
-        o->type = OBJ_HASH;
-        o->encoding = OBJ_ENCODING_LISTPACK;
-    } else {
-        serverPanic("Unsupported ziplist conversion");
-    }
-}
-
 void hashTypeConvert(robj *o, int enc) {
-    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-        hashTypeConvertZiplist(o, enc);
-    } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+    if (o->encoding == OBJ_ENCODING_LISTPACK) {
         hashTypeConvertListpack(o, enc);
     } else if (o->encoding == OBJ_ENCODING_HT) {
         serverPanic("Not implemented");
