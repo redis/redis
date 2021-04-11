@@ -176,6 +176,8 @@ void quicklistRelease(quicklist *quicklist) {
     zfree(quicklist);
 }
 
+/* When deep sanitization is disabled, quicklist will append ziplist directly,
+ * so we need to convert ziplist to listpack when it's accessed. */
 #define quicklistConvertNodeIfNeed(_ql, _node)                                  \
     do {                                                                        \
         if ((_node) && (_node)->container != (_ql)->type->container) {          \
@@ -430,7 +432,8 @@ _quicklistNodeSizeMeetsOptimizationRequirement(const size_t sz,
 #define sizeMeetsSafetyLimit(sz) ((sz) <= SIZE_SAFETY_LIMIT)
 
 REDIS_STATIC int _quicklistNodeAllowInsert(quicklist* ql, quicklistNode *node,
-                                           const int fill, unsigned char *s, const size_t sz) {
+                                           const int fill, unsigned char *s,
+                                           const size_t sz) {
     if (unlikely(!node))
         return 0;
 
@@ -482,7 +485,6 @@ REDIS_STATIC void _quicklistNodePushHead(quicklist *ql, quicklistNode *node,
 
     node->l = ql->type->listPushHead(node->l, s, slen);
     node->count++;
-    ql->count++;
     quicklistNodeUpdateSz(ql, node);
     quicklistRecompressOnly(node);
 }
@@ -498,7 +500,6 @@ REDIS_STATIC void _quicklistNodePushTail(quicklist *ql, quicklistNode *node,
 
     node->l = ql->type->listPushTail(node->l, s, slen);
     node->count++;
-    ql->count++;
     quicklistNodeUpdateSz(ql, node);
     quicklistRecompressOnly(node);
 }
@@ -510,7 +511,6 @@ REDIS_STATIC void _quicklistNodeInsertBefore(quicklist *ql, quicklistNode *node,
     quicklistConvertNodeIfNeed(ql, node);
     node->l = ql->type->listInsertBefore(node->l, s, slen, li);
     node->count++;
-    ql->count++;
     quicklistNodeUpdateSz(ql, node);
     quicklistRecompressOnly(node);
 }
@@ -521,7 +521,6 @@ REDIS_STATIC void _quicklistNodeInsertAfter(quicklist *ql, quicklistNode *node,
     quicklistConvertNodeIfNeed(ql, node);
     node->l = ql->type->listInsertAfter(node->l, s, slen, li);
     node->count++;
-    ql->count++;
     quicklistNodeUpdateSz(ql, node);
     quicklistRecompressOnly(node);
 }
@@ -555,6 +554,7 @@ int quicklistPushHead(quicklist *quicklist, void *value, size_t sz) {
         _quicklistNodePushHead(quicklist, node, value, sz);
         _quicklistInsertNodeBefore(quicklist, quicklist->head, node);
     }
+    quicklist->count++;
     return (orig_head != quicklist->head);
 }
 
@@ -571,6 +571,7 @@ int quicklistPushTail(quicklist *quicklist, void *value, size_t sz) {
         _quicklistNodePushTail(quicklist, node, value, sz);
         _quicklistInsertNodeAfter(quicklist, quicklist->tail, node);
     }
+    quicklist->count++;
     return (orig_tail != quicklist->tail);
 }
 
@@ -919,6 +920,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
         new_node = quicklistCreateNode(quicklist->type->container);
         _quicklistNodePushHead(quicklist, new_node, value, sz);
         __quicklistInsertNode(quicklist, NULL, new_node, after);
+        quicklist->count++;
         return;
     }
 
@@ -987,6 +989,8 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
         __quicklistInsertNode(quicklist, node, new_node, after);
         _quicklistMergeNodes(quicklist, node);
     }
+
+    quicklist->count++;
 }
 
 void quicklistInsertBefore(quicklist *quicklist, quicklistEntry *entry,
