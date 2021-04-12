@@ -2077,7 +2077,10 @@ unsigned int quicklistTestContainer(quicklistContainerType *type, int accurate) 
             quicklist *ql = quicklistNew(type, -2, options[_i]);
             quicklistEntry entry;
             quicklistIndex(ql, 0, &entry);
-            quicklistInsertBefore(ql, &entry, "abc", 4);
+            quicklistInsertBefore(ql, &entry, "abc", 3);
+            /* 12 bytes = LP_HDR_SIZE(6 bytes) + encode(1 bytes) + "abc"(3 bytes) +
+             * backlen(1 bytes) + EOF(1 bytes) */
+            assert(ql->head->sz == 12);
             ql_verify(ql, 1, 1, 1, 1);
             quicklistRelease(ql);
         }
@@ -2086,7 +2089,7 @@ unsigned int quicklistTestContainer(quicklistContainerType *type, int accurate) 
             quicklist *ql = quicklistNew(type, -2, options[_i]);
             quicklistEntry entry;
             quicklistIndex(ql, 0, &entry);
-            quicklistInsertAfter(ql, &entry, "abc", 4);
+            quicklistInsertAfter(ql, &entry, "abc", 3);
             ql_verify(ql, 1, 1, 1, 1);
             quicklistRelease(ql);
         }
@@ -2096,7 +2099,7 @@ unsigned int quicklistTestContainer(quicklistContainerType *type, int accurate) 
             quicklistPushHead(ql, "hello", 6);
             quicklistEntry entry;
             quicklistIndex(ql, 0, &entry);
-            quicklistInsertAfter(ql, &entry, "abc", 4);
+            quicklistInsertAfter(ql, &entry, "abc", 3);
             ql_verify(ql, 1, 2, 2, 2);
             quicklistRelease(ql);
         }
@@ -2106,7 +2109,7 @@ unsigned int quicklistTestContainer(quicklistContainerType *type, int accurate) 
             quicklistPushHead(ql, "hello", 6);
             quicklistEntry entry;
             quicklistIndex(ql, 0, &entry);
-            quicklistInsertAfter(ql, &entry, "abc", 4);
+            quicklistInsertAfter(ql, &entry, "abc", 3);
             ql_verify(ql, 1, 2, 2, 2);
             quicklistRelease(ql);
         }
