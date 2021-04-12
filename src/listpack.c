@@ -631,7 +631,6 @@ unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf) {
     }
 }
 
-
 /* Find pointer to the entry equal to the specified entry. Skip 'skip' entries
  * between every comparison. Returns NULL when the field could not be found. */
 unsigned char *lpFind(unsigned char *lp, unsigned char *s, unsigned int slen, unsigned char *p, unsigned int skip) {
@@ -949,7 +948,7 @@ void lpRepr(unsigned char *lp) {
             encoded_size_bytes,
             encoded_size + back_len);
         printf("\tbytes: ");
-        for (unsigned int i = 0; i < encoded_size; i++) {
+        for (unsigned int i = 0; i < (encoded_size + back_len); i++) {
             printf("%02x|",p[i]);
         }
         printf("\n");
@@ -1340,269 +1339,543 @@ unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, lpEntry 
 
 #ifdef REDIS_TEST
 
+#include <sys/time.h>
+#include "adlist.h"
+#include "sds.h"
+
 #define UNUSED(x) (void)(x)
 
 #define TEST(name) printf("test — %s\n", name);
 
-#define yell(str, ...) printf("ERROR! " str "\n\n", __VA_ARGS__)
+char *mixlist[] = {"hello", "foo", "quux", "1024"};
+char *intlist[] = {"4294967296", "-100", "100", "128000", 
+                            "non integer", "much much longer non integer"};
+
+static unsigned char *createList() {
+    unsigned char *lp = lpEmpty();
+    lp = lpPushTail(lp, (unsigned char*)mixlist[1], strlen(mixlist[1]));
+    lp = lpPushTail(lp, (unsigned char*)mixlist[2], strlen(mixlist[2]));
+    lp = lpPushHead(lp, (unsigned char*)mixlist[0], strlen(mixlist[0]));
+    lp = lpPushTail(lp, (unsigned char*)mixlist[3], strlen(mixlist[3]));
+    return lp;
+}
+
+static unsigned char *createIntList() {
+    unsigned char *lp = lpEmpty();
+    lp = lpPushTail(lp, (unsigned char*)intlist[2], strlen(intlist[2]));
+    lp = lpPushTail(lp, (unsigned char*)intlist[3], strlen(intlist[3]));
+    lp = lpPushHead(lp, (unsigned char*)intlist[1], strlen(intlist[1]));
+    lp = lpPushHead(lp, (unsigned char*)intlist[0], strlen(intlist[0]));
+    lp = lpPushTail(lp, (unsigned char*)intlist[4], strlen(intlist[4]));
+    lp = lpPushTail(lp, (unsigned char*)intlist[5], strlen(intlist[5]));
+    return lp;
+}
+
+static long long usec(void) {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (((long long)tv.tv_sec)*1000000)+tv.tv_usec;
+}
+
+static void stress(int pos, int num, int maxsize, int dnum) {
+    int i, j, k;
+    unsigned char *lp;
+    char posstr[2][5] = { "HEAD", "TAIL" };
+    long long start;
+    for (i = 0; i < maxsize; i+=dnum) {
+        lp = lpEmpty();
+        for (j = 0; j < i; j++) {
+            lp = lpPushTail(lp, (unsigned char*)"quux", 4);
+        }
+
+        /* Do num times a push+pop from pos */
+        start = usec();
+        for (k = 0; k < num; k++) {
+            if (pos == 0) {
+                lp = lpPushHead(lp, (unsigned char*)"quux", 4);
+            } else {
+                lp = lpPushTail(lp, (unsigned char*)"quux", 4);
+
+            }
+            lp = lpDeleteRange(lp, 0, 1);
+        }
+        printf("List size: %8d, bytes: %8d, %dx push+pop (%s): %6lld usec\n",
+               i, lpBytes(lp), num, posstr[pos], usec()-start);
+        zfree(lp);
+    }
+}
+
+static unsigned char *pop(unsigned char *lp, int where) {
+    unsigned char *p, *vstr;
+    int64_t vlen;
+
+    p = lpSeek(lp, where == 0 ? 0 : -1);
+    vstr = lpGet(p, &vlen, NULL);
+    if (where == 0)
+        printf("Pop head: ");
+    else
+        printf("Pop tail: ");
+
+    if (vstr) {
+        if (vlen && fwrite(vstr, vlen, 1, stdout) == 0) perror("fwrite");
+    }
+    else {
+        printf("%ld", vlen);
+    }
+
+    printf("\n");
+    return lpDelete(lp, p, &p);
+}
+
+static int randstring(char *target, unsigned int min, unsigned int max) {
+    int p = 0;
+    int len = min+rand()%(max-min+1);
+    int minval, maxval;
+    switch(rand() % 3) {
+    case 0:
+        minval = 0;
+        maxval = 255;
+    break;
+    case 1:
+        minval = 48;
+        maxval = 122;
+    break;
+    case 2:
+        minval = 48;
+        maxval = 52;
+    break;
+    default:
+        assert(NULL);
+    }
+
+    while(p < len)
+        target[p++] = minval+rand()%(maxval-minval+1);
+    return len;
+}
+
+static void verifyEle(unsigned char *p, unsigned char *s, size_t slen) {
+    assert(lpCompare(p, s, slen));
+}
 
 int listpackTest(int argc, char *argv[], int accurate) {
     UNUSED(argc);
     UNUSED(argv);
     UNUSED(accurate);
 
-    TEST("create listpack") {
-        unsigned char *lp = lpNew(100);
-        assert(lpLength(lp) == 0);
-        assert(lpBytes(lp) == (uint32_t)(LP_HDR_SIZE + 1));
-        lpFree(lp);
+    int i;
+    unsigned char *lp, *p, *vstr;
+    int64_t vlen;
+    unsigned char intbuf[LP_INTBUF_SIZE];
+    int iteration;
+    
+    TEST("Create int list") {
+        lp = createIntList();
+        assert(lpLength(lp) == 6);
+        zfree(lp);
     }
-
-    TEST("create empty listpack") {
-        unsigned char *lp = lpEmpty();
-        assert(lpLength(lp) == 0);
-        assert(lpBytes(lp) == (uint32_t)(LP_HDR_SIZE + 1));
-        lpFree(lp);
+    
+    TEST("Create list") {
+        lp = createList();
+        assert(lpLength(lp) == 4);
+        zfree(lp);
     }
-
-    TEST("shrink listpack to fit") {
-        size_t sz;
-        unsigned char *lp;
-
-        /* Shrink a empty listpack */
-        lp = lpEmpty();
-        sz = lp_malloc_size(lp);
-        lp = lpShrinkToFit(lp);
-        assert(lp_malloc_size(lp) == sz);
-        lpFree(lp);
-
-        /* Shrink a not empty listpack */
-        lp = lpNew(100);
-        sz = lp_malloc_size(lp);
-        lp = lpShrinkToFit(lp);
-        assert(lp_malloc_size(lp) != sz);
-        lpFree(lp);
+    
+    TEST("Pop list") {
+        lp = createList();
+        lp = pop(lp, 1);
+        lp = pop(lp, 0);
+        lp = pop(lp, 1);
+        lp = pop(lp, 1);
+        zfree(lp);
     }
-
-    TEST("add 500 elements to head of listpack") {
-        unsigned char *p;
-        unsigned char *lp = lpEmpty();
-        for (int i = 0; i < 500; i++) {
-            lp = lpPushHead(lp, (unsigned char*)"abc", 3);
-            p = lpFirst(lp);
-            assert(LP_ENCODING_IS_6BIT_STR(p[0]));
-            assert(lpBytes(lp) == (uint32_t)(LP_HDR_SIZE + (i + 1) * 5 + 1));
-            assert(lpLength(lp) == (uint32_t)(i + 1));
-        }
-        lpFree(lp);
+    
+    TEST("Get element at index");
+    {
+        lp = createList();
+        verifyEle(lpSeek(lp, 0), (unsigned char*)"hello", 5);
+        verifyEle(lpSeek(lp, 3), (unsigned char*)"1024", 4);
+        verifyEle(lpSeek(lp, -1), (unsigned char*)"1024", 4);
+        verifyEle(lpSeek(lp, -4), (unsigned char*)"hello", 5);
+        assert(lpSeek(lp, 4) == NULL);
+        assert(lpSeek(lp, -5) == NULL);
+        zfree(lp);
     }
-
-    TEST("add 500 elements to tail of listpack") {
-        unsigned char *p;
-        unsigned char *lp = lpEmpty();
-        for (int i = 0; i < 500; i++) {
-            lp = lpPushTail(lp, (unsigned char*)"abc", 3);
-            p = lpLast(lp);
-            assert(LP_ENCODING_IS_6BIT_STR(p[0]));
-            assert(lpBytes(lp) == (uint32_t)(LP_HDR_SIZE + (i + 1) * 5 + 1));
-            assert(lpLength(lp) == (uint32_t)(i + 1));
-        }
-        lpFree(lp);
-    }
-
-    TEST("delete elements from listpack") {
-        unsigned char *p;
-        unsigned char *lp1 = lpEmpty();
-        unsigned char *lp2 = lpEmpty();
-        unsigned char *lp3 = lpEmpty();
-
-        for (int i = 0; i < 500; i++) {
-            lp1 = lpPushTail(lp1, (unsigned char*)"abc", 3);
-            lp2 = lpPushTail(lp2, (unsigned char*)"abc", 3);
-            lp3 = lpPushTail(lp3, (unsigned char*)"abc", 3);
-        }
-
-        /* Use return ref of lpDelete to loop delete */
-        p = lpFirst(lp1);
+    
+    TEST("Iterate list from 0 to end");
+    {
+        lp = createList();
+        p = lpFirst(lp);
+        i = 0;
         while (p) {
-            lp1 = lpDelete(lp1, p, &p);
+            verifyEle(p, (unsigned char*)mixlist[i], strlen(mixlist[i]));
+            p = lpNext(lp, p);
+            i++;
         }
-        assert(lpLength(lp1) == 0);
-
-        /* Use lpFirst to loop delete */
-        while ((p = lpFirst(lp2))) {
-            lp2 = lpDelete(lp2, p, NULL);
-        }
-        assert(lpLength(lp2) == 0);
-
-        /* Use lpTail to loop delete */
-        while ((p = lpLast(lp3))) {
-            lp3 = lpDelete(lp3, p, NULL);
-        }
-        assert(lpLength(lp3) == 0);
-
-        lpFree(lp1);
-        lpFree(lp2);
-        lpFree(lp3);
+        zfree(lp);
     }
-
-    TEST("merge two listpack") {
-        unsigned char *lp;
-        unsigned char *lp1 = lpEmpty();
-        unsigned char *lp2 = lpEmpty();
-
-        lp1 = lpPushTail(lp1, (unsigned char*)"abc", 3);
-        lp1 = lpPushTail(lp1, (unsigned char*)"def", 3);
-        lp2 = lpPushTail(lp2, (unsigned char*)"bob", 3);
-        lp2 = lpPushTail(lp2, (unsigned char*)"foo", 3);
-
-        lp = lpMerge(&lp1, &lp2);
-        assert(lpCompare(lpSeek(lp, 1), (unsigned char*)"def", 3) == 1);
-        assert(lpCompare(lpSeek(lp, 2), (unsigned char*)"bob", 3) == 1);
-
-        lpFree(lp);
+    
+    printf("Iterate list from 1 to end:\n");
+    {
+        lp = createList();
+        i = 1;
+        p = lpSeek(lp, i);
+        while (p) {
+            verifyEle(p, (unsigned char*)mixlist[i], strlen(mixlist[i]));
+            p = lpNext(lp, p);
+            i++;
+        }
+        zfree(lp);
     }
-
-    TEST("delete range") {
-        unsigned char *lp = lpEmpty();
-
-        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
-        lp = lpPushTail(lp, (unsigned char*)"def", 3);
-        lp = lpPushTail(lp, (unsigned char*)"bob", 3);
-        lp = lpPushTail(lp, (unsigned char*)"foo", 3);
-
-        lp = lpDeleteRange(lp, 4, 1);
-        assert(lpLength(lp) == 4);
-
-        lp = lpDeleteRange(lp, -5, 1);
-        assert(lpLength(lp) == 4);
-
+    
+    printf("Iterate list from 2 to end:\n");
+    {
+        lp = createList();
+        i = 2;
+        p = lpSeek(lp, i);
+        while (p) {
+            verifyEle(p, (unsigned char*)mixlist[i], strlen(mixlist[i]));
+            p = lpNext(lp, p);
+            i++;
+        }
+        zfree(lp);
+    }
+    
+    printf("Iterate from back to front:\n");
+    {
+        lp = createList();
+        p = lpLast(lp);
+        i = 3;
+        while (p) {
+            verifyEle(p, (unsigned char*)mixlist[i], strlen(mixlist[i]));
+            p = lpPrev(lp, p);
+            i--;
+        }
+        zfree(lp);
+    }
+    
+    printf("Iterate from back to front, deleting all items:\n");
+    {
+        lp = createList();
+        p = lpLast(lp);
+        i = 3;
+        while ((p = lpLast(lp))) {
+            verifyEle(p, (unsigned char*)mixlist[i], strlen(mixlist[i]));
+            lp = lpDelete(lp, p, &p);
+            assert(p == NULL);
+            i--;
+        }
+        zfree(lp);
+    }
+    
+    printf("Delete inclusive range 0,0:\n");
+    {
+        lp = createList();
         lp = lpDeleteRange(lp, 0, 1);
         assert(lpLength(lp) == 3);
-
-        lp = lpDeleteRange(lp, -3, 3);
-        assert(lpLength(lp) == 0);
-        assert(lpBytes(lp) == (LP_HDR_SIZE + 1));
-
-        lpFree(lp);
+        verifyEle(lpFirst(lp), (unsigned char*)mixlist[1], strlen(mixlist[1]));
+        zfree(lp);
+    }
+    
+    printf("Delete inclusive range 0,1:\n");
+    {
+        lp = createList();
+        lp = lpDeleteRange(lp, 0, 2);
+        assert(lpLength(lp) == 2);
+        verifyEle(lpFirst(lp), (unsigned char*)mixlist[2], strlen(mixlist[2]));
+        zfree(lp);
     }
 
-    TEST("delete range when num is UINT32_MAX") {
-        unsigned char *lp = lpEmpty();
-        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
-        lp = lpPushTail(lp, (unsigned char*)"def", 3);
-        lp = lpPushTail(lp, (unsigned char*)"bob", 3);
-        lp = lpPushTail(lp, (unsigned char*)"foo", 3);
-        lp = lpDeleteRange(lp, 1, UINT32_MAX);
+    printf("Delete inclusive range 1,2:\n");
+    {
+        lp = createList();
+        lp = lpDeleteRange(lp, 1, 2);
+        assert(lpLength(lp) == 2);
+        verifyEle(lpFirst(lp), (unsigned char*)mixlist[0], strlen(mixlist[0]));
+        zfree(lp);
+    }
+    
+    printf("Delete with start index out of range:\n");
+    {
+        lp = createList();
+        lp = lpDeleteRange(lp, 5, 1);
+        assert(lpLength(lp) == 4);
+        zfree(lp);
+    }
+
+    printf("Delete with num overflow:\n");
+    {
+        lp = createList();
+        lp = lpDeleteRange(lp, 1, 5);
         assert(lpLength(lp) == 1);
-        lpFree(lp);
+        verifyEle(lpFirst(lp), (unsigned char*)mixlist[0], strlen(mixlist[0]));
+        zfree(lp);
     }
 
-    TEST("validate integrity") {
-        unsigned char *lp = lpEmpty();
-        assert(lpValidateIntegrity(lp, lpGetTotalBytes(lp), 1, NULL, NULL) == 1);
-        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
-        lp = lpPushTail(lp, (unsigned char*)"def", 3);
-        assert(lpValidateIntegrity(lp, lpGetTotalBytes(lp), 1, NULL, NULL) == 1);
-        lpFree(lp);
+    printf("Delete foo while iterating:\n");
+    {
+        lp = createList();
+        p = lpFirst(lp);
+        while (p) {
+            if (lpCompare(p, (unsigned char*)"foo", 3)) {
+                lp = lpDelete(lp, p, &p);
+            } else {
+                p = lpNext(lp, p);
+            }
+        }
+        zfree(lp);
     }
 
-    TEST("check various encodings") {
-        unsigned char *lp = lpEmpty();
-
-        /* integer encode */
-        lp = lpPushTail(lp, (unsigned char*)"127", 3);
-        assert(LP_ENCODING_IS_7BIT_UINT(lpLast(lp)[0]));
-        lp = lpPushTail(lp, (unsigned char*)"4095", 4);
-        assert(LP_ENCODING_IS_13BIT_INT(lpLast(lp)[0]));
-        lp = lpPushTail(lp, (unsigned char*)"32767", 5);
-        assert(LP_ENCODING_IS_16BIT_INT(lpLast(lp)[0]));
-        lp = lpPushTail(lp, (unsigned char*)"8388607", 7);
-        assert(LP_ENCODING_IS_24BIT_INT(lpLast(lp)[0]));
-        lp = lpPushTail(lp, (unsigned char*)"2147483647", 10);
-        assert(LP_ENCODING_IS_32BIT_INT(lpLast(lp)[0]));
-        lp = lpPushTail(lp, (unsigned char*)"9223372036854775807", 19);
-        assert(LP_ENCODING_IS_64BIT_INT(lpLast(lp)[0]));
-
-        /* string encode */
-        unsigned char *str = zmalloc(4096);
-        memset(str, 0, 4096);
-        lp = lpPushTail(lp, (unsigned char*)str, 63);
-        assert(LP_ENCODING_IS_6BIT_STR(lpLast(lp)[0]));
-        lp = lpPushTail(lp, (unsigned char*)str, 4095);
-        assert(LP_ENCODING_IS_12BIT_STR(lpLast(lp)[0]));
-        lp = lpPushTail(lp, (unsigned char*)str, 4096);
-        assert(LP_ENCODING_IS_32BIT_STR(lpLast(lp)[0]));
-        zfree(str);
-
-        lpFree(lp);
+    printf("Replace with same size:\n");
+    {
+        lp = createList(); /* "hello", "foo", "quux", "1024" */
+        unsigned char *orig_lp = lp;
+        p = lpSeek(lp, 0);
+        lp = lpReplace(lp, (unsigned char*)"zoink", 5, p);
+        p = lpSeek(lp, 3);
+        lp = lpReplace(lp, (unsigned char*)"yy", 2, p);
+        p = lpSeek(lp, 1);
+        lp = lpReplace(lp, (unsigned char*)"65536", 5, p);
+        p = lpSeek(lp, 0);
+        assert(!memcmp((char*)p,
+                       "\x85zoink\x06"
+                       "\xf2\x00\x00\x01\x04" /* 65536 as int24 */
+                       "\x84quux\05" "\x82yy\x03" "\xff",
+                       23));
+        assert(lp == orig_lp); /* no reallocations have happened */
+        zfree(lp);
     }
 
-    TEST("random pair") {
-        lpEntry key, val;
-        unsigned char *lp = lpEmpty();
-        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
-        lp = lpPushTail(lp, (unsigned char*)"123", 3);
-        lpRandomPair(lp, 1, &key, &val);
-        assert(memcmp(key.sval, "abc", key.slen) == 0);
-        assert(val.lval == 123);
-        lpFree(lp);
+    printf("Replace with different size:\n");
+    {
+        lp = createList(); /* "hello", "foo", "quux", "1024" */
+        p = lpSeek(lp, 1);
+        lp = lpReplace(lp, (unsigned char*)"squirrel", 8, p);
+        p = lpSeek(lp, 0);
+        assert(!strncmp((char*)p,
+                        "\x85hello\x06" "\x88squirrel\x09" "\x84quux\x05"
+                        "\xc4\x00\x02" "\xff",
+                        27));
+        zfree(lp);
     }
 
-    TEST("random pairs") {
-        int count = 5;
-        unsigned char *lp = lpEmpty();
-        lpEntry *keys = zmalloc(sizeof(lpEntry) * count);
-        lpEntry *vals = zmalloc(sizeof(lpEntry) * count);
+    printf("Regression test for >255 byte strings:\n");
+    {
+        char v1[257] = {0}, v2[257] = {0};
+        memset(v1,'x',256);
+        memset(v2,'y',256);
+        lp = lpEmpty();
+        lp = lpPushTail(lp, (unsigned char*)v1 ,strlen(v1));
+        lp = lpPushTail(lp, (unsigned char*)v2 ,strlen(v2));
 
-        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
-        lp = lpPushTail(lp, (unsigned char*)"123", 3);
-        lpRandomPairs(lp, count, keys, vals);
-        assert(memcmp(keys[4].sval, "abc", keys[4].slen) == 0);
-        assert(vals[4].lval == 123);
-        zfree(keys);
-        zfree(vals);
-        lpFree(lp);
+        /* Pop values again and compare their value. */
+        p = lpFirst(lp);
+        vstr = lpGet(p, &vlen, NULL);
+        assert(strncmp(v1, (char*)vstr, vlen) == 0);
+        p = lpSeek(lp, 1);
+        vstr = lpGet(p, &vlen, NULL);
+        assert(strncmp(v2, (char*)vstr, vlen) == 0);
+        zfree(lp);
     }
 
-    TEST("random pairs unique") {
-        unsigned picked;
-        int count = 5;
-        unsigned char *lp = lpEmpty();
-        lpEntry *keys = zmalloc(sizeof(lpEntry) * count);
-        lpEntry *vals = zmalloc(sizeof(lpEntry) * count);
+    printf("Create long list and check indices:\n");
+    {
+        lp = lpEmpty();
+        char buf[32];
+        int i,len;
+        for (i = 0; i < 1000; i++) {
+            len = sprintf(buf, "%d", i);
+            lp = lpPushTail(lp, (unsigned char*)buf, len);
+        }
+        for (i = 0; i < 1000; i++) {
+            p = lpSeek(lp, i);
+            vstr = lpGet(p, &vlen, NULL);
+            assert(i == vlen);
 
-        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
-        lp = lpPushTail(lp, (unsigned char*)"123", 3);
-        picked = lpRandomPairsUnique(lp, count, keys, vals);
-        assert(picked == 1);
-        assert(memcmp(keys[0].sval, "abc", keys[0].slen) == 0);
-        assert(vals[0].lval == 123);
-        zfree(keys);
-        zfree(vals);
-        lpFree(lp);
+            p = lpSeek(lp, -i-1);
+            vstr = lpGet(p, &vlen, NULL);
+            assert(999-i == vlen);
+        }
+        zfree(lp);
     }
 
-    TEST("find entry") {
-        unsigned char *find, *vstr;
-        unsigned char *lp = lpEmpty();
-        int64_t vlen;
+    printf("Compare strings with ziplist entries:\n");
+    {
+        lp = createList();
+        p = lpSeek(lp,0);
+        assert(lpCompare(p,(unsigned char*)"hello",5));
+        assert(!lpCompare(p,(unsigned char*)"hella",5));
 
-        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
-        lp = lpPushTail(lp, (unsigned char*)"def", 3);
-        find = lpFind(lp, (unsigned char*)"abc", 3, lpFirst(lp), 1);
-        vstr = lpGet(find, &vlen, NULL);
-        assert(find != NULL);
-        assert(memcmp(vstr, "abc", vlen) == 0);
+        p = lpSeek(lp,3);
+        assert(lpCompare(p,(unsigned char*)"1024",4));
+        assert(!lpCompare(p,(unsigned char*)"1025",4));
+        zfree(lp);
+    }
 
-        lp = lpPushTail(lp, (unsigned char*)"123", 3);
-        lp = lpPushTail(lp, (unsigned char*)"456", 3);
-        find = lpFind(lp, (unsigned char*)"123", 3, lpFirst(lp), 1);
-        vstr = lpGet(find, &vlen, NULL);
-        assert(find != NULL);
-        assert(vlen == 123);
+    printf("Merge test:\n");
+    {
+        /* create list gives us: [hello, foo, quux, 1024] */
+        lp = createList();
+        unsigned char *lp2 = createList();
 
-        lpFree(lp);
+        unsigned char *lp3 = lpEmpty();
+        unsigned char *lp4 = lpEmpty();
+
+        assert(!lpMerge(&lp4, &lp4));
+
+        /* Merge two empty ziplists, get empty result back. */
+        lp4 = lpMerge(&lp3, &lp4);
+        assert(lpLength(lp4) == 0);
+        zfree(lp4);
+
+        lp2 = lpMerge(&lp, &lp2);
+        /* merge gives us: [hello, foo, quux, 1024, hello, foo, quux, 1024] */
+        assert(lpLength(lp2) == 8);
+
+        p = lpSeek(lp2,0);
+        assert(lpCompare(p,(unsigned char*)"hello",5));
+        assert(!lpCompare(p,(unsigned char*)"hella",5));
+
+        p = lpSeek(lp2,3);
+        assert(lpCompare(p,(unsigned char*)"1024",4));
+        assert(!lpCompare(p,(unsigned char*)"1025",4));
+
+        p = lpSeek(lp2,4);
+        assert(lpCompare(p,(unsigned char*)"hello",5));
+        assert(!lpCompare(p,(unsigned char*)"hella",5));
+
+        p = lpSeek(lp2,7);
+        assert(lpCompare(p,(unsigned char*)"1024",4));
+        assert(!lpCompare(p,(unsigned char*)"1025",4));
+        zfree(lp);
+    }
+
+    printf("Stress with random payloads of different encoding:\n");
+    {
+        unsigned long long start = usec();
+        int i,j,len,where;
+        unsigned char *p;
+        char buf[1024];
+        int buflen;
+        list *ref;
+        listNode *refnode;
+
+        iteration = accurate ? 20000 : 20;
+        for (i = 0; i < iteration; i++) {
+            lp = lpEmpty();
+            ref = listCreate();
+            listSetFreeMethod(ref,(void (*)(void*))sdsfree);
+            len = rand() % 256;
+
+            /* Create lists */
+            for (j = 0; j < len; j++) {
+                where = (rand() & 1) ? 0 : 1;
+                if (rand() % 2) {
+                    buflen = randstring(buf,1,sizeof(buf)-1);
+                } else {
+                    switch(rand() % 3) {
+                    case 0:
+                        buflen = sprintf(buf,"%lld",(0LL + rand()) >> 20);
+                        break;
+                    case 1:
+                        buflen = sprintf(buf,"%lld",(0LL + rand()));
+                        break;
+                    case 2:
+                        buflen = sprintf(buf,"%lld",(0LL + rand()) << 20);
+                        break;
+                    default:
+                        assert(NULL);
+                    }
+                }
+
+                /* Add to ziplist */
+                if (where == 0) {
+                    lp = lpPushHead(lp, (unsigned char*)buf, buflen);
+                } else {
+                    lp = lpPushTail(lp, (unsigned char*)buf, buflen);
+                }
+
+                /* Add to reference list */
+                if (where == 0) {
+                    listAddNodeHead(ref,sdsnewlen(buf, buflen));
+                } else if (where == 1) {
+                    listAddNodeTail(ref,sdsnewlen(buf, buflen));
+                } else {
+                    assert(NULL);
+                }
+            }
+
+            assert(listLength(ref) == lpLength(lp));
+            for (j = 0; j < len; j++) {
+                /* Naive way to get elements, but similar to the stresser
+                 * executed from the Tcl test suite. */
+                p = lpSeek(lp,j);
+                refnode = listIndex(ref,j);
+
+                vstr = lpGet(p, &vlen, intbuf);
+                assert(memcmp(vstr,listNodeValue(refnode),vlen) == 0);
+            }
+            zfree(lp);
+            listRelease(ref);
+        }
+        printf("Done. usec=%lld\n\n", usec()-start);
+    }
+
+    printf("Stress with variable ziplist size:\n");
+    {
+        unsigned long long start = usec();
+        int maxsize = accurate ? 16384 : 16;
+        stress(0,100000,maxsize,256);
+        stress(1,100000,maxsize,256);
+        printf("Done. usec=%lld\n\n", usec()-start);
+    }
+
+    /* Benchmarks */
+    {
+        lp = lpEmpty();
+        iteration = accurate ? 100000 : 100;
+        for (int i=0; i<iteration; i++) {
+            char buf[4096] = "asdf";
+            lp = lpPushTail(lp, (unsigned char*)buf, 4);
+            lp = lpPushTail(lp, (unsigned char*)buf, 40);
+            lp = lpPushTail(lp, (unsigned char*)buf, 400);
+            lp = lpPushTail(lp, (unsigned char*)buf, 4000);
+            lp = lpPushTail(lp, (unsigned char*)"1", 1);
+            lp = lpPushTail(lp, (unsigned char*)"10", 2);
+            lp = lpPushTail(lp, (unsigned char*)"100", 3);
+            lp = lpPushTail(lp, (unsigned char*)"1000", 4);
+            lp = lpPushTail(lp, (unsigned char*)"10000", 5);
+            lp = lpPushTail(lp, (unsigned char*)"100000", 6);
+        }
+
+        printf("Benchmark lpFind:\n");
+        {
+            unsigned long long start = usec();
+            for (int i = 0; i < 2000; i++) {
+                unsigned char *fptr = lpFirst(lp);
+                fptr = lpFind(lp, (unsigned char*)"nothing", 7, fptr, 1);
+            }
+            printf("%lld\n", usec()-start);
+        }
+
+        printf("Benchmark lpSeek:\n");
+        {
+            unsigned long long start = usec();
+            for (int i = 0; i < 2000; i++) {
+                lpSeek(lp, 99999);
+            }
+            printf("%lld\n", usec()-start);
+        }
+
+        printf("Benchmark lpValidateIntegrity:\n");
+        {
+            unsigned long long start = usec();
+            for (int i = 0; i < 2000; i++) {
+                lpValidateIntegrity(lp, lpBytes(lp), 1, NULL, NULL);
+            }
+            printf("%lld\n", usec()-start);
+        }
+
+        zfree(lp);
     }
 
     return 0;
