@@ -1514,7 +1514,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
         zfree(lp);
     }
     
-    printf("Iterate list from 1 to end:\n");
+    TEST("Iterate list from 1 to end");
     {
         lp = createList();
         i = 1;
@@ -1527,7 +1527,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
         zfree(lp);
     }
     
-    printf("Iterate list from 2 to end:\n");
+    TEST("Iterate list from 2 to end");
     {
         lp = createList();
         i = 2;
@@ -1540,7 +1540,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
         zfree(lp);
     }
     
-    printf("Iterate from back to front:\n");
+    TEST("Iterate from back to front");
     {
         lp = createList();
         p = lpLast(lp);
@@ -1553,7 +1553,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
         zfree(lp);
     }
     
-    printf("Iterate from back to front, deleting all items:\n");
+    TEST("Iterate from back to front, deleting all items");
     {
         lp = createList();
         p = lpLast(lp);
@@ -1567,7 +1567,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
         zfree(lp);
     }
     
-    printf("Delete inclusive range 0,0:\n");
+    TEST("Delete inclusive range 0,0");
     {
         lp = createList();
         lp = lpDeleteRange(lp, 0, 1);
@@ -1576,7 +1576,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
         zfree(lp);
     }
     
-    printf("Delete inclusive range 0,1:\n");
+    TEST("Delete inclusive range 0,1");
     {
         lp = createList();
         lp = lpDeleteRange(lp, 0, 2);
@@ -1585,7 +1585,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
         zfree(lp);
     }
 
-    printf("Delete inclusive range 1,2:\n");
+    TEST("Delete inclusive range 1,2");
     {
         lp = createList();
         lp = lpDeleteRange(lp, 1, 2);
@@ -1594,7 +1594,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
         zfree(lp);
     }
     
-    printf("Delete with start index out of range:\n");
+    TEST("Delete with start index out of range");
     {
         lp = createList();
         lp = lpDeleteRange(lp, 5, 1);
@@ -1602,7 +1602,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
         zfree(lp);
     }
 
-    printf("Delete with num overflow:\n");
+    TEST("Delete with num overflow");
     {
         lp = createList();
         lp = lpDeleteRange(lp, 1, 5);
@@ -1611,7 +1611,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
         zfree(lp);
     }
 
-    printf("Delete foo while iterating:\n");
+    TEST("Delete foo while iterating");
     {
         lp = createList();
         p = lpFirst(lp);
@@ -1625,7 +1625,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
         zfree(lp);
     }
 
-    printf("Replace with same size:\n");
+    TEST("Replace with same size");
     {
         lp = createList(); /* "hello", "foo", "quux", "1024" */
         unsigned char *orig_lp = lp;
@@ -1647,7 +1647,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
         zfree(lp);
     }
 
-    printf("Replace with different size:\n");
+    TEST("Replace with different size");
     {
         lp = createList(); /* "hello", "foo", "quux", "1024" */
         p = lpSeek(lp, 1);
@@ -1660,7 +1660,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
         zfree(lp);
     }
 
-    printf("Regression test for >255 byte strings:\n");
+    TEST("Regression test for >255 byte strings");
     {
         char v1[257] = {0}, v2[257] = {0};
         memset(v1,'x',256);
@@ -1679,7 +1679,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
         zfree(lp);
     }
 
-    printf("Create long list and check indices:\n");
+    TEST("Create long list and check indices");
     {
         lp = lpEmpty();
         char buf[32];
@@ -1700,7 +1700,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
         zfree(lp);
     }
 
-    printf("Compare strings with ziplist entries:\n");
+    TEST("Compare strings with ziplist entries");
     {
         lp = createList();
         p = lpSeek(lp,0);
@@ -1713,7 +1713,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
         zfree(lp);
     }
 
-    printf("Merge test:\n");
+    TEST("Merge test");
     {
         /* create list gives us: [hello, foo, quux, 1024] */
         lp = createList();
@@ -1751,7 +1751,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
         zfree(lp);
     }
 
-    printf("Stress with random payloads of different encoding:\n");
+    TEST("Stress with random payloads of different encoding");
     {
         unsigned long long start = usec();
         int i,j,len,where;
@@ -1822,7 +1822,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
         printf("Done. usec=%lld\n\n", usec()-start);
     }
 
-    printf("Stress with variable ziplist size:\n");
+    TEST("Stress with variable ziplist size");
     {
         unsigned long long start = usec();
         int maxsize = accurate ? 16384 : 16;
@@ -1849,7 +1849,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
             lp = lpPushTail(lp, (unsigned char*)"100000", 6);
         }
 
-        printf("Benchmark lpFind:\n");
+        TEST("Benchmark lpFind");
         {
             unsigned long long start = usec();
             for (int i = 0; i < 2000; i++) {
@@ -1859,7 +1859,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
             printf("%lld\n", usec()-start);
         }
 
-        printf("Benchmark lpSeek:\n");
+        TEST("Benchmark lpSeek");
         {
             unsigned long long start = usec();
             for (int i = 0; i < 2000; i++) {
@@ -1868,7 +1868,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
             printf("%lld\n", usec()-start);
         }
 
-        printf("Benchmark lpValidateIntegrity:\n");
+        TEST("Benchmark lpValidateIntegrity");
         {
             unsigned long long start = usec();
             for (int i = 0; i < 2000; i++) {
