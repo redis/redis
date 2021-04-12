@@ -264,8 +264,8 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
         unsigned char *eptr, *sptr;
         unsigned char *vstr = NULL;
         int64_t vlen = 0;
-        double score = 0;
         unsigned char buf[LP_INTBUF_SIZE];
+        double score = 0;
 
         if ((eptr = zlpFirstInRange(lp, &range)) == NULL) {
             /* Nothing exists starting at our min.  No results. */
