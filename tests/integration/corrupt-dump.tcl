@@ -457,6 +457,16 @@ test {corrupt payload: fuzzer findings - OOM in dictExpand} {
     }
 }
 
+test {corrupt payload: fuzzer findings - invalid tail offset after removal} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r debug set-skip-checksum-validation 1
+        catch {
+            r RESTORE _zset 0 "\x0C\x19\x19\x00\x00\x00\x02\x00\x00\x00\x06\x00\x00\xF1\x02\xF1\x02\x02\x5F\x31\x04\xF2\x02\xF3\x02\xF3\xFF\x09\x00\x4D\x72\x7B\x97\xCD\x9A\x70\xC1"
+        } err
+        assert_match "*Bad data format*" $err
+    }
+}
+
 test {corrupt payload: fuzzer findings - negative reply length} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no
