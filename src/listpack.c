@@ -821,31 +821,34 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, un
     return lp;
 }
 
-unsigned char *lpInsertBefore(unsigned char *lp, unsigned char *ele, uint32_t size, unsigned char *p) {
-    return lpInsert(lp, ele, size, p, LP_BEFORE, NULL);
+/* Insert the specified element 's' of length 'slen' before the position of 'p'*/
+unsigned char *lpInsertBefore(unsigned char *lp, unsigned char *s, uint32_t slen, unsigned char *p) {
+    return lpInsert(lp, s, slen, p, LP_BEFORE, NULL);
 }
 
-unsigned char *lpInsertAfter(unsigned char *lp, unsigned char *ele, uint32_t size, unsigned char *p) {
-    return lpInsert(lp, ele, size, p, LP_AFTER, NULL);
+/* Insert the specified element 's' of length 'slen' after the position of 'p'*/
+unsigned char *lpInsertAfter(unsigned char *lp, unsigned char *s, uint32_t slen, unsigned char *p) {
+    return lpInsert(lp, s, slen, p, LP_AFTER, NULL);
 }
 
-unsigned char *lpPushHead(unsigned char *lp, unsigned char *ele, uint32_t size) {
+/* Append the specified element 's' of length 'slen' at the head of the listpack */
+unsigned char *lpPushHead(unsigned char *lp, unsigned char *s, uint32_t slen) {
     unsigned char *p = lpFirst(lp);
-    if (!p) return lpPushTail(lp, ele, size);
-    return lpInsert(lp, ele, size, p, LP_BEFORE, NULL);
+    if (!p) return lpPushTail(lp, s, slen);
+    return lpInsert(lp, s, slen, p, LP_BEFORE, NULL);
 }
 
-/* Append the specified element 'ele' of length 'len' at the end of the
+/* Append the specified element 's' of length 'slen' at the end of the
  * listpack. It is implemented in terms of lpInsert(), so the return value is
  * the same as lpInsert(). */
-unsigned char *lpPushTail(unsigned char *lp, unsigned char *ele, uint32_t size) {
+unsigned char *lpPushTail(unsigned char *lp, unsigned char *s, uint32_t slen) {
     uint64_t listpack_bytes = lpGetTotalBytes(lp);
     unsigned char *eofptr = lp + listpack_bytes - 1;
-    return lpInsert(lp,ele,size,eofptr,LP_BEFORE,NULL);
+    return lpInsert(lp,s,slen,eofptr,LP_BEFORE,NULL);
 }
 
-unsigned char *lpReplace(unsigned char *lp, unsigned char *ele, uint32_t size, unsigned char *p) {
-    return lpInsert(lp, ele, size, p, LP_REPLACE, NULL);
+unsigned char *lpReplace(unsigned char *lp, unsigned char *s, uint32_t slen, unsigned char *p) {
+    return lpInsert(lp, s, slen, p, LP_REPLACE, NULL);
 }
 
 /* Remove the element pointed by 'p', and return the resulting listpack.
