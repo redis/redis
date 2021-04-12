@@ -1629,18 +1629,20 @@ int listpackTest(int argc, char *argv[], int accurate) {
     {
         lp = createList(); /* "hello", "foo", "quux", "1024" */
         unsigned char *orig_lp = lp;
+        lpRepr(lp);
         p = lpSeek(lp, 0);
         lp = lpReplace(lp, (unsigned char*)"zoink", 5, p);
         p = lpSeek(lp, 3);
-        lp = lpReplace(lp, (unsigned char*)"yy", 2, p);
+        lp = lpReplace(lp, (unsigned char*)"y", 1, p);
         p = lpSeek(lp, 1);
         lp = lpReplace(lp, (unsigned char*)"65536", 5, p);
         p = lpSeek(lp, 0);
+        lpRepr(lp);
         assert(!memcmp((char*)p,
                        "\x85zoink\x06"
                        "\xf2\x00\x00\x01\x04" /* 65536 as int24 */
-                       "\x84quux\05" "\x82yy\x03" "\xff",
-                       23));
+                       "\x84quux\05" "\x81y\x02" "\xff",
+                       22));
         assert(lp == orig_lp); /* no reallocations have happened */
         zfree(lp);
     }
