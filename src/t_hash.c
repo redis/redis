@@ -35,7 +35,7 @@
  *----------------------------------------------------------------------------*/
 
 /* Check the length of a number of objects to see if we need to convert a
- * ziplist to a real hash. Note that we only check string encoded objects
+ * listpack to a real hash. Note that we only check string encoded objects
  * as their string length can be queried in constant time. */
 void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
     int i;
@@ -52,7 +52,7 @@ void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
     }
 }
 
-/* Get the value from a ziplist encoded hash, identified by field.
+/* Get the value from a listpack encoded hash, identified by field.
  * Returns -1 when the field cannot be found. */
 int hashTypeGetFromListpack(robj *o, sds field,
                            unsigned char **vstr,
@@ -231,7 +231,7 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
         }
         o->ptr = lp;
 
-        /* Check if the ziplist needs to be converted to a hash table */
+        /* Check if the listpack needs to be converted to a hash table */
         if (hashTypeLength(o) > server.hash_max_listpack_entries)
             hashTypeConvert(o, OBJ_ENCODING_HT);
     } else if (o->encoding == OBJ_ENCODING_HT) {
@@ -379,7 +379,7 @@ int hashTypeNext(hashTypeIterator *hi) {
 }
 
 /* Get the field or value at iterator cursor, for an iterator on a hash value
- * encoded as a ziplist. Prototype is similar to `hashTypeGetFromZiplist`. */
+ * encoded as a listpack. Prototype is similar to `hashTypeGetFromListpack`. */
 void hashTypeCurrentFromListpack(hashTypeIterator *hi, int what,
                                  unsigned char **vstr,
                                  unsigned int *vlen,
@@ -478,9 +478,9 @@ void hashTypeConvertListpack(robj *o, int enc) {
             value = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
             ret = dictAdd(dict, key, value);
             if (ret != DICT_OK) {
-                serverLogHexDump(LL_WARNING,"ziplist with dup elements dump",
+                serverLogHexDump(LL_WARNING,"listpack with dup elements dump",
                     o->ptr,lpBytes(o->ptr));
-                serverPanic("Ziplist corruption detected");
+                serverPanic("Listpack corruption detected");
             }
         }
         hashTypeReleaseIterator(hi);
@@ -645,12 +645,12 @@ int hashListpackValidateIntegrity(unsigned char *lp, size_t size, int deep) {
     return ret;
 }
 
-/* Create a new sds string from the ziplist entry. */
+/* Create a new sds string from the listpack entry. */
 sds hashSdsFromListpackEntry(lpEntry *e) {
     return e->sval ? sdsnewlen(e->sval, e->slen) : sdsfromlonglong(e->lval);
 }
 
-/* Reply with bulk string from the ziplist entry. */
+/* Reply with bulk string from the listpack entry. */
 void hashReplyFromListpackEntry(client *c, lpEntry *e) {
     if (e->sval)
         addReplyBulkCBuffer(c, e->sval, e->slen);
@@ -1182,7 +1182,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
     else {
         if (hash->encoding == OBJ_ENCODING_LISTPACK) {
             /* it is inefficient to repeatedly pick one random element from a
-             * ziplist. so we use this instead: */
+             * listpack. so we use this instead: */
             lpEntry *keys, *vals = NULL;
             keys = zmalloc(sizeof(lpEntry)*count);
             if (withvalues)

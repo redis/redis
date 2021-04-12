@@ -1693,14 +1693,14 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
             hashTypeConvert(o, OBJ_ENCODING_HT);
         else if (deep_integrity_validation) {
             /* In this mode, we need to guarantee that the server won't crash
-             * later when the ziplist is converted to a dict.
+             * later when the listpack is converted to a dict.
              * Create a set (dict with no values) to for a dup search.
-             * We can dismiss it as soon as we convert the ziplist to a hash. */
+             * We can dismiss it as soon as we convert the listpack to a hash. */
             dupSearchDict = dictCreate(&hashDictType, NULL);
         }
 
 
-        /* Load every field and value into the ziplist */
+        /* Load every field and value into the listpack */
         while (o->encoding == OBJ_ENCODING_LISTPACK && len > 0) {
             len--;
             /* Load raw strings */
@@ -1729,7 +1729,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                 }
             }
 
-            /* Add pair to ziplist */
+            /* Add pair to listpack */
             o->ptr = lpPushTail(o->ptr, (unsigned char*)field, sdslen(field));
             o->ptr = lpPushTail(o->ptr, (unsigned char*)value, sdslen(value));
 
@@ -1855,7 +1855,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                     decrRefCount(o);
                     return NULL;
                 }
-                /* Convert to ziplist encoded hash. This must be deprecated
+                /* Convert to listpack encoded hash. This must be deprecated
                  * when loading dumps created by Redis 2.4 gets deprecated. */
                 {
                     unsigned char *lp = lpEmpty();
