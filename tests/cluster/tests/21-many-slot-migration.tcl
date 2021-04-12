@@ -9,6 +9,7 @@ source "../tests/includes/utils.tcl"
 
 test "Create a 10 nodes cluster" {
     create_cluster 10 0
+    config_set_all_nodes cluster-allow-replica-migration no
 }
 
 test "Cluster is up" {
@@ -54,3 +55,4 @@ test "Keys are accessible" {
     }
 }
 
+config_set_all_nodes cluster-allow-replica-migration yes
