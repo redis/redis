@@ -1,5 +1,11 @@
 source "../../../tests/support/cli.tcl"
 
+proc config_set_all_nodes {keyword value} {
+    foreach_redis_id id {
+        R $id config set $keyword $value
+    }
+}
+
 proc fix_cluster {addr} {
     set code [catch {
         exec ../../../src/redis-cli {*}[rediscli_tls_config "../../../tests"] --cluster fix $addr << yes

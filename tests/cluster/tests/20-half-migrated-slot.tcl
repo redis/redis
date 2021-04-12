@@ -9,6 +9,7 @@ source "../tests/includes/utils.tcl"
 
 test "Create a 2 nodes cluster" {
     create_cluster 2 0
+    config_set_all_nodes cluster-allow-replica-migration no
 }
 
 test "Cluster is up" {
@@ -87,3 +88,5 @@ test "Half-finish importing" {
     fix_cluster $nodefrom(addr)
     assert_equal "xyz" [$cluster get aga]
 }
+
+config_set_all_nodes cluster-allow-replica-migration yes
