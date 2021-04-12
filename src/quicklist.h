@@ -109,7 +109,7 @@ typedef struct quicklistContainerType {
     unsigned char *(*listInsertAfter)(unsigned char *l, unsigned char *ele, uint32_t size, unsigned char *p);
     unsigned char *(*listReplace)(unsigned char *l, unsigned char *s, uint32_t slen, unsigned char *p);
     unsigned char *(*listDelete)(unsigned char *l, unsigned char *p, unsigned char **newp);
-    unsigned char *(*listDeleteRange)(unsigned char *l, int index, unsigned int num);
+    unsigned char *(*listDeleteRange)(unsigned char *l, long index, uint32_t num);
     unsigned char *(*listMerge)(unsigned char **first, unsigned char **second);
     unsigned int (*listCompare)(unsigned char *l, unsigned char *s, uint32_t slen);
     uint64_t (*listEncodeLength)(unsigned char *s, uint32_t slen);

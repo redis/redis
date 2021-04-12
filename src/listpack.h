@@ -81,7 +81,7 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
                         listpackValidateEntryCB entry_cb, void *cb_userdata);
 int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes);
 unsigned char *lpMerge(unsigned char **first, unsigned char **second);
-unsigned char *lpDeleteRange(unsigned char *lp, int index, unsigned int num);
+unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned int num);
 unsigned int lpCompare(unsigned char *p, unsigned char *s, unsigned int slen);
 void lpRandomPair(unsigned char *lp, unsigned long total_count, lpEntry *key, lpEntry *val);
 void lpRandomPairs(unsigned char *lp, unsigned int count, lpEntry *keys, lpEntry *vals);

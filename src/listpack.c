@@ -1102,8 +1102,7 @@ unsigned char *lpMerge(unsigned char **first, unsigned char **second) {
     }
 
     /* Calculate final bytes (subtract one pair of metadata) */
-    uint32_t lpbytes = first_bytes + second_bytes -
-                     LP_HDR_SIZE - 1;
+    uint32_t lpbytes = first_bytes + second_bytes - LP_HDR_SIZE - 1;
     uint32_t lplength = first_len + second_len;
 
     /* Extend target to new lpbytes then append or prepend source. */
@@ -1143,17 +1142,18 @@ unsigned char *lpMerge(unsigned char **first, unsigned char **second) {
     return target;
 }
 
-unsigned char *lpDeleteRange(unsigned char *lp, int index, unsigned int num) {
-    int len = lpLength(lp);
+/* Delete a range of entries from the listpack. */
+unsigned char *lpDeleteRange(unsigned char *lp, long index, uint32_t num) {
+    uint32_t len = lpLength(lp);
     uint32_t bytes = lpBytes(lp);
 
-    unsigned char *p = lpSeek(lp,index);
+    unsigned char *p = lpSeek(lp, index);
     if (p == NULL) return lp;
 
     /* Note that index could overflow, but we use the value
      * after seek, so when we use it no overflow happens. */
-    if (index < 0) index = len + index;
-    if ((unsigned int)(len - index) <= num) {
+    if (index < 0) index = (long)len + index;
+    if ((len - (uint32_t)index) <= num) {
         /* When deleted num is out of range, we just need
          * to set LP_EOF, and resize listpack. */
         p[0] = LP_EOF;
