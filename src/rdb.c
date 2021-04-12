@@ -1898,8 +1898,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                 }
                 break;
             case RDB_TYPE_LIST_ZIPLIST:
-                if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-                if (!ziplistValidateIntegrity(encoded, encoded_len, deep_integrity_validation, NULL, NULL)) {
+                /* Since we don't keep ziplists anymore, the rdb loading for these
+                 * is O(n) anyway, use `deep` validation. */
+                if (!ziplistValidateIntegrity(encoded, encoded_len, 1, NULL, NULL)) {
                     rdbReportCorruptRDB("List ziplist integrity check failed.");
                     zfree(encoded);
                     o->ptr = NULL;
@@ -1925,8 +1926,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                     setTypeConvert(o,OBJ_ENCODING_HT);
                 break;
             case RDB_TYPE_ZSET_ZIPLIST:
-                if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-                if (!zsetZiplistValidateIntegrity(encoded, encoded_len, deep_integrity_validation)) {
+                /* Since we don't keep ziplists anymore, the rdb loading for these
+                 * is O(n) anyway, use `deep` validation. */
+                if (!zsetZiplistValidateIntegrity(encoded, encoded_len, 1)) {
                     rdbReportCorruptRDB("Zset ziplist integrity check failed.");
                     zfree(encoded);
                     o->ptr = NULL;
@@ -1934,11 +1936,36 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                     return NULL;
                 }
 
-                o->type = OBJ_ZSET;
-                o->encoding = OBJ_ENCODING_ZIPLIST;
-                zsetConvert(o,OBJ_ENCODING_LISTPACK);
-                if (zsetLength(o) > server.zset_max_listpack_entries)
-                    zsetConvert(o,OBJ_ENCODING_SKIPLIST);
+                {
+                    unsigned char *p, *val;
+                    unsigned int vlen;
+                    long long lval;
+                    char longstr[32] = {0};
+                    unsigned int maxlen = 0;
+                    unsigned char *lp = lpEmpty();
+
+                    p = ziplistIndex(o->ptr, 0);
+                    while (ziplistGet(p, &val, &vlen, &lval)) {
+                        if (!val) {
+                            vlen = ll2string(longstr, sizeof(longstr), lval);
+                            val = (unsigned char *)longstr;
+                        }
+
+                        if (vlen > maxlen) maxlen = vlen;
+                        lp = lpPushTail(lp, val, vlen);
+                        p = ziplistNext(o->ptr, p);
+                    }
+
+                    zfree(o->ptr);
+                    o->ptr = lp;
+                    o->type = OBJ_ZSET;
+                    o->encoding = OBJ_ENCODING_LISTPACK;
+                    if (zsetLength(o) > server.zset_max_listpack_entries ||
+                        maxlen > server.zset_max_listpack_value)
+                    {
+                        zsetConvert(o,OBJ_ENCODING_SKIPLIST);
+                    }
+                }
                 break;
             case RDB_TYPE_ZSET_LISTPACK:
                 if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;

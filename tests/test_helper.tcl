@@ -48,6 +48,7 @@ set ::all_tests {
     integration/corrupt-dump
     integration/corrupt-dump-fuzzer
     integration/convert-zipmap-hash-on-load
+    integration/convert-ziplist-hash-on-load
     integration/logging
     integration/psync2
     integration/psync2-reg

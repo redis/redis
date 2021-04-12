@@ -1159,33 +1159,7 @@ void zsetConvert(robj *zobj, int encoding) {
     double score;
 
     if (zobj->encoding == encoding) return;
-    if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
-        unsigned char *p, *val;
-        unsigned int vlen;
-        long long lval;
-        char longstr[32] = {0};
-        unsigned char *lp = lpEmpty();
-
-        if (encoding != OBJ_ENCODING_LISTPACK)
-            serverPanic("Unknown target encoding");
-
-        p = ziplistIndex(zobj->ptr, 0);
-        while (ziplistGet(p, &val, &vlen, &lval)) {
-            if (!val) {
-                vlen = ll2string(longstr, sizeof(longstr), lval);
-                val = (unsigned char *)longstr;
-            }
-
-            lp = lpPushTail(lp, val, vlen);
-            p = ziplistNext(zobj->ptr, p);
-        }
-
-        serverAssert(ziplistLen(zobj->ptr) == lpLength(lp));
-        zfree(zobj->ptr);
-        zobj->ptr = lp;
-        zobj->type = OBJ_ZSET;
-        zobj->encoding = OBJ_ENCODING_LISTPACK;
-    } else if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
+    if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = zobj->ptr;
         unsigned char *eptr, *sptr;
         unsigned char *vstr;
