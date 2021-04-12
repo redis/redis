@@ -49,11 +49,11 @@
 /* Optimization levels for size-based filling */
 static const size_t optimization_level[] = {4096, 8192, 16384, 32768, 65536};
 
-/* Maximum size in bytes of any multi-element list.
- * Larger values will live in their own isolated lists. */
+/* Maximum size in bytes of any multi-element listpack.
+ * Larger values will live in their own isolated listpacks. */
 #define SIZE_SAFETY_LIMIT 8192
 
-/* Minimum list size in bytes for attempting compression. */
+/* Minimum listpack size in bytes for attempting compression. */
 #define MIN_COMPRESS_BYTES 48
 
 /* Minimum size reduction in bytes to store compressed quicklistNode data.
@@ -456,7 +456,7 @@ REDIS_STATIC int _quicklistNodeAllowMerge(quicklist* ql,
     if (!a || !b)
         return 0;
 
-    /* approximate merged list size (remove one listpack
+    /* approximate merged listpack size (remove one listpack
      * header/trailer) */
     unsigned int merge_sz = a->sz + b->sz - ql->type->listHeaderAndTrailerLength();
     if (likely(_quicklistNodeSizeMeetsOptimizationRequirement(merge_sz, fill)))
@@ -629,7 +629,7 @@ quicklist *quicklistCreateFromZiplist(int fill, int compress,
  * Used for loading RDBs where entire listpacks have been stored
  * to be retrieved later. */
 void quicklistAppendListpack(quicklist *quicklist, unsigned char *lp) {
-    quicklistNode *node = quicklistCreateNode(quicklist->type->container);
+    quicklistNode *node = quicklistCreateNode(QUICKLIST_NODE_CONTAINER_LISTPACK);
 
     node->l = lp;
     node->count = lpLength(node->l);
@@ -690,7 +690,7 @@ REDIS_STATIC void __quicklistDelNode(quicklist *quicklist,
  *       already had to get *p from an uncompressed node somewhere.
  *
  * Returns 1 if the entire node was deleted, 0 if node still exists.
- * Also updates in/out param 'p' with the next offset in the list. */
+ * Also updates in/out param 'p' with the next offset in the listpack. */
 REDIS_STATIC int quicklistDelIndex(quicklist *quicklist, quicklistNode *node,
                                    unsigned char **p) {
     int gone = 0;
@@ -711,7 +711,7 @@ REDIS_STATIC int quicklistDelIndex(quicklist *quicklist, quicklistNode *node,
 /* Delete one element represented by 'entry'
  *
  * 'entry' stores enough metadata to delete the proper position in
- * the correct list in the correct quicklist node. */
+ * the correct listpack in the correct quicklist node. */
 void quicklistDelEntry(quicklistIter *iter, quicklistEntry *entry) {
     quicklistNode *prev = entry->node->prev;
     quicklistNode *next = entry->node->next;
@@ -759,9 +759,9 @@ int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
     }
 }
 
-/* Given two nodes, try to merge their lists.
+/* Given two nodes, try to merge their listpacks.
  *
- * This helps us not have a quicklist with 3 element lists if
+ * This helps us not have a quicklist with 3 element listpacks if
  * our fill factor can handle much higher levels.
  *
  * Note: 'a' must be to the LEFT of 'b'.
@@ -804,7 +804,7 @@ REDIS_STATIC quicklistNode *_quicklistMerge(quicklist *quicklist,
     }
 }
 
-/* Attempt to merge lists within two nodes on either side of 'center'.
+/* Attempt to merge listpacks within two nodes on either side of 'center'.
  *
  * We attempt to merge:
  *   - (center->prev->prev, center->prev)
@@ -1367,8 +1367,8 @@ void quicklistRotate(quicklist *quicklist) {
     /* Add tail entry to head (must happen before tail is deleted). */
     quicklistPushHead(quicklist, value, ele_len);
 
-    /* If quicklist has only one node, the head list is also the
-     * tail list and PushHead() could have reallocated our single list,
+    /* If quicklist has only one node, the head listpack is also the
+     * tail listpack and PushHead() could have reallocated our single listpack,
      * which would make our pre-existing 'p' unusable. */
     if (quicklist->len == 1) {
         p = _quicklistNodeSeek(quicklist, quicklist->tail, -1);

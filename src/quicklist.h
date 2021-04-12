@@ -35,7 +35,7 @@
 
 /* Node, quicklist, and Iterator are the only data structures used currently. */
 
-/* quicklistNode is a 32 byte struct describing a (ziplist / listpack) for a quicklist.
+/* quicklistNode is a 32 byte struct describing a listpack for a quicklist.
  * We use bit fields keep the quicklistNode at 32 bytes.
  * count: 16 bits, max 65536 (max zl bytes is 65k, so max count actually < 32k).
  * encoding: 2 bits, RAW=1, LZF=2.
@@ -46,9 +46,9 @@
 typedef struct quicklistNode {
     struct quicklistNode *prev;
     struct quicklistNode *next;
-    unsigned char *l;            /* (ziplist / listpack) data */
-    unsigned int sz;             /* (ziplist / listpack) size in bytes */
-    unsigned int count : 16;     /* count of items in (ziplist/listpack) */
+    unsigned char *l;            /* listpack data */
+    unsigned int sz;             /* listpack size in bytes */
+    unsigned int count : 16;     /* count of items in listpack */
     unsigned int encoding : 2;   /* RAW==1 or LZF==2 */
     unsigned int container : 2;  /* NONE==1, ZIPLIST==2, LISTPACK==3 */
     unsigned int recompress : 1; /* was this node previous compressed? */
@@ -129,7 +129,7 @@ typedef struct quicklist {
     quicklistContainerType *type;
     quicklistNode *head;
     quicklistNode *tail;
-    unsigned long count;        /* total count of all entries in all ziplists */
+    unsigned long count;        /* total count of all entries in all listpacks */
     unsigned long len;          /* number of quicklistNodes */
     int fill : QL_FILL_BITS;              /* fill factor for individual nodes */
     unsigned int compress : QL_COMP_BITS; /* depth of end nodes not to compress;0=off */
@@ -141,7 +141,7 @@ typedef struct quicklistIter {
     const quicklist *quicklist;
     quicklistNode *current;
     unsigned char *li;
-    long offset; /* offset in current ziplist */
+    long offset; /* offset in current listpack */
     int direction;
 } quicklistIter;
 

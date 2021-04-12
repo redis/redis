@@ -1349,7 +1349,7 @@ unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, lpEntry 
 
 char *mixlist[] = {"hello", "foo", "quux", "1024"};
 char *intlist[] = {"4294967296", "-100", "100", "128000", 
-                            "non integer", "much much longer non integer"};
+                   "non integer", "much much longer non integer"};
 
 static unsigned char *createList() {
     unsigned char *lp = lpEmpty();
