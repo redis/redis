@@ -49,6 +49,16 @@ test {corrupt payload: hash with valid zip list header, invalid entry len} {
     }
 }
 
+test {corrupt payload: hash with valid listpack header, invalid entry len} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r restore key 0 "\x10\x13\x13\x00\x00\x00\x03\x00\x82v1\x03\x01\x01\x82v2\x03\x02\x01\xff\t\x00-\xb9\xe0\xd4\x02%\xb41"
+        r config set hash-max-listpack-entries 1
+        catch {r hset key b b}
+        verify_log_message 0 "*lpLength(o->ptr) == (dictSize(dict) * 2)*" 0
+    }
+}
+
 test {corrupt payload: invalid zlbytes header} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no

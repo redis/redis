@@ -483,6 +483,7 @@ void hashTypeConvertListpack(robj *o, int enc) {
                 serverPanic("Listpack corruption detected");
             }
         }
+        serverAssert(lpLength(o->ptr) == (dictSize(dict) * 2));
         hashTypeReleaseIterator(hi);
         zfree(o->ptr);
         o->encoding = OBJ_ENCODING_HT;
