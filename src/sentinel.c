@@ -593,10 +593,10 @@ void sentinelIsRunning(void) {
 
 /* Create a sentinelAddr object and return it on success.
  * On error NULL is returned and errno is set to:
- *  ENOENT: Can't resolve the hostname.
+ *  ENOENT: Can't resolve the hostname, unless accept_unresolved is non-zero.
  *  EINVAL: Invalid port number.
  */
-sentinelAddr *createSentinelAddr(char *hostname, int port) {
+sentinelAddr *createSentinelAddr(char *hostname, int port, int accept_unresolved) {
     char ip[NET_IP_STR_LEN];
     sentinelAddr *sa;
 
@@ -606,8 +606,12 @@ sentinelAddr *createSentinelAddr(char *hostname, int port) {
     }
     if (anetResolve(NULL,hostname,ip,sizeof(ip),
                     sentinel.resolve_hostnames ? ANET_NONE : ANET_IP_ONLY) == ANET_ERR) {
-        errno = ENOENT;
-        return NULL;
+        if (sentinel.resolve_hostnames && accept_unresolved)
+            ip[0] = '\0';
+        else {
+            errno = ENOENT;
+            return NULL;
+        }
     }
     sa = zmalloc(sizeof(*sa));
     sa->hostname = sdsnew(hostname);
@@ -637,6 +641,14 @@ void releaseSentinelAddr(sentinelAddr *sa) {
 /* Return non-zero if two addresses are equal. */
 int sentinelAddrIsEqual(sentinelAddr *a, sentinelAddr *b) {
     return a->port == b->port && !strcasecmp(a->ip,b->ip);
+}
+
+/* Return non-zero if the two addresses are equal, either by address
+ * or by hostname if they could not have been resolved.
+ */
+int sentinelAddrOrHostnameEqual(sentinelAddr *a, sentinelAddr *b) {
+    return a->port == b->port &&
+            (!strcmp(a->ip, b->ip) || !strcasecmp(a->hostname, b->hostname));
 }
 
 /* Return non-zero if a hostname matches an address. */
@@ -1296,7 +1308,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     serverAssert((flags & SRI_MASTER) || master != NULL);
 
     /* Check address validity. */
-    addr = createSentinelAddr(hostname,port);
+    addr = createSentinelAddr(hostname,port,0);
     if (addr == NULL) return NULL;
 
     /* For slaves use ip/host:port as name. */
@@ -1424,7 +1436,7 @@ sentinelRedisInstance *sentinelRedisInstanceLookupSlave(
      * If that is the case, depending on configuration we either resolve
      * it and use the IP addres or fail.
      */
-    addr = createSentinelAddr(slave_addr, port);
+    addr = createSentinelAddr(slave_addr, port, 0);
     if (!addr) return NULL;
     key = announceSentinelAddrAndPort(addr);
     releaseSentinelAddr(addr);
@@ -1487,8 +1499,10 @@ sentinelRedisInstance *getSentinelRedisInstanceByAddrAndRunID(dict *instances, c
 
     serverAssert(addr || runid);   /* User must pass at least one search param. */
     if (addr != NULL) {
-        /* Resolve addr, we use the IP as a key even if a hostname is used */
-        ri_addr = createSentinelAddr(addr, port);
+        /* Try to resolve addr. If hostnames are used, we're accepting an ri_addr
+         * that contains an hostname only and can still be matched based on that.
+         */
+        ri_addr = createSentinelAddr(addr,port,1);
         if (!ri_addr) return NULL;
     }
     di = dictGetIterator(instances);
@@ -1497,8 +1511,7 @@ sentinelRedisInstance *getSentinelRedisInstanceByAddrAndRunID(dict *instances, c
 
         if (runid && !ri->runid) continue;
         if ((runid == NULL || strcmp(ri->runid, runid) == 0) &&
-            (addr == NULL || (strcmp(ri->addr->ip, ri_addr->ip) == 0 &&
-                            ri->addr->port == port)))
+            (addr == NULL || sentinelAddrOrHostnameEqual(ri->addr, ri_addr)))
         {
             instance = ri;
             break;
@@ -1629,7 +1642,7 @@ int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *hos
     dictIterator *di;
     dictEntry *de;
 
-    newaddr = createSentinelAddr(hostname,port);
+    newaddr = createSentinelAddr(hostname,port,0);
     if (newaddr == NULL) return C_ERR;
 
     /* There can be only 0 or 1 slave that has the newaddr.
