@@ -1420,7 +1420,7 @@ static unsigned char *pop(unsigned char *lp, int where) {
         if (vlen && fwrite(vstr, vlen, 1, stdout) == 0) perror("fwrite");
     }
     else {
-        printf("%ld", vlen);
+        printf("%lld", (long long)vlen);
     }
 
     printf("\n");
