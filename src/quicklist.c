@@ -474,9 +474,11 @@ REDIS_STATIC int _quicklistNodeAllowMerge(quicklist* ql,
         (node)->sz = (_ql)->type->listBytes((node)->l);                                   \
     } while (0)
 
+/* Append the specified element 's' of length 'slen' at the head
+ * of the quicklist node, this node will be converted to the
+ * correct container type if need. */
 REDIS_STATIC void _quicklistNodePushHead(quicklist *ql, quicklistNode *node,
                                          unsigned char *s, uint32_t slen) {
-    quicklistDecompressNodeForUse(node);
     if (node->l == NULL) {
         node->l = ql->type->listNew();
     } else {
@@ -486,12 +488,13 @@ REDIS_STATIC void _quicklistNodePushHead(quicklist *ql, quicklistNode *node,
     node->l = ql->type->listPushHead(node->l, s, slen);
     node->count++;
     quicklistNodeUpdateSz(ql, node);
-    quicklistRecompressOnly(node);
 }
 
+/* Append the specified element 's' of length 'slen' at the tail
+ * of the quicklist node, this node will be converted to the
+ * correct container type if need. */
 REDIS_STATIC void _quicklistNodePushTail(quicklist *ql, quicklistNode *node,
                                          unsigned char *s, uint32_t slen) {
-    quicklistDecompressNodeForUse(node);
     if (node->l == NULL) {
         node->l = ql->type->listNew();
     } else {
@@ -501,34 +504,35 @@ REDIS_STATIC void _quicklistNodePushTail(quicklist *ql, quicklistNode *node,
     node->l = ql->type->listPushTail(node->l, s, slen);
     node->count++;
     quicklistNodeUpdateSz(ql, node);
-    quicklistRecompressOnly(node);
 }
 
+/* Insert the specified element 's' of length 'slen' at the before
+ * of the quicklist node, this node will be converted to the
+ *correct container type if need. */
 REDIS_STATIC void _quicklistNodeInsertBefore(quicklist *ql, quicklistNode *node,
-                                             unsigned char *s, uint32_t slen, unsigned char *li)
-{
-    quicklistDecompressNodeForUse(node);
+                                             unsigned char *s, uint32_t slen,
+                                             unsigned char *li) {
     quicklistConvertNodeIfNeed(ql, node);
     node->l = ql->type->listInsertBefore(node->l, s, slen, li);
     node->count++;
     quicklistNodeUpdateSz(ql, node);
-    quicklistRecompressOnly(node);
 }
 
+/* Insert the specified element 's' of length 'slen' at the before
+ * of the quicklist node, this node will be converted to the
+ *correct container type if need. */
 REDIS_STATIC void _quicklistNodeInsertAfter(quicklist *ql, quicklistNode *node,
-                                            unsigned char *s, uint32_t slen, unsigned char *li) {
-    quicklistDecompressNodeForUse(node);
+                                            unsigned char *s, uint32_t slen,
+                                            unsigned char *li) {
     quicklistConvertNodeIfNeed(ql, node);
     node->l = ql->type->listInsertAfter(node->l, s, slen, li);
     node->count++;
     quicklistNodeUpdateSz(ql, node);
-    quicklistRecompressOnly(node);
 }
 
 REDIS_STATIC void _quicklistNodeDeleteRange(quicklist *ql, quicklistNode *node,
                                             int index, unsigned int num)
 {
-    quicklistDecompressNodeForUse(node);
     quicklistConvertNodeIfNeed(ql, node);
     node->l = ql->type->listDeleteRange(node->l, index, num);
     node->count = ql->type->listLength(node->l);
@@ -536,7 +540,6 @@ REDIS_STATIC void _quicklistNodeDeleteRange(quicklist *ql, quicklistNode *node,
 }
 
 REDIS_STATIC unsigned char *_quicklistNodeSeek(const quicklist *ql, quicklistNode *node, int index) {
-    quicklistDecompressNodeForUse(node);
     quicklistConvertNodeIfNeed(ql, node);
     return ql->type->listSeek(node->l, index);
 }
@@ -951,15 +954,21 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
     /* Now determine where and how to insert the new element */
     if (!full && after) {
         D("Not full, inserting after current position.");
+        quicklistDecompressNodeForUse(node);
         _quicklistNodeInsertAfter(quicklist, node, value, sz, entry->li);
+        quicklistRecompressOnly(node);
     } else if (!full && !after) {
         D("Not full, inserting before current position.");
+        quicklistDecompressNodeForUse(node);
         _quicklistNodeInsertBefore(quicklist, node, value, sz, entry->li);
+        quicklistRecompressOnly(node);
     } else if (full && at_tail && node->next && !full_next && after) {
         /* If we are: at tail, next has free space, and inserting after:
          *   - insert entry at head of next node. */
         D("Full and tail, but next isn't full; inserting next node head");
+        quicklistDecompressNodeForUse(node->next);
         _quicklistNodePushHead(quicklist, node->next, value, sz);
+        quicklistRecompressOnly(node->next);
     } else if (full && at_head && node->prev && !full_prev && !after) {
         /* If we are: at head, previous has free space, and inserting before:
          *   - insert entry at tail of previous node. */
@@ -1072,6 +1081,7 @@ int quicklistDelRange(quicklist *quicklist, const long start,
         if (delete_entire_node) {
             __quicklistDelNode(quicklist, node);
         } else {
+            quicklistDecompressNodeForUse(node);
             _quicklistNodeDeleteRange(quicklist, node, entry.offset, del);
             quicklist->count -= del;
             quicklistDeleteIfEmpty(quicklist, node);
@@ -1185,6 +1195,7 @@ int quicklistNext(quicklistIter *iter, quicklistEntry *entry) {
 
     if (!iter->li) {
         /* If !li, use current index. */
+        quicklistDecompressNodeForUse(iter->current);
         iter->li = _quicklistNodeSeek(iter->quicklist, iter->current, iter->offset);
     } else {
         /* else, use existing iterator offset and get prev/next as necessary. */
@@ -1326,6 +1337,7 @@ int quicklistIndex(const quicklist *quicklist, const long long idx,
         entry->offset = (-index) - 1 + accum;
     }
 
+    quicklistDecompressNodeForUse(entry->node);
     entry->li = _quicklistNodeSeek(quicklist, entry->node, entry->offset);
     entry->value = quicklist->type->listGet(entry->li, &ele_len, NULL);
     if (entry->value) {
