@@ -32,10 +32,6 @@ static void datatype_save(RedisModuleIO *io, void *value) {
     RedisModule_SaveString(io, dt->strval);
 }
 
-static void datatype_rewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
-    /*  do-nothing callback. */
-}
-
 static void datatype_free(void *value) {
     if (value) {
         DataType *dt = (DataType *) value;
@@ -194,7 +190,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         .version = REDISMODULE_TYPE_METHOD_VERSION,
         .rdb_load = datatype_load,
         .rdb_save = datatype_save,
-        .aof_rewrite = datatype_rewrite,
         .free = datatype_free,
         .copy = datatype_copy
     };

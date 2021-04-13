@@ -79,11 +79,6 @@ void testrdb_type_save(RedisModuleIO *rdb, void *value) {
     RedisModule_SaveLongDouble(rdb, 0.333333333333333333L);
 }
 
-
-void testrdb_type_aof_rewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
-    /*  do-nothing callback. */
-}
-
 void testrdb_aux_save(RedisModuleIO *rdb, int when) {
     if (conf_aux_count==1) assert(when == REDISMODULE_AUX_AFTER_RDB);
     if (conf_aux_count==0) assert(0);
@@ -245,7 +240,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
             .version = 1,
             .rdb_load = testrdb_type_load,
             .rdb_save = testrdb_type_save,
-            .aof_rewrite = testrdb_type_aof_rewrite,
+            .aof_rewrite = NULL,
             .digest = NULL,
             .free = testrdb_type_free,
         };
@@ -258,7 +253,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
             .version = REDISMODULE_TYPE_METHOD_VERSION,
             .rdb_load = testrdb_type_load,
             .rdb_save = testrdb_type_save,
-            .aof_rewrite = testrdb_type_aof_rewrite,
+            .aof_rewrite = NULL,
             .digest = NULL,
             .free = testrdb_type_free,
             .aux_load = testrdb_aux_load,
