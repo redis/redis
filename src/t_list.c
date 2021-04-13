@@ -405,7 +405,11 @@ void addListRangeReply(client *c, robj *o, long start, long end, int reverse) {
 
         while(rangelen--) {
             listTypeEntry entry;
-            listTypeNext(iter, &entry);
+
+            /* The assert was triggered by data corruption
+             * when listpack have wrong count. */
+            serverAssert(listTypeNext(iter, &entry));
+
             quicklistEntry *qe = &entry.entry;
             if (qe->value) {
                 addReplyBulkCBuffer(c,qe->value,qe->sz);

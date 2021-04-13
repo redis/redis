@@ -122,6 +122,18 @@ test {corrupt payload: quicklist ziplist wrong count} {
     }
 }
 
+test {corrupt payload: quicklist listpack wrong count} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r restore key 0 "\x0e\x01\x11\x11\x00\x00\x00\x03\x00\x83def\x04\x83abc\x04\xff\t\x00\x1e\xa4\xbfH\xb6\x0e\xea\x8f"
+        # we'll be able to push, but iterating on the list will assert
+        r lpush key header
+        r rpush key footer
+        catch { [r lrange key 0 -1] }
+        verify_log_message 0 "*listTypeNext(iter, &entry)*" 0
+    }
+}
+
 test {corrupt payload: #3080 - quicklist} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no
