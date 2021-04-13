@@ -49,16 +49,6 @@ test {corrupt payload: hash with valid zip list header, invalid entry len} {
     }
 }
 
-test {corrupt payload: hash with valid listpack header, invalid entry len} {
-    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
-        r config set sanitize-dump-payload no
-        r restore key 0 "\x10\x13\x13\x00\x00\x00\x03\x00\x82v1\x03\x01\x01\x82v2\x03\x02\x01\xff\t\x00-\xb9\xe0\xd4\x02%\xb41"
-        r config set hash-max-listpack-entries 1
-        catch {r hset key b b}
-        verify_log_message 0 "*lpLength(o->ptr) == (dictSize(dict) * 2)*" 0
-    }
-}
-
 test {corrupt payload: invalid zlbytes header} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no
@@ -76,17 +66,6 @@ test {corrupt payload: valid zipped hash header, dup records} {
         } err
         assert_match "*Bad data format*" $err
         verify_log_message 0 "*integrity check failed*" 0
-    }
-}
-
-test {corrupt payload: valid listpack hash header, dup records} {
-    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
-        r config set sanitize-dump-payload no
-        r restore key 0 "\x10\x13\x13\x00\x00\x00\x04\x00\x82v1\x03\x01\x01\x82v1\x03\x02\x01\xff\t\x00\aK2\xcd\xf5I\xac\x1e"
-        r config set hash-max-ziplist-entries 1
-        # cause an assertion when converting to hash table
-        catch {r hset key b b}
-        verify_log_message 0 "*Listpack corruption detected*" 0
     }
 }
 
@@ -119,18 +98,6 @@ test {corrupt payload: quicklist ziplist wrong count} {
         catch {r lpush key header}
         assert_equal [count_log_message 0 "crashed by signal"] 0
         assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
-    }
-}
-
-test {corrupt payload: quicklist listpack wrong count} {
-    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
-        r config set sanitize-dump-payload no
-        r restore key 0 "\x0e\x01\x11\x11\x00\x00\x00\x03\x00\x83def\x04\x83abc\x04\xff\t\x00\x1e\xa4\xbfH\xb6\x0e\xea\x8f"
-        # we'll be able to push, but iterating on the list will assert
-        r lpush key header
-        r rpush key footer
-        catch { [r lrange key 0 -1] }
-        verify_log_message 0 "*listTypeNext(iter, &entry)*" 0
     }
 }
 
@@ -551,6 +518,39 @@ test {corrupt payload: fuzzer findings - stream with no records} {
         catch {r XREAD STREAMS _stream $}
         assert_equal [count_log_message 0 "crashed by signal"] 0
         assert_equal [count_log_message 0 "Guru Meditation"] 1
+    }
+}
+
+test {corrupt payload: hash with valid listpack header, invalid entry len} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r restore key 0 "\x10\x13\x13\x00\x00\x00\x03\x00\x82v1\x03\x01\x01\x82v2\x03\x02\x01\xff\t\x00-\xb9\xe0\xd4\x02%\xb41"
+        r config set hash-max-listpack-entries 1
+        catch {r hset key b b}
+        verify_log_message 0 "*lpLength(o->ptr) == (dictSize(dict) * 2)*" 0
+    }
+}
+
+test {corrupt payload: valid listpack hash header, dup records} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r restore key 0 "\x10\x13\x13\x00\x00\x00\x04\x00\x82v1\x03\x01\x01\x82v1\x03\x02\x01\xff\t\x00\aK2\xcd\xf5I\xac\x1e"
+        r config set hash-max-ziplist-entries 1
+        # cause an assertion when converting to hash table
+        catch {r hset key b b}
+        verify_log_message 0 "*Listpack corruption detected*" 0
+    }
+}
+
+test {corrupt payload: quicklist listpack wrong count} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r restore key 0 "\x0e\x01\x11\x11\x00\x00\x00\x03\x00\x83def\x04\x83abc\x04\xff\t\x00\x1e\xa4\xbfH\xb6\x0e\xea\x8f"
+        # we'll be able to push, but iterating on the list will assert
+        r lpush key header
+        r rpush key footer
+        catch { [r lrange key 0 -1] }
+        verify_log_message 0 "*listTypeNext(iter, &entry)*" 0
     }
 }
 
