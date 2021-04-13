@@ -770,10 +770,13 @@ void syncCommand(client *c) {
 
     /* Try a partial resynchronization if this is a PSYNC command.
      * If it fails, we continue with usual full resynchronization, however
-     * when this happens masterTryPartialResynchronization() already
-     * replied with:
+     * when this happens masterTryPartialResynchronization() will not
+     * reply with:
      *
      * +FULLRESYNC <replid> <offset>
+     *
+     * The reply is actually delayed to replicationSetupSlaveForFullResync(),
+     * which is called immediately after BGSAVE child process forked or reused.
      *
      * So the slave knows the new replid and offset to try a PSYNC later
      * if the connection with the master is lost. */
@@ -867,7 +870,7 @@ void syncCommand(client *c) {
          * in order to synchronize. */
         serverLog(LL_NOTICE,"Current BGSAVE has socket target. Waiting for next BGSAVE for SYNC");
 
-    /* CASE 3: There is no BGSAVE is progress. */
+    /* CASE 3: There is no BGSAVE in progress. */
     } else {
         if (server.repl_diskless_sync && (c->slave_capa & SLAVE_CAPA_EOF) &&
             server.repl_diskless_sync_delay)
