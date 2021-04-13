@@ -3398,8 +3398,8 @@ int RM_StreamDelete(RedisModuleKey *key, RedisModuleStreamID *id) {
  *             //
  *             // ... Do stuff ...
  *             //
- *             RedisModule_Free(field);
- *             RedisModule_Free(value);
+ *             RedisModule_FreeString(ctx, field);
+ *             RedisModule_FreeString(ctx, value);
  *         }
  *     }
  *     RedisModule_StreamIteratorStop(key);
