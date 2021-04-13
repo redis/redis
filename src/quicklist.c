@@ -854,6 +854,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
         new_node = quicklistCreateNode();
         new_node->zl = ziplistPush(ziplistNew(), value, sz, ZIPLIST_HEAD);
         __quicklistInsertNode(quicklist, NULL, new_node, after);
+        quicklistNodeUpdateSz(new_node);
         new_node->count++;
         quicklist->count++;
         return;
@@ -1975,6 +1976,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             quicklistEntry entry;
             quicklistIndex(ql, 0, &entry);
             quicklistInsertBefore(ql, &entry, "abc", 4);
+            assert(ql->head->sz == 17);
             ql_verify(ql, 1, 1, 1, 1);
             quicklistRelease(ql);
         }
@@ -1984,6 +1986,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             quicklistEntry entry;
             quicklistIndex(ql, 0, &entry);
             quicklistInsertAfter(ql, &entry, "abc", 4);
+            assert(ql->head->sz == 17);
             ql_verify(ql, 1, 1, 1, 1);
             quicklistRelease(ql);
         }
