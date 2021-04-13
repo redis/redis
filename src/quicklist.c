@@ -881,6 +881,7 @@ REDIS_STATIC void _quicklistMergeNodes(quicklist *quicklist,
  * Returns newly created node or NULL if split not possible. */
 REDIS_STATIC quicklistNode *_quicklistSplitNode(quicklist *quicklist, quicklistNode *node,
                                                 int offset, int after) {
+    quicklistConvertNodeIfNeed(quicklist, node);
     size_t sz = node->sz;
 
     quicklistNode *new_node = quicklistCreateNode(quicklist->type->container);
@@ -973,7 +974,9 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
         /* If we are: at head, previous has free space, and inserting before:
          *   - insert entry at tail of previous node. */
         D("Full and head, but prev isn't full, inserting prev node tail");
+        quicklistDecompressNodeForUse(node->prev);
         _quicklistNodePushTail(quicklist, node->prev, value, sz);
+        quicklistRecompressOnly(node->prev);
     } else if (full && ((at_tail && node->next && full_next && after) ||
                         (at_head && node->prev && full_prev && !after))) {
         /* If we are: full, and our prev/next is full, then:
@@ -987,7 +990,6 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
         /* covers both after and !after cases */
         D("\tsplitting node...");
         quicklistDecompressNodeForUse(node);
-        quicklistConvertNodeIfNeed(quicklist, node);
         new_node = _quicklistSplitNode(quicklist, node, entry->offset, after);
         if (after) {
             _quicklistNodePushHead(quicklist, new_node, value, sz);
@@ -1224,7 +1226,7 @@ int quicklistNext(quicklistIter *iter, quicklistEntry *entry) {
         }
         return 1;
     } else {
-        /* We ran out of list entries.
+        /* We ran out of listpack entries.
          * Pick next node, update offset, then re-run retrieval. */
         quicklistCompress(iter->quicklist, iter->current);
         if (iter->direction == AL_START_HEAD) {
@@ -1568,6 +1570,8 @@ void quicklistBookmarksClear(quicklist *ql) {
      * function is just before releasing the allocation. */
 }
 
+/* Given an element 'ele' of size 'size', return the size of the number of
+ * bytes that the string or integer encoded element. */
 uint64_t _lpEncodeLength(unsigned char *s, uint32_t slen) {
     unsigned char intenc[32];
     uint64_t enclen;
@@ -1575,10 +1579,12 @@ uint64_t _lpEncodeLength(unsigned char *s, uint32_t slen) {
     return enclen;
 }
 
+/* Header and Trailer length of lipstack(LP_HDR_SIZE + 1). */
 uint32_t _lpHeaderAndTrailerLength() {
-    return 11;
+    return 7;
 }
 
+/* Convert the quicklist node to listpack. */
 void _lpConvert(quicklistNode *node) {
     if (node->container == QUICKLIST_NODE_CONTAINER_ZIPLIST) {
         unsigned char *value;
