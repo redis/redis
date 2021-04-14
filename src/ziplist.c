@@ -1472,7 +1472,7 @@ void ziplistRepr(unsigned char *zl) {
     printf("{end}\n\n");
 }
 
-/* Validate the integrity of the data stracture.
+/* Validate the integrity of the data structure.
  * when `deep` is 0, only the integrity of the header is validated.
  * when `deep` is 1, we scan all the entries one by one. */
 int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,

@@ -3547,8 +3547,8 @@ NULL
     }
 }
 
-/* Validate the integrity stream listpack entries stracture. Both in term of a
- * valid listpack, but also that the stracture of the entires matches a valid
+/* Validate the integrity stream listpack entries structure. Both in term of a
+ * valid listpack, but also that the structure of the entires matches a valid
  * stream. return 1 if valid 0 if not valid. */
 int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
     int valid_record;
