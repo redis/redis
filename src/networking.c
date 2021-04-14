@@ -3332,6 +3332,8 @@ int areClientsPaused(void) {
  * if it has. Also returns true if clients are now paused and false 
  * otherwise. */
 int checkClientPauseTimeoutAndReturnIfPaused(void) {
+    if (!areClientsPaused())
+        return 0;
     if (server.client_pause_end_time < server.mstime) {
         unpauseClients();
     }

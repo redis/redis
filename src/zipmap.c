@@ -374,7 +374,7 @@ size_t zipmapBlobLen(unsigned char *zm) {
     return totlen;
 }
 
-/* Validate the integrity of the data stracture.
+/* Validate the integrity of the data structure.
  * when `deep` is 0, only the integrity of the header is validated.
  * when `deep` is 1, we scan all the entries one by one. */
 int zipmapValidateIntegrity(unsigned char *zm, size_t size, int deep) {

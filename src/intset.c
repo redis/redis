@@ -284,7 +284,7 @@ size_t intsetBlobLen(intset *is) {
     return sizeof(intset)+intrev32ifbe(is->length)*intrev32ifbe(is->encoding);
 }
 
-/* Validate the integrity of the data stracture.
+/* Validate the integrity of the data structure.
  * when `deep` is 0, only the integrity of the header is validated.
  * when `deep` is 1, we make sure there are no duplicate or out of order records. */
 int intsetValidateIntegrity(const unsigned char *p, size_t size, int deep) {
