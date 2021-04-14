@@ -1564,6 +1564,14 @@ int listpackTest(int argc, char *argv[], int accurate) {
         }
         zfree(lp);
     }
+
+    TEST("Delete whole listpack when num == -1");
+    {
+        lp = createList();
+        lp = lpDeleteRange(lp, 0, -1);
+        assert(lpLength(lp) == 0);
+        zfree(lp);
+    }
     
     TEST("Delete inclusive range 0,0");
     {
