@@ -1188,6 +1188,7 @@ void zsetConvert(robj *zobj, int encoding) {
             zlpNext(lp,&eptr,&sptr);
         }
 
+        serverAssert(lpLength(lp) == (dictSize(zs->dict) * 2));
         zfree(zobj->ptr);
         zobj->ptr = zs;
         zobj->encoding = OBJ_ENCODING_SKIPLIST;

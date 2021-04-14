@@ -542,6 +542,26 @@ test {corrupt payload: valid listpack hash header, dup records} {
     }
 }
 
+test {corrupt payload: zset with valid listpack header, invalid entry len} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r restore key 0 "\x11\x13\x13\x00\x00\x00\x05\x00\x82v1\x03\x01\x01\x82v2\x03\x02\x01\xff\t\x00\xcb\xaf\x92\x82\xa1vqa"
+        r config set zset-max-listpack-entries 1
+        catch {r zadd key 3 c}
+        verify_log_message 0 "*lpLength(lp) == (dictSize(zs->dict) * 2)*" 0
+    }
+}
+
+test {corrupt payload: zset with valid listpack header, dup records} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r restore key 0 "\x11\x13\x13\x00\x00\x00\x05\x00\x82v1\x03\x01\x01\x82v1\x03\x02\x01\xff\t\x00\xdd\x9f\x95\xa7\x8a\x90\x8a\xc6"
+        r config set zset-max-listpack-entries 1
+        catch {r zadd key 3 c}
+        verify_log_message 0 "*dictAdd(zs->dict,ele,&node->score) == DICT_OK*" 0
+    }
+}
+
 test {corrupt payload: quicklist listpack wrong count} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no
