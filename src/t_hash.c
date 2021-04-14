@@ -55,9 +55,9 @@ void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
 /* Get the value from a listpack encoded hash, identified by field.
  * Returns -1 when the field cannot be found. */
 int hashTypeGetFromListpack(robj *o, sds field,
-                           unsigned char **vstr,
-                           unsigned int *vlen,
-                           long long *vll)
+                            unsigned char **vstr,
+                            unsigned int *vlen,
+                            long long *vll)
 {
     unsigned char *lp, *fptr = NULL, *vptr = NULL;
     int64_t ele_len;
