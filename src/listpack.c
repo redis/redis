@@ -916,20 +916,16 @@ unsigned char *lpSeek(unsigned char *lp, long index) {
 /* Print info of listpack which is used in debugCommand */
 void lpRepr(unsigned char *lp) {
     unsigned char *p;
+    unsigned char *vstr;
+    int64_t ele_len;
+    unsigned char intbuf[LP_INTBUF_SIZE];
     int index = 0;
 
-    printf(
-        "{total bytes %u} "
-        "{num entries %u}\n",
-        lpBytes(lp),
-        lpLength(lp));
+    printf("{total bytes %u} {num entries %u}\n",
+           lpBytes(lp), lpLength(lp));
         
     p = lpFirst(lp);
     while(p) {
-        unsigned char *vstr;
-        int64_t ele_len;
-        unsigned char buf[LP_INTBUF_SIZE];
-
         uint32_t encoded_size_bytes = lpCurrentEncodedSizeBytes(p);
         uint32_t encoded_size = lpCurrentEncodedSizeUnsafe(p);
         unsigned long back_len = lpEncodeBacklen(NULL, encoded_size);
@@ -937,23 +933,25 @@ void lpRepr(unsigned char *lp) {
             "{\n"
                 "\taddr: 0x%08lx,\n"
                 "\tindex: %2d,\n"
-                "\toffset: %5lu,\n"
-                "\thdr+entry len: %5u,\n"
-                "\thdr len: %2u,\n"
-                "\tpayload: %5lu\n",
+                "\toffset: %1lu,\n"
+                "\thdr+entrylen+backlen: %2lu,\n"
+                "\thdrlen: %3u,\n"
+                "\tbacklen: %2lu,\n"
+                "\tentrylen: %1u\n",
             (long unsigned)p,
             index,
             (unsigned long) (p-lp),
-            encoded_size,
+            encoded_size + back_len,
             encoded_size_bytes,
-            encoded_size + back_len);
+            back_len,
+            encoded_size - encoded_size_bytes);
         printf("\tbytes: ");
         for (unsigned int i = 0; i < (encoded_size + back_len); i++) {
             printf("%02x|",p[i]);
         }
         printf("\n");
 
-        vstr = lpGet(p, &ele_len, buf);
+        vstr = lpGet(p, &ele_len, intbuf);
         printf("\t[str]");
         if (ele_len > 40) {
             if (fwrite(vstr,40,1,stdout) == 0) perror("fwrite");
