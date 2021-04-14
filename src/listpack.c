@@ -633,7 +633,8 @@ unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf) {
 
 /* Find pointer to the entry equal to the specified entry. Skip 'skip' entries
  * between every comparison. Returns NULL when the field could not be found. */
-unsigned char *lpFind(unsigned char *lp, unsigned char *s, unsigned int slen, unsigned char *p, unsigned int skip) {
+unsigned char *lpFind(unsigned char *lp, unsigned char *s, unsigned int slen, 
+                      unsigned char *p, unsigned int skip) {
     int skipcnt = 0;
 
     assert(p);
@@ -843,7 +844,7 @@ unsigned char *lpPushHead(unsigned char *lp, unsigned char *s, uint32_t slen) {
 unsigned char *lpPushTail(unsigned char *lp, unsigned char *s, uint32_t slen) {
     uint64_t listpack_bytes = lpGetTotalBytes(lp);
     unsigned char *eofptr = lp + listpack_bytes - 1;
-    return lpInsert(lp,s,slen,eofptr,LP_BEFORE,NULL);
+    return lpInsert(lp, s, slen, eofptr, LP_BEFORE, NULL);
 }
 
 /* Remove the element pointed by 'p'. */
@@ -954,10 +955,10 @@ void lpRepr(unsigned char *lp) {
         vstr = lpGet(p, &ele_len, intbuf);
         printf("\t[str]");
         if (ele_len > 40) {
-            if (fwrite(vstr,40,1,stdout) == 0) perror("fwrite");
+            if (fwrite(vstr, 40, 1, stdout) == 0) perror("fwrite");
             printf("...");
         } else {
-            if (fwrite(vstr,ele_len,1,stdout) == 0) perror("fwrite");
+            if (fwrite(vstr, ele_len, 1, stdout) == 0) perror("fwrite");
         }
         printf("\n}\n");
         index++;
