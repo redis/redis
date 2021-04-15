@@ -1153,6 +1153,8 @@ void rdbPipeWriteHandlerConnRemoved(struct connection *conn) {
     if (!connHasWriteHandler(conn))
         return;
     connSetWriteHandler(conn, NULL);
+    client *slave = connGetPrivateData(conn);
+    slave->repl_last_partial_write = 0;
     server.rdb_pipe_numconns_writing--;
     /* if there are no more writes for now for this conn, or write error: */
     if (server.rdb_pipe_numconns_writing == 0) {
@@ -1180,8 +1182,10 @@ void rdbPipeWriteHandler(struct connection *conn) {
     } else {
         slave->repldboff += nwritten;
         atomicIncr(server.stat_net_output_bytes, nwritten);
-        if (slave->repldboff < server.rdb_pipe_bufflen)
+        if (slave->repldboff < server.rdb_pipe_bufflen) {
+            slave->repl_last_partial_write = server.unixtime;
             return; /* more data to write.. */
+        }
     }
     rdbPipeWriteHandlerConnRemoved(conn);
 }
@@ -1262,6 +1266,7 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
             /* If we were unable to write all the data to one of the replicas,
              * setup write handler (and disable pipe read handler, below) */
             if (nwritten != server.rdb_pipe_bufflen) {
+                slave->repl_last_partial_write = server.unixtime;
                 server.rdb_pipe_numconns_writing++;
                 connSetWriteHandler(conn, rdbPipeWriteHandler);
             }
@@ -3390,13 +3395,26 @@ void replicationCron(void) {
         while((ln = listNext(&li))) {
             client *slave = ln->value;
 
-            if (slave->replstate != SLAVE_STATE_ONLINE) continue;
-            if (slave->flags & CLIENT_PRE_PSYNC) continue;
-            if ((server.unixtime - slave->repl_ack_time) > server.repl_timeout)
-            {
-                serverLog(LL_WARNING, "Disconnecting timedout replica: %s",
-                    replicationGetSlaveName(slave));
-                freeClient(slave);
+            if (slave->replstate == SLAVE_STATE_ONLINE) {
+                if (slave->flags & CLIENT_PRE_PSYNC)
+                    continue;
+                if ((server.unixtime - slave->repl_ack_time) > server.repl_timeout) {
+                    serverLog(LL_WARNING, "Disconnecting timedout replica (streaming sync): %s",
+                          replicationGetSlaveName(slave));
+                    freeClient(slave);
+                }
+            }
+            /* We consider disconnecting only diskless replicas because disk-based replicas aren't fed
+             * by the fork child so if a disk-based replica is stuck it doesn't prevent the fork child
+             * from terminating. */
+            if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END && server.rdb_child_type == RDB_CHILD_TYPE_SOCKET) {
+                if (slave->repl_last_partial_write != 0 &&
+                    (server.unixtime - slave->repl_last_partial_write) > server.repl_timeout)
+                {
+                    serverLog(LL_WARNING, "Disconnecting timedout replica (full sync): %s",
+                          replicationGetSlaveName(slave));
+                    freeClient(slave);
+                }
             }
         }
     }
