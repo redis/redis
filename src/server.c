@@ -6338,6 +6338,7 @@ int main(int argc, char **argv) {
     #endif /* __linux__ */
         moduleInitModulesSystemLast();
         moduleLoadFromQueue();
+        ACLSetDefaultUserState();
         ACLLoadUsersAtStartup();
         InitServerLast();
         loadDataFromDisk();
@@ -6362,6 +6363,7 @@ int main(int argc, char **argv) {
             redisCommunicateSystemd("READY=1\n");
         }
     } else {
+        ACLSetDefaultUserState();
         ACLLoadUsersAtStartup();
         InitServerLast();
         sentinelIsRunning();

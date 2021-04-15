@@ -652,6 +652,7 @@ sds ACLDescribeUser(user *u) {
     if (u->flags & USER_FLAG_ALLCHANNELS) {
         res = sdscatlen(res,"&* ",3);
     } else {
+        res = sdscatlen(res,"nochannels ",11);
         listRewind(u->channels,&li);
         while((ln = listNext(&li))) {
             sds thispat = listNodeValue(ln);
@@ -770,8 +771,9 @@ void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub) {
  *              Pub/Sub commands. For instance &* allows all the channels. The
  *              pattern is a glob-style pattern like the one of PSUBSCRIBE.
  *              It is possible to specify multiple patterns.
- * allchannels              Alias for &*
- * resetchannels            Flush the list of allowed keys patterns.
+ * allchannels  Alias for &*
+ * resetchannels Flush the list of allowed keys patterns.
+ * nochannels   Disallow access to all of the channels.
  * ><password>  Add this password to the list of valid password for the user.
  *              For example >mypass will add "mypass" to the list.
  *              This directive clears the "nopass" flag (see later).
@@ -850,6 +852,22 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         u->flags |= USER_FLAG_ALLCHANNELS;
         listEmpty(u->channels);
     } else if (!strcasecmp(op,"resetchannels")) {
+        /* resetchannels will have different meaning based
+         * on the flag set in the `acl-pubsub-default` config.
+         * If the flag is set to allchannels, a resetchannels
+         * invocation will reset the user to have allchannels
+         * permission and if the flag is set to nochannels,
+         * a resetchannels will reset the user to have nochannels
+         * permission.
+         */
+
+        if (server.acl_pubsub_default & USER_FLAG_ALLCHANNELS) {
+            u->flags |= USER_FLAG_ALLCHANNELS;
+        } else {
+            u->flags &= ~USER_FLAG_ALLCHANNELS;
+        }
+        listEmpty(u->channels);
+    } else if (!strcasecmp(op,"nochannels")) {
         u->flags &= ~USER_FLAG_ALLCHANNELS;
         listEmpty(u->channels);
     } else if (!strcasecmp(op,"allcommands") ||
@@ -1028,7 +1046,7 @@ const char *ACLSetUserStringError(void) {
     else if (errno == EISDIR)
         errmsg = "Adding a pattern after the * pattern (or the "
                  "'allchannels' flag) is not valid and does not have any "
-                 "effect. Try 'resetchannels' to start with an empty "
+                 "effect. Try 'nochannels' to start with an empty "
                  "list of channels";
     else if (errno == ENODEV)
         errmsg = "The password you are trying to remove from the user does "
@@ -1043,9 +1061,24 @@ const char *ACLSetUserStringError(void) {
  * lifetime. */
 void ACLInitDefaultUser(void) {
     DefaultUser = ACLCreateUser("default",7);
+    ACLSetDefaultUserState();
+}
+
+/*
+ * Set's the base state of DefaultUser.
+ */
+void ACLSetDefaultUserState(void) {
     ACLSetUser(DefaultUser,"+@all",-1);
-    ACLSetUser(DefaultUser,"~*",-1);
-    ACLSetUser(DefaultUser,"&*",-1);
+    ACLSetUser(DefaultUser, "~*", -1);
+    /*
+     * Based on the acl_pubsub_default, default access
+     * is set to allchannels or nochannels.
+     */
+    if (server.acl_pubsub_default & USER_FLAG_ALLCHANNELS) {
+        ACLSetUser(DefaultUser, "&*", -1);
+    } else {
+        ACLSetUser(DefaultUser, "nochannels", -1);
+    }
     ACLSetUser(DefaultUser,"on",-1);
     ACLSetUser(DefaultUser,"nopass",-1);
 }

@@ -106,10 +106,34 @@ start_server {tags {"acl"}} {
     } {0}
 
     test {It's possible to allow publishing to a subset of channels} {
-        r ACL setuser psuser resetchannels &foo:1 &bar:*
+        r ACL setuser psuser nochannels &foo:1 &bar:*
         assert_equal {0} [r PUBLISH foo:1 somemessage]
         assert_equal {0} [r PUBLISH bar:2 anothermessage]
         catch {r PUBLISH zap:3 nosuchmessage} e
+        set e
+    } {*NOPERM*channel*}
+
+    test {Validate subset of channels is prefixed with nochannels flag} {
+        r ACL setuser hpuser on nopass nochannels &foo +@all
+
+        # Verify nochannels flag is prefixed before the channel name(s)
+        set users [r ACL LIST]
+        set curruser "hpuser"
+        foreach user [lshuffle $users] {
+            if {[string first $curruser $user] != -1} {
+                assert_equal {user hpuser on nopass nochannels &foo +@all} $user
+            }
+        }
+
+        # authenticate as hpuser
+        r AUTH hpuser pass
+
+        assert_equal {0} [r PUBLISH foo bar]
+        catch {r PUBLISH bar game} e
+
+        # Falling back to psuser for the below tests
+        r AUTH psuser pspass
+        r ACL deluser hpuser
         set e
     } {*NOPERM*channel*}
 
@@ -157,35 +181,35 @@ start_server {tags {"acl"}} {
     
     test {Subscribers are killed when revoked of channel permission} {
         set rd [redis_deferring_client]
-        r ACL setuser psuser resetchannels &foo:1
+        r ACL setuser psuser nochannels &foo:1
         $rd AUTH psuser pspass
         $rd read
         $rd CLIENT SETNAME deathrow
         $rd read
         $rd SUBSCRIBE foo:1
         $rd read
-        r ACL setuser psuser resetchannels
+        r ACL setuser psuser nochannels
         assert_no_match {*deathrow*} [r CLIENT LIST]
         $rd close
     } {0}
 
     test {Subscribers are killed when revoked of pattern permission} {
         set rd [redis_deferring_client]
-        r ACL setuser psuser resetchannels &bar:*
+        r ACL setuser psuser nochannels &bar:*
         $rd AUTH psuser pspass
         $rd read
         $rd CLIENT SETNAME deathrow
         $rd read
         $rd PSUBSCRIBE bar:*
         $rd read
-        r ACL setuser psuser resetchannels
+        r ACL setuser psuser nochannels
         assert_no_match {*deathrow*} [r CLIENT LIST]
         $rd close
     } {0}
 
     test {Subscribers are pardoned if literal permissions are retained and/or gaining allchannels} {
         set rd [redis_deferring_client]
-        r ACL setuser psuser resetchannels &foo:1 &bar:*
+        r ACL setuser psuser nochannels &foo:1 &bar:*
         $rd AUTH psuser pspass
         $rd read
         $rd CLIENT SETNAME pardoned
@@ -194,7 +218,7 @@ start_server {tags {"acl"}} {
         $rd read
         $rd PSUBSCRIBE bar:*
         $rd read
-        r ACL setuser psuser resetchannels &foo:1 &bar:* &baz:qaz &zoo:*
+        r ACL setuser psuser nochannels &foo:1 &bar:* &baz:qaz &zoo:*
         assert_match {*pardoned*} [r CLIENT LIST]
         r ACL setuser psuser allchannels
         assert_match {*pardoned*} [r CLIENT LIST]
@@ -305,7 +329,7 @@ start_server {tags {"acl"}} {
         r ACL LOG RESET
         r ACL setuser antirez >foo on +set ~object:1234
         r ACL setuser antirez +eval +multi +exec
-        r ACL setuser antirez resetchannels +publish
+        r ACL setuser antirez nochannels +publish
         r AUTH antirez foo
         catch {r GET foo}
         r AUTH default ""
@@ -480,8 +504,8 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"]] {
         r PUBLISH hello world
     }
 
-    test {default: with config acl-pubsub-default resetchannels after reset, can not access any channels} {
-        r CONFIG SET acl-pubsub-default resetchannels
+    test {default: with config acl-pubsub-default nochannels after reset, can not access any channels} {
+        r CONFIG SET acl-pubsub-default nochannels
         r ACL setuser default reset on nopass ~* +@all
         catch {r SUBSCRIBE foo} e
         assert_match {*NOPERM*} $e
@@ -489,7 +513,7 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"]] {
         assert_match {*NOPERM*} $e
         catch {r PUBLISH hello world} e
         assert_match {*NOPERM*} $e
-        r CONFIG SET acl-pubsub-default resetchannels
+        r CONFIG SET acl-pubsub-default allchannels
     }
 
     test {Alice: can execute all command} {
@@ -523,6 +547,61 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"]] {
         catch {r SET key value} e
         set e
     } {*NOPERM*}
+
+    test {ACL load and save with restricted channels} {
+        r AUTH alice alice
+        r ACL setuser harry on nopass nochannels &test +@all ~*
+        r ACL save
+
+        # ACL load will free user and kill clients
+        r ACL load
+        catch {r ACL LIST} e
+        assert_match {*I/O error*} $e
+
+        reconnect
+        r AUTH harry anything
+        r publish test bar
+        catch {r publish test1 bar} e
+        r ACL deluser harry
+        set e
+    } {*NOPERM*}
+}
+
+set server_path [tmpdir "nochannels.acl"]
+exec cp -f tests/assets/default.conf $server_path
+start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "nochannels"]] {
+
+    test {Default user has no access to channels} {
+        set channelinfo [dict get [r ACL getuser default] channels]
+        assert_equal "" $channelinfo
+    }
+
+    test {Update acl-pubsub-default, existing users shouldn't get affected} {
+        set channelinfo [dict get [r ACL getuser default] channels]
+        assert_equal "" $channelinfo
+        r CONFIG set acl-pubsub-default allchannels
+        assert_equal "" $channelinfo
+        r ACL setuser mydefault
+        set channelinfo [dict get [r ACL getuser mydefault] channels]
+        assert_equal * $channelinfo
+        r CONFIG set acl-pubsub-default nochannels
+        set channelinfo [dict get [r ACL getuser mydefault] channels]
+        assert_equal * $channelinfo
+    }
+
+    test {Single channel is valid} {
+        r ACL setuser onechannel &test
+        set channelinfo [dict get [r ACL getuser onechannel] channels]
+        assert_equal test $channelinfo
+        r ACL deluser onechannel
+    }
+
+    test {Single channel is not valid with allchannels} {
+        r CONFIG set acl-pubsub-default allchannels
+        catch {r ACL setuser onechannel &test} err
+        r CONFIG set acl-pubsub-default nochannels
+        set err
+    } {*start with an empty list of channels*}
 }
 
 start_server {overrides {user "default on nopass ~* +@all"}} {

@@ -818,6 +818,8 @@ typedef struct readyList {
 #define USER_FLAG_SANITIZE_PAYLOAD_SKIP (1<<7)  /* The user should skip the
                                                  * deep sanitization of RESTORE
                                                  * payload. */
+#define USER_FLAG_NOCHANNELS (1<<8)    /* The user can't access any Pub/Sub
+                                        * channel. */
 
 typedef struct {
     sds name;       /* The username as an SDS string. */
@@ -2116,6 +2118,7 @@ int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err);
 const char *ACLSetUserStringError(void);
 int ACLLoadConfiguredUsers(void);
 sds ACLDescribeUser(user *u);
+void ACLSetDefaultUserState(void);
 void ACLLoadUsersAtStartup(void);
 void addReplyCommandCategories(client *c, struct redisCommand *cmd);
 user *ACLCreateUnlinkedUser();
