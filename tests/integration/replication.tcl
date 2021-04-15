@@ -522,7 +522,7 @@ start_server {tags {"repl"}} {
     # If running on Linux, we also measure utime/stime to detect possible I/O handling issues
     set os [catch {exec unamee}]
     set measure_time [expr {$os == "Linux"} ? 1 : 0]
-    foreach all_drop {no slow fast all} {
+    foreach all_drop {no slow fast all timeout} {
         test "diskless $all_drop replicas drop during rdb pipe" {
             set replicas {}
             set replicas_alive {}
@@ -570,6 +570,12 @@ start_server {tags {"repl"}} {
                         exec kill [srv -1 pid]
                         set replicas_alive [lreplace $replicas_alive 0 0]
                     }
+                    if {$all_drop == "timeout"} {
+                        $master config set repl-timeout 1
+                        # we want this replica to hang on a key for very long so it'll reach repl-timeout
+                        exec kill -SIGSTOP [srv -1 pid]
+                        after 3000
+                    }
 
                     # wait for rdb child to exit
                     wait_for_condition 500 100 {
@@ -588,6 +594,14 @@ start_server {tags {"repl"}} {
                     if {$all_drop == "slow" || $all_drop == "fast"} {
                         wait_for_log_messages -2 {"*Diskless rdb transfer, done reading from pipe, 1 replicas still up*"} $loglines 1 1
                     }
+                    if {$all_drop == "timeout"} {
+                        wait_for_log_messages -2 {"*Disconnecting timedout replica (full sync)*"} $loglines 1 1
+                        wait_for_log_messages -2 {"*Diskless rdb transfer, done reading from pipe, 1 replicas still up*"} $loglines 1 1
+                        # master disconnected the slow replica, remove from array
+                        set replicas_alive [lreplace $replicas_alive 0 0]
+                        # release it
+                        exec kill -SIGCONT [srv -1 pid]
+                    }
 
                     # make sure we don't have a busy loop going thought epoll_wait
                     if {$measure_time} {
@@ -601,7 +615,7 @@ start_server {tags {"repl"}} {
                             puts "master utime: $master_utime"
                             puts "master stime: $master_stime"
                         }
-                        if {!$::no_latency && ($all_drop == "all" || $all_drop == "slow")} {
+                        if {!$::no_latency && ($all_drop == "all" || $all_drop == "slow" || $all_drop == "timeout")} {
                             assert {$master_utime < 70}
                             assert {$master_stime < 70}
                         }
