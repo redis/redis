@@ -1550,9 +1550,7 @@ int writeToClient(client *c, int handler_installed) {
     }
     atomicIncr(server.stat_net_output_bytes, totwritten);
     if (nwritten == -1) {
-        if (connGetState(c->conn) == CONN_STATE_CONNECTED) {
-            nwritten = 0;
-        } else {
+        if (connGetState(c->conn) != CONN_STATE_CONNECTED) {
             serverLog(LL_VERBOSE,
                 "Error writing to client: %s", connGetLastError(c->conn));
             freeClientAsync(c);
