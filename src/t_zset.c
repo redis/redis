@@ -2576,8 +2576,8 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         return;
 
     if (setnum < 1) {
-        addReplyError(c,
-            "at least 1 input key is needed for ZUNIONSTORE/ZINTERSTORE/ZDIFFSTORE");
+        addReplyErrorFormat(c,
+            "at least 1 input key is needed for %s", c->cmd->name);
         return;
     }
 
