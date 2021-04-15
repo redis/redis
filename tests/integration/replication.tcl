@@ -652,10 +652,6 @@ start_server {tags {"repl"}} {
                         # we want this replica to hang on a key for very long so it'll reach repl-timeout
                         exec kill -SIGSTOP [srv -1 pid]
                         after 3000
-                        exec kill -SIGCONT [srv -1 pid]
-                        # kill the slow replica so it doesn't try to reconnect after master disconnected it
-                        exec kill [srv -1 pid]
-                        set replicas_alive [lreplace $replicas_alive 0 0]
                     }
 
                     # wait for rdb child to exit
@@ -678,6 +674,10 @@ start_server {tags {"repl"}} {
                     if {$all_drop == "timeout"} {
                         wait_for_log_messages -2 {"*Disconnecting timedout replica (full sync)*"} $loglines 1 1
                         wait_for_log_messages -2 {"*Diskless rdb transfer, done reading from pipe, 1 replicas still up*"} $loglines 1 1
+                        # master disconnected the slow replica, remove from array
+                        set replicas_alive [lreplace $replicas_alive 0 0]
+                        # release it
+                        exec kill -SIGCONT [srv -1 pid]
                     }
 
                     # make sure we don't have a busy loop going thought epoll_wait

@@ -3404,9 +3404,10 @@ void replicationCron(void) {
                     freeClient(slave);
                 }
             }
-            if ((slave->replstate == SLAVE_STATE_SEND_BULK && server.rdb_child_type == RDB_CHILD_TYPE_DISK) ||
-                (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END && server.rdb_child_type == RDB_CHILD_TYPE_SOCKET))
-            {
+            /* We consider disconnecting only diskless replicas because disk-based replicas aren't fed
+             * by the fork child so if a disk-based replica is stuck it doesn't prevent the fork child
+             * from terminating. */
+            if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END && server.rdb_child_type == RDB_CHILD_TYPE_SOCKET) {
                 if (slave->repl_last_partial_write != 0 &&
                     (server.unixtime - slave->repl_last_partial_write) > server.repl_timeout)
                 {
