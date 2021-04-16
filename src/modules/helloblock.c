@@ -108,7 +108,7 @@ int HelloBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     }
 
     pthread_t tid;
-    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,HelloBlock_Reply,HelloBlock_Timeout,HelloBlock_FreeData,timeout);
+    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,HelloBlock_Reply,HelloBlock_Timeout,HelloBlock_FreeData,timeout,NULL);
 
     /* Here we set a disconnection handler, however since this module will
      * block in sleep() in a thread, there is not much we can do in the
@@ -187,7 +187,7 @@ int HelloKeys_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     /* Note that when blocking the client we do not set any callback: no
      * timeout is possible since we passed '0', nor we need a reply callback
      * because we'll use the thread safe context to accumulate a reply. */
-    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,NULL,NULL,NULL,0);
+    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,NULL,NULL,NULL,0,NULL);
 
     /* Now that we setup a blocking client, we need to pass the control
      * to the thread. However we need to pass arguments to the thread:

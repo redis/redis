@@ -140,7 +140,7 @@ int AuthAsyncCommand_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
     if (argc != 2) return RedisModule_WrongArity(ctx);
 
     pthread_t tid;
-    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, HelloACL_Reply, HelloACL_Timeout, HelloACL_FreeData, TIMEOUT_TIME);
+    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, HelloACL_Reply, HelloACL_Timeout, HelloACL_FreeData, TIMEOUT_TIME, NULL);
     
 
     void **targs = RedisModule_Alloc(sizeof(void*)*2);
