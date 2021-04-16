@@ -568,25 +568,27 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"]] {
 }
 
 set server_path [tmpdir "nochannels.acl"]
+exec cp -f tests/assets/nodefaultuser.acl $server_path
 exec cp -f tests/assets/default.conf $server_path
-start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "nochannels"]] {
+start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "nochannels" "aclfile" "nodefaultuser.acl"]] {
 
-    test {Default user has no access to channels} {
+    test {Default user has access to all channels irrespective of flag} {
         set channelinfo [dict get [r ACL getuser default] channels]
+        assert_equal "*" $channelinfo
+        set channelinfo [dict get [r ACL getuser alice] channels]
         assert_equal "" $channelinfo
     }
 
     test {Update acl-pubsub-default, existing users shouldn't get affected} {
         set channelinfo [dict get [r ACL getuser default] channels]
-        assert_equal "" $channelinfo
+        assert_equal "*" $channelinfo
         r CONFIG set acl-pubsub-default allchannels
-        assert_equal "" $channelinfo
         r ACL setuser mydefault
         set channelinfo [dict get [r ACL getuser mydefault] channels]
-        assert_equal * $channelinfo
+        assert_equal "*" $channelinfo
         r CONFIG set acl-pubsub-default nochannels
         set channelinfo [dict get [r ACL getuser mydefault] channels]
-        assert_equal * $channelinfo
+        assert_equal "*" $channelinfo
     }
 
     test {Single channel is valid} {
@@ -603,6 +605,20 @@ start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "noch
         set err
     } {*start with an empty list of channels*}
 }
+
+set server_path [tmpdir "resetchannels.acl"]
+exec cp -f tests/assets/nodefaultuser.acl $server_path
+exec cp -f tests/assets/default.conf $server_path
+start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "resetchannels" "aclfile" "nodefaultuser.acl"]] {
+
+    test {Only default user has access to all channels irrespective of flag} {
+        set channelinfo [dict get [r ACL getuser default] channels]
+        assert_equal "*" $channelinfo
+        set channelinfo [dict get [r ACL getuser alice] channels]
+        assert_equal "" $channelinfo
+    }
+}
+
 
 start_server {overrides {user "default on nopass ~* +@all"}} {
     test {default: load from config file, can access any channels} {

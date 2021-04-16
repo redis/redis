@@ -1061,24 +1061,9 @@ const char *ACLSetUserStringError(void) {
  * lifetime. */
 void ACLInitDefaultUser(void) {
     DefaultUser = ACLCreateUser("default",7);
-    ACLSetDefaultUserState();
-}
-
-/*
- * Set's the base state of DefaultUser.
- */
-void ACLSetDefaultUserState(void) {
     ACLSetUser(DefaultUser,"+@all",-1);
-    ACLSetUser(DefaultUser, "~*", -1);
-    /*
-     * Based on the acl_pubsub_default, default access
-     * is set to allchannels or nochannels.
-     */
-    if (server.acl_pubsub_default & USER_FLAG_ALLCHANNELS) {
-        ACLSetUser(DefaultUser, "&*", -1);
-    } else {
-        ACLSetUser(DefaultUser, "nochannels", -1);
-    }
+    ACLSetUser(DefaultUser,"~*",-1);
+    ACLSetUser(DefaultUser,"&*",-1);
     ACLSetUser(DefaultUser,"on",-1);
     ACLSetUser(DefaultUser,"nopass",-1);
 }
