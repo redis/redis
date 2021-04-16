@@ -3402,6 +3402,7 @@ void replicationCron(void) {
                     serverLog(LL_WARNING, "Disconnecting timedout replica (streaming sync): %s",
                           replicationGetSlaveName(slave));
                     freeClient(slave);
+                    continue;
                 }
             }
             /* We consider disconnecting only diskless replicas because disk-based replicas aren't fed
@@ -3414,6 +3415,7 @@ void replicationCron(void) {
                     serverLog(LL_WARNING, "Disconnecting timedout replica (full sync): %s",
                           replicationGetSlaveName(slave));
                     freeClient(slave);
+                    continue;
                 }
             }
         }
