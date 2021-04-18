@@ -597,7 +597,7 @@ start_server {tags {"repl"}} {
     $master debug populate 20000 test 10000
     $master config set rdbcompression no
     # If running on Linux, we also measure utime/stime to detect possible I/O handling issues
-    set os [catch {exec unamee}]
+    set os [catch {exec uname}]
     set measure_time [expr {$os == "Linux"} ? 1 : 0]
     foreach all_drop {no slow fast all timeout} {
         test "diskless $all_drop replicas drop during rdb pipe" {
@@ -616,7 +616,7 @@ start_server {tags {"repl"}} {
                     # so that the whole rdb generation process is bound to that
                     set loglines [count_log_lines -1]
                     [lindex $replicas 0] config set repl-diskless-load swapdb
-                    [lindex $replicas 0] config set key-load-delay 100
+                    [lindex $replicas 0] config set key-load-delay 100 ;# 20k keys and 100 microseconds sleep means at least 2 seconds
                     [lindex $replicas 0] replicaof $master_host $master_port
                     [lindex $replicas 1] replicaof $master_host $master_port
 
@@ -648,10 +648,10 @@ start_server {tags {"repl"}} {
                         set replicas_alive [lreplace $replicas_alive 0 0]
                     }
                     if {$all_drop == "timeout"} {
-                        $master config set repl-timeout 1
-                        # we want this replica to hang on a key for very long so it'll reach repl-timeout
+                        $master config set repl-timeout 2
+                        # we want the slow replica to hang on a key for very long so it'll reach repl-timeout
                         exec kill -SIGSTOP [srv -1 pid]
-                        after 3000
+                        after 2000
                     }
 
                     # wait for rdb child to exit
