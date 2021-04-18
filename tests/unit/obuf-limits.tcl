@@ -67,7 +67,7 @@ start_server {tags {"obuf-limits"}} {
                 if {$time_elapsed >= 10} break
             }
         }
-        assert {$omem >= 100000 && $time_elapsed < 6}
+        assert {$omem >= 100000 && $time_elapsed < 9}
         $rd1 close
     }
 
