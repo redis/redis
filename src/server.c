@@ -2421,8 +2421,8 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         server.get_ack_from_slaves = 0;
     }
 
-    /* We may have recieved updates from clients about their current offset. NOTE:
-     * this can't be done where the ACK is recieved since failover will disconnect 
+    /* We may have received updates from clients about their current offset. NOTE:
+     * this can't be done where the ACK is received since failover will disconnect 
      * our clients. */
     updateFailoverStatus();
 
