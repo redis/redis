@@ -4,6 +4,11 @@
 # 3. migration inited, but not finished
 # 4. migration is half finished on "migrating" node
 # 5. migration is half finished on "importing" node
+
+# TODO: Test is currently disabled until it is stabilized (fixing the test
+# itself or real issues in Redis).
+
+if {false} {
 source "../tests/includes/init-tests.tcl"
 source "../tests/includes/utils.tcl"
 
@@ -90,3 +95,4 @@ test "Half-finish importing" {
 }
 
 config_set_all_nodes cluster-allow-replica-migration yes
+}
