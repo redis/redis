@@ -115,7 +115,6 @@ configEnum oom_score_adj_enum[] = {
 
 configEnum acl_pubsub_default_enum[] = {
     {"allchannels", USER_FLAG_ALLCHANNELS},
-    {"nochannels", 0},
     {"resetchannels", 0},
     {NULL, 0}
 };
