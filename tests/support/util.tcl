@@ -31,7 +31,7 @@ proc zlistAlikeSort {a b} {
 
 # Return all log lines starting with the first line that contains a warning.
 # Generally, this will be an assertion error with a stack trace.
-proc warnings_from_file {filename} {
+proc crashlog_from_file {filename} {
     set lines [split [exec cat $filename] "\n"]
     set matched 0
     set logall 0
