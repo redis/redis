@@ -508,6 +508,7 @@ proc start_server {options {code undefined}} {
         set num_tests $::num_tests
         if {[catch { uplevel 1 $code } error]} {
             set backtrace $::errorInfo
+            set assertion [string match "assertion:*" $error]
 
             # fetch srv back from the server list, in case it was restarted by restart_server (new PID)
             set srv [lindex $::servers end]
@@ -519,17 +520,23 @@ proc start_server {options {code undefined}} {
             dict set srv "skipleaks" 1
             kill_server $srv
 
-            # Print warnings from log
-            puts [format "\nLogged warnings (pid %d):" [dict get $srv "pid"]]
-            set warnings [warnings_from_file [dict get $srv "stdout"]]
-            if {[string length $warnings] > 0} {
-                puts "$warnings"
+            if {$::dump_logs && $assertion} {
+                # if we caught an assertion ($::num_failed isn't incremented yet)
+                # this happens when the test spawns a server and not the other way around
+                dump_server_log $srv
             } else {
-                puts "(none)"
+                # Print crash report from log
+                set crashlog [crashlog_from_file [dict get $srv "stdout"]]
+                if {[string length $crashlog] > 0} {
+                    puts [format "\nLogged crash report (pid %d):" [dict get $srv "pid"]]
+                    puts "$crashlog"
+                    puts ""
+                }
             }
-            puts ""
 
-            if {$::durable} {
+            if {!$assertion && $::durable} {
+                # durable is meant to prevent the whole tcl test from exiting on
+                # an exception. an assertion will be caught by the test proc.
                 set msg [string range $error 10 end]
                 lappend details $msg
                 lappend details $backtrace
