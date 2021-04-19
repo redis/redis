@@ -209,7 +209,7 @@ void aof_background_fsync(int fd) {
     bioCreateFsyncJob(fd);
 }
 
-/* Kills an AOFRW child process if exists */
+/* Kills an AOFRW child process if exists. */
 void killAppendOnlyChild(void) {
     int statloc;
     /* No AOFRW child? return. */
