@@ -1911,6 +1911,7 @@ void disableTracking(client *c);
 void trackingRememberKeys(client *c);
 void trackingInvalidateKey(client *c, robj *keyobj);
 void trackingInvalidateKeysOnFlush(int async);
+void freeTrackingRadixTree(rax *rt);
 void freeTrackingRadixTreeAsync(rax *rt);
 void trackingLimitUsedSlots(void);
 uint64_t trackingGetTotalItems(void);
