@@ -31,7 +31,12 @@ start_server {tags {"obuf-limits"}} {
         set start_time 0
         set time_elapsed 0
         while 1 {
-            r publish foo bar
+            if {$start_time == 0} {
+                r publish foo [string repeat x 1000]
+            } else {
+                # Slow down loop when omen reach limit.
+                r publish foo bar
+            }
             set clients [split [r client list] "\r\n"]
             set c [split [lindex $clients 1] " "]
             if {![regexp {omem=([0-9]+)} $c - omem]} break
@@ -57,7 +62,12 @@ start_server {tags {"obuf-limits"}} {
         set start_time 0
         set time_elapsed 0
         while 1 {
-            r publish foo [string repeat x 1000]
+            if {$start_time == 0} {
+                r publish foo [string repeat x 1000]
+            } else {
+                # Slow down loop when omen reach limit.
+                r publish foo bar
+            }
             set clients [split [r client list] "\r\n"]
             set c [split [lindex $clients 1] " "]
             if {![regexp {omem=([0-9]+)} $c - omem]} break
