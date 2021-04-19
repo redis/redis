@@ -541,7 +541,6 @@ int anetFdToString(int fd, char *ip, size_t ip_len, int *port, int fd_to_str_typ
     struct sockaddr_storage sa;
     socklen_t salen = sizeof(sa);
 
-    if (ip_len == 0) goto error;
     if (fd_to_str_type == FD_TO_PEER_NAME) {
         if (getpeername(fd, (struct sockaddr *)&sa, &salen) == -1) goto error;
     } else {
@@ -550,14 +549,22 @@ int anetFdToString(int fd, char *ip, size_t ip_len, int *port, int fd_to_str_typ
 
     if (sa.ss_family == AF_INET) {
         struct sockaddr_in *s = (struct sockaddr_in *)&sa;
-        if (ip) inet_ntop(AF_INET,(void*)&(s->sin_addr),ip,ip_len);
+        if (ip) {
+            if (inet_ntop(AF_INET,(void*)&(s->sin_addr),ip,ip_len) == NULL)
+                goto error;
+        }
         if (port) *port = ntohs(s->sin_port);
     } else if (sa.ss_family == AF_INET6) {
         struct sockaddr_in6 *s = (struct sockaddr_in6 *)&sa;
-        if (ip) inet_ntop(AF_INET6,(void*)&(s->sin6_addr),ip,ip_len);
+        if (ip) {
+            if (inet_ntop(AF_INET6,(void*)&(s->sin6_addr),ip,ip_len) == NULL)
+                goto error;
+        }
         if (port) *port = ntohs(s->sin6_port);
     } else if (sa.ss_family == AF_UNIX) {
-        if (ip) snprintf(ip, ip_len, "/unixsocket");
+        char sus[] = "/unixsocket";
+        if (ip_len < sizeof(sus)) goto error;
+        if (ip) snprintf(ip, ip_len, sus);
         if (port) *port = 0;
     } else {
         goto error;
