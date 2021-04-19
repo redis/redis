@@ -5389,6 +5389,25 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
     return moduleBlockClient(ctx,reply_callback,timeout_callback,free_privdata,timeout_ms, NULL,0,NULL);
 }
 
+/* This call allows setting privdata associated with a blocked client
+ * right after blocking the client with RedisModule_BlockClient. If a client 
+ * is unblocked with RedisModule_UnblockClientKeepPrivData call, then
+ * the pointer will be preserved and can be accessed by FreeData callback.
+ * The pointer will be also accesible for FreeData callback if
+ * a client was unblocked by timeout or disconnect. */
+void RM_SetBlockedClientPrivData(RedisModuleCtx *ctx, void *privdata) {
+    ctx->blocked_privdata = privdata;
+
+    /* Set blocked_client->privdata to allow correct execution of
+     * RM_UnblockClientKeepPrivData, which uses this value to set
+     * privdata for an unblocked client. */
+    client *c = ctx->client;
+    RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    if (bc != NULL) {
+        bc->privdata = privdata;
+    }
+}
+
 /* This call is similar to RedisModule_BlockClient(), however in this case we
  * don't just block the client, but also ask Redis to unblock it automatically
  * once certain keys become "ready", that is, contain more data.
@@ -5516,6 +5535,13 @@ int RM_UnblockClient(RedisModuleBlockedClient *bc, void *privdata) {
     }
     moduleUnblockClientByHandle(bc,privdata);
     return REDISMODULE_OK;
+}
+
+/* This call is a thin wrapper for RM_UnblockClient.
+ * It allows to unblock a client without changing the pointer
+ * to private data associated with this blocked client. */
+int RM_UnblockClientKeepPrivData(RedisModuleBlockedClient *bc) {
+    return RM_UnblockClient(bc,bc->privdata);
 }
 
 /* Abort a blocked client blocking operation: the client will be unblocked
@@ -9350,6 +9376,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetKeyNameFromModuleKey);
     REGISTER_API(BlockClient);
     REGISTER_API(UnblockClient);
+    REGISTER_API(UnblockClientKeepPrivData);
+    REGISTER_API(SetBlockedClientPrivData);
     REGISTER_API(IsBlockedReplyRequest);
     REGISTER_API(IsBlockedTimeoutRequest);
     REGISTER_API(GetBlockedClientPrivateData);
