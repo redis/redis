@@ -602,6 +602,12 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         goto cleanup;
     }
 
+    /* This check is for EVAL_RO, EVALSHA_RO. We want to allow only read only commands */
+    if (server.lua_caller->cmd->flags & CMD_READONLY && (cmd->flags & CMD_WRITE)) {
+        luaPushError(lua, "Only readonly commands can be executed");
+        goto cleanup;
+    }
+
     /* Check the ACLs. */
     int acl_errpos;
     int acl_retval = ACLCheckAllPerm(c,&acl_errpos);
