@@ -603,8 +603,11 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     }
 
     /* This check is for EVAL_RO, EVALSHA_RO. We want to allow only read only commands */
-    if (server.lua_caller->cmd->flags & CMD_READONLY && (cmd->flags & CMD_WRITE)) {
-        luaPushError(lua, "Only readonly commands can be executed");
+    if ((server.lua_caller->cmd->proc == evalRoCommand ||
+         server.lua_caller->cmd->proc == evalShaRoCommand) &&
+         (cmd->flags & CMD_WRITE))
+    {
+        luaPushError(lua, "Write commands are not allowed from read-only scripts");
         goto cleanup;
     }
 
@@ -1693,11 +1696,19 @@ void evalGenericCommand(client *c, int evalsha) {
     }
 }
 
+void evalRoCommand(client *c) {
+    evalCommand(c);
+}
+
 void evalCommand(client *c) {
     if (!(c->flags & CLIENT_LUA_DEBUG))
         evalGenericCommand(c,0);
     else
         evalGenericCommandWithDebugging(c,0);
+}
+
+void evalShaRoCommand(client *c) {
+    evalShaCommand(c);
 }
 
 void evalShaCommand(client *c) {

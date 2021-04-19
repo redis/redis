@@ -320,12 +320,16 @@ start_server {tags {"scripting"}} {
         r eval {return 'hello' --trailing comment} 0
     } {hello}
 
+    test {EVAL_RO - Successful case} {
+        r set foo bar
+        assert_equal bar [r eval_ro {return redis.call('get', KEYS[1]);} 1 foo]
+    }
+
     test {EVAL_RO - Cannot run write commands} {
         r set foo bar
-        set e ""
         catch {r eval_ro {redis.call('del', KEYS[1]);} 1 foo} e
         set e
-    } {*Only readonly commands can be executed*}
+    } {*Write commands are not allowed from read-only scripts*}
 
     test {SCRIPTING FLUSH - is able to clear the scripts cache?} {
         r set mykey myval

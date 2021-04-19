@@ -910,16 +910,16 @@ struct redisCommand redisCommandTable[] = {
      "no-script may-replicate @scripting",
      0,evalGetKeys,0,0,0,0,0,0},
 
-    {"eval_ro",evalCommand,-3,
-     "no-script read-only @scripting",
+    {"eval_ro",evalRoCommand,-3,
+     "no-script @scripting",
      0,evalGetKeys,0,0,0,0,0,0},
 
     {"evalsha",evalShaCommand,-3,
      "no-script may-replicate @scripting",
      0,evalGetKeys,0,0,0,0,0,0},
 
-    {"evalsha_ro",evalShaCommand,-3,
-     "no-script read-only @scripting",
+    {"evalsha_ro",evalShaRoCommand,-3,
+     "no-script @scripting",
       0,evalGetKeys,0,0,0,0,0,0},
 
     {"slowlog",slowlogCommand,-2,
