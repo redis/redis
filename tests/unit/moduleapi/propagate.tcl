@@ -217,9 +217,9 @@ tags "modules" {
                 test {module RM_Call of expired key propagation} {
                     $master debug set-active-expire 0
 
-                    $master set k1 900 ex 1
+                    $master set k1 900 px 100
                     wait_for_ofs_sync $master $replica
-                    after 1100
+                    after 110
 
                     set repl [attach_to_replication_stream]
                     $master propagate-test.incr k1
