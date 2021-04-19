@@ -652,6 +652,7 @@ sds ACLDescribeUser(user *u) {
     if (u->flags & USER_FLAG_ALLCHANNELS) {
         res = sdscatlen(res,"&* ",3);
     } else {
+        res = sdscatlen(res,"resetchannels ",14);
         listRewind(u->channels,&li);
         while((ln = listNext(&li))) {
             sds thispat = listNodeValue(ln);

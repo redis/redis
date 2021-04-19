@@ -113,6 +113,30 @@ start_server {tags {"acl"}} {
         set e
     } {*NOPERM*channel*}
 
+    test {Validate subset of channels is prefixed with resetchannels flag} {
+        r ACL setuser hpuser on nopass resetchannels &foo +@all
+
+        # Verify resetchannels flag is prefixed before the channel name(s)
+        set users [r ACL LIST]
+        set curruser "hpuser"
+        foreach user [lshuffle $users] {
+            if {[string first $curruser $user] != -1} {
+                assert_equal {user hpuser on nopass resetchannels &foo +@all} $user
+            }
+        }
+
+        # authenticate as hpuser
+        r AUTH hpuser pass
+
+        assert_equal {0} [r PUBLISH foo bar]
+        catch {r PUBLISH bar game} e
+
+        # Falling back to psuser for the below tests
+        r AUTH psuser pspass
+        r ACL deluser hpuser
+        set e
+    } {*NOPERM*channel*}
+
     test {In transaction queue publish/subscribe/psubscribe to unauthorized channel will fail} {
         r ACL setuser psuser +multi +discard
         r MULTI
@@ -523,7 +547,78 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"]] {
         catch {r SET key value} e
         set e
     } {*NOPERM*}
+
+    test {ACL load and save with restricted channels} {
+        r AUTH alice alice
+        r ACL setuser harry on nopass resetchannels &test +@all ~*
+        r ACL save
+
+        # ACL load will free user and kill clients
+        r ACL load
+        catch {r ACL LIST} e
+        assert_match {*I/O error*} $e
+
+        reconnect
+        r AUTH harry anything
+        r publish test bar
+        catch {r publish test1 bar} e
+        r ACL deluser harry
+        set e
+    } {*NOPERM*}
 }
+
+set server_path [tmpdir "resetchannels.acl"]
+exec cp -f tests/assets/nodefaultuser.acl $server_path
+exec cp -f tests/assets/default.conf $server_path
+start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "resetchannels" "aclfile" "nodefaultuser.acl"]] {
+
+    test {Default user has access to all channels irrespective of flag} {
+        set channelinfo [dict get [r ACL getuser default] channels]
+        assert_equal "*" $channelinfo
+        set channelinfo [dict get [r ACL getuser alice] channels]
+        assert_equal "" $channelinfo
+    }
+
+    test {Update acl-pubsub-default, existing users shouldn't get affected} {
+        set channelinfo [dict get [r ACL getuser default] channels]
+        assert_equal "*" $channelinfo
+        r CONFIG set acl-pubsub-default allchannels
+        r ACL setuser mydefault
+        set channelinfo [dict get [r ACL getuser mydefault] channels]
+        assert_equal "*" $channelinfo
+        r CONFIG set acl-pubsub-default resetchannels
+        set channelinfo [dict get [r ACL getuser mydefault] channels]
+        assert_equal "*" $channelinfo
+    }
+
+    test {Single channel is valid} {
+        r ACL setuser onechannel &test
+        set channelinfo [dict get [r ACL getuser onechannel] channels]
+        assert_equal test $channelinfo
+        r ACL deluser onechannel
+    }
+
+    test {Single channel is not valid with allchannels} {
+        r CONFIG set acl-pubsub-default allchannels
+        catch {r ACL setuser onechannel &test} err
+        r CONFIG set acl-pubsub-default resetchannels
+        set err
+    } {*start with an empty list of channels*}
+}
+
+set server_path [tmpdir "resetchannels.acl"]
+exec cp -f tests/assets/nodefaultuser.acl $server_path
+exec cp -f tests/assets/default.conf $server_path
+start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "resetchannels" "aclfile" "nodefaultuser.acl"]] {
+
+    test {Only default user has access to all channels irrespective of flag} {
+        set channelinfo [dict get [r ACL getuser default] channels]
+        assert_equal "*" $channelinfo
+        set channelinfo [dict get [r ACL getuser alice] channels]
+        assert_equal "" $channelinfo
+    }
+}
+
 
 start_server {overrides {user "default on nopass ~* +@all"}} {
     test {default: load from config file, can access any channels} {
