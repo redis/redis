@@ -414,9 +414,9 @@ size_t zmalloc_get_rss(void) {
 
     if (sysctl(mib, 4, &info, &infolen, NULL, 0) == 0)
 #if defined(__FreeBSD__)
-        return (size_t)info.ki_rssize;
+        return (size_t)info.ki_rssize * getpagesize();
 #else
-        return (size_t)info.kp_vm_rssize;
+        return (size_t)info.kp_vm_rssize * getpagesize();
 #endif
 
     return 0L;
@@ -436,7 +436,7 @@ size_t zmalloc_get_rss(void) {
     mib[4] = sizeof(info);
     mib[5] = 1;
     if (sysctl(mib, 4, &info, &infolen, NULL, 0) == 0)
-        return (size_t)info.p_vm_rssize;
+        return (size_t)info.p_vm_rssize * getpagesize();
 
     return 0L;
 }
@@ -613,6 +613,11 @@ size_t zmalloc_get_smap_bytes_by_field(char *field, long pid) {
 }
 #endif
 
+/* Return the total number bytes in pages marked as Private Dirty.
+ *
+ * Note: depending on the platform and memory footprint of the process, this
+ * call can be slow, exceeding 1000ms!
+ */
 size_t zmalloc_get_private_dirty(long pid) {
     return zmalloc_get_smap_bytes_by_field("Private_Dirty:",pid);
 }
@@ -675,11 +680,12 @@ size_t zmalloc_get_memory_size(void) {
 
 #ifdef REDIS_TEST
 #define UNUSED(x) ((void)(x))
-int zmalloc_test(int argc, char **argv) {
+int zmalloc_test(int argc, char **argv, int accurate) {
     void *ptr;
 
     UNUSED(argc);
     UNUSED(argv);
+    UNUSED(accurate);
     printf("Malloc prefix size: %d\n", (int) PREFIX_SIZE);
     printf("Initial used memory: %zu\n", zmalloc_used_memory());
     ptr = zmalloc(123);

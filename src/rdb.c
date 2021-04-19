@@ -1073,8 +1073,7 @@ size_t rdbSavedObjectLen(robj *o, robj *key) {
 
 /* Save a key-value pair, with expire time, type, key, value.
  * On error -1 is returned.
- * On success if the key was actually saved 1 is returned, otherwise 0
- * is returned (the key was already expired). */
+ * On success if the key was actually saved 1 is returned. */
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime) {
     int savelru = server.maxmemory_policy & MAXMEMORY_FLAG_LRU;
     int savelfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU;
@@ -2176,16 +2175,17 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
             return NULL;
         }
         moduleType *mt = moduleTypeLookupModuleByID(moduleid);
-        char name[10];
 
         if (rdbCheckMode && rdbtype == RDB_TYPE_MODULE_2) {
+            char name[10];
             moduleTypeNameByID(name,moduleid);
             return rdbLoadCheckModuleValue(rdb,name);
         }
 
         if (mt == NULL) {
+            char name[10];
             moduleTypeNameByID(name,moduleid);
-            rdbReportCorruptRDB("The RDB file contains module data I can't load: no matching module '%s'", name);
+            rdbReportCorruptRDB("The RDB file contains module data I can't load: no matching module type '%s'", name);
             return NULL;
         }
         RedisModuleIO io;
@@ -2212,7 +2212,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                 return NULL;
             }
             if (eof != RDB_MODULE_OPCODE_EOF) {
-                rdbReportCorruptRDB("The RDB file contains module data for the module '%s' that is not terminated by the proper module value EOF marker", name);
+                rdbReportCorruptRDB("The RDB file contains module data for the module '%s' that is not terminated by "
+                                    "the proper module value EOF marker", moduleTypeModuleName(mt));
                 if (ptr) {
                     o = createModuleObject(mt,ptr); /* creating just in order to easily destroy */
                     decrRefCount(o);
@@ -2222,8 +2223,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
         }
 
         if (ptr == NULL) {
-            moduleTypeNameByID(name,moduleid);
-            rdbReportCorruptRDB("The RDB file contains module data for the module type '%s', that the responsible module is not able to load. Check for modules log above for additional clues.", name);
+            rdbReportCorruptRDB("The RDB file contains module data for the module type '%s', that the responsible "
+                                "module is not able to load. Check for modules log above for additional clues.",
+                                moduleTypeModuleName(mt));
             return NULL;
         }
         o = createModuleObject(mt,ptr);
@@ -2729,7 +2731,7 @@ void backgroundSaveDoneHandler(int exitcode, int bysignal) {
  * the cleanup needed. */
 void killRDBChild(void) {
     kill(server.child_pid, SIGUSR1);
-    /* Because we are not using here wait4 (like we have in killAppendOnlyChild
+    /* Because we are not using here waitpid (like we have in killAppendOnlyChild
      * and TerminateModuleForkChild), all the cleanup operations is done by
      * checkChildrenDone, that later will find that the process killed.
      * This includes:

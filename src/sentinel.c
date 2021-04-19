@@ -215,6 +215,7 @@ typedef struct sentinelRedisInstance {
     /* Slave specific. */
     mstime_t master_link_down_time; /* Slave replication link down time. */
     int slave_priority; /* Slave priority according to its INFO output. */
+    int replica_announced; /* Replica announcing according to its INFO output. */
     mstime_t slave_reconf_sent_time; /* Time at which we sent SLAVE OF <new> */
     struct sentinelRedisInstance *master; /* Master instance if it's slave. */
     char *slave_master_host;    /* Master host as reported by INFO */
@@ -548,14 +549,12 @@ void initSentinel(void) {
     server.sentinel_config = NULL;
 }
 
-/* This function gets called when the server is in Sentinel mode, started,
- * loaded the configuration, and is ready for normal operations. */
-void sentinelIsRunning(void) {
-    int j;
-
+/* This function is for checking whether sentinel config file has been set,
+ * also checking whether we have write permissions. */
+void sentinelCheckConfigFile(void) {
     if (server.configfile == NULL) {
         serverLog(LL_WARNING,
-            "Sentinel started without a config file. Exiting...");
+            "Sentinel needs config file on disk to save state. Exiting...");
         exit(1);
     } else if (access(server.configfile,W_OK) == -1) {
         serverLog(LL_WARNING,
@@ -563,6 +562,12 @@ void sentinelIsRunning(void) {
             server.configfile,strerror(errno));
         exit(1);
     }
+}
+
+/* This function gets called when the server is in Sentinel mode, started,
+ * loaded the configuration, and is ready for normal operations. */
+void sentinelIsRunning(void) {
+    int j;
 
     /* If this Sentinel has yet no ID set in the configuration file, we
      * pick a random one and persist the config on disk. From now on this
@@ -870,6 +875,7 @@ void sentinelRunPendingScripts(void) {
             sj->pid = 0;
         } else if (pid == 0) {
             /* Child */
+            tlsCleanup();
             execve(sj->argv[0],sj->argv,environ);
             /* If we are here an error occurred. */
             _exit(2); /* Don't retry execution. */
@@ -903,7 +909,7 @@ void sentinelCollectTerminatedScripts(void) {
     int statloc;
     pid_t pid;
 
-    while ((pid = wait3(&statloc,WNOHANG,NULL)) > 0) {
+    while ((pid = waitpid(-1, &statloc, WNOHANG)) > 0) {
         int exitcode = WEXITSTATUS(statloc);
         int bysignal = 0;
         listNode *ln;
@@ -915,7 +921,7 @@ void sentinelCollectTerminatedScripts(void) {
 
         ln = sentinelGetScriptListNodeByPid(pid);
         if (ln == NULL) {
-            serverLog(LL_WARNING,"wait3() returned a pid (%ld) we can't find in our scripts execution queue!", (long)pid);
+            serverLog(LL_WARNING,"waitpid() returned a pid (%ld) we can't find in our scripts execution queue!", (long)pid);
             continue;
         }
         sj = ln->value;
@@ -1334,6 +1340,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->auth_pass = NULL;
     ri->auth_user = NULL;
     ri->slave_priority = SENTINEL_DEFAULT_SLAVE_PRIORITY;
+    ri->replica_announced = 1;
     ri->slave_reconf_sent_time = 0;
     ri->slave_master_host = NULL;
     ri->slave_master_port = 0;
@@ -1719,19 +1726,12 @@ void sentinelPropagateDownAfterPeriod(sentinelRedisInstance *master) {
     }
 }
 
-char *sentinelGetInstanceTypeString(sentinelRedisInstance *ri) {
-    if (ri->flags & SRI_MASTER) return "master";
-    else if (ri->flags & SRI_SLAVE) return "slave";
-    else if (ri->flags & SRI_SENTINEL) return "sentinel";
-    else return "unknown";
-}
-
 /* This function is used in order to send commands to Redis instances: the
  * commands we send from Sentinel may be renamed, a common case is a master
  * with CONFIG and SLAVEOF commands renamed for security concerns. In that
  * case we check the ri->renamed_command table (or if the instance is a slave,
  * we check the one of the master), and map the command that we should send
- * to the set of renamed commads. However, if the command was not renamed,
+ * to the set of renamed commands. However, if the command was not renamed,
  * we just return "command" itself. */
 char *sentinelInstanceMapCommand(sentinelRedisInstance *ri, char *command) {
     sds sc = sdsnew(command);
@@ -2045,12 +2045,12 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
     } else if (!strcasecmp(argv[0],"resolve-hostnames") && argc == 2) {
         /* resolve-hostnames <yes|no> */
         if ((sentinel.resolve_hostnames = yesnotoi(argv[1])) == -1) {
-            return "Please specify yes or not for the resolve-hostnames option.";
+            return "Please specify yes or no for the resolve-hostnames option.";
         }
     } else if (!strcasecmp(argv[0],"announce-hostnames") && argc == 2) {
         /* announce-hostnames <yes|no> */
         if ((sentinel.announce_hostnames = yesnotoi(argv[1])) == -1) {
-            return "Please specify yes or not for the announce-hostnames option.";
+            return "Please specify yes or no for the announce-hostnames option.";
         }
     } else {
         return "Unrecognized sentinel configuration statement.";
@@ -2320,8 +2320,8 @@ void sentinelFlushConfig(void) {
     return;
 
 werr:
-    if (fd != -1) close(fd);
     serverLog(LL_WARNING,"WARNING: Sentinel was not able to save the new configuration on disk!!!: %s", strerror(errno));
+    if (fd != -1) close(fd);
 }
 
 /* ====================== hiredis connection handling ======================= */
@@ -2422,8 +2422,10 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
     /* Commands connection. */
     if (link->cc == NULL) {
         link->cc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,NET_FIRST_BIND_ADDR);
-        if (!link->cc->err) anetCloexec(link->cc->c.fd);
-        if (!link->cc->err && server.tls_replication &&
+        if (link->cc && !link->cc->err) anetCloexec(link->cc->c.fd);
+        if (!link->cc) {
+            sentinelEvent(LL_DEBUG,"-cmd-link-reconnection",ri,"%@ #Failed to establish connection");
+        } else if (!link->cc->err && server.tls_replication &&
                 (instanceLinkNegotiateTLS(link->cc) == C_ERR)) {
             sentinelEvent(LL_DEBUG,"-cmd-link-reconnection",ri,"%@ #Failed to initialize TLS");
             instanceLinkCloseConnection(link,link->cc);
@@ -2450,8 +2452,10 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
     /* Pub / Sub */
     if ((ri->flags & (SRI_MASTER|SRI_SLAVE)) && link->pc == NULL) {
         link->pc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,NET_FIRST_BIND_ADDR);
-        if (!link->pc->err) anetCloexec(link->pc->c.fd);
-        if (!link->pc->err && server.tls_replication &&
+        if (link->pc && !link->pc->err) anetCloexec(link->pc->c.fd);
+        if (!link->pc) {
+            sentinelEvent(LL_DEBUG,"-pubsub-link-reconnection",ri,"%@ #Failed to establish connection");
+        } else if (!link->pc->err && server.tls_replication &&
                 (instanceLinkNegotiateTLS(link->pc) == C_ERR)) {
             sentinelEvent(LL_DEBUG,"-pubsub-link-reconnection",ri,"%@ #Failed to initialize TLS");
         } else if (link->pc->err) {
@@ -2624,6 +2628,10 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
             /* slave_repl_offset:<offset> */
             if (sdslen(l) >= 18 && !memcmp(l,"slave_repl_offset:",18))
                 ri->slave_repl_offset = strtoull(l+18,NULL,10);
+
+            /* replica_announced:<announcement> */
+            if (sdslen(l) >= 18 && !memcmp(l,"replica_announced:",18))
+                ri->replica_announced = atoi(l+18);
         }
     }
     ri->info_refresh = mstime();
@@ -2644,8 +2652,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
             ((ri->flags & (SRI_MASTER|SRI_SLAVE)) == role) ?
             "+role-change" : "-role-change",
             ri, "%@ new reported role is %s",
-            role == SRI_MASTER ? "master" : "slave",
-            ri->flags & SRI_MASTER ? "master" : "slave");
+            role == SRI_MASTER ? "master" : "slave");
     }
 
     /* None of the following conditions are processed when in tilt mode, so
@@ -3291,6 +3298,8 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
     if (ri->flags & SRI_RECONF_SENT) flags = sdscat(flags,"reconf_sent,");
     if (ri->flags & SRI_RECONF_INPROG) flags = sdscat(flags,"reconf_inprog,");
     if (ri->flags & SRI_RECONF_DONE) flags = sdscat(flags,"reconf_done,");
+    if (ri->flags & SRI_FORCE_FAILOVER) flags = sdscat(flags,"force_failover,");
+    if (ri->flags & SRI_SCRIPT_KILL_SENT) flags = sdscat(flags,"script_kill_sent,");
 
     if (sdslen(flags) != 0) sdsrange(flags,0,-2); /* remove last "," */
     addReplyBulkCString(c,flags);
@@ -3343,7 +3352,8 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
     /* Masters and Slaves */
     if (ri->flags & (SRI_MASTER|SRI_SLAVE)) {
         addReplyBulkCString(c,"info-refresh");
-        addReplyBulkLongLong(c,mstime() - ri->info_refresh);
+        addReplyBulkLongLong(c,
+            ri->info_refresh ? (mstime() - ri->info_refresh) : 0);
         fields++;
 
         addReplyBulkCString(c,"role-reported");
@@ -3423,6 +3433,10 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
         addReplyBulkCString(c,"slave-repl-offset");
         addReplyBulkLongLong(c,ri->slave_repl_offset);
         fields++;
+
+        addReplyBulkCString(c,"replica-announced");
+        addReplyBulkLongLong(c,ri->replica_announced);
+        fields++;
     }
 
     /* Only sentinels */
@@ -3448,15 +3462,20 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
 void addReplyDictOfRedisInstances(client *c, dict *instances) {
     dictIterator *di;
     dictEntry *de;
+    long slaves = 0;
+    void *replylen = addReplyDeferredLen(c);
 
     di = dictGetIterator(instances);
-    addReplyArrayLen(c,dictSize(instances));
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
 
+        /* don't announce unannounced replicas */
+        if (ri->flags & SRI_SLAVE && !ri->replica_announced) continue;
         addReplySentinelRedisInstance(c,ri);
+        slaves++;
     }
     dictReleaseIterator(di);
+    setDeferredArrayLen(c, replylen, slaves);
 }
 
 /* Lookup the named master into sentinel.masters.
@@ -3710,17 +3729,7 @@ NULL
         ri = createSentinelRedisInstance(c->argv[2]->ptr,SRI_MASTER,
                 c->argv[3]->ptr,port,quorum,NULL);
         if (ri == NULL) {
-            switch(errno) {
-            case EBUSY:
-                addReplyError(c,"Duplicated master name");
-                break;
-            case EINVAL:
-                addReplyError(c,"Invalid port number");
-                break;
-            default:
-                addReplyError(c,"Unspecified error adding the instance");
-                break;
-            }
+            addReplyError(c,sentinelCheckCreateInstanceErrors(SRI_MASTER));
         } else {
             sentinelFlushConfig();
             sentinelEvent(LL_WARNING,"+monitor",ri,"%@ quorum %d",ri->quorum);
@@ -3820,7 +3829,8 @@ NULL
             addReplyBulkCBuffer(c,ri->name,strlen(ri->name));
             addReplyArrayLen(c,dictSize(ri->slaves) + 1); /* +1 for self */
             addReplyArrayLen(c,2);
-            addReplyLongLong(c, now - ri->info_refresh);
+            addReplyLongLong(c,
+                ri->info_refresh ? (now - ri->info_refresh) : 0);
             if (ri->info)
                 addReplyBulkCBuffer(c,ri->info,sdslen(ri->info));
             else
@@ -3832,7 +3842,8 @@ NULL
             while ((sde = dictNext(sdi)) != NULL) {
                 sentinelRedisInstance *sri = dictGetVal(sde);
                 addReplyArrayLen(c,2);
-                addReplyLongLong(c, now - sri->info_refresh);
+                addReplyLongLong(c,
+                    ri->info_refresh ? (now - sri->info_refresh) : 0);
                 if (sri->info)
                     addReplyBulkCBuffer(c,sri->info,sdslen(sri->info));
                 else

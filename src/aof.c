@@ -218,7 +218,7 @@ void killAppendOnlyChild(void) {
     serverLog(LL_NOTICE,"Killing running AOF rewrite child: %ld",
         (long) server.child_pid);
     if (kill(server.child_pid,SIGUSR1) != -1) {
-        while(wait3(&statloc,0,NULL) != server.child_pid);
+        while(waitpid(-1, &statloc, 0) != server.child_pid);
     }
     /* Reset the buffer accumulating changes while the child saves. */
     aofRewriteBufferReset();
@@ -234,9 +234,12 @@ void killAppendOnlyChild(void) {
 void stopAppendOnly(void) {
     serverAssert(server.aof_state != AOF_OFF);
     flushAppendOnlyFile(1);
-    redis_fsync(server.aof_fd);
-    server.aof_fsync_offset = server.aof_current_size;
-    server.aof_last_fsync = server.unixtime;
+    if (redis_fsync(server.aof_fd) == -1) {
+        serverLog(LL_WARNING,"Fail to fsync the AOF file: %s",strerror(errno));
+    } else {
+        server.aof_fsync_offset = server.aof_current_size;
+        server.aof_last_fsync = server.unixtime;
+    }
     close(server.aof_fd);
 
     server.aof_fd = -1;
@@ -289,6 +292,15 @@ int startAppendOnly(void) {
     server.aof_state = AOF_WAIT_REWRITE;
     server.aof_last_fsync = server.unixtime;
     server.aof_fd = newfd;
+
+    /* If AOF fsync error in bio job, we just ignore it and log the event. */
+    int aof_bio_fsync_status;
+    atomicGet(server.aof_bio_fsync_status, aof_bio_fsync_status);
+    if (aof_bio_fsync_status == C_ERR) {
+        serverLog(LL_WARNING,
+            "AOF reopen, just ignore the AOF fsync error in bio job");
+        atomicSet(server.aof_bio_fsync_status,C_OK);
+    }
 
     /* If AOF was in error state, we just ignore it and log the event. */
     if (server.aof_last_write_status == C_ERR) {
@@ -1590,7 +1602,7 @@ int rewriteAppendOnlyFile(char *filename) {
     if (write(server.aof_pipe_write_ack_to_parent,"!",1) != 1) goto werr;
     if (anetNonBlock(NULL,server.aof_pipe_read_ack_from_parent) != ANET_OK)
         goto werr;
-    /* We read the ACK from the server using a 10 seconds timeout. Normally
+    /* We read the ACK from the server using a 5 seconds timeout. Normally
      * it should reply ASAP, but just in case we lose its reply, we are sure
      * the child will eventually get terminated. */
     if (syncRead(server.aof_pipe_read_ack_from_parent,&byte,1,5000) != 1 ||

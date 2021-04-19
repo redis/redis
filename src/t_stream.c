@@ -861,7 +861,7 @@ int64_t streamTrimByID(stream *s, streamID minid, int approx) {
     return streamTrim(s, &args);
 }
 
-/* Parse the arguements of XADD/XTRIM.
+/* Parse the arguments of XADD/XTRIM.
  *
  * See streamAddTrimArgs for more details about the arguments handled.
  *
@@ -1313,7 +1313,8 @@ void streamLastValidID(stream *s, streamID *maxid)
     streamIterator si;
     streamIteratorStart(&si,s,NULL,NULL,1);
     int64_t numfields;
-    streamIteratorGetID(&si,maxid,&numfields);
+    if (!streamIteratorGetID(&si,maxid,&numfields) && s->length)
+        serverPanic("Corrupt stream, length is %llu, but no max id", (unsigned long long)s->length);
     streamIteratorStop(&si);
 }
 
@@ -3050,12 +3051,8 @@ void xautoclaimCommand(client *c) {
         int moreargs = (c->argc-1) - j; /* Number of additional arguments. */
         char *opt = c->argv[j]->ptr;
         if (!strcasecmp(opt,"COUNT") && moreargs) {
-            if (getPositiveLongFromObjectOrReply(c,c->argv[j+1],&count,NULL) != C_OK)
+            if (getRangeLongFromObjectOrReply(c,c->argv[j+1],1,LONG_MAX,&count,"COUNT must be > 0") != C_OK)
                 return;
-            if (count == 0) {
-                addReplyError(c,"COUNT must be > 0");
-                return;
-            }
             j++;
         } else if (!strcasecmp(opt,"JUSTID")) {
             justid = 1;
@@ -3120,7 +3117,9 @@ void xautoclaimCommand(client *c) {
 
         /* Update the consumer and idle time. */
         nack->delivery_time = now;
-        nack->delivery_count++;
+        /* Increment the delivery attempts counter unless JUSTID option provided */
+        if (!justid)
+            nack->delivery_count++;
 
         if (nack->consumer != consumer) {
             /* Add the entry in the new consumer local PEL. */
@@ -3147,6 +3146,9 @@ void xautoclaimCommand(client *c) {
         decrRefCount(idstr);
         server.dirty++;
     }
+
+    /* We need to return the next entry as a cursor for the next XAUTOCLAIM call */
+    raxNext(&ri);
 
     streamID endid;
     if (raxEOF(&ri)) {
@@ -3545,8 +3547,8 @@ NULL
     }
 }
 
-/* Validate the integrity stream listpack entries stracture. Both in term of a
- * valid listpack, but also that the stracture of the entires matches a valid
+/* Validate the integrity stream listpack entries structure. Both in term of a
+ * valid listpack, but also that the structure of the entires matches a valid
  * stream. return 1 if valid 0 if not valid. */
 int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
     int valid_record;

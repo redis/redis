@@ -113,34 +113,34 @@ void discardCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-void beforePropagateMultiOrExec(int multi) {
-    if (multi) {
-        /* Propagating MULTI */
-        serverAssert(!server.propagate_in_transaction);
-        server.propagate_in_transaction = 1;
-    } else {
-        /* Propagating EXEC */
-        serverAssert(server.propagate_in_transaction == 1);
-        server.propagate_in_transaction = 0;
-    }
+void beforePropagateMulti() {
+    /* Propagating MULTI */
+    serverAssert(!server.propagate_in_transaction);
+    server.propagate_in_transaction = 1;
+}
+
+void afterPropagateExec() {
+    /* Propagating EXEC */
+    serverAssert(server.propagate_in_transaction == 1);
+    server.propagate_in_transaction = 0;
 }
 
 /* Send a MULTI command to all the slaves and AOF file. Check the execCommand
  * implementation for more information. */
 void execCommandPropagateMulti(int dbid) {
-    beforePropagateMultiOrExec(1);
+    beforePropagateMulti();
     propagate(server.multiCommand,dbid,&shared.multi,1,
               PROPAGATE_AOF|PROPAGATE_REPL);
 }
 
 void execCommandPropagateExec(int dbid) {
-    beforePropagateMultiOrExec(0);
     propagate(server.execCommand,dbid,&shared.exec,1,
               PROPAGATE_AOF|PROPAGATE_REPL);
+    afterPropagateExec();
 }
 
 /* Aborts a transaction, with a specific error message.
- * The transaction is always aboarted with -EXECABORT so that the client knows
+ * The transaction is always aborted with -EXECABORT so that the client knows
  * the server exited the multi state, but the actual reason for the abort is
  * included too.
  * Note: 'error' may or may not end with \r\n. see addReplyErrorFormat. */
@@ -202,11 +202,9 @@ void execCommand(client *c) {
         c->cmd = c->mstate.commands[j].cmd;
 
         /* ACL permissions are also checked at the time of execution in case
-         * they were changed after the commands were ququed. */
+         * they were changed after the commands were queued. */
         int acl_errpos;
-        int acl_retval = ACLCheckCommandPerm(c,&acl_errpos);
-        if (acl_retval == ACL_OK && c->cmd->proc == publishCommand)
-            acl_retval = ACLCheckPubsubPerm(c,1,1,0,&acl_errpos);
+        int acl_retval = ACLCheckAllPerm(c,&acl_errpos);
         if (acl_retval != ACL_OK) {
             char *reason;
             switch (acl_retval) {
@@ -217,7 +215,8 @@ void execCommand(client *c) {
                 reason = "no permission to touch the specified keys";
                 break;
             case ACL_DENIED_CHANNEL:
-                reason = "no permission to publish to the specified channel";
+                reason = "no permission to access one of the channels used "
+                         "as arguments";
                 break;
             default:
                 reason = "no permission";
@@ -254,7 +253,6 @@ void execCommand(client *c) {
     if (server.propagate_in_transaction) {
         int is_master = server.masterhost == NULL;
         server.dirty++;
-        beforePropagateMultiOrExec(0);
         /* If inside the MULTI/EXEC block this instance was suddenly
          * switched from master to slave (using the SLAVEOF command), the
          * initial MULTI was propagated into the replication backlog, but the
@@ -264,6 +262,7 @@ void execCommand(client *c) {
             char *execcmd = "*1\r\n$4\r\nEXEC\r\n";
             feedReplicationBacklog(execcmd,strlen(execcmd));
         }
+        afterPropagateExec();
     }
 
     server.in_exec = 0;

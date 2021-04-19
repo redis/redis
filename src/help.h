@@ -184,7 +184,7 @@ struct commandHelp {
     8,
     "6.2.0" },
     { "CLIENT KILL",
-    "[ip:port] [ID client-id] [TYPE normal|master|slave|pubsub] [USER username] [ADDR ip:port] [SKIPME yes/no]",
+    "[ip:port] [ID client-id] [TYPE normal|master|slave|pubsub] [USER username] [ADDR ip:port] [LADDR ip:port] [SKIPME yes/no]",
     "Kill the connection of a client",
     8,
     "2.4.0" },
