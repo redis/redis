@@ -197,7 +197,7 @@ int propagateTestIncr(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     REDISMODULE_NOT_USED(argc);
     RedisModuleCallReply *reply;
 
-    /* This test mixes multiple propagation systems. */
+    /* This test propagates the module command, not the INCR it executes. */
     reply = RedisModule_Call(ctx, "INCR", "s", argv[1]);
     RedisModule_ReplyWithCallReply(ctx,reply);
     RedisModule_FreeCallReply(reply);

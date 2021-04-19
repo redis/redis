@@ -217,7 +217,7 @@ tags "modules" {
                 test {module RM_Call of expired key propagation} {
                     $master debug set-active-expire 0
 
-                    $master setex k1 1 900
+                    $master set k1 900 ex 1
                     wait_for_ofs_sync $master $replica
                     after 1100
 
@@ -234,7 +234,9 @@ tags "modules" {
                     close_replication_stream $repl
 
                     assert_equal [$master get k1] 1
+                    assert_equal [$master ttl k1] -1
                     assert_equal [$replica get k1] 1
+                    assert_equal [$replica ttl k1] -1
                 }
 
                 assert_equal [s -1 unexpected_error_replies] 0
