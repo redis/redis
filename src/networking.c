@@ -332,8 +332,9 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
         memcpy(tail->buf, s, len);
         listAddNodeTail(c->reply, tail);
         c->reply_bytes += tail->size;
+
+        asyncCloseClientOnOutputBufferLimitReached(c);
     }
-    asyncCloseClientOnOutputBufferLimitReached(c);
 }
 
 /* -----------------------------------------------------------------------------
@@ -614,8 +615,9 @@ void setDeferredReply(client *c, void *node, const char *s, size_t length) {
         memcpy(buf->buf, s, length);
         listNodeValue(ln) = buf;
         c->reply_bytes += buf->size;
+
+        asyncCloseClientOnOutputBufferLimitReached(c);
     }
-    asyncCloseClientOnOutputBufferLimitReached(c);
 }
 
 /* Populate the length object and try gluing it to the next chunk. */
