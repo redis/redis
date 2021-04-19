@@ -2,7 +2,7 @@ set testmodule [file normalize tests/modules/propagate.so]
 
 tags "modules" {
     test {Modules can propagate in async and threaded contexts} {
-        start_server {} {
+        start_server [list overrides [list loadmodule "$testmodule"]] {
             set replica [srv 0 client]
             set replica_host [srv 0 host]
             set replica_port [srv 0 port]
@@ -213,6 +213,31 @@ tags "modules" {
                     }
                     close_replication_stream $repl
                 }
+
+                test {module RM_Call of expired key propagation} {
+                    $master debug set-active-expire 0
+
+                    $master set k1 900 px 100
+                    wait_for_ofs_sync $master $replica
+                    after 110
+
+                    set repl [attach_to_replication_stream]
+                    $master propagate-test.incr k1
+                    wait_for_ofs_sync $master $replica
+
+                    assert_replication_stream $repl {
+                        {select *}
+                        {del k1}
+                        {propagate-test.incr k1}
+                    }
+                    close_replication_stream $repl
+
+                    assert_equal [$master get k1] 1
+                    assert_equal [$master ttl k1] -1
+                    assert_equal [$replica get k1] 1
+                    assert_equal [$replica ttl k1] -1
+                }
+
                 assert_equal [s -1 unexpected_error_replies] 0
             }
         }

@@ -192,6 +192,19 @@ int propagateTestNestedCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return REDISMODULE_OK;
 }
 
+int propagateTestIncr(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    REDISMODULE_NOT_USED(argc);
+    RedisModuleCallReply *reply;
+
+    /* This test propagates the module command, not the INCR it executes. */
+    reply = RedisModule_Call(ctx, "INCR", "s", argv[1]);
+    RedisModule_ReplyWithCallReply(ctx,reply);
+    RedisModule_FreeCallReply(reply);
+    RedisModule_ReplicateVerbatim(ctx);
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -231,6 +244,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"propagate-test.nested",
                 propagateTestNestedCommand,
+                "",1,1,1) == REDISMODULE_ERR)
+            return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"propagate-test.incr",
+                propagateTestIncr,
                 "",1,1,1) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
 
