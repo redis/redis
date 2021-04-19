@@ -32,6 +32,7 @@ start_server {tags {"obuf-limits"}} {
         set time_elapsed 0
         while 1 {
             if {$start_time != 0} {
+                # Slow down loop when omen has reached the limit.
                 after 10
             }
             r publish foo [string repeat "x" 1000]
@@ -61,6 +62,7 @@ start_server {tags {"obuf-limits"}} {
         set time_elapsed 0
         while 1 {
             if {$start_time != 0} {
+                # Slow down loop when omen has reached the limit.
                 after 10
             }
             r publish foo [string repeat "x" 1000]
