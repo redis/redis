@@ -225,7 +225,6 @@ tags "modules" {
                     $master propagate-test.incr k1
                     wait_for_ofs_sync $master $replica
 
-                    # Note the 'after-call' propagation below is out of order (known limitation)
                     assert_replication_stream $repl {
                         {select *}
                         {del k1}
