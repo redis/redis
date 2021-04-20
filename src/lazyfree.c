@@ -39,12 +39,11 @@ void lazyfreeFreeSlotsMap(void *args[]) {
     atomicIncr(lazyfreed_objects,len);
 }
 
-/* Release the rax mapping Redis Cluster keys to slots in the
- * lazyfree thread. */
+/* Release the key tracking table. */
 void lazyFreeTrackingTable(void *args[]) {
     rax *rt = args[0];
     size_t len = rt->numele;
-    raxFree(rt);
+    freeTrackingRadixTree(rt);
     atomicDecr(lazyfree_objects,len);
     atomicIncr(lazyfreed_objects,len);
 }
