@@ -920,7 +920,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"evalsha_ro",evalShaRoCommand,-3,
      "no-script @scripting",
-      0,evalGetKeys,0,0,0,0,0,0},
+     0,evalGetKeys,0,0,0,0,0,0},
 
     {"slowlog",slowlogCommand,-2,
      "admin random ok-loading ok-stale",
