@@ -23,6 +23,10 @@ start_server {tags {"obuf-limits"}} {
         r config set client-output-buffer-limit {pubsub 0 100000 10}
         set rd1 [redis_deferring_client]
 
+        $rd1 client setname test_client
+        set reply [$rd1 read]
+        assert {$reply eq "OK"}
+
         $rd1 subscribe foo
         set reply [$rd1 read]
         assert {$reply eq "subscribe foo 1"}
@@ -31,20 +35,22 @@ start_server {tags {"obuf-limits"}} {
         set start_time 0
         set time_elapsed 0
         while 1 {
-            if {$start_time != 0} {
-                # Slow down loop when omen has reached the limit.
-                after 10
-            }
             r publish foo [string repeat "x" 1000]
             set clients [split [r client list] "\r\n"]
-            set c [split [lindex $clients 1] " "]
+            set c [lsearch -inline $clients *name=test_client*]
             if {![regexp {omem=([0-9]+)} $c - omem]} break
             if {$omem > 100000} {
                 if {$start_time == 0} {set start_time [clock seconds]}
                 set time_elapsed [expr {[clock seconds]-$start_time}]
                 if {$time_elapsed >= 5} break
+                # Slow down loop when omem has reached the limit.
+                after 10
+            } else {
+                set start_time 0
             }
+            
         }
+
         assert {$omem >= 100000 && $time_elapsed >= 5 && $time_elapsed <= 10}
         $rd1 close
     }
@@ -53,6 +59,10 @@ start_server {tags {"obuf-limits"}} {
         r config set client-output-buffer-limit {pubsub 0 100000 3}
         set rd1 [redis_deferring_client]
 
+        $rd1 client setname test_client
+        set reply [$rd1 read]
+        assert {$reply eq "OK"}
+ 
         $rd1 subscribe foo
         set reply [$rd1 read]
         assert {$reply eq "subscribe foo 1"}
@@ -61,21 +71,62 @@ start_server {tags {"obuf-limits"}} {
         set start_time 0
         set time_elapsed 0
         while 1 {
-            if {$start_time != 0} {
-                # Slow down loop when omen has reached the limit.
-                after 10
-            }
             r publish foo [string repeat "x" 1000]
             set clients [split [r client list] "\r\n"]
-            set c [split [lindex $clients 1] " "]
+            set c [lsearch -inline $clients *name=test_client*]
             if {![regexp {omem=([0-9]+)} $c - omem]} break
             if {$omem > 100000} {
                 if {$start_time == 0} {set start_time [clock seconds]}
                 set time_elapsed [expr {[clock seconds]-$start_time}]
                 if {$time_elapsed >= 10} break
+                # Slow down loop when omem has reached the limit.
+                after 10
+            } else {
+                set start_time 0
             }
         }
         assert {$omem >= 100000 && $time_elapsed < 6}
+        $rd1 close
+    }
+
+    test {Client output buffer soft limit is enforced when no traffic} {
+        r config set client-output-buffer-limit {pubsub 0 100000 6}
+        set rd1 [redis_deferring_client]
+
+        $rd1 client setname test_client
+        set reply [$rd1 read]
+        assert {$reply eq "OK"}
+
+        $rd1 subscribe foo
+        set reply [$rd1 read]
+        assert {$reply eq "subscribe foo 1"}
+
+        set omem 0
+        set start_time 0
+        set time_elapsed 0
+        while 1 {
+            r publish foo [string repeat "x" 1000]
+            set clients [split [r client list] "\r\n"]
+            set c [lsearch -inline $clients *name=test_client*]
+            if {![regexp {omem=([0-9]+)} $c - omem]} break
+            if {$omem > 100000} {
+                if {$start_time == 0} {set start_time [clock seconds]}
+                set time_elapsed [expr {[clock seconds]-$start_time}]
+                if {$time_elapsed >= 3} break
+                # Slow down loop when omem has reached the limit.
+                after 10
+            } else {
+                set start_time 0
+            }
+            
+        }
+
+        assert {$omem >= 100000 && $time_elapsed >= 3 && $time_elapsed <= 6}
+        
+        # Wait for soft limit to time out
+        after [expr {7500 - ([clock seconds]-$start_time)*1000}]
+        set clients [split [r client list] "\r\n"]
+        assert {[lsearch $clients *name=test_client*] == -1}
         $rd1 close
     }
 
