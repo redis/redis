@@ -1696,10 +1696,6 @@ void evalGenericCommand(client *c, int evalsha) {
     }
 }
 
-void evalRoCommand(client *c) {
-    evalCommand(c);
-}
-
 void evalCommand(client *c) {
     if (!(c->flags & CLIENT_LUA_DEBUG))
         evalGenericCommand(c,0);
@@ -1707,8 +1703,8 @@ void evalCommand(client *c) {
         evalGenericCommandWithDebugging(c,0);
 }
 
-void evalShaRoCommand(client *c) {
-    evalShaCommand(c);
+void evalRoCommand(client *c) {
+    evalCommand(c);
 }
 
 void evalShaCommand(client *c) {
@@ -1726,6 +1722,10 @@ void evalShaCommand(client *c) {
         addReplyError(c,"Please use EVAL instead of EVALSHA for debugging");
         return;
     }
+}
+
+void evalShaRoCommand(client *c) {
+    evalShaCommand(c);
 }
 
 void scriptCommand(client *c) {
