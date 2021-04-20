@@ -784,7 +784,7 @@ struct redisCommand redisCommandTable[] = {
      "ok-loading ok-stale random @dangerous",
      0,NULL,0,0,0,0,0,0},
 
-    {"monitor",monitorCommand,1,
+    {"monitor",monitorCommand,-1,
      "admin no-script ok-loading ok-stale",
      0,NULL,0,0,0,0,0,0},
 
@@ -5348,6 +5348,22 @@ void monitorCommand(client *c) {
 
     /* ignore MONITOR if already slave or in monitor mode */
     if (c->flags & CLIENT_SLAVE) return;
+
+    if (c->argc > 2) {
+        addReplyErrorFormat(c,"Wrong number of arguments for '%s' command", 
+            c->cmd->name);
+        return;
+    }
+
+    if (c->argc == 2) {
+        struct redisCommand *cmd = lookupCommand(c->argv[1]->ptr);
+        if (cmd == NULL) {
+            addReplyErrorFormat(c,"Unknown subcommand for '%s' command",
+                c->cmd->name);
+            return;
+        }
+        c->monitor_cmd = cmd;
+    }
 
     c->flags |= (CLIENT_SLAVE|CLIENT_MONITOR);
     listAddNodeTail(server.monitors,c);

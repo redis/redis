@@ -141,7 +141,7 @@ client *createClient(connection *conn) {
     c->argv_len_sum = 0;
     c->original_argc = 0;
     c->original_argv = NULL;
-    c->cmd = c->lastcmd = NULL;
+    c->cmd = c->lastcmd = c->monitor_cmd = NULL;
     c->multibulklen = 0;
     c->bulklen = -1;
     c->sentlen = 0;

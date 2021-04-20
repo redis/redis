@@ -875,6 +875,7 @@ typedef struct client {
     robj **original_argv;   /* Arguments of original command if arguments were rewritten. */
     size_t argv_len_sum;    /* Sum of lengths of objects in argv list. */
     struct redisCommand *cmd, *lastcmd;  /* Last command executed. */
+    struct redisCommand *monitor_cmd; /* Monitor filter command. */
     user *user;             /* User associated with this connection. If the
                                user is set to NULL the connection can do
                                anything (admin). */

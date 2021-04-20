@@ -410,7 +410,9 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
     listRewind(monitors,&li);
     while((ln = listNext(&li))) {
         client *monitor = ln->value;
-        addReply(monitor,cmdobj);
+        if (monitor->monitor_cmd == NULL || monitor->monitor_cmd == c->cmd) {
+            addReply(monitor,cmdobj);
+        }
     }
     decrRefCount(cmdobj);
 }
