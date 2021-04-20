@@ -727,7 +727,11 @@ int getRangeLongFromObjectOrReply(client *c, robj *o, long min, long max, long *
 }
 
 int getPositiveLongFromObjectOrReply(client *c, robj *o, long *target, const char *msg) {
-    return getRangeLongFromObjectOrReply(c, o, 0, LONG_MAX, target, msg);
+    if (msg) {
+        return getRangeLongFromObjectOrReply(c, o, 0, LONG_MAX, target, msg);
+    } else {
+        return getRangeLongFromObjectOrReply(c, o, 0, LONG_MAX, target, "value is out of range, must be positive");
+    }
 }
 
 int getIntFromObjectOrReply(client *c, robj *o, int *target, const char *msg) {

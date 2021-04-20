@@ -946,9 +946,10 @@ static void test_ll2string(void) {
 }
 
 #define UNUSED(x) (void)(x)
-int utilTest(int argc, char **argv) {
+int utilTest(int argc, char **argv, int accurate) {
     UNUSED(argc);
     UNUSED(argv);
+    UNUSED(accurate);
 
     test_string2ll();
     test_string2l();

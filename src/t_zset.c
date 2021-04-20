@@ -388,9 +388,8 @@ unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec *range, dict *dic
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
-        while (x->level[i].forward && (range->minex ?
-            x->level[i].forward->score <= range->min :
-            x->level[i].forward->score < range->min))
+        while (x->level[i].forward &&
+            !zslValueGteMin(x->level[i].forward->score, range))
                 x = x->level[i].forward;
         update[i] = x;
     }
@@ -399,9 +398,7 @@ unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec *range, dict *dic
     x = x->level[0].forward;
 
     /* Delete nodes while in range. */
-    while (x &&
-           (range->maxex ? x->score < range->max : x->score <= range->max))
-    {
+    while (x && zslValueLteMax(x->score, range)) {
         zskiplistNode *next = x->level[0].forward;
         zslDeleteNode(zsl,x,update);
         dictDelete(dict,x->ele);
@@ -1279,9 +1276,7 @@ int zsetScore(robj *zobj, sds member, double *score) {
 /* Add a new element or update the score of an existing element in a sorted
  * set, regardless of its encoding.
  *
- * The set of flags change the command behavior. They are passed with an integer
- * pointer since the function will clear the flags and populate them with
- * other flags to indicate different conditions.
+ * The set of flags change the command behavior. 
  *
  * The input flags are the following:
  *
@@ -1323,19 +1318,19 @@ int zsetScore(robj *zobj, sds member, double *score) {
  *
  * The function does not take ownership of the 'ele' SDS string, but copies
  * it if needed. */
-int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
+int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, double *newscore) {
     /* Turn options into simple to check vars. */
-    int incr = (*flags & ZADD_INCR) != 0;
-    int nx = (*flags & ZADD_NX) != 0;
-    int xx = (*flags & ZADD_XX) != 0;
-    int gt = (*flags & ZADD_GT) != 0;
-    int lt = (*flags & ZADD_LT) != 0;
-    *flags = 0; /* We'll return our response flags. */
+    int incr = (in_flags & ZADD_IN_INCR) != 0;
+    int nx = (in_flags & ZADD_IN_NX) != 0;
+    int xx = (in_flags & ZADD_IN_XX) != 0;
+    int gt = (in_flags & ZADD_IN_GT) != 0;
+    int lt = (in_flags & ZADD_IN_LT) != 0;
+    *out_flags = 0; /* We'll return our response flags. */
     double curscore;
 
     /* NaN as input is an error regardless of all the other parameters. */
     if (isnan(score)) {
-        *flags = ZADD_NAN;
+        *out_flags = ZADD_OUT_NAN;
         return 0;
     }
 
@@ -1346,7 +1341,7 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
         if ((eptr = zzlFind(zobj->ptr,ele,&curscore)) != NULL) {
             /* NX? Return, same element already exists. */
             if (nx) {
-                *flags |= ZADD_NOP;
+                *out_flags |= ZADD_OUT_NOP;
                 return 1;
             }
 
@@ -1354,22 +1349,24 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
             if (incr) {
                 score += curscore;
                 if (isnan(score)) {
-                    *flags |= ZADD_NAN;
+                    *out_flags |= ZADD_OUT_NAN;
                     return 0;
                 }
-                if (newscore) *newscore = score;
             }
 
+            /* GT/LT? Only update if score is greater/less than current. */
+            if ((lt && score >= curscore) || (gt && score <= curscore)) {
+                *out_flags |= ZADD_OUT_NOP;
+                return 1;
+            }
+
+            if (newscore) *newscore = score;
+
             /* Remove and re-insert when score changed. */
-            if (score != curscore &&  
-                /* LT? Only update if score is less than current. */
-                (!lt || score < curscore) &&
-                /* GT? Only update if score is greater than current. */
-                (!gt || score > curscore)) 
-            {
+            if (score != curscore) {
                 zobj->ptr = zzlDelete(zobj->ptr,eptr);
                 zobj->ptr = zzlInsert(zobj->ptr,ele,score);
-                *flags |= ZADD_UPDATED;
+                *out_flags |= ZADD_OUT_UPDATED;
             }
             return 1;
         } else if (!xx) {
@@ -1380,10 +1377,10 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
                 sdslen(ele) > server.zset_max_ziplist_value)
                 zsetConvert(zobj,OBJ_ENCODING_SKIPLIST);
             if (newscore) *newscore = score;
-            *flags |= ZADD_ADDED;
+            *out_flags |= ZADD_OUT_ADDED;
             return 1;
         } else {
-            *flags |= ZADD_NOP;
+            *out_flags |= ZADD_OUT_NOP;
             return 1;
         }
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
@@ -1395,45 +1392,48 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
         if (de != NULL) {
             /* NX? Return, same element already exists. */
             if (nx) {
-                *flags |= ZADD_NOP;
+                *out_flags |= ZADD_OUT_NOP;
                 return 1;
             }
+
             curscore = *(double*)dictGetVal(de);
 
             /* Prepare the score for the increment if needed. */
             if (incr) {
                 score += curscore;
                 if (isnan(score)) {
-                    *flags |= ZADD_NAN;
+                    *out_flags |= ZADD_OUT_NAN;
                     return 0;
                 }
-                if (newscore) *newscore = score;
             }
 
+            /* GT/LT? Only update if score is greater/less than current. */
+            if ((lt && score >= curscore) || (gt && score <= curscore)) {
+                *out_flags |= ZADD_OUT_NOP;
+                return 1;
+            }
+
+            if (newscore) *newscore = score;
+
             /* Remove and re-insert when score changes. */
-            if (score != curscore &&  
-                /* LT? Only update if score is less than current. */
-                (!lt || score < curscore) &&
-                /* GT? Only update if score is greater than current. */
-                (!gt || score > curscore)) 
-            {
+            if (score != curscore) {
                 znode = zslUpdateScore(zs->zsl,curscore,ele,score);
                 /* Note that we did not removed the original element from
                  * the hash table representing the sorted set, so we just
                  * update the score. */
                 dictGetVal(de) = &znode->score; /* Update score ptr. */
-                *flags |= ZADD_UPDATED;
+                *out_flags |= ZADD_OUT_UPDATED;
             }
             return 1;
         } else if (!xx) {
             ele = sdsdup(ele);
             znode = zslInsert(zs->zsl,score,ele);
             serverAssert(dictAdd(zs->dict,ele,&znode->score) == DICT_OK);
-            *flags |= ZADD_ADDED;
+            *out_flags |= ZADD_OUT_ADDED;
             if (newscore) *newscore = score;
             return 1;
         } else {
-            *flags |= ZADD_NOP;
+            *out_flags |= ZADD_OUT_NOP;
             return 1;
         }
     } else {
@@ -1636,7 +1636,7 @@ static int _zsetZiplistValidateIntegrity(unsigned char *p, void *userdata) {
     return 1;
 }
 
-/* Validate the integrity of the data stracture.
+/* Validate the integrity of the data structure.
  * when `deep` is 0, only the integrity of the header is validated.
  * when `deep` is 1, we scan all the entries one by one. */
 int zsetZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep) {
@@ -1712,7 +1712,7 @@ void zaddGenericCommand(client *c, int flags) {
     robj *zobj;
     sds ele;
     double score = 0, *scores = NULL;
-    int j, elements;
+    int j, elements, ch = 0;
     int scoreidx = 0;
     /* The following vars are used in order to track what the command actually
      * did during the execution, to reply to the client and to trigger the
@@ -1727,23 +1727,22 @@ void zaddGenericCommand(client *c, int flags) {
     scoreidx = 2;
     while(scoreidx < c->argc) {
         char *opt = c->argv[scoreidx]->ptr;
-        if (!strcasecmp(opt,"nx")) flags |= ZADD_NX;
-        else if (!strcasecmp(opt,"xx")) flags |= ZADD_XX;
-        else if (!strcasecmp(opt,"ch")) flags |= ZADD_CH;
-        else if (!strcasecmp(opt,"incr")) flags |= ZADD_INCR;
-        else if (!strcasecmp(opt,"gt")) flags |= ZADD_GT;
-        else if (!strcasecmp(opt,"lt")) flags |= ZADD_LT;
+        if (!strcasecmp(opt,"nx")) flags |= ZADD_IN_NX;
+        else if (!strcasecmp(opt,"xx")) flags |= ZADD_IN_XX;
+        else if (!strcasecmp(opt,"ch")) ch = 1; /* Return num of elements added or updated. */
+        else if (!strcasecmp(opt,"incr")) flags |= ZADD_IN_INCR;
+        else if (!strcasecmp(opt,"gt")) flags |= ZADD_IN_GT;
+        else if (!strcasecmp(opt,"lt")) flags |= ZADD_IN_LT;
         else break;
         scoreidx++;
     }
 
     /* Turn options into simple to check vars. */
-    int incr = (flags & ZADD_INCR) != 0;
-    int nx = (flags & ZADD_NX) != 0;
-    int xx = (flags & ZADD_XX) != 0;
-    int ch = (flags & ZADD_CH) != 0;
-    int gt = (flags & ZADD_GT) != 0;
-    int lt = (flags & ZADD_LT) != 0;
+    int incr = (flags & ZADD_IN_INCR) != 0;
+    int nx = (flags & ZADD_IN_NX) != 0;
+    int xx = (flags & ZADD_IN_XX) != 0;
+    int gt = (flags & ZADD_IN_GT) != 0;
+    int lt = (flags & ZADD_IN_LT) != 0;
 
     /* After the options, we expect to have an even number of args, since
      * we expect any number of score-element pairs. */
@@ -1801,17 +1800,17 @@ void zaddGenericCommand(client *c, int flags) {
     for (j = 0; j < elements; j++) {
         double newscore;
         score = scores[j];
-        int retflags = flags;
+        int retflags = 0;
 
         ele = c->argv[scoreidx+1+j*2]->ptr;
-        int retval = zsetAdd(zobj, score, ele, &retflags, &newscore);
+        int retval = zsetAdd(zobj, score, ele, flags, &retflags, &newscore);
         if (retval == 0) {
             addReplyError(c,nanerr);
             goto cleanup;
         }
-        if (retflags & ZADD_ADDED) added++;
-        if (retflags & ZADD_UPDATED) updated++;
-        if (!(retflags & ZADD_NOP)) processed++;
+        if (retflags & ZADD_OUT_ADDED) added++;
+        if (retflags & ZADD_OUT_UPDATED) updated++;
+        if (!(retflags & ZADD_OUT_NOP)) processed++;
         score = newscore;
     }
     server.dirty += (added+updated);
@@ -1836,11 +1835,11 @@ cleanup:
 }
 
 void zaddCommand(client *c) {
-    zaddGenericCommand(c,ZADD_NONE);
+    zaddGenericCommand(c,ZADD_IN_NONE);
 }
 
 void zincrbyCommand(client *c) {
-    zaddGenericCommand(c,ZADD_INCR);
+    zaddGenericCommand(c,ZADD_IN_INCR);
 }
 
 void zremCommand(client *c) {
@@ -2577,8 +2576,8 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         return;
 
     if (setnum < 1) {
-        addReplyError(c,
-            "at least 1 input key is needed for ZUNIONSTORE/ZINTERSTORE/ZDIFFSTORE");
+        addReplyErrorFormat(c,
+            "at least 1 input key is needed for %s", c->cmd->name);
         return;
     }
 
@@ -2941,7 +2940,7 @@ static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
     double newscore;
     int retflags = 0;
     sds ele = sdsnewlen(value, value_length_in_bytes);
-    int retval = zsetAdd(handler->dstobj, score, ele, &retflags, &newscore);
+    int retval = zsetAdd(handler->dstobj, score, ele, ZADD_IN_NONE, &retflags, &newscore);
     sdsfree(ele);
     serverAssert(retval);
 }
@@ -2952,7 +2951,7 @@ static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
     double newscore;
     int retflags = 0;
     sds ele = sdsfromlonglong(value);
-    int retval = zsetAdd(handler->dstobj, score, ele, &retflags, &newscore);
+    int retval = zsetAdd(handler->dstobj, score, ele, ZADD_IN_NONE, &retflags, &newscore);
     sdsfree(ele);
     serverAssert(retval);
 }

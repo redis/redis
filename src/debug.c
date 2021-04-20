@@ -249,7 +249,7 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
         }
         streamIteratorStop(&si);
     } else if (o->type == OBJ_MODULE) {
-        RedisModuleDigest md;
+        RedisModuleDigest md = {{0},{0}};
         moduleValue *mv = o->ptr;
         moduleType *mt = mv->type;
         moduleInitDigestContext(md);
@@ -441,7 +441,7 @@ void debugCommand(client *c) {
 "      conflicting keys will generate an exception and kill the server."
 "    * NOSAVE: the database will be loaded from an existing RDB file.",
 "    Examples:",
-"    * DEBUG RELOAD: verify that the server is able to persist, flsuh and reload",
+"    * DEBUG RELOAD: verify that the server is able to persist, flush and reload",
 "      the database.",
 "    * DEBUG RELOAD NOSAVE: replace the current database with the contents of an",
 "      existing RDB file.",
@@ -473,7 +473,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"segfault")) {
         *((char*)-1) = 'x';
     } else if (!strcasecmp(c->argv[1]->ptr,"panic")) {
-        serverPanic("DEBUG PANIC called at Unix time %ld", time(NULL));
+        serverPanic("DEBUG PANIC called at Unix time %lld", (long long)time(NULL));
     } else if (!strcasecmp(c->argv[1]->ptr,"restart") ||
                !strcasecmp(c->argv[1]->ptr,"crash-and-recover"))
     {
@@ -1809,7 +1809,7 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
         serverLog(LL_WARNING,
         "Accessing address: %p", (void*)info->si_addr);
     }
-    if (info->si_pid != -1) {
+    if (info->si_code <= SI_USER && info->si_pid != -1) {
         serverLog(LL_WARNING, "Killed by PID: %ld, UID: %d", (long) info->si_pid, info->si_uid);
     }
 

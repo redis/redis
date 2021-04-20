@@ -31,7 +31,7 @@ proc zlistAlikeSort {a b} {
 
 # Return all log lines starting with the first line that contains a warning.
 # Generally, this will be an assertion error with a stack trace.
-proc warnings_from_file {filename} {
+proc crashlog_from_file {filename} {
     set lines [split [exec cat $filename] "\n"]
     set matched 0
     set logall 0
@@ -506,18 +506,18 @@ proc stop_write_load {handle} {
 
 proc K { x y } { set x } 
 
-# Shuffle a list. From Tcl wiki. Originally from Steve Cohen that improved
-# other versions. Code should be under public domain.
+# Shuffle a list with Fisher-Yates algorithm.
 proc lshuffle {list} {
     set n [llength $list]
-    while {$n>0} {
+    while {$n>1} {
         set j [expr {int(rand()*$n)}]
-        lappend slist [lindex $list $j]
         incr n -1
-        set temp [lindex $list $n]
-        set list [lreplace [K $list [set list {}]] $j $j $temp]
+        if {$n==$j} continue
+        set v [lindex $list $j]
+        lset list $j [lindex $list $n]
+        lset list $n $v
     }
-    return $slist
+    return $list
 }
 
 # Execute a background process writing complex data for the specified number
@@ -682,20 +682,83 @@ proc string2printable s {
     return $res
 }
 
-# Check that probability of each element are between {min_prop} and {max_prop}.
-proc check_histogram_distribution {res min_prop max_prop} {
+# Calculation value of Chi-Square Distribution. By this value
+# we can verify the random distribution sample confidence.
+# Based on the following wiki:
+# https://en.wikipedia.org/wiki/Chi-square_distribution
+#
+# param res    Random sample list
+# return       Value of Chi-Square Distribution
+#
+# x2_value: return of chi_square_value function
+# df: Degrees of freedom, Number of independent values minus 1
+#
+# By using x2_value and df to back check the cardinality table,
+# we can know the confidence of the random sample.
+proc chi_square_value {res} {
     unset -nocomplain mydict
     foreach key $res {
         dict incr mydict $key 1
     }
 
+    set x2_value 0
+    set p [expr [llength $res] / [dict size $mydict]]
     foreach key [dict keys $mydict] {
         set value [dict get $mydict $key]
-        set probability [expr {double($value) / [llength $res]}]
-        if {$probability < $min_prop || $probability > $max_prop} {
-            return false
-        }
+
+        # Aggregate the chi-square value of each element
+        set v [expr {pow($value - $p, 2) / $p}]
+        set x2_value [expr {$x2_value + $v}]
     }
 
-    return true
+    return $x2_value
+}
+
+#subscribe to Pub/Sub channels
+proc consume_subscribe_messages {client type channels} {
+    set numsub -1
+    set counts {}
+
+    for {set i [llength $channels]} {$i > 0} {incr i -1} {
+        set msg [$client read]
+        assert_equal $type [lindex $msg 0]
+
+        # when receiving subscribe messages the channels names
+        # are ordered. when receiving unsubscribe messages
+        # they are unordered
+        set idx [lsearch -exact $channels [lindex $msg 1]]
+        if {[string match "*unsubscribe" $type]} {
+            assert {$idx >= 0}
+        } else {
+            assert {$idx == 0}
+        }
+        set channels [lreplace $channels $idx $idx]
+
+        # aggregate the subscription count to return to the caller
+        lappend counts [lindex $msg 2]
+    }
+
+    # we should have received messages for channels
+    assert {[llength $channels] == 0}
+    return $counts
+}
+
+proc subscribe {client channels} {
+    $client subscribe {*}$channels
+    consume_subscribe_messages $client subscribe $channels
+}
+
+proc unsubscribe {client {channels {}}} {
+    $client unsubscribe {*}$channels
+    consume_subscribe_messages $client unsubscribe $channels
+}
+
+proc psubscribe {client channels} {
+    $client psubscribe {*}$channels
+    consume_subscribe_messages $client psubscribe $channels
+}
+
+proc punsubscribe {client {channels {}}} {
+    $client punsubscribe {*}$channels
+    consume_subscribe_messages $client punsubscribe $channels
 }

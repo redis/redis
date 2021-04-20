@@ -12,6 +12,80 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 6.2.2 Released Mon April 19 19:00:00 IST 2021
+================================================================================
+
+Upgrade urgency: HIGH, if you're using ACL and pub/sub, CONFIG REWRITE, or
+suffering from performance regression. see below.
+
+Bug fixes for regressions in previous releases of Redis 6.2:
+* Fix BGSAVE, AOFRW, and replication slowdown due to child reporting CoW (#8645)
+* Fix short busy loop when timer event is about to fire (#8764)
+* Fix default user, overwritten and reset users losing pubsub channel permissions (#8723)
+* Fix config rewrite with an empty `save` config resulsing in default `save` values (#8719)
+* Fix not starting on alpine/libmusl without IPv6 (#8655)
+* Fix issues with propagation and MULTI/EXEC in modules (#8617)
+  Several issues around nested calls and thread safe contexts
+
+Bug fixes that are only applicable to previous releases of Redis 6.2:
+* ACL Pub/Sub channels permission handling for save/load scenario (#8794)
+* Fix early rejection of PUBLISH inside MULTI-EXEC transaction (#8534)
+* Fix missing SLOWLOG records for blocked commands (#8632)
+* Allow RESET command during busy scripts (#8629)
+* Fix some error replies were not counted on stats (#8659)
+
+Bug fixes:
+* Add a timeout mechanism for replicas stuck in fullsync (#8762)
+* Process HELLO command even if the default user has no permissions (#8633)
+* Client issuing a long running script and using a pipeline, got disconnected (#8715)
+* Fix script kill to work also on scripts that use `pcall` (#8661)
+* Fix list-compress-depth may compress more node than required (#8311)
+* Fix redis-cli handling of rediss:// URL scheme (#8705)
+* Cluster: Skip unnecessary check which may prevent failure detection (#8585)
+* Cluster: Fix hang manual failover when replica just started (#8651)
+* Sentinel: Fix info-refresh time field before sentinel get first response (#8567)
+* Sentinel: Fix possible crash on failed connection attempt (#8627)
+* Systemd: Send the readiness notification when a replica is ready to accept connections (#8409)
+
+Command behavior changes:
+* ZADD: fix wrong reply when INCR used with GT/LT which blocked the update (#8717)
+  It was responding with the incremented value rather than nil
+* XAUTOCLAIM: fix response to return the next available id as the cursor (#8725)
+  Previous behavior was retuning the last one which was already scanned
+* XAUTOCLAIM: fix JUSTID to prevent incrementing delivery_count (#8724)
+
+New config options:
+* Add cluster-allow-replica-migration config option (#5285)
+* Add replica-announced config option (#8653)
+* Add support for plaintext clients in TLS cluster (#8587)
+* Add support for reading encrypted keyfiles (#8644)
+
+Improvements:
+* Fix performance regression in BRPOP on Redis 6.0 (#8689)
+* Avoid adding slowlog entries for config with sensitive data (#8584)
+* Improve redis-cli non-binary safe string handling (#8566)
+* Optimize CLUSTER SLOTS reply (#8541)
+* Handle remaining fsync errors (#8419)
+
+Info fields and introspection changes:
+* Strip % sign from current_fork_perc info field (#8628)
+* Fix RSS memory info on FreeBSD (#8620)
+* Fix client_recent_max_input/output_buffer in 'INFO CLIENTS' when all clients drop (#8588)
+* Fix invalid master_link_down_since_seconds in info replication (#8785)
+
+Platform and deployment-related changes:
+* Fix FreeBSD <12.x builds (#8603)
+
+Modules:
+* Add macros for RedisModule_log logging levels (#4246)
+* Add RedisModule_GetAbsExpire / RedisModule_SetAbsExpire (#8564)
+* Add a module type for key space notification (#8759)
+* Set module eviction context flag only in masters (#8631)
+* Fix unusable RedisModule_IsAOFClient API (#8596)
+* Fix missing EXEC on modules propagation after failed EVAL execution (#8654)
+* Fix edge-case when a module client is unblocked (#8618)
+
+================================================================================
 Redis 6.2.1 Released Mon Mar  1 17:51:36 IST 2021
 ================================================================================
 

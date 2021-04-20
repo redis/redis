@@ -15,10 +15,10 @@ Another good example is to think of Redis as a more complex version of memcached
 
 If you want to know more, this is a list of selected starting points:
 
-* Introduction to Redis data types. http://redis.io/topics/data-types-intro
+* Introduction to Redis data types. https://redis.io/topics/data-types-intro
 * Try Redis directly inside your browser. http://try.redis.io
-* The full list of Redis commands. http://redis.io/commands
-* There is much more inside the official Redis documentation. http://redis.io/documentation
+* The full list of Redis commands. https://redis.io/commands
+* There is much more inside the official Redis documentation. https://redis.io/documentation
 
 Building Redis
 --------------
@@ -49,7 +49,7 @@ To append a suffix to Redis program names, use:
 
     % make PROG_SUFFIX="-alt"
 
-You can run a 32 bit Redis binary using:
+You can build a 32 bit Redis binary using:
 
     % make 32bit
 
@@ -184,7 +184,7 @@ then in another terminal try the following:
     (integer) 2
     redis>
 
-You can find the list of all the available commands at http://redis.io/commands.
+You can find the list of all the available commands at https://redis.io/commands.
 
 Installing Redis
 -----------------
@@ -294,19 +294,19 @@ the structure definition.
 Another important Redis data structure is the one defining a client.
 In the past it was called `redisClient`, now just `client`. The structure
 has many fields, here we'll just show the main ones:
-
-    struct client {
-        int fd;
-        sds querybuf;
-        int argc;
-        robj **argv;
-        redisDb *db;
-        int flags;
-        list *reply;
-        char buf[PROTO_REPLY_CHUNK_BYTES];
-        ... many other fields ...
-    }
-
+```c
+struct client {
+    int fd;
+    sds querybuf;
+    int argc;
+    robj **argv;
+    redisDb *db;
+    int flags;
+    list *reply;
+    char buf[PROTO_REPLY_CHUNK_BYTES];
+    // ... many other fields ...
+}
+```
 The client structure defines a *connected client*:
 
 * The `fd` field is the client socket file descriptor.
@@ -453,7 +453,7 @@ Other C files
 * `scripting.c` implements Lua scripting. It is completely self-contained and isolated from the rest of the Redis implementation and is simple enough to understand if you are familiar with the Lua API.
 * `cluster.c` implements the Redis Cluster. Probably a good read only after being very familiar with the rest of the Redis code base. If you want to read `cluster.c` make sure to read the [Redis Cluster specification][3].
 
-[3]: http://redis.io/topics/cluster-spec
+[3]: https://redis.io/topics/cluster-spec
 
 Anatomy of a Redis command
 ---

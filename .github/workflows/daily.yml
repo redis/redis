@@ -17,7 +17,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: make
-      run: make
+      run: make REDIS_CFLAGS='-Werror -DREDIS_TEST'
     - name: test
       run: |
         sudo apt-get install tcl8.6
@@ -28,6 +28,8 @@ jobs:
       run: ./runtest-sentinel
     - name: cluster tests
       run: ./runtest-cluster
+    - name: unittest
+      run: ./src/redis-server test all
 
   test-ubuntu-libc-malloc:
     runs-on: ubuntu-latest
@@ -76,7 +78,7 @@ jobs:
     - name: make
       run: |
         sudo apt-get update && sudo apt-get install libc6-dev-i386
-        make 32bit
+        make 32bit REDIS_CFLAGS='-Werror -DREDIS_TEST'
     - name: test
       run: |
         sudo apt-get install tcl8.6
@@ -89,6 +91,8 @@ jobs:
       run: ./runtest-sentinel
     - name: cluster tests
       run: ./runtest-cluster
+    - name: unittest
+      run: ./src/redis-server test all
 
   test-ubuntu-tls:
     runs-on: ubuntu-latest
@@ -142,7 +146,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: make
-      run: make valgrind
+      run: make valgrind REDIS_CFLAGS='-Werror -DREDIS_TEST'
     - name: test
       run: |
         sudo apt-get update
@@ -150,6 +154,10 @@ jobs:
         ./runtest --valgrind --verbose --clients 1 --dump-logs
     - name: module api test
       run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1
+    - name: unittest
+      run: |
+        valgrind --track-origins=yes --suppressions=./src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full --log-file=err.txt ./src/redis-server test all
+        if grep -q 0x err.txt; then cat err.txt; exit 1; fi
 
   test-valgrind-no-malloc-usable-size:
     runs-on: ubuntu-latest
@@ -259,6 +267,7 @@ jobs:
 
   test-alpine-jemalloc:
     runs-on: ubuntu-latest
+    if: github.repository == 'redis/redis'
     container: alpine:latest
     steps:
     - uses: actions/checkout@v2
@@ -279,6 +288,7 @@ jobs:
 
   test-alpine-libc-malloc:
     runs-on: ubuntu-latest
+    if: github.repository == 'redis/redis'
     container: alpine:latest
     steps:
     - uses: actions/checkout@v2
