@@ -5465,9 +5465,10 @@ try_again:
             if (ttl < 1) ttl = 1;
         }
 
-        /* Relocate valid (non expired) keys into the array in successive
+        /* Relocate valid (non expired) keys and values into the array in successive
          * positions to remove holes created by the keys that were present
          * in the first lookup but are now expired after the second lookup. */
+        ov[non_expired] = ov[j];
         kv[non_expired++] = kv[j];
 
         serverAssertWithInfo(c,NULL,
