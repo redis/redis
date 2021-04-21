@@ -1355,6 +1355,7 @@ void freeClient(client *c) {
     pubsubUnsubscribeAllPatterns(c,0);
     dictRelease(c->pubsub_channels);
     listRelease(c->pubsub_patterns);
+    dictRelease(c->pubsublocal_channels);
 
     /* Free data structures. */
     listRelease(c->reply);

@@ -31,7 +31,7 @@
 
 int clientSubscriptionsCount(client *c);
 
-void channel_list(client *c, sds pat, dict* pubsub_channels);
+void channelList(client *c, sds pat, dict* pubsub_channels);
 
 pubsubmeta *createPubSubMeta(client *c);
 
@@ -230,7 +230,7 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubmeta *m
         if (meta->local) {
             addReplyPubsubUnsubscribed(c,
                                        channel,
-                                       shared.unsubscribebulk,
+                                       shared.unsubscribelocalbulk,
                                        clientLocalSubscriptionsCount);
         } else {
             addReplyPubsubUnsubscribed(c,
@@ -341,7 +341,7 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
  * client was subscribed to. */
 int pubsubUnsubscribeAllChannelsInternal(client *c, int notify, pubsubmeta *meta) {
     int count = 0;
-    if (dictSize(c->pubsub_channels) > 0) {
+    if (dictSize(meta->client_channels) > 0) {
         dictIterator *di = dictGetSafeIterator(meta->client_channels);
         dictEntry *de;
 
@@ -357,7 +357,8 @@ int pubsubUnsubscribeAllChannelsInternal(client *c, int notify, pubsubmeta *meta
         addReplyPubsubUnsubscribed(c,
                                    NULL,
                                    shared.unsubscribebulk,
-                                   0);
+                                   meta->local ? clientLocalSubscriptionsCount
+                                   : clientSubscriptionsCount);
     }
     return count;
 }
@@ -425,7 +426,7 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, dict* server_chan
 
     if (!local) {
         /* Send to clients listening to matching channels */
-        di = dictGetIterator(server_channels);
+        di = dictGetIterator(server.pubsub_patterns);
         if (di) {
             channel = getDecodedObject(channel);
             while((de = dictNext(di)) != NULL) {
@@ -573,7 +574,7 @@ NULL
     {
         /* PUBSUB CHANNELS [<pattern>] */
         sds pat = (c->argc == 2) ? NULL : c->argv[2]->ptr;
-        channel_list(c, pat, server.pubsub_channels);
+        channelList(c, pat, server.pubsub_channels);
     } else if (!strcasecmp(c->argv[1]->ptr,"numsub") && c->argc >= 2) {
         /* PUBSUB NUMSUB [Channel_1 ... Channel_N] */
         int j;
@@ -592,7 +593,7 @@ NULL
         /* PUBSUB LOCAL CHANNELS [PATTERN] */
         if (!strcasecmp(c->argv[2]->ptr,"channels")) {
             sds pat = (c->argc == 3) ? NULL : c->argv[3]->ptr;
-            channel_list(c, pat, server.pubsublocal_channels);
+            channelList(c, pat, server.pubsublocal_channels);
 
         } else if (!strcasecmp(c->argv[2]->ptr,"numsub")) {
             /* PUBSUB LOCAL NUMSUB [Channel_1 ... Channel_N] */
@@ -613,7 +614,7 @@ NULL
     }
 }
 
-void channel_list(client *c, sds pat, dict *pubsub_channels) {
+void channelList(client *c, sds pat, dict *pubsub_channels) {
     dictIterator *di = dictGetIterator(pubsub_channels);
     dictEntry *de;
     long mblen = 0;

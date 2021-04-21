@@ -1134,7 +1134,7 @@ struct redisCommand redisCommandTable[] = {
             "pub-sub no-script ok-loading ok-stale",
             0,NULL,1,-1,1,0,0,0},
 
-    {"unsubscribeLocal",unsubscribeLocalCommand,-1,
+    {"unsubscribelocal",unsubscribeLocalCommand,-1,
             "pub-sub no-script ok-loading ok-stale",
             0,NULL,1,-1,1,0,0,0}
 };
@@ -4188,6 +4188,7 @@ int processCommand(client *c) {
         c->cmd->proc != subscribeCommand &&
         c->cmd->proc != subscribeLocalCommand &&
         c->cmd->proc != unsubscribeCommand &&
+        c->cmd->proc != unsubscribeLocalCommand &&
         c->cmd->proc != psubscribeCommand &&
         c->cmd->proc != punsubscribeCommand &&
         c->cmd->proc != resetCommand) {
