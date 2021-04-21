@@ -3224,7 +3224,7 @@ int checkClientOutputBufferLimits(client *c) {
  * Note: we need to close the client asynchronously because this function is
  * called from contexts where the client can't be freed safely, i.e. from the
  * lower level functions pushing data inside the client output buffers.
- * When `async` is set to 1, we close the client immediately, this is
+ * When `async` is set to 0, we close the client immediately, this is
  * useful when called from cron.
  *
  * Returns 1 if client was (flagged) closed. */

@@ -46,9 +46,9 @@ start_server {tags {"obuf-limits"}} {
                 # Slow down loop when omem has reached the limit.
                 after 10
             } else {
+                # if the OS socket buffers swallowed what we previously filled, reset the start timer.
                 set start_time 0
             }
-            
         }
 
         assert {$omem >= 100000 && $time_elapsed >= 5 && $time_elapsed <= 10}
@@ -82,6 +82,7 @@ start_server {tags {"obuf-limits"}} {
                 # Slow down loop when omem has reached the limit.
                 after 10
             } else {
+                # if the OS socket buffers swallowed what we previously filled, reset the start timer.
                 set start_time 0
             }
         }
@@ -108,7 +109,7 @@ start_server {tags {"obuf-limits"}} {
             r publish foo [string repeat "x" 1000]
             set clients [split [r client list] "\r\n"]
             set c [lsearch -inline $clients *name=test_client*]
-            if {![regexp {omem=([0-9]+)} $c - omem]} break
+            assert {[regexp {omem=([0-9]+)} $c - omem]}
             if {$omem > 100000} {
                 if {$start_time == 0} {set start_time [clock seconds]}
                 set time_elapsed [expr {[clock seconds]-$start_time}]
@@ -116,9 +117,9 @@ start_server {tags {"obuf-limits"}} {
                 # Slow down loop when omem has reached the limit.
                 after 10
             } else {
+                # if the OS socket buffers swallowed what we previously filled, reset the start timer.
                 set start_time 0
             }
-            
         }
 
         assert {$omem >= 100000 && $time_elapsed >= 3 && $time_elapsed <= 6}
