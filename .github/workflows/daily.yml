@@ -20,7 +20,7 @@ jobs:
       run: make REDIS_CFLAGS='-Werror -DREDIS_TEST'
     - name: test
       run: |
-        sudo apt-get install tcl8.6
+        sudo apt-get install tcl8.6 tclx
         ./runtest --accurate --verbose --dump-logs
     - name: module api test
       run: ./runtest-moduleapi --verbose
@@ -41,7 +41,7 @@ jobs:
       run: make MALLOC=libc
     - name: test
       run: |
-        sudo apt-get install tcl8.6
+        sudo apt-get install tcl8.6 tclx
         ./runtest --accurate --verbose --dump-logs
     - name: module api test
       run: ./runtest-moduleapi --verbose
@@ -60,7 +60,7 @@ jobs:
       run: make MALLOC=libc CFLAGS=-DNO_MALLOC_USABLE_SIZE
     - name: test
       run: |
-        sudo apt-get install tcl8.6
+        sudo apt-get install tcl8.6 tclx
         ./runtest --accurate --verbose --dump-logs
     - name: module api test
       run: ./runtest-moduleapi --verbose
@@ -81,7 +81,7 @@ jobs:
         make 32bit REDIS_CFLAGS='-Werror -DREDIS_TEST'
     - name: test
       run: |
-        sudo apt-get install tcl8.6
+        sudo apt-get install tcl8.6 tclx
         ./runtest --accurate --verbose --dump-logs
     - name: module api test
       run: |
@@ -105,7 +105,7 @@ jobs:
         make BUILD_TLS=yes
     - name: test
       run: |
-        sudo apt-get install tcl8.6 tcl-tls
+        sudo apt-get install tcl8.6 tclx tcl-tls
         ./utils/gen-test-certs.sh
         ./runtest --accurate --verbose --tls --dump-logs
         ./runtest --accurate --verbose --dump-logs
@@ -133,7 +133,7 @@ jobs:
         make
     - name: test
       run: |
-        sudo apt-get install tcl8.6 tcl-tls
+        sudo apt-get install tcl8.6 tclx tcl-tls
         ./runtest --config io-threads 4 --config io-threads-do-reads yes --accurate --verbose --tags network --dump-logs
     - name: cluster tests
       run: |
@@ -150,7 +150,7 @@ jobs:
     - name: test
       run: |
         sudo apt-get update
-        sudo apt-get install tcl8.6 valgrind -y
+        sudo apt-get install tcl8.6 tclx valgrind -y
         ./runtest --valgrind --verbose --clients 1 --dump-logs
     - name: module api test
       run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1
@@ -170,7 +170,7 @@ jobs:
     - name: test
       run: |
         sudo apt-get update
-        sudo apt-get install tcl8.6 valgrind -y
+        sudo apt-get install tcl8.6 tclx valgrind -y
         ./runtest --valgrind --verbose --clients 1 --dump-logs
     - name: module api test
       run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1
@@ -188,7 +188,7 @@ jobs:
         make
     - name: test
       run: |
-        yum -y install which tcl
+        yum -y install which tcl tclx
         ./runtest --accurate --verbose --dump-logs
     - name: module api test
       run: ./runtest-moduleapi --verbose
@@ -211,7 +211,7 @@ jobs:
         scl enable devtoolset-7 "make BUILD_TLS=yes"
     - name: test
       run: |
-        yum -y install tcl tcltls
+        yum -y install tcl tcltls tclx
         ./utils/gen-test-certs.sh
         ./runtest --accurate --verbose --tls --dump-logs
         ./runtest --accurate --verbose --dump-logs
@@ -257,7 +257,7 @@ jobs:
       with:
         usesh: true
         sync: rsync
-        prepare: pkg install -y bash gmake lang/tcl86
+        prepare: pkg install -y bash gmake lang/tcl86 lang/tclx
         run: >
           gmake &&
           ./runtest --accurate --verbose --no-latency --dump-logs &&
@@ -277,7 +277,7 @@ jobs:
           make REDIS_CFLAGS='-Werror'
     - name: test
       run: |
-        apk add tcl procps
+        apk add tcl procps tclx
         ./runtest --accurate --verbose --dump-logs
     - name: module api test
       run: ./runtest-moduleapi --verbose
@@ -298,7 +298,7 @@ jobs:
           make REDIS_CFLAGS='-Werror' USE_JEMALLOC=no CFLAGS=-DUSE_MALLOC_USABLE_SIZE
     - name: test
       run: |
-        apk add tcl procps
+        apk add tcl procps tclx
         ./runtest --accurate --verbose --dump-logs
     - name: module api test
       run: ./runtest-moduleapi --verbose

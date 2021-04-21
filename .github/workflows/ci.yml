@@ -14,7 +14,7 @@ jobs:
       run: make REDIS_CFLAGS='-Werror' BUILD_TLS=yes
     - name: test
       run: |
-        sudo apt-get install tcl8.6
+        sudo apt-get install tcl8.6 tclx
         ./runtest --verbose
     - name: module api test
       run: ./runtest-moduleapi --verbose

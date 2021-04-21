@@ -2,6 +2,15 @@
 
 tags {"dump" "corruption"} {
 
+# catch sigterm so that in case one of the random command hangs the test,
+# usually due to redis not putting a response in the output buffers,
+# we'll know which command it was
+if { ! [ catch {
+    package require Tclx
+} err ] } {
+    signal error SIGTERM
+}
+
 proc generate_collections {suffix elements} {
     set rd [redis_deferring_client]
     for {set j 0} {$j < $elements} {incr j} {
