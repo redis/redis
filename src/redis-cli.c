@@ -3368,7 +3368,7 @@ cleanup:
 
 /* Get the node the slot is assigned to from the point of view of node *n.
  * If the slot is unassigned or if the reply is an error, return NULL.
- * Use the **err argument in order to check wether the slot is unassigned
+ * Use the **err argument in order to check whether the slot is unassigned
  * or the reply resulted in an error. */
 static clusterManagerNode *clusterManagerGetSlotOwner(clusterManagerNode *n,
                                                       int slot, char **err)
