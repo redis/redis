@@ -11,6 +11,7 @@ start_server {tags {"maxmemory"}} {
         }
     }
 
+    # TODO: we might want to change the tests so we run them first with no maxmemory-cliets and verify we get key eviction, and then re-run them and see clients disconnect and there's no eviction
     r config set maxmemory-clients 3mb
 
     set clients {}
@@ -79,7 +80,7 @@ start_server {tags {"maxmemory"}} {
     set clients {}
     test "eviction due to output buffers of pubsub" {
         refill
-        for {set j 0} {$j < 30} {incr j} {
+        for {set j 0} {$j < 10} {incr j} {
             set rr [redis_deferring_client]
             lappend clients $rr
         }
@@ -88,7 +89,7 @@ start_server {tags {"maxmemory"}} {
             $rr subscribe bla
         }
 
-        for {set j 0} {$j < 50} {incr j} {
+        for {set j 0} {$j < 35} {incr j} {
             catch {r publish bla [string repeat x 100000]} err
         }
 
