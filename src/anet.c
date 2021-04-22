@@ -562,8 +562,10 @@ int anetFdToString(int fd, char *ip, size_t ip_len, int *port, int fd_to_str_typ
         }
         if (port) *port = ntohs(s->sin6_port);
     } else if (sa.ss_family == AF_UNIX) {
-        if (ip_len < sizeof("/unixsocket")) goto error;
-        if (ip) snprintf(ip, ip_len, "/unixsocket");
+        if (ip) {
+            int res = snprintf(ip, ip_len, "/unixsocket");
+            if (res < 0 || res >= ip_len) goto error;
+        }
         if (port) *port = 0;
     } else {
         goto error;
