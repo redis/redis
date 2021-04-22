@@ -1480,7 +1480,7 @@ int keyIsExpired(redisDb *db, robj *key) {
      * script execution, making propagation to slaves / AOF consistent.
      * See issue #1525 on Github for more information. */
     if (server.lua_caller) {
-        now = server.lua_time_start;
+        now = server.lua_time_snapshot;
     }
     /* If we are in the middle of a command execution, we still want to use
      * a reference time that does not change: in that case we just use the
