@@ -2583,7 +2583,7 @@ RedisModuleString *RM_ListPop(RedisModuleKey *key, int where) {
         key->value == NULL ||
         key->value->type != OBJ_LIST) return NULL;
     robj *ele = listTypePop(key->value,
-        (where == REDISMODULE_LIST_HEAD) ? QUICKLIST_HEAD : QUICKLIST_TAIL);
+        (where == REDISMODULE_LIST_HEAD) ? LIST_HEAD : LIST_TAIL);
     robj *decoded = getDecodedObject(ele);
     decrRefCount(ele);
     moduleDelKeyIfEmpty(key);
