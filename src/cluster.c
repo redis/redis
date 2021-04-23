@@ -1918,7 +1918,8 @@ int clusterProcessPacket(clusterLink *link) {
         type == CLUSTERMSG_TYPE_MEET)
     {
         serverLog(LL_DEBUG,"%s packet received: %p",
-            type == CLUSTERMSG_TYPE_PING ? "ping" : "pong",
+            type == CLUSTERMSG_TYPE_PING ? "ping" :
+                type == CLUSTERMSG_TYPE_PONG ? "pong" : "meet",
             (void*)link->node);
         if (link->node) {
             if (nodeInHandshake(link->node)) {
