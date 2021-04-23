@@ -8589,16 +8589,16 @@ int moduleUnload(sds name) {
 
     if (module == NULL) {
         errno = ENOENT;
-        return REDISMODULE_ERR;
+        return C_ERR;
     } else if (listLength(module->types)) {
         errno = EBUSY;
-        return REDISMODULE_ERR;
+        return C_ERR;
     } else if (listLength(module->usedby)) {
         errno = EPERM;
-        return REDISMODULE_ERR;
+        return C_ERR;
     } else if (module->blocked_clients) {
         errno = EAGAIN;
-        return REDISMODULE_ERR;
+        return C_ERR;
     }
 
     /* Give module a chance to clean up. */
@@ -8614,7 +8614,7 @@ int moduleUnload(sds name) {
         if (unload_status == REDISMODULE_ERR) {
             serverLog(LL_WARNING, "Module %s OnUnload failed.  Unload canceled.", name);
             errno = ECANCELED;
-            return REDISMODULE_ERR;
+            return C_ERR;
         }
     }
 
@@ -8647,7 +8647,7 @@ int moduleUnload(sds name) {
     module->name = NULL; /* The name was already freed by dictDelete(). */
     moduleFreeModuleStructure(module);
 
-    return REDISMODULE_OK;
+    return C_OK;
 }
 
 /* Helper function for the MODULE and HELLO command: send the list of the
