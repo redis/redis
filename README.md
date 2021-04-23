@@ -16,7 +16,7 @@ Another good example is to think of Redis as a more complex version of memcached
 If you want to know more, this is a list of selected starting points:
 
 * Introduction to Redis data types. https://redis.io/topics/data-types-intro
-* Try Redis directly inside your browser. http://try.redis.io
+* Try Redis directly inside your browser. https://try.redis.io
 * The full list of Redis commands. https://redis.io/commands
 * There is much more inside the official Redis documentation. https://redis.io/documentation
 
@@ -447,7 +447,7 @@ Other C files
 
 * `t_hash.c`, `t_list.c`, `t_set.c`, `t_string.c`, `t_zset.c` and `t_stream.c` contains the implementation of the Redis data types. They implement both an API to access a given data type, and the client command implementations for these data types.
 * `ae.c` implements the Redis event loop, it's a self contained library which is simple to read and understand.
-* `sds.c` is the Redis string library, check http://github.com/antirez/sds for more information.
+* `sds.c` is the Redis string library, check https://github.com/antirez/sds for more information.
 * `anet.c` is a library to use POSIX networking in a simpler way compared to the raw interface exposed by the kernel.
 * `dict.c` is an implementation of a non-blocking hash table which rehashes incrementally.
 * `scripting.c` implements Lua scripting. It is completely self-contained and isolated from the rest of the Redis implementation and is simple enough to understand if you are familiar with the Lua API.
