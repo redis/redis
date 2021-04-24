@@ -5062,7 +5062,7 @@ void sentinelHandleDictOfRedisInstances(dict *instances) {
     dictReleaseIterator(di);
 }
 
-/* This function checks if we need to enter the TITL mode.
+/* This function checks if we need to enter the TILT mode.
  *
  * The TILT mode is entered if we detect that between two invocations of the
  * timer interrupt, a negative amount of time, or too much time has passed.
