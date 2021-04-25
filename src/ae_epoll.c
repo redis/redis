@@ -128,8 +128,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
             eventLoop->fired[j].mask = mask;
         }
     } else if (retval == -1 && errno != EINTR) {
-        perror("aeApiPoll: epoll_wait");
-        abort();
+        panic("aeApiPoll: epoll_wait");
     }
 
     return numevents;

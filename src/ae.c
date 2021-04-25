@@ -32,6 +32,7 @@
 
 #include "ae.h"
 #include "anet.h"
+#include "redisassert.h"
 
 #include <stdio.h>
 #include <sys/time.h>
