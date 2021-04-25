@@ -2647,6 +2647,7 @@ void replicationCacheMaster(client *c);
 void resizeReplicationBacklog();
 void replicationSetMaster(char *ip, int port);
 void replicationUnsetMaster(void);
+void forceFullSyncWithMaster(void);
 void refreshGoodSlavesCount(void);
 int checkGoodReplicasStatus(void);
 void processClientsWaitingReplicas(void);

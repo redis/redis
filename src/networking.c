@@ -521,6 +521,12 @@ void afterErrorReply(client *c, const char *s, size_t len, int flags) {
             showLatestBacklog();
         }
         server.stat_unexpected_error_replies++;
+
+        if (ctype == CLIENT_TYPE_MASTER) {
+            serverLog(LL_WARNING, "Forcing full sync with master to "
+                                  "prevent data corruption.");
+            forceFullSyncWithMaster(); 
+        }
     }
 }
 
