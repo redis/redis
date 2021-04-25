@@ -770,8 +770,8 @@ void syncCommand(client *c) {
 
     /* Try a partial resynchronization if this is a PSYNC command.
      * If it fails, we continue with usual full resynchronization, however
-     * when this happens masterTryPartialResynchronization() already
-     * replied with:
+     * when this happens replicationSetupSlaveForFullResync will replied
+     * with:
      *
      * +FULLRESYNC <replid> <offset>
      *
@@ -1055,7 +1055,7 @@ void removeRDBUsedToSyncReplicas(void) {
      * RDBGeneratedByReplication flag in case it was set. Otherwise if the
      * feature was enabled, but gets disabled later with CONFIG SET, the
      * flag may remain set to one: then next time the feature is re-enabled
-     * via CONFIG SET we have have it set even if no RDB was generated
+     * via CONFIG SET we have it set even if no RDB was generated
      * because of replication recently. */
     if (!server.rdb_del_sync_files) {
         RDBGeneratedByReplication = 0;
@@ -2149,7 +2149,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
             "Successful partial resynchronization with master.");
 
         /* Check the new replication ID advertised by the master. If it
-         * changed, we need to set the new ID as primary ID, and set or
+         * changed, we need to set the new ID as primary ID, and set
          * secondary ID as the old master ID up to the current offset, so
          * that our sub-slaves will be able to PSYNC with us after a
          * disconnection. */
@@ -2676,11 +2676,7 @@ void replicationUnsetMaster(void) {
     /* When a slave is turned into a master, the current replication ID
      * (that was inherited from the master at synchronization time) is
      * used as secondary ID up to the current offset, and a new replication
-     * ID is created to continue with a new replication history.
-     *
-     * NOTE: this function MUST be called after we call
-     * freeClient(server.master), since there we adjust the replication
-     * offset trimming the final PINGs. See Github issue #7320. */
+     * ID is created to continue with a new replication history. */
     shiftReplicationId();
     /* Disconnecting all the slaves is required: we need to inform slaves
      * of the replication ID change (see shiftReplicationId() call). However

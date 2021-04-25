@@ -1019,7 +1019,7 @@ void sentinelPendingScriptsCommand(client *c) {
  *
  * It is called every time a failover is performed.
  *
- * <state> is currently always "failover".
+ * <state> is currently always "start".
  * <role> is either "leader" or "observer".
  *
  * from/to fields are respectively master -> promoted slave addresses for
@@ -1275,8 +1275,8 @@ void sentinelDisconnectCallback(const redisAsyncContext *c, int status) {
  * if SRI_SLAVE or SRI_SENTINEL is set then 'master' must be not NULL and the
  * instance is added into master->slaves or master->sentinels table.
  *
- * If the instance is a slave or sentinel, the name parameter is ignored and
- * is created automatically as hostname:port.
+ * If the instance is a slave, the name parameter is ignored and is created
+ * automatically as ip/hostname:port.
  *
  * The function fails if hostname can't be resolved or port is out of range.
  * When this happens NULL is returned and errno is set accordingly to the
@@ -4998,7 +4998,7 @@ void sentinelAbortFailover(sentinelRedisInstance *ri) {
 
 /* ======================== SENTINEL timer handler ==========================
  * This is the "main" our Sentinel, being sentinel completely non blocking
- * in design. The function is called every second.
+ * in design.
  * -------------------------------------------------------------------------- */
 
 /* Perform scheduled operations for the specified Redis instance. */
