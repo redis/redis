@@ -1782,8 +1782,10 @@ int main(int argc, const char **argv) {
     } else {
         config.redis_config =
             getRedisConfig(config.hostip, config.hostport, config.hostsocket);
-        if (config.redis_config == NULL)
+        if (config.redis_config == NULL) {
             fprintf(stderr, "WARN: could not fetch server CONFIG\n");
+            exit(1);
+        }
     }
     if (config.num_threads > 0) {
         pthread_mutex_init(&(config.liveclients_mutex), NULL);
