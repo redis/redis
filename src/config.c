@@ -2198,6 +2198,42 @@ static int isValidProcTitleTemplate(char *val, const char **err) {
     return 1;
 }
 
+/* Validate active defrage cycle min setting */
+static int isValidActiveDefragCycleMin(long long val, const char **err) {
+    if (val > server.active_defrag_cycle_max) {
+        *err = "active-defrag-cycle-min can't be bigger than active-defrag-cycle-max";
+        return 0;
+    }
+    return 1;
+}
+
+/* Validate active defrage cycle max setting */
+static int isValidActiveDefragCycleMax(long long val, const char **err) {
+    if (val < server.active_defrag_cycle_min) {
+        *err = "active-defrag-cycle-max can't be smaller than active-defrag-cycle-min";
+        return 0;
+    }
+    return 1;
+}
+
+/* Validate active defrag threshold lower setting */
+static int isValidActiveDefragThresholdLower(long long val, const char **err) {
+    if (val > server.active_defrag_threshold_upper) {
+        *err = "active-defrag-threshold-lower can't be bigger than active-defrag-threshold-upper";
+        return 0;
+    }
+    return 1;
+}
+
+/* Validate active defrag threshold upper setting */
+static int isValidActiveDefragThresholdUpper(long long val, const char **err) {
+    if (val < server.active_defrag_threshold_lower) {
+        *err = "active-defrag-threshold-upper can't be smaller than active-defrag-threshold-lower";
+        return 0;
+    }
+    return 1;
+}
+
 static int updateProcTitleTemplate(char *val, char *prev, const char **err) {
     UNUSED(val);
     UNUSED(prev);
@@ -2482,10 +2518,10 @@ standardConfig configs[] = {
     createIntConfig("list-max-ziplist-size", NULL, MODIFIABLE_CONFIG, INT_MIN, INT_MAX, server.list_max_ziplist_size, -2, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("tcp-keepalive", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.tcpkeepalive, 300, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("cluster-migration-barrier", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.cluster_migration_barrier, 1, INTEGER_CONFIG, NULL, NULL),
-    createIntConfig("active-defrag-cycle-min", NULL, MODIFIABLE_CONFIG, 1, 99, server.active_defrag_cycle_min, 1, INTEGER_CONFIG, NULL, NULL), /* Default: 1% CPU min (at lower threshold) */
-    createIntConfig("active-defrag-cycle-max", NULL, MODIFIABLE_CONFIG, 1, 99, server.active_defrag_cycle_max, 25, INTEGER_CONFIG, NULL, NULL), /* Default: 25% CPU max (at upper threshold) */
-    createIntConfig("active-defrag-threshold-lower", NULL, MODIFIABLE_CONFIG, 0, 1000, server.active_defrag_threshold_lower, 10, INTEGER_CONFIG, NULL, NULL), /* Default: don't defrag when fragmentation is below 10% */
-    createIntConfig("active-defrag-threshold-upper", NULL, MODIFIABLE_CONFIG, 0, 1000, server.active_defrag_threshold_upper, 100, INTEGER_CONFIG, NULL, NULL), /* Default: maximum defrag force at 100% fragmentation */
+    createIntConfig("active-defrag-cycle-min", NULL, MODIFIABLE_CONFIG, 1, 99, server.active_defrag_cycle_min, 1, INTEGER_CONFIG, isValidActiveDefragCycleMin, NULL), /* Default: 1% CPU min (at lower threshold) */
+    createIntConfig("active-defrag-cycle-max", NULL, MODIFIABLE_CONFIG, 1, 99, server.active_defrag_cycle_max, 25, INTEGER_CONFIG, isValidActiveDefragCycleMax, NULL), /* Default: 25% CPU max (at upper threshold) */
+    createIntConfig("active-defrag-threshold-lower", NULL, MODIFIABLE_CONFIG, 0, 1000, server.active_defrag_threshold_lower, 10, INTEGER_CONFIG, isValidActiveDefragThresholdLower, NULL), /* Default: don't defrag when fragmentation is below 10% */
+    createIntConfig("active-defrag-threshold-upper", NULL, MODIFIABLE_CONFIG, 0, 1000, server.active_defrag_threshold_upper, 100, INTEGER_CONFIG, isValidActiveDefragThresholdUpper, NULL), /* Default: maximum defrag force at 100% fragmentation */
     createIntConfig("lfu-log-factor", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.lfu_log_factor, 10, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("lfu-decay-time", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.lfu_decay_time, 1, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("replica-priority", "slave-priority", MODIFIABLE_CONFIG, 0, INT_MAX, server.slave_priority, 100, INTEGER_CONFIG, NULL, NULL),
