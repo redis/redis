@@ -185,6 +185,11 @@ sds sdsnew(const char *init) {
     return sdsnewlen(init, initlen);
 }
 
+/* Create a new sds string starting from the last char 'ch' in C string. */
+sds sdsrchr(const sds s, const char ch) {
+    return sdsnew(strrchr(s, ch));
+}
+
 /* Duplicate an sds string. */
 sds sdsdup(const sds s) {
     return sdsnewlen(s, sdslen(s));
