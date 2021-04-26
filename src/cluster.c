@@ -76,6 +76,7 @@ sds representClusterNodeFlags(sds ci, uint16_t flags);
 uint64_t clusterGetMaxEpoch(void);
 int clusterBumpConfigEpochWithoutConsensus(void);
 void moduleCallClusterReceivers(const char *sender_id, uint64_t module_id, uint8_t type, const unsigned char *payload, uint32_t len);
+const char *clusterGetMessageTypeString(int type);
 
 #define RCVBUF_INIT_LEN 1024
 #define RCVBUF_MAX_PREALLOC (1<<20) /* 1MB */
@@ -1859,8 +1860,6 @@ int clusterProcessPacket(clusterLink *link) {
 
     /* Initial processing of PING and MEET requests replying with a PONG. */
     if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_MEET) {
-        serverLog(LL_DEBUG,"Ping packet received: %p", (void*)link->node);
-
         /* We use incoming MEET messages in order to set the address
          * for 'myself', since only other cluster nodes will send us
          * MEET messages on handshakes, when the cluster joins, or
@@ -1917,9 +1916,9 @@ int clusterProcessPacket(clusterLink *link) {
     if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_PONG ||
         type == CLUSTERMSG_TYPE_MEET)
     {
-        serverLog(LL_DEBUG,"%s packet received: %p",
-            type == CLUSTERMSG_TYPE_PING ? "ping" : "pong",
-            (void*)link->node);
+        serverLog(LL_DEBUG,"%s packet received: %s",
+            clusterGetMessageTypeString(type),
+            link->node ? link->node->name : "NULL");
         if (link->node) {
             if (nodeInHandshake(link->node)) {
                 /* If we already have this node, try to change the
