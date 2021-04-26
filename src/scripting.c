@@ -1730,6 +1730,8 @@ void scriptCommand(client *c) {
 "    Kill the currently executing Lua script.",
 "LOAD <script>",
 "    Load a script into the scripts cache without executing it.",
+"DUMP <sha1> [<sha1> ...]",
+"    Dump a script from the scipts cache.",
 NULL
         };
         addReplyHelp(c, help);
@@ -1793,6 +1795,17 @@ NULL
         } else {
             addReplyError(c,"Use SCRIPT DEBUG YES/SYNC/NO");
             return;
+        }
+    } else if (c->argc >=2 && !strcasecmp(c->argv[1]->ptr,"dump")) {
+        int j;
+        dictEntry *de;
+
+        addReplyArrayLen(c, c->argc-2);
+        for (j = 2; j < c->argc; j++) {
+            if ((de = dictFind(server.lua_scripts,c->argv[j]->ptr)))
+                addReplyBulk(c, dictGetVal(de));
+            else
+                addReply(c,shared.null[2]);
         }
     } else {
         addReplySubcommandSyntaxError(c);

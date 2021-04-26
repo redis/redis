@@ -350,6 +350,11 @@ start_server {tags {"scripting"}} {
             [r evalsha b534286061d4b9e4026607613b95c06c06015ae8 0]
     } {b534286061d4b9e4026607613b95c06c06015ae8 loaded}
 
+    test {SCRIPT DUMP - is able to dump scripts from the scripting cache} {
+        list \
+            [r script dump b534286061d4b9e4026607613b95c06c06015ae8 b534286061d4b9e4026607613b95c06c06015a11 b534286061d4b9e4026607613b95c06c06015ae8] \
+    } {{{return 'loaded'} {} {return 'loaded'}}}
+
     test "In the context of Lua the output of random commands gets ordered" {
         r debug lua-always-replicate-commands 0
         r del myset
