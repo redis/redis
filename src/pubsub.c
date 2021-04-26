@@ -292,6 +292,11 @@ int pubsubPublishMessage(robj *channel, robj *message) {
     listNode *ln;
     listIter li;
 
+    /* If any modules are interested in the published message,
+     * pass it to the module system. The module engine will call
+     * subscribers if they are interested in. */
+    moduleSendMessageSubscriber(channel, message);
+
     /* Send to clients listening for that channel */
     de = dictFind(server.pubsub_channels,channel);
     if (de) {
