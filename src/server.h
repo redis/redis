@@ -986,7 +986,7 @@ struct sharedObjectsStruct {
     *script, *replconf, *eval, *persist, *set, *pexpireat, *pexpire, 
     *time, *pxat, *px, *retrycount, *force, *justid, 
     *lastid, *ping, *setid, *keepttl, *load, *createconsumer,
-    *getack, *special_asterick, *special_equals, *default_username,
+    *getack, *special_asterick, *special_equals, *default_username, *redacted,
     *select[PROTO_SHARED_SELECT_CMDS],
     *integers[OBJ_SHARED_INTEGERS],
     *mbulkhdr[OBJ_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
@@ -1863,6 +1863,7 @@ sds getAllClientsInfoString(int type);
 void rewriteClientCommandVector(client *c, int argc, ...);
 void rewriteClientCommandArgument(client *c, int i, robj *newval);
 void replaceClientCommandVector(client *c, int argc, robj **argv);
+void redactClientCommandArgument(client *c, int argc);
 unsigned long getClientOutputBufferMemoryUsage(client *c);
 int freeClientsInAsyncFreeQueue(void);
 int closeClientOnOutputBufferLimitReached(client *c, int async);

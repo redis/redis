@@ -749,7 +749,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"exec",execCommand,1,
-     "no-script no-monitor no-slowlog ok-loading ok-stale @transaction",
+     "no-script no-slowlog ok-loading ok-stale @transaction",
      0,NULL,0,0,0,0,0,0},
 
     {"discard",discardCommand,1,
@@ -2612,6 +2612,7 @@ void createSharedObjects(void) {
     shared.getack = createStringObject("GETACK",6);
     shared.special_asterick = createStringObject("*",1);
     shared.special_equals = createStringObject("=",1);
+    shared.redacted = makeObjectShared(createStringObject("(redacted)",10));
 
     for (j = 0; j < OBJ_SHARED_INTEGERS; j++) {
         shared.integers[j] =
@@ -3708,15 +3709,6 @@ void call(client *c, int flags) {
 
     server.fixed_time_expire++;
 
-    /* Send the command to clients in MONITOR mode if applicable.
-     * Administrative commands are considered too dangerous to be shown. */
-    if (listLength(server.monitors) &&
-        !server.loading &&
-        !(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN)))
-    {
-        replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
-    }
-
     /* Initialization: clear the flags that must be set by the command on
      * demand, and initialize the array for additional commands propagation. */
     c->flags &= ~(CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
@@ -3781,6 +3773,17 @@ void call(client *c, int flags) {
      * If the client is blocked we will handle slowlog when it is unblocked. */
     if ((flags & CMD_CALL_SLOWLOG) && !(c->flags & CLIENT_BLOCKED))
         slowlogPushCurrentCommand(c, real_cmd, duration);
+
+    /* Send the command to clients in MONITOR mode if applicable.
+     * Administrative commands are considered too dangerous to be shown. */
+    if (listLength(server.monitors) &&
+        !server.loading &&
+        !(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN)))
+    {
+        robj **argv = c->original_argv ? c->original_argv : c->argv;
+        int argc = c->original_argv ? c->original_argc : c->argc;
+        replicationFeedMonitors(c,server.monitors,c->db->id,argv,argc);
+    }
 
     /* Clear the original argv.
      * If the client is blocked we will handle slowlog when it is unblocked. */

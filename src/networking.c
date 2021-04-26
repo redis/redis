@@ -3054,6 +3054,15 @@ static void retainOriginalCommandVector(client *c) {
     }
 }
 
+/* Redact a given argument to prevent it from being shown
+ * in the slowlog. This information is stored in the
+ * original_argv array. */
+void redactClientCommandArgument(client *c, int argc) {
+    retainOriginalCommandVector(c);
+    decrRefCount(c->argv[argc]);
+    c->original_argv[argc] = shared.redacted;
+}
+
 /* Rewrite the command vector of the client. All the new objects ref count
  * is incremented. The old command vector is freed, and the old objects
  * ref count is decremented. */

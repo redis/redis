@@ -268,7 +268,6 @@ start_server {overrides {save ""} tags {"other"}} {
         $rd reset
 
         # skip reset ouptut
-        $rd read
         assert_equal [$rd read] "RESET"
 
         assert_no_match {*flags=O*} [r client list]

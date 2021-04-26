@@ -5363,13 +5363,16 @@ void migrateCommand(client *c) {
             }
             j++;
             password = c->argv[j]->ptr;
+            redactClientCommandArgument(c,j);
         } else if (!strcasecmp(c->argv[j]->ptr,"auth2")) {
             if (moreargs < 2) {
                 addReplyErrorObject(c,shared.syntaxerr);
                 return;
             }
             username = c->argv[++j]->ptr;
+            redactClientCommandArgument(c,j);
             password = c->argv[++j]->ptr;
+            redactClientCommandArgument(c,j);
         } else if (!strcasecmp(c->argv[j]->ptr,"keys")) {
             if (sdslen(c->argv[3]->ptr) != 0) {
                 addReplyError(c,
