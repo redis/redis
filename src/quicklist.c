@@ -2812,7 +2812,7 @@ unsigned int quicklistTestContainer(quicklistContainerType *type, int accurate) 
                         /* test remove node */
                         if (step == 1) {
                             for (int i = 0; i < list_sizes[list] / 2; i++) {
-                                unsigned char *data;
+                                unsigned char *data = NULL;
                                 quicklistPop(ql, QUICKLIST_HEAD, &data, NULL, NULL);
                                 zfree(data);
                                 quicklistPop(ql, QUICKLIST_TAIL, &data, NULL, NULL);
