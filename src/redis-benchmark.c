@@ -263,13 +263,6 @@ static int dictSdsKeyCompare(void *privdata, const void *key1,
     return memcmp(key1, key2, l1) == 0;
 }
 
-/* _serverAssert is needed by dict */
-void _serverAssert(const char *estr, const char *file, int line) {
-    fprintf(stderr, "=== ASSERTION FAILED ===");
-    fprintf(stderr, "==> %s:%d '%s' is not true",file,line,estr);
-    *((char*)-1) = 'x';
-}
-
 static redisContext *getRedisContext(const char *ip, int port,
                                      const char *hostsocket)
 {

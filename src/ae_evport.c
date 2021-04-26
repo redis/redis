@@ -291,8 +291,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
             return 0;
 
         /* Any other error indicates a bug. */
-        perror("aeApiPoll: port_get");
-        abort();
+        panic("aeApiPoll: port_get, %s", strerror(errno));
     }
 
     state->npending = nevents;

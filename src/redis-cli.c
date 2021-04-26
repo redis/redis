@@ -476,13 +476,6 @@ void dictListDestructor(void *privdata, void *val)
     listRelease((list*)val);
 }
 
-/* _serverAssert is needed by dict */
-void _serverAssert(const char *estr, const char *file, int line) {
-    fprintf(stderr, "=== ASSERTION FAILED ===");
-    fprintf(stderr, "==> %s:%d '%s' is not true",file,line,estr);
-    *((char*)-1) = 'x';
-}
-
 /*------------------------------------------------------------------------------
  * Help functions
  *--------------------------------------------------------------------------- */
