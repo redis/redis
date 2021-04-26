@@ -1256,8 +1256,8 @@ void lpRandomPairs(unsigned char *lp, unsigned int count, lpEntry *keys, lpEntry
     qsort(picks, count, sizeof(rand_pick), uintCompare);
 
     /* fetch the elements form the listpack into a output array respecting the original order. */
-    unsigned int lpindex = 0, pickindex = 0;
-    p = lpFirst(lp);
+    unsigned int lpindex = picks[0].index, pickindex = 0;
+    p = lpSeek(lp, lpindex);
     while (p && pickindex < count) {
         key = lpGet(p, &ele_len, NULL);
         if (key) {
