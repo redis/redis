@@ -18,6 +18,7 @@ set ::all_tests {
     unit/protocol
     unit/keyspace
     unit/scan
+    unit/info
     unit/type/string
     unit/type/incr
     unit/type/list
@@ -51,6 +52,7 @@ set ::all_tests {
     integration/psync2
     integration/psync2-reg
     integration/psync2-pingoff
+    integration/failover
     integration/redis-cli
     integration/redis-benchmark
     unit/pubsub
@@ -73,6 +75,7 @@ set ::all_tests {
     unit/tracking
     unit/oom-score-adj
     unit/shutdown
+    unit/networking
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
@@ -108,6 +111,7 @@ set ::active_servers {} ; # Pids of active Redis instances.
 set ::dont_clean 0
 set ::wait_server 0
 set ::stop_on_failure 0
+set ::dump_logs 0
 set ::loop 0
 set ::tlsdir "tests/tls"
 
@@ -553,6 +557,7 @@ proc print_help_screen {} {
         "--stop             Blocks once the first test fails."
         "--loop             Execute the specified set of tests forever."
         "--wait-server      Wait after server is started (so that you can attach a debugger)."
+        "--dump-logs        Dump server log on test failure."
         "--tls              Run tests in TLS mode."
         "--host <addr>      Run tests against an external host."
         "--port <port>      TCP port to use against external host."
@@ -655,6 +660,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set ::no_latency 1
     } elseif {$opt eq {--wait-server}} {
         set ::wait_server 1
+    } elseif {$opt eq {--dump-logs}} {
+        set ::dump_logs 1
     } elseif {$opt eq {--stop}} {
         set ::stop_on_failure 1
     } elseif {$opt eq {--loop}} {
@@ -716,6 +723,7 @@ if {[llength $filtered_tests] < [llength $::all_tests]} {
 }
 
 proc attach_to_replication_stream {} {
+    r config set repl-ping-replica-period 3600
     if {$::tls} {
         set s [::tls::socket [srv 0 "host"] [srv 0 "port"]]
     } else {
@@ -773,6 +781,7 @@ proc assert_replication_stream {s patterns} {
 
 proc close_replication_stream {s} {
     close $s
+    r config set repl-ping-replica-period 10
 }
 
 # With the parallel test running multiple Redis instances at the same time

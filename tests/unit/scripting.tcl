@@ -330,6 +330,15 @@ start_server {tags {"scripting"}} {
         set e
     } {NOSCRIPT*}
 
+    test {SCRIPTING FLUSH ASYNC} {
+        for {set j 0} {$j < 100} {incr j} {
+            r script load "return $j"
+        }
+        assert { [string match "*number_of_cached_scripts:100*" [r info Memory]] }
+        r script flush async
+        assert { [string match "*number_of_cached_scripts:0*" [r info Memory]] }
+    }
+
     test {SCRIPT EXISTS - can detect already defined scripts?} {
         r eval "return 1+1" 0
         r script exists a27e7e8a43702b7046d4f6a7ccf5b60cef6b9bd9 a27e7e8a43702b7046d4f6a7ccf5b60cef6b9bda
@@ -459,6 +468,7 @@ start_server {tags {"scripting"}} {
         r slaveof no one
         set res
     } {102}
+    r config set aof-use-rdb-preamble yes
 
     test {EVAL timeout from AOF} {
         # generate a long running script that is propagated to the AOF as script
@@ -496,8 +506,6 @@ start_server {tags {"scripting"}} {
         $rd close
         r get x
     } {y}
-    r config set aof-use-rdb-preamble yes
-    r config set lua-replicate-commands yes
 
     test {We can call scripts rewriting client->argv from Lua} {
         r del myset
@@ -563,6 +571,30 @@ start_server {tags {"scripting"}} {
         } e
         set e
     } {*wrong number*}
+
+    test {Script with RESP3 map} {
+        set expected_dict [dict create field value]
+        set expected_list [list field value]
+
+        # Sanity test for RESP3 without scripts
+        r HELLO 3
+        r hset hash field value
+        set res [r hgetall hash]
+        assert_equal $res $expected_dict
+
+        # Test RESP3 client with script in both RESP2 and RESP3 modes
+        set res [r eval {redis.setresp(3); return redis.call('hgetall', KEYS[1])} 1 hash]
+        assert_equal $res $expected_dict
+        set res [r eval {redis.setresp(2); return redis.call('hgetall', KEYS[1])} 1 hash]
+        assert_equal $res $expected_list
+
+        # Test RESP2 client with script in both RESP2 and RESP3 modes
+        r HELLO 2
+        set res [r eval {redis.setresp(3); return redis.call('hgetall', KEYS[1])} 1 hash]
+        assert_equal $res $expected_list
+        set res [r eval {redis.setresp(2); return redis.call('hgetall', KEYS[1])} 1 hash]
+        assert_equal $res $expected_list
+    }
 }
 
 # Start a new server since the last test in this stanza will kill the
@@ -578,6 +610,71 @@ start_server {tags {"scripting"}} {
         r script kill
         after 200 ; # Give some time to Lua to call the hook again...
         assert_equal [r ping] "PONG"
+    }
+
+    test {Timedout read-only scripts can be killed by SCRIPT KILL even when use pcall} {
+        set rd [redis_deferring_client]
+        r config set lua-time-limit 10
+        $rd eval {local f = function() while 1 do redis.call('ping') end end while 1 do pcall(f) end} 0
+        
+        wait_for_condition 50 100 {
+            [catch {r ping} e] == 1
+        } else {
+            fail "Can't wait for script to start running"
+        }
+        catch {r ping} e
+        assert_match {BUSY*} $e
+
+        r script kill
+
+        wait_for_condition 50 100 {
+            [catch {r ping} e] == 0
+        } else {
+            fail "Can't wait for script to be killed"
+        }
+        assert_equal [r ping] "PONG"
+
+        catch {$rd read} res
+        $rd close
+
+        assert_match {*killed by user*} $res        
+    }
+
+    test {Timedout script does not cause a false dead client} {
+        set rd [redis_deferring_client]
+        r config set lua-time-limit 10
+
+        # senging (in a pipeline):
+        # 1. eval "while 1 do redis.call('ping') end" 0
+        # 2. ping
+        set buf "*3\r\n\$4\r\neval\r\n\$33\r\nwhile 1 do redis.call('ping') end\r\n\$1\r\n0\r\n"
+        append buf "*1\r\n\$4\r\nping\r\n"
+        $rd write $buf
+        $rd flush
+
+        wait_for_condition 50 100 {
+            [catch {r ping} e] == 1
+        } else {
+            fail "Can't wait for script to start running"
+        }
+        catch {r ping} e
+        assert_match {BUSY*} $e
+
+        r script kill
+        wait_for_condition 50 100 {
+            [catch {r ping} e] == 0
+        } else {
+            fail "Can't wait for script to be killed"
+        }
+        assert_equal [r ping] "PONG"
+
+        catch {$rd read} res
+        assert_match {*killed by user*} $res
+
+        set res [$rd read]
+        assert_match {*PONG*} $res        
+
+        $rd close
     }
 
     test {Timedout script link is still usable after Lua returns} {

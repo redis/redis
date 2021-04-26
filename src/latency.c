@@ -256,7 +256,7 @@ sds createLatencyReport(void) {
     if (dictSize(server.latency_events) == 0 &&
         server.latency_monitor_threshold == 0)
     {
-        report = sdscat(report,"I'm sorry, Dave, I can't do that. Latency monitoring is disabled in this Redis instance. You may use \"CONFIG SET latency-monitor-threshold <milliseconds>.\" in order to enable it. If we weren't in a deep space mission I'd suggest to take a look at http://redis.io/topics/latency-monitor.\n");
+        report = sdscat(report,"I'm sorry, Dave, I can't do that. Latency monitoring is disabled in this Redis instance. You may use \"CONFIG SET latency-monitor-threshold <milliseconds>.\" in order to enable it. If we weren't in a deep space mission I'd suggest to take a look at https://redis.io/topics/latency-monitor.\n");
         return report;
     }
 
@@ -426,7 +426,7 @@ sds createLatencyReport(void) {
         }
 
         if (advise_slowlog_inspect) {
-            report = sdscat(report,"- Check your Slow Log to understand what are the commands you are running which are too slow to execute. Please check http://redis.io/commands/slowlog for more information.\n");
+            report = sdscat(report,"- Check your Slow Log to understand what are the commands you are running which are too slow to execute. Please check https://redis.io/commands/slowlog for more information.\n");
         }
 
         /* Intrinsic latency. */
@@ -584,16 +584,6 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
  * LATENCY RESET: reset data of a specified event or all the data if no event provided.
  */
 void latencyCommand(client *c) {
-    const char *help[] = {
-"DOCTOR              -- Returns a human readable latency analysis report.",
-"GRAPH   <event>     -- Returns an ASCII latency graph for the event class.",
-"HISTORY <event>     -- Returns time-latency samples for the event class.",
-"LATEST              -- Returns the latest latency samples for all events.",
-"RESET   [event ...] -- Resets latency data of one or more event classes.",
-"                       (default: reset all data for all event classes)",
-"HELP                -- Prints this help.",
-NULL
-    };
     struct latencyTimeSeries *ts;
 
     if (!strcasecmp(c->argv[1]->ptr,"history") && c->argc == 3) {
@@ -639,6 +629,20 @@ NULL
             addReplyLongLong(c,resets);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"help") && c->argc == 2) {
+        const char *help[] = {
+"DOCTOR",
+"    Return a human readable latency analysis report.",
+"GRAPH <event>",
+"    Return an ASCII latency graph for the <event> class.",
+"HISTORY <event>",
+"    Return time-latency samples for the <event> class.",
+"LATEST",
+"    Return the latest latency samples for all events.",
+"RESET [<event> ...]",
+"    Reset latency data of one or more <event> classes.",
+"    (default: reset all data for all event classes)",
+NULL
+        };
         addReplyHelp(c, help);
     } else {
         addReplySubcommandSyntaxError(c);

@@ -7,6 +7,8 @@ start_server {tags {"zset"}} {
     }
 
     proc basics {encoding} {
+        set original_max_entries [lindex [r config get zset-max-ziplist-entries] 1]
+        set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
         if {$encoding == "ziplist"} {
             r config set zset-max-ziplist-entries 128
             r config set zset-max-ziplist-value 64
@@ -39,11 +41,11 @@ start_server {tags {"zset"}} {
             assert_error "*not*float*" {r zadd myzset nan abc}
         }
 
-        test "ZSET element can't be set to NaN with ZINCRBY" {
+        test "ZSET element can't be set to NaN with ZINCRBY - $encoding" {
             assert_error "*not*float*" {r zadd myzset nan abc}
         }
 
-        test "ZADD with options syntax error with incomplete pair" {
+        test "ZADD with options syntax error with incomplete pair - $encoding" {
             r del ztmp
             catch {r zadd ztmp xx 10 x 20} err
             set err
@@ -62,14 +64,14 @@ start_server {tags {"zset"}} {
             assert {[r zcard ztmp] == 1}
         }
 
-        test "ZADD XX returns the number of elements actually added" {
+        test "ZADD XX returns the number of elements actually added - $encoding" {
             r del ztmp
             r zadd ztmp 10 x
             set retval [r zadd ztmp 10 x 20 y 30 z]
             assert {$retval == 2}
         }
 
-        test "ZADD XX updates existing elements score" {
+        test "ZADD XX updates existing elements score - $encoding" {
             r del ztmp
             r zadd ztmp 10 x 20 y 30 z
             r zadd ztmp xx 5 foo 11 x 21 y 40 zap
@@ -78,7 +80,7 @@ start_server {tags {"zset"}} {
             assert {[r zscore ztmp y] == 21}
         }
 
-        test "ZADD GT updates existing elements when new scores are greater" {
+        test "ZADD GT updates existing elements when new scores are greater - $encoding" {
             r del ztmp
             r zadd ztmp 10 x 20 y 30 z
             assert {[r zadd ztmp gt ch 5 foo 11 x 21 y 29 z] == 3}
@@ -88,7 +90,7 @@ start_server {tags {"zset"}} {
             assert {[r zscore ztmp z] == 30}
         }
 
-        test "ZADD LT updates existing elements when new scores are lower" {
+        test "ZADD LT updates existing elements when new scores are lower - $encoding" {
             r del ztmp
             r zadd ztmp 10 x 20 y 30 z
             assert {[r zadd ztmp lt ch 5 foo 11 x 21 y 29 z] == 2}
@@ -98,7 +100,7 @@ start_server {tags {"zset"}} {
             assert {[r zscore ztmp z] == 29}
         }
 
-        test "ZADD GT XX updates existing elements when new scores are greater and skips new elements" {
+        test "ZADD GT XX updates existing elements when new scores are greater and skips new elements - $encoding" {
             r del ztmp
             r zadd ztmp 10 x 20 y 30 z
             assert {[r zadd ztmp gt xx ch 5 foo 11 x 21 y 29 z] == 2}
@@ -108,7 +110,7 @@ start_server {tags {"zset"}} {
             assert {[r zscore ztmp z] == 30}
         }
 
-        test "ZADD LT XX updates existing elements when new scores are lower and skips new elements" {
+        test "ZADD LT XX updates existing elements when new scores are lower and skips new elements - $encoding" {
             r del ztmp
             r zadd ztmp 10 x 20 y 30 z
             assert {[r zadd ztmp lt xx ch 5 foo 11 x 21 y 29 z] == 1}
@@ -118,19 +120,19 @@ start_server {tags {"zset"}} {
             assert {[r zscore ztmp z] == 29}
         }
 
-        test "ZADD XX and NX are not compatible" {
+        test "ZADD XX and NX are not compatible - $encoding" {
             r del ztmp
             catch {r zadd ztmp xx nx 10 x} err
             set err
         } {ERR*}
 
-        test "ZADD NX with non existing key" {
+        test "ZADD NX with non existing key - $encoding" {
             r del ztmp
             r zadd ztmp nx 10 x 20 y 30 z
             assert {[r zcard ztmp] == 3}
         }
 
-        test "ZADD NX only add new elements without updating old ones" {
+        test "ZADD NX only add new elements without updating old ones - $encoding" {
             r del ztmp
             r zadd ztmp 10 x 20 y 30 z
             assert {[r zadd ztmp nx 11 x 21 y 100 a 200 b] == 2}
@@ -140,73 +142,105 @@ start_server {tags {"zset"}} {
             assert {[r zscore ztmp b] == 200}
         }
 
-        test "ZADD GT and NX are not compatible" {
+        test "ZADD GT and NX are not compatible - $encoding" {
             r del ztmp
             catch {r zadd ztmp gt nx 10 x} err
             set err
         } {ERR*}
 
-        test "ZADD LT and NX are not compatible" {
+        test "ZADD LT and NX are not compatible - $encoding" {
             r del ztmp
             catch {r zadd ztmp lt nx 10 x} err
             set err
         } {ERR*}
 
-        test "ZADD LT and GT are not compatible" {
+        test "ZADD LT and GT are not compatible - $encoding" {
             r del ztmp
             catch {r zadd ztmp lt gt 10 x} err
             set err
         } {ERR*}
 
-        test "ZADD INCR works like ZINCRBY" {
+        test "ZADD INCR LT/GT replies with nill if score not updated - $encoding" {
+            r del ztmp
+            r zadd ztmp 28 x
+            assert {[r zadd ztmp lt incr 1 x] eq {}}
+            assert {[r zscore ztmp x] == 28}
+            assert {[r zadd ztmp gt incr -1 x] eq {}}
+            assert {[r zscore ztmp x] == 28}
+        }
+
+        test "ZADD INCR LT/GT with inf - $encoding" {
+            r del ztmp
+            r zadd ztmp +inf x -inf y
+
+            assert {[r zadd ztmp lt incr 1 x] eq {}}
+            assert {[r zscore ztmp x] == inf}
+            assert {[r zadd ztmp gt incr -1 x] eq {}}
+            assert {[r zscore ztmp x] == inf}
+            assert {[r zadd ztmp lt incr -1 x] eq {}}
+            assert {[r zscore ztmp x] == inf}
+            assert {[r zadd ztmp gt incr 1 x] eq {}}
+            assert {[r zscore ztmp x] == inf}
+
+            assert {[r zadd ztmp lt incr 1 y] eq {}}
+            assert {[r zscore ztmp y] == -inf}
+            assert {[r zadd ztmp gt incr -1 y] eq {}}
+            assert {[r zscore ztmp y] == -inf}
+            assert {[r zadd ztmp lt incr -1 y] eq {}}
+            assert {[r zscore ztmp y] == -inf}
+            assert {[r zadd ztmp gt incr 1 y] eq {}}
+            assert {[r zscore ztmp y] == -inf}
+        }
+
+        test "ZADD INCR works like ZINCRBY - $encoding" {
             r del ztmp
             r zadd ztmp 10 x 20 y 30 z
             r zadd ztmp INCR 15 x
             assert {[r zscore ztmp x] == 25}
         }
 
-        test "ZADD INCR works with a single score-elemenet pair" {
+        test "ZADD INCR works with a single score-elemenet pair - $encoding" {
             r del ztmp
             r zadd ztmp 10 x 20 y 30 z
             catch {r zadd ztmp INCR 15 x 10 y} err
             set err
         } {ERR*}
 
-        test "ZADD CH option changes return value to all changed elements" {
+        test "ZADD CH option changes return value to all changed elements - $encoding" {
             r del ztmp
             r zadd ztmp 10 x 20 y 30 z
             assert {[r zadd ztmp 11 x 21 y 30 z] == 0}
             assert {[r zadd ztmp ch 12 x 22 y 30 z] == 2}
         }
 
-        test "ZINCRBY calls leading to NaN result in error" {
+        test "ZINCRBY calls leading to NaN result in error - $encoding" {
             r zincrby myzset +inf abc
             assert_error "*NaN*" {r zincrby myzset -inf abc}
         }
 
-        test {ZADD - Variadic version base case} {
+        test {ZADD - Variadic version base case - $encoding} {
             r del myzset
             list [r zadd myzset 10 a 20 b 30 c] [r zrange myzset 0 -1 withscores]
         } {3 {a 10 b 20 c 30}}
 
-        test {ZADD - Return value is the number of actually added items} {
+        test {ZADD - Return value is the number of actually added items - $encoding} {
             list [r zadd myzset 5 x 20 b 30 c] [r zrange myzset 0 -1 withscores]
         } {1 {x 5 a 10 b 20 c 30}}
 
-        test {ZADD - Variadic version does not add nothing on single parsing err} {
+        test {ZADD - Variadic version does not add nothing on single parsing err - $encoding} {
             r del myzset
             catch {r zadd myzset 10 a 20 b 30.badscore c} e
             assert_match {*ERR*not*float*} $e
             r exists myzset
         } {0}
 
-        test {ZADD - Variadic version will raise error on missing arg} {
+        test {ZADD - Variadic version will raise error on missing arg - $encoding} {
             r del myzset
             catch {r zadd myzset 10 a 20 b 30 c 40} e
             assert_match {*ERR*syntax*} $e
         }
 
-        test {ZINCRBY does not work variadic even if shares ZADD implementation} {
+        test {ZINCRBY does not work variadic even if shares ZADD implementation - $encoding} {
             r del myzset
             catch {r zincrby myzset 10 a 20 b 30 c} e
             assert_match {*ERR*wrong*number*arg*} $e
@@ -219,7 +253,7 @@ start_server {tags {"zset"}} {
             assert_equal 0 [r zcard zdoesntexist]
         }
 
-        test "ZREM removes key after last element is removed" {
+        test "ZREM removes key after last element is removed - $encoding" {
             r del ztmp
             r zadd ztmp 10 x
             r zadd ztmp 20 y
@@ -231,7 +265,7 @@ start_server {tags {"zset"}} {
             assert_equal 0 [r exists ztmp]
         }
 
-        test "ZREM variadic version" {
+        test "ZREM variadic version - $encoding" {
             r del ztmp
             r zadd ztmp 10 a 20 b 30 c
             assert_equal 2 [r zrem ztmp x y a b k]
@@ -240,7 +274,7 @@ start_server {tags {"zset"}} {
             r exists ztmp
         } {0}
 
-        test "ZREM variadic version -- remove elements after key deletion" {
+        test "ZREM variadic version -- remove elements after key deletion - $encoding" {
             r del ztmp
             r zadd ztmp 10 a 20 b 30 c
             r zrem ztmp a b c d e f g
@@ -348,7 +382,7 @@ start_server {tags {"zset"}} {
             assert_equal  6 [r zscore zset bar]
         }
 
-        test "ZINCRBY return value" {
+        test "ZINCRBY return value - $encoding" {
             r del ztmp
             set retval [r zincrby ztmp 1.0 x]
             assert {$retval == 1.0}
@@ -358,7 +392,7 @@ start_server {tags {"zset"}} {
             create_zset zset {-inf a 1 b 2 c 3 d 4 e 5 f +inf g}
         }
 
-        test "ZRANGEBYSCORE/ZREVRANGEBYSCORE/ZCOUNT basics" {
+        test "ZRANGEBYSCORE/ZREVRANGEBYSCORE/ZCOUNT basics - $encoding" {
             create_default_zset
 
             # inclusive range
@@ -410,13 +444,13 @@ start_server {tags {"zset"}} {
             assert_equal {} [r zrangebyscore zset (2.4 (2.6]
         }
 
-        test "ZRANGEBYSCORE with WITHSCORES" {
+        test "ZRANGEBYSCORE with WITHSCORES - $encoding" {
             create_default_zset
             assert_equal {b 1 c 2 d 3} [r zrangebyscore zset 0 3 withscores]
             assert_equal {d 3 c 2 b 1} [r zrevrangebyscore zset 3 0 withscores]
         }
 
-        test "ZRANGEBYSCORE with LIMIT" {
+        test "ZRANGEBYSCORE with LIMIT - $encoding" {
             create_default_zset
             assert_equal {b c}   [r zrangebyscore zset 0 10 LIMIT 0 2]
             assert_equal {d e f} [r zrangebyscore zset 0 10 LIMIT 2 3]
@@ -428,14 +462,14 @@ start_server {tags {"zset"}} {
             assert_equal {}      [r zrevrangebyscore zset 10 0 LIMIT 20 10]
         }
 
-        test "ZRANGEBYSCORE with LIMIT and WITHSCORES" {
+        test "ZRANGEBYSCORE with LIMIT and WITHSCORES - $encoding" {
             create_default_zset
             assert_equal {e 4 f 5} [r zrangebyscore zset 2 5 LIMIT 2 3 WITHSCORES]
             assert_equal {d 3 c 2} [r zrevrangebyscore zset 5 2 LIMIT 2 3 WITHSCORES]
             assert_equal {} [r zrangebyscore zset 2 5 LIMIT 12 13 WITHSCORES]
         }
 
-        test "ZRANGEBYSCORE with non-value min or max" {
+        test "ZRANGEBYSCORE with non-value min or max - $encoding" {
             assert_error "*not*float*" {r zrangebyscore fooz str 1}
             assert_error "*not*float*" {r zrangebyscore fooz 1 str}
             assert_error "*not*float*" {r zrangebyscore fooz 1 NaN}
@@ -447,7 +481,7 @@ start_server {tags {"zset"}} {
                               0 omega}
         }
 
-        test "ZRANGEBYLEX/ZREVRANGEBYLEX/ZLEXCOUNT basics" {
+        test "ZRANGEBYLEX/ZREVRANGEBYLEX/ZLEXCOUNT basics - $encoding" {
             create_default_lex_zset
 
             # inclusive range
@@ -476,7 +510,7 @@ start_server {tags {"zset"}} {
             assert_equal {} [r zrevrangebylex zset (hill (omega]
         }
         
-        test "ZLEXCOUNT advanced" {
+        test "ZLEXCOUNT advanced - $encoding" {
             create_default_lex_zset
     
             assert_equal 9 [r zlexcount zset - +]
@@ -492,7 +526,7 @@ start_server {tags {"zset"}} {
             assert_equal 1 [r zlexcount zset (maxstring +]
         }
 
-        test "ZRANGEBYSLEX with LIMIT" {
+        test "ZRANGEBYSLEX with LIMIT - $encoding" {
             create_default_lex_zset
             assert_equal {alpha bar} [r zrangebylex zset - \[cool LIMIT 0 2]
             assert_equal {bar cool} [r zrangebylex zset - \[cool LIMIT 1 2]
@@ -505,7 +539,7 @@ start_server {tags {"zset"}} {
             assert_equal {omega hill great foo} [r zrevrangebylex zset + \[d LIMIT 0 4]
         }
 
-        test "ZRANGEBYLEX with invalid lex range specifiers" {
+        test "ZRANGEBYLEX with invalid lex range specifiers - $encoding" {
             assert_error "*not*string*" {r zrangebylex fooz foo bar}
             assert_error "*not*string*" {r zrangebylex fooz \[foo bar}
             assert_error "*not*string*" {r zrangebylex fooz foo \[bar}
@@ -513,7 +547,7 @@ start_server {tags {"zset"}} {
             assert_error "*not*string*" {r zrangebylex fooz -x \[bar}
         }
 
-        test "ZREMRANGEBYSCORE basics" {
+        test "ZREMRANGEBYSCORE basics - $encoding" {
             proc remrangebyscore {min max} {
                 create_zset zset {1 a 2 b 3 c 4 d 5 e}
                 assert_equal 1 [r exists zset]
@@ -569,13 +603,13 @@ start_server {tags {"zset"}} {
             assert_equal 0 [r exists zset]
         }
 
-        test "ZREMRANGEBYSCORE with non-value min or max" {
+        test "ZREMRANGEBYSCORE with non-value min or max - $encoding" {
             assert_error "*not*float*" {r zremrangebyscore fooz str 1}
             assert_error "*not*float*" {r zremrangebyscore fooz 1 str}
             assert_error "*not*float*" {r zremrangebyscore fooz 1 NaN}
         }
 
-        test "ZREMRANGEBYRANK basics" {
+        test "ZREMRANGEBYRANK basics - $encoding" {
             proc remrangebyrank {min max} {
                 create_zset zset {1 a 2 b 3 c 4 d 5 e}
                 assert_equal 1 [r exists zset]
@@ -713,6 +747,12 @@ start_server {tags {"zset"}} {
             assert_equal {b 3 c 5} [r zinter 2 zseta zsetb withscores]
         }
 
+        test "ZINTER RESP3 - $encoding" {
+            r hello 3
+            assert_equal {{b 3.0} {c 5.0}} [r zinter 2 zseta zsetb withscores]
+        }
+        r hello 2
+
         test "ZINTERSTORE with weights - $encoding" {
             assert_equal 2 [r zinterstore zsetc 2 zseta zsetb weights 2 3]
             assert_equal {b 7 c 12} [r zrange zsetc 0 -1 withscores]
@@ -766,7 +806,7 @@ start_server {tags {"zset"}} {
                 assert_equal -inf [r zscore zsetinf3 key]
             }
 
-            test "$cmd with NaN weights $encoding" {
+            test "$cmd with NaN weights - $encoding" {
                 r del zsetinf1 zsetinf2
 
                 r zadd zsetinf1 1.0 key
@@ -825,7 +865,7 @@ start_server {tags {"zset"}} {
             assert_equal {a 1 e 5} [r zrange zsete 0 -1 withscores]
         }
 
-        test "ZDIFF fuzzing" {
+        test "ZDIFF fuzzing - $encoding" {
             for {set j 0} {$j < 100} {incr j} {
                 unset -nocomplain s
                 array set s {}
@@ -919,6 +959,9 @@ start_server {tags {"zset"}} {
             assert_equal 0 [r zcard z1]
             assert_equal 1 [r zcard z2]
         }
+
+        r config set zset-max-ziplist-entries $original_max_entries
+        r config set zset-max-ziplist-value $original_max_value
     }
 
     basics ziplist
@@ -1016,6 +1059,8 @@ start_server {tags {"zset"}} {
     }
 
     proc stressers {encoding} {
+        set original_max_entries [lindex [r config get zset-max-ziplist-entries] 1]
+        set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
         if {$encoding == "ziplist"} {
             # Little extra to allow proper fuzzing in the sorting stresser
             r config set zset-max-ziplist-entries 256
@@ -1440,6 +1485,8 @@ start_server {tags {"zset"}} {
             r zadd zset 0 foo
             assert_equal {zset foo 0} [$rd read]
         }
+        r config set zset-max-ziplist-entries $original_max_entries
+        r config set zset-max-ziplist-value $original_max_value
     }
 
     tags {"slow"} {
@@ -1472,4 +1519,274 @@ start_server {tags {"zset"}} {
         }
         r config set zset-max-ziplist-entries $original_max
     }
+
+    test {ZRANGESTORE basic} {
+        r flushall
+        r zadd z1 1 a 2 b 3 c 4 d
+        set res [r zrangestore z2 z1 0 -1]
+        assert_equal $res 4
+        r zrange z2 0 -1 withscores
+    } {a 1 b 2 c 3 d 4}
+
+    test {ZRANGESTORE RESP3} {
+        r hello 3
+        r zrange z2 0 -1 withscores
+    } {{a 1.0} {b 2.0} {c 3.0} {d 4.0}}
+    r hello 2
+
+    test {ZRANGESTORE range} {
+        set res [r zrangestore z2 z1 1 2]
+        assert_equal $res 2
+        r zrange z2 0 -1 withscores
+    } {b 2 c 3}
+
+    test {ZRANGESTORE BYLEX} {
+        set res [r zrangestore z2 z1 \[b \[c BYLEX]
+        assert_equal $res 2
+        r zrange z2 0 -1 withscores
+    } {b 2 c 3}
+
+    test {ZRANGESTORE BYSCORE} {
+        set res [r zrangestore z2 z1 1 2 BYSCORE]
+        assert_equal $res 2
+        r zrange z2 0 -1 withscores
+    } {a 1 b 2}
+
+    test {ZRANGESTORE BYSCORE LIMIT} {
+        set res [r zrangestore z2 z1 0 5 BYSCORE LIMIT 0 2]
+        assert_equal $res 2
+        r zrange z2 0 -1 withscores
+    } {a 1 b 2}
+
+    test {ZRANGESTORE BYSCORE REV LIMIT} {
+        set res [r zrangestore z2 z1 5 0 BYSCORE REV LIMIT 0 2]
+        assert_equal $res 2
+        r zrange z2 0 -1 withscores
+    } {c 3 d 4}
+
+    test {ZRANGE BYSCORE REV LIMIT} {
+        r zrange z1 5 0 BYSCORE REV LIMIT 0 2 WITHSCORES
+    } {d 4 c 3}
+
+    test {ZRANGESTORE - empty range} {
+        set res [r zrangestore z2 z1 5 6]
+        assert_equal $res 0
+        r exists z2
+    } {0}
+
+    test {ZRANGESTORE BYLEX - empty range} {
+        set res [r zrangestore z2 z1 \[f \[g BYLEX]
+        assert_equal $res 0
+        r exists z2
+    } {0}
+
+    test {ZRANGESTORE BYSCORE - empty range} {
+        set res [r zrangestore z2 z1 5 6 BYSCORE]
+        assert_equal $res 0
+        r exists z2
+    } {0}
+
+    test {ZRANGE BYLEX} {
+        r zrange z1 \[b \[c BYLEX
+    } {b c}
+
+    test {ZRANGESTORE invalid syntax} {
+        catch {r zrangestore z2 z1 0 -1 limit 1 2} err
+        assert_match "*syntax*" $err
+        catch {r zrangestore z2 z1 0 -1 WITHSCORES} err
+        assert_match "*syntax*" $err
+    }
+
+    test {ZRANGE invalid syntax} {
+        catch {r zrange z1 0 -1 limit 1 2} err
+        assert_match "*syntax*" $err
+        catch {r zrange z1 0 -1 BYLEX WITHSCORES} err
+        assert_match "*syntax*" $err
+        catch {r zrevrange z1 0 -1 BYSCORE} err
+        assert_match "*syntax*" $err
+        catch {r zrangebyscore z1 0 -1 REV} err
+        assert_match "*syntax*" $err
+    }
+
+    proc get_keys {l} {
+        set res {}
+        foreach {score key} $l {
+            lappend res $key
+        }
+        return $res
+    }
+
+    foreach {type contents} "ziplist {1 a 2 b 3 c} skiplist {1 a 2 b 3 [randstring 70 90 alpha]}" {
+        set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
+        r config set zset-max-ziplist-value 10
+        create_zset myzset $contents
+        assert_encoding $type myzset
+
+        test "ZRANDMEMBER - $type" {
+            unset -nocomplain myzset
+            array set myzset {}
+            for {set i 0} {$i < 100} {incr i} {
+                set key [r zrandmember myzset]
+                set myzset($key) 1
+            }
+            assert_equal [lsort [get_keys $contents]] [lsort [array names myzset]]
+        }
+        r config set zset-max-ziplist-value $original_max_value
+    }
+
+    test "ZRANDMEMBER with RESP3" {
+        r hello 3
+        set res [r zrandmember myzset 3 withscores]
+        assert_equal [llength $res] 3
+        assert_equal [llength [lindex $res 1]] 2
+
+        set res [r zrandmember myzset 3]
+        assert_equal [llength $res] 3
+        assert_equal [llength [lindex $res 1]] 1
+    }
+    r hello 2
+
+    test "ZRANDMEMBER count of 0 is handled correctly" {
+        r zrandmember myzset 0
+    } {}
+
+    test "ZRANDMEMBER with <count> against non existing key" {
+        r zrandmember nonexisting_key 100
+    } {}
+
+    foreach {type contents} "
+        skiplist {1 a 2 b 3 c 4 d 5 e 6 f 7 g 7 h 9 i 10 [randstring 70 90 alpha]}
+        ziplist {1 a 2 b 3 c 4 d 5 e 6 f 7 g 7 h 9 i 10 j} " {
+        test "ZRANDMEMBER with <count> - $type" {
+            set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
+            r config set zset-max-ziplist-value 10
+            create_zset myzset $contents
+            assert_encoding $type myzset
+
+            # create a dict for easy lookup
+            unset -nocomplain mydict
+            foreach {k v} [r zrange myzset 0 -1 withscores] {
+                dict append mydict $k $v
+            }
+
+            # We'll stress different parts of the code, see the implementation
+            # of ZRANDMEMBER for more information, but basically there are
+            # four different code paths.
+
+            # PATH 1: Use negative count.
+
+            # 1) Check that it returns repeated elements with and without values.
+            set res [r zrandmember myzset -20]
+            assert_equal [llength $res] 20
+            set res [r zrandmember myzset -1001]
+            assert_equal [llength $res] 1001
+            # again with WITHSCORES
+            set res [r zrandmember myzset -20 withscores]
+            assert_equal [llength $res] 40
+            set res [r zrandmember myzset -1001 withscores]
+            assert_equal [llength $res] 2002
+
+            # Test random uniform distribution
+            # df = 9, 40 means 0.00001 probability
+            set res [r zrandmember myzset -1000]
+            assert_lessthan [chi_square_value $res] 40
+
+            # 2) Check that all the elements actually belong to the original zset.
+            foreach {key val} $res {
+                assert {[dict exists $mydict $key]}
+            }
+
+            # 3) Check that eventually all the elements are returned.
+            #    Use both WITHSCORES and without
+            unset -nocomplain auxset
+            set iterations 1000
+            while {$iterations != 0} {
+                incr iterations -1
+                if {[expr {$iterations % 2}] == 0} {
+                    set res [r zrandmember myzset -3 withscores]
+                    foreach {key val} $res {
+                        dict append auxset $key $val
+                    }
+                } else {
+                    set res [r zrandmember myzset -3]
+                    foreach key $res {
+                        dict append auxset $key $val
+                    }
+                }
+                if {[lsort [dict keys $mydict]] eq
+                    [lsort [dict keys $auxset]]} {
+                    break;
+                }
+            }
+            assert {$iterations != 0}
+
+            # PATH 2: positive count (unique behavior) with requested size
+            # equal or greater than set size.
+            foreach size {10 20} {
+                set res [r zrandmember myzset $size]
+                assert_equal [llength $res] 10
+                assert_equal [lsort $res] [lsort [dict keys $mydict]]
+
+                # again with WITHSCORES
+                set res [r zrandmember myzset $size withscores]
+                assert_equal [llength $res] 20
+                assert_equal [lsort $res] [lsort $mydict]
+            }
+
+            # PATH 3: Ask almost as elements as there are in the set.
+            # In this case the implementation will duplicate the original
+            # set and will remove random elements up to the requested size.
+            #
+            # PATH 4: Ask a number of elements definitely smaller than
+            # the set size.
+            #
+            # We can test both the code paths just changing the size but
+            # using the same code.
+            foreach size {8 2} {
+                set res [r zrandmember myzset $size]
+                assert_equal [llength $res] $size
+                # again with WITHSCORES
+                set res [r zrandmember myzset $size withscores]
+                assert_equal [llength $res] [expr {$size * 2}]
+
+                # 1) Check that all the elements actually belong to the
+                # original set.
+                foreach ele [dict keys $res] {
+                    assert {[dict exists $mydict $ele]}
+                }
+
+                # 2) Check that eventually all the elements are returned.
+                #    Use both WITHSCORES and without
+                unset -nocomplain auxset
+                unset -nocomplain allkey
+                set iterations [expr {1000 / $size}]
+                set all_ele_return false
+                while {$iterations != 0} {
+                    incr iterations -1
+                    if {[expr {$iterations % 2}] == 0} {
+                        set res [r zrandmember myzset $size withscores]
+                        foreach {key value} $res {
+                            dict append auxset $key $value
+                            lappend allkey $key
+                        }
+                    } else {
+                        set res [r zrandmember myzset $size]
+                        foreach key $res {
+                            dict append auxset $key
+                            lappend allkey $key
+                        }
+                    }
+                    if {[lsort [dict keys $mydict]] eq
+                        [lsort [dict keys $auxset]]} {
+                        set all_ele_return true
+                    }
+                }
+                assert_equal $all_ele_return true
+                # df = 9, 40 means 0.00001 probability
+                assert_lessthan [chi_square_value $allkey] 40
+            }
+        }
+        r config set zset-max-ziplist-value $original_max_value
+    }
+
 }

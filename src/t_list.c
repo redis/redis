@@ -41,10 +41,13 @@
 void listTypePush(robj *subject, robj *value, int where) {
     if (subject->encoding == OBJ_ENCODING_QUICKLIST) {
         int pos = (where == LIST_HEAD) ? QUICKLIST_HEAD : QUICKLIST_TAIL;
-        value = getDecodedObject(value);
-        size_t len = sdslen(value->ptr);
-        quicklistPush(subject->ptr, value->ptr, len, pos);
-        decrRefCount(value);
+        if (value->encoding == OBJ_ENCODING_INT) {
+            char buf[32];
+            ll2string(buf, 32, (long)value->ptr);
+            quicklistPush(subject->ptr, buf, strlen(buf), pos);
+        } else {
+            quicklistPush(subject->ptr, value->ptr, sdslen(value->ptr), pos);
+        }
     } else {
         serverPanic("Unknown list encoding");
     }
@@ -216,76 +219,55 @@ robj *listTypeDup(robj *o) {
  * List Commands
  *----------------------------------------------------------------------------*/
 
-/* Implements LPUSH/RPUSH. */
-void pushGenericCommand(client *c, int where) {
-    int j, pushed = 0;
-    robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
+/* Implements LPUSH/RPUSH/LPUSHX/RPUSHX. 
+ * 'xx': push if key exists. */
+void pushGenericCommand(client *c, int where, int xx) {
+    int j;
 
-    if (checkType(c,lobj,OBJ_LIST)) {
-        return;
+    robj *lobj = lookupKeyWrite(c->db, c->argv[1]);
+    if (checkType(c,lobj,OBJ_LIST)) return;
+    if (!lobj) {
+        if (xx) {
+            addReply(c, shared.czero);
+            return;
+        }
+
+        lobj = createQuicklistObject();
+        quicklistSetOptions(lobj->ptr, server.list_max_ziplist_size,
+                            server.list_compress_depth);
+        dbAdd(c->db,c->argv[1],lobj);
     }
 
     for (j = 2; j < c->argc; j++) {
-        if (!lobj) {
-            lobj = createQuicklistObject();
-            quicklistSetOptions(lobj->ptr, server.list_max_ziplist_size,
-                                server.list_compress_depth);
-            dbAdd(c->db,c->argv[1],lobj);
-        }
         listTypePush(lobj,c->argv[j],where);
-        pushed++;
+        server.dirty++;
     }
-    addReplyLongLong(c, (lobj ? listTypeLength(lobj) : 0));
-    if (pushed) {
-        char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
 
-        signalModifiedKey(c,c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
-    }
-    server.dirty += pushed;
+    addReplyLongLong(c, listTypeLength(lobj));
+
+    char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
+    signalModifiedKey(c,c->db,c->argv[1]);
+    notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
 }
 
 /* LPUSH <key> <element> [<element> ...] */
 void lpushCommand(client *c) {
-    pushGenericCommand(c,LIST_HEAD);
+    pushGenericCommand(c,LIST_HEAD,0);
 }
 
 /* RPUSH <key> <element> [<element> ...] */
 void rpushCommand(client *c) {
-    pushGenericCommand(c,LIST_TAIL);
-}
-
-/* Implements LPUSHX/RPUSHX. */
-void pushxGenericCommand(client *c, int where) {
-    int j, pushed = 0;
-    robj *subject;
-
-    if ((subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,subject,OBJ_LIST)) return;
-
-    for (j = 2; j < c->argc; j++) {
-        listTypePush(subject,c->argv[j],where);
-        pushed++;
-    }
-
-    addReplyLongLong(c,listTypeLength(subject));
-
-    if (pushed) {
-        char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
-        signalModifiedKey(c,c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
-    }
-    server.dirty += pushed;
+    pushGenericCommand(c,LIST_TAIL,0);
 }
 
 /* LPUSHX <key> <element> [<element> ...] */
 void lpushxCommand(client *c) {
-    pushxGenericCommand(c,LIST_HEAD);
+    pushGenericCommand(c,LIST_HEAD,1);
 }
 
 /* RPUSH <key> <element> [<element> ...] */
 void rpushxCommand(client *c) {
-    pushxGenericCommand(c,LIST_TAIL);
+    pushGenericCommand(c,LIST_TAIL,1);
 }
 
 /* LINSERT <key> (BEFORE|AFTER) <pivot> <element> */
@@ -345,7 +327,6 @@ void lindexCommand(client *c) {
     robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
     long index;
-    robj *value = NULL;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != C_OK))
         return;
@@ -354,12 +335,10 @@ void lindexCommand(client *c) {
         quicklistEntry entry;
         if (quicklistIndex(o->ptr, index, &entry)) {
             if (entry.value) {
-                value = createStringObject((char*)entry.value,entry.sz);
+                addReplyBulkCBuffer(c, entry.value, entry.sz);
             } else {
-                value = createStringObjectFromLongLong(entry.longval);
+                addReplyBulkLongLong(c, entry.longval);
             }
-            addReplyBulk(c,value);
-            decrRefCount(value);
         } else {
             addReplyNull(c);
         }
@@ -613,20 +592,14 @@ void lposCommand(client *c) {
             }
         } else if (!strcasecmp(opt,"COUNT") && moreargs) {
             j++;
-            if (getLongFromObjectOrReply(c, c->argv[j], &count, NULL) != C_OK)
+            if (getPositiveLongFromObjectOrReply(c, c->argv[j], &count,
+              "COUNT can't be negative") != C_OK)
                 return;
-            if (count < 0) {
-                addReplyError(c,"COUNT can't be negative");
-                return;
-            }
         } else if (!strcasecmp(opt,"MAXLEN") && moreargs) {
             j++;
-            if (getLongFromObjectOrReply(c, c->argv[j], &maxlen, NULL) != C_OK)
+            if (getPositiveLongFromObjectOrReply(c, c->argv[j], &maxlen, 
+              "MAXLEN can't be negative") != C_OK)
                 return;
-            if (maxlen < 0) {
-                addReplyError(c,"MAXLEN can't be negative");
-                return;
-            }
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
             return;

@@ -154,8 +154,9 @@ client *createClient(connection *conn) {
     c->read_reploff = 0;
     c->repl_ack_off = 0;
     c->repl_ack_time = 0;
+    c->repl_last_partial_write = 0;
     c->slave_listening_port = 0;
-    c->slave_ip[0] = '\0';
+    c->slave_addr = NULL;
     c->slave_capa = SLAVE_CAPA_NONE;
     c->reply = listCreate();
     c->reply_bytes = 0;
@@ -178,6 +179,7 @@ client *createClient(connection *conn) {
     c->peerid = NULL;
     c->sockname = NULL;
     c->client_list_node = NULL;
+    c->paused_list_node = NULL;
     c->client_tracking_redirection = 0;
     c->client_tracking_prefixes = NULL;
     c->client_cron_last_memory_usage = 0;
@@ -330,8 +332,9 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
         memcpy(tail->buf, s, len);
         listAddNodeTail(c->reply, tail);
         c->reply_bytes += tail->size;
+
+        asyncCloseClientOnOutputBufferLimitReached(c);
     }
-    asyncCloseClientOnOutputBufferLimitReached(c);
 }
 
 /* -----------------------------------------------------------------------------
@@ -405,6 +408,24 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
 
 /* Do some actions after an error reply was sent (Log if needed, updates stats, etc.) */
 void afterErrorReply(client *c, const char *s, size_t len) {
+    /* Increment the global error counter */
+    server.stat_total_error_replies++;
+    /* Increment the error stats
+     * If the string already starts with "-..." then the error prefix
+     * is provided by the caller ( we limit the search to 32 chars). Otherwise we use "-ERR". */
+    if (s[0] != '-') {
+        incrementErrorCount("ERR", 3);
+    } else {
+        char *spaceloc = memchr(s, ' ', len < 32 ? len : 32);
+        if (spaceloc) {
+            const size_t errEndPos = (size_t)(spaceloc - s);
+            incrementErrorCount(s+1, errEndPos-1);
+        } else {
+            /* Fallback to ERR if we can't retrieve the error prefix */
+            incrementErrorCount("ERR", 3);
+        }
+    }
+
     /* Sometimes it could be normal that a slave replies to a master with
      * an error and this function gets called. Actually the error will never
      * be sent because addReply*() against master clients has no effect...
@@ -508,7 +529,7 @@ void trimReplyUnusedTailSpace(client *c) {
     listNode *ln = listLast(c->reply);
     clientReplyBlock *tail = ln? listNodeValue(ln): NULL;
 
-    /* Note that 'tail' may be NULL even if we have a tail node, becuase when
+    /* Note that 'tail' may be NULL even if we have a tail node, because when
      * addReplyDeferredLen() is used */
     if (!tail) return;
 
@@ -541,13 +562,9 @@ void *addReplyDeferredLen(client *c) {
     return listLast(c->reply);
 }
 
-/* Populate the length object and try gluing it to the next chunk. */
-void setDeferredAggregateLen(client *c, void *node, long length, char prefix) {
-    serverAssert(length >= 0);
+void setDeferredReply(client *c, void *node, const char *s, size_t length) {
     listNode *ln = (listNode*)node;
-    clientReplyBlock *next;
-    char lenstr[128];
-    size_t lenstr_len = sprintf(lenstr, "%c%ld\r\n", prefix, length);
+    clientReplyBlock *next, *prev;
 
     /* Abort when *node is NULL: when the client should not accept writes
      * we return NULL in addReplyDeferredLen() */
@@ -556,32 +573,64 @@ void setDeferredAggregateLen(client *c, void *node, long length, char prefix) {
 
     /* Normally we fill this dummy NULL node, added by addReplyDeferredLen(),
      * with a new buffer structure containing the protocol needed to specify
-     * the length of the array following. However sometimes when there is
-     * little memory to move, we may instead remove this NULL node, and prefix
-     * our protocol in the node immediately after to it, in order to save a
-     * write(2) syscall later. Conditions needed to do it:
+     * the length of the array following. However sometimes there might be room
+     * in the previous/next node so we can instead remove this NULL node, and
+     * suffix/prefix our data in the node immediately before/after it, in order
+     * to save a write(2) syscall later. Conditions needed to do it:
      *
+     * - The prev node is non-NULL and has space in it or
      * - The next node is non-NULL,
      * - It has enough room already allocated
      * - And not too large (avoid large memmove) */
+    if (ln->prev != NULL && (prev = listNodeValue(ln->prev)) &&
+        prev->size - prev->used > 0)
+    {
+        size_t len_to_copy = prev->size - prev->used;
+        if (len_to_copy > length)
+            len_to_copy = length;
+        memcpy(prev->buf + prev->used, s, len_to_copy);
+        prev->used += len_to_copy;
+        length -= len_to_copy;
+        if (length == 0) {
+            listDelNode(c->reply, ln);
+            return;
+        }
+        s += len_to_copy;
+    }
+
     if (ln->next != NULL && (next = listNodeValue(ln->next)) &&
-        next->size - next->used >= lenstr_len &&
-        next->used < PROTO_REPLY_CHUNK_BYTES * 4) {
-        memmove(next->buf + lenstr_len, next->buf, next->used);
-        memcpy(next->buf, lenstr, lenstr_len);
-        next->used += lenstr_len;
+        next->size - next->used >= length &&
+        next->used < PROTO_REPLY_CHUNK_BYTES * 4)
+    {
+        memmove(next->buf + length, next->buf, next->used);
+        memcpy(next->buf, s, length);
+        next->used += length;
         listDelNode(c->reply,ln);
     } else {
         /* Create a new node */
-        clientReplyBlock *buf = zmalloc(lenstr_len + sizeof(clientReplyBlock));
+        clientReplyBlock *buf = zmalloc(length + sizeof(clientReplyBlock));
         /* Take over the allocation's internal fragmentation */
         buf->size = zmalloc_usable_size(buf) - sizeof(clientReplyBlock);
-        buf->used = lenstr_len;
-        memcpy(buf->buf, lenstr, lenstr_len);
+        buf->used = length;
+        memcpy(buf->buf, s, length);
         listNodeValue(ln) = buf;
         c->reply_bytes += buf->size;
+
+        asyncCloseClientOnOutputBufferLimitReached(c);
     }
-    asyncCloseClientOnOutputBufferLimitReached(c);
+}
+
+/* Populate the length object and try gluing it to the next chunk. */
+void setDeferredAggregateLen(client *c, void *node, long length, char prefix) {
+    serverAssert(length >= 0);
+
+    /* Abort when *node is NULL: when the client should not accept writes
+     * we return NULL in addReplyDeferredLen() */
+    if (node == NULL) return;
+
+    char lenstr[128];
+    size_t lenstr_len = sprintf(lenstr, "%c%ld\r\n", prefix, length);
+    setDeferredReply(c, node, lenstr, lenstr_len);
 }
 
 void setDeferredArrayLen(client *c, void *node, long length) {
@@ -688,10 +737,7 @@ void addReplyLongLong(client *c, long long ll) {
 
 void addReplyAggregateLen(client *c, long length, int prefix) {
     serverAssert(length >= 0);
-    if (prefix == '*' && length < OBJ_SHARED_BULKHDR_LEN)
-        addReply(c,shared.mbulkhdr[length]);
-    else
-        addReplyLongLongWithPrefix(c,length,prefix);
+    addReplyLongLongWithPrefix(c,length,prefix);
 }
 
 void addReplyArrayLen(client *c, long length) {
@@ -752,10 +798,7 @@ void addReplyNullArray(client *c) {
 void addReplyBulkLen(client *c, robj *obj) {
     size_t len = stringObjectLen(obj);
 
-    if (len < OBJ_SHARED_BULKHDR_LEN)
-        addReply(c,shared.bulkhdr[len]);
-    else
-        addReplyLongLongWithPrefix(c,len,'$');
+    addReplyLongLongWithPrefix(c,len,'$');
 }
 
 /* Add a Redis Object as a bulk reply */
@@ -777,6 +820,14 @@ void addReplyBulkSds(client *c, sds s)  {
     addReplyLongLongWithPrefix(c,sdslen(s),'$');
     addReplySds(c,s);
     addReply(c,shared.crlf);
+}
+
+/* Set sds to a deferred reply (for symmetry with addReplyBulkSds it also frees the sds) */
+void setDeferredReplyBulkSds(client *c, void *node, sds s) {
+    sds reply = sdscatprintf(sdsempty(), "$%d\r\n%s\r\n", (unsigned)sdslen(s), s);
+    setDeferredReply(c, node, reply, sdslen(reply));
+    sdsfree(reply);
+    sdsfree(s);
 }
 
 /* Add a C null term string as bulk reply */
@@ -837,12 +888,16 @@ void addReplyHelp(client *c, const char **help) {
 
     sdstoupper(cmd);
     addReplyStatusFormat(c,
-        "%s <subcommand> arg arg ... arg. Subcommands are:",cmd);
+        "%s <subcommand> [<arg> [value] [opt] ...]. Subcommands are:",cmd);
     sdsfree(cmd);
 
     while (help[blen]) addReplyStatus(c,help[blen++]);
 
-    blen++;  /* Account for the header line(s). */
+    addReplyStatus(c,"HELP");
+    addReplyStatus(c,"    Prints this help.");
+
+    blen += 1;  /* Account for the header. */
+    blen += 2;  /* Account for the footer. */
     setDeferredArrayLen(c,blenp,blen);
 }
 
@@ -1063,6 +1118,7 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                     "Accepting client connection: %s", server.neterr);
             return;
         }
+        anetCloexec(cfd);
         serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
         acceptCommonHandler(connCreateAcceptedSocket(cfd),0,cip);
     }
@@ -1083,6 +1139,7 @@ void acceptTLSHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                     "Accepting client connection: %s", server.neterr);
             return;
         }
+        anetCloexec(cfd);
         serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
         acceptCommonHandler(connCreateAcceptedTLS(cfd, server.tls_auth_clients),0,cip);
     }
@@ -1102,6 +1159,7 @@ void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                     "Accepting client connection: %s", server.neterr);
             return;
         }
+        anetCloexec(cfd);
         serverLog(LL_VERBOSE,"Accepted connection to %s", server.unixsocket);
         acceptCommonHandler(connCreateAcceptedSocket(cfd),CLIENT_UNIX_SOCKET,NULL);
     }
@@ -1318,7 +1376,7 @@ void freeClient(client *c) {
          * to keep data safe and we may delay configured 'save' for full sync. */
         if (server.saveparamslen == 0 &&
             c->replstate == SLAVE_STATE_WAIT_BGSAVE_END &&
-            server.rdb_child_pid != -1 &&
+            server.child_type == CHILD_TYPE_RDB &&
             server.rdb_child_type == RDB_CHILD_TYPE_DISK &&
             anyOtherSlaveWaitRdb(c) == 0)
         {
@@ -1362,6 +1420,7 @@ void freeClient(client *c) {
     freeClientMultiState(c);
     sdsfree(c->peerid);
     sdsfree(c->sockname);
+    sdsfree(c->slave_addr);
     zfree(c);
 }
 
@@ -1388,7 +1447,7 @@ void freeClientAsync(client *c) {
     pthread_mutex_unlock(&async_free_queue_mutex);
 }
 
-/* Free the clietns marked as CLOSE_ASAP, return the number of clients
+/* Free the clients marked as CLOSE_ASAP, return the number of clients
  * freed. */
 int freeClientsInAsyncFreeQueue(void) {
     int freed = 0;
@@ -1492,9 +1551,7 @@ int writeToClient(client *c, int handler_installed) {
     }
     atomicIncr(server.stat_net_output_bytes, totwritten);
     if (nwritten == -1) {
-        if (connGetState(c->conn) == CONN_STATE_CONNECTED) {
-            nwritten = 0;
-        } else {
+        if (connGetState(c->conn) != CONN_STATE_CONNECTED) {
             serverLog(LL_VERBOSE,
                 "Error writing to client: %s", connGetLastError(c->conn));
             freeClientAsync(c);
@@ -1606,6 +1663,9 @@ void resetClient(client *c) {
         c->flags |= CLIENT_REPLY_SKIP;
         c->flags &= ~CLIENT_REPLY_SKIP_NEXT;
     }
+
+    /* Always clear the prevent logging field. */
+    c->flags &= ~CLIENT_PREVENT_LOGGING;
 }
 
 /* This function is used when we want to re-enter the event loop but there
@@ -1666,7 +1726,7 @@ int processInlineBuffer(client *c) {
     }
 
     /* Handle the \r\n case. */
-    if (newline && newline != c->querybuf+c->qb_pos && *(newline-1) == '\r')
+    if (newline != c->querybuf+c->qb_pos && *(newline-1) == '\r')
         newline--, linefeed_chars++;
 
     /* Split the input buffer up to the \r\n */
@@ -1694,6 +1754,7 @@ int processInlineBuffer(client *c) {
      * However the is an exception: masters may send us just a newline
      * to keep the connection active. */
     if (querylen != 0 && c->flags & CLIENT_MASTER) {
+        sdsfreesplitres(argv,argc);
         serverLog(LL_WARNING,"WARNING: Receiving inline protocol from master, master stream corruption? Closing the master connection and discarding the cached master.");
         setProtocolError("Master using the inline protocol. Desync?",c);
         return C_ERR;
@@ -1914,13 +1975,10 @@ void commandProcessed(client *c) {
         c->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
     }
 
-    /* Don't reset the client structure for clients blocked in a
-     * module blocking command, so that the reply callback will
-     * still be able to access the client argv and argc field.
-     * The client will be reset in unblockClientFromModule(). */
-    if (!(c->flags & CLIENT_BLOCKED) ||
-        c->btype != BLOCKED_MODULE)
-    {
+    /* Don't reset the client structure for blocked clients, so that the reply
+     * callback will still be able to access the client argv and argc fields.
+     * The client will be reset in unblockClient(). */
+    if (!(c->flags & CLIENT_BLOCKED)) {
         resetClient(c);
     }
 
@@ -1950,16 +2008,38 @@ void commandProcessed(client *c) {
  * of processing the command, otherwise C_OK is returned. */
 int processCommandAndResetClient(client *c) {
     int deadclient = 0;
+    client *old_client = server.current_client;
     server.current_client = c;
     if (processCommand(c) == C_OK) {
         commandProcessed(c);
     }
     if (server.current_client == NULL) deadclient = 1;
-    server.current_client = NULL;
+    /*
+     * Restore the old client, this is needed because when a script
+     * times out, we will get into this code from processEventsWhileBlocked.
+     * Which will cause to set the server.current_client. If not restored
+     * we will return 1 to our caller which will falsely indicate the client
+     * is dead and will stop reading from its buffer.
+     */
+    server.current_client = old_client;
     /* performEvictions may flush slave output buffers. This may
      * result in a slave, that may be the active client, to be
      * freed. */
     return deadclient ? C_ERR : C_OK;
+}
+
+
+/* This function will execute any fully parsed commands pending on
+ * the client. Returns C_ERR if the client is no longer valid after executing
+ * the command, and C_OK for all other cases. */
+int processPendingCommandsAndResetClient(client *c) {
+    if (c->flags & CLIENT_PENDING_COMMAND) {
+        c->flags &= ~CLIENT_PENDING_COMMAND;
+        if (processCommandAndResetClient(c) == C_ERR) {
+            return C_ERR;
+        }
+    }
+    return C_OK;
 }
 
 /* This function is called every time, in the client structure 'c', there is
@@ -1969,9 +2049,6 @@ int processCommandAndResetClient(client *c) {
 void processInputBuffer(client *c) {
     /* Keep processing while there is something in the input buffer */
     while(c->qb_pos < sdslen(c->querybuf)) {
-        /* Return if clients are paused. */
-        if (!(c->flags & CLIENT_SLAVE) && clientsArePaused()) break;
-
         /* Immediately abort if the client is in the middle of something. */
         if (c->flags & CLIENT_BLOCKED) break;
 
@@ -2369,27 +2446,49 @@ void clientCommand(client *c) {
 
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-"ID                     -- Return the ID of the current connection.",
-"INFO                   -- Return information about the current client connection.",
-"GETNAME                -- Return the name of the current connection.",
-"KILL <ip:port>         -- Kill connection made from <ip:port>.",
-"KILL <option> <value> [option value ...] -- Kill connections. Options are:",
-"     ADDR <ip:port>                      -- Kill connection made from <ip:port>",
-"     LADDR <ip:port>                     -- Kill connection made to <ip:port>",
-"     TYPE (normal|master|replica|pubsub) -- Kill connections by type.",
-"     USER <username>   -- Kill connections authenticated with such user.",
-"     SKIPME (yes|no)   -- Skip killing current connection (default: yes).",
-"LIST [options ...]     -- Return information about client connections. Options:",
-"     TYPE (normal|master|replica|pubsub) -- Return clients of specified type.",
-"     ID id [id ...]                      -- Return clients of specified IDs only.",
-"PAUSE <timeout>        -- Suspend all Redis clients for <timeout> milliseconds.",
-"REPLY (on|off|skip)    -- Control the replies sent to the current connection.",
-"SETNAME <name>         -- Assign the name <name> to the current connection.",
-"UNBLOCK <clientid> [TIMEOUT|ERROR] -- Unblock the specified blocked client.",
-"TRACKING (on|off) [REDIRECT <id>] [BCAST] [PREFIX first] [PREFIX second] [OPTIN] [OPTOUT] [NOLOOP]... -- Enable client keys tracking for client side caching.",
-"CACHING  (yes|no)      -- Enable/Disable tracking of the keys for next command in OPTIN/OPTOUT mode.",
-"GETREDIR               -- Return the client ID we are redirecting to when tracking is enabled.",
-"TRACKINGINFO           -- Return information about current client's tracking status.",
+"CACHING (YES|NO)",
+"    Enable/disable tracking of the keys for next command in OPTIN/OPTOUT modes.",
+"GETREDIR",
+"    Return the client ID we are redirecting to when tracking is enabled.",
+"GETNAME",
+"    Return the name of the current connection.",
+"ID",
+"    Return the ID of the current connection.",
+"INFO",
+"    Return information about the current client connection.",
+"KILL <ip:port>",
+"    Kill connection made from <ip:port>.",
+"KILL <option> <value> [<option> <value> [...]]",
+"    Kill connections. Options are:",
+"    * ADDR (<ip:port>|<unixsocket>:0)",
+"      Kill connections made from the specified address",
+"    * LADDR (<ip:port>|<unixsocket>:0)",
+"      Kill connections made to specified local address",
+"    * TYPE (normal|master|replica|pubsub)",
+"      Kill connections by type.",
+"    * USER <username>",
+"      Kill connections authenticated by <username>.",
+"    * SKIPME (YES|NO)",
+"      Skip killing current connection (default: yes).",
+"LIST [options ...]",
+"    Return information about client connections. Options:",
+"    * TYPE (NORMAL|MASTER|REPLICA|PUBSUB)",
+"      Return clients of specified type.",
+"UNPAUSE",
+"    Stop the current client pause, resuming traffic.",
+"PAUSE <timeout> [WRITE|ALL]",
+"    Suspend all, or just write, clients for <timout> milliseconds.",
+"REPLY (ON|OFF|SKIP)",
+"    Control the replies sent to the current connection.",
+"SETNAME <name>",
+"    Assign the name <name> to the current connection.",
+"UNBLOCK <clientid> [TIMEOUT|ERROR]",
+"    Unblock the specified blocked client.",
+"TRACKING (ON|OFF) [REDIRECT <id>] [BCAST] [PREFIX <prefix> [...]]",
+"         [OPTIN] [OPTOUT]",
+"    Control server assisted client side caching.",
+"TRACKINGINFO",
+"    Report tracking status for the current connection.",
 NULL
         };
         addReplyHelp(c, help);
@@ -2594,13 +2693,31 @@ NULL
             addReplyBulk(c,c->name);
         else
             addReplyNull(c);
-    } else if (!strcasecmp(c->argv[1]->ptr,"pause") && c->argc == 3) {
-        /* CLIENT PAUSE */
-        long long duration;
+    } else if (!strcasecmp(c->argv[1]->ptr,"unpause") && c->argc == 2) {
+        /* CLIENT UNPAUSE */
+        unpauseClients();
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"pause") && (c->argc == 3 ||
+                                                        c->argc == 4))
+    {
+        /* CLIENT PAUSE TIMEOUT [WRITE|ALL] */
+        mstime_t end;
+        int type = CLIENT_PAUSE_ALL;
+        if (c->argc == 4) {
+            if (!strcasecmp(c->argv[3]->ptr,"write")) {
+                type = CLIENT_PAUSE_WRITE;
+            } else if (!strcasecmp(c->argv[3]->ptr,"all")) {
+                type = CLIENT_PAUSE_ALL;
+            } else {
+                addReplyError(c,
+                    "CLIENT PAUSE mode must be WRITE or ALL");  
+                return;       
+            }
+        }
 
-        if (getTimeoutFromObjectOrReply(c,c->argv[2],&duration,
-                UNIT_MILLISECONDS) != C_OK) return;
-        pauseClients(duration);
+        if (getTimeoutFromObjectOrReply(c,c->argv[2],&end,
+            UNIT_MILLISECONDS) != C_OK) return;
+        pauseClients(end, type);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"tracking") && c->argc >= 3) {
         /* CLIENT TRACKING (on|off) [REDIRECT <id>] [BCAST] [PREFIX first]
@@ -2707,6 +2824,13 @@ NULL
                 "a different mode.");
                 zfree(prefix);
                 return;
+            }
+
+            if (options & CLIENT_TRACKING_BCAST) {
+                if (!checkPrefixCollisionsOrReply(c,prefix,numprefix)) {
+                    zfree(prefix);
+                    return;
+                }
             }
 
             enableTracking(c,redir,options,prefix,numprefix);
@@ -2818,7 +2942,7 @@ NULL
             addReplyArrayLen(c,0);
         }
     } else {
-        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try CLIENT HELP", (char*)c->argv[1]->ptr);
+        addReplySubcommandSyntaxError(c);
     }
 }
 
@@ -2843,6 +2967,7 @@ void helloCommand(client *c) {
         int moreargs = (c->argc-1) - j;
         const char *opt = c->argv[j]->ptr;
         if (!strcasecmp(opt,"AUTH") && moreargs >= 2) {
+            preventCommandLogging(c);
             if (ACLAuthenticateUser(c, c->argv[j+1], c->argv[j+2]) == C_ERR) {
                 addReplyError(c,"-WRONGPASS invalid username-password pair or user is disabled.");
                 return;
@@ -2909,7 +3034,7 @@ void securityWarningCommand(client *c) {
     static time_t logged_time;
     time_t now = time(NULL);
 
-    if (labs(now-logged_time) > 60) {
+    if (llabs(now-logged_time) > 60) {
         serverLog(LL_WARNING,"Possible SECURITY ATTACK detected. It looks like somebody is sending POST or Host: commands to Redis. This is likely due to an attacker attempting to use Cross Protocol Scripting to compromise your Redis instance. Connection aborted.");
         logged_time = now;
     }
@@ -3150,54 +3275,68 @@ void flushSlavesOutputBuffers(void) {
     }
 }
 
-/* Pause clients up to the specified unixtime (in ms). While clients
- * are paused no command is processed from clients, so the data set can't
- * change during that time.
+/* Pause clients up to the specified unixtime (in ms) for a given type of
+ * commands.
  *
- * However while this function pauses normal and Pub/Sub clients, slaves are
- * still served, so this function can be used on server upgrades where it is
- * required that slaves process the latest bytes from the replication stream
- * before being turned to masters.
- *
+ * A main use case of this function is to allow pausing replication traffic
+ * so that a failover without data loss to occur. Replicas will continue to receive
+ * traffic to faciliate this functionality.
+ * 
  * This function is also internally used by Redis Cluster for the manual
  * failover procedure implemented by CLUSTER FAILOVER.
  *
  * The function always succeed, even if there is already a pause in progress.
- * In such a case, the pause is extended if the duration is more than the
- * time left for the previous duration. However if the duration is smaller
- * than the time left for the previous pause, no change is made to the
- * left duration. */
-void pauseClients(mstime_t end) {
-    if (!server.clients_paused || end > server.clients_pause_end_time)
-        server.clients_pause_end_time = end;
-    server.clients_paused = 1;
+ * In such a case, the duration is set to the maximum and new end time and the
+ * type is set to the more restrictive type of pause. */
+void pauseClients(mstime_t end, pause_type type) {
+    if (type > server.client_pause_type) {
+        server.client_pause_type = type;
+    }
+
+    if (end > server.client_pause_end_time) {
+        server.client_pause_end_time = end;
+    }
+
+    /* We allow write commands that were queued
+     * up before and after to execute. We need
+     * to track this state so that we don't assert
+     * in propagate(). */
+    if (server.in_exec) {
+        server.client_pause_in_transaction = 1;
+    }
 }
 
-/* Return non-zero if clients are currently paused. As a side effect the
- * function checks if the pause time was reached and clear it. */
-int clientsArePaused(void) {
-    if (server.clients_paused &&
-        server.clients_pause_end_time < server.mstime)
-    {
-        listNode *ln;
-        listIter li;
-        client *c;
+/* Unpause clients and queue them for reprocessing. */
+void unpauseClients(void) {
+    listNode *ln;
+    listIter li;
+    client *c;
+    
+    server.client_pause_type = CLIENT_PAUSE_OFF;
 
-        server.clients_paused = 0;
-
-        /* Put all the clients in the unblocked clients queue in order to
-         * force the re-processing of the input buffer if any. */
-        listRewind(server.clients,&li);
-        while ((ln = listNext(&li)) != NULL) {
-            c = listNodeValue(ln);
-
-            /* Don't touch slaves and blocked clients.
-             * The latter pending requests will be processed when unblocked. */
-            if (c->flags & (CLIENT_SLAVE|CLIENT_BLOCKED)) continue;
-            queueClientForReprocessing(c);
-        }
+    /* Unblock all of the clients so they are reprocessed. */
+    listRewind(server.paused_clients,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        c = listNodeValue(ln);
+        unblockClient(c);
     }
-    return server.clients_paused;
+}
+
+/* Returns true if clients are paused and false otherwise. */ 
+int areClientsPaused(void) {
+    return server.client_pause_type != CLIENT_PAUSE_OFF;
+}
+
+/* Checks if the current client pause has elapsed and unpause clients
+ * if it has. Also returns true if clients are now paused and false 
+ * otherwise. */
+int checkClientPauseTimeoutAndReturnIfPaused(void) {
+    if (!areClientsPaused())
+        return 0;
+    if (server.client_pause_end_time < server.mstime) {
+        unpauseClients();
+    }
+    return areClientsPaused();
 }
 
 /* This function is called by Redis in order to process a few events from
@@ -3222,7 +3361,7 @@ void processEventsWhileBlocked(void) {
     /* Note: when we are processing events while blocked (for instance during
      * busy Lua scripts), we set a global flag. When such flag is set, we
      * avoid handling the read part of clients using threaded I/O.
-     * See https://github.com/antirez/redis/issues/6988 for more info. */
+     * See https://github.com/redis/redis/issues/6988 for more info. */
     ProcessingEventsWhileBlocked = 1;
     while (iterations--) {
         long long startval = server.events_processed_while_blocked;
@@ -3244,8 +3383,6 @@ void processEventsWhileBlocked(void) {
 /* ==========================================================================
  * Threaded I/O
  * ========================================================================== */
-
-int tio_debug = 0;
 
 #define IO_THREADS_MAX_NUM 128
 #define IO_THREADS_OP_READ 0
@@ -3297,8 +3434,6 @@ void *IOThreadMain(void *myid) {
 
         serverAssert(getIOPendingCount(id) != 0);
 
-        if (tio_debug) printf("[%ld] %d to handle\n", id, (int)listLength(io_threads_list[id]));
-
         /* Process: note that the main thread will never touch our list
          * before we drop the pending count to 0. */
         listIter li;
@@ -3316,8 +3451,6 @@ void *IOThreadMain(void *myid) {
         }
         listEmpty(io_threads_list[id]);
         setIOPendingCount(id, 0);
-
-        if (tio_debug) printf("[%ld] Done\n", id);
     }
 }
 
@@ -3372,8 +3505,6 @@ void killIOThreads(void) {
 }
 
 void startThreadedIO(void) {
-    if (tio_debug) { printf("S"); fflush(stdout); }
-    if (tio_debug) printf("--- STARTING THREADED IO ---\n");
     serverAssert(server.io_threads_active == 0);
     for (int j = 1; j < server.io_threads_num; j++)
         pthread_mutex_unlock(&io_threads_mutex[j]);
@@ -3384,10 +3515,6 @@ void stopThreadedIO(void) {
     /* We may have still clients with pending reads when this function
      * is called: handle them before stopping the threads. */
     handleClientsWithPendingReadsUsingThreads();
-    if (tio_debug) { printf("E"); fflush(stdout); }
-    if (tio_debug) printf("--- STOPPING THREADED IO [R%d] [W%d] ---\n",
-        (int) listLength(server.clients_pending_read),
-        (int) listLength(server.clients_pending_write));
     serverAssert(server.io_threads_active == 1);
     for (int j = 1; j < server.io_threads_num; j++)
         pthread_mutex_lock(&io_threads_mutex[j]);
@@ -3422,15 +3549,13 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     if (processed == 0) return 0; /* Return ASAP if there are no clients. */
 
     /* If I/O threads are disabled or we have few clients to serve, don't
-     * use I/O threads, but thejboring synchronous code. */
+     * use I/O threads, but the boring synchronous code. */
     if (server.io_threads_num == 1 || stopThreadedIOIfNeeded()) {
         return handleClientsWithPendingWrites();
     }
 
     /* Start threads if needed. */
     if (!server.io_threads_active) startThreadedIO();
-
-    if (tio_debug) printf("%d TOTAL WRITE pending clients\n", processed);
 
     /* Distribute the clients across N different lists. */
     listIter li;
@@ -3476,7 +3601,6 @@ int handleClientsWithPendingWritesUsingThreads(void) {
             pending += getIOPendingCount(j);
         if (pending == 0) break;
     }
-    if (tio_debug) printf("I/O WRITE All threads finshed\n");
 
     /* Run the list of clients again to install the write handler where
      * needed. */
@@ -3529,8 +3653,6 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     int processed = listLength(server.clients_pending_read);
     if (processed == 0) return 0;
 
-    if (tio_debug) printf("%d TOTAL READ pending clients\n", processed);
-
     /* Distribute the clients across N different lists. */
     listIter li;
     listNode *ln;
@@ -3566,7 +3688,6 @@ int handleClientsWithPendingReadsUsingThreads(void) {
             pending += getIOPendingCount(j);
         if (pending == 0) break;
     }
-    if (tio_debug) printf("I/O READ All threads finshed\n");
 
     /* Run the list of clients again to process the new buffers. */
     while(listLength(server.clients_pending_read)) {
@@ -3575,15 +3696,13 @@ int handleClientsWithPendingReadsUsingThreads(void) {
         c->flags &= ~CLIENT_PENDING_READ;
         listDelNode(server.clients_pending_read,ln);
 
-        if (c->flags & CLIENT_PENDING_COMMAND) {
-            c->flags &= ~CLIENT_PENDING_COMMAND;
-            if (processCommandAndResetClient(c) == C_ERR) {
-                /* If the client is no longer valid, we avoid
-                 * processing the client later. So we just go
-                 * to the next. */
-                continue;
-            }
+        if (processPendingCommandsAndResetClient(c) == C_ERR) {
+            /* If the client is no longer valid, we avoid
+             * processing the client later. So we just go
+             * to the next. */
+            continue;
         }
+
         processInputBuffer(c);
 
         /* We may have pending replies if a thread readQueryFromClient() produced

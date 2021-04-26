@@ -384,23 +384,6 @@ void decrRefCountVoid(void *o) {
     decrRefCount(o);
 }
 
-/* This function set the ref count to zero without freeing the object.
- * It is useful in order to pass a new object to functions incrementing
- * the ref count of the received object. Example:
- *
- *    functionThatWillIncrementRefCount(resetRefCount(CreateObject(...)));
- *
- * Otherwise you need to resort to the less elegant pattern:
- *
- *    *obj = createObject(...);
- *    functionThatWillIncrementRefCount(obj);
- *    decrRefCount(obj);
- */
-robj *resetRefCount(robj *obj) {
-    obj->refcount = 0;
-    return obj;
-}
-
 int checkType(client *c, robj *o, int type) {
     /* A NULL is considered an empty key */
     if (o && o->type != type) {
@@ -744,7 +727,11 @@ int getRangeLongFromObjectOrReply(client *c, robj *o, long min, long max, long *
 }
 
 int getPositiveLongFromObjectOrReply(client *c, robj *o, long *target, const char *msg) {
-    return getRangeLongFromObjectOrReply(c, o, 0, LONG_MAX, target, msg);
+    if (msg) {
+        return getRangeLongFromObjectOrReply(c, o, 0, LONG_MAX, target, msg);
+    } else {
+        return getRangeLongFromObjectOrReply(c, o, 0, LONG_MAX, target, "value is out of range, must be positive");
+    }
 }
 
 int getIntFromObjectOrReply(client *c, robj *o, int *target, const char *msg) {
@@ -1035,7 +1022,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mem += dictSize(server.repl_scriptcache_dict) * sizeof(dictEntry) +
         dictSlots(server.repl_scriptcache_dict) * sizeof(dictEntry*);
     if (listLength(server.repl_scriptcache_fifo) > 0) {
-        mem += listLength(server.repl_scriptcache_fifo) * (sizeof(listNode) + 
+        mem += listLength(server.repl_scriptcache_fifo) * (sizeof(listNode) +
             sdsZmallocSize(listNodeValue(listFirst(server.repl_scriptcache_fifo))));
     }
     mh->lua_caches = mem;
@@ -1256,10 +1243,18 @@ void objectCommand(client *c) {
 
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-"ENCODING <key> -- Return the kind of internal representation used in order to store the value associated with a key.",
-"FREQ <key> -- Return the access frequency index of the key. The returned integer is proportional to the logarithm of the recent access frequency of the key.",
-"IDLETIME <key> -- Return the idle time of the key, that is the approximated number of seconds elapsed since the last access to the key.",
-"REFCOUNT <key> -- Return the number of references of the value associated with the specified key.",
+"ENCODING <key>",
+"    Return the kind of internal representation used in order to store the value",
+"    associated with a <key>.",
+"FREQ <key>",
+"    Return the access frequency index of the <key>. The returned integer is",
+"    proportional to the logarithm of the recent access frequency of the key.",
+"IDLETIME <key>",
+"    Return the idle time of the <key>, that is the approximated number of",
+"    seconds elapsed since the last access to the key.",
+"REFCOUNT <key>",
+"    Return the number of references of the value associated with the specified",
+"    <key>.",
 NULL
         };
         addReplyHelp(c, help);
@@ -1303,11 +1298,17 @@ NULL
 void memoryCommand(client *c) {
     if (!strcasecmp(c->argv[1]->ptr,"help") && c->argc == 2) {
         const char *help[] = {
-"DOCTOR - Return memory problems reports.",
-"MALLOC-STATS -- Return internal statistics report from the memory allocator.",
-"PURGE -- Attempt to purge dirty pages for reclamation by the allocator.",
-"STATS -- Return information about the memory usage of the server.",
-"USAGE <key> [SAMPLES <count>] -- Return memory in bytes used by <key> and its value. Nested values are sampled up to <count> times (default: 5).",
+"DOCTOR",
+"    Return memory problems reports.",
+"MALLOC-STATS"
+"    Return internal statistics report from the memory allocator.",
+"PURGE",
+"    Attempt to purge dirty pages for reclamation by the allocator.",
+"STATS",
+"    Return information about the memory usage of the server.",
+"USAGE <key> [SAMPLES <count>]",
+"    Return memory in bytes used by <key> and its value. Nested values are",
+"    sampled up to <count> times (default: 5).",
 NULL
         };
         addReplyHelp(c, help);
@@ -1452,6 +1453,6 @@ NULL
         else
             addReplyError(c, "Error purging dirty pages");
     } else {
-        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try MEMORY HELP", (char*)c->argv[1]->ptr);
+        addReplySubcommandSyntaxError(c);
     }
 }

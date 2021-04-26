@@ -158,6 +158,18 @@ tags {"aof"} {
         assert_match "*not valid*" $result
     }
 
+    test "Short read: Utility should show the abnormal line num in AOF" {
+        create_aof {
+            append_to_aof [formatCommand set foo hello]
+            append_to_aof "!!!"
+        }
+
+        catch {
+            exec src/redis-check-aof $aof_path
+        } result
+        assert_match "*ok_up_to_line=8*" $result
+    }
+
     test "Short read: Utility should be able to fix the AOF" {
         set result [exec src/redis-check-aof --fix $aof_path << "y\n"]
         assert_match "*Successfully truncated AOF*" $result
@@ -270,6 +282,17 @@ tags {"aof"} {
                 set size2 [file size $aof]
                 assert {$size1 != $size2}
             }
+        }
+    }
+
+    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof}}} {
+        test {GETEX should not append to AOF} {
+            set aof [file join [lindex [r config get dir] 1] appendonly.aof]
+            r set foo bar
+            set before [file size $aof]
+            r getex foo
+            set after [file size $aof]
+            assert_equal $before $after
         }
     }
 }

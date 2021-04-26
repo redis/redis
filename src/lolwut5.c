@@ -84,9 +84,9 @@ lwCanvas *lwDrawSchotter(int console_cols, int squares_per_row, int squares_per_
              * rows. */
             float angle = 0;
             if (y > 1) {
-                float r1 = (float)rand() / RAND_MAX / squares_per_col * y;
-                float r2 = (float)rand() / RAND_MAX / squares_per_col * y;
-                float r3 = (float)rand() / RAND_MAX / squares_per_col * y;
+                float r1 = (float)rand() / (float) RAND_MAX / squares_per_col * y;
+                float r2 = (float)rand() / (float) RAND_MAX / squares_per_col * y;
+                float r3 = (float)rand() / (float) RAND_MAX / squares_per_col * y;
                 if (rand() % 2) r1 = -r1;
                 if (rand() % 2) r2 = -r2;
                 if (rand() % 2) r3 = -r3;

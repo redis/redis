@@ -2,6 +2,15 @@
 
 tags {"dump" "corruption"} {
 
+# catch sigterm so that in case one of the random command hangs the test,
+# usually due to redis not putting a response in the output buffers,
+# we'll know which command it was
+if { ! [ catch {
+    package require Tclx
+} err ] } {
+    signal error SIGTERM
+}
+
 proc generate_collections {suffix elements} {
     set rd [redis_deferring_client]
     for {set j 0} {$j < $elements} {incr j} {
@@ -32,6 +41,7 @@ proc generate_types {} {
     # add some metadata to the stream
     r xgroup create stream mygroup 0
     set records [r xreadgroup GROUP mygroup Alice COUNT 2 STREAMS stream >]
+    r xdel stream [lindex [lindex [lindex [lindex $records 0] 1] 1] 0]
     r xack stream mygroup [lindex [lindex [lindex [lindex $records 0] 1] 0] 0]
 
     # create other non-collection types
@@ -69,6 +79,13 @@ foreach sanitize_dump {no yes} {
     } else {
         set min_duration 10 ; # run at least 10 seconds
         set min_cycles 10 ; # run at least 10 cycles
+    }
+
+    # Don't execute this on FreeBSD due to a yet-undiscovered memory issue
+    # which causes tclsh to bloat.
+    if {[exec uname] == "FreeBSD"} {
+        set min_cycles 1
+        set min_duration 1
     }
 
     test "Fuzzer corrupt restore payloads - sanitize_dump: $sanitize_dump" {

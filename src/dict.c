@@ -45,11 +45,7 @@
 
 #include "dict.h"
 #include "zmalloc.h"
-#ifndef DICT_BENCHMARK_MAIN
 #include "redisassert.h"
-#else
-#include <assert.h>
-#endif
 
 /* Using dictEnableResize() / dictDisableResize() we make possible to
  * enable/disable resizing of the hash table as needed. This is very important
@@ -126,7 +122,7 @@ int _dictInit(dict *d, dictType *type,
     d->type = type;
     d->privdata = privDataPtr;
     d->rehashidx = -1;
-    d->iterators = 0;
+    d->pauserehash = 0;
     return DICT_OK;
 }
 
@@ -264,7 +260,7 @@ long long timeInMilliseconds(void) {
  * than 0, and is smaller than 1 in most cases. The exact upper bound 
  * depends on the running time of dictRehash(d,100).*/
 int dictRehashMilliseconds(dict *d, int ms) {
-    if (d->iterators > 0) return 0;
+    if (d->pauserehash > 0) return 0;
 
     long long start = timeInMilliseconds();
     int rehashes = 0;
@@ -276,8 +272,8 @@ int dictRehashMilliseconds(dict *d, int ms) {
     return rehashes;
 }
 
-/* This function performs just a step of rehashing, and only if there are
- * no safe iterators bound to our hash table. When we have iterators in the
+/* This function performs just a step of rehashing, and only if hashing has
+ * not been paused for our hash table. When we have iterators in the
  * middle of a rehashing we can't mess with the two hash tables otherwise
  * some element can be missed or duplicated.
  *
@@ -285,7 +281,7 @@ int dictRehashMilliseconds(dict *d, int ms) {
  * dictionary so that the hash table automatically migrates from H1 to H2
  * while it is actively used. */
 static void _dictRehashStep(dict *d) {
-    if (d->iterators == 0) dictRehash(d,1);
+    if (d->pauserehash == 0) dictRehash(d,1);
 }
 
 /* Add an element to the target hash table */
@@ -301,7 +297,7 @@ int dictAdd(dict *d, void *key, void *val)
 /* Low level add or find:
  * This function adds the entry but instead of setting a value returns the
  * dictEntry structure to the user, that will make sure to fill the value
- * field as he wishes.
+ * field as they wish.
  *
  * This function is also directly exposed to the user API to be called
  * mainly in order to store non-pointers inside the hash value, example:
@@ -593,7 +589,7 @@ dictEntry *dictNext(dictIterator *iter)
             dictht *ht = &iter->d->ht[iter->table];
             if (iter->index == -1 && iter->table == 0) {
                 if (iter->safe)
-                    iter->d->iterators++;
+                    dictPauseRehashing(iter->d);
                 else
                     iter->fingerprint = dictFingerprint(iter->d);
             }
@@ -625,7 +621,7 @@ void dictReleaseIterator(dictIterator *iter)
 {
     if (!(iter->index == -1 && iter->table == 0)) {
         if (iter->safe)
-            iter->d->iterators--;
+            dictResumeRehashing(iter->d);
         else
             assert(iter->fingerprint == dictFingerprint(iter->d));
     }
@@ -896,9 +892,8 @@ unsigned long dictScan(dict *d,
 
     if (dictSize(d) == 0) return 0;
 
-    /* Having a safe iterator means no rehashing can happen, see _dictRehashStep.
-     * This is needed in case the scan callback tries to do dictFind or alike. */
-    d->iterators++;
+    /* This is needed in case the scan callback tries to do dictFind or alike. */
+    dictPauseRehashing(d);
 
     if (!dictIsRehashing(d)) {
         t0 = &(d->ht[0]);
@@ -966,8 +961,7 @@ unsigned long dictScan(dict *d,
         } while (v & (m0 ^ m1));
     }
 
-    /* undo the ++ at the top */
-    d->iterators--;
+    dictResumeRehashing(d);
 
     return v;
 }
@@ -1056,7 +1050,7 @@ void dictEmpty(dict *d, void(callback)(void*)) {
     _dictClear(d,&d->ht[0],callback);
     _dictClear(d,&d->ht[1],callback);
     d->rehashidx = -1;
-    d->iterators = 0;
+    d->pauserehash = 0;
 }
 
 void dictEnableResize(void) {
@@ -1177,20 +1171,18 @@ void dictGetStats(char *buf, size_t bufsize, dict *d) {
 
 /* ------------------------------- Benchmark ---------------------------------*/
 
-#ifdef DICT_BENCHMARK_MAIN
-
-#include "sds.h"
+#ifdef REDIS_TEST
 
 uint64_t hashCallback(const void *key) {
-    return dictGenHashFunction((unsigned char*)key, sdslen((char*)key));
+    return dictGenHashFunction((unsigned char*)key, strlen((char*)key));
 }
 
 int compareCallback(void *privdata, const void *key1, const void *key2) {
     int l1,l2;
     DICT_NOTUSED(privdata);
 
-    l1 = sdslen((sds)key1);
-    l2 = sdslen((sds)key2);
+    l1 = strlen((char*)key1);
+    l2 = strlen((char*)key2);
     if (l1 != l2) return 0;
     return memcmp(key1, key2, l1) == 0;
 }
@@ -1198,7 +1190,19 @@ int compareCallback(void *privdata, const void *key1, const void *key2) {
 void freeCallback(void *privdata, void *val) {
     DICT_NOTUSED(privdata);
 
-    sdsfree(val);
+    zfree(val);
+}
+
+char *stringFromLongLong(long long value) {
+    char buf[32];
+    int len;
+    char *s;
+
+    len = sprintf(buf,"%lld",value);
+    s = zmalloc(len+1);
+    memcpy(s, buf, len);
+    s[len] = '\0';
+    return s;
 }
 
 dictType BenchmarkDictType = {
@@ -1217,22 +1221,26 @@ dictType BenchmarkDictType = {
     printf(msg ": %ld items in %lld ms\n", count, elapsed); \
 } while(0)
 
-/* dict-benchmark [count] */
-int main(int argc, char **argv) {
+/* ./redis-server test dict [<count> | --accurate] */
+int dictTest(int argc, char **argv, int accurate) {
     long j;
     long long start, elapsed;
     dict *dict = dictCreate(&BenchmarkDictType,NULL);
     long count = 0;
 
-    if (argc == 2) {
-        count = strtol(argv[1],NULL,10);
+    if (argc == 4) {
+        if (accurate) {
+            count = 5000000;
+        } else {
+            count = strtol(argv[3],NULL,10);
+        }
     } else {
-        count = 5000000;
+        count = 5000;
     }
 
     start_benchmark();
     for (j = 0; j < count; j++) {
-        int retval = dictAdd(dict,sdsfromlonglong(j),(void*)j);
+        int retval = dictAdd(dict,stringFromLongLong(j),(void*)j);
         assert(retval == DICT_OK);
     }
     end_benchmark("Inserting");
@@ -1245,28 +1253,28 @@ int main(int argc, char **argv) {
 
     start_benchmark();
     for (j = 0; j < count; j++) {
-        sds key = sdsfromlonglong(j);
+        char *key = stringFromLongLong(j);
         dictEntry *de = dictFind(dict,key);
         assert(de != NULL);
-        sdsfree(key);
+        zfree(key);
     }
     end_benchmark("Linear access of existing elements");
 
     start_benchmark();
     for (j = 0; j < count; j++) {
-        sds key = sdsfromlonglong(j);
+        char *key = stringFromLongLong(j);
         dictEntry *de = dictFind(dict,key);
         assert(de != NULL);
-        sdsfree(key);
+        zfree(key);
     }
     end_benchmark("Linear access of existing elements (2nd round)");
 
     start_benchmark();
     for (j = 0; j < count; j++) {
-        sds key = sdsfromlonglong(rand() % count);
+        char *key = stringFromLongLong(rand() % count);
         dictEntry *de = dictFind(dict,key);
         assert(de != NULL);
-        sdsfree(key);
+        zfree(key);
     }
     end_benchmark("Random access of existing elements");
 
@@ -1279,17 +1287,17 @@ int main(int argc, char **argv) {
 
     start_benchmark();
     for (j = 0; j < count; j++) {
-        sds key = sdsfromlonglong(rand() % count);
+        char *key = stringFromLongLong(rand() % count);
         key[0] = 'X';
         dictEntry *de = dictFind(dict,key);
         assert(de == NULL);
-        sdsfree(key);
+        zfree(key);
     }
     end_benchmark("Accessing missing");
 
     start_benchmark();
     for (j = 0; j < count; j++) {
-        sds key = sdsfromlonglong(j);
+        char *key = stringFromLongLong(j);
         int retval = dictDelete(dict,key);
         assert(retval == DICT_OK);
         key[0] += 17; /* Change first number to letter. */
@@ -1297,5 +1305,7 @@ int main(int argc, char **argv) {
         assert(retval == DICT_OK);
     }
     end_benchmark("Removing and adding");
+    dictRelease(dict);
+    return 0;
 }
 #endif

@@ -127,14 +127,15 @@ uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l) {
 #include <stdio.h>
 
 #define UNUSED(x) (void)(x)
-int crc64Test(int argc, char *argv[]) {
+int crc64Test(int argc, char *argv[], int accurate) {
     UNUSED(argc);
     UNUSED(argv);
+    UNUSED(accurate);
     crc64_init();
     printf("[calcula]: e9c6d914c4b8d9ca == %016" PRIx64 "\n",
            (uint64_t)_crc64(0, "123456789", 9));
     printf("[64speed]: e9c6d914c4b8d9ca == %016" PRIx64 "\n",
-           (uint64_t)crc64(0, "123456789", 9));
+           (uint64_t)crc64(0, (unsigned char*)"123456789", 9));
     char li[] = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed "
                 "do eiusmod tempor incididunt ut labore et dolore magna "
                 "aliqua. Ut enim ad minim veniam, quis nostrud exercitation "
@@ -146,7 +147,7 @@ int crc64Test(int argc, char *argv[]) {
     printf("[calcula]: c7794709e69683b3 == %016" PRIx64 "\n",
            (uint64_t)_crc64(0, li, sizeof(li)));
     printf("[64speed]: c7794709e69683b3 == %016" PRIx64 "\n",
-           (uint64_t)crc64(0, li, sizeof(li)));
+           (uint64_t)crc64(0, (unsigned char*)li, sizeof(li)));
     return 0;
 }
 

@@ -31,6 +31,7 @@
 #include "sha1.h"
 #include "rand.h"
 #include "cluster.h"
+#include "monotonic.h"
 
 #include <lua.h>
 #include <lauxlib.h>
@@ -407,9 +408,9 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
             lua_pushnil(lua); /* Use nil to start iteration. */
             while (lua_next(lua,-2)) {
                 /* Stack now: table, key, value */
-                luaReplyToRedisReply(c, lua); /* Return value. */
-                lua_pushvalue(lua,-1);        /* Dup key before consuming. */
+                lua_pushvalue(lua,-2);        /* Dup key before consuming. */
                 luaReplyToRedisReply(c, lua); /* Return key. */
+                luaReplyToRedisReply(c, lua); /* Return value. */
                 /* Stack now: table, key. */
                 maplen++;
             }
@@ -604,9 +605,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
 
     /* Check the ACLs. */
     int acl_errpos;
-    int acl_retval = ACLCheckCommandPerm(c,&acl_errpos);
-    if (acl_retval == ACL_OK && c->cmd->proc == publishCommand)
-        acl_retval = ACLCheckPubsubPerm(c,1,1,0,&acl_errpos);
+    int acl_retval = ACLCheckAllPerm(c,&acl_errpos);
     if (acl_retval != ACL_OK) {
         addACLLogEntry(c,acl_retval,acl_errpos,NULL);
         switch (acl_retval) {
@@ -619,7 +618,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
                               "at least one of the keys mentioned in the "
                               "command arguments");
             break;
-        case ACL_DENIED_AUTH:
+        case ACL_DENIED_CHANNEL:
             luaPushError(lua, "The user executing the script can't publish "
                               "to the channel mentioned in the command");
             break;
@@ -691,11 +690,11 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,&error_code) !=
                            server.cluster->myself)
         {
-            if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) { 
+            if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) {
                 luaPushError(lua,
                     "Lua script attempted to execute a write command while the "
                     "cluster is down and readonly");
-            } else if (error_code == CLUSTER_REDIR_DOWN_STATE) { 
+            } else if (error_code == CLUSTER_REDIR_DOWN_STATE) {
                 luaPushError(lua,
                     "Lua script attempted to execute a command while the "
                     "cluster is down");
@@ -1282,14 +1281,17 @@ void scriptingInit(int setup) {
 
 /* Release resources related to Lua scripting.
  * This function is used in order to reset the scripting environment. */
-void scriptingRelease(void) {
-    dictRelease(server.lua_scripts);
+void scriptingRelease(int async) {
+    if (async)
+        freeLuaScriptsAsync(server.lua_scripts);
+    else
+        dictRelease(server.lua_scripts);
     server.lua_scripts_mem = 0;
     lua_close(server.lua);
 }
 
-void scriptingReset(void) {
-    scriptingRelease();
+void scriptingReset(int async) {
+    scriptingRelease(async);
     scriptingInit(0);
 }
 
@@ -1426,7 +1428,7 @@ sds luaCreateFunction(client *c, lua_State *lua, robj *body) {
 
 /* This is the Lua script "count" hook that we use to detect scripts timeout. */
 void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
-    long long elapsed = mstime() - server.lua_time_start;
+    long long elapsed = elapsedMs(server.lua_time_start);
     UNUSED(ar);
     UNUSED(lua);
 
@@ -1450,6 +1452,14 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
     if (server.lua_timedout) processEventsWhileBlocked();
     if (server.lua_kill) {
         serverLog(LL_WARNING,"Lua script killed by user with SCRIPT KILL.");
+
+        /*
+         * Set the hook to invoke all the time so the user
+         * will not be able to catch the error with pcall and invoke
+         * pcall again which will prevent the script from ever been killed
+         */
+        lua_sethook(lua, luaMaskCountHook, LUA_MASKLINE, 0);
+
         lua_pushstring(lua,"Script killed by user with SCRIPT KILL...");
         lua_error(lua);
     }
@@ -1495,7 +1505,6 @@ void evalGenericCommand(client *c, int evalsha) {
     server.lua_replicate_commands = server.lua_always_replicate_commands;
     server.lua_multi_emitted = 0;
     server.lua_repl = PROPAGATE_AOF|PROPAGATE_REPL;
-    server.in_eval = 1;
 
     /* Get the number of arguments that are keys */
     if (getLongLongFromObjectOrReply(c,c->argv[2],&numkeys,NULL) != C_OK)
@@ -1541,7 +1550,7 @@ void evalGenericCommand(client *c, int evalsha) {
          * return an error. */
         if (evalsha) {
             lua_pop(lua,1); /* remove the error handler from the stack. */
-            addReply(c, shared.noscripterr);
+            addReplyErrorObject(c, shared.noscripterr);
             return;
         }
         if (luaCreateFunction(c,lua,c->argv[1]) == NULL) {
@@ -1567,9 +1576,11 @@ void evalGenericCommand(client *c, int evalsha) {
      *
      * If we are debugging, we set instead a "line" hook so that the
      * debugger is call-back at every line executed by the script. */
+    server.in_eval = 1;
     server.lua_caller = c;
     server.lua_cur_script = funcname + 2;
-    server.lua_time_start = mstime();
+    server.lua_time_start = getMonotonicUs();
+    server.lua_time_snapshot = mstime();
     server.lua_kill = 0;
     if (server.lua_time_limit > 0 && ldb.active == 0) {
         lua_sethook(lua,luaMaskCountHook,LUA_MASKCOUNT,100000);
@@ -1599,6 +1610,7 @@ void evalGenericCommand(client *c, int evalsha) {
         if (server.masterhost && server.master)
             queueClientForReprocessing(server.master);
     }
+    server.in_eval = 0;
     server.lua_caller = NULL;
     server.lua_cur_script = NULL;
 
@@ -1665,19 +1677,16 @@ void evalGenericCommand(client *c, int evalsha) {
              * or just running a CPU costly read-only script on the slaves. */
             if (server.dirty == initial_server_dirty) {
                 rewriteClientCommandVector(c,3,
-                    resetRefCount(createStringObject("SCRIPT",6)),
-                    resetRefCount(createStringObject("LOAD",4)),
+                    shared.script,
+                    shared.load,
                     script);
             } else {
-                rewriteClientCommandArgument(c,0,
-                    resetRefCount(createStringObject("EVAL",4)));
+                rewriteClientCommandArgument(c,0,shared.eval);
                 rewriteClientCommandArgument(c,1,script);
             }
             forceCommandPropagation(c,PROPAGATE_REPL|PROPAGATE_AOF);
         }
     }
-
-    server.in_eval = 0;
 }
 
 void evalCommand(client *c) {
@@ -1693,7 +1702,7 @@ void evalShaCommand(client *c) {
          * not the right length. So we return an error ASAP, this way
          * evalGenericCommand() can be implemented without string length
          * sanity check */
-        addReply(c, shared.noscripterr);
+        addReplyErrorObject(c, shared.noscripterr);
         return;
     }
     if (!(c->flags & CLIENT_LUA_DEBUG))
@@ -1707,16 +1716,36 @@ void evalShaCommand(client *c) {
 void scriptCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-"DEBUG (yes|sync|no) -- Set the debug mode for subsequent scripts executed.",
-"EXISTS <sha1> [<sha1> ...] -- Return information about the existence of the scripts in the script cache.",
-"FLUSH -- Flush the Lua scripts cache. Very dangerous on replicas.",
-"KILL -- Kill the currently executing Lua script.",
-"LOAD <script> -- Load a script into the scripts cache, without executing it.",
+"DEBUG (YES|SYNC|NO)",
+"    Set the debug mode for subsequent scripts executed.",
+"EXISTS <sha1> [<sha1> ...]",
+"    Return information about the existence of the scripts in the script cache.",
+"FLUSH [ASYNC|SYNC]",
+"    Flush the Lua scripts cache. Very dangerous on replicas.",
+"    When called without the optional mode argument, the behavior is determined by the",
+"    lazyfree-lazy-user-flush configuration directive. Valid modes are:",
+"    * ASYNC: Asynchronously flush the scripts cache.",
+"    * SYNC: Synchronously flush the scripts cache.",
+"KILL",
+"    Kill the currently executing Lua script.",
+"LOAD <script>",
+"    Load a script into the scripts cache without executing it.",
 NULL
         };
         addReplyHelp(c, help);
-    } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"flush")) {
-        scriptingReset();
+    } else if (c->argc >= 2 && !strcasecmp(c->argv[1]->ptr,"flush")) {
+        int async = 0;
+        if (c->argc == 3 && !strcasecmp(c->argv[2]->ptr,"sync")) {
+            async = 0;
+        } else if (c->argc == 3 && !strcasecmp(c->argv[2]->ptr,"async")) {
+            async = 1;
+        } else if (c->argc == 2) {
+            async = server.lazyfree_lazy_user_flush ? 1 : 0;
+        } else {
+            addReplyError(c,"SCRIPT FLUSH only support SYNC|ASYNC option");
+            return;
+        }
+        scriptingReset(async);
         addReply(c,shared.ok);
         replicationScriptCacheFlush();
         server.dirty++; /* Propagating this command is a good idea. */
@@ -1762,7 +1791,7 @@ NULL
             addReply(c,shared.ok);
             c->flags |= CLIENT_LUA_DEBUG_SYNC;
         } else {
-            addReplyError(c,"Use SCRIPT DEBUG yes/sync/no");
+            addReplyError(c,"Use SCRIPT DEBUG YES/SYNC/NO");
             return;
         }
     } else {
@@ -2702,7 +2731,7 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
 
     /* Check if a timeout occurred. */
     if (ar->event == LUA_HOOKCOUNT && ldb.step == 0 && bp == 0) {
-        mstime_t elapsed = mstime() - server.lua_time_start;
+        mstime_t elapsed = elapsedMs(server.lua_time_start);
         mstime_t timelimit = server.lua_time_limit ?
                              server.lua_time_limit : 5000;
         if (elapsed >= timelimit) {
@@ -2732,6 +2761,7 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
             lua_pushstring(lua, "timeout during Lua debugging with client closing connection");
             lua_error(lua);
         }
-        server.lua_time_start = mstime();
+        server.lua_time_start = getMonotonicUs();
+        server.lua_time_snapshot = mstime();
     }
 }

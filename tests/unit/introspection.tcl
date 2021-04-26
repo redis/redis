@@ -100,18 +100,16 @@ start_server {tags {"introspection"}} {
             supervised
             syslog-facility
             databases
-            port
-            tls-port
             io-threads
             logfile
             unixsocketperm
             slaveof
-            bind
             requirepass
             server_cpulist
             bio_cpulist
             aof_rewrite_cpulist
             bgsave_cpulist
+            set-proc-title
         }
 
         if {!$::tls} {
@@ -130,6 +128,7 @@ start_server {tags {"introspection"}} {
                 tls-protocols
                 tls-ciphers
                 tls-ciphersuites
+                tls-port
             }
         }
 
@@ -172,12 +171,32 @@ start_server {tags {"introspection"}} {
         # Rewrite entire configuration, restart and confirm the
         # server is able to parse it and start.
         assert_equal [r debug config-rewrite-force-all] "OK"
-        restart_server 0 false false
+        restart_server 0 true false
         assert_equal [r ping] "PONG"
 
         # Verify no changes were introduced
         dict for {k v} $configs {
             assert_equal $v [lindex [r config get $k] 1]
+        }
+    }
+
+    test {CONFIG REWRITE handles save properly} {
+        r config set save "3600 1 300 100 60 10000"
+        r config rewrite
+        restart_server 0 true false
+        assert_equal [r config get save] {save {3600 1 300 100 60 10000}}
+
+        r config set save ""
+        r config rewrite
+        restart_server 0 true false
+        assert_equal [r config get save] {save {}}
+
+        start_server {config "minimal.conf"} {
+            assert_equal [r config get save] {save {3600 1 300 100 60 10000}}
+            r config set save ""
+            r config rewrite
+            restart_server 0 true false
+            assert_equal [r config get save] {save {}}
         }
     }
 

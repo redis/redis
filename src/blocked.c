@@ -61,6 +61,9 @@
  */
 
 #include "server.h"
+#include "slowlog.h"
+#include "latency.h"
+#include "monotonic.h"
 
 int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb *db, robj *value, int wherefrom, int whereto);
 int getListPositionFromObjectOrReply(client *c, robj *arg, int *position);
@@ -89,6 +92,25 @@ void blockClient(client *c, int btype) {
     server.blocked_clients++;
     server.blocked_clients_by_type[btype]++;
     addClientToTimeoutTable(c);
+    if (btype == BLOCKED_PAUSE) {
+        listAddNodeTail(server.paused_clients, c);
+        c->paused_list_node = listLast(server.paused_clients);
+        /* Mark this client to execute its command */
+        c->flags |= CLIENT_PENDING_COMMAND;
+    }
+}
+
+/* This function is called after a client has finished a blocking operation
+ * in order to update the total command duration, log the command into
+ * the Slow log if needed, and log the reply duration event if needed. */
+void updateStatsOnUnblock(client *c, long blocked_us, long reply_us){
+    const ustime_t total_cmd_duration = c->duration + blocked_us + reply_us;
+    c->lastcmd->microseconds += total_cmd_duration;
+
+    /* Log the command into the Slow log if needed. */
+    slowlogPushCurrentCommand(c, c->lastcmd, total_cmd_duration);
+    /* Log the reply duration event. */
+    latencyAddSampleIfNeeded("command-unblocking",reply_us/1000);
 }
 
 /* This function is called in the beforeSleep() function of the event loop
@@ -110,6 +132,11 @@ void processUnblockedClients(void) {
          * client is not blocked before to proceed, but things may change and
          * the code is conceptually more correct this way. */
         if (!(c->flags & CLIENT_BLOCKED)) {
+            /* If we have a queued command, execute it now. */
+            if (processPendingCommandsAndResetClient(c) == C_ERR) {
+                continue;
+            }
+            /* Then process client if it has more data in it's buffer. */
             if (c->querybuf && sdslen(c->querybuf) > 0) {
                 processInputBuffer(c);
             }
@@ -154,9 +181,22 @@ void unblockClient(client *c) {
     } else if (c->btype == BLOCKED_MODULE) {
         if (moduleClientIsBlockedOnKeys(c)) unblockClientWaitingData(c);
         unblockClientFromModule(c);
+    } else if (c->btype == BLOCKED_PAUSE) {
+        listDelNode(server.paused_clients,c->paused_list_node);
+        c->paused_list_node = NULL;
     } else {
         serverPanic("Unknown btype in unblockClient().");
     }
+
+    /* Reset the client for a new query since, for blocking commands
+     * we do not do it immediately after the command returns (when the
+     * client got blocked) in order to be still able to access the argument
+     * vector from module callbacks and updateStatsOnUnblock. */
+    if (c->btype != BLOCKED_PAUSE) {
+        freeClientOriginalArgv(c);
+        resetClient(c);
+    }
+
     /* Clear the flags, and put the client in the unblocked list so that
      * we'll process new commands in its query buffer ASAP. */
     server.blocked_clients--;
@@ -200,6 +240,13 @@ void disconnectAllBlockedClients(void) {
         client *c = listNodeValue(ln);
 
         if (c->flags & CLIENT_BLOCKED) {
+            /* PAUSED clients are an exception, when they'll be unblocked, the
+             * command processing will start from scratch, and the command will
+             * be either executed or rejected. (unlike LIST blocked clients for
+             * which the command is already in progress in a way. */
+            if (c->btype == BLOCKED_PAUSE)
+                continue;
+
             addReplyError(c,
                 "-UNBLOCKED force unblock from blocking operation, "
                 "instance state changed (master -> replica?)");
@@ -241,8 +288,9 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
                  * freed by the next unblockClient()
                  * call. */
                 if (dstkey) incrRefCount(dstkey);
-                unblockClient(receiver);
 
+                monotime replyTimer;
+                elapsedStart(&replyTimer);
                 if (serveClientBlockedOnList(receiver,
                     rl->key,dstkey,rl->db,value,
                     wherefrom, whereto) == C_ERR)
@@ -251,6 +299,8 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
                      * to also undo the POP operation. */
                     listTypePush(o,value,wherefrom);
                 }
+                updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
+                unblockClient(receiver);
 
                 if (dstkey) decrRefCount(dstkey);
                 decrRefCount(value);
@@ -294,8 +344,11 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
             int where = (receiver->lastcmd &&
                          receiver->lastcmd->proc == bzpopminCommand)
                          ? ZSET_MIN : ZSET_MAX;
-            unblockClient(receiver);
+            monotime replyTimer;
+            elapsedStart(&replyTimer);
             genericZpopCommand(receiver,&rl->key,1,where,1,NULL);
+            updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
+            unblockClient(receiver);
             zcard--;
 
             /* Replicate the command. */
@@ -385,6 +438,8 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
                     }
                 }
 
+                monotime replyTimer;
+                elapsedStart(&replyTimer);
                 /* Emit the two elements sub-array consisting of
                  * the name of the stream and the data we
                  * extracted from it. Wrapped in a single-item
@@ -404,6 +459,7 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
                 streamReplyWithRange(receiver,s,&start,NULL,
                                      receiver->bpop.xread_count,
                                      0, group, consumer, noack, &pi);
+                updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
 
                 /* Note that after we unblock the client, 'gt'
                  * and other receiver->bpop stuff are no longer
@@ -423,6 +479,10 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
  * unblock it. */
 void serveClientsBlockedOnKeyByModule(readyList *rl) {
     dictEntry *de;
+
+    /* Optimization: If no clients are in type BLOCKED_MODULE,
+     * we can skip this loop. */
+    if (!server.blocked_clients_by_type[BLOCKED_MODULE]) return;
 
     /* We serve clients in the same order they blocked for
      * this key, from the first blocked to the last. */
@@ -450,7 +510,10 @@ void serveClientsBlockedOnKeyByModule(readyList *rl) {
              * different modules with different triggers to consider if a key
              * is ready or not. This means we can't exit the loop but need
              * to continue after the first failure. */
+            monotime replyTimer;
+            elapsedStart(&replyTimer);
             if (!moduleTryServeClientBlockedOnKey(receiver, rl->key)) continue;
+            updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
 
             moduleUnblockClient(receiver);
         }
@@ -503,7 +566,7 @@ void handleClientsBlockedOnKeys(void) {
              * way we can lookup an object multiple times (BLMOVE does
              * that) without the risk of it being freed in the second
              * lookup, invalidating the first one.
-             * See https://github.com/antirez/redis/pull/6554. */
+             * See https://github.com/redis/redis/pull/6554. */
             server.fixed_time_expire++;
             updateCachedTime(0);
 
@@ -663,10 +726,20 @@ static int getBlockedTypeByType(int type) {
 void signalKeyAsReady(redisDb *db, robj *key, int type) {
     readyList *rl;
 
-    /* If no clients are blocked on this type, just return */
+    /* Quick returns. */
     int btype = getBlockedTypeByType(type);
-    if (btype == BLOCKED_NONE || !server.blocked_clients_by_type[btype])
+    if (btype == BLOCKED_NONE) {
+        /* The type can never block. */
         return;
+    }
+    if (!server.blocked_clients_by_type[btype] &&
+        !server.blocked_clients_by_type[BLOCKED_MODULE]) {
+        /* No clients block on this type. Note: Blocked modules are represented
+         * by BLOCKED_MODULE, even if the intention is to wake up by normal
+         * types (list, zset, stream), so we need to check that there are no
+         * blocked modules before we do a quick return here. */
+        return;
+    }
 
     /* No clients blocking for this key? No need to queue it. */
     if (dictFind(db->blocking_keys,key) == NULL) return;

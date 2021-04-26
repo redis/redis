@@ -102,7 +102,6 @@ static struct config {
     int showerrors;
     long long start;
     long long totlatency;
-    long long *latency;
     const char *title;
     list *clients;
     int quiet;
@@ -567,6 +566,9 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                         * we need to randomize. */
                         for (j = 0; j < c->randlen; j++)
                             c->randptr[j] -= c->prefixlen;
+                        /* Fix the pointers to the slot hash tags */
+                        for (j = 0; j < c->staglen; j++)
+                            c->stagptr[j] -= c->prefixlen;
                         c->prefixlen = 0;
                     }
                     continue;
@@ -1516,6 +1518,8 @@ int parseOptions(int argc, const char **argv) {
         } else if (!strcmp(argv[i],"--cacert")) {
             if (lastarg) goto invalid;
             config.sslconfig.cacert = strdup(argv[++i]);
+        } else if (!strcmp(argv[i],"--insecure")) {
+            config.sslconfig.skip_cert_verify = 1;
         } else if (!strcmp(argv[i],"--cert")) {
             if (lastarg) goto invalid;
             config.sslconfig.cert = strdup(argv[++i]);
@@ -1585,6 +1589,7 @@ usage:
 " --cacertdir <dir>  Directory where trusted CA certificates are stored.\n"
 "                    If neither cacert nor cacertdir are specified, the default\n"
 "                    system-wide trusted root certs configuration will apply.\n"
+" --insecure         Allow insecure TLS connection by skipping cert validation.\n"
 " --cert <file>      Client certificate to authenticate with.\n"
 " --key <file>       Private key file to authenticate with.\n"
 " --tls-ciphers <list> Sets the list of prefered ciphers (TLSv1.2 and below)\n"
@@ -1650,7 +1655,10 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
     const float instantaneous_rps = (float)(requests_finished-previous_requests_finished)/instantaneous_dt;
     config.previous_tick = current_tick;
     atomicSet(config.previous_requests_finished,requests_finished);
-    config.last_printed_bytes = printf("%s: rps=%.1f (overall: %.1f) avg_msec=%.3f (overall: %.3f)\r", config.title, instantaneous_rps, rps, hdr_mean(config.current_sec_latency_histogram)/1000.0f, hdr_mean(config.latency_histogram)/1000.0f);
+    int printed_bytes = printf("%s: rps=%.1f (overall: %.1f) avg_msec=%.3f (overall: %.3f)\r", config.title, instantaneous_rps, rps, hdr_mean(config.current_sec_latency_histogram)/1000.0f, hdr_mean(config.latency_histogram)/1000.0f);
+    if (printed_bytes > config.last_printed_bytes){
+       config.last_printed_bytes = printed_bytes;
+    }
     hdr_reset(config.current_sec_latency_histogram);
     fflush(stdout);
     return 250; /* every 250ms */
@@ -1682,6 +1690,7 @@ int main(int argc, const char **argv) {
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
 
+    memset(&config.sslconfig, 0, sizeof(config.sslconfig));
     config.numclients = 50;
     config.requests = 100000;
     config.liveclients = 0;
@@ -1773,8 +1782,10 @@ int main(int argc, const char **argv) {
     } else {
         config.redis_config =
             getRedisConfig(config.hostip, config.hostport, config.hostsocket);
-        if (config.redis_config == NULL)
+        if (config.redis_config == NULL) {
             fprintf(stderr, "WARN: could not fetch server CONFIG\n");
+            exit(1);
+        }
     }
     if (config.num_threads > 0) {
         pthread_mutex_init(&(config.liveclients_mutex), NULL);

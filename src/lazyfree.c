@@ -39,12 +39,19 @@ void lazyfreeFreeSlotsMap(void *args[]) {
     atomicIncr(lazyfreed_objects,len);
 }
 
-/* Release the rax mapping Redis Cluster keys to slots in the
- * lazyfree thread. */
+/* Release the key tracking table. */
 void lazyFreeTrackingTable(void *args[]) {
     rax *rt = args[0];
     size_t len = rt->numele;
-    raxFree(rt);
+    freeTrackingRadixTree(rt);
+    atomicDecr(lazyfree_objects,len);
+    atomicIncr(lazyfreed_objects,len);
+}
+
+void lazyFreeLuaScripts(void *args[]) {
+    dict *lua_scripts = args[0];
+    long long len = dictSize(lua_scripts);
+    dictRelease(lua_scripts);
     atomicDecr(lazyfree_objects,len);
     atomicIncr(lazyfreed_objects,len);
 }
@@ -211,4 +218,14 @@ void freeSlotsToKeysMapAsync(rax *rt) {
 void freeTrackingRadixTreeAsync(rax *tracking) {
     atomicIncr(lazyfree_objects,tracking->numele);
     bioCreateLazyFreeJob(lazyFreeTrackingTable,1,tracking);
+}
+
+/* Free lua_scripts dict, if the dict is huge enough, free it in async way. */
+void freeLuaScriptsAsync(dict *lua_scripts) {
+    if (dictSize(lua_scripts) > LAZYFREE_THRESHOLD) {
+        atomicIncr(lazyfree_objects,dictSize(lua_scripts));
+        bioCreateLazyFreeJob(lazyFreeLuaScripts,1,lua_scripts);
+    } else {
+        dictRelease(lua_scripts);
+    }
 }

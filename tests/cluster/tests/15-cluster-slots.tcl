@@ -48,3 +48,16 @@ test "client can handle keys with hash tag" {
     $cluster set foo{tag} bar
     $cluster close
 }
+
+if {$::tls} {
+    test {CLUSTER SLOTS from non-TLS client in TLS cluster} {
+        set slots_tls [R 0 cluster slots]
+        set host [get_instance_attrib redis 0 host]
+        set plaintext_port [get_instance_attrib redis 0 plaintext-port]
+        set client_plain [redis $host $plaintext_port 0 0]
+        set slots_plain [$client_plain cluster slots]
+        $client_plain close
+        # Compare the ports in the first row
+        assert_no_match [lindex $slots_tls 0 3 1] [lindex $slots_plain 0 3 1]
+    }
+}

@@ -199,7 +199,7 @@ quicklistNode *quicklistBookmarkFind(quicklist *ql, const char *name);
 void quicklistBookmarksClear(quicklist *ql);
 
 #ifdef REDIS_TEST
-int quicklistTest(int argc, char *argv[]);
+int quicklistTest(int argc, char *argv[], int accurate);
 #endif
 
 /* Directions for iterators */

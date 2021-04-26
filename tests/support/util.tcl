@@ -12,7 +12,11 @@ proc randstring {min max {type binary}} {
         set maxval 52
     }
     while {$len} {
-        append output [format "%c" [expr {$minval+int(rand()*($maxval-$minval+1))}]]
+        set rr [expr {$minval+int(rand()*($maxval-$minval+1))}]
+        if {$type eq {alpha} && $rr eq 92} {
+            set rr 90; # avoid putting '\' char in the string, it can mess up TCL processing
+        }
+        append output [format "%c" $rr]
         incr len -1
     }
     return $output
@@ -27,7 +31,7 @@ proc zlistAlikeSort {a b} {
 
 # Return all log lines starting with the first line that contains a warning.
 # Generally, this will be an assertion error with a stack trace.
-proc warnings_from_file {filename} {
+proc crashlog_from_file {filename} {
     set lines [split [exec cat $filename] "\n"]
     set matched 0
     set logall 0
@@ -86,12 +90,10 @@ proc waitForBgrewriteaof r {
 }
 
 proc wait_for_sync r {
-    while 1 {
-        if {[status $r master_link_status] eq "down"} {
-            after 10
-        } else {
-            break
-        }
+    wait_for_condition 50 100 {
+        [status $r master_link_status] eq "up"
+    } else {
+        fail "replica didn't sync in time"
     }
 }
 
@@ -504,18 +506,18 @@ proc stop_write_load {handle} {
 
 proc K { x y } { set x } 
 
-# Shuffle a list. From Tcl wiki. Originally from Steve Cohen that improved
-# other versions. Code should be under public domain.
+# Shuffle a list with Fisher-Yates algorithm.
 proc lshuffle {list} {
     set n [llength $list]
-    while {$n>0} {
+    while {$n>1} {
         set j [expr {int(rand()*$n)}]
-        lappend slist [lindex $list $j]
         incr n -1
-        set temp [lindex $list $n]
-        set list [lreplace [K $list [set list {}]] $j $j $temp]
+        if {$n==$j} continue
+        set v [lindex $list $j]
+        lset list $j [lindex $list $n]
+        lset list $n $v
     }
-    return $slist
+    return $list
 }
 
 # Execute a background process writing complex data for the specified number
@@ -561,12 +563,18 @@ proc cmdrstat {cmd r} {
     }
 }
 
+proc errorrstat {cmd r} {
+    if {[regexp "\r\nerrorstat_$cmd:(.*?)\r\n" [$r info errorstats] _ value]} {
+        set _ $value
+    }
+}
+
 proc generate_fuzzy_traffic_on_key {key duration} {
     # Commands per type, blocking commands removed
     # TODO: extract these from help.h or elsewhere, and improve to include other types
     set string_commands {APPEND BITCOUNT BITFIELD BITOP BITPOS DECR DECRBY GET GETBIT GETRANGE GETSET INCR INCRBY INCRBYFLOAT MGET MSET MSETNX PSETEX SET SETBIT SETEX SETNX SETRANGE STRALGO STRLEN}
-    set hash_commands {HDEL HEXISTS HGET HGETALL HINCRBY HINCRBYFLOAT HKEYS HLEN HMGET HMSET HSCAN HSET HSETNX HSTRLEN HVALS}
-    set zset_commands {ZADD ZCARD ZCOUNT ZINCRBY ZINTERSTORE ZLEXCOUNT ZPOPMAX ZPOPMIN ZRANGE ZRANGEBYLEX ZRANGEBYSCORE ZRANK ZREM ZREMRANGEBYLEX ZREMRANGEBYRANK ZREMRANGEBYSCORE ZREVRANGE ZREVRANGEBYLEX ZREVRANGEBYSCORE ZREVRANK ZSCAN ZSCORE ZUNIONSTORE}
+    set hash_commands {HDEL HEXISTS HGET HGETALL HINCRBY HINCRBYFLOAT HKEYS HLEN HMGET HMSET HSCAN HSET HSETNX HSTRLEN HVALS HRANDFIELD}
+    set zset_commands {ZADD ZCARD ZCOUNT ZINCRBY ZINTERSTORE ZLEXCOUNT ZPOPMAX ZPOPMIN ZRANGE ZRANGEBYLEX ZRANGEBYSCORE ZRANK ZREM ZREMRANGEBYLEX ZREMRANGEBYRANK ZREMRANGEBYSCORE ZREVRANGE ZREVRANGEBYLEX ZREVRANGEBYSCORE ZREVRANK ZSCAN ZSCORE ZUNIONSTORE ZRANDMEMBER}
     set list_commands {LINDEX LINSERT LLEN LPOP LPOS LPUSH LPUSHX LRANGE LREM LSET LTRIM RPOP RPOPLPUSH RPUSH RPUSHX}
     set set_commands {SADD SCARD SDIFF SDIFFSTORE SINTER SINTERSTORE SISMEMBER SMEMBERS SMOVE SPOP SRANDMEMBER SREM SSCAN SUNION SUNIONSTORE}
     set stream_commands {XACK XADD XCLAIM XDEL XGROUP XINFO XLEN XPENDING XRANGE XREAD XREADGROUP XREVRANGE XTRIM}
@@ -633,6 +641,12 @@ proc generate_fuzzy_traffic_on_key {key duration} {
             r {*}$cmd
         } err ] } {
             incr succeeded
+        } else {
+            set err [format "%s" $err] ;# convert to string for pattern matching
+            if {[string match "*SIGTERM*" $err]} {
+                puts "command caused test to hang? $cmd"
+                exit 1
+            }
         }
     }
 
@@ -672,4 +686,85 @@ proc string2printable s {
     }
     set res "\"$res\""
     return $res
+}
+
+# Calculation value of Chi-Square Distribution. By this value
+# we can verify the random distribution sample confidence.
+# Based on the following wiki:
+# https://en.wikipedia.org/wiki/Chi-square_distribution
+#
+# param res    Random sample list
+# return       Value of Chi-Square Distribution
+#
+# x2_value: return of chi_square_value function
+# df: Degrees of freedom, Number of independent values minus 1
+#
+# By using x2_value and df to back check the cardinality table,
+# we can know the confidence of the random sample.
+proc chi_square_value {res} {
+    unset -nocomplain mydict
+    foreach key $res {
+        dict incr mydict $key 1
+    }
+
+    set x2_value 0
+    set p [expr [llength $res] / [dict size $mydict]]
+    foreach key [dict keys $mydict] {
+        set value [dict get $mydict $key]
+
+        # Aggregate the chi-square value of each element
+        set v [expr {pow($value - $p, 2) / $p}]
+        set x2_value [expr {$x2_value + $v}]
+    }
+
+    return $x2_value
+}
+
+#subscribe to Pub/Sub channels
+proc consume_subscribe_messages {client type channels} {
+    set numsub -1
+    set counts {}
+
+    for {set i [llength $channels]} {$i > 0} {incr i -1} {
+        set msg [$client read]
+        assert_equal $type [lindex $msg 0]
+
+        # when receiving subscribe messages the channels names
+        # are ordered. when receiving unsubscribe messages
+        # they are unordered
+        set idx [lsearch -exact $channels [lindex $msg 1]]
+        if {[string match "*unsubscribe" $type]} {
+            assert {$idx >= 0}
+        } else {
+            assert {$idx == 0}
+        }
+        set channels [lreplace $channels $idx $idx]
+
+        # aggregate the subscription count to return to the caller
+        lappend counts [lindex $msg 2]
+    }
+
+    # we should have received messages for channels
+    assert {[llength $channels] == 0}
+    return $counts
+}
+
+proc subscribe {client channels} {
+    $client subscribe {*}$channels
+    consume_subscribe_messages $client subscribe $channels
+}
+
+proc unsubscribe {client {channels {}}} {
+    $client unsubscribe {*}$channels
+    consume_subscribe_messages $client unsubscribe $channels
+}
+
+proc psubscribe {client channels} {
+    $client psubscribe {*}$channels
+    consume_subscribe_messages $client psubscribe $channels
+}
+
+proc punsubscribe {client {channels {}}} {
+    $client punsubscribe {*}$channels
+    consume_subscribe_messages $client punsubscribe $channels
 }

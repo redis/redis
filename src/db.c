@@ -106,9 +106,8 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
     robj *val;
 
     if (expireIfNeeded(db,key) == 1) {
-        /* Key expired. If we are in the context of a master, expireIfNeeded()
-         * returns 0 only when the key does not exist at all, so it's safe
-         * to return NULL ASAP. */
+        /* If we are in the context of a master, expireIfNeeded() returns 1
+         * when the key is no longer valid, so we can return NULL ASAP. */
         if (server.masterhost == NULL)
             goto keymiss;
 
@@ -140,9 +139,9 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
 
 keymiss:
     if (!(flags & LOOKUP_NONOTIFY)) {
-        server.stat_keyspace_misses++;
         notifyKeyspaceEvent(NOTIFY_KEY_MISS, "keymiss", key, db->id);
     }
+    server.stat_keyspace_misses++;
     return NULL;
 }
 
@@ -165,16 +164,24 @@ robj *lookupKeyWriteWithFlags(redisDb *db, robj *key, int flags) {
 robj *lookupKeyWrite(redisDb *db, robj *key) {
     return lookupKeyWriteWithFlags(db, key, LOOKUP_NONE);
 }
-
+static void SentReplyOnKeyMiss(client *c, robj *reply){
+    serverAssert(sdsEncodedObject(reply));
+    sds rep = reply->ptr;
+    if (sdslen(rep) > 1 && rep[0] == '-'){
+        addReplyErrorObject(c, reply);
+    } else {
+        addReply(c,reply);
+    }
+}
 robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply) {
     robj *o = lookupKeyRead(c->db, key);
-    if (!o) addReply(c,reply);
+    if (!o) SentReplyOnKeyMiss(c, reply);
     return o;
 }
 
 robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
     robj *o = lookupKeyWrite(c->db, key);
-    if (!o) addReply(c,reply);
+    if (!o) SentReplyOnKeyMiss(c, reply);
     return o;
 }
 
@@ -226,7 +233,7 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
     /* Although the key is not really deleted from the database, we regard 
     overwrite as two steps of unlink+add, so we still need to call the unlink 
     callback of the module. */
-    moduleNotifyKeyUnlink(key,val);
+    moduleNotifyKeyUnlink(key,old);
     dictSetVal(db->dict, de, val);
 
     if (server.lazyfree_lazy_server_del) {
@@ -573,7 +580,18 @@ void signalModifiedKey(client *c, redisDb *db, robj *key) {
 }
 
 void signalFlushedDb(int dbid, int async) {
-    touchWatchedKeysOnFlush(dbid);
+    int startdb, enddb;
+    if (dbid == -1) {
+        startdb = 0;
+        enddb = server.dbnum-1;
+    } else {
+        startdb = enddb = dbid;
+    }
+
+    for (int j = startdb; j <= enddb; j++) {
+        touchAllWatchedKeysInDb(&server.db[j], NULL);
+    }
+
     trackingInvalidateKeysOnFlush(async);
 }
 
@@ -584,21 +602,23 @@ void signalFlushedDb(int dbid, int async) {
 /* Return the set of flags to use for the emptyDb() call for FLUSHALL
  * and FLUSHDB commands.
  *
- * Currently the command just attempts to parse the "ASYNC" option. It
- * also checks if the command arity is wrong.
+ * sync: flushes the database in an sync manner.
+ * async: flushes the database in an async manner.
+ * no option: determine sync or async according to the value of lazyfree-lazy-user-flush.
  *
  * On success C_OK is returned and the flags are stored in *flags, otherwise
  * C_ERR is returned and the function sends an error to the client. */
 int getFlushCommandFlags(client *c, int *flags) {
     /* Parse the optional ASYNC option. */
-    if (c->argc > 1) {
-        if (c->argc > 2 || strcasecmp(c->argv[1]->ptr,"async")) {
-            addReplyErrorObject(c,shared.syntaxerr);
-            return C_ERR;
-        }
-        *flags = EMPTYDB_ASYNC;
-    } else {
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"sync")) {
         *flags = EMPTYDB_NO_FLAGS;
+    } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"async")) {
+        *flags = EMPTYDB_ASYNC;
+    } else if (c->argc == 1) {
+        *flags = server.lazyfree_lazy_user_flush ? EMPTYDB_ASYNC : EMPTYDB_NO_FLAGS;
+    } else {
+        addReplyErrorObject(c,shared.syntaxerr);
+        return C_ERR;
     }
     return C_OK;
 }
@@ -606,7 +626,7 @@ int getFlushCommandFlags(client *c, int *flags) {
 /* Flushes the whole server data set. */
 void flushAllDataAndResetRDB(int flags) {
     server.dirty += emptyDb(-1,flags,NULL);
-    if (server.rdb_child_pid != -1) killRDBChild();
+    if (server.child_type == CHILD_TYPE_RDB) killRDBChild();
     if (server.saveparamslen > 0) {
         /* Normally rdbSave() will reset dirty, but we don't want this here
          * as otherwise FLUSHALL will not be replicated nor put into the AOF. */
@@ -940,7 +960,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         int filter = 0;
 
         /* Filter element if it does not match the pattern. */
-        if (!filter && use_pattern) {
+        if (use_pattern) {
             if (sdsEncodedObject(kobj)) {
                 if (!stringmatchlen(pat, patlen, kobj->ptr, sdslen(kobj->ptr), 0))
                     filter = 1;
@@ -1303,7 +1323,7 @@ void scanDatabaseForReadyLists(redisDb *db) {
  *
  * Returns C_ERR if at least one of the DB ids are out of range, otherwise
  * C_OK is returned. */
-int dbSwapDatabases(long id1, long id2) {
+int dbSwapDatabases(int id1, int id2) {
     if (id1 < 0 || id1 >= server.dbnum ||
         id2 < 0 || id2 >= server.dbnum) return C_ERR;
     if (id1 == id2) return C_OK;
@@ -1331,15 +1351,20 @@ int dbSwapDatabases(long id1, long id2) {
      * However normally we only do this check for efficiency reasons
      * in dbAdd() when a list is created. So here we need to rescan
      * the list of clients blocked on lists and signal lists as ready
-     * if needed. */
+     * if needed.
+     *
+     * Also the swapdb should make transaction fail if there is any
+     * client watching keys */
     scanDatabaseForReadyLists(db1);
+    touchAllWatchedKeysInDb(db1, db2);
     scanDatabaseForReadyLists(db2);
+    touchAllWatchedKeysInDb(db2, db1);
     return C_OK;
 }
 
 /* SWAPDB db1 db2 */
 void swapdbCommand(client *c) {
-    long id1, id2;
+    int id1, id2;
 
     /* Not allowed in cluster mode: we have just DB 0 there. */
     if (server.cluster_enabled) {
@@ -1348,11 +1373,11 @@ void swapdbCommand(client *c) {
     }
 
     /* Get the two DBs indexes. */
-    if (getLongFromObjectOrReply(c, c->argv[1], &id1,
+    if (getIntFromObjectOrReply(c, c->argv[1], &id1,
         "invalid first DB index") != C_OK)
         return;
 
-    if (getLongFromObjectOrReply(c, c->argv[2], &id2,
+    if (getIntFromObjectOrReply(c, c->argv[2], &id2,
         "invalid second DB index") != C_OK)
         return;
 
@@ -1428,7 +1453,12 @@ void propagateExpire(redisDb *db, robj *key, int lazy) {
     incrRefCount(argv[0]);
     incrRefCount(argv[1]);
 
+    /* If the master decided to expire a key we must propagate it to replicas no matter what..
+     * Even if module executed a command without asking for propagation. */
+    int prev_replication_allowed = server.replication_allowed;
+    server.replication_allowed = 1;
     propagate(server.delCommand,db->id,argv,2,PROPAGATE_AOF|PROPAGATE_REPL);
+    server.replication_allowed = prev_replication_allowed;
 
     decrRefCount(argv[0]);
     decrRefCount(argv[1]);
@@ -1450,7 +1480,7 @@ int keyIsExpired(redisDb *db, robj *key) {
      * script execution, making propagation to slaves / AOF consistent.
      * See issue #1525 on Github for more information. */
     if (server.lua_caller) {
-        now = server.lua_time_start;
+        now = server.lua_time_snapshot;
     }
     /* If we are in the middle of a command execution, we still want to use
      * a reference time that does not change: in that case we just use the
@@ -1504,15 +1534,24 @@ int expireIfNeeded(redisDb *db, robj *key) {
      * we think the key is expired at this time. */
     if (server.masterhost != NULL) return 1;
 
+    /* If clients are paused, we keep the current dataset constant,
+     * but return to the client what we believe is the right state. Typically,
+     * at the end of the pause we will properly expire the key OR we will
+     * have failed over and the new primary will send us the expire. */
+    if (checkClientPauseTimeoutAndReturnIfPaused()) return 1;
+
     /* Delete the key */
+    if (server.lazyfree_lazy_expire) {
+        dbAsyncDelete(db,key);
+    } else {
+        dbSyncDelete(db,key);
+    }
     server.stat_expiredkeys++;
     propagateExpire(db,key,server.lazyfree_lazy_expire);
     notifyKeyspaceEvent(NOTIFY_EXPIRED,
         "expired",key,db->id);
-    int retval = server.lazyfree_lazy_expire ? dbAsyncDelete(db,key) :
-                                               dbSyncDelete(db,key);
-    if (retval) signalModifiedKey(NULL,db,key);
-    return retval;
+    signalModifiedKey(NULL,db,key);
+    return 1;
 }
 
 /* -----------------------------------------------------------------------------

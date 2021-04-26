@@ -94,7 +94,7 @@ void rdbReportError(int corruption_error, int linenum, char *reason, ...) {
     exit(1);
 }
 
-static int rdbWriteRaw(rio *rdb, void *p, size_t len) {
+static ssize_t rdbWriteRaw(rio *rdb, void *p, size_t len) {
     if (rdb && rioWrite(rdb,p,len) == 0)
         return -1;
     return len;
@@ -1073,8 +1073,7 @@ size_t rdbSavedObjectLen(robj *o, robj *key) {
 
 /* Save a key-value pair, with expire time, type, key, value.
  * On error -1 is returned.
- * On success if the key was actually saved 1 is returned, otherwise 0
- * is returned (the key was already expired). */
+ * On success if the key was actually saved 1 is returned. */
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime) {
     int savelru = server.maxmemory_policy & MAXMEMORY_FLAG_LRU;
     int savelfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU;
@@ -1219,9 +1218,12 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     dictIterator *di = NULL;
     dictEntry *de;
     char magic[10];
-    int j;
     uint64_t cksum;
     size_t processed = 0;
+    int j;
+    long key_count = 0;
+    long long info_updated_time = 0;
+    char *pname = (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB";
 
     if (server.rdb_checksum)
         rdb->update_cksum = rioGenericUpdateChecksum;
@@ -1266,6 +1268,17 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
             {
                 processed = rdb->processed_bytes;
                 aofReadDiffFromParent();
+            }
+
+            /* Update child info every 1 second (approximately).
+             * in order to avoid calling mstime() on each iteration, we will
+             * check the diff every 1024 keys */
+            if ((key_count++ & 1023) == 0) {
+                long long now = mstime();
+                if (now - info_updated_time >= 1000) {
+                    sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, key_count, pname);
+                    info_updated_time = now;
+                }
             }
         }
         dictReleaseIterator(di);
@@ -1410,7 +1423,6 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
 
     server.dirty_before_bgsave = server.dirty;
     server.lastbgsave_try = time(NULL);
-    openChildInfoPipe();
 
     if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {
         int retval;
@@ -1420,13 +1432,12 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
         redisSetCpuAffinity(server.bgsave_cpulist);
         retval = rdbSave(filename,rsi);
         if (retval == C_OK) {
-            sendChildCOWInfo(CHILD_TYPE_RDB, "RDB");
+            sendChildCowInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, "RDB");
         }
         exitFromChild((retval == C_OK) ? 0 : 1);
     } else {
         /* Parent */
         if (childpid == -1) {
-            closeChildInfoPipe();
             server.lastbgsave_status = C_ERR;
             serverLog(LL_WARNING,"Can't save in background: fork: %s",
                 strerror(errno));
@@ -1434,9 +1445,7 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
         }
         serverLog(LL_NOTICE,"Background saving started by pid %ld",(long) childpid);
         server.rdb_save_time_start = time(NULL);
-        server.rdb_child_pid = childpid;
         server.rdb_child_type = RDB_CHILD_TYPE_DISK;
-        updateDictResizePolicy();
         return C_OK;
     }
     return C_OK; /* unreached */
@@ -2166,16 +2175,17 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
             return NULL;
         }
         moduleType *mt = moduleTypeLookupModuleByID(moduleid);
-        char name[10];
 
         if (rdbCheckMode && rdbtype == RDB_TYPE_MODULE_2) {
+            char name[10];
             moduleTypeNameByID(name,moduleid);
             return rdbLoadCheckModuleValue(rdb,name);
         }
 
         if (mt == NULL) {
+            char name[10];
             moduleTypeNameByID(name,moduleid);
-            rdbReportCorruptRDB("The RDB file contains module data I can't load: no matching module '%s'", name);
+            rdbReportCorruptRDB("The RDB file contains module data I can't load: no matching module type '%s'", name);
             return NULL;
         }
         RedisModuleIO io;
@@ -2202,7 +2212,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                 return NULL;
             }
             if (eof != RDB_MODULE_OPCODE_EOF) {
-                rdbReportCorruptRDB("The RDB file contains module data for the module '%s' that is not terminated by the proper module value EOF marker", name);
+                rdbReportCorruptRDB("The RDB file contains module data for the module '%s' that is not terminated by "
+                                    "the proper module value EOF marker", moduleTypeModuleName(mt));
                 if (ptr) {
                     o = createModuleObject(mt,ptr); /* creating just in order to easily destroy */
                     decrRefCount(o);
@@ -2212,8 +2223,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
         }
 
         if (ptr == NULL) {
-            moduleTypeNameByID(name,moduleid);
-            rdbReportCorruptRDB("The RDB file contains module data for the module type '%s', that the responsible module is not able to load. Check for modules log above for additional clues.", name);
+            rdbReportCorruptRDB("The RDB file contains module data for the module type '%s', that the responsible "
+                                "module is not able to load. Check for modules log above for additional clues.",
+                                moduleTypeModuleName(mt));
             return NULL;
         }
         o = createModuleObject(mt,ptr);
@@ -2621,7 +2633,7 @@ eoferr:
  * output is initialized and finalized.
  *
  * If you pass an 'rsi' structure initialied with RDB_SAVE_OPTION_INIT, the
- * loading code will fiil the information fields in the structure. */
+ * loading code will fill the information fields in the structure. */
 int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
     FILE *fp;
     rio rdb;
@@ -2654,7 +2666,7 @@ static void backgroundSaveDoneHandlerDisk(int exitcode, int bysignal) {
         serverLog(LL_WARNING,
             "Background saving terminated by signal %d", bysignal);
         latencyStartMonitor(latency);
-        rdbRemoveTempFile(server.rdb_child_pid, 0);
+        rdbRemoveTempFile(server.child_pid, 0);
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("rdb-unlink-temp-file",latency);
         /* SIGUSR1 is whitelisted, so we have a way to kill a child without
@@ -2706,7 +2718,6 @@ void backgroundSaveDoneHandler(int exitcode, int bysignal) {
         break;
     }
 
-    server.rdb_child_pid = -1;
     server.rdb_child_type = RDB_CHILD_TYPE_NONE;
     server.rdb_save_time_last = time(NULL)-server.rdb_save_time_start;
     server.rdb_save_time_start = -1;
@@ -2719,10 +2730,13 @@ void backgroundSaveDoneHandler(int exitcode, int bysignal) {
  * the child did not exit for an error, but because we wanted), and performs
  * the cleanup needed. */
 void killRDBChild(void) {
-    kill(server.rdb_child_pid,SIGUSR1);
-    rdbRemoveTempFile(server.rdb_child_pid, 0);
-    closeChildInfoPipe();
-    updateDictResizePolicy();
+    kill(server.child_pid, SIGUSR1);
+    /* Because we are not using here waitpid (like we have in killAppendOnlyChild
+     * and TerminateModuleForkChild), all the cleanup operations is done by
+     * checkChildrenDone, that later will find that the process killed.
+     * This includes:
+     * - resetChildState
+     * - rdbRemoveTempFile */
 }
 
 /* Spawn an RDB child that writes the RDB to the sockets of the slaves
@@ -2773,7 +2787,6 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
     }
 
     /* Create the child process. */
-    openChildInfoPipe();
     if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {
         /* Child */
         int retval, dummy;
@@ -2789,7 +2802,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
             retval = C_ERR;
 
         if (retval == C_OK) {
-            sendChildCOWInfo(CHILD_TYPE_RDB, "RDB");
+            sendChildCowInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, "RDB");
         }
 
         rioFreeFd(&rdb);
@@ -2824,14 +2837,11 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
             server.rdb_pipe_conns = NULL;
             server.rdb_pipe_numconns = 0;
             server.rdb_pipe_numconns_writing = 0;
-            closeChildInfoPipe();
         } else {
             serverLog(LL_NOTICE,"Background RDB transfer started by pid %ld",
                 (long) childpid);
             server.rdb_save_time_start = time(NULL);
-            server.rdb_child_pid = childpid;
             server.rdb_child_type = RDB_CHILD_TYPE_SOCKET;
-            updateDictResizePolicy();
             close(rdb_pipe_write); /* close write in parent so that it can detect the close on the child. */
             if (aeCreateFileEvent(server.el, server.rdb_pipe_read, AE_READABLE, rdbPipeReadHandler,NULL) == AE_ERR) {
                 serverPanic("Unrecoverable error creating server.rdb_pipe_read file event.");
@@ -2843,7 +2853,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
 }
 
 void saveCommand(client *c) {
-    if (server.rdb_child_pid != -1) {
+    if (server.child_type == CHILD_TYPE_RDB) {
         addReplyError(c,"Background save already in progress");
         return;
     }
@@ -2874,7 +2884,7 @@ void bgsaveCommand(client *c) {
     rdbSaveInfo rsi, *rsiptr;
     rsiptr = rdbPopulateSaveInfo(&rsi);
 
-    if (server.rdb_child_pid != -1) {
+    if (server.child_type == CHILD_TYPE_RDB) {
         addReplyError(c,"Background save already in progress");
     } else if (hasActiveChildProcess()) {
         if (schedule) {
