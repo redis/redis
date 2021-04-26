@@ -1338,6 +1338,7 @@ unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, lpEntry 
 
 #ifdef REDIS_TEST
 
+#include <time.h>
 #include <sys/time.h>
 #include "adlist.h"
 #include "sds.h"
@@ -1466,6 +1467,8 @@ int listpackTest(int argc, char *argv[], int accurate) {
     int64_t vlen;
     unsigned char intbuf[LP_INTBUF_SIZE];
     int iteration;
+
+    srand(time(NULL));
     
     TEST("Create int list") {
         lp = createIntList();
@@ -1756,6 +1759,127 @@ int listpackTest(int argc, char *argv[], int accurate) {
         assert(lpCompare(p,(unsigned char*)"1024",4));
         assert(!lpCompare(p,(unsigned char*)"1025",4));
         zfree(lp);
+    }
+    
+    TEST("Random pair with one element") {
+        lpEntry key, val;
+        unsigned char *lp = lpEmpty();
+        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
+        lp = lpPushTail(lp, (unsigned char*)"123", 3);
+        lpRandomPair(lp, 1, &key, &val);
+        assert(memcmp(key.sval, "abc", key.slen) == 0);
+        assert(val.lval == 123);
+        lpFree(lp);
+    }
+
+    TEST("Random pair with many elements") {
+        lpEntry key, val;
+        unsigned char *lp = lpEmpty();
+        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
+        lp = lpPushTail(lp, (unsigned char*)"123", 3);
+        lp = lpPushTail(lp, (unsigned char*)"456", 3);
+        lp = lpPushTail(lp, (unsigned char*)"def", 3);
+        lpRandomPair(lp, 2, &key, &val);
+        if (key.sval) {
+            assert(!memcmp(key.sval, "abc", key.slen));
+            assert(key.slen == 3);
+            assert(val.lval == 123);
+        }
+        if (!key.sval) {
+            assert(key.lval == 456);
+            assert(!memcmp(val.sval, "def", val.slen));
+        }
+        lpFree(lp);
+    }
+
+    TEST("Random pairs with one element") {
+        int count = 5;
+        unsigned char *lp = lpEmpty();
+        lpEntry *keys = zmalloc(sizeof(lpEntry) * count);
+        lpEntry *vals = zmalloc(sizeof(lpEntry) * count);
+
+        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
+        lp = lpPushTail(lp, (unsigned char*)"123", 3);
+        lpRandomPairs(lp, count, keys, vals);
+        assert(memcmp(keys[4].sval, "abc", keys[4].slen) == 0);
+        assert(vals[4].lval == 123);
+        zfree(keys);
+        zfree(vals);
+        lpFree(lp);
+    }
+
+    TEST("Random pairs with many elements") {
+        int count = 5;
+        unsigned char *lp = lpEmpty();
+        lpEntry *keys = zmalloc(sizeof(lpEntry) * count);
+        lpEntry *vals = zmalloc(sizeof(lpEntry) * count);
+
+        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
+        lp = lpPushTail(lp, (unsigned char*)"123", 3);
+        lp = lpPushTail(lp, (unsigned char*)"456", 3);
+        lp = lpPushTail(lp, (unsigned char*)"def", 3);
+        lpRandomPairs(lp, count, keys, vals);
+        for (int i = 0; i < count; i++) {
+            if (keys[i].sval) {
+                assert(!memcmp(keys[i].sval, "abc", keys[i].slen));
+                assert(keys[i].slen == 3);
+                assert(vals[i].lval == 123);
+            }
+            if (!keys[i].sval) {
+                assert(keys[i].lval == 456);
+                assert(!memcmp(vals[i].sval, "def", vals[i].slen));
+            }
+        }
+        zfree(keys);
+        zfree(vals);
+        lpFree(lp);
+    }
+
+    TEST("Random pairs unique with one element") {
+        unsigned picked;
+        int count = 5;
+        unsigned char *lp = lpEmpty();
+        lpEntry *keys = zmalloc(sizeof(lpEntry) * count);
+        lpEntry *vals = zmalloc(sizeof(lpEntry) * count);
+
+        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
+        lp = lpPushTail(lp, (unsigned char*)"123", 3);
+        picked = lpRandomPairsUnique(lp, count, keys, vals);
+        assert(picked == 1);
+        assert(memcmp(keys[0].sval, "abc", keys[0].slen) == 0);
+        assert(vals[0].lval == 123);
+        zfree(keys);
+        zfree(vals);
+        lpFree(lp);
+    }
+
+    TEST("Random pairs unique with many elements") {
+        unsigned picked;
+        int count = 5;
+        unsigned char *lp = lpEmpty();
+        lpEntry *keys = zmalloc(sizeof(lpEntry) * count);
+        lpEntry *vals = zmalloc(sizeof(lpEntry) * count);
+
+        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
+        lp = lpPushTail(lp, (unsigned char*)"123", 3);
+        lp = lpPushTail(lp, (unsigned char*)"456", 3);
+        lp = lpPushTail(lp, (unsigned char*)"def", 3);
+        picked = lpRandomPairsUnique(lp, count, keys, vals);
+        assert(picked == 2);
+        for (int i = 0; i < 2; i++) {
+            if (keys[i].sval) {
+                assert(!memcmp(keys[i].sval, "abc", keys[i].slen));
+                assert(keys[i].slen == 3);
+                assert(vals[i].lval == 123);
+            }
+            if (!keys[i].sval) {
+                assert(keys[i].lval == 456);
+                assert(!memcmp(vals[i].sval, "def", vals[i].slen));
+            }
+        }
+        zfree(keys);
+        zfree(vals);
+        lpFree(lp);
     }
 
     TEST("Stress with random payloads of different encoding");
