@@ -2,12 +2,10 @@ name: "CodeQL"
 
 on:
   push:
-    branches: [ unstable ]
   pull_request:
-    # The branches below must be a subset of the branches above
-    branches: [ unstable ]
   schedule:
-    - cron: '19 5 * * 0'
+    # run weekly new vulnerability was added to the the database
+    - cron: '0 0 * * 0'
 
 jobs:
   analyze:
