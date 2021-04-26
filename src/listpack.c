@@ -1882,6 +1882,35 @@ int listpackTest(int argc, char *argv[], int accurate) {
         lpFree(lp);
     }
 
+    TEST("push various encodings") {
+        unsigned char *lp = lpEmpty();
+
+        /* integer encode */
+        lp = lpPushTail(lp, (unsigned char*)"127", 3);
+        assert(LP_ENCODING_IS_7BIT_UINT(lpLast(lp)[0]));
+        lp = lpPushTail(lp, (unsigned char*)"4095", 4);
+        assert(LP_ENCODING_IS_13BIT_INT(lpLast(lp)[0]));
+        lp = lpPushTail(lp, (unsigned char*)"32767", 5);
+        assert(LP_ENCODING_IS_16BIT_INT(lpLast(lp)[0]));
+        lp = lpPushTail(lp, (unsigned char*)"8388607", 7);
+        assert(LP_ENCODING_IS_24BIT_INT(lpLast(lp)[0]));
+        lp = lpPushTail(lp, (unsigned char*)"2147483647", 10);
+        assert(LP_ENCODING_IS_32BIT_INT(lpLast(lp)[0]));
+        lp = lpPushTail(lp, (unsigned char*)"9223372036854775807", 19);
+        assert(LP_ENCODING_IS_64BIT_INT(lpLast(lp)[0]));
+
+        /* string encode */
+        unsigned char *str = zmalloc(65535);
+        lp = lpPushTail(lp, (unsigned char*)str, 63);
+        assert(LP_ENCODING_IS_6BIT_STR(lpLast(lp)[0]));
+        lp = lpPushTail(lp, (unsigned char*)str, 4095);
+        assert(LP_ENCODING_IS_12BIT_STR(lpLast(lp)[0]));
+        lp = lpPushTail(lp, (unsigned char*)str, 65535);
+        assert(LP_ENCODING_IS_32BIT_STR(lpLast(lp)[0]));
+        zfree(str);
+        lpFree(lp);
+    }
+
     TEST("Stress with random payloads of different encoding");
     {
         unsigned long long start = usec();
