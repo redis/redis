@@ -1,0 +1,86 @@
+name: YoavTmp
+
+on: push
+
+jobs:
+
+  test-valgrind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14400
+    steps:
+    - uses: actions/checkout@v2
+    - name: make
+      run: make valgrind REDIS_CFLAGS='-Werror -DREDIS_TEST'
+    - name: test
+      run: |
+        sudo apt-get update
+        sudo apt-get install tcl8.6 valgrind -y
+        ./runtest --valgrind --verbose --clients 1 --dump-logs --single unit/obuf-limits
+
+  test-valgrind-no-malloc-usable-size:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14400
+    steps:
+    - uses: actions/checkout@v2
+    - name: make
+      run: make valgrind CFLAGS="-DNO_MALLOC_USABLE_SIZE"
+    - name: test
+      run: |
+        sudo apt-get update
+        sudo apt-get install tcl8.6 valgrind -y
+        ./runtest --valgrind --verbose --clients 1 --dump-logs --single unit/obuf-limits
+
+  test-macos-latest:
+    runs-on: macos-latest
+    timeout-minutes: 14400
+    steps:
+    - uses: actions/checkout@v2
+    - name: make
+      run: make
+    - name: test
+      run: |
+        ./runtest --accurate --verbose --no-latency --dump-logs --single unit/obuf-limits
+
+  test-freebsd:
+    runs-on: macos-latest
+    timeout-minutes: 14400
+    steps:
+    - uses: actions/checkout@v2
+    - name: test
+      uses: vmactions/freebsd-vm@v0.1.2
+      with:
+        usesh: true
+        sync: rsync
+        prepare: pkg install -y bash gmake lang/tcl86
+        run: >
+          gmake &&
+          ./runtest --accurate --verbose --no-latency --dump-logs --single unit/obuf-limits
+
+  test-alpine-jemalloc:
+    runs-on: ubuntu-latest
+    container: alpine:latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: make
+      run: |
+          apk add build-base
+          make REDIS_CFLAGS='-Werror'
+    - name: test
+      run: |
+        apk add tcl procps
+        ./runtest --accurate --verbose --dump-logs --single unit/obuf-limits
+
+  test-alpine-libc-malloc:
+    runs-on: ubuntu-latest
+    container: alpine:latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: make
+      run: |
+          apk add build-base
+          make REDIS_CFLAGS='-Werror' USE_JEMALLOC=no CFLAGS=-DUSE_MALLOC_USABLE_SIZE
+    - name: test
+      run: |
+        apk add tcl procps
+        ./runtest --accurate --verbose --dump-logs --single unit/obuf-limits
+
