@@ -1789,14 +1789,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
         /* All pairs should be read by now */
         serverAssert(len == 0);
     } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST) {
-        uint64_t ql_len;
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
         o = createQuicklistObject(&quicklistContainerTypeListpack);
         quicklistSetOptions(o->ptr, server.list_max_listpack_size,
                             server.list_compress_depth);
 
-        ql_len = len;
-        while (ql_len--) {
+        while (len--) {
             size_t encoded_len;
             unsigned char *list =
                 rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,&encoded_len);
