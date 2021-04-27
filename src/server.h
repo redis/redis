@@ -125,13 +125,8 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CONFIG_MIN_RESERVED_FDS 32
 #define CONFIG_DEFAULT_PROC_TITLE_TEMPLATE "{title} {listen-addr} {server-mode}"
 
-/* TODO:
- * We can optimize this by ignoring the first N bits in the memory size, for
- * example if we ignore the first 14 bits then we need 14 less buckets. This
- * means we assume there are no clients with less than 2^14 (16K) memory usage,
- * or at least we group them together with the up to 32K bucket.
- *
- * Even better, we can implement Yuval's 2 layer bucketing with pre-eviction
+/* TODO: Optimization:
+ * We can implement Yuval's 2 layer bucketing with pre-eviction
  * sort algorithm. From slack:
  *
  * I would decide on buckets sizes on M (the overall threashold) and have simple
