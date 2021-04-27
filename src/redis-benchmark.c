@@ -529,13 +529,12 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                             * before requesting the new configuration. */
                             fetch_slots = 1;
                             do_wait = 1;
+                            printf("Error from server %s:%d: %s.\n",
+                                   c->cluster_node->ip,
+                                   c->cluster_node->port,
+                                   r->str);
                         }
                         if (do_wait) sleep(1);
-                        printf("Error from server %s:%d: %s.\n"
-                               "Updating slots configuration.\n",
-                                c->cluster_node->ip,
-                                c->cluster_node->port,
-                                r->str);
                         if (fetch_slots && !fetchClusterSlotsConfiguration(c))
                             exit(1);
                     } else {
