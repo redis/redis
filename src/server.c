@@ -2189,9 +2189,10 @@ clientMemUsageBucket *getMemUsageBucket(size_t mem) {
 }
 
 /* This is called both on explicit clients when something changed their buffers,
- * so we can track clients' memory and enforce clients maxmemory in real time,
- * and also from the clientsCron so we have updated stats for non
- * CLIENT_TYPE_NORMAL/PUBSUB clients.
+ * so we can track clients' memory and enforce clients' maxmemory in real time,
+ * and also from the clientsCron. We call it from the cron so we have updated
+ * stats for non CLIENT_TYPE_NORMAL/PUBSUB clients and in case a configuration
+ * change requires us to evict a non-active client.
  */
 int updateClientMemUsage(client *c) {
     size_t mem = getClientMemoryUsage(c, NULL);
