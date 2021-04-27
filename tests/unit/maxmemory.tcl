@@ -3,100 +3,130 @@ start_server {tags {"maxmemory"}} {
     r config set maxmemory-policy allkeys-lru
     set rd [redis_deferring_client]
 
-    proc refill {} {
+    proc init_test {client_eviction} {
         r flushdb
+
+        set prev_maxmemory_clients [r config get maxmemory-clients]
+        if $client_eviction {
+            r config set maxmemory-clients 3mb
+        } else {
+            r config set maxmemory-clients 0
+        }
+        # If maxmemory-clients changed we need to wait for clients cron to update all the clients accordingly
+        if {$prev_maxmemory_clients != [r config get maxmemory-clients]} {
+            after 1500
+        }
+
+        r config resetstat
         # fill 5mb using 50 keys of 100kb
         for {set j 0} {$j < 50} {incr j} {
             r setrange $j 100000 x
         }
+        assert {[r dbsize] == 50}
+    }
+    
+    proc verify_test {client_eviction} {
+        set evicted_keys [s evicted_keys]
+        set evicted_clients [s evicted_clients]
+        set dbsize [r dbsize]
+        
+        puts "evicted clients: $evicted_clients, evicted keys: $evicted_keys, dbsize: $dbsize"
+        if $client_eviction {
+            assert {$evicted_clients > 0 && $evicted_keys == 0 && $dbsize == 50}
+        } else {
+            assert {$evicted_clients == 0 && $evicted_keys > 0 && $dbsize < 50}
+        }
     }
 
-    # TODO: we might want to change the tests so we run them first with no maxmemory-cliets and verify we get key eviction, and then re-run them and see clients disconnect and there's no eviction
-    r config set maxmemory-clients 3mb
+    foreach {client_eviction} {false true} {
+        set clients {}
+        test "eviction due to output buffers of many MGET clients, client eviction: $client_eviction" {
+            init_test $client_eviction
 
-    set clients {}
-    test "eviction due to output buffers of many MGET clients" {
-        refill
-
-        for {set j 0} {$j < 20} {incr j} {
-            set rr [redis_deferring_client]
-            lappend clients $rr
-        }
-
-        $rd debug sleep 1
-        $rd flush
-        after 100
-
-        for {set j 0} {$j < 5} {incr j} {
-            foreach rr $clients {
-                $rr mget 1
-                $rr flush
+            for {set j 0} {$j < 20} {incr j} {
+                set rr [redis_deferring_client]
+                lappend clients $rr
             }
-        }
-        $rd read
 
-        for {set j 0} {$j < 5} {incr j} {
+            $rd debug sleep 1
+            $rd flush
+            after 100
+            
+            for {set j 0} {$j < 5} {incr j} {
+                foreach rr $clients {
+                    $rr mget 1
+                    $rr flush
+                }
+            }
+            $rd read
+
+            for {set j 0} {$j < 5} {incr j} {
+                foreach rr $clients {
+                    if {[catch { $rr read } err]} {
+                        lremove clients $rr
+                    }
+                }
+            }
+
+            verify_test $client_eviction
+        }
+        foreach rr $clients {
+            $rr close
+        }
+
+        set clients {}
+        test "eviction due to input buffer of a dead client, client eviction: $client_eviction" {
+            init_test $client_eviction
+            
+            for {set j 0} {$j < 30} {incr j} {
+                set rr [redis_deferring_client]
+                lappend clients $rr
+            }
+
             foreach rr $clients {
-                if {[catch { $rr read } err]} {
+                if {[catch {
+                    $rr write "*200\r\n"
+                    for {set j 0} {$j < 199} {incr j} {
+                        $rr write "\$1000\r\n"
+                        $rr write [string repeat x 1000]
+                        $rr write "\r\n"
+                        $rr flush
+                    }
+                }]} {
+                    puts "removing...."
                     lremove clients $rr
                 }
             }
+
+            verify_test $client_evictionco
         }
-
-        r dbsize
-    } {50}
-    foreach rr $clients {
-        $rr close
-    }
-
-    set clients {}
-    test "eviction due to input buffer of a dead client" {
-        refill
-
-        for {set j 0} {$j < 30} {incr j} {
-            set rr [redis_deferring_client]
-            lappend clients $rr
-        }
-
         foreach rr $clients {
-            if {[catch {
-                $rr write "*200\r\n"
-                for {set j 0} {$j < 199} {incr j} {
-                    $rr write "\$1000\r\n"
-                    $rr write [string repeat x 1000]
-                    $rr write "\r\n"
-                }
-            }]} {
-                lremove clients $rr
+            $rr close
+        }
+
+        set clients {}
+        test "eviction due to output buffers of pubsub, client eviction: $client_eviction" {
+            init_test $client_eviction
+
+            for {set j 0} {$j < 10} {incr j} {
+                set rr [redis_deferring_client]
+                lappend clients $rr
             }
+
+            foreach rr $clients {
+                $rr subscribe bla
+                $rr flush
+            }
+
+            for {set j 0} {$j < 35} {incr j} {
+                catch {r publish bla [string repeat x 100000]} err
+            }
+
+            verify_test $client_eviction
         }
-
-        r dbsize
-    } {50}
-    foreach rr $clients {
-        $rr close
-    }
-
-    set clients {}
-    test "eviction due to output buffers of pubsub" {
-        refill
-        for {set j 0} {$j < 10} {incr j} {
-            set rr [redis_deferring_client]
-            lappend clients $rr
-        }
-
         foreach rr $clients {
-            $rr subscribe bla
+            $rr close
         }
-
-        for {set j 0} {$j < 35} {incr j} {
-            catch {r publish bla [string repeat x 100000]} err
-        }
-
-        r dbsize
-    } {50}
-    foreach rr $clients {
-        $rr close
     }
 
 }
