@@ -2095,7 +2095,7 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval);
 void replaceClientCommandVector(client *c, int argc, robj **argv);
 void redactClientCommandArgument(client *c, int argc);
 size_t getClientOutputBufferMemoryUsage(client *c);
-size_t getClientMemoryUsage(client *c);
+size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage);
 int freeClientsInAsyncFreeQueue(void);
 int closeClientOnOutputBufferLimitReached(client *c, int async);
 int getClientType(client *c);

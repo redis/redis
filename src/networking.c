@@ -2328,9 +2328,7 @@ sds catClientInfoString(sds s, client *client) {
     *p = '\0';
 
     /* Compute the total memory consumed by this client. */
-    size_t obufmem = getClientOutputBufferMemoryUsage(client);
-    // TODO: since getClientMemoryUsage internally calls getClientOutputBufferMemoryUsage again, we might just want to add an output variable to getClientMemoryUsage instead of calling in twice??
-    size_t total_mem = getClientMemoryUsage(client);
+    size_t obufmem, total_mem = getClientMemoryUsage(client, &obufmem);
 
     return sdscatfmt(s,
         "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i",
@@ -3175,8 +3173,13 @@ size_t getClientOutputBufferMemoryUsage(client *c) {
     return c->reply_bytes + (list_item_size*listLength(c->reply));
 }
 
-size_t getClientMemoryUsage(client *c) {
+/* Returns the total client's memory usage.
+ * Optionally, if output_buffer_mem_usage is not NULL, it fills it with
+ * the client output buffer memory usage portion of the total. */
+size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
     size_t mem = getClientOutputBufferMemoryUsage(c);
+    if (output_buffer_mem_usage != NULL)
+        *output_buffer_mem_usage = mem;
     mem += sdsZmallocSize(c->querybuf);
     mem += zmalloc_size(c);
     mem += c->argv_len_sum;
@@ -3773,7 +3776,6 @@ int handleClientsWithPendingReadsUsingThreads(void) {
         }
 
         processInputBuffer(c);
-        updateClientMemUsage(c); /* FIXME: Why call this again here? We already did this in processInputBuffer() */
 
         /* We may have pending replies if a thread readQueryFromClient() produced
          * replies and did not install a write handler (it can't).

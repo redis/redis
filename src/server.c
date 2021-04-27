@@ -2169,6 +2169,13 @@ int clientsCronTrackExpansiveClients(client *c, int time_idx) {
     return 0; /* This function never terminates the client. */
 }
 
+/* All normal clients are placed in one of the "mem usage buckets" according
+ * to how much memory they currently use. We use this function to find the
+ * appropriate bucket based on a given memory usage value. The algorithm simply
+ * does a log2(mem) to ge the bucket. This means, for examples, that if a
+ * client's memory usage doubles it's moved up to the next bucket, if it's
+ * halved we move it down a bucket.
+ * For more details see CLIENT_MEM_USAGE_BUCKETS documentation in server.h. */
 clientMemUsageBucket *getMemUsageBucket(size_t mem) {
     int size_in_bits = 8*(int)sizeof(mem);
     int clz = mem > 0 ? __builtin_clzl(mem) : size_in_bits;
@@ -2179,12 +2186,12 @@ clientMemUsageBucket *getMemUsageBucket(size_t mem) {
 }
 
 /* This is called both on explicit clients when something changed their buffers,
- * so we can track clients' memory and enforce clients maxmemory in real time
- * and also from the clietsCron so we have updated stats for non
+ * so we can track clients' memory and enforce clients maxmemory in real time,
+ * and also from the clientsCron so we have updated stats for non
  * CLIENT_TYPE_NORMAL/PUBSUB clients.
  */
 int updateClientMemUsage(client *c) {
-    size_t mem = getClientMemoryUsage(c);
+    size_t mem = getClientMemoryUsage(c, NULL);
     int type = getClientType(c);
     int allow_eviction =
             (type == CLIENT_TYPE_NORMAL || type == CLIENT_TYPE_PUBSUB) &&
@@ -2309,7 +2316,7 @@ void clientsCron(void) {
         /* Iterating all the clients in getMemoryOverheadData() is too slow and
          * in turn would make the INFO command too slow. So we perform this
          * computation incrementally and track the (not instantaneous but updated
-         * to the second) total memory used by clients using clinetsCron() in
+         * to the second) total memory used by clients using clientsCron() in
          * a more incremental way (depending on server.hz). */
         if (updateClientMemUsage(c)) continue;
         if (closeClientOnOutputBufferLimitReached(c, 0)) continue;
@@ -4659,8 +4666,9 @@ int processCommand(client *c) {
         }
     }
 
-    /* Before evicting any keys, disconnect some clients if total clients memory
-     * is too high. */
+    /* Disconnect some clients if total clients memory is too high. We do this
+     * before key eviction, after the last command was executed and consumed
+     * some client output buffer memory. */
     clientsEviction();
 
     /* Handle the maxmemory directive.
