@@ -174,7 +174,9 @@ typedef long long ustime_t; /* microsecond time type. */
  * always afraid to do something wrong with the bits ops.
  * in general is based on leftmost bits of ((M/8)<<C)/m
  */
-#define CLIENT_MEM_USAGE_BUCKETS 30 /* Bucket sizes up to 1GB */
+#define CLIENT_MEM_USAGE_BUCKET_MIN_LOG 15 /* Bucket sizes start at 32KB */
+#define CLIENT_MEM_USAGE_BUCKET_MAX_LOG 33 /* Bucket sizes up to 8GB */
+#define CLIENT_MEM_USAGE_BUCKETS (1+CLIENT_MEM_USAGE_BUCKET_MAX_LOG-CLIENT_MEM_USAGE_BUCKET_MIN_LOG)
 
 #define ACTIVE_EXPIRE_CYCLE_SLOW 0
 #define ACTIVE_EXPIRE_CYCLE_FAST 1

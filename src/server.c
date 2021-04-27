@@ -2180,8 +2180,11 @@ clientMemUsageBucket *getMemUsageBucket(size_t mem) {
     int size_in_bits = 8*(int)sizeof(mem);
     int clz = mem > 0 ? __builtin_clzl(mem) : size_in_bits;
     int bucket_idx = size_in_bits - clz;
-    if (bucket_idx >= CLIENT_MEM_USAGE_BUCKETS)
-        bucket_idx = CLIENT_MEM_USAGE_BUCKETS-1;
+    if (bucket_idx > CLIENT_MEM_USAGE_BUCKET_MAX_LOG)
+        bucket_idx = CLIENT_MEM_USAGE_BUCKET_MAX_LOG;
+    else if (bucket_idx < CLIENT_MEM_USAGE_BUCKET_MIN_LOG)
+        bucket_idx = CLIENT_MEM_USAGE_BUCKET_MIN_LOG;
+    bucket_idx -= CLIENT_MEM_USAGE_BUCKET_MIN_LOG;
     return &server.client_mem_usage_buckets[bucket_idx];
 }
 
