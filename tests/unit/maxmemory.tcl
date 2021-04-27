@@ -30,7 +30,6 @@ start_server {tags {"maxmemory"}} {
         set evicted_clients [s evicted_clients]
         set dbsize [r dbsize]
         
-        puts "evicted clients: $evicted_clients, evicted keys: $evicted_keys, dbsize: $dbsize"
         if $client_eviction {
             assert {$evicted_clients > 0 && $evicted_keys == 0 && $dbsize == 50}
         } else {
@@ -98,7 +97,7 @@ start_server {tags {"maxmemory"}} {
                 }
             }
 
-            verify_test $client_evictionco
+            verify_test $client_eviction
         }
         foreach rr $clients {
             $rr close
