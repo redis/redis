@@ -25,7 +25,7 @@ test {CONFIG SET port number} {
 test {CONFIG SET bind address} {
     start_server {} {
         # non-valid address
-        catch {r CONFIG SET bind "some.wrong.bind.address"} e
+        catch {r CONFIG SET bind "999.999.999.999"} e
         assert_match {*Failed to bind to specified addresses*} $e
 
         # make sure server still bound to the previous address
