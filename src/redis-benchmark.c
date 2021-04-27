@@ -516,7 +516,9 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                 if (r->type == REDIS_REPLY_ERROR) {
                     /* Try to update slots configuration if reply error is
                     * MOVED/ASK/CLUSTERDOWN and the key(s) used by the command
-                    * contain(s) the slot hash tag. */
+                    * contain(s) the slot hash tag.
+                    * If the error is not topology-update related then we
+                    * immediately exit to avoid false results. */
                     if (c->cluster_node && c->staglen) {
                         int fetch_slots = 0, do_wait = 0;
                         if (!strncmp(r->str,"MOVED",5) || !strncmp(r->str,"ASK",3))
@@ -528,15 +530,13 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                             fetch_slots = 1;
                             do_wait = 1;
                             printf("Error from server %s:%d: %s\n",
-                                c->cluster_node->ip,
-                                c->cluster_node->port,
-                                r->str);
+                                   c->cluster_node->ip,
+                                   c->cluster_node->port,
+                                   r->str);
                         }
                         if (do_wait) sleep(1);
                         if (fetch_slots && !fetchClusterSlotsConfiguration(c))
                             exit(1);
-                    /* If the error is not topology-update related then we
-                    * immediately exit to avoid false results. */
                     } else {
                         if (c->cluster_node) {
                             printf("Error from server %s:%d: %s\n",
