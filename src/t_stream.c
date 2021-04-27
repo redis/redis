@@ -1376,7 +1376,7 @@ void streamPropagateXCLAIM(client *c, robj *key, streamCG *group, robj *groupnam
     decrRefCount(argv[13]);
 }
 
-/* We need this when we want to propoagate the new last-id of a consumer group
+/* We need this when we want to propagate the new last-id of a consumer group
  * that was consumed by XREADGROUP with the NOACK option: in that case we can't
  * propagate the last ID just using the XCLAIM LASTID option, so we emit
  *
