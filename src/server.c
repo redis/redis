@@ -3985,6 +3985,8 @@ int processCommand(client *c) {
         return C_OK;
     }
 
+    int is_read_command = (c->cmd->flags & CMD_READONLY) ||
+                           (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_READONLY));
     int is_write_command = (c->cmd->flags & CMD_WRITE) ||
                            (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_WRITE));
     int is_denyoom_command = (c->cmd->flags & CMD_DENYOOM) ||
@@ -4194,7 +4196,7 @@ int processCommand(client *c) {
           c->cmd->proc != discardCommand &&
           c->cmd->proc != watchCommand &&
           c->cmd->proc != unwatchCommand &&
-	  c->cmd->proc != resetCommand &&
+          c->cmd->proc != resetCommand &&
         !(c->cmd->proc == shutdownCommand &&
           c->argc == 2 &&
           tolower(((char*)c->argv[1]->ptr)[0]) == 'n') &&
@@ -4203,6 +4205,14 @@ int processCommand(client *c) {
           tolower(((char*)c->argv[1]->ptr)[0]) == 'k'))
     {
         rejectCommand(c, shared.slowscripterr);
+        return C_OK;
+    }
+
+    /* Prevent a replica from sending commands that access the keyspace.
+     * The main objective here is to prevent abuse of client pause check
+     * from which replicas are exempt. */
+    if ((c->flags & CLIENT_SLAVE) && (is_may_replicate_command || is_write_command || is_read_command)) {
+        rejectCommandFormat(c, "Replica can't interract with the keyspace");
         return C_OK;
     }
 
