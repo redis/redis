@@ -69,7 +69,7 @@ start_server {tags {"obuf-limits"}} {
             }
 
             if {!$wait_for_timeout} {
-                # Wait for soft limit to time out
+                # After we completely stopped the traffic, wait for soft limit to time out
                 after [expr {$soft_limit_time+1500 - ([clock milliseconds]-$start_time)}]
                 set clients [split [r client list] "\r\n"]
                 assert {[lsearch $clients *name=test_client*] == -1}
