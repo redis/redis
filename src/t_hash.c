@@ -546,7 +546,7 @@ robj *hashTypeDup(robj *o) {
     return hobj;
 }
 
-/* callback for to check the ziplist doesn't have duplicate recoreds */
+/* callback for to check the ziplist doesn't have duplicate records */
 static int _hashZiplistEntryValidation(unsigned char *p, void *userdata) {
     struct {
         long count;

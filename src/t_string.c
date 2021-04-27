@@ -836,7 +836,7 @@ void stralgoLCS(client *c) {
      * it backward, but the length is already known, we store it into idx. */
     uint32_t idx = LCS(alen,blen);
     sds result = NULL;        /* Resulting LCS string. */
-    void *arraylenptr = NULL; /* Deffered length of the array for IDX. */
+    void *arraylenptr = NULL; /* Deferred length of the array for IDX. */
     uint32_t arange_start = alen, /* alen signals that values are not set. */
              arange_end = 0,
              brange_start = 0,
