@@ -47,6 +47,11 @@ start_server {tags {"obuf-limits"}} {
                 r publish foo [string repeat "x" 1000]
                 set clients [split [r client list] "\r\n"]
                 set c [lsearch -inline $clients *name=test_client*]
+                if {$start_time != 0} {
+                    set time_elapsed [expr {[clock milliseconds]-$start_time}]
+                    # Make sure test isn't taking too long
+                    assert {$time_elapsed <= [expr $soft_limit_time+2000]}
+                }
                 if {$wait_for_timeout && $c == ""} {
                     # Make sure we're disconnected when we reach the soft limit
                     assert {$omem >= 100000 && $time_elapsed >= $soft_limit_time}
@@ -56,9 +61,6 @@ start_server {tags {"obuf-limits"}} {
                 }
                 if {$omem > 100000} {
                     if {$start_time == 0} {set start_time [clock milliseconds]}
-                    set time_elapsed [expr {[clock milliseconds]-$start_time}]
-                    # Make sure test isn't taking too long
-                    assert {$time_elapsed <= [expr $soft_limit_time+2000]}
                     if {!$wait_for_timeout && $time_elapsed >= [expr $soft_limit_time-1000]} break
                     # Slow down loop when omem has reached the limit.
                     after 10
