@@ -241,12 +241,12 @@ robj *streamDup(robj *o) {
     return sobj;
 }
 
-/* This is just a wrapper for lpAppend() to directly use a 64 bit integer
+/* This is just a wrapper for lpPushTail() to directly use a 64 bit integer
  * instead of a string. */
 unsigned char *lpAppendInteger(unsigned char *lp, int64_t value) {
     char buf[LONG_STR_SIZE];
     int slen = ll2string(buf,sizeof(buf),value);
-    return lpAppend(lp,(unsigned char*)buf,slen);
+    return lpPushTail(lp,(unsigned char*)buf,slen);
 }
 
 /* This is just a wrapper for lpReplace() to directly use a 64 bit integer
@@ -545,7 +545,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
         lp = lpAppendInteger(lp,numfields);
         for (int64_t i = 0; i < numfields; i++) {
             sds field = argv[i*2]->ptr;
-            lp = lpAppend(lp,(unsigned char*)field,sdslen(field));
+            lp = lpPushTail(lp,(unsigned char*)field,sdslen(field));
         }
         lp = lpAppendInteger(lp,0); /* Master entry zero terminator. */
         raxInsert(s->rax,(unsigned char*)&rax_key,sizeof(rax_key),lp,NULL);
@@ -618,8 +618,8 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
     for (int64_t i = 0; i < numfields; i++) {
         sds field = argv[i*2]->ptr, value = argv[i*2+1]->ptr;
         if (!(flags & STREAM_ITEM_FLAG_SAMEFIELDS))
-            lp = lpAppend(lp,(unsigned char*)field,sdslen(field));
-        lp = lpAppend(lp,(unsigned char*)value,sdslen(value));
+            lp = lpPushTail(lp,(unsigned char*)field,sdslen(field));
+        lp = lpPushTail(lp,(unsigned char*)value,sdslen(value));
     }
     /* Compute and store the lp-count field. */
     int64_t lp_count = numfields;
@@ -3556,7 +3556,7 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
 
     /* Since we don't want to run validation of all records twice, we'll
      * run the listpack validation of just the header and do the rest here. */
-    if (!lpValidateIntegrity(lp, size, 0))
+    if (!lpValidateIntegrity(lp, size, 0, NULL, NULL))
         return 0;
 
     /* In non-deep mode we just validated the listpack header (encoded size) */
