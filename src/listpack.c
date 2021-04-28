@@ -116,7 +116,7 @@
     (p)[5] = ((v)>>8)&0xff; \
 } while(0)
 
-/* Validates that 'p' is not ouside the listpack..
+/* Validates that 'p' is not ouside the listpack.
  * All function that return a pointer to an element in the listpack will assert
  * that this element is valid, so it can be freely used.
  * Generally functions such lpNext and lpDelete assume the input pointer is
@@ -1029,9 +1029,8 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
     if (lp[size-1] != LP_EOF)
         return 0;
 
-    if (!deep) {
+    if (!deep)
         return 1;
-    }
 
     /* Validate the invividual entries. */
     uint32_t count = 0;
