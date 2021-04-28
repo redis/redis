@@ -21,7 +21,12 @@ NODEPS:=clean distclean
 
 # Default settings
 STD=-pedantic -DREDIS_STATIC=''
+
+# Use -Wno-c11-extensions on clang, either where explicitly used or on
+# platforms we can assume it's being used.
 ifneq (,$(findstring clang,$(CC)))
+  STD+=-Wno-c11-extensions
+else
 ifneq (,$(findstring FreeBSD,$(uname_S)))
   STD+=-Wno-c11-extensions
 endif
@@ -88,20 +93,18 @@ FINAL_LDFLAGS=$(LDFLAGS) $(REDIS_LDFLAGS) $(DEBUG)
 FINAL_LIBS=-lm
 DEBUG=-g -ggdb
 
-# Linux ARM needs -latomic at linking time
-ifneq (,$(filter aarch64 armv,$(uname_M)))
-        FINAL_LIBS+=-latomic
-else
+# Linux ARM32 needs -latomic at linking time
 ifneq (,$(findstring armv,$(uname_M)))
         FINAL_LIBS+=-latomic
-endif
 endif
 
 ifeq ($(uname_S),SunOS)
 	# SunOS
-        ifneq ($(@@),32bit)
-		CFLAGS+= -m64
-		LDFLAGS+= -m64
+	ifeq ($(findstring -m32,$(FINAL_CFLAGS)),)
+		CFLAGS+=-m64
+	endif
+	ifeq ($(findstring -m32,$(FINAL_LDFLAGS)),)
+		LDFLAGS+=-m64
 	endif
 	DEBUG=-g
 	DEBUG_FLAGS=-g
@@ -113,8 +116,18 @@ else
 ifeq ($(uname_S),Darwin)
 	# Darwin
 	FINAL_LIBS+= -ldl
+	# Homebrew's OpenSSL is not linked to /usr/local to avoid
+	# conflicts with the system's LibreSSL installation so it
+	# must be referenced explicitly during build.
+ifeq ($(uname_M),arm64)
+	# Homebrew arm64 uses /opt/homebrew as HOMEBREW_PREFIX
+	OPENSSL_CFLAGS=-I/opt/homebrew/opt/openssl/include
+	OPENSSL_LDFLAGS=-L/opt/homebrew/opt/openssl/lib
+else
+	# Homebrew x86/ppc uses /usr/local as HOMEBREW_PREFIX
 	OPENSSL_CFLAGS=-I/usr/local/opt/openssl/include
 	OPENSSL_LDFLAGS=-L/usr/local/opt/openssl/lib
+endif
 else
 ifeq ($(uname_S),AIX)
         # AIX
@@ -180,6 +193,8 @@ FINAL_CFLAGS+= -I../deps/hiredis -I../deps/linenoise -I../deps/lua/src -I../deps
 
 # Determine systemd support and/or build preference (defaulting to auto-detection)
 BUILD_WITH_SYSTEMD=no
+LIBSYSTEMD_LIBS=-lsystemd
+
 # If 'USE_SYSTEMD' in the environment is neither "no" nor "yes", try to
 # auto-detect libsystemd's presence and link accordingly.
 ifneq ($(USE_SYSTEMD),no)
@@ -188,17 +203,18 @@ ifneq ($(USE_SYSTEMD),no)
 # (unless a later check tells us otherwise)
 ifeq ($(LIBSYSTEMD_PKGCONFIG),0)
 	BUILD_WITH_SYSTEMD=yes
+	LIBSYSTEMD_LIBS=$(shell $(PKG_CONFIG) --libs libsystemd)
 endif
 endif
+
+# If 'USE_SYSTEMD' is set to "yes" use pkg-config if available or fall back to
+# default -lsystemd.
 ifeq ($(USE_SYSTEMD),yes)
-ifneq ($(LIBSYSTEMD_PKGCONFIG),0)
-$(error USE_SYSTEMD is set to "$(USE_SYSTEMD)", but $(PKG_CONFIG) cannot find libsystemd)
-endif
-# Force building with libsystemd
 	BUILD_WITH_SYSTEMD=yes
 endif
+
 ifeq ($(BUILD_WITH_SYSTEMD),yes)
-	FINAL_LIBS+=$(shell $(PKG_CONFIG) --libs libsystemd)
+	FINAL_LIBS+=$(LIBSYSTEMD_LIBS)
 	FINAL_CFLAGS+= -DHAVE_LIBSYSTEMD
 endif
 
@@ -236,6 +252,17 @@ endif
 	FINAL_LIBS += ../deps/hiredis/libhiredis_ssl.a $(LIBSSL_LIBS) $(LIBCRYPTO_LIBS)
 endif
 
+ifndef V
+    define MAKE_INSTALL
+        @printf '    %b %b\n' $(LINKCOLOR)INSTALL$(ENDCOLOR) $(BINCOLOR)$(1)$(ENDCOLOR) 1>&2
+        @$(INSTALL) $(1) $(2)
+    endef
+else
+    define MAKE_INSTALL
+        $(INSTALL) $(1) $(2)
+    endef
+endif
+
 REDIS_CC=$(QUIET_CC)$(CC) $(FINAL_CFLAGS)
 REDIS_LD=$(QUIET_LINK)$(CC) $(FINAL_LDFLAGS)
 REDIS_INSTALL=$(QUIET_INSTALL)$(INSTALL)
@@ -255,11 +282,11 @@ endif
 
 REDIS_SERVER_NAME=redis-server$(PROG_SUFFIX)
 REDIS_SENTINEL_NAME=redis-sentinel$(PROG_SUFFIX)
-REDIS_SERVER_OBJ=adlist.o quicklist.o ae.o anet.o dict.o server.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o pubsub.o multi.o debug.o sort.o intset.o syncio.o cluster.o crc16.o endianconv.o slowlog.o scripting.o bio.o rio.o rand.o memtest.o crcspeed.o crc64.o bitops.o sentinel.o notify.o setproctitle.o blocked.o hyperloglog.o latency.o sparkline.o redis-check-rdb.o redis-check-aof.o geo.o lazyfree.o module.o evict.o expire.o geohash.o geohash_helper.o childinfo.o defrag.o siphash.o rax.o t_stream.o listpack.o localtime.o lolwut.o lolwut5.o lolwut6.o acl.o gopher.o tracking.o connection.o tls.o sha256.o timeout.o setcpuaffinity.o monotonic.o
+REDIS_SERVER_OBJ=adlist.o quicklist.o ae.o anet.o dict.o server.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o pubsub.o multi.o debug.o sort.o intset.o syncio.o cluster.o crc16.o endianconv.o slowlog.o scripting.o bio.o rio.o rand.o memtest.o crcspeed.o crc64.o bitops.o sentinel.o notify.o setproctitle.o blocked.o hyperloglog.o latency.o sparkline.o redis-check-rdb.o redis-check-aof.o geo.o lazyfree.o module.o evict.o expire.o geohash.o geohash_helper.o childinfo.o defrag.o siphash.o rax.o t_stream.o listpack.o localtime.o lolwut.o lolwut5.o lolwut6.o acl.o gopher.o tracking.o connection.o tls.o sha256.o timeout.o setcpuaffinity.o monotonic.o mt19937-64.o
 REDIS_CLI_NAME=redis-cli$(PROG_SUFFIX)
-REDIS_CLI_OBJ=anet.o adlist.o dict.o redis-cli.o zmalloc.o release.o ae.o crcspeed.o crc64.o siphash.o crc16.o monotonic.o
+REDIS_CLI_OBJ=anet.o adlist.o dict.o redis-cli.o zmalloc.o release.o ae.o redisassert.o crcspeed.o crc64.o siphash.o crc16.o monotonic.o cli_common.o mt19937-64.o
 REDIS_BENCHMARK_NAME=redis-benchmark$(PROG_SUFFIX)
-REDIS_BENCHMARK_OBJ=ae.o anet.o redis-benchmark.o adlist.o dict.o zmalloc.o siphash.o monotonic.o
+REDIS_BENCHMARK_OBJ=ae.o anet.o redis-benchmark.o adlist.o dict.o zmalloc.o redisassert.o release.o crcspeed.o crc64.o siphash.o crc16.o monotonic.o cli_common.o mt19937-64.o
 REDIS_CHECK_RDB_NAME=redis-check-rdb$(PROG_SUFFIX)
 REDIS_CHECK_AOF_NAME=redis-check-aof$(PROG_SUFFIX)
 
@@ -331,9 +358,6 @@ $(REDIS_CLI_NAME): $(REDIS_CLI_OBJ)
 $(REDIS_BENCHMARK_NAME): $(REDIS_BENCHMARK_OBJ)
 	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/hdr_histogram/hdr_histogram.o $(FINAL_LIBS)
 
-dict-benchmark: dict.c zmalloc.c sds.c siphash.c
-	$(REDIS_CC) $(FINAL_CFLAGS) $^ -D DICT_BENCHMARK_MAIN -o $@ $(FINAL_LIBS)
-
 DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:%.o=%.d) $(REDIS_BENCHMARK_OBJ:%.o=%.d)
 -include $(DEP)
 
@@ -344,7 +368,7 @@ DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:%.o=%.d) $(REDIS_BENCHMARK_OBJ
 	$(REDIS_CC) -MMD -o $@ -c $<
 
 clean:
-	rm -rf $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) *.o *.gcda *.gcno *.gcov redis.info lcov-html Makefile.dep dict-benchmark
+	rm -rf $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) *.o *.gcda *.gcno *.gcov redis.info lcov-html Makefile.dep
 	rm -f $(DEP)
 
 .PHONY: clean
@@ -397,11 +421,11 @@ src/help.h:
 
 install: all
 	@mkdir -p $(INSTALL_BIN)
-	$(REDIS_INSTALL) $(REDIS_SERVER_NAME) $(INSTALL_BIN)
-	$(REDIS_INSTALL) $(REDIS_BENCHMARK_NAME) $(INSTALL_BIN)
-	$(REDIS_INSTALL) $(REDIS_CLI_NAME) $(INSTALL_BIN)
-	$(REDIS_INSTALL) $(REDIS_CHECK_RDB_NAME) $(INSTALL_BIN)
-	$(REDIS_INSTALL) $(REDIS_CHECK_AOF_NAME) $(INSTALL_BIN)
+	$(call MAKE_INSTALL,$(REDIS_SERVER_NAME),$(INSTALL_BIN))
+	$(call MAKE_INSTALL,$(REDIS_BENCHMARK_NAME),$(INSTALL_BIN))
+	$(call MAKE_INSTALL,$(REDIS_CLI_NAME),$(INSTALL_BIN))
+	@ln -sf $(REDIS_SERVER_NAME) $(INSTALL_BIN)/$(REDIS_CHECK_RDB_NAME)
+	@ln -sf $(REDIS_SERVER_NAME) $(INSTALL_BIN)/$(REDIS_CHECK_AOF_NAME)
 	@ln -sf $(REDIS_SERVER_NAME) $(INSTALL_BIN)/$(REDIS_SENTINEL_NAME)
 
 uninstall:

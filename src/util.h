@@ -49,6 +49,8 @@ int stringmatchlen(const char *p, int plen, const char *s, int slen, int nocase)
 int stringmatch(const char *p, const char *s, int nocase);
 int stringmatchlen_fuzz_test(void);
 long long memtoll(const char *p, int *err);
+const char *mempbrk(const char *s, size_t len, const char *chars, size_t charslen);
+char *memmapchars(char *s, size_t len, const char *from, const char *to, size_t setlen);
 uint32_t digits10(uint64_t v);
 uint32_t sdigits10(int64_t v);
 int ll2string(char *s, size_t len, long long value);
@@ -60,11 +62,11 @@ int string2d(const char *s, size_t slen, double *dp);
 int d2string(char *buf, size_t len, double value);
 int ld2string(char *buf, size_t len, long double value, ld2string_mode mode);
 sds getAbsolutePath(char *filename);
-unsigned long getTimeZone(void);
+long getTimeZone(void);
 int pathIsBaseName(char *path);
 
 #ifdef REDIS_TEST
-int utilTest(int argc, char **argv);
+int utilTest(int argc, char **argv, int accurate);
 #endif
 
 #endif

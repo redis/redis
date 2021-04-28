@@ -54,6 +54,10 @@ typedef ucontext_t sigcontext_t;
 #endif
 #endif
 
+#if defined(__APPLE__) && defined(__arm64__)
+#include <mach/mach.h>
+#endif
+
 /* Globals */
 static int bug_report_start = 0; /* True if bug report header was already logged. */
 static pthread_mutex_t bug_report_start_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -245,7 +249,7 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
         }
         streamIteratorStop(&si);
     } else if (o->type == OBJ_MODULE) {
-        RedisModuleDigest md;
+        RedisModuleDigest md = {{0},{0}};
         moduleValue *mv = o->ptr;
         moduleType *mt = mv->type;
         moduleInitDigestContext(md);
@@ -381,45 +385,95 @@ void mallctl_string(client *c, robj **argv, int argc) {
 void debugCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-"ASSERT -- Crash by assertion failed.",
-"CHANGE-REPL-ID -- Change the replication IDs of the instance. Dangerous, should be used only for testing the replication subsystem.",
-"CRASH-AND-RECOVER <milliseconds> -- Hard crash and restart after <milliseconds> delay.",
-"DIGEST -- Output a hex signature representing the current DB content.",
-"DIGEST-VALUE <key-1> ... <key-N>-- Output a hex signature of the values of all the specified keys.",
-"DEBUG PROTOCOL [string|integer|double|bignum|null|array|set|map|attrib|push|verbatim|true|false]",
-"ERROR <string> -- Return a Redis protocol error with <string> as message. Useful for clients unit tests to simulate Redis errors.",
-"LOG <message> -- write message to the server log.",
-"LEAK <string> -- Create a memory leak of the input string.",
-"HTSTATS <dbid> -- Return hash table statistics of the specified Redis database.",
-"HTSTATS-KEY <key> -- Like htstats but for the hash table stored as key's value.",
-"LOADAOF -- Flush the AOF buffers on disk and reload the AOF in memory.",
-"LUA-ALWAYS-REPLICATE-COMMANDS <0|1> -- Setting it to 1 makes Lua replication defaulting to replicating single commands, without the script having to enable effects replication.",
-"OBJECT <key> -- Show low level info about key and associated value.",
-"OOM -- Crash the server simulating an out-of-memory error.",
-"PANIC -- Crash the server simulating a panic.",
-"POPULATE <count> [prefix] [size] -- Create <count> string keys named key:<num>. If a prefix is specified is used instead of the 'key' prefix.",
-"RELOAD [MERGE] [NOFLUSH] [NOSAVE] -- Save the RDB on disk and reload it back in memory. By default it will save the RDB file and load it back. With the NOFLUSH option the current database is not removed before loading the new one, but conflicts in keys will kill the server with an exception. When MERGE is used, conflicting keys will be loaded (the key in the loaded RDB file will win). When NOSAVE is used, the server will not save the current dataset in the RDB file before loading. Use DEBUG RELOAD NOSAVE when you want just to load the RDB file you placed in the Redis working directory in order to replace the current dataset in memory. Use DEBUG RELOAD NOSAVE NOFLUSH MERGE when you want to add what is in the current RDB file placed in the Redis current directory, with the current memory content. Use DEBUG RELOAD when you want to verify Redis is able to persist the current dataset in the RDB file, flush the memory content, and load it back.",
-"RESTART -- Graceful restart: save config, db, restart.",
-"SDSLEN <key> -- Show low level SDS string info representing key and value.",
-"SEGFAULT -- Crash the server with sigsegv.",
-"SET-ACTIVE-EXPIRE <0|1> -- Setting it to 0 disables expiring keys in background when they are not accessed (otherwise the Redis behavior). Setting it to 1 reenables back the default.",
-"AOF-FLUSH-SLEEP <microsec> -- Server will sleep before flushing the AOF, this is used for testing",
-"SLEEP <seconds> -- Stop the server for <seconds>. Decimals allowed.",
-"STRUCTSIZE -- Return the size of different Redis core C structures.",
-"ZIPLIST <key> -- Show low level info about the ziplist encoding.",
-"STRINGMATCH-TEST -- Run a fuzz tester against the stringmatchlen() function.",
-"CONFIG-REWRITE-FORCE-ALL -- Like CONFIG REWRITE but writes all configuration options, including keywords not listed in original configuration file or default values.",
+"AOF-FLUSH-SLEEP <microsec>",
+"    Server will sleep before flushing the AOF, this is used for testing.",
+"ASSERT",
+"    Crash by assertion failed.",
+"CHANGE-REPL-ID"
+"    Change the replication IDs of the instance.",
+"    Dangerous: should be used only for testing the replication subsystem.",
+"CONFIG-REWRITE-FORCE-ALL",
+"    Like CONFIG REWRITE but writes all configuration options, including",
+"    keywords not listed in original configuration file or default values.",
+"CRASH-AND-RECOVER <milliseconds>",
+"    Hard crash and restart after a <milliseconds> delay.",
+"DIGEST",
+"    Output a hex signature representing the current DB content.",
+"DIGEST-VALUE <key> [<key> ...]",
+"    Output a hex signature of the values of all the specified keys.",
+"ERROR <string>",
+"    Return a Redis protocol error with <string> as message. Useful for clients",
+"    unit tests to simulate Redis errors.",
+"LOG <message>",
+"    Write <message> to the server log.",
+"HTSTATS <dbid>",
+"    Return hash table statistics of the specified Redis database.",
+"HTSTATS-KEY <key>",
+"    Like HTSTATS but for the hash table stored at <key>'s value.",
+"LOADAOF",
+"    Flush the AOF buffers on disk and reload the AOF in memory.",
+"LUA-ALWAYS-REPLICATE-COMMANDS <0|1>",
+"    Setting it to 1 makes Lua replication defaulting to replicating single",
+"    commands, without the script having to enable effects replication.",
 #ifdef USE_JEMALLOC
-"MALLCTL <key> [<val>] -- Get or set a malloc tunning integer.",
-"MALLCTL-STR <key> [<val>] -- Get or set a malloc tunning string.",
+"MALLCTL <key> [<val>]",
+"    Get or set a malloc tuning integer.",
+"MALLCTL-STR <key> [<val>]",
+"    Get or set a malloc tuning string.",
 #endif
+"OBJECT <key>",
+"    Show low level info about `key` and associated value.",
+"OOM",
+"    Crash the server simulating an out-of-memory error.",
+"PANIC",
+"    Crash the server simulating a panic.",
+"POPULATE <count> [<prefix>] [<size>]",
+"    Create <count> string keys named key:<num>. If <prefix> is specified then",
+"    it is used instead of the 'key' prefix.",
+"DEBUG PROTOCOL <type>",
+"    Reply with a test value of the specified type. <type> can be: string,",
+"    integer, double, bignum, null, array, set, map, attrib, push, verbatim,",
+"    true, false.",
+"RELOAD [option ...]",
+"    Save the RDB on disk and reload it back to memory. Valid <option> values:",
+"    * MERGE: conflicting keys will be loaded from RDB.",
+"    * NOFLUSH: the existing database will not be removed before load, but",
+"      conflicting keys will generate an exception and kill the server."
+"    * NOSAVE: the database will be loaded from an existing RDB file.",
+"    Examples:",
+"    * DEBUG RELOAD: verify that the server is able to persist, flush and reload",
+"      the database.",
+"    * DEBUG RELOAD NOSAVE: replace the current database with the contents of an",
+"      existing RDB file.",
+"    * DEBUG RELOAD NOSAVE NOFLUSH MERGE: add the contents of an existing RDB",
+"      file to the database.",
+"RESTART",
+"    Graceful restart: save config, db, restart.",
+"SDSLEN <key>",
+"    Show low level SDS string info representing `key` and value.",
+"SEGFAULT",
+"    Crash the server with sigsegv.",
+"SET-ACTIVE-EXPIRE <0|1>",
+"    Setting it to 0 disables expiring keys in background when they are not",
+"    accessed (otherwise the Redis behavior). Setting it to 1 reenables back the",
+"    default.",
+"SET-SKIP-CHECKSUM-VALIDATION <0|1>",
+"    Enables or disables checksum checks for RDB files and RESTORE's payload.",
+"SLEEP <seconds>",
+"    Stop the server for <seconds>. Decimals allowed.",
+"STRINGMATCH-TEST",
+"    Run a fuzz tester against the stringmatchlen() function.",
+"STRUCTSIZE",
+"    Return the size of different Redis core C structures.",
+"ZIPLIST <key>",
+"    Show low level info about the ziplist encoding of <key>.",
 NULL
         };
         addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"segfault")) {
         *((char*)-1) = 'x';
     } else if (!strcasecmp(c->argv[1]->ptr,"panic")) {
-        serverPanic("DEBUG PANIC called at Unix time %ld", time(NULL));
+        serverPanic("DEBUG PANIC called at Unix time %lld", (long long)time(NULL));
     } else if (!strcasecmp(c->argv[1]->ptr,"restart") ||
                !strcasecmp(c->argv[1]->ptr,"crash-and-recover"))
     {
@@ -473,7 +527,7 @@ NULL
             rdbSaveInfo rsi, *rsiptr;
             rsiptr = rdbPopulateSaveInfo(&rsi);
             if (rdbSave(server.rdb_filename,rsiptr) != C_OK) {
-                addReply(c,shared.err);
+                addReplyErrorObject(c,shared.err);
                 return;
             }
         }
@@ -499,7 +553,7 @@ NULL
         int ret = loadAppendOnlyFile(server.aof_filename);
         unprotectClient(c);
         if (ret != C_OK) {
-            addReply(c,shared.err);
+            addReplyErrorObject(c,shared.err);
             return;
         }
         server.dirty = 0; /* Prevent AOF / replication */
@@ -511,7 +565,7 @@ NULL
         char *strenc;
 
         if ((de = dictFind(c->db->dict,c->argv[2]->ptr)) == NULL) {
-            addReply(c,shared.nokeyerr);
+            addReplyErrorObject(c,shared.nokeyerr);
             return;
         }
         val = dictGetVal(de);
@@ -563,7 +617,7 @@ NULL
         sds key;
 
         if ((de = dictFind(c->db->dict,c->argv[2]->ptr)) == NULL) {
-            addReply(c,shared.nokeyerr);
+            addReplyErrorObject(c,shared.nokeyerr);
             return;
         }
         val = dictGetVal(de);
@@ -600,12 +654,14 @@ NULL
         robj *key, *val;
         char buf[128];
 
-        if (getLongFromObjectOrReply(c, c->argv[2], &keys, NULL) != C_OK)
+        if (getPositiveLongFromObjectOrReply(c, c->argv[2], &keys, NULL) != C_OK)
             return;
+
         dictExpand(c->db->dict,keys);
         long valsize = 0;
-        if ( c->argc == 5 && getLongFromObjectOrReply(c, c->argv[4], &valsize, NULL) != C_OK ) 
+        if ( c->argc == 5 && getPositiveLongFromObjectOrReply(c, c->argv[4], &valsize, NULL) != C_OK ) 
             return;
+
         for (j = 0; j < keys; j++) {
             snprintf(buf,sizeof(buf),"%s:%lu",
                 (c->argc == 3) ? "key" : (char*)c->argv[3]->ptr, j);
@@ -642,7 +698,11 @@ NULL
         for (int j = 2; j < c->argc; j++) {
             unsigned char digest[20];
             memset(digest,0,20); /* Start with a clean result */
-            robj *o = lookupKeyReadWithFlags(c->db,c->argv[j],LOOKUP_NOTOUCH);
+
+            /* We don't use lookupKey because a debug command should
+             * work on logically expired keys */
+            dictEntry *de;
+            robj *o = ((de = dictFind(c->db->dict,c->argv[j]->ptr)) == NULL) ? NULL : dictGetVal(de);
             if (o) xorObjectDigest(c->db,c->argv[j],digest,o);
 
             sds d = sdsempty();
@@ -715,6 +775,11 @@ NULL
                c->argc == 3)
     {
         server.active_expire_enabled = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"set-skip-checksum-validation") &&
+               c->argc == 3)
+    {
+        server.skip_checksum_validation = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"aof-flush-sleep") &&
                c->argc == 3)
@@ -839,6 +904,9 @@ void _serverAssert(const char *estr, const char *file, int line) {
 #endif
         printCrashReport();
     }
+
+    // remove the signal handler so on abort() we will output the crash report.
+    removeSignalHandlers();
     bugReportEnd(0, 0);
 }
 
@@ -871,6 +939,14 @@ void serverLogObjectDebugInfo(const robj *o) {
     serverLog(LL_WARNING,"Object type: %d", o->type);
     serverLog(LL_WARNING,"Object encoding: %d", o->encoding);
     serverLog(LL_WARNING,"Object refcount: %d", o->refcount);
+#if UNSAFE_CRASH_REPORT
+    /* This code is now disabled. o->ptr may be unreliable to print. in some
+     * cases a ziplist could have already been freed by realloc, but not yet
+     * updated to o->ptr. in other cases the call to ziplistLen may need to
+     * iterate on all the items in the list (and possibly crash again).
+     * For some cases it may be ok to crash here again, but these could cause
+     * invalid memory access which will bother valgrind and also possibly cause
+     * random memory portion to be "leaked" into the logfile. */
     if (o->type == OBJ_STRING && sdsEncodedObject(o)) {
         serverLog(LL_WARNING,"Object raw string len: %zu", sdslen(o->ptr));
         if (sdslen(o->ptr) < 4096) {
@@ -891,6 +967,7 @@ void serverLogObjectDebugInfo(const robj *o) {
     } else if (o->type == OBJ_STREAM) {
         serverLog(LL_WARNING,"Stream size: %d", (int) streamLength(o));
     }
+#endif
 }
 
 void _serverAssertPrintObject(const robj *o) {
@@ -923,6 +1000,9 @@ void _serverPanic(const char *file, int line, const char *msg, ...) {
 #endif
         printCrashReport();
     }
+
+    // remove the signal handler so on abort() we will output the crash report.
+    removeSignalHandlers();
     bugReportEnd(0, 0);
 }
 
@@ -959,7 +1039,7 @@ static void *getMcontextEip(ucontext_t *uc) {
     #endif
 #elif defined(__linux__)
     /* Linux */
-    #if defined(__i386__) || defined(__ILP32__)
+    #if defined(__i386__) || ((defined(__X86_64__) || defined(__x86_64__)) && defined(__ILP32__))
     return (void*) uc->uc_mcontext.gregs[14]; /* Linux 32 */
     #elif defined(__X86_64__) || defined(__x86_64__)
     return (void*) uc->uc_mcontext.gregs[16]; /* Linux 64 */
@@ -1127,7 +1207,7 @@ void logRegisters(ucontext_t *uc) {
 /* Linux */
 #elif defined(__linux__)
     /* Linux x86 */
-    #if defined(__i386__) || defined(__ILP32__)
+    #if defined(__i386__) || ((defined(__X86_64__) || defined(__x86_64__)) && defined(__ILP32__))
     serverLog(LL_WARNING,
     "\n"
     "EAX:%08lx EBX:%08lx ECX:%08lx EDX:%08lx\n"
@@ -1215,7 +1295,7 @@ void logRegisters(ucontext_t *uc) {
 	      "R10:%016lx R9 :%016lx\nR8 :%016lx R7 :%016lx\n"
 	      "R6 :%016lx R5 :%016lx\nR4 :%016lx R3 :%016lx\n"
 	      "R2 :%016lx R1 :%016lx\nR0 :%016lx EC :%016lx\n"
-	      "fp: %016lx ip:%016lx\n",
+	      "fp: %016lx ip:%016lx\n"
 	      "pc:%016lx sp:%016lx\ncpsr:%016lx fault_address:%016lx\n",
 	      (unsigned long) uc->uc_mcontext.arm_r10,
 	      (unsigned long) uc->uc_mcontext.arm_r9,
@@ -1542,7 +1622,7 @@ void logCurrentClient(void) {
     }
     /* Check if the first argument, usually a key, is found inside the
      * selected DB, and if so print info about the associated object. */
-    if (cc->argc >= 1) {
+    if (cc->argc > 1) {
         robj *val, *key;
         dictEntry *de;
 
@@ -1729,8 +1809,8 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
         serverLog(LL_WARNING,
         "Accessing address: %p", (void*)info->si_addr);
     }
-    if (info->si_pid != -1) {
-        serverLog(LL_WARNING, "Killed by PID: %d, UID: %d", info->si_pid, info->si_uid);
+    if (info->si_code <= SI_USER && info->si_pid != -1) {
+        serverLog(LL_WARNING, "Killed by PID: %ld, UID: %d", (long) info->si_pid, info->si_uid);
     }
 
 #ifdef HAVE_BACKTRACE
@@ -1781,7 +1861,7 @@ void bugReportEnd(int killViaSignal, int sig) {
 );
 
     /* free(messages); Don't call free() with possibly corrupted memory. */
-    if (server.daemonize && server.supervised == 0) unlink(server.pidfile);
+    if (server.daemonize && server.supervised == 0 && server.pidfile) unlink(server.pidfile);
 
     if (!killViaSignal) {
         if (server.use_exit_on_panic)

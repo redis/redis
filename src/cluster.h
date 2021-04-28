@@ -38,7 +38,9 @@ typedef struct clusterLink {
     mstime_t ctime;             /* Link creation time */
     connection *conn;           /* Connection to remote node */
     sds sndbuf;                 /* Packet send buffer */
-    sds rcvbuf;                 /* Packet reception buffer */
+    char *rcvbuf;               /* Packet reception buffer */
+    size_t rcvbuf_len;          /* Used size of rcvbuf */
+    size_t rcvbuf_alloc;        /* Allocated size of rcvbuf */
     struct clusterNode *node;   /* Node related to this link if any, or NULL */
 } clusterLink;
 
@@ -77,6 +79,7 @@ typedef struct clusterLink {
 #define CLUSTER_TODO_UPDATE_STATE (1<<1)
 #define CLUSTER_TODO_SAVE_CONFIG (1<<2)
 #define CLUSTER_TODO_FSYNC_CONFIG (1<<3)
+#define CLUSTER_TODO_HANDLE_MANUALFAILOVER (1<<4)
 
 /* Message types.
  *
@@ -115,6 +118,7 @@ typedef struct clusterNode {
     int flags;      /* CLUSTER_NODE_... */
     uint64_t configEpoch; /* Last configEpoch observed for this node */
     unsigned char slots[CLUSTER_SLOTS/8]; /* slots handled by this node */
+    sds slots_info; /* Slots info represented by string. */
     int numslots;   /* Number of slots handled by this node */
     int numslaves;  /* Number of slave nodes, if this is a master */
     struct clusterNode **slaves; /* pointers to slave nodes */
@@ -131,7 +135,9 @@ typedef struct clusterNode {
     mstime_t orphaned_time;     /* Starting time of orphaned master condition */
     long long repl_offset;      /* Last known repl offset for this node. */
     char ip[NET_IP_STR_LEN];  /* Latest known IP address of this node */
-    int port;                   /* Latest known clients port of this node */
+    int port;                   /* Latest known clients port (TLS or plain). */
+    int pport;                  /* Latest known clients plaintext port. Only used
+                                   if the main clients port is for TLS. */
     int cport;                  /* Latest known cluster port of this node. */
     clusterLink *link;          /* TCP/IP link with this node */
     list *fail_reports;         /* List of nodes signaling this as failing */
@@ -164,7 +170,7 @@ typedef struct clusterState {
     clusterNode *mf_slave;      /* Slave performing the manual failover. */
     /* Manual failover state of slave. */
     long long mf_master_offset; /* Master offset the slave needs to start MF
-                                   or zero if still not received. */
+                                   or -1 if still not received. */
     int mf_can_start;           /* If non-zero signal that the manual failover
                                    can start requesting masters vote. */
     /* The following fields are used by masters to take state on elections. */
@@ -190,7 +196,8 @@ typedef struct {
     uint16_t port;              /* base port last time it was seen */
     uint16_t cport;             /* cluster port last time it was seen */
     uint16_t flags;             /* node->flags copy */
-    uint32_t notused1;
+    uint16_t pport;             /* plaintext-port, when base port is TLS */
+    uint16_t notused1;
 } clusterMsgDataGossip;
 
 typedef struct {
@@ -263,7 +270,8 @@ typedef struct {
     unsigned char myslots[CLUSTER_SLOTS/8];
     char slaveof[CLUSTER_NAMELEN];
     char myip[NET_IP_STR_LEN];    /* Sender IP, if not all zeroed. */
-    char notused1[34];  /* 34 bytes reserved for future usage. */
+    char notused1[32];  /* 32 bytes reserved for future usage. */
+    uint16_t pport;      /* Sender TCP plaintext port, if base port is TLS */
     uint16_t cport;      /* Sender TCP cluster bus port */
     uint16_t flags;      /* Sender node flags */
     unsigned char state; /* Cluster state from the POV of the sender */

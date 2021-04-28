@@ -53,18 +53,22 @@
  * to the function to avoid too many gettimeofday() syscalls. */
 int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
     long long t = dictGetSignedIntegerVal(de);
+    mstime_t expire_latency;
     if (now > t) {
         sds key = dictGetKey(de);
         robj *keyobj = createStringObject(key,sdslen(key));
 
         propagateExpire(db,keyobj,server.lazyfree_lazy_expire);
+        latencyStartMonitor(expire_latency);
         if (server.lazyfree_lazy_expire)
             dbAsyncDelete(db,keyobj);
         else
             dbSyncDelete(db,keyobj);
+        latencyEndMonitor(expire_latency);
+        latencyAddSampleIfNeeded("expire-del",expire_latency);
         notifyKeyspaceEvent(NOTIFY_EXPIRED,
             "expired",keyobj,db->id);
-        trackingInvalidateKey(NULL,keyobj);
+        signalModifiedKey(NULL, db, keyobj);
         decrRefCount(keyobj);
         server.stat_expiredkeys++;
         return 1;
@@ -79,9 +83,8 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
  * keys that can be removed from the keyspace.
  *
  * Every expire cycle tests multiple databases: the next call will start
- * again from the next db, with the exception of exists for time limit: in that
- * case we restart again from the last database we were processing. Anyway
- * no more than CRON_DBS_PER_CALL databases are tested at every iteration.
+ * again from the next db. No more than CRON_DBS_PER_CALL databases are
+ * tested at every iteration.
  *
  * The function can perform more or less work, depending on the "type"
  * argument. It can execute a "fast cycle" or a "slow cycle". The slow
@@ -137,7 +140,7 @@ void activeExpireCycle(int type) {
 
     /* This function has some global state in order to continue the work
      * incrementally across calls. */
-    static unsigned int current_db = 0; /* Last DB tested. */
+    static unsigned int current_db = 0; /* Next DB to test. */
     static int timelimit_exit = 0;      /* Time limit hit in previous call? */
     static long long last_fast_cycle = 0; /* When last fast cycle ran. */
 
@@ -148,7 +151,7 @@ void activeExpireCycle(int type) {
     /* When clients are paused the dataset should be static not just from the
      * POV of clients not being able to write, but also from the POV of
      * expires and evictions of keys not being performed. */
-    if (clientsArePaused()) return;
+    if (checkClientPauseTimeoutAndReturnIfPaused()) return;
 
     if (type == ACTIVE_EXPIRE_CYCLE_FAST) {
         /* Don't start a fast cycle if the previous cycle did not exit
@@ -224,7 +227,7 @@ void activeExpireCycle(int type) {
             /* When there are less than 1% filled slots, sampling the key
              * space is expensive, so stop here waiting for better times...
              * The dictionary will be resized asap. */
-            if (num && slots > DICT_HT_INITIAL_SIZE &&
+            if (slots > DICT_HT_INITIAL_SIZE &&
                 (num*100/slots < 1)) break;
 
             /* The main collection cycle. Sample random keys among keys
@@ -433,7 +436,8 @@ void rememberSlaveKeyWithExpire(redisDb *db, robj *key) {
             NULL,                       /* val dup */
             dictSdsKeyCompare,          /* key compare */
             dictSdsDestructor,          /* key destructor */
-            NULL                        /* val destructor */
+            NULL,                       /* val destructor */
+            NULL                        /* allow to expand */
         };
         slaveKeysWithExpire = dictCreate(&dt,NULL);
     }
@@ -502,10 +506,15 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
 
     if (getLongLongFromObjectOrReply(c, param, &when, NULL) != C_OK)
         return;
-
+    int negative_when = when < 0;
     if (unit == UNIT_SECONDS) when *= 1000;
     when += basetime;
-
+    if (((when < 0) && !negative_when) || ((when-basetime > 0) && negative_when)) {
+        /* EXPIRE allows negative numbers, but we can at least detect an
+         * overflow by either unit conversion or basetime addition. */
+        addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
+        return;
+    }
     /* No key, return zero. */
     if (lookupKeyWrite(c->db,key) == NULL) {
         addReply(c,shared.czero);

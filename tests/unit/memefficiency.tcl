@@ -38,7 +38,7 @@ start_server {tags {"memefficiency"}} {
 
 run_solo {defrag} {
 start_server {tags {"defrag"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
-    if {[string match {*jemalloc*} [s mem_allocator]]} {
+    if {[string match {*jemalloc*} [s mem_allocator]] && [r debug mallctl arenas.page] <= 8192} {
         test "Active defrag" {
             r config set hz 100
             r config set activedefrag no
@@ -63,7 +63,7 @@ start_server {tags {"defrag"} overrides {appendonly yes auto-aof-rewrite-percent
             r config set maxmemory 110mb ;# prevent further eviction (not to fail the digest test)
             set digest [r debug digest]
             catch {r config set activedefrag yes} e
-            if {![string match {DISABLED*} $e]} {
+            if {[r config get activedefrag] eq "activedefrag yes"} {
                 # Wait for the active defrag to start working (decision once a
                 # second).
                 wait_for_condition 50 100 {
@@ -105,7 +105,9 @@ start_server {tags {"defrag"} overrides {appendonly yes auto-aof-rewrite-percent
                 assert {$frag < 1.1}
                 # due to high fragmentation, 100hz, and active-defrag-cycle-max set to 75,
                 # we expect max latency to be not much higher than 7.5ms but due to rare slowness threshold is set higher
-                assert {$max_latency <= 30}
+                if {!$::no_latency} {
+                    assert {$max_latency <= 30}
+                }
             }
             # verify the data isn't corrupted or changed
             set newdigest [r debug digest]
@@ -148,7 +150,9 @@ start_server {tags {"defrag"} overrides {appendonly yes auto-aof-rewrite-percent
                 assert {$frag < 1.4}
                 # since the AOF contains simple (fast) SET commands (and the cron during loading runs every 1000 commands),
                 # it'll still not block the loading for long periods of time.
-                assert {$max_latency <= 30}
+                if {!$::no_latency} {
+                    assert {$max_latency <= 30}
+                }
             }
         }
         r config set appendonly no
@@ -232,7 +236,7 @@ start_server {tags {"defrag"} overrides {appendonly yes auto-aof-rewrite-percent
 
             set digest [r debug digest]
             catch {r config set activedefrag yes} e
-            if {![string match {DISABLED*} $e]} {
+            if {[r config get activedefrag] eq "activedefrag yes"} {
                 # wait for the active defrag to start working (decision once a second)
                 wait_for_condition 50 100 {
                     [s active_defrag_running] ne 0
@@ -273,7 +277,9 @@ start_server {tags {"defrag"} overrides {appendonly yes auto-aof-rewrite-percent
                 assert {$frag < 1.1}
                 # due to high fragmentation, 100hz, and active-defrag-cycle-max set to 75,
                 # we expect max latency to be not much higher than 7.5ms but due to rare slowness threshold is set higher
-                assert {$max_latency <= 30}
+                if {!$::no_latency} {
+                    assert {$max_latency <= 30}
+                }
             }
             # verify the data isn't corrupted or changed
             set newdigest [r debug digest]
@@ -326,7 +332,7 @@ start_server {tags {"defrag"} overrides {appendonly yes auto-aof-rewrite-percent
 
             set digest [r debug digest]
             catch {r config set activedefrag yes} e
-            if {![string match {DISABLED*} $e]} {
+            if {[r config get activedefrag] eq "activedefrag yes"} {
                 # wait for the active defrag to start working (decision once a second)
                 wait_for_condition 50 100 {
                     [s active_defrag_running] ne 0
@@ -368,7 +374,9 @@ start_server {tags {"defrag"} overrides {appendonly yes auto-aof-rewrite-percent
                 assert {$frag < 1.1}
                 # due to high fragmentation, 100hz, and active-defrag-cycle-max set to 75,
                 # we expect max latency to be not much higher than 7.5ms but due to rare slowness threshold is set higher
-                assert {$max_latency <= 30}
+                if {!$::no_latency} {
+                    assert {$max_latency <= 30}
+                }
 
                 # in extreme cases of stagnation, we see over 20m misses before the tests aborts with "defrag didn't stop",
                 # in normal cases we only see 100k misses out of 500k elements
@@ -387,7 +395,7 @@ start_server {tags {"defrag"} overrides {appendonly yes auto-aof-rewrite-percent
             # if the current slab is lower in utilization the defragger would have ended up in stagnation,
             # keept running and not move any allocation.
             # this test is more consistent on a fresh server with no history
-            start_server {tags {"defrag"}} {
+            start_server {tags {"defrag"} overrides {save ""}} {
                 r flushdb
                 r config resetstat
                 r config set hz 100
@@ -444,7 +452,7 @@ start_server {tags {"defrag"} overrides {appendonly yes auto-aof-rewrite-percent
 
                 set digest [r debug digest]
                 catch {r config set activedefrag yes} e
-                if {![string match {DISABLED*} $e]} {
+                if {[r config get activedefrag] eq "activedefrag yes"} {
                     # wait for the active defrag to start working (decision once a second)
                     wait_for_condition 50 100 {
                         [s active_defrag_running] ne 0

@@ -29,6 +29,12 @@ test "Each master should have at least two replicas attached" {
     }
 }
 
+test "Set allow-replica-migration yes" {
+    foreach_redis_id id {
+        R $id CONFIG SET cluster-allow-replica-migration yes
+    }
+}
+
 set master0_id [dict get [get_myself 0] id]
 test "Resharding all the master #0 slots away from it" {
     set output [exec \

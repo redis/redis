@@ -27,10 +27,13 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "mt19937-64.h"
 #include "server.h"
 #include "rdb.h"
 
 #include <stdarg.h>
+#include <sys/time.h>
+#include <unistd.h>
 
 void createSharedObjects(void);
 void rdbLoadProgressCallback(rio *r, const void *buf, size_t len);
@@ -172,6 +175,7 @@ void rdbCheckSetupSignals(void) {
     sigaction(SIGBUS, &act, NULL);
     sigaction(SIGFPE, &act, NULL);
     sigaction(SIGILL, &act, NULL);
+    sigaction(SIGABRT, &act, NULL);
 }
 
 /* Check the specified RDB file. Return 0 if the RDB looks sane, otherwise
@@ -188,6 +192,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
     int closefile = (fp == NULL);
     if (fp == NULL && (fp = fopen(rdbfilename,"r")) == NULL) return 1;
 
+    startLoadingFile(fp, rdbfilename, RDBFLAGS_NONE);
     rioInitWithFile(&rdb,fp);
     rdbstate.rio = &rdb;
     rdb.update_cksum = rdbLoadProgressCallback;
@@ -204,7 +209,6 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
     }
 
     expiretime = -1;
-    startLoadingFile(fp, rdbfilename, RDBFLAGS_NONE);
     while(1) {
         robj *key, *val;
 
@@ -361,16 +365,23 @@ err:
  * Otherwise if called with a non NULL fp, the function returns C_OK or
  * C_ERR depending on the success or failure. */
 int redis_check_rdb_main(int argc, char **argv, FILE *fp) {
+    struct timeval tv;
+
     if (argc != 2 && fp == NULL) {
         fprintf(stderr, "Usage: %s <rdb-file-name>\n", argv[0]);
         exit(1);
     }
+
+    gettimeofday(&tv, NULL);
+    init_genrand64(((long long) tv.tv_sec * 1000000 + tv.tv_usec) ^ getpid());
+
     /* In order to call the loading functions we need to create the shared
      * integer objects, however since this function may be called from
      * an already initialized Redis instance, check if we really need to. */
     if (shared.integers[0] == NULL)
         createSharedObjects();
     server.loading_process_events_interval_bytes = 0;
+    server.sanitize_dump_payload = SANITIZE_DUMP_YES;
     rdbCheckMode = 1;
     rdbCheckInfo("Checking RDB file %s", argv[1]);
     rdbCheckSetupSignals();

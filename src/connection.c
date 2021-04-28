@@ -147,8 +147,7 @@ void *connGetPrivateData(connection *conn) {
 /* Close the connection and free resources. */
 static void connSocketClose(connection *conn) {
     if (conn->fd != -1) {
-        aeDeleteFileEvent(server.el,conn->fd,AE_READABLE);
-        aeDeleteFileEvent(server.el,conn->fd,AE_WRITABLE);
+        aeDeleteFileEvent(server.el,conn->fd, AE_READABLE | AE_WRITABLE);
         close(conn->fd);
         conn->fd = -1;
     }
@@ -374,15 +373,15 @@ int connGetSocketError(connection *conn) {
 }
 
 int connPeerToString(connection *conn, char *ip, size_t ip_len, int *port) {
-    return anetPeerToString(conn ? conn->fd : -1, ip, ip_len, port);
-}
-
-int connFormatPeer(connection *conn, char *buf, size_t buf_len) {
-    return anetFormatPeer(conn ? conn->fd : -1, buf, buf_len);
+    return anetFdToString(conn ? conn->fd : -1, ip, ip_len, port, FD_TO_PEER_NAME);
 }
 
 int connSockName(connection *conn, char *ip, size_t ip_len, int *port) {
-    return anetSockName(conn->fd, ip, ip_len, port);
+    return anetFdToString(conn->fd, ip, ip_len, port, FD_TO_SOCK_NAME);
+}
+
+int connFormatFdAddr(connection *conn, char *buf, size_t buf_len, int fd_to_str_type) {
+    return anetFormatFdAddr(conn ? conn->fd : -1, buf, buf_len, fd_to_str_type);
 }
 
 int connBlock(connection *conn) {
@@ -428,7 +427,7 @@ int connGetState(connection *conn) {
  * For sockets, we always return "fd=<fdnum>" to maintain compatibility.
  */
 const char *connGetInfo(connection *conn, char *buf, size_t buf_len) {
-    snprintf(buf, buf_len-1, "fd=%i", conn->fd);
+    snprintf(buf, buf_len-1, "fd=%i", conn == NULL ? -1 : conn->fd);
     return buf;
 }
 

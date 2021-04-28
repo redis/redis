@@ -5,7 +5,7 @@ proc log_file_matches {log pattern} {
     string match $pattern $content
 }
 
-start_server {tags {"repl"}} {
+start_server {tags {"repl network"}} {
     set slave [srv 0 client]
     set slave_host [srv 0 host]
     set slave_port [srv 0 port]
@@ -75,6 +75,27 @@ start_server {tags {"repl"}} {
             r incrbyfloat test 0.1
             after 1000
             assert_equal [$A debug digest] [$B debug digest]
+        }
+
+        test {GETSET replication} {
+            $A config resetstat
+            $A config set loglevel debug
+            $B config set loglevel debug
+            r set test foo
+            assert_equal [r getset test bar] foo
+            wait_for_condition 500 10 {
+                [$A get test] eq "bar"
+            } else {
+                fail "getset wasn't propagated"
+            }
+            assert_equal [r set test vaz get] bar
+            wait_for_condition 500 10 {
+                [$A get test] eq "vaz"
+            } else {
+                fail "set get wasn't propagated"
+            }
+            assert_match {*calls=3,*} [cmdrstat set $A]
+            assert_match {} [cmdrstat getset $A]
         }
 
         test {BRPOPLPUSH replication, when blocking against empty list} {
@@ -175,9 +196,11 @@ start_server {tags {"repl"}} {
         } {master}
 
         test {SLAVEOF should start with link status "down"} {
+            r multi
             r slaveof [srv -1 host] [srv -1 port]
-            s master_link_status
-        } {down}
+            r info replication
+            r exec
+        } {*master_link_status:down*}
 
         test {The role should immediately be changed to "replica"} {
             s role
@@ -574,9 +597,9 @@ start_server {tags {"repl"}} {
     $master debug populate 20000 test 10000
     $master config set rdbcompression no
     # If running on Linux, we also measure utime/stime to detect possible I/O handling issues
-    set os [catch {exec unamee}]
+    set os [catch {exec uname}]
     set measure_time [expr {$os == "Linux"} ? 1 : 0]
-    foreach all_drop {no slow fast all} {
+    foreach all_drop {no slow fast all timeout} {
         test "diskless $all_drop replicas drop during rdb pipe" {
             set replicas {}
             set replicas_alive {}
@@ -593,7 +616,7 @@ start_server {tags {"repl"}} {
                     # so that the whole rdb generation process is bound to that
                     set loglines [count_log_lines -1]
                     [lindex $replicas 0] config set repl-diskless-load swapdb
-                    [lindex $replicas 0] config set key-load-delay 100
+                    [lindex $replicas 0] config set key-load-delay 100 ;# 20k keys and 100 microseconds sleep means at least 2 seconds
                     [lindex $replicas 0] replicaof $master_host $master_port
                     [lindex $replicas 1] replicaof $master_host $master_port
 
@@ -624,6 +647,12 @@ start_server {tags {"repl"}} {
                         exec kill [srv -1 pid]
                         set replicas_alive [lreplace $replicas_alive 0 0]
                     }
+                    if {$all_drop == "timeout"} {
+                        $master config set repl-timeout 2
+                        # we want the slow replica to hang on a key for very long so it'll reach repl-timeout
+                        exec kill -SIGSTOP [srv -1 pid]
+                        after 2000
+                    }
 
                     # wait for rdb child to exit
                     wait_for_condition 500 100 {
@@ -642,6 +671,14 @@ start_server {tags {"repl"}} {
                     if {$all_drop == "slow" || $all_drop == "fast"} {
                         wait_for_log_messages -2 {"*Diskless rdb transfer, done reading from pipe, 1 replicas still up*"} $loglines 1 1
                     }
+                    if {$all_drop == "timeout"} {
+                        wait_for_log_messages -2 {"*Disconnecting timedout replica (full sync)*"} $loglines 1 1
+                        wait_for_log_messages -2 {"*Diskless rdb transfer, done reading from pipe, 1 replicas still up*"} $loglines 1 1
+                        # master disconnected the slow replica, remove from array
+                        set replicas_alive [lreplace $replicas_alive 0 0]
+                        # release it
+                        exec kill -SIGCONT [srv -1 pid]
+                    }
 
                     # make sure we don't have a busy loop going thought epoll_wait
                     if {$measure_time} {
@@ -655,11 +692,11 @@ start_server {tags {"repl"}} {
                             puts "master utime: $master_utime"
                             puts "master stime: $master_stime"
                         }
-                        if {$all_drop == "all" || $all_drop == "slow"} {
+                        if {!$::no_latency && ($all_drop == "all" || $all_drop == "slow" || $all_drop == "timeout")} {
                             assert {$master_utime < 70}
                             assert {$master_stime < 70}
                         }
-                        if {$all_drop == "none" || $all_drop == "fast"} {
+                        if {!$::no_latency && ($all_drop == "none" || $all_drop == "fast")} {
                             assert {$master_utime < 15}
                             assert {$master_stime < 15}
                         }
@@ -699,7 +736,7 @@ start_server {tags {"repl"}} {
 test "diskless replication child being killed is collected" {
     # when diskless master is waiting for the replica to become writable
     # it removes the read event from the rdb pipe so if the child gets killed
-    # the replica will hung. and the master may not collect the pid with wait3
+    # the replica will hung. and the master may not collect the pid with waitpid
     start_server {tags {"repl"}} {
         set master [srv 0 client]
         set master_host [srv 0 host]
@@ -725,7 +762,6 @@ test "diskless replication child being killed is collected" {
 
             # simulate the OOM killer or anyone else kills the child
             set fork_child_pid [get_child_pid -1]
-            puts "fork child is $fork_child_pid"
             exec kill -9 $fork_child_pid
 
             # wait for the parent to notice the child have exited
@@ -812,7 +848,9 @@ test {Kill rdb child process if its dumping RDB is not useful} {
 
                 # Wait for starting child
                 wait_for_condition 50 100 {
-                    [s 0 rdb_bgsave_in_progress] == 1
+                    ([s 0 rdb_bgsave_in_progress] == 1) &&
+                    ([string match "*wait_bgsave*" [s 0 slave0]]) &&
+                    ([string match "*wait_bgsave*" [s 0 slave1]])
                 } else {
                     fail "rdb child didn't start"
                 }
@@ -837,7 +875,9 @@ test {Kill rdb child process if its dumping RDB is not useful} {
                 $slave1 slaveof $master_host $master_port
                 $slave2 slaveof $master_host $master_port
                 wait_for_condition 50 100 {
-                    [s 0 rdb_bgsave_in_progress] == 1
+                    ([s 0 rdb_bgsave_in_progress] == 1) &&
+                    ([string match "*wait_bgsave*" [s 0 slave0]]) &&
+                    ([string match "*wait_bgsave*" [s 0 slave1]])
                 } else {
                     fail "rdb child didn't start"
                 }

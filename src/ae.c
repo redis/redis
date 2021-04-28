@@ -31,6 +31,8 @@
  */
 
 #include "ae.h"
+#include "anet.h"
+#include "redisassert.h"
 
 #include <stdio.h>
 #include <sys/time.h>
@@ -238,7 +240,7 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
     return AE_ERR; /* NO event with the specified ID found */
 }
 
-/* How many milliseconds until the first timer should fire.
+/* How many microseconds until the first timer should fire.
  * If there are no timers, -1 is returned.
  *
  * Note that's O(N) since time events are unsorted.
@@ -247,7 +249,7 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
  *    Much better but still insertion or deletion of timers is O(N).
  * 2) Use a skiplist to have this operation as O(1) and insertion as O(log(N)).
  */
-static long msUntilEarliestTimer(aeEventLoop *eventLoop) {
+static int64_t usUntilEarliestTimer(aeEventLoop *eventLoop) {
     aeTimeEvent *te = eventLoop->timeEventHead;
     if (te == NULL) return -1;
 
@@ -259,8 +261,7 @@ static long msUntilEarliestTimer(aeEventLoop *eventLoop) {
     }
 
     monotime now = getMonotonicUs();
-    return (now >= earliest->when)
-            ? 0 : (long)((earliest->when - now) / 1000);
+    return (now >= earliest->when) ? 0 : earliest->when - now;
 }
 
 /* Process time events */
@@ -352,7 +353,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
     /* Nothing to do? return ASAP */
     if (!(flags & AE_TIME_EVENTS) && !(flags & AE_FILE_EVENTS)) return 0;
 
-    /* Note that we want call select() even if there are no
+    /* Note that we want to call select() even if there are no
      * file events to process as long as we want to process time
      * events, in order to sleep until the next time event is ready
      * to fire. */
@@ -360,14 +361,14 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
         ((flags & AE_TIME_EVENTS) && !(flags & AE_DONT_WAIT))) {
         int j;
         struct timeval tv, *tvp;
-        long msUntilTimer = -1;
+        int64_t usUntilTimer = -1;
 
         if (flags & AE_TIME_EVENTS && !(flags & AE_DONT_WAIT))
-            msUntilTimer = msUntilEarliestTimer(eventLoop);
+            usUntilTimer = usUntilEarliestTimer(eventLoop);
 
-        if (msUntilTimer >= 0) {
-            tv.tv_sec = msUntilTimer / 1000;
-            tv.tv_usec = (msUntilTimer % 1000) * 1000;
+        if (usUntilTimer >= 0) {
+            tv.tv_sec = usUntilTimer / 1000000;
+            tv.tv_usec = usUntilTimer % 1000000;
             tvp = &tv;
         } else {
             /* If we have to check for events but need to return

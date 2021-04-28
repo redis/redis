@@ -123,6 +123,17 @@ start_server {
     test {R/LPOP against empty list} {
         r lpop non-existing-list
     } {}
+    
+    test {R/LPOP with the optional count argument} {
+        assert_equal 7 [r lpush listcount aa bb cc dd ee ff gg]
+        assert_equal {} [r lpop listcount 0]
+        assert_equal {gg} [r lpop listcount 1]
+        assert_equal {ff ee} [r lpop listcount 2]
+        assert_equal {aa bb} [r rpop listcount 2]
+        assert_equal {cc} [r rpop listcount 1]
+        assert_equal {dd} [r rpop listcount 123]
+        assert_error "*ERR*range*" {r lpop forbarqaz -123}
+    }
 
     test {Variadic RPUSH/LPUSH} {
         r del mylist
@@ -947,6 +958,12 @@ start_server {
         assert_equal {} [r lrange nosuchkey 0 1]
     }
 
+    test {LRANGE with start > end yields an empty array for backward compatibility} {
+        create_list mylist "1 2 3"
+        assert_equal {} [r lrange mylist 1 0]
+        assert_equal {} [r lrange mylist -1 -2]
+    }
+
     foreach {type large} [array get largevalue] {
         proc trim_list {type min max} {
             upvar 1 large large
@@ -1089,4 +1106,52 @@ start_server {
         r lpush l foo
         assert_equal {l foo} [$rd read]
     } {}
+
+    test {List ziplist of various encodings} {
+        r del k
+        r lpush k 127 ;# ZIP_INT_8B
+        r lpush k 32767 ;# ZIP_INT_16B
+        r lpush k 2147483647 ;# ZIP_INT_32B
+        r lpush k 9223372036854775808 ;# ZIP_INT_64B
+        r lpush k 0 ;# ZIP_INT_IMM_MIN
+        r lpush k 12 ;# ZIP_INT_IMM_MAX
+        r lpush k [string repeat x 31] ;# ZIP_STR_06B
+        r lpush k [string repeat x 8191] ;# ZIP_STR_14B
+        r lpush k [string repeat x 65535] ;# ZIP_STR_32B
+        set k [r lrange k 0 -1]
+        set dump [r dump k]
+
+        r config set sanitize-dump-payload no
+        r restore kk 0 $dump
+        set kk [r lrange kk 0 -1]
+
+        # try some forward and backward searches to make sure all encodings
+        # can be traversed
+        assert_equal [r lindex kk 5] {9223372036854775808}
+        assert_equal [r lindex kk -5] {0}
+        assert_equal [r lpos kk foo rank 1] {}
+        assert_equal [r lpos kk foo rank -1] {}
+
+        # make sure the values are right
+        assert_equal $k $kk
+        assert_equal [lpop k] [string repeat x 65535]
+        assert_equal [lpop k] [string repeat x 8191]
+        assert_equal [lpop k] [string repeat x 31]
+        set _ $k
+    } {12 0 9223372036854775808 2147483647 32767 127}
+
+    test {List ziplist of various encodings - sanitize dump} {
+        r config set sanitize-dump-payload yes
+        r restore kk 0 $dump replace
+        set k [r lrange k 0 -1]
+        set kk [r lrange kk 0 -1]
+
+        # make sure the values are right
+        assert_equal $k $kk
+        assert_equal [lpop k] [string repeat x 65535]
+        assert_equal [lpop k] [string repeat x 8191]
+        assert_equal [lpop k] [string repeat x 31]
+        set _ $k
+    } {12 0 9223372036854775808 2147483647 32767 127}
+
 }

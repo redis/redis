@@ -29,6 +29,7 @@
  */
 
 #include "fmacros.h"
+#include "version.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -45,13 +46,20 @@
 #include <sdscompat.h> /* Use hiredis' sds compat header that maps sds calls to their hi_ variants */
 #include <sds.h> /* Use hiredis sds. */
 #include "ae.h"
-#include "hiredis.h"
+#include <hiredis.h>
+#ifdef USE_OPENSSL
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#include <hiredis_ssl.h>
+#endif
 #include "adlist.h"
 #include "dict.h"
 #include "zmalloc.h"
 #include "atomicvar.h"
 #include "crc16_slottable.h"
 #include "hdr_histogram.h"
+#include "cli_common.h"
+#include "mt19937-64.h"
 
 #define UNUSED(V) ((void) V)
 #define RANDPTR_INITIAL_SIZE 8
@@ -75,6 +83,8 @@ static struct config {
     const char *hostip;
     int hostport;
     const char *hostsocket;
+    int tls;
+    struct cliSSLconfig sslconfig;
     int numclients;
     redisAtomic int liveclients;
     int requests;
@@ -89,10 +99,8 @@ static struct config {
     int randomkeys_keyspacelen;
     int keepalive;
     int pipeline;
-    int showerrors;
     long long start;
     long long totlatency;
-    long long *latency;
     const char *title;
     list *clients;
     int quiet;
@@ -179,6 +187,8 @@ typedef struct redisConfig {
 } redisConfig;
 
 /* Prototypes */
+char *redisGitSHA1(void);
+char *redisGitDirty(void);
 static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 static void createMissingClients(client c);
 static benchmarkThread *createBenchmarkThread(int index);
@@ -195,6 +205,20 @@ static int fetchClusterSlotsConfiguration(client c);
 static void updateClusterSlotsConfiguration();
 int showThroughput(struct aeEventLoop *eventLoop, long long id,
                    void *clientData);
+
+static sds benchmarkVersion(void) {
+    sds version;
+    version = sdscatprintf(sdsempty(), "%s", REDIS_VERSION);
+
+    /* Add git commit and working tree status when available */
+    if (strtoll(redisGitSHA1(),NULL,16)) {
+        version = sdscatprintf(version, " (git:%s", redisGitSHA1());
+        if (strtoll(redisGitDirty(),NULL,10))
+            version = sdscatprintf(version, "-dirty");
+        version = sdscat(version, ")");
+    }
+    return version;
+}
 
 /* Dict callbacks */
 static uint64_t dictSdsHash(const void *key);
@@ -238,13 +262,6 @@ static int dictSdsKeyCompare(void *privdata, const void *key1,
     return memcmp(key1, key2, l1) == 0;
 }
 
-/* _serverAssert is needed by dict */
-void _serverAssert(const char *estr, const char *file, int line) {
-    fprintf(stderr, "=== ASSERTION FAILED ===");
-    fprintf(stderr, "==> %s:%d '%s' is not true",file,line,estr);
-    *((char*)-1) = 'x';
-}
-
 static redisContext *getRedisContext(const char *ip, int port,
                                      const char *hostsocket)
 {
@@ -263,6 +280,13 @@ static redisContext *getRedisContext(const char *ip, int port,
             fprintf(stderr,"%s: %s\n",hostsocket,err);
         goto cleanup;
     }
+    if (config.tls==1) {
+        const char *err = NULL;
+        if (cliSecureConnection(ctx, config.sslconfig, &err) == REDIS_ERR && err) {
+            fprintf(stderr, "Could not negotiate a TLS connection: %s\n", err);
+            goto cleanup;
+        }
+    }
     if (config.auth == NULL)
         return ctx;
     if (config.user == NULL)
@@ -275,7 +299,9 @@ static redisContext *getRedisContext(const char *ip, int port,
                 fprintf(stderr, "Node %s:%d replied with error:\n%s\n", ip, port, reply->str);
             else
                 fprintf(stderr, "Node %s replied with error:\n%s\n", hostsocket, reply->str);
-            goto cleanup;
+            freeReplyObject(reply);
+            redisFree(ctx);
+            exit(1);
         }
         freeReplyObject(reply);
         return ctx;
@@ -290,6 +316,8 @@ cleanup:
     redisFree(ctx);
     return NULL;
 }
+
+
 
 static redisConfig *getRedisConfig(const char *ip, int port,
                                    const char *hostsocket)
@@ -332,9 +360,15 @@ fail:
     fprintf(stderr, "ERROR: failed to fetch CONFIG from ");
     if (hostsocket == NULL) fprintf(stderr, "%s:%d\n", ip, port);
     else fprintf(stderr, "%s\n", hostsocket);
+    int abort_test = 0;
+    if (!strncmp(reply->str,"NOAUTH",5) ||
+        !strncmp(reply->str,"WRONGPASS",9) ||
+        !strncmp(reply->str,"NOPERM",5))
+        abort_test = 1;
     freeReplyObject(reply);
     redisFree(c);
     freeRedisConfig(cfg);
+    if (abort_test) exit(1);
     return NULL;
 }
 static void freeRedisConfig(redisConfig *cfg) {
@@ -479,44 +513,39 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                     exit(1);
                 }
                 redisReply *r = reply;
-                int is_err = (r->type == REDIS_REPLY_ERROR);
-
-                if (is_err && config.showerrors) {
-                    /* TODO: static lasterr_time not thread-safe */
-                    static time_t lasterr_time = 0;
-                    time_t now = time(NULL);
-                    if (lasterr_time != now) {
-                        lasterr_time = now;
-                        if (c->cluster_node) {
-                            printf("Error from server %s:%d: %s\n",
+                if (r->type == REDIS_REPLY_ERROR) {
+                    /* Try to update slots configuration if reply error is
+                    * MOVED/ASK/CLUSTERDOWN and the key(s) used by the command
+                    * contain(s) the slot hash tag.
+                    * If the error is not topology-update related then we
+                    * immediately exit to avoid false results. */
+                    if (c->cluster_node && c->staglen) {
+                        int fetch_slots = 0, do_wait = 0;
+                        if (!strncmp(r->str,"MOVED",5) || !strncmp(r->str,"ASK",3))
+                            fetch_slots = 1;
+                        else if (!strncmp(r->str,"CLUSTERDOWN",11)) {
+                            /* Usually the cluster is able to recover itself after
+                            * a CLUSTERDOWN error, so try to sleep one second
+                            * before requesting the new configuration. */
+                            fetch_slots = 1;
+                            do_wait = 1;
+                            printf("Error from server %s:%d: %s.\n",
                                    c->cluster_node->ip,
                                    c->cluster_node->port,
                                    r->str);
+                        }
+                        if (do_wait) sleep(1);
+                        if (fetch_slots && !fetchClusterSlotsConfiguration(c))
+                            exit(1);
+                    } else {
+                        if (c->cluster_node) {
+                            printf("Error from server %s:%d: %s\n",
+                                c->cluster_node->ip,
+                                c->cluster_node->port,
+                                r->str);
                         } else printf("Error from server: %s\n", r->str);
-                    }
-                }
-
-                /* Try to update slots configuration if reply error is
-                 * MOVED/ASK/CLUSTERDOWN and the key(s) used by the command
-                 * contain(s) the slot hash tag. */
-                if (is_err && c->cluster_node && c->staglen) {
-                    int fetch_slots = 0, do_wait = 0;
-                    if (!strncmp(r->str,"MOVED",5) || !strncmp(r->str,"ASK",3))
-                        fetch_slots = 1;
-                    else if (!strncmp(r->str,"CLUSTERDOWN",11)) {
-                        /* Usually the cluster is able to recover itself after
-                         * a CLUSTERDOWN error, so try to sleep one second
-                         * before requesting the new configuration. */
-                        fetch_slots = 1;
-                        do_wait = 1;
-                        printf("Error from server %s:%d: %s\n",
-                               c->cluster_node->ip,
-                               c->cluster_node->port,
-                               r->str);
-                    }
-                    if (do_wait) sleep(1);
-                    if (fetch_slots && !fetchClusterSlotsConfiguration(c))
                         exit(1);
+                    }
                 }
 
                 freeReplyObject(reply);
@@ -532,6 +561,9 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                         * we need to randomize. */
                         for (j = 0; j < c->randlen; j++)
                             c->randptr[j] -= c->prefixlen;
+                        /* Fix the pointers to the slot hash tags */
+                        for (j = 0; j < c->staglen; j++)
+                            c->stagptr[j] -= c->prefixlen;
                         c->prefixlen = 0;
                     }
                     continue;
@@ -577,9 +609,8 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (c->written == 0) {
         /* Enforce upper bound to number of requests. */
         int requests_issued = 0;
-        atomicGetIncr(config.requests_issued, requests_issued, 1);
+        atomicGetIncr(config.requests_issued, requests_issued, config.pipeline);
         if (requests_issued >= config.requests) {
-            freeClient(c);
             return;
         }
 
@@ -590,19 +621,26 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         c->start = ustime();
         c->latency = -1;
     }
-    if (sdslen(c->obuf) > c->written) {
+    const ssize_t buflen = sdslen(c->obuf);
+    const ssize_t writeLen = buflen-c->written;
+    if (writeLen > 0) {
         void *ptr = c->obuf+c->written;
-        ssize_t nwritten = write(c->context->fd,ptr,sdslen(c->obuf)-c->written);
-        if (nwritten == -1) {
-            if (errno != EPIPE)
-                fprintf(stderr, "Writing to socket: %s\n", strerror(errno));
-            freeClient(c);
-            return;
-        }
-        c->written += nwritten;
-        if (sdslen(c->obuf) == c->written) {
-            aeDeleteFileEvent(el,c->context->fd,AE_WRITABLE);
-            aeCreateFileEvent(el,c->context->fd,AE_READABLE,readHandler,c);
+        while(1) {
+            /* Optimistically try to write before checking if the file descriptor
+             * is actually writable. At worst we get EAGAIN. */
+            const ssize_t nwritten = cliWriteConn(c->context,ptr,writeLen);
+            if (nwritten != writeLen) {
+                if (nwritten == -1 && errno != EAGAIN) {
+                    if (errno != EPIPE)
+                        fprintf(stderr, "Error writing to the server: %s\n", strerror(errno));
+                    freeClient(c);
+                    return;
+                }
+            } else {
+                aeDeleteFileEvent(el,c->context->fd,AE_WRITABLE);
+                aeCreateFileEvent(el,c->context->fd,AE_READABLE,readHandler,c);
+                return;
+            }
         }
     }
 }
@@ -663,6 +701,13 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
         else
             fprintf(stderr,"%s: %s\n",config.hostsocket,c->context->errstr);
         exit(1);
+    }
+    if (config.tls==1) {
+        const char *err = NULL;
+        if (cliSecureConnection(c->context, config.sslconfig, &err) == REDIS_ERR && err) {
+            fprintf(stderr, "Could not negotiate a TLS connection: %s\n", err);
+            exit(1);
+        }
     }
     c->thread_id = thread_id;
     /* Suppress hiredis cleanup of unused buffers for max speed. */
@@ -779,7 +824,7 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
                 }
                 c->stagptr[c->staglen++] = p;
                 c->stagfree--;
-                p += 5; /* 12 is strlen("{tag}"). */
+                p += 5; /* 5 is strlen("{tag}"). */
             }
         }
     }
@@ -1135,8 +1180,8 @@ static int fetchClusterConfiguration() {
         }
         if (myself) {
             node = firstNode;
-            if (node->ip == NULL && ip != NULL) {
-                node->ip = ip;
+            if (ip != NULL && strcmp(node->ip, ip) != 0) {
+                node->ip = sdsnew(ip);
                 node->port = port;
             }
         } else {
@@ -1243,8 +1288,7 @@ static int fetchClusterSlotsConfiguration(client c) {
     atomicGetIncr(config.is_fetching_slots, is_fetching_slots, 1);
     if (is_fetching_slots) return -1; //TODO: use other codes || errno ?
     atomicSet(config.is_fetching_slots, 1);
-    if (config.showerrors)
-        printf("Cluster slots configuration changed, fetching new one...\n");
+    printf("WARNING: Cluster slots configuration changed, fetching new one...\n");
     const char *errmsg = "Failed to update cluster slots configuration";
     static dictType dtype = {
         dictSdsHash,               /* hash function */
@@ -1252,7 +1296,8 @@ static int fetchClusterSlotsConfiguration(client c) {
         NULL,                      /* val dup */
         dictSdsKeyCompare,         /* key compare */
         NULL,                      /* key destructor */
-        NULL                       /* val destructor */
+        NULL,                      /* val destructor */
+        NULL                       /* allow to expand */
     };
     /* printf("[%d] fetchClusterSlotsConfiguration\n", c->thread_id); */
     dict *masters = dictCreate(&dtype, NULL);
@@ -1364,6 +1409,11 @@ int parseOptions(int argc, const char **argv) {
         if (!strcmp(argv[i],"-c")) {
             if (lastarg) goto invalid;
             config.numclients = atoi(argv[++i]);
+        } else if (!strcmp(argv[i],"-v") || !strcmp(argv[i], "--version")) {
+            sds version = benchmarkVersion();
+            printf("redis-benchmark %s\n", version);
+            sdsfree(version);
+            exit(0);
         } else if (!strcmp(argv[i],"-n")) {
             if (lastarg) goto invalid;
             config.requests = atoi(argv[++i]);
@@ -1414,7 +1464,8 @@ int parseOptions(int argc, const char **argv) {
         } else if (!strcmp(argv[i],"-I")) {
             config.idlemode = 1;
         } else if (!strcmp(argv[i],"-e")) {
-            config.showerrors = 1;
+            printf("WARNING: -e option has been deprecated. "
+                   "We now immediatly exit on error to avoid false results.\n");
         } else if (!strcmp(argv[i],"-t")) {
             if (lastarg) goto invalid;
             /* We get the list of tests to run as a string in the form
@@ -1450,6 +1501,35 @@ int parseOptions(int argc, const char **argv) {
         } else if (!strcmp(argv[i],"--help")) {
             exit_status = 0;
             goto usage;
+        #ifdef USE_OPENSSL
+        } else if (!strcmp(argv[i],"--tls")) {
+            config.tls = 1;
+        } else if (!strcmp(argv[i],"--sni")) {
+            if (lastarg) goto invalid;
+            config.sslconfig.sni = strdup(argv[++i]);
+        } else if (!strcmp(argv[i],"--cacertdir")) {
+            if (lastarg) goto invalid;
+            config.sslconfig.cacertdir = strdup(argv[++i]);
+        } else if (!strcmp(argv[i],"--cacert")) {
+            if (lastarg) goto invalid;
+            config.sslconfig.cacert = strdup(argv[++i]);
+        } else if (!strcmp(argv[i],"--insecure")) {
+            config.sslconfig.skip_cert_verify = 1;
+        } else if (!strcmp(argv[i],"--cert")) {
+            if (lastarg) goto invalid;
+            config.sslconfig.cert = strdup(argv[++i]);
+        } else if (!strcmp(argv[i],"--key")) {
+            if (lastarg) goto invalid;
+            config.sslconfig.key = strdup(argv[++i]);
+        } else if (!strcmp(argv[i],"--tls-ciphers")) {
+            if (lastarg) goto invalid;
+            config.sslconfig.ciphers = strdup(argv[++i]);
+        #ifdef TLS1_3_VERSION
+        } else if (!strcmp(argv[i],"--tls-ciphersuites")) {
+            if (lastarg) goto invalid;
+            config.sslconfig.ciphersuites = strdup(argv[++i]);
+        #endif
+        #endif
         } else {
             /* Assume the user meant to provide an option when the arg starts
              * with a dash. We're done otherwise and should use the remainder
@@ -1488,15 +1568,35 @@ usage:
 "  is executed. Default tests use this to hit random keys in the\n"
 "  specified range.\n"
 " -P <numreq>        Pipeline <numreq> requests. Default 1 (no pipeline).\n"
-" -e                 If server replies with errors, show them on stdout.\n"
-"                    (no more than 1 error per second is displayed)\n"
 " -q                 Quiet. Just show query/sec values\n"
 " --precision        Number of decimal places to display in latency output (default 0)\n"
 " --csv              Output in CSV format\n"
 " -l                 Loop. Run the tests forever\n"
 " -t <tests>         Only run the comma separated list of tests. The test\n"
 "                    names are the same as the ones produced as output.\n"
-" -I                 Idle mode. Just open N idle connections and wait.\n\n"
+" -I                 Idle mode. Just open N idle connections and wait.\n"
+#ifdef USE_OPENSSL
+" --tls              Establish a secure TLS connection.\n"
+" --sni <host>       Server name indication for TLS.\n"
+" --cacert <file>    CA Certificate file to verify with.\n"
+" --cacertdir <dir>  Directory where trusted CA certificates are stored.\n"
+"                    If neither cacert nor cacertdir are specified, the default\n"
+"                    system-wide trusted root certs configuration will apply.\n"
+" --insecure         Allow insecure TLS connection by skipping cert validation.\n"
+" --cert <file>      Client certificate to authenticate with.\n"
+" --key <file>       Private key file to authenticate with.\n"
+" --tls-ciphers <list> Sets the list of prefered ciphers (TLSv1.2 and below)\n"
+"                    in order of preference from highest to lowest separated by colon (\":\").\n"
+"                    See the ciphers(1ssl) manpage for more information about the syntax of this string.\n"
+#ifdef TLS1_3_VERSION
+" --tls-ciphersuites <list> Sets the list of prefered ciphersuites (TLSv1.3)\n"
+"                    in order of preference from highest to lowest separated by colon (\":\").\n"
+"                    See the ciphers(1ssl) manpage for more information about the syntax of this string,\n"
+"                    and specifically for TLSv1.3 ciphersuites.\n"
+#endif
+#endif
+" --help             Output this help and exit.\n"
+" --version          Output version and exit.\n\n"
 "Examples:\n\n"
 " Run the benchmark with the default configuration against 127.0.0.1:6379:\n"
 "   $ redis-benchmark\n\n"
@@ -1548,7 +1648,10 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
     const float instantaneous_rps = (float)(requests_finished-previous_requests_finished)/instantaneous_dt;
     config.previous_tick = current_tick;
     atomicSet(config.previous_requests_finished,requests_finished);
-    config.last_printed_bytes = printf("%s: rps=%.1f (overall: %.1f) avg_msec=%.3f (overall: %.3f)\r", config.title, instantaneous_rps, rps, hdr_mean(config.current_sec_latency_histogram)/1000.0f, hdr_mean(config.latency_histogram)/1000.0f);
+    int printed_bytes = printf("%s: rps=%.1f (overall: %.1f) avg_msec=%.3f (overall: %.3f)\r", config.title, instantaneous_rps, rps, hdr_mean(config.current_sec_latency_histogram)/1000.0f, hdr_mean(config.latency_histogram)/1000.0f);
+    if (printed_bytes > config.last_printed_bytes){
+       config.last_printed_bytes = printed_bytes;
+    }
     hdr_reset(config.current_sec_latency_histogram);
     fflush(stdout);
     return 250; /* every 250ms */
@@ -1570,15 +1673,17 @@ int test_is_selected(char *name) {
 
 int main(int argc, const char **argv) {
     int i;
-    char *data, *cmd;
+    char *data, *cmd, *tag;
     int len;
 
     client c;
 
-    srandom(time(NULL));
+    srandom(time(NULL) ^ getpid());
+    init_genrand64(ustime() ^ getpid());
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
 
+    memset(&config.sslconfig, 0, sizeof(config.sslconfig));
     config.numclients = 50;
     config.requests = 100000;
     config.liveclients = 0;
@@ -1587,7 +1692,6 @@ int main(int argc, const char **argv) {
     config.keepalive = 1;
     config.datasize = 3;
     config.pipeline = 1;
-    config.showerrors = 0;
     config.randomkeys = 0;
     config.randomkeys_keyspacelen = 0;
     config.quiet = 0;
@@ -1617,7 +1721,18 @@ int main(int argc, const char **argv) {
     argc -= i;
     argv += i;
 
+    tag = "";
+
+#ifdef USE_OPENSSL
+    if (config.tls) {
+        cliSecureInit();
+    }
+#endif
+
     if (config.cluster_mode) {
+        // We only include the slot placeholder {tag} if cluster mode is enabled
+        tag = ":{tag}";
+
         /* Fetch cluster configuration. */
         if (!fetchClusterConfiguration() || !config.cluster_nodes) {
             if (!config.hostsocket) {
@@ -1659,8 +1774,9 @@ int main(int argc, const char **argv) {
     } else {
         config.redis_config =
             getRedisConfig(config.hostip, config.hostport, config.hostsocket);
-        if (config.redis_config == NULL)
+        if (config.redis_config == NULL) {
             fprintf(stderr, "WARN: could not fetch server CONFIG\n");
+        }
     }
     if (config.num_threads > 0) {
         pthread_mutex_init(&(config.liveclients_mutex), NULL);
@@ -1718,68 +1834,68 @@ int main(int argc, const char **argv) {
 
         if (test_is_selected("ping_mbulk") || test_is_selected("ping")) {
             len = redisFormatCommand(&cmd,"PING");
-            benchmark("PING_BULK",cmd,len);
+            benchmark("PING_MBULK",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("set")) {
-            len = redisFormatCommand(&cmd,"SET key:{tag}:__rand_int__ %s",data);
+            len = redisFormatCommand(&cmd,"SET key%s:__rand_int__ %s",tag,data);
             benchmark("SET",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("get")) {
-            len = redisFormatCommand(&cmd,"GET key:{tag}:__rand_int__");
+            len = redisFormatCommand(&cmd,"GET key%s:__rand_int__",tag);
             benchmark("GET",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("incr")) {
-            len = redisFormatCommand(&cmd,"INCR counter:{tag}:__rand_int__");
+            len = redisFormatCommand(&cmd,"INCR counter%s:__rand_int__",tag);
             benchmark("INCR",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("lpush")) {
-            len = redisFormatCommand(&cmd,"LPUSH mylist:{tag} %s",data);
+            len = redisFormatCommand(&cmd,"LPUSH mylist%s %s",tag,data);
             benchmark("LPUSH",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("rpush")) {
-            len = redisFormatCommand(&cmd,"RPUSH mylist:{tag} %s",data);
+            len = redisFormatCommand(&cmd,"RPUSH mylist%s %s",tag,data);
             benchmark("RPUSH",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("lpop")) {
-            len = redisFormatCommand(&cmd,"LPOP mylist:{tag}");
+            len = redisFormatCommand(&cmd,"LPOP mylist%s",tag);
             benchmark("LPOP",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("rpop")) {
-            len = redisFormatCommand(&cmd,"RPOP mylist:{tag}");
+            len = redisFormatCommand(&cmd,"RPOP mylist%s",tag);
             benchmark("RPOP",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("sadd")) {
             len = redisFormatCommand(&cmd,
-                "SADD myset:{tag} element:__rand_int__");
+                "SADD myset%s element:__rand_int__",tag);
             benchmark("SADD",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("hset")) {
             len = redisFormatCommand(&cmd,
-                "HSET myhash:{tag} element:__rand_int__ %s",data);
+                "HSET myhash%s element:__rand_int__ %s",tag,data);
             benchmark("HSET",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("spop")) {
-            len = redisFormatCommand(&cmd,"SPOP myset:{tag}");
+            len = redisFormatCommand(&cmd,"SPOP myset%s",tag);
             benchmark("SPOP",cmd,len);
             free(cmd);
         }
@@ -1788,13 +1904,13 @@ int main(int argc, const char **argv) {
             char *score = "0";
             if (config.randomkeys) score = "__rand_int__";
             len = redisFormatCommand(&cmd,
-                "ZADD myzset:{tag} %s element:__rand_int__",score);
+                "ZADD myzset%s %s element:__rand_int__",tag,score);
             benchmark("ZADD",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("zpopmin")) {
-            len = redisFormatCommand(&cmd,"ZPOPMIN myzset:{tag}");
+            len = redisFormatCommand(&cmd,"ZPOPMIN myzset%s",tag);
             benchmark("ZPOPMIN",cmd,len);
             free(cmd);
         }
@@ -1805,50 +1921,53 @@ int main(int argc, const char **argv) {
             test_is_selected("lrange_500") ||
             test_is_selected("lrange_600"))
         {
-            len = redisFormatCommand(&cmd,"LPUSH mylist:{tag} %s",data);
+            len = redisFormatCommand(&cmd,"LPUSH mylist%s %s",tag,data);
             benchmark("LPUSH (needed to benchmark LRANGE)",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("lrange") || test_is_selected("lrange_100")) {
-            len = redisFormatCommand(&cmd,"LRANGE mylist:{tag} 0 99");
+            len = redisFormatCommand(&cmd,"LRANGE mylist%s 0 99",tag);
             benchmark("LRANGE_100 (first 100 elements)",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("lrange") || test_is_selected("lrange_300")) {
-            len = redisFormatCommand(&cmd,"LRANGE mylist:{tag} 0 299");
+            len = redisFormatCommand(&cmd,"LRANGE mylist%s 0 299",tag);
             benchmark("LRANGE_300 (first 300 elements)",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("lrange") || test_is_selected("lrange_500")) {
-            len = redisFormatCommand(&cmd,"LRANGE mylist:{tag} 0 449");
-            benchmark("LRANGE_500 (first 450 elements)",cmd,len);
+            len = redisFormatCommand(&cmd,"LRANGE mylist%s 0 499",tag);
+            benchmark("LRANGE_500 (first 500 elements)",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("lrange") || test_is_selected("lrange_600")) {
-            len = redisFormatCommand(&cmd,"LRANGE mylist:{tag} 0 599");
+            len = redisFormatCommand(&cmd,"LRANGE mylist%s 0 599",tag);
             benchmark("LRANGE_600 (first 600 elements)",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("mset")) {
-            const char *argv[21];
-            argv[0] = "MSET";
+            const char *cmd_argv[21];
+            cmd_argv[0] = "MSET";
+            sds key_placeholder = sdscatprintf(sdsnew(""),"key%s:__rand_int__",tag);
             for (i = 1; i < 21; i += 2) {
-                argv[i] = "key:{tag}:__rand_int__";
-                argv[i+1] = data;
+                cmd_argv[i] = key_placeholder;
+                cmd_argv[i+1] = data;
             }
-            len = redisFormatCommandArgv(&cmd,21,argv,NULL);
+            len = redisFormatCommandArgv(&cmd,21,cmd_argv,NULL);
             benchmark("MSET (10 keys)",cmd,len);
             free(cmd);
+            sdsfree(key_placeholder);
         }
 
         if (!config.csv) printf("\n");
     } while(config.loop);
 
+    zfree(data);
     if (config.redis_config != NULL) freeRedisConfig(config.redis_config);
 
     return 0;

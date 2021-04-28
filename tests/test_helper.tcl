@@ -18,6 +18,7 @@ set ::all_tests {
     unit/protocol
     unit/keyspace
     unit/scan
+    unit/info
     unit/type/string
     unit/type/incr
     unit/type/list
@@ -44,12 +45,16 @@ set ::all_tests {
     integration/replication-psync
     integration/aof
     integration/rdb
+    integration/corrupt-dump
+    integration/corrupt-dump-fuzzer
     integration/convert-zipmap-hash-on-load
     integration/logging
     integration/psync2
     integration/psync2-reg
     integration/psync2-pingoff
+    integration/failover
     integration/redis-cli
+    integration/redis-benchmark
     unit/pubsub
     unit/slowlog
     unit/scripting
@@ -70,6 +75,7 @@ set ::all_tests {
     unit/tracking
     unit/oom-score-adj
     unit/shutdown
+    unit/networking
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
@@ -88,6 +94,7 @@ set ::quiet 0
 set ::denytags {}
 set ::skiptests {}
 set ::skipunits {}
+set ::no_latency 0
 set ::allowtags {}
 set ::only_tests {}
 set ::single_tests {}
@@ -104,6 +111,7 @@ set ::active_servers {} ; # Pids of active Redis instances.
 set ::dont_clean 0
 set ::wait_server 0
 set ::stop_on_failure 0
+set ::dump_logs 0
 set ::loop 0
 set ::tlsdir "tests/tls"
 
@@ -131,7 +139,8 @@ proc execute_test_file name {
 # as argument, and an associated name.
 # It will run the specified code and signal it to the test server when
 # finished.
-proc execute_test_code {name code} {
+proc execute_test_code {name filename code} {
+    set ::curfile $filename
     eval $code
     send_data_packet $::test_server_fd done "$name"
 }
@@ -175,6 +184,10 @@ proc reconnect {args} {
     set port [dict get $srv "port"]
     set config [dict get $srv "config"]
     set client [redis $host $port 0 $::tls]
+    if {[dict exists $srv "client"]} {
+        set old [dict get $srv "client"]
+        $old close
+    }
     dict set srv "client" $client
 
     # select the right db when we don't have to authenticate
@@ -236,7 +249,7 @@ proc run_solo {name code} {
         eval $code
         return
     }
-    send_data_packet $::test_server_fd run_solo [list $name $code]
+    send_data_packet $::test_server_fd run_solo [list $name $::curfile $code]
 }
 
 proc cleanup {} {
@@ -252,7 +265,7 @@ proc test_server_main {} {
     set tclsh [info nameofexecutable]
     # Open a listening socket, trying different ports in order to find a
     # non busy one.
-    set clientport [find_available_port 11111 32]
+    set clientport [find_available_port [expr {$::baseport - 32}] 32]
     if {!$::quiet} {
         puts "Starting test server at port $clientport"
     }
@@ -505,8 +518,8 @@ proc test_client_main server_port {
         if {$cmd eq {run}} {
             execute_test_file $data
         } elseif {$cmd eq {run_code}} {
-            foreach {name code} $data break
-            execute_test_code $name $code
+            foreach {name filename code} $data break
+            execute_test_code $name $filename $code
         } else {
             error "Unknown test client command: $cmd"
         }
@@ -540,9 +553,11 @@ proc print_help_screen {} {
         "--skipfile <file>  Name of a file containing test names that should be skipped (one per line)."
         "--skiptest <name>  Name of a file containing test names that should be skipped (one per line)."
         "--dont-clean       Don't delete redis log files after the run."
+        "--no-latency       Skip latency measurements and validation by some tests."
         "--stop             Blocks once the first test fails."
         "--loop             Execute the specified set of tests forever."
         "--wait-server      Wait after server is started (so that you can attach a debugger)."
+        "--dump-logs        Dump server log on test failure."
         "--tls              Run tests in TLS mode."
         "--host <addr>      Run tests against an external host."
         "--port <port>      TCP port to use against external host."
@@ -592,8 +607,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set ::tls 1
         ::tls::init \
             -cafile "$::tlsdir/ca.crt" \
-            -certfile "$::tlsdir/redis.crt" \
-            -keyfile "$::tlsdir/redis.key"
+            -certfile "$::tlsdir/client.crt" \
+            -keyfile "$::tlsdir/client.key"
     } elseif {$opt eq {--host}} {
         set ::external 1
         set ::host $arg
@@ -641,8 +656,12 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set ::durable 1
     } elseif {$opt eq {--dont-clean}} {
         set ::dont_clean 1
+    } elseif {$opt eq {--no-latency}} {
+        set ::no_latency 1
     } elseif {$opt eq {--wait-server}} {
         set ::wait_server 1
+    } elseif {$opt eq {--dump-logs}} {
+        set ::dump_logs 1
     } elseif {$opt eq {--stop}} {
         set ::stop_on_failure 1
     } elseif {$opt eq {--loop}} {
@@ -704,6 +723,7 @@ if {[llength $filtered_tests] < [llength $::all_tests]} {
 }
 
 proc attach_to_replication_stream {} {
+    r config set repl-ping-replica-period 3600
     if {$::tls} {
         set s [::tls::socket [srv 0 "host"] [srv 0 "port"]]
     } else {
@@ -761,6 +781,7 @@ proc assert_replication_stream {s patterns} {
 
 proc close_replication_stream {s} {
     close $s
+    r config set repl-ping-replica-period 10
 }
 
 # With the parallel test running multiple Redis instances at the same time

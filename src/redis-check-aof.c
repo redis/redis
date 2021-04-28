@@ -39,12 +39,14 @@
 
 static char error[1044];
 static off_t epos;
+static long long line = 1;
 
 int consumeNewline(char *buf) {
     if (strncmp(buf,"\r\n",2) != 0) {
         ERROR("Expected \\r\\n, got: %02x%02x",buf[0],buf[1]);
         return 0;
     }
+    line += 1;
     return 1;
 }
 
@@ -201,8 +203,8 @@ int redis_check_aof_main(int argc, char **argv) {
 
     off_t pos = process(fp);
     off_t diff = size-pos;
-    printf("AOF analyzed: size=%lld, ok_up_to=%lld, diff=%lld\n",
-        (long long) size, (long long) pos, (long long) diff);
+    printf("AOF analyzed: size=%lld, ok_up_to=%lld, ok_up_to_line=%lld, diff=%lld\n",
+        (long long) size, (long long) pos, line, (long long) diff);
     if (diff > 0) {
         if (fix) {
             char buf[2];

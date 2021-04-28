@@ -45,7 +45,7 @@
  * the first byte to interpreter the length:
  *
  * 00|XXXXXX => if the two MSB are 00 the len is the 6 bits of this byte
- * 01|XXXXXX XXXXXXXX =>  01, the len is 14 byes, 6 bits + 8 bits of next byte
+ * 01|XXXXXX XXXXXXXX =>  01, the len is 14 bits, 6 bits + 8 bits of next byte
  * 10|000000 [32 bit integer] => A full 32 bit len in net byte order will follow
  * 10|000001 [64 bit integer] => A full 64 bit len in net byte order will follow
  * 11|OBKIND this means: specially encoded object will follow. The six bits

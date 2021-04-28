@@ -105,7 +105,7 @@
     atomic_store_explicit(&var,value,memory_order_seq_cst)
 #define REDIS_ATOMIC_API "c11-builtin"
 
-#elif !defined(__ATOMIC_VAR_FORCE_SYNC_MACROS) && !defined(__sun) && \
+#elif !defined(__ATOMIC_VAR_FORCE_SYNC_MACROS) && \
     (!defined(__clang__) || !defined(__APPLE__) || __apple_build_version__ > 4210057) && \
     defined(__ATOMIC_RELAXED) && defined(__ATOMIC_SEQ_CST)
 /* Implementation using __atomic macros. */

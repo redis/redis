@@ -1,4 +1,4 @@
-start_server {tags {"other"}} {
+start_server {overrides {save ""} tags {"other"}} {
     if {$::force_failure} {
         # This is used just for test suite development purposes.
         test {Failing test} {
@@ -55,7 +55,7 @@ start_server {tags {"other"}} {
     } {*index is out of range*}
 
     tags {consistency} {
-        if {![catch {package require sha1}]} {
+        if {true} {
             if {$::accurate} {set numops 10000} else {set numops 1000}
             test {Check consistency of different data types after a reload} {
                 r flushdb
@@ -249,4 +249,125 @@ start_server {tags {"other"}} {
         waitForBgsave r
         r save
     } {OK}
+
+    test {RESET clears client state} {
+        r client setname test-client
+        r client tracking on
+
+        assert_equal [r reset] "RESET"
+        set client [r client list]
+        assert_match {*name= *} $client
+        assert_match {*flags=N *} $client
+    }
+
+    test {RESET clears MONITOR state} {
+        set rd [redis_deferring_client]
+        $rd monitor
+        assert_equal [$rd read] "OK"
+
+        $rd reset
+
+        # skip reset ouptut
+        $rd read
+        assert_equal [$rd read] "RESET"
+
+        assert_no_match {*flags=O*} [r client list]
+    }
+
+    test {RESET clears and discards MULTI state} {
+        r multi
+        r set key-a a
+
+        r reset
+        catch {r exec} err
+        assert_match {*EXEC without MULTI*} $err
+    }
+
+    test {RESET clears Pub/Sub state} {
+        r subscribe channel-1
+        r reset
+
+        # confirm we're not subscribed by executing another command
+        r set key val
+    }
+
+    test {RESET clears authenticated state} {
+        r acl setuser user1 on >secret +@all
+        r auth user1 secret
+        assert_equal [r acl whoami] user1
+
+        r reset
+
+        assert_equal [r acl whoami] default
+    }
 }
+
+start_server {tags {"other"}} {
+    test {Don't rehash if redis has child proecess} {
+        r config set save ""
+        r config set rdb-key-save-delay 1000000
+
+        populate 4096 "" 1
+        r bgsave
+        wait_for_condition 10 100 {
+            [s rdb_bgsave_in_progress] eq 1
+        } else {
+            fail "bgsave did not start in time"
+        }
+
+        r mset k1 v1 k2 v2
+        # Hash table should not rehash
+        assert_no_match "*table size: 8192*" [r debug HTSTATS 9]
+        exec kill -9 [get_child_pid 0]
+        after 200
+
+        # Hash table should rehash since there is no child process,
+        # size is power of two and over 4098, so it is 8192
+        r set k3 v3
+        assert_match "*table size: 8192*" [r debug HTSTATS 9]
+    }
+}
+
+proc read_proc_title {pid} {
+    set fd [open "/proc/$pid/cmdline" "r"]
+    set cmdline [read $fd 1024]
+    close $fd
+
+    return $cmdline
+}
+
+start_server {tags {"other"}} {
+    test {Process title set as expected} {
+        # Test only on Linux where it's easy to get cmdline without relying on tools.
+        # Skip valgrind as it messes up the arguments.
+        set os [exec uname]
+        if {$os == "Linux" && !$::valgrind} {
+            # Set a custom template
+            r config set "proc-title-template" "TEST {title} {listen-addr} {port} {tls-port} {unixsocket} {config-file}"
+            set cmdline [read_proc_title [srv 0 pid]]
+
+            assert_equal "TEST" [lindex $cmdline 0]
+            assert_match "*/redis-server" [lindex $cmdline 1]
+            
+            if {$::tls} {
+                set expect_port 0
+                set expect_tls_port [srv 0 port]
+            } else {
+                set expect_port [srv 0 port]
+                set expect_tls_port 0
+            }
+            set port [srv 0 port]
+
+            assert_equal "$::host:$port" [lindex $cmdline 2]
+            assert_equal $expect_port [lindex $cmdline 3]
+            assert_equal $expect_tls_port [lindex $cmdline 4]
+            assert_match "*/tests/tmp/server.*/socket" [lindex $cmdline 5]
+            assert_match "*/tests/tmp/redis.conf.*" [lindex $cmdline 6]
+
+            # Try setting a bad template
+            catch {r config set "proc-title-template" "{invalid-var}"} err
+            assert_match {*template format is invalid*} $err
+        }
+    }
+}
+

@@ -13,7 +13,7 @@ proc start_server_error {config_file error} {
 }
 
 proc check_valgrind_errors stderr {
-    set res [find_valgrind_errors $stderr]
+    set res [find_valgrind_errors $stderr true]
     if {$res != ""} {
         send_data_packet $::test_server_fd err "Valgrind error: $res\n"
     }
@@ -50,11 +50,17 @@ proc kill_server config {
                 tags {"leaks"} {
                     test "Check for memory leaks (pid $pid)" {
                         set output {0 leaks}
-                        catch {exec leaks $pid} output
-                        if {[string match {*process does not exist*} $output] ||
-                            [string match {*cannot examine*} $output]} {
-                            # In a few tests we kill the server process.
-                            set output "0 leaks"
+                        catch {exec leaks $pid} output option
+                        # In a few tests we kill the server process, so leaks will not find it.
+                        # It'll exits with exit code >1 on error, so we ignore these.
+                        if {[dict exists $option -errorcode]} {
+                            set details [dict get $option -errorcode]
+                            if {[lindex $details 0] eq "CHILDSTATUS"} {
+                                  set status [lindex $details 2]
+                                  if {$status > 1} {
+                                      set output "0 leaks"
+                                  }
+                            }
                         }
                         set output
                     } {*0 leaks*}
@@ -66,6 +72,8 @@ proc kill_server config {
     # kill server and wait for the process to be totally exited
     send_data_packet $::test_server_fd server-killing $pid
     catch {exec kill $pid}
+    # Node might have been stopped in the test
+    catch {exec kill -SIGCONT $pid}
     if {$::valgrind} {
         set max_wait 60000
     } else {
@@ -94,7 +102,7 @@ proc kill_server config {
 
 proc is_alive config {
     set pid [dict get $config pid]
-    if {[catch {exec ps -p $pid} err]} {
+    if {[catch {exec kill -0 $pid} err]} {
         return 0
     } else {
         return 1
@@ -146,20 +154,48 @@ proc server_is_up {host port retrynum} {
     return 0
 }
 
+# Check if current ::tags match requested tags. If ::allowtags are used,
+# there must be some intersection. If ::denytags are used, no intersection
+# is allowed. Returns 1 if tags are acceptable or 0 otherwise, in which
+# case err_return names a return variable for the message to be logged.
+proc tags_acceptable {err_return} {
+    upvar $err_return err
+
+    # If tags are whitelisted, make sure there's match
+    if {[llength $::allowtags] > 0} {
+        set matched 0
+        foreach tag $::allowtags {
+            if {[lsearch $::tags $tag] >= 0} {
+                incr matched
+            }
+        }
+        if {$matched < 1} {
+            set err "Tag: none of the tags allowed"
+            return 0
+        }
+    }
+
+    foreach tag $::denytags {
+        if {[lsearch $::tags $tag] >= 0} {
+            set err "Tag: $tag denied"
+            return 0
+        }
+    }
+
+    return 1
+}
+
 # doesn't really belong here, but highly coupled to code in start_server
 proc tags {tags code} {
     # If we 'tags' contain multiple tags, quoted and seperated by spaces,
     # we want to get rid of the quotes in order to have a proper list
     set tags [string map { \" "" } $tags]
     set ::tags [concat $::tags $tags]
-    # We skip unwanted tags
-    foreach tag $::denytags {
-        if {[lsearch $::tags $tag] >= 0} {
-            incr ::num_aborted
-            send_data_packet $::test_server_fd ignore "Tag: $tag"
-            set ::tags [lrange $::tags 0 end-[llength $tags]]
-            return
-        }
+    if {![tags_acceptable err]} {
+        incr ::num_aborted
+        send_data_packet $::test_server_fd ignore $err
+        set ::tags [lrange $::tags 0 end-[llength $tags]]
+        return
     }
     uplevel 1 $code
     set ::tags [lrange $::tags 0 end-[llength $tags]]
@@ -217,7 +253,7 @@ proc wait_server_started {config_file stdout pid} {
 
         # Check if the port is actually busy and the server failed
         # for this reason.
-        if {[regexp {Could not create server TCP} [exec cat $stdout]]} {
+        if {[regexp {Failed listening on port} [exec cat $stdout]]} {
             set port_busy 1
             break
         }
@@ -225,10 +261,18 @@ proc wait_server_started {config_file stdout pid} {
     return $port_busy
 }
 
+proc dump_server_log {srv} {
+    set pid [dict get $srv "pid"]
+    puts "\n===== Start of server log (pid $pid) =====\n"
+    puts [exec cat [dict get $srv "stdout"]]
+    puts "===== End of server log (pid $pid) =====\n"
+}
+
 proc start_server {options {code undefined}} {
     # setup defaults
     set baseconfig "default.conf"
     set overrides {}
+    set omit {}
     set tags {}
     set keep_persistence false
 
@@ -240,6 +284,9 @@ proc start_server {options {code undefined}} {
             }
             "overrides" {
                 set overrides $value
+            }
+            "omit" {
+                set omit $value
             }
             "tags" {
                 # If we 'tags' contain multiple tags, quoted and seperated by spaces,
@@ -257,13 +304,11 @@ proc start_server {options {code undefined}} {
     }
 
     # We skip unwanted tags
-    foreach tag $::denytags {
-        if {[lsearch $::tags $tag] >= 0} {
-            incr ::num_aborted
-            send_data_packet $::test_server_fd ignore "Tag: $tag"
-            set ::tags [lrange $::tags 0 end-[llength $tags]]
-            return
-        }
+    if {![tags_acceptable err]} {
+        incr ::num_aborted
+        send_data_packet $::test_server_fd ignore $err
+        set ::tags [lrange $::tags 0 end-[llength $tags]]
+        return
     }
 
     # If we are running against an external server, we just push the
@@ -306,8 +351,10 @@ proc start_server {options {code undefined}} {
     set data [split [exec cat "tests/assets/$baseconfig"] "\n"]
     set config {}
     if {$::tls} {
-        dict set config "tls-cert-file" [format "%s/tests/tls/redis.crt" [pwd]]
-        dict set config "tls-key-file" [format "%s/tests/tls/redis.key" [pwd]]
+        dict set config "tls-cert-file" [format "%s/tests/tls/server.crt" [pwd]]
+        dict set config "tls-key-file" [format "%s/tests/tls/server.key" [pwd]]
+        dict set config "tls-client-cert-file" [format "%s/tests/tls/client.crt" [pwd]]
+        dict set config "tls-client-key-file" [format "%s/tests/tls/client.key" [pwd]]
         dict set config "tls-dh-params-file" [format "%s/tests/tls/redis.dh" [pwd]]
         dict set config "tls-ca-cert-file" [format "%s/tests/tls/ca.crt" [pwd]]
         dict set config "loglevel" "debug"
@@ -341,6 +388,11 @@ proc start_server {options {code undefined}} {
     # apply overrides from global space and arguments
     foreach {directive arguments} [concat $::global_overrides $overrides] {
         dict set config $directive $arguments
+    }
+
+    # remove directives that are marked to be omitted
+    foreach directive $omit {
+        dict unset config $directive
     }
 
     # write new configuration to temporary file
@@ -437,7 +489,7 @@ proc start_server {options {code undefined}} {
 
         while 1 {
             # check that the server actually started and is ready for connections
-            if {[exec grep -i "Ready to accept" | wc -l < $stdout] > 0} {
+            if {[count_message_lines $stdout "Ready to accept"] > 0} {
                 break
             }
             after 10
@@ -449,10 +501,14 @@ proc start_server {options {code undefined}} {
         # connect client (after server dict is put on the stack)
         reconnect
 
+        # remember previous num_failed to catch new errors
+        set prev_num_failed $::num_failed
+
         # execute provided block
         set num_tests $::num_tests
         if {[catch { uplevel 1 $code } error]} {
             set backtrace $::errorInfo
+            set assertion [string match "assertion:*" $error]
 
             # fetch srv back from the server list, in case it was restarted by restart_server (new PID)
             set srv [lindex $::servers end]
@@ -464,17 +520,23 @@ proc start_server {options {code undefined}} {
             dict set srv "skipleaks" 1
             kill_server $srv
 
-            # Print warnings from log
-            puts [format "\nLogged warnings (pid %d):" [dict get $srv "pid"]]
-            set warnings [warnings_from_file [dict get $srv "stdout"]]
-            if {[string length $warnings] > 0} {
-                puts "$warnings"
+            if {$::dump_logs && $assertion} {
+                # if we caught an assertion ($::num_failed isn't incremented yet)
+                # this happens when the test spawns a server and not the other way around
+                dump_server_log $srv
             } else {
-                puts "(none)"
+                # Print crash report from log
+                set crashlog [crashlog_from_file [dict get $srv "stdout"]]
+                if {[string length $crashlog] > 0} {
+                    puts [format "\nLogged crash report (pid %d):" [dict get $srv "pid"]]
+                    puts "$crashlog"
+                    puts ""
+                }
             }
-            puts ""
 
-            if {$::durable} {
+            if {!$assertion && $::durable} {
+                # durable is meant to prevent the whole tcl test from exiting on
+                # an exception. an assertion will be caught by the test proc.
                 set msg [string range $error 10 end]
                 lappend details $msg
                 lappend details $backtrace
@@ -485,6 +547,10 @@ proc start_server {options {code undefined}} {
             } else {
                 # Re-raise, let handler up the stack take care of this.
                 error $error $backtrace
+            }
+        } else {
+            if {$::dump_logs && $prev_num_failed != $::num_failed} {
+                dump_server_log $srv
             }
         }
 
@@ -511,13 +577,19 @@ proc start_server {options {code undefined}} {
     }
 }
 
-proc restart_server {level wait_ready} {
+proc restart_server {level wait_ready rotate_logs} {
     set srv [lindex $::servers end+$level]
     kill_server $srv
 
+    set pid [dict get $srv "pid"]
     set stdout [dict get $srv "stdout"]
     set stderr [dict get $srv "stderr"]
-    set config_file [dict get $srv "config_file"]
+    if {$rotate_logs} {
+        set ts [clock format [clock seconds] -format %y%m%d%H%M%S]
+        file rename $stdout $stdout.$ts.$pid
+        file rename $stderr $stderr.$ts.$pid
+    }
+    set prev_ready_count [count_message_lines $stdout "Ready to accept"]
 
     # if we're inside a test, write the test name to the server log file
     if {[info exists ::cur_test]} {
@@ -526,7 +598,7 @@ proc restart_server {level wait_ready} {
         close $fd
     }
 
-    set prev_ready_count [exec grep -i "Ready to accept" | wc -l < $stdout]
+    set config_file [dict get $srv "config_file"]
 
     set pid [spawn_server $config_file $stdout $stderr]
 
@@ -541,7 +613,7 @@ proc restart_server {level wait_ready} {
     if {$wait_ready} {
         while 1 {
             # check that the server actually started and is ready for connections
-            if {[exec grep -i "Ready to accept" | wc -l < $stdout] > $prev_ready_count + 1} {
+            if {[count_message_lines $stdout "Ready to accept"] > $prev_ready_count} {
                 break
             }
             after 10

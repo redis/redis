@@ -35,7 +35,6 @@
 #endif
 
 #ifdef __linux__
-#include <linux/version.h>
 #include <features.h>
 #endif
 
@@ -65,7 +64,7 @@
 /* Test for backtrace() */
 #if defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__)) || \
     defined(__FreeBSD__) || ((defined(__OpenBSD__) || defined(__NetBSD__)) && defined(USE_BACKTRACE))\
- || defined(__DragonFly__)
+ || defined(__DragonFly__) || (defined(__UCLIBC__) && defined(__UCLIBC_HAS_BACKTRACE__))
 #define HAVE_BACKTRACE 1
 #endif
 
@@ -87,6 +86,7 @@
 #include <sys/feature_tests.h>
 #ifdef _DTRACE_VERSION
 #define HAVE_EVPORT 1
+#define HAVE_PSINFO 1
 #endif
 #endif
 
@@ -97,21 +97,23 @@
 #define redis_fsync fsync
 #endif
 
-/* Define rdb_fsync_range to sync_file_range() on Linux, otherwise we use
- * the plain fsync() call. */
-#ifdef __linux__
-#if defined(__GLIBC__) && defined(__GLIBC_PREREQ)
-#if (LINUX_VERSION_CODE >= 0x020611 && __GLIBC_PREREQ(2, 6))
-#define HAVE_SYNC_FILE_RANGE 1
-#endif
+#if __GNUC__ >= 4
+#define redis_unreachable __builtin_unreachable
 #else
-#if (LINUX_VERSION_CODE >= 0x020611)
-#define HAVE_SYNC_FILE_RANGE 1
-#endif
-#endif
+#define redis_unreachable abort
 #endif
 
-#ifdef HAVE_SYNC_FILE_RANGE
+#if __GNUC__ >= 3
+#define likely(x) __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#else
+#define likely(x) (x)
+#define unlikely(x) (x)
+#endif
+
+/* Define rdb_fsync_range to sync_file_range() on Linux, otherwise we use
+ * the plain fsync() call. */
+#if (defined(__linux__) && defined(SYNC_FILE_RANGE_WAIT_BEFORE))
 #define rdb_fsync_range(fd,off,size) sync_file_range(fd,off,size,SYNC_FILE_RANGE_WAIT_BEFORE|SYNC_FILE_RANGE_WRITE)
 #else
 #define rdb_fsync_range(fd,off,size) fsync(fd)
@@ -128,7 +130,7 @@
 #define ESOCKTNOSUPPORT 0
 #endif
 
-#if ((defined __linux && defined(__GLIBC__)) || defined __APPLE__)
+#if (defined __linux || defined __APPLE__)
 #define USE_SETPROCTITLE
 #define INIT_SETPROCTITLE_REPLACEMENT
 void spt_init(int argc, char *argv[]);
@@ -241,6 +243,9 @@ void setproctitle(const char *fmt, ...);
 #elif defined __NetBSD__
 #include <pthread.h>
 #define redis_set_thread_title(name) pthread_setname_np(pthread_self(), "%s", name)
+#elif defined __HAIKU__
+#include <kernel/OS.h>
+#define redis_set_thread_title(name) rename_thread(find_thread(0), name)
 #else
 #if (defined __APPLE__ && defined(MAC_OS_X_VERSION_10_7))
 int pthread_setname_np(const char *name);
@@ -253,7 +258,7 @@ int pthread_setname_np(const char *name);
 #endif
 
 /* Check if we can use setcpuaffinity(). */
-#if (defined __linux || defined __NetBSD__ || defined __FreeBSD__)
+#if (defined __linux || defined __NetBSD__ || defined __FreeBSD__ || defined __DragonFly__)
 #define USE_SETCPUAFFINITY
 void setcpuaffinity(const char *cpulist);
 #endif
