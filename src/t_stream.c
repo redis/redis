@@ -241,7 +241,7 @@ robj *streamDup(robj *o) {
     return sobj;
 }
 
-/* This is just a wrapper for lpPushTail() to directly use a 64 bit integer
+/* This is just a wrapper for lpAppend() to directly use a 64 bit integer
  * instead of a string. */
 unsigned char *lpAppendInteger(unsigned char *lp, int64_t value) {
     char buf[LONG_STR_SIZE];

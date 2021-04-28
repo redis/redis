@@ -116,7 +116,7 @@
     (p)[5] = ((v)>>8)&0xff; \
 } while(0)
 
-/* Validates that 'p' is not outside the listpack.
+/* Validates that 'p' is not ouside the listpack..
  * All function that return a pointer to an element in the listpack will assert
  * that this element is valid, so it can be freely used.
  * Generally functions such lpNext and lpDelete assume the input pointer is
@@ -421,7 +421,7 @@ uint32_t lpCurrentEncodedSizeUnsafe(unsigned char *p) {
 }
 
 /* Return bytes needed to encode the length of the listpack element pointed by 'p'.
- * This includes just the encoding byte, and the bytes needed to encode the length
+ * This includes just the encodign byte, and the bytes needed to encode the length
  * of the element (excluding the element data itself)
  * If the element encoding is wrong then 0 is returned. */
 uint32_t lpCurrentEncodedSizeBytes(unsigned char *p) {
@@ -1030,15 +1030,10 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
         return 0;
 
     if (!deep) {
-        /* Check the first entry, since the header and eof formats of
-         * listpack and ziplist are the same */
-        unsigned char *p = lpFirst(lp);
-        if (p && p[0] != LP_EOF && !lpValidateNext(lp, &p, bytes))
-            return 0;
         return 1;
     }
 
-    /* Validate the individual entries. */
+    /* Validate the invividual entries. */
     uint32_t count = 0;
     unsigned char *p = lpFirst(lp);
     while(p && p[0] != LP_EOF) {
@@ -1898,6 +1893,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
 
         /* string encode */
         unsigned char *str = zmalloc(65535);
+        memset(str, 0, 65535);
         lp = lpPushTail(lp, (unsigned char*)str, 63);
         assert(LP_ENCODING_IS_6BIT_STR(lpLast(lp)[0]));
         lp = lpPushTail(lp, (unsigned char*)str, 4095);
