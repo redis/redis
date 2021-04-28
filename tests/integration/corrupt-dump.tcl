@@ -97,10 +97,8 @@ test {corrupt payload: quicklist ziplist wrong count} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no
         r restore key 0 "\x0E\x01\x13\x13\x00\x00\x00\x0E\x00\x00\x00\x03\x00\x00\x02\x61\x00\x04\x02\x62\x00\xFF\x09\x00\x4D\xE2\x0A\x2F\x08\x25\xDF\x91"
-        # we'll be able to push, but iterating on the list will assert
-        r lpush key header
-        r rpush key footer
-        catch { [r lrange key -1 -1] }
+        # we'll be unable to push due to ziplist will convert to listpack fail.
+        catch {r lpush key header}
         assert_equal [count_log_message 0 "crashed by signal"] 0
         assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
     }
@@ -526,6 +524,18 @@ test {corrupt payload: fuzzer findings - stream with no records} {
         catch {r XREAD STREAMS _stream $}
         assert_equal [count_log_message 0 "crashed by signal"] 0
         assert_equal [count_log_message 0 "Guru Meditation"] 1
+    }
+}
+
+test {corrupt payload: quicklist listpack wrong count} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r restore key 0 "\x0e\x01\x11\x11\x00\x00\x00\x03\x00\x83def\x04\x83abc\x04\xff\t\x00\x1e\xa4\xbfH\xb6\x0e\xea\x8f"
+        # we'll be able to push, but iterating on the list will assert
+        r lpush key header
+        r rpush key footer
+        catch { [r lrange key 0 -1] }
+        verify_log_message 0 "*listTypeNext(iter, &entry)*" 0
     }
 }
 

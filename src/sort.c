@@ -289,7 +289,7 @@ void sortCommand(client *c) {
     if (sortval)
         incrRefCount(sortval);
     else
-        sortval = createQuicklistObject();
+        sortval = createQuicklistObject(&quicklistContainerTypeListpack);
 
 
     /* When sorting a set with no sort specified, we must sort the output
@@ -538,7 +538,7 @@ void sortCommand(client *c) {
             }
         }
     } else {
-        robj *sobj = createQuicklistObject();
+        robj *sobj = createQuicklistObject(&quicklistContainerTypeListpack);
 
         /* STORE option specified, set the sorting result as a List object */
         for (j = start; j <= end; j++) {

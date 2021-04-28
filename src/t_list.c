@@ -58,7 +58,7 @@ void *listPopSaver(unsigned char *data, unsigned int sz) {
 }
 
 robj *listTypePop(robj *subject, int where) {
-    long long vlong;
+    int64_t vlong;
     robj *value = NULL;
 
     int ql_where = where == LIST_HEAD ? QUICKLIST_HEAD : QUICKLIST_TAIL;
@@ -163,7 +163,7 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
 int listTypeEqual(listTypeEntry *entry, robj *o) {
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
         serverAssertWithInfo(NULL,o,sdsEncodedObject(o));
-        return quicklistCompare(entry->entry.zi,o->ptr,sdslen(o->ptr));
+        return quicklistCompare(entry->entry.quicklist,entry->entry.li,o->ptr,sdslen(o->ptr));
     } else {
         serverPanic("Unknown list encoding");
     }
@@ -184,7 +184,7 @@ void listTypeConvert(robj *subject, int enc) {
     serverAssertWithInfo(NULL,subject,subject->encoding==OBJ_ENCODING_ZIPLIST);
 
     if (enc == OBJ_ENCODING_QUICKLIST) {
-        size_t zlen = server.list_max_ziplist_size;
+        size_t zlen = server.list_max_listpack_size;
         int depth = server.list_compress_depth;
         subject->ptr = quicklistCreateFromZiplist(zlen, depth, subject->ptr);
         subject->encoding = OBJ_ENCODING_QUICKLIST;
@@ -232,8 +232,8 @@ void pushGenericCommand(client *c, int where, int xx) {
             return;
         }
 
-        lobj = createQuicklistObject();
-        quicklistSetOptions(lobj->ptr, server.list_max_ziplist_size,
+        lobj = createQuicklistObject(&quicklistContainerTypeListpack);
+        quicklistSetOptions(lobj->ptr, server.list_max_listpack_size,
                             server.list_compress_depth);
         dbAdd(c->db,c->argv[1],lobj);
     }
@@ -405,7 +405,11 @@ void addListRangeReply(client *c, robj *o, long start, long end, int reverse) {
 
         while(rangelen--) {
             listTypeEntry entry;
-            listTypeNext(iter, &entry);
+
+            /* The assert was triggered by data corruption
+             * when listpack have wrong count. */
+            serverAssert(listTypeNext(iter, &entry));
+
             quicklistEntry *qe = &entry.entry;
             if (qe->value) {
                 addReplyBulkCBuffer(c,qe->value,qe->sz);
@@ -713,8 +717,8 @@ void lmoveHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value,
                      int where) {
     /* Create the list if the key does not exist */
     if (!dstobj) {
-        dstobj = createQuicklistObject();
-        quicklistSetOptions(dstobj->ptr, server.list_max_ziplist_size,
+        dstobj = createQuicklistObject(&quicklistContainerTypeListpack);
+        quicklistSetOptions(dstobj->ptr, server.list_max_listpack_size,
                             server.list_compress_depth);
         dbAdd(c->db,dstkey,dstobj);
     }

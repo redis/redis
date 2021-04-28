@@ -169,7 +169,7 @@ start_server {tags {"defrag"} overrides {appendonly yes auto-aof-rewrite-percent
             r config set active-defrag-cycle-max 75
             r config set active-defrag-ignore-bytes 2mb
             r config set maxmemory 0
-            r config set list-max-ziplist-size 5 ;# list of 10k items will have 2000 quicklist nodes
+            r config set list-max-listpack-size 5 ;# list of 10k items will have 2000 quicklist nodes
             r config set stream-node-max-entries 5
             r hmset hash h1 v1 h2 v2 h3 v3
             r lpush list a b c d
@@ -298,7 +298,7 @@ start_server {tags {"defrag"} overrides {appendonly yes auto-aof-rewrite-percent
             r config set active-defrag-cycle-max 75
             r config set active-defrag-ignore-bytes 2mb
             r config set maxmemory 0
-            r config set list-max-ziplist-size 5 ;# list of 500k items will have 100k quicklist nodes
+            r config set list-max-listpack-size 5 ;# list of 500k items will have 100k quicklist nodes
 
             # create big keys with 10k items
             set rd [redis_deferring_client]

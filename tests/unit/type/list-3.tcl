@@ -1,7 +1,7 @@
 start_server {
-    tags {list ziplist}
+    tags {list listpack}
     overrides {
-        "list-max-ziplist-size" 16
+        "list-max-listpack-size" 16
     }
 } {
     test {Explicit regression for a list bug} {
@@ -58,7 +58,7 @@ start_server {
     }
 
     tags {slow} {
-        test {ziplist implementation: value encoding and backlink} {
+        test {listpack implementation: value encoding and backlink} {
             if {$::accurate} {set iterations 100} else {set iterations 10}
             for {set j 0} {$j < $iterations} {incr j} {
                 r del l
@@ -95,7 +95,7 @@ start_server {
             }
         }
 
-        test {ziplist implementation: encoding stress testing} {
+        test {listpack implementation: encoding stress testing} {
             for {set j 0} {$j < 200} {incr j} {
                 r del l
                 set l {}

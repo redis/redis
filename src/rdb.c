@@ -822,7 +822,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key) {
                     if ((n = rdbSaveLzfBlob(rdb,data,compress_len,node->sz)) == -1) return -1;
                     nwritten += n;
                 } else {
-                    if ((n = rdbSaveRawString(rdb,node->zl,node->sz)) == -1) return -1;
+                    if ((n = rdbSaveRawString(rdb,node->l,node->sz)) == -1) return -1;
                     nwritten += n;
                 }
                 node = node->next;
@@ -1541,8 +1541,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
         /* Read list value */
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
 
-        o = createQuicklistObject();
-        quicklistSetOptions(o->ptr, server.list_max_ziplist_size,
+        o = createQuicklistObject(&quicklistContainerTypeListpack);
+        quicklistSetOptions(o->ptr, server.list_max_listpack_size,
                             server.list_compress_depth);
 
         /* Load every single element of the list */
@@ -1792,26 +1792,36 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
         serverAssert(len == 0);
     } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST) {
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
-        o = createQuicklistObject();
-        quicklistSetOptions(o->ptr, server.list_max_ziplist_size,
+        o = createQuicklistObject(&quicklistContainerTypeListpack);
+        quicklistSetOptions(o->ptr, server.list_max_listpack_size,
                             server.list_compress_depth);
 
         while (len--) {
             size_t encoded_len;
-            unsigned char *zl =
+            unsigned char *list =
                 rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,&encoded_len);
-            if (zl == NULL) {
+            if (list == NULL) {
                 decrRefCount(o);
                 return NULL;
             }
             if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-            if (!ziplistValidateIntegrity(zl, encoded_len, deep_integrity_validation, NULL, NULL)) {
-                rdbReportCorruptRDB("Ziplist integrity check failed.");
+            if (likely(lpValidateIntegrity(list, encoded_len, deep_integrity_validation, NULL, NULL))) {
+                quicklistAppendListpack(o->ptr, list);
+            } else if (ziplistValidateIntegrity(list, encoded_len, deep_integrity_validation, NULL, NULL)) {
+                /* If 'deep_integrity_validation' is 1, We will convert ziplist
+                 * directly to listpack, else we will add ziplist to quicklist,
+                 * and convert it to listpack when it is accessed. */
+                if (deep_integrity_validation) {
+                    quicklistAppendValuesFromZiplist(o->ptr, list);
+                } else {
+                    quicklistAppendZiplist(o->ptr, list);
+                }
+            } else {
+                rdbReportCorruptRDB("Listpack or ziplist integrity check failed.");
                 decrRefCount(o);
-                zfree(zl);
+                zfree(list);
                 return NULL;
             }
-            quicklistAppendZiplist(o->ptr, zl);
         }
     } else if (rdbtype == RDB_TYPE_HASH_ZIPMAP  ||
                rdbtype == RDB_TYPE_LIST_ZIPLIST ||
@@ -1886,8 +1896,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                 }
                 break;
             case RDB_TYPE_LIST_ZIPLIST:
-                if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-                if (!ziplistValidateIntegrity(encoded, encoded_len, deep_integrity_validation, NULL, NULL)) {
+                /* Since we don't keep ziplists anymore, the rdb loading for these
+                 * is O(n) anyway, use `deep` validation. */
+                if (!ziplistValidateIntegrity(encoded, encoded_len, 1, NULL, NULL)) {
                     rdbReportCorruptRDB("List ziplist integrity check failed.");
                     zfree(encoded);
                     o->ptr = NULL;
