@@ -1803,7 +1803,6 @@ void redisSetCpuAffinity(const char *cpulist);
 
 /* networking.c -- Networking and Client related operations */
 client *createClient(connection *conn);
-void closeTimedoutClients(void);
 void freeClient(client *c);
 void freeClientAsync(client *c);
 void resetClient(client *c);
@@ -1817,7 +1816,6 @@ void setDeferredAttributeLen(client *c, void *node, long length);
 void setDeferredPushLen(client *c, void *node, long length);
 void processInputBuffer(client *c);
 void processGopherRequest(client *c);
-void acceptHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void acceptTLSHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask);
@@ -1879,7 +1877,6 @@ void unpauseClients(void);
 int areClientsPaused(void);
 int checkClientPauseTimeoutAndReturnIfPaused(void);
 void processEventsWhileBlocked(void);
-void loadingCron(void);
 void whileBlockedCron();
 void blockingOperationStarts();
 void blockingOperationEnds();
