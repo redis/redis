@@ -1946,8 +1946,8 @@ int main(int argc, const char **argv) {
         }
 
         if (test_is_selected("lrange") || test_is_selected("lrange_500")) {
-            len = redisFormatCommand(&cmd,"LRANGE mylist%s 0 449",tag);
-            benchmark("LRANGE_500 (first 450 elements)",cmd,len);
+            len = redisFormatCommand(&cmd,"LRANGE mylist%s 0 499",tag);
+            benchmark("LRANGE_500 (first 500 elements)",cmd,len);
             free(cmd);
         }
 
@@ -1974,6 +1974,7 @@ int main(int argc, const char **argv) {
         if (!config.csv) printf("\n");
     } while(config.loop);
 
+    zfree(data);
     if (config.redis_config != NULL) freeRedisConfig(config.redis_config);
 
     return 0;
