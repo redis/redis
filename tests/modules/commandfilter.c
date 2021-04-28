@@ -52,7 +52,7 @@ int CommandFilter_LogCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         RedisModule_StringAppendBuffer(ctx, s, arg, arglen);
     }
 
-    RedisModuleKey *log = RedisModule_OpenKey(ctx, log_key_name, REDISMODULE_WRITE|REDISMODULE_READ);
+    RedisModuleKey *log = RedisModule_OpenKey(ctx, log_key_name, REDISMODULE_WRITE);
     RedisModule_ListPush(log, REDISMODULE_LIST_HEAD, s);
     RedisModule_CloseKey(log);
     RedisModule_FreeString(ctx, s);
