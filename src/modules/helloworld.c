@@ -62,8 +62,7 @@ int HelloPushNative_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, 
 {
     if (argc != 3) return RedisModule_WrongArity(ctx);
 
-    RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],
-        REDISMODULE_READ|REDISMODULE_WRITE);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],REDISMODULE_WRITE);
 
     RedisModule_ListPush(key,REDISMODULE_LIST_TAIL,argv[2]);
     size_t newlen = RedisModule_ValueLength(key);
@@ -134,10 +133,8 @@ int HelloListSumLen_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, 
 int HelloListSplice_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 4) return RedisModule_WrongArity(ctx);
 
-    RedisModuleKey *srckey = RedisModule_OpenKey(ctx,argv[1],
-        REDISMODULE_READ|REDISMODULE_WRITE);
-    RedisModuleKey *dstkey = RedisModule_OpenKey(ctx,argv[2],
-        REDISMODULE_READ|REDISMODULE_WRITE);
+    RedisModuleKey *srckey = RedisModule_OpenKey(ctx,argv[1],REDISMODULE_WRITE);
+    RedisModuleKey *dstkey = RedisModule_OpenKey(ctx,argv[2],REDISMODULE_WRITE);
 
     /* Src and dst key must be empty or lists. */
     if ((RedisModule_KeyType(srckey) != REDISMODULE_KEYTYPE_LIST &&
@@ -181,10 +178,8 @@ int HelloListSpliceAuto_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **ar
 
     RedisModule_AutoMemory(ctx);
 
-    RedisModuleKey *srckey = RedisModule_OpenKey(ctx,argv[1],
-        REDISMODULE_READ|REDISMODULE_WRITE);
-    RedisModuleKey *dstkey = RedisModule_OpenKey(ctx,argv[2],
-        REDISMODULE_READ|REDISMODULE_WRITE);
+    RedisModuleKey *srckey = RedisModule_OpenKey(ctx,argv[1],REDISMODULE_WRITE);
+    RedisModuleKey *dstkey = RedisModule_OpenKey(ctx,argv[2],REDISMODULE_WRITE);
 
     /* Src and dst key must be empty or lists. */
     if ((RedisModule_KeyType(srckey) != REDISMODULE_KEYTYPE_LIST &&
@@ -279,8 +274,7 @@ int HelloRepl2_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     if (argc != 2) return RedisModule_WrongArity(ctx);
 
     RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
-    RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],
-        REDISMODULE_READ|REDISMODULE_WRITE);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],REDISMODULE_WRITE);
 
     if (RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_LIST)
         return RedisModule_ReplyWithError(ctx,REDISMODULE_ERRORMSG_WRONGTYPE);
@@ -314,8 +308,7 @@ int HelloRepl2_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 int HelloToggleCase_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 2) return RedisModule_WrongArity(ctx);
 
-    RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],
-        REDISMODULE_READ|REDISMODULE_WRITE);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],REDISMODULE_WRITE);
 
     int keytype = RedisModule_KeyType(key);
     if (keytype != REDISMODULE_KEYTYPE_STRING &&
@@ -356,8 +349,7 @@ int HelloMoreExpire_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, 
     if (RedisModule_StringToLongLong(argv[2],&addms) != REDISMODULE_OK)
         return RedisModule_ReplyWithError(ctx,"ERR invalid expire time");
 
-    RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],
-        REDISMODULE_READ|REDISMODULE_WRITE);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],REDISMODULE_WRITE);
     expire = RedisModule_GetExpire(key);
     if (expire != REDISMODULE_NO_EXPIRE) {
         expire += addms;
@@ -382,8 +374,7 @@ int HelloZsumRange_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
         return RedisModule_ReplyWithError(ctx,"ERR invalid range");
     }
 
-    RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],
-        REDISMODULE_READ|REDISMODULE_WRITE);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],REDISMODULE_WRITE);
     if (RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_ZSET) {
         return RedisModule_ReplyWithError(ctx,REDISMODULE_ERRORMSG_WRONGTYPE);
     }
@@ -432,8 +423,7 @@ int HelloLexRange_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
     if (argc != 6) return RedisModule_WrongArity(ctx);
 
-    RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],
-        REDISMODULE_READ|REDISMODULE_WRITE);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],REDISMODULE_WRITE);
     if (RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_ZSET) {
         return RedisModule_ReplyWithError(ctx,REDISMODULE_ERRORMSG_WRONGTYPE);
     }
@@ -469,8 +459,7 @@ int HelloHCopy_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
 
     if (argc != 4) return RedisModule_WrongArity(ctx);
-    RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],
-        REDISMODULE_READ|REDISMODULE_WRITE);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],REDISMODULE_WRITE);
     int type = RedisModule_KeyType(key);
     if (type != REDISMODULE_KEYTYPE_HASH &&
         type != REDISMODULE_KEYTYPE_EMPTY)

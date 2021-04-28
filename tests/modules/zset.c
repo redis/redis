@@ -8,7 +8,7 @@
 int zset_rem(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 3) return RedisModule_WrongArity(ctx);
     RedisModule_AutoMemory(ctx);
-    int keymode = REDISMODULE_READ | REDISMODULE_WRITE;
+    int keymode = REDISMODULE_WRITE;
     RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], keymode);
     int deleted;
     if (RedisModule_ZsetRem(key, argv[2], &deleted) == REDISMODULE_OK)

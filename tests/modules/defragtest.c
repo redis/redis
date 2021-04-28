@@ -95,8 +95,7 @@ static int fragCreateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     if (argc != 5)
         return RedisModule_WrongArity(ctx);
 
-    RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],
-                                              REDISMODULE_READ|REDISMODULE_WRITE);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],REDISMODULE_WRITE);
     int type = RedisModule_KeyType(key);
     if (type != REDISMODULE_KEYTYPE_EMPTY)
     {

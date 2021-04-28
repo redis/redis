@@ -111,7 +111,7 @@ int stream_range(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
 
     /* Open key and start iterator. */
-    int openflags = REDISMODULE_READ | REDISMODULE_WRITE;
+    int openflags = REDISMODULE_WRITE;
     RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], openflags);
     if (RedisModule_StreamIteratorStart(key, flags,
                                         &startid, &endid) != REDISMODULE_OK) {
