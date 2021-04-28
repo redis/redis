@@ -818,7 +818,7 @@ int64_t commandFlagsFromString(char *s) {
 }
 
 /* Register a new command in the Redis server, that will be handled by
- * calling the function pointer 'func' using the RedisModule calling
+ * calling the function pointer 'cmdfunc' using the RedisModule calling
  * convention. The function returns REDISMODULE_ERR if the specified command
  * name is already busy or a set of invalid flags were passed, otherwise
  * REDISMODULE_OK is returned and the new command is registered.
@@ -876,6 +876,18 @@ int64_t commandFlagsFromString(char *s) {
  *                     to authenticate a client. 
  * * **"may-replicate"**: This command may generate replication traffic, even
  *                        though it's not a write command.  
+ *
+ * The last three parameters specify which arguments of the new command are
+ * Redis keys.
+ *
+ * * 'firstkey': One-based index of the first argument that's a key.
+ *               0 for commands with no keys.
+ * * 'lastkey':  One-based index of the last argument that's a key.
+ *               0 for commands with no keys.
+ * * 'keystep':  Step between first and last key indexes.
+ *               0 for commands with no keys.
+ *
+ * This information is used by ACL, Cluster and the 'COMMAND' command.
  */
 int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
     int64_t flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
