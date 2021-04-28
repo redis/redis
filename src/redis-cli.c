@@ -844,7 +844,9 @@ static int cliConnect(int flags) {
             cliRefreshPrompt();
         }
 
-        if (config.hostsocket == NULL) {
+        /* Do not use hostsocket when we got redirected in cluster mode */
+        if (config.hostsocket == NULL ||
+            (config.cluster_mode && config.cluster_reissue_command)) {
             context = redisConnect(config.hostip,config.hostport);
         } else {
             context = redisConnectUnix(config.hostsocket);
