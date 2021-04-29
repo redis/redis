@@ -43,6 +43,7 @@ start_server {tags {"obuf-limits"}} {
             set omem 0
             set start_time 0
             set time_elapsed 0
+            set last_under_limit_time [clock milliseconds]
             while 1 {
                 r publish foo [string repeat "x" 1000]
                 set clients [split [r client list] "\r\n"]
@@ -60,13 +61,14 @@ start_server {tags {"obuf-limits"}} {
                     assert {[regexp {omem=([0-9]+)} $c - omem]}
                 }
                 if {$omem > 100000} {
-                    if {$start_time == 0} {set start_time [clock milliseconds]}
+                    if {$start_time == 0} {set start_time $last_under_limit_time}
                     if {!$wait_for_timeout && $time_elapsed >= [expr $soft_limit_time-1000]} break
                     # Slow down loop when omem has reached the limit.
                     after 10
                 } else {
                     # if the OS socket buffers swallowed what we previously filled, reset the start timer.
                     set start_time 0
+                    set last_under_limit_time [clock milliseconds]
                 }
             }
 
