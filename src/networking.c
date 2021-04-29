@@ -37,6 +37,7 @@
 
 static void setProtocolError(const char *errstr, client *c);
 int postponeClientRead(client *c);
+int checkClientOutputBufferLimits(client *c);
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
 
 /* Return the size consumed from the allocator, for the specified SDS string,
@@ -1579,6 +1580,10 @@ int writeToClient(client *c, int handler_installed) {
             return C_ERR;
         }
     }
+
+    if (c->obuf_soft_limit_reached_time && !checkClientOutputBufferLimits(c))
+        queueClientForReprocessing(c);
+
     return C_OK;
 }
 
@@ -2069,6 +2074,9 @@ void processInputBuffer(client *c) {
          * The same applies for clients we want to terminate ASAP. */
         if (c->flags & (CLIENT_CLOSE_AFTER_REPLY|CLIENT_CLOSE_ASAP)) break;
 
+        /* If the client reached the soft limit, don't process any more commands */
+        if (c->obuf_soft_limit_reached_time && !(c->flags & CLIENT_SLAVE)) break;
+
         /* Determine request type when unknown. */
         if (!c->reqtype) {
             if (c->querybuf[c->qb_pos] == '*') {
@@ -2117,14 +2125,6 @@ void processInputBuffer(client *c) {
                  * ASAP in that case. */
                 return;
             }
-        }
-
-        /* If the client reached the soft limit, break so that we can write
-         * some data into the socket and process the rest of the pipeline
-         * on the next event. */
-        if (c->obuf_soft_limit_reached_time) {
-            queueClientForReprocessing(c);
-            break;
         }
     }
 
@@ -3196,11 +3196,17 @@ int checkClientOutputBufferLimits(client *c) {
      * like normal clients. */
     if (class == CLIENT_TYPE_MASTER) class = CLIENT_TYPE_NORMAL;
 
-    if (server.client_obuf_limits[class].hard_limit_bytes &&
-        used_mem >= server.client_obuf_limits[class].hard_limit_bytes)
+    /* convert limits from negative values to % of maxmemory if needed */
+    long long hard_limit_bytes = server.client_obuf_limits[class].hard_limit >= 0 ?
+        server.client_obuf_limits[class].hard_limit:
+        server.client_obuf_limits[class].hard_limit * (long long)server.maxmemory / -100;
+    long long soft_limit_bytes = server.client_obuf_limits[class].soft_limit >= 0 ?
+        server.client_obuf_limits[class].soft_limit:
+        server.client_obuf_limits[class].soft_limit * (long long)server.maxmemory / -100;
+
+    if (hard_limit_bytes > 0 && used_mem >= (unsigned long long)hard_limit_bytes)
         hard = 1;
-    if (server.client_obuf_limits[class].soft_limit_bytes &&
-        used_mem >= server.client_obuf_limits[class].soft_limit_bytes)
+    if (soft_limit_bytes > 0 && used_mem >= (unsigned long long)soft_limit_bytes)
         soft = 1;
 
     /* We need to check if the soft limit is reached continuously for the

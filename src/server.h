@@ -1017,8 +1017,8 @@ typedef struct zset {
 } zset;
 
 typedef struct clientBufferLimitsConfig {
-    unsigned long long hard_limit_bytes;
-    unsigned long long soft_limit_bytes;
+    long long hard_limit; /* positive is in bytes, negative is % of maxmemory */
+    long long soft_limit; /* positive is in bytes, negative is % of maxmemory */
     time_t soft_limit_seconds;
 } clientBufferLimitsConfig;
 
