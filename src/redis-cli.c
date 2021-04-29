@@ -663,7 +663,7 @@ static void cliOutputHelp(int argc, char **argv) {
         help = entry->org;
         if (group == -1) {
             /* Compare all arguments */
-            if (argc == entry->argc) {
+            if (argc <= entry->argc) {
                 for (j = 0; j < argc; j++) {
                     if (strcasecmp(argv[j],entry->argv[j]) != 0) break;
                 }
