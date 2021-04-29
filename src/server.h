@@ -1766,6 +1766,8 @@ typedef struct listContainerType {
     unsigned char *(*listDelete)(unsigned char *l, unsigned char **p);
     unsigned char *(*listFind)(unsigned char *lp, unsigned char *p, unsigned char *s, unsigned int slen, unsigned int skip);
     void (*listRandomPair)(unsigned char *l, unsigned long total_count, ziplistEntry *key, ziplistEntry *val);
+    void (*listRandomPairs)(unsigned char *zl, unsigned int count, ziplistEntry *keys, ziplistEntry *vals);
+    unsigned int  (*listRandomPairsUnique)(unsigned char *zl, unsigned int count, ziplistEntry *keys, ziplistEntry *vals);
 } listContainerType;
 
 extern listContainerType listContainerZiplist;
@@ -2318,6 +2320,7 @@ robj *hashTypeGetValueObject(robj *o, sds field);
 int hashTypeSet(robj *o, sds field, sds value, int flags);
 robj *hashTypeDup(robj *o);
 int hashZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep);
+int hashListpackValidateIntegrity(unsigned char *lp, size_t size, int deep);
 
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(client *c, int notify);

@@ -37,7 +37,7 @@
 
 #include <stdlib.h>
 #include <stdint.h>
-#include "ziplist.h" // todo: will be deleted
+#include "ziplist.h" // todo: will be deleted, for ziplistEntry
 
 #define LP_INTBUF_SIZE 21 /* 20 digits of -2^63 + 1 null term = 21. */
 

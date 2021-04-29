@@ -65,7 +65,7 @@ int hashTypeGetFromZiplist(robj *o, sds field,
 
     serverAssert(o->encoding == OBJ_ENCODING_ZIPLIST || o->encoding == OBJ_ENCODING_LISTPACK);
 
-    listContainerType *lct = (o->encoding == OBJ_ENCODING_ZIPLIST) ? &listContainerZiplist : &listContainerZiplist;
+    listContainerType *lct = (o->encoding == OBJ_ENCODING_ZIPLIST) ? &listContainerZiplist : &listContainerListpack;
 
     zl = o->ptr;
     fptr = lct->listIndex(zl, 0);
@@ -210,7 +210,7 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
     if (o->encoding == OBJ_ENCODING_ZIPLIST || o->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl, *fptr, *vptr;
         listContainerType *lct = 
-            (o->encoding == OBJ_ENCODING_ZIPLIST) ? &listContainerZiplist : &listContainerZiplist;
+            (o->encoding == OBJ_ENCODING_ZIPLIST) ? &listContainerZiplist : &listContainerListpack;
 
         zl = o->ptr;
         fptr = lct->listIndex(zl, 0);
@@ -283,7 +283,7 @@ int hashTypeDelete(robj *o, sds field) {
 
     if (o->encoding == OBJ_ENCODING_ZIPLIST || o->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl, *fptr;
-        listContainerType *lct = (o->encoding == OBJ_ENCODING_ZIPLIST) ? &listContainerZiplist : &listContainerZiplist;
+        listContainerType *lct = (o->encoding == OBJ_ENCODING_ZIPLIST) ? &listContainerZiplist : &listContainerListpack;
 
         zl = o->ptr;
         fptr = lct->listIndex(zl, 0);
@@ -314,8 +314,8 @@ int hashTypeDelete(robj *o, sds field) {
 unsigned long hashTypeLength(const robj *o) {
     unsigned long length = ULONG_MAX;
 
-    if (o->encoding == OBJ_ENCODING_ZIPLIST || o->encoding == OBJ_ENCODING_ZIPLIST) {
-        listContainerType *lct = (o->encoding == OBJ_ENCODING_ZIPLIST) ? &listContainerZiplist : &listContainerZiplist;
+    if (o->encoding == OBJ_ENCODING_ZIPLIST || o->encoding == OBJ_ENCODING_LISTPACK) {
+        listContainerType *lct = (o->encoding == OBJ_ENCODING_ZIPLIST) ? &listContainerZiplist : &listContainerListpack;
         length = lct->listLen(o->ptr) / 2;
     } else if (o->encoding == OBJ_ENCODING_HT) {
         length = dictSize((const dict*)o->ptr);
@@ -354,7 +354,7 @@ int hashTypeNext(hashTypeIterator *hi) {
         unsigned char *zl;
         unsigned char *fptr, *vptr;
         listContainerType *lct =
-            hi->encoding == OBJ_ENCODING_ZIPLIST ? &listContainerZiplist : &listContainerListpack;
+            (hi->encoding == OBJ_ENCODING_ZIPLIST) ? &listContainerZiplist : &listContainerListpack;
 
         zl = hi->subject->ptr;
         fptr = hi->fptr;
@@ -531,7 +531,7 @@ robj *hashTypeDup(robj *o) {
         unsigned char *new_zl = zmalloc(sz);
         memcpy(new_zl, zl, sz);
         hobj = createObject(OBJ_HASH, new_zl);
-        hobj->encoding = OBJ_ENCODING_ZIPLIST;
+        hobj->encoding = o->encoding;
     } else if(o->encoding == OBJ_ENCODING_HT){
         dict *d = dictCreate(&hashDictType, NULL);
         dictExpand(d, dictSize((const dict*)o->ptr));
@@ -585,6 +585,32 @@ static int _hashZiplistEntryValidation(unsigned char *p, void *userdata) {
     return 1;
 }
 
+/* callback for to check the listpack doesn't have duplicate records */
+static int _hashListpackEntryValidation(unsigned char *p, void *userdata) {
+    unsigned char buf[LP_INTBUF_SIZE];
+
+    struct {
+        long count;
+        dict *fields;
+    } *data = userdata;
+
+    /* Odd records are field names, add to dict and check that's not a dup */
+    if (((data->count) & 1) == 0) {
+        unsigned char *str;
+        int64_t slen;
+        str = lpGet(p, &slen, buf);
+        sds field = sdsnewlen(str, slen);
+        if (dictAdd(data->fields, field, NULL) != DICT_OK) {
+            /* Duplicate, return an error */
+            sdsfree(field);
+            return 0;
+        }
+    }
+
+    (data->count)++;
+    return 1;
+}
+
 /* Validate the integrity of the data structure.
  * when `deep` is 0, only the integrity of the header is validated.
  * when `deep` is 1, we scan all the entries one by one. */
@@ -599,6 +625,29 @@ int hashZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep) {
     } data = {0, dictCreate(&hashDictType, NULL)};
 
     int ret = ziplistValidateIntegrity(zl, size, 1, _hashZiplistEntryValidation, &data);
+
+    /* make sure we have an even number of records. */
+    if (data.count & 1)
+        ret = 0;
+
+    dictRelease(data.fields);
+    return ret;
+}
+
+/* Validate the integrity of the listpack structure.
+ * when `deep` is 0, only the integrity of the header is validated.
+ * when `deep` is 1, we scan all the entries one by one. */
+int hashListpackValidateIntegrity(unsigned char *lp, size_t size, int deep) {
+    if (!deep)
+        return lpValidateIntegrity(lp, size, 0, NULL, NULL);
+
+    /* Keep track of the field names to locate duplicate ones */
+    struct {
+        long count;
+        dict *fields;
+    } data = {0, dictCreate(&hashDictType, NULL)};
+
+    int ret = lpValidateIntegrity(lp, size, 1, _hashListpackEntryValidation, &data);
 
     /* make sure we have an even number of records. */
     if (data.count & 1)
@@ -1041,6 +1090,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
                     addReplyBulkCBuffer(c, value, sdslen(value));
             }
         } else if (hash->encoding == OBJ_ENCODING_ZIPLIST || hash->encoding == OBJ_ENCODING_LISTPACK) {
+            listContainerType *lct = (hash->encoding == OBJ_ENCODING_ZIPLIST) ? &listContainerZiplist : &listContainerListpack;
             ziplistEntry *keys, *vals = NULL;
             unsigned long limit, sample_count;
             limit = count > HRANDFIELD_RANDOM_SAMPLE_LIMIT ? HRANDFIELD_RANDOM_SAMPLE_LIMIT : count;
@@ -1050,7 +1100,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
             while (count) {
                 sample_count = count > limit ? limit : count;
                 count -= sample_count;
-                ziplistRandomPairs(hash->ptr, sample_count, keys, vals);
+                lct->listRandomPairs(hash->ptr, sample_count, keys, vals);
                 harndfieldReplyWithZiplist(c, sample_count, keys, vals);
             }
             zfree(keys);
@@ -1146,13 +1196,14 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
      * to reach the specified count. */
     else {
         if (hash->encoding == OBJ_ENCODING_ZIPLIST || hash->encoding == OBJ_ENCODING_LISTPACK) {
+            listContainerType *lct = (hash->encoding == OBJ_ENCODING_ZIPLIST) ? &listContainerZiplist : &listContainerListpack;
             /* it is inefficient to repeatedly pick one random element from a
              * ziplist. so we use this instead: */
             ziplistEntry *keys, *vals = NULL;
             keys = zmalloc(sizeof(ziplistEntry)*count);
             if (withvalues)
                 vals = zmalloc(sizeof(ziplistEntry)*count);
-            serverAssert(ziplistRandomPairsUnique(hash->ptr, count, keys, vals) == count);
+            serverAssert(lct->listRandomPairsUnique(hash->ptr, count, keys, vals) == count);
             harndfieldReplyWithZiplist(c, count, keys, vals);
             zfree(keys);
             zfree(vals);

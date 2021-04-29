@@ -30,6 +30,8 @@ listContainerType listContainerZiplist = {
     ziplistDelete,
     ziplistFind,
     ziplistRandomPair,
+    ziplistRandomPairs,
+    ziplistRandomPairsUnique,
 };
 
 listContainerType listContainerListpack = {
@@ -45,4 +47,6 @@ listContainerType listContainerListpack = {
     _lpDelete,
     lpFind,
     lpRandomPair,
+    lpRandomPairs,
+    lpRandomPairsUnique,
 };
