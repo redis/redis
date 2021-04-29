@@ -22,7 +22,7 @@ start_server {tags {"maxmemory"}} {
         for {set j 0} {$j < 50} {incr j} {
             r setrange $j 100000 x
         }
-        assert {[r dbsize] == 50}
+        assert_equal [r dbsize] 50
     }
     
     proc verify_test {client_eviction} {
@@ -30,10 +30,21 @@ start_server {tags {"maxmemory"}} {
         set evicted_clients [s evicted_clients]
         set dbsize [r dbsize]
         
+        if $::verbose {
+            puts "evicted keys: $evicted_keys"
+            puts "evicted clients: $evicted_clients"
+            puts "dbsize: $dbsize"
+        }
+        
         if $client_eviction {
-            assert {$evicted_clients > 0 && $evicted_keys == 0 && $dbsize == 50}
+            assert_morethan $evicted_clients 0
+            assert_equal $evicted_keys 0
+            assert_equal $dbsize 50
         } else {
             assert {$evicted_clients == 0 && $evicted_keys > 0 && $dbsize < 50}
+            assert_equal $evicted_clients 0
+            assert_morethan $evicted_keys 0
+            assert_lessthan $dbsize 50
         }
     }
 
@@ -92,7 +103,6 @@ start_server {tags {"maxmemory"}} {
                         $rr flush
                     }
                 }]} {
-                    puts "removing...."
                     lremove clients $rr
                 }
             }
