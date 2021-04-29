@@ -652,7 +652,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
     /* Trap options not compatible with STORE and STOREDIST. */
     if (storekey && (withdist || withhash || withcoords)) {
         addReplyErrorFormat(c,
-            "%s is not compatible with WITHDIST, WITHHASH and WITHCOORD options",
+            "%s is not compatible with WITHDIST, WITHHASH and WITHCOORDS options",
             flags & GEOSEARCHSTORE? "GEOSEARCHSTORE": "STORE option in GEORADIUS");
         return;
     }
