@@ -3,8 +3,6 @@
 #include "listpack.h"
 
 listContainerType listContainerZiplist = {
-    LIST_CONTAINER_ZIPLIST,
-    ziplistNew,
     ziplistLen,
     ziplistBlobLen,
     ziplistGet,
@@ -20,8 +18,6 @@ listContainerType listContainerZiplist = {
 };
 
 listContainerType listContainerListpack = {
-    LIST_CONTAINER_LISTPACK,
-//     lpEmpty,
 //     lpLength,
 //     lpBytes,
 //     lpGet,

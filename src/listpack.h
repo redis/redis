@@ -47,14 +47,10 @@
 #define LP_REPLACE 2
 
 unsigned char *lpNew(size_t capacity);
-unsigned char *lpEmpty();
 void lpFree(unsigned char *lp);
 unsigned char* lpShrinkToFit(unsigned char *lp);
-int lpEncodeGetType(unsigned char *s, uint32_t slen, unsigned char *intenc, uint64_t *enclen);
 unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, unsigned char *p, int where, unsigned char **newp);
-unsigned char *lpInsertBefore(unsigned char *lp, unsigned char *s, uint32_t slen, unsigned char *p);
 unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size); // todo: will replace by lpPushTail
-unsigned char *lpInsertAfter(unsigned char *lp, unsigned char *s, uint32_t slen, unsigned char *p);
 unsigned char *lpPushHead(unsigned char *lp, unsigned char *s, uint32_t slen);
 unsigned char *lpPushTail(unsigned char *lp, unsigned char *s, uint32_t slen);
 unsigned char *lpReplace(unsigned char *lp, unsigned char *s, uint32_t slen, unsigned char *p);
@@ -68,20 +64,13 @@ unsigned char *lpNext(unsigned char *lp, unsigned char *p);
 unsigned char *lpPrev(unsigned char *lp, unsigned char *p);
 uint32_t lpBytes(unsigned char *lp);
 unsigned char *lpSeek(unsigned char *lp, long index);
-void lpRepr(unsigned char *lp);
 typedef int (*listpackValidateEntryCB)(unsigned char *p, void *userdata);
 int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
                         listpackValidateEntryCB entry_cb, void *cb_userdata);
 int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes);
-unsigned char *lpMerge(unsigned char **first, unsigned char **second);
-unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned int num);
 unsigned int lpCompare(unsigned char *p, unsigned char *s, unsigned int slen);
 void lpRandomPair(unsigned char *lp, unsigned long total_count, ziplistEntry *key, ziplistEntry *val);
 void lpRandomPairs(unsigned char *lp, unsigned int count, ziplistEntry *keys, ziplistEntry *vals);
 unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, ziplistEntry *keys, ziplistEntry *vals);
-
-#ifdef REDIS_TEST
-int listpackTest(int argc, char *argv[], int accurate);
-#endif
 
 #endif

@@ -1754,8 +1754,6 @@ extern dictType sdsReplyDictType;
  *----------------------------------------------------------------------------*/
 
 typedef struct listContainerType {
-    unsigned int container : 2;  /* ZIPLIST==2, LISTPACK=3 */
-    unsigned char *(*listNew)();
     unsigned int (*listLen)(unsigned char *l);
     size_t (*listBlobLen)(unsigned char *l);
     unsigned int (*listGet)(unsigned char *p, unsigned char **vstr, unsigned int *vlen, long long *vll);
@@ -1769,9 +1767,6 @@ typedef struct listContainerType {
     unsigned char *(*listFind)(unsigned char *lp, unsigned char *p, unsigned char *s, unsigned int slen, unsigned int skip);
     void (*listRandomPair)(unsigned char *l, unsigned long total_count, ziplistEntry *key, ziplistEntry *val);
 } listContainerType;
-
-#define LIST_CONTAINER_ZIPLIST 1
-#define LIST_CONTAINER_LISTPACK 2
 
 extern listContainerType listContainerZiplist;
 extern listContainerType listContainerListpack;

@@ -229,11 +229,6 @@ unsigned char *lpNew(size_t capacity) {
     return lp;
 }
 
-/* Create an empty listpack. */
-unsigned char *lpEmpty() {
-    return lpNew(0);
-}
-
 /* Free the specified listpack. */
 void lpFree(unsigned char *lp) {
     lp_free(lp);
@@ -818,16 +813,6 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, un
     return lp;
 }
 
-/* Insert the specified element 's' of length 'slen' before the position of 'p'. */
-unsigned char *lpInsertBefore(unsigned char *lp, unsigned char *s, uint32_t slen, unsigned char *p) {
-    return lpInsert(lp, s, slen, p, LP_BEFORE, NULL);
-}
-
-/* Insert the specified element 's' of length 'slen' after the position of 'p'. */
-unsigned char *lpInsertAfter(unsigned char *lp, unsigned char *s, uint32_t slen, unsigned char *p) {
-    return lpInsert(lp, s, slen, p, LP_AFTER, NULL);
-}
-
 /* Append the specified element 'ele' of length 'len' at the end of the
  * listpack. It is implemented in terms of lpInsert(), so the return value is
  * the same as lpInsert(). */
@@ -920,59 +905,6 @@ unsigned char *lpSeek(unsigned char *lp, long index) {
     }
 }
 
-/* Print info of listpack which is used in debugCommand */
-void lpRepr(unsigned char *lp) {
-    unsigned char *p;
-    unsigned char *vstr;
-    int64_t ele_len;
-    unsigned char intbuf[LP_INTBUF_SIZE];
-    int index = 0;
-
-    printf("{total bytes %u} {num entries %u}\n",
-           lpBytes(lp), lpLength(lp));
-        
-    p = lpFirst(lp);
-    while(p) {
-        uint32_t encoded_size_bytes = lpCurrentEncodedSizeBytes(p);
-        uint32_t encoded_size = lpCurrentEncodedSizeUnsafe(p);
-        unsigned long back_len = lpEncodeBacklen(NULL, encoded_size);
-        printf(
-            "{\n"
-                "\taddr: 0x%08lx,\n"
-                "\tindex: %2d,\n"
-                "\toffset: %1lu,\n"
-                "\thdr+entrylen+backlen: %2lu,\n"
-                "\thdrlen: %3u,\n"
-                "\tbacklen: %2lu,\n"
-                "\tentrylen: %1u\n",
-            (long unsigned)p,
-            index,
-            (unsigned long) (p-lp),
-            encoded_size + back_len,
-            encoded_size_bytes,
-            back_len,
-            encoded_size - encoded_size_bytes);
-        printf("\tbytes: ");
-        for (unsigned int i = 0; i < (encoded_size + back_len); i++) {
-            printf("%02x|",p[i]);
-        }
-        printf("\n");
-
-        vstr = lpGet(p, &ele_len, intbuf);
-        printf("\t[str]");
-        if (ele_len > 40) {
-            if (fwrite(vstr, 40, 1, stdout) == 0) perror("fwrite");
-            printf("...");
-        } else {
-            if (fwrite(vstr, ele_len, 1, stdout) == 0) perror("fwrite");
-        }
-        printf("\n}\n");
-        index++;
-        p = lpNext(lp, p);
-    }
-    printf("{end}\n\n");
-}
-
 /* Validate the integrity of a single listpack entry and move to the next one.
  * The input argument 'pp' is a reference to the current record and is advanced on exit.
  * Returns 1 if valid, 0 if invalid. */
@@ -1060,120 +992,6 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
         return 0;
 
     return 1;
-}
-
-unsigned char *lpMerge(unsigned char **first, unsigned char **second) {
-    /* If any params are null, we can't merge, so NULL. */
-    if (first == NULL || *first == NULL || second == NULL || *second == NULL)
-        return NULL;
-
-    /* Can't merge same list into itself. */
-    if (*first == *second)
-        return NULL;
-
-    uint32_t first_bytes = lpBytes(*first);
-    uint32_t first_len = lpLength(*first);
-
-    uint32_t second_bytes = lpBytes(*second);
-    uint32_t second_len = lpLength(*second);
-
-    int append;
-    unsigned char *source, *target;
-    uint32_t target_bytes, source_bytes;
-    /* Pick the largest listpack so we can resize easily in-place.
-     * We must also track if we are now appending or prepending to
-     * the target listpack. */
-    if (first_len >= second_len) {
-        /* retain first, append second to first. */
-        target = *first;
-        target_bytes = first_bytes;
-        source = *second;
-        source_bytes = second_bytes;
-        append = 1;
-    } else {
-        /* else, retain second, prepend first to second. */
-        target = *second;
-        target_bytes = second_bytes;
-        source = *first;
-        source_bytes = first_bytes;
-        append = 0;
-    }
-
-    /* Calculate final bytes (subtract one pair of metadata) */
-    uint32_t lpbytes = first_bytes + second_bytes - LP_HDR_SIZE - 1;
-    uint32_t lplength = first_len + second_len;
-
-    /* Extend target to new lpbytes then append or prepend source. */
-    target = zrealloc(target, lpbytes);
-    if (append) {
-        /* append == appending to target */
-        /* Copy source after target (copying over original [END]):
-         *   [TARGET - END, SOURCE - HEADER] */
-        memcpy(target + target_bytes - 1,
-               source + LP_HDR_SIZE,
-               source_bytes - LP_HDR_SIZE);
-    } else {
-        /* !append == prepending to target */
-        /* Move target *contents* exactly size of (source - [END]),
-         * then copy source into vacated space (source - [END]):
-         *   [SOURCE - END, TARGET - HEADER] */
-        memmove(target + source_bytes - 1,
-                target + LP_HDR_SIZE,
-                target_bytes - LP_HDR_SIZE);
-        memcpy(target, source, source_bytes - 1);
-    }
-
-    lpSetTotalBytes(target, lpbytes);
-    lpSetNumElements(target, lplength);
-
-    /* Now free and NULL out what we didn't realloc */
-    if (append) {
-        zfree(*second);
-        *second = NULL;
-        *first = target;
-    } else {
-        zfree(*first);
-        *first = NULL;
-        *second = target;
-    }
-
-    return target;
-}
-
-/* Delete a range of entries from the listpack. */
-unsigned char *lpDeleteRange(unsigned char *lp, long index, uint32_t num) {
-    uint32_t len = lpLength(lp);
-    uint32_t bytes = lpBytes(lp);
-
-    unsigned char *p = lpSeek(lp, index);
-    if (p == NULL) return lp;
-
-    /* Note that index could overflow, but we use the value
-     * after seek, so when we use it no overflow happens. */
-    if (index < 0) index = (long)len + index;
-    if ((len - (uint32_t)index) <= num) {
-        /* When deleted num is out of range, we just need
-         * to set LP_EOF, and resize listpack. */
-        p[0] = LP_EOF;
-        lpSetTotalBytes(lp, p - lp + 1);
-        lpSetNumElements(lp, index);
-    } else {
-        unsigned char *eofptr = lp + bytes - 1;
-        unsigned char *first = p;
-
-        /* Find the last entry that is needed to delete to. */
-        for (unsigned int i = 0; i < num; i++) {
-            p = lpSkip(p);
-            assert(p[0] != LP_EOF);
-        }
-
-        memmove(first, p, eofptr - p + 1);
-        lpSetTotalBytes(lp, bytes - (p - first));
-        lpSetNumElements(lp, len - num);
-    }
-
-    lp = lpShrinkToFit(lp);
-    return lp;
 }
 
 unsigned int lpCompare(unsigned char *p, unsigned char *s, unsigned int slen) {
