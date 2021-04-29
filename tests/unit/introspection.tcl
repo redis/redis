@@ -27,8 +27,8 @@ start_server {tags {"introspection"}} {
         $rd monitor
         $rd read ;# Discard the OK
         r eval {redis.call('set',KEYS[1],ARGV[1])} 1 foo bar
-        assert_match {*lua*"set"*"foo"*"bar"*} [$rd read]
         assert_match {*eval*} [$rd read]
+        assert_match {*lua*"set"*"foo"*"bar"*} [$rd read]
     }
 
     test {MONITOR supports redacting command arguments} {
