@@ -663,6 +663,7 @@ typedef struct RedisModuleDigest {
 #define OBJ_ENCODING_EMBSTR 8  /* Embedded sds string encoding */
 #define OBJ_ENCODING_QUICKLIST 9 /* Encoded as linked list of ziplists */
 #define OBJ_ENCODING_STREAM 10 /* Encoded as a radix tree of listpacks */
+#define OBJ_ENCODING_LISTPACK 11 /* Encoded as a listpack */
 
 #define LRU_BITS 24
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
@@ -1726,6 +1727,7 @@ typedef struct {
 #define OBJ_HASH_KEY 1
 #define OBJ_HASH_VALUE 2
 
+
 /*-----------------------------------------------------------------------------
  * Extern declarations
  *----------------------------------------------------------------------------*/
@@ -1746,6 +1748,33 @@ extern dictType replScriptCacheDictType;
 extern dictType dbExpiresDictType;
 extern dictType modulesDictType;
 extern dictType sdsReplyDictType;
+
+/*-----------------------------------------------------------------------------
+ * List declarations
+ *----------------------------------------------------------------------------*/
+
+typedef struct listContainerType {
+    unsigned int container : 2;  /* ZIPLIST==2, LISTPACK=3 */
+    unsigned char *(*listNew)();
+    uint32_t (*listLen)(unsigned char *l);
+    size_t (*listBlobLen)(unsigned char *l);
+    unsigned int (*listGet)(unsigned char *p, unsigned char **vstr, unsigned int *vlen, long long *vll);
+    unsigned char *(*listIndex)(unsigned char *l, int index);
+    unsigned char *(*listNext)(unsigned char *l, unsigned char *p);
+    unsigned char *(*listPrev)(unsigned char *l, unsigned char *p);
+    unsigned char *(*listPushHead)(unsigned char *l, unsigned char *s, uint32_t slen);
+    unsigned char *(*listPushTail)(unsigned char *l, unsigned char *s, uint32_t slen);
+    unsigned char *(*listReplace)(unsigned char *l, unsigned char *p, unsigned char *s, uint32_t slen);
+    unsigned char *(*listDelete)(unsigned char *l, unsigned char **p);
+    unsigned char *(*listFind)(unsigned char *lp, unsigned char *p, unsigned char *s, unsigned int slen, unsigned int skip);
+    void (*listRandomPair)(unsigned char *l, unsigned long total_count, ziplistEntry *key, ziplistEntry *val);
+} listContainerType;
+
+#define LIST_CONTAINER_ZIPLIST 1
+#define LIST_CONTAINER_LISTPACK 2
+
+extern listContainerType listContainerZiplist;
+extern listContainerType listContainerListpack;
 
 /*-----------------------------------------------------------------------------
  * Functions prototypes

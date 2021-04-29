@@ -1131,6 +1131,14 @@ unsigned char *ziplistPush(unsigned char *zl, unsigned char *s, unsigned int sle
     return __ziplistInsert(zl,p,s,slen);
 }
 
+unsigned char *ziplistPushHead(unsigned char *zl, unsigned char *s, unsigned int slen) {
+    return ziplistPush(zl, s, slen, ZIPLIST_HEAD);
+}
+
+unsigned char *ziplistPushTail(unsigned char *zl, unsigned char *s, unsigned int slen) {
+    return ziplistPush(zl, s, slen, ZIPLIST_TAIL);
+}
+
 /* Returns an offset to use for iterating with ziplistNext. When the given
  * index is negative, the list is traversed back to front. When the list
  * doesn't contain an element at the provided index, NULL is returned. */
