@@ -1978,7 +1978,7 @@ void checkChildrenDone(void) {
     }
 }
 
-/* Called from serverCron and loadingCron to update cached memory metrics. */
+/* Called from serverCron and cronUpdateMemoryStats to update cached memory metrics. */
 void cronUpdateMemoryStats() {
     /* Record the max memory used since the server was started. */
     if (zmalloc_used_memory() > server.stat_peak_memory)
