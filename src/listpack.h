@@ -53,11 +53,11 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, un
 unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size); // todo: will replace by lpPushTail
 unsigned char *lpPushHead(unsigned char *lp, unsigned char *s, uint32_t slen);
 unsigned char *lpPushTail(unsigned char *lp, unsigned char *s, uint32_t slen);
-unsigned char *lpReplace(unsigned char *lp, unsigned char *s, uint32_t slen, unsigned char *p);
+unsigned char *lpReplace(unsigned char *lp, unsigned char *p, unsigned char *s, uint32_t slen);
 unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **newp);
 uint32_t lpLength(unsigned char *lp);
 unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf);
-unsigned char *lpFind(unsigned char *lp, unsigned char *s, unsigned int slen, unsigned char *p, unsigned int skip);
+unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s, unsigned int slen, unsigned int skip);
 unsigned char *lpFirst(unsigned char *lp);
 unsigned char *lpLast(unsigned char *lp);
 unsigned char *lpNext(unsigned char *lp, unsigned char *p);

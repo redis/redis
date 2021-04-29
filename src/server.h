@@ -1754,10 +1754,10 @@ extern dictType sdsReplyDictType;
  *----------------------------------------------------------------------------*/
 
 typedef struct listContainerType {
-    unsigned int (*listLen)(unsigned char *l);
-    size_t (*listBlobLen)(unsigned char *l);
+    uint32_t (*listLen)(unsigned char *l);
+    uint32_t (*listBlobLen)(unsigned char *l);
     unsigned int (*listGet)(unsigned char *p, unsigned char **vstr, unsigned int *vlen, long long *vll);
-    unsigned char *(*listIndex)(unsigned char *l, int index);
+    unsigned char *(*listIndex)(unsigned char *l, long index);
     unsigned char *(*listNext)(unsigned char *l, unsigned char *p);
     unsigned char *(*listPrev)(unsigned char *l, unsigned char *p);
     unsigned char *(*listPushHead)(unsigned char *l, unsigned char *s, uint32_t slen);

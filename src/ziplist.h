@@ -48,7 +48,7 @@ unsigned char *ziplistMerge(unsigned char **first, unsigned char **second);
 unsigned char *ziplistPush(unsigned char *zl, unsigned char *s, unsigned int slen, int where);
 unsigned char *ziplistPushHead(unsigned char *zl, unsigned char *s, unsigned int slen);
 unsigned char *ziplistPushTail(unsigned char *zl, unsigned char *s, unsigned int slen);
-unsigned char *ziplistIndex(unsigned char *zl, int index);
+unsigned char *ziplistIndex(unsigned char *zl, long index);
 unsigned char *ziplistNext(unsigned char *zl, unsigned char *p);
 unsigned char *ziplistPrev(unsigned char *zl, unsigned char *p);
 unsigned int ziplistGet(unsigned char *p, unsigned char **sval, unsigned int *slen, long long *lval);
@@ -58,8 +58,8 @@ unsigned char *ziplistDeleteRange(unsigned char *zl, int index, unsigned int num
 unsigned char *ziplistReplace(unsigned char *zl, unsigned char *p, unsigned char *s, unsigned int slen);
 unsigned int ziplistCompare(unsigned char *p, unsigned char *s, unsigned int slen);
 unsigned char *ziplistFind(unsigned char *zl, unsigned char *p, unsigned char *vstr, unsigned int vlen, unsigned int skip);
-unsigned int ziplistLen(unsigned char *zl);
-size_t ziplistBlobLen(unsigned char *zl);
+uint32_t ziplistLen(unsigned char *zl);
+uint32_t ziplistBlobLen(unsigned char *zl);
 void ziplistRepr(unsigned char *zl);
 typedef int (*ziplistValidateEntryCB)(unsigned char* p, void* userdata);
 int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,

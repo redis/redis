@@ -625,8 +625,8 @@ unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf) {
 
 /* Find pointer to the entry equal to the specified entry. Skip 'skip' entries
  * between every comparison. Returns NULL when the field could not be found. */
-unsigned char *lpFind(unsigned char *lp, unsigned char *s, unsigned int slen, 
-                      unsigned char *p, unsigned int skip) {
+unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s, 
+                      unsigned int slen, unsigned int skip) {
     int skipcnt = 0;
 
     assert(p);
@@ -839,7 +839,7 @@ unsigned char *lpPushTail(unsigned char *lp, unsigned char *s, uint32_t slen) {
 }
 
 /* Remove the element pointed by 'p'. */
-unsigned char *lpReplace(unsigned char *lp, unsigned char *s, uint32_t slen, unsigned char *p) {
+unsigned char *lpReplace(unsigned char *lp, unsigned char *p, unsigned char *s, uint32_t slen) {
     return lpInsert(lp, s, slen, p, LP_REPLACE, NULL);
 }
 
