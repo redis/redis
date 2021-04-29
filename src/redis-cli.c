@@ -868,9 +868,11 @@ static int cliConnect(int flags) {
         if (context->err) {
             if (!(flags & CC_QUIET)) {
                 fprintf(stderr,"Could not connect to Redis at ");
-                if (config.hostsocket == NULL)
-                    fprintf(stderr,"%s:%d: %s\n",
+                if (config.hostsocket == NULL ||
+                    (config.cluster_mode && config.cluster_reissue_command)) {
+                    fprintf(stderr, "%s:%d: %s\n",
                         config.hostip,config.hostport,context->errstr);
+                }
                 else
                     fprintf(stderr,"%s: %s\n",
                         config.hostsocket,context->errstr);
@@ -1462,7 +1464,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
         }
         if (config.cluster_reissue_command){
             /* If we need to reissue the command, break to prevent a
-               further 'repeat' number of dud interations */
+               further 'repeat' number of dud interactions */
             break;
         }
         if (config.interval) usleep(config.interval);
@@ -2004,18 +2006,23 @@ static int issueCommandRepeat(int argc, char **argv, long repeat) {
             /* If we still cannot send the command print error.
              * We'll try to reconnect the next time. */
             if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
-                cliPrintContextError();
-                return REDIS_ERR;
+                goto error;
             }
         }
+
         /* Issue the command again if we got redirected in cluster mode */
         if (config.cluster_mode && config.cluster_reissue_command) {
-            cliConnect(CC_FORCE);
+            /* If cliConnect fails, sleep for a while and try again. */
+            if (cliConnect(CC_FORCE) != REDIS_OK) sleep(1);
         } else {
             break;
         }
     }
     return REDIS_OK;
+
+error:
+    cliPrintContextError();
+    return REDIS_ERR;
 }
 
 static int issueCommand(int argc, char **argv) {
