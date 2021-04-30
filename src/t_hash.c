@@ -62,10 +62,10 @@ int hashTypeGetFromZiplist(robj *o, sds field,
 {
     unsigned char *zl, *fptr = NULL, *vptr = NULL;
     int ret;
+    listContainerType *lct = (o->encoding == OBJ_ENCODING_ZIPLIST) ?
+        &listContainerZiplist : &listContainerListpack;
 
     serverAssert(o->encoding == OBJ_ENCODING_ZIPLIST || o->encoding == OBJ_ENCODING_LISTPACK);
-
-    listContainerType *lct = (o->encoding == OBJ_ENCODING_ZIPLIST) ? &listContainerZiplist : &listContainerListpack;
 
     zl = o->ptr;
     fptr = lct->listIndex(zl, 0);
@@ -209,8 +209,8 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
 
     if (o->encoding == OBJ_ENCODING_ZIPLIST || o->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl, *fptr, *vptr;
-        listContainerType *lct = 
-            (o->encoding == OBJ_ENCODING_ZIPLIST) ? &listContainerZiplist : &listContainerListpack;
+        listContainerType *lct = (o->encoding == OBJ_ENCODING_ZIPLIST) ?
+            &listContainerZiplist : &listContainerListpack;
 
         zl = o->ptr;
         fptr = lct->listIndex(zl, 0);
@@ -283,7 +283,8 @@ int hashTypeDelete(robj *o, sds field) {
 
     if (o->encoding == OBJ_ENCODING_ZIPLIST || o->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl, *fptr;
-        listContainerType *lct = (o->encoding == OBJ_ENCODING_ZIPLIST) ? &listContainerZiplist : &listContainerListpack;
+        listContainerType *lct = (o->encoding == OBJ_ENCODING_ZIPLIST) ?
+            &listContainerZiplist : &listContainerListpack;
 
         zl = o->ptr;
         fptr = lct->listIndex(zl, 0);
@@ -315,7 +316,8 @@ unsigned long hashTypeLength(const robj *o) {
     unsigned long length = ULONG_MAX;
 
     if (o->encoding == OBJ_ENCODING_ZIPLIST || o->encoding == OBJ_ENCODING_LISTPACK) {
-        listContainerType *lct = (o->encoding == OBJ_ENCODING_ZIPLIST) ? &listContainerZiplist : &listContainerListpack;
+        listContainerType *lct = (o->encoding == OBJ_ENCODING_ZIPLIST) ?
+            &listContainerZiplist : &listContainerListpack;
         length = lct->listLen(o->ptr) / 2;
     } else if (o->encoding == OBJ_ENCODING_HT) {
         length = dictSize((const dict*)o->ptr);
@@ -353,8 +355,8 @@ int hashTypeNext(hashTypeIterator *hi) {
     if (hi->encoding == OBJ_ENCODING_ZIPLIST || hi->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl;
         unsigned char *fptr, *vptr;
-        listContainerType *lct =
-            (hi->encoding == OBJ_ENCODING_ZIPLIST) ? &listContainerZiplist : &listContainerListpack;
+        listContainerType *lct = (hi->encoding == OBJ_ENCODING_ZIPLIST) ?
+            &listContainerZiplist : &listContainerListpack;
 
         zl = hi->subject->ptr;
         fptr = hi->fptr;
@@ -394,11 +396,11 @@ void hashTypeCurrentFromZiplist(hashTypeIterator *hi, int what,
                                 long long *vll)
 {
     int ret;
-    listContainerType *lct;
+    listContainerType *lct = (hi->encoding == OBJ_ENCODING_ZIPLIST) ?
+        &listContainerZiplist : &listContainerListpack;
         
     serverAssert(hi->encoding == OBJ_ENCODING_ZIPLIST || hi->encoding == OBJ_ENCODING_LISTPACK);
 
-    lct = (hi->encoding == OBJ_ENCODING_ZIPLIST) ? &listContainerZiplist : &listContainerListpack;
     if (what & OBJ_HASH_KEY) {
         ret = lct->listGet(hi->fptr, vstr, vlen, vll);
         serverAssert(ret);
@@ -524,8 +526,8 @@ robj *hashTypeDup(robj *o) {
     serverAssert(o->type == OBJ_HASH);
 
     if(o->encoding == OBJ_ENCODING_ZIPLIST || o->encoding == OBJ_ENCODING_LISTPACK) {
-        listContainerType *lct = 
-            (o->encoding == OBJ_ENCODING_ZIPLIST) ? &listContainerZiplist : &listContainerListpack;
+        listContainerType *lct = (o->encoding == OBJ_ENCODING_ZIPLIST) ?
+            &listContainerZiplist : &listContainerListpack;
         unsigned char *zl = o->ptr;
         size_t sz = lct->listBlobLen(zl);
         unsigned char *new_zl = zmalloc(sz);
@@ -686,8 +688,8 @@ void hashTypeRandomElement(robj *hashobj, unsigned long hashsize, ziplistEntry *
             val->slen = sdslen(s);
         }
     } else if (hashobj->encoding == OBJ_ENCODING_ZIPLIST || hashobj->encoding == OBJ_ENCODING_LISTPACK) {
-        listContainerType *lct = 
-            (hashobj->encoding == OBJ_ENCODING_ZIPLIST) ? &listContainerZiplist : &listContainerListpack;
+        listContainerType *lct = (hashobj->encoding == OBJ_ENCODING_ZIPLIST) ?
+            &listContainerZiplist : &listContainerListpack;
         lct->listRandomPair(hashobj->ptr, hashsize, key, val);
     } else {
         serverPanic("Unknown hash encoding");
@@ -1090,9 +1092,12 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
                     addReplyBulkCBuffer(c, value, sdslen(value));
             }
         } else if (hash->encoding == OBJ_ENCODING_ZIPLIST || hash->encoding == OBJ_ENCODING_LISTPACK) {
-            listContainerType *lct = (hash->encoding == OBJ_ENCODING_ZIPLIST) ? &listContainerZiplist : &listContainerListpack;
             ziplistEntry *keys, *vals = NULL;
             unsigned long limit, sample_count;
+            listContainerType *lct;
+
+            lct = (hash->encoding == OBJ_ENCODING_ZIPLIST) ?
+                &listContainerZiplist : &listContainerListpack;
             limit = count > HRANDFIELD_RANDOM_SAMPLE_LIMIT ? HRANDFIELD_RANDOM_SAMPLE_LIMIT : count;
             keys = zmalloc(sizeof(ziplistEntry)*limit);
             if (withvalues)
@@ -1196,7 +1201,8 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
      * to reach the specified count. */
     else {
         if (hash->encoding == OBJ_ENCODING_ZIPLIST || hash->encoding == OBJ_ENCODING_LISTPACK) {
-            listContainerType *lct = (hash->encoding == OBJ_ENCODING_ZIPLIST) ? &listContainerZiplist : &listContainerListpack;
+            listContainerType *lct = (hash->encoding == OBJ_ENCODING_ZIPLIST) ?
+                &listContainerZiplist : &listContainerListpack;
             /* it is inefficient to repeatedly pick one random element from a
              * ziplist. so we use this instead: */
             ziplistEntry *keys, *vals = NULL;

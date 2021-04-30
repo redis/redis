@@ -7787,8 +7787,8 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
         cursor->done = 1;
         ret = 0;
     } else if (o->type == OBJ_HASH || o->type == OBJ_ZSET) {
-        listContainerType *lct =
-            (o->encoding == OBJ_ENCODING_ZIPLIST) ? &listContainerZiplist : &listContainerListpack;
+        listContainerType *lct = (o->encoding == OBJ_ENCODING_ZIPLIST) ?
+            &listContainerZiplist : &listContainerListpack;
         unsigned char *p = lct->listIndex(o->ptr,0);
         unsigned char *vstr;
         unsigned int vlen;

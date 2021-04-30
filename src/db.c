@@ -935,8 +935,8 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             listAddNodeTail(keys,createStringObjectFromLongLong(ll));
         cursor = 0;
     } else if (o->type == OBJ_HASH || o->type == OBJ_ZSET) {
-        listContainerType *lct = 
-            (o->encoding == OBJ_ENCODING_ZIPLIST) ? &listContainerZiplist : &listContainerListpack;
+        listContainerType *lct = (o->encoding == OBJ_ENCODING_ZIPLIST) ?
+            &listContainerZiplist : &listContainerListpack;
         unsigned char *p = lct->listIndex(o->ptr,0);
         unsigned char *vstr;
         unsigned int vlen;
