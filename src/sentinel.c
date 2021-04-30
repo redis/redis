@@ -2856,19 +2856,19 @@ void sentinelProcessHelloMessage(char *hello, int hello_len) {
             if (removed) {
                 sentinelEvent(LL_NOTICE,"+sentinel-address-switch",master,
                     "%@ ip %s port %d for %s", token[0],port,token[2]);
-            } else {
-                /* Check if there is another Sentinel with the same address this
-                 * new one is reporting. What we do if this happens is to set its
-                 * port to 0, to signal the address is invalid. We'll update it
-                 * later if we get an HELLO message. */
-                sentinelRedisInstance *other =
-                    getSentinelRedisInstanceByAddrAndRunID(
-                        master->sentinels, token[0],port,NULL);
-                if (other) {
-                    sentinelEvent(LL_NOTICE,"+sentinel-invalid-addr",other,"%@");
-                    other->addr->port = 0; /* It means: invalid address. */
-                    sentinelUpdateSentinelAddressInAllMasters(other);
-                }
+            } 
+            /* Check if there is another Sentinel with the same address this
+             * new one is reporting. What we do if this happens is to set its
+             * port to 0, to signal the address is invalid. We'll update it
+             * later if we get an HELLO message. */
+            sentinelRedisInstance *other =
+                getSentinelRedisInstanceByAddrAndRunID(
+                    master->sentinels, token[0],port,NULL);
+            if (other) {
+                sentinelEvent(LL_NOTICE,"+sentinel-invalid-addr",other,"%@");
+                other->addr->port = 0; /* It means: invalid address. */
+                sentinelUpdateSentinelAddressInAllMasters(other);
+                
             }
 
             /* Add the new sentinel. */
