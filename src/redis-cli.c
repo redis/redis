@@ -7199,6 +7199,7 @@ static void getRDB(clusterManagerNode *node) {
         node->context = NULL;
     if (fsync(fd) == -1) {
         fprintf(stderr,"Fail to fsync '%s': %s\n", filename, strerror(errno));
+        close(fd);
         exit(1);
     }
     close(fd);
