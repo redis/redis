@@ -2072,6 +2072,57 @@ void cliLoadPreferences(void) {
     sdsfree(rcfile);
 }
 
+/* We think some commands is dangerous and shoudn't be output in history file.
+ * Currently these commands are inclued:
+ * - AUTH
+ * - ACL SETUSER
+ * - CONFIG SET masterauth/masteruser/requirepass
+ * - HELLO with [AUTH username password]
+ * - MIGRATE with [AUTH password] or [AUTH2 username password] */
+static int isDangerousCommand(int argc, char **argv) {
+    if (!strcasecmp(argv[0],"auth")) {
+        return 1;
+    } else if (argc > 1 &&
+            !strcasecmp(argv[0],"acl") &&
+            !strcasecmp(argv[1],"setuser")) {
+        return 1;
+    } else if (argc > 2 &&
+            !strcasecmp(argv[0],"config") &&
+            !strcasecmp(argv[1],"set") && (
+                !strcasecmp(argv[2],"masterauth") ||
+                !strcasecmp(argv[2],"masteruser") ||
+                !strcasecmp(argv[2],"requirepass"))) {
+        return 1;
+    /* HELLO [protover [AUTH username password] [SETNAME clientname]] */
+    } else if (argc > 4 && !strcasecmp(argv[0],"hello")) {
+        for (int j = 2; j < argc; j++) {
+            int moreargs = argc - 1 - j;
+            if (!strcasecmp(argv[j],"AUTH") && moreargs >= 2) {
+                return 1;
+            } else if (!strcasecmp(argv[j],"SETNAME") && moreargs) {
+                j++;
+            } else {
+                return 0;
+            }
+        }
+    /* MIGRATE host port key|"" destination-db timeout [COPY] [REPLACE]
+     * [AUTH password] [AUTH2 username password] [KEYS key [key ...]] */
+    } else if (argc > 7 && !strcasecmp(argv[0], "migrate")) {
+        for (int j = 6; j < argc; j++) {
+            int moreargs = argc - 1 - j;
+            if (!strcasecmp(argv[j],"auth") && moreargs) {
+                return 1;
+            } else if (!strcasecmp(argv[j],"auth2") && moreargs >= 2) {
+                return 1;
+            } else if (strcasecmp(argv[j],"copy") &&
+                    strcasecmp(argv[j],"replace")) {
+                return 0;
+            }
+        }
+    }
+    return 0;
+}
+
 static void repl(void) {
     sds historyfile = NULL;
     int history = 0;
@@ -2131,14 +2182,7 @@ static void repl(void) {
             /* Won't save auth or acl setuser commands in history file */
             int dangerous = 0;
             if (argv && argc > 0) {
-                if (!strcasecmp(argv[skipargs], "auth")) {
-                    dangerous = 1;
-                } else if (skipargs+1 < argc &&
-                           !strcasecmp(argv[skipargs], "acl") &&
-                           !strcasecmp(argv[skipargs+1], "setuser"))
-                {
-                    dangerous = 1;
-                }
+                dangerous = isDangerousCommand(argc - skipargs, argv + skipargs);
             }
 
             if (!dangerous) {
