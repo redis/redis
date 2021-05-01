@@ -947,6 +947,9 @@ typedef struct client {
     /* Response buffer */
     int bufpos;
     char buf[PROTO_REPLY_CHUNK_BYTES];
+    size_t monitor_size_threshold;
+    size_t monitor_num_threadhold;
+    size_t monitor_num;
 } client;
 
 struct saveparam {

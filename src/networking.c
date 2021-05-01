@@ -187,6 +187,8 @@ client *createClient(connection *conn) {
     c->auth_callback = NULL;
     c->auth_callback_privdata = NULL;
     c->auth_module = NULL;
+    c->monitor_size_threshold = 0;
+    c->monitor_num_threadhold = 0;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
     if (conn) linkClient(c);

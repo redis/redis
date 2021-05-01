@@ -784,7 +784,7 @@ struct redisCommand redisCommandTable[] = {
      "ok-loading ok-stale random @dangerous",
      0,NULL,0,0,0,0,0,0},
 
-    {"monitor",monitorCommand,1,
+    {"monitor",monitorCommand,-1,
      "admin no-script ok-loading ok-stale",
      0,NULL,0,0,0,0,0,0},
 
@@ -5347,7 +5347,10 @@ void infoCommand(client *c) {
     sdsfree(info);
 }
 
+/* MONITOR [SIZE threshold] [LIMIT maxnum]*/
 void monitorCommand(client *c) {
+    int i;
+
     if (c->flags & CLIENT_DENY_BLOCKING) {
         /**
          * A client that has CLIENT_DENY_BLOCKING flag on
@@ -5359,9 +5362,37 @@ void monitorCommand(client *c) {
     /* ignore MONITOR if already slave or in monitor mode */
     if (c->flags & CLIENT_SLAVE) return;
 
+    /* the argument number must be odd*/
+    if (!(c->argc&1)) goto fmterr;
+
+    for (i = 1; i < c->argc; i++) {
+        int threshold;
+
+        if (!strcasecmp(c->argv[i]->ptr,"SIZE")) {
+            /* get the threshold */
+            if (getIntFromObjectOrReply(c,c->argv[i+1],&threshold,NULL) != C_OK ||
+                threshold < 0)
+                goto fmterr;
+
+            c->monitor_size_threshold = threshold;
+        } else if (!strcasecmp(c->argv[i]->ptr,"LIMIT")) {
+            /* get the threshold */
+            if (getIntFromObjectOrReply(c,c->argv[i+1],&threshold,NULL) != C_OK ||
+                threshold < 0)
+                goto fmterr;
+
+            c->monitor_num_threadhold = threshold;
+        }
+    }
+
     c->flags |= (CLIENT_SLAVE|CLIENT_MONITOR);
     listAddNodeTail(server.monitors,c);
     addReply(c,shared.ok);
+    return;
+
+fmterr:
+    addReply(c,shared.syntaxerr);
+    return;
 }
 
 /* =================================== Main! ================================ */

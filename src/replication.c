@@ -380,6 +380,7 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
     listNode *ln;
     listIter li;
     int j;
+    size_t subcommandlen = 0;
     sds cmdrepr = sdsnew("+");
     robj *cmdobj;
     struct timeval tv;
@@ -401,6 +402,10 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
             cmdrepr = sdscatrepr(cmdrepr,(char*)argv[j]->ptr,
                         sdslen(argv[j]->ptr));
         }
+
+        if (j != 0)
+            subcommandlen += sdslen(argv[j]->ptr);
+
         if (j != argc-1)
             cmdrepr = sdscatlen(cmdrepr," ",1);
     }
@@ -410,7 +415,16 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
     listRewind(monitors,&li);
     while((ln = listNext(&li))) {
         client *monitor = ln->value;
-        addReply(monitor,cmdobj);
+
+        if (subcommandlen >= monitor->monitor_size_threshold) {
+            addReply(monitor,cmdobj);
+            monitor->monitor_num++;
+        }
+
+        if (monitor->monitor_num_threadhold > 0 &&
+            monitor->monitor_num >= monitor->monitor_num_threadhold) {
+                monitor->flags |= CLIENT_CLOSE_AFTER_REPLY;
+         }
     }
     decrRefCount(cmdobj);
 }
@@ -1933,7 +1947,7 @@ char* sendCommandRaw(connection *conn, sds cmd) {
     return NULL;
 }
 
-/* Compose a multi-bulk command and send it to the connection.
+/* Compose a multi-bulk command and send it to the connection. 
  * Used to send AUTH and REPLCONF commands to the master before starting the
  * replication.
  *
@@ -1972,7 +1986,7 @@ char *sendCommand(connection *conn, ...) {
     return NULL;
 }
 
-/* Compose a multi-bulk command and send it to the connection. 
+/* Compose a multi-bulk command and send it to the connection.
  * Used to send AUTH and REPLCONF commands to the master before starting the
  * replication.
  *
