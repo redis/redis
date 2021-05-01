@@ -293,8 +293,10 @@ void activeExpireCycle(int type) {
                 /* Do a simple running average with a few samples.
                  * We just use the current estimate with a weight of 2%
                  * and the previous estimate with a weight of 98%. */
-                if (db->avg_ttl == 0) db->avg_ttl = avg_ttl;
-                db->avg_ttl = (db->avg_ttl/50)*49 + (avg_ttl/50);
+                if (db->avg_ttl == 0)
+                    db->avg_ttl = avg_ttl;
+                else
+                    db->avg_ttl = (db->avg_ttl/50)*49 + (avg_ttl/50);
             }
 
             /* We can't block forever here even if there are many keys to
