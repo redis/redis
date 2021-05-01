@@ -6064,7 +6064,7 @@ int RM_SendClusterMessage(RedisModuleCtx *ctx, char *target_id, uint8_t type, un
 }
 
 /* Return an array of string pointers, each string pointer points to a cluster
- * node ID of exactly REDISMODULE_NODE_ID_SIZE bytes (without any null term).
+ * node ID of exactly REDISMODULE_NODE_ID_LEN bytes (without any null term).
  * The number of returned node IDs is stored into `*numnodes`.
  * However if this function is called by a module not running an a Redis
  * instance with Redis Cluster enabled, NULL is returned instead.
@@ -6080,7 +6080,7 @@ int RM_SendClusterMessage(RedisModuleCtx *ctx, char *target_id, uint8_t type, un
  *     size_t count, j;
  *     char **ids = RedisModule_GetClusterNodesList(ctx,&count);
  *     for (j = 0; j < count; j++) {
- *         RedisModule_Log("notice","Node %.*s",
+ *         RedisModule_Log(ctx,"notice","Node %.*s",
  *             REDISMODULE_NODE_ID_LEN,ids[j]);
  *     }
  *     RedisModule_FreeClusterNodesList(ids);
