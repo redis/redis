@@ -802,7 +802,11 @@ static int cliSelect(void) {
     reply = redisCommand(context,"SELECT %d",config.dbnum);
     if (reply != NULL) {
         int result = REDIS_OK;
-        if (reply->type == REDIS_REPLY_ERROR) result = REDIS_ERR;
+        if (reply->type == REDIS_REPLY_ERROR) {
+            result = REDIS_ERR;
+            fprintf(stderr,"SELECT %d failed: %s\n",config.dbnum,reply->str);
+            config.dbnum = 0;
+        }
         freeReplyObject(reply);
         return result;
     }
@@ -817,7 +821,10 @@ static int cliSwitchProto(void) {
     reply = redisCommand(context,"HELLO 3");
     if (reply != NULL) {
         int result = REDIS_OK;
-        if (reply->type == REDIS_REPLY_ERROR) result = REDIS_ERR;
+        if (reply->type == REDIS_REPLY_ERROR) {
+            result = REDIS_ERR;
+            fprintf(stderr,"HELLO 3 failed: %s\n",reply->str);
+        }
         freeReplyObject(reply);
         return result;
     }
