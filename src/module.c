@@ -9196,6 +9196,7 @@ long moduleDefragGlobals(void) {
         module->defrag_cb(&defrag_ctx);
         defragged += defrag_ctx.defragged;
     }
+    dictReleaseIterator(di);
 
     return defragged;
 }
