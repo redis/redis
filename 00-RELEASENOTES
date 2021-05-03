@@ -12,6 +12,40 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 6.2.3 Released Mon May 3 19:00:00 IST 2021
+================================================================================
+
+Upgrade urgency: SECURITY, Contains fixes to security issues that affect
+authenticated client connections. LOW otherwise.
+
+Integer overflow in STRALGO LCS command (CVE-2021-29477):
+An integer overflow bug in Redis version 6.0 or newer could be exploited using
+the STRALGO LCS command to corrupt the heap and potentially result in remote
+code execution. The integer overflow bug exists in all versions of Redis
+starting with 6.0.
+
+Integer overflow in COPY command for large intsets (CVE-2021-29478):
+An integer overflow bug in Redis 6.2 could be exploited to corrupt the heap and
+potentially result with remote code execution. The vulnerability involves
+changing the default set-max-intset-entries configuration value, creating a
+large set key that consists of integer values and using the COPY command to
+duplicate it. The integer overflow bug exists in all versions of Redis starting
+with 2.6, where it could result with a corrupted RDB or DUMP payload, but not
+exploited through COPY (which did not exist before 6.2).
+
+Bug fixes that are only applicable to previous releases of Redis 6.2:
+* Fix memory leak in moduleDefragGlobals (#8853)
+* Fix memory leak when doing lazy freeing client tracking table (#8822)
+* Block abusive replicas from sending command that could assert and crash redis (#8868)
+
+Other bug fixes:
+* Use a monotonic clock to check for Lua script timeout (#8812)
+* redis-cli: Do not use unix socket when we got redirected in cluster mode (#8870)
+
+Modules:
+* Fix RM_GetClusterNodeInfo() to correctly populate master id (#8846)
+
+================================================================================
 Redis 6.2.2 Released Mon April 19 19:00:00 IST 2021
 ================================================================================
 
