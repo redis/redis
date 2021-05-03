@@ -71,7 +71,7 @@ void memtest_progress_start(char *title, int pass) {
     printf("\x1b[H\x1b[2K");          /* Cursor home, clear current line.  */
     printf("%s [%d]\n", title, pass); /* Print title. */
     progress_printed = 0;
-    progress_full = ws.ws_col*(ws.ws_row-3);
+    progress_full = (size_t)ws.ws_col*(ws.ws_row-3);
     fflush(stdout);
 }
 

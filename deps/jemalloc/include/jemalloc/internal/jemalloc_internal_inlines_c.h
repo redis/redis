@@ -235,7 +235,7 @@ iget_defrag_hint(tsdn_t *tsdn, void* ptr) {
 			int free_in_slab = extent_nfree_get(slab);
 			if (free_in_slab) {
 				const bin_info_t *bin_info = &bin_infos[binind];
-				int curslabs = bin->stats.curslabs;
+				unsigned long curslabs = bin->stats.curslabs;
 				size_t curregs = bin->stats.curregs;
 				if (bin->slabcur) {
 					/* remove slabcur from the overall utilization */
