@@ -805,7 +805,7 @@ void stralgoLCS(client *c) {
     /* Setup an uint32_t array to store at LCS[i,j] the length of the
      * LCS A0..i-1, B0..j-1. Note that we have a linear array here, so
      * we index it as LCS[j+(blen+1)*j] */
-    uint32_t *lcs = zmalloc((alen+1)*(blen+1)*sizeof(uint32_t));
+    uint32_t *lcs = zmalloc((size_t)(alen+1)*(blen+1)*sizeof(uint32_t));
     #define LCS(A,B) lcs[(B)+((A)*(blen+1))]
 
     /* Start building the LCS table. */
