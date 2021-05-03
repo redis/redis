@@ -2485,7 +2485,7 @@ void clientCommand(client *c) {
 "UNBLOCK <clientid> [TIMEOUT|ERROR]",
 "    Unblock the specified blocked client.",
 "TRACKING (ON|OFF) [REDIRECT <id>] [BCAST] [PREFIX <prefix> [...]]",
-"         [OPTIN] [OPTOUT]",
+"         [OPTIN] [OPTOUT] [NOLOOP]",
 "    Control server assisted client side caching.",
 "TRACKINGINFO",
 "    Report tracking status for the current connection.",
@@ -2721,7 +2721,7 @@ NULL
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"tracking") && c->argc >= 3) {
         /* CLIENT TRACKING (on|off) [REDIRECT <id>] [BCAST] [PREFIX first]
-         *                          [PREFIX second] [OPTIN] [OPTOUT] ... */
+         *                          [PREFIX second] [OPTIN] [OPTOUT] [NOLOOP]... */
         long long redir = 0;
         uint64_t options = 0;
         robj **prefix = NULL;
