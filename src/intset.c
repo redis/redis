@@ -278,7 +278,7 @@ uint32_t intsetLen(const intset *is) {
 
 /* Return intset blob size in bytes. */
 size_t intsetBlobLen(intset *is) {
-    return sizeof(intset)+intrev32ifbe(is->length)*intrev32ifbe(is->encoding);
+    return sizeof(intset)+(size_t)intrev32ifbe(is->length)*intrev32ifbe(is->encoding);
 }
 
 #ifdef REDIS_TEST
