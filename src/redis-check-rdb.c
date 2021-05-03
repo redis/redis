@@ -250,7 +250,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             rdbstate.doing = RDB_CHECK_DOING_READ_LEN;
             if ((dbid = rdbLoadLen(&rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
-            rdbCheckInfo("Selecting DB ID %d", dbid);
+            rdbCheckInfo("Selecting DB ID %llu", (unsigned long long)dbid);
             continue; /* Read type again. */
         } else if (type == RDB_OPCODE_RESIZEDB) {
             /* RESIZEDB: Hint about the size of the keys in the currently
