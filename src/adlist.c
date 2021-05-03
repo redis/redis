@@ -269,13 +269,13 @@ list *listDup(list *orig)
                 listRelease(copy);
                 return NULL;
             }
-        } else
+        } else {
             value = node->value;
+        }
+        
         if (listAddNodeTail(copy, value) == NULL) {
             /* Free value if dup succeed but listAddNodeTail failed. */
-            if (copy->free) {
-                copy->free(value);
-            }
+            if (copy->free) copy->free(value);
 
             listRelease(copy);
             return NULL;
