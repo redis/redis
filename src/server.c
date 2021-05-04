@@ -5453,17 +5453,6 @@ sds genRedisInfoString(const char *section) {
             server.blocked_clients,
             server.tracking_clients,
             (unsigned long long) raxSize(server.clients_timeout_table));
-        for (j = 0; j < CLIENT_MEM_USAGE_BUCKETS; j++) {
-            info = sdscatprintf(info, "clients_mem_bucket%02d: tot-mem: %zu, clients: %lu\r\n", j,
-                                server.client_mem_usage_buckets[j].mem_usage_sum,
-                                server.client_mem_usage_buckets[j].clients->len);
-            listIter *it = listGetIterator(server.client_mem_usage_buckets[j].clients, AL_START_HEAD);
-            for (listNode *ln = listNext(it); ln; ln = listNext(it)) {
-                client *c = (client*)ln->value;
-                info = sdscatprintf(info, "client_mem: %zu\r\n", c->client_last_memory_usage);
-            }
-            listReleaseIterator(it);
-        }
     }
 
     /* Memory */
