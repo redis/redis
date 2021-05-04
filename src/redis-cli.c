@@ -8142,7 +8142,7 @@ static void intrinsicLatencyModeStop(int s) {
 static void intrinsicLatencyMode(void) {
     long long test_end, run_time, max_latency = 0, runs = 0;
 
-    run_time = config.intrinsic_latency_duration*1000000;
+    run_time = (long long)config.intrinsic_latency_duration * 1000000;
     test_end = ustime() + run_time;
     signal(SIGINT, intrinsicLatencyModeStop);
 
