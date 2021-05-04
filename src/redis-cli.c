@@ -2072,7 +2072,7 @@ void cliLoadPreferences(void) {
     sdsfree(rcfile);
 }
 
-/* We think some commands is dangerous and shoudn't be output in history file.
+/* We think some commands are dangerous and shoudn't be output in history file.
  * Currently these commands are inclued:
  * - AUTH
  * - ACL SETUSER
@@ -2114,8 +2114,7 @@ static int isDangerousCommand(int argc, char **argv) {
                 return 1;
             } else if (!strcasecmp(argv[j],"auth2") && moreargs >= 2) {
                 return 1;
-            } else if (strcasecmp(argv[j],"copy") &&
-                    strcasecmp(argv[j],"replace")) {
+            } else if (!strcasecmp(argv[j],"keys") && moreargs) {
                 return 0;
             }
         }
@@ -2179,7 +2178,6 @@ static void repl(void) {
                 }
             }
 
-            /* Won't save auth or acl setuser commands in history file */
             int dangerous = 0;
             if (argv && argc > 0) {
                 dangerous = isDangerousCommand(argc - skipargs, argv + skipargs);
