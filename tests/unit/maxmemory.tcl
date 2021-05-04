@@ -1,7 +1,7 @@
 start_server {tags {"maxmemory"}} {
     r config set maxmemory 10mb
     r config set maxmemory-policy allkeys-lru
-    set rd [redis_deferring_client]
+    set server_pid [s process_id]
 
     proc init_test {client_eviction} {
         r flushdb
@@ -58,17 +58,17 @@ start_server {tags {"maxmemory"}} {
                 lappend clients $rr
             }
 
-            $rd debug sleep 1
-            $rd flush
-            after 100
-            
+            # Freez the server so output buffers will be filled in one event loop when we un-freez after sending mgets
+            exec kill -SIGSTOP $server_pid
             for {set j 0} {$j < 5} {incr j} {
                 foreach rr $clients {
                     $rr mget 1
                     $rr flush
                 }
             }
-            $rd read
+            # Unfreez server
+            exec kill -SIGCONT $server_pid
+            
 
             for {set j 0} {$j < 5} {incr j} {
                 foreach rr $clients {
