@@ -2159,89 +2159,85 @@ static void repl(void) {
             char *endptr = NULL;
 
             argv = cliSplitArgs(line,&argc);
-
-            /* check if we have a repeat command option and
-             * need to skip the first arg */
-            if (argv && argc > 0) {
-                errno = 0;
-                repeat = strtol(argv[0], &endptr, 10);
-                if (argc > 1 && *endptr == '\0') {
-                    if (errno == ERANGE || errno == EINVAL || repeat <= 0) {
-                        fputs("Invalid redis-cli repeat command option value.\n", stdout);
-                        sdsfreesplitres(argv, argc);
-                        linenoiseFree(line);
-                        continue;
-                    }
-                    skipargs = 1;
-                } else {
-                    repeat = 1;
-                }
-            }
-
-            int dangerous = 0;
-            if (argv && argc > 0) {
-                dangerous = isDangerousCommand(argc - skipargs, argv + skipargs);
-            }
-
-            if (!dangerous) {
-                if (history) linenoiseHistoryAdd(line);
-                if (historyfile) linenoiseHistorySave(historyfile);
-            }
-
             if (argv == NULL) {
                 printf("Invalid argument(s)\n");
                 fflush(stdout);
                 linenoiseFree(line);
                 continue;
-            } else if (argc > 0) {
-                if (strcasecmp(argv[0],"quit") == 0 ||
-                    strcasecmp(argv[0],"exit") == 0)
-                {
-                    exit(0);
-                } else if (argv[0][0] == ':') {
-                    cliSetPreferences(argv,argc,1);
-                    sdsfreesplitres(argv,argc);
+            } else if (argc == 0) {
+                sdsfreesplitres(argv,argc);
+                linenoiseFree(line);
+                continue;
+            }
+
+            /* check if we have a repeat command option and
+             * need to skip the first arg */
+            errno = 0;
+            repeat = strtol(argv[0], &endptr, 10);
+            if (argc > 1 && *endptr == '\0') {
+                if (errno == ERANGE || errno == EINVAL || repeat <= 0) {
+                    fputs("Invalid redis-cli repeat command option value.\n", stdout);
+                    sdsfreesplitres(argv, argc);
                     linenoiseFree(line);
                     continue;
-                } else if (strcasecmp(argv[0],"restart") == 0) {
-                    if (config.eval) {
-                        config.eval_ldb = 1;
-                        config.output = OUTPUT_RAW;
-                        sdsfreesplitres(argv,argc);
-                        linenoiseFree(line);
-                        return; /* Return to evalMode to restart the session. */
-                    } else {
-                        printf("Use 'restart' only in Lua debugging mode.");
-                    }
-                } else if (argc == 3 && !strcasecmp(argv[0],"connect")) {
-                    sdsfree(config.hostip);
-                    config.hostip = sdsnew(argv[1]);
-                    config.hostport = atoi(argv[2]);
-                    cliRefreshPrompt();
-                    cliConnect(CC_FORCE);
-                } else if (argc == 1 && !strcasecmp(argv[0],"clear")) {
-                    linenoiseClearScreen();
+                }
+                skipargs = 1;
+            } else {
+                repeat = 1;
+            }
+
+            if (!isDangerousCommand(argc - skipargs, argv + skipargs)) {
+                if (history) linenoiseHistoryAdd(line);
+                if (historyfile) linenoiseHistorySave(historyfile);
+            }
+
+            if (strcasecmp(argv[0],"quit") == 0 ||
+                strcasecmp(argv[0],"exit") == 0)
+            {
+                exit(0);
+            } else if (argv[0][0] == ':') {
+                cliSetPreferences(argv,argc,1);
+                sdsfreesplitres(argv,argc);
+                linenoiseFree(line);
+                continue;
+            } else if (strcasecmp(argv[0],"restart") == 0) {
+                if (config.eval) {
+                    config.eval_ldb = 1;
+                    config.output = OUTPUT_RAW;
+                    sdsfreesplitres(argv,argc);
+                    linenoiseFree(line);
+                    return; /* Return to evalMode to restart the session. */
                 } else {
-                    long long start_time = mstime(), elapsed;
+                    printf("Use 'restart' only in Lua debugging mode.");
+                }
+            } else if (argc == 3 && !strcasecmp(argv[0],"connect")) {
+                sdsfree(config.hostip);
+                config.hostip = sdsnew(argv[1]);
+                config.hostport = atoi(argv[2]);
+                cliRefreshPrompt();
+                cliConnect(CC_FORCE);
+            } else if (argc == 1 && !strcasecmp(argv[0],"clear")) {
+                linenoiseClearScreen();
+            } else {
+                long long start_time = mstime(), elapsed;
 
-                    issueCommandRepeat(argc-skipargs, argv+skipargs, repeat);
+                issueCommandRepeat(argc-skipargs, argv+skipargs, repeat);
 
-                    /* If our debugging session ended, show the EVAL final
-                     * reply. */
-                    if (config.eval_ldb_end) {
-                        config.eval_ldb_end = 0;
-                        cliReadReply(0);
-                        printf("\n(Lua debugging session ended%s)\n\n",
-                            config.eval_ldb_sync ? "" :
-                            " -- dataset changes rolled back");
-                    }
+                /* If our debugging session ended, show the EVAL final
+                    * reply. */
+                if (config.eval_ldb_end) {
+                    config.eval_ldb_end = 0;
+                    cliReadReply(0);
+                    printf("\n(Lua debugging session ended%s)\n\n",
+                        config.eval_ldb_sync ? "" :
+                        " -- dataset changes rolled back");
+                }
 
-                    elapsed = mstime()-start_time;
-                    if (elapsed >= 500 &&
-                        config.output == OUTPUT_STANDARD)
-                    {
-                        printf("(%.2fs)\n",(double)elapsed/1000);
-                    }
+                elapsed = mstime()-start_time;
+                if (elapsed >= 500 &&
+                    config.output == OUTPUT_STANDARD)
+                {
+                    printf("(%.2fs)\n",(double)elapsed/1000);
                 }
             }
             /* Free the argument vector */
