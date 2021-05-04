@@ -125,52 +125,10 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CONFIG_MIN_RESERVED_FDS 32
 #define CONFIG_DEFAULT_PROC_TITLE_TEMPLATE "{title} {listen-addr} {server-mode}"
 
-/* TODO: Optimization:
- * We can implement Yuval's 2 layer bucketing with pre-eviction
- * sort algorithm. From slack:
- *
- * I would decide on buckets sizes on M (the overall threashold) and have simple
- * heuristic as followed:
- * M' = M/8
- * B1 (m) >= M'/2                 (1) max 16
- * B2,1 >= 3M'/8 B2,2 m >= 2M'/8   (2) max 32 total
- * B3,1 >= 7M'/32 B3,2 >= 6M'/32 B3,3 = 5M'/32 B3,4 >= 4M'/32 (4) max 64 total
- * B4,1 >= 15M'/128 ... B4,8 >= 8M'/128   (8) max 128 total
- * B5,1 >= 31M'/512 ... B5,16 >= 16M'/512 (16) max 256
- * B6,1 >= 63M'/2048 .... B6,32 >= 32M'/2048 (32) max 1024 total
- * B_END the rest
- * total of 64 bins
- *
- * here i assume M is configurable, but seldom changes
- *
- * the motivation here is for the first bins u have a low upper bound and
- * therefore can sort them when M' is "violated", then u can decide what error
- * rate u can tolerate. for example not sorting elements in the 4'th layer would
- * cause a max error of 1/128 (less than 1 percentage)
- *
- * Yoav Steinberg:
- * Thanks, this makes sense and is also quite nice. I think even if I don't sort
- * anything at all this is still a good solution because:
- * * It's dependent on M.
- * * It's more granular than a straight forward log based bucketing because of
- *   the 2 layers (outer layer log based, inner layer linear based). Am I right?
- * If I understand this correctly finding the right bucket should be something
- * like:
- * outer bucket = log(m)
- * inner bucket = m/num_of_inner_buckets_in_layer
- * If I'm correct I need a fast way to do this log operation. Can I use
- * 64-CLZ(m) (count leading zeros) and then multiply it by some constant based
- * on M' to find the right outer bucket?
- *
- * Yuval Inbar:
- * i think sorting in the larger mem bins is important since diff between mem
- * there can be sig. u can do it only when u actually need to 'close' some
- * clients. about selecting the right bucket i need to think of the optimal way.
- * always afraid to do something wrong with the bits ops.
- * in general is based on leftmost bits of ((M/8)<<C)/m
- */
-#define CLIENT_MEM_USAGE_BUCKET_MIN_LOG 15 /* Bucket sizes start at 32KB */
-#define CLIENT_MEM_USAGE_BUCKET_MAX_LOG 33 /* Bucket sizes above 4GB */
+/* Bucket sizes for client eviction pools. Each bucket stores clients with
+ * memory usage of up to twice the size of the bucket below it. */
+#define CLIENT_MEM_USAGE_BUCKET_MIN_LOG 15 /* Bucket sizes start at up to 32KB (2^15) */
+#define CLIENT_MEM_USAGE_BUCKET_MAX_LOG 33 /* Bucket for largest clients: sizes above 4GB (2^32) */
 #define CLIENT_MEM_USAGE_BUCKETS (1+CLIENT_MEM_USAGE_BUCKET_MAX_LOG-CLIENT_MEM_USAGE_BUCKET_MIN_LOG)
 
 #define ACTIVE_EXPIRE_CYCLE_SLOW 0
