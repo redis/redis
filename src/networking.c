@@ -333,7 +333,7 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
         listAddNodeTail(c->reply, tail);
         c->reply_bytes += tail->size;
 
-        asyncCloseClientOnOutputBufferLimitReached(c);
+        closeClientOnOutputBufferLimitReached(c, 1);
     }
 }
 
@@ -616,7 +616,7 @@ void setDeferredReply(client *c, void *node, const char *s, size_t length) {
         listNodeValue(ln) = buf;
         c->reply_bytes += buf->size;
 
-        asyncCloseClientOnOutputBufferLimitReached(c);
+        closeClientOnOutputBufferLimitReached(c, 1);
     }
 }
 
@@ -949,7 +949,7 @@ void AddReplyFromClient(client *dst, client *src) {
     src->bufpos = 0;
 
     /* Check output buffer limits */
-    asyncCloseClientOnOutputBufferLimitReached(dst);
+    closeClientOnOutputBufferLimitReached(dst, 1);
 }
 
 /* Copy 'src' client output buffers into 'dst' client output buffers.
@@ -3223,18 +3223,33 @@ int checkClientOutputBufferLimits(client *c) {
  *
  * Note: we need to close the client asynchronously because this function is
  * called from contexts where the client can't be freed safely, i.e. from the
- * lower level functions pushing data inside the client output buffers. */
-void asyncCloseClientOnOutputBufferLimitReached(client *c) {
-    if (!c->conn) return; /* It is unsafe to free fake clients. */
+ * lower level functions pushing data inside the client output buffers.
+ * When `async` is set to 0, we close the client immediately, this is
+ * useful when called from cron.
+ *
+ * Returns 1 if client was (flagged) closed. */
+int closeClientOnOutputBufferLimitReached(client *c, int async) {
+    if (!c->conn) return 0; /* It is unsafe to free fake clients. */
     serverAssert(c->reply_bytes < SIZE_MAX-(1024*64));
-    if (c->reply_bytes == 0 || c->flags & CLIENT_CLOSE_ASAP) return;
+    if (c->reply_bytes == 0 || c->flags & CLIENT_CLOSE_ASAP) return 0;
     if (checkClientOutputBufferLimits(c)) {
         sds client = catClientInfoString(sdsempty(),c);
 
-        freeClientAsync(c);
-        serverLog(LL_WARNING,"Client %s scheduled to be closed ASAP for overcoming of output buffer limits.", client);
+        if (async) {
+            freeClientAsync(c);
+            serverLog(LL_WARNING,
+                      "Client %s scheduled to be closed ASAP for overcoming of output buffer limits.",
+                      client);
+        } else {
+            freeClient(c);
+            serverLog(LL_WARNING,
+                      "Client %s closed for overcoming of output buffer limits.",
+                      client);
+        }
         sdsfree(client);
+        return  1;
     }
+    return 0;
 }
 
 /* Helper function used by performEvictions() in order to flush slaves
