@@ -12,10 +12,6 @@ start_server {tags {"maxmemory"}} {
         } else {
             r config set maxmemory-clients 0
         }
-        # If maxmemory-clients changed we need to wait for clients cron to update all the clients accordingly
-        if {$prev_maxmemory_clients != [r config get maxmemory-clients]} {
-            after 1500
-        }
 
         r config resetstat
         # fill 5mb using 50 keys of 100kb
@@ -35,7 +31,7 @@ start_server {tags {"maxmemory"}} {
             puts "evicted clients: $evicted_clients"
             puts "dbsize: $dbsize"
         }
-        
+
         if $client_eviction {
             assert_morethan $evicted_clients 0
             assert_equal $evicted_keys 0
