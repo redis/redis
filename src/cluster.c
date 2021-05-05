@@ -3351,10 +3351,10 @@ void clusterHandleSlaveMigration(int max_slaves) {
      *
      * Note: this means that eventually a replica migration will occur
      * since slaves that are reachable again always have their FAIL flag
-     * cleared, so eventually there must be a candidate. At the same time
-     * this does not mean that there are no race conditions possible (two
-     * slaves migrating at the same time), but this is unlikely to
-     * happen, and harmless when happens. */
+     * cleared, so eventually there must be a candidate.
+     * There is a possible race condition causing multiple
+     * slaves to migrate at the same time, but this is unlikely to
+     * happen and relatively harmless when it does. */
     candidate = myself;
     di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
@@ -3949,7 +3949,7 @@ void clusterUpdateState(void) {
      * master, after a reboot, without giving the cluster a chance to
      * reconfigure this node. Note that the delay is calculated starting from
      * the first call to this function and not since the server start, in order
-     * to don't count the DB loading time. */
+     * to not count the DB loading time. */
     if (first_call_time == 0) first_call_time = mstime();
     if (nodeIsMaster(myself) &&
         server.cluster->state == CLUSTER_FAIL &&

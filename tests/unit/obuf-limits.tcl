@@ -18,65 +18,72 @@ start_server {tags {"obuf-limits"}} {
         assert {$omem >= 70000 && $omem < 200000}
         $rd1 close
     }
-
-    test {Client output buffer soft limit is not enforced if time is not overreached} {
-        r config set client-output-buffer-limit {pubsub 0 100000 10}
-        set rd1 [redis_deferring_client]
-
-        $rd1 subscribe foo
-        set reply [$rd1 read]
-        assert {$reply eq "subscribe foo 1"}
-
-        set omem 0
-        set start_time 0
-        set time_elapsed 0
-        while 1 {
-            if {$start_time != 0} {
-                # Slow down loop when omen has reached the limit.
-                after 10
-            }
-            r publish foo [string repeat "x" 1000]
-            set clients [split [r client list] "\r\n"]
-            set c [split [lindex $clients 1] " "]
-            if {![regexp {omem=([0-9]+)} $c - omem]} break
-            if {$omem > 100000} {
-                if {$start_time == 0} {set start_time [clock seconds]}
-                set time_elapsed [expr {[clock seconds]-$start_time}]
-                if {$time_elapsed >= 5} break
-            }
+    
+    foreach {soft_limit_time wait_for_timeout} {3 yes
+                                                4 no } {
+        if $wait_for_timeout {
+            set test_name "Client output buffer soft limit is enforced if time is overreached"
+        } else {
+            set test_name "Client output buffer soft limit is not enforced too early and is enforced when no traffic"
         }
-        assert {$omem >= 100000 && $time_elapsed >= 5 && $time_elapsed <= 10}
-        $rd1 close
-    }
 
-    test {Client output buffer soft limit is enforced if time is overreached} {
-        r config set client-output-buffer-limit {pubsub 0 100000 3}
-        set rd1 [redis_deferring_client]
+        test $test_name {
+            r config set client-output-buffer-limit "pubsub 0 100000 $soft_limit_time"
+            set soft_limit_time [expr $soft_limit_time*1000]
+            set rd1 [redis_deferring_client]
 
-        $rd1 subscribe foo
-        set reply [$rd1 read]
-        assert {$reply eq "subscribe foo 1"}
+            $rd1 client setname test_client
+            set reply [$rd1 read]
+            assert {$reply eq "OK"}
 
-        set omem 0
-        set start_time 0
-        set time_elapsed 0
-        while 1 {
-            if {$start_time != 0} {
-                # Slow down loop when omen has reached the limit.
-                after 10
+            $rd1 subscribe foo
+            set reply [$rd1 read]
+            assert {$reply eq "subscribe foo 1"}
+
+            set omem 0
+            set start_time 0
+            set time_elapsed 0
+            set last_under_limit_time [clock milliseconds]
+            while 1 {
+                r publish foo [string repeat "x" 1000]
+                set clients [split [r client list] "\r\n"]
+                set c [lsearch -inline $clients *name=test_client*]
+                if {$start_time != 0} {
+                    set time_elapsed [expr {[clock milliseconds]-$start_time}]
+                    # Make sure test isn't taking too long
+                    assert {$time_elapsed <= [expr $soft_limit_time+3000]}
+                }
+                if {$wait_for_timeout && $c == ""} {
+                    # Make sure we're disconnected when we reach the soft limit
+                    assert {$omem >= 100000 && $time_elapsed >= $soft_limit_time}
+                    break
+                } else {
+                    assert {[regexp {omem=([0-9]+)} $c - omem]}
+                }
+                if {$omem > 100000} {
+                    if {$start_time == 0} {set start_time $last_under_limit_time}
+                    if {!$wait_for_timeout && $time_elapsed >= [expr $soft_limit_time-1000]} break
+                    # Slow down loop when omem has reached the limit.
+                    after 10
+                } else {
+                    # if the OS socket buffers swallowed what we previously filled, reset the start timer.
+                    set start_time 0
+                    set last_under_limit_time [clock milliseconds]
+                }
             }
-            r publish foo [string repeat "x" 1000]
-            set clients [split [r client list] "\r\n"]
-            set c [split [lindex $clients 1] " "]
-            if {![regexp {omem=([0-9]+)} $c - omem]} break
-            if {$omem > 100000} {
-                if {$start_time == 0} {set start_time [clock seconds]}
-                set time_elapsed [expr {[clock seconds]-$start_time}]
-                if {$time_elapsed >= 10} break
+
+            if {!$wait_for_timeout} {
+                # After we completely stopped the traffic, wait for soft limit to time out
+                set timeout [expr {$soft_limit_time+1500 - ([clock milliseconds]-$start_time)}]
+                wait_for_condition [expr $timeout/10] 10 {
+                    [lsearch [split [r client list] "\r\n"] *name=test_client*] == -1
+                } else {
+                    fail "Soft limit timed out but client still connected"
+                }
             }
+
+            $rd1 close
         }
-        assert {$omem >= 100000 && $time_elapsed < 6}
-        $rd1 close
     }
 
     test {No response for single command if client output buffer hard limit is enforced} {
