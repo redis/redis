@@ -1,14 +1,13 @@
 #include "test/jemalloc_test.h"
 
 static const uint64_t smoothstep_tab[] = {
-#define	STEP(step, h, x, y) \
+#define STEP(step, h, x, y)			\
 	h,
 	SMOOTHSTEP
 #undef STEP
 };
 
-TEST_BEGIN(test_smoothstep_integral)
-{
+TEST_BEGIN(test_smoothstep_integral) {
 	uint64_t sum, min, max;
 	unsigned i;
 
@@ -20,8 +19,9 @@ TEST_BEGIN(test_smoothstep_integral)
 	 * integral may be off by as much as SMOOTHSTEP_NSTEPS ulps.
 	 */
 	sum = 0;
-	for (i = 0; i < SMOOTHSTEP_NSTEPS; i++)
+	for (i = 0; i < SMOOTHSTEP_NSTEPS; i++) {
 		sum += smoothstep_tab[i];
+	}
 
 	max = (KQU(1) << (SMOOTHSTEP_BFP-1)) * (SMOOTHSTEP_NSTEPS+1);
 	min = max - SMOOTHSTEP_NSTEPS;
@@ -36,8 +36,7 @@ TEST_BEGIN(test_smoothstep_integral)
 }
 TEST_END
 
-TEST_BEGIN(test_smoothstep_monotonic)
-{
+TEST_BEGIN(test_smoothstep_monotonic) {
 	uint64_t prev_h;
 	unsigned i;
 
@@ -58,8 +57,7 @@ TEST_BEGIN(test_smoothstep_monotonic)
 }
 TEST_END
 
-TEST_BEGIN(test_smoothstep_slope)
-{
+TEST_BEGIN(test_smoothstep_slope) {
 	uint64_t prev_h, prev_delta;
 	unsigned i;
 
@@ -96,11 +94,9 @@ TEST_BEGIN(test_smoothstep_slope)
 TEST_END
 
 int
-main(void)
-{
-
-	return (test(
+main(void) {
+	return test(
 	    test_smoothstep_integral,
 	    test_smoothstep_monotonic,
-	    test_smoothstep_slope));
+	    test_smoothstep_slope);
 }

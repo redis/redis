@@ -79,7 +79,7 @@ start_server {tags {"hll"}} {
         }
     }
 
-    test {Corrupted sparse HyperLogLogs are detected: Additionl at tail} {
+    test {Corrupted sparse HyperLogLogs are detected: Additional at tail} {
         r del hll
         r pfadd hll a b c
         r append hll "hello"
@@ -114,6 +114,34 @@ start_server {tags {"hll"}} {
         catch {r pfcount hll} e
         set e
     } {*WRONGTYPE*}
+
+    test {Fuzzing dense/sparse encoding: Redis should always detect errors} {
+        for {set j 0} {$j < 1000} {incr j} {
+            r del hll
+            set items {}
+            set numitems [randomInt 3000]
+            for {set i 0} {$i < $numitems} {incr i} {
+                lappend items [expr {rand()}]
+            }
+            r pfadd hll {*}$items
+
+            # Corrupt it in some random way.
+            for {set i 0} {$i < 5} {incr i} {
+                set len [r strlen hll]
+                set pos [randomInt $len]
+                set byte [randstring 1 1 binary]
+                r setrange hll $pos $byte
+                # Don't modify more bytes 50% of times
+                if {rand() < 0.5} break
+            }
+
+            # Use the hyperloglog to check if it crashes
+            # Redis in some way.
+            catch {
+                r pfcount hll
+            }
+        }
+    }
 
     test {PFADD, PFCOUNT, PFMERGE type checking works} {
         r set foo bar

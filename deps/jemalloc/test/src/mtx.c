@@ -1,16 +1,16 @@
 #include "test/jemalloc_test.h"
 
 #ifndef _CRT_SPINCOUNT
-#define	_CRT_SPINCOUNT 4000
+#define _CRT_SPINCOUNT 4000
 #endif
 
 bool
-mtx_init(mtx_t *mtx)
-{
-
+mtx_init(mtx_t *mtx) {
 #ifdef _WIN32
-	if (!InitializeCriticalSectionAndSpinCount(&mtx->lock, _CRT_SPINCOUNT))
-		return (true);
+	if (!InitializeCriticalSectionAndSpinCount(&mtx->lock,
+	    _CRT_SPINCOUNT)) {
+		return true;
+	}
 #elif (defined(JEMALLOC_OS_UNFAIR_LOCK))
 	mtx->lock = OS_UNFAIR_LOCK_INIT;
 #elif (defined(JEMALLOC_OSSPIN))
@@ -18,22 +18,21 @@ mtx_init(mtx_t *mtx)
 #else
 	pthread_mutexattr_t attr;
 
-	if (pthread_mutexattr_init(&attr) != 0)
-		return (true);
+	if (pthread_mutexattr_init(&attr) != 0) {
+		return true;
+	}
 	pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_DEFAULT);
 	if (pthread_mutex_init(&mtx->lock, &attr) != 0) {
 		pthread_mutexattr_destroy(&attr);
-		return (true);
+		return true;
 	}
 	pthread_mutexattr_destroy(&attr);
 #endif
-	return (false);
+	return false;
 }
 
 void
-mtx_fini(mtx_t *mtx)
-{
-
+mtx_fini(mtx_t *mtx) {
 #ifdef _WIN32
 #elif (defined(JEMALLOC_OS_UNFAIR_LOCK))
 #elif (defined(JEMALLOC_OSSPIN))
@@ -43,9 +42,7 @@ mtx_fini(mtx_t *mtx)
 }
 
 void
-mtx_lock(mtx_t *mtx)
-{
-
+mtx_lock(mtx_t *mtx) {
 #ifdef _WIN32
 	EnterCriticalSection(&mtx->lock);
 #elif (defined(JEMALLOC_OS_UNFAIR_LOCK))
@@ -58,9 +55,7 @@ mtx_lock(mtx_t *mtx)
 }
 
 void
-mtx_unlock(mtx_t *mtx)
-{
-
+mtx_unlock(mtx_t *mtx) {
 #ifdef _WIN32
 	LeaveCriticalSection(&mtx->lock);
 #elif (defined(JEMALLOC_OS_UNFAIR_LOCK))

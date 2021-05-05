@@ -1,20 +1,22 @@
 #include "test/jemalloc_test.h"
 
-#define	rbtn_black_height(a_type, a_field, a_rbt, r_height) do {	\
-    a_type *rbp_bh_t;							\
-    for (rbp_bh_t = (a_rbt)->rbt_root, (r_height) = 0;			\
-	 rbp_bh_t != NULL;						\
-      rbp_bh_t = rbtn_left_get(a_type, a_field, rbp_bh_t)) {		\
-	if (!rbtn_red_get(a_type, a_field, rbp_bh_t)) {			\
-	    (r_height)++;						\
+#include "jemalloc/internal/rb.h"
+
+#define rbtn_black_height(a_type, a_field, a_rbt, r_height) do {	\
+	a_type *rbp_bh_t;						\
+	for (rbp_bh_t = (a_rbt)->rbt_root, (r_height) = 0; rbp_bh_t !=	\
+	    NULL; rbp_bh_t = rbtn_left_get(a_type, a_field,		\
+	    rbp_bh_t)) {						\
+		if (!rbtn_red_get(a_type, a_field, rbp_bh_t)) {		\
+		(r_height)++;						\
+		}							\
 	}								\
-    }									\
 } while (0)
 
 typedef struct node_s node_t;
 
 struct node_s {
-#define	NODE_MAGIC 0x9823af7e
+#define NODE_MAGIC 0x9823af7e
 	uint32_t magic;
 	rb_node(node_t) link;
 	uint64_t key;
@@ -36,14 +38,13 @@ node_cmp(const node_t *a, const node_t *b) {
 		ret = (((uintptr_t)a) > ((uintptr_t)b))
 		    - (((uintptr_t)a) < ((uintptr_t)b));
 	}
-	return (ret);
+	return ret;
 }
 
 typedef rb_tree(node_t) tree_t;
 rb_gen(static, tree_, tree_t, node_t, link, node_cmp);
 
-TEST_BEGIN(test_rb_empty)
-{
+TEST_BEGIN(test_rb_empty) {
 	tree_t tree;
 	node_t key;
 
@@ -68,52 +69,56 @@ TEST_BEGIN(test_rb_empty)
 TEST_END
 
 static unsigned
-tree_recurse(node_t *node, unsigned black_height, unsigned black_depth)
-{
+tree_recurse(node_t *node, unsigned black_height, unsigned black_depth) {
 	unsigned ret = 0;
 	node_t *left_node;
 	node_t *right_node;
 
-	if (node == NULL)
-		return (ret);
+	if (node == NULL) {
+		return ret;
+	}
 
 	left_node = rbtn_left_get(node_t, link, node);
 	right_node = rbtn_right_get(node_t, link, node);
 
-	if (!rbtn_red_get(node_t, link, node))
+	if (!rbtn_red_get(node_t, link, node)) {
 		black_depth++;
+	}
 
 	/* Red nodes must be interleaved with black nodes. */
 	if (rbtn_red_get(node_t, link, node)) {
-		if (left_node != NULL)
+		if (left_node != NULL) {
 			assert_false(rbtn_red_get(node_t, link, left_node),
 				"Node should be black");
-		if (right_node != NULL)
+		}
+		if (right_node != NULL) {
 			assert_false(rbtn_red_get(node_t, link, right_node),
 			    "Node should be black");
+		}
 	}
 
 	/* Self. */
 	assert_u32_eq(node->magic, NODE_MAGIC, "Bad magic");
 
 	/* Left subtree. */
-	if (left_node != NULL)
+	if (left_node != NULL) {
 		ret += tree_recurse(left_node, black_height, black_depth);
-	else
+	} else {
 		ret += (black_depth != black_height);
+	}
 
 	/* Right subtree. */
-	if (right_node != NULL)
+	if (right_node != NULL) {
 		ret += tree_recurse(right_node, black_height, black_depth);
-	else
+	} else {
 		ret += (black_depth != black_height);
+	}
 
-	return (ret);
+	return ret;
 }
 
 static node_t *
-tree_iterate_cb(tree_t *tree, node_t *node, void *data)
-{
+tree_iterate_cb(tree_t *tree, node_t *node, void *data) {
 	unsigned *i = (unsigned *)data;
 	node_t *search_node;
 
@@ -136,34 +141,31 @@ tree_iterate_cb(tree_t *tree, node_t *node, void *data)
 
 	(*i)++;
 
-	return (NULL);
+	return NULL;
 }
 
 static unsigned
-tree_iterate(tree_t *tree)
-{
+tree_iterate(tree_t *tree) {
 	unsigned i;
 
 	i = 0;
 	tree_iter(tree, NULL, tree_iterate_cb, (void *)&i);
 
-	return (i);
+	return i;
 }
 
 static unsigned
-tree_iterate_reverse(tree_t *tree)
-{
+tree_iterate_reverse(tree_t *tree) {
 	unsigned i;
 
 	i = 0;
 	tree_reverse_iter(tree, NULL, tree_iterate_cb, (void *)&i);
 
-	return (i);
+	return i;
 }
 
 static void
-node_remove(tree_t *tree, node_t *node, unsigned nnodes)
-{
+node_remove(tree_t *tree, node_t *node, unsigned nnodes) {
 	node_t *search_node;
 	unsigned black_height, imbalances;
 
@@ -195,41 +197,37 @@ node_remove(tree_t *tree, node_t *node, unsigned nnodes)
 }
 
 static node_t *
-remove_iterate_cb(tree_t *tree, node_t *node, void *data)
-{
+remove_iterate_cb(tree_t *tree, node_t *node, void *data) {
 	unsigned *nnodes = (unsigned *)data;
 	node_t *ret = tree_next(tree, node);
 
 	node_remove(tree, node, *nnodes);
 
-	return (ret);
+	return ret;
 }
 
 static node_t *
-remove_reverse_iterate_cb(tree_t *tree, node_t *node, void *data)
-{
+remove_reverse_iterate_cb(tree_t *tree, node_t *node, void *data) {
 	unsigned *nnodes = (unsigned *)data;
 	node_t *ret = tree_prev(tree, node);
 
 	node_remove(tree, node, *nnodes);
 
-	return (ret);
+	return ret;
 }
 
 static void
-destroy_cb(node_t *node, void *data)
-{
+destroy_cb(node_t *node, void *data) {
 	unsigned *nnodes = (unsigned *)data;
 
 	assert_u_gt(*nnodes, 0, "Destruction removed too many nodes");
 	(*nnodes)--;
 }
 
-TEST_BEGIN(test_rb_random)
-{
-#define	NNODES 25
-#define	NBAGS 250
-#define	SEED 42
+TEST_BEGIN(test_rb_random) {
+#define NNODES 25
+#define NBAGS 250
+#define SEED 42
 	sfmt_t *sfmt;
 	uint64_t bag[NNODES];
 	tree_t tree;
@@ -241,17 +239,20 @@ TEST_BEGIN(test_rb_random)
 		switch (i) {
 		case 0:
 			/* Insert in order. */
-			for (j = 0; j < NNODES; j++)
+			for (j = 0; j < NNODES; j++) {
 				bag[j] = j;
+			}
 			break;
 		case 1:
 			/* Insert in reverse order. */
-			for (j = 0; j < NNODES; j++)
+			for (j = 0; j < NNODES; j++) {
 				bag[j] = NNODES - j - 1;
+			}
 			break;
 		default:
-			for (j = 0; j < NNODES; j++)
+			for (j = 0; j < NNODES; j++) {
 				bag[j] = gen_rand64_range(sfmt, NNODES);
+			}
 		}
 
 		for (j = 1; j <= NNODES; j++) {
@@ -292,12 +293,14 @@ TEST_BEGIN(test_rb_random)
 			/* Remove nodes. */
 			switch (i % 5) {
 			case 0:
-				for (k = 0; k < j; k++)
+				for (k = 0; k < j; k++) {
 					node_remove(&tree, &nodes[k], j - k);
+				}
 				break;
 			case 1:
-				for (k = j; k > 0; k--)
+				for (k = j; k > 0; k--) {
 					node_remove(&tree, &nodes[k-1], k);
+				}
 				break;
 			case 2: {
 				node_t *start;
@@ -345,10 +348,8 @@ TEST_BEGIN(test_rb_random)
 TEST_END
 
 int
-main(void)
-{
-
-	return (test(
+main(void) {
+	return test(
 	    test_rb_empty,
-	    test_rb_random));
+	    test_rb_random);
 }

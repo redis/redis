@@ -196,6 +196,29 @@ start_server {tags {"multi"}} {
         r exec
     } {PONG}
 
+    test {SWAPDB is able to touch the watched keys that exist} {
+        r flushall
+        r select 0
+        r set x 30
+        r watch x ;# make sure x (set to 30) doesn't change (SWAPDB will "delete" it)
+        r swapdb 0 1
+        r multi
+        r ping
+        r exec
+    } {}
+
+    test {SWAPDB is able to touch the watched keys that do not exist} {
+        r flushall
+        r select 1
+        r set x 30
+        r select 0
+        r watch x ;# make sure the key x (currently missing) doesn't change (SWAPDB will create it)
+        r swapdb 0 1
+        r multi
+        r ping
+        r exec
+    } {}
+
     test {WATCH is able to remember the DB a key belongs to} {
         r select 5
         r set x 30
@@ -221,7 +244,7 @@ start_server {tags {"multi"}} {
         r exec
     } {}
 
-    test {WATCH will not consider touched expired keys} {
+    test {WATCH will consider touched expired keys} {
         r del x
         r set x foo
         r expire x 1
@@ -230,7 +253,7 @@ start_server {tags {"multi"}} {
         r multi
         r ping
         r exec
-    } {PONG}
+    } {}
 
     test {DISCARD should clear the WATCH dirty flag on the client} {
         r watch x
@@ -299,11 +322,309 @@ start_server {tags {"multi"}} {
         r multi
         r del foo
         r exec
+
+        # add another command so that when we see it we know multi-exec wasn't
+        # propagated
+        r incr foo
+
+        assert_replication_stream $repl {
+            {select *}
+            {incr foo}
+        }
+        close_replication_stream $repl
+    }
+
+    test {DISCARD should not fail during OOM} {
+        set rd [redis_deferring_client]
+        $rd config set maxmemory 1
+        assert  {[$rd read] eq {OK}}
+        r multi
+        catch {r set x 1} e
+        assert_match {OOM*} $e
+        r discard
+        $rd config set maxmemory 0
+        assert  {[$rd read] eq {OK}}
+        $rd close
+        r ping
+    } {PONG}
+
+    test {MULTI and script timeout} {
+        # check that if MULTI arrives during timeout, it is either refused, or
+        # allowed to pass, and we don't end up executing half of the transaction
+        set rd1 [redis_deferring_client]
+        set r2 [redis_client]
+        r config set lua-time-limit 10
+        r set xx 1
+        $rd1 eval {while true do end} 0
+        after 200
+        catch { $r2 multi; } e
+        catch { $r2 incr xx; } e
+        r script kill
+        after 200 ; # Give some time to Lua to call the hook again...
+        catch { $r2 incr xx; } e
+        catch { $r2 exec; } e
+        assert_match {EXECABORT*previous errors*} $e
+        set xx [r get xx]
+        # make sure that either the whole transcation passed or none of it (we actually expect none)
+        assert { $xx == 1 || $xx == 3}
+        # check that the connection is no longer in multi state
+        set pong [$r2 ping asdf]
+        assert_equal $pong "asdf"
+        $rd1 close; $r2 close
+    }
+
+    test {EXEC and script timeout} {
+        # check that if EXEC arrives during timeout, we don't end up executing
+        # half of the transaction, and also that we exit the multi state
+        set rd1 [redis_deferring_client]
+        set r2 [redis_client]
+        r config set lua-time-limit 10
+        r set xx 1
+        catch { $r2 multi; } e
+        catch { $r2 incr xx; } e
+        $rd1 eval {while true do end} 0
+        after 200
+        catch { $r2 incr xx; } e
+        catch { $r2 exec; } e
+        assert_match {EXECABORT*BUSY*} $e
+        r script kill
+        after 200 ; # Give some time to Lua to call the hook again...
+        set xx [r get xx]
+        # make sure that either the whole transcation passed or none of it (we actually expect none)
+        assert { $xx == 1 || $xx == 3}
+        # check that the connection is no longer in multi state
+        set pong [$r2 ping asdf]
+        assert_equal $pong "asdf"
+        $rd1 close; $r2 close
+    }
+
+    test {MULTI-EXEC body and script timeout} {
+        # check that we don't run an imcomplete transaction due to some commands
+        # arriving during busy script
+        set rd1 [redis_deferring_client]
+        set r2 [redis_client]
+        r config set lua-time-limit 10
+        r set xx 1
+        catch { $r2 multi; } e
+        catch { $r2 incr xx; } e
+        $rd1 eval {while true do end} 0
+        after 200
+        catch { $r2 incr xx; } e
+        r script kill
+        after 200 ; # Give some time to Lua to call the hook again...
+        catch { $r2 exec; } e
+        assert_match {EXECABORT*previous errors*} $e
+        set xx [r get xx]
+        # make sure that either the whole transcation passed or none of it (we actually expect none)
+        assert { $xx == 1 || $xx == 3}
+        # check that the connection is no longer in multi state
+        set pong [$r2 ping asdf]
+        assert_equal $pong "asdf"
+        $rd1 close; $r2 close
+    }
+
+    test {just EXEC and script timeout} {
+        # check that if EXEC arrives during timeout, we don't end up executing
+        # actual commands during busy script, and also that we exit the multi state
+        set rd1 [redis_deferring_client]
+        set r2 [redis_client]
+        r config set lua-time-limit 10
+        r set xx 1
+        catch { $r2 multi; } e
+        catch { $r2 incr xx; } e
+        $rd1 eval {while true do end} 0
+        after 200
+        catch { $r2 exec; } e
+        assert_match {EXECABORT*BUSY*} $e
+        r script kill
+        after 200 ; # Give some time to Lua to call the hook again...
+        set xx [r get xx]
+        # make we didn't execute the transaction
+        assert { $xx == 1}
+        # check that the connection is no longer in multi state
+        set pong [$r2 ping asdf]
+        assert_equal $pong "asdf"
+        $rd1 close; $r2 close
+    }
+
+    test {exec with write commands and state change} {
+        # check that exec that contains write commands fails if server state changed since they were queued
+        set r1 [redis_client]
+        r set xx 1
+        r multi
+        r incr xx
+        $r1 config set min-replicas-to-write 2
+        catch {r exec} e
+        assert_match {*EXECABORT*NOREPLICAS*} $e
+        set xx [r get xx]
+        # make sure that the INCR wasn't executed
+        assert { $xx == 1}
+        $r1 config set min-replicas-to-write 0
+        $r1 close;
+    }
+
+    test {exec with read commands and stale replica state change} {
+        # check that exec that contains read commands fails if server state changed since they were queued
+        r config set replica-serve-stale-data no
+        set r1 [redis_client]
+        r set xx 1
+
+        # check that GET is disallowed on stale replica, even if the replica becomes stale only after queuing.
+        r multi
+        r get xx
+        $r1 replicaof localhsot 0
+        catch {r exec} e
+        assert_match {*EXECABORT*MASTERDOWN*} $e
+
+        # check that PING is allowed
+        r multi
+        r ping
+        $r1 replicaof localhsot 0
+        set pong [r exec]
+        assert {$pong == "PONG"}
+
+        # check that when replica is not stale, GET is allowed
+        # while we're at it, let's check that multi is allowed on stale replica too
+        r multi
+        $r1 replicaof no one
+        r get xx
+        set xx [r exec]
+        # make sure that the INCR was executed
+        assert { $xx == 1 }
+        $r1 close;
+    }
+
+    test {EXEC with only read commands should not be rejected when OOM} {
+        set r2 [redis_client]
+
+        r set x value
+        r multi
+        r get x
+        r ping
+
+        # enforcing OOM
+        $r2 config set maxmemory 1
+
+        # finish the multi transaction with exec
+        assert { [r exec] == {value PONG} }
+
+        # releasing OOM
+        $r2 config set maxmemory 0
+        $r2 close
+    }
+
+    test {EXEC with at least one use-memory command should fail} {
+        set r2 [redis_client]
+
+        r multi
+        r set x 1
+        r get x
+
+        # enforcing OOM
+        $r2 config set maxmemory 1
+
+        # finish the multi transaction with exec
+        catch {r exec} e
+        assert_match {EXECABORT*OOM*} $e
+
+        # releasing OOM
+        $r2 config set maxmemory 0
+        $r2 close
+    }
+
+    test {Blocking commands ignores the timeout} {
+        r xgroup create s g $ MKSTREAM
+
+        set m [r multi]
+        r blpop empty_list 0
+        r brpop empty_list 0
+        r brpoplpush empty_list1 empty_list2 0
+        r blmove empty_list1 empty_list2 LEFT LEFT 0
+        r bzpopmin empty_zset 0
+        r bzpopmax empty_zset 0
+        r xread BLOCK 0 STREAMS s $
+        r xreadgroup group g c BLOCK 0 STREAMS s >
+        set res [r exec]
+
+        list $m $res
+    } {OK {{} {} {} {} {} {} {} {}}}
+
+    test {MULTI propagation of PUBLISH} {
+        set repl [attach_to_replication_stream]
+
+        # make sure that PUBLISH inside MULTI is propagated in a transaction
+        r multi
+        r publish bla bla
+        r exec
+
         assert_replication_stream $repl {
             {select *}
             {multi}
+            {publish bla bla}
             {exec}
         }
         close_replication_stream $repl
     }
+
+    test {MULTI propagation of SCRIPT LOAD} {
+        set repl [attach_to_replication_stream]
+
+        # make sure that SCRIPT LOAD inside MULTI is propagated in a transaction
+        r multi
+        r script load {redis.call('set', KEYS[1], 'foo')}
+        set res [r exec]
+        set sha [lindex $res 0]
+
+        assert_replication_stream $repl {
+            {select *}
+            {multi}
+            {script load *}
+            {exec}
+        }
+        close_replication_stream $repl
+    }
+
+    test {MULTI propagation of SCRIPT LOAD} {
+        set repl [attach_to_replication_stream]
+
+        # make sure that EVAL inside MULTI is propagated in a transaction
+        r config set lua-replicate-commands no
+        r multi
+        r eval {redis.call('set', KEYS[1], 'bar')} 1 bar
+        r exec
+
+        assert_replication_stream $repl {
+            {select *}
+            {multi}
+            {eval *}
+            {exec}
+        }
+        close_replication_stream $repl
+    }
+
+    tags {"stream"} {
+        test {MULTI propagation of XREADGROUP} {
+            # stream is a special case because it calls propagate() directly for XREADGROUP
+            set repl [attach_to_replication_stream]
+
+            r XADD mystream * foo bar
+            r XGROUP CREATE mystream mygroup 0
+
+            # make sure the XCALIM (propagated by XREADGROUP) is indeed inside MULTI/EXEC
+            r multi
+            r XREADGROUP GROUP mygroup consumer1 STREAMS mystream ">"
+            r exec
+
+            assert_replication_stream $repl {
+                {select *}
+                {xadd *}
+                {xgroup CREATE *}
+                {multi}
+                {xclaim *}
+                {exec}
+            }
+            close_replication_stream $repl
+        }
+    }
+
 }

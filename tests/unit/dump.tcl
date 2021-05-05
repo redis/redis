@@ -12,7 +12,7 @@ start_server {tags {"dump"}} {
         r del foo
         r restore foo 5000 $encoded
         set ttl [r pttl foo]
-        assert {$ttl >= 3000 && $ttl <= 5000}
+        assert_range $ttl 3000 5000
         r get foo
     } {bar}
 
@@ -22,7 +22,51 @@ start_server {tags {"dump"}} {
         r del foo
         r restore foo 2569591501 $encoded
         set ttl [r pttl foo]
-        assert {$ttl >= (2569591501-3000) && $ttl <= 2569591501}
+        assert_range $ttl (2569591501-3000) 2569591501
+        r get foo
+    } {bar}
+    
+    test {RESTORE can set an absolute expire} {
+        r set foo bar
+        set encoded [r dump foo]
+        r del foo
+        set now [clock milliseconds]
+        r restore foo [expr $now+3000] $encoded absttl
+        set ttl [r pttl foo]
+        assert_range $ttl 2000 3100
+        r get foo
+    } {bar}
+
+    test {RESTORE with ABSTTL in the past} {
+        r set foo bar
+        set encoded [r dump foo]
+        set now [clock milliseconds]
+        r debug set-active-expire 0
+        r restore foo [expr $now-3000] $encoded absttl REPLACE
+        catch {r debug object foo} e
+        r debug set-active-expire 1
+        set e
+    } {ERR no such key}
+
+    test {RESTORE can set LRU} {
+        r set foo bar
+        set encoded [r dump foo]
+        r del foo
+        r config set maxmemory-policy allkeys-lru
+        r restore foo 0 $encoded idletime 1000
+        set idle [r object idletime foo]
+        assert {$idle >= 1000 && $idle <= 1010}
+        r get foo
+    } {bar}
+    
+    test {RESTORE can set LFU} {
+        r set foo bar
+        set encoded [r dump foo]
+        r del foo
+        r config set maxmemory-policy allkeys-lfu
+        r restore foo 0 $encoded freq 100
+        set freq [r object freq foo]
+        assert {$freq == 100}
         r get foo
     } {bar}
 
@@ -126,7 +170,7 @@ start_server {tags {"dump"}} {
             $second set list somevalue
             catch {r -1 migrate $second_host $second_port list 9 5000 copy} e
             assert_match {ERR*} $e
-            set res [r -1 migrate $second_host $second_port list 9 5000 copy replace]
+            set ret [r -1 migrate $second_host $second_port list 9 5000 copy replace]
             assert {$ret eq {OK}}
             assert {[$first exists list] == 1}
             assert {[$second exists list] == 1}
@@ -246,7 +290,7 @@ start_server {tags {"dump"}} {
         set e
     } {*empty string*}
 
-    test {MIGRATE with mutliple keys migrate just existing ones} {
+    test {MIGRATE with multiple keys migrate just existing ones} {
         set first [srv 0 client]
         r set key1 "v1"
         r set key2 "v2"
@@ -308,4 +352,28 @@ start_server {tags {"dump"}} {
         }
     }
 
+    test {MIGRATE AUTH: correct and wrong password cases} {
+        set first [srv 0 client]
+        r del list
+        r lpush list a b c d
+        start_server {tags {"repl"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+            $second config set requirepass foobar
+            $second auth foobar
+
+            assert {[$first exists list] == 1}
+            assert {[$second exists list] == 0}
+            set ret [r -1 migrate $second_host $second_port list 9 5000 AUTH foobar]
+            assert {$ret eq {OK}}
+            assert {[$second exists list] == 1}
+            assert {[$second lrange list 0 -1] eq {d c b a}}
+
+            r -1 lpush list a b c d
+            $second config set requirepass foobar2
+            catch {r -1 migrate $second_host $second_port list 9 5000 AUTH foobar} err
+            assert_match {*WRONGPASS*} $err
+        }
+    }
 }

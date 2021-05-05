@@ -1,5 +1,5 @@
 # Check the basic monitoring and failover capabilities.
-
+source "../tests/includes/start-init-tests.tcl"
 source "../tests/includes/init-tests.tcl"
 
 if {$::simulate_error} {
@@ -9,7 +9,7 @@ if {$::simulate_error} {
 }
 
 test "Basic failover works if the master is down" {
-    set old_port [RI $master_id tcp_port]
+    set old_port [RPort $master_id]
     set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
     assert {[lindex $addr 1] == $old_port}
     kill_instance redis $master_id
@@ -17,7 +17,7 @@ test "Basic failover works if the master is down" {
         wait_for_condition 1000 50 {
             [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] != $old_port
         } else {
-            fail "At least one Sentinel did not received failover info"
+            fail "At least one Sentinel did not receive failover info"
         }
     }
     restart_instance redis $master_id
@@ -53,7 +53,7 @@ test "ODOWN is not possible without N (quorum) Sentinels reports" {
     foreach_sentinel_id id {
         S $id SENTINEL SET mymaster quorum [expr $sentinels+1]
     }
-    set old_port [RI $master_id tcp_port]
+    set old_port [RPort $master_id]
     set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
     assert {[lindex $addr 1] == $old_port}
     kill_instance redis $master_id
@@ -108,7 +108,7 @@ test "Failover works if we configure for absolute agreement" {
         wait_for_condition 1000 50 {
             [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] != $old_port
         } else {
-            fail "At least one Sentinel did not received failover info"
+            fail "At least one Sentinel did not receive failover info"
         }
     }
     restart_instance redis $master_id
