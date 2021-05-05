@@ -806,9 +806,6 @@ static int cliSelect(void) {
         if (reply->type == REDIS_REPLY_ERROR) {
             result = REDIS_ERR;
             fprintf(stderr,"SELECT %d failed: %s\n",config.input_dbnum,reply->str);
-            if (strncmp(reply->str, "NOAUTH", 6)) {
-                config.input_dbnum = config.dbnum;
-            }
         } else {
             config.dbnum = config.input_dbnum;
             cliRefreshPrompt();
