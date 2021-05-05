@@ -1430,6 +1430,7 @@ void logRegisters(ucontext_t *uc) {
     #endif
 #elif defined(__NetBSD__)
     #if defined(__x86_64__)
+    /* on x86_64, the stack pointer is below the red zone (128 bits) */
     serverLog(LL_WARNING,
     "\n"
     "RAX:%016lx RBX:%016lx\nRCX:%016lx RDX:%016lx\n"
@@ -1444,7 +1445,7 @@ void logRegisters(ucontext_t *uc) {
         (unsigned long) uc->uc_mcontext.__gregs[_REG_RDI],
         (unsigned long) uc->uc_mcontext.__gregs[_REG_RSI],
         (unsigned long) uc->uc_mcontext.__gregs[_REG_RBP],
-        (unsigned long) uc->uc_mcontext.__gregs[_REG_RSP],
+        (unsigned long) uc->uc_mcontext.__gregs[_REG_RSP] - 128,
         (unsigned long) uc->uc_mcontext.__gregs[_REG_R8],
         (unsigned long) uc->uc_mcontext.__gregs[_REG_R9],
         (unsigned long) uc->uc_mcontext.__gregs[_REG_R10],
