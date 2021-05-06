@@ -121,8 +121,6 @@ int hashTypeGetValue(robj *o, sds field, unsigned char **vstr, unsigned int *vle
             *vlen = sdslen(value);
             return C_OK;
         }
-    } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        
     } else {
         serverPanic("Unknown hash encoding");
     }
@@ -1094,10 +1092,9 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
         } else if (hash->encoding == OBJ_ENCODING_ZIPLIST || hash->encoding == OBJ_ENCODING_LISTPACK) {
             ziplistEntry *keys, *vals = NULL;
             unsigned long limit, sample_count;
-            listContainerType *lct;
-
-            lct = (hash->encoding == OBJ_ENCODING_ZIPLIST) ?
+            listContainerType *lct = (hash->encoding == OBJ_ENCODING_ZIPLIST) ?
                 &listContainerZiplist : &listContainerListpack;
+
             limit = count > HRANDFIELD_RANDOM_SAMPLE_LIMIT ? HRANDFIELD_RANDOM_SAMPLE_LIMIT : count;
             keys = zmalloc(sizeof(ziplistEntry)*limit);
             if (withvalues)
@@ -1203,6 +1200,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
         if (hash->encoding == OBJ_ENCODING_ZIPLIST || hash->encoding == OBJ_ENCODING_LISTPACK) {
             listContainerType *lct = (hash->encoding == OBJ_ENCODING_ZIPLIST) ?
                 &listContainerZiplist : &listContainerListpack;
+
             /* it is inefficient to repeatedly pick one random element from a
              * ziplist. so we use this instead: */
             ziplistEntry *keys, *vals = NULL;
