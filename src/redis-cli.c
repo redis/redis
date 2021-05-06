@@ -207,7 +207,8 @@ static struct config {
     cliSSLconfig sslconfig;
     long repeat;
     long interval;
-    int dbnum;
+    int dbnum; /* db num currently selected */
+    int input_dbnum; /* db num user input */
     int interactive;
     int shutdown;
     int monitor_mode;
@@ -445,7 +446,7 @@ static void parseRedisUri(const char *uri) {
     if (curr == end) return;
 
     /* Extract database number. */
-    config.dbnum = atoi(curr);
+    config.input_dbnum = atoi(curr);
 }
 
 static uint64_t dictSdsHash(const void *key) {
@@ -794,15 +795,21 @@ static int cliAuth(redisContext *ctx, char *user, char *auth) {
     return REDIS_ERR;
 }
 
-/* Send SELECT dbnum to the server */
+/* Send SELECT input_dbnum to the server */
 static int cliSelect(void) {
     redisReply *reply;
-    if (config.dbnum == 0) return REDIS_OK;
+    if (config.input_dbnum == config.dbnum) return REDIS_OK;
 
-    reply = redisCommand(context,"SELECT %d",config.dbnum);
+    reply = redisCommand(context,"SELECT %d",config.input_dbnum);
     if (reply != NULL) {
         int result = REDIS_OK;
-        if (reply->type == REDIS_REPLY_ERROR) result = REDIS_ERR;
+        if (reply->type == REDIS_REPLY_ERROR) {
+            result = REDIS_ERR;
+            fprintf(stderr,"SELECT %d failed: %s\n",config.input_dbnum,reply->str);
+        } else {
+            config.dbnum = config.input_dbnum;
+            cliRefreshPrompt();
+        }
         freeReplyObject(reply);
         return result;
     }
@@ -817,7 +824,10 @@ static int cliSwitchProto(void) {
     reply = redisCommand(context,"HELLO 3");
     if (reply != NULL) {
         int result = REDIS_OK;
-        if (reply->type == REDIS_REPLY_ERROR) result = REDIS_ERR;
+        if (reply->type == REDIS_REPLY_ERROR) {
+            result = REDIS_ERR;
+            fprintf(stderr,"HELLO 3 failed: %s\n",reply->str);
+        }
         freeReplyObject(reply);
         return result;
     }
@@ -1424,7 +1434,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             if (!strcasecmp(command,"select") && argc == 2 && 
                 config.last_cmd_type != REDIS_REPLY_ERROR) 
             {
-                config.dbnum = atoi(argv[1]);
+                config.input_dbnum = config.dbnum = atoi(argv[1]);
                 cliRefreshPrompt();
             } else if (!strcasecmp(command,"auth") && (argc == 2 || argc == 3)) {
                 cliSelect();
@@ -1436,15 +1446,17 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                 cliRefreshPrompt();
             } else if (!strcasecmp(command,"exec") && argc == 1 && config.in_multi) {
                 config.in_multi = 0;
-                if (config.last_cmd_type == REDIS_REPLY_ERROR) {
-                    config.dbnum = config.pre_multi_dbnum;
+                if (config.last_cmd_type == REDIS_REPLY_ERROR ||
+                    config.last_cmd_type == REDIS_REPLY_NIL)
+                {
+                    config.input_dbnum = config.dbnum = config.pre_multi_dbnum;
                 }
                 cliRefreshPrompt();
             } else if (!strcasecmp(command,"discard") && argc == 1 && 
                 config.last_cmd_type != REDIS_REPLY_ERROR) 
             {
                 config.in_multi = 0;
-                config.dbnum = config.pre_multi_dbnum;
+                config.input_dbnum = config.dbnum = config.pre_multi_dbnum;
                 cliRefreshPrompt();
             } 
         }
@@ -1531,7 +1543,7 @@ static int parseOptions(int argc, char **argv) {
             double seconds = atof(argv[++i]);
             config.interval = seconds*1000000;
         } else if (!strcmp(argv[i],"-n") && !lastarg) {
-            config.dbnum = atoi(argv[++i]);
+            config.input_dbnum = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--no-auth-warning")) {
             config.no_auth_warning = 1;
         } else if (!strcmp(argv[i], "--askpass")) {
@@ -8198,6 +8210,7 @@ int main(int argc, char **argv) {
     config.repeat = 1;
     config.interval = 0;
     config.dbnum = 0;
+    config.input_dbnum = 0;
     config.interactive = 0;
     config.shutdown = 0;
     config.monitor_mode = 0;
