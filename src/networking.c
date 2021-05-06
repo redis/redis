@@ -2146,6 +2146,7 @@ void processInputBuffer(client *c) {
         c->qb_pos = 0;
     }
 
+    // TODO: should this move into the loop above? Into processCommandAndResetClient? We do check the client_maxmemory per command but don't update the mem usage per command?!
     updateClientMemUsage(c);
 }
 
