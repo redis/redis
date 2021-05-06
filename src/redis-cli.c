@@ -749,7 +749,7 @@ static char *hintsCallback(const char *buf, int *color, int *bold) {
         sds hint = sdsnew(entry->org->params);
 
         /* Remove arguments from the returned hint to show only the
-            * ones the user did not yet typed. */
+            * ones the user did not yet type. */
         int toremove = argc-matchlen;
         while(toremove > 0 && sdslen(hint)) {
             if (hint[0] == '[') break;
