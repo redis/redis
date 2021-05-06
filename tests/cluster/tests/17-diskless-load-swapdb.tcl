@@ -1,4 +1,4 @@
-# Check replica can restore database buckup correctly if fail to diskless load.
+# Check replica can restore database backup correctly if fail to diskless load.
 
 source "../tests/includes/init-tests.tcl"
 
