@@ -2083,15 +2083,17 @@ static int isDangerousCommand(int argc, char **argv) {
     if (!strcasecmp(argv[0],"auth")) {
         return 1;
     } else if (argc > 1 &&
-            !strcasecmp(argv[0],"acl") &&
-            !strcasecmp(argv[1],"setuser")) {
+        !strcasecmp(argv[0],"acl") &&
+        !strcasecmp(argv[1],"setuser"))
+    {
         return 1;
     } else if (argc > 2 &&
-            !strcasecmp(argv[0],"config") &&
-            !strcasecmp(argv[1],"set") && (
-                !strcasecmp(argv[2],"masterauth") ||
-                !strcasecmp(argv[2],"masteruser") ||
-                !strcasecmp(argv[2],"requirepass"))) {
+        !strcasecmp(argv[0],"config") &&
+        !strcasecmp(argv[1],"set") && (
+            !strcasecmp(argv[2],"masterauth") ||
+            !strcasecmp(argv[2],"masteruser") ||
+            !strcasecmp(argv[2],"requirepass")))
+    {
         return 1;
     /* HELLO [protover [AUTH username password] [SETNAME clientname]] */
     } else if (argc > 4 && !strcasecmp(argv[0],"hello")) {
