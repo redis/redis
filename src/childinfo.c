@@ -93,7 +93,7 @@ void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress,
         if (cow) {
             serverLog((info_type == CHILD_INFO_TYPE_CURRENT_INFO) ? LL_VERBOSE : LL_NOTICE,
                       "%s: %zu MB of memory used by copy-on-write",
-                      pname, data.cow / (1024 * 1024));
+                      pname, cow / (1024 * 1024));
         }
     }
 
