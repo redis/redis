@@ -1447,7 +1447,8 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             } else if (!strcasecmp(command,"exec") && argc == 1 && config.in_multi) {
                 config.in_multi = 0;
                 if (config.last_cmd_type == REDIS_REPLY_ERROR ||
-                        config.last_cmd_type == REDIS_REPLY_NIL) {
+                    config.last_cmd_type == REDIS_REPLY_NIL)
+                {
                     config.input_dbnum = config.dbnum = config.pre_multi_dbnum;
                 }
                 cliRefreshPrompt();
