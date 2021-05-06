@@ -657,7 +657,7 @@ void bitopCommand(client *c) {
     }
 
     /* Compute the bit operation, if at least one string is not empty. */
-    if (maxlen || nullobjs < numkeys) {
+    if (nullobjs < numkeys) {
         res = (unsigned char*) sdsnewlen(NULL,maxlen);
         unsigned char output, byte;
         unsigned long i;
@@ -766,7 +766,7 @@ void bitopCommand(client *c) {
     zfree(objects);
 
     /* Store the computed value into the target key */
-    if (maxlen || nullobjs < numkeys) {
+    if (nullobjs < numkeys) {
         o = createObject(OBJ_STRING,res);
         setKey(c,c->db,targetkey,o);
         notifyKeyspaceEvent(NOTIFY_STRING,"set",targetkey,c->db->id);
