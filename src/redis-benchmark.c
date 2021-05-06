@@ -361,7 +361,7 @@ fail:
     if (hostsocket == NULL) fprintf(stderr, "%s:%d\n", ip, port);
     else fprintf(stderr, "%s\n", hostsocket);
     int abort_test = 0;
-    if (reply->type == REDIS_REPLY_ERROR &&
+    if (reply && reply->type == REDIS_REPLY_ERROR &&
         (!strncmp(reply->str,"NOAUTH",5) ||
          !strncmp(reply->str,"WRONGPASS",9) ||
          !strncmp(reply->str,"NOPERM",5)))
