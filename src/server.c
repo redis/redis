@@ -1839,7 +1839,7 @@ void clientsCron(void) {
         if (clientsCronResizeQueryBuffer(c)) continue;
         if (clientsCronTrackExpansiveClients(c, curr_peak_mem_usage_slot)) continue;
         if (clientsCronTrackClientsMemUsage(c)) continue;
-        if (closeClientOnOutputBufferLimitReached(c, 0)) continue;
+        if (handleClientOnOutputBufferLimits(c, 0)) continue;
     }
 }
 
@@ -2402,6 +2402,10 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Try to process pending commands for clients that were just unblocked. */
     if (listLength(server.unblocked_clients))
         processUnblockedClients();
+
+    /* Try to process pending commands for clients that were throttled. */
+    if (listLength(server.unthrottled_clients))
+        processUnthrottledClients();
 
     /* Send all the slaves an ACK request if at least one client blocked
      * during the previous event loop iteration. Note that we do this after
@@ -3162,6 +3166,7 @@ void initServer(void) {
     server.replication_allowed = 1;
     server.slaveseldb = -1; /* Force to emit the first SELECT command. */
     server.unblocked_clients = listCreate();
+    server.unthrottled_clients = listCreate();
     server.ready_keys = listCreate();
     server.clients_waiting_acks = listCreate();
     server.get_ack_from_slaves = 0;

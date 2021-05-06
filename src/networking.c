@@ -181,6 +181,7 @@ client *createClient(connection *conn) {
     c->sockname = NULL;
     c->client_list_node = NULL;
     c->paused_list_node = NULL;
+    c->unthrottled_list_node = NULL;
     c->client_tracking_redirection = 0;
     c->client_tracking_prefixes = NULL;
     c->client_cron_last_memory_usage = 0;
@@ -334,7 +335,7 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
         listAddNodeTail(c->reply, tail);
         c->reply_bytes += tail->size;
 
-        closeClientOnOutputBufferLimitReached(c, 1);
+        handleClientOnOutputBufferLimits(c, 1);
     }
 }
 
@@ -617,7 +618,7 @@ void setDeferredReply(client *c, void *node, const char *s, size_t length) {
         listNodeValue(ln) = buf;
         c->reply_bytes += buf->size;
 
-        closeClientOnOutputBufferLimitReached(c, 1);
+        handleClientOnOutputBufferLimits(c, 1);
     }
 }
 
@@ -950,7 +951,7 @@ void AddReplyFromClient(client *dst, client *src) {
     src->bufpos = 0;
 
     /* Check output buffer limits */
-    closeClientOnOutputBufferLimitReached(dst, 1);
+    handleClientOnOutputBufferLimits(dst, 1);
 }
 
 /* Copy 'src' client output buffers into 'dst' client output buffers.
@@ -1282,6 +1283,11 @@ void unlinkClient(client *c) {
         c->flags &= ~CLIENT_UNBLOCKED;
     }
 
+    if (c->unthrottled_list_node) {
+        listDelNode(server.unthrottled_clients,c->unthrottled_list_node);
+        c->unthrottled_list_node = NULL;
+    }
+
     /* Clear the tracking status. */
     if (c->flags & CLIENT_TRACKING) disableTracking(c);
 }
@@ -1581,16 +1587,51 @@ int writeToClient(client *c, int handler_installed) {
         }
     }
 
-    if (c->obuf_soft_limit_reached_time && !checkClientOutputBufferLimits(c))
-        queueClientForReprocessing(c);
-
     return C_OK;
+}
+
+/* Process clients that were previously throttled. */
+void processUnthrottledClients() {
+    listNode *ln;
+    client *c;
+
+    while (listLength(server.unthrottled_clients)) {
+        ln = listFirst(server.unthrottled_clients);
+        serverAssert(ln != NULL);
+        c = ln->value;
+        listDelNode(server.unthrottled_clients,ln);
+        c->unthrottled_list_node = NULL;
+        connSetReadHandler(c->conn, readQueryFromClient);
+
+        /* If we have a queued command, execute it now. */
+        if (processPendingCommandsAndResetClient(c) == C_ERR) {
+            continue;
+        }
+        /* Then process client if it has more data in it's buffer. */
+        if (c->querybuf && sdslen(c->querybuf) > 0) {
+            processInputBuffer(c);
+        }
+    }
+}
+
+/* Check if the client is back below the soft-limit and can be un-throttled. */
+void queueThrottledClientForReprocessing(client *c) {
+    /* Skip if the client isn't throttled (obuf_soft_limit_reached_time is 0),
+     * or if the timeout reached and the client should be disconnected. */
+    if (!c->obuf_soft_limit_reached_time || checkClientOutputBufferLimits(c))
+        return;
+    if (!c->unthrottled_list_node) {
+        listAddNodeTail(server.unthrottled_clients,c);
+        c->unthrottled_list_node = listLast(server.unthrottled_clients);
+    }
 }
 
 /* Write event handler. Just send data to the client. */
 void sendReplyToClient(connection *conn) {
     client *c = connGetPrivateData(conn);
     writeToClient(c,1);
+    /* Check if we need to un-throttle the client. */
+    queueThrottledClientForReprocessing(c);
 }
 
 /* This function is called just before entering the event loop, in the hope
@@ -1617,6 +1658,9 @@ int handleClientsWithPendingWrites(void) {
 
         /* Try to write buffers to the client socket. */
         if (writeToClient(c,0) == C_ERR) continue;
+
+        /* Check if we need to un-throttle the client. */
+        queueThrottledClientForReprocessing(c);
 
         /* If after the synchronous writes above we still have data to
          * output to the client, we need to install the writable handler. */
@@ -2075,7 +2119,7 @@ void processInputBuffer(client *c) {
         if (c->flags & (CLIENT_CLOSE_AFTER_REPLY|CLIENT_CLOSE_ASAP)) break;
 
         /* If the client reached the soft limit, don't process any more commands */
-        if (c->obuf_soft_limit_reached_time && !(c->flags & CLIENT_SLAVE)) break;
+        if (c->obuf_soft_limit_reached_time && !(c->flags & (CLIENT_SLAVE|CLIENT_MASTER))) break;
 
         /* Determine request type when unknown. */
         if (!c->reqtype) {
@@ -3197,12 +3241,9 @@ int checkClientOutputBufferLimits(client *c) {
     if (class == CLIENT_TYPE_MASTER) class = CLIENT_TYPE_NORMAL;
 
     /* convert limits from negative values to % of maxmemory if needed */
-    long long hard_limit_bytes = server.client_obuf_limits[class].hard_limit >= 0 ?
-        server.client_obuf_limits[class].hard_limit:
-        server.client_obuf_limits[class].hard_limit * (long long)server.maxmemory / -100;
-    long long soft_limit_bytes = server.client_obuf_limits[class].soft_limit >= 0 ?
-        server.client_obuf_limits[class].soft_limit:
-        server.client_obuf_limits[class].soft_limit * (long long)server.maxmemory / -100;
+#define CONVERT_FROM_PCT(limit) ((limit) >=0 ? (limit) : (- (limit) * (long long)server.maxmemory / 100))
+    long long hard_limit_bytes = CONVERT_FROM_PCT(server.client_obuf_limits[class].hard_limit);
+    long long soft_limit_bytes = CONVERT_FROM_PCT(server.client_obuf_limits[class].soft_limit);
 
     if (hard_limit_bytes > 0 && used_mem >= (unsigned long long)hard_limit_bytes)
         hard = 1;
@@ -3231,8 +3272,12 @@ int checkClientOutputBufferLimits(client *c) {
     return soft || hard;
 }
 
-/* Asynchronously close a client if soft or hard limit is reached on the
- * output buffer size. The caller can check if the client will be closed
+/* Check if the client reached it's client output buffer limits.
+ * Close a client if the hard limit or the soft limit + timeout is reached.
+ * If the soft limit is reached but not the timeout, the client will be
+ * throttled until the buffer shrinks (see obuf_soft_limit_reached_time).
+ *
+ * The caller can check if the client will be closed
  * checking if the client CLIENT_CLOSE_ASAP flag is set.
  *
  * Note: we need to close the client asynchronously because this function is
@@ -3242,14 +3287,14 @@ int checkClientOutputBufferLimits(client *c) {
  * useful when called from cron.
  *
  * Returns 1 if client was (flagged) closed. */
-int closeClientOnOutputBufferLimitReached(client *c, int async) {
+int handleClientOnOutputBufferLimits(client *c, int async_close) {
     if (!c->conn) return 0; /* It is unsafe to free fake clients. */
     serverAssert(c->reply_bytes < SIZE_MAX-(1024*64));
     if (c->reply_bytes == 0 || c->flags & CLIENT_CLOSE_ASAP) return 0;
     if (checkClientOutputBufferLimits(c)) {
         sds client = catClientInfoString(sdsempty(),c);
 
-        if (async) {
+        if (async_close) {
             freeClientAsync(c);
             serverLog(LL_WARNING,
                       "Client %s scheduled to be closed ASAP for overcoming of output buffer limits.",
@@ -3262,6 +3307,11 @@ int closeClientOnOutputBufferLimitReached(client *c, int async) {
         }
         sdsfree(client);
         return  1;
+    }
+
+    /* Throttle the client. don't process it's command until the output buffer shrinks. */
+    if (c->obuf_soft_limit_reached_time) {
+        connSetReadHandler(c->conn, NULL);
     }
     return 0;
 }
@@ -3620,6 +3670,8 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
         writeToClient(c,0);
+        /* Check if we need to un-throttle the client. */
+        queueThrottledClientForReprocessing(c);
     }
     listEmpty(io_threads_list[0]);
 
@@ -3643,7 +3695,10 @@ int handleClientsWithPendingWritesUsingThreads(void) {
                 connSetWriteHandler(c->conn, sendReplyToClient) == AE_ERR)
         {
             freeClientAsync(c);
+            continue;
         }
+        /* Check if we need to un-throttle the client. */
+        queueThrottledClientForReprocessing(c);
     }
     listEmpty(server.clients_pending_write);
 

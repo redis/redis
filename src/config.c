@@ -557,7 +557,7 @@ void loadServerConfigFromString(char *config) {
                    argc == 5)
         {
             int class = getClientTypeByName(argv[1]);
-            unsigned long long hard, soft;
+            long long hard, soft;
             int soft_seconds;
 
             if (class == -1 || class == CLIENT_TYPE_MASTER) {
