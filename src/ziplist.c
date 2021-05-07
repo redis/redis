@@ -1673,6 +1673,23 @@ unsigned int ziplistRandomPairsUnique(unsigned char *zl, unsigned int count, zip
     return picked;
 }
 
+packedClass packedZiplist = {
+    ziplistLen,
+    ziplistBlobLen,
+    ziplistGet,
+    ziplistIndex,
+    ziplistNext,
+    ziplistPrev,
+    ziplistPushHead,
+    ziplistPushTail,
+    ziplistReplace,
+    ziplistDelete,
+    ziplistFind,
+    ziplistRandomPair,
+    ziplistRandomPairs,
+    ziplistRandomPairsUnique,
+};
+
 #ifdef REDIS_TEST
 #include <sys/time.h>
 #include "adlist.h"

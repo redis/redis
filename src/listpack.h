@@ -37,7 +37,7 @@
 
 #include <stdlib.h>
 #include <stdint.h>
-#include "ziplist.h" // todo: will be deleted, for ziplistEntry
+#include "packedlist.h"
 
 #define LP_INTBUF_SIZE 21 /* 20 digits of -2^63 + 1 null term = 21. */
 
@@ -72,5 +72,7 @@ unsigned int lpCompare(unsigned char *p, unsigned char *s, unsigned int slen);
 void lpRandomPair(unsigned char *lp, unsigned long total_count, ziplistEntry *key, ziplistEntry *val);
 void lpRandomPairs(unsigned char *lp, unsigned int count, ziplistEntry *keys, ziplistEntry *vals);
 unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, ziplistEntry *keys, ziplistEntry *vals);
+
+extern packedClass packedListpack;
 
 #endif

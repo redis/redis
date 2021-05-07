@@ -1727,6 +1727,7 @@ typedef struct {
 #define OBJ_HASH_KEY 1
 #define OBJ_HASH_VALUE 2
 
+#define PACKED_CLASS(o) ((o)->encoding == OBJ_ENCODING_ZIPLIST ? &packedZiplist : &packedListpack)
 
 /*-----------------------------------------------------------------------------
  * Extern declarations
@@ -1748,30 +1749,6 @@ extern dictType replScriptCacheDictType;
 extern dictType dbExpiresDictType;
 extern dictType modulesDictType;
 extern dictType sdsReplyDictType;
-
-/*-----------------------------------------------------------------------------
- * List declarations
- *----------------------------------------------------------------------------*/
-
-typedef struct listContainerType {
-    long (*listLen)(unsigned char *l);
-    size_t (*listBlobLen)(unsigned char *l);
-    unsigned int (*listGet)(unsigned char *p, unsigned char **vstr, unsigned int *vlen, long long *vll);
-    unsigned char *(*listIndex)(unsigned char *l, long index);
-    unsigned char *(*listNext)(unsigned char *l, unsigned char *p);
-    unsigned char *(*listPrev)(unsigned char *l, unsigned char *p);
-    unsigned char *(*listPushHead)(unsigned char *l, unsigned char *s, uint32_t slen);
-    unsigned char *(*listPushTail)(unsigned char *l, unsigned char *s, uint32_t slen);
-    unsigned char *(*listReplace)(unsigned char *l, unsigned char *p, unsigned char *s, uint32_t slen);
-    unsigned char *(*listDelete)(unsigned char *l, unsigned char **p);
-    unsigned char *(*listFind)(unsigned char *lp, unsigned char *p, unsigned char *s, unsigned int slen, unsigned int skip);
-    void (*listRandomPair)(unsigned char *l, unsigned long total_count, ziplistEntry *key, ziplistEntry *val);
-    void (*listRandomPairs)(unsigned char *zl, unsigned int count, ziplistEntry *keys, ziplistEntry *vals);
-    unsigned int  (*listRandomPairsUnique)(unsigned char *zl, unsigned int count, ziplistEntry *keys, ziplistEntry *vals);
-} listContainerType;
-
-extern listContainerType listContainerZiplist;
-extern listContainerType listContainerListpack;
 
 /*-----------------------------------------------------------------------------
  * Functions prototypes

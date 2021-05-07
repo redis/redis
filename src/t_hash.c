@@ -62,24 +62,23 @@ int hashTypeGetFromZiplist(robj *o, sds field,
 {
     unsigned char *zl, *fptr = NULL, *vptr = NULL;
     int ret;
-    listContainerType *lct = (o->encoding == OBJ_ENCODING_ZIPLIST) ?
-        &listContainerZiplist : &listContainerListpack;
+    packedClass *packed = PACKED_CLASS(o);
 
     serverAssert(o->encoding == OBJ_ENCODING_ZIPLIST || o->encoding == OBJ_ENCODING_LISTPACK);
 
     zl = o->ptr;
-    fptr = lct->listIndex(zl, 0);
+    fptr = packed->listIndex(zl, 0);
     if (fptr != NULL) {
-        fptr = lct->listFind(zl, fptr, (unsigned char*)field, sdslen(field), 1);
+        fptr = packed->listFind(zl, fptr, (unsigned char*)field, sdslen(field), 1);
         if (fptr != NULL) {
             /* Grab pointer to the value (fptr points to the field) */
-            vptr = lct->listNext(zl, fptr);
+            vptr = packed->listNext(zl, fptr);
             serverAssert(vptr != NULL);
         }
     }
 
     if (vptr != NULL) {
-        ret = lct->listGet(vptr, vstr, vlen, vll);
+        ret = packed->listGet(vptr, vstr, vlen, vll);
         serverAssert(ret);
         return 0;
     }
@@ -207,29 +206,28 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
 
     if (o->encoding == OBJ_ENCODING_ZIPLIST || o->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl, *fptr, *vptr;
-        listContainerType *lct = (o->encoding == OBJ_ENCODING_ZIPLIST) ?
-            &listContainerZiplist : &listContainerListpack;
+        packedClass *packed = PACKED_CLASS(o);
 
         zl = o->ptr;
-        fptr = lct->listIndex(zl, 0);
+        fptr = packed->listIndex(zl, 0);
         if (fptr != NULL) {
-            fptr = lct->listFind(zl, fptr, (unsigned char*)field, sdslen(field), 1);
+            fptr = packed->listFind(zl, fptr, (unsigned char*)field, sdslen(field), 1);
             if (fptr != NULL) {
                 /* Grab pointer to the value (fptr points to the field) */
-                vptr = lct->listNext(zl, fptr);
+                vptr = packed->listNext(zl, fptr);
                 serverAssert(vptr != NULL);
                 update = 1;
 
                 /* Replace value */
-                zl = lct->listReplace(zl, vptr, (unsigned char*)value,
+                zl = packed->listReplace(zl, vptr, (unsigned char*)value,
                         sdslen(value));
             }
         }
 
         if (!update) {
             /* Push new field/value pair onto the tail of the ziplist */
-            zl = lct->listPushTail(zl, (unsigned char*)field, sdslen(field));
-            zl = lct->listPushTail(zl, (unsigned char*)value, sdslen(value));
+            zl = packed->listPushTail(zl, (unsigned char*)field, sdslen(field));
+            zl = packed->listPushTail(zl, (unsigned char*)value, sdslen(value));
         }
         o->ptr = zl;
 
@@ -281,16 +279,15 @@ int hashTypeDelete(robj *o, sds field) {
 
     if (o->encoding == OBJ_ENCODING_ZIPLIST || o->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl, *fptr;
-        listContainerType *lct = (o->encoding == OBJ_ENCODING_ZIPLIST) ?
-            &listContainerZiplist : &listContainerListpack;
+        packedClass *packed = PACKED_CLASS(o);
 
         zl = o->ptr;
-        fptr = lct->listIndex(zl, 0);
+        fptr = packed->listIndex(zl, 0);
         if (fptr != NULL) {
-            fptr = lct->listFind(zl, fptr, (unsigned char*)field, sdslen(field), 1);
+            fptr = packed->listFind(zl, fptr, (unsigned char*)field, sdslen(field), 1);
             if (fptr != NULL) {
-                zl = lct->listDelete(zl,&fptr); /* Delete the key. */
-                zl = lct->listDelete(zl,&fptr); /* Delete the value. */
+                zl = packed->listDelete(zl,&fptr); /* Delete the key. */
+                zl = packed->listDelete(zl,&fptr); /* Delete the value. */
                 o->ptr = zl;
                 deleted = 1;
             }
@@ -314,9 +311,8 @@ unsigned long hashTypeLength(const robj *o) {
     unsigned long length = ULONG_MAX;
 
     if (o->encoding == OBJ_ENCODING_ZIPLIST || o->encoding == OBJ_ENCODING_LISTPACK) {
-        listContainerType *lct = (o->encoding == OBJ_ENCODING_ZIPLIST) ?
-            &listContainerZiplist : &listContainerListpack;
-        length = lct->listLen(o->ptr) / 2;
+        packedClass *packed = PACKED_CLASS(o);
+        length = packed->listLen(o->ptr) / 2;
     } else if (o->encoding == OBJ_ENCODING_HT) {
         length = dictSize((const dict*)o->ptr);
     } else {
@@ -353,8 +349,7 @@ int hashTypeNext(hashTypeIterator *hi) {
     if (hi->encoding == OBJ_ENCODING_ZIPLIST || hi->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl;
         unsigned char *fptr, *vptr;
-        listContainerType *lct = (hi->encoding == OBJ_ENCODING_ZIPLIST) ?
-            &listContainerZiplist : &listContainerListpack;
+        packedClass *packed = PACKED_CLASS(hi);
 
         zl = hi->subject->ptr;
         fptr = hi->fptr;
@@ -363,16 +358,16 @@ int hashTypeNext(hashTypeIterator *hi) {
         if (fptr == NULL) {
             /* Initialize cursor */
             serverAssert(vptr == NULL);
-            fptr = lct->listIndex(zl, 0);
+            fptr = packed->listIndex(zl, 0);
         } else {
             /* Advance cursor */
             serverAssert(vptr != NULL);
-            fptr = lct->listNext(zl, vptr);
+            fptr = packed->listNext(zl, vptr);
         }
         if (fptr == NULL) return C_ERR;
 
         /* Grab pointer to the value (fptr points to the field) */
-        vptr = lct->listNext(zl, fptr);
+        vptr = packed->listNext(zl, fptr);
         serverAssert(vptr != NULL);
 
         /* fptr, vptr now point to the first or next pair */
@@ -394,16 +389,15 @@ void hashTypeCurrentFromZiplist(hashTypeIterator *hi, int what,
                                 long long *vll)
 {
     int ret;
-    listContainerType *lct = (hi->encoding == OBJ_ENCODING_ZIPLIST) ?
-        &listContainerZiplist : &listContainerListpack;
+    packedClass *packed = PACKED_CLASS(hi);
         
     serverAssert(hi->encoding == OBJ_ENCODING_ZIPLIST || hi->encoding == OBJ_ENCODING_LISTPACK);
 
     if (what & OBJ_HASH_KEY) {
-        ret = lct->listGet(hi->fptr, vstr, vlen, vll);
+        ret = packed->listGet(hi->fptr, vstr, vlen, vll);
         serverAssert(ret);
     } else {
-        ret = lct->listGet(hi->vptr, vstr, vlen, vll);
+        ret = packed->listGet(hi->vptr, vstr, vlen, vll);
         serverAssert(ret);
     }
 }
@@ -524,10 +518,9 @@ robj *hashTypeDup(robj *o) {
     serverAssert(o->type == OBJ_HASH);
 
     if(o->encoding == OBJ_ENCODING_ZIPLIST || o->encoding == OBJ_ENCODING_LISTPACK) {
-        listContainerType *lct = (o->encoding == OBJ_ENCODING_ZIPLIST) ?
-            &listContainerZiplist : &listContainerListpack;
+        packedClass *packed = PACKED_CLASS(o);
         unsigned char *zl = o->ptr;
-        size_t sz = lct->listBlobLen(zl);
+        size_t sz = packed->listBlobLen(zl);
         unsigned char *new_zl = zmalloc(sz);
         memcpy(new_zl, zl, sz);
         hobj = createObject(OBJ_HASH, new_zl);
@@ -686,9 +679,8 @@ void hashTypeRandomElement(robj *hashobj, unsigned long hashsize, ziplistEntry *
             val->slen = sdslen(s);
         }
     } else if (hashobj->encoding == OBJ_ENCODING_ZIPLIST || hashobj->encoding == OBJ_ENCODING_LISTPACK) {
-        listContainerType *lct = (hashobj->encoding == OBJ_ENCODING_ZIPLIST) ?
-            &listContainerZiplist : &listContainerListpack;
-        lct->listRandomPair(hashobj->ptr, hashsize, key, val);
+        packedClass *packed = PACKED_CLASS(hashobj);
+        packed->listRandomPair(hashobj->ptr, hashsize, key, val);
     } else {
         serverPanic("Unknown hash encoding");
     }
@@ -1092,8 +1084,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
         } else if (hash->encoding == OBJ_ENCODING_ZIPLIST || hash->encoding == OBJ_ENCODING_LISTPACK) {
             ziplistEntry *keys, *vals = NULL;
             unsigned long limit, sample_count;
-            listContainerType *lct = (hash->encoding == OBJ_ENCODING_ZIPLIST) ?
-                &listContainerZiplist : &listContainerListpack;
+            packedClass *packed = PACKED_CLASS(hash);
 
             limit = count > HRANDFIELD_RANDOM_SAMPLE_LIMIT ? HRANDFIELD_RANDOM_SAMPLE_LIMIT : count;
             keys = zmalloc(sizeof(ziplistEntry)*limit);
@@ -1102,7 +1093,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
             while (count) {
                 sample_count = count > limit ? limit : count;
                 count -= sample_count;
-                lct->listRandomPairs(hash->ptr, sample_count, keys, vals);
+                packed->listRandomPairs(hash->ptr, sample_count, keys, vals);
                 harndfieldReplyWithZiplist(c, sample_count, keys, vals);
             }
             zfree(keys);
@@ -1198,8 +1189,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
      * to reach the specified count. */
     else {
         if (hash->encoding == OBJ_ENCODING_ZIPLIST || hash->encoding == OBJ_ENCODING_LISTPACK) {
-            listContainerType *lct = (hash->encoding == OBJ_ENCODING_ZIPLIST) ?
-                &listContainerZiplist : &listContainerListpack;
+            packedClass *packed = PACKED_CLASS(hash);
 
             /* it is inefficient to repeatedly pick one random element from a
              * ziplist. so we use this instead: */
@@ -1207,7 +1197,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
             keys = zmalloc(sizeof(ziplistEntry)*count);
             if (withvalues)
                 vals = zmalloc(sizeof(ziplistEntry)*count);
-            serverAssert(lct->listRandomPairsUnique(hash->ptr, count, keys, vals) == count);
+            serverAssert(packed->listRandomPairsUnique(hash->ptr, count, keys, vals) == count);
             harndfieldReplyWithZiplist(c, count, keys, vals);
             zfree(keys);
             zfree(vals);

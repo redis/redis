@@ -7787,24 +7787,23 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
         cursor->done = 1;
         ret = 0;
     } else if (o->type == OBJ_HASH || o->type == OBJ_ZSET) {
-        listContainerType *lct = (o->encoding == OBJ_ENCODING_ZIPLIST) ?
-            &listContainerZiplist : &listContainerListpack;
-        unsigned char *p = lct->listIndex(o->ptr,0);
+        packedClass *packed = PACKED_CLASS(o);
+        unsigned char *p = packed->listIndex(o->ptr,0);
         unsigned char *vstr;
         unsigned int vlen;
         long long vll;
         while(p) {
-            lct->listGet(p,&vstr,&vlen,&vll);
+            packed->listGet(p,&vstr,&vlen,&vll);
             robj *field = (vstr != NULL) ?
                 createStringObject((char*)vstr,vlen) :
                 createObject(OBJ_STRING,sdsfromlonglong(vll));
-            p = lct->listNext(o->ptr,p);
-            lct->listGet(p,&vstr,&vlen,&vll);
+            p = packed->listNext(o->ptr,p);
+            packed->listGet(p,&vstr,&vlen,&vll);
             robj *value = (vstr != NULL) ?
                 createStringObject((char*)vstr,vlen) :
                 createObject(OBJ_STRING,sdsfromlonglong(vll));
             fn(key, field, value, privdata);
-            p = lct->listNext(o->ptr,p);
+            p = packed->listNext(o->ptr,p);
             decrRefCount(field);
             decrRefCount(value);
         }
