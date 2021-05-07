@@ -166,7 +166,7 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
             unsigned char *zl = o->ptr;
             unsigned char *eptr, *sptr;
             unsigned char *vstr;
-            unsigned int vlen;
+            size_t vlen;
             long long vll;
             double score;
 

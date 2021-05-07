@@ -49,15 +49,15 @@
 unsigned char *lpNew(size_t capacity);
 void lpFree(unsigned char *lp);
 unsigned char* lpShrinkToFit(unsigned char *lp);
-unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, unsigned char *p, int where, unsigned char **newp);
-unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size); // todo: will replace by lpPushTail
-unsigned char *lpPushHead(unsigned char *lp, unsigned char *s, uint32_t slen);
-unsigned char *lpPushTail(unsigned char *lp, unsigned char *s, uint32_t slen);
-unsigned char *lpReplace(unsigned char *lp, unsigned char *p, unsigned char *s, uint32_t slen);
+unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, size_t size, unsigned char *p, int where, unsigned char **newp);
+unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, size_t size); // todo: will replace by lpPushTail
+unsigned char *lpPushHead(unsigned char *lp, unsigned char *s, size_t slen);
+unsigned char *lpPushTail(unsigned char *lp, unsigned char *s, size_t slen);
+unsigned char *lpReplace(unsigned char *lp, unsigned char *p, unsigned char *s, size_t slen);
 unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **newp);
 long lpLength(unsigned char *lp);
 unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf);
-unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s, unsigned int slen, unsigned int skip);
+unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s, size_t slen, unsigned int skip);
 unsigned char *lpFirst(unsigned char *lp);
 unsigned char *lpLast(unsigned char *lp);
 unsigned char *lpNext(unsigned char *lp, unsigned char *p);
@@ -68,7 +68,7 @@ typedef int (*listpackValidateEntryCB)(unsigned char *p, void *userdata);
 int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
                         listpackValidateEntryCB entry_cb, void *cb_userdata);
 int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes);
-unsigned int lpCompare(unsigned char *p, unsigned char *s, unsigned int slen);
+unsigned int lpCompare(unsigned char *p, unsigned char *s, size_t slen);
 void lpRandomPair(unsigned char *lp, unsigned long total_count, ziplistEntry *key, ziplistEntry *val);
 void lpRandomPairs(unsigned char *lp, unsigned int count, ziplistEntry *keys, ziplistEntry *vals);
 unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, ziplistEntry *keys, ziplistEntry *vals);

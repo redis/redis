@@ -938,7 +938,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         packedClass *packed = PACKED_CLASS(o);
         unsigned char *p = packed->listIndex(o->ptr,0);
         unsigned char *vstr;
-        unsigned int vlen;
+        size_t vlen;
         long long vll;
 
         while(p) {

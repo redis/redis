@@ -729,7 +729,7 @@ double zzlStrtod(unsigned char *vstr, unsigned int vlen) {
 
 double zzlGetScore(unsigned char *sptr) {
     unsigned char *vstr;
-    unsigned int vlen;
+    size_t vlen;
     long long vlong;
     double score;
 
@@ -748,7 +748,7 @@ double zzlGetScore(unsigned char *sptr) {
 /* Return a ziplist element as an SDS string. */
 sds ziplistGetObject(unsigned char *sptr) {
     unsigned char *vstr;
-    unsigned int vlen;
+    size_t vlen;
     long long vlong;
 
     serverAssert(sptr != NULL);
@@ -764,7 +764,7 @@ sds ziplistGetObject(unsigned char *sptr) {
 /* Compare element in sorted set with given element. */
 int zzlCompareElements(unsigned char *eptr, unsigned char *cstr, unsigned int clen) {
     unsigned char *vstr;
-    unsigned int vlen;
+    size_t vlen;
     long long vlong;
     unsigned char vbuf[32];
     int minlen, cmp;
@@ -1181,7 +1181,7 @@ void zsetConvert(robj *zobj, int encoding) {
         unsigned char *zl = zobj->ptr;
         unsigned char *eptr, *sptr;
         unsigned char *vstr;
-        unsigned int vlen;
+        size_t vlen;
         long long vlong;
 
         if (encoding != OBJ_ENCODING_SKIPLIST)
@@ -1620,7 +1620,7 @@ static int _zsetZiplistValidateIntegrity(unsigned char *p, void *userdata) {
     /* Even records are field names, add to dict and check that's not a dup */
     if (((data->count) & 1) == 0) {
         unsigned char *str;
-        unsigned int slen;
+        size_t slen;
         long long vll;
         if (!ziplistGet(p, &str, &slen, &vll))
             return 0;
@@ -2047,7 +2047,7 @@ typedef struct {
     unsigned char _buf[32]; /* Private buffer. */
     sds ele;
     unsigned char *estr;
-    unsigned int elen;
+    size_t elen;
     long long ell;
     double score;
 } zsetopval;
@@ -3041,7 +3041,7 @@ void genericZrangebyrankCommand(zrange_result_handler *handler,
         unsigned char *zl = zobj->ptr;
         unsigned char *eptr, *sptr;
         unsigned char *vstr;
-        unsigned int vlen;
+        size_t vlen;
         long long vlong;
         double score = 0.0;
 
@@ -3144,7 +3144,7 @@ void genericZrangebyscoreCommand(zrange_result_handler *handler,
         unsigned char *zl = zobj->ptr;
         unsigned char *eptr, *sptr;
         unsigned char *vstr;
-        unsigned int vlen;
+        size_t vlen;
         long long vlong;
 
         /* If reversed, get the last node in range as starting point. */
@@ -3427,7 +3427,7 @@ void genericZrangebylexCommand(zrange_result_handler *handler,
         unsigned char *zl = zobj->ptr;
         unsigned char *eptr, *sptr;
         unsigned char *vstr;
-        unsigned int vlen;
+        size_t vlen;
         long long vlong;
 
         /* If reversed, get the last node in range as starting point. */
@@ -3831,7 +3831,7 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
             unsigned char *zl = zobj->ptr;
             unsigned char *eptr, *sptr;
             unsigned char *vstr;
-            unsigned int vlen;
+            size_t vlen;
             long long vlong;
 
             /* Get the first or last element in the sorted set. */

@@ -57,7 +57,7 @@ void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
  * Returns -1 when the field cannot be found. */
 int hashTypeGetFromZiplist(robj *o, sds field,
                            unsigned char **vstr,
-                           unsigned int *vlen,
+                           size_t *vlen,
                            long long *vll)
 {
     unsigned char *zl, *fptr = NULL, *vptr = NULL;
@@ -108,7 +108,7 @@ sds hashTypeGetFromHashTable(robj *o, sds field) {
  * If *vll is populated *vstr is set to NULL, so the caller
  * can always check the function return by checking the return value
  * for C_OK and checking if vll (or vstr) is NULL. */
-int hashTypeGetValue(robj *o, sds field, unsigned char **vstr, unsigned int *vlen, long long *vll) {
+int hashTypeGetValue(robj *o, sds field, unsigned char **vstr, size_t *vlen, long long *vll) {
     if (IS_PACKED(o)) {
         *vstr = NULL;
         if (hashTypeGetFromZiplist(o, field, vstr, vlen, vll) == 0)
@@ -132,7 +132,7 @@ int hashTypeGetValue(robj *o, sds field, unsigned char **vstr, unsigned int *vle
  * a newly allocated string object with the value is returned. */
 robj *hashTypeGetValueObject(robj *o, sds field) {
     unsigned char *vstr;
-    unsigned int vlen;
+    size_t vlen;
     long long vll;
 
     if (hashTypeGetValue(o,field,&vstr,&vlen,&vll) == C_ERR) return NULL;
@@ -147,7 +147,7 @@ size_t hashTypeGetValueLength(robj *o, sds field) {
     size_t len = 0;
     if (IS_PACKED(o)) {
         unsigned char *vstr = NULL;
-        unsigned int vlen = UINT_MAX;
+        size_t vlen = UINT_MAX;
         long long vll = LLONG_MAX;
 
         if (hashTypeGetFromZiplist(o, field, &vstr, &vlen, &vll) == 0)
@@ -168,7 +168,7 @@ size_t hashTypeGetValueLength(robj *o, sds field) {
 int hashTypeExists(robj *o, sds field) {
     if (IS_PACKED(o)) {
         unsigned char *vstr = NULL;
-        unsigned int vlen = UINT_MAX;
+        size_t vlen = UINT_MAX;
         long long vll = LLONG_MAX;
 
         if (hashTypeGetFromZiplist(o, field, &vstr, &vlen, &vll) == 0) return 1;
@@ -385,7 +385,7 @@ int hashTypeNext(hashTypeIterator *hi) {
  * encoded as a ziplist. Prototype is similar to `hashTypeGetFromZiplist`. */
 void hashTypeCurrentFromZiplist(hashTypeIterator *hi, int what,
                                 unsigned char **vstr,
-                                unsigned int *vlen,
+                                size_t *vlen,
                                 long long *vll)
 {
     int ret;
@@ -425,7 +425,7 @@ sds hashTypeCurrentFromHashTable(hashTypeIterator *hi, int what) {
  * If *vll is populated *vstr is set to NULL, so the caller
  * can always check the function return by checking the return value
  * type checking if vstr == NULL. */
-void hashTypeCurrentObject(hashTypeIterator *hi, int what, unsigned char **vstr, unsigned int *vlen, long long *vll) {
+void hashTypeCurrentObject(hashTypeIterator *hi, int what, unsigned char **vstr, size_t *vlen, long long *vll) {
     if (IS_PACKED(hi)) {
         *vstr = NULL;
         hashTypeCurrentFromZiplist(hi, what, vstr, vlen, vll);
@@ -442,7 +442,7 @@ void hashTypeCurrentObject(hashTypeIterator *hi, int what, unsigned char **vstr,
  * SDS string. */
 sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what) {
     unsigned char *vstr;
-    unsigned int vlen;
+    size_t vlen;
     long long vll;
 
     hashTypeCurrentObject(hi,what,&vstr,&vlen,&vll);
@@ -562,7 +562,7 @@ static int _hashZiplistEntryValidation(unsigned char *p, void *userdata) {
     /* Odd records are field names, add to dict and check that's not a dup */
     if (((data->count) & 1) == 0) {
         unsigned char *str;
-        unsigned int slen;
+        size_t slen;
         long long vll;
         if (!ziplistGet(p, &str, &slen, &vll))
             return 0;
@@ -741,7 +741,7 @@ void hincrbyCommand(client *c) {
     robj *o;
     sds new;
     unsigned char *vstr;
-    unsigned int vlen;
+    size_t vlen;
 
     if (getLongLongFromObjectOrReply(c,c->argv[3],&incr,NULL) != C_OK) return;
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
@@ -777,7 +777,7 @@ void hincrbyfloatCommand(client *c) {
     robj *o;
     sds new;
     unsigned char *vstr;
-    unsigned int vlen;
+    size_t vlen;
 
     if (getLongDoubleFromObjectOrReply(c,c->argv[3],&incr,NULL) != C_OK) return;
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
@@ -829,7 +829,7 @@ static void addHashFieldToReply(client *c, robj *o, sds field) {
 
     if (IS_PACKED(o)) {
         unsigned char *vstr = NULL;
-        unsigned int vlen = UINT_MAX;
+        size_t vlen = UINT_MAX;
         long long vll = LLONG_MAX;
 
         ret = hashTypeGetFromZiplist(o, field, &vstr, &vlen, &vll);
@@ -926,7 +926,7 @@ void hstrlenCommand(client *c) {
 static void addHashIteratorCursorToReply(client *c, hashTypeIterator *hi, int what) {
     if (IS_PACKED(hi)) {
         unsigned char *vstr = NULL;
-        unsigned int vlen = UINT_MAX;
+        size_t vlen = UINT_MAX;
         long long vll = LLONG_MAX;
 
         hashTypeCurrentFromZiplist(hi, what, &vstr, &vlen, &vll);

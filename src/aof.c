@@ -1096,7 +1096,7 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
         unsigned char *zl = o->ptr;
         unsigned char *eptr, *sptr;
         unsigned char *vstr;
-        unsigned int vlen;
+        size_t vlen;
         long long vll;
         double score;
 
@@ -1176,7 +1176,7 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
 static int rioWriteHashIteratorCursor(rio *r, hashTypeIterator *hi, int what) {
     if (IS_PACKED(hi)) {
         unsigned char *vstr = NULL;
-        unsigned int vlen = UINT_MAX;
+        size_t vlen = UINT_MAX;
         long long vll = LLONG_MAX;
 
         hashTypeCurrentFromZiplist(hi, what, &vstr, &vlen, &vll);

@@ -127,7 +127,7 @@ typedef struct quicklistEntry {
     unsigned char *zi;
     unsigned char *value;
     long long longval;
-    unsigned int sz;
+    size_t sz;
     int offset;
 } quicklistEntry;
 

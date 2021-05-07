@@ -263,7 +263,7 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
         unsigned char *zl = zobj->ptr;
         unsigned char *eptr, *sptr;
         unsigned char *vstr = NULL;
-        unsigned int vlen = 0;
+        size_t vlen = 0;
         long long vlong = 0;
         double score = 0;
 
