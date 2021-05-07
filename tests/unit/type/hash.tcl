@@ -15,7 +15,11 @@ start_server {tags {"hash"}} {
     } {8}
 
     test {Is the small hash encoded with a listpack?} {
-        assert_encoding listpack smallhash
+        if {$::packed_encoding != ""} {
+            assert_encoding $::packed_encoding smallhash
+        } else {
+            assert_encoding listpack smallhash
+        }
     }
 
     proc create_hash {key entries} {
@@ -38,7 +42,11 @@ start_server {tags {"hash"}} {
         set original_max_value [lindex [r config get hash-max-ziplist-value] 1]
         r config set hash-max-ziplist-value 10
         create_hash myhash $contents
-        assert_encoding $type myhash
+        if {$::packed_encoding != "" && $type == "listpack"} {
+            assert_encoding $::packed_encoding myhash
+        } else {
+            assert_encoding $type myhash
+        }
 
         test "HRANDFIELD - $type" {
             unset -nocomplain myhash
@@ -79,7 +87,11 @@ start_server {tags {"hash"}} {
             set original_max_value [lindex [r config get hash-max-ziplist-value] 1]
             r config set hash-max-ziplist-value 10
             create_hash myhash $contents
-            assert_encoding $type myhash
+            if {$::packed_encoding != "" && $type == "listpack"} {
+                assert_encoding $::packed_encoding myhash
+            } else {
+                assert_encoding $type myhash
+            }
 
             # create a dict for easy lookup
             unset -nocomplain mydict

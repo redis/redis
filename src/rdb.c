@@ -1708,7 +1708,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
 
 
         /* Load every field and value into the ziplist */
-        while (o->encoding == OBJ_ENCODING_LISTPACK && len > 0) {
+        packedClass *packed = PACKED_CLASS(o);
+        while (IS_PACKED(o) && len > 0) {
             len--;
             /* Load raw strings */
             if ((field = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
@@ -1737,8 +1738,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
             }
 
             /* Add pair to listpack */
-            o->ptr = lpPushTail(o->ptr, (unsigned char*)field, sdslen(field));
-            o->ptr = lpPushTail(o->ptr, (unsigned char*)value, sdslen(value));
+            o->ptr = packed->listPushTail(o->ptr, (unsigned char*)field, sdslen(field));
+            o->ptr = packed->listPushTail(o->ptr, (unsigned char*)value, sdslen(value));
 
             /* Convert to hash table if size threshold is exceeded */
             if (sdslen(field) > server.hash_max_ziplist_value ||

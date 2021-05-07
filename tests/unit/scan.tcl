@@ -148,7 +148,11 @@ start_server {tags {"scan network"}} {
             r hmset hash {*}$elements
 
             # Verify that the encoding matches.
-            assert {[r object encoding hash] eq $enc}
+            if {$::packed_encoding != "" && $enc == "listpack"} {
+                assert_encoding $::packed_encoding hash
+            } else {
+                assert_encoding $enc hash
+            }
 
             # Test HSCAN
             set cur 0

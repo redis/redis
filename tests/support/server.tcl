@@ -388,6 +388,9 @@ proc start_server {options {code undefined}} {
     # apply overrides from global space and arguments
     foreach {directive arguments} [concat $::global_overrides $overrides] {
         dict set config $directive $arguments
+        if {$directive == "requirepass"} {
+            set ::packed_encoding ""
+        }
     }
 
     # remove directives that are marked to be omitted
@@ -500,6 +503,11 @@ proc start_server {options {code undefined}} {
 
         # connect client (after server dict is put on the stack)
         reconnect
+
+        # Set default packed encoding
+        if {$::packed_encoding != ""} {
+            r debug set-default-packed-encoding $::packed_encoding
+        }
 
         # remember previous num_failed to catch new errors
         set prev_num_failed $::num_failed

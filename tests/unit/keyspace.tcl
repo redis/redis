@@ -306,7 +306,11 @@ start_server {tags {"keyspace"}} {
     test {COPY basic usage for ziplist hash} {
         r del hash1 newhash1
         r hset hash1 tmp 17179869184
-        assert_encoding listpack hash1
+        if {$::packed_encoding != ""} {
+            assert_encoding $::packed_encoding hash1
+        } else {
+            assert_encoding listpack hash1
+        }
         r copy hash1 newhash1
         set digest [r debug digest-value hash1]
         assert_equal $digest [r debug digest-value newhash1]

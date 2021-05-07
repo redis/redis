@@ -1525,6 +1525,7 @@ struct redisServer {
     size_t hll_sparse_max_bytes;
     size_t stream_node_max_bytes;
     long long stream_node_max_entries;
+    unsigned int default_packed_encoding;   /* Set default packed encoding of hash/zset/list for testing purposes. */
     /* List parameters */
     int list_max_ziplist_size;
     int list_compress_depth;
@@ -1728,6 +1729,7 @@ typedef struct {
 #define OBJ_HASH_VALUE 2
 
 #define PACKED_CLASS(o) ((o)->encoding == OBJ_ENCODING_ZIPLIST ? &packedZiplist : &packedListpack)
+#define IS_PACKED(o) ((o)->encoding == OBJ_ENCODING_ZIPLIST || (o)->encoding == OBJ_ENCODING_LISTPACK)
 
 /*-----------------------------------------------------------------------------
  * Extern declarations

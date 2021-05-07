@@ -240,9 +240,18 @@ robj *createIntsetObject(void) {
 }
 
 robj *createHashObject(void) {
-    unsigned char *zl = lpNew(0);
+    unsigned char *zl;
+
+    if (server.default_packed_encoding == OBJ_ENCODING_LISTPACK) {
+        zl = lpNew(0);
+    } else if (server.default_packed_encoding == OBJ_ENCODING_ZIPLIST) {
+        zl = ziplistNew();
+    } else {
+        serverPanic("Unknown hash encoding");
+    }
+
     robj *o = createObject(OBJ_HASH, zl);
-    o->encoding = OBJ_ENCODING_LISTPACK;
+    o->encoding = server.default_packed_encoding;
     return o;
 }
 
