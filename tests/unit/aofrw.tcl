@@ -146,7 +146,11 @@ start_server {tags {"aofrw"} overrides {aof-use-rdb-preamble no}} {
                     }
                     r hset key $data $data
                 }
-                assert_equal [r object encoding key] $e
+                if {$::packed_encoding != "" && $e == "listpack"} {
+                    assert_encoding $::packed_encoding key
+                } else {
+                    assert_encoding $e key
+                }
                 set d1 [r debug digest]
                 r bgrewriteaof
                 waitForBgrewriteaof r
