@@ -58,8 +58,8 @@ unsigned char *ziplistDeleteRange(unsigned char *zl, int index, unsigned int num
 unsigned char *ziplistReplace(unsigned char *zl, unsigned char *p, unsigned char *s, unsigned int slen);
 unsigned int ziplistCompare(unsigned char *p, unsigned char *s, unsigned int slen);
 unsigned char *ziplistFind(unsigned char *zl, unsigned char *p, unsigned char *vstr, unsigned int vlen, unsigned int skip);
-uint32_t ziplistLen(unsigned char *zl);
-uint32_t ziplistBlobLen(unsigned char *zl);
+long ziplistLen(unsigned char *zl);
+size_t ziplistBlobLen(unsigned char *zl);
 void ziplistRepr(unsigned char *zl);
 typedef int (*ziplistValidateEntryCB)(unsigned char* p, void* userdata);
 int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,

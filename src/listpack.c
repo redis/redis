@@ -489,13 +489,13 @@ unsigned char *lpLast(unsigned char *lp) {
  * needed. As a side effect of calling this function, the listpack header
  * could be modified, because if the count is found to be already within
  * the 'numele' header field range, the new value is set. */
-uint32_t lpLength(unsigned char *lp) {
-    uint32_t numele = lpGetNumElements(lp);
+long lpLength(unsigned char *lp) {
+    long numele = lpGetNumElements(lp);
     if (numele != LP_HDR_NUMELE_UNKNOWN) return numele;
 
     /* Too many elements inside the listpack. We need to scan in order
      * to get the total number. */
-    uint32_t count = 0;
+    long count = 0;
     unsigned char *p = lpFirst(lp);
     while(p) {
         count++;
@@ -852,7 +852,7 @@ unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **new
 }
 
 /* Return the total number of bytes the listpack is composed of. */
-uint32_t lpBytes(unsigned char *lp) {
+size_t lpBytes(unsigned char *lp) {
     return lpGetTotalBytes(lp);
 }
 

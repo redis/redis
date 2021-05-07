@@ -1398,7 +1398,7 @@ unsigned char *ziplistFind(unsigned char *zl, unsigned char *p, unsigned char *v
 }
 
 /* Return length of ziplist. */
-uint32_t ziplistLen(unsigned char *zl) {
+long ziplistLen(unsigned char *zl) {
     unsigned int len = 0;
     if (intrev16ifbe(ZIPLIST_LENGTH(zl)) < UINT16_MAX) {
         len = intrev16ifbe(ZIPLIST_LENGTH(zl));
@@ -1417,7 +1417,7 @@ uint32_t ziplistLen(unsigned char *zl) {
 }
 
 /* Return ziplist blob size in bytes. */
-uint32_t ziplistBlobLen(unsigned char *zl) {
+size_t ziplistBlobLen(unsigned char *zl) {
     return intrev32ifbe(ZIPLIST_BYTES(zl));
 }
 
@@ -2287,7 +2287,7 @@ int ziplistTest(int argc, char **argv, int accurate) {
         ziplistRepr(zl2);
 
         if (ziplistLen(zl2) != 8) {
-            printf("ERROR: Merged length not 8, but: %u\n", ziplistLen(zl2));
+            printf("ERROR: Merged length not 8, but: %ld\n", ziplistLen(zl2));
             return 1;
         }
 
@@ -2390,7 +2390,7 @@ int ziplistTest(int argc, char **argv, int accurate) {
                 }
             }
 
-            assert(listLength(ref) == ziplistLen(zl));
+            assert(listLength(ref) == (unsigned long)ziplistLen(zl));
             for (j = 0; j < len; j++) {
                 /* Naive way to get elements, but similar to the stresser
                  * executed from the Tcl test suite. */
