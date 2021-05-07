@@ -976,14 +976,17 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
     /* Validate the invividual entries. */
     uint32_t count = 0;
     unsigned char *p = lpFirst(lp);
-    while(p && p[0] != LP_EOF) {
-        if (!lpValidateNext(lp, &p, bytes))
-            return 0;
+    while(p) {
+        count++;
 
         if (entry_cb && !entry_cb(p, cb_userdata))
             return 0;
 
-        count++;
+        if (!lpValidateNext(lp, &p, bytes))
+            return 0;
+
+        if (p[0] == LP_EOF)
+            break;
     }
 
     /* Check that the count in the header is correct */
@@ -1185,3 +1188,46 @@ packedClass packedListpack = {
     lpRandomPairs,
     lpRandomPairsUnique,
 };
+
+#ifdef REDIS_TEST
+
+#define UNUSED(x) (void)(x)
+#define TEST(name) printf("test — %s\n", name);
+
+char *mixlist[] = {"hello", "foo", "quux", "1024"};
+
+static unsigned char *createList() {
+    unsigned char *lp = lpNew(0);
+    lp = lpPushTail(lp, (unsigned char*)mixlist[1], strlen(mixlist[1]));
+    lp = lpPushTail(lp, (unsigned char*)mixlist[2], strlen(mixlist[2]));
+    lp = lpPushHead(lp, (unsigned char*)mixlist[0], strlen(mixlist[0]));
+    lp = lpPushTail(lp, (unsigned char*)mixlist[3], strlen(mixlist[3]));
+    return lp;
+}
+
+static int lpValidation(unsigned char *p, void *userdata) {
+    UNUSED(p);
+
+    int ret;
+    long *count = userdata;
+    ret = lpCompare(p, (unsigned char *)mixlist[*count], strlen(mixlist[*count]));
+    (*count)++;
+    return ret;
+}
+
+int listpackTest(int argc, char *argv[], int accurate) {
+    UNUSED(argc);
+    UNUSED(argv);
+    UNUSED(accurate);
+
+    TEST("check lpValidateIntegrity") {
+        unsigned char *lp = createList();
+        long count = 0;
+        assert(lpValidateIntegrity(lp, lpBytes(lp), 1, lpValidation, &count) == 1);
+        lpFree(lp);
+    }
+
+    return 0;
+}
+
+#endif

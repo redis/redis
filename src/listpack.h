@@ -75,4 +75,8 @@ unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, ziplistE
 
 extern packedClass packedListpack;
 
+#ifdef REDIS_TEST
+int listpackTest(int argc, char *argv[], int accurate);
+#endif
+
 #endif
