@@ -328,11 +328,16 @@ int dbSyncDelete(redisDb *db, robj *key) {
     }
 }
 
+/* This is a wrapper whose behavior depends on lazy.
+ * Deletes the key synchronously or asynchronously. */
+int dbGenericDelete(redisDb *db, robj *key, int lazy) {
+    return lazy ? dbAsyncDelete(db, key) : dbSyncDelete(db, key);
+}
+
 /* This is a wrapper whose behavior depends on the Redis lazy free
  * configuration. Deletes the key synchronously or asynchronously. */
 int dbDelete(redisDb *db, robj *key) {
-    return server.lazyfree_lazy_server_del ? dbAsyncDelete(db,key) :
-                                             dbSyncDelete(db,key);
+    return dbGenericDelete(db, key, server.lazyfree_lazy_server_del);
 }
 
 /* Prepare the string object stored at 'key' to be modified destructively
@@ -683,8 +688,7 @@ void delGenericCommand(client *c, int lazy) {
 
     for (j = 1; j < c->argc; j++) {
         expireIfNeeded(c->db,c->argv[j]);
-        int deleted  = lazy ? dbAsyncDelete(c->db,c->argv[j]) :
-                              dbSyncDelete(c->db,c->argv[j]);
+        int deleted = dbGenericDelete(c->db, c->argv[j], lazy);
         if (deleted) {
             signalModifiedKey(c,c->db,c->argv[j]);
             notifyKeyspaceEvent(NOTIFY_GENERIC,
@@ -1541,11 +1545,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
     if (checkClientPauseTimeoutAndReturnIfPaused()) return 1;
 
     /* Delete the key */
-    if (server.lazyfree_lazy_expire) {
-        dbAsyncDelete(db,key);
-    } else {
-        dbSyncDelete(db,key);
-    }
+    dbGenericDelete(db, key, server.lazyfree_lazy_expire);
     server.stat_expiredkeys++;
     propagateExpire(db,key,server.lazyfree_lazy_expire);
     notifyKeyspaceEvent(NOTIFY_EXPIRED,

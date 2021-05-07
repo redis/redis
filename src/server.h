@@ -2342,6 +2342,7 @@ void setKey(client *c, redisDb *db, robj *key, robj *val);
 robj *dbRandomKey(redisDb *db);
 int dbSyncDelete(redisDb *db, robj *key);
 int dbDelete(redisDb *db, robj *key);
+int dbGenericDelete(redisDb *db, robj *key, int lazy);
 robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);
 
 #define EMPTYDB_NO_FLAGS 0      /* No flags. */

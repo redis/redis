@@ -60,10 +60,7 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
 
         propagateExpire(db,keyobj,server.lazyfree_lazy_expire);
         latencyStartMonitor(expire_latency);
-        if (server.lazyfree_lazy_expire)
-            dbAsyncDelete(db,keyobj);
-        else
-            dbSyncDelete(db,keyobj);
+        dbGenericDelete(db, keyobj, server.lazyfree_lazy_expire);
         latencyEndMonitor(expire_latency);
         latencyAddSampleIfNeeded("expire-del",expire_latency);
         notifyKeyspaceEvent(NOTIFY_EXPIRED,
@@ -524,8 +521,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     if (checkAlreadyExpired(when)) {
         robj *aux;
 
-        int deleted = server.lazyfree_lazy_expire ? dbAsyncDelete(c->db,key) :
-                                                    dbSyncDelete(c->db,key);
+        int deleted = dbGenericDelete(c->db, key, server.lazyfree_lazy_expire);
         serverAssertWithInfo(c,key,deleted);
         server.dirty++;
 

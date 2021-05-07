@@ -635,10 +635,7 @@ int performEvictions(void) {
              * we only care about memory used by the key space. */
             delta = (long long) zmalloc_used_memory();
             latencyStartMonitor(eviction_latency);
-            if (server.lazyfree_lazy_eviction)
-                dbAsyncDelete(db,keyobj);
-            else
-                dbSyncDelete(db,keyobj);
+            dbGenericDelete(db, keyobj, server.lazyfree_lazy_eviction);
             latencyEndMonitor(eviction_latency);
             latencyAddSampleIfNeeded("eviction-del",eviction_latency);
             delta -= (long long) zmalloc_used_memory();

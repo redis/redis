@@ -368,8 +368,7 @@ void getexCommand(client *c) {
     if (((flags & OBJ_PXAT) || (flags & OBJ_EXAT)) && checkAlreadyExpired(milliseconds)) {
         /* When PXAT/EXAT absolute timestamp is specified, there can be a chance that timestamp
          * has already elapsed so delete the key in that case. */
-        int deleted = server.lazyfree_lazy_expire ? dbAsyncDelete(c->db, c->argv[1]) :
-                      dbSyncDelete(c->db, c->argv[1]);
+        int deleted = dbGenericDelete(c->db, c->argv[1], server.lazyfree_lazy_expire);
         serverAssert(deleted);
         robj *aux = server.lazyfree_lazy_expire ? shared.unlink : shared.del;
         rewriteClientCommandVector(c,2,aux,c->argv[1]);
@@ -398,8 +397,7 @@ void getexCommand(client *c) {
 
 void getdelCommand(client *c) {
     if (getGenericCommand(c) == C_ERR) return;
-    int deleted = server.lazyfree_lazy_user_del ? dbAsyncDelete(c->db, c->argv[1]) :
-                  dbSyncDelete(c->db, c->argv[1]);
+    int deleted = dbGenericDelete(c->db, c->argv[1], server.lazyfree_lazy_user_del);
     if (deleted) {
         /* Propagate as DEL/UNLINK command */
         robj *aux = server.lazyfree_lazy_user_del ? shared.unlink : shared.del;
