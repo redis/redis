@@ -318,18 +318,11 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr) {
  * encoded as integers to save space */
 int rdbTryIntegerEncoding(char *s, size_t len, unsigned char *enc) {
     long long value;
-    char *endptr, buf[32];
-
-    /* Check if it's possible to encode this value as a number */
-    value = strtoll(s, &endptr, 10);
-    if (endptr[0] != '\0') return 0;
-    ll2string(buf,32,value);
-
-    /* If the number converted back into a string is not identical
-     * then it's not possible to encode the string as integer */
-    if (strlen(buf) != len || memcmp(buf,s,len)) return 0;
-
-    return rdbEncodeInteger(value,enc);
+    if (string2ll(s, len, &value)) {
+        return rdbEncodeInteger(value, enc);
+    } else {
+        return 0;
+    }
 }
 
 ssize_t rdbSaveLzfBlob(rio *rdb, void *data, size_t compress_len,
