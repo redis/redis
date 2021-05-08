@@ -25,7 +25,7 @@ start_server [list overrides [list "dir" $server_path "dbfilename" "hash-ziplist
 
 exec cp -f tests/assets/hash-ziplist.rdb $server_path
 start_server [list overrides [list "dir" $server_path "dbfilename" "hash-ziplist.rdb" "rdb-convert-ziplist" yes]] {
-    test "RDB load ziplist hash: converts to hash table when enable rdb-convert-ziplist" {
+    test "RDB load ziplist hash: converts to listpack when enable rdb-convert-ziplist" {
         r select 0
 
         assert_encoding listpack hash

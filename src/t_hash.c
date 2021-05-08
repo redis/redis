@@ -515,6 +515,8 @@ void hashTypeConvertZiplist(robj *o, int enc) {
             zfree(o->ptr);
             o->encoding = OBJ_ENCODING_LISTPACK;
             o->ptr = lp;
+        } else {
+            serverPanic("Unsupported type");
         }
     } else {
         serverPanic("Unknown hash encoding");
