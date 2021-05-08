@@ -322,11 +322,16 @@ unsigned long hashTypeLength(const robj *o) {
 }
 
 hashTypeIterator *hashTypeInitIterator(robj *subject) {
+    /* Since we don't keep ziplist anymore, we convert ziplist to listpack here,
+     * because where hashTypeInitIterator is used it is always O(N). */
+    if (subject->encoding == OBJ_ENCODING_ZIPLIST)
+        hashTypeConvert(subject, OBJ_ENCODING_LISTPACK);
+
     hashTypeIterator *hi = zmalloc(sizeof(hashTypeIterator));
     hi->subject = subject;
     hi->encoding = subject->encoding;
 
-    if (IS_PACKED(hi)) {
+    if (hi->encoding == OBJ_ENCODING_LISTPACK) {
         hi->fptr = NULL;
         hi->vptr = NULL;
     } else if (hi->encoding == OBJ_ENCODING_HT) {
