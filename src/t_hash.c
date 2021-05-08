@@ -491,6 +491,31 @@ void hashTypeConvertZiplist(robj *o, int enc) {
         zfree(o->ptr);
         o->encoding = OBJ_ENCODING_HT;
         o->ptr = dict;
+    } else if (enc == OBJ_ENCODING_LISTPACK) {
+        if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+            unsigned char *p, *val;
+            size_t vlen;
+            long long lval;
+            char longstr[32] = {0};
+            unsigned int maxlen = 0;
+            unsigned char *lp = lpNew(0);
+
+            p = ziplistIndex(o->ptr, 0);
+            while (ziplistGet(p, &val, &vlen, &lval)) {
+                if (!val) {
+                    vlen = ll2string(longstr, sizeof(longstr), lval);
+                    val = (unsigned char *)longstr;
+                }
+
+                if (vlen > maxlen) maxlen = vlen;
+                lp = lpPushTail(lp, val, vlen);
+                p = ziplistNext(o->ptr, p);
+            }
+
+            zfree(o->ptr);
+            o->encoding = OBJ_ENCODING_LISTPACK;
+            o->ptr = lp;
+        }
     } else {
         serverPanic("Unknown hash encoding");
     }

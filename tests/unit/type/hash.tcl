@@ -793,4 +793,19 @@ start_server {tags {"hash"}} {
         set _ $k
     } {ZIP_INT_8B 127 ZIP_INT_16B 32767 ZIP_INT_32B 2147483647 ZIP_INT_64B 9223372036854775808 ZIP_INT_IMM_MIN 0 ZIP_INT_IMM_MAX 12}
 
+    test {Convert ziplist to listpack when doing deep sanitization  - sanitize dump} {
+        r config set sanitize-dump-payload yes
+        r debug set-default-packed-encoding ziplist
+        r config set hash-max-ziplist-entries 32
+        r del h
+        r hset h a 1
+        r hset h b 2
+        r hset h c 3
+        assert_encoding ziplist h
+
+        r debug set-default-packed-encoding listpack
+        r debug reload
+        assert_encoding listpack h
+    }
+
 }
