@@ -1946,9 +1946,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                 o->encoding = OBJ_ENCODING_ZIPLIST;
                 if (hashTypeLength(o) > server.hash_max_ziplist_entries) {
                     hashTypeConvert(o, OBJ_ENCODING_HT);
-                } else if (deep_integrity_validation) {
-                    /* We will convert ziplist to listpack when deep sanitization,
-                     * since we already do O(N) anyway. */
+                } else if (server.rdb_convert_ziplist || deep_integrity_validation) {
+                    /* If rdb_convert_ziplist is enabled , we will convert ziplist 
+                     * to listpack. We do the same for deep sanitization, since we 
+                     * already do O(N) anyway. */
                     hashTypeConvert(o, OBJ_ENCODING_LISTPACK);
                 }
                 break;
