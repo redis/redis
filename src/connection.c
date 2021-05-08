@@ -102,7 +102,7 @@ connection *connCreateAcceptedSocket(int fd) {
 static int connSocketConnect(connection *conn, const char *addr, int port, const char *src_addr,
         ConnectionCallbackFunc connect_handler) {
     int fd = anetTcpNonBlockBestEffortBindConnect(NULL,addr,port,src_addr);
-    if (fd == -1) {
+    if (fd == ANET_ERR) {
         conn->state = CONN_STATE_ERROR;
         conn->last_errno = errno;
         return C_ERR;
@@ -307,7 +307,7 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
 
 static int connSocketBlockingConnect(connection *conn, const char *addr, int port, long long timeout) {
     int fd = anetTcpNonBlockConnect(NULL,addr,port);
-    if (fd == -1) {
+    if (fd == ANET_ERR) {
         conn->state = CONN_STATE_ERROR;
         conn->last_errno = errno;
         return C_ERR;
@@ -385,27 +385,27 @@ int connFormatFdAddr(connection *conn, char *buf, size_t buf_len, int fd_to_str_
 }
 
 int connBlock(connection *conn) {
-    if (conn->fd == -1) return C_ERR;
+    if (conn->fd == -1) return ANET_ERR;
     return anetBlock(NULL, conn->fd);
 }
 
 int connNonBlock(connection *conn) {
-    if (conn->fd == -1) return C_ERR;
+    if (conn->fd == -1) return ANET_ERR;
     return anetNonBlock(NULL, conn->fd);
 }
 
 int connEnableTcpNoDelay(connection *conn) {
-    if (conn->fd == -1) return C_ERR;
+    if (conn->fd == -1) return ANET_ERR;
     return anetEnableTcpNoDelay(NULL, conn->fd);
 }
 
 int connDisableTcpNoDelay(connection *conn) {
-    if (conn->fd == -1) return C_ERR;
+    if (conn->fd == -1) return ANET_ERR;
     return anetDisableTcpNoDelay(NULL, conn->fd);
 }
 
 int connKeepAlive(connection *conn, int interval) {
-    if (conn->fd == -1) return C_ERR;
+    if (conn->fd == -1) return ANET_ERR;
     return anetKeepAlive(NULL, conn->fd, interval);
 }
 
