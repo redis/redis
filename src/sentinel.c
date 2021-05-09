@@ -1845,43 +1845,29 @@ void loadSentinelConfigFromQueue(void) {
     listNode *ln;
     int linenum = 0;
     sds line = NULL;
+    unsigned int j;
 
     /* if there is no sentinel_config entry, we can return immediately */
     if (server.sentinel_config == NULL) return;
 
-    /* loading from pre monitor config queue first to avoid dependency issues */
-    listRewind(server.sentinel_config->pre_monitor_cfg,&li);
-    while((ln = listNext(&li))) {
-        struct sentinelLoadQueueEntry *entry = ln->value;
-        err = sentinelHandleConfiguration(entry->argv,entry->argc);
-        if (err) {
-            linenum = entry->linenum;
-            line = entry->line;
-            goto loaderr;
-        }
-    }
-
-    /* loading from monitor config queue */
-    listRewind(server.sentinel_config->monitor_cfg,&li);
-    while((ln = listNext(&li))) {
-        struct sentinelLoadQueueEntry *entry = ln->value;
-        err = sentinelHandleConfiguration(entry->argv,entry->argc);
-        if (err) {
-            linenum = entry->linenum;
-            line = entry->line;
-            goto loaderr;
-        }
-    }
-
-    /* loading from the post monitor config queue */
-    listRewind(server.sentinel_config->post_monitor_cfg,&li);
-    while((ln = listNext(&li))) {
-        struct sentinelLoadQueueEntry *entry = ln->value;
-        err = sentinelHandleConfiguration(entry->argv,entry->argc);
-        if (err) {
-            linenum = entry->linenum;
-            line = entry->line;
-            goto loaderr;
+    list *sentinel_configs[3] = {
+        server.sentinel_config->pre_monitor_cfg,
+        server.sentinel_config->monitor_cfg,
+        server.sentinel_config->post_monitor_cfg
+    };
+    /* loading from pre monitor config queue first to avoid dependency issues
+     * loading from monitor config queue
+     * loading from the post monitor config queue */
+    for (j = 0; j < sizeof(sentinel_configs) / sizeof(sentinel_configs[0]); j++) {
+        listRewind(sentinel_configs[j],&li);
+        while((ln = listNext(&li))) {
+            struct sentinelLoadQueueEntry *entry = ln->value;
+            err = sentinelHandleConfiguration(entry->argv,entry->argc);
+            if (err) {
+                linenum = entry->linenum;
+                line = entry->line;
+                goto loaderr;
+            }
         }
     }
 
