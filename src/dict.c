@@ -473,7 +473,9 @@ int _dictClear(dict *d, dictht *ht, void(callback)(void *)) {
         if ((he = ht->table[i]) == NULL) continue;
         while(he) {
             nextHe = he->next;
-            dictFreeUnlinkedEntry(d, he);
+            dictFreeKey(d, he);
+            dictFreeVal(d, he);
+            zfree(he);
             ht->used--;
             he = nextHe;
         }
