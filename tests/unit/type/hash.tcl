@@ -14,7 +14,7 @@ start_server {tags {"hash"}} {
         list [r hlen smallhash]
     } {8}
 
-    test {Is the small hash encoded with a listpack?} {
+    test {Is the small hash encoded with a ziplist?} {
         assert_packed_encoding smallhash
     }
 

@@ -40,7 +40,7 @@
 void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
     int i;
 
-    if (o->encoding != OBJ_ENCODING_ZIPLIST && o->encoding != OBJ_ENCODING_LISTPACK)
+    if (!OBJ_IS_PACKED(o))
         return;
 
     for (i = start; i <= end; i++) {

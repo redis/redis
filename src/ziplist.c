@@ -2304,7 +2304,7 @@ int ziplistTest(int argc, char **argv, int accurate) {
         ziplistRepr(zl2);
 
         if (ziplistLen(zl2) != 8) {
-            printf("ERROR: Merged length not 8, but: %ld\n", ziplistLen(zl2));
+            printf("ERROR: Merged length not 8, but: %lu\n", ziplistLen(zl2));
             return 1;
         }
 
@@ -2407,7 +2407,7 @@ int ziplistTest(int argc, char **argv, int accurate) {
                 }
             }
 
-            assert(listLength(ref) == (unsigned long)ziplistLen(zl));
+            assert(listLength(ref) == ziplistLen(zl));
             for (j = 0; j < len; j++) {
                 /* Naive way to get elements, but similar to the stresser
                  * executed from the Tcl test suite. */
