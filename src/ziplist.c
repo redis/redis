@@ -1125,17 +1125,17 @@ unsigned char *ziplistMerge(unsigned char **first, unsigned char **second) {
     return target;
 }
 
-unsigned char *ziplistPush(unsigned char *zl, unsigned char *s, size_t slen, int where) {
+unsigned char *ziplistPush(unsigned char *zl, unsigned char *s, unsigned int slen, int where) {
     unsigned char *p;
     p = (where == ZIPLIST_HEAD) ? ZIPLIST_ENTRY_HEAD(zl) : ZIPLIST_ENTRY_END(zl);
     return __ziplistInsert(zl,p,s,slen);
 }
 
-unsigned char *ziplistPushHead(unsigned char *zl, unsigned char *s, size_t slen) {
+unsigned char *ziplistPushHead(unsigned char *zl, unsigned char *s, unsigned int slen) {
     return ziplistPush(zl, s, slen, ZIPLIST_HEAD);
 }
 
-unsigned char *ziplistPushTail(unsigned char *zl, unsigned char *s, size_t slen) {
+unsigned char *ziplistPushTail(unsigned char *zl, unsigned char *s, unsigned int slen) {
     return ziplistPush(zl, s, slen, ZIPLIST_TAIL);
 }
 
@@ -1228,7 +1228,7 @@ unsigned char *ziplistPrev(unsigned char *zl, unsigned char *p) {
  * on the encoding of the entry. '*sstr' is always set to NULL to be able
  * to find out whether the string pointer or the integer value was set.
  * Return 0 if 'p' points to the end of the ziplist, 1 otherwise. */
-unsigned int ziplistGet(unsigned char *p, unsigned char **sstr, size_t *slen, long long *sval) {
+unsigned int ziplistGet(unsigned char *p, unsigned char **sstr, unsigned int *slen, long long *sval) {
     zlentry entry;
     if (p == NULL || p[0] == ZIP_END) return 0;
     if (sstr) *sstr = NULL;
@@ -1248,7 +1248,7 @@ unsigned int ziplistGet(unsigned char *p, unsigned char **sstr, size_t *slen, lo
 }
 
 /* Insert an entry at "p". */
-unsigned char *ziplistInsert(unsigned char *zl, unsigned char *p, unsigned char *s, size_t slen) {
+unsigned char *ziplistInsert(unsigned char *zl, unsigned char *p, unsigned char *s, unsigned int slen) {
     return __ziplistInsert(zl,p,s,slen);
 }
 
@@ -1275,7 +1275,7 @@ unsigned char *ziplistDeleteRange(unsigned char *zl, int index, unsigned int num
 
 /* Replaces the entry at p. This is equivalent to a delete and an insert,
  * but avoids some overhead when replacing a value of the same size. */
-unsigned char *ziplistReplace(unsigned char *zl, unsigned char *p, unsigned char *s, size_t slen) {
+unsigned char *ziplistReplace(unsigned char *zl, unsigned char *p, unsigned char *s, unsigned int slen) {
 
     /* get metadata of the current entry */
     zlentry entry;
@@ -1311,7 +1311,7 @@ unsigned char *ziplistReplace(unsigned char *zl, unsigned char *p, unsigned char
 
 /* Compare entry pointer to by 'p' with 'sstr' of length 'slen'. */
 /* Return 1 if equal. */
-unsigned int ziplistCompare(unsigned char *p, unsigned char *sstr, size_t slen) {
+unsigned int ziplistCompare(unsigned char *p, unsigned char *sstr, unsigned int slen) {
     zlentry entry;
     unsigned char sencoding;
     long long zval, sval;
@@ -1338,7 +1338,7 @@ unsigned int ziplistCompare(unsigned char *p, unsigned char *sstr, size_t slen) 
 
 /* Find pointer to the entry equal to the specified entry. Skip 'skip' entries
  * between every comparison. Returns NULL when the field could not be found. */
-unsigned char *ziplistFind(unsigned char *zl, unsigned char *p, unsigned char *vstr, size_t vlen, unsigned int skip) {
+unsigned char *ziplistFind(unsigned char *zl, unsigned char *p, unsigned char *vstr, unsigned int vlen, unsigned int skip) {
     int skipcnt = 0;
     unsigned char vencoding = 0;
     long long vll = 0;
@@ -1584,7 +1584,7 @@ static inline void ziplistSaveValue(unsigned char *val, unsigned int len, long l
  * The 'vals' arg can be NULL in which case we skip these. */
 void ziplistRandomPairs(unsigned char *zl, unsigned int count, ziplistEntry *keys, ziplistEntry *vals) {
     unsigned char *p, *key, *value;
-    size_t klen = 0, vlen = 0;
+    unsigned int klen = 0, vlen = 0;
     long long klval = 0, vlval = 0;
 
     /* Notice: the index member must be first due to the use in uintCompare */
@@ -1636,7 +1636,7 @@ void ziplistRandomPairs(unsigned char *zl, unsigned int count, ziplistEntry *key
  * requested count if the ziplist doesn't hold enough pairs. */
 unsigned int ziplistRandomPairsUnique(unsigned char *zl, unsigned int count, ziplistEntry *keys, ziplistEntry *vals) {
     unsigned char *p, *key;
-    size_t klen = 0;
+    unsigned int klen = 0;
     long long klval = 0;
     unsigned int total_size = ziplistLen(zl)/2;
     unsigned int index = 0;
@@ -1756,7 +1756,7 @@ static void stress(int pos, int num, int maxsize, int dnum) {
 
 static unsigned char *pop(unsigned char *zl, int where) {
     unsigned char *p, *vstr;
-    size_t vlen;
+    unsigned int vlen;
     long long vlong;
 
     p = ziplistIndex(zl,where == ZIPLIST_HEAD ? 0 : -1);
@@ -1852,7 +1852,7 @@ static size_t strEntryBytesLarge(size_t slen) {
 int ziplistTest(int argc, char **argv, int accurate) {
     unsigned char *zl, *p;
     unsigned char *entry;
-    size_t elen;
+    unsigned int elen;
     long long value;
     int iteration;
 
@@ -2363,7 +2363,7 @@ int ziplistTest(int argc, char **argv, int accurate) {
 
         /* Hold temp vars from ziplist */
         unsigned char *sstr;
-        size_t slen;
+        unsigned int slen;
         long long sval;
 
         iteration = accurate ? 20000 : 20;

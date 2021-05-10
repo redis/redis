@@ -34,7 +34,7 @@
 typedef struct {
     /* When string is used, it is provided with the length (slen). */
     unsigned char *sval;
-    size_t slen;
+    unsigned int slen;
     /* When integer is used, 'sval' is NULL, and lval holds the value. */
     long long lval;
 } ziplistEntry;
@@ -42,15 +42,15 @@ typedef struct {
 typedef struct packedClass {
     long (*listLen)(unsigned char *l);
     size_t (*listBlobLen)(unsigned char *l);
-    unsigned int (*listGet)(unsigned char *p, unsigned char **vstr, size_t *vlen, long long *vll);
+    unsigned int (*listGet)(unsigned char *p, unsigned char **vstr, unsigned int *vlen, long long *vll);
     unsigned char *(*listIndex)(unsigned char *l, long index);
     unsigned char *(*listNext)(unsigned char *l, unsigned char *p);
     unsigned char *(*listPrev)(unsigned char *l, unsigned char *p);
-    unsigned char *(*listPushHead)(unsigned char *l, unsigned char *s, size_t slen);
-    unsigned char *(*listPushTail)(unsigned char *l, unsigned char *s, size_t slen);
-    unsigned char *(*listReplace)(unsigned char *l, unsigned char *p, unsigned char *s, size_t slen);
+    unsigned char *(*listPushHead)(unsigned char *l, unsigned char *s, uint32_t slen);
+    unsigned char *(*listPushTail)(unsigned char *l, unsigned char *s, uint32_t slen);
+    unsigned char *(*listReplace)(unsigned char *l, unsigned char *p, unsigned char *s, uint32_t slen);
     unsigned char *(*listDelete)(unsigned char *l, unsigned char **p);
-    unsigned char *(*listFind)(unsigned char *lp, unsigned char *p, unsigned char *s, size_t slen, unsigned int skip);
+    unsigned char *(*listFind)(unsigned char *lp, unsigned char *p, unsigned char *s, unsigned int slen, unsigned int skip);
     void (*listRandomPair)(unsigned char *l, unsigned long total_count, ziplistEntry *key, ziplistEntry *val);
     void (*listRandomPairs)(unsigned char *zl, unsigned int count, ziplistEntry *keys, ziplistEntry *vals);
     unsigned int  (*listRandomPairsUnique)(unsigned char *zl, unsigned int count, ziplistEntry *keys, ziplistEntry *vals);

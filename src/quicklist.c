@@ -545,7 +545,7 @@ void quicklistAppendZiplist(quicklist *quicklist, unsigned char *zl) {
 quicklist *quicklistAppendValuesFromZiplist(quicklist *quicklist,
                                             unsigned char *zl) {
     unsigned char *value;
-    size_t sz;
+    unsigned int sz;
     long long longval;
     char longstr[32] = {0};
 
@@ -1300,7 +1300,7 @@ void quicklistRotate(quicklist *quicklist) {
     unsigned char *p = ziplistIndex(quicklist->tail->zl, -1);
     unsigned char *value, *tmp;
     long long longval;
-    size_t sz;
+    unsigned int sz;
     char longstr[32] = {0};
     ziplistGet(p, &tmp, &sz, &longval);
 
@@ -1348,7 +1348,7 @@ int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
                        void *(*saver)(unsigned char *data, unsigned int sz)) {
     unsigned char *p;
     unsigned char *vstr;
-    size_t vlen;
+    unsigned int vlen;
     long long vlong;
     int pos = (where == QUICKLIST_HEAD) ? 0 : -1;
 
@@ -1585,7 +1585,7 @@ static int _itrprintr(quicklist *ql, int print, int forward) {
             prev = entry.node;
         }
         if (print) {
-            printf("[%3d (%2d)]: [%.*s] (%lld)\n", i, p, (int)entry.sz,
+            printf("[%3d (%2d)]: [%.*s] (%lld)\n", i, p, entry.sz,
                    (char *)entry.value, entry.longval);
         }
         i++;
@@ -2036,27 +2036,27 @@ int quicklistTest(int argc, char *argv[], int accurate) {
                 /* verify results */
                 quicklistIndex(ql, 0, &entry);
                 if (strncmp((char *)entry.value, "abc", 3))
-                    ERR("Value 0 didn't match, instead got: %.*s", (int)entry.sz,
+                    ERR("Value 0 didn't match, instead got: %.*s", entry.sz,
                         entry.value);
                 quicklistIndex(ql, 1, &entry);
                 if (strncmp((char *)entry.value, "def", 3))
-                    ERR("Value 1 didn't match, instead got: %.*s", (int)entry.sz,
+                    ERR("Value 1 didn't match, instead got: %.*s", entry.sz,
                         entry.value);
                 quicklistIndex(ql, 2, &entry);
                 if (strncmp((char *)entry.value, "bar", 3))
-                    ERR("Value 2 didn't match, instead got: %.*s", (int)entry.sz,
+                    ERR("Value 2 didn't match, instead got: %.*s", entry.sz,
                         entry.value);
                 quicklistIndex(ql, 3, &entry);
                 if (strncmp((char *)entry.value, "bob", 3))
-                    ERR("Value 3 didn't match, instead got: %.*s", (int)entry.sz,
+                    ERR("Value 3 didn't match, instead got: %.*s", entry.sz,
                         entry.value);
                 quicklistIndex(ql, 4, &entry);
                 if (strncmp((char *)entry.value, "foo", 3))
-                    ERR("Value 4 didn't match, instead got: %.*s", (int)entry.sz,
+                    ERR("Value 4 didn't match, instead got: %.*s", entry.sz,
                         entry.value);
                 quicklistIndex(ql, 5, &entry);
                 if (strncmp((char *)entry.value, "zoo", 3))
-                    ERR("Value 5 didn't match, instead got: %.*s", (int)entry.sz,
+                    ERR("Value 5 didn't match, instead got: %.*s", entry.sz,
                         entry.value);
                 quicklistReleaseIterator(iter);
                 quicklistRelease(ql);
@@ -2183,7 +2183,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
                     quicklistPushTail(ql, genstr("hello", i + 1), 32);
                 quicklistEntry entry;
                 if (quicklistIndex(ql, 50, &entry))
-                    ERR("Index found at 50 with 50 list: %.*s", (int)entry.sz,
+                    ERR("Index found at 50 with 50 list: %.*s", entry.sz,
                         entry.value);
                 quicklistRelease(ql);
             }
@@ -2390,7 +2390,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
                      * foo */
                     if (strncmp((char *)entry.value, result[i], entry.sz)) {
                         ERR("No match at position %d, got %.*s instead of %s",
-                            i, (int)entry.sz, entry.value, result[i]);
+                            i, entry.sz, entry.value, result[i]);
                     }
                     i++;
                 }
@@ -2426,7 +2426,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
                     if (strncmp((char *)entry.value, resultB[resB - 1 - i],
                                 entry.sz)) {
                         ERR("No match at position %d, got %.*s instead of %s",
-                            i, (int)entry.sz, entry.value, resultB[resB - 1 - i]);
+                            i, entry.sz, entry.value, resultB[resB - 1 - i]);
                     }
                     i++;
                 }
@@ -2560,7 +2560,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
                 quicklistIndex(ql, -1, &entry);
                 if (strncmp((char *)entry.value, "bobobob", 7))
                     ERR("Tail doesn't match bobobob, it's %.*s instead",
-                        (int)entry.sz, entry.value);
+                        entry.sz, entry.value);
                 for (int i = 0; i < 12; i++) {
                     quicklistIndex(ql, i, &entry);
                     if (entry.longval != nums[5 + i])

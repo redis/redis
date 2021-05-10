@@ -7790,7 +7790,7 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
         packedClass *packed = PACKED_CLASS(o);
         unsigned char *p = packed->listIndex(o->ptr,0);
         unsigned char *vstr;
-        size_t vlen;
+        unsigned int vlen;
         long long vll;
         while(p) {
             packed->listGet(p,&vstr,&vlen,&vll);

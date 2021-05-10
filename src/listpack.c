@@ -626,7 +626,7 @@ unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf) {
 /* Find pointer to the entry equal to the specified entry. Skip 'skip' entries
  * between every comparison. Returns NULL when the field could not be found. */
 unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s, 
-                      size_t slen, unsigned int skip) {
+                      unsigned int slen, unsigned int skip) {
     int skipcnt = 0;
 
     assert(p);
@@ -672,7 +672,7 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
  * For deletion operations ('ele' set to NULL) 'newp' is set to the next
  * element, on the right of the deleted one, or to NULL if the deleted element
  * was the last one. */
-unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, size_t size, unsigned char *p, int where, unsigned char **newp) {
+unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, unsigned char *p, int where, unsigned char **newp) {
     unsigned char intenc[LP_MAX_INT_ENCODING_LEN];
     unsigned char backlen[LP_MAX_BACKLEN_SIZE];
 
@@ -816,14 +816,14 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, size_t size, unsi
 /* Append the specified element 'ele' of length 'len' at the end of the
  * listpack. It is implemented in terms of lpInsert(), so the return value is
  * the same as lpInsert(). */
-unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, size_t size) {
+unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size) {
     uint64_t listpack_bytes = lpGetTotalBytes(lp);
     unsigned char *eofptr = lp + listpack_bytes - 1;
     return lpInsert(lp,ele,size,eofptr,LP_BEFORE,NULL);
 }
 
 /* Append the specified element 's' of length 'slen' at the head of the listpack. */
-unsigned char *lpPushHead(unsigned char *lp, unsigned char *s, size_t slen) {
+unsigned char *lpPushHead(unsigned char *lp, unsigned char *s, uint32_t slen) {
     unsigned char *p = lpFirst(lp);
     if (!p) return lpPushTail(lp, s, slen);
     return lpInsert(lp, s, slen, p, LP_BEFORE, NULL);
@@ -832,14 +832,14 @@ unsigned char *lpPushHead(unsigned char *lp, unsigned char *s, size_t slen) {
 /* Append the specified element 's' of length 'slen' at the end of the
  * listpack. It is implemented in terms of lpInsert(), so the return value is
  * the same as lpInsert(). */
-unsigned char *lpPushTail(unsigned char *lp, unsigned char *s, size_t slen) {
+unsigned char *lpPushTail(unsigned char *lp, unsigned char *s, uint32_t slen) {
     uint64_t listpack_bytes = lpGetTotalBytes(lp);
     unsigned char *eofptr = lp + listpack_bytes - 1;
     return lpInsert(lp, s, slen, eofptr, LP_BEFORE, NULL);
 }
 
 /* Remove the element pointed by 'p'. */
-unsigned char *lpReplace(unsigned char *lp, unsigned char *p, unsigned char *s, size_t slen) {
+unsigned char *lpReplace(unsigned char *lp, unsigned char *p, unsigned char *s, uint32_t slen) {
     return lpInsert(lp, s, slen, p, LP_REPLACE, NULL);
 }
 
@@ -996,14 +996,14 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
     return 1;
 }
 
-unsigned int lpCompare(unsigned char *p, unsigned char *s, size_t slen) {
+unsigned int lpCompare(unsigned char *p, unsigned char *s, unsigned int slen) {
     unsigned char buf[LP_INTBUF_SIZE];
     unsigned char *value;
     int64_t sz;
 
     if (p[0] == LP_EOF) return 0;
     value = lpGet(p, &sz, buf);
-    if (slen != (size_t)sz) return 0;
+    if (slen != sz) return 0;
     return memcmp(value,s,slen) == 0;
 }
 
@@ -1156,7 +1156,7 @@ unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, ziplistE
     return picked;
 }
 
-unsigned int _lpGet(unsigned char *p, unsigned char **sstr, size_t *slen, long long *lval) {
+unsigned int _lpGet(unsigned char *p, unsigned char **sstr, unsigned int *slen, long long *lval) {
     int64_t vlen;
     *sstr = lpGet(p, &vlen, NULL);
     if (*sstr) {
