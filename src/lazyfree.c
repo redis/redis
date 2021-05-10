@@ -52,7 +52,7 @@ size_t lazyfreeGetFreeEffort(robj *obj) {
         /* Every consumer group is an allocation and so are the entries in its
          * PEL. We use size of the first group's PEL as an estimate for all
          * others. */
-        if (s->cgroups) {
+        if (s->cgroups && raxSize(s->cgroups)) {
             raxIterator ri;
             streamCG *cg;
             raxStart(&ri,s->cgroups);
