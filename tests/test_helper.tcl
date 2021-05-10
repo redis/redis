@@ -115,7 +115,6 @@ set ::stop_on_failure 0
 set ::dump_logs 0
 set ::loop 0
 set ::tlsdir "tests/tls"
-set ::packed_encoding "";
 
 # Set to 1 when we are running in client mode. The Redis test uses a
 # server-client model to run tests simultaneously. The server instance
@@ -565,7 +564,6 @@ proc print_help_screen {} {
         "--port <port>      TCP port to use against external host."
         "--baseport <port>  Initial port number for spawned redis servers."
         "--portcount <num>  Port range for spawned redis servers."
-        "--packed-encoding <listpack|ziplist>  Default packed encoding."
         "--help             Print this help screen."
     } "\n"]
 }
@@ -671,9 +669,6 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set ::loop 1
     } elseif {$opt eq {--timeout}} {
         set ::timeout $arg
-        incr j
-    } elseif {$opt eq {--packed-encoding}} {
-        set ::packed_encoding $arg
         incr j
     } elseif {$opt eq {--help}} {
         print_help_screen

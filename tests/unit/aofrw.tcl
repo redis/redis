@@ -134,10 +134,10 @@ start_server {tags {"aofrw"} overrides {aof-use-rdb-preamble no}} {
     }
 
     foreach d {string int} {
-        foreach e {listpack hashtable} {
+        foreach e {ziplist hashtable} {
             test "AOF rewrite of hash with $e encoding, $d data" {
                 r flushall
-                if {$e eq {listpack}} {set len 10} else {set len 1000}
+                if {$e eq {ziplist}} {set len 10} else {set len 1000}
                 for {set j 0} {$j < $len} {incr j} {
                     if {$d eq {string}} {
                         set data [randstring 0 16 alpha]
@@ -146,8 +146,8 @@ start_server {tags {"aofrw"} overrides {aof-use-rdb-preamble no}} {
                     }
                     r hset key $data $data
                 }
-                if {$::packed_encoding != "" && $e == "listpack"} {
-                    assert_encoding $::packed_encoding key
+                if {$e == "ziplist"} {
+                    assert_packed_encoding key
                 } else {
                     assert_encoding $e key
                 }

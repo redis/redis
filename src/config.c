@@ -607,6 +607,14 @@ void loadServerConfigFromString(char *config) {
                 }
                 queueSentinelConfig(argv+1,argc-1,linenum,lines[i]);
             }
+        } else if (!strcasecmp(argv[0],"default-packed-encoding") && argc == 2) {
+            if (!strcasecmp(argv[1],"listpack")) {
+                server.default_packed_encoding = OBJ_ENCODING_LISTPACK;
+            } else if (!strcasecmp(argv[1],"ziplist")) {
+                server.default_packed_encoding = OBJ_ENCODING_ZIPLIST;
+            } else {
+                goto loaderr;
+            } 
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
@@ -858,6 +866,14 @@ void configSetCommand(client *c) {
         server.notify_keyspace_events = flags;
     /* Numerical fields.
      * config_set_numerical_field(name,var,min,max) */
+    } config_set_special_field("default-packed-encoding") {
+        if (!strcasecmp(o->ptr,"listpack")) {
+            server.default_packed_encoding = OBJ_ENCODING_LISTPACK;
+        } else if (!strcasecmp(o->ptr,"ziplist")) {
+            server.default_packed_encoding = OBJ_ENCODING_ZIPLIST;
+        } else {
+            goto badfmt;
+        } 
     } config_set_numerical_field(
       "watchdog-period",ll,0,INT_MAX) {
         if (ll)
@@ -1043,6 +1059,12 @@ void configGetCommand(client *c) {
         addReplyBulkCString(c,"oom-score-adj-values");
         addReplyBulkCString(c,buf);
         sdsfree(buf);
+        matches++;
+    }
+
+    if (stringmatch(pattern,"default-packed-encoding",1)) {
+        addReplyBulkCString(c,"default-packed-encoding");
+        addReplyBulkCString(c,strEncoding(server.default_packed_encoding));
         matches++;
     }
 
