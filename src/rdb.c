@@ -1708,8 +1708,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
 
 
         /* Load every field and value into the ziplist */
-        packedClass *packed = PACKED_CLASS(o);
-        while (IS_PACKED(o) && len > 0) {
+        packedClass *packed = OBJ_PACKED_CLASS(o);
+        while (OBJ_IS_PACKED(o) && len > 0) {
             len--;
             /* Load raw strings */
             if ((field = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {

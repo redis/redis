@@ -869,7 +869,7 @@ long defragKey(redisDb *db, dictEntry *de) {
             serverPanic("Unknown sorted set encoding");
         }
     } else if (ob->type == OBJ_HASH) {
-        if (IS_PACKED(ob)) {
+        if (OBJ_IS_PACKED(ob)) {
             if ((newzl = activeDefragAlloc(ob->ptr)))
                 defragged++, ob->ptr = newzl;
         } else if (ob->encoding == OBJ_ENCODING_HT) {

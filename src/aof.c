@@ -1174,7 +1174,7 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
  *
  * The function returns 0 on error, non-zero on success. */
 static int rioWriteHashIteratorCursor(rio *r, hashTypeIterator *hi, int what) {
-    if (IS_PACKED(hi)) {
+    if (OBJ_IS_PACKED(hi)) {
         unsigned char *vstr = NULL;
         unsigned int vlen = UINT_MAX;
         long long vll = LLONG_MAX;

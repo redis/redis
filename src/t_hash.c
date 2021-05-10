@@ -62,9 +62,9 @@ int hashTypeGetFromZiplist(robj *o, sds field,
 {
     unsigned char *zl, *fptr = NULL, *vptr = NULL;
     int ret;
-    packedClass *packed = PACKED_CLASS(o);
+    packedClass *packed = OBJ_PACKED_CLASS(o);
 
-    serverAssert(IS_PACKED(o));
+    serverAssert(OBJ_IS_PACKED(o));
 
     zl = o->ptr;
     fptr = packed->listIndex(zl, 0);
@@ -109,7 +109,7 @@ sds hashTypeGetFromHashTable(robj *o, sds field) {
  * can always check the function return by checking the return value
  * for C_OK and checking if vll (or vstr) is NULL. */
 int hashTypeGetValue(robj *o, sds field, unsigned char **vstr, unsigned int *vlen, long long *vll) {
-    if (IS_PACKED(o)) {
+    if (OBJ_IS_PACKED(o)) {
         *vstr = NULL;
         if (hashTypeGetFromZiplist(o, field, vstr, vlen, vll) == 0)
             return C_OK;
@@ -145,7 +145,7 @@ robj *hashTypeGetValueObject(robj *o, sds field) {
  * exist. */
 size_t hashTypeGetValueLength(robj *o, sds field) {
     size_t len = 0;
-    if (IS_PACKED(o)) {
+    if (OBJ_IS_PACKED(o)) {
         unsigned char *vstr = NULL;
         unsigned int vlen = UINT_MAX;
         long long vll = LLONG_MAX;
@@ -166,7 +166,7 @@ size_t hashTypeGetValueLength(robj *o, sds field) {
 /* Test if the specified field exists in the given hash. Returns 1 if the field
  * exists, and 0 when it doesn't. */
 int hashTypeExists(robj *o, sds field) {
-    if (IS_PACKED(o)) {
+    if (OBJ_IS_PACKED(o)) {
         unsigned char *vstr = NULL;
         unsigned int vlen = UINT_MAX;
         long long vll = LLONG_MAX;
@@ -204,9 +204,9 @@ int hashTypeExists(robj *o, sds field) {
 int hashTypeSet(robj *o, sds field, sds value, int flags) {
     int update = 0;
 
-    if (IS_PACKED(o)) {
+    if (OBJ_IS_PACKED(o)) {
         unsigned char *zl, *fptr, *vptr;
-        packedClass *packed = PACKED_CLASS(o);
+        packedClass *packed = OBJ_PACKED_CLASS(o);
 
         zl = o->ptr;
         fptr = packed->listIndex(zl, 0);
@@ -277,9 +277,9 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
 int hashTypeDelete(robj *o, sds field) {
     int deleted = 0;
 
-    if (IS_PACKED(o)) {
+    if (OBJ_IS_PACKED(o)) {
         unsigned char *zl, *fptr;
-        packedClass *packed = PACKED_CLASS(o);
+        packedClass *packed = OBJ_PACKED_CLASS(o);
 
         zl = o->ptr;
         fptr = packed->listIndex(zl, 0);
@@ -310,8 +310,8 @@ int hashTypeDelete(robj *o, sds field) {
 unsigned long hashTypeLength(const robj *o) {
     unsigned long length = ULONG_MAX;
 
-    if (IS_PACKED(o)) {
-        packedClass *packed = PACKED_CLASS(o);
+    if (OBJ_IS_PACKED(o)) {
+        packedClass *packed = OBJ_PACKED_CLASS(o);
         length = packed->listLen(o->ptr) / 2;
     } else if (o->encoding == OBJ_ENCODING_HT) {
         length = dictSize((const dict*)o->ptr);
@@ -322,16 +322,11 @@ unsigned long hashTypeLength(const robj *o) {
 }
 
 hashTypeIterator *hashTypeInitIterator(robj *subject) {
-    /* Since we don't keep ziplist anymore, we convert ziplist to listpack here,
-     * because where hashTypeInitIterator is used it is always O(N). */
-    if (subject->encoding == OBJ_ENCODING_ZIPLIST)
-        hashTypeConvert(subject, OBJ_ENCODING_LISTPACK);
-
     hashTypeIterator *hi = zmalloc(sizeof(hashTypeIterator));
     hi->subject = subject;
     hi->encoding = subject->encoding;
 
-    if (hi->encoding == OBJ_ENCODING_LISTPACK) {
+    if (OBJ_IS_PACKED(hi)) {
         hi->fptr = NULL;
         hi->vptr = NULL;
     } else if (hi->encoding == OBJ_ENCODING_HT) {
@@ -351,10 +346,10 @@ void hashTypeReleaseIterator(hashTypeIterator *hi) {
 /* Move to the next entry in the hash. Return C_OK when the next entry
  * could be found and C_ERR when the iterator reaches the end. */
 int hashTypeNext(hashTypeIterator *hi) {
-    if (IS_PACKED(hi)) {
+    if (OBJ_IS_PACKED(hi)) {
         unsigned char *zl;
         unsigned char *fptr, *vptr;
-        packedClass *packed = PACKED_CLASS(hi);
+        packedClass *packed = OBJ_PACKED_CLASS(hi);
 
         zl = hi->subject->ptr;
         fptr = hi->fptr;
@@ -394,9 +389,9 @@ void hashTypeCurrentFromZiplist(hashTypeIterator *hi, int what,
                                 long long *vll)
 {
     int ret;
-    packedClass *packed = PACKED_CLASS(hi);
+    packedClass *packed = OBJ_PACKED_CLASS(hi);
         
-    serverAssert(IS_PACKED(hi));
+    serverAssert(OBJ_IS_PACKED(hi));
 
     if (what & OBJ_HASH_KEY) {
         ret = packed->listGet(hi->fptr, vstr, vlen, vll);
@@ -431,7 +426,7 @@ sds hashTypeCurrentFromHashTable(hashTypeIterator *hi, int what) {
  * can always check the function return by checking the return value
  * type checking if vstr == NULL. */
 void hashTypeCurrentObject(hashTypeIterator *hi, int what, unsigned char **vstr, unsigned int *vlen, long long *vll) {
-    if (IS_PACKED(hi)) {
+    if (OBJ_IS_PACKED(hi)) {
         *vstr = NULL;
         hashTypeCurrentFromZiplist(hi, what, vstr, vlen, vll);
     } else if (hi->encoding == OBJ_ENCODING_HT) {
@@ -467,7 +462,7 @@ robj *hashTypeLookupWriteOrCreate(client *c, robj *key) {
 }
 
 void hashTypeConvertZiplist(robj *o, int enc) {
-    serverAssert(IS_PACKED(o));
+    serverAssert(OBJ_IS_PACKED(o));
 
     if (enc == OBJ_ENCODING_ZIPLIST) {
         /* Nothing to do... */
@@ -529,7 +524,7 @@ void hashTypeConvertZiplist(robj *o, int enc) {
 }
 
 void hashTypeConvert(robj *o, int enc) {
-    if (IS_PACKED(o)) {
+    if (OBJ_IS_PACKED(o)) {
         hashTypeConvertZiplist(o, enc);
     } else if (o->encoding == OBJ_ENCODING_HT) {
         serverPanic("Not implemented");
@@ -549,8 +544,8 @@ robj *hashTypeDup(robj *o) {
 
     serverAssert(o->type == OBJ_HASH);
 
-    if(IS_PACKED(o)) {
-        packedClass *packed = PACKED_CLASS(o);
+    if(OBJ_IS_PACKED(o)) {
+        packedClass *packed = OBJ_PACKED_CLASS(o);
         unsigned char *zl = o->ptr;
         size_t sz = packed->listBlobLen(zl);
         unsigned char *new_zl = zmalloc(sz);
@@ -710,8 +705,8 @@ void hashTypeRandomElement(robj *hashobj, unsigned long hashsize, ziplistEntry *
             val->sval = (unsigned char*)s;
             val->slen = sdslen(s);
         }
-    } else if (IS_PACKED(hashobj)) {
-        packedClass *packed = PACKED_CLASS(hashobj);
+    } else if (OBJ_IS_PACKED(hashobj)) {
+        packedClass *packed = OBJ_PACKED_CLASS(hashobj);
         packed->listRandomPair(hashobj->ptr, hashsize, key, val);
     } else {
         serverPanic("Unknown hash encoding");
@@ -859,7 +854,7 @@ static void addHashFieldToReply(client *c, robj *o, sds field) {
         return;
     }
 
-    if (IS_PACKED(o)) {
+    if (OBJ_IS_PACKED(o)) {
         unsigned char *vstr = NULL;
         unsigned int vlen = UINT_MAX;
         long long vll = LLONG_MAX;
@@ -956,7 +951,7 @@ void hstrlenCommand(client *c) {
 }
 
 static void addHashIteratorCursorToReply(client *c, hashTypeIterator *hi, int what) {
-    if (IS_PACKED(hi)) {
+    if (OBJ_IS_PACKED(hi)) {
         unsigned char *vstr = NULL;
         unsigned int vlen = UINT_MAX;
         long long vll = LLONG_MAX;
@@ -1113,10 +1108,10 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
                 if (withvalues)
                     addReplyBulkCBuffer(c, value, sdslen(value));
             }
-        } else if (IS_PACKED(hash)) {
+        } else if (OBJ_IS_PACKED(hash)) {
             ziplistEntry *keys, *vals = NULL;
             unsigned long limit, sample_count;
-            packedClass *packed = PACKED_CLASS(hash);
+            packedClass *packed = OBJ_PACKED_CLASS(hash);
 
             limit = count > HRANDFIELD_RANDOM_SAMPLE_LIMIT ? HRANDFIELD_RANDOM_SAMPLE_LIMIT : count;
             keys = zmalloc(sizeof(ziplistEntry)*limit);
@@ -1220,8 +1215,8 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
      * to the temporary hash, trying to eventually get enough unique elements
      * to reach the specified count. */
     else {
-        if (IS_PACKED(hash)) {
-            packedClass *packed = PACKED_CLASS(hash);
+        if (OBJ_IS_PACKED(hash)) {
+            packedClass *packed = OBJ_PACKED_CLASS(hash);
 
             /* it is inefficient to repeatedly pick one random element from a
              * ziplist. so we use this instead: */

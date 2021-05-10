@@ -7787,7 +7787,7 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
         cursor->done = 1;
         ret = 0;
     } else if (o->type == OBJ_HASH || o->type == OBJ_ZSET) {
-        packedClass *packed = PACKED_CLASS(o);
+        packedClass *packed = OBJ_PACKED_CLASS(o);
         unsigned char *p = packed->listIndex(o->ptr,0);
         unsigned char *vstr;
         unsigned int vlen;

@@ -1729,9 +1729,6 @@ typedef struct {
 #define OBJ_HASH_KEY 1
 #define OBJ_HASH_VALUE 2
 
-#define PACKED_CLASS(o) ((o)->encoding == OBJ_ENCODING_ZIPLIST ? &packedZiplist : &packedListpack)
-#define IS_PACKED(o) ((o)->encoding == OBJ_ENCODING_ZIPLIST || (o)->encoding == OBJ_ENCODING_LISTPACK)
-
 /*-----------------------------------------------------------------------------
  * Extern declarations
  *----------------------------------------------------------------------------*/
@@ -2011,6 +2008,8 @@ int equalStringObjects(robj *a, robj *b);
 unsigned long long estimateObjectIdleTime(robj *o);
 void trimStringObjectIfNeeded(robj *o);
 #define sdsEncodedObject(objptr) (objptr->encoding == OBJ_ENCODING_RAW || objptr->encoding == OBJ_ENCODING_EMBSTR)
+#define OBJ_PACKED_CLASS(o) ((o)->encoding == OBJ_ENCODING_ZIPLIST ? &packedZiplist : &packedListpack)
+#define OBJ_IS_PACKED(o) ((o)->encoding == OBJ_ENCODING_ZIPLIST || (o)->encoding == OBJ_ENCODING_LISTPACK)
 
 /* Synchronous I/O with timeout */
 ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout);

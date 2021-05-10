@@ -1,5 +1,6 @@
-/*
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+/* a uniform interface for ziplist and listpack
+ *
+ * Copyright (c) 2021, sundb <sundbcn@gmail.com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
