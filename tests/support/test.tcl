@@ -97,7 +97,7 @@ proc assert_packed_encoding {key} {
         11 {set enc_name listpack}
     }
     set dbg [r debug object $key]
-    assert_match "* encoding:$enc_name*" $dbg 
+    assert_match "* encoding:$enc_name *" $dbg 
 }
 
 proc assert_type {type key} {
