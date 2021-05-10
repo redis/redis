@@ -499,7 +499,7 @@ void hashTypeConvertZiplist(robj *o, int enc) {
     } else if (enc == OBJ_ENCODING_LISTPACK) {
         if (o->encoding == OBJ_ENCODING_ZIPLIST) {
             unsigned char *p, *val;
-            size_t vlen;
+            unsigned int vlen;
             long long lval;
             char longstr[32] = {0};
             unsigned int maxlen = 0;
