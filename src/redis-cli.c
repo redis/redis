@@ -2164,6 +2164,8 @@ static void repl(void) {
             if (argv == NULL) {
                 printf("Invalid argument(s)\n");
                 fflush(stdout);
+                if (history) linenoiseHistoryAdd(line);
+                if (historyfile) linenoiseHistorySave(historyfile);
                 linenoiseFree(line);
                 continue;
             } else if (argc == 0) {
