@@ -1398,7 +1398,7 @@ unsigned char *ziplistFind(unsigned char *zl, unsigned char *p, unsigned char *v
 }
 
 /* Return length of ziplist. */
-long ziplistLen(unsigned char *zl) {
+unsigned long ziplistLen(unsigned char *zl) {
     unsigned int len = 0;
     if (intrev16ifbe(ZIPLIST_LENGTH(zl)) < UINT16_MAX) {
         len = intrev16ifbe(ZIPLIST_LENGTH(zl));

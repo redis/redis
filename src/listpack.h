@@ -55,7 +55,7 @@ unsigned char *lpPushHead(unsigned char *lp, unsigned char *s, uint32_t slen);
 unsigned char *lpPushTail(unsigned char *lp, unsigned char *s, uint32_t slen);
 unsigned char *lpReplace(unsigned char *lp, unsigned char *p, unsigned char *s, uint32_t slen);
 unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **newp);
-long lpLength(unsigned char *lp);
+unsigned long lpLength(unsigned char *lp);
 unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf);
 unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s, unsigned int slen, unsigned int skip);
 unsigned char *lpFirst(unsigned char *lp);

@@ -41,7 +41,7 @@ typedef struct {
 } ziplistEntry;
 
 typedef struct packedClass {
-    long (*listLen)(unsigned char *l);
+    unsigned long (*listLen)(unsigned char *l);
     size_t (*listBlobLen)(unsigned char *l);
     unsigned int (*listGet)(unsigned char *p, unsigned char **vstr, unsigned int *vlen, long long *vll);
     unsigned char *(*listIndex)(unsigned char *l, long index);
