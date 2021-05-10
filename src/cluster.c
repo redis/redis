@@ -2148,6 +2148,8 @@ int clusterProcessPacket(clusterLink *link) {
                 hdr->sender, hdr->data.fail.about.nodename);
         }
     } else if (type == CLUSTERMSG_TYPE_PUBLISH) {
+        if (!sender) return 1;  /* We don't know that node. */
+
         robj *channel, *message;
         uint32_t channel_len, message_len;
 
