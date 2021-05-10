@@ -977,8 +977,6 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
     uint32_t count = 0;
     unsigned char *p = lpFirst(lp);
     while(p && p[0] != LP_EOF) {
-        count++;
-
         /* Optionally let the caller validate the entry too. */
         if (entry_cb && !entry_cb(p, cb_userdata))
             return 0;
@@ -986,6 +984,7 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
         /* Move to the next entry */
         if (!lpValidateNext(lp, &p, bytes))
             return 0;
+        count++;
     }
 
     /* Check that the count in the header is correct */

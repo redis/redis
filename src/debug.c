@@ -467,8 +467,6 @@ void debugCommand(client *c) {
 "    Return the size of different Redis core C structures.",
 "ZIPLIST <key>",
 "    Show low level info about the ziplist encoding of <key>.",
-"SET-DEFAULT-PACKED-ENCODING <ziplist|listpack>",
-"    Set default packed encoding of hash/zset/list.",
 NULL
         };
         addReplyHelp(c, help);
