@@ -192,7 +192,7 @@ REDIS_STATIC int __quicklistCompressNode(quicklistNode *node) {
     if (((lzf->sz = lzf_compress(node->zl, node->sz, lzf->compressed,
                                  node->sz)) == 0) ||
         lzf->sz + MIN_COMPRESS_IMPROVE >= node->sz) {
-        /* lzf_compress aborts/rejects compression if value not compressable. */
+        /* lzf_compress aborts/rejects compression if value not compressible. */
         zfree(lzf);
         return 0;
     }
@@ -240,7 +240,7 @@ REDIS_STATIC int __quicklistDecompressNode(quicklistNode *node) {
         }                                                                      \
     } while (0)
 
-/* Force node to not be immediately re-compresable */
+/* Force node to not be immediately re-compressible */
 #define quicklistDecompressNodeForUse(_node)                                   \
     do {                                                                       \
         if ((_node) && (_node)->encoding == QUICKLIST_NODE_ENCODING_LZF) {     \
@@ -668,7 +668,7 @@ void quicklistDelEntry(quicklistIter *iter, quicklistEntry *entry) {
      * doesn't move again because:
      *   - [1, 2, 3] => delete offset 1 => [1, 3]: next element still offset 1
      *   - [1, 2, 3] => delete offset 0 => [2, 3]: next element still offset 0
-     *  if we deleted the last element at offet N and now
+     *  if we deleted the last element at offset N and now
      *  length of this ziplist is N-1, the next call into
      *  quicklistNext() will jump to the next node. */
 }
@@ -1138,7 +1138,7 @@ int quicklistNext(quicklistIter *iter, quicklistEntry *entry) {
     entry->node = iter->current;
 
     if (!iter->current) {
-        D("Returning because current node is NULL")
+        D("Returning because current node is NULL");
         return 0;
     }
 
@@ -1438,7 +1438,7 @@ void quicklistPush(quicklist *quicklist, void *value, const size_t sz,
  * Returns 0 on failure (reached the maximum supported number of bookmarks).
  * NOTE: use short simple names, so that string compare on find is quick.
  * NOTE: bookmark creation may re-allocate the quicklist, so the input pointer
-         may change and it's the caller responsibilty to update the reference.
+         may change and it's the caller responsibility to update the reference.
  */
 int quicklistBookmarkCreate(quicklist **ql_ref, const char *name, quicklistNode *node) {
     quicklist *ql = *ql_ref;
