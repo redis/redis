@@ -504,6 +504,19 @@ proc start_server {options {code undefined}} {
         # remember previous num_failed to catch new errors
         set prev_num_failed $::num_failed
 
+        # run scripts after server started
+        foreach script $::scripts_run_on_startup { 
+            if {[catch { uplevel 1 $script } error]} {
+                # if we get AUTH error, we ignore it.
+                if {[string match "NOAUTH*" $error]} {
+                    continue
+                } else {
+                    puts $error
+                    exit 1
+                }
+            }
+        }
+
         # execute provided block
         set num_tests $::num_tests
         if {[catch { uplevel 1 $code } error]} {

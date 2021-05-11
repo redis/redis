@@ -2198,14 +2198,6 @@ static int isValidProcTitleTemplate(char *val, const char **err) {
     return 1;
 }
 
-static int isValidPackedEncoding(long long val, const char **err) {
-    if (val != OBJ_ENCODING_LISTPACK && val != OBJ_ENCODING_ZIPLIST) {
-        *err = "invalid packed encoding";
-        return 0;
-    }
-    return 1;
-}
-
 static int updateProcTitleTemplate(char *val, char *prev, const char **err) {
     UNUSED(val);
     UNUSED(prev);
@@ -2519,7 +2511,6 @@ standardConfig configs[] = {
 
     /* Unsigned int configs */
     createUIntConfig("maxclients", NULL, MODIFIABLE_CONFIG, 1, UINT_MAX, server.maxclients, 10000, INTEGER_CONFIG, NULL, updateMaxclients),
-    createUIntConfig("default-packed-encoding", NULL, MODIFIABLE_CONFIG, 0, UINT_MAX, server.default_packed_encoding, OBJ_ENCODING_LISTPACK, INTEGER_CONFIG, isValidPackedEncoding, NULL),
 
     /* Unsigned Long configs */
     createULongConfig("active-defrag-max-scan-fields", NULL, MODIFIABLE_CONFIG, 1, LONG_MAX, server.active_defrag_max_scan_fields, 1000, INTEGER_CONFIG, NULL, NULL), /* Default: keys with more than 1000 fields will be processed separately */

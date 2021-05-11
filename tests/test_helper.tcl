@@ -564,6 +564,7 @@ proc print_help_screen {} {
         "--port <port>      TCP port to use against external host."
         "--baseport <port>  Initial port number for spawned redis servers."
         "--portcount <num>  Port range for spawned redis servers."
+        "--run-on-startup <script> Run script after server started and before proceeding the tests."
         "--help             Print this help screen."
     } "\n"]
 }
@@ -670,6 +671,9 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
     } elseif {$opt eq {--timeout}} {
         set ::timeout $arg
         incr j
+    } elseif {$opt eq {--run-on-startup}} {
+        lappend ::scripts_run_on_startup $arg
+        incr j 1
     } elseif {$opt eq {--help}} {
         print_help_screen
         exit 0
