@@ -628,12 +628,39 @@ unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf) {
 unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s, 
                       unsigned int slen, unsigned int skip) {
     int skipcnt = 0;
+    unsigned char vencoding = 0;
+    unsigned char *value;
+    int64_t ll, vll;
 
     assert(p);
     while (p) {
         if (skipcnt == 0) {
-            /* Compare current entry with specified entry */
-            if (lpCompare(p, s, slen)) return p;
+            value = lpGet(p, &ll, NULL);
+            if (value) {
+                if (slen == ll && memcmp(value,s,slen) == 0) {
+                    return p;
+                }
+            } else {
+                /* Find out if the searched field can be encoded. Note that
+                 * we do it only the first time, once done vencoding is set
+                 * to non-zero and vll is set to the integer value. */
+                if (vencoding == 0) {
+                    if (lpStringToInt64((const char*)s, slen, &vll)) {
+                        /* If the entry can be encoded as integer we set it to
+                         * 1 so that we don't retry again the next time. */
+                        vencoding = 1;
+                    } else {
+                        vencoding = UCHAR_MAX;
+                    }
+                }
+
+                /* Compare current entry with specified entry, do it only
+                 * if vencoding != UCHAR_MAX because if there is no encoding
+                 * possible for the field it can't be a valid integer. */
+                if (vencoding != UCHAR_MAX && ll == vll) {
+                    return p;
+                }
+            }
 
             /* Reset skip count */
             skipcnt = skip;
@@ -1002,8 +1029,7 @@ unsigned int lpCompare(unsigned char *p, unsigned char *s, unsigned int slen) {
 
     if (p[0] == LP_EOF) return 0;
     value = lpGet(p, &sz, buf);
-    if (slen != sz) return 0;
-    return memcmp(value,s,slen) == 0;
+    return (slen == sz) && memcmp(value,s,slen) == 0;
 }
 
 /* uint compare for qsort */
@@ -1189,6 +1215,8 @@ packedClass packedListpack = {
 
 #ifdef REDIS_TEST
 
+#include <sys/time.h>
+
 #define UNUSED(x) (void)(x)
 #define TEST(name) printf("test — %s\n", name);
 
@@ -1201,6 +1229,16 @@ static unsigned char *createList() {
     lp = lpPushHead(lp, (unsigned char*)mixlist[0], strlen(mixlist[0]));
     lp = lpPushTail(lp, (unsigned char*)mixlist[3], strlen(mixlist[3]));
     return lp;
+}
+
+static long long usec(void) {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (((long long)tv.tv_sec)*1000000)+tv.tv_usec;
+}
+
+static void verifyEntry(unsigned char *p, unsigned char *s, size_t slen) {
+    assert(lpCompare(p, s, slen));
 }
 
 static int lpValidation(unsigned char *p, void *userdata) {
@@ -1218,10 +1256,70 @@ int listpackTest(int argc, char *argv[], int accurate) {
     UNUSED(argv);
     UNUSED(accurate);
 
-    TEST("check lpValidateIntegrity") {
-        unsigned char *lp = createList();
+    unsigned char *lp;
+
+    TEST("Test lpFind") {
+        lp = createList();
+        assert(lpFind(lp, lpFirst(lp), (unsigned char*)"abc", 3, 0) == NULL);
+        verifyEntry(lpFind(lp, lpFirst(lp), (unsigned char*)"hello", 5, 0), (unsigned char*)"hello", 5);
+        verifyEntry(lpFind(lp, lpFirst(lp), (unsigned char*)"1024", 4, 0), (unsigned char*)"1024", 4);
+        lpFree(lp);
+    }
+
+    TEST("Test lpValidateIntegrity") {
+        lp = createList();
         long count = 0;
         assert(lpValidateIntegrity(lp, lpBytes(lp), 1, lpValidation, &count) == 1);
+        lpFree(lp);
+    }
+
+    /* Benchmarks */
+    {
+        int iteration = accurate ? 100000 : 100;
+        lp = lpNew(0);
+        TEST("Benchmark lpPushTail") {
+            unsigned long long start = usec();
+            for (int i=0; i<iteration; i++) {
+                char buf[4096] = "asdf";
+                lp = lpPushTail(lp, (unsigned char*)buf, 4);
+                lp = lpPushTail(lp, (unsigned char*)buf, 40);
+                lp = lpPushTail(lp, (unsigned char*)buf, 400);
+                lp = lpPushTail(lp, (unsigned char*)buf, 4000);
+                lp = lpPushTail(lp, (unsigned char*)"1", 1);
+                lp = lpPushTail(lp, (unsigned char*)"10", 2);
+                lp = lpPushTail(lp, (unsigned char*)"100", 3);
+                lp = lpPushTail(lp, (unsigned char*)"1000", 4);
+                lp = lpPushTail(lp, (unsigned char*)"10000", 5);
+                lp = lpPushTail(lp, (unsigned char*)"100000", 6);
+            }
+            printf("%lld\n", usec()-start);
+        }
+
+        TEST("Benchmark lpFind") {
+            unsigned long long start = usec();
+            for (int i = 0; i < 2000; i++) {
+                unsigned char *fptr = lpFirst(lp);
+                fptr = lpFind(lp, fptr, (unsigned char*)"nothing", 7, 1);
+            }
+            printf("%lld\n", usec()-start);
+        }
+
+        TEST("Benchmark lpSeek") {
+            unsigned long long start = usec();
+            for (int i = 0; i < 2000; i++) {
+                lpSeek(lp, 99999);
+            }
+            printf("%lld\n", usec()-start);
+        }
+
+        TEST("Benchmark lpValidateIntegrity") {
+            unsigned long long start = usec();
+            for (int i = 0; i < 2000; i++) {
+                lpValidateIntegrity(lp, lpBytes(lp), 1, NULL, NULL);
+            }
+            printf("%lld\n", usec()-start);
+        }
+
         lpFree(lp);
     }
 
