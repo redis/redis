@@ -33,7 +33,6 @@ set ::leaked_fds_file [file normalize "tmp/leaked_fds.txt"]
 set ::pids {} ; # We kill everything at exit
 set ::dirs {} ; # We remove all the temp dirs at exit
 set ::run_matching {} ; # If non empty, only tests matching pattern are run.
-set ::scripts_run_on_startup []
 
 if {[catch {cd tmp}]} {
     puts "tmp directory not found."

@@ -115,6 +115,7 @@ set ::stop_on_failure 0
 set ::dump_logs 0
 set ::loop 0
 set ::tlsdir "tests/tls"
+set ::scripts_run_on_startup {}
 
 # Set to 1 when we are running in client mode. The Redis test uses a
 # server-client model to run tests simultaneously. The server instance
