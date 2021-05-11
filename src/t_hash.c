@@ -497,9 +497,11 @@ void hashTypeConvertZiplist(robj *o, int enc) {
             unsigned int vlen;
             long long lval;
             char longstr[32] = {0};
-            unsigned int maxlen = 0;
-            unsigned char *lp = lpNew(0);
+            unsigned char *lp; 
 
+            /* Use ziplist's size to pre-allocate listpack,
+             * avoid realloc when lpPushTail. */
+            lp = lpNew(ziplistBlobLen(o->ptr)); 
             p = ziplistIndex(o->ptr, 0);
             while (ziplistGet(p, &val, &vlen, &lval)) {
                 if (!val) {
@@ -507,7 +509,6 @@ void hashTypeConvertZiplist(robj *o, int enc) {
                     val = (unsigned char *)longstr;
                 }
 
-                if (vlen > maxlen) maxlen = vlen;
                 lp = lpPushTail(lp, val, vlen);
                 p = ziplistNext(o->ptr, p);
             }
