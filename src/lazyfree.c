@@ -70,6 +70,10 @@ size_t lazyfreeGetFreedObjectsCount(void) {
     return aux;
 }
 
+void lazyfreeResetStats() {
+    atomicSet(lazyfreed_objects,0);
+}
+
 /* Return the amount of work needed in order to free an object.
  * The return value is not always the actual number of allocations the
  * object is composed of, but a number proportional to it.
