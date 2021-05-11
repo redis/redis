@@ -482,8 +482,9 @@ void hashTypeConvertZiplist(robj *o, int enc) {
             value = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
             ret = dictAdd(dict, key, value);
             if (ret != DICT_OK) {
+                packedClass *packed = OBJ_PACKED_CLASS(o);
                 serverLogHexDump(LL_WARNING,"ziplist with dup elements dump",
-                    o->ptr,ziplistBlobLen(o->ptr));
+                    o->ptr,packed->listBlobLen(o->ptr));
                 serverPanic("Ziplist corruption detected");
             }
         }
