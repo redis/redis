@@ -634,7 +634,7 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
     uint32_t lp_bytes;
 
     assert(p);
-    lp_bytes = lpBytes(p);
+    lp_bytes = lpBytes(lp);
     while (p) {
         if (skipcnt == 0) {
             value = lpGet(p, &ll, NULL);
