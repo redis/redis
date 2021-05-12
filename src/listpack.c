@@ -631,8 +631,10 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
     unsigned char vencoding = 0;
     unsigned char *value;
     int64_t ll, vll;
+    uint32_t lp_bytes;
 
     assert(p);
+    lp_bytes = lpBytes(p);
     while (p) {
         if (skipcnt == 0) {
             value = lpGet(p, &ll, NULL);
@@ -670,8 +672,11 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
             skipcnt--;
         }
 
-        /* Move to next entry */
-        p = lpNext(lp, p);
+        /* Move to next entry, avoid use `lpNext` due to `ASSERT_INTEGRITY` in
+         * `lpNext` will call `lpBytes`, will cause performance degradation */
+        p = lpSkip(p);
+        assert(p >= (lp + LP_HDR_SIZE) && p < (lp + lp_bytes));
+        if (p[0] == LP_EOF) break;
     }
 
     return NULL;
