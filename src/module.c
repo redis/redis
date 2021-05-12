@@ -8667,11 +8667,19 @@ void addReplyLoadedModules(client *c) {
     while ((de = dictNext(di)) != NULL) {
         sds name = dictGetKey(de);
         struct RedisModule *module = dictGetVal(de);
-        addReplyMapLen(c,2);
+        sds path = module->loadmod->path;
+        addReplyMapLen(c,4);
         addReplyBulkCString(c,"name");
         addReplyBulkCBuffer(c,name,sdslen(name));
         addReplyBulkCString(c,"ver");
         addReplyLongLong(c,module->ver);
+        addReplyBulkCString(c,"path");
+        addReplyBulkCBuffer(c,path,sdslen(path));
+        addReplyBulkCString(c,"args");
+        addReplyArrayLen(c,module->loadmod->argc);
+        for (int i = 0; i < module->loadmod->argc; i++) {
+            addReplyBulk(c,module->loadmod->argv[i]);
+        }
     }
     dictReleaseIterator(di);
 }
