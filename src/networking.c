@@ -2045,6 +2045,11 @@ int processCommandAndResetClient(client *c) {
     if (processCommand(c) == C_OK) {
         commandProcessed(c);
     }
+
+    /* Update the client's memory to include output buffer growth following the
+     * processed command. */
+    updateClientMemUsage(c);
+
     if (server.current_client == NULL) deadclient = 1;
     /*
      * Restore the old client, this is needed because when a script
@@ -2146,7 +2151,9 @@ void processInputBuffer(client *c) {
         c->qb_pos = 0;
     }
 
-    // TODO: should this move into the loop above? Into processCommandAndResetClient? We do check the client_maxmemory per command but don't update the mem usage per command?!
+    /* Update client memory usage after processing the query buffer, this is
+     * important in case the query buffer is big and wasn't drained during
+     * the above loop (because of partially sent big commands). */
     updateClientMemUsage(c);
 }
 
