@@ -1,17 +1,43 @@
-If you are reporting a security bug, please contact the core team privately
-by emailing redis@redis.io. Your report will be acknowledged by a core team
-member and once the report has been reviewed you will receive a more detailed
-response including next steps.
+# Security Policy
 
-If you do not receive a reply you can escalate to the Redis Google Group,
-found in [CONTRIBUTING](CONTRIBUTING). Because this group is a public space please do not disclose the
-issue in detail, only say that you are trying to reach the core team for a
-security issue.
+## Supported Versions
 
-Redis follows a responsible disclosure process:
+Redis is generally backwards compatible with very few exceptions, so we
+recommend users to always use the latest version to experience stability,
+performance and security.
 
-1. Reports are reviewed and analyzed privately
-2. Patches are prepared for supported versions of Redis
-3. Vendor lists are notified with an embargo date to reduce the public impact
-4. We push a fix release and your bug can be posted publicly with credit in
-   release notes and the version history (and our thanks!)
+We generally backport security issues to a single previous major version,
+unless this is not possible or feasible with a reasonable effort.
+
+| Version | Supported          |
+| ------- | ------------------ |
+| 6.2.x   | :white_check_mark: |
+| 6.0.x   | :white_check_mark: |
+| 5.0.x   | :white_check_mark: |
+| < 5.0   | :x:                |
+
+## Reporting a Vulnerability
+
+If you believe you’ve discovered a serious vulnerability, please contact the
+Redis core team at redis@redis.io. We will evaluate your report and if
+necessary issue a fix and an advisory. If the issue was previously undisclosed,
+we’ll also mention your name in the credits.
+
+## Responsible Disclosure
+
+In some cases, we may apply a responsible disclosure process to reported or
+otherwise discovered vulnerabilities. We will usually do that for a critical
+vulnerability, and only if we have a good reason to believe information about
+it is not yet public.
+
+This process involves providing an early notification about the vulnerability,
+its impact and mitigations to a short list of vendors under a time-limited
+embargo on public disclosure.
+
+Vendors on the list are individuals or organizations that maintain Redis
+distributions or provide Redis as a service, who have third party users who
+will benefit from the vendor’s ability to prepare for a new version or deploy a
+fix early.
+
+If you believe you should be on the list, please contact us and we will
+consider your request based on the above criteria.
