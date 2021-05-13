@@ -603,6 +603,15 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         goto cleanup;
     }
 
+    /* This check is for EVAL_RO, EVALSHA_RO. We want to allow only read only commands */
+    if ((server.lua_caller->cmd->proc == evalRoCommand ||
+         server.lua_caller->cmd->proc == evalShaRoCommand) &&
+         (cmd->flags & CMD_WRITE))
+    {
+        luaPushError(lua, "Write commands are not allowed from read-only scripts");
+        goto cleanup;
+    }
+
     /* Check the ACLs. */
     int acl_errpos;
     int acl_retval = ACLCheckAllPerm(c,&acl_errpos);
@@ -1696,6 +1705,10 @@ void evalCommand(client *c) {
         evalGenericCommandWithDebugging(c,0);
 }
 
+void evalRoCommand(client *c) {
+    evalCommand(c);
+}
+
 void evalShaCommand(client *c) {
     if (sdslen(c->argv[1]->ptr) != 40) {
         /* We know that a match is not possible if the provided SHA is
@@ -1711,6 +1724,10 @@ void evalShaCommand(client *c) {
         addReplyError(c,"Please use EVAL instead of EVALSHA for debugging");
         return;
     }
+}
+
+void evalShaRoCommand(client *c) {
+    evalShaCommand(c);
 }
 
 void scriptCommand(client *c) {
