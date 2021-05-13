@@ -739,11 +739,6 @@ static char *hintsCallback(const char *buf, int *color, int *bold) {
     sdsfreesplitres(argv,argc);
 
     if (entry) {
-        /* Command with no params should return ASAP */
-        if (strlen(entry->org->params) == 1 && entry->org->params[0] == '-') {
-            return NULL;
-        }
-
         *color = 90;
         *bold = 0;
         sds hint = sdsnew(entry->org->params);
