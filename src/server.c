@@ -3638,12 +3638,6 @@ void preventCommandPropagation(client *c) {
     c->flags |= CLIENT_PREVENT_PROP;
 }
 
-/* Avoid logging any information about this client's arguments
- * since they contain sensitive information. */
-void preventCommandLogging(client *c) {
-    c->flags |= CLIENT_PREVENT_LOGGING;
-}
-
 /* AOF specific version of preventCommandPropagation(). */
 void preventCommandAOF(client *c) {
     c->flags |= CLIENT_PREVENT_AOF_PROP;
@@ -3657,7 +3651,7 @@ void preventCommandReplication(client *c) {
 /* Log the last command a client executed into the slowlog. */
 void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration) {
     /* Some commands may contain sensitive data that should not be available in the slowlog. */
-    if ((c->flags & CLIENT_PREVENT_LOGGING) || (cmd->flags & CMD_SKIP_SLOWLOG))
+    if (cmd->flags & CMD_SKIP_SLOWLOG)
         return;
 
     /* If command argument vector was rewritten, use the original
