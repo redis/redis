@@ -39,10 +39,16 @@ start_server {tags {"introspection"}} {
         r migrate [srv 0 host] [srv 0 port] key 9 5000
         r migrate [srv 0 host] [srv 0 port] key 9 5000 AUTH user
         r migrate [srv 0 host] [srv 0 port] key 9 5000 AUTH2 user password
+        catch {r auth not-real} _
+        catch {r auth not-real not-a-password} _
+        catch {r hello 2 AUTH not-real not-a-password} _
 
         assert_match {*"key"*"9"*"5000"*} [$rd read]
         assert_match {*"key"*"9"*"5000"*"(redacted)"*} [$rd read]
         assert_match {*"key"*"9"*"5000"*"(redacted)"*"(redacted)"*} [$rd read]
+        assert_match {*"auth"*"(redacted)"*} [$rd read]
+        assert_match {*"auth"*"(redacted)"*"(redacted)"*} [$rd read]
+        assert_match {*"hello"*"2"*"AUTH"*"(redacted)"*"(redacted)"*} [$rd read]
         $rd close
     }
 
