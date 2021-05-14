@@ -748,8 +748,15 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
      * time the replies are received, so if the client is reused the
      * SELECT command will not be used again. */
     if (config.dbnum != 0 && !is_cluster_client) {
-        c->obuf = sdscatprintf(c->obuf,"*2\r\n$6\r\nSELECT\r\n$%d\r\n%s\r\n",
-            (int)sdslen(config.dbnumstr),config.dbnumstr);
+        if (config.dbnum > 0) {
+            c->obuf = sdscatprintf(c->obuf,"*2\r\n$6\r\nSELECT\r\n$%d\r\n%s\r\n",
+                (int)sdslen(config.dbnumstr),config.dbnumstr);
+        } else {
+            sds sdbid = sdsfromlonglong((uint32_t)random()%(1-config.dbnum));
+            c->obuf = sdscatprintf(c->obuf,"*2\r\n$6\r\nSELECT\r\n$%d\r\n%s\r\n",
+                (int)sdslen(sdbid),sdbid);
+            sdsfree(sdbid);
+        }
         c->prefix_pending++;
     }
     c->prefixlen = sdslen(c->obuf);
@@ -1556,7 +1563,7 @@ usage:
 " -c <clients>       Number of parallel connections (default 50)\n"
 " -n <requests>      Total number of requests (default 100000)\n"
 " -d <size>          Data size of SET/GET value in bytes (default 3)\n"
-" --dbnum <db>       SELECT the specified db number (default 0)\n"
+" --dbnum <db>       SELECT the specified db number (default 0), random between [0 N] when db=-N < 0 \n"
 " --threads <num>    Enable multi-thread mode.\n"
 " --cluster          Enable cluster mode.\n"
 " --enable-tracking  Send CLIENT TRACKING on before starting benchmark.\n"
