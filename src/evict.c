@@ -142,11 +142,11 @@ void evictionPoolAlloc(void) {
  * idle time are on the left, and keys with the higher idle time on the
  * right. */
 
-void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evictionPoolEntry *pool) {
+int evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evictionPoolEntry *pool, int numSamples) {
     int j, k, count;
     dictEntry *samples[server.maxmemory_samples];
 
-    count = dictGetSomeKeys(sampledict,samples,server.maxmemory_samples);
+    count = dictGetSomeKeys(sampledict,samples, numSamples);
     for (j = 0; j < count; j++) {
         unsigned long long idle;
         sds key;
@@ -237,6 +237,7 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
         pool[k].idle = idle;
         pool[k].dbid = dbid;
     }
+    return count;
 }
 
 /* ----------------------------------------------------------------------------
@@ -485,6 +486,30 @@ static unsigned long evictionTimeLimitUs() {
     return ULONG_MAX;   /* No limit to eviction time */
 }
 
+struct EvictDB{
+    int dbid;
+    dict* sampleDict;
+    dict* keyDict;
+};
+
+static int getDbsToEvict(struct EvictDB * dbs) {
+    int i, j=0;
+    i = (uint32_t)random()%server.dbnum;
+    int count = i+server.dbnum;
+    for (; i < count; i++) {
+        int dbid = i%server.dbnum;
+        redisDb *db = server.db + dbid;
+        dict *dict = (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) ?
+                db->dict : db->expires;
+        if ((dictSize(dict)) != 0) {
+            dbs[j].dbid = dbid;
+            dbs[j].keyDict = db->dict;
+            dbs[j++].sampleDict = dict;
+        }
+    }
+    return j;
+}
+
 /* Check that memory usage is within the current "maxmemory" limit.  If over
  * "maxmemory", attempt to free memory by evicting data (if it's safe to do so).
  *
@@ -550,21 +575,28 @@ int performEvictions(void) {
             struct evictionPoolEntry *pool = EvictionPoolLRU;
 
             while(bestkey == NULL) {
-                unsigned long total_keys = 0, keys;
 
                 /* We don't want to make local-db choices when expiring keys,
                  * so to start populate the eviction pool sampling keys from
                  * every DB. */
-                for (i = 0; i < server.dbnum; i++) {
-                    db = server.db+i;
-                    dict = (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) ?
-                            db->dict : db->expires;
-                    if ((keys = dictSize(dict)) != 0) {
-                        evictionPoolPopulate(i, dict, db->dict, pool);
-                        total_keys += keys;
-                    }
+                int samples = 0;
+                struct EvictDB* dbs = (struct EvictDB*)zmalloc(sizeof(struct EvictDB)*server.dbnum);
+                int count = getDbsToEvict(dbs);
+                int i;
+                if (!count) {
+                    zfree(dbs);
+                    break; /* No keys to evict. */
                 }
-                if (!total_keys) break; /* No keys to evict. */
+                for (i=0; i < count; i++) {
+                    samples += evictionPoolPopulate(
+                            dbs[i].dbid,
+                            dbs[i].sampleDict,
+                            dbs[i].keyDict,
+                            pool,
+                            (server.maxmemory_samples+count-1)/count);
+                    if (samples >= server.maxmemory_samples) break;
+                }
+                zfree(dbs);
 
                 /* Go backward from best to worst element to evict. */
                 for (k = EVPOOL_SIZE-1; k >= 0; k--) {
