@@ -70,6 +70,6 @@ jobs:
     - name: test
       run: |
         sudo apt-get install tcl8.6 tclx
-        ./runtest --verbose --run-on-startup "r debug set-default-packed-encoding ziplist"
+        ./runtest --verbose --run-on-startup "r config set default-packed-encoding ziplist"
     - name: module api test
       run: ./runtest-moduleapi --verbose
