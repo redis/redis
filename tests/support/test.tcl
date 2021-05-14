@@ -90,9 +90,9 @@ proc assert_encoding {enc key} {
 }
 
 proc assert_packed_encoding {key} {
+    set enc [lindex [r config get default-packed-encoding] 1]
     set dbg [r debug object $key]
-    assert {[string match "* encoding:listpack *" $dbg] ||
-            [string match "* encoding:ziplist *" $dbg]}
+    assert_match "* encoding:$enc *" $dbg
 }
 
 proc assert_type {type key} {

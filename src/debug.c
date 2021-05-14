@@ -887,16 +887,6 @@ NULL
         mallctl_string(c, c->argv+2, c->argc-2);
         return;
 #endif
-    } else if(!strcasecmp(c->argv[1]->ptr,"SET-DEFAULT-PACKED-ENCODING") && c->argc == 3) {
-        if (!strcasecmp(c->argv[2]->ptr,"listpack")) {
-            server.default_packed_encoding = OBJ_ENCODING_LISTPACK;
-        } else if (!strcasecmp(c->argv[2]->ptr,"ziplist")) {
-            server.default_packed_encoding = OBJ_ENCODING_ZIPLIST;
-        } else {
-            addReplyError(c,"unknow packed encoding");
-            return;
-        }
-        addReply(c,shared.ok);
     } else {
         addReplySubcommandSyntaxError(c);
         return;

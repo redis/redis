@@ -2675,7 +2675,6 @@ void initServerConfig(void) {
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType,NULL);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.loading_process_events_interval_bytes = (1024*1024*2);
-    server.default_packed_encoding = OBJ_ENCODING_LISTPACK;
 
     unsigned int lruclock = getLRUClock();
     atomicSet(server.lruclock,lruclock);
