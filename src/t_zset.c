@@ -2701,10 +2701,10 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 /* Only continue when present in every input. */
                 if (j == setnum) {
                     if (!cardinality_only) {
-                      tmp = zuiNewSdsFromValue(&zval);
-                      znode = zslInsert(dstzset->zsl,score,tmp);
-                      dictAdd(dstzset->dict,tmp,&znode->score);
-                      if (sdslen(tmp) > maxelelen) maxelelen = sdslen(tmp);
+                        tmp = zuiNewSdsFromValue(&zval);
+                        znode = zslInsert(dstzset->zsl,score,tmp);
+                        dictAdd(dstzset->dict,tmp,&znode->score);
+                        if (sdslen(tmp) > maxelelen) maxelelen = sdslen(tmp);
                     }
                     cardinality++;
                 }
