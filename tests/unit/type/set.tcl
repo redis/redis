@@ -180,6 +180,10 @@ start_server {
             assert_equal [list 195 196 197 198 199 $large] [lsort [r sinter set1 set2]]
         }
 
+        test "SINTERCARD with two sets - $type" {
+            assert_equal 6 [r sintercard set1 set2]
+        }
+
         test "SINTERSTORE with two sets - $type" {
             r sinterstore setres set1 set2
             assert_encoding $type setres
@@ -207,6 +211,10 @@ start_server {
 
         test "SINTER against three sets - $type" {
             assert_equal [list 195 199 $large] [lsort [r sinter set1 set2 set3]]
+        }
+
+        test "SINTERCARD against three sets - $type" {
+            assert_equal 3 [r sintercard set1 set2 set3]
         }
 
         test "SINTERSTORE with three sets - $type" {

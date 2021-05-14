@@ -850,7 +850,7 @@ int qsortCompareSetsByRevCardinality(const void *s1, const void *s2) {
 }
 
 void sinterGenericCommand(client *c, robj **setkeys,
-                          unsigned long setnum, robj *dstkey) {
+                          unsigned long setnum, robj *dstkey, int cardinality_only) {
     robj **sets = zmalloc(sizeof(robj*)*setnum);
     setTypeIterator *si;
     robj *dstset = NULL;
@@ -893,7 +893,9 @@ void sinterGenericCommand(client *c, robj **setkeys,
      * to the output list and save the pointer to later modify it with the
      * right length */
     if (!dstkey) {
-        replylen = addReplyDeferredLen(c);
+        if (!cardinality_only) {
+            replylen = addReplyDeferredLen(c);
+        }
     } else {
         /* If we have a target key where to store the resulting set
          * create this key with an empty set inside */
@@ -934,10 +936,12 @@ void sinterGenericCommand(client *c, robj **setkeys,
         /* Only take action when all sets contain the member */
         if (j == setnum) {
             if (!dstkey) {
-                if (encoding == OBJ_ENCODING_HT)
-                    addReplyBulkCBuffer(c,elesds,sdslen(elesds));
-                else
-                    addReplyBulkLongLong(c,intobj);
+                if (!cardinality_only) {
+                    if (encoding == OBJ_ENCODING_HT)
+                        addReplyBulkCBuffer(c,elesds,sdslen(elesds));
+                    else
+                        addReplyBulkLongLong(c,intobj);
+                }
                 cardinality++;
             } else {
                 if (encoding == OBJ_ENCODING_INTSET) {
@@ -971,17 +975,25 @@ void sinterGenericCommand(client *c, robj **setkeys,
         }
         decrRefCount(dstset);
     } else {
-        setDeferredSetLen(c,replylen,cardinality);
+        if (cardinality_only) {
+            addReplyLongLong(c,cardinality);
+        } else {
+            setDeferredSetLen(c,replylen,cardinality);
+        }
     }
     zfree(sets);
 }
 
 void sinterCommand(client *c) {
-    sinterGenericCommand(c,c->argv+1,c->argc-1,NULL);
+    sinterGenericCommand(c,c->argv+1,c->argc-1,NULL,0);
+}
+
+void sinterCardCommand(client *c) {
+    sinterGenericCommand(c,c->argv+1,c->argc-1,NULL,1);
 }
 
 void sinterstoreCommand(client *c) {
-    sinterGenericCommand(c,c->argv+2,c->argc-2,c->argv[1]);
+    sinterGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],0);
 }
 
 #define SET_OP_UNION 0
