@@ -1821,11 +1821,20 @@ int listpackTest(int argc, char *argv[], int accurate) {
             printf("Done. usec=%lld\n", usec()-start);
         }
 
-        TEST("Benchmark lpFind") {
+        TEST("Benchmark lpFind string") {
             unsigned long long start = usec();
             for (int i = 0; i < 2000; i++) {
                 unsigned char *fptr = lpFirst(lp);
                 fptr = lpFind(lp, fptr, (unsigned char*)"nothing", 7, 1);
+            }
+            printf("Done. usec=%lld\n", usec()-start);
+        }
+
+        TEST("Benchmark lpFind number") {
+            unsigned long long start = usec();
+            for (int i = 0; i < 2000; i++) {
+                unsigned char *fptr = lpFirst(lp);
+                fptr = lpFind(lp, fptr, (unsigned char*)"99999", 5, 1);
             }
             printf("Done. usec=%lld\n", usec()-start);
         }

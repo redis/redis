@@ -2457,12 +2457,22 @@ int ziplistTest(int argc, char **argv, int accurate) {
             zl = ziplistPush(zl, (unsigned char*)"100000", 6, ZIPLIST_TAIL);
         }
 
-        printf("Benchmark ziplistFind:\n");
+        printf("Benchmark ziplistFind string:\n");
         {
             unsigned long long start = usec();
             for (int i = 0; i < 2000; i++) {
                 unsigned char *fptr = ziplistIndex(zl, ZIPLIST_HEAD);
                 fptr = ziplistFind(zl, fptr, (unsigned char*)"nothing", 7, 1);
+            }
+            printf("%lld\n", usec()-start);
+        }
+
+        printf("Benchmark ziplistFind number:\n");
+        {
+            unsigned long long start = usec();
+            for (int i = 0; i < 2000; i++) {
+                unsigned char *fptr = ziplistIndex(zl, ZIPLIST_HEAD);
+                fptr = ziplistFind(zl, fptr, (unsigned char*)"99999", 5, 1);
             }
             printf("%lld\n", usec()-start);
         }
