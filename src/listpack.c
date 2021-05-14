@@ -433,15 +433,39 @@ uint32_t lpCurrentEncodedSizeBytes(unsigned char *p) {
     return 0;
 }
 
+/* Return the entry size of the listpack element pointed by 'p'.
+ * This includes the encoding byte, length bytes, the element data itself,
+ * and backlen, If the element encoding is wrong then 0 is returned.
+ * Note that this method may access additional bytes (in case of 12 and 32 bit
+ * str), so should only be called when we know 'p' was already validated by
+ * lpCurrentEncodedSizeBytes or ASSERT_INTEGRITY_LEN (possibly since 'p' is
+ * a return value of another function that validated its return. */
+uint32_t lpEntrySizeUnsafe(unsigned char *p) {
+    if (LP_ENCODING_IS_7BIT_UINT(p[0])) return 2;
+    if (LP_ENCODING_IS_6BIT_STR(p[0])) return 2 + LP_ENCODING_6BIT_STR_LEN(p);
+    if (LP_ENCODING_IS_13BIT_INT(p[0])) return 3;
+    if (LP_ENCODING_IS_16BIT_INT(p[0])) return 4;
+    if (LP_ENCODING_IS_24BIT_INT(p[0])) return 5;
+    if (LP_ENCODING_IS_32BIT_INT(p[0])) return 6;
+    if (LP_ENCODING_IS_64BIT_INT(p[0])) return 10;
+    if (LP_ENCODING_IS_12BIT_STR(p[0])) {
+        uint32_t bytes = LP_ENCODING_12BIT_STR_LEN(p);
+        return 2 + bytes + lpEncodeBacklen(NULL, bytes + 2);
+    }
+    if (LP_ENCODING_IS_32BIT_STR(p[0])) {
+        uint32_t bytes = LP_ENCODING_32BIT_STR_LEN(p);
+        return 5 + bytes+ lpEncodeBacklen(NULL, bytes + 5);
+    }
+    if (p[0] == LP_EOF) return 1;
+    return 0;
+}
+
 /* Skip the current entry returning the next. It is invalid to call this
  * function if the current element is the EOF element at the end of the
  * listpack, however, while this function is used to implement lpNext(),
  * it does not return NULL when the EOF element is encountered. */
 unsigned char *lpSkip(unsigned char *p) {
-    unsigned long entrylen = lpCurrentEncodedSizeUnsafe(p);
-    entrylen += lpEncodeBacklen(NULL,entrylen);
-    p += entrylen;
-    return p;
+    return p + lpEntrySizeUnsafe(p);
 }
 
 /* If 'p' points to an element of the listpack, calling lpNext() will return
@@ -542,7 +566,7 @@ unsigned long lpLength(unsigned char *lp) {
  * assumed to be valid, so that would be a very high API cost. However a function
  * in order to check the integrity of the listpack at load time is provided,
  * check lpIsValid(). */
-unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf) {
+unsigned char *lpGetWithSize(unsigned char *p, int64_t *count, unsigned char *intbuf, uint64_t *size) {
     int64_t val;
     uint64_t uval, negstart, negmax;
 
@@ -551,24 +575,29 @@ unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf) {
         negstart = UINT64_MAX; /* 7 bit ints are always positive. */
         negmax = 0;
         uval = p[0] & 0x7f;
+        if (size) *size = 2;
     } else if (LP_ENCODING_IS_6BIT_STR(p[0])) {
         *count = LP_ENCODING_6BIT_STR_LEN(p);
+        if (size) *size = 2 + *count;
         return p+1;
     } else if (LP_ENCODING_IS_13BIT_INT(p[0])) {
         uval = ((p[0]&0x1f)<<8) | p[1];
         negstart = (uint64_t)1<<12;
         negmax = 8191;
+        if (size) *size = 3;
     } else if (LP_ENCODING_IS_16BIT_INT(p[0])) {
         uval = (uint64_t)p[1] |
                (uint64_t)p[2]<<8;
         negstart = (uint64_t)1<<15;
         negmax = UINT16_MAX;
+        if (size) *size = 4;
     } else if (LP_ENCODING_IS_24BIT_INT(p[0])) {
         uval = (uint64_t)p[1] |
                (uint64_t)p[2]<<8 |
                (uint64_t)p[3]<<16;
         negstart = (uint64_t)1<<23;
         negmax = UINT32_MAX>>8;
+        if (size) *size = 5;
     } else if (LP_ENCODING_IS_32BIT_INT(p[0])) {
         uval = (uint64_t)p[1] |
                (uint64_t)p[2]<<8 |
@@ -576,6 +605,7 @@ unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf) {
                (uint64_t)p[4]<<24;
         negstart = (uint64_t)1<<31;
         negmax = UINT32_MAX;
+        if (size) *size = 6;
     } else if (LP_ENCODING_IS_64BIT_INT(p[0])) {
         uval = (uint64_t)p[1] |
                (uint64_t)p[2]<<8 |
@@ -587,11 +617,14 @@ unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf) {
                (uint64_t)p[8]<<56;
         negstart = (uint64_t)1<<63;
         negmax = UINT64_MAX;
+        if (size) *size = 10;
     } else if (LP_ENCODING_IS_12BIT_STR(p[0])) {
         *count = LP_ENCODING_12BIT_STR_LEN(p);
+        if (size) *size = 2 + *count + lpEncodeBacklen(NULL, *count + 2);
         return p+2;
     } else if (LP_ENCODING_IS_32BIT_STR(p[0])) {
         *count = LP_ENCODING_32BIT_STR_LEN(p);
+        if (size) *size = 5 + *count + lpEncodeBacklen(NULL, *count + 5);
         return p+5;
     } else {
         uval = 12345678900000000ULL + p[0];
@@ -623,6 +656,10 @@ unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf) {
     }
 }
 
+unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf) {
+    return lpGetWithSize(p, count, intbuf, NULL);
+}
+
 /* Find pointer to the entry equal to the specified entry. Skip 'skip' entries
  * between every comparison. Returns NULL when the field could not be found. */
 unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s, 
@@ -632,12 +669,13 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
     unsigned char *value;
     int64_t ll, vll;
     uint32_t lp_bytes;
+    uint64_t entry_size;
 
     assert(p);
     lp_bytes = lpBytes(lp);
     while (p) {
         if (skipcnt == 0) {
-            value = lpGet(p, &ll, NULL);
+            value = lpGetWithSize(p, &ll, NULL, &entry_size);
             if (value) {
                 if (slen == ll && memcmp(value,s,slen) == 0) {
                     return p;
@@ -667,14 +705,16 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
 
             /* Reset skip count */
             skipcnt = skip;
+            p += entry_size;
         } else {
             /* Skip entry */
             skipcnt--;
+
+            /* Move to next entry, avoid use `lpNext` due to `ASSERT_INTEGRITY` in
+            * `lpNext` will call `lpBytes`, will cause performance degradation */
+            p = lpSkip(p);
         }
 
-        /* Move to next entry, avoid use `lpNext` due to `ASSERT_INTEGRITY` in
-         * `lpNext` will call `lpBytes`, will cause performance degradation */
-        p = lpSkip(p);
         assert(p >= (lp + LP_HDR_SIZE) && p < (lp + lp_bytes));
         if (p[0] == LP_EOF) break;
     }
