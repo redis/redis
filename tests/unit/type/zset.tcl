@@ -647,10 +647,11 @@ start_server {tags {"zset"}} {
             assert_equal 0 [r exists dst_key]
         }
 
-        test "ZUNION/ZINTER/ZDIFF against non-existing key - $encoding" {
+        test "ZUNION/ZINTER/ZINTERCARD/ZDIFF against non-existing key - $encoding" {
             r del zseta
             assert_equal {} [r zunion 1 zseta]
             assert_equal {} [r zinter 1 zseta]
+            assert_equal 0 [r zintercard 1 zseta]
             assert_equal {} [r zdiff 1 zseta]
         }
 
@@ -662,12 +663,13 @@ start_server {tags {"zset"}} {
             r zrange zsetc 0 -1 withscores
         } {a 1 b 2}
 
-        test "ZUNION/ZINTER/ZDIFF with empty set - $encoding" {
+        test "ZUNION/ZINTER/ZINTERCARD/ZDIFF with empty set - $encoding" {
             r del zseta zsetb
             r zadd zseta 1 a
             r zadd zseta 2 b
             assert_equal {a 1 b 2} [r zunion 2 zseta zsetb withscores]
             assert_equal {} [r zinter 2 zseta zsetb withscores]
+            assert_equal 0 [r zintercard 2 zseta zsetb]
             assert_equal {a 1 b 2} [r zdiff 2 zseta zsetb withscores]
         }
 
@@ -684,7 +686,7 @@ start_server {tags {"zset"}} {
             assert_equal {a 1 b 3 d 3 c 5} [r zrange zsetc 0 -1 withscores]
         }
 
-        test "ZUNION/ZINTER/ZDIFF with integer members - $encoding" {
+        test "ZUNION/ZINTER/ZINTERCARD/ZDIFF with integer members - $encoding" {
             r del zsetd zsetf
             r zadd zsetd 1 1
             r zadd zsetd 2 2
@@ -695,6 +697,7 @@ start_server {tags {"zset"}} {
 
             assert_equal {1 2 2 2 4 4 3 6} [r zunion 2 zsetd zsetf withscores]
             assert_equal {1 2 3 6} [r zinter 2 zsetd zsetf withscores]
+            assert_equal 2 [r zintercard 2 zsetd zsetf]
             assert_equal {2 2} [r zdiff 2 zsetd zsetf withscores]
         }
 
@@ -745,6 +748,10 @@ start_server {tags {"zset"}} {
 
         test "ZINTER basics - $encoding" {
             assert_equal {b 3 c 5} [r zinter 2 zseta zsetb withscores]
+        }
+
+        test "ZINTERCARD basics - $encoding" {
+            assert_equal 2 [r zintercard 2 zseta zsetb]
         }
 
         test "ZINTER RESP3 - $encoding" {

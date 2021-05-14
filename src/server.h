@@ -2613,6 +2613,7 @@ void zinterstoreCommand(client *c);
 void zdiffstoreCommand(client *c);
 void zunionCommand(client *c);
 void zinterCommand(client *c);
+void zinterCardCommand(client *c);
 void zrangestoreCommand(client *c);
 void zdiffCommand(client *c);
 void zscanCommand(client *c);

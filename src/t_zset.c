@@ -2558,7 +2558,8 @@ dictType setAccumulatorDictType = {
  *
  * 'op' SET_OP_INTER, SET_OP_UNION or SET_OP_DIFF.
  */
-void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, int op) {
+void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, int op,
+                                   int cardinality_only) {
     int i, j;
     long setnum;
     int aggregate = REDIS_AGGR_SUM;
@@ -2570,6 +2571,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     zset *dstzset;
     zskiplistNode *znode;
     int withscores = 0;
+    unsigned long cardinality = 0;
 
     /* expect setnum input keys to be given */
     if ((getLongFromObjectOrReply(c, c->argv[numkeysIndex], &setnum, NULL) != C_OK))
@@ -2698,10 +2700,13 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
 
                 /* Only continue when present in every input. */
                 if (j == setnum) {
-                    tmp = zuiNewSdsFromValue(&zval);
-                    znode = zslInsert(dstzset->zsl,score,tmp);
-                    dictAdd(dstzset->dict,tmp,&znode->score);
-                    if (sdslen(tmp) > maxelelen) maxelelen = sdslen(tmp);
+                    if (!cardinality_only) {
+                      tmp = zuiNewSdsFromValue(&zval);
+                      znode = zslInsert(dstzset->zsl,score,tmp);
+                      dictAdd(dstzset->dict,tmp,&znode->score);
+                      if (sdslen(tmp) > maxelelen) maxelelen = sdslen(tmp);
+                    }
+                    cardinality++;
                 }
             }
             zuiClearIterator(&src[0]);
@@ -2795,6 +2800,11 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             }
         }
     } else {
+        if (op == SET_OP_INTER && cardinality_only) {
+            addReplyLongLong(c, cardinality);
+            goto cleanup;
+        }
+
         unsigned long length = dstzset->zsl->length;
         zskiplist *zsl = dstzset->zsl;
         zskiplistNode *zn = zsl->header->level[0].forward;
@@ -2813,32 +2823,39 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             zn = zn->level[0].forward;
         }
     }
+
+cleanup:
+
     decrRefCount(dstobj);
     zfree(src);
 }
 
 void zunionstoreCommand(client *c) {
-    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_UNION);
+    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_UNION, 0);
 }
 
 void zinterstoreCommand(client *c) {
-    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_INTER);
+    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_INTER, 0);
 }
 
 void zdiffstoreCommand(client *c) {
-    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_DIFF);
+    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_DIFF, 0);
 }
 
 void zunionCommand(client *c) {
-    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_UNION);
+    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_UNION, 0);
 }
 
 void zinterCommand(client *c) {
-    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_INTER);
+    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_INTER, 0);
+}
+
+void zinterCardCommand(client *c) {
+    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_INTER, 1);
 }
 
 void zdiffCommand(client *c) {
-    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_DIFF);
+    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_DIFF, 0);
 }
 
 typedef enum {
