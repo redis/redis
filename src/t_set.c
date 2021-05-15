@@ -869,6 +869,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
             if (dstkey) {
                 if (dbDelete(c->db,dstkey)) {
                     signalModifiedKey(c,c->db,dstkey);
+                    notifyKeyspaceEvent(NOTIFY_GENERIC,"del",dstkey,c->db->id);
                     server.dirty++;
                 }
                 addReply(c,shared.czero);
