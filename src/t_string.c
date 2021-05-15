@@ -425,6 +425,7 @@ void setrangeCommand(client *c) {
     robj *o;
     long offset;
     sds value = c->argv[3]->ptr;
+    size_t vlen; /* value length */
 
     if (getLongFromObjectOrReply(c,c->argv[2],&offset,NULL) != C_OK)
         return;
@@ -434,19 +435,20 @@ void setrangeCommand(client *c) {
         return;
     }
 
+    vlen = sdslen(value);
     o = lookupKeyWrite(c->db,c->argv[1]);
     if (o == NULL) {
         /* Return 0 when setting nothing on a non-existing string */
-        if (sdslen(value) == 0) {
+        if (vlen == 0) {
             addReply(c,shared.czero);
             return;
         }
 
         /* Return when the resulting string exceeds allowed size */
-        if (checkStringLength(c,offset+sdslen(value)) != C_OK)
+        if (checkStringLength(c, offset + vlen) != C_OK)
             return;
 
-        o = createObject(OBJ_STRING,sdsnewlen(NULL, offset+sdslen(value)));
+        o = createObject(OBJ_STRING, sdsnewlen(NULL, offset + vlen));
         dbAdd(c->db,c->argv[1],o);
     } else {
         size_t olen;
@@ -457,27 +459,26 @@ void setrangeCommand(client *c) {
 
         /* Return existing string length when setting nothing */
         olen = stringObjectLen(o);
-        if (sdslen(value) == 0) {
+        if (vlen == 0) {
             addReplyLongLong(c,olen);
             return;
         }
 
         /* Return when the resulting string exceeds allowed size */
-        if (checkStringLength(c,offset+sdslen(value)) != C_OK)
+        if (checkStringLength(c, offset + vlen) != C_OK)
             return;
 
         /* Create a copy when the object is shared or encoded. */
         o = dbUnshareStringValue(c->db,c->argv[1],o);
     }
 
-    if (sdslen(value) > 0) {
-        o->ptr = sdsgrowzero(o->ptr,offset+sdslen(value));
-        memcpy((char*)o->ptr+offset,value,sdslen(value));
-        signalModifiedKey(c,c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_STRING,
-            "setrange",c->argv[1],c->db->id);
-        server.dirty++;
-    }
+    o->ptr = sdsgrowzero(o->ptr, offset + vlen);
+    memcpy((char*)o->ptr+offset, value, vlen);
+    signalModifiedKey(c,c->db,c->argv[1]);
+    notifyKeyspaceEvent(NOTIFY_STRING,
+        "setrange",c->argv[1],c->db->id);
+    server.dirty++;
+
     addReplyLongLong(c,sdslen(o->ptr));
 }
 
