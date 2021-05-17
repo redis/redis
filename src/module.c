@@ -878,11 +878,14 @@ int64_t commandFlagsFromString(char *s) {
  *                        though it's not a write command.  
  *
  * The last three parameters specify which arguments of the new command are
- * Redis keys.
+ * Redis keys. See https://redis.io/commands/command for more info
  *
  * * 'firstkey': One-based index of the first argument that's a key.
+ *               Position 0 is always the command name itself.
  *               0 for commands with no keys.
  * * 'lastkey':  One-based index of the last argument that's a key.
+ *               Negative numbers refer to counting backwards from the last
+ *               argument (-1 means the last argument provided)
  *               0 for commands with no keys.
  * * 'keystep':  Step between first and last key indexes.
  *               0 for commands with no keys.
