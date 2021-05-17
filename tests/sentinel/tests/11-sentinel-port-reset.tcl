@@ -49,13 +49,3 @@ test "Start/Stop sentinel on same port should not cause port collision in other 
 
 	check_sentinel_port_collision
 }
-
-
-
-
-
-
-
-
-
-
