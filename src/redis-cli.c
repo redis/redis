@@ -707,9 +707,10 @@ static void completionCallback(const char *buf, linenoiseCompletions *lc) {
 static char *hintsCallback(const char *buf, int *color, int *bold) {
     if (!pref.hints) return NULL;
 
-    int i, argc, buflen = strlen(buf);
-    sds *argv = sdssplitargs(buf,&argc);
+    int i, rawargc, argc, buflen = strlen(buf), matchlen = 0;
+    sds *rawargv, *argv = sdssplitargs(buf,&argc);
     int endspace = buflen && isspace(buf[buflen-1]);
+    helpEntry *entry = NULL;
 
     /* Check if the argument list is empty and return ASAP. */
     if (argc == 0) {
@@ -717,38 +718,51 @@ static char *hintsCallback(const char *buf, int *color, int *bold) {
         return NULL;
     }
 
+    /* Search longest matching prefix command */
     for (i = 0; i < helpEntriesLen; i++) {
         if (!(helpEntries[i].type & CLI_HELP_COMMAND)) continue;
 
-        if (strcasecmp(argv[0],helpEntries[i].full) == 0 ||
-            strcasecmp(buf,helpEntries[i].full) == 0)
-        {
-            *color = 90;
-            *bold = 0;
-            sds hint = sdsnew(helpEntries[i].org->params);
-
-            /* Remove arguments from the returned hint to show only the
-             * ones the user did not yet typed. */
-            int toremove = argc-1;
-            while(toremove > 0 && sdslen(hint)) {
-                if (hint[0] == '[') break;
-                if (hint[0] == ' ') toremove--;
-                sdsrange(hint,1,-1);
+        rawargv = sdssplitargs(helpEntries[i].full,&rawargc);
+        if (rawargc <= argc) {
+            int j;
+            for (j = 0; j < rawargc; j++) {
+                if (strcasecmp(rawargv[j],argv[j])) {
+                    break;
+                }
             }
-
-            /* Add an initial space if needed. */
-            if (!endspace) {
-                sds newhint = sdsnewlen(" ",1);
-                newhint = sdscatsds(newhint,hint);
-                sdsfree(hint);
-                hint = newhint;
+            if (j == rawargc && rawargc > matchlen) {
+                matchlen = rawargc;
+                entry = &helpEntries[i];
             }
-
-            sdsfreesplitres(argv,argc);
-            return hint;
         }
+        sdsfreesplitres(rawargv,rawargc);
     }
     sdsfreesplitres(argv,argc);
+
+    if (entry) {
+        *color = 90;
+        *bold = 0;
+        sds hint = sdsnew(entry->org->params);
+
+        /* Remove arguments from the returned hint to show only the
+            * ones the user did not yet type. */
+        int toremove = argc-matchlen;
+        while(toremove > 0 && sdslen(hint)) {
+            if (hint[0] == '[') break;
+            if (hint[0] == ' ') toremove--;
+            sdsrange(hint,1,-1);
+        }
+
+        /* Add an initial space if needed. */
+        if (!endspace) {
+            sds newhint = sdsnewlen(" ",1);
+            newhint = sdscatsds(newhint,hint);
+            sdsfree(hint);
+            hint = newhint;
+        }
+
+        return hint;
+    }
     return NULL;
 }
 
