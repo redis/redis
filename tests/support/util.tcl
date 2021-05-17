@@ -865,3 +865,23 @@ proc config_set {param value {options {}}} {
         }
     }
 }
+#delete certain lines in config file matching the pattern
+proc delete_lines_with_pattern {filename tmpfilename pattern} {
+    set fh_in [open $filename r]
+    set fh_out [open $tmpfilename w]
+    while {[gets $fh_in line] != -1} {
+        if {![regexp $pattern $line]} {
+            puts $fh_out $line
+        }
+    }
+    close $fh_in
+    close $fh_out
+    file rename -force $tmpfilename $filename
+}
+
+#write lines into config file
+proc write_line_into_file {filename line} {
+    set fd [open $filename "a+"]
+    puts $fd $line
+    close $fd
+}
