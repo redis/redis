@@ -900,7 +900,7 @@ test {Kill rdb child process if its dumping RDB is not useful} {
                 # Slave2 disconnect with master
                 $slave2 slaveof no one
                 # Should kill child
-                wait_for_condition 20 10 {
+                wait_for_condition 100 10 {
                     [s 0 rdb_bgsave_in_progress] eq 0
                 } else {
                     fail "can't kill rdb child"
