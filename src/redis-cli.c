@@ -2498,7 +2498,7 @@ static void clusterManagerPrintNotClusterNodeError(clusterManagerNode *node,
                                                    char *err);
 static int clusterManagerNodeLoadInfo(clusterManagerNode *node, int opts,
                                       char **err);
-static int clusterManagerLoadInfoFromNode(clusterManagerNode *node, int opts);
+static int clusterManagerLoadInfoFromNode(clusterManagerNode *node);
 static int clusterManagerNodeIsEmpty(clusterManagerNode *node, char **err);
 static int clusterManagerGetAntiAffinityScore(clusterManagerNodeArray *ipnodes,
     int ip_count, clusterManagerNode ***offending, int *offending_len);
@@ -4260,12 +4260,11 @@ cleanup:
  * point. All nodes will be loaded inside the cluster_manager.nodes list.
  * Warning: if something goes wrong, it will free the starting node before
  * returning 0. */
-static int clusterManagerLoadInfoFromNode(clusterManagerNode *node, int opts) {
+static int clusterManagerLoadInfoFromNode(clusterManagerNode *node) {
     if (node->context == NULL && !clusterManagerNodeConnect(node)) {
         freeClusterManagerNode(node);
         return 0;
     }
-    opts |= CLUSTER_MANAGER_OPT_GETFRIENDS;
     char *e = NULL;
     if (!clusterManagerNodeIsCluster(node, &e)) {
         clusterManagerPrintNotClusterNodeError(node, e);
@@ -4274,7 +4273,7 @@ static int clusterManagerLoadInfoFromNode(clusterManagerNode *node, int opts) {
         return 0;
     }
     e = NULL;
-    if (!clusterManagerNodeLoadInfo(node, opts, &e)) {
+    if (!clusterManagerNodeLoadInfo(node, CLUSTER_MANAGER_OPT_GETFRIENDS, &e)) {
         if (e) {
             CLUSTER_MANAGER_PRINT_REPLY_ERROR(node, e);
             zfree(e);
@@ -5872,7 +5871,7 @@ assign_replicas:
             else freeClusterManagerNode(node);
         }
         listEmpty(cluster_manager.nodes);
-        if (!clusterManagerLoadInfoFromNode(first_node, 0)) {
+        if (!clusterManagerLoadInfoFromNode(first_node)) {
             success = 0;
             goto cleanup;
         }
@@ -5903,7 +5902,7 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
                           ref_ip, ref_port);
     // Check the existing cluster
     clusterManagerNode *refnode = clusterManagerNewNode(ref_ip, ref_port);
-    if (!clusterManagerLoadInfoFromNode(refnode, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(refnode)) return 0;
     if (!clusterManagerCheckCluster(0)) return 0;
 
     /* If --cluster-master-id was specified, try to resolve it now so that we
@@ -6000,7 +5999,7 @@ static int clusterManagerCommandDeleteNode(int argc, char **argv) {
     clusterManagerNode *node = NULL;
 
     // Load cluster information
-    if (!clusterManagerLoadInfoFromNode(ref_node, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(ref_node)) return 0;
 
     // Check if the node exists and is not empty
     node = clusterManagerNodeByName(node_id);
@@ -6059,7 +6058,7 @@ static int clusterManagerCommandInfo(int argc, char **argv) {
     char *ip = NULL;
     if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *node = clusterManagerNewNode(ip, port);
-    if (!clusterManagerLoadInfoFromNode(node, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(node)) return 0;
     clusterManagerShowClusterInfo();
     return 1;
 invalid_args:
@@ -6072,7 +6071,7 @@ static int clusterManagerCommandCheck(int argc, char **argv) {
     char *ip = NULL;
     if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *node = clusterManagerNewNode(ip, port);
-    if (!clusterManagerLoadInfoFromNode(node, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(node)) return 0;
     clusterManagerShowClusterInfo();
     return clusterManagerCheckCluster(0);
 invalid_args:
@@ -6090,7 +6089,7 @@ static int clusterManagerCommandReshard(int argc, char **argv) {
     char *ip = NULL;
     if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *node = clusterManagerNewNode(ip, port);
-    if (!clusterManagerLoadInfoFromNode(node, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(node)) return 0;
     clusterManagerCheckCluster(0);
     if (cluster_manager.errors && listLength(cluster_manager.errors) > 0) {
         fflush(stdout);
@@ -6279,7 +6278,7 @@ static int clusterManagerCommandRebalance(int argc, char **argv) {
     list *involved = NULL;
     if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *node = clusterManagerNewNode(ip, port);
-    if (!clusterManagerLoadInfoFromNode(node, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(node)) return 0;
     int result = 1, i;
     if (config.cluster_manager_command.weight != NULL) {
         for (i = 0; i < config.cluster_manager_command.weight_argc; i++) {
@@ -6474,7 +6473,7 @@ static int clusterManagerCommandSetTimeout(int argc, char **argv) {
     }
     // Load cluster information
     clusterManagerNode *node = clusterManagerNewNode(ip, port);
-    if (!clusterManagerLoadInfoFromNode(node, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(node)) return 0;
     int ok_count = 0, err_count = 0;
 
     clusterManagerLogInfo(">>> Reconfiguring node timeout in every "
@@ -6544,7 +6543,7 @@ static int clusterManagerCommandImport(int argc, char **argv) {
                           src_ip, src_port, ip, port);
 
     clusterManagerNode *refnode = clusterManagerNewNode(ip, port);
-    if (!clusterManagerLoadInfoFromNode(refnode, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(refnode)) return 0;
     if (!clusterManagerCheckCluster(0)) return 0;
     char *reply_err = NULL;
     redisReply *src_reply = NULL;
@@ -6680,7 +6679,7 @@ static int clusterManagerCommandCall(int argc, char **argv) {
     char *ip = NULL;
     if (!getClusterHostFromCmdArgs(1, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *refnode = clusterManagerNewNode(ip, port);
-    if (!clusterManagerLoadInfoFromNode(refnode, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(refnode)) return 0;
     argc--;
     argv++;
     size_t *argvlen = zmalloc(argc*sizeof(size_t));
@@ -6725,7 +6724,7 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
     char *ip = NULL;
     if (!getClusterHostFromCmdArgs(1, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *refnode = clusterManagerNewNode(ip, port);
-    if (!clusterManagerLoadInfoFromNode(refnode, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(refnode)) return 0;
     int no_issues = clusterManagerCheckCluster(0);
     int cluster_errors_count = (no_issues ? 0 :
                                 listLength(cluster_manager.errors));
