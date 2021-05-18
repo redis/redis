@@ -55,6 +55,7 @@
 #define LP_ENCODING_7BIT_UINT 0
 #define LP_ENCODING_7BIT_UINT_MASK 0x80
 #define LP_ENCODING_IS_7BIT_UINT(byte) (((byte)&LP_ENCODING_7BIT_UINT_MASK)==LP_ENCODING_7BIT_UINT)
+#define LP_ENCODING_7BIT_UINT_ENTRY_SIZE 2
 
 #define LP_ENCODING_6BIT_STR 0x80
 #define LP_ENCODING_6BIT_STR_MASK 0xC0
@@ -63,6 +64,7 @@
 #define LP_ENCODING_13BIT_INT 0xC0
 #define LP_ENCODING_13BIT_INT_MASK 0xE0
 #define LP_ENCODING_IS_13BIT_INT(byte) (((byte)&LP_ENCODING_13BIT_INT_MASK)==LP_ENCODING_13BIT_INT)
+#define LP_ENCODING_13BIT_INT_ENTRY_SIZE 3
 
 #define LP_ENCODING_12BIT_STR 0xE0
 #define LP_ENCODING_12BIT_STR_MASK 0xF0
@@ -71,18 +73,22 @@
 #define LP_ENCODING_16BIT_INT 0xF1
 #define LP_ENCODING_16BIT_INT_MASK 0xFF
 #define LP_ENCODING_IS_16BIT_INT(byte) (((byte)&LP_ENCODING_16BIT_INT_MASK)==LP_ENCODING_16BIT_INT)
+#define LP_ENCODING_16BIT_INT_ENTRY_SIZE 4
 
 #define LP_ENCODING_24BIT_INT 0xF2
 #define LP_ENCODING_24BIT_INT_MASK 0xFF
 #define LP_ENCODING_IS_24BIT_INT(byte) (((byte)&LP_ENCODING_24BIT_INT_MASK)==LP_ENCODING_24BIT_INT)
+#define LP_ENCODING_24BIT_INT_ENTRY_SIZE 5
 
 #define LP_ENCODING_32BIT_INT 0xF3
 #define LP_ENCODING_32BIT_INT_MASK 0xFF
 #define LP_ENCODING_IS_32BIT_INT(byte) (((byte)&LP_ENCODING_32BIT_INT_MASK)==LP_ENCODING_32BIT_INT)
+#define LP_ENCODING_32BIT_INT_ENTRY_SIZE 6
 
 #define LP_ENCODING_64BIT_INT 0xF4
 #define LP_ENCODING_64BIT_INT_MASK 0xFF
 #define LP_ENCODING_IS_64BIT_INT(byte) (((byte)&LP_ENCODING_64BIT_INT_MASK)==LP_ENCODING_64BIT_INT)
+#define LP_ENCODING_64BIT_INT_ENTRY_SIZE 10
 
 #define LP_ENCODING_32BIT_STR 0xF0
 #define LP_ENCODING_32BIT_STR_MASK 0xFF
@@ -441,13 +447,13 @@ uint32_t lpCurrentEncodedSizeBytes(unsigned char *p) {
  * lpCurrentEncodedSizeBytes or ASSERT_INTEGRITY_LEN (possibly since 'p' is
  * a return value of another function that validated its return. */
 uint32_t lpEntrySizeUnsafe(unsigned char *p) {
-    if (LP_ENCODING_IS_7BIT_UINT(p[0])) return 2;
+    if (LP_ENCODING_IS_7BIT_UINT(p[0])) return LP_ENCODING_7BIT_UINT_ENTRY_SIZE;
     if (LP_ENCODING_IS_6BIT_STR(p[0])) return 2 + LP_ENCODING_6BIT_STR_LEN(p);
-    if (LP_ENCODING_IS_13BIT_INT(p[0])) return 3;
-    if (LP_ENCODING_IS_16BIT_INT(p[0])) return 4;
-    if (LP_ENCODING_IS_24BIT_INT(p[0])) return 5;
-    if (LP_ENCODING_IS_32BIT_INT(p[0])) return 6;
-    if (LP_ENCODING_IS_64BIT_INT(p[0])) return 10;
+    if (LP_ENCODING_IS_13BIT_INT(p[0])) return LP_ENCODING_13BIT_INT_ENTRY_SIZE;
+    if (LP_ENCODING_IS_16BIT_INT(p[0])) return LP_ENCODING_16BIT_INT_ENTRY_SIZE;
+    if (LP_ENCODING_IS_24BIT_INT(p[0])) return LP_ENCODING_24BIT_INT_ENTRY_SIZE;
+    if (LP_ENCODING_IS_32BIT_INT(p[0])) return LP_ENCODING_32BIT_INT_ENTRY_SIZE;
+    if (LP_ENCODING_IS_64BIT_INT(p[0])) return LP_ENCODING_64BIT_INT_ENTRY_SIZE;
     if (LP_ENCODING_IS_12BIT_STR(p[0])) {
         uint32_t bytes = LP_ENCODING_12BIT_STR_LEN(p);
         return 2 + bytes + lpEncodeBacklen(NULL, bytes + 2);
@@ -575,7 +581,7 @@ unsigned char *lpGetWithSize(unsigned char *p, int64_t *count, unsigned char *in
         negstart = UINT64_MAX; /* 7 bit ints are always positive. */
         negmax = 0;
         uval = p[0] & 0x7f;
-        if (size) *size = 2;
+        if (size) *size = LP_ENCODING_7BIT_UINT_ENTRY_SIZE;
     } else if (LP_ENCODING_IS_6BIT_STR(p[0])) {
         *count = LP_ENCODING_6BIT_STR_LEN(p);
         if (size) *size = 2 + *count;
@@ -584,20 +590,20 @@ unsigned char *lpGetWithSize(unsigned char *p, int64_t *count, unsigned char *in
         uval = ((p[0]&0x1f)<<8) | p[1];
         negstart = (uint64_t)1<<12;
         negmax = 8191;
-        if (size) *size = 3;
+        if (size) *size = LP_ENCODING_13BIT_INT_ENTRY_SIZE;
     } else if (LP_ENCODING_IS_16BIT_INT(p[0])) {
         uval = (uint64_t)p[1] |
                (uint64_t)p[2]<<8;
         negstart = (uint64_t)1<<15;
         negmax = UINT16_MAX;
-        if (size) *size = 4;
+        if (size) *size = LP_ENCODING_16BIT_INT_ENTRY_SIZE;
     } else if (LP_ENCODING_IS_24BIT_INT(p[0])) {
         uval = (uint64_t)p[1] |
                (uint64_t)p[2]<<8 |
                (uint64_t)p[3]<<16;
         negstart = (uint64_t)1<<23;
         negmax = UINT32_MAX>>8;
-        if (size) *size = 5;
+        if (size) *size = LP_ENCODING_24BIT_INT_ENTRY_SIZE;
     } else if (LP_ENCODING_IS_32BIT_INT(p[0])) {
         uval = (uint64_t)p[1] |
                (uint64_t)p[2]<<8 |
@@ -605,7 +611,7 @@ unsigned char *lpGetWithSize(unsigned char *p, int64_t *count, unsigned char *in
                (uint64_t)p[4]<<24;
         negstart = (uint64_t)1<<31;
         negmax = UINT32_MAX;
-        if (size) *size = 6;
+        if (size) *size = LP_ENCODING_32BIT_INT_ENTRY_SIZE;
     } else if (LP_ENCODING_IS_64BIT_INT(p[0])) {
         uval = (uint64_t)p[1] |
                (uint64_t)p[2]<<8 |
@@ -617,7 +623,7 @@ unsigned char *lpGetWithSize(unsigned char *p, int64_t *count, unsigned char *in
                (uint64_t)p[8]<<56;
         negstart = (uint64_t)1<<63;
         negmax = UINT64_MAX;
-        if (size) *size = 10;
+        if (size) *size = LP_ENCODING_64BIT_INT_ENTRY_SIZE;
     } else if (LP_ENCODING_IS_12BIT_STR(p[0])) {
         *count = LP_ENCODING_12BIT_STR_LEN(p);
         if (size) *size = 2 + *count + lpEncodeBacklen(NULL, *count + 2);
