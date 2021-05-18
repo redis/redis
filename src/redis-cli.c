@@ -5027,11 +5027,6 @@ static int clusterManagerFixOpenSlot(int slot) {
         /* Since CLUSTER ADDSLOTS succeeded, we also update the slot
          * info into the node struct, in order to keep it synced */
         owner->slots[slot] = 1;
-        /* Make sure this information will propagate. Not strictly needed
-         * since there is no past owner, so all the other nodes will accept
-         * whatever epoch this node will claim the slot with. */
-        success = clusterManagerBumpEpoch(owner);
-        if (!success) goto cleanup;
         /* Remove the owner from the list of migrating/importing
          * nodes. */
         clusterManagerRemoveNodeFromList(migrating, owner);
