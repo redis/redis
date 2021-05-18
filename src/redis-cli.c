@@ -2114,6 +2114,58 @@ void cliLoadPreferences(void) {
     sdsfree(rcfile);
 }
 
+/* Some commands can include sensitive information and shouldn't be put in the
+ * history file. Currently these commands are include:
+ * - AUTH
+ * - ACL SETUSER
+ * - CONFIG SET masterauth/masteruser/requirepass
+ * - HELLO with [AUTH username password]
+ * - MIGRATE with [AUTH password] or [AUTH2 username password] */
+static int isSensitiveCommand(int argc, char **argv) {
+    if (!strcasecmp(argv[0],"auth")) {
+        return 1;
+    } else if (argc > 1 &&
+        !strcasecmp(argv[0],"acl") &&
+        !strcasecmp(argv[1],"setuser"))
+    {
+        return 1;
+    } else if (argc > 2 &&
+        !strcasecmp(argv[0],"config") &&
+        !strcasecmp(argv[1],"set") && (
+            !strcasecmp(argv[2],"masterauth") ||
+            !strcasecmp(argv[2],"masteruser") ||
+            !strcasecmp(argv[2],"requirepass")))
+    {
+        return 1;
+    /* HELLO [protover [AUTH username password] [SETNAME clientname]] */
+    } else if (argc > 4 && !strcasecmp(argv[0],"hello")) {
+        for (int j = 2; j < argc; j++) {
+            int moreargs = argc - 1 - j;
+            if (!strcasecmp(argv[j],"AUTH") && moreargs >= 2) {
+                return 1;
+            } else if (!strcasecmp(argv[j],"SETNAME") && moreargs) {
+                j++;
+            } else {
+                return 0;
+            }
+        }
+    /* MIGRATE host port key|"" destination-db timeout [COPY] [REPLACE]
+     * [AUTH password] [AUTH2 username password] [KEYS key [key ...]] */
+    } else if (argc > 7 && !strcasecmp(argv[0], "migrate")) {
+        for (int j = 6; j < argc; j++) {
+            int moreargs = argc - 1 - j;
+            if (!strcasecmp(argv[j],"auth") && moreargs) {
+                return 1;
+            } else if (!strcasecmp(argv[j],"auth2") && moreargs >= 2) {
+                return 1;
+            } else if (!strcasecmp(argv[j],"keys") && moreargs) {
+                return 0;
+            }
+        }
+    }
+    return 0;
+}
+
 static void repl(void) {
     sds historyfile = NULL;
     int history = 0;
@@ -2151,97 +2203,87 @@ static void repl(void) {
             char *endptr = NULL;
 
             argv = cliSplitArgs(line,&argc);
+            if (argv == NULL) {
+                printf("Invalid argument(s)\n");
+                fflush(stdout);
+                if (history) linenoiseHistoryAdd(line);
+                if (historyfile) linenoiseHistorySave(historyfile);
+                linenoiseFree(line);
+                continue;
+            } else if (argc == 0) {
+                sdsfreesplitres(argv,argc);
+                linenoiseFree(line);
+                continue;
+            }
 
             /* check if we have a repeat command option and
              * need to skip the first arg */
-            if (argv && argc > 0) {
-                errno = 0;
-                repeat = strtol(argv[0], &endptr, 10);
-                if (argc > 1 && *endptr == '\0') {
-                    if (errno == ERANGE || errno == EINVAL || repeat <= 0) {
-                        fputs("Invalid redis-cli repeat command option value.\n", stdout);
-                        sdsfreesplitres(argv, argc);
-                        linenoiseFree(line);
-                        continue;
-                    }
-                    skipargs = 1;
-                } else {
-                    repeat = 1;
+            errno = 0;
+            repeat = strtol(argv[0], &endptr, 10);
+            if (argc > 1 && *endptr == '\0') {
+                if (errno == ERANGE || errno == EINVAL || repeat <= 0) {
+                    fputs("Invalid redis-cli repeat command option value.\n", stdout);
+                    sdsfreesplitres(argv, argc);
+                    linenoiseFree(line);
+                    continue;
                 }
+                skipargs = 1;
+            } else {
+                repeat = 1;
             }
 
-            /* Won't save auth or acl setuser commands in history file */
-            int dangerous = 0;
-            if (argv && argc > 0) {
-                if (!strcasecmp(argv[skipargs], "auth")) {
-                    dangerous = 1;
-                } else if (skipargs+1 < argc &&
-                           !strcasecmp(argv[skipargs], "acl") &&
-                           !strcasecmp(argv[skipargs+1], "setuser"))
-                {
-                    dangerous = 1;
-                }
-            }
-
-            if (!dangerous) {
+            if (!isSensitiveCommand(argc - skipargs, argv + skipargs)) {
                 if (history) linenoiseHistoryAdd(line);
                 if (historyfile) linenoiseHistorySave(historyfile);
             }
 
-            if (argv == NULL) {
-                printf("Invalid argument(s)\n");
-                fflush(stdout);
+            if (strcasecmp(argv[0],"quit") == 0 ||
+                strcasecmp(argv[0],"exit") == 0)
+            {
+                exit(0);
+            } else if (argv[0][0] == ':') {
+                cliSetPreferences(argv,argc,1);
+                sdsfreesplitres(argv,argc);
                 linenoiseFree(line);
                 continue;
-            } else if (argc > 0) {
-                if (strcasecmp(argv[0],"quit") == 0 ||
-                    strcasecmp(argv[0],"exit") == 0)
-                {
-                    exit(0);
-                } else if (argv[0][0] == ':') {
-                    cliSetPreferences(argv,argc,1);
+            } else if (strcasecmp(argv[0],"restart") == 0) {
+                if (config.eval) {
+                    config.eval_ldb = 1;
+                    config.output = OUTPUT_RAW;
                     sdsfreesplitres(argv,argc);
                     linenoiseFree(line);
-                    continue;
-                } else if (strcasecmp(argv[0],"restart") == 0) {
-                    if (config.eval) {
-                        config.eval_ldb = 1;
-                        config.output = OUTPUT_RAW;
-                        sdsfreesplitres(argv,argc);
-                        linenoiseFree(line);
-                        return; /* Return to evalMode to restart the session. */
-                    } else {
-                        printf("Use 'restart' only in Lua debugging mode.");
-                    }
-                } else if (argc == 3 && !strcasecmp(argv[0],"connect")) {
-                    sdsfree(config.hostip);
-                    config.hostip = sdsnew(argv[1]);
-                    config.hostport = atoi(argv[2]);
-                    cliRefreshPrompt();
-                    cliConnect(CC_FORCE);
-                } else if (argc == 1 && !strcasecmp(argv[0],"clear")) {
-                    linenoiseClearScreen();
+                    return; /* Return to evalMode to restart the session. */
                 } else {
-                    long long start_time = mstime(), elapsed;
+                    printf("Use 'restart' only in Lua debugging mode.");
+                }
+            } else if (argc == 3 && !strcasecmp(argv[0],"connect")) {
+                sdsfree(config.hostip);
+                config.hostip = sdsnew(argv[1]);
+                config.hostport = atoi(argv[2]);
+                cliRefreshPrompt();
+                cliConnect(CC_FORCE);
+            } else if (argc == 1 && !strcasecmp(argv[0],"clear")) {
+                linenoiseClearScreen();
+            } else {
+                long long start_time = mstime(), elapsed;
 
-                    issueCommandRepeat(argc-skipargs, argv+skipargs, repeat);
+                issueCommandRepeat(argc-skipargs, argv+skipargs, repeat);
 
-                    /* If our debugging session ended, show the EVAL final
-                     * reply. */
-                    if (config.eval_ldb_end) {
-                        config.eval_ldb_end = 0;
-                        cliReadReply(0);
-                        printf("\n(Lua debugging session ended%s)\n\n",
-                            config.eval_ldb_sync ? "" :
-                            " -- dataset changes rolled back");
-                    }
+                /* If our debugging session ended, show the EVAL final
+                    * reply. */
+                if (config.eval_ldb_end) {
+                    config.eval_ldb_end = 0;
+                    cliReadReply(0);
+                    printf("\n(Lua debugging session ended%s)\n\n",
+                        config.eval_ldb_sync ? "" :
+                        " -- dataset changes rolled back");
+                }
 
-                    elapsed = mstime()-start_time;
-                    if (elapsed >= 500 &&
-                        config.output == OUTPUT_STANDARD)
-                    {
-                        printf("(%.2fs)\n",(double)elapsed/1000);
-                    }
+                elapsed = mstime()-start_time;
+                if (elapsed >= 500 &&
+                    config.output == OUTPUT_STANDARD)
+                {
+                    printf("(%.2fs)\n",(double)elapsed/1000);
                 }
             }
             /* Free the argument vector */
