@@ -5760,7 +5760,7 @@ assign_replicas:
             if (found) slave = found;
             else if (firstNodeIdx >= 0) {
                 slave = interleaved[firstNodeIdx];
-                interleaved_len -= (interleaved - (interleaved + firstNodeIdx));
+                interleaved_len -= (firstNodeIdx + 1);
                 interleaved += (firstNodeIdx + 1);
             }
             if (slave != NULL) {
