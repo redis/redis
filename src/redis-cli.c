@@ -3424,7 +3424,7 @@ static int clusterManagerAddSlots(clusterManagerNode *node, char**err)
             argv_idx++;
         }
     }
-    if (!argv_idx) {
+    if (argv_idx == 2) {
         success = 0;
         goto cleanup;
     }
