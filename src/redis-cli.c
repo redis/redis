@@ -4989,7 +4989,7 @@ static int clusterManagerFixOpenSlot(int slot) {
                                       "in node %s:%d!\n", slot, n->ip,
                                       n->port);
                 char *sep = (listLength(importing) == 0 ? "" : ",");
-                importing_str = sdscatfmt(importing_str, "%s%S:%u",
+                importing_str = sdscatfmt(importing_str, "%s%s:%u",
                                           sep, n->ip, n->port);
                 listAddNodeTail(importing, n);
             }
