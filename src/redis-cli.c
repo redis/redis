@@ -6811,7 +6811,8 @@ static int clusterManagerCommandHelp(int argc, char **argv) {
             }
         }
     }
-    fprintf(stderr, "\nFor check, fix, reshard, del-node, set-timeout you "
+    fprintf(stderr, "\nFor check, fix, reshard, del-node, set-timeout, "
+                    "info, rebalance, call, import, backup you "
                     "can specify the host and port of any working node in "
                     "the cluster.\n");
 
