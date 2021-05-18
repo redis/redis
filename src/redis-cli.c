@@ -2072,14 +2072,14 @@ void cliLoadPreferences(void) {
     sdsfree(rcfile);
 }
 
-/* We think some commands are dangerous and shoudn't be output in history file.
- * Currently these commands are inclued:
+/* Some commands can include sensitive information and shouldn't be put in the
+ * history file. Currently these commands are include:
  * - AUTH
  * - ACL SETUSER
  * - CONFIG SET masterauth/masteruser/requirepass
  * - HELLO with [AUTH username password]
  * - MIGRATE with [AUTH password] or [AUTH2 username password] */
-static int isDangerousCommand(int argc, char **argv) {
+static int isSensitiveCommand(int argc, char **argv) {
     if (!strcasecmp(argv[0],"auth")) {
         return 1;
     } else if (argc > 1 &&
@@ -2190,7 +2190,7 @@ static void repl(void) {
                 repeat = 1;
             }
 
-            if (!isDangerousCommand(argc - skipargs, argv + skipargs)) {
+            if (!isSensitiveCommand(argc - skipargs, argv + skipargs)) {
                 if (history) linenoiseHistoryAdd(line);
                 if (historyfile) linenoiseHistorySave(historyfile);
             }
