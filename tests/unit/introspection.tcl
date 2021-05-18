@@ -172,7 +172,7 @@ start_server {tags {"introspection"}} {
         # server is able to parse it and start.
         assert_equal [r debug config-rewrite-force-all] "OK"
         restart_server 0 true false
-        assert_equal [r ping] "PONG"
+        wait_done_loading r
 
         # Verify no changes were introduced
         dict for {k v} $configs {
