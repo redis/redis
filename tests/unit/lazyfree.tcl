@@ -38,6 +38,13 @@ start_server {tags {"lazyfree"}} {
     }
 
     test "lazy free a stream with all types of metadata" {
+        # make the previous test is really done before doing RESETSTAT
+        wait_for_condition 5 100 {
+            [s lazyfree_pending_objects] == 0
+        } else {
+            fail "lazyfree isn't done"
+        }
+
         r config resetstat
         r config set stream-node-max-entries 5
         for {set j 0} {$j < 1000} {incr j} {
