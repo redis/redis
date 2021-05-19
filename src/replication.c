@@ -377,6 +377,7 @@ void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t bufle
 }
 
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc) {
+    if (!(listLength(server.monitors) && !server.loading)) return;
     listNode *ln;
     listIter li;
     int j;

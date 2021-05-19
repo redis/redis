@@ -726,7 +726,7 @@ void configSetCommand(client *c) {
             (config->alias && !strcasecmp(c->argv[2]->ptr,config->alias))))
         {
             if (config->flags & SENSITIVE_CONFIG) {
-                preventCommandLogging(c);
+                redactClientCommandArgument(c,3);
             }
             if (!config->interface.set(config->data,o->ptr,1,&errstr)) {
                 goto badfmt;
