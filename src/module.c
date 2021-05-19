@@ -382,7 +382,15 @@ typedef struct RedisModuleUser {
     user *user; /* Reference to the real redis user */
 } RedisModuleUser;
 
-
+/* This is a structure used to export some meta-information such as dbid to the module. */
+typedef struct RedisModuleKeyOptCtx {
+    struct redisObject *from_key, *to_key; /* Optional name of key processed, NULL when unknown. 
+                                              In most cases, only 'from_key' is valid, but in callbacks 
+                                              such as `copy2`, both 'from_key' and 'to_key' are valid. */
+    int from_dbid, to_dbid;                /* The dbid of the key being processed, -1 when unknown.
+                                              In most cases, only 'from_dbid' is valid, but in callbacks such 
+                                              as `copy2`, 'from_dbid' and 'to_dbid' are both valid. */
+} RedisModuleKeyOptCtx;
 /* --------------------------------------------------------------------------
  * Prototypes
  * -------------------------------------------------------------------------- */
@@ -2433,6 +2441,25 @@ RedisModuleString *RM_RandomKey(RedisModuleCtx *ctx) {
     return key;
 }
 
+/* Returns the name of the key currently being processed. */
+const RedisModuleString *RM_GetKeyNameFromOptCtx(RedisModuleKeyOptCtx *ctx) {
+    return ctx->from_key;
+}
+
+/* Returns the name of the target key currently being processed. */
+const RedisModuleString *RM_GetToKeyNameFromOptCtx(RedisModuleKeyOptCtx *ctx) {
+    return ctx->to_key;
+}
+
+/* Returns the dbid currently being processed. */
+int RM_GetDbIdFromOptCtx(RedisModuleKeyOptCtx *ctx) {
+    return ctx->from_dbid;
+}
+
+/* Returns the target dbid currently being processed. */
+int RM_GetToDbIdFromOptCtx(RedisModuleKeyOptCtx *ctx) {
+    return ctx->to_dbid;
+}
 /* --------------------------------------------------------------------------
  * ## Key API for String type
  *
@@ -4374,14 +4401,21 @@ const char *moduleTypeModuleName(moduleType *mt) {
 /* Create a copy of a module type value using the copy callback. If failed
  * or not supported, produce an error reply and return NULL.
  */
-robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, robj *value) {
+robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj *value) {
     moduleValue *mv = value->ptr;
     moduleType *mt = mv->type;
-    if (!mt->copy) {
+    if (!mt->copy && !mt->copy2) {
         addReplyError(c, "not supported for this module key");
         return NULL;
     }
-    void *newval = mt->copy(fromkey, tokey, mv->value);
+    void *newval = NULL;
+    if (mt->copy2 != NULL) {
+        RedisModuleKeyOptCtx ctx = {fromkey, tokey, c->db->id, todb};
+        newval = mt->copy2(&ctx, mv->value);
+    } else {
+        newval = mt->copy(fromkey, tokey, mv->value);
+    }
+     
     if (!newval) {
         addReplyError(c, "module key failed to copy");
         return NULL;
@@ -4431,6 +4465,12 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, robj *value) {
  *             .unlink = myType_UnlinkCallBack,
  *             .copy = myType_CopyCallback,
  *             .defrag = myType_DefragCallback
+ * 
+ *             // Enhanced optional fields
+ *             .mem_usage2 = myType_MemUsageCallBack2,
+ *             .free_effort2 = myType_FreeEffortCallBack2,
+ *             .unlink2 = myType_UnlinkCallBack2,
+ *             .copy2 = myType_CopyCallback2,
  *         }
  *
  * * **rdb_load**: A callback function pointer that loads data from RDB files.
@@ -4472,6 +4512,15 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, robj *value) {
  *   NOTE: The value is passed as a `void**` and the function is expected to update the
  *   pointer if the top-level value pointer is defragmented and consequently changes.
  *
+ * * **mem_usage2**: Similar to `mem_usage`, but provides the `RedisModuleKeyOptCtx` parameter 
+ *   so that meta information such as key name and db id can be obtained.
+ * * **free_effort2**: Similar to `free_effort`, but provides the `RedisModuleKeyOptCtx` parameter 
+ *   so that meta information such as key name and db id can be obtained.
+ * * **unlink2**: Similar to `unlink`, but provides the `RedisModuleKeyOptCtx` parameter 
+ *   so that meta information such as key name and db id can be obtained.
+ * * **copy2**: Similar to `copy`, but provides the `RedisModuleKeyOptCtx` parameter 
+ *   so that meta information such as key names and db ids can be obtained.
+ * 
  * Note: the module name "AAAAAAAAA" is reserved and produces an error, it
  * happens to be pretty lame as well.
  *
@@ -4517,6 +4566,12 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
             moduleTypeCopyFunc copy;
             moduleTypeDefragFunc defrag;
         } v3;
+        struct {
+            moduleTypeMemUsageFunc2 mem_usage2;
+            moduleTypeFreeEffortFunc2 free_effort2;
+            moduleTypeUnlinkFunc2 unlink2;
+            moduleTypeCopyFunc2 copy2;
+        } v4;
     } *tms = (struct typemethods*) typemethods_ptr;
 
     moduleType *mt = zcalloc(sizeof(*mt));
@@ -4538,6 +4593,12 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
         mt->unlink = tms->v3.unlink;
         mt->copy = tms->v3.copy;
         mt->defrag = tms->v3.defrag;
+    }
+    if (tms->version >= 4) {
+        mt->mem_usage2 = tms->v4.mem_usage2;
+        mt->unlink2 = tms->v4.unlink2;
+        mt->free_effort2 = tms->v4.free_effort2;
+        mt->copy2 = tms->v4.copy2;
     }
     memcpy(mt->name,name,sizeof(mt->name));
     listAddNodeTail(ctx->module->types,mt);
@@ -4977,7 +5038,7 @@ void *RM_LoadDataTypeFromString(const RedisModuleString *str, const moduleType *
     void *ret;
 
     rioInitWithBuffer(&payload, str->ptr);
-    moduleInitIOContext(io,(moduleType *)mt,&payload,NULL);
+    moduleInitIOContext(io,(moduleType *)mt,&payload,NULL,-1);
 
     /* All RM_Save*() calls always write a version 2 compatible format, so we
      * need to make sure we read the same.
@@ -5003,7 +5064,7 @@ RedisModuleString *RM_SaveDataTypeToString(RedisModuleCtx *ctx, void *data, cons
     RedisModuleIO io;
 
     rioInitWithBuffer(&payload,sdsempty());
-    moduleInitIOContext(io,(moduleType *)mt,&payload,NULL);
+    moduleInitIOContext(io,(moduleType *)mt,&payload,NULL,-1);
     mt->rdb_save(&io,data);
     if (io.ctx) {
         moduleFreeContext(io.ctx);
@@ -5018,6 +5079,15 @@ RedisModuleString *RM_SaveDataTypeToString(RedisModuleCtx *ctx, void *data, cons
     }
 }
 
+/* Returns the name of the key currently being processed. */
+const RedisModuleString *RM_GetKeyNameFromDigest(RedisModuleDigest *dig) {
+    return dig->key;
+}
+
+/* Returns the database id of the key currently being processed. */
+int RM_GetDbIdFromDigest(RedisModuleDigest *dig) {
+    return dig->dbid;
+}
 /* --------------------------------------------------------------------------
  * ## AOF API for modules data types
  * -------------------------------------------------------------------------- */
@@ -5087,9 +5157,8 @@ RedisModuleCtx *RM_GetContextFromIO(RedisModuleIO *io) {
     return io->ctx;
 }
 
-/* Returns a RedisModuleString with the name of the key currently saving or
- * loading, when an IO data type callback is called.  There is no guarantee
- * that the key name is always available, so this may return NULL.
+/* Returns the name of the key currently being processed.
+ * There is no guarantee that the key name is always available, so this may return NULL.
  */
 const RedisModuleString *RM_GetKeyNameFromIO(RedisModuleIO *io) {
     return io->key;
@@ -5098,6 +5167,18 @@ const RedisModuleString *RM_GetKeyNameFromIO(RedisModuleIO *io) {
 /* Returns a RedisModuleString with the name of the key from RedisModuleKey. */
 const RedisModuleString *RM_GetKeyNameFromModuleKey(RedisModuleKey *key) {
     return key ? key->key : NULL;
+}
+
+/* Returns a database id of the key from RedisModuleKey. */
+int RM_GetDbIdFromModuleKey(RedisModuleKey *key) {
+    return key ? key->db->id : -1;
+}
+
+/* Returns the database id of the key currently being processed.
+ * There is no guarantee that this info is always available, so this may return -1.
+ */
+int RM_GetDbIdFromIO(RedisModuleIO *io) {
+    return io->dbid;
 }
 
 /* --------------------------------------------------------------------------
@@ -8348,14 +8429,53 @@ void processModuleLoadingProgressEvent(int is_aof) {
 
 /* When a module key is deleted (in dbAsyncDelete/dbSyncDelete/dbOverwrite), it 
 *  will be called to tell the module which key is about to be released. */
-void moduleNotifyKeyUnlink(robj *key, robj *val) {
+void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid) {
     if (val->type == OBJ_MODULE) {
         moduleValue *mv = val->ptr;
         moduleType *mt = mv->type;
-        if (mt->unlink != NULL) {
+        /* We prefer to use the enhanced version. */
+        if (mt->unlink2 != NULL) {
+            RedisModuleKeyOptCtx ctx = {key, NULL, dbid, -1};
+            mt->unlink2(&ctx,mv->value);
+        } else if (mt->unlink != NULL) {
             mt->unlink(key,mv->value);
         } 
     }
+}
+
+/* Return the free_effort of the module, it will automatically choose to call 
+ * `free_effort` or `free_effort2`, and the default return value is 1.
+ * value of 0 means very high effort (always asynchronous freeing). */
+size_t moduleGetFreeEffort(robj *key, robj *val, int dbid) {
+    moduleValue *mv = val->ptr;
+    moduleType *mt = mv->type;
+    size_t effort = 1;
+    /* We prefer to use the enhanced version. */
+    if (mt->free_effort2 != NULL) {
+        RedisModuleKeyOptCtx ctx = {key, NULL, dbid, -1};
+        effort = mt->free_effort2(&ctx,mv->value);
+    } else if (mt->free_effort != NULL) {
+        effort = mt->free_effort(key,mv->value);
+    }  
+
+    return effort;
+}
+
+/* Return the memory usage of the module, it will automatically choose to call 
+ * `mem_usage` or `mem_usage2`, and the default return value is 0. */
+size_t moduleGetMemUsage(robj *key, robj *val, int dbid) {
+    moduleValue *mv = val->ptr;
+    moduleType *mt = mv->type;
+    size_t size = 0;
+    /* We prefer to use the enhanced version. */
+    if (mt->mem_usage2 != NULL) {
+        RedisModuleKeyOptCtx ctx = {key, NULL, dbid, -1};
+        size = mt->mem_usage2(&ctx,mv->value);
+    } else if (mt->mem_usage != NULL) {
+        size = mt->mem_usage(mv->value);
+    } 
+
+    return size;
 }
 
 /* --------------------------------------------------------------------------
@@ -9043,6 +9163,8 @@ typedef struct RedisModuleDefragCtx {
     long defragged;
     long long int endtime;
     unsigned long *cursor;
+    struct redisObject *key; /* Optional name of key processed, NULL when unknown. */
+    int dbid;                /* The dbid of the key being processed, -1 when unknown. */
 } RedisModuleDefragCtx;
 
 /* Register a defrag callback for global data, i.e. anything that the module
@@ -9154,11 +9276,11 @@ RedisModuleString *RM_DefragRedisModuleString(RedisModuleDefragCtx *ctx, RedisMo
  * Returns a zero value (and initializes the cursor) if no more needs to be done,
  * or a non-zero value otherwise.
  */
-int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long endtime, long long *defragged) {
+int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long endtime, long long *defragged, int dbid) {
     moduleValue *mv = value->ptr;
     moduleType *mt = mv->type;
 
-    RedisModuleDefragCtx defrag_ctx = { 0, endtime, cursor };
+    RedisModuleDefragCtx defrag_ctx = { 0, endtime, cursor, key, dbid};
 
     /* Invoke callback. Note that the callback may be missing if the key has been
      * replaced with a different type since our last visit.
@@ -9182,7 +9304,7 @@ int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long en
  * Returns 1 if the operation has been completed or 0 if it needs to
  * be scheduled for late defrag.
  */
-int moduleDefragValue(robj *key, robj *value, long *defragged) {
+int moduleDefragValue(robj *key, robj *value, long *defragged, int dbid) {
     moduleValue *mv = value->ptr;
     moduleType *mt = mv->type;
 
@@ -9202,16 +9324,14 @@ int moduleDefragValue(robj *key, robj *value, long *defragged) {
      * necessary schedule it for defragLater instead of quick immediate
      * defrag.
      */
-    if (mt->free_effort) {
-        size_t effort = mt->free_effort(key, mv->value);
-        if (!effort)
-            effort = SIZE_MAX;
-        if (effort > server.active_defrag_max_scan_fields) {
-            return 0;  /* Defrag later */
-        }
+    size_t effort = moduleGetFreeEffort(key, value, dbid);
+    if (!effort)
+        effort = SIZE_MAX;
+    if (effort > server.active_defrag_max_scan_fields) {
+        return 0;  /* Defrag later */
     }
 
-    RedisModuleDefragCtx defrag_ctx = { 0, 0, NULL };
+    RedisModuleDefragCtx defrag_ctx = { 0, 0, NULL, key, dbid};
     mt->defrag(&defrag_ctx, key, &mv->value);
     (*defragged) += defrag_ctx.defragged;
     return 1;
@@ -9227,13 +9347,27 @@ long moduleDefragGlobals(void) {
         struct RedisModule *module = dictGetVal(de);
         if (!module->defrag_cb)
             continue;
-        RedisModuleDefragCtx defrag_ctx = { 0, 0, NULL };
+        RedisModuleDefragCtx defrag_ctx = { 0, 0, NULL, NULL, -1};
         module->defrag_cb(&defrag_ctx);
         defragged += defrag_ctx.defragged;
     }
     dictReleaseIterator(di);
 
     return defragged;
+}
+
+/* Returns the name of the key currently being processed.
+ * There is no guarantee that the key name is always available, so this may return NULL.
+ */
+const RedisModuleString *RM_GetKeyNameFromDefragCtx(RedisModuleDefragCtx *ctx) {
+    return ctx->key;
+}
+
+/* Returns the database id of the key currently being processed.
+ * There is no guarantee that this info is always available, so this may return -1.
+ */
+int RM_GetDbIdFromDefragCtx(RedisModuleDefragCtx *ctx) {
+    return ctx->dbid;
 }
 
 /* Register all the APIs we export. Keep this function at the end of the
@@ -9376,6 +9510,16 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetContextFromIO);
     REGISTER_API(GetKeyNameFromIO);
     REGISTER_API(GetKeyNameFromModuleKey);
+    REGISTER_API(GetDbIdFromModuleKey);
+    REGISTER_API(GetDbIdFromIO);
+    REGISTER_API(GetKeyNameFromOptCtx);
+    REGISTER_API(GetToKeyNameFromOptCtx);
+    REGISTER_API(GetDbIdFromOptCtx);
+    REGISTER_API(GetToDbIdFromOptCtx);
+    REGISTER_API(GetKeyNameFromDefragCtx);
+    REGISTER_API(GetDbIdFromDefragCtx);
+    REGISTER_API(GetKeyNameFromDigest);
+    REGISTER_API(GetDbIdFromDigest);
     REGISTER_API(BlockClient);
     REGISTER_API(UnblockClient);
     REGISTER_API(IsBlockedReplyRequest);

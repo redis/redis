@@ -1373,11 +1373,11 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
 /* Call the module type callback in order to rewrite a data type
  * that is exported by a module and is not handled by Redis itself.
  * The function returns 0 on error, 1 on success. */
-int rewriteModuleObject(rio *r, robj *key, robj *o) {
+int rewriteModuleObject(rio *r, robj *key, robj *o, int dbid) {
     RedisModuleIO io;
     moduleValue *mv = o->ptr;
     moduleType *mt = mv->type;
-    moduleInitIOContext(io,mt,r,key);
+    moduleInitIOContext(io,mt,r,key,dbid);
     mt->aof_rewrite(&io,key,mv->value);
     if (io.ctx) {
         moduleFreeContext(io.ctx);
@@ -1451,7 +1451,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             } else if (o->type == OBJ_STREAM) {
                 if (rewriteStreamObject(aof,&key,o) == 0) goto werr;
             } else if (o->type == OBJ_MODULE) {
-                if (rewriteModuleObject(aof,&key,o) == 0) goto werr;
+                if (rewriteModuleObject(aof,&key,o,j) == 0) goto werr;
             } else {
                 serverPanic("Unknown object type");
             }

@@ -5037,7 +5037,7 @@ NULL
 
 /* Generates a DUMP-format representation of the object 'o', adding it to the
  * io stream pointed by 'rio'. This function can't fail. */
-void createDumpPayload(rio *payload, robj *o, robj *key) {
+void createDumpPayload(rio *payload, robj *o, robj *key, int dbid) {
     unsigned char buf[2];
     uint64_t crc;
 
@@ -5045,7 +5045,7 @@ void createDumpPayload(rio *payload, robj *o, robj *key) {
      * byte followed by the serialized object. This is understood by RESTORE. */
     rioInitWithBuffer(payload,sdsempty());
     serverAssert(rdbSaveObjectType(payload,o));
-    serverAssert(rdbSaveObject(payload,o,key));
+    serverAssert(rdbSaveObject(payload,o,key,dbid));
 
     /* Write the footer, this is how it looks like:
      * ----------------+---------------------+---------------+
@@ -5106,7 +5106,7 @@ void dumpCommand(client *c) {
     }
 
     /* Create the DUMP encoded representation. */
-    createDumpPayload(&payload,o,c->argv[1]);
+    createDumpPayload(&payload,o,c->argv[1],c->db->id);
 
     /* Transfer to the client */
     addReplyBulkSds(c,payload.io.buffer.ptr);
@@ -5178,7 +5178,7 @@ void restoreCommand(client *c) {
 
     rioInitWithBuffer(&payload,c->argv[3]->ptr);
     if (((type = rdbLoadObjectType(&payload)) == -1) ||
-        ((obj = rdbLoadObject(type,&payload,key->ptr)) == NULL))
+        ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id)) == NULL))
     {
         addReplyError(c,"Bad data format");
         return;
@@ -5498,7 +5498,7 @@ try_again:
 
         /* Emit the payload argument, that is the serialized object using
          * the DUMP format. */
-        createDumpPayload(&payload,ov[j],kv[j]);
+        createDumpPayload(&payload,ov[j],kv[j],dbid);
         serverAssertWithInfo(c,NULL,
             rioWriteBulkString(&cmd,payload.io.buffer.ptr,
                                sdslen(payload.io.buffer.ptr)));

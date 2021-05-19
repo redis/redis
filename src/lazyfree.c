@@ -90,7 +90,7 @@ void lazyfreeResetStats() {
  *
  * For lists the function returns the number of elements in the quicklist
  * representing the list. */
-size_t lazyfreeGetFreeEffort(robj *key, robj *obj) {
+size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid) {
     if (obj->type == OBJ_LIST) {
         quicklist *ql = obj->ptr;
         return ql->len;
@@ -128,16 +128,10 @@ size_t lazyfreeGetFreeEffort(robj *key, robj *obj) {
         }
         return effort;
     } else if (obj->type == OBJ_MODULE) {
-        moduleValue *mv = obj->ptr;
-        moduleType *mt = mv->type;
-        if (mt->free_effort != NULL) {
-            size_t effort  = mt->free_effort(key,mv->value);
-            /* If the module's free_effort returns 0, it will use asynchronous free
-             memory by default */
-            return effort == 0 ? ULONG_MAX : effort;
-        } else {
-            return 1;
-        }
+        size_t effort = moduleGetFreeEffort(key, obj, dbid);
+        /* If the module's free_effort returns 0, we will use asynchronous free
+         * memory by default. */
+        return effort == 0 ? ULONG_MAX : effort;
     } else {
         return 1; /* Everything else is a single allocation. */
     }
@@ -161,9 +155,9 @@ int dbAsyncDelete(redisDb *db, robj *key) {
         robj *val = dictGetVal(de);
 
         /* Tells the module that the key has been unlinked from the database. */
-        moduleNotifyKeyUnlink(key,val);
+        moduleNotifyKeyUnlink(key,val,db->id);
 
-        size_t free_effort = lazyfreeGetFreeEffort(key,val);
+        size_t free_effort = lazyfreeGetFreeEffort(key,val,db->id);
 
         /* If releasing the object is too much work, do it in the background
          * by adding the object to the lazy free list.
@@ -192,8 +186,8 @@ int dbAsyncDelete(redisDb *db, robj *key) {
 }
 
 /* Free an object, if the object is huge enough, free it in async way. */
-void freeObjAsync(robj *key, robj *obj) {
-    size_t free_effort = lazyfreeGetFreeEffort(key,obj);
+void freeObjAsync(robj *key, robj *obj, int dbid) {
+    size_t free_effort = lazyfreeGetFreeEffort(key,obj,dbid);
     if (free_effort > LAZYFREE_THRESHOLD && obj->refcount == 1) {
         atomicIncr(lazyfree_objects,1);
         bioCreateLazyFreeJob(lazyfreeFreeObject,1,obj);
