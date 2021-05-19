@@ -706,7 +706,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"auth",authCommand,-2,
-     "no-auth no-script ok-loading ok-stale fast no-monitor no-slowlog @connection",
+     "no-auth no-script ok-loading ok-stale fast @connection",
      0,NULL,0,0,0,0,0,0},
 
     /* We don't allow PING during loading since in Redis PING is used as
@@ -749,7 +749,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"exec",execCommand,1,
-     "no-script no-monitor no-slowlog ok-loading ok-stale @transaction",
+     "no-script no-slowlog ok-loading ok-stale @transaction",
      0,NULL,0,0,0,0,0,0},
 
     {"discard",discardCommand,1,
@@ -901,25 +901,29 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"hello",helloCommand,-1,
-     "no-auth no-script fast no-monitor ok-loading ok-stale @connection",
+     "no-auth no-script fast ok-loading ok-stale @connection",
      0,NULL,0,0,0,0,0,0},
 
     /* EVAL can modify the dataset, however it is not flagged as a write
-     * command since we do the check while running commands from Lua. */
+     * command since we do the check while running commands from Lua.
+     * 
+     * EVAL and EVALSHA also feed monitors before the commands are executed,
+     * as opposed to after.
+      */
     {"eval",evalCommand,-3,
-     "no-script may-replicate @scripting",
+     "no-script no-monitor may-replicate @scripting",
      0,evalGetKeys,0,0,0,0,0,0},
 
     {"eval_ro",evalRoCommand,-3,
-     "no-script @scripting",
+     "no-script no-monitor @scripting",
      0,evalGetKeys,0,0,0,0,0,0},
 
     {"evalsha",evalShaCommand,-3,
-     "no-script may-replicate @scripting",
+     "no-script no-monitor may-replicate @scripting",
      0,evalGetKeys,0,0,0,0,0,0},
 
     {"evalsha_ro",evalShaRoCommand,-3,
-     "no-script @scripting",
+     "no-script no-monitor @scripting",
      0,evalGetKeys,0,0,0,0,0,0},
 
     {"slowlog",slowlogCommand,-2,
@@ -2612,6 +2616,7 @@ void createSharedObjects(void) {
     shared.getack = createStringObject("GETACK",6);
     shared.special_asterick = createStringObject("*",1);
     shared.special_equals = createStringObject("=",1);
+    shared.redacted = makeObjectShared(createStringObject("(redacted)",10));
 
     for (j = 0; j < OBJ_SHARED_INTEGERS; j++) {
         shared.integers[j] =
@@ -3634,12 +3639,6 @@ void preventCommandPropagation(client *c) {
     c->flags |= CLIENT_PREVENT_PROP;
 }
 
-/* Avoid logging any information about this client's arguments
- * since they contain sensitive information. */
-void preventCommandLogging(client *c) {
-    c->flags |= CLIENT_PREVENT_LOGGING;
-}
-
 /* AOF specific version of preventCommandPropagation(). */
 void preventCommandAOF(client *c) {
     c->flags |= CLIENT_PREVENT_AOF_PROP;
@@ -3653,7 +3652,7 @@ void preventCommandReplication(client *c) {
 /* Log the last command a client executed into the slowlog. */
 void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration) {
     /* Some commands may contain sensitive data that should not be available in the slowlog. */
-    if ((c->flags & CLIENT_PREVENT_LOGGING) || (cmd->flags & CMD_SKIP_SLOWLOG))
+    if (cmd->flags & CMD_SKIP_SLOWLOG)
         return;
 
     /* If command argument vector was rewritten, use the original
@@ -3708,15 +3707,6 @@ void call(client *c, int flags) {
     static long long prev_err_count;
 
     server.fixed_time_expire++;
-
-    /* Send the command to clients in MONITOR mode if applicable.
-     * Administrative commands are considered too dangerous to be shown. */
-    if (listLength(server.monitors) &&
-        !server.loading &&
-        !(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN)))
-    {
-        replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
-    }
 
     /* Initialization: clear the flags that must be set by the command on
      * demand, and initialize the array for additional commands propagation. */
@@ -3782,6 +3772,14 @@ void call(client *c, int flags) {
      * If the client is blocked we will handle slowlog when it is unblocked. */
     if ((flags & CMD_CALL_SLOWLOG) && !(c->flags & CLIENT_BLOCKED))
         slowlogPushCurrentCommand(c, real_cmd, duration);
+
+    /* Send the command to clients in MONITOR mode if applicable.
+     * Administrative commands are considered too dangerous to be shown. */
+    if (!(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN))) {
+        robj **argv = c->original_argv ? c->original_argv : c->argv;
+        int argc = c->original_argv ? c->original_argc : c->argc;
+        replicationFeedMonitors(c,server.monitors,c->db->id,argv,argc);
+    }
 
     /* Clear the original argv.
      * If the client is blocked we will handle slowlog when it is unblocked. */
