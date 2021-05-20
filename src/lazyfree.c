@@ -216,6 +216,7 @@ void emptyDbAsync(redisDb *db) {
 /* Release the radix tree mapping Redis Cluster keys to slots.
  * If the rax is huge enough, free it in async way. */
 void freeSlotsToKeysMapAsync(rax *rt) {
+    /* Because this rax has only keys and no values so we use numnodes. */
     if (rt->numnodes > LAZYFREE_THRESHOLD) {
         atomicIncr(lazyfree_objects,rt->numele);
         bioCreateLazyFreeJob(lazyfreeFreeSlotsMap,1,rt);
@@ -224,8 +225,10 @@ void freeSlotsToKeysMapAsync(rax *rt) {
     }
 }
 
-/* Free the key tracking table, if the table is huge enough, free it in async way. */
+/* Free the key tracking table.
+ * If the table is huge enough, free it in async way. */
 void freeTrackingRadixTreeAsync(rax *tracking) {
+    /* Because this rax has only keys and no values so we use numnodes. */
     if (tracking->numnodes > LAZYFREE_THRESHOLD) {
         atomicIncr(lazyfree_objects,tracking->numele);
         bioCreateLazyFreeJob(lazyFreeTrackingTable,1,tracking);
