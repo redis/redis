@@ -514,6 +514,7 @@ void hashTypeConvertZiplist(robj *o, int enc) {
                 p = ziplistNext(o->ptr, p);
             }
 
+            lp = lpShrinkToFit(lp);
             zfree(o->ptr);
             o->encoding = OBJ_ENCODING_LISTPACK;
             o->ptr = lp;
