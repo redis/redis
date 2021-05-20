@@ -2207,7 +2207,7 @@ void readQueryFromClient(connection *conn) {
             return;
         } else {
             serverLog(LL_VERBOSE, "Reading from client: %s",connGetLastError(c->conn));
-            freeClientAsync(c);
+            freeClient(c);
             return;
         }
     } else if (nread == 0) {
@@ -2216,7 +2216,7 @@ void readQueryFromClient(connection *conn) {
             serverLog(LL_VERBOSE, "Client closed connection %s", info);
             sdsfree(info);
         }
-        freeClientAsync(c);
+        freeClient(c);
         return;
     } else if (c->flags & CLIENT_MASTER) {
         /* Append the query buffer to the pending (not applied) buffer
@@ -2240,13 +2240,20 @@ void readQueryFromClient(connection *conn) {
         serverLog(LL_WARNING,"Closing client that reached max query buffer length: %s (qbuf initial bytes: %s)", ci, bytes);
         sdsfree(ci);
         sdsfree(bytes);
-        freeClientAsync(c);
+        freeClient(c);
         return;
     }
 
     /* There is more data in the client input buffer, continue parsing it
      * in case to check if there is a full command to execute. */
      processInputBuffer(c);
+
+     /* If the client was marked to be closed the free it now so we reclaim
+      * client memory before handling any other clients. */
+     if (c->flags & CLIENT_CLOSE_ASAP) {
+         serverLog(LL_WARNING, "@@@ freeing client early!");
+         freeClient(c);
+     }
 }
 
 /* A Redis "Address String" is a colon separated ip:port pair.

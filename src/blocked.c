@@ -141,9 +141,25 @@ void processUnblockedClients(void) {
             if (processPendingCommandsAndResetClient(c) == C_ERR) {
                 continue;
             }
+
+            /* Free the client if it's no longer needed after processing the
+             * command to reclaim its memory */
+            if (c->flags & CLIENT_CLOSE_ASAP) {
+                serverLog(LL_WARNING, "@@@ freeing unblocked client early!");
+                freeClient(c);
+                continue;
+            }
+
             /* Then process client if it has more data in it's buffer. */
             if (c->querybuf && sdslen(c->querybuf) > 0) {
                 processInputBuffer(c);
+
+                /* Free the client if it's no longer needed after processing the
+                 * command to reclaim its memory */
+                if (c->flags & CLIENT_CLOSE_ASAP) {
+                    serverLog(LL_WARNING, "@@@ freeing unblocked client early!");
+                    freeClient(c);
+                }
             }
         }
     }

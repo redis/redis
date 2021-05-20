@@ -123,7 +123,7 @@ start_server {tags {"maxmemory"}} {
                 $rr flush
             }
 
-            for {set j 0} {$j < 35} {incr j} {
+            for {set j 0} {$j < 40} {incr j} {
                 catch {r publish bla [string repeat x 100000]} err
             }
 
