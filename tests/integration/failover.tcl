@@ -83,7 +83,11 @@ start_server {} {
         } else {
             fail "Failover from node 0 to node 1 did not finish"
         }
+
+        # stop the write load and make sure no more commands processed
         stop_write_load $load_handler
+        wait_load_handlers_disconnected
+
         $node_2 replicaof $node_1_host $node_1_port
         wait_for_sync $node_0
         wait_for_sync $node_2
