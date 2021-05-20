@@ -949,7 +949,7 @@ typedef struct client {
     size_t buf_usable_size; /* Usable size of buffer. */
     /* Note that 'buf' must be the last field of client struct, because memory
      * allocator may give us more memory than our apply for reducing fragments,
-     * but we want to make full use of this memory, i.e. we will access the
+     * but we want to make full use of given memory, i.e. we may access the
      * memory after 'buf'. To avoid make others fields corrupt, 'buf' must be
      * the last one. */
     char buf[PROTO_REPLY_CHUNK_BYTES];

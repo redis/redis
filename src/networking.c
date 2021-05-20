@@ -959,7 +959,7 @@ void copyClientOutputBuffer(client *dst, client *src) {
     dst->sentlen = 0;
     dst->reply = listDup(src->reply);
     dst->reply_bytes = src->reply_bytes;
-    if ((long)dst->buf_usable_size == src->bufpos) {
+    if ((long)dst->buf_usable_size >= src->bufpos) {
         memcpy(dst->buf,src->buf,src->bufpos);
         dst->bufpos = src->bufpos;
     } else {
