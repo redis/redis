@@ -21,15 +21,9 @@ start_server {tags {"repl network"}} {
             stop_bg_complex_data $load_handle0
             stop_bg_complex_data $load_handle1
             stop_bg_complex_data $load_handle2
-            set retry 10
-            while {$retry && ([$master debug digest] ne [$slave debug digest])}\
-            {
-                after 1000
-                incr retry -1
-            }
-            assert {[$master dbsize] > 0}
-
-            if {[$master debug digest] ne [$slave debug digest]} {
+            wait_for_condition 100 100 {
+                [$master debug digest] == [$slave debug digest]
+            } else {
                 set csv1 [csvdump r]
                 set csv2 [csvdump {r -1}]
                 set fd [open /tmp/repldump1.txt w]
@@ -38,10 +32,9 @@ start_server {tags {"repl network"}} {
                 set fd [open /tmp/repldump2.txt w]
                 puts -nonewline $fd $csv2
                 close $fd
-                puts "Master - Replica inconsistency"
-                puts "Run diff -u against /tmp/repldump*.txt for more info"
+                fail "Master - Replica inconsistency, Run diff -u against /tmp/repldump*.txt for more info"
             }
-            assert_equal [r debug digest] [r -1 debug digest]
+            assert {[$master dbsize] > 0}
         }
     }
 }

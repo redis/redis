@@ -504,6 +504,14 @@ proc stop_write_load {handle} {
     catch {exec /bin/kill -9 $handle}
 }
 
+proc wait_load_handlers_disconnected {{level 0}} {
+    wait_for_condition 50 100 {
+        ![string match {*name=LOAD_HANDLER*} [r $level client list]]
+    } else {
+        fail "load_handler(s) still connected after too long time."
+    }
+}
+
 proc K { x y } { set x } 
 
 # Shuffle a list with Fisher-Yates algorithm.

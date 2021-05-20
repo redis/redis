@@ -316,15 +316,12 @@ foreach mdl {no yes} {
                             stop_write_load $load_handle3
                             stop_write_load $load_handle4
 
-                            # Make sure that slaves and master have same
-                            # number of keys
-                            wait_for_condition 500 100 {
-                                [$master dbsize] == [[lindex $slaves 0] dbsize] &&
-                                [$master dbsize] == [[lindex $slaves 1] dbsize] &&
-                                [$master dbsize] == [[lindex $slaves 2] dbsize]
-                            } else {
-                                fail "Different number of keys between master and replica after too long time."
-                            }
+                            # Make sure no more commands processed
+                            wait_load_handlers_disconnected
+
+                            wait_for_ofs_sync $master [lindex $slaves 0]
+                            wait_for_ofs_sync $master [lindex $slaves 1]
+                            wait_for_ofs_sync $master [lindex $slaves 2]
 
                             # Check digests
                             set digest [$master debug digest]
