@@ -131,6 +131,7 @@ client *createClient(connection *conn) {
     c->conn = conn;
     c->name = NULL;
     c->bufpos = 0;
+    c->buf_usable_size = zmalloc_usable_size(c)-sizeof(*c)+sizeof(c->buf);
     c->qb_pos = 0;
     c->querybuf = sdsempty();
     c->pending_querybuf = sdsempty();
@@ -279,23 +280,20 @@ int prepareClientToWrite(client *c) {
  * -------------------------------------------------------------------------- */
 
 /* Attempts to add the reply to the static buffer in the client struct.
- * Returns C_ERR if the buffer is full, or the reply list is not empty,
- * in which case the reply must be added to the reply list. */
-int _addReplyToBuffer(client *c, const char *s, size_t len) {
-    size_t available = sizeof(c->buf)-c->bufpos;
+ * Returns the lengh of data that is added to the reply list. */
+size_t _addReplyToBuffer(client *c, const char *s, size_t len) {
+    size_t available = c->buf_usable_size - c->bufpos;
 
-    if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return C_OK;
+    if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return len;
 
     /* If there already are entries in the reply list, we cannot
      * add anything more to the static buffer. */
-    if (listLength(c->reply) > 0) return C_ERR;
+    if (listLength(c->reply) > 0) return 0;
 
-    /* Check that the buffer has enough space available for this string. */
-    if (len > available) return C_ERR;
-
-    memcpy(c->buf+c->bufpos,s,len);
-    c->bufpos+=len;
-    return C_OK;
+    size_t reply_len = len > available ? available : len;
+    memcpy(c->buf+c->bufpos,s,reply_len);
+    c->bufpos+=reply_len;
+    return reply_len;
 }
 
 /* Adds the reply to the reply linked list.
@@ -337,6 +335,11 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
     }
 }
 
+void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
+    size_t reply_len = _addReplyToBuffer(c,s,len);
+    if (len > reply_len) _addReplyProtoToList(c,s+reply_len,len-reply_len);
+}
+
 /* -----------------------------------------------------------------------------
  * Higher level functions to queue data on the client output buffer.
  * The following functions are the ones that commands implementations will call.
@@ -347,16 +350,14 @@ void addReply(client *c, robj *obj) {
     if (prepareClientToWrite(c) != C_OK) return;
 
     if (sdsEncodedObject(obj)) {
-        if (_addReplyToBuffer(c,obj->ptr,sdslen(obj->ptr)) != C_OK)
-            _addReplyProtoToList(c,obj->ptr,sdslen(obj->ptr));
+        _addReplyToBufferOrList(c,obj->ptr,sdslen(obj->ptr));
     } else if (obj->encoding == OBJ_ENCODING_INT) {
         /* For integer encoded strings we just convert it into a string
          * using our optimized function, and attach the resulting string
          * to the output buffer. */
         char buf[32];
         size_t len = ll2string(buf,sizeof(buf),(long)obj->ptr);
-        if (_addReplyToBuffer(c,buf,len) != C_OK)
-            _addReplyProtoToList(c,buf,len);
+        _addReplyToBufferOrList(c,buf,len);
     } else {
         serverPanic("Wrong obj->encoding in addReply()");
     }
@@ -370,8 +371,7 @@ void addReplySds(client *c, sds s) {
         sdsfree(s);
         return;
     }
-    if (_addReplyToBuffer(c,s,sdslen(s)) != C_OK)
-        _addReplyProtoToList(c,s,sdslen(s));
+    _addReplyToBufferOrList(c,s,sdslen(s));
     sdsfree(s);
 }
 
@@ -385,8 +385,7 @@ void addReplySds(client *c, sds s) {
  * in the list of objects. */
 void addReplyProto(client *c, const char *s, size_t len) {
     if (prepareClientToWrite(c) != C_OK) return;
-    if (_addReplyToBuffer(c,s,len) != C_OK)
-        _addReplyProtoToList(c,s,len);
+    _addReplyToBufferOrList(c,s,len);
 }
 
 /* Low level function called by the addReplyError...() functions.
@@ -959,9 +958,20 @@ void copyClientOutputBuffer(client *dst, client *src) {
     listRelease(dst->reply);
     dst->sentlen = 0;
     dst->reply = listDup(src->reply);
-    memcpy(dst->buf,src->buf,src->bufpos);
-    dst->bufpos = src->bufpos;
     dst->reply_bytes = src->reply_bytes;
+    if ((long)dst->buf_usable_size == src->bufpos) {
+        memcpy(dst->buf,src->buf,src->bufpos);
+        dst->bufpos = src->bufpos;
+    } else {
+        /* We can't use buf of client, so create a new clientReplyBlock. */
+        clientReplyBlock *head = zmalloc(src->bufpos + sizeof(clientReplyBlock));
+        head->size = zmalloc_usable_size(head) - sizeof(clientReplyBlock);
+        head->used = src->bufpos;
+        memcpy(head->buf,src->buf,src->bufpos);
+        listAddNodeHead(dst->reply,head);
+        dst->reply_bytes += head->size;
+        dst->bufpos = 0;
+    }
 }
 
 /* Return true if the specified client has pending reply buffers to write to
