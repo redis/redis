@@ -109,8 +109,8 @@ int bg_unlink(const char *filename) {
 
 void createReplicationBacklog(void) {
     serverAssert(server.repl_backlog == NULL);
-    server.repl_backlog = zmalloc_usable(server.repl_backlog_size,
-                               (size_t*)&server.repl_backlog_size);
+    server.repl_backlog = zmalloc(server.cfg_repl_backlog_size);
+    server.repl_backlog_size = zmalloc_usable_size(server.repl_backlog);
     server.repl_backlog_histlen = 0;
     server.repl_backlog_idx = 0;
 
@@ -122,16 +122,16 @@ void createReplicationBacklog(void) {
 
 /* This function is called when the user modifies the replication backlog
  * size at runtime. It is up to the function to both update the
- * server.repl_backlog_size and to resize the buffer and setup it so that
+ * server.cfg_repl_backlog_size and to resize the buffer and setup it so that
  * it contains the same data as the previous one (possibly less data, but
  * the most recent bytes, or the same data and more free space in case the
  * buffer is enlarged). */
 void resizeReplicationBacklog(long long newsize) {
     if (newsize < CONFIG_REPL_BACKLOG_MIN_SIZE)
         newsize = CONFIG_REPL_BACKLOG_MIN_SIZE;
-    if (server.repl_backlog_size == newsize) return;
+    if (server.cfg_repl_backlog_size == newsize) return;
 
-    server.repl_backlog_size = newsize;
+    server.cfg_repl_backlog_size = newsize;
     if (server.repl_backlog != NULL) {
         /* What we actually do is to flush the old buffer and realloc a new
          * empty one. It will refill with new data incrementally.
@@ -139,8 +139,8 @@ void resizeReplicationBacklog(long long newsize) {
          * worse often we need to alloc additional space before freeing the
          * old buffer. */
         zfree(server.repl_backlog);
-        server.repl_backlog = zmalloc_usable(server.repl_backlog_size,
-                                   (size_t*)&server.repl_backlog_size);
+        server.repl_backlog = zmalloc(server.cfg_repl_backlog_size);
+        server.repl_backlog_size = zmalloc_usable_size(server.repl_backlog);
         server.repl_backlog_histlen = 0;
         server.repl_backlog_idx = 0;
         /* Next byte we have is... the next since the buffer is empty. */
