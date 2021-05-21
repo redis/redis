@@ -1380,7 +1380,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
         (argc == 2 && !strcasecmp(command,"latency") &&
                        !strcasecmp(argv[1],"doctor")) ||
         /* Format PROXY INFO command for Redis Cluster Proxy:
-         * https://github.com/artix75/redis-cluster-proxy */
+         * https://github.com/RedisLabs/redis-cluster-proxy */
         (argc >= 2 && !strcasecmp(command,"proxy") &&
                        !strcasecmp(argv[1],"info")))
     {
