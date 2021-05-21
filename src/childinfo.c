@@ -69,7 +69,7 @@ void closeChildInfoPipe(void) {
 /* Send save data to parent. */
 void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress, char *pname) {
     if (server.child_info_pipe[1] == -1) return;
-
+    static size_t peak_cow = 0;
     static monotime cow_updated = 0;
     static uint64_t cow_update_cost = 0;
     static size_t cow = 0;
@@ -89,11 +89,13 @@ void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress,
         cow = zmalloc_get_private_dirty(-1);
         cow_updated = getMonotonicUs();
         cow_update_cost = cow_updated - now;
+        if (cow > peak_cow) peak_cow = cow;
 
+        int cow_info = (info_type != CHILD_INFO_TYPE_CURRENT_INFO);
         if (cow) {
-            serverLog((info_type == CHILD_INFO_TYPE_CURRENT_INFO) ? LL_VERBOSE : LL_NOTICE,
+            serverLog(cow_info ? LL_NOTICE : LL_VERBOSE,
                       "%s: %zu MB of memory used by copy-on-write",
-                      pname, cow / (1024 * 1024));
+                      pname, (cow_info ? peak_cow : cow) / (1024 * 1024));
         }
     }
 
@@ -112,18 +114,24 @@ void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress,
 
 /* Update Child info. */
 void updateChildInfo(childInfoType information_type, size_t cow, monotime cow_updated, size_t keys, double progress) {
+    static size_t peak_cow = 0;
+    if (cow > peak_cow) peak_cow = cow;
+
     if (information_type == CHILD_INFO_TYPE_CURRENT_INFO) {
         server.stat_current_cow_bytes = cow;
         server.stat_current_cow_updated = cow_updated;
         server.stat_current_save_keys_processed = keys;
         if (progress != -1) server.stat_module_progress = progress;
     } else if (information_type == CHILD_INFO_TYPE_AOF_COW_SIZE) {
-        server.stat_aof_cow_bytes = cow;
+        server.stat_aof_cow_bytes = peak_cow;
     } else if (information_type == CHILD_INFO_TYPE_RDB_COW_SIZE) {
-        server.stat_rdb_cow_bytes = cow;
+        server.stat_rdb_cow_bytes = peak_cow;
     } else if (information_type == CHILD_INFO_TYPE_MODULE_COW_SIZE) {
-        server.stat_module_cow_bytes = cow;
+        server.stat_module_cow_bytes = peak_cow;
     }
+
+    /* Reset peak_cow. */
+    if (information_type != CHILD_INFO_TYPE_CURRENT_INFO) peak_cow = 0;
 }
 
 /* Read child info data from the pipe.
