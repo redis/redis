@@ -131,7 +131,7 @@ client *createClient(connection *conn) {
     c->conn = conn;
     c->name = NULL;
     c->bufpos = 0;
-    c->buf_usable_size = zmalloc_usable_size(c)-sizeof(*c)+sizeof(c->buf);
+    c->buf_usable_size = zmalloc_usable_size(c)-offsetof(client,buf);
     c->qb_pos = 0;
     c->querybuf = sdsempty();
     c->pending_querybuf = sdsempty();
@@ -280,7 +280,7 @@ int prepareClientToWrite(client *c) {
  * -------------------------------------------------------------------------- */
 
 /* Attempts to add the reply to the static buffer in the client struct.
- * Returns the lengh of data that is added to the reply list. */
+ * Returns the lengh of data that is added to the reply buffer. */
 size_t _addReplyToBuffer(client *c, const char *s, size_t len) {
     size_t available = c->buf_usable_size - c->bufpos;
 
@@ -955,23 +955,20 @@ void AddReplyFromClient(client *dst, client *src) {
  * The function takes care of freeing the old output buffers of the
  * destination client. */
 void copyClientOutputBuffer(client *dst, client *src) {
-    listRelease(dst->reply);
+    listEmpty(dst->reply);
     dst->sentlen = 0;
-    dst->reply = listDup(src->reply);
-    dst->reply_bytes = src->reply_bytes;
-    if ((long)dst->buf_usable_size >= src->bufpos) {
-        memcpy(dst->buf,src->buf,src->bufpos);
-        dst->bufpos = src->bufpos;
-    } else {
-        /* We can't use buf of client, so create a new clientReplyBlock. */
-        clientReplyBlock *head = zmalloc(src->bufpos + sizeof(clientReplyBlock));
-        head->size = zmalloc_usable_size(head) - sizeof(clientReplyBlock);
-        head->used = src->bufpos;
-        memcpy(head->buf,src->buf,src->bufpos);
-        listAddNodeHead(dst->reply,head);
-        dst->reply_bytes += head->size;
-        dst->bufpos = 0;
-    }
+    dst->bufpos = 0;
+    dst->reply_bytes = 0;
+
+    /* First copy src static buffer into dst (either static buffer or reply
+     * list, maybe clients have different 'usable_buffer_size'). */
+    _addReplyToBufferOrList(dst,src->buf,src->bufpos);
+
+    /* Copy src reply list into the dest. */
+    list* reply = listDup(src->reply);
+    listJoin(dst->reply,reply);
+    dst->reply_bytes += src->reply_bytes;
+    listRelease(reply);
 }
 
 /* Return true if the specified client has pending reply buffers to write to
