@@ -657,6 +657,10 @@ void flushdbCommand(client *c) {
 
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
     server.dirty += emptyDb(c->db->id,flags,NULL);
+    /* Without that extra dirty++, when db was already empty, FLUSHDB will
+     * not be replicated nor put into the AOF. */
+    server.dirty++;
+
     addReply(c,shared.ok);
 #if defined(USE_JEMALLOC)
     /* jemalloc 5 doesn't release pages back to the OS when there's no traffic.
