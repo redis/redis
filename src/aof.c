@@ -61,6 +61,11 @@ void aofClosePipes(void);
 
 typedef struct aofrwblock {
     unsigned long used, free, pos;
+    /* Note that 'buf' must be the last field of aofrwblock struct, because
+     * memory allocator may give us more memory than our apply for reducing
+     * fragments, but we want to make full use of given memory, i.e. we may
+     * access the memory after 'buf'. To avoid make others fields corrupt,
+     * 'buf' must be the last one. */
     char buf[AOF_RW_BUF_BLOCK_SIZE];
 } aofrwblock;
 
@@ -85,6 +90,22 @@ unsigned long aofRewriteBufferSize(void) {
     while((ln = listNext(&li))) {
         aofrwblock *block = listNodeValue(ln);
         size += block->used;
+    }
+    return size;
+}
+
+/* This function is different from aofRewriteBufferSize, to get memory usage,
+ * we should also count all other fields(except 'buf') of aofrwblock and the
+ * last block's free size. */
+unsigned long aofRewriteBufferMemoryUsage(void) {
+    unsigned long size = aofRewriteBufferSize();
+
+    listNode *ln = listLast(server.aof_rewrite_buf_blocks);
+    if (ln != NULL) {
+        aofrwblock *block = listNodeValue(ln);
+        size += block->free;
+        size += (offsetof(aofrwblock,buf) *
+                 listLength(server.aof_rewrite_buf_blocks));
     }
     return size;
 }
@@ -146,7 +167,7 @@ void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
             int numblocks;
 
             block = zmalloc(sizeof(*block));
-            block->free = AOF_RW_BUF_BLOCK_SIZE;
+            block->free = zmalloc_usable_size(block)-offsetof(aofrwblock,buf);
             block->used = 0;
             block->pos = 0;
             listAddNodeTail(server.aof_rewrite_buf_blocks,block);

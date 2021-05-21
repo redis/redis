@@ -2077,6 +2077,7 @@ int startAppendOnly(void);
 void backgroundRewriteDoneHandler(int exitcode, int bysignal);
 void aofRewriteBufferReset(void);
 unsigned long aofRewriteBufferSize(void);
+unsigned long aofRewriteBufferMemoryUsage(void);
 ssize_t aofReadDiffFromParent(void);
 void killAppendOnlyChild(void);
 void restartAOFAfterSYNC();
