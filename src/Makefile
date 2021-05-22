@@ -207,10 +207,11 @@ ifeq ($(MALLOC),jemalloc)
 	FINAL_CFLAGS+= -DUSE_JEMALLOC -I../deps/jemalloc/include
 	FINAL_LIBS := ../deps/jemalloc/lib/libjemalloc.a $(FINAL_LIBS)
 endif
-
+USE_SSL=0
 ifeq ($(BUILD_TLS),yes)
 	FINAL_CFLAGS+=-DUSE_OPENSSL $(OPENSSL_CFLAGS)
 	FINAL_LDFLAGS+=$(OPENSSL_LDFLAGS)
+	USE_SSL=1
 	LIBSSL_PKGCONFIG := $(shell $(PKG_CONFIG) --exists libssl && echo $$?)
 ifeq ($(LIBSSL_PKGCONFIG),0)
 	LIBSSL_LIBS=$(shell $(PKG_CONFIG) --libs libssl)
@@ -280,7 +281,7 @@ persist-settings: distclean
 	echo REDIS_LDFLAGS=$(REDIS_LDFLAGS) >> .make-settings
 	echo PREV_FINAL_CFLAGS=$(FINAL_CFLAGS) >> .make-settings
 	echo PREV_FINAL_LDFLAGS=$(FINAL_LDFLAGS) >> .make-settings
-	-(cd ../deps && $(MAKE) $(DEPENDENCY_TARGETS))
+	-(cd ../deps && $(MAKE) USE_SSL=$(USE_SSL) $(DEPENDENCY_TARGETS))
 
 .PHONY: persist-settings
 
