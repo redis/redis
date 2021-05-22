@@ -144,7 +144,7 @@ start_server {tags {"maxmemory"}} {
 }
 
 proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} {
-    start_server {tags {"maxmemory"}} {
+    start_server {tags {"maxmemory"} overrides {slowlog-log-slower-than -1}} {
         start_server {} {
         set slave_pid [s process_id]
         test "$test_name" {
@@ -167,10 +167,11 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             $master config set repl-backlog-size [expr {10*1024}]
 
             $slave slaveof $master_host $master_port
+            wait_for_sync $slave
             wait_for_condition 50 100 {
-                [s 0 master_link_status] eq {up}
+                [regexp {lag=([0-9]+)} [status $master slave0] - lag] && $lag != 0
             } else {
-                fail "Replication not started."
+                fail "master has not receive ack from slave."
             }
 
             # measure used memory after the slave connected and set maxmemory
