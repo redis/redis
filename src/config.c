@@ -652,13 +652,11 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
     glob_t globbuf;
 
     /* Load the file content */
-    if (filename)
-    {
+    if (filename) {
         globbuf.gl_offs = 0;
         glob(filename, GLOB_DOOFFS, NULL, &globbuf);
 
-        for (size_t i=0; i<globbuf.gl_pathc; i++)
-        {
+        for (size_t i = 0; i < globbuf.gl_pathc; i++) {
             if ((fp = fopen(globbuf.gl_pathv[i],"r")) == NULL) {
                 serverLog(LL_WARNING,
                         "Fatal error, can't open config file '%s': %s",
