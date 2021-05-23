@@ -3175,11 +3175,13 @@ void sentinelConfigSetCommand(client *c) {
         sentinel.announce_port = numval;
     } else if (!strcasecmp(o->ptr, "sentinel-user")) {
         sdsfree(sentinel.sentinel_auth_user);
-        sentinel.sentinel_auth_user = sdsnew(val->ptr);
+        sentinel.sentinel_auth_user = sdslen(val->ptr) == 0 ?
+            sdsdup(val->ptr) : NULL;
         drop_conns = 1;
     } else if (!strcasecmp(o->ptr, "sentinel-pass")) {
         sdsfree(sentinel.sentinel_auth_pass);
-        sentinel.sentinel_auth_pass = sdsnew(val->ptr);
+        sentinel.sentinel_auth_pass = sdslen(val->ptr) == 0 ?
+            sdsdup(val->ptr) : NULL;
         drop_conns = 1;
     } else {
         addReplyErrorFormat(c, "Invalid argument '%s' to SENTINEL CONFIG SET",
