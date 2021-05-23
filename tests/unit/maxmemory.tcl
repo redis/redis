@@ -190,8 +190,6 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
                 $master config set maxmemory $limit
             }
 
-            
-
             # send some 10mb worth of commands that don't increase the memory usage
             if {$pipeline == 1} {
                 set rd_master [redis_deferring_client -1]
