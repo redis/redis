@@ -33,6 +33,7 @@
 
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <glob.h>
 
 /*-----------------------------------------------------------------------------
  * Config file name-value maps.
@@ -648,19 +649,29 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
     sds config = sdsempty();
     char buf[CONFIG_MAX_LINE+1];
     FILE *fp;
+    glob_t globbuf;
 
     /* Load the file content */
-    if (filename) {
-        if ((fp = fopen(filename,"r")) == NULL) {
-            serverLog(LL_WARNING,
-                    "Fatal error, can't open config file '%s': %s",
-                    filename, strerror(errno));
-            exit(1);
-        }
-        while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
-            config = sdscat(config,buf);
-        fclose(fp);
+    if (filename)
+    {
+        globbuf.gl_offs = 0;
+        glob(filename, GLOB_DOOFFS, NULL, &globbuf);
+
+        for (size_t i=0; i<globbuf.gl_pathc; i++)
+        {
+            if ((fp = fopen(globbuf.gl_pathv[i],"r")) == NULL) {
+                serverLog(LL_WARNING,
+                        "Fatal error, can't open config file '%s': %s",
+                        globbuf.gl_pathv[i], strerror(errno));
+                exit(1);
+            }
+            while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
+                config = sdscat(config,buf);
+            fclose(fp);
+       }
+       globfree(&globbuf);
     }
+
     /* Append content from stdin */
     if (config_from_stdin) {
         serverLog(LL_WARNING,"Reading config from stdin");
