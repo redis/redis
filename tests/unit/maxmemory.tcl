@@ -168,6 +168,11 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
 
             $slave slaveof $master_host $master_port
             wait_for_sync $slave
+
+            # put the slave to sleep
+            set rd_slave [redis_deferring_client]
+            exec kill -SIGSTOP $slave_pid
+
             wait_for_condition 50 100 {
                 [regexp {lag=([0-9]+)} [status $master slave0] - lag] && $lag != 0
             } else {
@@ -185,9 +190,7 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
                 $master config set maxmemory $limit
             }
 
-            # put the slave to sleep
-            set rd_slave [redis_deferring_client]
-            exec kill -SIGSTOP $slave_pid
+            
 
             # send some 10mb worth of commands that don't increase the memory usage
             if {$pipeline == 1} {
