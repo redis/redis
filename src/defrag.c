@@ -345,7 +345,7 @@ long activeDefragSdsListAndDict(list *l, dict *d, int dict_val_type) {
         }
         sdsele = ln->value;
         if ((newsds = activeDefragSds(sdsele))) {
-            /* When defragging an sds value, we need to update the dict key */
+            /* When defragging a sds value, we need to update the dict key */
             uint64_t hash = dictGetHash(d, newsds);
             dictEntry **deref = dictFindEntryRefByPtrAndHash(d, sdsele, hash);
             if (deref)

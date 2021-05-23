@@ -720,7 +720,7 @@ void getRandomHexChars(char *p, size_t len) {
     for (j = 0; j < len; j++) p[j] = charset[p[j] & 0x0F];
 }
 
-/* Given the filename, return the absolute path as an SDS string, or NULL
+/* Given the filename, return the absolute path as a SDS string, or NULL
  * if it fails for some reason. Note that "filename" may be an absolute path
  * already, this will be detected and handled correctly.
  *

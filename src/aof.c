@@ -397,7 +397,7 @@ void flushAppendOnlyFile(int force) {
                  * than two seconds this is still ok. Postpone again. */
                 return;
             }
-            /* Otherwise fall trough, and go write since we can't wait
+            /* Otherwise fall through, and go write since we can't wait
              * over two seconds. */
             server.aof_delayed_fsync++;
             serverLog(LL_NOTICE,"Asynchronous AOF fsync is taking too long (disk is busy?). Writing the AOF buffer without waiting for fsync to complete, this may slow down Redis.");
@@ -1933,7 +1933,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             oldfd = open(server.aof_filename,O_RDONLY|O_NONBLOCK);
         } else {
             /* AOF enabled */
-            oldfd = -1; /* We'll set this to the current AOF filedes later. */
+            oldfd = -1; /* We'll set this to the current AOF file descriptor later. */
         }
 
         /* Rename the temporary file. This will not unlink the target file if

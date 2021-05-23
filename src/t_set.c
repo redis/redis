@@ -194,7 +194,7 @@ sds setTypeNextObject(setTypeIterator *si) {
 
 /* Return random element from a non empty set.
  * The returned element can be an int64_t value if the set is encoded
- * as an "intset" blob of integers, or an SDS string if the set
+ * as an "intset" blob of integers, or a SDS string if the set
  * is a regular set.
  *
  * The caller provides both pointers to be populated with the right

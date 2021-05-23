@@ -379,7 +379,7 @@ void addReplySds(client *c, sds s) {
  * client buffer, trying the static buffer initially, and using the string
  * of objects if not possible.
  *
- * It is efficient because does not create an SDS object nor an Redis object
+ * It is efficient because does not create a SDS object nor an Redis object
  * if not needed. The object will only be created by calling
  * _addReplyProtoToList() if we fail to extend the existing tail object
  * in the list of objects. */
@@ -1746,7 +1746,7 @@ int processInlineBuffer(client *c) {
     /* Masters should never send us inline protocol to run actual
      * commands. If this happens, it is likely due to a bug in Redis where
      * we got some desynchronization in the protocol, for example
-     * beause of a PSYNC gone bad.
+     * because of a PSYNC gone bad.
      *
      * However the is an exception: masters may send us just a newline
      * to keep the connection active. */
@@ -1777,7 +1777,7 @@ int processInlineBuffer(client *c) {
     return C_OK;
 }
 
-/* Helper function. Record protocol erro details in server log,
+/* Helper function. Record protocol error details in server log,
  * and set the client as CLIENT_CLOSE_AFTER_REPLY and
  * CLIENT_PROTOCOL_ERROR. */
 #define PROTO_DUMP_LEN 128
@@ -2357,7 +2357,7 @@ sds getAllClientsInfoString(int type) {
 
 /* This function implements CLIENT SETNAME, including replying to the
  * user with an error if the charset is wrong (in that case C_ERR is
- * returned). If the function succeeeded C_OK is returned, and it's up
+ * returned). If the function succeeded C_OK is returned, and it's up
  * to the caller to send a reply if needed.
  *
  * Setting an empty string as name has the effect of unsetting the
@@ -2474,7 +2474,7 @@ void clientCommand(client *c) {
 "UNPAUSE",
 "    Stop the current client pause, resuming traffic.",
 "PAUSE <timeout> [WRITE|ALL]",
-"    Suspend all, or just write, clients for <timout> milliseconds.",
+"    Suspend all, or just write, clients for <timeout> milliseconds.",
 "REPLY (ON|OFF|SKIP)",
 "    Control the replies sent to the current connection.",
 "SETNAME <name>",
@@ -3302,7 +3302,7 @@ void flushSlavesOutputBuffers(void) {
  *
  * A main use case of this function is to allow pausing replication traffic
  * so that a failover without data loss to occur. Replicas will continue to receive
- * traffic to faciliate this functionality.
+ * traffic to facilitate this functionality.
  * 
  * This function is also internally used by Redis Cluster for the manual
  * failover procedure implemented by CLUSTER FAILOVER.
@@ -3391,7 +3391,7 @@ void processEventsWhileBlocked(void) {
             AE_FILE_EVENTS|AE_DONT_WAIT|
             AE_CALL_BEFORE_SLEEP|AE_CALL_AFTER_SLEEP);
         /* Note that server.events_processed_while_blocked will also get
-         * incremeted by callbacks called by the event loop handlers. */
+         * incremented by callbacks called by the event loop handlers. */
         server.events_processed_while_blocked += ae_events;
         long long events = server.events_processed_while_blocked - startval;
         if (!events) break;

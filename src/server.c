@@ -1676,7 +1676,7 @@ long long getInstantaneousMetric(int metric) {
     return sum / STATS_METRIC_SAMPLES;
 }
 
-/* The client query buffer is an sds.c string that can end with a lot of
+/* The client query buffer is a sds string that can end with a lot of
  * free space not used, this function reclaims space if needed.
  *
  * The function always returns 0 as it never terminates the client. */
@@ -2195,7 +2195,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             }
         }
     }
-    /* Just for the sake of defensive programming, to avoid forgeting to
+    /* Just for the sake of defensive programming, to avoid forgetting to
      * call this function when need. */
     updateDictResizePolicy();
 
@@ -2474,7 +2474,7 @@ void afterSleep(struct aeEventLoop *eventLoop) {
 
     /* Do NOT add anything above moduleAcquireGIL !!! */
 
-    /* Aquire the modules GIL so that their threads won't touch anything. */
+    /* Acquire the modules GIL so that their threads won't touch anything. */
     if (!ProcessingEventsWhileBlocked) {
         if (moduleCount()) moduleAcquireGIL();
     }
@@ -2629,7 +2629,7 @@ void createSharedObjects(void) {
         shared.bulkhdr[j] = createObject(OBJ_STRING,
             sdscatprintf(sdsempty(),"$%d\r\n",j));
     }
-    /* The following two shared objects, minstring and maxstrings, are not
+    /* The following two shared objects, minstring and maxstring, are not
      * actually used for their value but as a special object meaning
      * respectively the minimum possible string and the maximum possible
      * string in string comparisons for the ZRANGEBYLEX command. */
@@ -2821,7 +2821,7 @@ int restartServer(int flags, mstime_t delay) {
         return C_ERR;
     }
 
-    /* Close all file descriptors, with the exception of stdin, stdout, strerr
+    /* Close all file descriptors, with the exception of stdin, stdout, stderr
      * which are useful if we restart a Redis server which is not daemonized. */
     for (j = 3; j < (int)server.maxclients + 1024; j++) {
         /* Test the descriptor validity before closing it, otherwise
@@ -3136,7 +3136,7 @@ void resetServerStats(void) {
 }
 
 /* Make the thread killable at any time, so that kill threads functions
- * can work reliably (default cancelability type is PTHREAD_CANCEL_DEFERRED).
+ * can work reliably (default cancellability type is PTHREAD_CANCEL_DEFERRED).
  * Needed for pthread_cancel used by the fast memory test used by the crash report. */
 void makeThreadKillable(void) {
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
@@ -3586,7 +3586,7 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
         execCommandPropagateMulti(dbid);
 
     /* This needs to be unreachable since the dataset should be fixed during 
-     * client pause, otherwise data may be lossed during a failover. */
+     * client pause, otherwise data may be lost during a failover. */
     serverAssert(!(areClientsPaused() && !server.client_pause_in_transaction));
 
     if (server.aof_state != AOF_OFF && flags & PROPAGATE_AOF)
@@ -3902,7 +3902,7 @@ void call(client *c, int flags) {
 }
 
 /* Used when a command that is ready for execution needs to be rejected, due to
- * varios pre-execution checks. it returns the appropriate error to the client.
+ * various pre-execution checks. it returns the appropriate error to the client.
  * If there's a transaction is flags it as dirty, and if the command is EXEC,
  * it aborts the transaction.
  * Note: 'reply' is expected to end with \r\n */
@@ -4220,7 +4220,7 @@ int processCommand(client *c) {
      * The main objective here is to prevent abuse of client pause check
      * from which replicas are exempt. */
     if ((c->flags & CLIENT_SLAVE) && (is_may_replicate_command || is_write_command || is_read_command)) {
-        rejectCommandFormat(c, "Replica can't interract with the keyspace");
+        rejectCommandFormat(c, "Replica can't interact with the keyspace");
         return C_OK;
     }
 
@@ -4312,7 +4312,7 @@ int prepareForShutdown(int flags) {
         /* Note that, in killRDBChild normally has backgroundSaveDoneHandler
          * doing it's cleanup, but in this case this code will not be reached,
          * so we need to call rdbRemoveTempFile which will close fd(in order
-         * to unlink file actully) in background thread.
+         * to unlink file actually) in background thread.
          * The temp rdb file fd may won't be closed when redis exits quickly,
          * but OS will close this fd when process exits. */
         rdbRemoveTempFile(server.child_pid, 0);
@@ -5681,12 +5681,12 @@ int changeBindAddr(sds *addrlist, int addrlist_len) {
         /* Re-Listen TCP and TLS */
         server.ipfd.count = 0;
         if (server.port != 0 && listenToPort(server.port, &server.ipfd) != C_OK) {
-            serverPanic("Failed to restore old listening sockets.");
+            serverPanic("Failed to restore old listening TCP socket.");
         }
 
         server.tlsfd.count = 0;
         if (server.tls_port != 0 && listenToPort(server.tls_port, &server.tlsfd) != C_OK) {
-            serverPanic("Failed to restore old listening sockets.");
+            serverPanic("Failed to restore old listening TLS socket.");
         }
 
         result = C_ERR;
@@ -5949,7 +5949,7 @@ void loadDataFromDisk(void) {
                 memcpy(server.replid,rsi.repl_id,sizeof(server.replid));
                 server.master_repl_offset = rsi.repl_offset;
                 /* If we are a slave, create a cached master from this
-                 * information, in order to allow partial resynchronizations
+                 * information, in order to allow partial resynchronization
                  * with masters. */
                 replicationCacheMasterUsingMyself();
                 selectDb(server.cached_master,rsi.repl_stream_db);

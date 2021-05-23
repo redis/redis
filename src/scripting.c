@@ -750,7 +750,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
      * output buffers. */
     if (listLength(c->reply) == 0 && c->bufpos < PROTO_REPLY_CHUNK_BYTES) {
         /* This is a fast path for the common case of a reply inside the
-         * client static buffer. Don't create an SDS string but just use
+         * client static buffer. Don't create a SDS string but just use
          * the client buffer directly. */
         c->buf[c->bufpos] = '\0';
         reply = c->buf;
@@ -1372,7 +1372,7 @@ int redis_math_randomseed (lua_State *L) {
  * The function increments the reference count of the 'body' object as a
  * side effect of a successful call.
  *
- * On success a pointer to an SDS string representing the function SHA1 of the
+ * On success a pointer to a SDS string representing the function SHA1 of the
  * just added function is returned (and will be valid until the next call
  * to scriptingReset() function), otherwise NULL is returned.
  *

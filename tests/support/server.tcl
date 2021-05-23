@@ -187,7 +187,7 @@ proc tags_acceptable {err_return} {
 
 # doesn't really belong here, but highly coupled to code in start_server
 proc tags {tags code} {
-    # If we 'tags' contain multiple tags, quoted and seperated by spaces,
+    # If we 'tags' contain multiple tags, quoted and separated by spaces,
     # we want to get rid of the quotes in order to have a proper list
     set tags [string map { \" "" } $tags]
     set ::tags [concat $::tags $tags]
@@ -289,7 +289,7 @@ proc start_server {options {code undefined}} {
                 set omit $value
             }
             "tags" {
-                # If we 'tags' contain multiple tags, quoted and seperated by spaces,
+                # If we 'tags' contain multiple tags, quoted and separated by spaces,
                 # we want to get rid of the quotes in order to have a proper list
                 set tags [string map { \" "" } $value]
                 set ::tags [concat $::tags $tags]

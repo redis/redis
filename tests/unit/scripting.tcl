@@ -272,7 +272,7 @@ start_server {tags {"scripting"}} {
                 local encoded = cmsgpack.pack(a)
                 local h = ""
                 -- cmsgpack encodes to a depth of 16, but can't encode
-                -- references, so the encoded object has a deep copy recusive
+                -- references, so the encoded object has a deep copy recursive
                 -- depth of 16.
                 for i = 1, #encoded do
                     h = h .. string.format("%02x",string.byte(encoded,i))

@@ -448,7 +448,7 @@ void trackingInvalidateKeysOnFlush(int async) {
  *
  * So Redis allows the user to configure a maximum number of keys for the
  * invalidation table. This function makes sure that we don't go over the
- * specified fill rate: if we are over, we can just evict informations about
+ * specified fill rate: if we are over, we can just evict information about
  * a random key, and send invalidation messages to clients like if the key was
  * modified. */
 void trackingLimitUsedSlots(void) {
@@ -493,7 +493,7 @@ void trackingLimitUsedSlots(void) {
  * include keys that were modified the last time by this client, in order
  * to implement the NOLOOP option.
  *
- * If the resultin array would be empty, NULL is returned instead. */
+ * If the resulting array would be empty, NULL is returned instead. */
 sds trackingBuildBroadcastReply(client *c, rax *keys) {
     raxIterator ri;
     uint64_t count;

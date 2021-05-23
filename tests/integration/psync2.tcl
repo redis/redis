@@ -117,7 +117,7 @@ start_server {} {
         set used [list $master_id]
         test "PSYNC2: \[NEW LAYOUT\] Set #$master_id as master" {
             $R($master_id) slaveof no one
-            $R($master_id) config set repl-ping-replica-period 1 ;# increse the chance that random ping will cause issues
+            $R($master_id) config set repl-ping-replica-period 1 ;# increase the chance that random ping will cause issues
             if {$counter_value == 0} {
                 $R($master_id) set x $counter_value
             }

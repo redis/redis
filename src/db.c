@@ -199,7 +199,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
 }
 
 /* This is a special version of dbAdd() that is used only when loading
- * keys from the RDB file: the key is passed as an SDS string that is
+ * keys from the RDB file: the key is passed as a SDS string that is
  * retained by the function (and not freed by the caller).
  *
  * Moreover this function will not abort if the key is already busy, to
@@ -295,7 +295,7 @@ robj *dbRandomKey(redisDb *db) {
                  * it could happen that all the keys are already logically
                  * expired in the slave, so the function cannot stop because
                  * expireIfNeeded() is false, nor it can stop because
-                 * dictGetRandomKey() returns NULL (there are keys to return).
+                 * dictGetFairRandomKey() returns NULL (there are keys to return).
                  * To prevent the infinite loop we do some tries, but if there
                  * are the conditions for an infinite loop, eventually we
                  * return a key name that may be already expired. */
@@ -360,7 +360,7 @@ int dbDelete(redisDb *db, robj *key) {
  * o = dbUnshareStringValue(db,key,o);
  *
  * At this point the caller is ready to modify the object, for example
- * using an sdscat() call to append some data, or anything else.
+ * using a sdscat() call to append some data, or anything else.
  */
 robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
     serverAssert(o->type == OBJ_STRING);

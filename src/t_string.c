@@ -73,7 +73,7 @@ static int checkStringLength(client *c, long long size) {
 #define OBJ_PERSIST (1<<8)         /* Set if we need to remove the ttl */
 
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
-    long long milliseconds = 0, when = 0; /* initialized to avoid any harmness warning */
+    long long milliseconds = 0, when = 0; /* initialized to avoid any harmless warning */
 
     if (expire) {
         if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != C_OK)
@@ -685,7 +685,7 @@ void appendCommand(client *c) {
         if (checkType(c,o,OBJ_STRING))
             return;
 
-        /* "append" is an argument, so always an sds */
+        /* "append" is an argument, so always a sds */
         append = c->argv[2];
         totlen = stringObjectLen(o)+sdslen(append->ptr);
         if (checkStringLength(c,totlen) != C_OK)

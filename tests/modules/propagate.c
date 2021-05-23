@@ -75,7 +75,7 @@ void timerNestedHandler(RedisModuleCtx *ctx, void *data) {
     int repl = (long long)data;
 
     /* The goal is the trigger a module command that calls RM_Replicate
-     * in order to test MULTI/EXEC structre */
+     * in order to test MULTI/EXEC structure */
     RedisModule_Replicate(ctx,"INCRBY","cc","timer-nested-start","1");
     RedisModuleCallReply *reply = RedisModule_Call(ctx,"propagate-test.nested", repl? "!" : "");
     RedisModule_FreeCallReply(reply);

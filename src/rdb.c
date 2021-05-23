@@ -491,10 +491,10 @@ ssize_t rdbSaveStringObject(rio *rdb, robj *obj) {
  * RDB_LOAD_ENC: If the returned type is a Redis object, try to
  *               encode it in a special way to be more memory
  *               efficient. When this flag is passed the function
- *               no longer guarantees that obj->ptr is an SDS string.
+ *               no longer guarantees that obj->ptr is a SDS string.
  * RDB_LOAD_PLAIN: Return a plain string allocated with zmalloc()
- *                 instead of a Redis object with an sds in it.
- * RDB_LOAD_SDS: Return an SDS string instead of a Redis object.
+ *                 instead of a Redis object with a sds in it.
+ * RDB_LOAD_SDS: Return a SDS string instead of a Redis object.
  *
  * On I/O error NULL is returned.
  */
@@ -699,7 +699,7 @@ int rdbLoadObjectType(rio *rdb) {
 
 /* This helper function serializes a consumer group Pending Entries List (PEL)
  * into the RDB file. The 'nacks' argument tells the function if also persist
- * the informations about the not acknowledged message, or if to persist
+ * the information about the not acknowledged message, or if to persist
  * just the IDs: this is useful because for the global consumer group PEL
  * we serialized the NACKs as well, but when serializing the local consumer
  * PELs we just add the ID, that will be resolved inside the global PEL to
@@ -1446,13 +1446,13 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
 
 /* Note that we may call this function in signal handle 'sigShutdownHandler',
  * so we need guarantee all functions we call are async-signal-safe.
- * If  we call this function from signal handle, we won't call bg_unlink that
+ * If we call this function from signal handle, we won't call bg_unlink that
  * is not async-signal-safe. */
 void rdbRemoveTempFile(pid_t childpid, int from_signal) {
     char tmpfile[256];
     char pid[32];
 
-    /* Generate temp rdb file name using aync-signal safe functions. */
+    /* Generate temp rdb file name using async-signal safe functions. */
     int pid_len = ll2string(pid, sizeof(pid), childpid);
     strcpy(tmpfile, "temp-");
     strncpy(tmpfile+5, pid, pid_len);
@@ -1614,7 +1614,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
             }
         }
     } else if (rdbtype == RDB_TYPE_ZSET_2 || rdbtype == RDB_TYPE_ZSET) {
-        /* Read list/set value. */
+        /* Read sorted set value. */
         uint64_t zsetlen;
         size_t maxelelen = 0;
         zset *zs;
@@ -2625,7 +2625,7 @@ eoferr:
  * to do the actual loading. Moreover the ETA displayed in the INFO
  * output is initialized and finalized.
  *
- * If you pass an 'rsi' structure initialied with RDB_SAVE_OPTION_INIT, the
+ * If you pass an 'rsi' structure initialized with RDB_SAVE_OPTION_INIT, the
  * loading code will fill the information fields in the structure. */
 int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
     FILE *fp;
@@ -2900,7 +2900,7 @@ void bgsaveCommand(client *c) {
  * information inside the RDB file. Currently the structure explicitly
  * contains just the currently selected DB from the master stream, however
  * if the rdbSave*() family functions receive a NULL rsi structure also
- * the Replication ID/offset is not saved. The function popultes 'rsi'
+ * the Replication ID/offset is not saved. The function populates 'rsi'
  * that is normally stack-allocated in the caller, returns the populated
  * pointer if the instance has a valid master client, otherwise NULL
  * is returned, and the RDB saving will not persist any replication related

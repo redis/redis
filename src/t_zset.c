@@ -745,7 +745,7 @@ double zzlGetScore(unsigned char *sptr) {
     return score;
 }
 
-/* Return a ziplist element as an SDS string. */
+/* Return a ziplist element as a SDS string. */
 sds ziplistGetObject(unsigned char *sptr) {
     unsigned char *vstr;
     unsigned int vlen;
@@ -1610,7 +1610,7 @@ robj *zsetDup(robj *o) {
     return zobj;
 }
 
-/* callback for to check the ziplist doesn't have duplicate recoreds */
+/* callback for to check the ziplist doesn't have duplicate records */
 static int _zsetZiplistValidateIntegrity(unsigned char *p, void *userdata) {
     struct {
         long count;
@@ -2481,7 +2481,7 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
         if (cardinality == 0) break;
     }
 
-    /* Redize dict if needed after removing multiple elements */
+    /* Resize dict if needed after removing multiple elements */
     if (htNeedsResize(dstzset->dict)) dictResize(dstzset->dict);
 
     /* Using this algorithm, we can't calculate the max element as we go,
@@ -3600,7 +3600,7 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
         }
     }
 
-    /* Use defaults if not overriden by arguments. */
+    /* Use defaults if not overridden by arguments. */
     if (direction == ZRANGE_DIRECTION_AUTO)
         direction = ZRANGE_DIRECTION_FORWARD;
     if (rangetype == ZRANGE_AUTO)

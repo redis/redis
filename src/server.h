@@ -314,7 +314,7 @@ typedef enum {
     REPL_STATE_CONNECTING,          /* Connecting to master */
     /* --- Handshake states, must be ordered --- */
     REPL_STATE_RECEIVE_PING_REPLY,  /* Wait for PING reply */
-    REPL_STATE_SEND_HANDSHAKE,      /* Send handshake sequance to master */
+    REPL_STATE_SEND_HANDSHAKE,      /* Send handshake sequence to master */
     REPL_STATE_RECEIVE_AUTH_REPLY,  /* Wait for AUTH reply */
     REPL_STATE_RECEIVE_PORT_REPLY,  /* Wait for REPLCONF reply */
     REPL_STATE_RECEIVE_IP_REPLY,    /* Wait for REPLCONF reply */
@@ -820,7 +820,7 @@ typedef struct readyList {
                                                  * payload. */
 
 typedef struct {
-    sds name;       /* The username as an SDS string. */
+    sds name;       /* The username as a SDS string. */
     uint64_t flags; /* See USER_FLAG_* */
 
     /* The bit in allowed_commands is set if this user has the right to
@@ -939,7 +939,7 @@ typedef struct client {
     /* In clientsCronTrackClientsMemUsage() we track the memory usage of
      * each client and add it to the sum of all the clients of a given type,
      * however we need to remember what was the old contribution of each
-     * client, and in which categoty the client was, in order to remove it
+     * client, and in which category the client was, in order to remove it
      * before adding it the new value. */
     uint64_t client_cron_last_memory_usage;
     int      client_cron_last_memory_type;
@@ -1261,7 +1261,7 @@ struct redisServer {
     long long stat_numconnections;  /* Number of connections received */
     long long stat_expiredkeys;     /* Number of expired keys */
     double stat_expired_stale_perc; /* Percentage of keys probably expired */
-    long long stat_expired_time_cap_reached_count; /* Early expire cylce stops.*/
+    long long stat_expired_time_cap_reached_count; /* Early expire cycle stops.*/
     long long stat_expire_cycle_time_used; /* Cumulative microseconds used. */
     long long stat_evictedkeys;     /* Number of evicted keys (maxmemory) */
     long long stat_keyspace_hits;   /* Number of successful lookups of keys */
@@ -1318,7 +1318,7 @@ struct redisServer {
     int active_expire_effort;       /* From 1 (default) to 10, active effort. */
     int active_defrag_enabled;
     int sanitize_dump_payload;      /* Enables deep sanitization for ziplist and listpack in RDB and RESTORE. */
-    int skip_checksum_validation;   /* Disables checksum validateion for RDB and RESTORE payload. */
+    int skip_checksum_validation;   /* Disable checksum validation for RDB and RESTORE payload. */
     int jemalloc_bg_thread;         /* Enable jemalloc background thread */
     size_t active_defrag_ignore_bytes; /* minimum amount of fragmentation waste to start active defrag */
     int active_defrag_threshold_lower; /* minimum percentage of fragmentation to start active defrag */
@@ -1403,10 +1403,10 @@ struct redisServer {
     int rdb_pipe_bufflen;           /* that was read from the the rdb pipe. */
     int rdb_key_save_delay;         /* Delay in microseconds between keys while
                                      * writing the RDB. (for testings). negative
-                                     * value means fractions of microsecons (on average). */
+                                     * value means fractions of microseconds (on average). */
     int key_load_delay;             /* Delay in microseconds between keys while
                                      * loading aof or rdb. (for testings). negative
-                                     * value means fractions of microsecons (on average). */
+                                     * value means fractions of microseconds (on average). */
     /* Pipe and data structures for child -> parent info sharing. */
     int child_info_pipe[2];         /* Pipe used to write the child_info_data. */
     int child_info_nread;           /* Num of bytes of the last read from pipe */
@@ -1619,7 +1619,7 @@ struct redisServer {
     struct sentinelConfig *sentinel_config; /* sentinel config to load at startup time. */
     /* Coordinate failover info */
     mstime_t failover_end_time; /* Deadline for failover command. */
-    int force_failover; /* If true then failover will be foreced at the
+    int force_failover; /* If true then failover will be forced at the
                          * deadline, otherwise failover is aborted. */
     char *target_replica_host; /* Failover target host. If null during a
                                 * failover then any replica can be used. */

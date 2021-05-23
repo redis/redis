@@ -472,7 +472,7 @@ int getBitfieldTypeFromArgument(client *c, robj *o, int *sign, int *bits) {
     return C_OK;
 }
 
-/* This is an helper function for commands implementations that need to write
+/* This is a helper function for commands implementations that need to write
  * bits to a string object. The command creates or pad with zeroes the string
  * so that the 'maxbit' bit can be addressed. The object is finally
  * returned. Otherwise if the key holds a wrong type NULL is returned and

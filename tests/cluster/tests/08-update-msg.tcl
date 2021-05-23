@@ -1,9 +1,9 @@
 # Test UPDATE messages sent by other nodes when the currently authorirative
-# master is unavaialble. The test is performed in the following steps:
+# master is unavailable. The test is performed in the following steps:
 #
 # 1) Master goes down.
 # 2) Slave failover and becomes new master.
-# 3) New master is partitoned away.
+# 3) New master is partitioned away.
 # 4) Old master returns.
 # 5) At this point we expect the old master to turn into a slave ASAP because
 #    of the UPDATE messages it will receive from the other nodes when its

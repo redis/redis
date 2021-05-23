@@ -640,7 +640,7 @@ start_server {
                 set item [$slave xreadgroup group mygroup myconsumer \
                           COUNT 1 STREAMS stream >]
 
-                # The consumed enty should be the third
+                # The consumed entry should be the third
                 set myentry [lindex $item 0 1 0 1]
                 assert {$myentry eq {a 3}}
             }
