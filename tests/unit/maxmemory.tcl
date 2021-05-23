@@ -176,7 +176,7 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             wait_for_condition 50 100 {
                 [regexp {lag=([0-9]+)} [status $master slave0] - lag] && $lag != 0
             } else {
-                fail "master has not receive ack from slave."
+                fail "Master has not receive ack from slave."
             }
 
             # measure used memory after the slave connected and set maxmemory
