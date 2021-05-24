@@ -1254,7 +1254,8 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
             expire = getExpire(db,&key);
             if (rdbSaveKeyValuePair(rdb,&key,o,expire) == -1) goto werr;
 
-            /* We can try to release memory quickly to avoid COW.*/
+            /* We can try to release memory quickly to avoid COW
+             * in the child process. */
             if (is_child) unusedObject(o);
 
             /* When this RDB is produced as part of an AOF rewrite, move

@@ -5920,10 +5920,15 @@ void redisUnusedMemory(void *ptr) {
 
     size_t page_size_mask = server.page_size - 1;
     void *real_ptr = zmalloc_realptr(ptr);
-    char *aligned_ptr = (char *)((size_t)(real_ptr) & ~page_size_mask);
-    long aligned_size = real_size - ((char*)real_ptr-aligned_ptr);
-    if (aligned_size >= (long)server.page_size) {
-        madvise((void *)aligned_ptr, aligned_size&~page_size_mask, MADV_DONTNEED);
+
+    /* We need to align the pointer upwards according to page size, because
+     * the memory address is increased upwards and we only can free memory
+     * based on page. */
+    char *aligned_ptr = (char *)(((size_t)real_ptr+page_size_mask) &
+                        ~page_size_mask);
+    real_size -= (aligned_ptr-(char*)real_ptr);
+    if (real_size >= server.page_size) {
+        madvise((void *)aligned_ptr, real_size&~page_size_mask, MADV_DONTNEED);
     }
 }
 
