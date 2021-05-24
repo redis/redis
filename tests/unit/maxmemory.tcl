@@ -173,7 +173,7 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             set rd_slave [redis_deferring_client]
             exec kill -SIGSTOP $slave_pid
 
-            # wait util master receive ask from slave, avoid
+            # wait util master receive ack from slave, avoid
             # slave's querybuf to affect used_memory of master.
             wait_for_condition 50 100 {
                 [regexp {lag=([0-9]+)} [status $master slave0] - lag] && $lag != 0
