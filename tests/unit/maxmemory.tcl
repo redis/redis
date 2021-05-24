@@ -173,6 +173,8 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             set rd_slave [redis_deferring_client]
             exec kill -SIGSTOP $slave_pid
 
+            # wait util master receive ask from slave, avoid
+            # slave's querybuf to affect used_memory of master.
             wait_for_condition 50 100 {
                 [regexp {lag=([0-9]+)} [status $master slave0] - lag] && $lag != 0
             } else {
@@ -212,7 +214,7 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             set used_no_repl [expr {$new_used - $mem_not_counted_for_evict}]
             set delta [expr {($used_no_repl - $client_buf) - ($orig_used_no_repl - $orig_client_buf)}]
 
-            assert {[$master dbsize] == 100}
+            assert_equal [$master dbsize] 100
             assert {$slave_buf > 2*1024*1024} ;# some of the data may have been pushed to the OS buffers
             set delta_max [expr {$cmd_count / 2}] ;# 1 byte unaccounted for, with 1M commands will consume some 1MB
             assert {$delta < $delta_max && $delta > -$delta_max}
