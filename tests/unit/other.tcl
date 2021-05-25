@@ -1,4 +1,4 @@
-start_server {overrides {save ""} tags {"other"}} {
+start_server {overrides {save ""} tags {"other external-ok"}} {
     if {$::force_failure} {
         # This is used just for test suite development purposes.
         test {Failing test} {

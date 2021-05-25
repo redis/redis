@@ -1,5 +1,5 @@
 start_server {
-    tags {"set"}
+    tags {"set external-ok"}
     overrides {
         "set-max-intset-entries" 512
     }

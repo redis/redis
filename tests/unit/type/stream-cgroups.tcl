@@ -1,5 +1,5 @@
 start_server {
-    tags {"stream"}
+    tags {"stream external-ok"}
 } {
     test {XGROUP CREATE: creation and duplicate group name detection} {
         r DEL mystream

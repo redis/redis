@@ -1,4 +1,4 @@
-start_server {tags {"bitops"}} {
+start_server {tags {"bitops" "external-ok"}} {
     test {BITFIELD signed SET and GET basics} {
         r del bits
         set results {}

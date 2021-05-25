@@ -1,5 +1,5 @@
 start_server {
-    tags {"list"}
+    tags {"list external-ok"}
     overrides {
         "list-max-ziplist-size" 4
     }

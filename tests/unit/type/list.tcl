@@ -7,7 +7,7 @@ proc wait_for_blocked_client {} {
 }
 
 start_server {
-    tags {"list"}
+    tags {"list external-ok"}
     overrides {
         "list-max-ziplist-size" 5
     }

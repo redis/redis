@@ -1,4 +1,4 @@
-start_server {tags {"protocol network"}} {
+start_server {tags {"protocol network external-ok"}} {
     test "Handle an empty query" {
         reconnect
         r write "\r\n"

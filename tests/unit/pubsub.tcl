@@ -1,4 +1,4 @@
-start_server {tags {"pubsub network"}} {
+start_server {tags {"pubsub network external-ok"}} {
     test "Pub/Sub PING" {
         set rd1 [redis_deferring_client]
         subscribe $rd1 somechannel

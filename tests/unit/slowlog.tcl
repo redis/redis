@@ -1,5 +1,8 @@
-start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
+start_server {tags {"slowlog external-ok"} overrides {slowlog-log-slower-than 1000000}} {
     test {SLOWLOG - check that it starts with an empty log} {
+        if {$::external} {
+            r slowlog reset
+        }
         r slowlog len
     } {0}
 
@@ -35,7 +38,9 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         r debug sleep 0.2
         set e [lindex [r slowlog get] 0]
         assert_equal [llength $e] 6
-        assert_equal [lindex $e 0] 105
+        if {!$::external} {
+            assert_equal [lindex $e 0] 105
+        }
         assert_equal [expr {[lindex $e 2] > 100000}] 1
         assert_equal [lindex $e 3] {debug sleep 0.2}
         assert_equal {foobar} [lindex $e 5]

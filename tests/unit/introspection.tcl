@@ -1,4 +1,4 @@
-start_server {tags {"introspection"}} {
+start_server {tags {"introspection external-ok"}} {
     test {CLIENT LIST} {
         r client list
     } {*addr=*:* fd=* age=* idle=* flags=N db=9 sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client*}
@@ -224,7 +224,7 @@ start_server {tags {"introspection"}} {
         dict for {k v} $configs {
             assert_equal $v [lindex [r config get $k] 1]
         }
-    }
+    } {} {external-skip}
 
     test {CONFIG REWRITE handles save properly} {
         r config set save "3600 1 300 100 60 10000"
@@ -244,7 +244,7 @@ start_server {tags {"introspection"}} {
             restart_server 0 true false
             assert_equal [r config get save] {save {}}
         }
-    }
+    } {} {external-skip}
 
     # Config file at this point is at a wierd state, and includes all
     # known keywords. Might be a good idea to avoid adding tests here.

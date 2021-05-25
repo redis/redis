@@ -1,4 +1,4 @@
-start_server {tags {"incr"}} {
+start_server {tags {"incr external-ok"}} {
     test {INCR against non existing key} {
         set res {}
         append res [r incr novar]

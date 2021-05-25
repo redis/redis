@@ -112,7 +112,7 @@ proc wait_for_condition {maxtries delay e _else_ elsescript} {
     }
 }
 
-proc test {name code {okpattern undefined} {options undefined}} {
+proc test {name code {okpattern undefined} {options {}}} {
     # abort if test name in skiptests
     if {[lsearch $::skiptests $name] >= 0} {
         incr ::num_skipped
@@ -125,6 +125,20 @@ proc test {name code {okpattern undefined} {options undefined}} {
         incr ::num_skipped
         send_data_packet $::test_server_fd skip $name
         return
+    }
+
+    # parse options
+    foreach {option value} $options {
+        switch $option {
+            "external-skip" {
+                if {$::external} {
+                    return
+                }
+            }
+            default {
+                error "Unknown option $option"
+            }
+        }
     }
 
     # check if tagged with at least 1 tag to allow when there *is* a list

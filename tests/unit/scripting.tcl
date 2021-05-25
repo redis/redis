@@ -1,4 +1,4 @@
-start_server {tags {"scripting"}} {
+start_server {tags {"scripting external-ok"}} {
     test {EVAL - Does Lua interpreter replies to our requests?} {
         r eval {return 'hello'} 0
     } {hello}
@@ -478,7 +478,7 @@ start_server {tags {"scripting"}} {
         set res [r get foo]
         r slaveof no one
         set res
-    } {102}
+    } {102} {external-skip}
     r config set aof-use-rdb-preamble yes
 
     test {EVAL timeout from AOF} {
@@ -516,7 +516,7 @@ start_server {tags {"scripting"}} {
         if {$::verbose} { puts "loading took $elapsed milliseconds" }
         $rd close
         r get x
-    } {y}
+    } {y} {external-skip}
 
     test {We can call scripts rewriting client->argv from Lua} {
         r del myset

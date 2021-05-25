@@ -1,4 +1,4 @@
-start_server {tags {"string"}} {
+start_server {tags {"string external-ok"}} {
     test {SET and GET an item} {
         r set x foobar
         r get x

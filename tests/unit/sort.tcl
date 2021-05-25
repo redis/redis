@@ -1,5 +1,5 @@
 start_server {
-    tags {"sort"}
+    tags {"sort external-ok"}
     overrides {
         "list-max-ziplist-size" 32
         "set-max-intset-entries" 32

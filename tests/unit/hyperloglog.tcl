@@ -1,4 +1,4 @@
-start_server {tags {"hll"}} {
+start_server {tags {"hll" "external-ok"}} {
     test {HyperLogLog self test passes} {
         catch {r pfselftest} e
         set e

@@ -38,7 +38,7 @@ proc simulate_bit_op {op args} {
     binary format b* $out
 }
 
-start_server {tags {"bitops"}} {
+start_server {tags {"bitops" "external-ok"}} {
     test {BITCOUNT returns 0 against non existing key} {
         r bitcount no-key
     } 0

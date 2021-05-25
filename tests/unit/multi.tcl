@@ -1,4 +1,4 @@
-start_server {tags {"multi"}} {
+start_server {tags {"multi external-ok"}} {
     test {MUTLI / EXEC basics} {
         r del mylist
         r rpush mylist a

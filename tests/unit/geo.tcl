@@ -94,7 +94,7 @@ set regression_vectors {
 }
 set rv_idx 0
 
-start_server {tags {"geo"}} {
+start_server {tags {"geo" "external-ok"}} {
     test {GEOADD create} {
         r geoadd nyc -73.9454966 40.747533 "lic market"
     } {1}

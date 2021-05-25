@@ -1,6 +1,6 @@
 source tests/support/cli.tcl
 
-start_server {tags {"cli"}} {
+start_server {tags {"cli external-ok"}} {
     proc open_cli {{opts "-n 9"} {infile ""}} {
         set ::env(TERM) dumb
         set cmdline [rediscli [srv host] [srv port] $opts]
