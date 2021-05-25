@@ -144,6 +144,10 @@ proc ::redis::__method__read {id fd} {
     ::redis::redis_read_reply $id $fd
 }
 
+proc ::redis::__method__read_all {id fd} {
+    ::redis::redis_read_all $id $fd
+}
+
 proc ::redis::__method__write {id fd buf} {
     ::redis::redis_write $fd $buf
 }
@@ -238,6 +242,10 @@ proc ::redis::redis_read_line fd {
 proc ::redis::redis_read_null fd {
     gets $fd
     return {}
+}
+
+proc ::redis::redis_read_all {id fd} {
+    return [read $fd]
 }
 
 proc ::redis::redis_read_reply {id fd} {

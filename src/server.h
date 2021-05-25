@@ -279,6 +279,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                            and AOF client */
 #define CLIENT_REPL_RDBONLY (1ULL<<42) /* This client is a replica that only wants
                                           RDB without replication buffer. */
+#define CLIENT_GOPHER (1ULL<<43) /* This client expects its request to be
+                                    replied in the gopher protocol */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */

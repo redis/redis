@@ -2078,16 +2078,12 @@ void processInputBuffer(client *c) {
         if (c->reqtype == PROTO_REQ_INLINE) {
             if (processInlineBuffer(c) != C_OK) break;
             /* If the Gopher mode and we got zero or one argument, process
-             * the request in Gopher mode. To avoid data race, Redis won't
-             * support Gopher if enable io threads to read queries. */
-            if (server.gopher_enabled && !server.io_threads_do_reads &&
+             * the request in Gopher mode. */
+            if (server.gopher_enabled &&
                 ((c->argc == 1 && ((char*)(c->argv[0]->ptr))[0] == '/') ||
                   c->argc == 0))
             {
-                processGopherRequest(c);
-                resetClient(c);
-                c->flags |= CLIENT_CLOSE_AFTER_REPLY;
-                break;
+                c->flags |= CLIENT_GOPHER;
             }
         } else if (c->reqtype == PROTO_REQ_MULTIBULK) {
             if (processMultibulkBuffer(c) != C_OK) break;
@@ -2096,7 +2092,7 @@ void processInputBuffer(client *c) {
         }
 
         /* Multibulk processing could see a <= 0 length. */
-        if (c->argc == 0) {
+        if (c->argc == 0 && !(c->flags & CLIENT_GOPHER)) {
             resetClient(c);
         } else {
             /* If we are in the context of an I/O thread, we can't really

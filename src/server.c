@@ -3962,6 +3962,12 @@ int processCommand(client *c) {
         serverAssert(!server.in_eval);
     }
 
+    if (c->flags & CLIENT_GOPHER) {
+        processGopherRequest(c);
+        c->flags |= CLIENT_CLOSE_AFTER_REPLY;
+        return C_OK;
+    }
+
     moduleCallCommandFilters(c);
 
     /* The QUIT command is handled separately. Normal command procs will
