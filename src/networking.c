@@ -284,8 +284,6 @@ int prepareClientToWrite(client *c) {
 size_t _addReplyToBuffer(client *c, const char *s, size_t len) {
     size_t available = c->buf_usable_size - c->bufpos;
 
-    if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return len;
-
     /* If there already are entries in the reply list, we cannot
      * add anything more to the static buffer. */
     if (listLength(c->reply) > 0) return 0;
@@ -299,8 +297,6 @@ size_t _addReplyToBuffer(client *c, const char *s, size_t len) {
 /* Adds the reply to the reply linked list.
  * Note: some edits to this function need to be relayed to AddReplyFromClient. */
 void _addReplyProtoToList(client *c, const char *s, size_t len) {
-    if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
-
     listNode *ln = listLast(c->reply);
     clientReplyBlock *tail = ln? listNodeValue(ln): NULL;
 
@@ -336,6 +332,8 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
 }
 
 void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
+    if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
+
     size_t reply_len = _addReplyToBuffer(c,s,len);
     if (len > reply_len) _addReplyProtoToList(c,s+reply_len,len-reply_len);
 }
