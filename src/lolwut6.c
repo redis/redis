@@ -180,7 +180,7 @@ void lolwut6Command(client *c) {
         return;
 
     /* Limits. We want LOLWUT to be always reasonably fast and cheap to execute
-     * so we have maximum number of columns, rows, and output resulution. */
+     * so we have maximum number of columns, rows, and output resolution. */
     if (cols < 1) cols = 1;
     if (cols > 1000) cols = 1000;
     if (rows < 1) rows = 1;
