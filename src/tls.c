@@ -179,7 +179,7 @@ void tlsCleanup(void) {
     #endif
 }
 
-/* Callback for passing a keyfile password stored as a sds to OpenSSL */
+/* Callback for passing a keyfile password stored as an sds to OpenSSL */
 static int tlsPasswordCallback(char *buf, int size, int rwflag, void *u) {
     UNUSED(rwflag);
 

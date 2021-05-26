@@ -820,7 +820,7 @@ typedef struct readyList {
                                                  * payload. */
 
 typedef struct {
-    sds name;       /* The username as a SDS string. */
+    sds name;       /* The username as an SDS string. */
     uint64_t flags; /* See USER_FLAG_* */
 
     /* The bit in allowed_commands is set if this user has the right to

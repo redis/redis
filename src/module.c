@@ -259,7 +259,7 @@ typedef struct RedisModuleCallReply {
     int type;       /* REDISMODULE_REPLY_... */
     int flags;      /* REDISMODULE_REPLYFLAG_...  */
     size_t len;     /* Len of strings or num of elements of arrays. */
-    char *proto;    /* Raw reply protocol. A SDS string at top-level object. */
+    char *proto;    /* Raw reply protocol. An SDS string at top-level object. */
     size_t protolen;/* Length of protocol. */
     union {
         const char *str; /* String pointer for string and error replies. This
@@ -8691,7 +8691,7 @@ sds genModulesInfoStringRenderModulesList(list *l) {
     return output;
 }
 
-/* Helper for genModulesInfoString(): render module options as a SDS string. */
+/* Helper for genModulesInfoString(): render module options as an SDS string. */
 sds genModulesInfoStringRenderModuleOptions(struct RedisModule *module) {
     sds output = sdsnew("[");
     if (module->options & REDISMODULE_OPTIONS_HANDLE_IO_ERRORS)

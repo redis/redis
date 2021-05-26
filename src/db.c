@@ -199,7 +199,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
 }
 
 /* This is a special version of dbAdd() that is used only when loading
- * keys from the RDB file: the key is passed as a SDS string that is
+ * keys from the RDB file: the key is passed as an SDS string that is
  * retained by the function (and not freed by the caller).
  *
  * Moreover this function will not abort if the key is already busy, to

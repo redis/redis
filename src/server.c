@@ -1676,7 +1676,7 @@ long long getInstantaneousMetric(int metric) {
     return sum / STATS_METRIC_SAMPLES;
 }
 
-/* The client query buffer is a sds string that can end with a lot of
+/* The client query buffer is an sds.c string that can end with a lot of
  * free space not used, this function reclaims space if needed.
  *
  * The function always returns 0 as it never terminates the client. */

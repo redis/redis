@@ -155,7 +155,7 @@ int time_independent_strcmp(char *a, char *b) {
     return diff; /* If zero strings are the same. */
 }
 
-/* Given a SDS string, returns the SHA256 hex representation as a
+/* Given an SDS string, returns the SHA256 hex representation as a
  * new SDS string. */
 sds ACLHashPassword(unsigned char *cleartext, size_t len) {
     SHA256_CTX ctx;
@@ -454,7 +454,7 @@ int ACLCountCategoryBitsForUser(user *u, unsigned long *on, unsigned long *off,
     return C_OK;
 }
 
-/* This function returns a SDS string representing the specified user ACL
+/* This function returns an SDS string representing the specified user ACL
  * rules related to command execution, in the same format you could set them
  * back using ACL SETUSER. The function will return just the set of rules needed
  * to recreate the user commands bitmap, without including other user flags such
@@ -1497,7 +1497,7 @@ int ACLLoadConfiguredUsers(void) {
  * and the rules will remain exactly as they were.
  *
  * At the end of the process, if no errors were found in the whole file then
- * NULL is returned. Otherwise a SDS string describing in a single line
+ * NULL is returned. Otherwise an SDS string describing in a single line
  * a description of all the issues found is returned. */
 sds ACLLoadFromFile(const char *filename) {
     FILE *fp;
@@ -1657,7 +1657,7 @@ int ACLSaveToFile(const char *filename) {
     sds tmpfilename = NULL;
     int retval = C_ERR;
 
-    /* Let's generate a SDS string containing the new version of the
+    /* Let's generate an SDS string containing the new version of the
      * ACL file. */
     raxIterator ri;
     raxStart(&ri,Users);

@@ -359,7 +359,7 @@ void activeExpireCycle(int type) {
  * the feature is used the first time, that is, when rememberSlaveKeyWithExpire()
  * is called.
  *
- * The dictionary has a SDS string representing the key as the hash table
+ * The dictionary has an SDS string representing the key as the hash table
  * key, while the value is a 64 bit unsigned integer with the bits corresponding
  * to the DB where the keys may exist set to 1. Currently the keys created
  * with a DB id > 63 are not expired, but a trivial fix is to set the bitmap

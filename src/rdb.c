@@ -491,10 +491,10 @@ ssize_t rdbSaveStringObject(rio *rdb, robj *obj) {
  * RDB_LOAD_ENC: If the returned type is a Redis object, try to
  *               encode it in a special way to be more memory
  *               efficient. When this flag is passed the function
- *               no longer guarantees that obj->ptr is a SDS string.
+ *               no longer guarantees that obj->ptr is an SDS string.
  * RDB_LOAD_PLAIN: Return a plain string allocated with zmalloc()
- *                 instead of a Redis object with a sds in it.
- * RDB_LOAD_SDS: Return a SDS string instead of a Redis object.
+ *                 instead of a Redis object with an sds in it.
+ * RDB_LOAD_SDS: Return an SDS string instead of a Redis object.
  *
  * On I/O error NULL is returned.
  */

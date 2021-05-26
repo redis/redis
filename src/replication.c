@@ -1942,7 +1942,7 @@ char* sendCommandRaw(connection *conn, sds cmd) {
  *
  * Takes a list of char* arguments, terminated by a NULL argument.
  *
- * The command returns a sds string representing the result of the
+ * The command returns an sds string representing the result of the
  * operation. On error the first byte is a "-".
  */
 char *sendCommand(connection *conn, ...) {
@@ -1981,7 +1981,7 @@ char *sendCommand(connection *conn, ...) {
  *
  * argv_lens is optional, when NULL, strlen is used.
  *
- * The command returns a sds string representing the result of the
+ * The command returns an sds string representing the result of the
  * operation. On error the first byte is a "-".
  */
 char *sendCommandArgv(connection *conn, int argc, char **argv, size_t *argv_lens) {

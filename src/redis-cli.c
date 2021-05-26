@@ -328,7 +328,7 @@ static void cliRefreshPrompt(void) {
  * is set, its value is taken as the path.
  *
  * The function returns NULL (if the file is /dev/null or cannot be
- * obtained for some error), or a SDS string that must be freed by
+ * obtained for some error), or an SDS string that must be freed by
  * the user. */
 static sds getDotfilePath(char *envoverride, char *dotfilename) {
     char *path = NULL;
@@ -1078,7 +1078,7 @@ int isColorTerm(void) {
 }
 
 /* Helper function for sdsCatColorizedLdbReply() appending colorize strings
- * to a SDS string. */
+ * to an SDS string. */
 sds sdscatcolor(sds o, char *s, size_t len, char *color) {
     if (!isColorTerm()) return sdscatlen(o,s,len);
 
@@ -2341,7 +2341,7 @@ static int evalMode(int argc, char **argv) {
         got_comma = 0;
         keys = 0;
 
-        /* Load the script from the file, as a sds string. */
+        /* Load the script from the file, as an sds string. */
         fp = fopen(config.eval,"r");
         if (!fp) {
             fprintf(stderr,
