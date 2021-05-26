@@ -1025,7 +1025,7 @@ void bitfieldGeneric(client *c, int flags) {
             return;
         }
 
-        /* Lookup by making room up to the farest bit reached by
+        /* Lookup by making room up to the farthest bit reached by
          * this operation. */
         if ((o = lookupStringForBitCommand(c,
             highest_write_offset)) == NULL) {

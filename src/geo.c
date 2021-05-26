@@ -244,7 +244,7 @@ int geoAppendIfWithinShape(geoArray *ga, GeoShape *shape, double score, sds memb
  * 'max', appending them into the array of geoPoint structures 'gparray'.
  * The command returns the number of elements added to the array.
  *
- * Elements which are farest than 'radius' from the specified 'x' and 'y'
+ * Elements which are farther than 'radius' from the specified 'x' and 'y'
  * coordinates are not included.
  *
  * The ability of this function to append to an existing set of points is

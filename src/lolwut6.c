@@ -32,7 +32,7 @@
  * fun and interesting, and should be replaced by a new implementation at
  * each new version of Redis.
  *
- * Thanks to Michele Hiki Falcone for the original image that ispired
+ * Thanks to Michele Hiki Falcone for the original image that inspired
  * the image, part of his game, Plaguemon.
  *
  * Thanks to the Shhh computer art collective for the help in tuning the
