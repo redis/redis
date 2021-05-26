@@ -1185,7 +1185,7 @@ void clusterHandleConfigEpochCollision(clusterNode *sender) {
  * CLUSTER nodes blacklist
  *
  * The nodes blacklist is just a way to ensure that a given node with a given
- * Node ID is not readded before some time elapsed (this time is specified
+ * Node ID is not re-added before some time elapsed (this time is specified
  * in seconds in CLUSTER_BLACKLIST_TTL).
  *
  * This is useful when we want to remove a node from the cluster completely:
