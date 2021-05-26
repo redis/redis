@@ -135,6 +135,11 @@ proc test {name code {okpattern undefined} {options {}}} {
                     return
                 }
             }
+            "singledb-skip" {
+                if {$::singledb} {
+                    return
+                }
+            }
             default {
                 error "Unknown option $option"
             }

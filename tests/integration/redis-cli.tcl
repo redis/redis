@@ -1,7 +1,16 @@
 source tests/support/cli.tcl
 
+if {$::singledb} {
+    set ::dbnum 0
+} else {
+    set ::dbnum 9
+}
+
 start_server {tags {"cli external-ok"}} {
-    proc open_cli {{opts "-n 9"} {infile ""}} {
+    proc open_cli {{opts ""} {infile ""}} {
+        if { $opts == "" } {
+            set opts "-n $::dbnum"
+        }
         set ::env(TERM) dumb
         set cmdline [rediscli [srv host] [srv port] $opts]
         if {$infile ne ""} {
@@ -65,7 +74,7 @@ start_server {tags {"cli external-ok"}} {
     }
 
     proc _run_cli {opts args} {
-        set cmd [rediscli [srv host] [srv port] [list -n 9 {*}$args]]
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum {*}$args]]
         foreach {key value} $opts {
             if {$key eq "pipe"} {
                 set cmd "sh -c \"$value | $cmd\""
@@ -327,5 +336,5 @@ start_server {tags {"cli external-ok"}} {
         assert_match {*All data transferred*errors: 0*replies: 2102*} $output
 
         file delete $cmds
-    }
+    } {} {singledb-skip}
 }

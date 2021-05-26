@@ -237,12 +237,17 @@ start_server {overrides {save ""} tags {"other external-ok"}} {
     # Leave the user with a clean DB before to exit
     test {FLUSHDB} {
         set aux {}
-        r select 9
-        r flushdb
-        lappend aux [r dbsize]
-        r select 10
-        r flushdb
-        lappend aux [r dbsize]
+        if {$::singledb} {
+            r flushdb
+            lappend aux 0 [r dbsize]
+        } else {
+            r select 9
+            r flushdb
+            lappend aux [r dbsize]
+            r select 10
+            r flushdb
+            lappend aux [r dbsize]
+        }
     } {0 0}
 
     test {Perform a final SAVE to leave a clean DB on disk} {

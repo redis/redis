@@ -116,7 +116,7 @@ start_server {tags {"scripting external-ok"}} {
         r select 10
         r set mykey "this is DB 10"
         r eval {return redis.pcall('get',KEYS[1])} 1 mykey
-    } {this is DB 10}
+    } {this is DB 10} {singledb-skip}
 
     test {EVAL - SELECT inside Lua should not affect the caller} {
         # here we DB 10 is selected
@@ -125,7 +125,7 @@ start_server {tags {"scripting external-ok"}} {
         set res [r get mykey]
         r select 9
         set res
-    } {original value}
+    } {original value} {singledb-skip}
 
     if 0 {
         test {EVAL - Script can't run more than configured time limit} {
@@ -817,7 +817,7 @@ foreach cmdrepl {0 1} {
                 } else {
                     fail "Master-Replica desync after Lua script using SELECT."
                 }
-            }
+            } {} {singledb-skip}
         }
     }
 }

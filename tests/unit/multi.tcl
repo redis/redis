@@ -205,7 +205,7 @@ start_server {tags {"multi external-ok"}} {
         r multi
         r ping
         r exec
-    } {}
+    } {} {singledb-skip}
 
     test {SWAPDB is able to touch the watched keys that do not exist} {
         r flushall
@@ -217,7 +217,7 @@ start_server {tags {"multi external-ok"}} {
         r multi
         r ping
         r exec
-    } {}
+    } {} {singledb-skip}
 
     test {WATCH is able to remember the DB a key belongs to} {
         r select 5
@@ -232,7 +232,7 @@ start_server {tags {"multi external-ok"}} {
         # Restore original DB
         r select 9
         set res
-    } {PONG}
+    } {PONG} {singledb-skip}
 
     test {WATCH will consider touched keys target of EXPIRE} {
         r del x

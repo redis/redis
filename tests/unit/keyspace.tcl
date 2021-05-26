@@ -167,7 +167,7 @@ start_server {tags {"keyspace" "external-ok"}} {
         set res [r dbsize]
         r select 9
         format $res
-    } {0}
+    } {0} {singledb-skip}
 
     test {COPY basic usage for string} {
         r set mykey foobar
@@ -175,25 +175,29 @@ start_server {tags {"keyspace" "external-ok"}} {
         r copy mykey mynewkey
         lappend res [r get mynewkey]
         lappend res [r dbsize]
-        r copy mykey mynewkey DB 10
-        r select 10
-        lappend res [r get mynewkey]
-        lappend res [r dbsize]
-        r select 9
-        format $res
-    } [list foobar 2 foobar 1]
+        if {$::singledb} {
+            assert_equal [list foobar 2] [format $res]
+        } else {
+            r copy mykey mynewkey DB 10
+            r select 10
+            lappend res [r get mynewkey]
+            lappend res [r dbsize]
+            r select 9
+            assert_equal [list foobar 2 foobar 1] [format $res]
+        }
+    } 
 
     test {COPY for string does not replace an existing key without REPLACE option} {
         r set mykey2 hello
         catch {r copy mykey2 mynewkey DB 10} e
         set e
-    } {0}
+    } {0} {singledb-skip}
 
     test {COPY for string can replace an existing key with REPLACE option} {
         r copy mykey2 mynewkey DB 10 REPLACE
         r select 10
         r get mynewkey
-    } {hello}
+    } {hello} {singledb-skip}
 
     test {COPY for string ensures that copied data is independent of copying data} {
         r flushdb
@@ -211,7 +215,7 @@ start_server {tags {"keyspace" "external-ok"}} {
         r flushdb
         r select 9
         format $res
-    } [list foobar hoge foobar]
+    } [list foobar hoge foobar] {singledb-skip}
 
     test {COPY for string does not copy data to no-integer DB} {
         r set mykey foobar
@@ -387,12 +391,12 @@ start_server {tags {"keyspace" "external-ok"}} {
         lappend res [r dbsize]
         r select 9
         format $res
-    } [list 0 0 foobar 1]
+    } [list 0 0 foobar 1] {singledb-skip}
 
     test {MOVE against key existing in the target DB} {
         r set mykey hello
         r move mykey 10
-    } {0}
+    } {0} {singledb-skip}
 
     test {MOVE against non-integer DB (#1428)} {
         r set mykey hello
@@ -411,7 +415,7 @@ start_server {tags {"keyspace" "external-ok"}} {
         assert {[r ttl mykey] > 0 && [r ttl mykey] <= 100}
         assert {[r get mykey] eq "foo"}
         r select 9
-    }
+    } {} {singledb-skip}
 
     test {MOVE does not create an expire if it does not exist} {
         r select 10
@@ -424,7 +428,7 @@ start_server {tags {"keyspace" "external-ok"}} {
         assert {[r ttl mykey] == -1}
         assert {[r get mykey] eq "foo"}
         r select 9
-    }
+    } {} {singledb-skip}
 
     test {SET/GET keys in different DBs} {
         r set a hello
@@ -441,7 +445,7 @@ start_server {tags {"keyspace" "external-ok"}} {
         lappend res [r get b]
         r select 9
         format $res
-    } {hello world foo bared}
+    } {hello world foo bared} {singledb-skip}
 
     test {RANDOMKEY} {
         r flushdb

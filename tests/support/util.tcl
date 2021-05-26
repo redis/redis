@@ -353,8 +353,15 @@ proc formatCommand {args} {
 
 proc csvdump r {
     set o {}
-    for {set db 0} {$db < 16} {incr db} {
-        {*}$r select $db
+    if {$::singledb} {
+        set maxdb 1
+    } else {
+        set maxdb 16
+    }
+    for {set db 0} {$db < $maxdb} {incr db} {
+        if {!$::singledb} {
+            {*}$r select $db
+        }
         foreach k [lsort [{*}$r keys *]] {
             set type [{*}$r type $k]
             append o [csvstring $db] , [csvstring $k] , [csvstring $type] ,
@@ -396,7 +403,9 @@ proc csvdump r {
             }
         }
     }
-    {*}$r select 9
+    if {!$::singledb} {
+        {*}$r select 9
+    }
     return $o
 }
 
