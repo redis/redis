@@ -774,6 +774,45 @@ test "diskless replication child being killed is collected" {
     }
 }
 
+test "diskless replication read pipe cleanup" {
+    # In diskless replication, we create a read pipe for the RDB, between the child and the parent.
+    # When we close this pipe (fd), the read handler also needs to be removed from the event loop (if it still registered).
+    # Otherwise, next time we will use the same fd, the registration will be fail (panic), because
+    # we will use EPOLL_CTL_MOD (the fd still register in the event loop), on fd that already removed from epoll_ctl
+    start_server {tags {"repl"}} {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+        set master_pid [srv 0 pid]
+        $master config set repl-diskless-sync yes
+        $master config set repl-diskless-sync-delay 0
+
+        # put enough data in the db, and slowdown the save, to keep the parent busy at the read process
+        $master config set rdb-key-save-delay 100000
+        $master debug populate 20000 test 10000
+        $master config set rdbcompression no
+        start_server {} {
+            set replica [srv 0 client]
+            set loglines [count_log_lines 0]
+            $replica config set repl-diskless-load swapdb
+            $replica replicaof $master_host $master_port
+
+            # wait for the replicas to start reading the rdb
+            wait_for_log_messages 0 {"*Loading DB in memory*"} $loglines 800 10
+
+            set loglines [count_log_lines 0]
+            # send FLUSHALL so the RDB child will be killed
+            $master flushall
+
+            # wait for another RDB child process to be started
+            wait_for_log_messages -1 {"*Background RDB transfer started by pid*"} $loglines 800 10
+
+            # make sure master is alive
+            $master ping
+        }
+    }
+}
+
 test {replicaof right after disconnection} {
     # this is a rare race condition that was reproduced sporadically by the psync2 unit.
     # see details in #7205

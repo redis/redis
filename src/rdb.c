@@ -2691,6 +2691,7 @@ static void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
     }
     if (server.rdb_child_exit_pipe!=-1)
         close(server.rdb_child_exit_pipe);
+    aeDeleteFileEvent(server.el, server.rdb_pipe_read, AE_READABLE);
     close(server.rdb_pipe_read);
     server.rdb_child_exit_pipe = -1;
     server.rdb_pipe_read = -1;
