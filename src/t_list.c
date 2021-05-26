@@ -105,7 +105,7 @@ listTypeIterator *listTypeInitIterator(robj *subject, long index,
 
 /* Clean up the iterator. */
 void listTypeReleaseIterator(listTypeIterator *li) {
-    zfree(li->iter);
+    quicklistReleaseIterator(li->iter);
     zfree(li);
 }
 
