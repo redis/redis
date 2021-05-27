@@ -165,9 +165,10 @@ void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
 
         if (len) { /* First block to allocate, or need another block. */
             int numblocks;
+            size_t usable_size;
 
-            block = zmalloc(sizeof(*block));
-            block->free = zmalloc_usable_size(block)-offsetof(aofrwblock,buf);
+            block = zmalloc_usable(sizeof(*block), &usable_size);
+            block->free = usable_size-offsetof(aofrwblock,buf);
             block->used = 0;
             block->pos = 0;
             listAddNodeTail(server.aof_rewrite_buf_blocks,block);
