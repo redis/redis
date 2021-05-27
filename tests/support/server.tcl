@@ -221,12 +221,6 @@ proc spawn_server {config_file stdout stderr} {
         set pid [exec src/redis-server $config_file >> $stdout 2>> $stderr &]
     }
 
-    if {$::wait_server} {
-        set msg "server started PID: $pid. press any key to continue..."
-        puts $msg
-        read stdin 1
-    }
-
     # Tell the test server about this new instance.
     send_data_packet $::test_server_fd server-spawned $pid
     return $pid
@@ -461,6 +455,13 @@ proc start_server {options {code undefined}} {
             return
         }
         set server_started 1
+
+        # print PID only when the server actually started
+        if {$::wait_server} {
+            set msg "server started PID: $pid. press any key to continue..."
+            puts $msg
+            read stdin 1
+        }
     }
 
     # setup properties to be able to initialize a client object
@@ -604,6 +605,13 @@ proc restart_server {level wait_ready rotate_logs} {
 
     # check that the server actually started
     wait_server_started $config_file $stdout $pid
+
+    # print PID only when the server actually started
+    if {$::wait_server} {
+        set msg "server started PID: $pid. press any key to continue..."
+        puts $msg
+        read stdin 1
+    }
 
     # update the pid in the servers list
     dict set srv "pid" $pid
