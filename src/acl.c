@@ -245,7 +245,7 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     if (raxFind(Users,(unsigned char*)name,namelen) != raxNotFound) return NULL;
     user *u = zmalloc(sizeof(*u));
     u->name = sdsnewlen(name,namelen);
-    u->flags = USER_FLAG_DISABLED | server.acl_pubusub_default;
+    u->flags = USER_FLAG_DISABLED | server.acl_pubsub_default;
     u->allowed_subcommands = NULL;
     u->passwords = listCreate();
     u->patterns = listCreate();
@@ -652,6 +652,7 @@ sds ACLDescribeUser(user *u) {
     if (u->flags & USER_FLAG_ALLCHANNELS) {
         res = sdscatlen(res,"&* ",3);
     } else {
+        res = sdscatlen(res,"resetchannels ",14);
         listRewind(u->channels,&li);
         while((ln = listNext(&li))) {
             sds thispat = listNodeValue(ln);
@@ -1000,6 +1001,8 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         serverAssert(ACLSetUser(u,"resetpass",-1) == C_OK);
         serverAssert(ACLSetUser(u,"resetkeys",-1) == C_OK);
         serverAssert(ACLSetUser(u,"resetchannels",-1) == C_OK);
+        if (server.acl_pubsub_default & USER_FLAG_ALLCHANNELS)
+            serverAssert(ACLSetUser(u,"allchannels",-1) == C_OK);
         serverAssert(ACLSetUser(u,"off",-1) == C_OK);
         serverAssert(ACLSetUser(u,"sanitize-payload",-1) == C_OK);
         serverAssert(ACLSetUser(u,"-@all",-1) == C_OK);
@@ -1358,6 +1361,22 @@ int ACLCheckPubsubPerm(client *c, int idx, int count, int literal, int *idxptr) 
      * command. */
     return ACL_OK;
 
+}
+
+/* Check whether the command is ready to be exceuted by ACLCheckCommandPerm.
+ * If check passes, then check whether pub/sub channels of the command is
+ * ready to be executed by ACLCheckPubsubPerm */
+int ACLCheckAllPerm(client *c, int *idxptr) {
+    int acl_retval = ACLCheckCommandPerm(c,idxptr);
+    if (acl_retval != ACL_OK)
+        return acl_retval;
+    if (c->cmd->proc == publishCommand)
+        acl_retval = ACLCheckPubsubPerm(c,1,1,0,idxptr);
+    else if (c->cmd->proc == subscribeCommand)
+        acl_retval = ACLCheckPubsubPerm(c,1,c->argc-1,0,idxptr);
+    else if (c->cmd->proc == psubscribeCommand)
+        acl_retval = ACLCheckPubsubPerm(c,1,c->argc-1,1,idxptr);
+    return acl_retval;
 }
 
 /* =============================================================================
@@ -1873,10 +1892,6 @@ void addACLLogEntry(client *c, int reason, int argpos, sds username) {
 void aclCommand(client *c) {
     char *sub = c->argv[1]->ptr;
     if (!strcasecmp(sub,"setuser") && c->argc >= 3) {
-        /* Consider information about passwords or permissions
-         * to be sensitive, which will be the arguments for this
-         * subcommand. */
-        preventCommandLogging(c); 
         sds username = c->argv[2]->ptr;
         /* Check username validity. */
         if (ACLStringHasSpaces(username,sdslen(username))) {
@@ -1892,6 +1907,12 @@ void aclCommand(client *c) {
         user *tempu = ACLCreateUnlinkedUser();
         user *u = ACLGetUserByName(username,sdslen(username));
         if (u) ACLCopyUser(tempu, u);
+
+        /* Initially redact all of the arguments to not leak any information
+         * about the user. */
+        for (int j = 2; j < c->argc; j++) {
+            redactClientCommandArgument(c, j);
+        }
 
         for (int j = 3; j < c->argc; j++) {
             if (ACLSetUser(tempu,c->argv[j]->ptr,sdslen(c->argv[j]->ptr)) != C_OK) {
@@ -2226,6 +2247,8 @@ void authCommand(client *c) {
         addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
+    /* Always redact the second argument */
+    redactClientCommandArgument(c, 1);
 
     /* Handle the two different forms here. The form with two arguments
      * will just use "default" as username. */
@@ -2245,6 +2268,7 @@ void authCommand(client *c) {
     } else {
         username = c->argv[1];
         password = c->argv[2];
+        redactClientCommandArgument(c, 2);
     }
 
     if (ACLAuthenticateUser(c,username,password) == C_OK) {

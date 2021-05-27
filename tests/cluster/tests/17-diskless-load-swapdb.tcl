@@ -36,7 +36,7 @@ test "Right to restore backups when fail to diskless load " {
     # Write a key that belongs to slot 0
     set slot0_key "06S"
     $master set $slot0_key 1
-    after 100
+    wait_for_ofs_sync $master $replica
     assert_equal {1} [$replica get $slot0_key]
     assert_equal $slot0_key [$replica CLUSTER GETKEYSINSLOT 0 1]
 
@@ -72,6 +72,13 @@ test "Right to restore backups when fail to diskless load " {
 
     # Kill master, abort full sync
     kill_instance redis $master_id
+
+    # Start full sync, wait till the replica detects the disconnection
+    wait_for_condition 500 10 {
+        [s $replica_id loading] eq 0
+    } else {
+        fail "Fail to full sync"
+    }
 
     # Replica keys and keys to slots map still both are right
     assert_equal {1} [$replica get $slot0_key]

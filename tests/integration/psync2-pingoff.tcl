@@ -111,7 +111,13 @@ start_server {} {
         $replica1 replicaof no one
         $replica2 replicaof 127.0.0.1 1 ;# we can't promote it to master since that will cycle the replication id
         $master config set repl-ping-replica-period 1
-        after 1500
+        set replofs [status $master master_repl_offset]
+        wait_for_condition 50 100 {
+            [status $replica3 master_repl_offset] > $replofs &&
+            [status $replica4 master_repl_offset] > $replofs
+        } else {
+            fail "replica didn't sync in time"
+        }
 
         # make everyone sync from the replica1 that didn't get the last ping from the old master
         # replica4 will keep syncing from the old master which now syncs from replica1
@@ -195,10 +201,16 @@ start_server {} {
             fail "Chained replica not replicating from its master"
         }
 
-        # Do a write on the master, and wait for 3 seconds for the master to
+        # Do a write on the master, and wait for the master to
         # send some PINGs to its replica
         $R(0) INCR counter2
-        after 2000
+        set replofs [status $R(0) master_repl_offset]
+        wait_for_condition 50 100 {
+            [status $R(1) master_repl_offset] > $replofs &&
+            [status $R(2) master_repl_offset] > $replofs
+        } else {
+            fail "replica didn't sync in time"
+        }
         set sync_partial_master [status $R(0) sync_partial_ok]
         set sync_partial_replica [status $R(1) sync_partial_ok]
         $R(0) CONFIG SET repl-ping-replica-period 100

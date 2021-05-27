@@ -165,6 +165,8 @@ proc test {name code {okpattern undefined} {options undefined}} {
     if {[catch {set retval [uplevel 1 $code]} error]} {
         set assertion [string match "assertion:*" $error]
         if {$assertion || $::durable} {
+            # durable prevents the whole tcl test from exiting on an exception.
+            # an assertion is handled gracefully anyway.
             set msg [string range $error 10 end]
             lappend details $msg
             if {!$assertion} {

@@ -39,12 +39,11 @@ void lazyfreeFreeSlotsMap(void *args[]) {
     atomicIncr(lazyfreed_objects,len);
 }
 
-/* Release the rax mapping Redis Cluster keys to slots in the
- * lazyfree thread. */
+/* Release the key tracking table. */
 void lazyFreeTrackingTable(void *args[]) {
     rax *rt = args[0];
     size_t len = rt->numele;
-    raxFree(rt);
+    freeTrackingRadixTree(rt);
     atomicDecr(lazyfree_objects,len);
     atomicIncr(lazyfreed_objects,len);
 }
@@ -69,6 +68,10 @@ size_t lazyfreeGetFreedObjectsCount(void) {
     size_t aux;
     atomicGet(lazyfreed_objects,aux);
     return aux;
+}
+
+void lazyfreeResetStats() {
+    atomicSet(lazyfreed_objects,0);
 }
 
 /* Return the amount of work needed in order to free an object.
@@ -110,7 +113,7 @@ size_t lazyfreeGetFreeEffort(robj *key, robj *obj) {
         /* Every consumer group is an allocation and so are the entries in its
          * PEL. We use size of the first group's PEL as an estimate for all
          * others. */
-        if (s->cgroups) {
+        if (s->cgroups && raxSize(s->cgroups)) {
             raxIterator ri;
             streamCG *cg;
             raxStart(&ri,s->cgroups);

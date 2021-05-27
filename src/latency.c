@@ -137,7 +137,7 @@ void latencyAddSample(const char *event, mstime_t latency) {
         return;
     }
 
-    ts->samples[ts->idx].time = time(NULL);
+    ts->samples[ts->idx].time = now;
     ts->samples[ts->idx].latency = latency;
 
     ts->idx++;

@@ -318,18 +318,11 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr) {
  * encoded as integers to save space */
 int rdbTryIntegerEncoding(char *s, size_t len, unsigned char *enc) {
     long long value;
-    char *endptr, buf[32];
-
-    /* Check if it's possible to encode this value as a number */
-    value = strtoll(s, &endptr, 10);
-    if (endptr[0] != '\0') return 0;
-    ll2string(buf,32,value);
-
-    /* If the number converted back into a string is not identical
-     * then it's not possible to encode the string as integer */
-    if (strlen(buf) != len || memcmp(buf,s,len)) return 0;
-
-    return rdbEncodeInteger(value,enc);
+    if (string2ll(s, len, &value)) {
+        return rdbEncodeInteger(value, enc);
+    } else {
+        return 0;
+    }
 }
 
 ssize_t rdbSaveLzfBlob(rio *rdb, void *data, size_t compress_len,
@@ -1073,8 +1066,7 @@ size_t rdbSavedObjectLen(robj *o, robj *key) {
 
 /* Save a key-value pair, with expire time, type, key, value.
  * On error -1 is returned.
- * On success if the key was actually saved 1 is returned, otherwise 0
- * is returned (the key was already expired). */
+ * On success if the key was actually saved 1 is returned. */
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime) {
     int savelru = server.maxmemory_policy & MAXMEMORY_FLAG_LRU;
     int savelfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU;
@@ -2634,7 +2626,7 @@ eoferr:
  * output is initialized and finalized.
  *
  * If you pass an 'rsi' structure initialied with RDB_SAVE_OPTION_INIT, the
- * loading code will fiil the information fields in the structure. */
+ * loading code will fill the information fields in the structure. */
 int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
     FILE *fp;
     rio rdb;
@@ -2692,6 +2684,7 @@ static void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
     }
     if (server.rdb_child_exit_pipe!=-1)
         close(server.rdb_child_exit_pipe);
+    aeDeleteFileEvent(server.el, server.rdb_pipe_read, AE_READABLE);
     close(server.rdb_pipe_read);
     server.rdb_child_exit_pipe = -1;
     server.rdb_pipe_read = -1;
@@ -2732,7 +2725,7 @@ void backgroundSaveDoneHandler(int exitcode, int bysignal) {
  * the cleanup needed. */
 void killRDBChild(void) {
     kill(server.child_pid, SIGUSR1);
-    /* Because we are not using here wait4 (like we have in killAppendOnlyChild
+    /* Because we are not using here waitpid (like we have in killAppendOnlyChild
      * and TerminateModuleForkChild), all the cleanup operations is done by
      * checkChildrenDone, that later will find that the process killed.
      * This includes:

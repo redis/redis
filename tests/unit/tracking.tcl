@@ -395,6 +395,17 @@ start_server {tags {"tracking network"}} {
         assert {[lindex msg 2] eq {} }
     }
 
+    test {Test ASYNC flushall} {
+        clean_all
+        r CLIENT TRACKING on REDIRECT $redir_id
+        r GET key1
+        r GET key2
+        assert_equal [s 0 tracking_total_keys] 2
+        $rd_sg FLUSHALL ASYNC
+        assert_equal [s 0 tracking_total_keys] 0
+        assert_equal [lindex [$rd_redirection read] 2] {}
+    }
+
     # Keys are defined to be evicted 100 at a time by default.
     # If after eviction the number of keys still surpasses the limit
     # defined in tracking-table-max-keys, we increases eviction 

@@ -154,6 +154,7 @@ client *createClient(connection *conn) {
     c->read_reploff = 0;
     c->repl_ack_off = 0;
     c->repl_ack_time = 0;
+    c->repl_last_partial_write = 0;
     c->slave_listening_port = 0;
     c->slave_addr = NULL;
     c->slave_capa = SLAVE_CAPA_NONE;
@@ -331,8 +332,9 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
         memcpy(tail->buf, s, len);
         listAddNodeTail(c->reply, tail);
         c->reply_bytes += tail->size;
+
+        closeClientOnOutputBufferLimitReached(c, 1);
     }
-    asyncCloseClientOnOutputBufferLimitReached(c);
 }
 
 /* -----------------------------------------------------------------------------
@@ -562,7 +564,7 @@ void *addReplyDeferredLen(client *c) {
 
 void setDeferredReply(client *c, void *node, const char *s, size_t length) {
     listNode *ln = (listNode*)node;
-    clientReplyBlock *next;
+    clientReplyBlock *next, *prev;
 
     /* Abort when *node is NULL: when the client should not accept writes
      * we return NULL in addReplyDeferredLen() */
@@ -571,14 +573,31 @@ void setDeferredReply(client *c, void *node, const char *s, size_t length) {
 
     /* Normally we fill this dummy NULL node, added by addReplyDeferredLen(),
      * with a new buffer structure containing the protocol needed to specify
-     * the length of the array following. However sometimes when there is
-     * little memory to move, we may instead remove this NULL node, and prefix
-     * our protocol in the node immediately after to it, in order to save a
-     * write(2) syscall later. Conditions needed to do it:
+     * the length of the array following. However sometimes there might be room
+     * in the previous/next node so we can instead remove this NULL node, and
+     * suffix/prefix our data in the node immediately before/after it, in order
+     * to save a write(2) syscall later. Conditions needed to do it:
      *
+     * - The prev node is non-NULL and has space in it or
      * - The next node is non-NULL,
      * - It has enough room already allocated
      * - And not too large (avoid large memmove) */
+    if (ln->prev != NULL && (prev = listNodeValue(ln->prev)) &&
+        prev->size - prev->used > 0)
+    {
+        size_t len_to_copy = prev->size - prev->used;
+        if (len_to_copy > length)
+            len_to_copy = length;
+        memcpy(prev->buf + prev->used, s, len_to_copy);
+        prev->used += len_to_copy;
+        length -= len_to_copy;
+        if (length == 0) {
+            listDelNode(c->reply, ln);
+            return;
+        }
+        s += len_to_copy;
+    }
+
     if (ln->next != NULL && (next = listNodeValue(ln->next)) &&
         next->size - next->used >= length &&
         next->used < PROTO_REPLY_CHUNK_BYTES * 4)
@@ -596,8 +615,9 @@ void setDeferredReply(client *c, void *node, const char *s, size_t length) {
         memcpy(buf->buf, s, length);
         listNodeValue(ln) = buf;
         c->reply_bytes += buf->size;
+
+        closeClientOnOutputBufferLimitReached(c, 1);
     }
-    asyncCloseClientOnOutputBufferLimitReached(c);
 }
 
 /* Populate the length object and try gluing it to the next chunk. */
@@ -929,7 +949,7 @@ void AddReplyFromClient(client *dst, client *src) {
     src->bufpos = 0;
 
     /* Check output buffer limits */
-    asyncCloseClientOnOutputBufferLimitReached(dst);
+    closeClientOnOutputBufferLimitReached(dst, 1);
 }
 
 /* Copy 'src' client output buffers into 'dst' client output buffers.
@@ -1531,9 +1551,7 @@ int writeToClient(client *c, int handler_installed) {
     }
     atomicIncr(server.stat_net_output_bytes, totwritten);
     if (nwritten == -1) {
-        if (connGetState(c->conn) == CONN_STATE_CONNECTED) {
-            nwritten = 0;
-        } else {
+        if (connGetState(c->conn) != CONN_STATE_CONNECTED) {
             serverLog(LL_VERBOSE,
                 "Error writing to client: %s", connGetLastError(c->conn));
             freeClientAsync(c);
@@ -1954,13 +1972,10 @@ void commandProcessed(client *c) {
         c->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
     }
 
-    /* Don't reset the client structure for clients blocked in a
-     * module blocking command, so that the reply callback will
-     * still be able to access the client argv and argc field.
-     * The client will be reset in unblockClientFromModule(). */
-    if (!(c->flags & CLIENT_BLOCKED) ||
-        (c->btype != BLOCKED_MODULE && c->btype != BLOCKED_PAUSE))
-    {
+    /* Don't reset the client structure for blocked clients, so that the reply
+     * callback will still be able to access the client argv and argc fields.
+     * The client will be reset in unblockClient(). */
+    if (!(c->flags & CLIENT_BLOCKED)) {
         resetClient(c);
     }
 
@@ -1990,12 +2005,20 @@ void commandProcessed(client *c) {
  * of processing the command, otherwise C_OK is returned. */
 int processCommandAndResetClient(client *c) {
     int deadclient = 0;
+    client *old_client = server.current_client;
     server.current_client = c;
     if (processCommand(c) == C_OK) {
         commandProcessed(c);
     }
     if (server.current_client == NULL) deadclient = 1;
-    server.current_client = NULL;
+    /*
+     * Restore the old client, this is needed because when a script
+     * times out, we will get into this code from processEventsWhileBlocked.
+     * Which will cause to set the server.current_client. If not restored
+     * we will return 1 to our caller which will falsely indicate the client
+     * is dead and will stop reading from its buffer.
+     */
+    server.current_client = old_client;
     /* performEvictions may flush slave output buffers. This may
      * result in a slave, that may be the active client, to be
      * freed. */
@@ -2459,7 +2482,7 @@ void clientCommand(client *c) {
 "UNBLOCK <clientid> [TIMEOUT|ERROR]",
 "    Unblock the specified blocked client.",
 "TRACKING (ON|OFF) [REDIRECT <id>] [BCAST] [PREFIX <prefix> [...]]",
-"         [OPTIN] [OPTOUT]",
+"         [OPTIN] [OPTOUT] [NOLOOP]",
 "    Control server assisted client side caching.",
 "TRACKINGINFO",
 "    Report tracking status for the current connection.",
@@ -2695,7 +2718,7 @@ NULL
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"tracking") && c->argc >= 3) {
         /* CLIENT TRACKING (on|off) [REDIRECT <id>] [BCAST] [PREFIX first]
-         *                          [PREFIX second] [OPTIN] [OPTOUT] ... */
+         *                          [PREFIX second] [OPTIN] [OPTOUT] [NOLOOP]... */
         long long redir = 0;
         uint64_t options = 0;
         robj **prefix = NULL;
@@ -2941,7 +2964,8 @@ void helloCommand(client *c) {
         int moreargs = (c->argc-1) - j;
         const char *opt = c->argv[j]->ptr;
         if (!strcasecmp(opt,"AUTH") && moreargs >= 2) {
-            preventCommandLogging(c);
+            redactClientCommandArgument(c, j+1);
+            redactClientCommandArgument(c, j+2);
             if (ACLAuthenticateUser(c, c->argv[j+1], c->argv[j+2]) == C_ERR) {
                 addReplyError(c,"-WRONGPASS invalid username-password pair or user is disabled.");
                 return;
@@ -3026,6 +3050,15 @@ static void retainOriginalCommandVector(client *c) {
         c->original_argv[j] = c->argv[j];
         incrRefCount(c->argv[j]);
     }
+}
+
+/* Redact a given argument to prevent it from being shown
+ * in the slowlog. This information is stored in the
+ * original_argv array. */
+void redactClientCommandArgument(client *c, int argc) {
+    retainOriginalCommandVector(c);
+    decrRefCount(c->argv[argc]);
+    c->original_argv[argc] = shared.redacted;
 }
 
 /* Rewrite the command vector of the client. All the new objects ref count
@@ -3197,18 +3230,33 @@ int checkClientOutputBufferLimits(client *c) {
  *
  * Note: we need to close the client asynchronously because this function is
  * called from contexts where the client can't be freed safely, i.e. from the
- * lower level functions pushing data inside the client output buffers. */
-void asyncCloseClientOnOutputBufferLimitReached(client *c) {
-    if (!c->conn) return; /* It is unsafe to free fake clients. */
+ * lower level functions pushing data inside the client output buffers.
+ * When `async` is set to 0, we close the client immediately, this is
+ * useful when called from cron.
+ *
+ * Returns 1 if client was (flagged) closed. */
+int closeClientOnOutputBufferLimitReached(client *c, int async) {
+    if (!c->conn) return 0; /* It is unsafe to free fake clients. */
     serverAssert(c->reply_bytes < SIZE_MAX-(1024*64));
-    if (c->reply_bytes == 0 || c->flags & CLIENT_CLOSE_ASAP) return;
+    if (c->reply_bytes == 0 || c->flags & CLIENT_CLOSE_ASAP) return 0;
     if (checkClientOutputBufferLimits(c)) {
         sds client = catClientInfoString(sdsempty(),c);
 
-        freeClientAsync(c);
-        serverLog(LL_WARNING,"Client %s scheduled to be closed ASAP for overcoming of output buffer limits.", client);
+        if (async) {
+            freeClientAsync(c);
+            serverLog(LL_WARNING,
+                      "Client %s scheduled to be closed ASAP for overcoming of output buffer limits.",
+                      client);
+        } else {
+            freeClient(c);
+            serverLog(LL_WARNING,
+                      "Client %s closed for overcoming of output buffer limits.",
+                      client);
+        }
         sdsfree(client);
+        return  1;
     }
+    return 0;
 }
 
 /* Helper function used by performEvictions() in order to flush slaves
@@ -3305,6 +3353,8 @@ int areClientsPaused(void) {
  * if it has. Also returns true if clients are now paused and false 
  * otherwise. */
 int checkClientPauseTimeoutAndReturnIfPaused(void) {
+    if (!areClientsPaused())
+        return 0;
     if (server.client_pause_end_time < server.mstime) {
         unpauseClients();
     }
@@ -3333,7 +3383,7 @@ void processEventsWhileBlocked(void) {
     /* Note: when we are processing events while blocked (for instance during
      * busy Lua scripts), we set a global flag. When such flag is set, we
      * avoid handling the read part of clients using threaded I/O.
-     * See https://github.com/antirez/redis/issues/6988 for more info. */
+     * See https://github.com/redis/redis/issues/6988 for more info. */
     ProcessingEventsWhileBlocked = 1;
     while (iterations--) {
         long long startval = server.events_processed_while_blocked;

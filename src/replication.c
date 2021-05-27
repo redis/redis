@@ -109,7 +109,8 @@ int bg_unlink(const char *filename) {
 
 void createReplicationBacklog(void) {
     serverAssert(server.repl_backlog == NULL);
-    server.repl_backlog = zmalloc(server.repl_backlog_size);
+    server.repl_backlog = zmalloc(server.cfg_repl_backlog_size);
+    server.repl_backlog_size = zmalloc_usable_size(server.repl_backlog);
     server.repl_backlog_histlen = 0;
     server.repl_backlog_idx = 0;
 
@@ -121,16 +122,16 @@ void createReplicationBacklog(void) {
 
 /* This function is called when the user modifies the replication backlog
  * size at runtime. It is up to the function to both update the
- * server.repl_backlog_size and to resize the buffer and setup it so that
+ * server.cfg_repl_backlog_size and to resize the buffer and setup it so that
  * it contains the same data as the previous one (possibly less data, but
  * the most recent bytes, or the same data and more free space in case the
  * buffer is enlarged). */
 void resizeReplicationBacklog(long long newsize) {
     if (newsize < CONFIG_REPL_BACKLOG_MIN_SIZE)
         newsize = CONFIG_REPL_BACKLOG_MIN_SIZE;
-    if (server.repl_backlog_size == newsize) return;
+    if (server.cfg_repl_backlog_size == newsize) return;
 
-    server.repl_backlog_size = newsize;
+    server.cfg_repl_backlog_size = newsize;
     if (server.repl_backlog != NULL) {
         /* What we actually do is to flush the old buffer and realloc a new
          * empty one. It will refill with new data incrementally.
@@ -138,7 +139,8 @@ void resizeReplicationBacklog(long long newsize) {
          * worse often we need to alloc additional space before freeing the
          * old buffer. */
         zfree(server.repl_backlog);
-        server.repl_backlog = zmalloc(server.repl_backlog_size);
+        server.repl_backlog = zmalloc(server.cfg_repl_backlog_size);
+        server.repl_backlog_size = zmalloc_usable_size(server.repl_backlog);
         server.repl_backlog_histlen = 0;
         server.repl_backlog_idx = 0;
         /* Next byte we have is... the next since the buffer is empty. */
@@ -377,6 +379,7 @@ void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t bufle
 }
 
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc) {
+    if (!(listLength(server.monitors) && !server.loading)) return;
     listNode *ln;
     listIter li;
     int j;
@@ -770,8 +773,8 @@ void syncCommand(client *c) {
 
     /* Try a partial resynchronization if this is a PSYNC command.
      * If it fails, we continue with usual full resynchronization, however
-     * when this happens masterTryPartialResynchronization() already
-     * replied with:
+     * when this happens replicationSetupSlaveForFullResync will replied
+     * with:
      *
      * +FULLRESYNC <replid> <offset>
      *
@@ -1055,7 +1058,7 @@ void removeRDBUsedToSyncReplicas(void) {
      * RDBGeneratedByReplication flag in case it was set. Otherwise if the
      * feature was enabled, but gets disabled later with CONFIG SET, the
      * flag may remain set to one: then next time the feature is re-enabled
-     * via CONFIG SET we have have it set even if no RDB was generated
+     * via CONFIG SET we have it set even if no RDB was generated
      * because of replication recently. */
     if (!server.rdb_del_sync_files) {
         RDBGeneratedByReplication = 0;
@@ -1153,6 +1156,8 @@ void rdbPipeWriteHandlerConnRemoved(struct connection *conn) {
     if (!connHasWriteHandler(conn))
         return;
     connSetWriteHandler(conn, NULL);
+    client *slave = connGetPrivateData(conn);
+    slave->repl_last_partial_write = 0;
     server.rdb_pipe_numconns_writing--;
     /* if there are no more writes for now for this conn, or write error: */
     if (server.rdb_pipe_numconns_writing == 0) {
@@ -1180,8 +1185,10 @@ void rdbPipeWriteHandler(struct connection *conn) {
     } else {
         slave->repldboff += nwritten;
         atomicIncr(server.stat_net_output_bytes, nwritten);
-        if (slave->repldboff < server.rdb_pipe_bufflen)
+        if (slave->repldboff < server.rdb_pipe_bufflen) {
+            slave->repl_last_partial_write = server.unixtime;
             return; /* more data to write.. */
+        }
     }
     rdbPipeWriteHandlerConnRemoved(conn);
 }
@@ -1262,6 +1269,7 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
             /* If we were unable to write all the data to one of the replicas,
              * setup write handler (and disable pipe read handler, below) */
             if (nwritten != server.rdb_pipe_bufflen) {
+                slave->repl_last_partial_write = server.unixtime;
                 server.rdb_pipe_numconns_writing++;
                 connSetWriteHandler(conn, rdbPipeWriteHandler);
             }
@@ -2144,7 +2152,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
             "Successful partial resynchronization with master.");
 
         /* Check the new replication ID advertised by the master. If it
-         * changed, we need to set the new ID as primary ID, and set or
+         * changed, we need to set the new ID as primary ID, and set
          * secondary ID as the old master ID up to the current offset, so
          * that our sub-slaves will be able to PSYNC with us after a
          * disconnection. */
@@ -2671,11 +2679,7 @@ void replicationUnsetMaster(void) {
     /* When a slave is turned into a master, the current replication ID
      * (that was inherited from the master at synchronization time) is
      * used as secondary ID up to the current offset, and a new replication
-     * ID is created to continue with a new replication history.
-     *
-     * NOTE: this function MUST be called after we call
-     * freeClient(server.master), since there we adjust the replication
-     * offset trimming the final PINGs. See Github issue #7320. */
+     * ID is created to continue with a new replication history. */
     shiftReplicationId();
     /* Disconnecting all the slaves is required: we need to inform slaves
      * of the replication ID change (see shiftReplicationId() call). However
@@ -2698,6 +2702,9 @@ void replicationUnsetMaster(void) {
      * starting from now. Otherwise the backlog will be freed after a
      * failover if slaves do not connect immediately. */
     server.repl_no_slaves_since = server.unixtime;
+    
+    /* Reset down time so it'll be ready for when we turn into replica again. */
+    server.repl_down_since = 0;
 
     /* Fire the role change modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED,
@@ -2773,7 +2780,7 @@ void replicaofCommand(client *c) {
         if ((getLongFromObjectOrReply(c, c->argv[2], &port, NULL) != C_OK))
             return;
 
-        /* Check if we are already attached to the specified slave */
+        /* Check if we are already attached to the specified master */
         if (server.masterhost && !strcasecmp(server.masterhost,c->argv[1]->ptr)
             && server.masterport == port) {
             serverLog(LL_NOTICE,"REPLICAOF would result into synchronization "
@@ -3390,13 +3397,28 @@ void replicationCron(void) {
         while((ln = listNext(&li))) {
             client *slave = ln->value;
 
-            if (slave->replstate != SLAVE_STATE_ONLINE) continue;
-            if (slave->flags & CLIENT_PRE_PSYNC) continue;
-            if ((server.unixtime - slave->repl_ack_time) > server.repl_timeout)
-            {
-                serverLog(LL_WARNING, "Disconnecting timedout replica: %s",
-                    replicationGetSlaveName(slave));
-                freeClient(slave);
+            if (slave->replstate == SLAVE_STATE_ONLINE) {
+                if (slave->flags & CLIENT_PRE_PSYNC)
+                    continue;
+                if ((server.unixtime - slave->repl_ack_time) > server.repl_timeout) {
+                    serverLog(LL_WARNING, "Disconnecting timedout replica (streaming sync): %s",
+                          replicationGetSlaveName(slave));
+                    freeClient(slave);
+                    continue;
+                }
+            }
+            /* We consider disconnecting only diskless replicas because disk-based replicas aren't fed
+             * by the fork child so if a disk-based replica is stuck it doesn't prevent the fork child
+             * from terminating. */
+            if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END && server.rdb_child_type == RDB_CHILD_TYPE_SOCKET) {
+                if (slave->repl_last_partial_write != 0 &&
+                    (server.unixtime - slave->repl_last_partial_write) > server.repl_timeout)
+                {
+                    serverLog(LL_WARNING, "Disconnecting timedout replica (full sync): %s",
+                          replicationGetSlaveName(slave));
+                    freeClient(slave);
+                    continue;
+                }
             }
         }
     }

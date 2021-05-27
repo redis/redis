@@ -493,17 +493,12 @@ int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
 
 static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *len) {
     int fd;
-    while(1) {
+    do {
         fd = accept(s,sa,len);
-        if (fd == -1) {
-            if (errno == EINTR)
-                continue;
-            else {
-                anetSetError(err, "accept: %s", strerror(errno));
-                return ANET_ERR;
-            }
-        }
-        break;
+    } while(fd == -1 && errno == EINTR);
+    if (fd == -1) {
+        anetSetError(err, "accept: %s", strerror(errno));
+        return ANET_ERR;
     }
     return fd;
 }
@@ -512,7 +507,7 @@ int anetTcpAccept(char *err, int s, char *ip, size_t ip_len, int *port) {
     int fd;
     struct sockaddr_storage sa;
     socklen_t salen = sizeof(sa);
-    if ((fd = anetGenericAccept(err,s,(struct sockaddr*)&sa,&salen)) == -1)
+    if ((fd = anetGenericAccept(err,s,(struct sockaddr*)&sa,&salen)) == ANET_ERR)
         return ANET_ERR;
 
     if (sa.ss_family == AF_INET) {
@@ -531,7 +526,7 @@ int anetUnixAccept(char *err, int s) {
     int fd;
     struct sockaddr_un sa;
     socklen_t salen = sizeof(sa);
-    if ((fd = anetGenericAccept(err,s,(struct sockaddr*)&sa,&salen)) == -1)
+    if ((fd = anetGenericAccept(err,s,(struct sockaddr*)&sa,&salen)) == ANET_ERR)
         return ANET_ERR;
 
     return fd;
@@ -546,18 +541,26 @@ int anetFdToString(int fd, char *ip, size_t ip_len, int *port, int fd_to_str_typ
     } else {
         if (getsockname(fd, (struct sockaddr *)&sa, &salen) == -1) goto error;
     }
-    if (ip_len == 0) goto error;
 
     if (sa.ss_family == AF_INET) {
         struct sockaddr_in *s = (struct sockaddr_in *)&sa;
-        if (ip) inet_ntop(AF_INET,(void*)&(s->sin_addr),ip,ip_len);
+        if (ip) {
+            if (inet_ntop(AF_INET,(void*)&(s->sin_addr),ip,ip_len) == NULL)
+                goto error;
+        }
         if (port) *port = ntohs(s->sin_port);
     } else if (sa.ss_family == AF_INET6) {
         struct sockaddr_in6 *s = (struct sockaddr_in6 *)&sa;
-        if (ip) inet_ntop(AF_INET6,(void*)&(s->sin6_addr),ip,ip_len);
+        if (ip) {
+            if (inet_ntop(AF_INET6,(void*)&(s->sin6_addr),ip,ip_len) == NULL)
+                goto error;
+        }
         if (port) *port = ntohs(s->sin6_port);
     } else if (sa.ss_family == AF_UNIX) {
-        if (ip) snprintf(ip, ip_len, "/unixsocket");
+        if (ip) {
+            int res = snprintf(ip, ip_len, "/unixsocket");
+            if (res < 0 || (unsigned int) res >= ip_len) goto error;
+        }
         if (port) *port = 0;
     } else {
         goto error;

@@ -745,10 +745,10 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
  * Output will be just "HelloWorld".
  */
 sds sdstrim(sds s, const char *cset) {
-    char *start, *end, *sp, *ep;
+    char *end, *sp, *ep;
     size_t len;
 
-    sp = start = s;
+    sp = s;
     ep = end = s+sdslen(s)-1;
     while(sp <= end && strchr(cset, *sp)) sp++;
     while(ep > sp && strchr(cset, *ep)) ep--;
@@ -793,7 +793,7 @@ void sdsrange(sds s, ssize_t start, ssize_t end) {
             newlen = 0;
         } else if (end >= (ssize_t)len) {
             end = len-1;
-            newlen = (start > end) ? 0 : (end-start)+1;
+            newlen = (end-start)+1;
         }
     }
     if (start && newlen) memmove(s, s+start, newlen);

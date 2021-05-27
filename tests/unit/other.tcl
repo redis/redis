@@ -1,4 +1,4 @@
-start_server {tags {"other"}} {
+start_server {overrides {save ""} tags {"other"}} {
     if {$::force_failure} {
         # This is used just for test suite development purposes.
         test {Failing test} {
@@ -266,9 +266,6 @@ start_server {tags {"other"}} {
         assert_equal [$rd read] "OK"
 
         $rd reset
-
-        # skip reset ouptut
-        $rd read
         assert_equal [$rd read] "RESET"
 
         assert_no_match {*flags=O*} [r client list]

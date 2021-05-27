@@ -727,7 +727,11 @@ int getRangeLongFromObjectOrReply(client *c, robj *o, long min, long max, long *
 }
 
 int getPositiveLongFromObjectOrReply(client *c, robj *o, long *target, const char *msg) {
-    return getRangeLongFromObjectOrReply(c, o, 0, LONG_MAX, target, msg);
+    if (msg) {
+        return getRangeLongFromObjectOrReply(c, o, 0, LONG_MAX, target, msg);
+    } else {
+        return getRangeLongFromObjectOrReply(c, o, 0, LONG_MAX, target, "value is out of range, must be positive");
+    }
 }
 
 int getIntFromObjectOrReply(client *c, robj *o, int *target, const char *msg) {
@@ -832,7 +836,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
             if (samples) asize += (double)elesize/samples*dictSize(d);
         } else if (o->encoding == OBJ_ENCODING_INTSET) {
             intset *is = o->ptr;
-            asize = sizeof(*o)+sizeof(*is)+is->encoding*is->length;
+            asize = sizeof(*o)+sizeof(*is)+(size_t)is->encoding*is->length;
         } else {
             serverPanic("Unknown set encoding");
         }

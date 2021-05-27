@@ -183,9 +183,6 @@ int lpStringToInt64(const char *s, unsigned long slen, int64_t *value) {
     if (p[0] >= '1' && p[0] <= '9') {
         v = p[0]-'0';
         p++; plen++;
-    } else if (p[0] == '0' && slen == 1) {
-        *value = 0;
-        return 1;
     } else {
         return 0;
     }
@@ -908,7 +905,7 @@ int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes) {
 #undef OUT_OF_RANGE
 }
 
-/* Validate the integrity of the data stracture.
+/* Validate the integrity of the data structure.
  * when `deep` is 0, only the integrity of the header is validated.
  * when `deep` is 1, we scan all the entries one by one. */
 int lpValidateIntegrity(unsigned char *lp, size_t size, int deep){

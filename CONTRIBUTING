@@ -20,29 +20,11 @@ There is also an active community of Redis users at Stack Overflow:
 
     http://stackoverflow.com/questions/tagged/redis
 
-# Reporting Security Bugs
+Issues and pull requests for documentation belong on the redis-doc repo:
 
-*If you are reporting a security bug*, please contact the core team privately
-by emailing redis@redis.io. Your report will be acknowledged by a core team
-member and once the report has been reviewed you will receive a more detailed
-response including next steps.
+    https://github.com/redis/redis-doc
 
-If you do not receive a reply you can escalate to the Redis Google Group,
-linked above. Because this group is a public space please do not disclose the
-issue in detail, only say that you are trying to reach the core team for a
-security issue.
-
-Redis follows a responsible disclosure process:
-
-1. Reports are reviewed and analyzed privately
-2. Patches are prepared for supported versions of Redis
-3. Vendor lists are notified with an embargo date to reduce the public impact
-4. We push a fix release and your bug can be posted publicly with credit in
-   release notes and the version history (and our thanks!)
-
-  Issues and pull requests for documentation belong on the redis-doc repo:
-
-      https://github.com/redis/redis-doc
+If you are reporting a security bug or vulnerability, see SECURITY.md.
 
 # How to provide a patch for a new feature
 

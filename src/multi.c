@@ -153,8 +153,7 @@ void execCommandAbort(client *c, sds error) {
     /* Send EXEC to clients waiting data from MONITOR. We did send a MULTI
      * already, and didn't send any of the queued commands, now we'll just send
      * EXEC so it is clear that the transaction is over. */
-    if (listLength(server.monitors) && !server.loading)
-        replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
+    replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
 }
 
 void execCommand(client *c) {
@@ -179,7 +178,7 @@ void execCommand(client *c) {
         addReply(c, c->flags & CLIENT_DIRTY_EXEC ? shared.execaborterr :
                                                    shared.nullarray[c->resp]);
         discardTransaction(c);
-        goto handle_monitor;
+        return;
     }
 
     uint64_t old_flags = c->flags;
@@ -204,9 +203,7 @@ void execCommand(client *c) {
         /* ACL permissions are also checked at the time of execution in case
          * they were changed after the commands were queued. */
         int acl_errpos;
-        int acl_retval = ACLCheckCommandPerm(c,&acl_errpos);
-        if (acl_retval == ACL_OK && c->cmd->proc == publishCommand)
-            acl_retval = ACLCheckPubsubPerm(c,1,1,0,&acl_errpos);
+        int acl_retval = ACLCheckAllPerm(c,&acl_errpos);
         if (acl_retval != ACL_OK) {
             char *reason;
             switch (acl_retval) {
@@ -217,7 +214,8 @@ void execCommand(client *c) {
                 reason = "no permission to touch the specified keys";
                 break;
             case ACL_DENIED_CHANNEL:
-                reason = "no permission to publish to the specified channel";
+                reason = "no permission to access one of the channels used "
+                         "as arguments";
                 break;
             default:
                 reason = "no permission";
@@ -267,15 +265,6 @@ void execCommand(client *c) {
     }
 
     server.in_exec = 0;
-
-handle_monitor:
-    /* Send EXEC to clients waiting data from MONITOR. We do it here
-     * since the natural order of commands execution is actually:
-     * MUTLI, EXEC, ... commands inside transaction ...
-     * Instead EXEC is flagged as CMD_SKIP_MONITOR in the command
-     * table, and we do it here with correct ordering. */
-    if (listLength(server.monitors) && !server.loading)
-        replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
 }
 
 /* ===================== WATCH (CAS alike for MULTI/EXEC) ===================

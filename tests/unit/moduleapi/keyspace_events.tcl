@@ -67,5 +67,20 @@ tags "modules" {
             assert_equal {1} [r get lua]
             r get x
         } {3}
+
+        test {Test module key space event} {
+            r keyspace.notify x
+            assert_equal {1 x} [r keyspace.is_module_key_notified x]
+        }
+
+        test "Keyspace notifications: module events test" {
+            r config set notify-keyspace-events Kd
+            r del x
+            set rd1 [redis_deferring_client]
+            assert_equal {1} [psubscribe $rd1 *]
+            r keyspace.notify x
+            assert_equal {pmessage * __keyspace@9__:x notify} [$rd1 read]
+            $rd1 close
+        }
 	}
 }

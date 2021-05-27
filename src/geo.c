@@ -355,20 +355,20 @@ int membersOfGeoHashBox(robj *zobj, GeoHashBits hash, geoArray *ga, GeoShape *sh
 }
 
 /* Search all eight neighbors + self geohash box */
-int membersOfAllNeighbors(robj *zobj, GeoHashRadius n, GeoShape *shape, geoArray *ga, unsigned long limit) {
+int membersOfAllNeighbors(robj *zobj, const GeoHashRadius *n, GeoShape *shape, geoArray *ga, unsigned long limit) {
     GeoHashBits neighbors[9];
     unsigned int i, count = 0, last_processed = 0;
     int debugmsg = 0;
 
-    neighbors[0] = n.hash;
-    neighbors[1] = n.neighbors.north;
-    neighbors[2] = n.neighbors.south;
-    neighbors[3] = n.neighbors.east;
-    neighbors[4] = n.neighbors.west;
-    neighbors[5] = n.neighbors.north_east;
-    neighbors[6] = n.neighbors.north_west;
-    neighbors[7] = n.neighbors.south_east;
-    neighbors[8] = n.neighbors.south_west;
+    neighbors[0] = n->hash;
+    neighbors[1] = n->neighbors.north;
+    neighbors[2] = n->neighbors.south;
+    neighbors[3] = n->neighbors.east;
+    neighbors[4] = n->neighbors.west;
+    neighbors[5] = n->neighbors.north_east;
+    neighbors[6] = n->neighbors.north_west;
+    neighbors[7] = n->neighbors.south_east;
+    neighbors[8] = n->neighbors.south_west;
 
     /* For each neighbor (*and* our own hashbox), get all the matching
      * members and add them to the potential result list. */
@@ -511,7 +511,7 @@ void geoaddCommand(client *c) {
  * GEOSEARCH key [FROMMEMBER member] [FROMLONLAT long lat] [BYRADIUS radius unit]
  *               [BYBOX width height unit] [WITHCORD] [WITHDIST] [WITHASH] [COUNT count [ANY]] [ASC|DESC]
  * GEOSEARCHSTORE dest_key src_key [FROMMEMBER member] [FROMLONLAT long lat] [BYRADIUS radius unit]
- *               [BYBOX width height unit] [WITHCORD] [WITHDIST] [WITHASH] [COUNT count [ANY]] [ASC|DESC] [STOREDIST]
+ *               [BYBOX width height unit] [COUNT count [ANY]] [ASC|DESC] [STOREDIST]
  *  */
 void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
     robj *storekey = NULL;
@@ -651,9 +651,9 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
 
     /* Trap options not compatible with STORE and STOREDIST. */
     if (storekey && (withdist || withhash || withcoords)) {
-        addReplyError(c,
-            "STORE option in GEORADIUS is not compatible with "
-            "WITHDIST, WITHHASH and WITHCOORDS options");
+        addReplyErrorFormat(c,
+            "%s is not compatible with WITHDIST, WITHHASH and WITHCOORD options",
+            flags & GEOSEARCHSTORE? "GEOSEARCHSTORE": "STORE option in GEORADIUS");
         return;
     }
 
@@ -687,7 +687,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
 
     /* Search the zset for all matching points */
     geoArray *ga = geoArrayCreate();
-    membersOfAllNeighbors(zobj, georadius, &shape, ga, any ? count : 0);
+    membersOfAllNeighbors(zobj, &georadius, &shape, ga, any ? count : 0);
 
     /* If no matching results, the user gets an empty reply. */
     if (ga->used == 0 && storekey == NULL) {

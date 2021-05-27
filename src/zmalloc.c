@@ -613,6 +613,11 @@ size_t zmalloc_get_smap_bytes_by_field(char *field, long pid) {
 }
 #endif
 
+/* Return the total number bytes in pages marked as Private Dirty.
+ *
+ * Note: depending on the platform and memory footprint of the process, this
+ * call can be slow, exceeding 1000ms!
+ */
 size_t zmalloc_get_private_dirty(long pid) {
     return zmalloc_get_smap_bytes_by_field("Private_Dirty:",pid);
 }

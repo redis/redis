@@ -60,7 +60,7 @@ void aofClosePipes(void);
 #define AOF_RW_BUF_BLOCK_SIZE (1024*1024*10)    /* 10 MB per block */
 
 typedef struct aofrwblock {
-    unsigned long used, free;
+    unsigned long used, free, pos;
     char buf[AOF_RW_BUF_BLOCK_SIZE];
 } aofrwblock;
 
@@ -96,29 +96,31 @@ void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
     listNode *ln;
     aofrwblock *block;
     ssize_t nwritten;
+    mstime_t latency;
     UNUSED(el);
     UNUSED(fd);
     UNUSED(privdata);
     UNUSED(mask);
 
+    latencyStartMonitor(latency);
     while(1) {
         ln = listFirst(server.aof_rewrite_buf_blocks);
         block = ln ? ln->value : NULL;
         if (server.aof_stop_sending_diff || !block) {
             aeDeleteFileEvent(server.el,server.aof_pipe_write_data_to_child,
                               AE_WRITABLE);
-            return;
+            break;
         }
-        if (block->used > 0) {
+        if (block->used != block->pos) {
             nwritten = write(server.aof_pipe_write_data_to_child,
-                             block->buf,block->used);
-            if (nwritten <= 0) return;
-            memmove(block->buf,block->buf+nwritten,block->used-nwritten);
-            block->used -= nwritten;
-            block->free += nwritten;
+                             block->buf+block->pos,block->used-block->pos);
+            if (nwritten <= 0) break;
+            block->pos += nwritten;
         }
-        if (block->used == 0) listDelNode(server.aof_rewrite_buf_blocks,ln);
+        if (block->used == block->pos) listDelNode(server.aof_rewrite_buf_blocks,ln);
     }
+    latencyEndMonitor(latency);
+    latencyAddSampleIfNeeded("aof-rewrite-write-data-to-child",latency);
 }
 
 /* Append data to the AOF rewrite buffer, allocating new blocks if needed. */
@@ -146,6 +148,7 @@ void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
             block = zmalloc(sizeof(*block));
             block->free = AOF_RW_BUF_BLOCK_SIZE;
             block->used = 0;
+            block->pos = 0;
             listAddNodeTail(server.aof_rewrite_buf_blocks,block);
 
             /* Log every time we cross more 10 or 100 blocks, respectively
@@ -181,9 +184,9 @@ ssize_t aofRewriteBufferWrite(int fd) {
         aofrwblock *block = listNodeValue(ln);
         ssize_t nwritten;
 
-        if (block->used) {
-            nwritten = write(fd,block->buf,block->used);
-            if (nwritten != (ssize_t)block->used) {
+        if (block->used != block->pos) {
+            nwritten = write(fd,block->buf+block->pos,block->used-block->pos);
+            if (nwritten != (ssize_t)(block->used-block->pos)) {
                 if (nwritten == 0) errno = EIO;
                 return -1;
             }
@@ -218,7 +221,7 @@ void killAppendOnlyChild(void) {
     serverLog(LL_NOTICE,"Killing running AOF rewrite child: %ld",
         (long) server.child_pid);
     if (kill(server.child_pid,SIGUSR1) != -1) {
-        while(wait3(&statloc,0,NULL) != server.child_pid);
+        while(waitpid(-1, &statloc, 0) != server.child_pid);
     }
     /* Reset the buffer accumulating changes while the child saves. */
     aofRewriteBufferReset();
@@ -234,9 +237,12 @@ void killAppendOnlyChild(void) {
 void stopAppendOnly(void) {
     serverAssert(server.aof_state != AOF_OFF);
     flushAppendOnlyFile(1);
-    redis_fsync(server.aof_fd);
-    server.aof_fsync_offset = server.aof_current_size;
-    server.aof_last_fsync = server.unixtime;
+    if (redis_fsync(server.aof_fd) == -1) {
+        serverLog(LL_WARNING,"Fail to fsync the AOF file: %s",strerror(errno));
+    } else {
+        server.aof_fsync_offset = server.aof_current_size;
+        server.aof_last_fsync = server.unixtime;
+    }
     close(server.aof_fd);
 
     server.aof_fd = -1;
@@ -289,6 +295,15 @@ int startAppendOnly(void) {
     server.aof_state = AOF_WAIT_REWRITE;
     server.aof_last_fsync = server.unixtime;
     server.aof_fd = newfd;
+
+    /* If AOF fsync error in bio job, we just ignore it and log the event. */
+    int aof_bio_fsync_status;
+    atomicGet(server.aof_bio_fsync_status, aof_bio_fsync_status);
+    if (aof_bio_fsync_status == C_ERR) {
+        serverLog(LL_WARNING,
+            "AOF reopen, just ignore the AOF fsync error in bio job");
+        atomicSet(server.aof_bio_fsync_status,C_OK);
+    }
 
     /* If AOF was in error state, we just ignore it and log the event. */
     if (server.aof_last_write_status == C_ERR) {
