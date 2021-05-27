@@ -709,7 +709,7 @@ start_server {tags {"hash external-ok"}} {
             for {set i 0} {$i < 64} {incr i} {
                 r hset myhash [randomValue] [randomValue]
             }
-            assert {[r object encoding myhash] eq {hashtable}}
+            assert_encoding hashtable myhash
         }
     }
 

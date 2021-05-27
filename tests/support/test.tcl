@@ -85,6 +85,9 @@ proc assert_error {pattern code} {
 }
 
 proc assert_encoding {enc key} {
+    if {$::ignoreencoding} {
+        return
+    }
     set dbg [r debug object $key]
     assert_match "* encoding:$enc *" $dbg
 }

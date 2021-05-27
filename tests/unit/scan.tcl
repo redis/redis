@@ -114,7 +114,7 @@ start_server {tags {"scan network external-ok"}} {
             r sadd set {*}$elements
 
             # Verify that the encoding matches.
-            assert {[r object encoding set] eq $enc}
+            assert_encoding $enc set
 
             # Test SSCAN
             set cur 0
@@ -148,7 +148,7 @@ start_server {tags {"scan network external-ok"}} {
             r hmset hash {*}$elements
 
             # Verify that the encoding matches.
-            assert {[r object encoding hash] eq $enc}
+            assert_encoding $enc hash
 
             # Test HSCAN
             set cur 0
@@ -188,7 +188,7 @@ start_server {tags {"scan network external-ok"}} {
             r zadd zset {*}$elements
 
             # Verify that the encoding matches.
-            assert {[r object encoding zset] eq $enc}
+            assert_encoding $enc zset
 
             # Test ZSCAN
             set cur 0
