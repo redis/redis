@@ -280,7 +280,7 @@ int prepareClientToWrite(client *c) {
  * -------------------------------------------------------------------------- */
 
 /* Attempts to add the reply to the static buffer in the client struct.
- * Returns the lengh of data that is added to the reply buffer. */
+ * Returns the length of data that is added to the reply buffer. */
 size_t _addReplyToBuffer(client *c, const char *s, size_t len) {
     size_t available = c->buf_usable_size - c->bufpos;
 
