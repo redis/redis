@@ -1,9 +1,11 @@
 set testmodule [file normalize tests/modules/fork.so]
 
 proc count_log_message {pattern} {
-    catch {
-        exec grep -c $pattern < [srv 0 stdout]
-    } result
+    set status [catch {exec grep -c $pattern < [srv 0 stdout]} result]
+    if {$status == 1} {
+        set result 0
+    }
+    return $result
 }
 
 start_server {tags {"modules"}} {
