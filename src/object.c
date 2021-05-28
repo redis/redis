@@ -1208,7 +1208,7 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
          * below statement will expand to lru_idle*1000/1000. */
         lru_idle = lru_idle*lru_multiplier/LRU_CLOCK_RESOLUTION;
         long lru_abs = lru_clock - lru_idle; /* Absolute access time. */
-        /* If the LRU field underflows (since LRU it is a wrapping
+        /* If the LRU field underflow (since LRU it is a wrapping
          * clock), the best we can do is to provide a large enough LRU
          * that is half-way in the circular LRU clock we use: this way
          * the computed idle time for this object will stay high for quite

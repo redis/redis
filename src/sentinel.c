@@ -3990,7 +3990,7 @@ void sentinelSetCommand(client *c) {
         int old_j = j; /* Used to know what to log as an event. */
 
         if (!strcasecmp(option,"down-after-milliseconds") && moreargs > 0) {
-            /* down-after-millisecodns <milliseconds> */
+            /* down-after-milliseconds <milliseconds> */
             robj *o = c->argv[++j];
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
                 badarg = j;

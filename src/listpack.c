@@ -925,7 +925,7 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep){
     if (!deep)
         return 1;
 
-    /* Validate the invividual entries. */
+    /* Validate the individual entries. */
     uint32_t count = 0;
     unsigned char *p = lpFirst(lp);
     while(p) {

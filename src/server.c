@@ -1751,7 +1751,7 @@ int clientsCronTrackExpansiveClients(client *c, int time_idx) {
 /* Iterating all the clients in getMemoryOverheadData() is too slow and
  * in turn would make the INFO command too slow. So we perform this
  * computation incrementally and track the (not instantaneous but updated
- * to the second) total memory used by clients using clinetsCron() in
+ * to the second) total memory used by clients using clientsCron() in
  * a more incremental way (depending on server.hz). */
 int clientsCronTrackClientsMemUsage(client *c) {
     size_t mem = 0;

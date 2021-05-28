@@ -968,7 +968,7 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
     }
 
     if (c == server.master || c->id == CLIENT_ID_AOF) {
-        /* If command cam from master or from AOF we must not enforce maxnodes
+        /* If command came from master or from AOF we must not enforce maxnodes
          * (The maxlen/minid argument was re-written to make sure there's no
          * inconsistency). */
         args->limit = 0;

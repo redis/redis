@@ -241,7 +241,7 @@ int geoAppendIfWithinShape(geoArray *ga, GeoShape *shape, double score, sds memb
 }
 
 /* Query a Redis sorted set to extract all the elements between 'min' and
- * 'max', appending them into the array of geoPoint structures 'gparray'.
+ * 'max', appending them into the array of geoPoint structures 'geoArray'.
  * The command returns the number of elements added to the array.
  *
  * Elements which are farther than 'radius' from the specified 'x' and 'y'
