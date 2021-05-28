@@ -278,9 +278,7 @@ static redisContext *getRedisContext(const char *ip, int port,
             fprintf(stderr,"%s:%d: %s\n",ip,port,err);
         else
             fprintf(stderr,"%s: %s\n",hostsocket,err);
-        freeReplyObject(reply);
-        redisFree(ctx);
-        exit(1);
+        goto exit;
     }
     if (config.tls==1) {
         const char *err = NULL;
@@ -301,9 +299,7 @@ static redisContext *getRedisContext(const char *ip, int port,
                 fprintf(stderr, "Node %s:%d replied with error:\n%s\n", ip, port, reply->str);
             else
                 fprintf(stderr, "Node %s replied with error:\n%s\n", hostsocket, reply->str);
-            freeReplyObject(reply);
-            redisFree(ctx);
-            exit(1);
+            goto exit;
         }
         freeReplyObject(reply);
         return ctx;
@@ -317,6 +313,11 @@ cleanup:
     freeReplyObject(reply);
     redisFree(ctx);
     return NULL;
+
+exit:
+    freeReplyObject(reply);
+    redisFree(ctx);
+    exit(1);
 }
 
 
