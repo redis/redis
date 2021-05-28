@@ -5,7 +5,7 @@ source "../tests/includes/init-tests.tcl"
 set ::user "testuser"
 set ::password "secret"
 
-proc setup_sever_auth {} {
+proc setup_server_auth {} {
     foreach_redis_id id {
         assert_equal {OK} [R $id CONFIG SET requirepass $::password]
         assert_equal {OK} [R $id AUTH $::password]
@@ -81,7 +81,7 @@ proc re_monitor_mymaster {} {
 }
 
 test "(server-auth-init) Set up requirepass configuration" {
-    setup_sever_auth
+    setup_server_auth
 }
 
 test "All servers have non-empty requirepass before monitored" {

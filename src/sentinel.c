@@ -1173,6 +1173,7 @@ void dropInstanceConnections(sentinelRedisInstance *ri) {
         instanceLinkCloseConnection(repl_ri->link, repl_ri->link->cc);
         instanceLinkCloseConnection(repl_ri->link, repl_ri->link->pc);
     }
+    dictReleaseIterator(di);
 }
 
 /* Drop all connections to other sentinels. Returns the number of connections
