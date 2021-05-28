@@ -278,7 +278,9 @@ static redisContext *getRedisContext(const char *ip, int port,
             fprintf(stderr,"%s:%d: %s\n",ip,port,err);
         else
             fprintf(stderr,"%s: %s\n",hostsocket,err);
-        goto cleanup;
+        freeReplyObject(reply);
+        redisFree(ctx);
+        exit(1);
     }
     if (config.tls==1) {
         const char *err = NULL;
