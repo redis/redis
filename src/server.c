@@ -1685,9 +1685,9 @@ int clientsCronResizeQueryBuffer(client *c) {
     time_t idletime = server.unixtime - c->lastinteraction;
 
     /* There are two conditions to resize the query buffer:
-     * 1) Query buffer is > BIG_ARG and too big for latest peak.
-     * 2) Query buffer is > BIG_ARG and client is idle. */
-    if (querybuf_size > PROTO_MBULK_BIG_ARG &&
+     * 1) Query buffer is > 64k and too big for latest peak.
+     * 2) Query buffer is > 64k and client is idle. */
+    if (querybuf_size > 1024*64 &&
          ((querybuf_size/(c->querybuf_peak+1)) > 2 ||
           idletime > 2))
     {
