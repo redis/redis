@@ -776,3 +776,29 @@ proc punsubscribe {client {channels {}}} {
     $client punsubscribe {*}$channels
     consume_subscribe_messages $client punsubscribe $channels
 }
+
+proc read_from_aof {fp} {
+    # Input fp is a blocking binary file descriptor of an opened AOF file.
+    if {[gets $fp count] == -1} return ""
+    set count [string range $count 1 end]
+
+    # Return a list of arguments for the command.
+    set res {}
+    for {set j 0} {$j < $count} {incr j} {
+        read $fp 1
+        set arg [::redis::redis_bulk_read $fp]
+        if {$j == 0} {set arg [string tolower $arg]}
+        lappend res $arg
+    }
+    return $res
+}
+
+proc assert_aof_content {aof_path patterns} {
+    set fp [open $aof_path r]
+    fconfigure $fp -translation binary
+    fconfigure $fp -blocking 1
+
+    for {set j 0} {$j < [llength $patterns]} {incr j} {
+        assert_match [lindex $patterns $j] [read_from_aof $fp]
+    }
+}
