@@ -68,7 +68,7 @@
 #define MAX_THREADS 500
 #define CLUSTER_SLOTS 16384
 #define CONFIG_LATENCY_HISTOGRAM_MIN_VALUE 10L          /* >= 10 usecs */
-#define CONFIG_LATENCY_HISTOGRAM_MAX_VALUE 3000000L          /* <= 30 secs(us precision) */
+#define CONFIG_LATENCY_HISTOGRAM_MAX_VALUE 30000000L          /* <= 30 secs(us precision) */
 #define CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE 3000000L   /* <= 3 secs(us precision) */
 
 #define CLIENT_GET_EVENTLOOP(c) \
@@ -572,21 +572,21 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                 int requests_finished = 0;
                 atomicGetIncr(config.requests_finished, requests_finished, 1);
                 if (requests_finished < config.requests){
-                        if (config.num_threads == 0) {
-                            hdr_record_value(
-                            config.latency_histogram,  // Histogram to record to
-                            (long)c->latency<=CONFIG_LATENCY_HISTOGRAM_MAX_VALUE ? (long)c->latency : CONFIG_LATENCY_HISTOGRAM_MAX_VALUE);  // Value to record
-                            hdr_record_value(
-                            config.current_sec_latency_histogram,  // Histogram to record to
-                            (long)c->latency<=CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE ? (long)c->latency : CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE);  // Value to record
-                        } else {
-                            hdr_record_value_atomic(
-                            config.latency_histogram,  // Histogram to record to
-                            (long)c->latency<=CONFIG_LATENCY_HISTOGRAM_MAX_VALUE ? (long)c->latency : CONFIG_LATENCY_HISTOGRAM_MAX_VALUE);  // Value to record
-                            hdr_record_value_atomic(
-                            config.current_sec_latency_histogram,  // Histogram to record to
-                            (long)c->latency<=CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE ? (long)c->latency : CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE);  // Value to record
-                        }
+                    if (config.num_threads == 0) {
+                        hdr_record_value(
+                        config.latency_histogram,  // Histogram to record to
+                        (long)c->latency<=CONFIG_LATENCY_HISTOGRAM_MAX_VALUE ? (long)c->latency : CONFIG_LATENCY_HISTOGRAM_MAX_VALUE);  // Value to record
+                        hdr_record_value(
+                        config.current_sec_latency_histogram,  // Histogram to record to
+                        (long)c->latency<=CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE ? (long)c->latency : CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE);  // Value to record
+                    } else {
+                        hdr_record_value_atomic(
+                        config.latency_histogram,  // Histogram to record to
+                        (long)c->latency<=CONFIG_LATENCY_HISTOGRAM_MAX_VALUE ? (long)c->latency : CONFIG_LATENCY_HISTOGRAM_MAX_VALUE);  // Value to record
+                        hdr_record_value_atomic(
+                        config.current_sec_latency_histogram,  // Histogram to record to
+                        (long)c->latency<=CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE ? (long)c->latency : CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE);  // Value to record
+                    }
                 }
                 c->pending--;
                 if (c->pending == 0) {
@@ -1641,7 +1641,7 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
     if (config.idlemode == 1) {
         printf("clients: %d\r", config.liveclients);
         fflush(stdout);
-	return 250;
+        return 250;
     }
     const float dt = (float)(current_tick-config.start)/1000.0;
     const float rps = (float)requests_finished/dt;
