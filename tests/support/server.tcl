@@ -158,14 +158,14 @@ proc server_is_up {host port retrynum} {
 # there must be some intersection. If ::denytags are used, no intersection
 # is allowed. Returns 1 if tags are acceptable or 0 otherwise, in which
 # case err_return names a return variable for the message to be logged.
-proc tags_acceptable {err_return} {
+proc tags_acceptable {tags err_return} {
     upvar $err_return err
 
     # If tags are whitelisted, make sure there's match
     if {[llength $::allowtags] > 0} {
         set matched 0
         foreach tag $::allowtags {
-            if {[lsearch $::tags $tag] >= 0} {
+            if {[lsearch $tags $tag] >= 0} {
                 incr matched
             }
         }
@@ -176,14 +176,19 @@ proc tags_acceptable {err_return} {
     }
 
     foreach tag $::denytags {
-        if {[lsearch $::tags $tag] >= 0} {
+        if {[lsearch $tags $tag] >= 0} {
             set err "Tag: $tag denied"
             return 0
         }
     }
 
-    if {$::external && [lsearch $::tags "external-ok"] == -1} {
-        set err "Skipped: external server not supported"
+    if {$::external && ([lsearch $tags "external-ok"] == -1 || [lsearch $tags "external-skip"] >= 0)} {
+        set err "Not supported on external server"
+        return 0
+    }
+
+    if {$::singledb && [lsearch $tags "singledb-skip"] >= 0} {
+        set err "Not supported on singledb"
         return 0
     }
 
@@ -196,7 +201,7 @@ proc tags {tags code} {
     # we want to get rid of the quotes in order to have a proper list
     set tags [string map { \" "" } $tags]
     set ::tags [concat $::tags $tags]
-    if {![tags_acceptable err]} {
+    if {![tags_acceptable $::tags err]} {
         incr ::num_aborted
         send_data_packet $::test_server_fd ignore $err
         set ::tags [lrange $::tags 0 end-[llength $tags]]
@@ -360,7 +365,7 @@ proc start_server {options {code undefined}} {
     }
 
     # We skip unwanted tags
-    if {![tags_acceptable err]} {
+    if {![tags_acceptable $::tags err]} {
         incr ::num_aborted
         send_data_packet $::test_server_fd ignore $err
         set ::tags [lrange $::tags 0 end-[llength $tags]]
