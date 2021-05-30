@@ -144,7 +144,7 @@ start_server {tags {"maxmemory"}} {
 }
 
 proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} {
-    start_server {tags {"maxmemory"}} {
+    start_server {tags {"maxmemory"} overrides {slowlog-log-slower-than -1}} {
         start_server {} {
         set slave_pid [s process_id]
         test "$test_name" {
@@ -212,7 +212,8 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
 
             assert {[$master dbsize] == 100}
             assert {$slave_buf > 2*1024*1024} ;# some of the data may have been pushed to the OS buffers
-            set delta_max [expr {$cmd_count / 2}] ;# 1 byte unaccounted for, with 1M commands will consume some 1MB
+            set delta_max [expr {$cmd_count / 2 + 40*1024}] ;# 1 byte unaccounted for, with 1M commands will consume some 1MB
+                                                             # querybuf of slave will consume 40k under jemalloc
             assert {$delta < $delta_max && $delta > -$delta_max}
 
             $master client kill type slave
