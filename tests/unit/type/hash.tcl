@@ -61,8 +61,8 @@ start_server {tags {"hash external-ok"}} {
         set res [r hrandfield myhash 3]
         assert_equal [llength $res] 3
         assert_equal [llength [lindex $res 1]] 1
+        r hello 2
     }
-    r hello 2
 
     test "HRANDFIELD count of 0 is handled correctly" {
         r hrandfield myhash 0

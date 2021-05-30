@@ -750,8 +750,8 @@ start_server {tags {"zset external-ok"}} {
         test "ZINTER RESP3 - $encoding" {
             r hello 3
             assert_equal {{b 3.0} {c 5.0}} [r zinter 2 zseta zsetb withscores]
+            r hello 2
         }
-        r hello 2
 
         test "ZINTERSTORE with weights - $encoding" {
             assert_equal 2 [r zinterstore zsetc 2 zseta zsetb weights 2 3]
@@ -1530,9 +1530,9 @@ start_server {tags {"zset external-ok"}} {
 
     test {ZRANGESTORE RESP3} {
         r hello 3
-        r zrange z2 0 -1 withscores
-    } {{a 1.0} {b 2.0} {c 3.0} {d 4.0}}
-    r hello 2
+        assert_equal [r zrange z2 0 -1 withscores] {{a 1.0} {b 2.0} {c 3.0} {d 4.0}}
+        r hello 2
+    } 
 
     test {ZRANGESTORE range} {
         set res [r zrangestore z2 z1 1 2]
@@ -1643,8 +1643,8 @@ start_server {tags {"zset external-ok"}} {
         set res [r zrandmember myzset 3]
         assert_equal [llength $res] 3
         assert_equal [llength [lindex $res 1]] 1
+        r hello 2
     }
-    r hello 2
 
     test "ZRANDMEMBER count of 0 is handled correctly" {
         r zrandmember myzset 0
