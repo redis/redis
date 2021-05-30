@@ -183,7 +183,7 @@ start_server {tags {"expire" "external-ok"}} {
         set size3 [r dbsize]
         r debug set-active-expire 1
         list $size1 $size2 $size3
-    } {3 3 0}
+    } {3 3 0} {needs:debug}
 
     test {EXPIRE should not resurrect keys (issue #1026)} {
         r debug set-active-expire 0
@@ -193,7 +193,7 @@ start_server {tags {"expire" "external-ok"}} {
         r expire foo 10
         r debug set-active-expire 1
         r exists foo
-    } {0}
+    } {0} {needs:debug}
 
     test {5 keys in, 5 keys out} {
         r flushdb
@@ -304,7 +304,7 @@ start_server {tags {"expire" "external-ok"}} {
         assert_range [r ttl foo10] 90 98
         assert_range [r ttl foo11] 90 98
         assert_range [r ttl foo12] 90 98
-    }
+    } {} {needs:debug}
 
     test {EXPIRE relative and absolute propagation to replicas} {
         # Make sure that relative and absolute expire commands are propagated
@@ -359,7 +359,7 @@ start_server {tags {"expire" "external-ok"}} {
             {pexpireat foo4 *}
             {pexpireat foo4 *}
         }
-    }
+    } {} {needs:repl}
 
     test {SET command will remove expire} {
         r set foo bar EX 100
@@ -382,7 +382,7 @@ start_server {tags {"expire" "external-ok"}} {
         r debug loadaof
         set ttl [r ttl foo]
         assert {$ttl <= 98 && $ttl > 90}
-    }
+    } {} {needs:debug}
 
     test {GETEX use of PERSIST option should remove TTL} {
        r set foo bar EX 100
@@ -396,7 +396,7 @@ start_server {tags {"expire" "external-ok"}} {
        after 2000
        r debug loadaof
        r ttl foo
-    } {-1}
+    } {-1} {needs:debug}
 
     test {GETEX propagate as to replica as PERSIST, DEL, or nothing} {
        set repl [attach_to_replication_stream]
@@ -410,5 +410,5 @@ start_server {tags {"expire" "external-ok"}} {
            {persist foo}
            {del foo}
         }
-    }
+    } {} {needs:repl}
 }

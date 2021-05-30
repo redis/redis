@@ -276,7 +276,7 @@ start_server {tags {"cli external-ok"}} {
         assert_match "OK" [r config set repl-diskless-sync yes]
         assert_match "OK" [r config set repl-diskless-sync-delay 0]
         test_redis_cli_rdb_dump
-    }
+    } {} {needs:repl}
 
     test "Scan mode" {
         r flushdb
@@ -309,7 +309,7 @@ start_server {tags {"cli external-ok"}} {
         }
 
         close_cli $fd
-    }
+    } {} {needs:repl}
 
     test "Piping raw protocol" {
         set cmds [tmpfile "cli_cmds"]

@@ -726,7 +726,7 @@ start_server {
             assert_encoding $type mylist
             check_numbered_list_consistency mylist
             check_random_access_consistency mylist
-        }
+        } {} {needs:debug}
     }
 
     test {LLEN against non-list value error} {
@@ -1138,7 +1138,7 @@ start_server {
         assert_equal [lpop k] [string repeat x 8191]
         assert_equal [lpop k] [string repeat x 31]
         set _ $k
-    } {12 0 9223372036854775808 2147483647 32767 127}
+    } {12 0 9223372036854775808 2147483647 32767 127} {needs:config-sanitize}
 
     test {List ziplist of various encodings - sanitize dump} {
         r config set sanitize-dump-payload yes
@@ -1152,6 +1152,6 @@ start_server {
         assert_equal [lpop k] [string repeat x 8191]
         assert_equal [lpop k] [string repeat x 31]
         set _ $k
-    } {12 0 9223372036854775808 2147483647 32767 127}
+    } {12 0 9223372036854775808 2147483647 32767 127} {needs:config-sanitize}
 
 }

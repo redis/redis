@@ -173,7 +173,7 @@ start_server {tags {"string external-ok"}} {
             {set foo bar}
             {del foo}
         }
-    }
+    } {} {needs:repl}
 
     test {GETEX without argument does not propagate to replica} {
         set repl [attach_to_replication_stream]
@@ -185,7 +185,7 @@ start_server {tags {"string external-ok"}} {
             {set foo bar}
             {del foo}
         }
-    }
+    } {} {needs:repl}
 
     test {MGET} {
         r flushdb

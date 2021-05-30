@@ -39,7 +39,7 @@ start_server {tags {"keyspace" "external-ok"}} {
         after 1100
         assert_equal 0 [r del keyExpire]
         r debug set-active-expire 1
-    }
+    } {OK} {needs:debug}
 
     test {EXISTS} {
         set res {}

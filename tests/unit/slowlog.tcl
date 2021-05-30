@@ -12,7 +12,7 @@ start_server {tags {"slowlog external-ok"} overrides {slowlog-log-slower-than 10
         assert_equal [r slowlog len] 0
         r debug sleep 0.2
         assert_equal [r slowlog len] 1
-    }
+    } {} {needs:debug}
 
     test {SLOWLOG - max entries is correctly handled} {
         r config set slowlog-log-slower-than 0
@@ -44,7 +44,7 @@ start_server {tags {"slowlog external-ok"} overrides {slowlog-log-slower-than 10
         assert_equal [expr {[lindex $e 2] > 100000}] 1
         assert_equal [lindex $e 3] {debug sleep 0.2}
         assert_equal {foobar} [lindex $e 5]
-    }
+    } {} {needs:debug}
 
     test {SLOWLOG - Certain commands are omitted that contain sensitive information} {
         r config set slowlog-log-slower-than 0
@@ -62,7 +62,7 @@ start_server {tags {"slowlog external-ok"} overrides {slowlog-log-slower-than 10
         assert_equal {config set masterauth (redacted)} [lindex [lindex [r slowlog get] 2] 3]
         assert_equal {acl setuser (redacted) (redacted) (redacted)} [lindex [lindex [r slowlog get] 1] 3]
         assert_equal {config set slowlog-log-slower-than 0} [lindex [lindex [r slowlog get] 0] 3]
-    }
+    } {} {needs:repl}
 
     test {SLOWLOG - Some commands can redact sensitive fields} {
         r config set slowlog-log-slower-than 0
@@ -77,7 +77,7 @@ start_server {tags {"slowlog external-ok"} overrides {slowlog-log-slower-than 10
         assert_match {* key 9 5000} [lindex [lindex [r slowlog get] 2] 3]
         assert_match {* key 9 5000 AUTH (redacted)} [lindex [lindex [r slowlog get] 1] 3]
         assert_match {* key 9 5000 AUTH2 (redacted) (redacted)} [lindex [lindex [r slowlog get] 0] 3]
-    }
+    } {} {needs:repl}
 
     test {SLOWLOG - Rewritten commands are logged as their original command} {
         r config set slowlog-log-slower-than 0
@@ -157,7 +157,7 @@ start_server {tags {"slowlog external-ok"} overrides {slowlog-log-slower-than 10
         assert_equal [r slowlog len] 1
         set e [lindex [r slowlog get] 0]
         assert_equal [lindex $e 3] {debug sleep 0.2}
-    }
+    } {} {needs:debug}
 
     test {SLOWLOG - can clean older entries} {
         r client setname lastentry_client
@@ -166,7 +166,7 @@ start_server {tags {"slowlog external-ok"} overrides {slowlog-log-slower-than 10
         assert {[llength [r slowlog get]] == 1}
         set e [lindex [r slowlog get] 0]
         assert_equal {lastentry_client} [lindex $e 5]
-    }
+    } {} {needs:debug}
 
     test {SLOWLOG - can be disabled} {
         r config set slowlog-max-len 1
@@ -178,5 +178,5 @@ start_server {tags {"slowlog external-ok"} overrides {slowlog-log-slower-than 10
         r slowlog reset
         r debug sleep 0.2
         assert_equal [r slowlog len] 0
-    }
+    } {} {needs:debug}
 }

@@ -1,4 +1,4 @@
-start_server {overrides {save ""} tags {"other external-ok"}} {
+start_server {overrides {save ""} tags {"other external-ok needs:config-set-save"}} {
     if {$::force_failure} {
         # This is used just for test suite development purposes.
         test {Failing test} {
@@ -104,7 +104,7 @@ start_server {overrides {save ""} tags {"other external-ok"}} {
 
                     set _ 0
                 }
-            } {1}
+            } {1} {needs:debug}
         }
     }
 
@@ -162,7 +162,7 @@ start_server {overrides {save ""} tags {"other external-ok"}} {
         set ttl [r ttl pz]
         assert {$ttl > 2900 && $ttl <= 3000}
         r config set appendonly no
-    }
+    } {OK} {needs:debug}
 
     tags {protocol} {
         test {PIPELINING stresser (also a regression for the old epoll bug)} {
@@ -327,7 +327,7 @@ start_server {tags {"other"}} {
         # size is power of two and over 4098, so it is 8192
         r set k3 v3
         assert_match "*table size: 8192*" [r debug HTSTATS 9]
-    }
+    } {} {needs:local-process}
 }
 
 proc read_proc_title {pid} {

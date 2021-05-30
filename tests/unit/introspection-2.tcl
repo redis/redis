@@ -31,7 +31,7 @@ start_server {tags {"introspection external-ok"}} {
         r GEOADD foo 0 0 bar
         assert_match {*calls=1,*} [cmdstat geoadd]
         assert_match {} [cmdstat zadd]
-    }
+    } {} {needs:config-resetstat}
 
     test {command stats for EXPIRE} {
         r config resetstat
@@ -39,7 +39,7 @@ start_server {tags {"introspection external-ok"}} {
         r EXPIRE foo 0
         assert_match {*calls=1,*} [cmdstat expire]
         assert_match {} [cmdstat del]
-    }
+    } {} {needs:config-resetstat}
 
     test {command stats for BRPOP} {
         r config resetstat
@@ -47,7 +47,7 @@ start_server {tags {"introspection external-ok"}} {
         r BRPOP list 0
         assert_match {*calls=1,*} [cmdstat brpop]
         assert_match {} [cmdstat rpop]
-    }
+    } {} {needs:config-resetstat}
 
     test {command stats for MULTI} {
         r config resetstat
@@ -61,7 +61,7 @@ start_server {tags {"introspection external-ok"}} {
         assert_match {*calls=1,*} [cmdstat set]
         assert_match {*calls=1,*} [cmdstat expire]
         assert_match {*calls=1,*} [cmdstat geoadd]
-    }
+    } {} {needs:config-resetstat}
 
     test {command stats for scripts} {
         r config resetstat
@@ -75,5 +75,5 @@ start_server {tags {"introspection external-ok"}} {
         assert_match {*calls=2,*} [cmdstat set]
         assert_match {*calls=1,*} [cmdstat expire]
         assert_match {*calls=1,*} [cmdstat geoadd]
-    }
+    } {} {needs:config-resetstat}
 }

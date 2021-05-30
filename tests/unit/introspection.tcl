@@ -50,7 +50,7 @@ start_server {tags {"introspection external-ok"}} {
         assert_match {*"auth"*"(redacted)"*"(redacted)"*} [$rd read]
         assert_match {*"hello"*"2"*"AUTH"*"(redacted)"*"(redacted)"*} [$rd read]
         $rd close
-    }
+    } {0} {needs:repl}
 
     test {MONITOR correctly handles multi-exec cases} {
         set rd [redis_deferring_client]

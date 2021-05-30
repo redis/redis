@@ -195,7 +195,7 @@ start_server {tags {"scripting external-ok"}} {
         } e
         r debug lua-always-replicate-commands 1
         set e
-    } {*not allowed after*}
+    } {*not allowed after*} {needs:debug}
 
     test {EVAL - No arguments to redis.call/pcall is considered an error} {
         set e {}
@@ -368,7 +368,7 @@ start_server {tags {"scripting external-ok"}} {
         set res [r eval {return redis.call('smembers',KEYS[1])} 1 myset]
         r debug lua-always-replicate-commands 1
         set res
-    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z}
+    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z} {needs:debug}
 
     test "SORT is normally not alpha re-ordered for the scripting engine" {
         r del myset
@@ -721,7 +721,7 @@ start_server {tags {"scripting"}} {
 }
 
 foreach cmdrepl {0 1} {
-    start_server {tags {"scripting repl"}} {
+    start_server {tags {"scripting repl needs:debug"}} {
         start_server {} {
             if {$cmdrepl == 1} {
                 set rt "(commands replication)"

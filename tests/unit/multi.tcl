@@ -72,7 +72,7 @@ start_server {tags {"multi external-ok"}} {
         assert_match {EXECABORT*} $e
         $rd close
         list [r exists foo1] [r exists foo2]
-    } {0 0}
+    } {0 0} {needs:config-maxmemory}
 
     test {If EXEC aborts, the client MULTI state is cleared} {
         r del foo1 foo2
@@ -288,7 +288,7 @@ start_server {tags {"multi external-ok"}} {
             {exec}
         }
         close_replication_stream $repl
-    }
+    } {} {needs:repl}
 
     test {MULTI / EXEC is propagated correctly (empty transaction)} {
         set repl [attach_to_replication_stream]
@@ -300,7 +300,7 @@ start_server {tags {"multi external-ok"}} {
             {set foo bar}
         }
         close_replication_stream $repl
-    }
+    } {} {needs:repl}
 
     test {MULTI / EXEC is propagated correctly (read-only commands)} {
         r set foo value1
@@ -314,7 +314,7 @@ start_server {tags {"multi external-ok"}} {
             {set foo value2}
         }
         close_replication_stream $repl
-    }
+    } {} {needs:repl}
 
     test {MULTI / EXEC is propagated correctly (write command, no effect)} {
         r del bar foo bar
@@ -332,7 +332,7 @@ start_server {tags {"multi external-ok"}} {
             {incr foo}
         }
         close_replication_stream $repl
-    }
+    } {} {needs:repl}
 
     test {DISCARD should not fail during OOM} {
         set rd [redis_deferring_client]
@@ -346,7 +346,7 @@ start_server {tags {"multi external-ok"}} {
         assert  {[$rd read] eq {OK}}
         $rd close
         r ping
-    } {PONG}
+    } {PONG} {needs:config-maxmemory}
 
     test {MULTI and script timeout} {
         # check that if MULTI arrives during timeout, it is either refused, or
@@ -460,8 +460,8 @@ start_server {tags {"multi external-ok"}} {
         # make sure that the INCR wasn't executed
         assert { $xx == 1}
         $r1 config set min-replicas-to-write 0
-        $r1 close;
-    }
+        $r1 close
+    } {0} {needs:repl}
 
     test {exec with read commands and stale replica state change} {
         # check that exec that contains read commands fails if server state changed since they were queued
@@ -492,7 +492,7 @@ start_server {tags {"multi external-ok"}} {
         # make sure that the INCR was executed
         assert { $xx == 1 }
         $r1 close;
-    }
+    } {} {needs:repl}
 
     test {EXEC with only read commands should not be rejected when OOM} {
         set r2 [redis_client]
@@ -511,7 +511,7 @@ start_server {tags {"multi external-ok"}} {
         # releasing OOM
         $r2 config set maxmemory 0
         $r2 close
-    }
+    } {0} {needs:config-maxmemory}
 
     test {EXEC with at least one use-memory command should fail} {
         set r2 [redis_client]
@@ -530,7 +530,7 @@ start_server {tags {"multi external-ok"}} {
         # releasing OOM
         $r2 config set maxmemory 0
         $r2 close
-    }
+    } {0} {needs:config-maxmemory}
 
     test {Blocking commands ignores the timeout} {
         r xgroup create s g $ MKSTREAM
@@ -564,7 +564,7 @@ start_server {tags {"multi external-ok"}} {
             {exec}
         }
         close_replication_stream $repl
-    }
+    } {} {needs:repl}
 
     test {MULTI propagation of SCRIPT LOAD} {
         set repl [attach_to_replication_stream]
@@ -582,7 +582,7 @@ start_server {tags {"multi external-ok"}} {
             {exec}
         }
         close_replication_stream $repl
-    }
+    } {} {needs:repl}
 
     test {MULTI propagation of SCRIPT LOAD} {
         set repl [attach_to_replication_stream]
@@ -600,7 +600,7 @@ start_server {tags {"multi external-ok"}} {
             {exec}
         }
         close_replication_stream $repl
-    }
+    } {} {needs:repl}
 
     tags {"stream"} {
         test {MULTI propagation of XREADGROUP} {
@@ -624,7 +624,7 @@ start_server {tags {"multi external-ok"}} {
                 {exec}
             }
             close_replication_stream $repl
-        }
+        } {} {needs:repl}
     }
 
 }

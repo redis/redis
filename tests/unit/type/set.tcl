@@ -109,7 +109,7 @@ start_server {
         assert_encoding intset myintset
         assert_encoding hashtable mylargeintset
         assert_encoding hashtable myhashset
-    }
+    } {} {needs:debug}
 
     test {SREM basics - regular set} {
         create_set myset {foo bar ciao}
@@ -191,7 +191,7 @@ start_server {
             r sinterstore setres set1 set2
             assert_encoding $type setres
             assert_equal [list 195 196 197 198 199 $large] [lsort [r smembers setres]]
-        }
+        } {} {needs:debug}
 
         test "SUNION with two sets - $type" {
             set expected [lsort -uniq "[r smembers set1] [r smembers set2]"]

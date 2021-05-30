@@ -1119,7 +1119,7 @@ start_server {tags {"zset external-ok"}} {
             for {set i 0} {$i < $elements} {incr i} {
                 assert_equal [lindex $aux $i] [r zscore zscoretest $i]
             }
-        }
+        } {} {needs:debug}
 
         test "ZSET sorting stresser - $encoding" {
             set delta 0

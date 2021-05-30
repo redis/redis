@@ -2,7 +2,7 @@ start_server {tags {"hll" "external-ok"}} {
     test {HyperLogLog self test passes} {
         catch {r pfselftest} e
         set e
-    } {OK}
+    } {OK} {needs:pfdebug}
 
     test {PFADD without arguments creates an HLL value} {
         r pfadd hll
@@ -57,7 +57,7 @@ start_server {tags {"hll" "external-ok"}} {
                 assert {[r pfdebug encoding hll] eq {dense}}
             }
         }
-    }
+    } {} {needs:pfdebug}
 
     test {HyperLogLog sparse encoding stress test} {
         for {set x 0} {$x < 1000} {incr x} {
@@ -77,7 +77,7 @@ start_server {tags {"hll" "external-ok"}} {
             # Cardinality estimated should match exactly.
             assert {[r pfcount hll1] eq [r pfcount hll2]}
         }
-    }
+    } {} {needs:pfdebug}
 
     test {Corrupted sparse HyperLogLogs are detected: Additional at tail} {
         r del hll
@@ -198,7 +198,7 @@ start_server {tags {"hll" "external-ok"}} {
         r del hll
         r pfadd hll 1 2 3
         llength [r pfdebug getreg hll]
-    } {16384}
+    } {16384} {needs:pfdebug}
 
     test {PFADD / PFCOUNT cache invalidation works} {
         r del hll

@@ -806,6 +806,7 @@ proc assert_replication_stream {s patterns} {
 proc close_replication_stream {s} {
     close $s
     r config set repl-ping-replica-period 10
+    return
 }
 
 # With the parallel test running multiple Redis instances at the same time
