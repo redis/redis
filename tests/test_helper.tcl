@@ -116,6 +116,7 @@ set ::loop 0
 set ::tlsdir "tests/tls"
 set ::singledb 0
 set ::ignoreencoding 0
+set ::ignoredigest 0
 
 # Set to 1 when we are running in client mode. The Redis test uses a
 # server-client model to run tests simultaneously. The server instance
@@ -579,6 +580,7 @@ proc print_help_screen {} {
         "--portcount <num>  Port range for spawned redis servers."
         "--singledb         Use a single database, avoid SELECT."
         "--ignore-encoding  Don't validate object encoding."
+        "--ignore-digest    Don't use debug digest validations."
         "--help             Print this help screen."
     } "\n"]
 }
@@ -689,6 +691,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set ::singledb 1
     } elseif {$opt eq {--ignore-encoding}} {
         set ::ignoreencoding 1
+    } elseif {$opt eq {--ignore-digest}} {
+        set ::ignoredigest 1
     } elseif {$opt eq {--help}} {
         print_help_screen
         exit 0

@@ -785,3 +785,11 @@ proc punsubscribe {client {channels {}}} {
     $client punsubscribe {*}$channels
     consume_subscribe_messages $client punsubscribe $channels
 }
+
+proc debug_digest_value {key} {
+    if {!$::ignoredigest} {
+        r debug digest-value $key
+    } else {
+        return "dummy-digest-value"
+    }
+}
