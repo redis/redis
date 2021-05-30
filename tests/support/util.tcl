@@ -786,6 +786,17 @@ proc punsubscribe {client {channels {}}} {
     consume_subscribe_messages $client punsubscribe $channels
 }
 
+proc debug_populate {num} {
+    set rd [redis_deferring_client]
+    for {set j 0} {$j < $num} {incr j} {
+        $rd set key:$j foo
+    }
+    for {set j 0} {$j < $num} {incr j} {
+        $rd read
+    }
+    $rd close
+}
+
 proc debug_digest_value {key} {
     if {!$::ignoredigest} {
         r debug digest-value $key
