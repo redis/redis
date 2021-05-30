@@ -2469,7 +2469,7 @@ void clientCommand(client *c) {
 "      Skip killing current connection (default: yes).",
 "LIST [options ...]",
 "    Return information about client connections. Options:",
-"    * TYPE (NORMAL|MASTER|REPLICA|PUBSUB)",
+"    * TYPE (NORMAL|MASTER|SLAVE|REPLICA|PUBSUB)",
 "      Return clients of specified type.",
 "UNPAUSE",
 "    Stop the current client pause, resuming traffic.",
