@@ -1793,7 +1793,7 @@ int rewriteAppendOnlyFileBackground(void) {
         server.aof_rewrite_scheduled = 0;
         server.aof_rewrite_time_start = time(NULL);
 
-        /* We set appendseldb to -1 in order to force the next call to the
+        /* We set aof_selected_db to -1 in order to force the next call to the
          * feedAppendOnlyFile() to issue a SELECT command, so the differences
          * accumulated by the parent into server.aof_rewrite_buf will start
          * with a SELECT statement and it will be safe to merge. */
