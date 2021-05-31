@@ -1,3 +1,13 @@
+proc wait_for_dbsize {size} {
+    set r2 [redis_client]
+    wait_for_condition 50 100 {
+        [$r2 dbsize] == $size
+    } else {
+        fail "Target dbsize not reached"
+    }
+    $r2 close
+}
+
 start_server {tags {"multi external-ok"}} {
     test {MUTLI / EXEC basics} {
         r del mylist
@@ -249,6 +259,10 @@ start_server {tags {"multi external-ok"}} {
         r set x foo
         r expire x 1
         r watch x
+
+        # Wait for the keys to expire.
+        wait_for_dbsize 0
+
         after 1100
         r multi
         r ping
