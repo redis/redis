@@ -1313,6 +1313,7 @@ void ACLKillPubsubClientsIfNeeded(user *u, list *upcoming) {
             }
             /* Check for channel violations. */
             if (!kill) {
+                /* Check for global channels violation. */
                 dictIterator *di = dictGetIterator(c->pubsub_channels);
                 dictEntry *de;                
                 while (!kill && ((de = dictNext(di)) != NULL)) {
@@ -1320,6 +1321,16 @@ void ACLKillPubsubClientsIfNeeded(user *u, list *upcoming) {
                     kill = (ACLCheckPubsubChannelPerm(o->ptr,upcoming,0) ==
                             ACL_DENIED_CHANNEL);
                 }
+                dictReleaseIterator(di);
+
+                /* Check for local channels violation. */
+                di = dictGetIterator(c->pubsublocal_channels);
+                while (!kill && ((de = dictNext(di)) != NULL)) {
+                    o = dictGetKey(de);
+                    kill = (ACLCheckPubsubChannelPerm(o->ptr,upcoming,0) ==
+                            ACL_DENIED_CHANNEL);
+                }
+
                 dictReleaseIterator(di);
             }
 
