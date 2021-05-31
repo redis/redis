@@ -144,7 +144,7 @@ start_server {tags {"maxmemory"}} {
 }
 
 proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} {
-    start_server {tags {"maxmemory"} overrides {slowlog-log-slower-than -1}} {
+    start_server {tags {"maxmemory"}} {
         start_server {} {
         set slave_pid [s process_id]
         test "$test_name" {
@@ -154,6 +154,9 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             set master [srv -1 client]
             set master_host [srv -1 host]
             set master_port [srv -1 port]
+
+            # Disable slow log for master to avoid memory growth in slow env.
+            $master config set slowlog-log-slower-than -1
 
             # add 100 keys of 100k (10MB total)
             for {set j 0} {$j < 100} {incr j} {
@@ -210,10 +213,16 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             set used_no_repl [expr {$new_used - $mem_not_counted_for_evict}]
             set delta [expr {($used_no_repl - $client_buf) - ($orig_used_no_repl - $orig_client_buf)}]
 
+            # Calculate query buffer size of slave
+            set clients [split [$master client list] "\r\n"]
+            set c [lsearch -inline $clients *flags=S*]
+            assert {[regexp {qbuf=([0-9]+)} $c - qbuf]}
+            assert {[regexp {qbuf-free=([0-9]+)} $c - qbuf_free]}
+            set slave_qbuf [expr $qbuf + $qbuf_free]
+
             assert {[$master dbsize] == 100}
             assert {$slave_buf > 2*1024*1024} ;# some of the data may have been pushed to the OS buffers
-            set delta_max [expr {$cmd_count / 2 + 40*1024}] ;# 1 byte unaccounted for, with 1M commands will consume some 1MB
-                                                             # querybuf of slave will consume 40k with jemalloc
+            set delta_max [expr {$cmd_count / 2}] ;# 1 byte unaccounted for, with 1M commands will consume some 1MB
             assert {$delta < $delta_max && $delta > -$delta_max}
 
             $master client kill type slave
@@ -221,7 +230,7 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             set killed_slave_buf [s -1 mem_clients_slaves]
             set killed_mem_not_counted_for_evict [s -1 mem_not_counted_for_evict]
             set killed_used_no_repl [expr {$killed_used - $killed_mem_not_counted_for_evict}]
-            set delta_no_repl [expr {$killed_used_no_repl - $used_no_repl}]
+            set delta_no_repl [expr {$killed_used_no_repl - $used_no_repl + $slave_qbuf}]
             assert {$killed_slave_buf == 0}
             assert {$delta_no_repl > -$delta_max && $delta_no_repl < $delta_max}
 
