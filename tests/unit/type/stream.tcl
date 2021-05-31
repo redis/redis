@@ -117,6 +117,7 @@ start_server {
 
     test {XADD with MAXLEN option and the '~' argument} {
         r DEL mystream
+        r config set stream-node-max-entries 100
         for {set j 0} {$j < 1000} {incr j} {
             if {rand() < 0.9} {
                 r XADD mystream MAXLEN ~ 555 * xitem $j
