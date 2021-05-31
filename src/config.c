@@ -669,7 +669,7 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
          *                       config file, as if the current entry was never encountered.
          *                       This will allow for empty conf.d directories to be included. */
 
-        if (strchr(filename, '*')) {
+        if (strchr(filename, '*') || strchr(filename, '?') || strchr(filename, '[')) {
             /* A wildcard character detected in filename, so let us use glob */
             if (glob(filename, 0, NULL, &globbuf) == 0) {
 
