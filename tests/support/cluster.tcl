@@ -13,6 +13,7 @@ package require Tcl 8.5
 package provide redis_cluster 0.1
 
 namespace eval redis_cluster {}
+set ::redis_cluster::internal_id 0
 set ::redis_cluster::id 0
 array set ::redis_cluster::startup_nodes {}
 array set ::redis_cluster::nodes {}
@@ -32,7 +33,7 @@ set ::redis_cluster::plain_commands {
     hget hmset hmget hincrby hincrbyfloat hdel hlen hkeys hvals
     hgetall hexists hscan incrby decrby incrbyfloat getset move
     expire expireat pexpire pexpireat type ttl pttl persist restore
-    dump bitcount bitpos pfadd pfcount
+    dump bitcount bitpos pfadd pfcount cluster subscribelocal publishlocal
 }
 
 # Create a cluster client. The nodes are given as a list of host:port. The TLS
@@ -118,6 +119,7 @@ proc ::redis_cluster::__method__refresh_nodes_map {id} {
         # Build this node description as an hash.
         set node [dict create \
             id $nodeid \
+            internal_id $id \
             addr $addr \
             host $host \
             port $port \
@@ -265,6 +267,7 @@ proc ::redis_cluster::get_keys_from_command {cmd argv} {
         mget {return $argv}
         eval {return [lrange $argv 2 1+[lindex $argv 1]]}
         evalsha {return [lrange $argv 2 1+[lindex $argv 1]]}
+        publishlocal {return [list [lindex $argv 1]]}
     }
 
     # All the remaining commands are not handled.

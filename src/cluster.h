@@ -30,6 +30,7 @@
 #define CLUSTER_REDIR_DOWN_STATE 5    /* -CLUSTERDOWN, global state. */
 #define CLUSTER_REDIR_DOWN_UNBOUND 6  /* -CLUSTERDOWN, unbound slot. */
 #define CLUSTER_REDIR_DOWN_RO_STATE 7 /* -CLUSTERDOWN, allow reads. */
+#define CLUSTER_REDIR_CROSS_SLOT_CHANNEL 8    /* -CROSSSLOT channel request. */
 
 struct clusterNode;
 

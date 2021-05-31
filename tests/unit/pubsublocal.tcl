@@ -1,4 +1,4 @@
-start_server {tags {"pubsub network"}} {
+start_server {tags {"pubsublocal"}} {
     proc __consume_subscribelocal_messages {client type channels} {
         set numsub -1
         set counts {}
@@ -74,23 +74,6 @@ start_server {tags {"pubsub network"}} {
         $client unsubscribe {*}$channels
         __consume_subscribe_messages $client unsubscribe $channels
     }
-
-
-#    test "Pub/Sub PING" {
-#        set rd1 [redis_deferring_client]
-#        subscribelocal $rd1 somechannel
-        # While subscribed to non-zero channels PING works in Pub/Sub mode.
-#        $rd1 ping
-#        $rd1 ping "foo"
-#        set reply1 [$rd1 read]
-#        set reply2 [$rd1 read]
-#        unsubscribelocal $rd1 somechannel
-        # Now we are unsubscribed, PING should just return PONG.
-#        $rd1 ping
-#        set reply3 [$rd1 read]
-#        $rd1 close
-#        list $reply1 $reply2 $reply3
-#    } {{pong {}} {pong foo} PONG}
 
     test "PUBLISHLOCAL/SUBSCRIBELOCAL basics" {
         set rd1 [redis_deferring_client]
@@ -194,4 +177,51 @@ start_server {tags {"pubsub network"}} {
         assert_equal "chan1" [r pubsub local channels]
         assert_equal "chan1" [r pubsub channels]
     }
+}
+
+start_server {tags {"pubsublocal"}} {
+start_server {} {
+    set node_0 [srv 0 client]
+    set node_0_host [srv 0 host]
+    set node_0_port [srv 0 port]
+    set node_0_pid [srv 0 pid]
+
+    set node_1 [srv -1 client]
+    set node_1_host [srv -1 host]
+    set node_1_port [srv -1 port]
+    set node_1_pid [srv -1 pid]
+
+    test {setup replication for following tests} {
+        $node_1 replicaof $node_0_host $node_0_port
+        wait_for_sync $node_1
+    }
+
+    test {publish message to replica and receive on master} {
+        set rd0 [redis_deferring_client node_0_host node_0_port]
+        set rd1 [redis_deferring_client node_1_host node_1_port]
+
+        assert_equal {1} [subscribelocal $rd0 {chan1}]
+        $rd1 PUBLISHLOCAL chan1 hello
+        assert_equal {message chan1 hello} [$rd0 read]
+        $rd1 PUBLISHLOCAL chan1 world
+        assert_equal {message chan1 world} [$rd0 read]
+    }
+
+    test {setup reverse replication for following tests} {
+        $node_1 replicaof no one
+        $node_0 replicaof $node_1_host $node_1_port
+        wait_for_sync $node_0
+    }
+
+    test {publish message to master and receive on replica} {
+        set rd0 [redis_deferring_client node_0_host node_0_port]
+        set rd1 [redis_deferring_client node_1_host node_1_port]
+
+        assert_equal {1} [subscribelocal $rd1 {chan1}]
+        $rd0 PUBLISHLOCAL chan1 hello
+        assert_equal {message chan1 hello} [$rd1 read]
+        $rd0 PUBLISHLOCAL chan1 world
+        assert_equal {message chan1 world} [$rd1 read]
+    }
+}
 }

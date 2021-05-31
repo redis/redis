@@ -1127,16 +1127,16 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"publishlocal",publishLocalCommand,3,
-            "pub-sub ok-loading ok-stale fast may-replicate",
-            0,NULL,1,1,1,0,0,0},
+    "pub-sub ok-loading ok-stale fast may-replicate",
+    0,NULL,1,1,1,0,0,0},
 
     {"subscribelocal",subscribeLocalCommand,-2,
-            "pub-sub no-script ok-loading ok-stale",
-            0,NULL,1,-1,1,0,0,0},
+    "pub-sub no-script ok-loading ok-stale",
+    0,NULL,1,-1,1,0,0,0},
 
     {"unsubscribelocal",unsubscribeLocalCommand,-1,
-            "pub-sub no-script ok-loading ok-stale",
-            0,NULL,1,-1,1,0,0,0}
+    "pub-sub no-script ok-loading ok-stale",
+    0,NULL,1,-1,1,0,0,0}
 };
 
 /*============================ Utility functions ============================ */
@@ -3904,8 +3904,10 @@ void call(client *c, int flags) {
     }
 
     /* If the client has keys tracking enabled for client side caching,
-     * make sure to remember the keys it fetched via this command. */
-    if (c->cmd->flags & CMD_READONLY) {
+     * make sure to remember the keys it fetched via this command.
+     * Don't track the channel names faked as keys in the pub/sub local
+     * commands. */
+    if (c->cmd->flags & CMD_READONLY && !(c->cmd->flags & CMD_PUBSUB)) {
         client *caller = (c->flags & CLIENT_LUA && server.lua_caller) ?
                             server.lua_caller : c;
         if (caller->flags & CLIENT_TRACKING &&
@@ -4193,8 +4195,8 @@ int processCommand(client *c) {
         c->cmd->proc != punsubscribeCommand &&
         c->cmd->proc != resetCommand) {
         rejectCommandFormat(c,
-            "Can't execute '%s': only (P)SUBSCRIBE / "
-            "(P)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context",
+            "Can't execute '%s': only (P)SUBSCRIBE(LOCAL) / "
+            "(P)UNSUBSCRIBE(LOCAL) / PING / QUIT / RESET are allowed in this context",
             c->cmd->name);
         return C_OK;
     }

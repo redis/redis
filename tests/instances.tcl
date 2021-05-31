@@ -665,6 +665,12 @@ proc redis_deferring_client {type id} {
     return $client
 }
 
+proc redis_deferring_client {host port} {
+    set client [redis $host $port 1 $::tls]
+    return $client
+}
+
+
 proc redis_client {type id} {
     set port [get_instance_attrib $type $id port]
     set host [get_instance_attrib $type $id host]

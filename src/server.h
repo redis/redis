@@ -1725,10 +1725,15 @@ typedef struct {
     dictEntry *de;
 } hashTypeIterator;
 
-typedef struct {
-    dict *server_channels;
-    dict *client_channels;
+/* Structure to hold the pubsub related meta data. Currently used
+ * for pubsub and pubsublocal feature. */
+typedef struct pubsubmeta {
     int local;
+    dict *(*serverPubSubChannels)();
+    dict *(*clientPubSubChannels)(client*);
+    int (*subscriptionCount)(client*);
+    robj *(*subscribeMsg)();
+    robj *(*unsubscribeMsg)();
 }pubsubmeta;
 
 
