@@ -222,6 +222,12 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define AOF_ON 1              /* AOF is on */
 #define AOF_WAIT_REWRITE 2    /* AOF waits rewrite to start appending */
 
+/* AOF return values for loadAppendOnlyFile() */
+#define AOF_OK 0
+#define AOF_EMPTY 1
+#define AOF_OPEN_ERR 2
+#define AOF_FAILED 3
+
 /* Client flags */
 #define CLIENT_SLAVE (1<<0)   /* This client is a replica */
 #define CLIENT_MASTER (1<<1)  /* This client is a master */
