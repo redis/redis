@@ -116,11 +116,7 @@ start_server {tags {"slowlog external-ok"} overrides {slowlog-log-slower-than 10
         # blocked BLPOP is replicated as LPOP
         set rd [redis_deferring_client]
         $rd blpop l 0
-        wait_for_condition 50 100 {
-            [s blocked_clients] eq {1}
-        } else {
-            fail "Clients are not blocked"
-        }
+        wait_for_blocked_clients_count 1 50 100
         r multi
         r lpush l foo
         r slowlog reset
