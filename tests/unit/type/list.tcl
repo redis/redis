@@ -6,6 +6,14 @@ proc wait_for_blocked_client {} {
     }
 }
 
+proc wait_for_blocked_clients_count {count {maxtries 100} {delay 10}} {
+    wait_for_condition $maxtries $delay  {
+        [s blocked_clients] == $count
+    } else {
+        fail "Timeout waiting for blocked clients"
+    }
+}
+
 start_server {
     tags {"list external-ok"}
     overrides {
@@ -328,11 +336,7 @@ start_server {
         r del blist target
         r rpush target bar
         $rd brpoplpush blist target 0
-        wait_for_condition 100 10 {
-            [s blocked_clients] == 1
-        } else {
-            fail "Timeout waiting for blocked clients"
-        }
+        wait_for_blocked_clients_count 1
         r rpush blist foo
         assert_equal foo [$rd read]
         assert_equal {foo bar} [r lrange target 0 -1]
@@ -345,11 +349,7 @@ start_server {
                 r del blist target
                 r rpush target bar
                 $rd blmove blist target $wherefrom $whereto 0
-                wait_for_condition 100 10 {
-                    [s blocked_clients] == 1
-                } else {
-                    fail "Timeout waiting for blocked clients"
-                }
+                wait_for_blocked_clients_count 1
                 r rpush blist foo
                 assert_equal foo [$rd read]
                 if {$whereto eq "right"} {
@@ -369,11 +369,7 @@ start_server {
                 r del blist target
                 $rd2 blpop target 0
                 $rd blmove blist target $wherefrom $whereto 0
-                wait_for_condition 100 10 {
-                    [s blocked_clients] == 2
-                } else {
-                    fail "Timeout waiting for blocked clients"
-                }
+                wait_for_blocked_clients_count 2
                 r rpush blist foo
                 assert_equal foo [$rd read]
                 assert_equal {target foo} [$rd2 read]
@@ -402,11 +398,7 @@ start_server {
         r del blist target
         r set target nolist
         $rd brpoplpush blist target 0
-        wait_for_condition 100 10 {
-            [s blocked_clients] == 1
-        } else {
-            fail "Timeout waiting for blocked clients"
-        }
+        wait_for_blocked_clients_count 1
         r rpush blist foo
         assert_error "WRONGTYPE*" {$rd read}
         assert_equal {foo} [r lrange blist 0 -1]
@@ -532,16 +524,8 @@ start_server {
       set rd [redis_deferring_client]
 
       $rd brpoplpush foo_list bar_list 1
-      wait_for_condition 100 10 {
-          [s blocked_clients] == 1
-      } else {
-          fail "Timeout waiting for blocked client"
-      }
-      wait_for_condition 500 10 {
-          [s blocked_clients] == 0
-      } else {
-          fail "Timeout waiting for client to unblock"
-      }
+      wait_for_blocked_clients_count 1
+      wait_for_blocked_clients_count 0 500 10
       $rd read
     } {}
 
