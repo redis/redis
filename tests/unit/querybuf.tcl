@@ -50,7 +50,7 @@ start_server {tags {"querybuf"}} {
             $rd set bigstring [string repeat A 65535] nx
 
             # Wait for client query buffer to be resized to 0.
-            wait_for_condition 500 10 {
+            wait_for_condition 1000 10 {
                 [client_query_buffer test_client] == 0
             } else {
                 fail "querybuf expected to be resized"
