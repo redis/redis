@@ -143,6 +143,18 @@ start_server {tags {"maxmemory"}} {
     }
 }
 
+# Calculate query buffer memory of slave
+proc slave_query_buffer {srv} {
+    set clients [split [$srv client list] "\r\n"]
+    set c [lsearch -inline $clients *flags=S*]
+    if {[string length $c] > 0} {
+        assert {[regexp {qbuf=([0-9]+)} $c - qbuf]}
+        assert {[regexp {qbuf-free=([0-9]+)} $c - qbuf_free]}
+        return [expr $qbuf + $qbuf_free]
+    }
+    return 0
+}
+
 proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} {
     start_server {tags {"maxmemory"}} {
         start_server {} {
@@ -210,15 +222,9 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             set slave_buf [s -1 mem_clients_slaves]
             set client_buf [s -1 mem_clients_normal]
             set mem_not_counted_for_evict [s -1 mem_not_counted_for_evict]
-            set used_no_repl [expr {$new_used - $mem_not_counted_for_evict}]
+            # we need to exclude replies buffer and query buffer of slave from used memory
+            set used_no_repl [expr {$new_used - $mem_not_counted_for_evict - [slave_query_buffer $master]}]
             set delta [expr {($used_no_repl - $client_buf) - ($orig_used_no_repl - $orig_client_buf)}]
-
-            # Calculate query buffer size of slave
-            set clients [split [$master client list] "\r\n"]
-            set c [lsearch -inline $clients *flags=S*]
-            assert {[regexp {qbuf=([0-9]+)} $c - qbuf]}
-            assert {[regexp {qbuf-free=([0-9]+)} $c - qbuf_free]}
-            set slave_qbuf [expr $qbuf + $qbuf_free]
 
             assert {[$master dbsize] == 100}
             assert {$slave_buf > 2*1024*1024} ;# some of the data may have been pushed to the OS buffers
@@ -229,8 +235,9 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             set killed_used [s -1 used_memory]
             set killed_slave_buf [s -1 mem_clients_slaves]
             set killed_mem_not_counted_for_evict [s -1 mem_not_counted_for_evict]
-            set killed_used_no_repl [expr {$killed_used - $killed_mem_not_counted_for_evict}]
-            set delta_no_repl [expr {$killed_used_no_repl - $used_no_repl + $slave_qbuf}]
+            # we need to exclude replies buffer and query buffer of slave from used memory after kill slave
+            set killed_used_no_repl [expr {$killed_used - $killed_mem_not_counted_for_evict - [slave_query_buffer $master]}]
+            set delta_no_repl [expr {$killed_used_no_repl - $used_no_repl}]
             assert {$killed_slave_buf == 0}
             assert {$delta_no_repl > -$delta_max && $delta_no_repl < $delta_max}
 

@@ -1,36 +1,57 @@
-start_server {tags {"querybuf"}} {
-    test "query buffer will never be resized when less than 64k" {
-        set orig_used [s used_memory]
+proc client_idle_sec {name} {
+    set clients [split [r client list] "\r\n"]
+    set c [lsearch -inline $clients *name=$name*]
+    assert {[regexp {idle=([0-9]+)} $c - idle]}
+    return idle
+}
 
-        # Memory will increase by more than 32k due to query buffer of client.
-        set rd [redis_deferring_client]
-        assert_morethan [expr [s used_memory] - $orig_used] 32768
-
-        if {$::accurate} {
-            after 2000 ;# Check if client query buffer will be resized when client idle 2s
-        } else {
-            after 120 ;# serverCron only call clientsCronResizeQueryBuffer once in 100ms
-        }
-
-        # Check query buffer of client has not been resized.
-        assert_morethan [expr [s used_memory] - $orig_used] 32768
+# Calculate query buffer memory of slave
+proc client_query_buffer {name} {
+    set clients [split [r client list] "\r\n"]
+    set c [lsearch -inline $clients *name=$name*]
+    if {[string length $c] > 0} {
+        assert {[regexp {qbuf=([0-9]+)} $c - qbuf]}
+        assert {[regexp {qbuf-free=([0-9]+)} $c - qbuf_free]}
+        return [expr $qbuf + $qbuf_free]
     }
+    return 0
+}
 
-    test "query buffer will be resized when more than 64k" {
-        # The test will run at least 2s to wait for client query
-        # buffer to be resized after idle 2s.
-        if {$::accurate} {
+start_server {tags {"querybuf"}} {
+    # The test will run at least 2s to check if client query
+    # buffer will be resized when client idle 2s.
+    if {$::accurate} {
+        test "query buffer will never be resized when less than 64k" {
+            # Memory will increase by more than 32k due to query buffer of client.
             set rd [redis_deferring_client]
-            set orig_used [s used_memory]
+            r client setname test_client
+            set orig_test_client_qbuf [client_query_buffer test_client]
+
+            # Check if client query buffer will be resized when client idle more than 2s
+            wait_for_condition 1000 10 {
+                [client_idle_sec test_client] > 3 && [client_query_buffer test_client] == $orig_test_client_qbuf
+            } else {
+                fail "query buffer was resized"
+            }
+        }
+    }
+}
+
+start_server {tags {"querybuf"}} {
+    # The test will run at least 2s to wait for client query
+    # buffer to be resized after idle 2s.
+    if {$::accurate} {
+        test "query buffer will be resized when more than 64k" {
+            set rd [redis_deferring_client]
+            $rd client setname test_client
 
             # Fill client query buffer to more than 64k without adding extra memory
             $rd set bigstring v
             $rd set bigstring [string repeat A 65535] nx
 
-            # Wait for client query buffer to be resized.
-            # Memory will be reduced 32k with glibc and 40k with jemalloc.
+            # Wait for client query buffer to be resized to 0.
             wait_for_condition 500 10 {
-                [expr $orig_used - [s used_memory]] > 30000
+                [client_query_buffer test_client] == 0
             } else {
                 fail "querybuf expected to be resized"
             }
