@@ -130,7 +130,7 @@ start_server {tags {"slowlog external-ok"} overrides {slowlog-log-slower-than 10
         r config set slowlog-log-slower-than 0
         r slowlog reset
         r sadd set 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33
-        set e [lindex [r slowlog get] 0]
+        set e [lindex [r slowlog get] end-1]
         lindex $e 3
     } {sadd set 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 {... (2 more arguments)}}
 
@@ -139,7 +139,7 @@ start_server {tags {"slowlog external-ok"} overrides {slowlog-log-slower-than 10
         r slowlog reset
         set arg [string repeat A 129]
         r sadd set foo $arg
-        set e [lindex [r slowlog get] 0]
+        set e [lindex [r slowlog get] end-1]
         lindex $e 3
     } {sadd set foo {AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA... (1 more bytes)}}
 
