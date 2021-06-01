@@ -434,7 +434,7 @@ start_server {tags {"expire"}} {
         r set foo1 bar ex 200
         r set foo1 bar px 100000
         r set foo1 bar exat [expr [clock seconds]+100]
-        r set foo1 bar pxat [expr [clock milliseconds]+10000]
+        r set foo1 bar pxat [expr [clock milliseconds]+100000]
         r setex foo1 100 bar
         r psetex foo1 100000 bar
         r set foo2 bar
@@ -450,7 +450,7 @@ start_server {tags {"expire"}} {
         r getex foo4 ex 200
         r getex foo4 px 200000
         r getex foo4 exat [expr [clock seconds]+100]
-        r getex foo4 pxat [expr [clock milliseconds]+10000]
+        r getex foo4 pxat [expr [clock milliseconds]+100000]
         # RESTORE commands
         r set foo5 bar
         set encoded [r dump foo5]
