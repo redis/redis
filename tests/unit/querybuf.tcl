@@ -2,7 +2,7 @@ proc client_idle_sec {name} {
     set clients [split [r client list] "\r\n"]
     set c [lsearch -inline $clients *name=$name*]
     assert {[regexp {idle=([0-9]+)} $c - idle]}
-    return idle
+    return $idle
 }
 
 # Calculate query buffer memory of slave
@@ -24,7 +24,7 @@ start_server {tags {"querybuf"}} {
         test "query buffer will never be resized when less than 64k" {
             # Memory will increase by more than 32k due to query buffer of client.
             set rd [redis_deferring_client]
-            r client setname test_client
+            $rd client setname test_client
             set orig_test_client_qbuf [client_query_buffer test_client]
 
             # Check if client query buffer will be resized when client idle more than 2s
