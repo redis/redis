@@ -44,6 +44,7 @@ start_server {tags {"querybuf"}} {
         test "query buffer will be resized when more than 64k" {
             set rd [redis_deferring_client]
             $rd client setname test_client
+            assert_morethan_equal [client_query_buffer test_client] 32768
 
             # Fill client query buffer to more than 64k without adding extra memory
             $rd set bigstring v
