@@ -21,9 +21,9 @@ start_server {tags {"introspection external-ok"}} {
 
     test {TOUCH returns the number of existing keys specified} {
         r flushdb
-        r set key1 1
-        r set key2 2
-        r touch key0 key1 key2 key3
+        r set key1{t} 1
+        r set key2{t} 2
+        r touch key0{t} key1{t} key2{t} key3{t}
     } 2
 
     test {command stats for GEOADD} {
@@ -52,9 +52,9 @@ start_server {tags {"introspection external-ok"}} {
     test {command stats for MULTI} {
         r config resetstat
         r MULTI
-        r set foo bar
-        r GEOADD foo2 0 0 bar
-        r EXPIRE foo2 0
+        r set foo{t} bar
+        r GEOADD foo2{t} 0 0 bar
+        r EXPIRE foo2{t} 0
         r EXEC
         assert_match {*calls=1,*} [cmdstat multi]
         assert_match {*calls=1,*} [cmdstat exec]

@@ -192,6 +192,11 @@ proc tags_acceptable {tags err_return} {
         return 0
     }
 
+    if {$::cluster_mode && [lsearch $tags "cluster-skip"] >= 0} {
+        set err "Not supported in cluster mode"
+        return 0
+    }
+
     return 1
 }
 

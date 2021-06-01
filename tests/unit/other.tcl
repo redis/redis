@@ -52,14 +52,14 @@ start_server {overrides {save ""} tags {"other external-ok needs:config-set-save
     test {SELECT an out of range DB} {
         catch {r select 1000000} err
         set _ $err
-    } {*index is out of range*}
+    } {*index is out of range*} {cluster-skip}
 
     tags {consistency} {
         if {true} {
             if {$::accurate} {set numops 10000} else {set numops 1000}
             test {Check consistency of different data types after a reload} {
                 r flushdb
-                createComplexDataset r $numops
+                createComplexDataset r $numops usetag
                 set dump [csvdump r]
                 set sha1 [r debug digest]
                 r debug reload

@@ -57,46 +57,46 @@ start_server {tags {"multi external-ok"}} {
     } {*ERR WATCH*}
 
     test {EXEC fails if there are errors while queueing commands #1} {
-        r del foo1 foo2
+        r del foo1{t} foo2{t}
         r multi
-        r set foo1 bar1
+        r set foo1{t} bar1
         catch {r non-existing-command}
-        r set foo2 bar2
+        r set foo2{t} bar2
         catch {r exec} e
         assert_match {EXECABORT*} $e
-        list [r exists foo1] [r exists foo2]
+        list [r exists foo1{t}] [r exists foo2{t}]
     } {0 0}
 
     test {EXEC fails if there are errors while queueing commands #2} {
         set rd [redis_deferring_client]
-        r del foo1 foo2
+        r del foo1{t} foo2{t}
         r multi
-        r set foo1 bar1
+        r set foo1{t} bar1
         $rd config set maxmemory 1
         assert  {[$rd read] eq {OK}}
-        catch {r lpush mylist myvalue}
+        catch {r lpush mylist{t} myvalue}
         $rd config set maxmemory 0
         assert  {[$rd read] eq {OK}}
-        r set foo2 bar2
+        r set foo2{t} bar2
         catch {r exec} e
         assert_match {EXECABORT*} $e
         $rd close
-        list [r exists foo1] [r exists foo2]
+        list [r exists foo1{t}] [r exists foo2{t}]
     } {0 0} {needs:config-maxmemory}
 
     test {If EXEC aborts, the client MULTI state is cleared} {
-        r del foo1 foo2
+        r del foo1{t} foo2{t}
         r multi
-        r set foo1 bar1
+        r set foo1{t} bar1
         catch {r non-existing-command}
-        r set foo2 bar2
+        r set foo2{t} bar2
         catch {r exec} e
         assert_match {EXECABORT*} $e
         r ping
     } {PONG}
 
     test {EXEC works on WATCHed key not modified} {
-        r watch x y z
+        r watch x{t} y{t} z{t}
         r watch k
         r multi
         r ping
@@ -113,9 +113,9 @@ start_server {tags {"multi external-ok"}} {
     } {}
 
     test {EXEC fail on WATCHed key modified (1 key of 5 watched)} {
-        r set x 30
-        r watch a b x k z
-        r set x 40
+        r set x{t} 30
+        r watch a{t} b{t} x{t} k{t} z{t}
+        r set x{t} 40
         r multi
         r ping
         r exec
@@ -129,7 +129,7 @@ start_server {tags {"multi external-ok"}} {
         r multi
         r ping
         r exec
-    } {}
+    } {} {cluster-skip}
 
     test {After successful EXEC key is no longer watched} {
         r set x 30
@@ -331,7 +331,8 @@ start_server {tags {"multi external-ok"}} {
     } {} {needs:repl}
 
     test {MULTI / EXEC is propagated correctly (write command, no effect)} {
-        r del bar foo bar
+        r del bar
+        r del foo
         set repl [attach_to_replication_stream]
         r multi
         r del foo
@@ -506,7 +507,7 @@ start_server {tags {"multi external-ok"}} {
         # make sure that the INCR was executed
         assert { $xx == 1 }
         $r1 close;
-    } {} {needs:repl}
+    } {} {needs:repl cluster-skip}
 
     test {EXEC with only read commands should not be rejected when OOM} {
         set r2 [redis_client]
@@ -547,17 +548,17 @@ start_server {tags {"multi external-ok"}} {
     } {0} {needs:config-maxmemory}
 
     test {Blocking commands ignores the timeout} {
-        r xgroup create s g $ MKSTREAM
+        r xgroup create s{t} g $ MKSTREAM
 
         set m [r multi]
-        r blpop empty_list 0
-        r brpop empty_list 0
-        r brpoplpush empty_list1 empty_list2 0
-        r blmove empty_list1 empty_list2 LEFT LEFT 0
-        r bzpopmin empty_zset 0
-        r bzpopmax empty_zset 0
-        r xread BLOCK 0 STREAMS s $
-        r xreadgroup group g c BLOCK 0 STREAMS s >
+        r blpop empty_list{t} 0
+        r brpop empty_list{t} 0
+        r brpoplpush empty_list1{t} empty_list2{t} 0
+        r blmove empty_list1{t} empty_list2{t} LEFT LEFT 0
+        r bzpopmin empty_zset{t} 0
+        r bzpopmax empty_zset{t} 0
+        r xread BLOCK 0 STREAMS s{t} $
+        r xreadgroup group g c BLOCK 0 STREAMS s{t} >
         set res [r exec]
 
         list $m $res
@@ -578,7 +579,7 @@ start_server {tags {"multi external-ok"}} {
             {exec}
         }
         close_replication_stream $repl
-    } {} {needs:repl}
+    } {} {needs:repl cluster-skip}
 
     test {MULTI propagation of SCRIPT LOAD} {
         set repl [attach_to_replication_stream]

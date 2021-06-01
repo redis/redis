@@ -61,7 +61,8 @@ start_server {tags {"hll" "external-ok"}} {
 
     test {HyperLogLog sparse encoding stress test} {
         for {set x 0} {$x < 1000} {incr x} {
-            r del hll1 hll2
+            r del hll1
+            r del hll2
             set numele [randomInt 100]
             set elements {}
             for {set j 0} {$j < $numele} {incr j} {
@@ -144,34 +145,34 @@ start_server {tags {"hll" "external-ok"}} {
     }
 
     test {PFADD, PFCOUNT, PFMERGE type checking works} {
-        r set foo bar
-        catch {r pfadd foo 1} e
+        r set foo{t} bar
+        catch {r pfadd foo{t} 1} e
         assert_match {*WRONGTYPE*} $e
-        catch {r pfcount foo} e
+        catch {r pfcount foo{t}} e
         assert_match {*WRONGTYPE*} $e
-        catch {r pfmerge bar foo} e
+        catch {r pfmerge bar{t} foo{t}} e
         assert_match {*WRONGTYPE*} $e
-        catch {r pfmerge foo bar} e
+        catch {r pfmerge foo{t} bar{t}} e
         assert_match {*WRONGTYPE*} $e
     }
 
     test {PFMERGE results on the cardinality of union of sets} {
-        r del hll hll1 hll2 hll3
-        r pfadd hll1 a b c
-        r pfadd hll2 b c d
-        r pfadd hll3 c d e
-        r pfmerge hll hll1 hll2 hll3
-        r pfcount hll
+        r del hll{t} hll1{t} hll2{t} hll3{t}
+        r pfadd hll1{t} a b c
+        r pfadd hll2{t} b c d
+        r pfadd hll3{t} c d e
+        r pfmerge hll{t} hll1{t} hll2{t} hll3{t}
+        r pfcount hll{t}
     } {5}
 
     test {PFCOUNT multiple-keys merge returns cardinality of union #1} {
-        r del hll1 hll2 hll3
+        r del hll1{t} hll2{t} hll3{t}
         for {set x 1} {$x < 10000} {incr x} {
-            r pfadd hll1 "foo-$x"
-            r pfadd hll2 "bar-$x"
-            r pfadd hll3 "zap-$x"
+            r pfadd hll1{t} "foo-$x"
+            r pfadd hll2{t} "bar-$x"
+            r pfadd hll3{t} "zap-$x"
 
-            set card [r pfcount hll1 hll2 hll3]
+            set card [r pfcount hll1{t} hll2{t} hll3{t}]
             set realcard [expr {$x*3}]
             set err [expr {abs($card-$realcard)}]
             assert {$err < (double($card)/100)*5}
@@ -179,17 +180,17 @@ start_server {tags {"hll" "external-ok"}} {
     }
 
     test {PFCOUNT multiple-keys merge returns cardinality of union #2} {
-        r del hll1 hll2 hll3
+        r del hll1{t} hll2{t} hll3{t}
         set elements {}
         for {set x 1} {$x < 10000} {incr x} {
             for {set j 1} {$j <= 3} {incr j} {
                 set rint [randomInt 20000]
-                r pfadd hll$j $rint
+                r pfadd hll$j{t} $rint
                 lappend elements $rint
             }
         }
         set realcard [llength [lsort -unique $elements]]
-        set card [r pfcount hll1 hll2 hll3]
+        set card [r pfcount hll1{t} hll2{t} hll3{t}]
         set err [expr {abs($card-$realcard)}]
         assert {$err < (double($card)/100)*5}
     }

@@ -250,13 +250,19 @@ proc findKeyWithType {r type} {
 }
 
 proc createComplexDataset {r ops {opt {}}} {
+    set useexpire [expr {[lsearch -exact $opt useexpire] != -1}]
+    if {[lsearch -exact $opt usetag] != -1} {
+        set tag "{t}"
+    } else {
+        set tag ""
+    }
     for {set j 0} {$j < $ops} {incr j} {
-        set k [randomKey]
-        set k2 [randomKey]
+        set k [randomKey]$tag
+        set k2 [randomKey]$tag
         set f [randomValue]
         set v [randomValue]
 
-        if {[lsearch -exact $opt useexpire] != -1} {
+        if {$useexpire} {
             if {rand() < 0.1} {
                 {*}$r expire [randomKey] [randomInt 2]
             }

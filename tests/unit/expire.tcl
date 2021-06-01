@@ -96,7 +96,9 @@ start_server {tags {"expire" "external-ok"}} {
         # server is under pressure, so if it does not work give it a few more
         # chances.
         for {set j 0} {$j < 30} {incr j} {
-            r del x y z
+            r del x
+            r del y
+            r del z
             r psetex x 100 somevalue
             after 80
             set a [r get x]
@@ -170,16 +172,16 @@ start_server {tags {"expire" "external-ok"}} {
     test {Redis should lazy expire keys} {
         r flushdb
         r debug set-active-expire 0
-        r psetex key1 500 a
-        r psetex key2 500 a
-        r psetex key3 500 a
+        r psetex key1{t} 500 a
+        r psetex key2{t} 500 a
+        r psetex key3{t} 500 a
         set size1 [r dbsize]
         # Redis expires random keys ten times every second so we are
         # fairly sure that all the three keys should be evicted after
         # one second.
         after 1000
         set size2 [r dbsize]
-        r mget key1 key2 key3
+        r mget key1{t} key2{t} key3{t}
         set size3 [r dbsize]
         r debug set-active-expire 1
         list $size1 $size2 $size3

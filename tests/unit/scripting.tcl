@@ -35,8 +35,8 @@ start_server {tags {"scripting external-ok"}} {
     } {1 2 3 ciao {1 2}}
 
     test {EVAL - Are the KEYS and ARGV arrays populated correctly?} {
-        r eval {return {KEYS[1],KEYS[2],ARGV[1],ARGV[2]}} 2 a b c d
-    } {a b c d}
+        r eval {return {KEYS[1],KEYS[2],ARGV[1],ARGV[2]}} 2 a{t} b{t} c{t} d{t}
+    } {a{t} b{t} c{t} d{t}}
 
     test {EVAL - is Lua able to call Redis API?} {
         r set mykey myval
@@ -374,19 +374,19 @@ start_server {tags {"scripting external-ok"}} {
         r del myset
         r sadd myset 1 2 3 4 10
         r eval {return redis.call('sort',KEYS[1],'desc')} 1 myset
-    } {10 4 3 2 1}
+    } {10 4 3 2 1} {cluster-skip}
 
     test "SORT BY <constant> output gets ordered for scripting" {
         r del myset
         r sadd myset a b c d e f g h i l m n o p q r s t u v z aa aaa azz
         r eval {return redis.call('sort',KEYS[1],'by','_')} 1 myset
-    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z}
+    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z} {cluster-skip}
 
     test "SORT BY <constant> with GET gets ordered for scripting" {
         r del myset
         r sadd myset a b c
         r eval {return redis.call('sort',KEYS[1],'by','_','get','#','get','_:*')} 1 myset
-    } {a {} b {} c {}}
+    } {a {} b {} c {}} {cluster-skip}
 
     test "redis.sha1hex() implementation" {
         list [r eval {return redis.sha1hex('')} 0] \
@@ -521,11 +521,11 @@ start_server {tags {"scripting external-ok"}} {
     test {We can call scripts rewriting client->argv from Lua} {
         r del myset
         r sadd myset a b c
-        r mset a 1 b 2 c 3 d 4
+        r mset a{t} 1 b{t} 2 c{t} 3 d{t} 4
         assert {[r spop myset] ne {}}
         assert {[r spop myset 1] ne {}}
         assert {[r spop myset] ne {}}
-        assert {[r mget a b c d] eq {1 2 3 4}}
+        assert {[r mget a{t} b{t} c{t} d{t}] eq {1 2 3 4}}
         assert {[r spop myset] eq {}}
     }
 
@@ -566,10 +566,10 @@ start_server {tags {"scripting external-ok"}} {
         r eval {
               for i = 0, 10 do
                   redis.call('SET', 'a', '1')
-                  redis.call('MGET', 'a', 'b', 'c')
+                  redis.call('MGET', 'a{t}', 'b{t}', 'c{t}')
                   redis.call('EXPIRE', 'a', 0)
                   redis.call('GET', 'a')
-                  redis.call('MGET', 'a', 'b', 'c')
+                  redis.call('MGET', 'a{t}', 'b{t}', 'c{t}')
               end
         } 0
     }

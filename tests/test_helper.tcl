@@ -115,6 +115,7 @@ set ::dump_logs 0
 set ::loop 0
 set ::tlsdir "tests/tls"
 set ::singledb 0
+set ::cluster_mode 0
 set ::ignoreencoding 0
 set ::ignoredigest 0
 
@@ -579,6 +580,7 @@ proc print_help_screen {} {
         "--baseport <port>  Initial port number for spawned redis servers."
         "--portcount <num>  Port range for spawned redis servers."
         "--singledb         Use a single database, avoid SELECT."
+        "--cluster-mode     Run tests in cluster protocol compatible mode."
         "--ignore-encoding  Don't validate object encoding."
         "--ignore-digest    Don't use debug digest validations."
         "--help             Print this help screen."
@@ -688,6 +690,9 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set ::timeout $arg
         incr j
     } elseif {$opt eq {--singledb}} {
+        set ::singledb 1
+    } elseif {$opt eq {--cluster-mode}} {
+        set ::cluster_mode 1
         set ::singledb 1
     } elseif {$opt eq {--ignore-encoding}} {
         set ::ignoreencoding 1
