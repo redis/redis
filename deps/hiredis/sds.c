@@ -748,7 +748,7 @@ int hi_sdsrange(hisds s, ssize_t start, ssize_t end) {
         start = 0;
     }
     if (start && newlen) memmove(s, s+start, newlen);
-    s[newlen] = 0;
+    s[newlen] = '\0';
     hi_sdssetlen(s,newlen);
     return 0;
 }
