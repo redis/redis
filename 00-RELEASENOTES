@@ -12,7 +12,7 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
-Redis 6.2.4 Released Tue July 1 12:00:00 IST 2021
+Redis 6.2.4 Released Tue June 1 12:00:00 IST 2021
 ================================================================================
 
 Upgrade urgency: SECURITY, Contains fixes to security issues that affect
