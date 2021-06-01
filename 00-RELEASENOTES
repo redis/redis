@@ -12,6 +12,22 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 6.0.14 Released Tue July 1 12:00:00 IST 2021
+================================================================================
+
+Upgrade urgency: SECURITY, Contains fixes to security issues that affect
+authenticated client connections. MODERATE otherwise.
+
+Fix integer overflow in STRALGO LCS (CVE-2021-32625)
+An integer overflow bug in Redis version 6.0 or newer can be exploited using the
+STRALGO LCS command to corrupt the heap and potentially result with remote code
+execution. This is a result of an incomplete fix by CVE-2021-29477.
+
+Other bug fixes:
+* Fix crash in UNLINK on a stream key with deleted consumer groups (#8932)
+* SINTERSTORE: Add missing keyspace del event when none of the sources exist (#8949)
+
+================================================================================
 Redis 6.0.13 Released Mon May 3 19:00:00 IST 2021
 ================================================================================
 
