@@ -97,7 +97,7 @@ start_server {tags {"multi external-ok"}} {
 
     test {EXEC works on WATCHed key not modified} {
         r watch x{t} y{t} z{t}
-        r watch k
+        r watch k{t}
         r multi
         r ping
         r exec
@@ -255,6 +255,7 @@ start_server {tags {"multi external-ok"}} {
     } {}
 
     test {WATCH will consider touched expired keys} {
+        r flushall
         r del x
         r set x foo
         r expire x 1
@@ -263,7 +264,6 @@ start_server {tags {"multi external-ok"}} {
         # Wait for the keys to expire.
         wait_for_dbsize 0
 
-        after 1100
         r multi
         r ping
         r exec
