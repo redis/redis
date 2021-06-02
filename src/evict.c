@@ -680,7 +680,7 @@ int performEvictions(void) {
                         aeCreateTimeEvent(server.el, 0,
                                 evictionTimeProc, NULL, NULL);
                     }
-                    server.stat_evicted_time_cap_reached_count++;
+                    server.stat_eviction_time_limit_exceeded_count++;
                     break;
                 }
             }
