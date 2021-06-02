@@ -506,8 +506,8 @@ start_server {tags {"multi external-ok"}} {
         set xx [r exec]
         # make sure that the INCR was executed
         assert { $xx == 1 }
-        $r1 close;
-    } {} {needs:repl cluster-skip}
+        $r1 close
+    } {0} {needs:repl cluster-skip}
 
     test {EXEC with only read commands should not be rejected when OOM} {
         set r2 [redis_client]

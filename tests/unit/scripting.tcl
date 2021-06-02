@@ -477,8 +477,8 @@ start_server {tags {"scripting external-ok"}} {
         r debug loadaof
         set res [r get foo]
         r slaveof no one
-        set res
         r config set aof-use-rdb-preamble yes
+        set res
     } {102} {external-skip}
 
     test {EVAL timeout from AOF} {
