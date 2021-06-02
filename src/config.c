@@ -315,7 +315,7 @@ void queueLoadModule(sds path, sds *argv, int argc) {
     struct moduleLoadQueueEntry *loadmod;
 
     loadmod = zmalloc(sizeof(struct moduleLoadQueueEntry));
-    loadmod->argv = zmalloc(sizeof(robj*)*argc);
+    loadmod->argv = argc ? zmalloc(sizeof(robj*)*argc) : NULL;
     loadmod->path = sdsnew(path);
     loadmod->argc = argc;
     for (i = 0; i < argc; i++) {
@@ -1542,6 +1542,27 @@ void rewriteConfigBindOption(struct rewriteConfigState *state) {
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
+/* Rewrite the loadmodule option. */
+void rewriteConfigLoadmoduleOption(struct rewriteConfigState *state) {
+    sds line;
+
+    dictIterator *di = dictGetIterator(modules);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL) {
+        struct RedisModule *module = dictGetVal(de);
+        line = sdsnew("loadmodule ");
+        line = sdscatsds(line, module->loadmod->path);
+        for (int i = 0; i < module->loadmod->argc; i++) {
+            line = sdscatlen(line, " ", 1);
+            line = sdscatsds(line, module->loadmod->argv[i]->ptr);
+        }
+        rewriteConfigRewriteLine(state,"loadmodule",line,1);
+    }
+    dictReleaseIterator(di);
+    /* Mark "loadmodule" as processed in case modules is empty. */
+    rewriteConfigMarkAsProcessed(state,"loadmodule");
+}
+
 /* Glue together the configuration lines in the current configuration
  * rewrite state into a single string, stripping multiple empty lines. */
 sds rewriteConfigGetContentFromState(struct rewriteConfigState *state) {
@@ -1702,6 +1723,7 @@ int rewriteConfig(char *path, int force_all) {
     rewriteConfigNotifykeyspaceeventsOption(state);
     rewriteConfigClientoutputbufferlimitOption(state);
     rewriteConfigOOMScoreAdjValuesOption(state);
+    rewriteConfigLoadmoduleOption(state);
 
     /* Rewrite Sentinel config if in Sentinel mode. */
     if (server.sentinel_mode) rewriteConfigSentinelOption(state);

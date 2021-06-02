@@ -228,10 +228,10 @@ tags {"aof"} {
         }
     }
 
-    ## Test that EXPIREAT is loaded correctly
+    ## Test that PEXPIREAT is loaded correctly
     create_aof {
         append_to_aof [formatCommand rpush list foo]
-        append_to_aof [formatCommand expireat list 1000]
+        append_to_aof [formatCommand pexpireat list 1000]
         append_to_aof [formatCommand rpush list bar]
     }
 

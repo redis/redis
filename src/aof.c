@@ -61,6 +61,11 @@ void aofClosePipes(void);
 
 typedef struct aofrwblock {
     unsigned long used, free, pos;
+    /* Note that 'buf' must be the last field of aofrwblock struct, because
+     * memory allocator may give us more memory than our apply for reducing
+     * fragments, but we want to make full use of given memory, i.e. we may
+     * access the memory after 'buf'. To avoid make others fields corrupt,
+     * 'buf' must be the last one. */
     char buf[AOF_RW_BUF_BLOCK_SIZE];
 } aofrwblock;
 
@@ -85,6 +90,22 @@ unsigned long aofRewriteBufferSize(void) {
     while((ln = listNext(&li))) {
         aofrwblock *block = listNodeValue(ln);
         size += block->used;
+    }
+    return size;
+}
+
+/* This function is different from aofRewriteBufferSize, to get memory usage,
+ * we should also count all other fields(except 'buf') of aofrwblock and the
+ * last block's free size. */
+unsigned long aofRewriteBufferMemoryUsage(void) {
+    unsigned long size = aofRewriteBufferSize();
+
+    listNode *ln = listLast(server.aof_rewrite_buf_blocks);
+    if (ln != NULL) {
+        aofrwblock *block = listNodeValue(ln);
+        size += block->free;
+        size += (offsetof(aofrwblock,buf) *
+                 listLength(server.aof_rewrite_buf_blocks));
     }
     return size;
 }
@@ -144,9 +165,10 @@ void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
 
         if (len) { /* First block to allocate, or need another block. */
             int numblocks;
+            size_t usable_size;
 
-            block = zmalloc(sizeof(*block));
-            block->free = AOF_RW_BUF_BLOCK_SIZE;
+            block = zmalloc_usable(sizeof(*block), &usable_size);
+            block->free = usable_size-offsetof(aofrwblock,buf);
             block->used = 0;
             block->pos = 0;
             listAddNodeTail(server.aof_rewrite_buf_blocks,block);
@@ -575,43 +597,7 @@ sds catAppendOnlyGenericCommand(sds dst, int argc, robj **argv) {
     return dst;
 }
 
-/* Create the sds representation of a PEXPIREAT command, using
- * 'seconds' as time to live and 'cmd' to understand what command
- * we are translating into a PEXPIREAT.
- *
- * This command is used in order to translate EXPIRE and PEXPIRE commands
- * into PEXPIREAT command so that we retain precision in the append only
- * file, and the time is always absolute and not relative. */
-sds catAppendOnlyExpireAtCommand(sds buf, struct redisCommand *cmd, robj *key, robj *seconds) {
-    long long when;
-    robj *argv[3];
-
-    /* Make sure we can use strtoll */
-    seconds = getDecodedObject(seconds);
-    when = strtoll(seconds->ptr,NULL,10);
-    /* Convert argument into milliseconds for EXPIRE, SETEX, EXPIREAT */
-    if (cmd->proc == expireCommand || cmd->proc == setexCommand ||
-        cmd->proc == expireatCommand)
-    {
-        when *= 1000;
-    }
-    /* Convert into absolute time for EXPIRE, PEXPIRE, SETEX, PSETEX */
-    if (cmd->proc == expireCommand || cmd->proc == pexpireCommand ||
-        cmd->proc == setexCommand || cmd->proc == psetexCommand)
-    {
-        when += mstime();
-    }
-    decrRefCount(seconds);
-
-    argv[0] = shared.pexpireat;
-    argv[1] = key;
-    argv[2] = createStringObjectFromLongLong(when);
-    buf = catAppendOnlyGenericCommand(buf, 3, argv);
-    decrRefCount(argv[2]);
-    return buf;
-}
-
-void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int argc) {
+void feedAppendOnlyFile(int dictid, robj **argv, int argc) {
     sds buf = sdsempty();
     /* The DB this command was targeting is not the same as the last command
      * we appended. To issue a SELECT command is needed. */
@@ -624,44 +610,9 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
         server.aof_selected_db = dictid;
     }
 
-    if (cmd->proc == expireCommand || cmd->proc == pexpireCommand ||
-        cmd->proc == expireatCommand) {
-        /* Translate EXPIRE/PEXPIRE/EXPIREAT into PEXPIREAT */
-        buf = catAppendOnlyExpireAtCommand(buf,cmd,argv[1],argv[2]);
-    } else if (cmd->proc == setCommand && argc > 3) {
-        robj *pxarg = NULL;
-        /* When SET is used with EX/PX argument setGenericCommand propagates them with PX millisecond argument.
-         * So since the command arguments are re-written there, we can rely here on the index of PX being 3. */
-        if (!strcasecmp(argv[3]->ptr, "px")) {
-            pxarg = argv[4];
-        }
-        /* For AOF we convert SET key value relative time in milliseconds to SET key value absolute time in
-         * millisecond. Whenever the condition is true it implies that original SET has been transformed
-         * to SET PX with millisecond time argument so we do not need to worry about unit here.*/
-        if (pxarg) {
-            robj *millisecond = getDecodedObject(pxarg);
-            long long when = strtoll(millisecond->ptr,NULL,10);
-            when += mstime();
-
-            decrRefCount(millisecond);
-
-            robj *newargs[5];
-            newargs[0] = argv[0];
-            newargs[1] = argv[1];
-            newargs[2] = argv[2];
-            newargs[3] = shared.pxat;
-            newargs[4] = createStringObjectFromLongLong(when);
-            buf = catAppendOnlyGenericCommand(buf,5,newargs);
-            decrRefCount(newargs[4]);
-        } else {
-            buf = catAppendOnlyGenericCommand(buf,argc,argv);
-        }
-    } else {
-        /* All the other commands don't need translation or need the
-         * same translation already operated in the command vector
-         * for the replication itself. */
-        buf = catAppendOnlyGenericCommand(buf,argc,argv);
-    }
+    /* All commands should be propagated the same way in AOF as in replication.
+     * No need for AOF-specific translation. */
+    buf = catAppendOnlyGenericCommand(buf,argc,argv);
 
     /* Append to the AOF buffer. This will be flushed on disk just before
      * of re-entering the event loop, so before the client will get a

@@ -72,26 +72,13 @@ static int checkStringLength(client *c, long long size) {
 #define OBJ_PXAT (1<<7)            /* Set if timestamp in ms is given */
 #define OBJ_PERSIST (1<<8)         /* Set if we need to remove the ttl */
 
-void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
-    long long milliseconds = 0, when = 0; /* initialized to avoid any harmness warning */
+/* Forward declaration */
+static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int unit, long long *milliseconds);
 
-    if (expire) {
-        if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != C_OK)
-            return;
-        if (milliseconds <= 0 || (unit == UNIT_SECONDS && milliseconds > LLONG_MAX / 1000)) {
-            /* Negative value provided or multiplication is gonna overflow. */
-            addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
-            return;
-        }
-        if (unit == UNIT_SECONDS) milliseconds *= 1000;
-        when = milliseconds;
-        if ((flags & OBJ_PX) || (flags & OBJ_EX))
-            when += mstime();
-        if (when <= 0) {
-            /* Overflow detected. */
-            addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
-            return;
-        }
+void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
+    long long milliseconds = 0; /* initialized to avoid any harmness warning */
+    if (expire && getExpireMillisecondsOrReply(c, expire, flags, unit, &milliseconds) != C_OK) {
+        return;
     }
 
     if ((flags & OBJ_SET_NX && lookupKeyWrite(c->db,key) != NULL) ||
@@ -108,24 +95,17 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     genericSetKey(c,c->db,key, val,flags & OBJ_KEEPTTL,1);
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
-    if (expire) {
-        setExpire(c,c->db,key,when);
-        notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
 
-        /* Propagate as SET Key Value PXAT millisecond-timestamp if there is EXAT/PXAT or
-         * propagate as SET Key Value PX millisecond if there is EX/PX flag.
-         *
-         * Additionally when we propagate the SET with PX (relative millisecond) we translate
-         * it again to SET with PXAT for the AOF.
-         *
-         * Additional care is required while modifying the argument order. AOF relies on the
-         * exp argument being at index 3. (see feedAppendOnlyFile)
-         * */
-        robj *exp = (flags & OBJ_PXAT) || (flags & OBJ_EXAT) ? shared.pxat : shared.px;
-        robj *millisecondObj = createStringObjectFromLongLong(milliseconds);
-        rewriteClientCommandVector(c,5,shared.set,key,val,exp,millisecondObj);
-        decrRefCount(millisecondObj);
+    if (expire) {
+        setExpire(c,c->db,key,milliseconds);
+        /* Propagate as SET Key Value PXAT millisecond-timestamp if there is
+         * EX/PX/EXAT/PXAT flag. */
+        robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
+        rewriteClientCommandVector(c, 5, shared.set, key, val, shared.pxat, milliseconds_obj);
+        decrRefCount(milliseconds_obj);
+        notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
     }
+
     if (!(flags & OBJ_SET_GET)) {
         addReply(c, ok_reply ? ok_reply : shared.ok);
     }
@@ -148,6 +128,45 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         }
         replaceClientCommandVector(c, argc, argv);
     }
+}
+
+/*
+ * Extract the `expire` argument of a given GET/SET command as an absolute timestamp in milliseconds.
+ *
+ * "client" is the client that sent the `expire` argument.
+ * "expire" is the `expire` argument to be extracted.
+ * "flags" represents the behavior of the command (e.g. PX or EX).
+ * "unit" is the original unit of the given `expire` argument (e.g. UNIT_SECONDS).
+ * "milliseconds" is output argument.
+ *
+ * If return C_OK, "milliseconds" output argument will be set to the resulting absolute timestamp.
+ * If return C_ERR, an error reply has been added to the given client.
+ */
+static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int unit, long long *milliseconds) {
+    int ret = getLongLongFromObjectOrReply(c, expire, milliseconds, NULL);
+    if (ret != C_OK) {
+        return ret;
+    }
+
+    if (*milliseconds <= 0 || (unit == UNIT_SECONDS && *milliseconds > LLONG_MAX / 1000)) {
+        /* Negative value provided or multiplication is gonna overflow. */
+        addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
+        return C_ERR;
+    }
+
+    if (unit == UNIT_SECONDS) *milliseconds *= 1000;
+
+    if ((flags & OBJ_PX) || (flags & OBJ_EX)) {
+        *milliseconds += mstime();
+    }
+
+    if (*milliseconds <= 0) {
+        /* Overflow detected. */
+        addReplyErrorFormat(c,"invalid expire time in %s",c->cmd->name);
+        return C_ERR;
+    }
+
+    return C_OK;
 }
 
 #define COMMAND_GET 0
@@ -338,26 +357,10 @@ void getexCommand(client *c) {
         return;
     }
 
-    long long milliseconds = 0, when = 0;
-
     /* Validate the expiration time value first */
-    if (expire) {
-        if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != C_OK)
-            return;
-        if (milliseconds <= 0 || (unit == UNIT_SECONDS && milliseconds > LLONG_MAX / 1000)) {
-            /* Negative value provided or multiplication is gonna overflow. */
-            addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
-            return;
-        }
-        if (unit == UNIT_SECONDS) milliseconds *= 1000;
-        when = milliseconds;
-        if ((flags & OBJ_PX) || (flags & OBJ_EX))
-            when += mstime();
-        if (when <= 0) {
-            /* Overflow detected. */
-            addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
-            return;
-        }
+    long long milliseconds = 0;
+    if (expire && getExpireMillisecondsOrReply(c, expire, flags, unit, &milliseconds) != C_OK) {
+        return;
     }
 
     /* We need to do this before we expire the key or delete it */
@@ -377,12 +380,12 @@ void getexCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
         server.dirty++;
     } else if (expire) {
-        setExpire(c,c->db,c->argv[1],when);
-        /* Propagate */
-        robj *exp = (flags & OBJ_PXAT) || (flags & OBJ_EXAT) ? shared.pexpireat : shared.pexpire;
-        robj* millisecondObj = createStringObjectFromLongLong(milliseconds);
-        rewriteClientCommandVector(c,3,exp,c->argv[1],millisecondObj);
-        decrRefCount(millisecondObj);
+        setExpire(c,c->db,c->argv[1],milliseconds);
+        /* Propagate as PXEXPIREAT millisecond-timestamp if there is
+         * EX/PX/EXAT/PXAT flag and the key has not expired. */
+        robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
+        rewriteClientCommandVector(c,3,shared.pexpireat,c->argv[1],milliseconds_obj);
+        decrRefCount(milliseconds_obj);
         signalModifiedKey(c, c->db, c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",c->argv[1],c->db->id);
         server.dirty++;
@@ -797,6 +800,12 @@ void stralgoLCS(client *c) {
         goto cleanup;
     }
 
+    /* Detect string truncation or later overflows. */
+    if (sdslen(a) >= UINT32_MAX-1 || sdslen(b) >= UINT32_MAX-1) {
+        addReplyError(c, "String too long for LCS");
+        goto cleanup;
+    }
+
     /* Compute the LCS using the vanilla dynamic programming technique of
      * building a table of LCS(x,y) substrings. */
     uint32_t alen = sdslen(a);
@@ -805,8 +814,18 @@ void stralgoLCS(client *c) {
     /* Setup an uint32_t array to store at LCS[i,j] the length of the
      * LCS A0..i-1, B0..j-1. Note that we have a linear array here, so
      * we index it as LCS[j+(blen+1)*j] */
-    uint32_t *lcs = zmalloc((size_t)(alen+1)*(blen+1)*sizeof(uint32_t));
     #define LCS(A,B) lcs[(B)+((A)*(blen+1))]
+
+    /* Try to allocate the LCS table, and abort on overflow or insufficient memory. */
+    unsigned long long lcssize = (unsigned long long)(alen+1)*(blen+1); /* Can't overflow due to the size limits above. */
+    unsigned long long lcsalloc = lcssize * sizeof(uint32_t);
+    uint32_t *lcs = NULL;
+    if (lcsalloc < SIZE_MAX && lcsalloc / lcssize == sizeof(uint32_t))
+        lcs = ztrymalloc(lcsalloc);
+    if (!lcs) {
+        addReplyError(c, "Insufficient memory");
+        goto cleanup;
+    }
 
     /* Start building the LCS table. */
     for (uint32_t i = 0; i <= alen; i++) {
