@@ -276,14 +276,86 @@ start_server {
         }
     }
 
+    test "SDIFF against non-set should throw error" {
+        # with an empty set
+        r set key1 x
+        assert_error "WRONGTYPE*" {r sdiff key1 noset}
+        # different order
+        assert_error "WRONGTYPE*" {r sdiff noset key1}
+
+        # with a legal set
+        r del set1
+        r sadd set1 a b c
+        assert_error "WRONGTYPE*" {r sdiff key1 set1}
+        # different order
+        assert_error "WRONGTYPE*" {r sdiff set1 key1}
+    }
+
+    test "SDIFF should handle non existing key as empty" {
+        r del set1 set2 set3
+
+        r sadd set1 a b c
+        r sadd set2 b c d
+        assert_equal {a} [lsort [r sdiff set1 set2 set3]]
+        assert_equal {} [lsort [r sdiff set3 set2 set1]]
+    }
+
+    test "SDIFFSTORE against non-set should throw error" {
+        r del set1 set2 set3 key1
+        r set key1 x
+
+        # with en empty dstkey
+        assert_error "WRONGTYPE*" {r SDIFFSTORE set3 key1 noset}
+        assert_equal 0 [r exists set3]
+        assert_error "WRONGTYPE*" {r SDIFFSTORE set3 noset key1}
+        assert_equal 0 [r exists set3]
+
+        # with a legal dstkey
+        r sadd set1 a b c
+        r sadd set2 b c d
+        r sadd set3 e
+        assert_error "WRONGTYPE*" {r SDIFFSTORE set3 key1 set1 noset}
+        assert_equal 1 [r exists set3]
+        assert_equal {e} [lsort [r smembers set3]]
+
+        assert_error "WRONGTYPE*" {r SDIFFSTORE set3 set1 key1 set2}
+        assert_equal 1 [r exists set3]
+        assert_equal {e} [lsort [r smembers set3]]
+    }
+
+    test "SDIFFSTORE should handle non existing key as empty" {
+        r del set1 set2 set3
+
+        r set setres xxx
+        assert_equal 0 [r sdiffstore setres foo111 bar222]
+        assert_equal 0 [r exists setres]
+
+        # with a legal dstkey, should delete dstkey
+        r sadd set3 a b c
+        assert_equal 0 [r sdiffstore set3 set1 set2]
+        assert_equal 0 [r exists set3]
+
+        r sadd set1 a b c
+        assert_equal 3 [r sdiffstore set3 set1 set2]
+        assert_equal 1 [r exists set3]
+        assert_equal {a b c} [lsort [r smembers set3]]
+
+        # with a legal dstkey and empty set2, should delete the dstkey
+        r sadd set3 a b c
+        assert_equal 0 [r sdiffstore set3 set2 set1]
+        assert_equal 0 [r exists set3]
+    }
+
     test "SINTER against non-set should throw error" {
         r set key1 x
         assert_error "WRONGTYPE*" {r sinter key1 noset}
-    }
+        # different order
+        assert_error "WRONGTYPE*" {r sinter noset key1}
 
-    test "SUNION against non-set should throw error" {
-        r set key1 x
-        assert_error "WRONGTYPE*" {r sunion key1 noset}
+        r sadd set1 a b c
+        assert_error "WRONGTYPE*" {r sinter key1 set1}
+        # different order
+        assert_error "WRONGTYPE*" {r sinter set1 key1}
     }
 
     test "SINTER should handle non existing key as empty" {
@@ -303,16 +375,115 @@ start_server {
         lsort [r sinter set1 set2]
     } {1 2 3}
 
+    test "SINTERSTORE against non-set should throw error" {
+        r del set1 set2 set3 key1
+        r set key1 x
+
+        # with en empty dstkey
+        assert_error "WRONGTYPE*" {r sinterstore set3 key1 noset}
+        assert_equal 0 [r exists set3]
+        assert_error "WRONGTYPE*" {r sinterstore set3 noset key1}
+        assert_equal 0 [r exists set3]
+
+        # with a legal dstkey
+        r sadd set1 a b c
+        r sadd set2 b c d
+        r sadd set3 e
+        assert_error "WRONGTYPE*" {r sinterstore set3 key1 set2 noset}
+        assert_equal 1 [r exists set3]
+        assert_equal {e} [lsort [r smembers set3]]
+
+        assert_error "WRONGTYPE*" {r sinterstore set3 noset key1 set2}
+        assert_equal 1 [r exists set3]
+        assert_equal {e} [lsort [r smembers set3]]
+    }
+
     test "SINTERSTORE against non existing keys should delete dstkey" {
+        r del set1 set2 set3
+
         r set setres xxx
         assert_equal 0 [r sinterstore setres foo111 bar222]
         assert_equal 0 [r exists setres]
+
+        # with a legal dstkey
+        r sadd set3 a b c
+        assert_equal 0 [r sinterstore set3 set1 set2]
+        assert_equal 0 [r exists set3]
+
+        r sadd set1 a b c
+        assert_equal 0 [r sinterstore set3 set1 set2]
+        assert_equal 0 [r exists set3]
+
+        assert_equal 0 [r sinterstore set3 set2 set1]
+        assert_equal 0 [r exists set3]
     }
 
-    test "SUNIONSTORE against non existing keys should delete dstkey" {
+    test "SUNION against non-set should throw error" {
+        r set key1 x
+        assert_error "WRONGTYPE*" {r sunion key1 noset}
+        # different order
+        assert_error "WRONGTYPE*" {r sunion noset key1}
+
+        r del set1
+        r sadd set1 a b c
+        assert_error "WRONGTYPE*" {r sunion key1 set1}
+        # different order
+        assert_error "WRONGTYPE*" {r sunion set1 key1}
+    }
+
+    test "SUNION should handle non existing key as empty" {
+        r del set1 set2 set3
+
+        r sadd set1 a b c
+        r sadd set2 b c d
+        assert_equal {a b c d} [lsort [r sunion set1 set2 set3]]
+    }
+
+    test "SUNIONSTORE against non-set should throw error" {
+        r del set1 set2 set3 key1
+        r set key1 x
+
+        # with en empty dstkey
+        assert_error "WRONGTYPE*" {r sunionstore set3 key1 noset}
+        assert_equal 0 [r exists set3]
+        assert_error "WRONGTYPE*" {r sunionstore set3 noset key1}
+        assert_equal 0 [r exists set3]
+
+        # with a legal dstkey
+        r sadd set1 a b c
+        r sadd set2 b c d
+        r sadd set3 e
+        assert_error "WRONGTYPE*" {r sunionstore set3 key1 key2 noset}
+        assert_equal 1 [r exists set3]
+        assert_equal {e} [lsort [r smembers set3]]
+
+        assert_error "WRONGTYPE*" {r sunionstore set3 noset key1 key2}
+        assert_equal 1 [r exists set3]
+        assert_equal {e} [lsort [r smembers set3]]
+    }
+
+    test "SUNIONSTORE should handle non existing key as empty" {
+        r del set1 set2 set3
+
         r set setres xxx
         assert_equal 0 [r sunionstore setres foo111 bar222]
         assert_equal 0 [r exists setres]
+
+        # set1 set2 both empty, should delete the dstkey
+        r sadd set3 a b c
+        assert_equal 0 [r sunionstore set3 set1 set2]
+        assert_equal 0 [r exists set3]
+
+        r sadd set1 a b c
+        r sadd set3 e f
+        assert_equal 3 [r sunionstore set3 set1 set2]
+        assert_equal 1 [r exists set3]
+        assert_equal {a b c} [lsort [r smembers set3]]
+
+        r sadd set3 d
+        assert_equal 3 [r sunionstore set3 set2 set1]
+        assert_equal 1 [r exists set3]
+        assert_equal {a b c} [lsort [r smembers set3]]
     }
 
     foreach {type contents} {hashtable {a b c} intset {1 2 3}} {

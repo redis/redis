@@ -987,10 +987,12 @@ void sinterGenericCommand(client *c, robj **setkeys,
     zfree(sets);
 }
 
+/* SINTER key [key ...] */
 void sinterCommand(client *c) {
     sinterGenericCommand(c,c->argv+1,c->argc-1,NULL);
 }
 
+/* SINTERSTORE destination key [key ...] */
 void sinterstoreCommand(client *c) {
     sinterGenericCommand(c,c->argv+2,c->argc-2,c->argv[1]);
 }
@@ -1160,18 +1162,22 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     zfree(sets);
 }
 
+/* SUNION key [key ...] */
 void sunionCommand(client *c) {
     sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,SET_OP_UNION);
 }
 
+/* SUNIONSTORE destination key [key ...] */
 void sunionstoreCommand(client *c) {
     sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],SET_OP_UNION);
 }
 
+/* SDIFF key [key ...] */
 void sdiffCommand(client *c) {
     sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,SET_OP_DIFF);
 }
 
+/* SDIFFSTORE destination key [key ...] */
 void sdiffstoreCommand(client *c) {
     sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],SET_OP_DIFF);
 }
