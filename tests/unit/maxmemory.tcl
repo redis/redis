@@ -222,8 +222,13 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             set slave_buf [s -1 mem_clients_slaves]
             set client_buf [s -1 mem_clients_normal]
             set mem_not_counted_for_evict [s -1 mem_not_counted_for_evict]
-            # we need to exclude replies buffer and query buffer of slave from used memory
             set used_no_repl [expr {$new_used - $mem_not_counted_for_evict - [slave_query_buffer $master]}]
+            # we need to exclude replies buffer and query buffer of replica from used memory.
+            # removing the replica (output) buffers is done so that we are able to measure any other
+            # changes to the used memory and see that they're insignificant (the test's purpose is to check that
+            # the replica buffers are counted correctly, so the used memory growth after deducting them
+            # should be nearly 0).
+            # we remove the query buffers because on slow test platforms, they can accumulate many ACKs.
             set delta [expr {($used_no_repl - $client_buf) - ($orig_used_no_repl - $orig_client_buf)}]
 
             assert {[$master dbsize] == 100}
